@@ -201,6 +201,15 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
     }
 
     @Synchronized
+    fun rankedByUsage(words: List<String>): List<String> {
+        val now = clock()
+        return words.sortedWith(
+            compareByDescending<String> { usageScore(count[it] ?: 0, lastUsed[it] ?: 0L, now) }
+                .thenBy { it },
+        )
+    }
+
+    @Synchronized
     fun manualSnapshot(): Map<String, Set<String>> {
         val out = HashMap<String, Set<String>>(manual.size)
         for ((r, ws) in manual) out[r] = LinkedHashSet(ws)

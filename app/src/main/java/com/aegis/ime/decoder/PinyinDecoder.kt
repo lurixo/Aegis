@@ -20,6 +20,7 @@ import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.DecodeCancellation
 import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.dict.TghGrading
+import com.aegis.ime.user.UserModel
 import kotlin.math.exp
 import kotlin.math.ln
 
@@ -35,6 +36,7 @@ class PinyinDecoder(
     private val dict: BinaryDict,
     private val lm: CharBigramLM? = null,
     private val lambda: Double = DEFAULT_LAMBDA,
+    private val userModel: UserModel? = null,
     fuzzyRules: Set<String> = emptySet(),
     private val initialsDict: BinaryDict? = null,
     private val octagram: com.aegis.ime.dict.OctagramReader? = null,
@@ -52,12 +54,25 @@ class PinyinDecoder(
     @Volatile private var edgeN =
         if (lm != null || fuzzyRules.isNotEmpty() || initialsDict != null || octagram != null) EDGE_N else 1
 
+    private var userIndexVersion = Long.MIN_VALUE
+    private var userLetterIndex: Map<String, UserWords> = emptyMap()
+    private var userDigitIndex: Map<String, UserWords> = emptyMap()
+    private var manualLetterIndex: Map<String, Set<String>> = emptyMap()
+    private var manualDigitIndex: Map<String, Set<String>> = emptyMap()
+
     fun setFuzzyRules(rules: Set<String>) {
         fuzzyRules = rules
         edgeN = if (lm != null || rules.isNotEmpty() || initialsDict != null || octagram != null) EDGE_N else 1
     }
 
     private class Edge(val word: String, val freq: Int, val penalty: Double)
+
+    private class RankedWords(val userVersion: Long, val words: List<String>)
+
+    private class UserWords {
+        val used = ArrayList<List<String>>()
+        @Volatile var ranked: RankedWords? = null
+    }
 
     private fun inputAliases(key: String): List<String> =
         if (key.isNotEmpty() && key[0] in '2'..'9') T9_INPUT_ALIASES[key].orEmpty()
@@ -88,10 +103,187 @@ class PinyinDecoder(
         return preferredWordFreqs(out)
     }
 
+    private fun refreshUserIndex() {
+        if (userModel == null) return
+        val userVersion = userModel?.readingsVersion ?: Long.MIN_VALUE
+        if (userVersion == userIndexVersion) return
+        val userSnapshot = userModel?.readingSnapshot().orEmpty()
+        val letter = HashMap<String, UserWords>()
+        val digit = HashMap<String, UserWords>()
+        for ((reading, words) in userSnapshot) {
+            if (reading.isEmpty() || words.isEmpty()) continue
+            letter.getOrPut(reading) { UserWords() }.used.add(words)
+            digit.getOrPut(T9Pinyin.toT9(reading)) { UserWords() }.used.add(words)
+        }
+        val manualLetter = HashMap<String, MutableSet<String>>()
+        val manualDigit = HashMap<String, MutableSet<String>>()
+        for ((reading, words) in userModel?.manualSnapshot().orEmpty()) {
+            if (reading.isEmpty() || words.isEmpty()) continue
+            val dk = T9Pinyin.toT9(reading)
+            manualLetter.getOrPut(reading) { HashSet() }.addAll(words)
+            manualDigit.getOrPut(dk) { HashSet() }.addAll(words)
+        }
+        userLetterIndex = letter
+        userDigitIndex = digit
+        manualLetterIndex = manualLetter
+        manualDigitIndex = manualDigit
+        userIndexVersion = userVersion
+    }
+
+    private fun readsAs(word: String, reading: String, cache: HashMap<String, Set<String>>): Boolean =
+        readsAs(word, reading, cache) { listOf(it) }
+
+    private fun readsAs(
+        word: String,
+        reading: String,
+        cache: HashMap<String, Set<String>>,
+        spellings: (String) -> List<String>,
+    ): Boolean {
+        if (reading.isEmpty() || word.isEmpty()) return false
+        val cps = ArrayList<String>(4)
+        var ci = 0
+        while (ci < word.length) {
+            val cp = word.codePointAt(ci)
+            cps.add(String(Character.toChars(cp)))
+            ci += Character.charCount(cp)
+        }
+        val n = reading.length
+        val m = cps.size
+        if (m > n) return false
+        val ref = aliasDict ?: dict
+        fun singles(key: String): Set<String> = cache.getOrPut(key) {
+            val out = HashSet<String>()
+            for (wf in ref.exact(key)) if (isSingleChar(wf.word)) out.add(wf.word)
+            out
+        }
+        val dp = Array(n + 1) { BooleanArray(m + 1) }
+        dp[0][0] = true
+        for (p in 0 until n) for (i in 0 until m) {
+            if (!dp[p][i]) continue
+            var q = p + 1
+            while (q <= n && q - p <= MAX_SYLLABLE_KEY_LEN) {
+                val readable = spellings(reading.substring(p, q)).any { key ->
+                    val known = singles(key)
+                    cps[i] in known || (known.isEmpty() && key in T9Pinyin.SYLLABLES)
+                }
+                if (readable) dp[q][i + 1] = true
+                q++
+            }
+        }
+        return dp[n][m]
+    }
+
+    private fun readsAsInput(word: String, input: String, cache: HashMap<String, Set<String>>): Boolean =
+        if (input[0] in '2'..'9') readsAs(word, input, cache) { T9_SPELLINGS[it].orEmpty() }
+        else readsAs(word, input, cache)
+
+    private fun userWordsFor(key: String): List<String> {
+        if (userModel == null || key.isEmpty()) return emptyList()
+        refreshUserIndex()
+        val words = (if (key[0] in '2'..'9') userDigitIndex[key] else userLetterIndex[key]) ?: return emptyList()
+        val userVersion = userModel?.version ?: Long.MIN_VALUE
+        words.ranked?.let { if (it.userVersion == userVersion) return it.words }
+        val out = ArrayList<String>()
+        for (group in words.used) {
+            for (w in userModel?.rankedByUsage(group).orEmpty()) if (w !in out) out.add(w)
+        }
+        words.ranked = RankedWords(userVersion, out)
+        return out
+    }
+
+    private fun manualWordsFor(key: String): Set<String> {
+        if (userModel == null || key.isEmpty()) return emptySet()
+        refreshUserIndex()
+        return (if (key[0] in '2'..'9') manualDigitIndex[key] else manualLetterIndex[key]) ?: emptySet()
+    }
+
+    private fun assembledWordsFor(key: String, best: String?): Set<String> {
+        val kept = manualWordsFor(key)
+        val out = HashSet<String>()
+        for (word in userWordsFor(key)) {
+            if (word !in kept && dict.exactWordFreq(key, word) == null) out.add(word)
+        }
+        if (best != null && best !in kept && dict.exactWordFreq(key, best) == null) out.add(best)
+        return out
+    }
+
+    private fun demoteBelowExact(
+        words: List<String>,
+        assembled: Set<String>,
+        exact: Set<String>,
+        held: Set<String>,
+    ): List<String> {
+        if (assembled.isEmpty() || exact.isEmpty()) return words
+        val firstExact = words.indexOfFirst { it in exact }
+        if (firstExact <= 0) return words
+        val ahead = words.subList(0, firstExact)
+        val demoted = ahead.filter { it in assembled }
+        if (demoted.isEmpty()) return words
+        val cut = ahead.indexOfFirst { it in assembled }
+        val kept = ahead.filterNot { it in assembled }
+        val trailing = kept.subList(cut, kept.size)
+        return kept.subList(0, cut) +
+            trailing.filter { it in held } +
+            words[firstExact] +
+            demoted +
+            trailing.filterNot { it in held } +
+            words.subList(firstExact + 1, words.size)
+    }
+
+    private fun learnedExactWordFreqs(key: String): Map<String, Int> {
+        val out = LinkedHashMap<String, Int>()
+        for (word in userWordsFor(key)) {
+            val freq = dict.exactWordFreq(key, word) ?: continue
+            out[word] = freq
+        }
+        return out
+    }
+
+    private fun userWordFreq(word: String, readingKey: String): Double {
+        if (readingKey.isEmpty()) return 1.0
+        val cps = ArrayList<String>(4)
+        var ci = 0
+        while (ci < word.length) { val cp = word.codePointAt(ci); cps.add(String(Character.toChars(cp))); ci += Character.charCount(cp) }
+        val n = readingKey.length
+        val m = cps.size
+        if (m == 0) return 1.0
+        val dp = Array(n + 1) { DoubleArray(m + 1) { Double.NEGATIVE_INFINITY } }
+        dp[0][0] = Double.MAX_VALUE
+        for (p in 0 until n) for (i in 0 until m) {
+            if (dp[p][i] == Double.NEGATIVE_INFINITY) continue
+            var q = p + 1
+            while (q <= n && q - p <= MAX_SYLLABLE_KEY_LEN) {
+                val f = singleFreqs(readingKey.substring(p, q))[cps[i]]
+                if (f != null) {
+                    val v = minOf(dp[p][i], f.toDouble())
+                    if (v > dp[q][i + 1]) dp[q][i + 1] = v
+                }
+                q++
+            }
+        }
+        val best = dp[n][m]
+        return if (best == Double.NEGATIVE_INFINITY || best == Double.MAX_VALUE) 1.0 else best.coerceAtLeast(1.0)
+    }
+
+    private fun singleFreqs(key: String): Map<String, Int> {
+        val map = HashMap<String, Int>()
+        for (wf in preferredExact(dict, key)) if (isSingleChar(wf.word)) map.putIfAbsent(wf.word, wf.freq)
+            return map
+    }
+
     private fun edgesFor(sub: String): List<Edge> {
         val out = ArrayList<Edge>(edgeN)
         val seen = HashSet<String>()
         val exactFull = addExactEdges(dict, sub, 0.0, out, seen)
+        for ((word, freq) in learnedExactWordFreqs(sub)) {
+            if (seen.add(word)) out.add(Edge(word, freq, 0.0))
+        }
+        for (uw in userWordsFor(sub)) {
+            if (seen.add(uw)) {
+                val n = uw.codePointCount(0, uw.length)
+                out.add(Edge(uw, userWordFreq(uw, sub).toInt().coerceAtLeast(1), (n - 1).coerceAtLeast(0) * lnTotal))
+            }
+        }
         for (alias in inputAliases(sub)) {
             var added = 0
             for (wf in preferredExact(aliasSource, alias, edgeN + seen.size)) {
@@ -171,6 +363,7 @@ class PinyinDecoder(
 
     private fun wordModelScore(word: String, freq: Double, ctxId: Int, ctx: Ctx): Double {
         return (ln(freq) - lnTotal) +
+            (userModel?.wordBoost(word) ?: 0.0) +
             (octagram?.let { octagramWeight * (it.rawScore(word) ?: 0.0) } ?: 0.0) +
             (lm?.let {
                 val lam = activeLambda(ctx)
@@ -230,6 +423,16 @@ class PinyinDecoder(
 
     private fun isHan(cp: Int): Boolean {
             return Character.isIdeographic(cp)
+    }
+
+    private fun allHan(word: String): Boolean {
+        var i = 0
+        while (i < word.length) {
+            val cp = word.codePointAt(i)
+            if (!isHan(cp)) return false
+            i += Character.charCount(cp)
+        }
+        return true
     }
 
     private fun isSingleChar(w: String): Boolean = w.codePointCount(0, w.length) == 1
@@ -385,6 +588,7 @@ class PinyinDecoder(
         }
         inputAliasWordFreqs(input).forEach { offer(it, ALIAS_PENALTY) }
         cachedPrefix(dict, input, completionCap).forEach { offer(it, 0.0) }
+        for (uw in userWordsFor(input)) offer(BinaryDict.WordFreq(uw, userWordFreq(uw, input).toInt().coerceAtLeast(1)), 0.0)
         val fuzzyExactWords = HashSet<String>()
         val rules = fuzzyRules
         if (rules.isNotEmpty()) {
@@ -428,9 +632,16 @@ class PinyinDecoder(
             if (cover.putIfAbsent(wf.word, input.length) == null && reserved) pendingInitials--
         }
         val out = ArrayList<Cand>(cover.size + 20)
-        val ordered = cover.keys.toList()
+        val assembled = assembledWordsFor(input, cover.keys.firstOrNull())
+        val ordered = demoteBelowExact(cover.keys.toList(), assembled, exactWords, manualWordsFor(input))
         for ((i, w) in ordered.withIndex()) {
             out.add(Cand(w, cover.getValue(w)))
+        }
+        if (userModel != null) {
+            val present = out.mapTo(HashSet()) { it.word }
+            for (uw in userWordsFor(input).sortedByDescending { userModel.wordBoost(it) }) {
+                if (present.add(uw)) out.add(Cand(uw, input.length))
+            }
         }
         val covered = out.mapTo(HashSet<String>(out.size * 2)) { it.word }
         appendLeadingSingles(input, input.length, out, ctx)
@@ -480,6 +691,15 @@ class PinyinDecoder(
                 if (!admissibleUnderCuts(wf.word, 0, B[j], interior, input, singlesCache)) continue
                 if (leadFreq.put(wf.word, wf.freq.toDouble()) == null) leadCov[wf.word] = B[j]
             }
+        }
+        val handAdded = manualWordsFor(input)
+        val spelledSingles = HashMap<String, Set<String>>()
+        for (uw in userWordsFor(input)) {
+            if (uw in leadFreq || uw.codePointCount(0, uw.length) < 2) continue
+            if (uw !in handAdded && allHan(uw) && !readsAsInput(uw, input, spelledSingles)) continue
+            if (!admissibleUnderCuts(uw, 0, input.length, interior, input, singlesCache)) continue
+            val f = userWordFreq(uw, input).toInt().coerceAtLeast(1)
+            if (leadFreq.put(uw, f.toDouble()) == null) leadCov[uw] = input.length
         }
 
         val sylCharFreq = Array(nSyl) { i ->
@@ -541,10 +761,14 @@ class PinyinDecoder(
                 .thenBy { supplementarySingleTieRank(it.word) },
         )
 
+        val assembled = assembledWordsFor(input, best)
+        val fullCoverExact = leadFreq.keys.filterTo(HashSet()) {
+            leadCov.getValue(it) == input.length && dict.exactWordFreq(input, it) != null
+        }
         val out = ArrayList<Cand>(1 + leadFreq.size + tailRanked.size)
         val seen = HashSet<String>()
         fun emit(words: List<String>) {
-            for (w in words) {
+            for (w in demoteBelowExact(words, assembled, fullCoverExact, manualWordsFor(input))) {
                 if (seen.add(w)) out.add(Cand(w, leadCov[w] ?: input.length))
             }
         }
@@ -735,12 +959,21 @@ class PinyinDecoder(
                 else raw.filterNot { isSingleChar(it.word) }
                     .filter { admissibleUnderCuts(it.word, B[i], B[j], interior, input, singlesCache) }
                 val edges = eligible.take(SENTENCE_EDGE_N).toMutableList()
+                val present = edges.mapTo(HashSet()) { it.word }
+                for ((word, freq) in learnedExactWordFreqs(seg)) {
+                    if (!present.add(word)) continue
+                    if (j == i + 1 && !isSingleChar(word)) continue
+                    if (j > i + 1 && isSingleChar(word)) continue
+                    if (j > i + 1 && !admissibleUnderCuts(word, B[i], B[j], interior, input, singlesCache)) continue
+                    edges.add(BinaryDict.WordFreq(word, freq))
+                }
                 for (wf in edges) {
                     val w = wf.word
                     val firstCp = w.codePointAt(0)
                     val idFirst = model?.charId(firstCp) ?: -1
                     val lastCp = w.codePointBefore(w.length)
                     val uni = ln(wf.freq.toDouble()) - lnTotal - penalty
+                    val boost = (userModel?.wordBoost(w) ?: 0.0)
                     val inner = if (model == null || lam == 0.0) 0.0 else lam * internalBigramScore(w, model)
                     for (p in src) {
                         val bw = if (p.text.isEmpty() && p.lastCp != BOS) contextWeight else lam
@@ -752,7 +985,7 @@ class PinyinDecoder(
                                 p.text + w,
                                 lastCp,
                                 advanceJoinedTail(joined),
-                                p.score + uni + bi + inner + og
+                                p.score + uni + bi + inner + boost + og
                             ),
                         )
                     }
@@ -842,6 +1075,7 @@ class PinyinDecoder(
         frequency: (T) -> Double,
     ) {
         fun classification(entry: T): Int {
+            if ((userModel?.wordBoost(word(entry)) ?: 0.0) > 0.0) return 0
             return frequencyClass(frequency(entry))
         }
         val lastCommon = entries.indexOfLast { classification(it) > 0 }
@@ -956,6 +1190,7 @@ class PinyinDecoder(
     }
 
     internal fun homophoneLayer(word: String, frequency: Double): Int {
+        if ((userModel?.wordBoost(word) ?: 0.0) > 0.0) return LAYER_COMMON
         if (frequency <= ORDERING_INJECTED_FREQ) return LAYER_INJECTED
         if (!isSingleChar(word)) return LAYER_UNCOMMON
         return characterLayer(word.codePointAt(0))
@@ -1077,6 +1312,7 @@ class PinyinDecoder(
                     val firstCp = w.codePointAt(0)
                     val idFirst = model?.charId(firstCp) ?: -1
                     val lastCp = w.codePointBefore(w.length)
+                    val boost = (userModel?.wordBoost(w) ?: 0.0)
                     val inner = if (model == null || lam == 0.0) 0.0 else lam * internalBigramScore(w, model)
                     for ((state, cell) in from) {
                         val bw = if (cell.prevPos < 0 && state.lastCp != BOS) contextWeight else lam
@@ -1084,7 +1320,7 @@ class PinyinDecoder(
                         else bw * logCondMemo(model, model.charId(state.lastCp), idFirst)
                         val joined = joinTail(state.tail, w)
                         val og = octagramWeight * joinedArm(state.tail, joined)
-                        val score = cell.score + uni + bi + inner - e.penalty + og
+                        val score = cell.score + uni + bi + inner + boost - e.penalty + og
                         val nextState = SentenceState(lastCp, advanceJoinedTail(joined))
                         val cur = dp[q][nextState]
                         if (cur == null || score > cur.score) {
@@ -1171,6 +1407,7 @@ class PinyinDecoder(
 
     internal companion object {
         private val READING_KEYS = T9Pinyin.SYLLABLES.map { it to T9Pinyin.toT9(it) }
+        private val T9_SPELLINGS: Map<String, List<String>> = READING_KEYS.groupBy({ it.second }, { it.first })
         const val SEP = '\''
         const val BOS = -1
         const val NO_CTX = Int.MIN_VALUE
