@@ -4,13 +4,29 @@
     <string name="subtype_zh">Aegis Chinese</string>
     <string name="subtype_en">Aegis English</string>
 
+    <string name="settings_group_dicts_title">Dictionaries &amp; downloads</string>
+    <string name="settings_back">Back</string>
     <string name="settings_language_title">UI language</string>
     <string name="settings_language_description">Applies to the settings app and the keyboard</string>
     <string name="language_follow_system">System default</string>
     <string name="language_zh">简体中文</string>
     <string name="language_en">English</string>
 
+    <string name="download_button">Download</string>
+    <string name="check_model_update_button">Check model updates</string>
+    <string name="check_dict_update_button">Check dictionary updates</string>
+    <string name="delete_button">Delete</string>
+    <string name="download_delete_cancel">Cancel</string>
     <string name="download_status_downloading">Downloading…</string>
+    <string name="download_status_checking_update">Checking for updates…</string>
+    <string name="download_toast_update_offline">Unable to check for updates (network unavailable)</string>
+    <string name="download_toast_update_timeout">Unable to check for updates (connection timed out)</string>
+    <string name="download_toast_update_server_error">Unable to check for updates (server unavailable)</string>
+    <string name="download_toast_update_parse_error">Unable to check for updates (unexpected response)</string>
+    <string name="download_toast_up_to_date">Up to date, no update</string>
+    <string name="download_toast_update_found">Update found, starting update</string>
+    <string name="download_toast_update_unknown">Cannot tell whether a newer file exists</string>
+    <string name="download_storage_format">Storage: %1$s</string>
     <string name="download_status_failed_format">Download failed (%1$s)</string>
     <string name="download_cause_offline">network unavailable</string>
     <string name="download_cause_timeout">connection timed out</string>
@@ -19,10 +35,19 @@
     <string name="download_cause_corrupt">the downloaded file failed its integrity check</string>
     <string name="download_cause_install">the downloaded file could not be installed</string>
 
+    <string name="gram_card_title">Enhancement model (Wanxiang offline model)</string>
+    <string name="gram_card_description">Optional download — Chinese candidates become more accurate</string>
+    <string name="gram_source_link">Model source: amzxyz/RIME-LMDG ↗</string>
     <string name="gram_status_enabled">✅ Enabled (about %1$d MB)</string>
     <string name="gram_status_not_downloaded">⚠ Enhanced grammar is not enabled</string>
     <string name="gram_status_download_failed">Download failed</string>
+    <string name="gram_status_deleted">⚠ Enhanced grammar is not enabled (deleted)</string>
+    <string name="gram_delete_dialog_title">Delete the enhancement model</string>
+    <string name="gram_delete_dialog_body">Deletes the downloaded enhancement model — this cannot be undone</string>
 
+    <string name="dict_card_title">Full dictionary pack</string>
+    <string name="dict_card_description">The Chinese and English dictionaries, downloaded after install; Chinese input is locked until it finishes</string>
+    <string name="dict_source_link">Dictionary source: amzxyz/rime-wanxiang ↗</string>
     <string name="dict_status_enabled">✅ Enabled: full dictionary (about %1$d MB)</string>
     <string name="dict_status_not_downloaded">⚠ Chinese dictionary not downloaded — Chinese input is locked</string>
     <string name="dict_status_verifying_extracting">Verifying and extracting…</string>
@@ -31,6 +56,9 @@
     <string name="dict_status_metadata_failed">Could not get the download details</string>
     <string name="dict_status_metadata_failed_format">Could not get the download details (%1$s)</string>
     <string name="dict_status_download_blocked">Could not start the download — leftover files remain; delete the dictionary first</string>
+    <string name="dict_status_deleted">⚠ Chinese dictionary deleted — Chinese input is locked</string>
+    <string name="dict_delete_dialog_title">Delete the dictionary pack</string>
+    <string name="dict_delete_dialog_body">Deletes the downloaded Chinese dictionary — this cannot be undone</string>
     <string name="dict_gate_cta">Tap to download the Chinese dictionary</string>
     <string name="dict_gate_downloading">Downloading dictionary…</string>
     <string name="dict_gate_verifying">Verifying…</string>
@@ -48,6 +76,15 @@
     <string name="fuzzy_rule_f_h_title">h = f</string>
     <string name="fuzzy_rule_l_r_title">r = l</string>
     <string name="fuzzy_rule_k_g_title">k = g</string>
+
+    <string name="association_master_title">Suggestions</string>
+    <string name="association_master_description">Chinese, English and email suggestions are set separately</string>
+    <string name="association_cn_title">Chinese suggestions</string>
+    <string name="association_cn_description">Predict the next word after a Chinese candidate</string>
+    <string name="association_en_title">English suggestions</string>
+    <string name="association_en_description">Complete English words as you type</string>
+    <string name="association_email_title">Email suggestions</string>
+    <string name="association_email_description">Suggest email domains after @</string>
 
     <string name="key_vibration_title">Key vibration</string>
     <string name="key_vibration_description">Choose a feel and tap to try it</string>

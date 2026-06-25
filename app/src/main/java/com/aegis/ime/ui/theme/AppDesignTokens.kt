@@ -22,6 +22,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 internal object AppSpacing {
+    val screenHorizontal = 20.dp
+    val pageBottom = 24.dp
+    val topBarHeight = 56.dp
+    val sectionGap = 16.dp
     val sectionPadding = 16.dp
     val rowHorizontal = 16.dp
     val rowMinHeight = 56.dp
@@ -32,6 +36,7 @@ internal object AppSpacing {
 }
 
 internal object AppIconMetrics {
+    val touchTarget = 48.dp
     val iconBox = 24.dp
     val backChevronWidth = 10.5.dp
     val backChevronHeight = 17.5.dp

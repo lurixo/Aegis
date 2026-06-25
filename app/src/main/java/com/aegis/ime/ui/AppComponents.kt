@@ -20,7 +20,9 @@ import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -28,15 +30,20 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -65,17 +72,44 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.aegis.ime.R
 import com.aegis.ime.ui.theme.AppIconMetrics
 import com.aegis.ime.ui.theme.AppShapes
 import com.aegis.ime.ui.theme.AppSpacing
 import com.aegis.ime.ui.theme.appSectionFace
 import com.aegis.ime.ui.theme.appSectionScheme
+
+@Composable
+internal fun AppPageScaffold(
+    title: String,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    bottomBar: @Composable () -> Unit = {},
+    bottomInsets: WindowInsets = WindowInsets.safeDrawing,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .appPageInsets(
+                bottomInsets = bottomInsets,
+                topInsets = settingsTopInset(),
+            ),
+    ) {
+        AppTopBar(title = title, onBack = onBack)
+        Box(modifier = Modifier.fillMaxWidth().weight(1f), content = content)
+        bottomBar()
+    }
+}
 
 internal fun Modifier.appPageInsets(
     bottomInsets: WindowInsets,
@@ -83,6 +117,57 @@ internal fun Modifier.appPageInsets(
 ): Modifier = this
     .windowInsetsPadding(bottomInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
     .windowInsetsPadding(topInsets.only(WindowInsetsSides.Top))
+
+@Composable
+internal fun AppSettingsPage(
+    title: String,
+    onBack: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    AppPageScaffold(title = title, onBack = onBack) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = AppSpacing.screenHorizontal)
+                .padding(top = AppSpacing.compactGap, bottom = AppSpacing.pageBottom),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.sectionGap),
+            content = content,
+        )
+    }
+}
+
+@Composable
+internal fun AppTopBar(title: String, onBack: () -> Unit) {
+    val backLabel = stringResource(R.string.settings_back)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(AppSpacing.topBarHeight)
+            .padding(start = AppSpacing.compactGap, end = AppSpacing.screenHorizontal),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            modifier = Modifier
+                .heightIn(min = AppIconMetrics.touchTarget)
+                .widthIn(min = AppIconMetrics.touchTarget)
+                .clip(MaterialTheme.shapes.extraSmall)
+                .clickable(role = Role.Button, onClick = onBack)
+                .padding(horizontal = 12.dp)
+                .testTag("app_back_button")
+                .semantics { contentDescription = backLabel },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            AppChevron(back = true)
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.testTag("app_page_title"),
+            )
+        }
+    }
+}
 
 @Composable
 private fun AppChevron(back: Boolean) {

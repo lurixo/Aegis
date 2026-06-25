@@ -557,6 +557,9 @@ object ModelDownload {
     internal fun installedDictionaryFileSha(filesDir: File): String? =
         runCatching { normalizeSha256(dictInstalledShaFile(filesDir).readText()) }.getOrNull()
 
+    internal fun dictionaryVersionUnknown(filesDir: File): Boolean =
+        dictInstalledShaFile(filesDir).exists() && installedDictionaryFileSha(filesDir) == null
+
     sealed interface PendingMarker {
         data object Recorded : PendingMarker
         data object UnfinishedInstall : PendingMarker
@@ -686,6 +689,12 @@ object ModelDownload {
             filesDir.absolutePath in recoveringDicts
     }
 
+    internal fun dictionaryTransactionInProgress(filesDir: File): Boolean =
+        dictionaryRecoveryLock.isLocked ||
+            filesDir.absolutePath in installingDicts ||
+            filesDir.absolutePath in recoveringDicts ||
+            dictZipFile(filesDir).absolutePath in inFlight
+
     internal fun <T> withDictionaryGeneration(block: () -> T): T =
         dictionaryRecoveryLock.withLock(block)
 
@@ -764,6 +773,14 @@ object ModelDownload {
 
     internal fun resolveDictionaryDownloadAsset(fetch: () -> String): Result<DictionaryAsset> =
         runCatching { dictionaryAssetFromUpdateJson(fetch()) }
+
+    fun checkDictionaryUpdate(current: DictionaryInstallMetadata): DictionaryUpdateCheck =
+        checkDictionaryUpdate(DICT_UPDATE_URL, current)
+
+    internal fun checkDictionaryUpdate(
+        metadataUrl: String,
+        current: DictionaryInstallMetadata,
+    ): DictionaryUpdateCheck = dictionaryUpdateFromFetch({ fetchText(metadataUrl) }, current)
 
     internal fun dictionaryUpdateFromFetch(
         fetch: () -> String,

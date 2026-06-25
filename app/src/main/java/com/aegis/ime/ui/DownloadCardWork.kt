@@ -231,6 +231,11 @@ internal object GramDownloadWork {
         return runtime.snapshot(context)
     }
 
+    fun observe(context: Context, observer: (DownloadCardSnapshot) -> Unit): () -> Unit {
+        ModelDownload.reconcileInterruptedDownloads(context.filesDir)
+        return runtime.observe(context, observer)
+    }
+
     fun start(context: Context, url: String = ModelDownload.GRAM_URL) {
         ModelDownload.reconcileInterruptedDownloads(context.filesDir)
         runtime.start(context) { app, onProgress, _ ->
@@ -259,6 +264,8 @@ internal object GramDownloadWork {
             }
         }
     }
+
+    fun setIdleStatus(context: Context, status: LocalizedText) = runtime.setIdleStatus(context, status)
 
     internal fun persistModelSnapshot(
         prefs: SharedPreferences,

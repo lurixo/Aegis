@@ -16,6 +16,8 @@
 package com.aegis.ime.ui
 
 import androidx.annotation.StringRes
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 
 internal sealed interface LocalizedText {
     data class Raw(val value: String) : LocalizedText
@@ -23,3 +25,12 @@ internal sealed interface LocalizedText {
     data class ResourceLong(@StringRes val id: Int, val value: Long) : LocalizedText
     data class ResourceNested(@StringRes val id: Int, @StringRes val argId: Int) : LocalizedText
 }
+
+@Composable
+internal fun LocalizedText.asString(): String =
+    when (this) {
+        is LocalizedText.Raw -> value
+        is LocalizedText.Resource -> stringResource(id)
+        is LocalizedText.ResourceLong -> stringResource(id, value)
+        is LocalizedText.ResourceNested -> stringResource(id, stringResource(argId))
+    }

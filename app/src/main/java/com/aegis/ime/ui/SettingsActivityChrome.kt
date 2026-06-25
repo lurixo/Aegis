@@ -18,12 +18,17 @@ package com.aegis.ime.ui
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.res.Configuration
+import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.os.SystemClock
 import android.view.View
 import android.view.ViewTreeObserver
 import android.view.Window
 import android.view.animation.AnimationUtils
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -52,6 +57,15 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.aegis.ime.ui.theme.AegisTheme
+import com.aegis.ime.ui.theme.settingsBackgroundArgb
+
+internal fun ComponentActivity.bootstrapSettingsEdgeToEdge() {
+    val darkTheme = isSystemInDarkTheme()
+    val barStyle = settingsSystemBarStyle(darkTheme)
+    window.syncSettingsBackground(settingsBackgroundArgb(this, darkTheme))
+    enableEdgeToEdge(statusBarStyle = barStyle, navigationBarStyle = barStyle)
+    window.syncSettingsBackground(settingsBackgroundArgb(this, darkTheme))
+}
 
 internal val LocalSettingsPressEpoch = compositionLocalOf { 0 }
 
@@ -193,10 +207,19 @@ internal object SettingsPressHandoff {
     }
 }
 
+private fun settingsSystemBarStyle(darkTheme: Boolean): SystemBarStyle = if (darkTheme) {
+    SystemBarStyle.dark(Color.TRANSPARENT)
+} else {
+    SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+}
+
 internal fun Window.syncSettingsBackground(backgroundColor: Int) {
     setBackgroundDrawable(ColorDrawable(backgroundColor))
     decorView.setBackgroundColor(backgroundColor)
 }
+
+private fun Context.isSystemInDarkTheme(): Boolean =
+    resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
