@@ -69,6 +69,7 @@ class KeyboardController(
     private val composing = StringBuilder()
     private val literalIndices = sortedSetOf<Int>()
     private var candidates: List<Cand> = emptyList()
+    private var lastWord: String? = null
 
     private val committedPrefix = StringBuilder()
 
@@ -84,8 +85,12 @@ class KeyboardController(
 
     private var compositeCands: Set<Cand> = emptySet()
     private var literalCands: Set<Cand> = emptySet()
+    private var predictionCands: Set<Cand> = emptySet()
     private var englishCands: Set<Cand> = emptySet()
 
+    private var learningBlocked = false
+
+    private var cnAssociationsEnabled = true
     private var enAssociationsEnabled = true
 
     var onShowCustomSymbols: () -> Unit = {}
@@ -97,6 +102,8 @@ class KeyboardController(
         view = v
         render()
     }
+
+    fun setLearningBlocked(blocked: Boolean) { learningBlocked = blocked }
 
     private fun englishPreeditActive(): Boolean =
         lang == Lang.EN && layoutId == LayoutId.ALPHA && enAssociationsEnabled
@@ -133,6 +140,14 @@ class KeyboardController(
         }
     }
 
+    fun setCnAssociationsEnabled(on: Boolean) {
+        if (cnAssociationsEnabled == on) return
+        cnAssociationsEnabled = on
+        predictionCands = emptySet()
+        refreshCandidates()
+        render()
+    }
+
     fun setEnAssociationsEnabled(on: Boolean) {
         if (enAssociationsEnabled == on) return
         if (!on && englishWord.isNotEmpty()) flushComposing()
@@ -160,6 +175,8 @@ class KeyboardController(
             cnLayout = cnDefaultLayout
             layoutId = if (lang == Lang.CN) cnDefaultLayout else LayoutId.ALPHA
         }
+        lastWord = null
+
         render()
     }
 
@@ -255,6 +272,7 @@ class KeyboardController(
         lockedInputLengths.add(1)
         activeStart = at + 1
         history.addLast(StepKind.DIGIT_CHOICE)
+        lastWord = null
     }
 
     private fun readingLocks(): List<ReadingLock> {
@@ -311,6 +329,11 @@ class KeyboardController(
             cand in englishCands -> {
                 host.commitText(cand.word)
                 forgetEnglishWord()
+                lastWord = null
+            }
+            cand in predictionCands -> {
+                host.commitText(cand.word)
+                lastWord = cand.word
             }
             else -> {
                 commitCandidate(cand)
@@ -330,6 +353,7 @@ class KeyboardController(
             (composing.isNotEmpty() || committedPrefix.isNotEmpty())
         ) {
             insertPreeditLiteral(key.output)
+            lastWord = null
             return
         }
         if (key.direct) {
@@ -337,6 +361,7 @@ class KeyboardController(
             val text = if (key.verbatim) key.output else applyCase(key.output)
             host.commitText(text)
             if (shiftState == ShiftState.ONCE && key.output.any { it.isLetter() }) shiftState = ShiftState.OFF
+            lastWord = null
             return
         }
         when (mode()) {
@@ -352,6 +377,7 @@ class KeyboardController(
                     host.commitText(text)
                 }
                 if (shiftState == ShiftState.ONCE && key.output.any { it.isLetter() }) shiftState = ShiftState.OFF
+                lastWord = null
             }
         }
     }
@@ -361,6 +387,7 @@ class KeyboardController(
             if (committedPrefix.isNotEmpty()) {
                 val removeCount = Character.charCount(committedPrefix.codePointBefore(committedPrefix.length))
                 committedPrefix.setLength(committedPrefix.length - removeCount)
+                if (committedPrefix.isEmpty()) lastWord = null
                 return
             }
             if (englishWord.isNotEmpty()) {
@@ -372,6 +399,7 @@ class KeyboardController(
             } else {
                 host.deleteBackward()
             }
+            lastWord = null
             return
         }
         val step = history.removeLastOrNull()
@@ -401,6 +429,7 @@ class KeyboardController(
     }
 
     private fun handleClearComposing() {
+        lastWord = null
         forgetEnglishWord()
         clearComposingState()
     }
@@ -411,9 +440,11 @@ class KeyboardController(
             if (englishWord.isNotEmpty()) {
                 host.commitText(englishWord.toString() + " ")
                 forgetEnglishWord()
+                lastWord = null
                 return
             }
             host.commitText(" ")
+            lastWord = null
             return
         }
         val pick = candidates.firstOrNull()
@@ -432,12 +463,14 @@ class KeyboardController(
             flushComposing()
         } else {
             host.performEnter()
+            lastWord = null
         }
     }
 
     private fun commitCompositeCandidate(cand: Cand) {
         host.commitText(committedPrefix.toString() + cand.word)
         clearComposingState()
+        lastWord = null
     }
 
     private fun commitLiteralCandidate(cand: Cand) {
@@ -447,6 +480,7 @@ class KeyboardController(
         } else {
             host.commitText(committedPrefix.toString() + cand.word)
             clearComposingState()
+            lastWord = null
         }
     }
 
@@ -484,11 +518,13 @@ class KeyboardController(
 
     private fun commitCandidate(cand: Cand) {
         if (candidateStaysInPreedit(cand)) {
+            lastWord = cand.word
             committedPrefix.append(cand.word)
             consumeComposingPrefix(cand.coveredLen)
         } else {
             val wholeWord = committedPrefix.toString() + cand.word
             host.commitText(wholeWord)
+            lastWord = cand.word
             clearComposingState()
         }
     }
@@ -507,6 +543,7 @@ class KeyboardController(
         if (englishWord.isNotEmpty()) {
             host.commitText(englishWord.toString())
             forgetEnglishWord()
+            lastWord = null
             return
         }
         val prefix = committedPrefix.toString()
@@ -517,6 +554,7 @@ class KeyboardController(
             host.commitText(prefix)
             clearComposingState()
         }
+        lastWord = null
     }
 
     private fun inputForReading(reading: String): String =
@@ -622,6 +660,9 @@ class KeyboardController(
         val bounds: Map<Int, Int>,
         val isNine: Boolean,
         val forcedCuts: Set<Int>,
+        val associationsEnabled: Boolean,
+        val learningBlocked: Boolean,
+        val lastWord: String?,
         val englishTyped: String,
     )
 
@@ -629,6 +670,7 @@ class KeyboardController(
         val candidates: List<Cand>,
         val compositeCands: Set<Cand>,
         val literalCands: Set<Cand>,
+        val predictionCands: Set<Cand>,
         val englishCands: Set<Cand> = emptySet(),
     )
 
@@ -651,7 +693,7 @@ class KeyboardController(
         val readsContext = if (composing.isNotEmpty()) {
             mode() == Mode.PINYIN
         } else {
-            committedPrefix.isEmpty() && englishTyped.isEmpty()
+            committedPrefix.isEmpty() && englishTyped.isEmpty() && !learningBlocked
         }
         return DecodeRequest(
             engine = engine,
@@ -672,6 +714,9 @@ class KeyboardController(
             bounds = bounds,
             isNine = layoutId == LayoutId.NINE,
             forcedCuts = forcedCuts.toSet(),
+            associationsEnabled = lang == Lang.CN && cnAssociationsEnabled,
+            learningBlocked = learningBlocked,
+            lastWord = lastWord,
             englishTyped = englishTyped,
         )
     }
@@ -680,12 +725,14 @@ class KeyboardController(
         candidates = r.candidates
         compositeCands = r.compositeCands
         literalCands = r.literalCands
+        predictionCands = r.predictionCands
         englishCands = r.englishCands
     }
 
     private fun computeDecode(req: DecodeRequest): DecodeResult {
         var composite: Set<Cand> = emptySet()
         var literal: Set<Cand> = emptySet()
+        var prediction: Set<Cand> = emptySet()
         var english: Set<Cand> = emptySet()
         val base = computeBase(req)
         val out = when {
@@ -701,9 +748,20 @@ class KeyboardController(
                 english = words.toSet()
                 words
             }
+            req.composingEmpty && req.committedPrefixEmpty -> {
+                when {
+                    !req.associationsEnabled -> emptyList()
+                    req.learningBlocked -> emptyList()
+                    else -> {
+                        val preds = req.engine.predict(req.lastWord).map { Cand(it, 0) }
+                        prediction = preds.toSet()
+                        preds
+                    }
+                }
+            }
             else -> base
         }
-        return DecodeResult(out, composite, literal, english)
+        return DecodeResult(out, composite, literal, prediction, english)
     }
 
     private class MixedCandidates(

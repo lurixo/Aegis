@@ -328,6 +328,15 @@ class EnglishCompletionTest {
     }
 
     @Test
+    fun a_field_that_refuses_personalised_learning_still_gets_completions() {
+        val h = FakeHost()
+        val c = english(h)
+        c.setLearningBlocked(true)
+        type(c, "or")
+        assertEquals(listOf("or", "orange", "order", "organ", "ordinary"), c.candidateWords())
+    }
+
+    @Test
     fun picking_a_word_leaves_no_stale_predictions_behind() {
         val h = FakeHost()
         val c = english(h)
