@@ -15,51 +15,43 @@
 
 package com.aegis.ime.ui
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.background
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
-import com.aegis.ime.ui.theme.AppShapes
-import com.aegis.ime.ui.theme.appSectionFace
-import com.aegis.ime.ui.theme.appSectionScheme
 
-internal fun Modifier.appPageInsets(
+@Composable
+internal fun Modifier.settingsScrollInsets(
+    scrollState: ScrollState,
     bottomInsets: WindowInsets,
     topInsets: WindowInsets,
 ): Modifier = this
+    .background(MaterialTheme.colorScheme.background)
     .windowInsetsPadding(bottomInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
     .windowInsetsPadding(topInsets.only(WindowInsetsSides.Top))
+    .verticalScroll(scrollState)
 
-@Composable
-internal fun AppSection(
-    modifier: Modifier = Modifier,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    val context = LocalContext.current
-    val base = MaterialTheme.colorScheme
-    val dark = base.background.luminance() < 0.5f
-    val face = remember(context, dark) { appSectionFace(context, dark) }
-    val scheme = remember(base, face) { appSectionScheme(base, face) }
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = AppShapes.section,
-        color = Color(face),
-        tonalElevation = 0.dp,
-    ) {
-        MaterialTheme(colorScheme = scheme) {
-            Column(content = content)
-        }
-    }
+internal fun resolveTopInsetPx(liveTop: Int, seedTop: Int, rootTop: Int?): Int = when {
+    liveTop > 0 -> liveTop
+    rootTop != null -> rootTop
+    else -> seedTop
+}
+
+internal fun synchronousTopInsetPx(
+    visibleTop: Int,
+    ignoringVisibilityTop: Int,
+    maximumIgnoringVisibilityTop: Int,
+    isAttachedToDisplayTop: Boolean,
+): Int = when {
+    visibleTop > 0 -> visibleTop
+    ignoringVisibilityTop > 0 -> ignoringVisibilityTop
+    !isAttachedToDisplayTop -> 0
+    maximumIgnoringVisibilityTop > 0 -> maximumIgnoringVisibilityTop
+    else -> 0
 }
