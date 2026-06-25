@@ -18,6 +18,9 @@ import com.aegis.ime.layout.Layouts
 /** Shift key state: off, one-shot (next letter only), or caps-lock. */
 private enum class ShiftState { OFF, ONCE, LOCK }
 
+/** Input mode derived from language + layout. */
+private enum class Mode { PINYIN, ENGLISH, DIRECT }
+
 class KeyboardController(
     private val host: ImeHost,
     private var engine: CandidateEngine,
@@ -79,21 +82,37 @@ class KeyboardController(
 
     fun onPickCandidate(index: Int) {
         if (index !in candidates.indices) return
-        commitWord(candidates[index])
+        val word = candidates[index]
+        if (mode() == Mode.ENGLISH) {
+            host.commitText("$word ")
+            clearComposingState()
+            lastWord = null
+        } else {
+            commitWord(word)
+        }
         refreshCandidates()
         render()
     }
 
-    private fun composingMode(): Boolean =
-        lang == Lang.CN && (layoutId == LayoutId.ALPHA || layoutId == LayoutId.NINE)
+    /** PINYIN = CN buffered (26/9-key), ENGLISH = EN buffered (26-key), DIRECT = number/symbol. */
+    private fun mode(): Mode = when {
+        lang == Lang.CN && (layoutId == LayoutId.ALPHA || layoutId == LayoutId.NINE) -> Mode.PINYIN
+        lang == Lang.EN && layoutId == LayoutId.ALPHA -> Mode.ENGLISH
+        else -> Mode.DIRECT
+    }
 
     private fun handleCommit(key: Key) {
-        if (composingMode()) {
-            composing.append(key.output) // pinyin / T9 buffer is always lowercase
-        } else {
-            host.commitText(applyCase(key.output))
-            if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
-            lastWord = null
+        when (mode()) {
+            Mode.PINYIN -> composing.append(key.output) // pinyin / T9 buffer is always lowercase
+            Mode.ENGLISH -> {
+                composing.append(applyCase(key.output))
+                if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
+            }
+            Mode.DIRECT -> {
+                host.commitText(applyCase(key.output))
+                if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
+                lastWord = null
+            }
         }
     }
 
@@ -107,12 +126,17 @@ class KeyboardController(
     }
 
     private fun handleSpace() {
-        if (composing.isNotEmpty()) {
-            val pick = candidates.firstOrNull()
-            if (pick != null) commitWord(pick) else { host.commitText(composing.toString()); clearComposingState() }
-        } else {
+        if (composing.isEmpty()) {
             host.commitText(" ")
             lastWord = null
+            return
+        }
+        when (mode()) {
+            Mode.ENGLISH -> { host.commitText(composing.toString() + " "); clearComposingState(); lastWord = null }
+            else -> {
+                val pick = candidates.firstOrNull()
+                if (pick != null) commitWord(pick) else { host.commitText(composing.toString()); clearComposingState() }
+            }
         }
     }
 
@@ -156,12 +180,15 @@ class KeyboardController(
         candidates = when {
             composing.isNotEmpty() -> {
                 val raw = composing.toString()
-                val list = engine.candidates(raw, layoutId == LayoutId.NINE)
-                // CN-EN mixed input: on the 26-key, always offer the raw latin string so the user
-                // can commit English (e.g. "wifi") without switching language.
-                if (layoutId == LayoutId.ALPHA && raw !in list) list + raw else list
+                when (mode()) {
+                    // CN-EN mixed: on the 26-key, always offer the raw latin string too.
+                    Mode.PINYIN -> engine.candidates(raw, layoutId == LayoutId.NINE)
+                        .let { if (layoutId == LayoutId.ALPHA && raw !in it) it + raw else it }
+                    Mode.ENGLISH -> engine.english(raw).let { if (raw !in it) it + raw else it }
+                    Mode.DIRECT -> emptyList()
+                }
             }
-            composingMode() -> engine.predict(lastWord)
+            mode() == Mode.PINYIN -> engine.predict(lastWord)
             else -> emptyList()
         }
     }

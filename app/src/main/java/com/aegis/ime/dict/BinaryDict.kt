@@ -69,6 +69,29 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
         return out
     }
 
+    /** All entries whose key starts with [prefix], ranked by frequency (for English completion). */
+    fun prefixByFreq(prefix: String, limit: Int): List<WordFreq> {
+        if (prefix.isEmpty() || numKeys == 0) return emptyList()
+        val q = prefix.toByteArray(Charsets.US_ASCII)
+        val all = ArrayList<WordFreq>()
+        var i = lowerBound(q)
+        while (i < numKeys && startsWith(i, q)) {
+            val es = entryStart(i)
+            val ee = if (i + 1 < numKeys) entryStart(i + 1) else numEntries
+            var j = es
+            while (j < ee) {
+                val wo = buf.getInt(entryArrOff + j * 12)
+                val wl = buf.getInt(entryArrOff + j * 12 + 4)
+                val fr = buf.getInt(entryArrOff + j * 12 + 8)
+                all.add(WordFreq(readWord(wo, wl), fr))
+                j++
+            }
+            i++
+        }
+        all.sortByDescending { it.freq }
+        return if (all.size <= limit) all else all.subList(0, limit)
+    }
+
     /** Exact match for [input] (its full toneless pinyin), then prefix matches; freq-ordered, deduped. */
     fun query(input: String, limit: Int): List<String> {
         if (input.isEmpty() || numKeys == 0) return emptyList()
