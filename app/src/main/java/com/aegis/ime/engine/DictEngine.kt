@@ -26,12 +26,14 @@ class DictEngine(
     pinyinDict: BinaryDict?,
     t9Dict: BinaryDict?,
     lm: CharBigramLM?,
+    initialsDict: BinaryDict? = null,
     octagram: OctagramReader? = null,
 ) : CandidateEngine {
     private val decoder = pinyinDict?.let {
         PinyinDecoder(
             it,
             lm,
+            initialsDict = initialsDict,
             octagram = octagram,
         )
     }
