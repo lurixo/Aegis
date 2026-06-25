@@ -41,6 +41,15 @@ class GridLineTest {
     private val black = 0xFF000000.toInt()
     private val screens = listOf("w360dp-h640dp-mdpi" to 1, "w411dp-h891dp-xxhdpi" to 2)
 
+    @Test fun grid_rules_follow_the_theme_with_readable_dark_outlines() {
+        assertEquals(black, ImePalette.STATIC_LIGHT.gridLine)
+        assertTrue(androidx.core.graphics.ColorUtils.calculateContrast(
+            ImePalette.STATIC_DARK.gridLine, ImePalette.STATIC_DARK.keySurface) >= 3.0)
+        assertEquals(black, ImePalette.from(ctx, dark = false).gridLine)
+        val dark = ImePalette.from(ctx, dark = true)
+        assertTrue(androidx.core.graphics.ColorUtils.calculateContrast(dark.gridLine, dark.keySurface) >= 3.0)
+    }
+
     @Test fun the_grid_line_is_half_a_dp_rounded_to_whole_pixels_and_never_thinner_than_one() {
         assertEquals(1f, ImeShapes.gridLinePx(1f), 0f)
         assertEquals(1f, ImeShapes.gridLinePx(2f), 0f)
