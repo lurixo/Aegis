@@ -1,0 +1,18 @@
+package com.aegis.ime.engine
+
+/**
+ * Produces candidates for a composing buffer.
+ *
+ * P1 ships [StubEngine] only. The real engine arrives incrementally:
+ *  - P3: DAG segmentation + Viterbi/beam with unigram scoring over the wanxiang dict trie (26-key).
+ *  - P4: T9 digit lattice feeding the same decoder.
+ *  - P5: n-gram (LM) context scoring.
+ */
+interface CandidateEngine {
+    /**
+     * @param composing raw pinyin (26-key) or digit string (T9).
+     * @param t9 true when [composing] is a T9 digit sequence rather than letters.
+     * @return ordered candidates, best first; empty when there is nothing to show.
+     */
+    fun candidates(composing: String, t9: Boolean): List<String>
+}
