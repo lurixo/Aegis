@@ -18,6 +18,7 @@ package com.aegis.ime.decoder
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.DecodeCancellation
+import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.dict.TghGrading
 import kotlin.math.exp
 import kotlin.math.ln
@@ -25,6 +26,7 @@ import kotlin.math.ln
 data class Cand(
     val word: String,
     val coveredLen: Int,
+    val correctedReading: String? = null,
 )
 
 data class Syllable(val reading: String, val start: Int, val end: Int)
@@ -33,17 +35,27 @@ class PinyinDecoder(
     private val dict: BinaryDict,
     private val lm: CharBigramLM? = null,
     private val lambda: Double = DEFAULT_LAMBDA,
+    fuzzyRules: Set<String> = emptySet(),
     private val initialsDict: BinaryDict? = null,
     private val octagram: com.aegis.ime.dict.OctagramReader? = null,
     private val octagramWeight: Double = DEFAULT_OCTAGRAM_WEIGHT,
     private val contextWeight: Double = DEFAULT_CONTEXT_WEIGHT,
     private val aliasDict: BinaryDict? = null,
+    private val fuzzyVariants: (String, Set<String>) -> List<String> = { s, rules -> Fuzzy.variants(s, rules).filter { it != s } },
+    private val fuzzyPenalty: Double = FUZZY_PENALTY,
 ) {
     private val grading = TghGrading.bundled
     private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
 
+    @Volatile private var fuzzyRules: Set<String> = fuzzyRules
+
     @Volatile private var edgeN =
-        if (lm != null || initialsDict != null || octagram != null) EDGE_N else 1
+        if (lm != null || fuzzyRules.isNotEmpty() || initialsDict != null || octagram != null) EDGE_N else 1
+
+    fun setFuzzyRules(rules: Set<String>) {
+        fuzzyRules = rules
+        edgeN = if (lm != null || rules.isNotEmpty() || initialsDict != null || octagram != null) EDGE_N else 1
+    }
 
     private class Edge(val word: String, val freq: Int, val penalty: Double)
 
@@ -87,6 +99,15 @@ class PinyinDecoder(
             }
         }
         if (exactFull || out.size >= edgeN) return out
+        val rules = fuzzyRules
+        if (rules.isNotEmpty()) {
+            for (variant in cachedFuzzyVariants(sub, rules)) {
+                for (wf in preferredExact(dict, variant, edgeN + seen.size)) {
+                    if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, fuzzyPenalty))
+                    if (out.size >= edgeN) return out
+                }
+            }
+        }
         initialsDict?.let { id ->
             for (wf in preferredExact(id, sub, edgeN + seen.size)) {
                 if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, INITIALS_PENALTY))
@@ -236,6 +257,10 @@ class PinyinDecoder(
         return if (preferred.size <= limit) preferred else preferred.subList(0, limit).toList()
     }
 
+    private fun cachedFuzzyVariants(key: String, rules: Set<String>): List<String> {
+            return fuzzyVariants(key, rules)
+    }
+
     private class Norm(val clean: String, val cuts: Set<Int>, val origLen: IntArray, private val cleanLenAtOrig: IntArray) {
         fun cleanIndexOfOrig(o: Int): Int? = cleanLenAtOrig.getOrNull(o)
     }
@@ -265,7 +290,7 @@ class PinyinDecoder(
     }
 
     fun decodeCovered(input: String, limit: Int, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =
-        decodeCoveredLayered(input, limit, cuts, context).first
+        withFuzzyReadings(input, decodeCoveredLayered(input, limit, cuts, context).first)
 
     internal fun decodeCoveredLayered(
         input: String,
@@ -280,7 +305,7 @@ class PinyinDecoder(
         val (cands, remainderStart) =
             decodeCoveredClean(norm.clean, limit, norm.cuts + passedClean, context, norm.cuts.isNotEmpty())
         return cands.map {
-            Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length })
+            Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length }, it.correctedReading)
         } to remainderStart
     }
 
@@ -292,13 +317,36 @@ class PinyinDecoder(
         if (clean.isEmpty()) return emptyList()
         val passedClean = if (norm == null) cuts else cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
         val interior = ((norm?.cuts ?: emptySet()) + passedClean).filter { it in 1 until clean.length }.toSet()
-        val decoded = decodeAtomic(clean, interior, ctx, interior.isNotEmpty())
+        val decoded = withFuzzyReadings(clean, decodeAtomic(clean, interior, ctx, interior.isNotEmpty()))
         return if (norm == null) {
             decoded
         } else {
             decoded.map {
-                Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length })
+                Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length }, it.correctedReading)
             }
+        }
+    }
+
+    private fun withFuzzyReadings(input: String, candidates: List<Cand>): List<Cand> {
+        val rules = fuzzyRules
+        if (rules.isEmpty()) return candidates
+        val exact = HashMap<String, Set<String>>()
+        val targets = HashMap<String, Map<String, String>>()
+        val readings = fuzzyReadingLookup()
+        return candidates.map { candidate ->
+            DecodeCancellation.checkpoint()
+            if (candidate.correctedReading != null) return@map candidate
+            val source = input.take(candidate.coveredLen).replace("'", "")
+            if (candidate.word in exact.getOrPut(source) { preferredExact(dict, source).mapTo(HashSet()) { it.word } }) return@map candidate
+            val target = targets.getOrPut(source) {
+                buildMap {
+                    for (variant in cachedFuzzyVariants(source, rules)) {
+                        for (wf in preferredExact(dict, variant)) putIfAbsent(wf.word, variant)
+                    }
+                }
+            }[candidate.word] ?: return@map candidate
+            val reading = guessReading(candidate.word, target, false, readings)
+            candidate.copy(correctedReading = reading)
         }
     }
 
@@ -337,6 +385,18 @@ class PinyinDecoder(
         }
         inputAliasWordFreqs(input).forEach { offer(it, ALIAS_PENALTY) }
         cachedPrefix(dict, input, completionCap).forEach { offer(it, 0.0) }
+        val fuzzyExactWords = HashSet<String>()
+        val rules = fuzzyRules
+        if (rules.isNotEmpty()) {
+            for (variant in cachedFuzzyVariants(input, rules)) {
+                DecodeCancellation.checkpoint()
+                for (wf in cachedExact(dict, variant)) {
+                    fuzzyExactWords.add(wf.word)
+                    offer(wf, fuzzyPenalty)
+                }
+                cachedPrefix(dict, variant, completionCap).forEach { offer(it, fuzzyPenalty) }
+            }
+        }
         val reservedInitials = HashSet<String>()
         val initialsOnly = HashSet<String>()
         initialsDict?.let { id ->
@@ -364,7 +424,7 @@ class PinyinDecoder(
         var pendingInitials = reservedInitials.count { it !in cover }
         for ((wf, _) in pool) {
             val reserved = wf.word in reservedInitials
-            if (!reserved && cover.size >= completionCap - pendingInitials && wf.word !in exactWords) continue
+            if (!reserved && cover.size >= completionCap - pendingInitials && wf.word !in exactWords && wf.word !in fuzzyExactWords) continue
             if (cover.putIfAbsent(wf.word, input.length) == null && reserved) pendingInitials--
         }
         val out = ArrayList<Cand>(cover.size + 20)
@@ -1065,12 +1125,58 @@ class PinyinDecoder(
         return SentencePath(parts.joinToString(""), bestScore)
     }
 
+    private fun fuzzyReadingLookup(): ReadingLookup {
+        return ReadingLookup(aliasDict ?: dict)
+    }
+
+    private class ReadingLookup(private val source: BinaryDict) {
+        fun matching(remaining: String, t9: Boolean, prefix: Boolean): List<Pair<String, String>> =
+                READING_KEYS.mapNotNull { (reading, digits) ->
+                    val key = if (t9) digits else reading
+                    if (remaining.startsWith(key) || (prefix && key.startsWith(remaining))) reading to key else null
+                }
+
+        fun frequency(reading: String, word: String): Int? =
+                buildMap {
+                    for (wf in source.exact(reading)) {
+                        if (wf.word.codePointCount(0, wf.word.length) == 1) putIfAbsent(wf.word, wf.freq)
+                    }
+                }[word]
+    }
+
+    private fun guessReading(word: String, input: String, prefix: Boolean, cache: ReadingLookup): String {
+        val ref = aliasDict ?: dict
+        val t9 = input.all { it in '2'..'9' }
+        if (!t9 && ref.containsExactWord(input, word)) return input
+        val chars = word.codePoints().toArray().map { String(Character.toChars(it)) }
+        data class Path(val reading: String, val covered: Int, val score: Double)
+        var paths = listOf(Path("", 0, 0.0))
+        for (char in chars) {
+            val next = ArrayList<Path>()
+            for (path in paths) {
+                val remaining = input.substring(path.covered)
+                for ((reading, key) in cache.matching(remaining, t9, prefix)) {
+                    val frequency = cache.frequency(reading, char) ?: continue
+                    next.add(Path(path.reading + reading, (path.covered + key.length).coerceAtMost(input.length),
+                        path.score + ln(frequency.toDouble().coerceAtLeast(1.0))))
+                }
+            }
+            paths = next.groupBy { it.covered }.values.flatMap { group -> group.sortedByDescending { it.score }.take(8) }
+            if (paths.isEmpty()) return ""
+        }
+        return paths.filter { it.covered == input.length }
+            .sortedWith(compareByDescending<Path> { ref.containsExactWord(it.reading, word) }.thenByDescending { it.score })
+            .firstOrNull()?.reading.orEmpty()
+    }
+
     internal companion object {
+        private val READING_KEYS = T9Pinyin.SYLLABLES.map { it to T9Pinyin.toT9(it) }
         const val SEP = '\''
         const val BOS = -1
         const val NO_CTX = Int.MIN_VALUE
         const val EDGE_N = 20
         const val DEFAULT_LAMBDA = 0.5
+        const val FUZZY_PENALTY = 6.0
         const val ALIAS_PENALTY = 3.5
         const val INITIALS_PENALTY = 5.0
         const val INITIALS_RESERVE = 1

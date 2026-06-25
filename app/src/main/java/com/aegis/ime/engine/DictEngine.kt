@@ -18,6 +18,7 @@ package com.aegis.ime.engine
 import com.aegis.ime.decoder.Cand
 import com.aegis.ime.decoder.PinyinDecoder
 import com.aegis.ime.decoder.Syllable
+import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.OctagramReader
@@ -26,6 +27,7 @@ class DictEngine(
     pinyinDict: BinaryDict?,
     t9Dict: BinaryDict?,
     lm: CharBigramLM?,
+    fuzzyRules: Set<String> = emptySet(),
     initialsDict: BinaryDict? = null,
     octagram: OctagramReader? = null,
 ) : CandidateEngine {
@@ -33,6 +35,7 @@ class DictEngine(
         PinyinDecoder(
             it,
             lm,
+            fuzzyRules = fuzzyRules,
             initialsDict = initialsDict,
             octagram = octagram,
         )
@@ -41,8 +44,11 @@ class DictEngine(
         PinyinDecoder(
             it,
             lm,
+            fuzzyRules = fuzzyRules,
             octagram = octagram,
             aliasDict = pinyinDict,
+            fuzzyVariants = { s, rules -> T9Pinyin.fuzzyVariants(s, rules) },
+            fuzzyPenalty = T9_FUZZY_PENALTY,
         )
     }
 
@@ -91,7 +97,14 @@ class DictEngine(
     override fun homophonesForReadingAt(letters: String, index: Int, cuts: Set<Int>): List<String> =
         if (letters.isEmpty()) emptyList() else decoder?.homophonesAt(letters, index, cuts) ?: emptyList()
 
+    override fun setFuzzyRules(rules: Set<String>) {
+        decoder?.setFuzzyRules(rules)
+        t9Decoder?.setFuzzyRules(rules)
+    }
+
     private companion object {
         const val MAX_CANDIDATES = 30
     }
 }
+
+internal const val T9_FUZZY_PENALTY = 6.0

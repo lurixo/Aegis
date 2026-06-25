@@ -44,4 +44,6 @@ interface CandidateEngine {
 
     fun homophonesForReadingAt(letters: String, index: Int, cuts: Set<Int>): List<String> =
         homophonesForReadingAt(letters, index)
+
+    fun setFuzzyRules(rules: Set<String>)
 }

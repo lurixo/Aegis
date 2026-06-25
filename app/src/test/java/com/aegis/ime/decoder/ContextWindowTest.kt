@@ -71,6 +71,15 @@ class ContextWindowTest {
         assertEquals(e.codePointAt(0), ctx.cp)
     }
 
+    @Test fun everyNonemptyContextSuffixCanReachTheGrammar() {
+        val grammar = OctagramFixture.reader(mapOf("超市买" to 18.0))
+        val decoder = PinyinDecoder(fixtureDict(), octagram = grammar)
+        decoder.setFuzzyRules(emptySet())
+        assertEquals("卖", decoder.decodeCovered("mai", 30).first().word)
+        assertEquals("买", decoder.decodeCovered("mai", 30, context = "昨天去超市").first().word)
+        assertEquals("买", decoder.decodeCoveredAtomic("mai", 30, context = "昨天去超市").first().word)
+    }
+
     @Test fun contextTailPropagatesAcrossMultipleDecodedWords() {
         val grammar = OctagramFixture.reader(mapOf("我们一起去" to 22.3))
         val dict = fixtureDict()
