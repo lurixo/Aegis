@@ -7,6 +7,10 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 
 fun main(rawArgs: Array<String>) {
+    if (rawArgs.firstOrNull() == "lm") {
+        LmBuilder.build(rawArgs.copyOfRange(1, rawArgs.size))
+        return
+    }
     val args = Args(rawArgs)
     val out = File(args.required("--out"))
     val inputs = args.positionals.map { File(it) }
@@ -177,11 +181,11 @@ private fun writeCoverage(file: File, counts: Map<String, Long>) {
 }
 
 
-private fun java.io.OutputStream.writeLeInt(v: Int) {
+internal fun java.io.OutputStream.writeLeInt(v: Int) {
     write(v and 0xFF); write((v ushr 8) and 0xFF); write((v ushr 16) and 0xFF); write((v ushr 24) and 0xFF)
 }
 
-private fun java.io.OutputStream.writeLeLong(v: Long) {
+internal fun java.io.OutputStream.writeLeLong(v: Long) {
     writeLeInt((v and 0xFFFFFFFFL).toInt()); writeLeInt((v ushr 32).toInt())
 }
 
@@ -195,7 +199,7 @@ private class IntList {
     operator fun get(i: Int) = a[i]
 }
 
-private class Args(argv: Array<String>) {
+internal class Args(argv: Array<String>) {
     val positionals = ArrayList<String>()
     private val named = HashMap<String, String>()
     init {

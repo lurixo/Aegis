@@ -5,6 +5,7 @@ import android.util.Log
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import com.aegis.ime.dict.BinaryDict
+import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.ime.ImeHost
 import com.aegis.ime.ime.InputView
@@ -18,7 +19,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         super.onCreate()
         val dict = loadDict("aegis_dict.bin")
         val t9Dict = loadDict("aegis_t9.bin")
-        controller = KeyboardController(this, DictEngine(dict, t9Dict))
+        val lm = runCatching { CharBigramLM.fromAssets(this, "aegis_lm.bin") }
+            .onFailure { Log.e("Aegis", "lm load failed", it) }
+            .getOrNull()
+        controller = KeyboardController(this, DictEngine(dict, t9Dict, lm))
     }
 
     private fun loadDict(name: String): BinaryDict? =
