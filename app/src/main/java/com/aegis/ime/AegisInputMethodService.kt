@@ -16,11 +16,15 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun onCreate() {
         super.onCreate()
-        val dict = runCatching { BinaryDict.fromAssets(this, "aegis_dict.bin") }
-            .onFailure { Log.e("Aegis", "dict load failed", it) }
-            .getOrNull()
-        controller = KeyboardController(this, DictEngine(dict))
+        val dict = loadDict("aegis_dict.bin")
+        val t9Dict = loadDict("aegis_t9.bin")
+        controller = KeyboardController(this, DictEngine(dict, t9Dict))
     }
+
+    private fun loadDict(name: String): BinaryDict? =
+        runCatching { BinaryDict.fromAssets(this, name) }
+            .onFailure { Log.e("Aegis", "dict load failed: $name", it) }
+            .getOrNull()
 
     override fun onCreateInputView(): View {
         val view = InputView(this).apply {

@@ -21,6 +21,19 @@ object Pinyin {
 
     fun isAsciiSyllable(s: String): Boolean = s.isNotEmpty() && s.all { it in 'a'..'z' }
 
+    private val letterToDigit: Map<Char, Char> = buildMap {
+        "abc".forEach { put(it, '2') }; "def".forEach { put(it, '3') }
+        "ghi".forEach { put(it, '4') }; "jkl".forEach { put(it, '5') }
+        "mno".forEach { put(it, '6') }; "pqrs".forEach { put(it, '7') }
+        "tuv".forEach { put(it, '8') }; "wxyz".forEach { put(it, '9') }
+    }
+
+    fun toT9(letters: String): String {
+        val sb = StringBuilder(letters.length)
+        for (c in letters) sb.append(letterToDigit[c] ?: c)
+        return sb.toString()
+    }
+
     val canonicalSyllables: Set<String> = """
         a o e ê ai ei ao ou an en ang eng er
         yi ya yo ye yao you yan yin yang ying yong
