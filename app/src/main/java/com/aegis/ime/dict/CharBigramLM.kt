@@ -16,10 +16,15 @@
 package com.aegis.ime.dict
 
 import java.io.File
+import java.io.InputStream
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.FileChannel
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
 import kotlin.math.ln
 
 class CharBigramLM private constructor(private val buf: ByteBuffer) {
@@ -183,5 +188,65 @@ class CharBigramLM private constructor(private val buf: ByteBuffer) {
                 val ch = raf.channel
                 CharBigramLM(ch.map(FileChannel.MapMode.READ_ONLY, 0, ch.size()))
             }
+
+        @Synchronized
+        internal fun fromAsset(
+            filesDir: File,
+            assetName: String,
+            expectedSha256: String,
+            openAsset: () -> InputStream,
+        ): CharBigramLM {
+            val expected = expectedSha256.lowercase()
+            require(expected.matches(Regex("[0-9a-f]{64}"))) { "bad lm asset identity" }
+            require(filesDir.isDirectory || filesDir.mkdirs()) { "failed to create lm directory" }
+            val outFile = File(filesDir, assetName)
+            if (outFile.isFile && sha256(outFile) == expected) {
+                runCatching { return fromFile(outFile) }
+            }
+
+            val tmp = File(filesDir, "$assetName.part")
+            tmp.delete()
+            try {
+                openAsset().use { input ->
+                    tmp.outputStream().use { output ->
+                        input.copyTo(output)
+                        output.fd.sync()
+                    }
+                }
+                require(sha256(tmp) == expected) { "lm asset identity mismatch" }
+                fromFile(tmp)
+                moveReplacing(tmp, outFile)
+            } catch (e: Exception) {
+                tmp.delete()
+                throw e
+            }
+            return fromFile(outFile)
+        }
+
+        private fun sha256(file: File): String {
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    digest.update(buffer, 0, read)
+                }
+            }
+            return digest.digest().joinToString("") { "%02x".format(it) }
+        }
+
+        private fun moveReplacing(source: File, target: File) {
+            try {
+                Files.move(
+                    source.toPath(),
+                    target.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            } catch (_: AtomicMoveNotSupportedException) {
+                Files.move(source.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            }
+        }
     }
 }

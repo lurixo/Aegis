@@ -25,6 +25,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
+import java.security.MessageDigest
 import kotlin.math.ln
 
 class CharBigramLMTest {
@@ -193,6 +194,34 @@ class CharBigramLMTest {
         assertTrue("mapped-away forms remain in the installed LM: ${leaked.take(20)}", leaked.isEmpty())
     }
 
+    @Test fun assetInstallRefreshesStaleContentAndRepairsCorruptionWithoutRecopyingAValidModel() {
+        val old = roundTripFile(listOf("你\tni\t5", "好\thao\t4"))
+        val current = roundTripFile(sampleLines)
+        val dir = File.createTempFile("lm-install", "").let { it.delete(); it.mkdirs(); it }
+        val installed = File(dir, "model.bin").apply { writeBytes(old.readBytes()) }
+        val expected = sha256(current)
+        var opens = 0
+
+        CharBigramLM.fromAsset(dir, installed.name, expected) {
+            opens++
+            current.inputStream()
+        }
+        assertTrue(installed.readBytes().contentEquals(current.readBytes()))
+        assertEquals(1, opens)
+
+        CharBigramLM.fromAsset(dir, installed.name, expected) {
+            throw AssertionError("valid model must not be recopied")
+        }
+
+        installed.writeBytes(installed.readBytes().also { it[0] = 'X'.code.toByte() })
+        CharBigramLM.fromAsset(dir, installed.name, expected) {
+            opens++
+            current.inputStream()
+        }
+        assertTrue(installed.readBytes().contentEquals(current.readBytes()))
+        assertEquals(2, opens)
+    }
+
     @Test fun a_row_that_promises_less_than_its_own_bigrams_hold_is_rejected() {
         val full = roundTripFile(sampleLines).readBytes()
         val offsets = offsets(full)
@@ -281,6 +310,11 @@ class CharBigramLMTest {
         val numBigrams = getLeInt(bytes, numBigramsOffset)
         val biC2 = numBigramsOffset + 4
         return Offsets(numChars, rowTotal, rowStart, biC2, biC2 + numBigrams * 4)
+    }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(file.readBytes())
+        return digest.joinToString("") { "%02x".format(it) }
     }
 
     private companion object {
