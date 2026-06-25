@@ -25,6 +25,7 @@ enum class KeyAction {
     CLEAR_COMPOSING,
     ENTER,
     SHIFT,
+    SHIFT_LOCK,
     SPACE,
     SWITCH_SYMBOLS,
     SWITCH_NUMBERS,

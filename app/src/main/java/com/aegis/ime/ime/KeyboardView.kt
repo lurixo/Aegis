@@ -23,9 +23,11 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.os.SystemClock
 import android.util.TypedValue
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.widget.OverScroller
+import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.roundToInt
 import com.aegis.ime.layout.Key
@@ -40,6 +42,8 @@ import com.aegis.ime.ime.theme.ImeShapes
 
 class KeyboardView(context: Context) : View(context) {
 
+    var onKey: (Key) -> Unit = {}
+
     private var layout: KeyboardLayout = Layouts.forId(LayoutId.ALPHA, Lang.CN)
     private var modeSwitches = 0
     private var layoutApplies = 0
@@ -47,7 +51,13 @@ class KeyboardView(context: Context) : View(context) {
     private var shiftLocked = false
     private var lang = Lang.CN
 
+    private var lastShiftTapTime = 0L
+    private val doubleTapMs = ViewConfiguration.getDoubleTapTimeout().toLong()
+
     private val placed = ArrayList<Placed>()
+    private var pressed: Key? = null
+    private var visualPressed: Key? = null
+    private val keyPress = Motion.PressFeedback(this)
 
     private var scrollColumn: ScrollColumn? = null
     private val scrollRegion = RectF()
@@ -60,9 +70,20 @@ class KeyboardView(context: Context) : View(context) {
     private val scrollbarFade = ScrollbarFade()
     private val scrollbarTick = Runnable { invalidate() }
 
+    private var downKey: Key? = null
+    private var downPlaced: Placed? = null
+    private var downInEdgeInset = false
+    private var downX = 0f
+    private var downY = 0f
+    private var downEventTime = 0L
+    private var retargetUnlocked = false
+    private var activePointerId = MotionEvent.INVALID_POINTER_ID
+
     private val density = resources.displayMetrics.density
     private val rowHeight = 52f * density
     private val snapCap = rowHeight * 0.5f
+    private val retargetHysteresis = 4f * density
+    private val retargetDistance = 24f * density
     private val shortPageRowExtra = 2f * density
     private val gap = KEY_GAP_DP * density
     private val edgeInset = ImeShapes.edgeInsetDp * density
@@ -85,6 +106,7 @@ class KeyboardView(context: Context) : View(context) {
     private val keyEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.shadow }
     private val spaceMarkerPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val sepLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.gridLine; strokeWidth = ImeShapes.gridLinePx(density) }
+    private val pressHighlight = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withAlpha(palette.keyLabel, 0x22) }
     private val scrollTrackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.functionSurface }
     private val scrollbarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withAlpha(palette.icon, SCROLLBAR_ALPHA) }
     private val scrollLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.LEFT; textSize = sp(17f); typeface = android.graphics.Typeface.DEFAULT }
@@ -100,6 +122,7 @@ class KeyboardView(context: Context) : View(context) {
         subPaint.color = p.keySub
         langLabel.applyColors(p.keyLabelSecondary, p.keyHint)
         sepLinePaint.color = p.gridLine
+        pressHighlight.color = Motion.withAlpha(p.keyLabel, 0x22)
         keyEdgePaint.color = p.shadow
         scrollTrackPaint.color = p.functionSurface
         scrollbarPaint.color = withAlpha(p.icon, SCROLLBAR_ALPHA)
@@ -114,6 +137,7 @@ class KeyboardView(context: Context) : View(context) {
     fun setLayout(newLayout: KeyboardLayout, isShifted: Boolean, isLocked: Boolean, language: Lang) {
         if (newLayout == layout && isShifted == shifted && isLocked == shiftLocked && language == lang) return
         val faceSwap = newLayout.id != layout.id || language != lang
+        if (faceSwap) cancelPrimary()
         val snap = if (faceSwap && width > 0) Motion.snapshot(this, palette.keyboardBg) else null
         layoutApplies++
         val sameColumn = newLayout.scrollColumn?.items?.map { it.label } == layout.scrollColumn?.items?.map { it.label }
@@ -409,24 +433,33 @@ class KeyboardView(context: Context) : View(context) {
 
     private fun drawContent(canvas: Canvas) {
         for (p in placed) {
-            drawKey(canvas, p.rect, p.key.accent, p.key.rail)
+            val pressLevel = if (p.key == visualPressed) keyPress.level else 0f
+            drawKey(canvas, p.rect, p.key.accent, p.key.rail, pressLevel)
             drawLabel(canvas, p)
         }
 
         drawScrollColumn(canvas)
     }
 
-    private fun drawKey(canvas: Canvas, rect: RectF, accent: Boolean, rail: Boolean) {
+    private fun drawKey(canvas: Canvas, rect: RectF, accent: Boolean, rail: Boolean, pressLevel: Float) {
         tmpRect.set(rect)
         tmpRect.offset(0f, density)
         canvas.drawRoundRect(tmpRect, keyRadius, keyRadius, keyEdgePaint)
         if (accent) {
             fillPaint.color = palette.accentBottom
             canvas.drawRoundRect(rect, keyRadius, keyRadius, fillPaint)
+            if (pressLevel > 0f) {
+                pressHighlight.color = Motion.stateLayerColor(palette.keyLabel, pressLevel)
+                canvas.drawRoundRect(rect, keyRadius, keyRadius, pressHighlight)
+            }
             return
         }
         fillPaint.color = if (rail) palette.functionSurface else palette.keySurface
         canvas.drawRoundRect(rect, keyRadius, keyRadius, fillPaint)
+        if (pressLevel > 0f) {
+            pressHighlight.color = Motion.stateLayerColor(palette.keyLabel, pressLevel)
+            canvas.drawRoundRect(rect, keyRadius, keyRadius, pressHighlight)
+        }
     }
 
     private fun drawLabel(canvas: Canvas, p: Placed) {
@@ -604,6 +637,12 @@ class KeyboardView(context: Context) : View(context) {
         return width
     }
 
+    internal fun centerOfActionForTest(action: KeyAction): Pair<Float, Float>? {
+        if (placed.isEmpty()) relayout()
+        val p = placed.firstOrNull { it.key.action == action } ?: return null
+        return p.rect.centerX() to p.rect.centerY()
+    }
+
     internal fun centerOfLabelForTest(label: String): Pair<Float, Float>? {
         if (placed.isEmpty()) relayout()
         val p = placed.firstOrNull { it.key.label == label } ?: return null
@@ -655,6 +694,108 @@ class KeyboardView(context: Context) : View(context) {
         key.action == KeyAction.COMMIT && key.label.length > 1 && key.label.all { it in 'A'..'Z' } &&
             key.output.length == 1 && key.output[0] in '2'..'9'
 
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                    activePointerId = event.getPointerId(0)
+                    beginPrimary(event.x, event.y, event.eventTime)
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                val newIdx = event.actionIndex
+                val x = event.getX(newIdx)
+                val y = event.getY(newIdx)
+                if (!inEdgeInset(x)) {
+                    finishActivePrimary(event)
+                    activePointerId = event.getPointerId(newIdx)
+                    beginPrimary(x, y, event.eventTime)
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val ai = event.findPointerIndex(activePointerId)
+                if (ai >= 0) handlePrimaryMove(event.getX(ai), event.getY(ai), event.eventTime)
+            }
+            MotionEvent.ACTION_POINTER_UP -> {
+                val id = event.getPointerId(event.actionIndex)
+                if (id == activePointerId) {
+                    val ai = event.actionIndex
+                    finishPrimary(event.getX(ai), event.getY(ai), event.eventTime)
+                    activePointerId = MotionEvent.INVALID_POINTER_ID
+                }
+            }
+            MotionEvent.ACTION_UP -> {
+                if (activePointerId != MotionEvent.INVALID_POINTER_ID) {
+                    val ai = event.findPointerIndex(activePointerId)
+                    if (ai >= 0) finishPrimary(event.getX(ai), event.getY(ai), event.eventTime)
+                    else finishPrimary(downX, downY, event.eventTime)
+                }
+                activePointerId = MotionEvent.INVALID_POINTER_ID
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                cancelPrimary()
+                activePointerId = MotionEvent.INVALID_POINTER_ID
+            }
+        }
+        return true
+    }
+
+    private fun finishActivePrimary(event: MotionEvent) {
+        if (activePointerId == MotionEvent.INVALID_POINTER_ID) return
+        val ai = event.findPointerIndex(activePointerId)
+        if (ai >= 0) finishPrimary(event.getX(ai), event.getY(ai), event.eventTime)
+        else finishPrimary(downX, downY, event.eventTime)
+        activePointerId = MotionEvent.INVALID_POINTER_ID
+    }
+
+    private fun inEdgeInset(x: Float): Boolean = x < edgeInset || x >= width - edgeInset
+
+    private fun beginPrimary(x: Float, y: Float, eventTime: Long) {
+        downPlaced = placedAt(x, y)
+        downInEdgeInset = downPlaced == null && inEdgeInset(x)
+        downKey = downPlaced?.key
+        setPressedKey(downKey)
+        downX = x; downY = y
+        downEventTime = eventTime; retargetUnlocked = false
+    }
+
+    private fun handlePrimaryMove(x: Float, y: Float, eventTime: Long) {
+        maybeUnlockRetarget(x, y, eventTime)
+                val k = currentTarget(x, y)
+                if (k !== pressed) {
+                    setPressedKey(k)
+                }
+    }
+
+    private fun finishPrimary(x: Float, y: Float, eventTime: Long) {
+        maybeUnlockRetarget(x, y, eventTime)
+        releasePressedKey()
+        currentTarget(x, y)?.let { performClick(); emitKey(it, eventTime) }
+        downKey = null
+        downPlaced = null
+    }
+
+    private fun cancelPrimary() {
+        releasePressedKey()
+        downKey = null
+        downPlaced = null
+    }
+
+    private fun setPressedKey(key: Key?) {
+        pressed = key
+        if (key == null) {
+            keyPress.release()
+        } else {
+            visualPressed = key
+            keyPress.press()
+        }
+        invalidate()
+    }
+
+    private fun releasePressedKey() {
+        pressed = null
+        keyPress.release()
+        invalidate()
+    }
+
     internal fun scrollOffsetForTest(): Float = scrollY
     internal fun scrollRegionForTest(): RectF = RectF(scrollRegion)
     internal fun scrollTouchForTest(): RectF = RectF(scrollTouch)
@@ -693,6 +834,49 @@ class KeyboardView(context: Context) : View(context) {
         return if (best <= boundedCap * boundedCap) nearest else null
     }
 
+    private fun maybeUnlockRetarget(x: Float, y: Float, eventTime: Long) {
+        if (retargetUnlocked) return
+        val dp = downPlaced ?: return
+        val m = retargetHysteresis
+        val hitRect = dp.hitRect ?: dp.rect
+        val insideDownKey = x >= hitRect.left - m && x <= hitRect.right + m &&
+            y >= hitRect.top - m && y <= hitRect.bottom + m
+        if (insideDownKey) return
+        val deliberate = eventTime - downEventTime >= RETARGET_HOLD_MS ||
+            hypot(x - downX, y - downY) >= retargetDistance
+        if (deliberate) retargetUnlocked = true
+    }
+
+    private fun currentTarget(x: Float, y: Float): Key? {
+        val dp = downPlaced ?: return if (downInEdgeInset) null else placedAt(x, y)?.key
+        if (!retargetUnlocked) return dp.key
+        val m = retargetHysteresis
+        val hitRect = dp.hitRect ?: dp.rect
+        val insideDownKey = x >= hitRect.left - m && x <= hitRect.right + m &&
+            y >= hitRect.top - m && y <= hitRect.bottom + m
+        return if (insideDownKey) dp.key else placedAt(x, y)?.key ?: dp.key
+    }
+
+    private fun emitKey(key: Key, eventTime: Long) {
+        if (key.action == KeyAction.SHIFT) {
+            if (lastShiftTapTime != 0L && eventTime - lastShiftTapTime <= doubleTapMs) {
+                lastShiftTapTime = 0L
+                onKey(Key(key.label, action = KeyAction.SHIFT_LOCK))
+            } else {
+                lastShiftTapTime = eventTime
+                onKey(key)
+            }
+            return
+        }
+        lastShiftTapTime = 0L
+        onKey(key)
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
+    }
+
     internal companion object {
         const val KEY_GAP_DP = 6f
         private const val FACE_FLOOR_ROUNDING_PX = 0.001f
@@ -702,6 +886,7 @@ class KeyboardView(context: Context) : View(context) {
             return (column.h * keyboardHeight - 2f * verticalGap) / visible
         }
 
+        const val RETARGET_HOLD_MS = 120L
         const val INK_CENTERED_GLYPHS = "，。"
         const val KEYPAD_INK_CENTERED_GLYPHS = "，。,."
         const val SCROLL_LABEL_INSET_DP = 12f

@@ -51,6 +51,9 @@ object Motion {
 
     fun withAlpha(argb: Int, alpha: Int): Int = (argb and 0x00FFFFFF) or (alpha.coerceIn(0, 255) shl 24)
 
+    fun stateLayerColor(argb: Int, level: Float, maxAlpha: Int = 0x22): Int =
+        withAlpha(argb, (maxAlpha * level.coerceIn(0f, 1f)).roundToInt())
+
     fun applyTapFeedback(
         view: View,
         color: Int,
