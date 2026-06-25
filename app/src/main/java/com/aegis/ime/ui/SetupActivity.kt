@@ -48,6 +48,17 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.aegis.ime.R
 
+internal object SettingsRoutes {
+    const val INPUT = "input"
+    const val KEYBOARD = "keyboard"
+    const val DICTS = "dicts"
+    const val USER_DICT = "userdict"
+    const val BACKUP = "backup"
+    const val ABOUT = "about"
+
+    val GROUPS = listOf(INPUT, KEYBOARD, DICTS, USER_DICT, BACKUP, ABOUT)
+}
+
 @Composable
 internal fun SettingsPageColumn(title: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     AppSettingsPage(title = title, onBack = onBack, content = content)

@@ -1,10 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="app_name">Aegis</string>
     <string name="ime_label">Aegis 输入法</string>
     <string name="subtype_zh">Aegis 输入法</string>
     <string name="subtype_en">Aegis English</string>
 
+    <string name="settings_group_input_title">输入设置</string>
+    <string name="settings_group_keyboard_title">键盘设置</string>
     <string name="settings_group_dicts_title">词库与下载</string>
+    <string name="settings_group_userdict_title">用户词库</string>
+    <string name="settings_group_about_title">关于与启用</string>
     <string name="settings_back">返回</string>
     <string name="settings_language_title">界面语言</string>
     <string name="settings_language_description">设置与键盘界面同时生效</string>
@@ -128,7 +133,9 @@
     <string name="layout_alpha">全拼26键</string>
     <string name="layout_en">英文26键</string>
     <string name="layout_panel_title">键盘布局</string>
+    <string name="settings_panel_title">设置</string>
 
+    <string name="settings_backup_title">数据备份</string>
     <string name="restore_gate_rollback_failed">恢复没做完，撤销失败，点这里</string>
     <string name="restore_gate_rollback_impossible">恢复没做完，无法撤销，点这里</string>
 

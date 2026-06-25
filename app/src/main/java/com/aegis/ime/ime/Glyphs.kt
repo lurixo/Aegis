@@ -47,6 +47,95 @@ object Glyphs {
 
     fun lockInk(closed: Boolean): Ink = if (closed) lockClosedInk else lockOpenInk
 
+    class GridInk internal constructor(
+        private val render: (Canvas, Paint, Float, Float, Float) -> Unit,
+    ) {
+        fun draw(c: Canvas, paint: Paint, cx: Float, cy: Float, sizePx: Float) {
+            val u = sizePx / GRID
+            render(c, paint, cx - GRID / 2f * u, cy - GRID / 2f * u, u)
+        }
+    }
+
+    private const val GRID = 24f
+
+    private const val BOOK_COVER_X = 12.875f
+
+    val brandGrid = GridInk { c, p, x, y, u ->
+        val s = (16f * u - p.strokeWidth) / 1.28f
+        drawBrandWeldedA(c, p, x + 12f * u, y + 12f * u - 0.035f * s, s)
+    }
+
+    val tuneGrid = GridInk { c, p, x, y, u ->
+        drawTuneRow(c, p, x, y, u, 6.75f, 15.5f)
+        drawTuneRow(c, p, x, y, u, 12f, 8.5f)
+        drawTuneRow(c, p, x, y, u, 17.25f, 13.5f)
+    }
+
+    val keyboardGrid = GridInk { c, p, x, y, u ->
+        c.drawRoundRect(x + 2.75f * u, y + 5.25f * u, x + 21.25f * u, y + 18.75f * u, 2.5f * u, 2.5f * u, p)
+        c.drawLine(x + 8.75f * u, y + 15.1f * u, x + 15.25f * u, y + 15.1f * u, p)
+        drawGridDots(c, p, x, y, u, 9.1f, 0.95f, 6.75f, 10.25f, 13.75f, 17.25f)
+        drawGridDots(c, p, x, y, u, 12.1f, 0.95f, 8.5f, 12f, 15.5f)
+    }
+
+    val dictionaryDownloadGrid = GridInk { c, p, x, y, u ->
+        c.drawPath(bookPath(x, y, u), p)
+        val ax = x + BOOK_COVER_X * u
+        c.drawLine(ax, y + 5.75f * u, ax, y + 13.75f * u, p)
+        val head = Path().apply {
+            moveTo(ax - 3f * u, y + 10.75f * u); lineTo(ax, y + 13.75f * u); lineTo(ax + 3f * u, y + 10.75f * u)
+        }
+        c.drawPath(head, p)
+    }
+
+    val userDictionaryGrid = GridInk { c, p, x, y, u ->
+        c.drawPath(bookPath(x, y, u), p)
+        val ax = x + BOOK_COVER_X * u
+        c.drawCircle(ax, y + 7.5f * u, 2.1f * u, p)
+        val shoulders = Path().apply {
+            moveTo(ax - 4f * u, y + 15f * u)
+            quadTo(ax - 4f * u, y + 12f * u, ax, y + 12f * u)
+            quadTo(ax + 4f * u, y + 12f * u, ax + 4f * u, y + 15f * u)
+        }
+        c.drawPath(shoulders, p)
+    }
+
+    val lockedFileGrid = GridInk { c, p, x, y, u ->
+        val sheet = Path().apply {
+            moveTo(x + 14.25f * u, y + 2.75f * u)
+            lineTo(x + 7f * u, y + 2.75f * u)
+            arcTo(x + 5f * u, y + 2.75f * u, x + 9f * u, y + 6.75f * u, 270f, -90f, false)
+            lineTo(x + 5f * u, y + 19.25f * u)
+            arcTo(x + 5f * u, y + 17.25f * u, x + 9f * u, y + 21.25f * u, 180f, -90f, false)
+            lineTo(x + 17f * u, y + 21.25f * u)
+            arcTo(x + 15f * u, y + 17.25f * u, x + 19f * u, y + 21.25f * u, 90f, -90f, false)
+            lineTo(x + 19f * u, y + 7.75f * u)
+            close()
+        }
+        c.drawPath(sheet, p)
+        val fold = Path().apply {
+            moveTo(x + 14.25f * u, y + 2.75f * u)
+            lineTo(x + 14.25f * u, y + 6.25f * u)
+            arcTo(x + 14.25f * u, y + 4.75f * u, x + 17.25f * u, y + 7.75f * u, 180f, -90f, false)
+            lineTo(x + 19f * u, y + 7.75f * u)
+        }
+        c.drawPath(fold, p)
+        c.drawRoundRect(x + 9.25f * u, y + 12.75f * u, x + 14.75f * u, y + 17.5f * u, u, u, p)
+        val shackle = Path().apply {
+            moveTo(x + 10.5f * u, y + 12.75f * u)
+            lineTo(x + 10.5f * u, y + 11.25f * u)
+            arcTo(x + 10.5f * u, y + 9.75f * u, x + 13.5f * u, y + 12.75f * u, 180f, 180f, false)
+            lineTo(x + 13.5f * u, y + 12.75f * u)
+        }
+        c.drawPath(shackle, p)
+    }
+
+    val infoGrid = GridInk { c, p, x, y, u ->
+        c.drawCircle(x + 12f * u, y + 12f * u, 10f * u - p.strokeWidth / 2f, p)
+        c.drawLine(x + 12f * u, y + 11f * u, x + 12f * u, y + 16.5f * u, p)
+        drawGridDots(c, p, x, y, u, 7.75f, 1f, 12f)
+    }
+
     fun drawClipboard(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val w = s * 0.58f; val h = s * 0.78f
         c.drawRoundRect(cx - w, cy - h + s * 0.18f, cx + w, cy + h, s * 0.22f, s * 0.22f, paint)
@@ -241,6 +330,31 @@ object Glyphs {
         c.drawPoint(cx + dotX, dotY, paint)
         val barY = cy + s * 0.266f; val barX = s * 0.30f
         c.drawLine(cx - barX, barY, cx + barX, barY, paint)
+    }
+
+    private fun drawTuneRow(c: Canvas, paint: Paint, x: Float, y: Float, u: Float, row: Float, knob: Float) {
+        val ry = y + row * u; val kx = x + knob * u; val r = 2f * u
+        c.drawLine(x + 2.75f * u, ry, kx - r, ry, paint)
+        c.drawLine(kx + r, ry, x + 21.25f * u, ry, paint)
+        c.drawCircle(kx, ry, r, paint)
+    }
+
+    private fun drawGridDots(c: Canvas, paint: Paint, x: Float, y: Float, u: Float, row: Float, radius: Float, vararg cols: Float) {
+        val style = paint.style
+        paint.style = Paint.Style.FILL
+        for (col in cols) c.drawCircle(x + col * u, y + row * u, radius * u, paint)
+        paint.style = style
+    }
+
+    private fun bookPath(x: Float, y: Float, u: Float): Path = Path().apply {
+        moveTo(x + 4.75f * u, y + 19.5f * u)
+        lineTo(x + 4.75f * u, y + 5.25f * u)
+        arcTo(x + 4.75f * u, y + 2.75f * u, x + 9.75f * u, y + 7.75f * u, 180f, 90f, false)
+        lineTo(x + 19.25f * u, y + 2.75f * u)
+        lineTo(x + 19.25f * u, y + 21.25f * u)
+        lineTo(x + 6.5f * u, y + 21.25f * u)
+        arcTo(x + 4.75f * u, y + 17.75f * u, x + 8.25f * u, y + 21.25f * u, 90f, 180f, false)
+        lineTo(x + 19.25f * u, y + 17.75f * u)
     }
 
     fun drawEditCaret(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
