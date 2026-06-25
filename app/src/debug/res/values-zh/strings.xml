@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ime_label">Aegis 输入法（debug）</string>
+    <string name="subtype_zh">Aegis 输入法（debug）</string>
+    <string name="subtype_en">Aegis English (debug)</string>
+</resources>
