@@ -81,6 +81,18 @@ class DictEngine(
         return decoder?.decodeCoveredAtomic(letters, MAX_CANDIDATES, cuts, context) ?: emptyList()
     }
 
+    override fun guessLockedWords(
+        lockedLetters: String,
+        active: String,
+        t9Active: Boolean,
+        cuts: Set<Int>,
+        context: CharSequence,
+    ): List<Cand> {
+        if (active.isEmpty()) return emptyList()
+        val out = decoder?.guessLockedWords(lockedLetters, active, t9Active, cuts, context, MAX_GUESSES) ?: emptyList()
+        return if (t9Active) out.filterNot { c -> c.word.all { it.code < 128 } } else out
+    }
+
     override fun syllables(composing: String, t9: Boolean): List<Syllable> =
         syllables(composing, t9, emptySet())
 
@@ -154,6 +166,11 @@ class DictEngine(
         return letters.storedReadingRepairs(model.unmarkedReadings())
     }
 
+    override fun prepareUserWords() {
+        decoder?.prepareUserIndex()
+        t9Decoder?.prepareUserIndex()
+    }
+
     override fun setFuzzyRules(rules: Set<String>) {
         decoder?.setFuzzyRules(rules)
         t9Decoder?.setFuzzyRules(rules)
@@ -161,6 +178,7 @@ class DictEngine(
 
     private companion object {
         const val MAX_CANDIDATES = 30
+        const val MAX_GUESSES = 3
         const val MAX_PREDICTIONS = 8
         const val ENGLISH_SUPPLY = 128
     }
