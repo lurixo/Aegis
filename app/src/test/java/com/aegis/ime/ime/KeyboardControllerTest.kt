@@ -946,6 +946,38 @@ class KeyboardControllerTest {
         assertEquals("", c.preeditForTest())
     }
 
+    @Test fun backspace_up_swipe_clears_pending_pinyin_in_any_layout() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.switchTextLayoutForTest(nine = true)
+        "6433".forEach { c.onKey(out(it.toString())) }
+        assertTrue("up-swipe must consume + clear the buffer", c.onBackspaceSwipe(true))
+        c.onKey(act(KeyAction.ENTER))
+        assertEquals(1, h.enters)
+        assertTrue(h.commits.isEmpty())
+        assertEquals(false, c.onBackspaceSwipe(true))
+    }
+
+    @Test fun up_swipe_with_an_assembled_prefix_and_remaining_reading_clears_it_and_consumes_the_gesture() {
+        val h = FakeHost()
+        val partial = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
+        }
+        val c = KeyboardController(h, partial)
+        c.switchTextLayoutForTest(nine = true)
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        clearCandidateUndo(c)
+        assertEquals("你", c.composingPrefix())
+        assertTrue("up-swipe must consume the gesture (重输), not fall through to the field wipe", c.onBackspaceSwipe(true))
+        assertEquals("the pending prefix is dropped", "", c.composingPrefix())
+        assertEquals("the pending reading is dropped", "", c.preeditForTest())
+        assertTrue("nothing committed, field untouched", h.commits.isEmpty())
+        assertEquals("never deleted committed editor text", 0, h.deletes)
+    }
+
     @Test fun alpha_preedit_automatically_displays_syllable_boundaries() {
         val c = KeyboardController(FakeHost(), engine)
         "nihao".forEach { c.onKey(out(it.toString())) }

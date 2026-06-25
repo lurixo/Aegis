@@ -247,6 +247,17 @@ class EnglishCompletionTest {
     }
 
     @Test
+    fun swiping_up_on_backspace_discards_the_word_silently() {
+        val h = FakeHost()
+        val c = english(h)
+        type(c, "or")
+        assertTrue(c.onBackspaceSwipe(true))
+        assertEquals("", c.englishWordForTest())
+        assertEquals(emptyList<String>(), h.commits)
+        assertEquals(emptyList<String>(), c.candidateWords())
+    }
+
+    @Test
     fun a_direct_symbol_flushes_the_word_and_lands_after_it() {
         val h = FakeHost()
         val c = english(h)

@@ -393,6 +393,19 @@ class KeyboardController(
         rebuildHistory()
     }
 
+    fun hasComposingToClear(): Boolean =
+        composing.isNotEmpty() || committedPrefix.isNotEmpty() || englishWord.isNotEmpty()
+
+    fun onBackspaceSwipe(up: Boolean): Boolean {
+        if (up && hasComposingToClear()) {
+            forgetEnglishWord()
+            clearComposingState()
+            render()
+            return true
+        }
+        return false
+    }
+
     fun onPickCandidate(index: Int) {
         if (index !in candidates.indices) return
         val cand = candidates[index]
