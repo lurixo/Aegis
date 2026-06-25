@@ -16,6 +16,7 @@
 package com.aegis.ime.decoder
 
 import com.aegis.ime.dict.BinaryDict
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -27,6 +28,17 @@ class PinyinDecoderTest {
     private fun decoder(): PinyinDecoder {
         assertTrue("demo dict asset present", dictFile.exists())
         return PinyinDecoder(BinaryDict.fromFile(dictFile))
+    }
+
+    @Test
+    fun decodesSentences() {
+        val d = decoder()
+        fun top(s: String) = d.decodeCovered(s, 30).firstOrNull()?.word
+        assertEquals("测试", top("ceshi"))
+        assertEquals("你好世界", top("nihaoshijie"))
+        assertEquals("我是中国人", top("woshizhongguoren"))
+        assertEquals("北京大学", top("beijingdaxue"))
+        assertEquals("输入法", top("shurufa"))
     }
 
     @Test
