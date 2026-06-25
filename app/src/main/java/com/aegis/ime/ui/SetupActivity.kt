@@ -20,6 +20,7 @@ import android.view.View
 import android.view.ViewTreeObserver
 import android.view.WindowInsets as AndroidWindowInsets
 import android.view.WindowManager
+import android.view.inputmethod.InputMethodManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.ColumnScope
@@ -47,6 +48,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.aegis.ime.R
+import androidx.compose.foundation.layout.size
 
 internal object SettingsRoutes {
     const val INPUT = "input"
@@ -165,4 +167,293 @@ internal fun synchronousTopInsetPx(
     !isAttachedToDisplayTop -> 0
     maximumIgnoringVisibilityTop > 0 -> maximumIgnoringVisibilityTop
     else -> 0
+}
+
+private val IME_SHOW_RETRY_DELAYS_MS = longArrayOf(
+    0L, 50L, 100L, 150L, 225L, 300L, 400L, 500L, 650L, 800L, 950L, 1_100L,
+)
+
+internal fun interface ImeRequestHandle {
+    fun cancel()
+}
+
+private class ImeRequestState(
+    private val shouldContinue: () -> Boolean,
+) : ImeRequestHandle {
+    private val cleanups = ArrayList<() -> Unit>()
+    private var finished = false
+
+    fun isActive(): Boolean = !finished && shouldContinue()
+
+    fun addCleanup(cleanup: () -> Unit) {
+        if (finished) {
+            cleanup()
+        } else {
+            cleanups.add(cleanup)
+        }
+    }
+
+    fun finish() {
+        if (finished) return
+        finished = true
+        val pendingCleanups = cleanups.toList().asReversed()
+        cleanups.clear()
+        pendingCleanups.forEach { it() }
+    }
+
+    override fun cancel() {
+        finish()
+    }
+}
+
+internal fun View.requestImeWhenReady(
+    context: Context = this.context,
+    focusTarget: () -> Unit,
+    showSoftInput: (View) -> Boolean = { target ->
+        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.showSoftInput(target, 0)
+    },
+    restartInput: (View) -> Unit = { target ->
+        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.restartInput(target)
+    },
+    isReady: View.() -> Boolean = { isAttachedToWindow && hasWindowFocus() },
+    isImeVisible: View.() -> Boolean = {
+        ViewCompat.getRootWindowInsets(this)?.isVisible(WindowInsetsCompat.Type.ime()) == true
+    },
+    shouldContinue: () -> Boolean = { true },
+    retryDelaysMs: LongArray = IME_SHOW_RETRY_DELAYS_MS,
+): ImeRequestHandle {
+    val state = ImeRequestState(shouldContinue)
+    requestImeWhenReady(
+        context,
+        focusTarget,
+        showSoftInput,
+        restartInput,
+        isReady,
+        isImeVisible,
+        retryDelaysMs,
+        state,
+    )
+    return state
+}
+
+private fun View.requestImeWhenReady(
+    context: Context,
+    focusTarget: () -> Unit,
+    showSoftInput: (View) -> Boolean,
+    restartInput: (View) -> Unit,
+    isReady: View.() -> Boolean,
+    isImeVisible: View.() -> Boolean,
+    retryDelaysMs: LongArray,
+    state: ImeRequestState,
+) {
+    if (!state.isActive()) {
+        state.finish()
+        return
+    }
+    if (isReady()) {
+        val requestFocus = Runnable {
+            if (!state.isActive() || !isAttachedToWindow) {
+                state.finish()
+                return@Runnable
+            }
+            focusTarget()
+            if (!state.isActive() || !isAttachedToWindow) {
+                state.finish()
+                return@Runnable
+            }
+            showImeForFocusedViewWhenReady(
+                showSoftInput,
+                restartInput,
+                isReady,
+                isImeVisible,
+                retryDelaysMs,
+                state,
+            )
+        }
+        state.addCleanup { removeCallbacks(requestFocus) }
+        post(requestFocus)
+        return
+    }
+    if (!isAttachedToWindow) {
+        val listener = object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) {
+                v.removeOnAttachStateChangeListener(this)
+                if (!state.isActive()) {
+                    state.finish()
+                    return
+                }
+                v.requestImeWhenReady(
+                    context,
+                    focusTarget,
+                    showSoftInput,
+                    restartInput,
+                    isReady,
+                    isImeVisible,
+                    retryDelaysMs,
+                    state,
+                )
+            }
+            override fun onViewDetachedFromWindow(v: View) {
+                state.finish()
+            }
+        }
+        addOnAttachStateChangeListener(listener)
+        state.addCleanup { removeOnAttachStateChangeListener(listener) }
+        return
+    }
+    if (!hasWindowFocus()) {
+        val listener = object : ViewTreeObserver.OnWindowFocusChangeListener {
+            override fun onWindowFocusChanged(hasFocus: Boolean) {
+                if (!state.isActive()) {
+                    state.finish()
+                    return
+                }
+                if (!hasFocus) return
+                val observer = viewTreeObserver
+                if (observer.isAlive) observer.removeOnWindowFocusChangeListener(this)
+                requestImeWhenReady(
+                    context,
+                    focusTarget,
+                    showSoftInput,
+                    restartInput,
+                    isReady,
+                    isImeVisible,
+                    retryDelaysMs,
+                    state,
+                )
+            }
+        }
+        viewTreeObserver.addOnWindowFocusChangeListener(listener)
+        state.addCleanup {
+            val observer = viewTreeObserver
+            if (observer.isAlive) observer.removeOnWindowFocusChangeListener(listener)
+        }
+    }
+}
+
+private fun View.showImeForFocusedViewWhenReady(
+    showSoftInput: (View) -> Boolean,
+    restartInput: (View) -> Unit,
+    isReady: View.() -> Boolean,
+    isImeVisible: View.() -> Boolean,
+    retryDelaysMs: LongArray,
+    state: ImeRequestState,
+) {
+    var listener: ViewTreeObserver.OnGlobalFocusChangeListener? = null
+    var retry: Runnable? = null
+
+    fun focusedImeTarget(): View? =
+        rootView.findFocus()?.takeIf {
+            state.isActive() &&
+                isAttachedToWindow &&
+                isReady() &&
+                it.isAttachedToWindow &&
+                it.windowToken != null &&
+                it.isShown &&
+                it.isFocused
+        }
+
+    fun removeListener() {
+        val current = viewTreeObserver
+        val active = listener ?: return
+        if (current.isAlive) current.removeOnGlobalFocusChangeListener(active)
+        listener = null
+    }
+
+    fun cancelRetry() {
+        retry?.let { removeCallbacks(it) }
+        retry = null
+    }
+
+    fun finish() {
+        removeListener()
+        cancelRetry()
+        state.finish()
+    }
+
+    if (!state.isActive() || !isAttachedToWindow) {
+        finish()
+        return
+    }
+
+    val detachListener = object : View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(v: View) = Unit
+        override fun onViewDetachedFromWindow(v: View) {
+            finish()
+        }
+    }
+    addOnAttachStateChangeListener(detachListener)
+    state.addCleanup { removeOnAttachStateChangeListener(detachListener) }
+
+    lateinit var scheduleAttempt: (Int) -> Unit
+
+    fun attempt(index: Int) {
+        if (!state.isActive() || !isAttachedToWindow) {
+            finish()
+            return
+        }
+        val target = focusedImeTarget()
+        if (target == null) {
+            scheduleAttempt(index + 1)
+            return
+        }
+        val showAttempt = Runnable {
+            if (!state.isActive() || !isAttachedToWindow) {
+                finish()
+                return@Runnable
+            }
+            val current = focusedImeTarget()
+            if (current == null) {
+                scheduleAttempt(index + 1)
+                return@Runnable
+            }
+            if (current.isImeVisible()) {
+                finish()
+                return@Runnable
+            }
+            restartInput(current)
+            showSoftInput(current)
+            if (current.isImeVisible()) finish() else scheduleAttempt(index + 1)
+        }
+        state.addCleanup { target.removeCallbacks(showAttempt) }
+        target.post(showAttempt)
+    }
+
+    scheduleAttempt = attemptScheduler@{ index ->
+        if (!state.isActive() || !isAttachedToWindow) {
+            finish()
+            return@attemptScheduler
+        }
+        if (retry != null) return@attemptScheduler
+        if (index >= retryDelaysMs.size) {
+            finish()
+            return@attemptScheduler
+        }
+        val r = Runnable {
+            retry = null
+            attempt(index)
+        }
+        retry = r
+        state.addCleanup { removeCallbacks(r) }
+        val delayMs = retryDelaysMs[index]
+        if (delayMs <= 0L) post(r) else postDelayed(r, delayMs)
+    }
+
+    val observer = viewTreeObserver
+    if (!observer.isAlive) {
+        finish()
+        return
+    }
+
+    val focusListener = ViewTreeObserver.OnGlobalFocusChangeListener { _, _ ->
+        scheduleAttempt(0)
+    }
+    listener = focusListener
+    observer.addOnGlobalFocusChangeListener(focusListener)
+    state.addCleanup {
+        if (observer.isAlive) observer.removeOnGlobalFocusChangeListener(focusListener)
+    }
+    scheduleAttempt(0)
 }
