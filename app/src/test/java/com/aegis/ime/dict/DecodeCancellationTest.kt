@@ -15,9 +15,11 @@
 
 package com.aegis.ime.dict
 
+import com.aegis.ime.decoder.EngineFixture
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DecodeCancellationTest {
@@ -57,5 +59,19 @@ class DecodeCancellationTest {
         }
         assertNull(result)
         assertEquals("another thread's checkpoint is not cancelled by this attempt", 1, seenElsewhere)
+    }
+
+    @Test fun a_prefix_scan_stops_inside_its_key_loop() {
+        val rows = (0 until 1_500).map { EngineFixture.Row("sh" + it.toString().padStart(4, '0'), "词$it", 1_500 - it) }
+        val dict = EngineFixture.build(rows)
+        val expected = dict.prefixByFreq("sh", 5)
+        var polls = 0
+        val cancelled = DecodeCancellation.attempt({ ++polls > 2 }) { dict.prefixByFreq("sh", 5) }
+        assertNull("the scan over 1500 keys is interrupted", cancelled)
+        assertEquals("it polled every few hundred keys", 3, polls)
+        var fullPolls = 0
+        val full = DecodeCancellation.attempt({ fullPolls++; false }) { dict.prefixByFreq("sh", 5) }
+        assertEquals(expected, full?.getOrNull())
+        assertTrue("a full scan of 1500 keys polls a handful of times, not per key: $fullPolls", fullPolls in 3..16)
     }
 }

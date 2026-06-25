@@ -1,0 +1,245 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Copyright (C) 2026 lurixo
+//
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 3.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+// PARTICULAR PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
+
+package com.aegis.ime.dict
+
+import com.aegis.ime.decoder.EngineFixture
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.File
+
+class BinaryDictTest {
+
+    @get:Rule
+    val tmp = TemporaryFolder()
+
+    private fun dictBytes(
+        version: Int = 2,
+        numKeys: Int = 0,
+        numEntries: Int = 0,
+        keyBlob: ByteArray = ByteArray(0),
+        wordBlob: ByteArray = ByteArray(0),
+        keyBlobLen: Int = keyBlob.size,
+        wordBlobLen: Int = wordBlob.size,
+        keyRecords: IntArray = IntArray(0),
+        entryRecords: IntArray = IntArray(0),
+    ): File {
+        val out = java.io.ByteArrayOutputStream()
+        fun le(v: Int) { out.write(v); out.write(v ushr 8); out.write(v ushr 16); out.write(v ushr 24) }
+        out.write("AEGD".toByteArray(Charsets.US_ASCII))
+        le(version); le(numKeys); le(numEntries)
+        for (shift in 0 until 64 step 8) out.write(((1L ushr shift).toInt()) and 0xFF)
+        le(keyBlobLen); out.write(keyBlob)
+        le(wordBlobLen); out.write(wordBlob)
+        for (v in keyRecords) le(v)
+        for (v in entryRecords) le(v)
+        return File(tmp.newFolder(), "dict.bin").apply { writeBytes(out.toByteArray()) }
+    }
+
+    @Test
+    fun anEmptyButWellFormedDictionaryLoads() {
+        val dict = BinaryDict.fromFile(dictBytes())
+        assertEquals(emptyList<String>(), dict.query("a", 5))
+    }
+
+    @Test
+    fun aDictionaryFromAnotherFormatIsRefused() {
+        assertThrows(IllegalArgumentException::class.java) { BinaryDict.fromFile(dictBytes(version = 3)) }
+    }
+
+    @Test
+    fun lengthsThatRunPastTheFileAreRefused() {
+        assertThrows("a key blob longer than the file", IllegalArgumentException::class.java) {
+            BinaryDict.fromFile(dictBytes(keyBlobLen = 1 shl 20))
+        }
+        assertThrows("a negative key blob length", IllegalArgumentException::class.java) {
+            BinaryDict.fromFile(dictBytes(keyBlobLen = -1))
+        }
+        assertThrows("a word blob longer than the file", IllegalArgumentException::class.java) {
+            BinaryDict.fromFile(dictBytes(wordBlobLen = 1 shl 20))
+        }
+    }
+
+    @Test
+    fun aKeyRecordThatLeavesItsBlobIsRefused() {
+        assertThrows("a key length past the blob", IllegalArgumentException::class.java) {
+            BinaryDict.fromFile(
+                dictBytes(
+                    numKeys = 1,
+                    keyBlob = byteArrayOf('a'.code.toByte()),
+                    keyRecords = intArrayOf(0, 1 shl 20, 0),
+                ),
+            )
+        }
+        assertThrows("a negative key offset", IllegalArgumentException::class.java) {
+            BinaryDict.fromFile(
+                dictBytes(
+                    numKeys = 1,
+                    keyBlob = byteArrayOf('a'.code.toByte()),
+                    keyRecords = intArrayOf(-8, 1, 0),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun aKeyPointingOutsideTheEntryTableIsRefused() {
+        assertThrows(IllegalArgumentException::class.java) {
+            BinaryDict.fromFile(
+                dictBytes(
+                    numKeys = 1,
+                    numEntries = 1,
+                    keyBlob = byteArrayOf('a'.code.toByte()),
+                    wordBlob = "啊".toByteArray(Charsets.UTF_8),
+                    keyRecords = intArrayOf(0, 1, 5),
+                    entryRecords = intArrayOf(0, 3, 100),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun anEntryThatLeavesTheWordBlobIsRefused() {
+        assertThrows(IllegalArgumentException::class.java) {
+            BinaryDict.fromFile(
+                dictBytes(
+                    numKeys = 1,
+                    numEntries = 1,
+                    keyBlob = byteArrayOf('a'.code.toByte()),
+                    wordBlob = "啊".toByteArray(Charsets.UTF_8),
+                    keyRecords = intArrayOf(0, 1, 0),
+                    entryRecords = intArrayOf(0, 1 shl 20, 100),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun aDictionaryEndingBeforeItsEntryTableIsRefused() {
+        assertThrows(IllegalArgumentException::class.java) {
+            BinaryDict.fromFile(
+                dictBytes(
+                    numKeys = 1,
+                    numEntries = 1,
+                    keyBlob = byteArrayOf('a'.code.toByte()),
+                    keyRecords = intArrayOf(0, 1, 0),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun aFullyValidatedSingleWordDictionaryStillAnswers() {
+        val word = "啊".toByteArray(Charsets.UTF_8)
+        val dict = BinaryDict.fromFile(
+            dictBytes(
+                numKeys = 1,
+                numEntries = 1,
+                keyBlob = byteArrayOf('a'.code.toByte()),
+                wordBlob = word,
+                keyRecords = intArrayOf(0, 1, 0),
+                entryRecords = intArrayOf(0, word.size, 7),
+            ),
+        )
+        assertEquals(listOf("啊"), dict.query("a", 5))
+        assertEquals(7, requireNotNull(dict.exactWordFreq("a", "啊")))
+    }
+
+    @Test
+    fun aKeyCountThatOverflowsItsTableIsRefused() {
+        assertThrows(
+            "numKeys * 12 must not wrap into a negative offset",
+            IllegalArgumentException::class.java,
+        ) { BinaryDict.fromFile(dictBytes(numKeys = 200_000_000)) }
+    }
+
+    @Test
+    fun prefixByFreqKeepsTheStrongestReadingOfADuplicatedWord() {
+        val rows = listOf(
+            EngineFixture.Row("shga", "同词", 900),
+            EngineFixture.Row("shgb", "同词", 700),
+            EngineFixture.Row("shgc", "另词", 800),
+            EngineFixture.Row("shgd", "三词", 600),
+            EngineFixture.Row("shge", "四词", 500),
+        )
+        val dict = EngineFixture.build(rows)
+
+        val top3 = dict.prefixByFreq("shg", 3)
+        assertEquals(listOf("同词" to 900, "另词" to 800, "三词" to 600), top3.map { it.word to it.freq })
+
+        val all = dict.prefixByFreq("shg", 10)
+        assertEquals(listOf("同词", "另词", "三词", "四词"), all.map { it.word })
+        assertEquals(900, all.first { it.word == "同词" }.freq)
+    }
+
+    @Test
+    fun oneUnitPrefixIndexDeduplicatesByWordForLettersAndDigits() {
+        val letterRows = listOf(
+            EngineFixture.Row("de", "地", 900),
+            EngineFixture.Row("di", "地", 700),
+            EngineFixture.Row("da", "大", 800),
+            EngineFixture.Row("du", "读", 600),
+        )
+        val letterDict = EngineFixture.build(letterRows)
+        assertEquals(
+            listOf("地" to 900, "大" to 800, "读" to 600),
+            letterDict.prefixByFreq("d", 3).map { it.word to it.freq },
+        )
+
+        val digitRows = listOf(
+            EngineFixture.Row("33", "地", 900),
+            EngineFixture.Row("34", "地", 700),
+            EngineFixture.Row("32", "大", 800),
+            EngineFixture.Row("38", "读", 600),
+        )
+        val digitDict = EngineFixture.build(digitRows)
+        assertEquals(
+            listOf("地" to 900, "大" to 800, "读" to 600),
+            digitDict.prefixByFreq("3", 3).map { it.word to it.freq },
+        )
+    }
+
+    @Test
+    fun prefixByFreqKeepsTheEarlierEntryOfAnEqualFrequencyDuplicate() {
+        val rows = listOf(
+            EngineFixture.Row("shga", "同词", 500),
+            EngineFixture.Row("shgb", "同词", 500),
+            EngineFixture.Row("shgc", "另词", 400),
+        )
+        val dict = EngineFixture.build(rows)
+        assertEquals(
+            listOf("同词" to 500, "另词" to 400),
+            dict.prefixByFreq("shg", 2).map { it.word to it.freq },
+        )
+    }
+
+    @Test
+    fun prefixByFreqServesALimitLargerThanAnyAllocatableHeap() {
+        val rows = (0 until 40).map { EngineFixture.Row("sh" + ('a' + it % 4), "词$it", 1000 - it) }
+        val dict = EngineFixture.build(rows)
+
+        val everyHit = dict.prefixByFreq("sh", rows.size)
+        assertEquals("multi-character prefix reaches every fixture row", rows.size, everyHit.size)
+        assertEquals(
+            "a limit past every allocatable size returns the same hits in the same order",
+            everyHit,
+            dict.prefixByFreq("sh", Int.MAX_VALUE),
+        )
+        assertEquals("a small limit still returns the leading slice", everyHit.take(3), dict.prefixByFreq("sh", 3))
+    }
+}
