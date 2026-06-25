@@ -3,4 +3,6 @@
     <string name="kbd_space">空格</string>
     <string name="kbd_symbols">符号</string>
     <string name="kbd_split">分词</string>
+    <string name="kbd_redo">重输</string>
+    <string name="kbd_custom">自定义</string>
 </resources>

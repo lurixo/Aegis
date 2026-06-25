@@ -3,4 +3,6 @@
     <string name="kbd_space">Space</string>
     <string name="kbd_symbols">Symbols</string>
     <string name="kbd_split">Split</string>
+    <string name="kbd_redo">Retype</string>
+    <string name="kbd_custom">Custom</string>
 </resources>

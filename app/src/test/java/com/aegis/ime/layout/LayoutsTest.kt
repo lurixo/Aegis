@@ -21,10 +21,47 @@ import org.junit.Test
 
 class LayoutsTest {
 
+    private val nine = Layouts.nine(Layouts.ninePunctuation())
     private val qwerty = Layouts.forId(LayoutId.ALPHA, Lang.CN)
     private val qwertyEn = Layouts.forId(LayoutId.ALPHA, Lang.EN)
 
     private fun keysOf(l: KeyboardLayout): List<Key> = l.cells?.map { it.key } ?: l.rows.flatMap { it.keys }
+
+    @Test fun nine_main_keys_keep_their_labels_and_show_one_through_nine_as_up_swipes() {
+        val labels = nine.cells!!.map { it.key.label }.toSet()
+        val main = listOf("@#", "ABC", "DEF", "GHI", "JKL", "MNO", "PQRS", "TUV", "WXYZ")
+        for (l in main) {
+            assertTrue("9-key missing middle key $l", l in labels)
+        }
+        assertTrue(
+            "9-key must not label keys with digits",
+            nine.cells.none { it.key.action == KeyAction.COMMIT && it.key.label.length == 1 && it.key.label[0] in '0'..'9' },
+        )
+        assertEquals(
+            (1..9).map(Int::toString),
+            main.map { label -> nine.cells.first { it.key.label == label }.key.sub },
+        )
+        assertEquals(
+            (1..9).map(Int::toString),
+            main.map { label -> nine.cells.first { it.key.label == label }.key.swipeUp },
+        )
+        val redo = nine.cells.first { it.key.action == KeyAction.CLEAR_COMPOSING }.key
+        assertEquals("0", redo.swipeUp)
+        assertEquals("重输 does not gain a visible zero hint", null, redo.sub)
+        assertEquals(listOf("@#"), nine.cells.filter { it.key.swipeDown != null }.map { it.key.label })
+        assertEquals("@", nine.cells.first { it.key.label == "@#" }.key.swipeDown)
+    }
+
+    @Test fun nine_right_column_order_is_backspace_clear_enter() {
+        val cells = nine.cells!!
+        val maxX = cells.maxOf { it.x }
+        val right = cells.filter { it.x >= maxX - 1e-4f }.sortedBy { it.y }
+        assertEquals(
+            listOf(KeyAction.BACKSPACE, KeyAction.CLEAR_COMPOSING, KeyAction.ENTER),
+            right.map { it.key.action },
+        )
+        assertTrue("enter should be the green accent key", right.last().key.accent)
+    }
 
     @Test fun qwerty_is_four_rows_with_digit_subsymbols_on_the_top_letter_row() {
         assertEquals("26-key drops the standalone digit row for four rows", 4, qwerty.rowCount)
@@ -95,6 +132,75 @@ class LayoutsTest {
         })
         assertEquals(1, keysOf(english).count { it.action == KeyAction.SHIFT })
         assertEquals(0, keysOf(english).count { it.action == KeyAction.SEGMENT })
+    }
+
+    @Test fun nine_space_is_in_bottom_row_not_right_column() {
+        val cells = nine.cells!!
+        val space = cells.first { it.key.action == KeyAction.SPACE }
+        assertTrue("space belongs in the bottom row", space.y >= 0.7f)
+        val maxX = cells.maxOf { it.x }
+        assertTrue(
+            "right column must not contain space",
+            cells.none { it.key.action == KeyAction.SPACE && it.x >= maxX - 1e-4f },
+        )
+    }
+
+    @Test fun nine_123_key_opens_the_numpad_grid() {
+        val k123 = nine.cells!!.first { it.key.label == "123" }
+        assertEquals(KeyAction.SWITCH_NUMPAD, k123.key.action)
+    }
+
+    @Test fun alphabet_123_and_nine_page_key_keep_their_distinct_flows() {
+        val alphabet123 = qwerty.cells!!.first { it.key.label == "123" }
+        val ninePage = nine.cells!!.first { it.key.label == "@#" }
+        assertEquals(KeyAction.SWITCH_NUMPAD, alphabet123.key.action)
+        assertEquals(KeyAction.SWITCH_NUMBERS, ninePage.key.action)
+    }
+
+    @Test fun nine_composing_top_left_is_the_segment_key() {
+        val composing = Layouts.nine(Layouts.ninePunctuation(), composing = true)
+        assertTrue(
+            "composing 9-key top-left must be the 分词 key",
+            composing.cells!!.any { it.key.labelRes == com.aegis.ime.R.string.kbd_split && it.key.action == KeyAction.SEGMENT },
+        )
+        val split = composing.cells!!.first { it.key.action == KeyAction.SEGMENT }.key
+        assertEquals("1", split.sub)
+        assertEquals("1", split.swipeUp)
+        assertEquals("@", split.swipeDown)
+        assertEquals(listOf(split), composing.cells.filter { it.key.swipeDown != null }.map { it.key })
+    }
+
+    @Test fun nine_left_column_is_a_scroll_column_not_fixed_cells() {
+        val longList = (1..20).map { Key("r$it", action = KeyAction.PICK_READING) }
+        val l = Layouts.nine(longList, composing = true)
+        val sc = l.scrollColumn!!
+        val cells = l.cells!!
+        assertEquals("scroll column carries the full list", longList.map { it.label }, sc.items.map { it.label })
+        assertTrue("no left cells leak into the placed cells", cells.none { it.groupId == 1 })
+        assertTrue("scroll region sits in the upper band", sc.y >= -1e-4f && sc.y + sc.h <= 0.75f + 1e-4f)
+        assertTrue("scroll region within keyboard width", sc.x >= -1e-4f && sc.x + sc.w <= 1f + 1e-4f)
+        assertTrue("pen present below the column", cells.any { it.key.action == KeyAction.SHOW_SYMBOLS })
+    }
+
+    @Test fun nine_resting_left_column_is_the_full_punctuation_list() {
+        val sc = Layouts.nine(Layouts.ninePunctuation()).scrollColumn!!
+        assertEquals(
+            listOf("，", "。", "？", "！", "…", "：", "；", "~", ".", "-", "@"),
+            sc.items.dropLast(1).map { it.label },
+        )
+        assertEquals(com.aegis.ime.R.string.kbd_custom, sc.items.last().labelRes)
+        assertEquals(KeyAction.CUSTOM_SYMBOL, sc.items.last().action)
+    }
+
+    @Test fun nine_punctuation_inserts_custom_marks_before_the_自定义_entry() {
+        val sc = Layouts.nine(Layouts.ninePunctuation(listOf("、", "《"))).scrollColumn!!
+        assertEquals(
+            listOf("，", "。", "？", "！", "…", "：", "；", "~", ".", "-", "@", "、", "《"),
+            sc.items.dropLast(1).map { it.label },
+        )
+        assertEquals(com.aegis.ime.R.string.kbd_custom, sc.items.last().labelRes)
+        assertEquals(KeyAction.CUSTOM_SYMBOL, sc.items.last().action)
+        assertTrue("custom marks commit directly", sc.items.filter { it.label in listOf("、", "《") }.all { it.direct })
     }
 
     @Test fun qwerty_pen_opens_symbols() {

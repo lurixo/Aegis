@@ -17,11 +17,14 @@ package com.aegis.ime.layout
 
 import com.aegis.ime.R
 import com.aegis.ime.layout.KeyAction.BACKSPACE
+import com.aegis.ime.layout.KeyAction.CLEAR_COMPOSING
+import com.aegis.ime.layout.KeyAction.CUSTOM_SYMBOL
 import com.aegis.ime.layout.KeyAction.ENTER
 import com.aegis.ime.layout.KeyAction.SHIFT
 import com.aegis.ime.layout.KeyAction.SEGMENT
 import com.aegis.ime.layout.KeyAction.SHOW_SYMBOLS
 import com.aegis.ime.layout.KeyAction.SPACE
+import com.aegis.ime.layout.KeyAction.SWITCH_NUMBERS
 import com.aegis.ime.layout.KeyAction.SWITCH_NUMPAD
 import com.aegis.ime.layout.KeyAction.TOGGLE_LANG
 
@@ -29,7 +32,19 @@ object Layouts {
 
     fun forId(id: LayoutId, lang: Lang, composing: Boolean = false): KeyboardLayout = when (id) {
         LayoutId.ALPHA -> qwerty(lang, composing)
+        LayoutId.NINE -> nine(ninePunctuation())
     }
+
+    private const val NINE_LEFT_U = 0.85f
+    private const val NINE_MAIN_U = 1.0f
+    private const val NINE_RIGHT_U = 0.85f
+    private const val NINE_TOTAL_U = NINE_LEFT_U + 3f * NINE_MAIN_U + NINE_RIGHT_U
+
+    val nineFixedPunctuation: List<String> = listOf("，", "。", "？", "！", "…", "：", "；", "~", ".", "-", "@")
+
+    fun ninePunctuation(custom: List<String> = emptyList()): List<Key> =
+        nineFixedPunctuation.map { Key(it, direct = true) } +
+            custom.map { Key(it, direct = true) } + Key(labelRes = R.string.kbd_custom, action = CUSTOM_SYMBOL)
 
     private fun subRow(letters: String, subs: List<String>): List<Key> =
         letters.mapIndexed { i, c -> Key(c.toString(), sub = subs.getOrNull(i)) }
@@ -81,5 +96,37 @@ object Layouts {
             bottomX += width
         }
         return KeyboardLayout(LayoutId.ALPHA, cells = cells, rowCount = 4)
+    }
+
+    private fun t9key(letters: String, digit: String) = Key(letters, output = digit, sub = digit)
+
+    fun nine(left: List<Key>, composing: Boolean = false): KeyboardLayout {
+        val u = 1f / NINE_TOTAL_U
+        val xL = 0f; val wL = NINE_LEFT_U * u
+        val x1 = NINE_LEFT_U * u; val x2 = (NINE_LEFT_U + 1f) * u; val x3 = (NINE_LEFT_U + 2f) * u; val wM = NINE_MAIN_U * u
+        val xR = (NINE_LEFT_U + 3f) * u; val wR = NINE_RIGHT_U * u
+        val cells = ArrayList<PlacedKey>()
+        val leftColumn = ScrollColumn(left, xL, 0f, wL, 0.75f, cellHFrac = 0.75f / 4f)
+        cells.add(PlacedKey(Key(labelRes = R.string.kbd_symbols, action = SHOW_SYMBOLS, rail = true), xL, 0.75f, wL, 0.25f))
+        cells.add(PlacedKey(
+            if (composing) Key(labelRes = R.string.kbd_split, action = SEGMENT, sub = "1", swipeDown = "@")
+            else Key("@#", action = SWITCH_NUMBERS, sub = "1", swipeDown = "@"),
+            x1, 0f, wM, 0.25f,
+        ))
+        cells.add(PlacedKey(t9key("ABC", "2"), x2, 0f, wM, 0.25f))
+        cells.add(PlacedKey(t9key("DEF", "3"), x3, 0f, wM, 0.25f))
+        cells.add(PlacedKey(t9key("GHI", "4"), x1, 0.25f, wM, 0.25f))
+        cells.add(PlacedKey(t9key("JKL", "5"), x2, 0.25f, wM, 0.25f))
+        cells.add(PlacedKey(t9key("MNO", "6"), x3, 0.25f, wM, 0.25f))
+        cells.add(PlacedKey(t9key("PQRS", "7"), x1, 0.5f, wM, 0.25f))
+        cells.add(PlacedKey(t9key("TUV", "8"), x2, 0.5f, wM, 0.25f))
+        cells.add(PlacedKey(t9key("WXYZ", "9"), x3, 0.5f, wM, 0.25f))
+        cells.add(PlacedKey(Key("123", action = SWITCH_NUMPAD, rail = true), x1, 0.75f, 0.8f * u, 0.25f))
+        cells.add(PlacedKey(Key(labelRes = R.string.kbd_space, output = " ", action = SPACE), x1 + 0.8f * u, 0.75f, 1.4f * u, 0.25f))
+        cells.add(PlacedKey(Key(action = TOGGLE_LANG, rail = true), x1 + 2.2f * u, 0.75f, 0.8f * u, 0.25f))
+        cells.add(PlacedKey(Key("⌫", action = BACKSPACE, rail = true), xR, 0f, wR, 0.25f))
+        cells.add(PlacedKey(Key(labelRes = R.string.kbd_redo, action = CLEAR_COMPOSING, swipeUp = "0", rail = true), xR, 0.25f, wR, 0.25f))
+        cells.add(PlacedKey(Key("↵", action = ENTER, accent = true), xR, 0.5f, wR, 0.5f))
+        return KeyboardLayout(LayoutId.NINE, cells = cells, rowCount = 4, scrollColumn = leftColumn)
     }
 }

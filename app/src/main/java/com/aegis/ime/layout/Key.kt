@@ -17,18 +17,22 @@ package com.aegis.ime.layout
 
 enum class Lang { CN, EN }
 
-enum class LayoutId { ALPHA }
+enum class LayoutId { ALPHA, NINE }
 
 enum class KeyAction {
     COMMIT,
     BACKSPACE,
+    CLEAR_COMPOSING,
     ENTER,
     SHIFT,
     SPACE,
+    SWITCH_NUMBERS,
     SWITCH_NUMPAD,
     TOGGLE_LANG,
+    PICK_READING,
     SHOW_SYMBOLS,
     SEGMENT,
+    CUSTOM_SYMBOL,
 }
 
 data class Key(
@@ -51,9 +55,16 @@ data class KeyboardRow(val keys: List<Key>)
 
 data class PlacedKey(val key: Key, val x: Float, val y: Float, val w: Float, val h: Float, val groupId: Int = 0)
 
+data class ScrollColumn(
+    val items: List<Key>,
+    val x: Float, val y: Float, val w: Float, val h: Float,
+    val cellHFrac: Float,
+)
+
 data class KeyboardLayout(
     val id: LayoutId,
     val rows: List<KeyboardRow> = emptyList(),
     val cells: List<PlacedKey>? = null,
     val rowCount: Int = rows.size,
+    val scrollColumn: ScrollColumn? = null,
 )
