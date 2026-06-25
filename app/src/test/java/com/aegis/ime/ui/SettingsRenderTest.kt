@@ -138,4 +138,14 @@ class SettingsRenderTest {
         }
         assertThemedPairDiffers("dlcard_states_")
     }
+
+    @Test fun settings_home_renders() {
+        for (dark in listOf(false, true)) {
+            val t = if (dark) "dark" else "light"
+            snapCompose("settings_home_$t.png", dark) {
+                SettingsHomePage(onOpenGroup = {})
+            }
+        }
+        assertThemedPairDiffers("settings_home_")
+    }
 }

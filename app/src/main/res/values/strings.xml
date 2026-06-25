@@ -5,11 +5,22 @@
     <string name="subtype_zh">Aegis Chinese</string>
     <string name="subtype_en">Aegis English</string>
 
+    <string name="setup_title">Aegis IME</string>
+    <string name="setup_summary">Chinese / English input method with a self-developed Pinyin engine; it goes online only to download the dictionary and enhancement model, to translate, and to open external links</string>
+    <string name="setup_first_run_title">First use</string>
+    <string name="setup_first_run_body">Chinese input needs a dictionary download — tap the prompt in the candidate bar, or use the dictionary settings below; the English dictionary is in the same pack</string>
+    <string name="setup_first_run_ack">Got it</string>
+
     <string name="settings_group_input_title">Input settings</string>
+    <string name="settings_group_input_desc">Default input mode, fuzzy Pinyin, suggestions and learning</string>
     <string name="settings_group_keyboard_title">Keyboard settings</string>
+    <string name="settings_group_keyboard_desc">Layout, key sounds, vibration and previews</string>
     <string name="settings_group_dicts_title">Dictionaries &amp; downloads</string>
+    <string name="settings_group_dicts_desc">Full dictionary pack, enhancement model</string>
     <string name="settings_group_userdict_title">User dictionary</string>
+    <string name="settings_group_userdict_desc">Search, add or delete your words, import and export</string>
     <string name="settings_group_about_title">About &amp; enable</string>
+    <string name="settings_group_about_desc">App release, enable Aegis, try typing</string>
     <string name="settings_back">Back</string>
     <string name="settings_language_title">UI language</string>
     <string name="settings_language_description">Applies to the settings app and the keyboard</string>
@@ -138,6 +149,7 @@
     <string name="app_release_label_format" translatable="false">Aegis v%1$s</string>
 
     <string name="settings_backup_title">Data backup</string>
+    <string name="settings_backup_desc">Export or import all your data as an encrypted file</string>
     <string name="restore_gate_rollback_failed">Restore unfinished — undo failed, tap here</string>
     <string name="restore_gate_rollback_impossible">Restore unfinished — cannot undo, tap here</string>
 

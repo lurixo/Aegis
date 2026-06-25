@@ -21,33 +21,47 @@ import android.view.ViewTreeObserver
 import android.view.WindowInsets as AndroidWindowInsets
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.core.content.edit
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.aegis.ime.R
+import com.aegis.ime.ui.theme.AppSpacing
+import com.aegis.ime.ui.theme.SettingsMotion
 import androidx.compose.foundation.layout.size
 
 internal object SettingsRoutes {
@@ -60,6 +74,108 @@ internal object SettingsRoutes {
 
     val GROUPS = listOf(INPUT, KEYBOARD, DICTS, USER_DICT, BACKUP, ABOUT)
 }
+
+@Composable
+internal fun SettingsHomePage(onOpenGroup: (String) -> Unit) {
+    val context = LocalContext.current
+    val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
+
+    var showDownloadHint by remember { mutableStateOf(!prefs.flagOr("dl_hint_dismissed", false)) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .settingsScrollInsets(
+                scrollState = rememberScrollState(),
+                bottomInsets = WindowInsets.safeDrawing,
+                topInsets = settingsTopInset(),
+            )
+            .padding(horizontal = AppSpacing.screenHorizontal)
+            .padding(top = AppSpacing.screenHorizontal, bottom = AppSpacing.pageBottom),
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.sectionGap),
+    ) {
+        Text(stringResource(R.string.setup_title), style = MaterialTheme.typography.headlineMedium)
+        Text(
+            stringResource(R.string.setup_summary),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        AnimatedVisibility(
+            visible = showDownloadHint,
+            enter = SettingsMotion.revealEnter(),
+            exit = SettingsMotion.collapseExit(),
+        ) {
+            AppSection {
+                Column(
+                    modifier = Modifier.padding(AppSpacing.sectionPadding),
+                    verticalArrangement = Arrangement.spacedBy(AppSpacing.compactGap),
+                ) {
+                    Text(stringResource(R.string.setup_first_run_title), style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        stringResource(R.string.setup_first_run_body),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    TextButton(
+                        modifier = Modifier.align(Alignment.End).testTag("setup_first_run_ack"),
+                        onClick = {
+                            showDownloadHint = false
+                            prefs.edit { putBoolean("dl_hint_dismissed", true) }
+                        },
+                        shape = MaterialTheme.shapes.extraSmall,
+                    ) { Text(stringResource(R.string.setup_first_run_ack)) }
+                }
+            }
+        }
+
+        AppSection {
+            SettingsGroupRow(
+                titleRes = R.string.settings_group_input_title,
+                descRes = R.string.settings_group_input_desc,
+                onClick = { onOpenGroup(SettingsRoutes.INPUT) },
+            )
+            AppSectionDivider()
+            SettingsGroupRow(
+                titleRes = R.string.settings_group_keyboard_title,
+                descRes = R.string.settings_group_keyboard_desc,
+                onClick = { onOpenGroup(SettingsRoutes.KEYBOARD) },
+            )
+            AppSectionDivider()
+            SettingsGroupRow(
+                titleRes = R.string.settings_group_dicts_title,
+                descRes = R.string.settings_group_dicts_desc,
+                onClick = { onOpenGroup(SettingsRoutes.DICTS) },
+            )
+            AppSectionDivider()
+            SettingsGroupRow(
+                titleRes = R.string.settings_group_userdict_title,
+                descRes = R.string.settings_group_userdict_desc,
+                onClick = { onOpenGroup(SettingsRoutes.USER_DICT) },
+            )
+            AppSectionDivider()
+            SettingsGroupRow(
+                titleRes = R.string.settings_backup_title,
+                descRes = R.string.settings_backup_desc,
+                onClick = { onOpenGroup(SettingsRoutes.BACKUP) },
+            )
+            AppSectionDivider()
+            SettingsGroupRow(
+                titleRes = R.string.settings_group_about_title,
+                descRes = R.string.settings_group_about_desc,
+                onClick = { onOpenGroup(SettingsRoutes.ABOUT) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsGroupRow(titleRes: Int, descRes: Int, onClick: () -> Unit) =
+    AppNavigationRow(
+        title = stringResource(titleRes),
+        description = stringResource(descRes),
+        onClick = onClick,
+    )
 
 @Composable
 internal fun SettingsPageColumn(title: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {

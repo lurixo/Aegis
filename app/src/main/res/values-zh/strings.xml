@@ -5,11 +5,22 @@
     <string name="subtype_zh">Aegis 输入法</string>
     <string name="subtype_en">Aegis English</string>
 
+    <string name="setup_title">Aegis 输入法</string>
+    <string name="setup_summary">中文 / 英文输入法，自研拼音引擎；仅在下载词库与增强模型、使用翻译、打开外部链接时联网</string>
+    <string name="setup_first_run_title">首次使用</string>
+    <string name="setup_first_run_body">中文输入需要先下载词库，可在候选栏点下载提示，或到下方词库设置中下载；英文词库也在同一个包里</string>
+    <string name="setup_first_run_ack">知道了</string>
+
     <string name="settings_group_input_title">输入设置</string>
+    <string name="settings_group_input_desc">默认输入模式、模糊音、联想与学习</string>
     <string name="settings_group_keyboard_title">键盘设置</string>
+    <string name="settings_group_keyboard_desc">布局、按键音效、振动与预览</string>
     <string name="settings_group_dicts_title">词库与下载</string>
+    <string name="settings_group_dicts_desc">全量词库包、增强模型</string>
     <string name="settings_group_userdict_title">用户词库</string>
+    <string name="settings_group_userdict_desc">搜索、增删自造词、导入导出</string>
     <string name="settings_group_about_title">关于与启用</string>
+    <string name="settings_group_about_desc">应用版本、启用 Aegis、试打字</string>
     <string name="settings_back">返回</string>
     <string name="settings_language_title">界面语言</string>
     <string name="settings_language_description">设置与键盘界面同时生效</string>
@@ -136,6 +147,7 @@
     <string name="settings_panel_title">设置</string>
 
     <string name="settings_backup_title">数据备份</string>
+    <string name="settings_backup_desc">将全部数据导出或导入为加密文件</string>
     <string name="restore_gate_rollback_failed">恢复没做完，撤销失败，点这里</string>
     <string name="restore_gate_rollback_impossible">恢复没做完，无法撤销，点这里</string>
 
