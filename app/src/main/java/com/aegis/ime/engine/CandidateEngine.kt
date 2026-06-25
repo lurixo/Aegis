@@ -15,4 +15,10 @@ interface CandidateEngine {
      * @return ordered candidates, best first; empty when there is nothing to show.
      */
     fun candidates(composing: String, t9: Boolean): List<String>
+
+    /** Learned next-word predictions to show on an empty buffer after [prevWord]. */
+    fun predict(prevWord: String?): List<String> = emptyList()
+
+    /** Record that the user committed [word] after [prevWord] (for adaptation). */
+    fun learn(prevWord: String?, word: String) {}
 }

@@ -12,6 +12,7 @@ import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.ime.ImeHost
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
+import com.aegis.ime.user.UserModel
 import java.io.File
 
 /**
@@ -24,19 +25,27 @@ import java.io.File
 class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private lateinit var controller: KeyboardController
+    private val userModel = UserModel()
+    private val userDbFile by lazy { File(filesDir, "userdb.txt") }
 
     override fun onCreate() {
         super.onCreate()
         // Start with an empty engine (ASCII typing works immediately); load the ~70 MB dictionaries
-        // off the main thread and swap the real engine in when ready.
+        // and the user model off the main thread and swap the real engine in when ready.
         controller = KeyboardController(this, DictEngine(null, null, null))
         Thread {
+            runCatching { userModel.load(userDbFile) }
             val dict = loadDict("aegis_dict.bin")
             val t9Dict = loadDict("aegis_t9.bin")
             val lm = loadLm("aegis_lm.bin")
-            val engine = DictEngine(dict, t9Dict, lm)
+            val engine = DictEngine(dict, t9Dict, lm, userModel)
             Handler(Looper.getMainLooper()).post { controller.setEngine(engine) }
         }.apply { name = "aegis-dict-load"; isDaemon = true }.start()
+    }
+
+    override fun onFinishInput() {
+        super.onFinishInput()
+        if (userModel.dirty) runCatching { userModel.save(userDbFile) }
     }
 
     /** Prefer a downloaded enhancement pack (optional full dict / .gram tier) over the bundled asset. */
