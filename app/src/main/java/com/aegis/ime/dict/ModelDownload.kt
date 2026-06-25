@@ -15,6 +15,7 @@
 
 package com.aegis.ime.dict
 
+import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -22,6 +23,18 @@ import java.util.Locale
 import org.json.JSONObject
 
 object ModelDownload {
+
+    const val GRAM_NAME = "wanxiang-lts-zh-hans.gram"
+
+    fun destFile(filesDir: File): File = File(File(filesDir, "downloaded"), GRAM_NAME)
+
+    fun installedGramBytes(filesDir: File): Long = destFile(filesDir).length()
+
+    fun partFile(filesDir: File): File = File(File(filesDir, "downloaded"), "$GRAM_NAME.part")
+
+    fun bytesToDisplayMb(bytes: Long): Long = Math.round(bytes / 1_000_000.0)
+
+    private fun partMetaOf(part: File): File = File(part.parentFile, "${part.name}.meta")
 
     enum class CheckFailure { OFFLINE, TIMEOUT, SERVER, PARSE }
 
@@ -135,10 +148,35 @@ object ModelDownload {
     private fun trustworthyValidator(value: String?): String? =
         value?.trim()?.takeIf { it.isNotEmpty() && !it.startsWith("size:", ignoreCase = true) }
 
+    fun purge(filesDir: File): Boolean {
+        destFile(filesDir).delete()
+        partFile(filesDir).delete()
+        partMetaOf(partFile(filesDir)).delete()
+        return !destFile(filesDir).exists() && !partFile(filesDir).exists() &&
+            !partMetaOf(partFile(filesDir)).exists()
+    }
+
     const val DICT_LATEST_TAG = "dict-latest"
 
     const val DICT_UPDATE_URL =
         "https://github.com/lurixo/Aegis/releases/download/$DICT_LATEST_TAG/aegis-dictionary-update.json"
+
+    const val DICT_NAME = "aegis_dict_pack.zip"
+
+    const val LM_NAME = "aegis_lm.bin"
+
+    const val EN_NAME = "aegis_english.bin"
+
+    val DICT_BIN_FILES = listOf("aegis_dict.bin", "aegis_t9.bin", "aegis_jianpin.bin")
+
+    val DICT_PACK_FILES = DICT_BIN_FILES + LM_NAME
+
+    val DICT_OPTIONAL_FILES = listOf(EN_NAME)
+
+    val DICT_MANAGED_FILES = DICT_PACK_FILES + DICT_OPTIONAL_FILES
+
+    fun installedDictionaryBytes(filesDir: File): Long =
+        DICT_MANAGED_FILES.sumOf { File(downloadedDir(filesDir), it).length() }
 
     data class DictionaryAsset(
         val url: String,
@@ -161,6 +199,9 @@ object ModelDownload {
         val state: UpdateCheck,
         val asset: DictionaryAsset? = null,
     )
+
+    private fun downloadedDir(filesDir: File) = File(filesDir, "downloaded")
+    fun dictZipFile(filesDir: File): File = File(downloadedDir(filesDir), DICT_NAME)
 
     internal fun resolveDictionaryDownloadAsset(fetch: () -> String): Result<DictionaryAsset> =
         runCatching { dictionaryAssetFromUpdateJson(fetch()) }

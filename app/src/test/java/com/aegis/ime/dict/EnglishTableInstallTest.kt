@@ -16,6 +16,8 @@
 package com.aegis.ime.dict
 
 import java.io.File
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -37,5 +39,18 @@ class EnglishTableInstallTest {
             table.exact("word").any { it.word == "word" && it.freq > 0 },
         )
         assertTrue("the real English table serves prefix completions", table.prefixByFreq("hel", 16).isNotEmpty())
+    }
+
+    @Test
+    fun the_english_runtime_name_is_not_a_bundled_era_leftover() {
+        val bundledEraNames = ModelDownload.DICT_PACK_FILES + listOf("aegis_en.bin", "aegis_fuzzy.bin")
+        assertFalse(ModelDownload.EN_NAME in bundledEraNames)
+    }
+
+    @Test
+    fun the_english_table_joins_the_managed_set_without_widening_completeness() {
+        assertEquals(ModelDownload.DICT_PACK_FILES + ModelDownload.EN_NAME, ModelDownload.DICT_MANAGED_FILES)
+        assertFalse(ModelDownload.EN_NAME in ModelDownload.DICT_PACK_FILES)
+        assertFalse(ModelDownload.EN_NAME in ModelDownload.DICT_BIN_FILES)
     }
 }
