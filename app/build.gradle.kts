@@ -3,6 +3,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.zip.ZipFile
 import javax.inject.Inject
 
 plugins {
@@ -40,6 +41,18 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    androidResources {
+        ignoreAssetsPatterns += listOf(
+            "aegis_dict.bin",
+            "aegis_t9.bin",
+            "aegis_jianpin.bin",
+            "aegis_lm.bin",
+            "aegis_english.bin",
+            "aegis_en_full.bin",
+            "wanxiang-lts-zh-hans.gram",
+        )
     }
 
     testOptions {
@@ -167,9 +180,56 @@ tasks.withType<Test>().configureEach {
         check(scratchDir.deleteRecursively()) { "could not clear $scratchDir" }
         check(scratchDir.mkdirs()) { "could not create $scratchDir" }
     }
+    inputs.files(
+        layout.projectDirectory.file("src/main/assets/aegis_dict.bin"),
+        layout.projectDirectory.file("src/main/assets/aegis_t9.bin"),
+        layout.projectDirectory.file("src/main/assets/aegis_jianpin.bin"),
+        layout.projectDirectory.file("src/main/assets/aegis_lm.bin"),
+    ).withPropertyName("runtimeDictionaryAssets")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.dir(layout.projectDirectory.dir("../tools/t2s-data"))
         .withPropertyName("t2sDataReadByTests")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+}
+
+tasks.register("verifyExternalModelsNotPackaged") {
+    val debugApk = layout.buildDirectory.file("outputs/apk/debug/app-debug.apk")
+    val releaseApk = layout.buildDirectory.file("outputs/apk/release/app-release-unsigned.apk")
+    dependsOn("assembleDebug", "assembleRelease")
+    inputs.files(debugApk, releaseApk)
+    doLast {
+        val exactForbidden = setOf(
+            "aegis_dict.bin",
+            "aegis_dict_full.bin",
+            "aegis_t9.bin",
+            "aegis_t9_full.bin",
+            "aegis_jianpin.bin",
+            "aegis_jianpin_full.bin",
+            "aegis_lm.bin",
+            "aegis_english.bin",
+            "aegis_en_full.bin",
+        )
+        for (apk in listOf(debugApk.get().asFile, releaseApk.get().asFile)) {
+            check(apk.isFile) { "missing APK ${apk.absolutePath}" }
+            val leaked = ArrayList<String>()
+            ZipFile(apk).use { zip ->
+                val entries = zip.entries()
+                while (entries.hasMoreElements()) {
+                    val name = entries.nextElement().name
+                    val basename = name.substringAfterLast('/')
+                    if (
+                        basename in exactForbidden ||
+                        basename.endsWith(".gram") ||
+                        basename.startsWith("aegis_en")
+                    ) {
+                        leaked += name
+                    }
+                }
+            }
+            check(leaked.isEmpty()) { "external test models leaked into ${apk.name}: $leaked" }
+            logger.lifecycle("verified ${apk.name}: no external dictionary, English, or grammar model files on any entry path")
+        }
+    }
 }
 
 dependencies {

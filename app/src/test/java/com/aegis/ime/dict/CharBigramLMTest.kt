@@ -15,11 +15,14 @@
 
 package com.aegis.ime.dict
 
+import com.aegis.ime.decoder.FullDictTestAssets
 import com.aegis.tools.LmBuilder
+import com.aegis.tools.T2SMerge
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
 import kotlin.math.ln
@@ -177,6 +180,17 @@ class CharBigramLMTest {
         putLeLong(badDenominator, offsets.rowTotal + firstRow * 8, 0L)
         assertThrows(IllegalArgumentException::class.java) { CharBigramLM.fromFile(writeTemp(badDenominator)) }
 
+    }
+
+    @Test fun installed_model_excludes_forms_mapped_away_by_dictionary_normalization() {
+        val file = File(FullDictTestAssets.directory, FullDictTestAssets.LM)
+        assumeTrue("dictionary pack LM present", file.exists())
+        val lm = CharBigramLM.fromFile(file)
+        val mapped = T2SMerge.load(File("../tools/t2s-data")).mappedSourceForms()
+        val leaked = mapped.filter {
+            it.codePointCount(0, it.length) == 1 && lm.charId(it.codePointAt(0)) >= 0
+        }
+        assertTrue("mapped-away forms remain in the installed LM: ${leaked.take(20)}", leaked.isEmpty())
     }
 
     @Test fun a_row_that_promises_less_than_its_own_bigrams_hold_is_rejected() {

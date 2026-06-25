@@ -106,6 +106,8 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
         return out
     }
 
+    fun containsExactWord(key: String, word: String): Boolean = exactWordFreq(key, word) != null
+
     fun exactWordFreq(key: String, word: String): Int? {
         if (key.isEmpty() || word.isEmpty() || numKeys == 0) return null
         val wordBytes = word.toByteArray(Charsets.UTF_8)
