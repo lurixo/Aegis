@@ -167,6 +167,27 @@ class BuildInfoJsonTest {
     }
 
     @Test
+    fun attributionNamesTheUpstreamLicenseAndExternalReleaseMetadata() {
+        val attribution = File("../THIRD_PARTY_LICENSES.md").readText()
+        assertTrue(attribution.contains(ModelDownload.DICT_REPO_URL))
+        assertTrue(attribution.contains("creativecommons.org/licenses/by/4.0"))
+        assertTrue(attribution.contains("aegis-build-info.json"))
+        assertTrue(attribution.contains("https://github.com/lurixo/Aegis/releases/tag/dict-latest"))
+    }
+
+    @Test
+    fun bothReadmesLinkToExternalDictionaryReleaseFacts() {
+        for (name in listOf("README.md", "README.zh-CN.md")) {
+            val text = File("../$name").readText()
+            assertTrue("$name links the rolling dictionary release", text.contains(
+                "https://github.com/lurixo/Aegis/releases/tag/dict-latest",
+            ))
+            assertTrue("$name describes external build-info", text.contains("aegis-build-info.json"))
+            assertTrue("$name describes the matching update manifest", text.contains("aegis-dictionary-update.json"))
+        }
+    }
+
+    @Test
     fun outputComponentHashesMatchTheActualTestAssets() {
         val bins = dictionaryResource().getJSONObject("build").getJSONArray("output_bins")
         val directory = System.getenv("AEGIS_FULLDICT_DIR")

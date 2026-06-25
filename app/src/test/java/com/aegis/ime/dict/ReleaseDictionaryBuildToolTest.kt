@@ -68,4 +68,33 @@ class ReleaseDictionaryBuildToolTest {
         assertFalse(pinyin.contains("fuzzyNormalize"))
         assertFalse(t2s.contains("val rejection: T2SReject?"))
     }
+
+    @Test
+    fun readmesRejectTheIntermediatePackAndNameTheFivePublishedComponents() {
+        val english = File("../README.md").readText()
+        val chinese = File("../README.zh-CN.md").readText()
+
+        assertTrue(english.contains("must not be published"))
+        assertTrue(english.contains("pinyin-reachability overlay"))
+        assertTrue(english.contains("`finalize`"))
+        assertTrue(english.contains("five-runtime-component"))
+        assertFalse(english.contains("Upload those generated files"))
+        assertFalse(english.contains("The checked-in `aegis-build-info.json`"))
+        assertTrue(english.contains("verify_dictionary_release.sh PACK UPDATE_JSON BUILD_INFO COVERAGE_BASELINE"))
+        assertTrue(chinese.contains("verify_dictionary_release.sh PACK UPDATE_JSON BUILD_INFO COVERAGE_BASELINE"))
+        assertTrue(chinese.contains("绝对不得直接发布"))
+        assertTrue(chinese.contains("读音门禁"))
+        assertTrue(chinese.contains("拼音可达性"))
+        assertTrue(chinese.contains("最终五运行时组件"))
+        listOf(
+            "aegis_dict_full.bin",
+            "aegis_t9_full.bin",
+            "aegis_jianpin_full.bin",
+            "aegis_lm.bin",
+            "aegis_en_full.bin",
+        ).forEach { component ->
+            assertTrue("English README missing $component", english.contains(component))
+            assertTrue("Chinese README missing $component", chinese.contains(component))
+        }
+    }
 }

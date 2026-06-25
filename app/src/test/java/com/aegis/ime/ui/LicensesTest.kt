@@ -69,6 +69,29 @@ class LicensesTest {
         return dictionaryBins.filterNot { expanded.contains(it) }
     }
 
+    @Test fun third_party_licenses_doc_covers_every_component_and_carries_the_apache_full_text() {
+        val doc = File("../THIRD_PARTY_LICENSES.md").readText()
+        for (needle in listOf(
+            "rime-wanxiang", "amzxyz", "CC BY 4.0", "creativecommons.org/licenses/by/4.0",
+            "aegis-build-info.json", "releases/tag/dict-latest", "character-bigram",
+            "RIME-LMDG", "OpenCC", "BYVoid", "Apache-2.0",
+            "Unicode", "unicode.org/license",
+            "通用规范汉字表", "State Council", "gov.cn/zwgk/2013-08/19/content_2469793", "aegis_tgh.bin",
+            "AndroidX", "Compose", "Material 3", "Kotlin",
+            "Mechvibes", "2021 Hai Nguyen", "MIT License", "key_blue.flac", "key_brown.flac", "key_red.flac",
+            "Apache License", "Version 2.0",
+            "TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION",
+            "Limitation of Liability",
+        )) {
+            assertTrue("THIRD_PARTY_LICENSES.md must contain '$needle'", doc.contains(needle))
+        }
+        assertEquals(
+            "THIRD_PARTY_LICENSES.md must name every dictionary-derived binary",
+            emptyList<String>(),
+            unnamedDictionaryBins(doc),
+        )
+    }
+
     @Test fun the_binary_coverage_check_fails_when_a_binary_goes_unnamed() {
         assertEquals(
             emptyList<String>(),

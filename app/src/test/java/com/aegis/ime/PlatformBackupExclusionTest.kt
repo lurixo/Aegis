@@ -25,6 +25,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.xmlpull.v1.XmlPullParser
+import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -103,5 +104,27 @@ class PlatformBackupExclusionTest {
                 )
             }
         }
+    }
+
+    @Test fun every_store_the_privacy_statement_names_sits_in_an_excluded_domain() {
+        val privacy = File("../PRIVACY.md").readText()
+        val excluded = rules().filter { it.tag == "exclude" && it.path == "." }.mapNotNull { it.domain }.toSet()
+        val stored = listOf(
+            "filesDir/userlearn.txt",
+            "filesDir/userdb.txt",
+            "filesDir/clipboard.txt",
+            "filesDir/phrases.txt",
+            "filesDir/symbol_usage.txt",
+            "filesDir/emoji/symbol_usage.txt",
+        )
+        for (path in stored) {
+            assertTrue("PRIVACY.md must keep naming $path", privacy.contains(path))
+            assertTrue("$path is named as living under filesDir", path.startsWith("filesDir/"))
+        }
+        assertTrue("filesDir is the file domain, which must be excluded, was $excluded", "file" in excluded)
+        assertTrue(
+            "the settings the statement mentions live in shared preferences, which must be excluded, was $excluded",
+            "sharedpref" in excluded,
+        )
     }
 }

@@ -30,10 +30,13 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class SymbolCountPersonalizationTest {
+
+    private val docs = listOf("PRIVACY.md", "README.md", "README.zh-CN.md")
 
     private fun password() = EditorInfo().apply {
         packageName = "com.example.editor"
@@ -146,6 +149,49 @@ class SymbolCountPersonalizationTest {
         assertTrue(
             "the Common tab is what the count is for, so an ordinary field must still fill it",
             "😀" in store(service, "emojiUsageStore").recent(),
+        )
+    }
+
+    @Test fun no_document_singles_out_a_password_field() {
+        for (name in docs) {
+            val text = File("../$name").readText()
+            assertFalse(
+                "$name still describes a password field as a case of its own",
+                text.contains("password field") || text.contains("密码输入框"),
+            )
+            assertFalse(
+                "$name still makes an absolute claim only an audit of every store could carry",
+                text.contains("Nothing at all is learned") || text.contains("一律不学习任何内容"),
+            )
+        }
+    }
+
+    @Test fun the_privacy_statement_ties_both_gates_to_the_app_opting_out() {
+        val privacy = File("../PRIVACY.md").readText()
+        assertTrue(
+            "PRIVACY.md must tie the learning gate to the app asking for no personalized learning",
+            privacy.contains("No word is learned in a field whose\n  app asks for no personalized learning."),
+        )
+        assertTrue(
+            "PRIVACY.md must tie the symbol and emoji count to that same gate",
+            privacy.contains("Nothing at all is counted in\n  a field whose app asks for no personalized learning;"),
+        )
+    }
+
+    @Test fun both_readmes_tie_both_gates_to_the_app_opting_out() {
+        val en = File("../README.md").readText()
+        assertTrue(
+            "README.md must tie the learning gate to the app asking for no personalized learning",
+            en.contains("No word is learned in a field that\n  asks for no personalized learning;"),
+        )
+        assertTrue(
+            "README.md must say the panels stop counting in those same fields",
+            en.contains("in those fields the symbol and emoji panels do not count what\n  you pick either."),
+        )
+        val zh = File("../README.zh-CN.md").readText()
+        assertTrue(
+            "README.zh-CN.md must say the same thing README.md says",
+            zh.contains("在任何声明不参与个性化学习的输入框里，不学习任何词；在这些输入框里，符号与 emoji 面板也不会记录你选了什么。"),
         )
     }
 }

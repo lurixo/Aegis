@@ -205,6 +205,10 @@ tasks.withType<Test>().configureEach {
     ).withPropertyName("runtimeDictionaryAssets")
         .withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.files(
+        layout.projectDirectory.file("../THIRD_PARTY_LICENSES.md"),
+        layout.projectDirectory.file("../README.md"),
+        layout.projectDirectory.file("../README.zh-CN.md"),
+        layout.projectDirectory.file("../PRIVACY.md"),
         layout.projectDirectory.file("../tools/release/build_dictionary_pack.py"),
         layout.projectDirectory.file("../tools/t2s-data/adjudications.tsv"),
         layout.projectDirectory.file("src/main/AndroidManifest.xml"),
