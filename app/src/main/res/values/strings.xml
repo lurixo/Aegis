@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="kbd_space">Space</string>
+    <string name="kbd_symbols">Symbols</string>
+    <string name="kbd_split">Split</string>
+</resources>

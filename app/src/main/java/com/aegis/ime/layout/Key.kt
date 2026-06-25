@@ -1,0 +1,59 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Copyright (C) 2026 lurixo
+//
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 3.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+// PARTICULAR PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
+
+package com.aegis.ime.layout
+
+enum class Lang { CN, EN }
+
+enum class LayoutId { ALPHA }
+
+enum class KeyAction {
+    COMMIT,
+    BACKSPACE,
+    ENTER,
+    SHIFT,
+    SPACE,
+    SWITCH_NUMPAD,
+    TOGGLE_LANG,
+    SHOW_SYMBOLS,
+    SEGMENT,
+}
+
+data class Key(
+    val label: String = "",
+    val output: String = label,
+    val action: KeyAction = KeyAction.COMMIT,
+    val sub: String? = null,
+    val swipeUp: String? = sub,
+    val weight: Float = 1f,
+    val direct: Boolean = false,
+    val preeditLiteral: Boolean = false,
+    val verbatim: Boolean = false,
+    val accent: Boolean = false,
+    val rail: Boolean = false,
+    val labelRes: Int? = null,
+    val swipeDown: String? = null,
+)
+
+data class KeyboardRow(val keys: List<Key>)
+
+data class PlacedKey(val key: Key, val x: Float, val y: Float, val w: Float, val h: Float, val groupId: Int = 0)
+
+data class KeyboardLayout(
+    val id: LayoutId,
+    val rows: List<KeyboardRow> = emptyList(),
+    val cells: List<PlacedKey>? = null,
+    val rowCount: Int = rows.size,
+)

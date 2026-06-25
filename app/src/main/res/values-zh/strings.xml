@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="kbd_space">空格</string>
+    <string name="kbd_symbols">符号</string>
+    <string name="kbd_split">分词</string>
+</resources>
