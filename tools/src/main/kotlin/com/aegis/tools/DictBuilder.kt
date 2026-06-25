@@ -102,7 +102,11 @@ private fun parseDict(
         if (freq < minFreq) { tally(Skip.LOW_FREQ); continue }
         for (s in syllables) syllableCounts.merge(s, 1L, Long::plus)
         val letterKey = syllables.joinToString("")
-        val key = if (keyType == "digit") Pinyin.toT9(letterKey) else letterKey
+        val key = when (keyType) {
+            "digit" -> Pinyin.toT9(letterKey)
+            "fuzzy" -> Pinyin.fuzzyNormalize(letterKey)
+            else -> letterKey
+        }
         w.write(key); w.write("\t"); w.write(word); w.write("\t"); w.write(freq.toString()); w.write("\n")
         tally(Skip.KEPT)
     }
