@@ -10,8 +10,11 @@ class DictEngine(
     t9Dict: BinaryDict?,
     lm: CharBigramLM?,
     private val userModel: UserModel? = null,
+    fuzzyDict: BinaryDict? = null,
 ) : CandidateEngine {
-    private val decoder = pinyinDict?.let { PinyinDecoder(it, lm, userModel = userModel) }
+    private val decoder = pinyinDict?.let {
+        PinyinDecoder(it, lm, userModel = userModel, fuzzyDict = fuzzyDict)
+    }
     private val t9Decoder = t9Dict?.let { PinyinDecoder(it, lm, userModel = userModel) }
 
     override fun candidates(composing: String, t9: Boolean): List<String> {
