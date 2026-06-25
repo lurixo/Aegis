@@ -3,11 +3,12 @@
 /local.properties
 /.idea/
 .DS_Store
-/build/
 /captures/
 .externalNativeBuild/
 .cxx/
 *.apk
 *.ap_
 *.aab
-/app/build/
+# all module build dirs
+build/
+# local wanxiang source data + full (uncommitted) artifacts live outside the repo (../wxdata)

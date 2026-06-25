@@ -1,9 +1,11 @@
 package com.aegis.ime
 
 import android.inputmethodservice.InputMethodService
+import android.util.Log
 import android.view.View
 import android.view.inputmethod.EditorInfo
-import com.aegis.ime.engine.StubEngine
+import com.aegis.ime.dict.BinaryDict
+import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.ime.ImeHost
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
@@ -12,7 +14,8 @@ import com.aegis.ime.ime.KeyboardController
  * Aegis IME entry point. Builds the input view, wires it to [KeyboardController], and bridges
  * the controller's editor operations to the current [android.view.inputmethod.InputConnection].
  *
- * P1: ASCII commits work end to end; CN/T9 routes through a stub engine ([StubEngine]).
+ * P2: EN commits ASCII directly; CN (26-key) routes through [DictEngine] for real candidates.
+ * T9 disambiguation lands at P4; full syllable-segmenting decoder at P3.
  */
 class AegisInputMethodService : InputMethodService(), ImeHost {
 
@@ -20,7 +23,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun onCreate() {
         super.onCreate()
-        controller = KeyboardController(this, StubEngine())
+        val dict = runCatching { BinaryDict.fromAssets(this, "aegis_dict.bin") }
+            .onFailure { Log.e("Aegis", "dict load failed", it) }
+            .getOrNull()
+        controller = KeyboardController(this, DictEngine(dict))
     }
 
     override fun onCreateInputView(): View {

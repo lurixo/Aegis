@@ -3,7 +3,7 @@ package com.aegis.ime.engine
 /**
  * Produces candidates for a composing buffer.
  *
- * P1 ships [StubEngine] only. The real engine arrives incrementally:
+ * P2 ships [DictEngine] (exact + prefix dictionary lookup). The decoder arrives incrementally:
  *  - P3: DAG segmentation + Viterbi/beam with unigram scoring over the wanxiang dict trie (26-key).
  *  - P4: T9 digit lattice feeding the same decoder.
  *  - P5: n-gram (LM) context scoring.
