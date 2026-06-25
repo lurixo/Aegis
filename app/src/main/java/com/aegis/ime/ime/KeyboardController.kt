@@ -3,7 +3,6 @@ package com.aegis.ime.ime
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
-import com.aegis.ime.layout.KeyboardLayout
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
@@ -17,6 +16,7 @@ class KeyboardController(
     private var layoutId = LayoutId.ALPHA
     private val composing = StringBuilder()
     private var candidates: List<String> = emptyList()
+    private var lastWord: String? = null
 
     private var view: InputView? = null
 
@@ -36,6 +36,7 @@ class KeyboardController(
         candidates = emptyList()
         shifted = false
         layoutId = LayoutId.ALPHA
+        lastWord = null
         render()
     }
 
@@ -55,15 +56,15 @@ class KeyboardController(
                 lang = if (lang == Lang.CN) Lang.EN else Lang.CN
             }
         }
+        refreshCandidates()
         render()
     }
 
     fun onPickCandidate(index: Int) {
-        if (index in candidates.indices) {
-            host.commitText(candidates[index])
-            clearComposing()
-            render()
-        }
+        if (index !in candidates.indices) return
+        commitWord(candidates[index])
+        refreshCandidates()
+        render()
     }
 
     private fun composingMode(): Boolean =
@@ -72,27 +73,28 @@ class KeyboardController(
     private fun handleCommit(key: Key) {
         if (composingMode()) {
             composing.append(if (layoutId == LayoutId.NINE) key.output else applyCase(key.output))
-            refreshCandidates()
         } else {
             host.commitText(applyCase(key.output))
+            lastWord = null
         }
     }
 
     private fun handleBackspace() {
         if (composing.isNotEmpty()) {
             composing.setLength(composing.length - 1)
-            refreshCandidates()
         } else {
             host.deleteBackward()
+            lastWord = null
         }
     }
 
     private fun handleSpace() {
         if (composing.isNotEmpty()) {
-            host.commitText(candidates.firstOrNull() ?: composing.toString())
-            clearComposing()
+            val pick = candidates.firstOrNull()
+            if (pick != null) commitWord(pick) else { host.commitText(composing.toString()); clearComposingState() }
         } else {
             host.commitText(" ")
+            lastWord = null
         }
     }
 
@@ -101,7 +103,15 @@ class KeyboardController(
             flushComposing()
         } else {
             host.performEnter()
+            lastWord = null
         }
+    }
+
+    private fun commitWord(word: String) {
+        host.commitText(word)
+        engine.learn(lastWord, word)
+        lastWord = word
+        clearComposingState()
     }
 
     private fun switchLayout(id: LayoutId) {
@@ -112,20 +122,21 @@ class KeyboardController(
     private fun flushComposing() {
         if (composing.isNotEmpty()) {
             host.commitText(composing.toString())
-            clearComposing()
+            clearComposingState()
         }
+        lastWord = null
     }
 
-    private fun clearComposing() {
+    private fun clearComposingState() {
         composing.setLength(0)
         candidates = emptyList()
     }
 
     private fun refreshCandidates() {
-        candidates = if (composing.isEmpty()) {
-            emptyList()
-        } else {
-            engine.candidates(composing.toString(), layoutId == LayoutId.NINE)
+        candidates = when {
+            composing.isNotEmpty() -> engine.candidates(composing.toString(), layoutId == LayoutId.NINE)
+            composingMode() -> engine.predict(lastWord)
+            else -> emptyList()
         }
     }
 
