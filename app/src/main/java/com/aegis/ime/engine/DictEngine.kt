@@ -3,14 +3,16 @@ package com.aegis.ime.engine
 import com.aegis.ime.decoder.PinyinDecoder
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.user.UserModel
 
 class DictEngine(
     pinyinDict: BinaryDict?,
     t9Dict: BinaryDict?,
     lm: CharBigramLM?,
+    private val userModel: UserModel? = null,
 ) : CandidateEngine {
-    private val decoder = pinyinDict?.let { PinyinDecoder(it, lm) }
-    private val t9Decoder = t9Dict?.let { PinyinDecoder(it, lm) }
+    private val decoder = pinyinDict?.let { PinyinDecoder(it, lm, userModel = userModel) }
+    private val t9Decoder = t9Dict?.let { PinyinDecoder(it, lm, userModel = userModel) }
 
     override fun candidates(composing: String, t9: Boolean): List<String> {
         if (composing.isEmpty()) return emptyList()
@@ -18,7 +20,17 @@ class DictEngine(
         return d?.decode(composing, MAX_CANDIDATES) ?: emptyList()
     }
 
+    override fun predict(prevWord: String?): List<String> {
+        if (prevWord.isNullOrEmpty()) return emptyList()
+        return userModel?.successors(prevWord, MAX_PREDICTIONS) ?: emptyList()
+    }
+
+    override fun learn(prevWord: String?, word: String) {
+        userModel?.record(prevWord, word, System.currentTimeMillis())
+    }
+
     private companion object {
         const val MAX_CANDIDATES = 30
+        const val MAX_PREDICTIONS = 8
     }
 }
