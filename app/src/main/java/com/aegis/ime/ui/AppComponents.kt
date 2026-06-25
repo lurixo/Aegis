@@ -33,7 +33,11 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -51,6 +55,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.aegis.ime.ui.theme.AppIconMetrics
 import com.aegis.ime.ui.theme.AppShapes
@@ -116,6 +121,11 @@ internal fun AppSection(
 }
 
 @Composable
+internal fun AppSectionDivider() {
+    HorizontalDivider(modifier = Modifier.padding(start = AppSpacing.rowHorizontal))
+}
+
+@Composable
 internal fun rememberSettingsPressSource(): MutableInteractionSource {
     val epoch = LocalSettingsPressEpoch.current
     return remember(epoch) { MutableInteractionSource() }
@@ -149,5 +159,40 @@ internal fun AppNavigationRow(title: String, description: String, onClick: () ->
         }
         Spacer(Modifier.size(AppSpacing.compactGap))
         AppChevron(back = false)
+    }
+}
+
+@Composable
+internal fun AppChoiceGroup(content: @Composable ColumnScope.() -> Unit) {
+    Column(modifier = Modifier.selectableGroup(), content = content)
+}
+
+@Composable
+internal fun AppChoiceRow(
+    label: String,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    modifier: Modifier = Modifier,
+    description: String? = null,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = AppSpacing.rowMinHeight)
+            .clip(MaterialTheme.shapes.extraSmall)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onSelect)
+            .padding(horizontal = AppSpacing.rowHorizontal),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(AppSpacing.compactGap),
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        if (description == null) {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+        } else {
+            Column(Modifier.weight(1f).padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(label, style = MaterialTheme.typography.bodyLarge)
+                Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }

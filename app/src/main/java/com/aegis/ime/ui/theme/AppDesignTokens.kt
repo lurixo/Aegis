@@ -22,7 +22,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 internal object AppSpacing {
+    val sectionPadding = 16.dp
     val rowHorizontal = 16.dp
+    val rowMinHeight = 56.dp
     val compactGap = 8.dp
     val textGap = 4.dp
 }
