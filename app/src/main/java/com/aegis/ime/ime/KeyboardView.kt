@@ -140,7 +140,10 @@ class KeyboardView(context: Context) : View(context) {
                 val k = keyAt(event.x, event.y)
                 pressed = null
                 invalidate()
-                if (k != null) onKey(k)
+                if (k != null) {
+                    performClick()
+                    onKey(k)
+                }
             }
             MotionEvent.ACTION_CANCEL -> {
                 pressed = null
@@ -152,4 +155,9 @@ class KeyboardView(context: Context) : View(context) {
 
     private fun keyAt(x: Float, y: Float): Key? =
         placed.firstOrNull { it.rect.contains(x, y) }?.key
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
+    }
 }
