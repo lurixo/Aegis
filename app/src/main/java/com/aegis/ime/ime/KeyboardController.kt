@@ -9,6 +9,8 @@ import com.aegis.ime.layout.Layouts
 
 private enum class ShiftState { OFF, ONCE, LOCK }
 
+private enum class Mode { PINYIN, ENGLISH, DIRECT }
+
 class KeyboardController(
     private val host: ImeHost,
     private var engine: CandidateEngine,
@@ -69,21 +71,36 @@ class KeyboardController(
 
     fun onPickCandidate(index: Int) {
         if (index !in candidates.indices) return
-        commitWord(candidates[index])
+        val word = candidates[index]
+        if (mode() == Mode.ENGLISH) {
+            host.commitText("$word ")
+            clearComposingState()
+            lastWord = null
+        } else {
+            commitWord(word)
+        }
         refreshCandidates()
         render()
     }
 
-    private fun composingMode(): Boolean =
-        lang == Lang.CN && (layoutId == LayoutId.ALPHA || layoutId == LayoutId.NINE)
+    private fun mode(): Mode = when {
+        lang == Lang.CN && (layoutId == LayoutId.ALPHA || layoutId == LayoutId.NINE) -> Mode.PINYIN
+        lang == Lang.EN && layoutId == LayoutId.ALPHA -> Mode.ENGLISH
+        else -> Mode.DIRECT
+    }
 
     private fun handleCommit(key: Key) {
-        if (composingMode()) {
-            composing.append(key.output)
-        } else {
-            host.commitText(applyCase(key.output))
-            if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
-            lastWord = null
+        when (mode()) {
+            Mode.PINYIN -> composing.append(key.output)
+            Mode.ENGLISH -> {
+                composing.append(applyCase(key.output))
+                if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
+            }
+            Mode.DIRECT -> {
+                host.commitText(applyCase(key.output))
+                if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
+                lastWord = null
+            }
         }
     }
 
@@ -97,12 +114,17 @@ class KeyboardController(
     }
 
     private fun handleSpace() {
-        if (composing.isNotEmpty()) {
-            val pick = candidates.firstOrNull()
-            if (pick != null) commitWord(pick) else { host.commitText(composing.toString()); clearComposingState() }
-        } else {
+        if (composing.isEmpty()) {
             host.commitText(" ")
             lastWord = null
+            return
+        }
+        when (mode()) {
+            Mode.ENGLISH -> { host.commitText(composing.toString() + " "); clearComposingState(); lastWord = null }
+            else -> {
+                val pick = candidates.firstOrNull()
+                if (pick != null) commitWord(pick) else { host.commitText(composing.toString()); clearComposingState() }
+            }
         }
     }
 
@@ -144,10 +166,14 @@ class KeyboardController(
         candidates = when {
             composing.isNotEmpty() -> {
                 val raw = composing.toString()
-                val list = engine.candidates(raw, layoutId == LayoutId.NINE)
-                if (layoutId == LayoutId.ALPHA && raw !in list) list + raw else list
+                when (mode()) {
+                    Mode.PINYIN -> engine.candidates(raw, layoutId == LayoutId.NINE)
+                        .let { if (layoutId == LayoutId.ALPHA && raw !in it) it + raw else it }
+                    Mode.ENGLISH -> engine.english(raw).let { if (raw !in it) it + raw else it }
+                    Mode.DIRECT -> emptyList()
+                }
             }
-            composingMode() -> engine.predict(lastWord)
+            mode() == Mode.PINYIN -> engine.predict(lastWord)
             else -> emptyList()
         }
     }
