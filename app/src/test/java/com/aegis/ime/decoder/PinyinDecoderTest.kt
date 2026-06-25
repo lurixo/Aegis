@@ -18,6 +18,7 @@ package com.aegis.ime.decoder
 import com.aegis.ime.dict.BinaryDict
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
 
@@ -30,6 +31,14 @@ class PinyinDecoderTest {
         return PinyinDecoder(BinaryDict.fromFile(dictFile))
     }
 
+    private fun biangChar(): String = String(Character.toChars(0x30EDD))
+
+    private fun dictSingles(key: String): Set<String> =
+        BinaryDict.fromFile(dictFile).exact(key)
+            .filter { it.word.codePointCount(0, it.word.length) == 1 }
+            .map { it.word }
+            .toSet()
+
     @Test
     fun decodesSentences() {
         val d = decoder()
@@ -39,6 +48,53 @@ class PinyinDecoderTest {
         assertEquals("我是中国人", top("woshizhongguoren"))
         assertEquals("北京大学", top("beijingdaxue"))
         assertEquals("输入法", top("shurufa"))
+    }
+
+    @Test
+    fun syllabicNasalReadingsStayCompleteSyllables() {
+        val d = decoder()
+
+        assertEquals(listOf("ng"), d.syllables("ng").map { it.reading })
+        assertTrue(
+            "ng should offer 嗯 and cover the complete reading",
+            d.decodeCovered("ng", 30).any { it.word == "嗯" && it.coveredLen == 2 },
+        )
+        assertTrue("ng homophones should include 嗯", "嗯" in d.homophonesAt("ng", 0))
+
+        assertEquals(listOf("n"), d.syllables("n").map { it.reading })
+        assertTrue(
+            "n should remain a source-backed syllabic nasal reading for 嗯",
+            d.decodeCovered("n", 30).any { it.word == "嗯" && it.coveredLen == 1 },
+        )
+    }
+
+    @Test
+    fun rareBiangReadingIsSegmentableAndNavigable() {
+        val rare = biangChar()
+        val d = decoder()
+        assertTrue("dict has the biang rare character", rare in dictSingles("biang"))
+
+        assertEquals(listOf("biang"), d.syllables("biang").map { it.reading })
+        assertTrue("biang free typing recalls the rare character", d.decodeCovered("biang", 30).any { it.word == rare && it.coveredLen == 5 })
+        assertTrue("biang homophone drill includes the rare character", rare in d.homophonesAt("biang", 0))
+    }
+
+    @Test
+    fun jiangzhiAndSeparatedJiangZhiShareTheSameSyllablePath() {
+        val d = decoder()
+
+        assertEquals(listOf("jiang", "zhi"), d.syllables("jiangzhi").map { it.reading })
+        assertEquals(listOf("jiang", "zhi"), d.syllables("jiang'zhi").map { it.reading })
+
+        val jiang = dictSingles("jiang")
+        val zhi = dictSingles("zhi")
+        assumeTrue("dict has jiang homophones", jiang.isNotEmpty())
+        assumeTrue("dict has zhi homophones", zhi.isNotEmpty())
+
+        assertEquals("plain input drills the jiang syllable, not a shorter prefix", jiang, d.homophonesAt("jiangzhi", 0).toSet())
+        assertEquals("separated input drills the same jiang syllable", jiang, d.homophonesAt("jiang'zhi", 0).toSet())
+        assertEquals("plain input keeps the zhi tail navigable", zhi, d.homophonesAt("jiangzhi", 1).toSet())
+        assertEquals("separated input keeps the zhi tail navigable", zhi, d.homophonesAt("jiang'zhi", 1).toSet())
     }
 
     @Test

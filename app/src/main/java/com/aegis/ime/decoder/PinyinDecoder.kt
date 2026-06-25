@@ -18,6 +18,7 @@ package com.aegis.ime.decoder
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.DecodeCancellation
+import com.aegis.ime.dict.TghGrading
 import kotlin.math.ln
 
 data class Cand(
@@ -35,6 +36,7 @@ class PinyinDecoder(
     private val octagramWeight: Double = DEFAULT_OCTAGRAM_WEIGHT,
     private val contextWeight: Double = DEFAULT_CONTEXT_WEIGHT,
 ) {
+    private val grading = TghGrading.bundled
     private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
 
     @Volatile private var edgeN =
@@ -509,6 +511,72 @@ class PinyinDecoder(
         return bset.toList()
     }
 
+    fun homophonesAt(input: String, index: Int, cuts: Set<Int> = emptySet()): List<String> {
+        val norm = normalizeSeparators(input)
+        val clean = norm?.clean ?: input
+        if (clean.isEmpty()) return emptyList()
+        val syls = atomicSyllables(clean, cleanInterior(norm, clean, cuts))
+        if (index !in syls.indices) return emptyList()
+        val s = syls[index]
+        return homophonesOf(clean.substring(s.start, s.end))
+    }
+
+    private class Homophone(val word: String, val layer: Int, val band: Int)
+
+    internal fun homophonesOf(key: String): List<String> =
+        segmentSingleFreqs(key)
+            .map { Homophone(it.first, homophoneLayer(it.first, it.second), corpusBand(it.first)) }
+            .sortedWith(compareBy<Homophone> { it.layer }.thenBy { it.band })
+            .map { it.word }
+
+    internal fun corpusBand(word: String): Int {
+        if (!isSingleChar(word)) return CORPUS_BAND_OUT
+        val rank = lm?.unigramRank(word.codePointAt(0)) ?: return CORPUS_BAND_OUT
+        return when {
+            rank <= TghGrading.LEVEL1_COUNT -> 0
+            rank <= GENERAL_USE_CARDINALITY -> 1
+            rank <= TghGrading.ENTRY_COUNT -> 2
+            else -> CORPUS_BAND_OUT
+        }
+    }
+
+    internal fun homophoneLayer(word: String, frequency: Double): Int {
+        if (frequency <= ORDERING_INJECTED_FREQ) return LAYER_INJECTED
+        if (!isSingleChar(word)) return LAYER_UNCOMMON
+        return characterLayer(word.codePointAt(0))
+    }
+
+    private fun characterLayer(codePoint: Int): Int {
+        val band = when (grading.level(codePoint)) {
+            1 -> LAYER_COMMON
+            2 -> LAYER_UNCOMMON
+            3 -> LAYER_SPECIALIZED
+            else -> if (codePoint >= EXTENSION_B_FLOOR) LAYER_RARE_EXTENSION else LAYER_RARE
+        }
+        if (band < LAYER_RARE) return band
+        val rank = lm?.unigramRank(codePoint) ?: return band
+        return if (rank <= GENERAL_USE_CARDINALITY) band - 1 else band
+    }
+
+    internal fun homophoneFreqs(key: String): List<Pair<String, Double>> =
+        lookupHomophoneFreqs(key)
+
+    private fun lookupHomophoneFreqs(key: String): List<Pair<String, Double>> {
+        val out = ArrayList<Pair<String, Double>>()
+        val seen = HashSet<String>()
+        for (wf in preferredExact(dict, key)) {
+            if (isSingleChar(wf.word) && seen.add(wf.word)) out.add(wf.word to wf.freq.toDouble())
+        }
+        out.sortWith(
+            compareByDescending<Pair<String, Double>> { it.second }
+                .thenBy { supplementarySingleTieRank(it.first) },
+        )
+        return out
+    }
+
+    private fun segmentSingleFreqs(segment: String): List<Pair<String, Double>> =
+        homophoneFreqs(segment)
+
     private fun letterSyllables(input: String): List<Syllable> {
         val out = ArrayList<Syllable>()
         var pos = 0
@@ -639,6 +707,16 @@ class PinyinDecoder(
         const val MAX_SYLLABLE_KEY_LEN = 6
         const val EXACT_TIE_LOOKAHEAD = 16
         const val SENTENCE_STATE_CAPACITY = 256
+        const val ORDERING_INJECTED_FREQ = 1.0
+        const val LAYER_COMMON = 0
+        const val LAYER_UNCOMMON = 1
+        const val LAYER_SPECIALIZED = 2
+        const val LAYER_RARE = 3
+        const val LAYER_RARE_EXTENSION = 4
+        const val LAYER_INJECTED = 5
+        const val EXTENSION_B_FLOOR = 0x20000
+        const val GENERAL_USE_CARDINALITY = TghGrading.LEVEL1_COUNT + TghGrading.LEVEL2_COUNT
+        const val CORPUS_BAND_OUT = 3
         const val DEFAULT_CONTEXT_WEIGHT = 1.0
         fun completionCap(limit: Int): Int = maxOf(1, (limit.toLong() * 2 / 3).toInt())
     }

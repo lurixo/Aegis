@@ -28,6 +28,7 @@ class EngineLockedFixTest {
     private val dict = EngineFixture.dict()
     private val d = PinyinDecoder(dict)
 
+    private fun isSupp(s: String) = s.codePointCount(0, s.length) == 1 && Character.isSupplementaryCodePoint(s.codePointAt(0))
     private fun words(c: List<Cand>) = c.map { it.word }
 
     private fun locked(readings: List<String>): List<Cand> {
@@ -80,6 +81,13 @@ class EngineLockedFixTest {
         file.deleteOnExit()
         file.writeBytes(out.toByteArray())
         return CharBigramLM.fromFile(file)
+    }
+
+    @Test fun homophoneLayerIncludesSupplementaryAtItsFrequencyTail() {
+        val h = d.homophonesAt("ciku", 0)
+        assertTrue("common 次 present", "次" in h)
+        assertTrue("supplementary 同音字 present (was lost)", h.any { isSupp(it) })
+        assertTrue("common chars rank ABOVE the freq=1 supplementary tail", h.indexOf("次") < h.indexOfFirst { isSupp(it) })
     }
 
     @Test fun tiedSupplementarySinglesFallBehindCommonSinglesOnTheLetterPath() {
