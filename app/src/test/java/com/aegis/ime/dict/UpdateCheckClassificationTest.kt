@@ -15,6 +15,8 @@
 
 package com.aegis.ime.dict
 
+import com.sun.net.httpserver.HttpExchange
+import com.sun.net.httpserver.HttpServer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
@@ -25,6 +27,7 @@ import org.robolectric.annotation.Config
 import java.io.FileNotFoundException
 import java.io.IOException
 import java.net.ConnectException
+import java.net.InetSocketAddress
 import java.net.NoRouteToHostException
 import java.net.PortUnreachableException
 import java.net.SocketException
@@ -98,6 +101,74 @@ class UpdateCheckClassificationTest {
                 ModelDownload.UpdateCheck.TIMEOUT,
                 ModelDownload.modelUpdateAction(true, "local", ModelDownload.ValidatorProbe.Failed(failure)),
             )
+        }
+    }
+
+
+    @Test
+    fun modelUpdateActionReportsEachOutcomeDistinctly() {
+        assertEquals(ModelDownload.UpdateCheck.UP_TO_DATE, ModelDownload.modelUpdateAction(true, "e1", ModelDownload.ValidatorProbe.Reached("e1")))
+        assertEquals(ModelDownload.UpdateCheck.UPDATE, ModelDownload.modelUpdateAction(true, "e1", ModelDownload.ValidatorProbe.Reached("e2")))
+        assertEquals(ModelDownload.UpdateCheck.UNKNOWN, ModelDownload.modelUpdateAction(true, null, ModelDownload.ValidatorProbe.Reached("e2")))
+        assertEquals(ModelDownload.UpdateCheck.UNKNOWN, ModelDownload.modelUpdateAction(true, "e1", ModelDownload.ValidatorProbe.Reached(null)))
+        assertEquals(ModelDownload.UpdateCheck.OFFLINE, ModelDownload.modelUpdateAction(true, "e1", ModelDownload.ValidatorProbe.Failed(ModelDownload.CheckFailure.OFFLINE)))
+        assertEquals(ModelDownload.UpdateCheck.TIMEOUT, ModelDownload.modelUpdateAction(true, "e1", ModelDownload.ValidatorProbe.Failed(ModelDownload.CheckFailure.TIMEOUT)))
+        assertEquals(ModelDownload.UpdateCheck.SERVER_ERROR, ModelDownload.modelUpdateAction(true, "e1", ModelDownload.ValidatorProbe.Failed(ModelDownload.CheckFailure.SERVER)))
+        assertEquals(ModelDownload.UpdateCheck.PARSE_ERROR, ModelDownload.modelUpdateAction(true, "e1", ModelDownload.ValidatorProbe.Failed(ModelDownload.CheckFailure.PARSE)))
+    }
+
+    @Test
+    fun modelCheckResolvingAfterDeleteIsDiscarded() {
+        assertNull(ModelDownload.modelUpdateAction(false, "e1", ModelDownload.ValidatorProbe.Reached("e2")))
+        assertNull(ModelDownload.modelUpdateAction(false, null, ModelDownload.ValidatorProbe.Failed(ModelDownload.CheckFailure.OFFLINE)))
+    }
+
+    @Test
+    fun modelProbeAgainstErroringServerIsServerNotOffline() {
+        listOf(403, 500).forEach { code ->
+            val probe = probeHead { it.sendResponseHeaders(code, -1) }
+            assertEquals("HTTP $code is a reached server", ModelDownload.CheckFailure.SERVER, (probe as ModelDownload.ValidatorProbe.Failed).failure)
+            assertEquals(ModelDownload.UpdateCheck.SERVER_ERROR, ModelDownload.modelUpdateAction(true, "local", probe))
+            assertNotEquals(ModelDownload.UpdateCheck.OFFLINE, ModelDownload.modelUpdateAction(true, "local", probe))
+        }
+    }
+
+    @Test
+    fun modelProbeReadsValidatorFromA2xxResponse() {
+        val probe = probeHead { exchange ->
+            exchange.responseHeaders.add("ETag", "server-etag")
+            exchange.sendResponseHeaders(200, -1)
+        }
+        assertEquals("server-etag", (probe as ModelDownload.ValidatorProbe.Reached).validator)
+        assertEquals(ModelDownload.UpdateCheck.UP_TO_DATE, ModelDownload.modelUpdateAction(true, "server-etag", probe))
+        assertEquals(ModelDownload.UpdateCheck.UPDATE, ModelDownload.modelUpdateAction(true, "old-etag", probe))
+    }
+
+    @Test
+    fun modelProbeAgainstUnresolvableHostIsOffline() {
+        val probe = ModelDownload.remoteValidatorProbe("http://aegis-nonexistent.invalid/gram")
+        assertEquals(ModelDownload.CheckFailure.OFFLINE, (probe as ModelDownload.ValidatorProbe.Failed).failure)
+        assertEquals(ModelDownload.UpdateCheck.OFFLINE, ModelDownload.modelUpdateAction(true, "local", probe))
+    }
+
+
+    private fun probeHead(handle: (HttpExchange) -> Unit): ModelDownload.ValidatorProbe =
+        withServer(handle) { base -> ModelDownload.remoteValidatorProbe(base + "gram") }
+
+    private fun <T> withServer(handle: (HttpExchange) -> Unit, use: (baseUrl: String) -> T): T {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/") { exchange ->
+            try {
+                handle(exchange)
+            } finally {
+                exchange.close()
+            }
+        }
+        server.start()
+        return try {
+            use("http://127.0.0.1:${server.address.port}/")
+        } finally {
+            server.stop(0)
         }
     }
 }

@@ -16,6 +16,8 @@
 package com.aegis.ime.dict
 
 import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
 
 object ModelDownload {
@@ -81,6 +83,30 @@ object ModelDownload {
     sealed interface ValidatorProbe {
         data class Reached(val validator: String?) : ValidatorProbe
         data class Failed(val failure: CheckFailure) : ValidatorProbe
+    }
+
+    fun remoteValidatorProbe(url: String): ValidatorProbe {
+        var conn: HttpURLConnection? = null
+        return try {
+            conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                requestMethod = "HEAD"
+                instanceFollowRedirects = true
+                connectTimeout = 20_000
+                readTimeout = 20_000
+            }
+            val code = conn.responseCode
+            if (code !in 200..299) ValidatorProbe.Failed(CheckFailure.SERVER)
+            else {
+                ValidatorProbe.Reached(
+                    trustworthyValidator(conn.getHeaderField("ETag"))
+                        ?: trustworthyValidator(conn.getHeaderField("Last-Modified")),
+                )
+            }
+        } catch (e: Exception) {
+            ValidatorProbe.Failed(classifyRequestFailure(e))
+        } finally {
+            conn?.disconnect()
+        }
     }
 
     fun validatorComparison(local: String?, remote: String?): UpdateCheck {
