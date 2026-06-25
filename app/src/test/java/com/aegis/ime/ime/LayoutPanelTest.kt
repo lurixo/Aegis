@@ -19,11 +19,18 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.RectF
+import android.graphics.Typeface
 import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
+import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.layout.Key
+import com.aegis.ime.layout.KeyAction
+import com.aegis.ime.layout.LayoutId
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -40,6 +47,38 @@ class LayoutPanelTest {
     private val ctx = RuntimeEnvironment.getApplication()
     private val density = ctx.resources.displayMetrics.density
     private val light = ImePalette.STATIC_LIGHT
+
+    private class FakeHost : ImeHost {
+        override fun commitText(text: CharSequence) {}
+        override fun deleteBackward() {}
+        override fun performEnter() {}
+    }
+
+    private val engine = object : CandidateEngine {
+        override fun candidates(composing: String, t9: Boolean): List<String> = emptyList()
+    }
+
+    private class Fixture(val controller: KeyboardController, val panel: LayoutPanelView, val input: InputView)
+
+    private fun fixture(startEn: Boolean = false): Fixture {
+        val controller = KeyboardController(FakeHost(), engine)
+        val input = InputView(ctx)
+        controller.attachView(input)
+        controller.reset()
+        if (startEn) controller.onKey(Key("", action = KeyAction.TOGGLE_LANG))
+        val panel = LayoutPanelView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        panel.onPick = { choice ->
+            controller.applyLayoutChoice(choice)
+            input.showPanel(null)
+        }
+        panel.onBack = { input.showPanel(null) }
+        return Fixture(controller, panel, input)
+    }
+
+    private fun Fixture.open() {
+        panel.setActiveChoice(controller.currentLayoutChoice())
+        input.showPanel(panel)
+    }
 
     private fun idleBar(widthDp: Int): CandidateView {
         val view = CandidateView(ctx)
@@ -134,6 +173,74 @@ class LayoutPanelTest {
 
         assertTrue(card.performClick())
         assertEquals(listOf(LayoutChoice.CN_NINE), picks)
+    }
+
+    @Test fun each_card_pick_from_a_cn_start_sets_lang_layout_and_closes_the_panel() {
+        val expectations = listOf(
+            Triple(LayoutChoice.CN_NINE, LayoutChoice.CN_NINE, LayoutId.NINE),
+            Triple(LayoutChoice.CN_ALPHA, LayoutChoice.CN_ALPHA, LayoutId.ALPHA),
+            Triple(LayoutChoice.EN_ALPHA, LayoutChoice.EN_ALPHA, LayoutId.ALPHA),
+        )
+        for ((pick, expectedChoice, expectedLayout) in expectations) {
+            val f = fixture()
+            assertEquals(LayoutChoice.CN_NINE, f.controller.currentLayoutChoice())
+            f.open()
+            assertTrue(f.input.isPanelShowing(f.panel))
+            f.panel.cardViewForTest(pick).performClick()
+            assertEquals(expectedChoice, f.controller.currentLayoutChoice())
+            assertEquals(expectedLayout, f.controller.activeLayoutId())
+            assertFalse(f.input.isPanelShowing(f.panel))
+            assertFalse(f.input.panelShown)
+        }
+    }
+
+    @Test fun each_card_pick_from_an_en_start_sets_lang_layout_and_closes_the_panel() {
+        val expectations = listOf(
+            Triple(LayoutChoice.CN_NINE, LayoutChoice.CN_NINE, LayoutId.NINE),
+            Triple(LayoutChoice.CN_ALPHA, LayoutChoice.CN_ALPHA, LayoutId.ALPHA),
+            Triple(LayoutChoice.EN_ALPHA, LayoutChoice.EN_ALPHA, LayoutId.ALPHA),
+        )
+        for ((pick, expectedChoice, expectedLayout) in expectations) {
+            val f = fixture(startEn = true)
+            assertEquals(LayoutChoice.EN_ALPHA, f.controller.currentLayoutChoice())
+            f.open()
+            assertTrue(f.input.isPanelShowing(f.panel))
+            f.panel.cardViewForTest(pick).performClick()
+            assertEquals(expectedChoice, f.controller.currentLayoutChoice())
+            assertEquals(expectedLayout, f.controller.activeLayoutId())
+            assertFalse(f.input.isPanelShowing(f.panel))
+        }
+    }
+
+    @Test fun highlight_follows_the_controller_state_on_each_show() {
+        val f = fixture()
+        f.open()
+        assertHighlighted(f.panel, LayoutChoice.CN_NINE)
+        f.panel.cardViewForTest(LayoutChoice.EN_ALPHA).performClick()
+        f.open()
+        assertHighlighted(f.panel, LayoutChoice.EN_ALPHA)
+        f.input.showPanel(null)
+        f.controller.onKey(Key("", action = KeyAction.TOGGLE_LANG))
+        f.controller.switchTextLayoutForTest(nine = false)
+        f.open()
+        assertHighlighted(f.panel, LayoutChoice.CN_ALPHA)
+    }
+
+    private fun assertHighlighted(panel: LayoutPanelView, active: LayoutChoice) {
+        for (choice in LayoutChoice.entries) {
+            val card = panel.cardViewForTest(choice)
+            if (choice == active) {
+                assertEquals(light.accentBottom, card.currentTextColor)
+                assertSame(Typeface.DEFAULT_BOLD, card.typeface)
+                assertTrue(panel.cardActiveForTest(choice))
+                assertEquals(light.accentBottom, panel.iconTintForTest(choice))
+            } else {
+                assertEquals(light.keyLabel, card.currentTextColor)
+                assertSame(Typeface.DEFAULT, card.typeface)
+                assertFalse(panel.cardActiveForTest(choice))
+                assertEquals(light.keyLabel, panel.iconTintForTest(choice))
+            }
+        }
     }
 
     @Test fun the_active_card_paints_the_accent_green() {

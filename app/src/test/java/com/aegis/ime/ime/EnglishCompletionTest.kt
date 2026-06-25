@@ -293,6 +293,16 @@ class EnglishCompletionTest {
     }
 
     @Test
+    fun reapplying_the_layout_choice_flushes_the_word() {
+        val h = FakeHost()
+        val c = english(h)
+        type(c, "or")
+        c.applyLayoutChoice(LayoutChoice.EN_ALPHA)
+        assertEquals(listOf("or"), h.commits)
+        assertEquals("", c.englishWordForTest())
+    }
+
+    @Test
     fun changing_the_default_language_away_flushes_the_word() {
         val h = FakeHost()
         val c = english(h)

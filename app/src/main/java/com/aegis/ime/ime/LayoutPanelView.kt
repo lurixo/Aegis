@@ -136,6 +136,8 @@ class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel
     }
 
     internal fun cardViewForTest(choice: LayoutChoice): TextView = card(choice).view
+    internal fun cardActiveForTest(choice: LayoutChoice): Boolean = card(choice).active
+    internal fun iconTintForTest(choice: LayoutChoice): Int = card(choice).icon.tint
     internal fun titleButtonForTest(): TextView = titleBtn
     internal fun cardIconForTest(choice: LayoutChoice): Drawable = card(choice).icon
     internal fun cardFeedbackLevelForTest(choice: LayoutChoice): Float = card(choice).feedback.levelForTest()

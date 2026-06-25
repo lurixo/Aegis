@@ -255,6 +255,27 @@ class KeyboardController(
         render()
     }
 
+    fun currentLayoutChoice(): LayoutChoice = when {
+        lang == Lang.EN -> LayoutChoice.EN_ALPHA
+        cnLayout == LayoutId.NINE -> LayoutChoice.CN_NINE
+        else -> LayoutChoice.CN_ALPHA
+    }
+
+    fun applyLayoutChoice(choice: LayoutChoice) {
+        flushComposing()
+        shiftState = ShiftState.OFF
+        if (choice == LayoutChoice.EN_ALPHA) {
+            lang = Lang.EN
+            layoutId = LayoutId.ALPHA
+        } else {
+            lang = Lang.CN
+            cnLayout = if (choice == LayoutChoice.CN_NINE) LayoutId.NINE else LayoutId.ALPHA
+            layoutId = cnLayout
+        }
+        refreshCandidates()
+        render()
+    }
+
     private fun handlePickReading(key: Key) {
         val reading = key.output
         if (reading.isEmpty()) return
