@@ -2,18 +2,21 @@ package com.aegis.ime.engine
 
 import com.aegis.ime.decoder.PinyinDecoder
 import com.aegis.ime.dict.BinaryDict
+import com.aegis.ime.dict.CharBigramLM
 
 /**
- * P4 engine: full-pinyin decoding for both layouts via [PinyinDecoder].
- *  - 26-key: letter-keyed dict (composing = toneless pinyin letters).
- *  - 9-key (T9): digit-keyed dict (composing = phone digits 2–9); the decoder is identical,
- *    disambiguation falls out of the digit→words aggregation in the prebuilt dict.
- *
- * n-gram context scoring is P5.
+ * P5 engine: lattice decoding for both layouts via [PinyinDecoder], with char-bigram context
+ * scoring shared across 26-key (letter dict) and 9-key/T9 (digit dict). The bigram [lm] is over
+ * hanzi, so it serves both input methods. n-gram only — the optional 32 GB-trained `.gram`
+ * download is the top tier (not bundled).
  */
-class DictEngine(pinyinDict: BinaryDict?, t9Dict: BinaryDict?) : CandidateEngine {
-    private val decoder = pinyinDict?.let { PinyinDecoder(it) }
-    private val t9Decoder = t9Dict?.let { PinyinDecoder(it) }
+class DictEngine(
+    pinyinDict: BinaryDict?,
+    t9Dict: BinaryDict?,
+    lm: CharBigramLM?,
+) : CandidateEngine {
+    private val decoder = pinyinDict?.let { PinyinDecoder(it, lm) }
+    private val t9Decoder = t9Dict?.let { PinyinDecoder(it, lm) }
 
     override fun candidates(composing: String, t9: Boolean): List<String> {
         if (composing.isEmpty()) return emptyList()
