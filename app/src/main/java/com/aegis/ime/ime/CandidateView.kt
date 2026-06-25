@@ -15,6 +15,12 @@ class CandidateView(context: Context) : View(context) {
     private var items: List<String> = emptyList()
     private var composing: String = ""
     private val hitRects = ArrayList<RectF>()
+    private var hitCount = 0
+
+    private fun hitRect(i: Int): RectF {
+        while (hitRects.size <= i) hitRects.add(RectF())
+        return hitRects[i]
+    }
 
     private val density = resources.displayMetrics.density
     private val padding = 14f * density
@@ -44,7 +50,7 @@ class CandidateView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         canvas.drawColor(0xFFF2F4F6.toInt())
-        hitRects.clear()
+        hitCount = 0
         val cy = height / 2f
         val baseline = cy - (textPaint.descent() + textPaint.ascent()) / 2
 
@@ -58,10 +64,11 @@ class CandidateView(context: Context) : View(context) {
         }
 
         var x = padding
+        hitCount = items.size
         for ((i, item) in items.withIndex()) {
             val tw = textPaint.measureText(item)
             val cellW = tw + padding * 2
-            hitRects.add(RectF(x, 0f, x + cellW, height.toFloat()))
+            hitRect(i).set(x, 0f, x + cellW, height.toFloat())
             canvas.drawText(item, x + padding, baseline, textPaint)
             x += cellW
             if (i != items.lastIndex) {
@@ -72,9 +79,19 @@ class CandidateView(context: Context) : View(context) {
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_UP) {
-            val idx = hitRects.indexOfFirst { it.contains(event.x, event.y) }
-            if (idx >= 0) onPick(idx)
+            for (i in 0 until hitCount) {
+                if (hitRects[i].contains(event.x, event.y)) {
+                    performClick()
+                    onPick(i)
+                    break
+                }
+            }
         }
+        return true
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
         return true
     }
 }

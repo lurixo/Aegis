@@ -7,12 +7,15 @@ import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
 
+private enum class ShiftState { OFF, ONCE, LOCK }
+
 class KeyboardController(
     private val host: ImeHost,
     private var engine: CandidateEngine,
 ) {
     private var lang = Lang.CN
-    private var shifted = false
+    private var shiftState = ShiftState.OFF
+    private val shifted get() = shiftState != ShiftState.OFF
     private var layoutId = LayoutId.ALPHA
     private val composing = StringBuilder()
     private var candidates: List<String> = emptyList()
@@ -34,7 +37,7 @@ class KeyboardController(
     fun reset() {
         composing.setLength(0)
         candidates = emptyList()
-        shifted = false
+        shiftState = ShiftState.OFF
         layoutId = LayoutId.ALPHA
         lastWord = null
         render()
@@ -46,7 +49,11 @@ class KeyboardController(
             KeyAction.BACKSPACE -> handleBackspace()
             KeyAction.SPACE -> handleSpace()
             KeyAction.ENTER -> handleEnter()
-            KeyAction.SHIFT -> shifted = !shifted
+            KeyAction.SHIFT -> shiftState = when (shiftState) {
+                ShiftState.OFF -> ShiftState.ONCE
+                ShiftState.ONCE -> ShiftState.LOCK
+                ShiftState.LOCK -> ShiftState.OFF
+            }
             KeyAction.SWITCH_SYMBOLS -> switchLayout(LayoutId.SYMBOL)
             KeyAction.SWITCH_NUMBERS -> switchLayout(LayoutId.NUMBER)
             KeyAction.SWITCH_ALPHA -> switchLayout(LayoutId.ALPHA)
@@ -72,9 +79,10 @@ class KeyboardController(
 
     private fun handleCommit(key: Key) {
         if (composingMode()) {
-            composing.append(if (layoutId == LayoutId.NINE) key.output else applyCase(key.output))
+            composing.append(key.output)
         } else {
             host.commitText(applyCase(key.output))
+            if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
             lastWord = null
         }
     }

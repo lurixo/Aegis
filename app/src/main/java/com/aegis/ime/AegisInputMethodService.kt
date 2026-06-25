@@ -20,12 +20,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private lateinit var controller: KeyboardController
     private val userModel = UserModel()
     private val userDbFile by lazy { File(filesDir, "userdb.txt") }
+    @Volatile private var userDbMtime = 0L
 
     override fun onCreate() {
         super.onCreate()
         controller = KeyboardController(this, DictEngine(null, null, null))
         Thread {
-            runCatching { userModel.load(userDbFile) }
+            runCatching { userModel.load(userDbFile); userDbMtime = userDbFile.lastModified() }
             val dict = loadDict("aegis_dict.bin")
             val t9Dict = loadDict("aegis_t9.bin")
             val fuzzyEnabled = getSharedPreferences("aegis", MODE_PRIVATE).getBoolean("fuzzy", true)
@@ -37,9 +38,19 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }.apply { name = "aegis-dict-load"; isDaemon = true }.start()
     }
 
+    override fun onStartInput(info: EditorInfo?, restarting: Boolean) {
+        super.onStartInput(info, restarting)
+        if (!userModel.dirty && userDbFile.lastModified() > userDbMtime) {
+            runCatching { userModel.reload(userDbFile); userDbMtime = userDbFile.lastModified() }
+        }
+    }
+
     override fun onFinishInput() {
         super.onFinishInput()
-        if (userModel.dirty) runCatching { userModel.save(userDbFile) }
+        if (userModel.dirty) runCatching {
+            userModel.save(userDbFile)
+            userDbMtime = userDbFile.lastModified()
+        }
     }
 
     private fun downloadedOverride(name: String): File? =

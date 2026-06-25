@@ -44,6 +44,13 @@ class UserModel {
         dirty = false
     }
 
+    fun reload(file: File) {
+        count.clear()
+        lastUsed.clear()
+        bigram.clear()
+        load(file)
+    }
+
     fun load(file: File) {
         if (!file.exists()) return
         file.bufferedReader().useLines { lines ->
