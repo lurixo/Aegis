@@ -8,6 +8,7 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.dict.OctagramReader
 import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.ime.ImeHost
 import com.aegis.ime.ime.InputView
@@ -33,7 +34,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             val fuzzyDict = if (fuzzyEnabled) loadDict("aegis_fuzzy.bin") else null
             val initialsDict = loadDict("aegis_jianpin.bin")
             val lm = loadLm("aegis_lm.bin")
-            val engine = DictEngine(dict, t9Dict, lm, userModel, fuzzyDict, initialsDict)
+            val octagram = runCatching { OctagramReader.fromDownloads(this, "wanxiang-lts-zh-hans.gram") }
+                .onFailure { Log.e("Aegis", "octagram load failed", it) }.getOrNull()
+            val engine = DictEngine(dict, t9Dict, lm, userModel, fuzzyDict, initialsDict, octagram)
             Handler(Looper.getMainLooper()).post { controller.setEngine(engine) }
         }.apply { name = "aegis-dict-load"; isDaemon = true }.start()
     }

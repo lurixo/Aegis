@@ -13,6 +13,8 @@ class PinyinDecoder(
     private val userModel: UserModel? = null,
     private val fuzzyDict: BinaryDict? = null,
     private val initialsDict: BinaryDict? = null,
+    private val octagram: com.aegis.ime.dict.OctagramReader? = null,
+    private val octagramWeight: Double = DEFAULT_OCTAGRAM_WEIGHT,
 ) {
     private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
     private val edgeN = if (lm != null || fuzzyDict != null || initialsDict != null) EDGE_N else 1
@@ -73,7 +75,9 @@ class PinyinDecoder(
                     for ((prevChar, cell) in from) {
                         val bi = if (lm == null || prevChar == BOS) 0.0
                         else lambda * lm.logCond(prevChar, firstCp)
-                        val score = cell.score + uni + bi + boost - e.penalty
+                        val og = if (octagram != null && cell.word.isNotEmpty())
+                            octagramWeight * (octagram.rawScore(cell.word + w) ?: 0.0) else 0.0
+                        val score = cell.score + uni + bi + boost - e.penalty + og
                         val cur = dp[q][lastCp]
                         if (cur == null || score > cur.score) {
                             dp[q][lastCp] = Cell(score, p, prevChar, w)
@@ -109,5 +113,6 @@ class PinyinDecoder(
         const val DEFAULT_LAMBDA = 1.0
         const val FUZZY_PENALTY = 3.0
         const val INITIALS_PENALTY = 5.0
+        const val DEFAULT_OCTAGRAM_WEIGHT = 0.3
     }
 }
