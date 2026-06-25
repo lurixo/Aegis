@@ -36,7 +36,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             val lm = loadLm("aegis_lm.bin")
             val octagram = runCatching { OctagramReader.fromDownloads(this, "wanxiang-lts-zh-hans.gram") }
                 .onFailure { Log.e("Aegis", "octagram load failed", it) }.getOrNull()
-            val engine = DictEngine(dict, t9Dict, lm, userModel, fuzzyDict, initialsDict, octagram)
+            val enDict = loadDict("aegis_en.bin")
+            val engine = DictEngine(dict, t9Dict, lm, userModel, fuzzyDict, initialsDict, octagram, enDict)
             Handler(Looper.getMainLooper()).post { controller.setEngine(engine) }
         }.apply { name = "aegis-dict-load"; isDaemon = true }.start()
     }
