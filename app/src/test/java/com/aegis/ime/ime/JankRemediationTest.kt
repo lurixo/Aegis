@@ -36,6 +36,15 @@ class JankRemediationTest {
 
     private val ctx = RuntimeEnvironment.getApplication()
 
+    @Test fun keyboard_view_is_not_on_a_software_layer() {
+        val kv = KeyboardView(ctx)
+        assertEquals(
+            "the keyboard draws only flat fills/strokes (no shadow) — a software layer was pure re-raster cost",
+            View.LAYER_TYPE_NONE,
+            kv.layerType,
+        )
+    }
+
     private fun drawInHost(child: View, childHeight: Int, margin: Int): Bitmap {
         val width = (360 * ctx.resources.displayMetrics.density).toInt()
         val host = FrameLayout(ctx)

@@ -25,6 +25,9 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import com.aegis.ime.layout.Lang
+import com.aegis.ime.layout.LayoutId
+import com.aegis.ime.layout.Layouts
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -370,5 +373,29 @@ class Md3MotionSystemTest {
         } finally {
             controller.pause().stop().destroy()
         }
+    }
+
+
+    private fun laidOutKeyboard(): KeyboardView {
+        val kv = KeyboardView(ctx)
+        kv.setLayout(Layouts.forId(LayoutId.ALPHA, Lang.CN), isShifted = false, isLocked = false, language = Lang.CN)
+        val density = ctx.resources.displayMetrics.density
+        kv.measure(
+            View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec((220 * density).toInt(), View.MeasureSpec.EXACTLY),
+        )
+        kv.layout(0, 0, kv.measuredWidth, kv.measuredHeight)
+        return kv
+    }
+
+    @Test fun keyboard_mode_change_is_detected_but_a_same_id_re_render_is_not() {
+        val kv = laidOutKeyboard()
+        val before = kv.modeSwitchesForTest()
+        kv.setLayout(Layouts.forId(LayoutId.ALPHA, Lang.CN), isShifted = true, isLocked = false, language = Lang.CN)
+        assertEquals("a same-id re-render is not a mode change", before, kv.modeSwitchesForTest())
+        kv.setLayout(Layouts.forId(LayoutId.SYMBOL, Lang.CN), isShifted = false, isLocked = false, language = Lang.CN)
+        assertEquals("a real mode change is counted once", before + 1, kv.modeSwitchesForTest())
+        kv.setLayout(Layouts.forId(LayoutId.NUMBER, Lang.CN), isShifted = false, isLocked = false, language = Lang.CN)
+        assertEquals(before + 2, kv.modeSwitchesForTest())
     }
 }
