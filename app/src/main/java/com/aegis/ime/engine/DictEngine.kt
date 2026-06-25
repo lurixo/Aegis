@@ -2,10 +2,15 @@ package com.aegis.ime.engine
 
 import com.aegis.ime.decoder.PinyinDecoder
 import com.aegis.ime.dict.BinaryDict
+import com.aegis.ime.dict.CharBigramLM
 
-class DictEngine(pinyinDict: BinaryDict?, t9Dict: BinaryDict?) : CandidateEngine {
-    private val decoder = pinyinDict?.let { PinyinDecoder(it) }
-    private val t9Decoder = t9Dict?.let { PinyinDecoder(it) }
+class DictEngine(
+    pinyinDict: BinaryDict?,
+    t9Dict: BinaryDict?,
+    lm: CharBigramLM?,
+) : CandidateEngine {
+    private val decoder = pinyinDict?.let { PinyinDecoder(it, lm) }
+    private val t9Decoder = t9Dict?.let { PinyinDecoder(it, lm) }
 
     override fun candidates(composing: String, t9: Boolean): List<String> {
         if (composing.isEmpty()) return emptyList()
