@@ -21,4 +21,5 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Aegis"
+include(":app")
 include(":tools")

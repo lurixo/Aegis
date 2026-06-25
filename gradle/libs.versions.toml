@@ -1,5 +1,13 @@
 [versions]
+agp = "9.4.1"
 kotlin = "2.4.20"
+junit = "4.13.2"
+robolectric = "4.17"
+
+[libraries]
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 
 [plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
