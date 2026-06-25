@@ -16,10 +16,16 @@
 package com.aegis.ime.dict
 
 import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption.ATOMIC_MOVE
+import java.nio.file.StandardCopyOption.REPLACE_EXISTING
+import java.security.MessageDigest
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import org.json.JSONObject
 
 object ModelDownload {
@@ -34,7 +40,209 @@ object ModelDownload {
 
     fun bytesToDisplayMb(bytes: Long): Long = Math.round(bytes / 1_000_000.0)
 
+    enum class TransferFailure { OFFLINE, TIMEOUT, SERVER, INCOMPLETE, CORRUPT, INSTALL }
+
+    data class DownloadResult(
+        val ok: Boolean,
+        val validator: String?,
+        val failure: TransferFailure? = null,
+        val bytesRead: Long = 0L,
+        val contentLength: Long = -1L,
+        val error: Throwable? = null,
+        val resumedFrom: Long = 0L,
+    )
+
+    private val inFlight = ConcurrentHashMap.newKeySet<String>()
+
+    fun download(
+        url: String,
+        dest: File,
+        expectedSha256: String? = null,
+        onProgress: (Long, Long) -> Unit,
+    ): DownloadResult =
+        downloadStaged(url, dest, expectedSha256, onProgress) { staged, _ ->
+            moveReplacing(staged, dest)
+            true
+        }
+
+    private fun downloadStaged(
+        url: String,
+        dest: File,
+        expectedSha256: String?,
+        onProgress: (Long, Long) -> Unit,
+        install: (File, String?) -> Boolean,
+    ): DownloadResult {
+        val key = dest.absolutePath
+        if (!inFlight.add(key)) return DownloadResult(false, null)
+        var conn: HttpURLConnection? = null
+        val tmp = File(dest.parentFile, dest.name + ".part")
+        val meta = partMetaOf(tmp)
+        var total = -1L
+        var done = 0L
+        var resumedFrom = 0L
+        return try {
+            dest.parentFile?.mkdirs()
+            val wanted = normalizeSha256(expectedSha256)
+            val resume = resumeIdentity(tmp, meta, url, expectedSha256)
+            if (resume == null) {
+                tmp.delete()
+                meta.delete()
+            }
+            val offset = if (resume != null) tmp.length() else 0L
+            conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = true
+                connectTimeout = 20_000
+                readTimeout = 30_000
+                if (resume != null) {
+                    setRequestProperty("Range", "bytes=$offset-")
+                    resume.validator?.let { setRequestProperty("If-Range", it) }
+                }
+            }
+            if (conn.responseCode == HTTP_RANGE_NOT_SATISFIABLE) {
+                tmp.delete()
+                meta.delete()
+            }
+            if (conn.responseCode !in 200..299) throw HttpStatusException(conn.responseCode)
+            val validator = trustworthyValidator(conn.getHeaderField("ETag"))
+                ?: trustworthyValidator(conn.getHeaderField("Last-Modified"))
+            if (resume != null && conn.responseCode == HttpURLConnection.HTTP_PARTIAL) {
+                val range = parseContentRange(conn.getHeaderField("Content-Range"))
+                val consistent = range != null &&
+                    range.first == offset &&
+                    range.second == resume.sizeBytes &&
+                    (resume.validator == null || validator == resume.validator)
+                if (!consistent) {
+                    tmp.delete()
+                    meta.delete()
+                    throw IOException("partial content does not continue the stored partial file")
+                }
+                total = resume.sizeBytes
+                done = offset
+                resumedFrom = offset
+            } else {
+                total = conn.contentLengthLong
+                val identity = PartialIdentity(
+                    url = url,
+                    sizeBytes = total,
+                    sha256 = wanted,
+                    validator = validator?.takeIf { !it.startsWith("W/") },
+                )
+                if (total > 0L && (identity.sha256 != null || identity.validator != null)) {
+                    if (!writePartialIdentity(meta, identity)) meta.delete()
+                } else {
+                    meta.delete()
+                }
+            }
+            conn.inputStream.use { input ->
+                FileOutputStream(tmp, resumedFrom > 0L).use { out ->
+                    if (done > 0L) onProgress(done, total)
+                    val buf = ByteArray(1 shl 16)
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        out.write(buf, 0, n)
+                        done += n
+                        onProgress(done, total)
+                    }
+                    out.fd.sync()
+                }
+            }
+            when {
+                total >= 0L && done != total ->
+                    DownloadResult(false, null, TransferFailure.INCOMPLETE, done, total, resumedFrom = resumedFrom)
+                done <= 1024L ->
+                    DownloadResult(false, null, bytesRead = done, contentLength = total, resumedFrom = resumedFrom)
+                wanted != null && !sha256Of(tmp).equals(wanted, ignoreCase = true) -> {
+                    tmp.delete()
+                    meta.delete()
+                    DownloadResult(false, null, TransferFailure.CORRUPT, done, total, resumedFrom = resumedFrom)
+                }
+                else -> installStaged(tmp, validator, done, total, resumedFrom, install)
+            }
+        } catch (e: Exception) {
+            val failure = identifyRequestFailure(e)?.toTransferFailure()
+                ?: TransferFailure.INCOMPLETE.takeIf { e.hasTruncatedTransferSignal() }
+            DownloadResult(false, null, failure, done, total, e, resumedFrom)
+        } finally {
+            discardUnresumablePartial(tmp)
+            conn?.disconnect()
+            inFlight.remove(key)
+        }
+    }
+
+    private data class PartialIdentity(
+        val url: String,
+        val sizeBytes: Long,
+        val sha256: String?,
+        val validator: String?,
+    )
+
     private fun partMetaOf(part: File): File = File(part.parentFile, "${part.name}.meta")
+
+    private fun readPartialIdentity(meta: File): PartialIdentity? = runCatching {
+        val lines = meta.readText().split('\n')
+        if (lines.size != 4) return@runCatching null
+        PartialIdentity(
+            url = lines[0],
+            sizeBytes = lines[1].toLong(),
+            sha256 = normalizeSha256(lines[2].takeIf { it != "-" }),
+            validator = lines[3].takeIf { it != "-" },
+        )
+    }.getOrNull()?.takeIf { it.sizeBytes > 0L && (it.sha256 != null || it.validator != null) }
+
+    private fun writePartialIdentity(meta: File, identity: PartialIdentity): Boolean = runCatching {
+        meta.writeText(
+            listOf(
+                identity.url,
+                identity.sizeBytes.toString(),
+                identity.sha256 ?: "-",
+                identity.validator ?: "-",
+            ).joinToString("\n"),
+        )
+    }.isSuccess
+
+    private fun resumeIdentity(tmp: File, meta: File, url: String, expectedSha256: String?): PartialIdentity? =
+        readPartialIdentity(meta)?.takeIf { identity ->
+            identity.url == url &&
+                identity.sha256 == normalizeSha256(expectedSha256) &&
+                tmp.isFile &&
+                tmp.length() > 0L &&
+                tmp.length() < identity.sizeBytes
+        }
+
+    private fun parseContentRange(value: String?): Pair<Long, Long>? {
+        val match = Regex("bytes (\\d+)-(\\d+)/(\\d+)").matchEntire(value?.trim() ?: return null) ?: return null
+        val start = match.groupValues[1].toLongOrNull() ?: return null
+        val entity = match.groupValues[3].toLongOrNull() ?: return null
+        return start to entity
+    }
+
+    private fun discardUnresumablePartial(part: File) {
+        val meta = partMetaOf(part)
+        val identity = readPartialIdentity(meta)
+        val resumable = identity != null && part.isFile && part.length() > 0L && part.length() < identity.sizeBytes
+        if (!resumable) {
+            part.delete()
+            meta.delete()
+        }
+    }
+
+    private fun installStaged(
+        staged: File,
+        validator: String?,
+        done: Long,
+        total: Long,
+        resumedFrom: Long,
+        install: (File, String?) -> Boolean,
+    ): DownloadResult = try {
+        if (install(staged, validator)) {
+            DownloadResult(true, validator, bytesRead = done, contentLength = total, resumedFrom = resumedFrom)
+        } else {
+            DownloadResult(false, null, TransferFailure.INSTALL, done, total, resumedFrom = resumedFrom)
+        }
+    } catch (e: Exception) {
+        DownloadResult(false, null, TransferFailure.INSTALL, done, total, e, resumedFrom)
+    }
 
     enum class CheckFailure { OFFLINE, TIMEOUT, SERVER, PARSE }
 
@@ -47,7 +255,15 @@ object ModelDownload {
         CheckFailure.PARSE -> UpdateCheck.PARSE_ERROR
     }
 
+    private fun CheckFailure.toTransferFailure(): TransferFailure = when (this) {
+        CheckFailure.OFFLINE -> TransferFailure.OFFLINE
+        CheckFailure.TIMEOUT -> TransferFailure.TIMEOUT
+        CheckFailure.SERVER, CheckFailure.PARSE -> TransferFailure.SERVER
+    }
+
     class HttpStatusException(val code: Int) : IOException("HTTP $code")
+
+    private const val HTTP_RANGE_NOT_SATISFIABLE = 416
 
     internal fun classifyRequestFailure(t: Throwable): CheckFailure =
         identifyRequestFailure(t) ?: CheckFailure.SERVER
@@ -63,6 +279,18 @@ object ModelDownload {
             else -> null
         }
     }
+
+    private fun Throwable.hasTruncatedTransferSignal(): Boolean =
+        generateSequence(this) { it.cause }
+            .any { error ->
+                error is java.io.EOFException ||
+                    (error is java.io.IOException && error.message?.hasTruncationSignal() == true)
+            }
+
+    private fun String.hasTruncationSignal(): Boolean =
+        lowercase(Locale.ROOT).let {
+            "unexpected end of file" in it || "unexpected end of stream" in it || "premature" in it
+        }
 
     private fun Throwable.hasTimeoutSignal(): Boolean =
         generateSequence(this) { it.cause }
@@ -202,6 +430,10 @@ object ModelDownload {
 
     private fun downloadedDir(filesDir: File) = File(filesDir, "downloaded")
     fun dictZipFile(filesDir: File): File = File(downloadedDir(filesDir), DICT_NAME)
+    fun dictPartFile(filesDir: File): File = File(downloadedDir(filesDir), "$DICT_NAME.part")
+
+    fun isDictDownloaded(filesDir: File): Boolean =
+        DICT_BIN_FILES.all { File(downloadedDir(filesDir), it).let { f -> f.exists() && f.length() > 1024 } }
 
     internal fun resolveDictionaryDownloadAsset(fetch: () -> String): Result<DictionaryAsset> =
         runCatching { dictionaryAssetFromUpdateJson(fetch()) }
@@ -290,5 +522,18 @@ object ModelDownload {
         } finally {
             conn?.disconnect()
         }
+    }
+
+    fun sha256Of(file: File): String {
+        val md = MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { ins ->
+            val buf = ByteArray(1 shl 16)
+            while (true) { val n = ins.read(buf); if (n < 0) break; md.update(buf, 0, n) }
+        }
+        return md.digest().joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+    }
+
+    private fun moveReplacing(source: File, target: File) {
+        Files.move(source.toPath(), target.toPath(), ATOMIC_MOVE, REPLACE_EXISTING)
     }
 }
