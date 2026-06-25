@@ -186,6 +186,21 @@ class UserModelTombstoneFormatTest {
         assertEquals(listOf("你呢嗯" to "ninen"), reloaded(db()).tombstones())
     }
 
+    @Test fun anImportedWordListDoesNotBringItsOwnPromises() {
+        val donor = db("donor.txt")
+        model().apply {
+            addManualWord("yx", "我的邮箱", clock)
+            addTombstone("外来词", "wailaici")
+        }.save(donor)
+        assertTrue("precondition: the donor really carries a promise", reloaded(donor).hasTombstones())
+
+        val m = model()
+        assertTrue(m.importFrom(donor, clock))
+
+        assertTrue("merging in someone else's list must not delete this phone's data", m.tombstones().isEmpty())
+        assertEquals(listOf("我的邮箱"), m.userWordEntries().map { it.word })
+    }
+
     @Test fun aStoreThatCarriesNothingButPromisesStillReadsAsEmpty() {
         val m = model().apply { addTombstone("你呢嗯", "ninen") }
         assertTrue("a promise is not a word, so it cannot make an empty list look full", m.isEmpty())

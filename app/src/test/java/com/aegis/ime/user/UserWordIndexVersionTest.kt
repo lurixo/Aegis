@@ -37,6 +37,21 @@ class UserWordIndexVersionTest {
         assertNotEquals(indexed, m.readingsVersion)
     }
 
+    @Test fun everyChangeToTheReadingsMovesTheIndexVersion() {
+        val m = UserModel { 10L }
+        var seen = m.readingsVersion
+        fun moved(what: String) { assertNotEquals(what, seen, m.readingsVersion); seen = m.readingsVersion }
+        m.addManualWord("yx", "我的邮箱", 1L); moved("manual add")
+        m.recordWord("ceshi", "测试", 1L, incrementCount = false); moved("learned word")
+        m.removeWord("ceshi", "测试"); moved("removed from a reading")
+        m.recordWord("ceshi", "测试", 1L, incrementCount = false); moved("learned again")
+        m.removeWord("测试"); moved("removed everywhere")
+        val file = tmp.newFile("userdb.txt")
+        m.save(file)
+        m.reload(file); moved("reload")
+        m.importFrom(file, 2L); moved("import")
+    }
+
     @Test fun savingLeavesLaterChangesUnsaved() {
         val m = UserModel { 10L }
         m.recordWord("ceshi", "测试", 1L, incrementCount = true)

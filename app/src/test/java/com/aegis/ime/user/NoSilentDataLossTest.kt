@@ -116,6 +116,74 @@ class NoSilentDataLossTest {
         }
     }
 
+    private fun writeWideUserDb(file: File, words: Int) {
+        val wordFiller = "漢".repeat(249)
+        val readingFiller = "a".repeat(196)
+        file.bufferedWriter().use { w ->
+            w.write("aegis-userdb 2\n")
+            for (i in 0 until words) w.write("W\t$wordFiller${han(0x4E00 + i)}\t1\t$clock\n")
+            for (i in 0 until words) {
+                w.write("R\t$readingFiller${letters(i)}\t$wordFiller${han(0x4E00 + i)}\n")
+            }
+        }
+    }
+
+    @Test fun importingAUserDictionaryPastTheOldByteCeilingKeepsEveryWord() {
+        val words = 6_000
+        val incoming = File(tmp.root, "incoming.txt")
+        writeWideUserDb(incoming, words)
+        assertTrue(
+            "the fixture must be past the old byte ceiling, it is ${incoming.length()}",
+            incoming.length() > OLD_USERDB_BYTE_CEILING,
+        )
+
+        val replaced = File(tmp.root, "replaced.txt")
+        assertTrue(
+            "a replacing import of an oversized dictionary is accepted",
+            UserDictImport.apply(incoming, replaced, merge = false, now = clock),
+        )
+        assertEquals(
+            "the replacing import keeps every word",
+            words,
+            UserModel { clock }.apply { load(replaced) }.userWordEntries().size,
+        )
+
+        val mergeTarget = File(tmp.root, "merged.txt")
+        UserModel { clock }.apply { addManualWord("zwm", "张伟明", clock) }.save(mergeTarget)
+        assertTrue(
+            "a merging import of an oversized dictionary is accepted",
+            UserDictImport.apply(incoming, mergeTarget, merge = true, now = clock),
+        )
+        assertEquals(
+            "the merging import keeps both sides",
+            words + 1,
+            UserModel { clock }.apply { load(mergeTarget) }.userWordEntries().size,
+        )
+    }
+
+    @Test fun stagingAUserDictionaryPastTheOldByteCeilingWritesEveryByte() {
+        val source = File(tmp.root, "source.bin")
+        val chunk = ByteArray(64 * 1024) { 'x'.code.toByte() }
+        source.outputStream().buffered().use { out ->
+            var written = 0L
+            while (written <= OLD_USERDB_BYTE_CEILING) {
+                out.write(chunk)
+                written += chunk.size
+            }
+        }
+        assertTrue(
+            "the fixture must be past the old byte ceiling, it is ${source.length()}",
+            source.length() > OLD_USERDB_BYTE_CEILING,
+        )
+
+        val staged = File(tmp.root, "staged.bin")
+        assertTrue(
+            "staging an oversized dictionary is accepted",
+            source.inputStream().use { UserDictImport.stage(it, staged) },
+        )
+        assertEquals("every staged byte is kept", source.length(), staged.length())
+    }
+
     @Test fun gluedWordsFarPastTheOldCapSurviveSaveAndLoad() {
         val store = UserLearning { learnNow }
         val total = OLD_FORMED_CEILING + 700

@@ -241,6 +241,40 @@ class UserModelForgettingTest {
         assertThrows(IllegalArgumentException::class.java) { at(t0, ragged) }
     }
 
+    @Test fun aFileFromAFormatThisBuildDoesNotKnowFailsLoudlyAndChangesNothing() {
+        val newer = db("newer.txt")
+        newer.writeText("aegis-userdb 5\nW\t张伟明\t1\t$t0\nR\tzwm\t张伟明\n")
+        assertThrows(IllegalArgumentException::class.java) { at(t0, newer) }
+
+        val store = db()
+        UserModel { t0 }.apply { addManualWord("yx", "我的邮箱", t0) }.save(store)
+        assertFalse(
+            "an unreadable file must be refused, not half applied",
+            UserDictImport.apply(newer, store, merge = false, now = t0),
+        )
+        assertFalse(UserDictImport.apply(newer, store, merge = true, now = t0))
+        assertEquals(
+            "the store is exactly as it was",
+            listOf("我的邮箱"),
+            at(t0, store).userWordEntries().map { it.word },
+        )
+    }
+
+    @Test fun aStaleImportFileIsBroughtInWholeRatherThanAgedOutOnTheWayIn() {
+        val incoming = db("incoming.txt")
+        UserModel { t0 }.apply {
+            recordWord("ninen", "你呢嗯", t0, incrementCount = true)
+        }.save(incoming)
+
+        val replaced = db("replaced.txt")
+        assertTrue(UserDictImport.apply(incoming, replaced, merge = false, now = t0 + 400L * day))
+        assertEquals(
+            "an import lands verbatim; ageing is the store's job, not the import's",
+            listOf("你呢嗯"),
+            UserModel { t0 }.apply { load(replaced, sweepStale = false) }.userWordEntries().map { it.word },
+        )
+    }
+
     @Test fun aFileWhoseEntriesAreAllStaleStillCountsAsCarryingData() {
         val file = db()
         UserModel { t0 }.apply { recordWord("ninen", "你呢嗯", t0, incrementCount = true) }.save(file)

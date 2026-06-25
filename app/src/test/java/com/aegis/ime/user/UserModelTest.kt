@@ -81,6 +81,36 @@ class UserModelTest {
     }
 
     @Test
+    fun importOverwriteReplaces() {
+        val userDb = File.createTempFile("userdb", ".txt")
+        UserModel().apply { record(null, "旧", 1); record("旧", "话", 1) }.save(userDb)
+        val importFile = File.createTempFile("imp", ".txt")
+        UserModel().apply { record(null, "新", 3); record("新", "词", 3) }.save(importFile)
+
+        UserModel().apply { load(importFile) }.save(userDb)
+
+        val reloaded = UserModel().apply { load(userDb) }
+        assertEquals("overwrite drops old entries", 0.0, reloaded.wordBoost("旧"), 0.0)
+        assertTrue("overwrite keeps imported entries", reloaded.wordBoost("新") > 0.0)
+        assertEquals(listOf("词"), reloaded.successors("新", 8))
+        assertTrue("no old successors survive", reloaded.successors("旧", 8).isEmpty())
+        userDb.delete(); importFile.delete()
+    }
+
+    @Test
+    fun importMerges() {
+        val a = UserModel().apply { record(null, "词", 1) }
+        val b = UserModel().apply { record(null, "词", 1); record("词", "条", 1) }
+        val f = File.createTempFile("udb", ".txt")
+        b.save(f)
+        val before = a.wordBoost("词")
+        a.importFrom(f, 9)
+        assertTrue("merged count raises boost", a.wordBoost("词") > before)
+        assertEquals(listOf("条"), a.successors("词", 8))
+        f.delete()
+    }
+
+    @Test
     fun recordWord_indexesReadingAndBoosts() {
         val m = UserModel()
         m.recordWord("ceshi", "测试", 10, incrementCount = true)
@@ -110,6 +140,18 @@ class UserModelTest {
         assertEquals(listOf("测试"), loaded.readingSnapshot()["ceshi"])
         assertEquals(listOf("北京"), loaded.readingSnapshot()["beijing"])
         assertEquals("boost survives the round trip", m.wordBoost("测试"), loaded.wordBoost("测试"), 1e-9)
+        f.delete()
+    }
+
+    @Test
+    fun importMerges_readingEntries() {
+        val userDb = UserModel().apply { recordWord("ceshi", "测试", 1, incrementCount = true) }
+        val other = UserModel().apply { recordWord("ceyong", "测用", 2, incrementCount = true) }
+        val f = File.createTempFile("imp-r", ".txt")
+        other.save(f)
+        userDb.importFrom(f, 3)
+        assertEquals(listOf("测试"), userDb.readingSnapshot()["ceshi"])
+        assertEquals("imported recall entry merged", listOf("测用"), userDb.readingSnapshot()["ceyong"])
         f.delete()
     }
 
@@ -177,5 +219,18 @@ class UserModelTest {
         assertTrue("boost kept while a reading still recalls it", m.wordBoost("长") > 0.0)
         m.removeWord("zhang", "长")
         assertEquals("boost gone once no reading recalls it", 0.0, m.wordBoost("长"), 0.0)
+    }
+
+    @Test
+    fun mergingTheDiskFileKeepsUnsavedLearningDirty() {
+        val file = File.createTempFile("userdb", ".txt")
+        UserModel().apply { record(null, "落盘", 1000) }.save(file)
+        val m = UserModel()
+        m.record(null, "未存", 2000)
+        assertTrue(m.dirty)
+        m.load(file)
+        assertTrue("the merge holds words the file does not, so it stays dirty", m.dirty)
+        assertTrue(m.wordBoost("未存") > 0.0)
+        file.delete()
     }
 }

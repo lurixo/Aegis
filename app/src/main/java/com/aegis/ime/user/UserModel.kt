@@ -332,6 +332,12 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         adoptReloaded(parse(file))
     }
 
+    fun replaceWordsFrom(file: File) {
+        val parsed = parse(file)
+        parsed.tombstones.clear()
+        adoptReloaded(parsed)
+    }
+
     fun reloadIfUnchanged(file: File): Boolean {
         val mark = version
         val parsed = parse(file)
@@ -444,6 +450,26 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
             manual.getOrPut(reading) { LinkedHashSet() }.addAll(words)
         }
         tombstones.addAll(parsed.tombstones)
+    }
+
+    @Synchronized
+    fun importFrom(file: File, now: Long): Boolean {
+        val parsed = parse(file)
+        if (parsed.count.isEmpty() && parsed.readings.isEmpty()) return false
+        for ((word, c) in parsed.count) {
+            count[word] = saturatingAdd(count[word] ?: 0, c)
+            lastUsed[word] = maxOf(lastUsed[word] ?: 0, parsed.lastUsed[word] ?: now)
+        }
+        for ((prev, m) in parsed.bigram) {
+            val dst = bigram.getOrPut(prev) { HashMap() }
+            for ((word, c) in m) dst[word] = saturatingAdd(dst[word] ?: 0, c)
+        }
+        for ((reading, ws) in parsed.readings) readings.getOrPut(reading) { LinkedHashSet() }.addAll(ws)
+        for ((reading, ws) in parsed.manual) manual.getOrPut(reading) { LinkedHashSet() }.addAll(ws)
+        dirty = true
+        version++
+        readingsVersion++
+        return true
     }
 
     private data class Parsed(

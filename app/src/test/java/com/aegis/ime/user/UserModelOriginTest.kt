@@ -135,6 +135,22 @@ class UserModelOriginTest {
         assertThrows(IllegalArgumentException::class.java) { reloaded(db()) }
     }
 
+    @Test fun importingCarriesTheMarksAndAnOldImportAddsNone() {
+        val marked = File(tmp.root, "marked.txt")
+        model().apply { addManualWord("yx", "我的邮箱", clock) }.save(marked)
+        val old = File(tmp.root, "old.txt")
+        old.writeText("aegis-userdb 1\nW\t你呢嗯\t1\t$clock\nR\tninen\t你呢嗯\n")
+
+        val m = model()
+        assertTrue(m.importFrom(marked, clock))
+        assertTrue(m.importFrom(old, clock))
+        assertEquals(mapOf("yx" to setOf("我的邮箱")), m.manualSnapshot())
+        assertEquals(
+            setOf("我的邮箱", "你呢嗯"),
+            m.userWordEntries().map { it.word }.toSet(),
+        )
+    }
+
     @Test fun theMarkSnapshotIsACopyTheCallerCannotWriteThrough() {
         val m = model().apply { addManualWord("zwm", "张伟明", clock) }
         val snapshot = m.manualSnapshot()
