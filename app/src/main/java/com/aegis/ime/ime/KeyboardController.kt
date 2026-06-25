@@ -145,7 +145,13 @@ class KeyboardController(
 
     private fun refreshCandidates() {
         candidates = when {
-            composing.isNotEmpty() -> engine.candidates(composing.toString(), layoutId == LayoutId.NINE)
+            composing.isNotEmpty() -> {
+                val raw = composing.toString()
+                val list = engine.candidates(raw, layoutId == LayoutId.NINE)
+                // CN-EN mixed input: on the 26-key, always offer the raw latin string so the user
+                // can commit English (e.g. "wifi") without switching language.
+                if (layoutId == LayoutId.ALPHA && raw !in list) list + raw else list
+            }
             composingMode() -> engine.predict(lastWord)
             else -> emptyList()
         }

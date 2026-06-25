@@ -39,8 +39,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             val t9Dict = loadDict("aegis_t9.bin")
             val fuzzyEnabled = getSharedPreferences("aegis", MODE_PRIVATE).getBoolean("fuzzy", true)
             val fuzzyDict = if (fuzzyEnabled) loadDict("aegis_fuzzy.bin") else null
+            val initialsDict = loadDict("aegis_jianpin.bin")
             val lm = loadLm("aegis_lm.bin")
-            val engine = DictEngine(dict, t9Dict, lm, userModel, fuzzyDict)
+            val engine = DictEngine(dict, t9Dict, lm, userModel, fuzzyDict, initialsDict)
             Handler(Looper.getMainLooper()).post { controller.setEngine(engine) }
         }.apply { name = "aegis-dict-load"; isDaemon = true }.start()
     }
