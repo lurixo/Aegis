@@ -3,6 +3,8 @@ package com.aegis.ime.ui
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.ComponentActivity
@@ -21,7 +23,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -35,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
+import com.aegis.ime.dict.ModelDownload
 import com.aegis.ime.ui.theme.AegisTheme
 import com.aegis.ime.user.UserModel
 import java.io.File
@@ -108,7 +113,66 @@ private fun SetupScreen() {
         )
 
         SettingsCard()
+        GramDownloadCard()
         UserDictCard()
+    }
+}
+
+@Composable
+private fun GramDownloadCard() {
+    val context = LocalContext.current
+    val dest = ModelDownload.destFile(context.filesDir)
+    fun doneLabel() = "已下载（${dest.length() / 1048576} MB），下次切换到 Aegis 生效"
+
+    var present by remember { mutableStateOf(dest.exists() && dest.length() > 1024) }
+    var status by remember { mutableStateOf(if (present) doneLabel() else "未下载") }
+    var progress by remember { mutableStateOf(0f) }
+    var downloading by remember { mutableStateOf(false) }
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("增强模型（万象离线大模型）", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "可选下载 ~401 MB。下载后中文候选明显更准（内部评测 top-1 +约 9 分）；仅存本机，输入过程仍全程离线。",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (downloading) {
+                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+            }
+            Text(status, style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    enabled = !downloading,
+                    onClick = {
+                        downloading = true
+                        progress = 0f
+                        status = "下载中…"
+                        val handler = Handler(Looper.getMainLooper())
+                        var lastPct = -1
+                        Thread {
+                            val ok = ModelDownload.download(ModelDownload.GRAM_URL, dest) { done, total ->
+                                if (total > 0) {
+                                    val pct = (done * 100 / total).toInt()
+                                    if (pct != lastPct) { lastPct = pct; handler.post { progress = pct / 100f } }
+                                }
+                            }
+                            handler.post {
+                                downloading = false
+                                present = dest.exists() && dest.length() > 1024
+                                status = if (ok) doneLabel() else "下载失败"
+                            }
+                        }.apply { isDaemon = true }.start()
+                    },
+                ) { Text("下载") }
+                OutlinedButton(
+                    enabled = !downloading && present,
+                    onClick = { dest.delete(); present = false; progress = 0f; status = "未下载" },
+                ) { Text("删除") }
+            }
+        }
     }
 }
 

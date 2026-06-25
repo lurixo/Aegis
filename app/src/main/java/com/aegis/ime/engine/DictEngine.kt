@@ -3,6 +3,7 @@ package com.aegis.ime.engine
 import com.aegis.ime.decoder.PinyinDecoder
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.dict.OctagramReader
 import com.aegis.ime.user.UserModel
 
 class DictEngine(
@@ -12,11 +13,14 @@ class DictEngine(
     private val userModel: UserModel? = null,
     fuzzyDict: BinaryDict? = null,
     initialsDict: BinaryDict? = null,
+    octagram: OctagramReader? = null,
 ) : CandidateEngine {
     private val decoder = pinyinDict?.let {
-        PinyinDecoder(it, lm, userModel = userModel, fuzzyDict = fuzzyDict, initialsDict = initialsDict)
+        PinyinDecoder(it, lm, userModel = userModel, fuzzyDict = fuzzyDict, initialsDict = initialsDict, octagram = octagram)
     }
-    private val t9Decoder = t9Dict?.let { PinyinDecoder(it, lm, userModel = userModel) }
+    private val t9Decoder = t9Dict?.let {
+        PinyinDecoder(it, lm, userModel = userModel, octagram = octagram)
+    }
 
     override fun candidates(composing: String, t9: Boolean): List<String> {
         if (composing.isEmpty()) return emptyList()
