@@ -39,6 +39,18 @@ object Pinyin {
     }
 
     /**
+     * Collapse a toneless pinyin string to a fuzzy canonical form so common confusions match:
+     * 平翘舌 zh/ch/sh -> z/c/s and 前后鼻音 ang/eng/ing -> an/en/in. Applied identically at dict
+     * build time (to keys) and at query time (to input) — see app `Fuzzy`. Keep the two in sync.
+     */
+    fun fuzzyNormalize(s: String): String {
+        var r = s
+        r = r.replace("zh", "z").replace("ch", "c").replace("sh", "s")
+        r = r.replace("ang", "an").replace("eng", "en").replace("ing", "in")
+        return r
+    }
+
+    /**
      * Canonical toneless Mandarin pinyin syllables (ü written as v for l/n; ju/qu/xu/yu keep u).
      * Used only to produce an advisory coverage diff against the wanxiang data — not a hard gate.
      */

@@ -12,9 +12,11 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -22,6 +24,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -104,7 +107,40 @@ private fun SetupScreen() {
             modifier = Modifier.fillMaxWidth(),
         )
 
+        SettingsCard()
         UserDictCard()
+    }
+}
+
+@Composable
+private fun SettingsCard() {
+    val context = LocalContext.current
+    val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
+    var fuzzy by remember { mutableStateOf(prefs.getBoolean("fuzzy", true)) }
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("输入设置", style = MaterialTheme.typography.titleMedium)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("模糊拼音", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "容忍 zh/z、ch/c、sh/s、ang/an、eng/en、ing/in；下次切换到 Aegis 生效。",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(
+                    checked = fuzzy,
+                    onCheckedChange = {
+                        fuzzy = it
+                        prefs.edit().putBoolean("fuzzy", it).apply()
+                    },
+                )
+            }
+        }
     }
 }
 
