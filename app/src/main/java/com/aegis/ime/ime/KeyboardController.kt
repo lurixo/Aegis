@@ -201,7 +201,12 @@ class KeyboardController(
             layoutId = if (lang == Lang.CN) cnDefaultLayout else LayoutId.ALPHA
         }
         lastWord = null
+        render()
+    }
 
+    fun restoreBaseKeyboard() {
+        shiftState = ShiftState.OFF
+        layoutId = if (lang == Lang.CN) cnLayout else LayoutId.ALPHA
         render()
     }
 

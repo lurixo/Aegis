@@ -715,6 +715,55 @@ class KeyboardControllerTest {
         assertTrue(h.commits.isEmpty())
     }
 
+    @Test fun restore_base_keyboard_preserves_nine_twenty_six_and_english_without_committing() {
+        val nineHost = FakeHost()
+        val nine = KeyboardController(nineHost, engine)
+        nine.reset()
+        nine.onKey(act(KeyAction.SWITCH_NUMPAD))
+        nine.restoreBaseKeyboard()
+        assertEquals(LayoutId.NINE, nine.activeLayoutId())
+        assertTrue(nineHost.commits.isEmpty())
+
+        val alphaHost = FakeHost()
+        val alpha = KeyboardController(alphaHost, engine)
+        alpha.reset()
+        alpha.switchTextLayoutForTest(nine = false)
+        alpha.onKey(act(KeyAction.SWITCH_SYMBOLS))
+        alpha.restoreBaseKeyboard()
+        assertEquals(LayoutId.ALPHA, alpha.activeLayoutId())
+        assertTrue(alphaHost.commits.isEmpty())
+
+        val englishHost = FakeHost()
+        val english = KeyboardController(englishHost, engine)
+        english.reset()
+        english.onKey(act(KeyAction.TOGGLE_LANG))
+        english.onKey(act(KeyAction.SWITCH_NUMPAD))
+        english.restoreBaseKeyboard()
+        assertEquals(LayoutId.ALPHA, english.activeLayoutId())
+        english.onKey(act(KeyAction.SHIFT_LOCK))
+        english.restoreBaseKeyboard()
+        assertEquals("OFF", english.shiftStateName())
+        assertTrue(englishHost.commits.isEmpty())
+        english.onKey(out("a"))
+        assertEquals("a", english.englishWordForTest())
+        assertTrue(englishHost.commits.isEmpty())
+    }
+
+    @Test fun restore_base_keyboard_keeps_normal_composition_without_committing() {
+        val host = FakeHost()
+        val c = KeyboardController(host, engine)
+        c.reset()
+        c.switchTextLayoutForTest(nine = false)
+        c.onKey(out("n"))
+        val preedit = c.preeditForTest()
+        assertTrue(preedit.isNotEmpty())
+
+        c.restoreBaseKeyboard()
+
+        assertEquals(preedit, c.preeditForTest())
+        assertTrue(host.commits.isEmpty())
+    }
+
     @Test fun lang_round_trip_returns_to_the_cn_default_keyboard() {
         val c = KeyboardController(FakeHost(), engine)
         c.reset()
