@@ -317,6 +317,47 @@ class Md3MotionSystemTest {
         }
     }
 
+    @Test fun candidate_strip_role_changes_reuse_the_snapshot_bitmap_on_both_keyboards() {
+        animationsOn()
+        for (nine in listOf(true, false)) {
+            val controller = Robolectric.buildActivity(Activity::class.java).setup()
+            try {
+                val activity = controller.get()
+                val density = activity.resources.displayMetrics.density
+                val iv = InputView(activity).apply {
+                    showKeyboard(Layouts.forId(if (nine) LayoutId.NINE else LayoutId.ALPHA, Lang.CN), false, false, Lang.CN)
+                }
+                val width = (360 * density).toInt()
+                iv.measure(
+                    View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                )
+                attach(activity, iv, width, iv.measuredHeight)
+                shadowOf(Looper.getMainLooper()).idle()
+                val bar = iv.candidateBarForTest()
+
+                iv.showCandidates(listOf("你", "泥"), "ni", listOf("ni"))
+                val first = requireNotNull(Motion.coverBitmapForTest(bar)) { "nine=$nine toolbar→candidates covers" }
+                shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS)
+                assertFalse(Motion.coverActiveForTest(bar))
+                val candidateFace = Bitmap.createBitmap(bar.width, bar.height, Bitmap.Config.ARGB_8888).also {
+                    it.eraseColor(iv.palette().keyboardBg)
+                    bar.draw(Canvas(it))
+                }
+
+                iv.showCandidates(emptyList(), "", emptyList())
+
+                val second = requireNotNull(Motion.coverBitmapForTest(bar)) { "nine=$nine candidates→toolbar covers" }
+                assertSame("nine=$nine the strip reuses its released snapshot", first, second)
+                assertTrue("nine=$nine the reused snapshot is exactly the candidate face", second.sameAs(candidateFace))
+                shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS)
+                assertFalse(Motion.coverActiveForTest(bar))
+            } finally {
+                controller.pause().stop().destroy()
+            }
+        }
+    }
+
     @Test fun snapshot_gates_to_the_instant_branch_when_detached_zero_sized_or_reduced() {
         animationsOn()
         assertNull("a detached view yields no snapshot", Motion.snapshot(View(ctx), Color.WHITE))

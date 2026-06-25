@@ -190,6 +190,14 @@ class EditBarView(context: Context) : LinearLayout(context) {
 
     fun editable(): PanelEditable = fieldEditable
 
+    fun focusField() {
+        field.isFocusableInTouchMode = true
+        field.requestFocus()
+        field.setSelection(field.text.length)
+    }
+
+    fun releaseField() { field.clearFocus() }
+
     internal fun fieldForTest(): EditText = field
 
     internal fun fieldBoxForTest(): View = fieldBox

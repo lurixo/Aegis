@@ -268,6 +268,8 @@ class KeyboardView(context: Context) : View(context) {
 
     internal fun layoutAppliesForTest(): Int = layoutApplies
 
+    internal fun rowCountForSizing(): Int = layout.rowCount
+
     private fun usesFractionalCells(l: KeyboardLayout): Boolean = l.cells != null && l.id != LayoutId.ALPHA
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -861,6 +863,7 @@ class KeyboardView(context: Context) : View(context) {
     internal fun caseBoxLabelsForTest(): List<String>? = caseBoxKey?.let { caseBoxLabels(it) }
     internal fun caseBoxSelectedForTest(): Int = caseBoxSelected
     internal fun caseBoxBoundsForTest(): RectF? = if (caseBoxActive) caseBoxBounds() else null
+    internal fun previewBoundsForTest(): RectF? = previewKey?.let { previewBounds(it) }
 
     internal fun centerOfActionForTest(action: KeyAction): Pair<Float, Float>? {
         if (placed.isEmpty()) relayout()

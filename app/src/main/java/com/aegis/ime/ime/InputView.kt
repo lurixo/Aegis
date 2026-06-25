@@ -1,0 +1,541 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Copyright (C) 2026 lurixo
+//
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 3.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+// PARTICULAR PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
+
+package com.aegis.ime.ime
+
+import android.content.Context
+import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Outline
+import android.graphics.Rect
+import android.graphics.RectF
+import android.os.SystemClock
+import android.view.View
+import android.view.ViewGroup
+import android.view.ViewOutlineProvider
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import kotlin.math.roundToInt
+import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
+import com.aegis.ime.layout.Key
+import com.aegis.ime.layout.KeyboardLayout
+import com.aegis.ime.layout.Lang
+
+class InputView(context: Context) : LinearLayout(context) {
+
+    var onKey: (Key) -> Unit = {}
+    var onPickCandidate: (Int) -> Unit = {}
+    var onFunction: (BarFunction) -> Unit = {}
+    var onBackspaceSwipe: (Boolean) -> Unit = {}
+
+    var onCollapse: () -> Unit = {}
+    var onEditConfirm: () -> Unit = {}
+    var onEditTextChanged: (String) -> Unit = {}
+    var onEditSelectionChanged: (Boolean) -> Unit = {}
+    var onEditCancel: () -> Unit = {}
+    var onOverlayChanged: () -> Unit = {}
+    var onPreeditTap: () -> Unit = {}
+
+    var onPanelChanged: (View?) -> Unit = {}
+
+    private val preeditView = PreeditView(context)
+    private val preeditSlot = CompactDock(context) { resolveDockWidth(it) }.apply { addDockedView(preeditView) }
+    private val candidateView = CandidateView(context)
+    private val editBarView = EditBarView(context)
+    private val keyboardView = KeyboardView(context)
+    private val panelContainer = FrameLayout(context)
+
+    private val body = SurfaceContainer(context)
+    private val bodySlot = CompactDock(context) { resolveDockWidth(it) }.apply { addDockedView(body) }
+    private val candidateTapGuard = CandidateTapGuard()
+    private var currentPanel: View? = null
+    private var palette = ImePalette.STATIC_LIGHT
+    private var windowNavBottomPx = lastNavBottomPx
+    private var windowLeftSystemInsetPx = 0
+    private var windowRightSystemInsetPx = 0
+    private var measuredBottomExtraPx = dp(BOTTOM_RAISE_DP)
+    private var lastDockHeightSpec: LandscapeDockSizing.HeightSpec? = null
+    private var cachedUnconstrainedHeightSpec: LandscapeDockSizing.HeightSpec? = null
+    private var latestMeasuredSlotWidthPx = 0
+
+    fun applyPalette(p: ImePalette) {
+        palette = p
+        body.setBackgroundColor(p.keyboardBg)
+        panelContainer.setBackgroundColor(p.keyboardBg)
+        preeditView.applyPalette(p)
+        candidateView.applyPalette(p)
+        keyboardView.applyPalette(p)
+        editBarView.applyPalette(p)
+    }
+
+    fun palette(): ImePalette = palette
+
+    fun showEditBar(active: Boolean) {
+        if (active) {
+            if (editBarView.visibility != VISIBLE || editBarView.alpha < 1f) {
+                Motion.showNow(editBarView)
+            }
+            editBarView.focusField()
+        } else {
+            editBarView.releaseField()
+            Motion.hideNow(editBarView)
+        }
+        onOverlayChanged()
+    }
+    fun isEditBarShowing(): Boolean = editBarView.visibility == VISIBLE
+
+    init {
+        orientation = VERTICAL
+        candidateView.onPick = { index -> pickCandidateIfSeen(index) }
+        candidateView.onCandidatePress = { downTime -> candidateTapGuard.press(downTime) }
+        candidateView.onFunction = { f -> onFunction(f) }
+        candidateView.onCollapse = { onCollapse() }
+        keyboardView.onKey = { key -> onKey(key) }
+        keyboardView.onBackspaceSwipe = { up -> onBackspaceSwipe(up) }
+        editBarView.onConfirm = { onEditConfirm() }
+        editBarView.onCancel = { onEditCancel() }
+        editBarView.onTextChanged = { text -> onEditTextChanged(text) }
+        editBarView.onSelectionState = { has -> onEditSelectionChanged(has) }
+        preeditView.onTap = { onPreeditTap() }
+        addView(preeditSlot, LayoutParams(LayoutParams.MATCH_PARENT, barTopInsetPx()))
+
+        body.orientation = VERTICAL
+        body.setBackgroundColor(palette.keyboardBg)
+        editBarView.visibility = GONE
+        body.addView(editBarView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        body.addView(candidateView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
+        body.addView(keyboardView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        panelContainer.visibility = GONE
+        panelContainer.setBackgroundColor(palette.keyboardBg)
+        body.addView(panelContainer, LayoutParams(LayoutParams.MATCH_PARENT, dp(250)))
+        addView(bodySlot, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+
+        applyWindowPadding(lastNavBottomPx, 0, 0)
+
+        ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets ->
+            val nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+            val cut = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
+            val safeBottom = maxOf(nav.bottom, cut.bottom)
+            if (safeBottom > 0) lastNavBottomPx = safeBottom
+
+            applyWindowPadding(safeBottom, maxOf(nav.left, cut.left), maxOf(nav.right, cut.right))
+            WindowInsetsCompat.CONSUMED
+        }
+    }
+
+    private fun applyWindowPadding(navBottom: Int, cutLeft: Int, cutRight: Int) {
+        val geometryChanged = windowNavBottomPx != navBottom ||
+            windowLeftSystemInsetPx != cutLeft || windowRightSystemInsetPx != cutRight
+        windowNavBottomPx = navBottom.coerceAtLeast(0)
+        windowLeftSystemInsetPx = cutLeft.coerceAtLeast(0)
+        windowRightSystemInsetPx = cutRight.coerceAtLeast(0)
+        updateBodyPadding(measuredBottomExtraPx)
+
+        if (geometryChanged) requestLayout()
+    }
+
+    private fun updateBodyPadding(bottomExtra: Int) {
+        val side = dp(SIDE_PADDING_DP)
+
+        val slotWidth = latestMeasuredSlotWidthPx.takeIf { it > 0 }
+            ?: bodySlot.width.takeIf { it > 0 }
+            ?: resources.configuration.screenWidthDp
+                .takeIf { it > 0 && it != Configuration.SCREEN_WIDTH_DP_UNDEFINED }
+                ?.let { (it * resources.displayMetrics.density).roundToInt() }
+            ?: 0
+        val dockLeft = (slotWidth - resolveDockWidth(slotWidth)).coerceAtLeast(0)
+        val leftPad = maxOf((windowLeftSystemInsetPx - dockLeft).coerceAtLeast(0), side)
+        body.setPadding(
+            leftPad,
+            0,
+            maxOf(windowRightSystemInsetPx, side),
+            (lastDockHeightSpec?.navBottom ?: windowNavBottomPx) + bottomExtra.coerceAtLeast(0),
+        )
+        preeditView.setLeftInset(leftPad.toFloat())
+        preeditView.setRightInset(maxOf(windowRightSystemInsetPx, side).toFloat())
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        latestMeasuredSlotWidthPx = MeasureSpec.getSize(widthMeasureSpec).coerceAtLeast(0)
+        val rows = keyboardView.rowCountForSizing()
+        val preferredKeyboard = LandscapeDockSizing.preferredKeyboardHeight(rows, resources.displayMetrics.density)
+        val spec = unconstrainedHeightSpec(preferredKeyboard, extraBarVisible())
+        applyHeightSpec(spec)
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+    }
+
+    private fun extraBarVisible(): Boolean = editBarView.visibility != GONE
+
+    private fun unconstrainedHeightSpec(
+        preferredKeyboard: Int,
+        editBarVisible: Boolean,
+    ): LandscapeDockSizing.HeightSpec {
+        val preeditHeight = dp(PREEDIT_HEIGHT_DP)
+        val barHeight = dp(BAR_HEIGHT_DP)
+        val bottomExtra = dp(BOTTOM_RAISE_DP)
+        val rootHeight = preeditHeight + barHeight * (if (editBarVisible) 2 else 1) +
+            preferredKeyboard + windowNavBottomPx + bottomExtra
+        cachedUnconstrainedHeightSpec?.let { cached ->
+            if (cached.preeditHeight == preeditHeight &&
+                cached.barHeight == barHeight &&
+                cached.keyboardHeight == preferredKeyboard &&
+                cached.bottomExtra == bottomExtra &&
+                cached.navBottom == windowNavBottomPx &&
+                cached.rootHeight == rootHeight
+            ) return cached
+        }
+        return LandscapeDockSizing.HeightSpec(
+            preeditHeight = preeditHeight,
+            barHeight = barHeight,
+            keyboardHeight = preferredKeyboard,
+            bottomExtra = bottomExtra,
+            navBottom = windowNavBottomPx,
+            rootHeight = rootHeight,
+        ).also { cachedUnconstrainedHeightSpec = it }
+    }
+
+    private fun applyHeightSpec(spec: LandscapeDockSizing.HeightSpec) {
+        lastDockHeightSpec = spec
+        measuredBottomExtraPx = spec.bottomExtra
+        setHeight(preeditSlot, spec.preeditHeight)
+        editBarView.minimumHeight = spec.barHeight
+        setHeight(candidateView, spec.barHeight)
+        setHeight(keyboardView, spec.keyboardHeight)
+        setPanelHeight(panelHeightFor(spec.keyboardHeight))
+        (currentPanel as? CoversToolbar)?.setCoveredBarHeight(coveredBarHeightPx())
+        updateBodyPadding(spec.bottomExtra)
+    }
+
+    private fun panelHeightFor(keyboardHeight: Int): Int =
+        keyboardHeight + if (currentPanel is CoversToolbar) coveredBarHeightPx() else 0
+
+    private fun coveredBarHeightPx(): Int = lastDockHeightSpec?.barHeight ?: dp(BAR_HEIGHT_DP)
+
+    private fun setHeight(view: View, px: Int) {
+        val lp = view.layoutParams ?: return
+        if (lp.height != px) lp.height = px.coerceAtLeast(0)
+    }
+
+    private fun resolveDockWidth(slotWidth: Int): Int {
+        if (slotWidth <= 0) return 0
+        val c = resources.configuration
+        val landscape = c.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val shortDp = listOf(c.screenWidthDp, c.screenHeightDp)
+            .filter { it > 0 && it != Configuration.SCREEN_WIDTH_DP_UNDEFINED }
+            .minOrNull()
+        val preferred = shortDp?.let { (it * resources.displayMetrics.density).roundToInt() } ?: slotWidth
+        return LandscapeDockSizing.resolveWidth(
+            landscape = landscape,
+            slotWidth = slotWidth,
+            preferredSurfaceWidth = preferred,
+            density = resources.displayMetrics.density,
+            leftSystemInset = windowLeftSystemInsetPx,
+            rightSystemInset = windowRightSystemInsetPx,
+        ).surfaceWidth
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        ViewCompat.requestApplyInsets(this)
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        Motion.cancelCover(panelContainer)
+        Motion.reset(keyboardView)
+        Motion.reset(preeditView)
+        Motion.reset(candidateView)
+        Motion.reset(editBarView)
+        currentPanel?.let { Motion.reset(it) }
+    }
+
+    fun barTopInsetPx(): Int =
+        lastDockHeightSpec?.preeditHeight
+            ?: preeditSlot.layoutParams?.height?.takeIf { it >= 0 }
+            ?: dp(PREEDIT_HEIGHT_DP)
+
+    fun showKeyboard(layout: KeyboardLayout, shifted: Boolean, locked: Boolean, lang: Lang) {
+        keyboardView.setLayout(layout, shifted, locked, lang)
+    }
+    fun setKeyPreviewNine(on: Boolean) { keyboardView.previewNineEnabled = on }
+    fun setKeyPreviewAlpha(on: Boolean) { keyboardView.previewAlphaEnabled = on }
+
+    private fun pickCandidateIfSeen(index: Int) {
+        if (candidateTapGuard.accepts(index, SystemClock.uptimeMillis())) onPickCandidate(index)
+    }
+
+    fun showCandidates(
+        candidates: List<String>,
+        preedit: String,
+        readings: List<String>,
+        selectedReading: Int = -1,
+        candidateProjection: CandidateProjectionPolicy? = null,
+        candidatesPending: Boolean = false,
+    ) {
+        candidateTapGuard.show(candidates, candidatesPending, SystemClock.uptimeMillis())
+        preeditView.setText(preedit)
+
+        candidateView.setContent(candidates, preedit)
+    }
+
+    internal fun candidateBarForTest(): CandidateView = candidateView
+
+    fun showPanel(panel: View?) = showPanel(panel, animateReveal = true)
+
+    internal fun showPanelImmediately(panel: View) = showPanel(panel, animateReveal = false)
+
+    private fun showPanel(panel: View?, animateReveal: Boolean) {
+        val outgoing = currentPanel
+        (outgoing as? ResettablePanel)?.takeIf { it !== panel }?.resetToDefault()
+        currentPanel = panel
+        (panel as? CoversToolbar)?.setCoveredBarHeight(coveredBarHeightPx())
+        val coversBar = panel is CoversToolbar
+        val restoredBar = outgoing is CoversToolbar && !coversBar
+        if (panel == null) {
+            if (outgoing != null) {
+                val snap = Motion.snapshot(outgoing, palette.keyboardBg)
+                Motion.reset(outgoing)
+                panelContainer.removeAllViews()
+                panelContainer.visibility = GONE
+                if (restoredBar) restoreCoveredBar()
+                keyboardView.visibility = VISIBLE
+                Motion.reset(keyboardView)
+                Motion.coverWith(keyboardView, snap, offsetY = if (restoredBar) -coveredBarHeightPx() else 0)
+            } else {
+                panelContainer.removeAllViews()
+                panelContainer.visibility = GONE
+                keyboardView.visibility = VISIBLE
+            }
+        } else {
+            setPanelHeight(
+                panelHeightFor(
+                    lastDockHeightSpec?.keyboardHeight
+                        ?: keyboardView.height.takeIf { it > 0 }
+                        ?: LandscapeDockSizing.preferredKeyboardHeight(
+                            keyboardView.rowCountForSizing(),
+                            resources.displayMetrics.density,
+                        ),
+                ),
+            )
+            val snap = when {
+                !animateReveal -> null
+                outgoing != null && outgoing !== panel -> Motion.snapshot(outgoing, palette.keyboardBg)
+                outgoing == null && coversBar && coveredBar() != null -> expandCoverSnapshot()
+                outgoing == null && keyboardView.visibility == VISIBLE -> Motion.snapshot(keyboardView, palette.keyboardBg)
+                else -> null
+            }
+            attachPanel(panel)
+            if (coversBar) {
+                candidateView.visibility = GONE
+            }
+            keyboardView.visibility = GONE
+            panel.visibility = VISIBLE
+            Motion.reset(panel)
+            Motion.coverWith(panelContainer, snap)
+        }
+        onPanelChanged(panel)
+        onOverlayChanged()
+    }
+
+    private fun coveredBar(): View? = when {
+        candidateView.visibility == VISIBLE -> candidateView
+        else -> null
+    }
+
+    private fun expandCoverSnapshot(): Bitmap? {
+        if (!isAttachedToWindow || !Motion.enabled()) return null
+        val bar = coveredBar() ?: return null
+        val w = bar.width
+        val barH = bar.height
+        val kbdH = keyboardView.height
+        if (w <= 0 || barH <= 0 || kbdH <= 0) return null
+        val bitmap = Bitmap.createBitmap(w, barH + kbdH, Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(palette.keyboardBg)
+        val canvas = Canvas(bitmap)
+        bar.draw(canvas)
+        canvas.translate(0f, barH.toFloat())
+        keyboardView.draw(canvas)
+        return bitmap
+    }
+
+    private fun restoreCoveredBar() {
+        candidateView.visibility = VISIBLE
+    }
+
+    private fun attachPanel(panel: View) {
+        panelContainer.removeAllViews()
+        (panel.parent as? ViewGroup)?.removeView(panel)
+        panelContainer.addView(
+            panel,
+            FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT),
+        )
+        panelContainer.visibility = VISIBLE
+    }
+
+    private fun setPanelHeight(px: Int) {
+        val lp = panelContainer.layoutParams
+        if (lp.height != px) { lp.height = px; panelContainer.layoutParams = lp }
+    }
+
+    internal fun keyboardHeightPx(): Int = keyboardView.height
+
+    internal fun keyboardVisualWidthPx(): Int = keyboardView.width
+    internal fun keyboardVisualLeftPx(): Int = bodySlot.left + body.left + keyboardView.left
+    internal fun keyboardVisualRightPx(): Int = keyboardVisualLeftPx() + keyboardView.width
+    internal fun toolbarVisualWidthPx(): Int = candidateView.width
+    internal fun toolbarVisualLeftPx(): Int = bodySlot.left + body.left + candidateView.left
+    internal fun toolbarVisualRightPx(): Int = toolbarVisualLeftPx() + candidateView.width
+    internal fun editBarVisualLeftPx(): Int = bodySlot.left + body.left + editBarView.left
+    internal fun editBarVisualRightPx(): Int = editBarVisualLeftPx() + editBarView.width
+    internal fun panelVisualLeftPx(): Int = bodySlot.left + body.left + panelContainer.left
+    internal fun panelVisualRightPx(): Int = panelVisualLeftPx() + panelContainer.width
+    internal fun preeditVisualLeftPx(): Int = preeditSlot.left + preeditView.left
+    internal fun preeditVisualRightPx(): Int = preeditVisualLeftPx() + preeditView.width
+    internal fun keyboardVisualTopPx(): Int = bodySlot.top + body.top + keyboardView.top
+    internal fun dockSurfaceWidthPx(): Int = body.width
+    internal fun dockSurfaceLeftPx(): Int = bodySlot.left + body.left
+    internal fun dockSurfaceRightPx(): Int = dockSurfaceLeftPx() + body.width
+    internal fun dockSurfaceTopPx(): Int = bodySlot.top + body.top
+    internal fun dockSurfaceBottomPx(): Int = dockSurfaceTopPx() + body.height
+
+    internal fun keyboardLabelBoundsForTest(label: String): RectF? =
+        keyboardView.boundsOfLabelForTest(label)?.let { local ->
+            RectF(
+                keyboardVisualLeftPx() + local.left,
+                keyboardVisualTopPx() + local.top,
+                keyboardVisualLeftPx() + local.right,
+                keyboardVisualTopPx() + local.bottom,
+            )
+        }
+
+    internal fun isCompactLandscapeDock(): Boolean =
+        resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+            body.width > 0 && bodySlot.width > body.width
+
+    internal fun dockSurfaceBoundsInWindow(): Rect {
+        return boundsInWindow(body)
+    }
+
+    private fun boundsInWindow(view: View): Rect {
+        val loc = IntArray(2)
+        view.getLocationInWindow(loc)
+        return Rect(loc[0], loc[1], loc[0] + view.width, loc[1] + view.height)
+    }
+
+    internal fun panelFloorColorForTest(): Int? =
+        (panelContainer.background as? android.graphics.drawable.ColorDrawable)?.color
+
+    val panelShown: Boolean get() = panelContainer.visibility == VISIBLE
+
+    fun isPanelShowing(panel: View?): Boolean = panelShown && panel != null && currentPanel === panel
+
+    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+
+    private class SurfaceContainer(context: Context) : LinearLayout(context) {
+        private val topRadiusPx = ImeShapes.surfaceTopRadiusDp * resources.displayMetrics.density
+
+        init {
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    val r = topRadiusPx
+                    outline.setRoundRect(0, 0, view.width, view.height + r.toInt(), r)
+                }
+            }
+            clipToOutline = true
+        }
+
+        override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+            super.onSizeChanged(w, h, oldw, oldh)
+            invalidateOutline()
+        }
+    }
+
+    private class CompactDock(
+        context: Context,
+        private val widthResolver: (Int) -> Int,
+    ) : FrameLayout(context) {
+        fun addDockedView(child: View) {
+            addView(child, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        }
+
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val slotWidth = MeasureSpec.getSize(widthMeasureSpec).coerceAtLeast(0)
+            val visibleChildren = (0 until childCount).map { getChildAt(it) }.filter { it.visibility != GONE }
+            if (slotWidth == 0 || visibleChildren.isEmpty()) {
+                setMeasuredDimension(slotWidth, 0)
+                return
+            }
+            val childWidth = widthResolver(slotWidth)
+            val heightMode = MeasureSpec.getMode(heightMeasureSpec)
+            val heightSize = MeasureSpec.getSize(heightMeasureSpec)
+            var measuredHeight = 0
+            for (child in visibleChildren) {
+                val childHeightSpec = when (heightMode) {
+                    MeasureSpec.EXACTLY -> MeasureSpec.makeMeasureSpec(heightSize, MeasureSpec.EXACTLY)
+                    MeasureSpec.AT_MOST -> MeasureSpec.makeMeasureSpec(heightSize, MeasureSpec.AT_MOST)
+                    else -> MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
+                }
+                child.measure(MeasureSpec.makeMeasureSpec(childWidth, MeasureSpec.EXACTLY), childHeightSpec)
+                measuredHeight = maxOf(measuredHeight, child.measuredHeight)
+            }
+            val resolvedHeight = resolveSize(measuredHeight, heightMeasureSpec)
+            if (visibleChildren.any { it.measuredHeight > resolvedHeight }) {
+
+                for (child in visibleChildren) {
+                    child.measure(
+                        MeasureSpec.makeMeasureSpec(childWidth, MeasureSpec.EXACTLY),
+                        MeasureSpec.makeMeasureSpec(resolvedHeight, MeasureSpec.EXACTLY),
+                    )
+                }
+            }
+            setMeasuredDimension(resolveSize(slotWidth, widthMeasureSpec), resolvedHeight)
+        }
+
+        override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+            for (i in 0 until childCount) {
+                val child = getChildAt(i)
+                if (child.visibility == GONE) continue
+                val childWidth = child.measuredWidth
+                val childHeight = child.measuredHeight
+                val childLeft = (width - childWidth).coerceAtLeast(0)
+                val childTop = (height - childHeight).coerceAtLeast(0)
+                child.layout(childLeft, childTop, childLeft + childWidth, childTop + childHeight)
+            }
+        }
+
+    }
+
+    internal fun bodyBottomPaddingPx(): Int = body.paddingBottom
+    internal fun simulateNavInsetForTest(navBottomPx: Int) {
+        lastNavBottomPx = navBottomPx
+        applyWindowPadding(navBottomPx, 0, 0)
+    }
+    internal fun bodyLeftPaddingPxForTest(): Int = body.paddingLeft
+    internal fun bodyRightPaddingPxForTest(): Int = body.paddingRight
+    internal fun cachedNavBottomForTest(): Int = lastNavBottomPx
+
+    private companion object {
+        private const val SIDE_PADDING_DP = 4
+        private const val PREEDIT_HEIGHT_DP = 26
+        private const val BAR_HEIGHT_DP = 44
+        private const val BOTTOM_RAISE_DP = 34
+
+        private var lastNavBottomPx = 0
+    }
+}

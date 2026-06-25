@@ -33,6 +33,8 @@ open class PreeditView(context: Context) : View(context) {
     private val pad = 6f * density
     private val candPad = 14f * density
     private val edgeInset = ImeShapes.edgeInsetDp * density
+    private var leftInset = 0f
+    private var rightInset = 0f
     private val tab = RectF()
     private var downX = Float.NaN
     private var downY = Float.NaN
@@ -49,7 +51,7 @@ open class PreeditView(context: Context) : View(context) {
         color = palette.preeditText
         textSize = sp(16f)
     }
-    private val textLeft: Float get() = candPad
+    private val textLeft: Float get() = leftInset + candPad
 
     private fun sp(value: Float): Float =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, resources.displayMetrics)
@@ -66,8 +68,8 @@ open class PreeditView(context: Context) : View(context) {
         if (shownText.isEmpty()) { tab.setEmpty(); return }
         val r = ImeShapes.cardRadiusDp * density
         val corner = ImeShapes.surfaceTopRadiusDp * density
-        val left = maxOf(edgeInset, corner)
-            val limit = if (width > 0) minOf(width - edgeInset, width - corner) else Float.MAX_VALUE
+        val left = maxOf(leftInset + edgeInset, corner)
+            val limit = if (width > 0) minOf(width - rightInset - edgeInset, width - corner) else Float.MAX_VALUE
             tab.set(left, 0f, minOf(textLeft + textPaint.measureText(shownText) + pad, limit), height.toFloat() + r)
     }
 
@@ -131,6 +133,18 @@ open class PreeditView(context: Context) : View(context) {
             shownText = ""
             invalidate()
         }
+    }
+
+    fun setLeftInset(px: Float) {
+        if (px == leftInset) return
+        leftInset = px
+        invalidate()
+    }
+
+    fun setRightInset(px: Float) {
+        if (px == rightInset) return
+        rightInset = px
+        invalidate()
     }
 
     override fun onDraw(canvas: Canvas) {

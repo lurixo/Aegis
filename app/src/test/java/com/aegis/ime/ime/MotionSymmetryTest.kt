@@ -122,6 +122,36 @@ class MotionSymmetryTest {
         }
     }
 
+
+    private fun inputView(): InputView = InputView(ctx)
+
+    @Test fun edit_bar_opens_and_closes_symmetrically() {
+        val iv = inputView()
+        iv.showEditBar(true)
+        assertTrue("edit bar shows", iv.isEditBarShowing())
+        iv.showEditBar(false)
+        assertFalse("edit bar close reaches GONE (symmetric exit, not left visible)", iv.isEditBarShowing())
+    }
+
+    @Test fun panel_open_then_close_reaches_the_keyboard_end_state() {
+        val iv = inputView()
+        iv.showPanel(View(ctx))
+        assertTrue("panel shows", iv.panelShown)
+        iv.showPanel(null)
+        assertFalse("panel close reaches GONE (the leaving panel's exit runs then the keyboard returns)", iv.panelShown)
+    }
+
+    @Test fun panel_to_panel_switch_reaches_the_incoming_end_state() {
+        val iv = inputView()
+        val a = View(ctx)
+        val b = View(ctx)
+        iv.showPanel(a)
+        assertTrue(iv.isPanelShowing(a))
+        iv.showPanel(b)
+        assertTrue("the outgoing panel's exit hands over to the incoming reveal", iv.isPanelShowing(b))
+        assertFalse(iv.isPanelShowing(a))
+    }
+
     @Test fun preedit_appear_and_disappear_reach_symmetric_end_states() {
         animationsOff()
         val pv = PreeditView(ctx)

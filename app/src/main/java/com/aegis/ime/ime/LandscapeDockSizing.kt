@@ -19,6 +19,51 @@ import kotlin.math.roundToInt
 
 internal object LandscapeDockSizing {
 
+    internal data class WidthSpec(
+        val surfaceWidth: Int,
+        val floating: Boolean,
+        val effectiveLeftGutter: Int,
+        val requiredSurfaceWidth: Int,
+    )
+
+    internal data class HeightSpec(
+        val preeditHeight: Int,
+        val barHeight: Int,
+        val keyboardHeight: Int,
+        val bottomExtra: Int,
+        val navBottom: Int,
+        val rootHeight: Int,
+    )
+
+    fun resolveWidth(
+        landscape: Boolean,
+        slotWidth: Int,
+        preferredSurfaceWidth: Int,
+        density: Float,
+        leftSystemInset: Int,
+        rightSystemInset: Int,
+    ): WidthSpec {
+        val width = slotWidth.coerceAtLeast(0)
+        if (!landscape || width == 0) {
+            return WidthSpec(width, floating = false, effectiveLeftGutter = 0, requiredSurfaceWidth = width)
+        }
+
+        val normalSide = dp(SIDE_PADDING_DP, density)
+        val requiredKeyboard = dp(
+            ALPHA_BOTTOM_GAP_COUNT * KEY_GAP_DP + ALPHA_BOTTOM_WEIGHT * MIN_ALPHA_KEY_DP,
+            density,
+        )
+        val requiredSurface = requiredKeyboard + normalSide + maxOf(normalSide, rightSystemInset.coerceAtLeast(0))
+        val candidate = maxOf(preferredSurfaceWidth.coerceAtLeast(1), requiredSurface).coerceAtMost(width)
+        val effectiveGutter = width - candidate - leftSystemInset.coerceAtLeast(0)
+        val floating = candidate < width && effectiveGutter >= dp(MIN_HOST_GUTTER_DP, density)
+        return if (floating) {
+            WidthSpec(candidate, floating = true, effectiveLeftGutter = effectiveGutter, requiredSurfaceWidth = requiredSurface)
+        } else {
+            WidthSpec(width, floating = false, effectiveLeftGutter = 0, requiredSurfaceWidth = requiredSurface)
+        }
+    }
+
     fun preferredKeyboardHeight(rowCount: Int, density: Float): Int {
         val rows = rowCount.coerceAtLeast(1)
         val face = if (rows <= 4) PREFERRED_FACE_DP + NINE_FACE_EXTRA_DP else PREFERRED_FACE_DP
@@ -55,8 +100,14 @@ internal object LandscapeDockSizing {
     }
 
     private fun dp(value: Int, density: Float): Int = (value * density).roundToInt()
+    private fun dp(value: Float, density: Float): Int = (value * density).roundToInt()
 
+    private const val SIDE_PADDING_DP = 4
     private const val KEY_GAP_DP = 6
+    private const val MIN_ALPHA_KEY_DP = 20f
+    private const val ALPHA_BOTTOM_GAP_COUNT = 8
+    private const val ALPHA_BOTTOM_WEIGHT = 11.6f
+    private const val MIN_HOST_GUTTER_DP = 48
 
     private const val PREFERRED_FACE_DP = 52
     private const val NINE_FACE_EXTRA_DP = 2
