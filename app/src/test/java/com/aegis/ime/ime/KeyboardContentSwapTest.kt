@@ -40,6 +40,7 @@ class KeyboardContentSwapTest {
     private val density = ctx.resources.displayMetrics.density
 
     private fun animationsOn() = Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+    private fun animationsOff() = Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
 
     private fun attach(activity: Activity, view: KeyboardView, widthDp: Int = 360, heightDp: Int = 230): KeyboardView {
         val width = (widthDp * density).toInt()
@@ -57,6 +58,11 @@ class KeyboardContentSwapTest {
 
     private fun alphaKeyboard(): KeyboardView = KeyboardView(ctx).apply {
         setLayout(Layouts.forId(LayoutId.ALPHA, Lang.CN), false, false, Lang.CN)
+    }
+
+    private fun letterFace(kv: KeyboardView, label: String): String {
+        val key = kv.keyBoundsForTest().first { it.first.label == label }.first
+        return kv.displayLabelForTest(key)
     }
 
     @Test fun real_layout_switch_is_instant_with_the_new_touch_geometry_already_live() {
@@ -91,6 +97,51 @@ class KeyboardContentSwapTest {
             kv.setLayout(Layouts.forId(LayoutId.ALPHA, Lang.CN), false, false, Lang.CN)
             assertEquals("the way back is instant too", modes + 2, kv.modeSwitchesForTest())
             assertNotNull(kv.centerOfLabelForTest("a"))
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun shift_and_lock_changes_render_the_new_faces_in_the_same_call() {
+        animationsOn()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val kv = KeyboardView(ctx).apply {
+                setLayout(Layouts.forId(LayoutId.ALPHA, Lang.EN), false, false, Lang.EN)
+            }
+            attach(controller.get(), kv)
+            val applies = kv.layoutAppliesForTest()
+            val modes = kv.modeSwitchesForTest()
+            assertEquals("a", letterFace(kv, "a"))
+
+            kv.setLayout(Layouts.forId(LayoutId.ALPHA, Lang.EN), true, false, Lang.EN)
+            assertEquals("a shift change is a single apply", applies + 1, kv.layoutAppliesForTest())
+            assertEquals("ONCE", kv.shiftRenderState())
+            assertEquals("the shifted face renders in the same call", "A", letterFace(kv, "a"))
+
+            kv.setLayout(Layouts.forId(LayoutId.ALPHA, Lang.EN), true, true, Lang.EN)
+            assertEquals("a lock change is a single apply", applies + 2, kv.layoutAppliesForTest())
+            assertEquals("LOCK", kv.shiftRenderState())
+            assertEquals("A", letterFace(kv, "a"))
+
+            assertEquals("shift and lock changes are never mode switches", modes, kv.modeSwitchesForTest())
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun reduced_motion_shift_and_layout_changes_are_fully_instant() {
+        animationsOff()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val kv = attach(controller.get(), alphaKeyboard())
+
+            kv.setLayout(Layouts.forId(LayoutId.ALPHA, Lang.CN), true, false, Lang.CN)
+            assertEquals("the shift state lands in the same call", "ONCE", kv.shiftRenderState())
+
+            kv.setLayout(Layouts.forId(LayoutId.SYMBOL, Lang.CN), false, false, Lang.CN)
+
+            assertNotNull("the new layout still applies immediately", kv.boundsOfLabelForTest("€"))
         } finally {
             controller.pause().stop().destroy()
         }
@@ -131,6 +182,15 @@ class KeyboardContentSwapTest {
         } finally {
             controller.pause().stop().destroy()
         }
+    }
+
+    @Test fun detached_shift_change_still_applies_instantly() {
+        animationsOn()
+        val kv = KeyboardView(ctx).apply {
+            setLayout(Layouts.forId(LayoutId.ALPHA, Lang.EN), false, false, Lang.EN)
+        }
+        kv.setLayout(Layouts.forId(LayoutId.ALPHA, Lang.EN), true, false, Lang.EN)
+        assertEquals("ONCE", kv.shiftRenderState())
     }
 
     @Test fun language_toggle_is_a_single_instant_apply() {

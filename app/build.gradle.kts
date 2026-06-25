@@ -233,6 +233,7 @@ tasks.register("verifyExternalModelsNotPackaged") {
 }
 
 dependencies {
+    implementation(libs.androidx.core.ktx)
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
     testImplementation(project(":tools"))

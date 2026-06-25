@@ -15,21 +15,104 @@
 
 package com.aegis.ime.ime
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.RectF
+import android.view.View
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.layout.Key
+import com.aegis.ime.layout.KeyAction
+import com.aegis.ime.layout.Lang
+import com.aegis.ime.layout.Layouts
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class LockedReadingHighlightParityTest {
+
+    private val ctx = RuntimeEnvironment.getApplication()
+    private val density = ctx.resources.displayMetrics.density
+    private val palette = ImePalette.STATIC_LIGHT
+
+    private fun laidOut(kb: KeyboardView): KeyboardView {
+        kb.measure(
+            View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec((250 * density).toInt(), View.MeasureSpec.EXACTLY),
+        )
+        kb.layout(0, 0, kb.measuredWidth, kb.measuredHeight)
+        return kb
+    }
+
+    private fun frame(kb: KeyboardView): Bitmap {
+        val bitmap = Bitmap.createBitmap(kb.width, kb.height, Bitmap.Config.ARGB_8888)
+        kb.draw(Canvas(bitmap))
+        return bitmap
+    }
+
+    private fun cellRect(kb: KeyboardView, index: Int): RectF {
+        val region = kb.scrollRegionForTest()
+        val cell = kb.scrollCellHeightForTest()
+        val top = region.top - kb.scrollOffsetForTest() + index * cell
+        return RectF(
+            region.left,
+            maxOf(top, region.top),
+            region.right,
+            minOf(top + cell, region.bottom),
+        )
+    }
+
+    private fun pixels(bitmap: Bitmap, rect: RectF, color: Int): Int {
+        var found = 0
+        for (y in rect.top.toInt() until rect.bottom.toInt()) {
+            for (x in rect.left.toInt() until rect.right.toInt()) {
+                if (bitmap.getPixel(x, y) == color) found++
+            }
+        }
+        return found
+    }
+
+    @Test fun nine_key_left_column_leaves_unlocked_readings_in_the_plain_key_label_color() {
+        val readings = listOf("ni", "nu", "ne", "na")
+        val column = readings.mapIndexed { i, r ->
+            Key(r, output = r, action = KeyAction.PICK_READING, weight = 0.85f, accent = i == readings.lastIndex)
+        }
+        val kb = laidOut(
+            KeyboardView(ctx).apply {
+                applyPalette(palette)
+                setLayout(Layouts.nine(column, composing = true), false, false, Lang.CN)
+            },
+        )
+
+        repeat(2) { pass ->
+            val bitmap = frame(kb)
+            assertTrue(
+                "pass $pass: the marked reading keeps the mark color",
+                pixels(bitmap, cellRect(kb, readings.lastIndex), palette.lockedReading) > 0,
+            )
+            for (i in 0 until readings.lastIndex) {
+                assertTrue(
+                    "pass $pass: plain reading ${readings[i]} still renders its label",
+                    pixels(bitmap, cellRect(kb, i), palette.keyLabel) > 0,
+                )
+                assertEquals(
+                    "pass $pass: plain reading ${readings[i]} must not borrow the mark color",
+                    0,
+                    pixels(bitmap, cellRect(kb, i), palette.lockedReading),
+                )
+            }
+        }
+    }
 
     private fun relativeLuminance(color: Int): Double {
         fun channel(value: Int): Double {

@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
@@ -43,6 +44,15 @@ internal class ImeSplitLabel(private val density: Float, activeTextPx: Float, id
         activePaint.color = active
         idlePaint.color = idle
         slashPaint.color = idle
+    }
+
+    fun draw(canvas: Canvas, rect: RectF, leading: String, trailing: String, leadingActive: Boolean, scale: Float = 1f) {
+        val placed = layout(rect, leading, trailing, leadingActive, scale)
+        drawWord(canvas, leading, paintFor(leadingActive), placed.scale, placed.leadingOrigin)
+        drawWord(canvas, trailing, paintFor(!leadingActive), placed.scale, placed.trailingOrigin)
+        slashPaint.strokeWidth = density * placed.scale
+        val s = placed.slash
+        canvas.drawLine(s[0], s[1], s[2], s[3], slashPaint)
     }
 
     fun layout(rect: RectF, leading: String, trailing: String, leadingActive: Boolean, scale: Float = 1f): Placement {
@@ -102,6 +112,13 @@ internal class ImeSplitLabel(private val density: Float, activeTextPx: Float, id
         paint.getTextBounds(word, 0, word.length, ink)
         paint.textSize = base
         return Rect(ink)
+    }
+
+    private fun drawWord(canvas: Canvas, word: String, paint: Paint, scale: Float, origin: FloatArray) {
+        val base = paint.textSize
+        paint.textSize = base * scale
+        canvas.drawText(word, origin[0], origin[1], paint)
+        paint.textSize = base
     }
 
     companion object {

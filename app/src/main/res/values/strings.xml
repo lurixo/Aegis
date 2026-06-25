@@ -6,4 +6,6 @@
     <string name="kbd_split">Split</string>
     <string name="kbd_redo">Retype</string>
     <string name="kbd_custom">Custom</string>
+    <string name="lang_cn">CH</string>
+    <string name="lang_en">EN</string>
 </resources>

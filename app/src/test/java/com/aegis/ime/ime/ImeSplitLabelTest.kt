@@ -15,21 +15,40 @@
 
 package com.aegis.ime.ime
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.RectF
+import android.content.res.Configuration
+import android.view.View
+import com.aegis.ime.R
+import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.layout.KeyAction
+import com.aegis.ime.layout.Lang
+import com.aegis.ime.layout.LayoutId
+import com.aegis.ime.layout.Layouts
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.atan2
+import kotlin.math.ceil
+import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.min
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class ImeSplitLabelTest {
+
+    private val ctx = RuntimeEnvironment.getApplication()
+    private val density = ctx.resources.displayMetrics.density
 
     private fun distance(slash: FloatArray, x: Float, y: Float): Float {
         val dx = slash[2] - slash[0]
@@ -128,5 +147,122 @@ class ImeSplitLabelTest {
         assertEquals("a wide cell keeps the slash at forty-five degrees", 45f, slashAngleDegrees(wide.slash), 0.5f)
         val portrait = label.layout(RectF(0f, 0f, 60f, 68f), "中", "EN", leadingActive = true)
         assertEquals("a portrait cell follows its own diagonal", Math.toDegrees(atan2(68.0, 60.0)).toFloat(), slashAngleDegrees(portrait.slash), 0.5f)
+    }
+
+    private fun keyboard(lang: Lang): KeyboardView = KeyboardView(ctx).apply {
+        applyPalette(ImePalette.STATIC_LIGHT)
+        setLayout(Layouts.forId(LayoutId.ALPHA, lang), false, false, lang)
+        measure(
+            View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec((250 * density).toInt(), View.MeasureSpec.EXACTLY),
+        )
+        layout(0, 0, measuredWidth, measuredHeight)
+    }
+
+    private fun rendered(view: View): Bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888).also { view.draw(Canvas(it)) }
+
+    @Test
+    @Config(qualifiers = "xxhdpi")
+    fun alpha_hints_keep_their_natural_height_so_hyphens_and_underscores_differ() {
+        for (palette in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
+            for (lang in Lang.entries) for (width in listOf(280, 360, 600)) {
+                val view = keyboard(lang).apply {
+                    applyPalette(palette)
+                    measure(View.MeasureSpec.makeMeasureSpec((width * density).toInt(), View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec((250 * density).toInt(), View.MeasureSpec.EXACTLY))
+                    layout(0, 0, measuredWidth, measuredHeight)
+                }
+                val bmp = rendered(view)
+                fun colorDistance(a: Int, b: Int): Int = abs(Color.red(a) - Color.red(b)) +
+                    abs(Color.green(a) - Color.green(b)) + abs(Color.blue(a) - Color.blue(b))
+                fun hint(label: String): RectF {
+                    val key = requireNotNull(view.boundsOfLabelForTest(label))
+                    val ink = RectF(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, Float.NEGATIVE_INFINITY)
+                    for (y in ceil(key.top).toInt() until floor(minOf(key.centerY(), key.top + 22f * density)).toInt()) {
+                        for (x in ceil(key.left).toInt() until floor(key.right).toInt()) {
+                            val pixel = bmp.getPixel(x, y)
+                            if (colorDistance(pixel, palette.keySub) < colorDistance(pixel, palette.keySurface)) {
+                                ink.left = minOf(ink.left, x.toFloat())
+                                ink.top = minOf(ink.top, y.toFloat())
+                                ink.right = maxOf(ink.right, x + 1f)
+                                ink.bottom = maxOf(ink.bottom, y + 1f)
+                            }
+                        }
+                    }
+                    assertFalse("$lang $width $label hint is visible", ink.isEmpty)
+                    assertTrue("$lang $width $label stays inside its key", key.contains(ink))
+                    ink.offset(-key.left, -key.top)
+                    return ink
+                }
+                val hints = ('a'..'z').associateWith { hint(it.toString()) }
+                val hyphen = hints.getValue('c')
+                val underscore = hints.getValue('v')
+                val apostrophe = hints.getValue('h')
+                assertTrue("$lang $width underscore sits below the hyphen: $hyphen / $underscore",
+                    underscore.top >= hyphen.bottom + density)
+                assertTrue("$lang $width apostrophe sits above the hyphen: $apostrophe / $hyphen",
+                    apostrophe.bottom <= hyphen.top)
+                bmp.recycle()
+            }
+        }
+    }
+
+    private fun inkIn(bmp: Bitmap, face: Int, left: Float, top: Float, right: Float, bottom: Float): Int {
+        var ink = 0
+        for (y in ceil(top).toInt() until floor(bottom).toInt()) {
+            for (x in ceil(left).toInt() until floor(right).toInt()) if (bmp.getPixel(x, y) != face) ink++
+        }
+        return ink
+    }
+
+    private fun slashXAt(slash: FloatArray, y: Float): Float =
+        slash[0] + (slash[1] - y) * (slash[2] - slash[0]) / (slash[1] - slash[3])
+
+    @Test fun the_language_key_keeps_the_source_language_leading_in_both_input_modes() {
+        for (lang in listOf(Lang.CN, Lang.EN)) {
+            val view = keyboard(lang)
+            val label = view.langLabelForTest()
+            assertEquals("$lang: the active word is set at 20sp", 20f * density, label.activePaint.textSize, 0.01f)
+            assertEquals("$lang: the grey idle word is set at 17sp", 17f * density, label.idlePaint.textSize, 0.01f)
+            assertEquals("$lang: the active word takes the secondary label colour", ImePalette.STATIC_LIGHT.keyLabelSecondary, label.activePaint.color)
+            assertEquals("$lang: the idle word takes the hint colour", ImePalette.STATIC_LIGHT.keyHint, label.idlePaint.color)
+            assertEquals("$lang: 中 leads only while Chinese is active", lang == Lang.CN, view.langLeadingActiveForTest())
+
+            val rect = requireNotNull(view.boundsOfActionForTest(KeyAction.TOGGLE_LANG))
+            val placed = requireNotNull(view.langPlacementForTest())
+            assertCornerAnchored("$lang", label, placed, rect)
+
+            val bmp = rendered(view)
+            val face = bmp.getPixel((rect.left + rect.width() * 0.75f).toInt(), (rect.top + rect.height() * 0.12f).toInt())
+            assertEquals("$lang: the language key rests on the function face", ImePalette.STATIC_LIGHT.functionSurface, face)
+            val lead = placed.leading
+            val trail = placed.trailing
+            assertTrue("$lang: the leading word's ink box carries ink", inkIn(bmp, face, lead.left, lead.top, lead.right, lead.bottom) > 0)
+            assertTrue("$lang: the trailing word's ink box carries ink", inkIn(bmp, face, trail.left, trail.top, trail.right, trail.bottom) > 0)
+            var under = 0
+            var above = 0
+            for (y in ceil(trail.top).toInt() until floor(trail.centerY()).toInt()) {
+                under += inkIn(bmp, face, lead.left + 2f, y.toFloat(), slashXAt(placed.slash, y.toFloat()) - 2f, y + 1f)
+            }
+            for (y in ceil(lead.centerY()).toInt() until floor(lead.bottom).toInt()) {
+                above += inkIn(bmp, face, slashXAt(placed.slash, y.toFloat()) + 2f, y.toFloat(), trail.right - 2f, y + 1f)
+            }
+            assertEquals("$lang: nothing is drawn under the leading word left of the slash", 0, under)
+            assertEquals("$lang: nothing is drawn above the trailing word right of the slash", 0, above)
+            bmp.recycle()
+        }
+        assertFalse(keyboard(Lang.EN).langLeadingActiveForTest())
+    }
+
+    @Test fun the_language_words_come_from_the_shared_strings() {
+        val enConfig = Configuration(ctx.resources.configuration).apply { setLocale(Locale.ENGLISH) }
+        val en = ctx.createConfigurationContext(enConfig)
+        assertEquals("CH", en.getString(R.string.lang_cn))
+        assertEquals("EN", en.getString(R.string.lang_en))
+
+        val zhConfig = Configuration(ctx.resources.configuration).apply { setLocale(Locale.SIMPLIFIED_CHINESE) }
+        val zh = ctx.createConfigurationContext(zhConfig)
+        assertEquals("中", zh.getString(R.string.lang_cn))
+        assertEquals("英", zh.getString(R.string.lang_en))
     }
 }

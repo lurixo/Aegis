@@ -15,8 +15,14 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.R
+
 import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.RectF
+import android.os.SystemClock
+import android.util.TypedValue
 import android.view.View
 import android.view.ViewConfiguration
 import android.widget.OverScroller
@@ -29,6 +35,7 @@ import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.ScrollColumn
+import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 
 class KeyboardView(context: Context) : View(context) {
@@ -49,6 +56,9 @@ class KeyboardView(context: Context) : View(context) {
     private var scrollAccentIndex = -1
     private var pendingAccentReveal = false
     private var scrollY = 0f
+    private val tmpRect = RectF()
+    private val scrollbarFade = ScrollbarFade()
+    private val scrollbarTick = Runnable { invalidate() }
 
     private val density = resources.displayMetrics.density
     private val rowHeight = 52f * density
@@ -56,11 +66,55 @@ class KeyboardView(context: Context) : View(context) {
     private val shortPageRowExtra = 2f * density
     private val gap = KEY_GAP_DP * density
     private val edgeInset = ImeShapes.edgeInsetDp * density
+    private val keyRadius = ImeShapes.keyRadiusDp * density
+
+    private var palette = ImePalette.STATIC_LIGHT
+
+
+    private fun sp(value: Float) =
+        TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, resources.displayMetrics)
+
+    private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(20f); typeface = android.graphics.Typeface.DEFAULT }
+    private val specialLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabelSecondary; textAlign = Paint.Align.CENTER; textSize = sp(20f); typeface = android.graphics.Typeface.DEFAULT }
+    private val shiftActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.accentBottom; textAlign = Paint.Align.CENTER; textSize = sp(20f) }
+    private val accentLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.accentLabel; textAlign = Paint.Align.CENTER; textSize = sp(20f); typeface = android.graphics.Typeface.DEFAULT }
+    private val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySub; textAlign = Paint.Align.CENTER; textSize = sp(11f); typeface = android.graphics.Typeface.DEFAULT }
+    private val langLabel = ImeSplitLabel(density, sp(20f), sp(17f)).apply { applyColors(palette.keyLabelSecondary, palette.keyHint) }
+
+    private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySurface }
+    private val keyEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.shadow }
+    private val spaceMarkerPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val sepLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.gridLine; strokeWidth = ImeShapes.gridLinePx(density) }
+    private val scrollTrackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.functionSurface }
+    private val scrollbarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withAlpha(palette.icon, SCROLLBAR_ALPHA) }
+    private val scrollLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.LEFT; textSize = sp(17f); typeface = android.graphics.Typeface.DEFAULT }
+    private val inkBounds = android.graphics.Rect()
+    private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2f * density; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+
+    fun applyPalette(p: ImePalette) {
+        palette = p
+        labelPaint.color = p.keyLabel
+        specialLabelPaint.color = p.keyLabelSecondary
+        shiftActivePaint.color = p.accentBottom
+        accentLabelPaint.color = p.accentLabel
+        subPaint.color = p.keySub
+        langLabel.applyColors(p.keyLabelSecondary, p.keyHint)
+        sepLinePaint.color = p.gridLine
+        keyEdgePaint.color = p.shadow
+        scrollTrackPaint.color = p.functionSurface
+        scrollbarPaint.color = withAlpha(p.icon, SCROLLBAR_ALPHA)
+        scrollLabelPaint.color = p.keyLabel
+        invalidate()
+    }
+
+    private fun withAlpha(argb: Int, alpha: Int): Int = Motion.withAlpha(argb, alpha)
 
     private data class Placed(val rect: RectF, val key: Key, val groupId: Int = 0, val hitRect: RectF? = null)
 
     fun setLayout(newLayout: KeyboardLayout, isShifted: Boolean, isLocked: Boolean, language: Lang) {
         if (newLayout == layout && isShifted == shifted && isLocked == shiftLocked && language == lang) return
+        val faceSwap = newLayout.id != layout.id || language != lang
+        val snap = if (faceSwap && width > 0) Motion.snapshot(this, palette.keyboardBg) else null
         layoutApplies++
         val sameColumn = newLayout.scrollColumn?.items?.map { it.label } == layout.scrollColumn?.items?.map { it.label }
         val accentIndex = newLayout.scrollColumn?.items?.indexOfFirst { it.accent } ?: -1
@@ -79,6 +133,7 @@ class KeyboardView(context: Context) : View(context) {
         if (sizingChanged || width <= 0) requestLayout()
         invalidate()
         if (modeChanged && width > 0) { modeSwitches++ }
+        if (snap != null) Motion.coverWith(this, snap)
     }
 
     internal fun modeSwitchesForTest(): Int = modeSwitches
@@ -289,10 +344,275 @@ class KeyboardView(context: Context) : View(context) {
         clampScroll()
     }
 
+    private fun scrollLabelMinTextSize(): Float = SCROLL_LABEL_MIN_DP * density
+
+    private fun fittedScrollLabelTextSize(label: String, baseTextSize: Float): Float {
+        val avail = scrollRegion.width() - SCROLL_LABEL_INSET_DP * density
+        scrollLabelPaint.textSize = baseTextSize
+        val w = scrollLabelPaint.measureText(label)
+        if (w <= avail || avail <= 0f) return baseTextSize
+        return (baseTextSize * avail / w).coerceAtLeast(scrollLabelMinTextSize())
+    }
+
+    private fun drawScrollColumn(canvas: Canvas) {
+        val sc = scrollColumn ?: return
+        if (scrollRegion.isEmpty || scrollCellH <= 0f || sc.items.isEmpty()) return
+        canvas.drawRoundRect(scrollRegion, keyRadius, keyRadius, scrollTrackPaint)
+        canvas.save()
+        canvas.clipRect(scrollRegion)
+        val paint = scrollLabelPaint
+        val baseTextSize = paint.textSize
+        val baseColor = paint.color
+        for ((i, key) in sc.items.withIndex()) {
+            val top = scrollRegion.top - scrollY + i * scrollCellH
+            val bottom = top + scrollCellH
+            if (bottom < scrollRegion.top || top > scrollRegion.bottom) continue
+            val label = displayLabel(key)
+            paint.color = if (key.accent) palette.lockedReading else baseColor
+            paint.textSize = fittedScrollLabelTextSize(label, baseTextSize)
+            paint.getTextBounds(label, 0, label.length, inkBounds)
+            val cellCx = scrollRegion.centerX()
+            val cellCy = (top + bottom) / 2f
+            canvas.drawText(label, cellCx - inkBounds.exactCenterX(), cellCy - inkBounds.exactCenterY(), paint)
+            if (i < sc.items.size - 1 && bottom < scrollRegion.bottom) {
+                val ruleY = bottom.roundToInt() - sepLinePaint.strokeWidth / 2f
+                canvas.drawLine(scrollRegion.left + 6 * density, ruleY, scrollRegion.right - 6 * density, ruleY, sepLinePaint)
+            }
+        }
+        paint.textSize = baseTextSize
+        paint.color = baseColor
+        canvas.restore()
+        val contentH = sc.items.size * scrollCellH
+        val trackH = scrollRegion.height()
+        val now = SystemClock.uptimeMillis()
+        val alpha = scrollbarFade.alphaAt(now)
+        if (contentH > trackH + 0.5f && alpha > 0f) {
+            val thumbH = maxOf(18f * density, trackH * trackH / contentH)
+            val thumbTop = scrollRegion.top + (scrollY / (contentH - trackH)) * (trackH - thumbH)
+            val right = scrollRegion.right - 2f * density
+            tmpRect.set(right - 2.5f * density, thumbTop, right, thumbTop + thumbH)
+            scrollbarPaint.alpha = (SCROLLBAR_ALPHA * alpha).roundToInt()
+            canvas.drawRoundRect(tmpRect, 2f * density, 2f * density, scrollbarPaint)
+        }
+        removeCallbacks(scrollbarTick)
+        scrollbarFade.nextTickDelayMs(now)?.let { delay ->
+            if (delay <= 0L) postOnAnimation(scrollbarTick) else postDelayed(scrollbarTick, delay)
+        }
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        canvas.drawColor(palette.keyboardBg)
+        if (placed.isEmpty()) relayout()
+
+        drawContent(canvas)
+    }
+
+    private fun drawContent(canvas: Canvas) {
+        for (p in placed) {
+            drawKey(canvas, p.rect, p.key.accent, p.key.rail)
+            drawLabel(canvas, p)
+        }
+
+        drawScrollColumn(canvas)
+    }
+
+    private fun drawKey(canvas: Canvas, rect: RectF, accent: Boolean, rail: Boolean) {
+        tmpRect.set(rect)
+        tmpRect.offset(0f, density)
+        canvas.drawRoundRect(tmpRect, keyRadius, keyRadius, keyEdgePaint)
+        if (accent) {
+            fillPaint.color = palette.accentBottom
+            canvas.drawRoundRect(rect, keyRadius, keyRadius, fillPaint)
+            return
+        }
+        fillPaint.color = if (rail) palette.functionSurface else palette.keySurface
+        canvas.drawRoundRect(rect, keyRadius, keyRadius, fillPaint)
+    }
+
+    private fun drawLabel(canvas: Canvas, p: Placed) {
+        if (p.key.action == KeyAction.SPACE && !p.key.rail) { drawSpaceMarker(canvas, p.rect); return }
+        if (p.key.action == KeyAction.TOGGLE_LANG) { drawLangToggle(canvas, p.rect); return }
+        if (p.key.action == KeyAction.SHIFT) { drawShift(canvas, p.rect); return }
+        if (p.key.action == KeyAction.BACKSPACE) { drawKeyGlyph(canvas, p.rect, palette.keyLabel) { c, pt, x, y, s -> Glyphs.drawBackspace(c, pt, x, y, s) }; return }
+        if (p.key.action == KeyAction.ENTER) {
+            drawKeyGlyph(canvas, p.rect, palette.accentLabel, functionalGlyphScale(p.rect)) { c, pt, x, y, s ->
+                Glyphs.drawEnter(c, pt, x, y, s)
+            }
+            return
+        }
+        val cx = p.rect.centerX()
+        val cy = p.rect.centerY()
+        val display = displayLabel(p.key)
+        val paint = when {
+            p.key.accent -> accentLabelPaint
+            display.length > 1 && p.key.action != KeyAction.COMMIT -> specialLabelPaint
+            else -> labelPaint
+        }
+        val scale = labelScale(p.rect)
+        val baseTextSize = paint.textSize
+        paint.textSize = baseTextSize * scale
+        if (p.key.action == KeyAction.SHOW_SYMBOLS && layout.id == LayoutId.ALPHA && display.length >= 5) {
+            drawStackedLabel(canvas, p.rect, display, paint, scale)
+            paint.textSize = baseTextSize
+            return
+        }
+        if (display.length > 1) {
+            val avail = p.rect.width() - 4f * density
+            val w = paint.measureText(display)
+            if (w > avail && avail > 0f) paint.textSize = (paint.textSize * avail / w).coerceAtLeast(11f * density * scale)
+            val face = p.rect.width() - 2f * density
+            val fw = paint.measureText(display)
+            if (fw > face && face > 0f) paint.textSize = paint.textSize * face / fw
+        }
+        val labelDrop = if (p.key.sub != null) 7f * density * scale else 0f
+        val onAlpha = layout.id == LayoutId.ALPHA
+        val inkCentred = if (onAlpha) INK_CENTERED_GLYPHS else KEYPAD_INK_CENTERED_GLYPHS
+        val horizontalInkQwertyPunctuation =
+            onAlpha && lang == Lang.CN && p.key.direct &&
+                display.length == 1 && display[0] in INK_CENTERED_GLYPHS
+        if (horizontalInkQwertyPunctuation) {
+            val baseAlign = paint.textAlign
+            paint.textAlign = Paint.Align.LEFT
+            paint.getTextBounds(display, 0, display.length, inkBounds)
+            canvas.drawText(
+                display,
+                cx - inkBounds.exactCenterX(),
+                cy + labelDrop - (paint.descent() + paint.ascent()) / 2,
+                paint,
+            )
+            paint.textAlign = baseAlign
+        } else if (display.length == 1 && display[0] in inkCentred) {
+            val baseAlign = paint.textAlign
+            paint.textAlign = Paint.Align.LEFT
+            paint.getTextBounds(display, 0, display.length, inkBounds)
+            canvas.drawText(display, cx - inkBounds.exactCenterX(), cy + labelDrop - inkBounds.exactCenterY(), paint)
+            paint.textAlign = baseAlign
+        } else {
+            canvas.drawText(display, cx, cy + labelDrop - (paint.descent() + paint.ascent()) / 2, paint)
+        }
+        paint.textSize = baseTextSize
+        if (p.key.sub != null) {
+            val subBaseTextSize = subPaint.textSize
+            subPaint.textSize = subBaseTextSize * scale
+            val sub = p.key.sub
+            if (sub.codePointCount(0, sub.length) == 1) {
+                val baseAlign = subPaint.textAlign
+                subPaint.textAlign = Paint.Align.LEFT
+                subPaint.getTextBounds(sub, 0, sub.length, inkBounds)
+                val subX = if (layout.id == LayoutId.NINE) {
+                    p.rect.left + 8f * density * scale - inkBounds.left
+                } else {
+                    cx - inkBounds.exactCenterX()
+                }
+                canvas.drawText(
+                    sub,
+                    subX,
+                    p.rect.top + 11f * density * scale -
+                        if (onAlpha) (subPaint.descent() + subPaint.ascent()) / 2f else inkBounds.exactCenterY(),
+                    subPaint,
+                )
+                subPaint.textAlign = baseAlign
+            } else {
+                canvas.drawText(sub, cx, p.rect.top + 15 * density * scale, subPaint)
+            }
+            subPaint.textSize = subBaseTextSize
+        }
+    }
+
+    private fun drawStackedLabel(canvas: Canvas, rect: RectF, display: String, paint: Paint, scale: Float) {
+        val head = display.substring(0, display.length / 2)
+        val tail = display.substring(display.length / 2)
+        val avail = rect.width() - 4f * density
+        val w = maxOf(paint.measureText(head), paint.measureText(tail))
+        if (w > avail && avail > 0f) paint.textSize = (paint.textSize * avail / w).coerceAtLeast(11f * density * scale)
+        val face = rect.width() - 2f * density
+        val fw = maxOf(paint.measureText(head), paint.measureText(tail))
+        if (fw > face && face > 0f) paint.textSize = paint.textSize * face / fw
+        val step = (paint.descent() - paint.ascent()) / 2f
+        val baseline = rect.centerY() - (paint.descent() + paint.ascent()) / 2f
+        canvas.drawText(head, rect.centerX(), baseline - step, paint)
+        canvas.drawText(tail, rect.centerX(), baseline + step, paint)
+    }
+
+    private fun drawSpaceMarker(canvas: Canvas, rect: RectF) {
+        val w = rect.width() * SPACE_MARKER_FRACTION
+        val h = 2f * density
+        tmpRect.set(rect.centerX() - w / 2f, rect.centerY() - h / 2f, rect.centerX() + w / 2f, rect.centerY() + h / 2f)
+        spaceMarkerPaint.color = palette.keySub
+        canvas.drawRoundRect(tmpRect, h / 2f, h / 2f, spaceMarkerPaint)
+    }
+
+    private fun labelScale(rect: RectF): Float = min(1f, rect.height() / rowHeight)
+
+    private fun drawLangToggle(canvas: Canvas, rect: RectF) {
+        langLabel.draw(
+            canvas,
+            rect,
+            context.getString(R.string.lang_cn),
+            context.getString(R.string.lang_en),
+            lang == Lang.CN,
+            labelScale(rect),
+        )
+    }
+
+    private fun drawShift(canvas: Canvas, rect: RectF) {
+        drawKeyGlyph(canvas, rect, if (shifted) palette.accentBottom else palette.keyLabel) { c, pt, x, y, s ->
+            Glyphs.drawShift(c, pt, x, y, s, locked = shiftLocked)
+        }
+    }
+
+    private inline fun drawKeyGlyph(
+        canvas: Canvas,
+        rect: RectF,
+        color: Int,
+        scale: Float = minOf(rect.width(), rect.height()) * 0.24f,
+        draw: (Canvas, Paint, Float, Float, Float) -> Unit,
+    ) {
+        iconPaint.color = color
+        draw(canvas, iconPaint, rect.centerX(), rect.centerY(), scale)
+    }
+
+    private fun functionalGlyphScale(fallback: RectF): Float {
+        val rect = placed.firstOrNull { it.key.action == KeyAction.BACKSPACE }?.rect ?: fallback
+        return minOf(rect.width(), rect.height()) * 0.24f
+    }
+
+    internal fun langLabelForTest(): ImeSplitLabel = langLabel
+    internal fun langPlacementForTest(): ImeSplitLabel.Placement? = boundsOfActionForTest(KeyAction.TOGGLE_LANG)?.let {
+        langLabel.layout(it, context.getString(R.string.lang_cn), context.getString(R.string.lang_en), lang == Lang.CN, labelScale(it))
+    }
+    internal fun langLeadingActiveForTest(): Boolean = lang == Lang.CN
+
+    internal fun shiftRenderState(): String = if (shiftLocked) "LOCK" else if (shifted) "ONCE" else "OFF"
+
+    internal fun displayLabelForTest(key: Key): String = displayLabel(key)
+
+    internal fun scrollLabelMinTextSizeForTest(): Float = scrollLabelMinTextSize()
+
+    internal fun scrollLabelTextSizeForTest(label: String): Float {
+        val base = scrollLabelPaint.textSize
+        val fitted = fittedScrollLabelTextSize(label, base)
+        scrollLabelPaint.textSize = base
+        return fitted
+    }
+
+    internal fun scrollLabelWidthForTest(label: String): Float {
+        val base = scrollLabelPaint.textSize
+        scrollLabelPaint.textSize = fittedScrollLabelTextSize(label, base)
+        val width = scrollLabelPaint.measureText(label)
+        scrollLabelPaint.textSize = base
+        return width
+    }
+
     internal fun centerOfLabelForTest(label: String): Pair<Float, Float>? {
         if (placed.isEmpty()) relayout()
         val p = placed.firstOrNull { it.key.label == label } ?: return null
         return p.rect.centerX() to p.rect.centerY()
+    }
+
+    internal fun boundsOfActionForTest(action: KeyAction): RectF? {
+        if (placed.isEmpty()) relayout()
+        return placed.firstOrNull { it.key.action == action }?.rect?.let(::RectF)
     }
 
     internal fun boundsOfLabelForTest(label: String): RectF? {
@@ -320,8 +640,25 @@ class KeyboardView(context: Context) : View(context) {
         return placed.minOfOrNull { it.rect.width() } ?: 0f
     }
 
+    private fun displayLabel(key: Key): String {
+        key.labelRes?.let { return context.getString(it) }
+        if (key.action == KeyAction.COMMIT && key.label.length == 1 && key.label[0] in 'a'..'z') {
+            return if (shifted) key.label.uppercase() else key.label
+        }
+        if (isNineLetterBlock(key)) {
+            return key.label
+        }
+        return key.label
+    }
+
+    private fun isNineLetterBlock(key: Key): Boolean =
+        key.action == KeyAction.COMMIT && key.label.length > 1 && key.label.all { it in 'A'..'Z' } &&
+            key.output.length == 1 && key.output[0] in '2'..'9'
+
+    internal fun scrollOffsetForTest(): Float = scrollY
     internal fun scrollRegionForTest(): RectF = RectF(scrollRegion)
     internal fun scrollTouchForTest(): RectF = RectF(scrollTouch)
+    internal fun scrollCellHeightForTest(): Float = scrollCellH
 
     private fun placedAt(x: Float, y: Float): Placed? {
         var nearest: Placed? = null
@@ -364,6 +701,13 @@ class KeyboardView(context: Context) : View(context) {
             val visible = (column.h / column.cellHFrac).roundToInt().coerceAtLeast(1)
             return (column.h * keyboardHeight - 2f * verticalGap) / visible
         }
+
+        const val INK_CENTERED_GLYPHS = "，。"
+        const val KEYPAD_INK_CENTERED_GLYPHS = "，。,."
+        const val SCROLL_LABEL_INSET_DP = 12f
+        const val SCROLLBAR_ALPHA = 0x55
+        const val SPACE_MARKER_FRACTION = 0.34f
+        const val SCROLL_LABEL_MIN_DP = 11f
     }
 }
 
