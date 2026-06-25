@@ -56,6 +56,14 @@ class UserModel {
         dirty = false
     }
 
+    /** Replace in-memory state from disk (used when an import changed the file under us). */
+    fun reload(file: File) {
+        count.clear()
+        lastUsed.clear()
+        bigram.clear()
+        load(file)
+    }
+
     fun load(file: File) {
         if (!file.exists()) return
         file.bufferedReader().useLines { lines ->
