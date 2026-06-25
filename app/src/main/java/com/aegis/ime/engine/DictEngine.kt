@@ -20,22 +20,26 @@ import com.aegis.ime.decoder.PinyinDecoder
 import com.aegis.ime.decoder.Syllable
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.dict.OctagramReader
 
 class DictEngine(
     pinyinDict: BinaryDict?,
     t9Dict: BinaryDict?,
     lm: CharBigramLM?,
+    octagram: OctagramReader? = null,
 ) : CandidateEngine {
     private val decoder = pinyinDict?.let {
         PinyinDecoder(
             it,
             lm,
+            octagram = octagram,
         )
     }
     private val t9Decoder = t9Dict?.let {
         PinyinDecoder(
             it,
             lm,
+            octagram = octagram,
         )
     }
 

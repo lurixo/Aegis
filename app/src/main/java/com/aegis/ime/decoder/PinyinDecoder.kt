@@ -31,12 +31,14 @@ class PinyinDecoder(
     private val dict: BinaryDict,
     private val lm: CharBigramLM? = null,
     private val lambda: Double = DEFAULT_LAMBDA,
+    private val octagram: com.aegis.ime.dict.OctagramReader? = null,
+    private val octagramWeight: Double = DEFAULT_OCTAGRAM_WEIGHT,
     private val contextWeight: Double = DEFAULT_CONTEXT_WEIGHT,
 ) {
     private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
 
     @Volatile private var edgeN =
-        if (lm != null) EDGE_N else 1
+        if (lm != null || octagram != null) EDGE_N else 1
 
     private class Edge(val word: String, val freq: Int, val penalty: Double)
 
@@ -91,11 +93,13 @@ class PinyinDecoder(
 
     private fun wordModelScore(word: String, freq: Double, ctxId: Int, ctx: Ctx): Double {
         return (ln(freq) - lnTotal) +
+            (octagram?.let { octagramWeight * (it.rawScore(word) ?: 0.0) } ?: 0.0) +
             (lm?.let {
                 val lam = activeLambda(ctx)
                 (if (lam == 0.0) 0.0 else lam * internalBigramScore(word, it)) +
                     if (ctxId != NO_CTX) contextWeight * logCondMemo(it, ctxId, it.charId(word.codePointAt(0))) else 0.0
-            } ?: 0.0)
+            } ?: 0.0) +
+            octagramWeight * contextArm(ctx.tail, word)
     }
 
     internal data class Ctx(val cp: Int, val tail: String) {
@@ -121,6 +125,29 @@ class PinyinDecoder(
             chars++
         }
         return combined.substring(start)
+    }
+
+    private fun bestSuffixGram(text: String, startLimit: Int): Double =
+        octagram?.bestSuffixScore(text, startLimit) ?: 0.0
+
+    private fun contextArm(contextTail: String, word: String): Double =
+        if (contextTail.isEmpty()) 0.0
+        else bestSuffixGram(contextTail + word, contextTail.length)
+
+    private fun joinedArm(contextTail: String, joined: String): Double =
+        if (contextTail.isEmpty()) 0.0
+        else bestSuffixGram(joined, contextTail.length)
+
+    private fun joinTail(contextTail: String, word: String): String =
+        if (contextTail.isEmpty()) word else contextTail + word
+
+    private fun advanceJoinedTail(joined: String): String =
+        if (octagram == null) "" else hanTail(joined)
+
+    internal fun wholeSentenceArm(contextTail: String, text: String): Double {
+        if (text.isEmpty()) return 0.0
+        val combined = contextTail + text
+        return bestSuffixGram(combined, combined.length)
     }
 
     private fun isHan(cp: Int): Boolean {
@@ -337,9 +364,24 @@ class PinyinDecoder(
         return !parses(respectCuts = false)
     }
 
-    private class APath(val text: String, val lastCp: Int, val score: Double)
+    private class APath(val text: String, val lastCp: Int, val tail: String, val score: Double)
 
     internal data class SentencePath(val text: String, val score: Double)
+
+    internal fun rerankSentencePaths(paths: List<SentencePath>, contextTail: String): List<SentencePath> {
+        if (octagram == null || paths.size < 2) return paths
+        val headSize = minOf(SENTENCE_RERANK_N, paths.size)
+        val scores = DoubleArray(headSize) {
+            paths[it].score + octagramWeight * wholeSentenceArm(contextTail, paths[it].text)
+        }
+        val order = (0 until headSize).sortedWith(
+            compareByDescending<Int> { scores[it] }.thenBy { it },
+        )
+        val out = ArrayList<SentencePath>(paths.size)
+        for (index in order) out.add(paths[index])
+        for (index in headSize until paths.size) out.add(paths[index])
+        return out
+    }
 
     private fun atomicSentences(
         input: String,
@@ -352,7 +394,7 @@ class PinyinDecoder(
         val lam = activeLambda(ctx)
         val nSyl = B.size - 1
         val dp = Array(B.size) { ArrayList<APath>() }
-        dp[0].add(APath("", ctx.cp, 0.0))
+        dp[0].add(APath("", ctx.cp, if (octagram == null) "" else ctx.tail, 0.0))
         for (i in 0 until nSyl) {
             DecodeCancellation.checkpoint()
             if (dp[i].isEmpty()) continue
@@ -374,11 +416,14 @@ class PinyinDecoder(
                     for (p in src) {
                         val bw = if (p.text.isEmpty() && p.lastCp != BOS) contextWeight else lam
                         val bi = if (model == null || p.lastCp == BOS || bw == 0.0) 0.0 else bw * logCondMemo(model, model.charId(p.lastCp), idFirst)
+                        val joined = joinTail(p.tail, w)
+                        val og = octagramWeight * joinedArm(p.tail, joined)
                         dp[j].add(
                             APath(
                                 p.text + w,
                                 lastCp,
-                                p.score + uni + bi + inner
+                                advanceJoinedTail(joined),
+                                p.score + uni + bi + inner + og
                             ),
                         )
                     }
@@ -392,7 +437,7 @@ class PinyinDecoder(
         for (p in dp[nSyl].sortedByDescending { it.score }) {
             if (seen.add(p.text)) { ordered.add(SentencePath(p.text, p.score)); if (ordered.size >= emit) break }
         }
-        return ordered
+        return rerankSentencePaths(ordered, ctx.tail)
     }
 
     private data class RankedWord(
@@ -476,7 +521,7 @@ class PinyinDecoder(
         return out
     }
 
-    private data class SentenceState(val lastCp: Int)
+    private data class SentenceState(val lastCp: Int, val tail: String)
 
     private class Cell(val score: Double, val prevPos: Int, val prevState: SentenceState?, val word: String)
 
@@ -493,9 +538,9 @@ class PinyinDecoder(
         val lam = activeLambda(ctx)
         val n = input.length
         val dp = Array<MutableMap<SentenceState, Cell>>(n + 1) {
-            HashMap()
+                        if (octagram == null) HashMap() else LinkedHashMap(SENTENCE_STATE_CAPACITY)
         }
-        val initial = SentenceState(ctx.cp)
+        val initial = SentenceState(ctx.cp, if (octagram == null) "" else ctx.tail)
         dp[0][initial] = Cell(0.0, -1, null, "")
 
         for (q in 1..n) {
@@ -517,14 +562,24 @@ class PinyinDecoder(
                         val bw = if (cell.prevPos < 0 && state.lastCp != BOS) contextWeight else lam
                         val bi = if (model == null || state.lastCp == BOS || bw == 0.0) 0.0
                         else bw * logCondMemo(model, model.charId(state.lastCp), idFirst)
-                        val score = cell.score + uni + bi + inner - e.penalty
-                        val nextState = SentenceState(lastCp)
+                        val joined = joinTail(state.tail, w)
+                        val og = octagramWeight * joinedArm(state.tail, joined)
+                        val score = cell.score + uni + bi + inner - e.penalty + og
+                        val nextState = SentenceState(lastCp, advanceJoinedTail(joined))
                         val cur = dp[q][nextState]
                         if (cur == null || score > cur.score) {
                             dp[q][nextState] = Cell(score, p, state, w)
                         }
                     }
                 }
+            }
+            if (octagram != null && dp[q].size > BEAM_W) {
+                val keep = dp[q].entries
+                    .sortedByDescending { it.value.score }
+                    .take(BEAM_W)
+                    .map { it.key to it.value }
+                dp[q].clear()
+                for ((state, cell) in keep) dp[q][state] = cell
             }
         }
 
@@ -556,12 +611,15 @@ class PinyinDecoder(
         const val NO_CTX = Int.MIN_VALUE
         const val EDGE_N = 20
         const val DEFAULT_LAMBDA = 0.5
+        const val DEFAULT_OCTAGRAM_WEIGHT = 0.1
         const val BEAM_W = 12
         const val SENTENCE_EDGE_N = 6
         const val ATOMIC_BEAM_N = 8
         const val ATOMIC_BEAM_PER_SYL = 40
+        const val SENTENCE_RERANK_N = 128
         const val CTX_WORD_MAX = 4
         const val MAX_SYLLABLE_KEY_LEN = 6
+        const val SENTENCE_STATE_CAPACITY = 256
         const val DEFAULT_CONTEXT_WEIGHT = 1.0
         fun completionCap(limit: Int): Int = maxOf(1, (limit.toLong() * 2 / 3).toInt())
     }
