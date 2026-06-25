@@ -62,6 +62,59 @@ class ModelDownloadTest {
     }
 
     @Test
+    fun reconciliationRemovesTheBundledEraCopiesOnAnUpgradedInstall() {
+        val base = tempFilesDir()
+        val bundledEraNames = ModelDownload.DICT_PACK_FILES + listOf("aegis_en.bin", "aegis_fuzzy.bin")
+        bundledEraNames.forEach { name ->
+            File(base, name).writeBytes(ByteArray(4_096) { 2 })
+        }
+
+        ModelDownload.reconcileInterruptedDownloads(base)
+
+        bundledEraNames.forEach { name -> assertFalse(File(base, name).exists()) }
+        assertFalse(ModelDownload.isDictDownloaded(base))
+        assertEquals(0L, ModelDownload.installedDictionaryBytes(base))
+
+        base.deleteRecursively()
+    }
+
+    @Test
+    fun abandonedTransactionsAreReconciledWithoutRemovingInstalledResources() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        val gram = ModelDownload.destFile(base).apply { writeBytes(ByteArray(2_048) { 1 }) }
+        val installed = ModelDownload.DICT_PACK_FILES.associateWith { name ->
+            File(downloaded, name).apply { writeBytes(ByteArray(2_048) { name.length.toByte() }) }
+        }
+        ModelDownload.partFile(base).writeBytes(ByteArray(3_000))
+        ModelDownload.dictPartFile(base).writeBytes(ByteArray(5_000))
+        File(downloaded, "aegis_dict_pack_debug13.zip").writeBytes(ByteArray(6_000))
+        File(downloaded, "aegis_dict_pack_debug13.zip.part").writeBytes(ByteArray(7_000))
+        ModelDownload.DICT_PACK_FILES.forEach { name ->
+            File(downloaded, "$name.part").writeBytes(ByteArray(1_500))
+        }
+        File(downloaded, "dict-install").apply { mkdirs(); File(this, "payload").writeBytes(ByteArray(1_500)) }
+
+        assertFalse(ModelDownload.installInProgress(base))
+        assertTrue(ModelDownload.isDownloaded(base))
+        assertTrue(ModelDownload.isDictDownloaded(base))
+        assertEquals(2_048L, gram.length())
+        installed.forEach { (name, file) ->
+            assertEquals(2_048L, file.length())
+            assertFalse(File(downloaded, "$name.part").exists())
+            assertFalse(File(downloaded, "$name.backup").exists())
+        }
+        assertFalse(ModelDownload.partFile(base).exists())
+        assertFalse(ModelDownload.dictZipFile(base).exists())
+        assertFalse(ModelDownload.dictPartFile(base).exists())
+        assertFalse(File(downloaded, "aegis_dict_pack_debug13.zip").exists())
+        assertFalse(File(downloaded, "aegis_dict_pack_debug13.zip.part").exists())
+        assertFalse(File(downloaded, "dict-install").exists())
+
+        base.deleteRecursively()
+    }
+
+    @Test
     fun sharedDownloadFailureCleansStagingAndPreservesBothTargets() {
         val base = tempFilesDir()
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
@@ -406,6 +459,87 @@ class ModelDownloadTest {
     }
 
     @Test
+    fun interruptedDictionaryReplacementRestoresTheInstalledPack() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        val old = ModelDownload.DICT_PACK_FILES.associateWith { name ->
+            ByteArray(2_048) { name.length.toByte() }.also {
+                File(downloaded, "$name.backup").writeBytes(it)
+            }
+        }
+        ModelDownload.DICT_PACK_FILES.forEachIndexed { index, name ->
+            File(downloaded, name).writeBytes(ByteArray(3_000) { (index + 1).toByte() })
+            File(downloaded, "$name.part").writeBytes(ByteArray(1_500))
+        }
+        ModelDownload.dictZipFile(base).writeBytes(ByteArray(4_000))
+        ModelDownload.dictPartFile(base).writeBytes(ByteArray(5_000))
+        File(downloaded, "dict-install").apply {
+            mkdirs()
+            File(this, "payload").writeBytes(ByteArray(1_500))
+        }
+
+        ModelDownload.reconcileInterruptedDownloads(base)
+
+        old.forEach { (name, bytes) ->
+            assertArrayEquals(bytes, File(downloaded, name).readBytes())
+            assertFalse(File(downloaded, "$name.backup").exists())
+            assertFalse(File(downloaded, "$name.part").exists())
+        }
+        assertFalse(ModelDownload.dictZipFile(base).exists())
+        assertFalse(ModelDownload.dictPartFile(base).exists())
+        assertFalse(File(downloaded, "dict-install").exists())
+        base.deleteRecursively()
+    }
+
+    @Test
+    fun completeDictionaryGenerationSurvivesMetadataCrash() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        val sha = "a".repeat(64)
+        val replacements = ModelDownload.DICT_PACK_FILES.mapIndexed { index, name ->
+            name to ByteArray(3_000) { (index + 1).toByte() }
+        }.toMap()
+        replacements.forEach { (name, bytes) ->
+            File(downloaded, name).writeBytes(bytes)
+            File(downloaded, "$name.backup").writeBytes(ByteArray(2_048) { 9 })
+        }
+        File(downloaded, ModelDownload.DICT_INSTALLED_SHA_NAME).writeText(sha)
+        ModelDownload.dictZipFile(base).writeBytes(ByteArray(4_000))
+
+        ModelDownload.reconcileInterruptedDownloads(base)
+
+        replacements.forEach { (name, bytes) ->
+            assertArrayEquals(bytes, File(downloaded, name).readBytes())
+            assertFalse(File(downloaded, "$name.backup").exists())
+        }
+        assertEquals(sha, ModelDownload.installedDictionaryFileSha(base))
+        assertFalse(ModelDownload.dictZipFile(base).exists())
+        base.deleteRecursively()
+    }
+
+    @Test
+    fun firstDictionaryGenerationSurvivesMetadataCrash() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        val sha = "b".repeat(64)
+        val replacements = ModelDownload.DICT_PACK_FILES.mapIndexed { index, name ->
+            name to ByteArray(3_000) { (index + 1).toByte() }
+        }.toMap()
+        replacements.forEach { (name, bytes) -> File(downloaded, name).writeBytes(bytes) }
+        File(downloaded, ModelDownload.DICT_INSTALLED_SHA_NAME).writeText(sha)
+        ModelDownload.dictZipFile(base).writeBytes(ByteArray(4_000))
+
+        ModelDownload.reconcileInterruptedDownloads(base)
+
+        replacements.forEach { (name, bytes) ->
+            assertArrayEquals(bytes, File(downloaded, name).readBytes())
+        }
+        assertEquals(sha, ModelDownload.installedDictionaryFileSha(base))
+        assertFalse(ModelDownload.dictZipFile(base).exists())
+        base.deleteRecursively()
+    }
+
+    @Test
     fun aPendingMarkerThatCannotBeWrittenKeepsItsCause() {
         val base = tempFilesDir()
         val downloaded = File(base, "downloaded").apply { mkdirs() }
@@ -421,6 +555,121 @@ class ModelDownloadTest {
         )
         assertFalse(ModelDownload.unmarkedDictionaryRecoveryRequired(base))
 
+        base.deleteRecursively()
+    }
+
+    @Test
+    fun verifiedCanonicalArchiveRecoveryReplacesAMixedDictionaryPack() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        ModelDownload.DICT_PACK_FILES.forEachIndexed { index, name ->
+            File(downloaded, name).writeBytes(ByteArray(2_048) { (index + 7).toByte() })
+        }
+        val replacements = mapOf(
+            "aegis_dict.bin" to ByteArray(3_000) { 1 },
+            "aegis_t9.bin" to ByteArray(3_000) { 2 },
+            "aegis_jianpin.bin" to ByteArray(3_000) { 3 },
+            "aegis_lm.bin" to ByteArray(3_000) { 4 },
+        )
+        val zip = ModelDownload.dictZipFile(base)
+        writeZip(zip, replacements)
+        val sha = ModelDownload.sha256Of(zip)
+        val archive = zip.readBytes()
+        assertTrue(zip.delete())
+        assertEquals(ModelDownload.PendingMarker.Recorded, ModelDownload.recordPendingDictionarySha(base, sha))
+        zip.writeBytes(archive)
+
+        ModelDownload.recoverInterruptedDictionaryInstall(base)
+
+        replacements.forEach { (name, bytes) -> assertArrayEquals(bytes, File(downloaded, name).readBytes()) }
+        assertEquals(sha, ModelDownload.installedDictionaryFileSha(base))
+        assertFalse(zip.exists())
+        assertFalse(File(downloaded, "dict-install").exists())
+        base.deleteRecursively()
+    }
+
+    @Test
+    fun unmarkedCanonicalArchiveNeverLeavesAPartiallyReplacedGenerationActive() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        val old = ModelDownload.DICT_PACK_FILES.associateWith { name ->
+            ByteArray(2_048) { name.length.toByte() }.also { File(downloaded, name).writeBytes(it) }
+        }
+        val replacements = mapOf(
+            "aegis_dict.bin" to ByteArray(3_000) { 1 },
+            "aegis_t9.bin" to ByteArray(3_000) { 2 },
+            "aegis_jianpin.bin" to ByteArray(3_000) { 3 },
+            "aegis_lm.bin" to ByteArray(3_000) { 4 },
+        )
+        val zip = ModelDownload.dictZipFile(base)
+        writeZip(zip, replacements)
+        val replacedName = ModelDownload.DICT_PACK_FILES.first()
+        File(downloaded, replacedName).writeBytes(replacements.getValue(replacedName))
+        assertArrayEquals(replacements.getValue(replacedName), File(downloaded, replacedName).readBytes())
+        ModelDownload.DICT_PACK_FILES.drop(1).forEach { name ->
+            assertArrayEquals(old.getValue(name), File(downloaded, name).readBytes())
+        }
+
+        ModelDownload.recoverInterruptedDictionaryInstall(base)
+
+        ModelDownload.DICT_PACK_FILES.forEach { assertFalse(File(downloaded, it).exists()) }
+        assertFalse(zip.exists())
+        assertNull(ModelDownload.installedDictionaryFileSha(base))
+        assertFalse(ModelDownload.isDictDownloaded(base))
+        base.deleteRecursively()
+    }
+
+    @Test
+    fun unmarkedArchiveDoesNotReplaceASidecarGeneration() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        val oldSha = "1".repeat(64)
+        val old = ModelDownload.DICT_PACK_FILES.associateWith { name ->
+            ByteArray(2_048) { name.length.toByte() }.also { File(downloaded, name).writeBytes(it) }
+        }
+        File(downloaded, ModelDownload.DICT_INSTALLED_SHA_NAME).writeText(oldSha)
+        val zip = ModelDownload.dictZipFile(base)
+        writeZip(
+            zip,
+            mapOf(
+                "aegis_dict.bin" to ByteArray(3_000) { 1 },
+                "aegis_t9.bin" to ByteArray(3_000) { 2 },
+                "aegis_jianpin.bin" to ByteArray(3_000) { 3 },
+                "aegis_lm.bin" to ByteArray(3_000) { 4 },
+            ),
+        )
+
+        ModelDownload.recoverInterruptedDictionaryInstall(base)
+
+        old.forEach { (name, bytes) -> assertArrayEquals(bytes, File(downloaded, name).readBytes()) }
+        assertFalse(zip.exists())
+        assertEquals(oldSha, ModelDownload.installedDictionaryFileSha(base))
+        base.deleteRecursively()
+    }
+
+    @Test
+    fun interruptedDictionaryBackupPhaseRestoresTheInstalledPack() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        val old = ModelDownload.DICT_PACK_FILES.associateWith { name ->
+            ByteArray(2_048) { name.length.toByte() }
+        }
+        val movedName = ModelDownload.DICT_PACK_FILES.first()
+        old.forEach { (name, bytes) ->
+            val suffix = if (name == movedName) ".backup" else ""
+            File(downloaded, "$name$suffix").writeBytes(bytes)
+        }
+        ModelDownload.dictZipFile(base).writeBytes(ByteArray(4_000))
+        File(downloaded, "dict-install").apply { mkdirs() }
+
+        ModelDownload.reconcileInterruptedDownloads(base)
+
+        old.forEach { (name, bytes) ->
+            assertArrayEquals(bytes, File(downloaded, name).readBytes())
+            assertFalse(File(downloaded, "$name.backup").exists())
+        }
+        assertFalse(ModelDownload.dictZipFile(base).exists())
+        assertFalse(File(downloaded, "dict-install").exists())
         base.deleteRecursively()
     }
 
@@ -451,7 +700,27 @@ class ModelDownloadTest {
         assertEquals(oldSha, ModelDownload.installedDictionaryFileSha(base))
         assertFalse(zip.exists())
         assertFalse(File(downloaded, "dict-install").exists())
+        base.deleteRecursively()
+    }
 
+    @Test
+    fun reconciliationRetriesResidueCleanupInTheSameProcess() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        ModelDownload.DICT_PACK_FILES.forEach { name ->
+            File(downloaded, name).writeBytes(ByteArray(2_048) { 1 })
+        }
+        File(downloaded, ModelDownload.DICT_INSTALLED_SHA_NAME).writeText("d".repeat(64))
+        val backup = File(downloaded, "${ModelDownload.DICT_PACK_FILES.first()}.backup").apply {
+            mkdirs()
+        }
+        val residue = File(backup, "residue").apply { writeText("x") }
+
+        ModelDownload.reconcileInterruptedDownloads(base)
+        assertTrue(backup.exists())
+        assertTrue(residue.delete())
+        ModelDownload.reconcileInterruptedDownloads(base)
+        assertFalse(backup.exists())
         base.deleteRecursively()
     }
 
@@ -781,6 +1050,33 @@ class ModelDownloadTest {
     }
 
     @Test
+    fun aPackThatFinishedDownloadingIsNotSweptAwayWithTheOldGeneration() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        val installedSha = "a".repeat(64)
+        val pendingSha = "b".repeat(64)
+        ModelDownload.DICT_PACK_FILES.forEachIndexed { index, name ->
+            File(downloaded, name).writeBytes(ByteArray(3_000) { (index + 1).toByte() })
+        }
+        File(downloaded, ModelDownload.DICT_INSTALLED_SHA_NAME).writeText(installedSha)
+        assertEquals(
+            ModelDownload.PendingMarker.Recorded,
+            ModelDownload.recordPendingDictionarySha(base, pendingSha),
+        )
+        val zip = ModelDownload.dictZipFile(base).apply { writeBytes(ByteArray(4_000)) }
+
+        ModelDownload.reconcileInterruptedDownloads(base)
+
+        assertTrue("an update that was downloaded but not installed must survive", zip.exists())
+        assertEquals("the generation it replaces stays live until it does", installedSha, ModelDownload.installedDictionaryFileSha(base))
+        assertTrue(
+            "the marker the archive survives by must itself survive",
+            File(downloaded, ModelDownload.DICT_PENDING_SHA_NAME).exists(),
+        )
+        base.deleteRecursively()
+    }
+
+    @Test
     fun installRefusesAPackThatIsNotTheOneItWasPromised() {
         val base = tempFilesDir()
         val zip = ModelDownload.dictZipFile(base)
@@ -897,4 +1193,23 @@ class ModelDownloadTest {
             putInt(40, 4)
             put(size - 1, marker)
         }.array()
+
+    @Test
+    fun aPackWhosePendingShaIsAlreadyInstalledIsSweptAsComplete() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        val sha = "a".repeat(64)
+        ModelDownload.DICT_PACK_FILES.forEachIndexed { index, name ->
+            File(downloaded, name).writeBytes(ByteArray(3_000) { (index + 1).toByte() })
+        }
+        File(downloaded, ModelDownload.DICT_INSTALLED_SHA_NAME).writeText(sha)
+        assertEquals(ModelDownload.PendingMarker.Recorded, ModelDownload.recordPendingDictionarySha(base, sha))
+        val zip = ModelDownload.dictZipFile(base).apply { writeBytes(ByteArray(4_000)) }
+
+        ModelDownload.reconcileInterruptedDownloads(base)
+
+        assertFalse("an archive for the generation already installed is complete and swept", zip.exists())
+        assertFalse("its marker goes with it", File(downloaded, ModelDownload.DICT_PENDING_SHA_NAME).exists())
+        base.deleteRecursively()
+    }
 }

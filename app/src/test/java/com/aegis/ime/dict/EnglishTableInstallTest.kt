@@ -116,4 +116,29 @@ class EnglishTableInstallTest {
         assertFalse(ModelDownload.EN_NAME in ModelDownload.DICT_PACK_FILES)
         assertFalse(ModelDownload.EN_NAME in ModelDownload.DICT_BIN_FILES)
     }
+
+    @Test
+    fun installing_a_pack_without_english_drops_a_previously_installed_english_table() {
+        val filesDir = tempDir()
+        val downloaded = File(filesDir, "downloaded").apply { mkdirs() }
+        File(downloaded, ModelDownload.EN_NAME).writeBytes(ByteArray(2048))
+        val zip = ModelDownload.dictZipFile(filesDir)
+        writeZip(zip, (packEntries() - ModelDownload.EN_PACK_ENTRY).mapValues { ByteArray(2048) })
+
+        assertTrue(ModelDownload.installDictPack(filesDir, ModelDownload.sha256Of(zip)))
+        assertFalse(File(downloaded, ModelDownload.EN_NAME).exists())
+        assertTrue(ModelDownload.isDictPackComplete(filesDir))
+    }
+
+    @Test
+    fun installing_a_pack_with_english_lands_it_next_to_the_chinese_tables() {
+        val filesDir = tempDir()
+        File(filesDir, "downloaded").mkdirs()
+        val zip = ModelDownload.dictZipFile(filesDir)
+        writeZip(zip, packEntries().mapValues { ByteArray(2048) })
+
+        assertTrue(ModelDownload.installDictPack(filesDir, ModelDownload.sha256Of(zip)))
+        assertTrue(File(File(filesDir, "downloaded"), ModelDownload.EN_NAME).exists())
+        assertTrue(ModelDownload.isDictPackComplete(filesDir))
+    }
 }

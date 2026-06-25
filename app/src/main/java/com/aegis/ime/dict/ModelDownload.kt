@@ -40,6 +40,8 @@ object ModelDownload {
 
     fun partFile(filesDir: File): File = File(File(filesDir, "downloaded"), "$GRAM_NAME.part")
 
+    fun isDownloaded(filesDir: File): Boolean = destFile(filesDir).let { it.exists() && it.length() > 1024 }
+
     fun bytesToDisplayMb(bytes: Long): Long = Math.round(bytes / 1_000_000.0)
 
     enum class TransferFailure { OFFLINE, TIMEOUT, SERVER, INCOMPLETE, CORRUPT, INSTALL }
@@ -58,6 +60,7 @@ object ModelDownload {
 
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
     private val installingDicts = ConcurrentHashMap.newKeySet<String>()
+    private val recoveringDicts = ConcurrentHashMap.newKeySet<String>()
     private val dictionaryRecoveryLock = ReentrantLock()
 
     fun download(
@@ -440,6 +443,7 @@ object ModelDownload {
     const val DICT_NAME = "aegis_dict_pack.zip"
     internal const val DICT_INSTALLED_SHA_NAME = "aegis_dict_pack.sha256"
     internal const val DICT_PENDING_SHA_NAME = "aegis_dict_pack.pending.sha256"
+    private const val LEGACY_DICT_ZIP_NAME = "aegis_dict_pack_debug13.zip"
 
     const val LM_NAME = "aegis_lm.bin"
 
@@ -490,6 +494,8 @@ object ModelDownload {
     private fun downloadedDir(filesDir: File) = File(filesDir, "downloaded")
     fun dictZipFile(filesDir: File): File = File(downloadedDir(filesDir), DICT_NAME)
     fun dictPartFile(filesDir: File): File = File(downloadedDir(filesDir), "$DICT_NAME.part")
+    private fun legacyDictZipFile(filesDir: File): File = File(downloadedDir(filesDir), LEGACY_DICT_ZIP_NAME)
+    private fun legacyDictPartFile(filesDir: File): File = File(downloadedDir(filesDir), "$LEGACY_DICT_ZIP_NAME.part")
     private fun dictStagingDir(filesDir: File) = File(downloadedDir(filesDir), "dict-install")
     private fun dictBackupFile(filesDir: File, name: String) = File(downloadedDir(filesDir), "$name.backup")
     private fun dictInstalledShaFile(filesDir: File) = File(downloadedDir(filesDir), DICT_INSTALLED_SHA_NAME)
@@ -507,8 +513,18 @@ object ModelDownload {
         require(EN_NAME !in BUNDLED_DICT_CACHE_NAMES) { "$EN_NAME is deleted as a bundled-era leftover" }
     }
 
+    private fun bundledDictCacheFiles(filesDir: File): List<File> =
+        BUNDLED_DICT_CACHE_NAMES.flatMap { listOf(File(filesDir, it), File(filesDir, "$it.part")) }
+
+    private fun deleteBundledDictCache(filesDir: File) {
+        bundledDictCacheFiles(filesDir).forEach { it.delete() }
+    }
+
     fun isDictDownloaded(filesDir: File): Boolean =
         DICT_BIN_FILES.all { File(downloadedDir(filesDir), it).let { f -> f.exists() && f.length() > 1024 } }
+
+    fun isDictPackComplete(filesDir: File): Boolean =
+        DICT_PACK_FILES.all { File(downloadedDir(filesDir), it).let { f -> f.exists() && f.length() > 1024 } }
 
     internal fun resolvedInstalledDictionarySha(
         filesDir: File,
@@ -551,6 +567,104 @@ object ModelDownload {
 
     internal fun clearPendingDictionarySha(filesDir: File) {
         dictPendingShaFile(filesDir).delete()
+    }
+
+    fun reconcileInterruptedDownloads(filesDir: File) {
+        if (!dictionaryRecoveryLock.tryLock()) return
+        try {
+            val key = filesDir.absolutePath
+            deleteBundledDictCache(filesDir)
+            if (destFile(filesDir).absolutePath !in inFlight) discardUnresumablePartial(partFile(filesDir))
+            val dictActive = dictZipFile(filesDir).absolutePath in inFlight ||
+                key in installingDicts ||
+                key in recoveringDicts
+            if (dictActive) {
+                return
+            }
+
+            val transactionFiles = DICT_MANAGED_FILES + DICT_INSTALLED_SHA_NAME
+            val backups = transactionFiles.associateWith { dictBackupFile(filesDir, it) }
+            val hadBackups = backups.values.any(File::exists)
+            val installedSha = installedDictionaryFileSha(filesDir)
+            val pendingSha = pendingDictionarySha(filesDir)
+            val completeNewGeneration = isDictDownloaded(filesDir) && installedSha != null &&
+                (pendingSha == null || pendingSha == installedSha)
+            val recoveryRequired = hadBackups && !completeNewGeneration
+            if (recoveryRequired) {
+                backups.forEach { (name, backup) ->
+                    if (backup.exists()) {
+                        val live = File(downloadedDir(filesDir), name)
+                        runCatching { moveReplacing(backup, live) }
+                    }
+                }
+            }
+            if (recoveryRequired && backups.values.any(File::exists)) {
+                return
+            }
+            val pendingArchive = dictZipFile(filesDir).exists()
+            if (!isDictDownloaded(filesDir) && !pendingArchive) {
+                DICT_MANAGED_FILES.forEach { File(downloadedDir(filesDir), it).delete() }
+                dictInstalledShaFile(filesDir).delete()
+            }
+            backups.values.forEach { it.delete() }
+            DICT_MANAGED_FILES.forEach { File(downloadedDir(filesDir), "$it.part").delete() }
+            dictStagingDir(filesDir).deleteRecursively()
+            if (completeNewGeneration || recoveryRequired) dictZipFile(filesDir).delete()
+            if (!dictZipFile(filesDir).exists()) clearPendingDictionarySha(filesDir)
+            discardUnresumablePartial(dictPartFile(filesDir))
+            if (isDictDownloaded(filesDir)) legacyDictZipFile(filesDir).delete()
+            legacyDictPartFile(filesDir).delete()
+        } finally {
+            dictionaryRecoveryLock.unlock()
+        }
+    }
+
+    internal fun recoverInterruptedDictionaryInstall(filesDir: File) {
+        dictionaryRecoveryLock.withLock {
+            reconcileInterruptedDownloads(filesDir)
+            val key = filesDir.absolutePath
+            val zip = dictZipFile(filesDir)
+            legacyDictZipFile(filesDir).delete()
+            legacyDictPartFile(filesDir).delete()
+            if (!zip.exists()) return
+            if (zip.absolutePath in inFlight || key in installingDicts) return
+            recoveringDicts.add(key)
+            try {
+                val expectedSha = pendingDictionarySha(filesDir)
+                if (expectedSha == null) {
+                    if (unmarkedDictionaryRecoveryRequired(filesDir)) {
+                        DICT_MANAGED_FILES.forEach { File(downloadedDir(filesDir), it).delete() }
+                        dictInstalledShaFile(filesDir).delete()
+                        if (
+                            DICT_MANAGED_FILES.none { File(downloadedDir(filesDir), it).exists() } &&
+                            !dictInstalledShaFile(filesDir).exists()
+                        ) {
+                            zip.delete()
+                        }
+                    } else {
+                        zip.delete()
+                    }
+                    return
+                }
+                val installed = runCatching { installDictPack(filesDir, expectedSha) }.getOrDefault(false)
+                if (!installed && !isDictDownloaded(filesDir)) {
+                    DICT_MANAGED_FILES.forEach { File(downloadedDir(filesDir), it).delete() }
+                    dictInstalledShaFile(filesDir).delete()
+                }
+            } finally {
+                clearPendingDictionarySha(filesDir)
+                recoveringDicts.remove(key)
+            }
+        }
+    }
+
+    fun installInProgress(filesDir: File): Boolean {
+        reconcileInterruptedDownloads(filesDir)
+        return destFile(filesDir).absolutePath in inFlight ||
+            dictZipFile(filesDir).absolutePath in inFlight ||
+            dictionaryRecoveryLock.isLocked ||
+            filesDir.absolutePath in installingDicts ||
+            filesDir.absolutePath in recoveringDicts
     }
 
     fun installDictPack(
