@@ -1,0 +1,117 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Copyright (C) 2026 lurixo
+//
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 3.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+// PARTICULAR PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
+
+package com.aegis.ime.user
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.File
+
+class UserModelOriginTest {
+
+    @get:Rule
+    val tmp = TemporaryFolder()
+
+    private val clock = 1_700_000_000_000L
+
+    private fun db() = File(tmp.root, "userdb.txt")
+
+    private fun model() = UserModel { clock }
+
+    private fun reloaded(file: File) = model().apply { load(file) }
+
+    @Test fun deletingAWordDropsItsMarkOnBothRemovalPaths() {
+        val one = model().apply { addManualWord("zwm", "张伟明", clock) }
+        one.removeWord("zwm", "张伟明")
+        assertTrue("removing the entry drops the mark", one.manualSnapshot().isEmpty())
+
+        val two = model().apply { addManualWord("zwm", "张伟明", clock) }
+        two.removeWord("张伟明")
+        assertTrue("removing the word drops the mark", two.manualSnapshot().isEmpty())
+
+        two.addManualWord("zwm", "张伟明", clock)
+        two.removeWord("张伟明")
+        two.save(db())
+        assertTrue("nothing is left on disk either", reloaded(db()).manualSnapshot().isEmpty())
+    }
+
+    @Test fun aStoreWrittenBeforeTheMarksExistedCountsAsEntirelyAutomatic() {
+        db().writeText("aegis-userdb 1\nW\t你呢嗯\t1\t$clock\nR\tninen\t你呢嗯\nR\tzwm\t张伟明\nW\t张伟明\t4\t$clock\n")
+        val m = reloaded(db())
+        assertTrue("an unmarked store carries no marks at all", m.manualSnapshot().isEmpty())
+        assertEquals(
+            "and it loses nothing",
+            setOf("你呢嗯", "张伟明"),
+            m.userWordEntries().map { it.word }.toSet(),
+        )
+    }
+
+    @Test fun anOldStoreIsWrittenBackInTheMarkedFormat() {
+        db().writeText("aegis-userdb 1\nW\t张伟明\t4\t$clock\nR\tzwm\t张伟明\n")
+        val m = reloaded(db())
+        m.addManualWord("yx", "我的邮箱", clock)
+        m.save(db())
+        val lines = db().readLines()
+        assertEquals("aegis-userdb 2", lines.first())
+        assertTrue("the word added by hand is marked", "M\tyx\t我的邮箱" in lines)
+        assertFalse("the migrated one is not", "M\tzwm\t张伟明" in lines)
+        assertEquals(mapOf("yx" to setOf("我的邮箱")), reloaded(db()).manualSnapshot())
+    }
+
+    @Test fun aMarkWithoutTheEntryItMarksIsRejected() {
+        db().writeText("aegis-userdb 2\nW\t张伟明\t1\t$clock\nM\tzwm\t张伟明\n")
+        assertThrows(IllegalArgumentException::class.java) { reloaded(db()) }
+    }
+
+    @Test fun aMarkInAStoreWrittenBeforeTheMarksExistedIsRejected() {
+        db().writeText("aegis-userdb 1\nW\t张伟明\t1\t$clock\nR\tzwm\t张伟明\nM\tzwm\t张伟明\n")
+        assertThrows(IllegalArgumentException::class.java) { reloaded(db()) }
+    }
+
+    @Test fun aDuplicatedMarkIsRejected() {
+        db().writeText(
+            "aegis-userdb 2\nW\t张伟明\t1\t$clock\nR\tzwm\t张伟明\nM\tzwm\t张伟明\nM\tzwm\t张伟明\n",
+        )
+        assertThrows(IllegalArgumentException::class.java) { reloaded(db()) }
+    }
+
+    @Test fun theMarkSnapshotIsACopyTheCallerCannotWriteThrough() {
+        val m = model().apply { addManualWord("zwm", "张伟明", clock) }
+        val snapshot = m.manualSnapshot()
+        (snapshot as MutableMap)["yx"] = setOf("我的邮箱")
+        (snapshot.getValue("zwm") as MutableSet).clear()
+        assertEquals("the model keeps its own marks", mapOf("zwm" to setOf("张伟明")), m.manualSnapshot())
+    }
+
+    @Test fun aStoreFarPastTheOldRowAndByteGatesRoundTripsWhole() {
+        fun key(i: Int) = buildString {
+            var v = i
+            repeat(4) { append('a' + v % 26); v /= 26 }
+        }
+        val m = model()
+        val words = 120_000
+        repeat(words) { m.addManualWord(key(it), "词" + key(it), 0L) }
+        m.save(db())
+        assertTrue("the file is far past the old four megabyte gate", db().length() > 4L * 1024 * 1024)
+        val back = reloaded(db())
+        assertEquals("what it wrote it reads back whole", words, back.userWordEntries().size)
+        assertEquals("and every one of them is still marked by hand", words, back.manualSnapshot().values.sumOf { it.size })
+    }
+}
