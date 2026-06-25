@@ -15,8 +15,10 @@
 
 package com.aegis.ime.dict
 
+import com.aegis.tools.LmBuilder
 import com.aegis.tools.Pinyin
 import java.io.File
+import kotlin.math.ln
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -58,6 +60,35 @@ class DictionaryNormalizationCompatibilityTest {
             assertEquals("$keyType keeps only the well-formed chemistry word", listOf("化学"), dict.exact(huaXue).map { it.word })
             assertFalse("$keyType rejects a word/syllable count mismatch", dict.exact(hua).any { it.word == "化学" })
         }
+    }
+
+    @Test fun language_model_uses_the_same_rejection_rule_as_the_dictionary_builders() {
+        val fixture = fixture(
+            """
+            ---
+            ...
+            价	jià	1
+            你	nǐ	1
+            価	sì	1000
+            """.trimIndent() + "\n",
+        )
+        val output = File(fixture.root, "aegis-lm.bin")
+        LmBuilder.build(
+            arrayOf(
+                "--out", output.path,
+                "--t2s-data", fixture.t2s.path,
+                fixture.source.path,
+            ),
+        )
+        val lm = CharBigramLM.fromFile(output)
+        val expected = ln(0.4) + ln(1.0) - ln(2.0)
+
+        assertEquals(
+            "the rejected 価 si row contributes no frequency to 价",
+            expected,
+            lm.logCond("你".codePointAt(0), "价".codePointAt(0)),
+            1e-9,
+        )
     }
 
     private fun key(joined: String, syllables: List<String>, keyType: String): String = when (keyType) {

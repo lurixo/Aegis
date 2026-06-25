@@ -22,6 +22,9 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 
 fun main(rawArgs: Array<String>) {
+    when (rawArgs.firstOrNull()) {
+        "lm" -> { LmBuilder.build(rawArgs.copyOfRange(1, rawArgs.size)); return }
+    }
     val args = Args(rawArgs)
     val out = File(args.required("--out"))
     val inputs = args.positionals.map { File(it) }
