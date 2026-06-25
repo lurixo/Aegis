@@ -96,6 +96,8 @@ class KeyboardController(
     private var cnAssociationsEnabled = true
     private var enAssociationsEnabled = true
 
+    private var pushedFuzzyRules: Set<String>? = null
+
     var onShowCustomSymbols: () -> Unit = {}
     var onShowCustomOperators: () -> Unit = {}
 
@@ -103,6 +105,13 @@ class KeyboardController(
 
     fun attachView(v: InputView) {
         view = v
+        render()
+    }
+
+    fun setEngine(newEngine: CandidateEngine) {
+        engine = newEngine
+        pushedFuzzyRules?.let { newEngine.setFuzzyRules(it) }
+        refreshCandidates()
         render()
     }
 
@@ -157,6 +166,11 @@ class KeyboardController(
         enAssociationsEnabled = on
         refreshCandidates()
         render()
+    }
+
+    fun setFuzzyRules(rules: Set<String>) {
+        pushedFuzzyRules = rules
+        engine.setFuzzyRules(rules)
     }
 
     fun reset(preserveLayout: Boolean = false) {
