@@ -34,6 +34,13 @@ object Pinyin {
         return sb.toString()
     }
 
+    fun fuzzyNormalize(s: String): String {
+        var r = s
+        r = r.replace("zh", "z").replace("ch", "c").replace("sh", "s")
+        r = r.replace("ang", "an").replace("eng", "en").replace("ing", "in")
+        return r
+    }
+
     val canonicalSyllables: Set<String> = """
         a o e ê ai ei ao ou an en ang eng er
         yi ya yo ye yao you yan yin yang ying yong

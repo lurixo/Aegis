@@ -2,6 +2,7 @@ package com.aegis.ime.decoder
 
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.user.UserModel
 import kotlin.math.ln
 
@@ -10,15 +11,34 @@ class PinyinDecoder(
     private val lm: CharBigramLM? = null,
     private val lambda: Double = DEFAULT_LAMBDA,
     private val userModel: UserModel? = null,
+    private val fuzzyDict: BinaryDict? = null,
 ) {
     private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
-    private val edgeN = if (lm != null) EDGE_N else 1
+    private val edgeN = if (lm != null || fuzzyDict != null) EDGE_N else 1
+
+    private class Edge(val word: String, val freq: Int, val penalty: Double)
+
+    private fun edgesFor(sub: String): List<Edge> {
+        val out = ArrayList<Edge>(edgeN)
+        val seen = HashSet<String>()
+        for (wf in dict.exact(sub)) {
+            if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, 0.0))
+            if (out.size >= edgeN) return out
+        }
+        val fd = fuzzyDict ?: return out
+        for (wf in fd.exact(Fuzzy.normalize(sub))) {
+            if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, FUZZY_PENALTY))
+            if (out.size >= edgeN) break
+        }
+        return out
+    }
 
     fun decode(input: String, limit: Int): List<String> {
         if (input.isEmpty()) return emptyList()
         val out = LinkedHashSet<String>()
         bestSentence(input)?.let { out.add(it) }
         out.addAll(dict.query(input, limit))
+        if (out.size < limit) fuzzyDict?.let { out.addAll(it.query(Fuzzy.normalize(input), limit)) }
         return if (out.size <= limit) out.toList() else out.toList().subList(0, limit)
     }
 
@@ -33,20 +53,18 @@ class PinyinDecoder(
             for (p in 0 until q) {
                 val from = dp[p]
                 if (from.isEmpty()) continue
-                val words = dict.exact(input.substring(p, q))
-                if (words.isEmpty()) continue
-                var taken = 0
-                for (wf in words) {
-                    if (taken++ >= edgeN) break
-                    val w = wf.word
-                    val uni = ln(wf.freq.toDouble()) - lnTotal
+                val edges = edgesFor(input.substring(p, q))
+                if (edges.isEmpty()) continue
+                for (e in edges) {
+                    val w = e.word
+                    val uni = ln(e.freq.toDouble()) - lnTotal
                     val boost = userModel?.wordBoost(w) ?: 0.0
                     val firstCp = w.codePointAt(0)
                     val lastCp = w.codePointBefore(w.length)
                     for ((prevChar, cell) in from) {
                         val bi = if (lm == null || prevChar == BOS) 0.0
                         else lambda * lm.logCond(prevChar, firstCp)
-                        val score = cell.score + uni + bi + boost
+                        val score = cell.score + uni + bi + boost - e.penalty
                         val cur = dp[q][lastCp]
                         if (cur == null || score > cur.score) {
                             dp[q][lastCp] = Cell(score, p, prevChar, w)
@@ -80,5 +98,6 @@ class PinyinDecoder(
         const val BOS = -1
         const val EDGE_N = 8
         const val DEFAULT_LAMBDA = 1.0
+        const val FUZZY_PENALTY = 3.0
     }
 }
