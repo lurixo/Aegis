@@ -17,6 +17,7 @@ package com.aegis.ime.user
 
 import com.aegis.ime.decoder.EngineFixture
 import com.aegis.ime.decoder.PinyinDecoder
+import com.aegis.ime.engine.DictEngine
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -224,6 +225,34 @@ class AutoLearnManagementTest {
         assertEquals("nothing was recorded while the switch was off", emptyList<UserLearning.Formed>(), learning.formedEntries())
         assertTrue("nothing was recorded while the switch was off", learning.isEmpty())
         assertFalse("no write is owed", learning.dirty)
+    }
+
+    @Test fun the_switch_stops_the_user_dictionary_chain_too() {
+        val learning = UserLearning { clock }
+        val model = UserModel { clock }
+        val engine = DictEngine(null, null, null, model, userLearning = learning)
+
+        learning.enabled = false
+        model.autoLearnEnabled = false
+        engine.learnWord("ninen", "你呢嗯", assembled = true)
+        engine.learn("你", "呢")
+        var prev: String? = null
+        for ((word, reading) in listOf("你" to "ni", "呢" to "ne", "嗯" to "n")) {
+            learning.observeCommit(prev, word, reading, clock)
+            prev = word
+        }
+        learning.observeBreak()
+
+        assertTrue("the user dictionary recorded nothing", model.isEmpty())
+        assertTrue("the learning store recorded nothing", learning.isEmpty())
+
+        learning.enabled = true
+        model.autoLearnEnabled = true
+        engine.learnWord("ninen", "你呢嗯", assembled = true)
+        assertTrue(
+            "switching it back on records again",
+            model.userWordEntries().any { it.word == "你呢嗯" },
+        )
     }
 
     @Test fun the_count_rises_once_per_new_word_and_never_for_a_word_typed_again() {

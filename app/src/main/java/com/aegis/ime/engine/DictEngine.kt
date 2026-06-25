@@ -105,6 +105,15 @@ class DictEngine(
     override fun homophonesForReadingAt(letters: String, index: Int, cuts: Set<Int>): List<String> =
         if (letters.isEmpty()) emptyList() else decoder?.homophonesAt(letters, index, cuts) ?: emptyList()
 
+    override fun learn(prevWord: String?, word: String) {
+        userModel?.record(prevWord, word, System.currentTimeMillis())
+    }
+
+    override fun learnWord(reading: String, word: String, assembled: Boolean) {
+        val um = userModel ?: return
+        um.recordWord(reading, word, System.currentTimeMillis(), incrementCount = assembled)
+    }
+
     override fun spelledReading(word: String, reading: String): String =
         decoder?.spelledReading(word, reading) ?: reading
 

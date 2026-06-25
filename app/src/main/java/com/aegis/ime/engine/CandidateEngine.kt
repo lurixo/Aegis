@@ -45,6 +45,10 @@ interface CandidateEngine {
     fun homophonesForReadingAt(letters: String, index: Int, cuts: Set<Int>): List<String> =
         homophonesForReadingAt(letters, index)
 
+    fun learn(prevWord: String?, word: String)
+
+    fun learnWord(reading: String, word: String, assembled: Boolean)
+
     fun spelledReading(word: String, reading: String): String
 
     fun setFuzzyRules(rules: Set<String>)
