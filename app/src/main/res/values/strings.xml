@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="ime_label">Aegis IME</string>
+    <string name="subtype_zh">Aegis Chinese</string>
+    <string name="subtype_en">Aegis English</string>
+
     <string name="download_status_downloading">Downloading…</string>
     <string name="download_status_failed_format">Download failed (%1$s)</string>
     <string name="download_cause_offline">network unavailable</string>

@@ -1198,6 +1198,11 @@ class InputView(context: Context) : LinearLayout(context) {
         return boundsInWindow(body)
     }
 
+    internal fun dockTouchableBoundsInWindow(): Rect =
+        Rect(dockSurfaceBoundsInWindow()).apply { union(preeditSurfaceBoundsInWindow()) }
+
+    internal fun preeditSurfaceBoundsInWindow(): Rect = boundsInWindow(preeditView)
+
     internal fun preeditTabForTest(): RectF = preeditView.tabBounds()
     internal fun preeditBoundaryXForTest(position: Int): Float = preeditView.boundaryXForTest(position)
     internal fun preeditDoneLeftForTest(): Float = preeditView.doneLeftForTest()

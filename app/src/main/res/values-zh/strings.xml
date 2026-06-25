@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="ime_label">Aegis 输入法</string>
+    <string name="subtype_zh">Aegis 输入法</string>
+    <string name="subtype_en">Aegis English</string>
+
     <string name="download_status_downloading">下载中…</string>
     <string name="download_status_failed_format">下载失败（%1$s）</string>
     <string name="download_cause_offline">网络不可用</string>
