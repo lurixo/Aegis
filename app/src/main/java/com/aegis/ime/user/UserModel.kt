@@ -55,6 +55,40 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
     @Volatile
     private var partiallyRead: Boolean = false
 
+    private var sweptOnLoad: Int = 0
+
+    @Volatile
+    var autoLearnEnabled: Boolean = true
+
+    @Synchronized
+    fun record(prevWord: String?, word: String, now: Long) {
+        if (!autoLearnEnabled || !isValidWord(word)) return
+        count[word] = saturatingAdd(count[word] ?: 0, 1)
+        lastUsed[word] = now.coerceAtLeast(0L)
+        if (!prevWord.isNullOrEmpty() && isValidWord(prevWord)) {
+            val m = bigram.getOrPut(prevWord) { HashMap() }
+            m[word] = saturatingAdd(m[word] ?: 0, 1)
+        }
+        dirty = true
+        version++
+    }
+
+    @Synchronized
+    fun recordWord(reading: String, word: String, now: Long, incrementCount: Boolean) {
+        if (!autoLearnEnabled) return
+        val r = sanitizeReading(reading)
+        if (!isValidWord(word) || r.isEmpty() || r.length > MAX_READING_LENGTH) return
+        if (readings.getOrPut(r) { LinkedHashSet() }.add(word)) readingsVersion++
+        if (incrementCount) {
+            count[word] = saturatingAdd(count[word] ?: 0, 1)
+        } else if (word !in count) {
+            count[word] = 1
+        }
+        lastUsed[word] = now.coerceAtLeast(0L)
+        dirty = true
+        version++
+    }
+
     @Synchronized
     fun addManualWord(reading: String, word: String, now: Long): Boolean {
         val w = word.trim()
@@ -136,7 +170,29 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
     }
 
     @Synchronized
-    fun isEmpty(): Boolean = count.isEmpty() && readings.isEmpty()
+    fun wordBoost(word: String): Double {
+        val c = count[word] ?: return 0.0
+        return usageScore(c, lastUsed[word] ?: 0L, clock())
+    }
+
+    @Synchronized
+    fun successors(prevWord: String, limit: Int): List<String> {
+        if (limit <= 0) return emptyList()
+        val m = bigram[prevWord] ?: return emptyList()
+        val now = clock()
+        return m.entries
+            .sortedWith(
+                compareByDescending<Map.Entry<String, Int>> {
+                    usageScore(it.value, lastUsed[it.key] ?: 0L, now)
+                }.thenBy { it.key },
+            )
+            .take(limit)
+            .map { it.key }
+    }
+
+    @Synchronized
+    fun isEmpty(): Boolean = count.isEmpty() && readings.isEmpty() && sweptOnLoad == 0
+
 
     private class SaveImage(
         val version: Long,
@@ -207,6 +263,10 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         if (version == savedVersion) dirty = false
     }
 
+    fun reload(file: File) {
+        adoptReloaded(parse(file))
+    }
+
     fun reloadIfUnchanged(file: File): Boolean {
         val mark = version
         val parsed = parse(file)
@@ -221,6 +281,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         readings.clear()
         manual.clear()
         forgottenCount = 0
+        sweptOnLoad = 0
         partiallyRead = true
         applyParsed(parsed)
         partiallyRead = false
@@ -243,10 +304,62 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         val parsed = parse(file)
         partiallyRead = true
         applyParsed(parsed)
+        sweptOnLoad = if (sweepStale) forgetStale(clock()) else 0
         partiallyRead = false
         unreadableSource = null
         version++
         readingsVersion++
+    }
+
+    @Synchronized
+    fun forgetStale(now: Long): Int {
+        if (readings.isEmpty()) return 0
+        val newestUsed = lastUsed.values.maxOrNull()
+        if (newestUsed != null &&
+            MAX_COUNT * exp(-LN_2 * (now - newestUsed).coerceAtLeast(0L).toDouble() / FORGET_HALF_LIFE_MILLIS) < FORGET_FLOOR
+        ) {
+            return 0
+        }
+        val verdict = HashMap<String, Boolean>()
+        val emptied = ArrayList<String>()
+        var removed = 0
+        val orphans = HashSet<String>()
+        for ((reading, words) in readings) {
+            val kept = manual[reading]
+            val each = words.iterator()
+            while (each.hasNext()) {
+                val word = each.next()
+                if (kept != null && word in kept) continue
+                if (verdict.getOrPut(word) { isStale(word, now) } != true) continue
+                each.remove()
+                orphans.add(word)
+                removed++
+            }
+            if (words.isEmpty()) emptied.add(reading)
+        }
+        if (removed == 0) return 0
+        for (reading in emptied) readings.remove(reading)
+        for (words in manual.values) orphans.removeAll(words)
+        for (word in orphans) {
+            count.remove(word)
+            lastUsed.remove(word)
+            bigram.remove(word)
+        }
+        if (orphans.isNotEmpty()) for (m in bigram.values) m.keys.removeAll(orphans)
+        forgottenCount = saturatingAdd(forgottenCount, removed)
+        dirty = true
+        version++
+        readingsVersion++
+        return removed
+    }
+
+    private fun isStale(word: String, now: Long): Boolean {
+        val c = count[word] ?: return false
+        if (c <= 0) return false
+        val used = lastUsed[word] ?: return false
+        if (used <= 0L) return false
+        val age = (now - used).coerceAtLeast(0L)
+        return c * exp(-LN_2 * age.toDouble() / FORGET_HALF_LIFE_MILLIS) < FORGET_FLOOR
     }
 
     private fun applyParsed(parsed: Parsed) {
@@ -280,6 +393,8 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         private const val HEADER = "aegis-userdb 3"
         private const val MARKED_HEADER = "aegis-userdb 2"
         private const val LEGACY_HEADER = "aegis-userdb 1"
+        internal const val FORGET_HALF_LIFE_MILLIS = 30L * 24L * 60L * 60L * 1000L
+        internal const val FORGET_FLOOR = 0.0625
         private const val MAX_LINE_LENGTH = 4_096
         private const val MAX_WORD_LENGTH = 256
         private const val MAX_READING_LENGTH = 256

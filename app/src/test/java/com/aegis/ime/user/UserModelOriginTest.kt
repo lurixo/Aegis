@@ -37,6 +37,49 @@ class UserModelOriginTest {
 
     private fun reloaded(file: File) = model().apply { load(file) }
 
+    @Test fun aWordAddedByHandIsMarkedAndAWordRecordedFromTypingIsNot() {
+        val m = model()
+        m.addManualWord("zwm", "张伟明", clock)
+        m.recordWord("ninen", "你呢嗯", clock, incrementCount = true)
+        assertEquals(mapOf("zwm" to setOf("张伟明")), m.manualSnapshot())
+        assertEquals(
+            "both words stay in the dictionary either way",
+            setOf("张伟明", "你呢嗯"),
+            m.userWordEntries().map { it.word }.toSet(),
+        )
+    }
+
+    @Test fun theMarkSurvivesSaveAndLoad() {
+        model().apply {
+            addManualWord("zwm", "张伟明", clock)
+            recordWord("ninen", "你呢嗯", clock, incrementCount = true)
+        }.save(db())
+        assertEquals(mapOf("zwm" to setOf("张伟明")), reloaded(db()).manualSnapshot())
+    }
+
+    @Test fun typingAWordTheUserAddedByHandKeepsTheMark() {
+        val m = model().apply { addManualWord("zwm", "张伟明", clock) }
+        repeat(20) { m.recordWord("zwm", "张伟明", clock, incrementCount = true) }
+        assertEquals(mapOf("zwm" to setOf("张伟明")), m.manualSnapshot())
+        m.save(db())
+        assertEquals(mapOf("zwm" to setOf("张伟明")), reloaded(db()).manualSnapshot())
+    }
+
+    @Test fun addingByHandAWordThatWasOnlyRecordedBeforeMarksIt() {
+        val m = model().apply { recordWord("zwm", "张伟明", clock, incrementCount = true) }
+        assertTrue("recording alone leaves it unmarked", m.manualSnapshot().isEmpty())
+        m.addManualWord("zwm", "张伟明", clock)
+        assertEquals(mapOf("zwm" to setOf("张伟明")), m.manualSnapshot())
+    }
+
+    @Test fun theMarkIsPerReadingNotPerWord() {
+        val m = model().apply {
+            addManualWord("zwm", "张伟明", clock)
+            recordWord("zhangweiming", "张伟明", clock, incrementCount = true)
+        }
+        assertEquals(mapOf("zwm" to setOf("张伟明")), m.manualSnapshot())
+    }
+
     @Test fun deletingAWordDropsItsMarkOnBothRemovalPaths() {
         val one = model().apply { addManualWord("zwm", "张伟明", clock) }
         one.removeWord("zwm", "张伟明")
@@ -113,5 +156,29 @@ class UserModelOriginTest {
         val back = reloaded(db())
         assertEquals("what it wrote it reads back whole", words, back.userWordEntries().size)
         assertEquals("and every one of them is still marked by hand", words, back.manualSnapshot().values.sumOf { it.size })
+    }
+
+    @Test fun turningAutomaticLearningOffStopsRecordingAndLeavesHandAddingAlone() {
+        val m = model()
+        m.autoLearnEnabled = false
+        m.recordWord("ninen", "你呢嗯", clock, incrementCount = true)
+        m.record("你", "呢", clock)
+        assertTrue("nothing at all was recorded", m.isEmpty())
+        assertFalse("and nothing needs saving", m.dirty)
+
+        m.addManualWord("zwm", "张伟明", clock)
+        assertEquals(listOf("张伟明"), m.userWordEntries().map { it.word })
+        assertEquals(mapOf("zwm" to setOf("张伟明")), m.manualSnapshot())
+
+        m.autoLearnEnabled = true
+        m.recordWord("ninen", "你呢嗯", clock, incrementCount = true)
+        assertTrue("switching back on records again", m.userWordEntries().any { it.word == "你呢嗯" })
+    }
+
+    @Test fun turningAutomaticLearningOffKeepsWhatWasAlreadyRecorded() {
+        val m = model().apply { recordWord("ninen", "你呢嗯", clock, incrementCount = true) }
+        m.autoLearnEnabled = false
+        assertEquals(listOf("你呢嗯"), m.userWordEntries().map { it.word })
+        assertEquals(listOf("你呢嗯"), m.readingSnapshot()["ninen"])
     }
 }
