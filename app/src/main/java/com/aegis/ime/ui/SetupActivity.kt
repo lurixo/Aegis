@@ -17,12 +17,15 @@ package com.aegis.ime.ui
 
 import android.content.Context
 import android.content.Intent
+import android.os.Bundle
 import android.provider.Settings
 import android.view.View
 import android.view.ViewTreeObserver
 import android.view.WindowInsets as AndroidWindowInsets
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -89,6 +92,28 @@ import android.widget.EditText
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.viewinterop.AndroidView
 
+class SetupActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        bootstrapSettingsEdgeToEdge()
+        setContent {
+            SettingsActivityChrome {
+                val navOnce = rememberNavOnce()
+                SettingsHomePage(onOpenGroup = { route ->
+                    activityForGroup(route)?.let { target ->
+                        navOnce { startActivity(Intent(this@SetupActivity, target)) }
+                    }
+                })
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        bootstrapSettingsEdgeToEdge()
+    }
+}
+
 internal object SettingsRoutes {
     const val INPUT = "input"
     const val KEYBOARD = "keyboard"
@@ -117,6 +142,16 @@ internal fun rememberNavOnce(): (block: () -> Unit) -> Unit {
             block()
         }
     }
+}
+
+internal fun activityForGroup(route: String): Class<out ComponentActivity>? = when (route) {
+    SettingsRoutes.INPUT -> InputSettingsActivity::class.java
+    SettingsRoutes.KEYBOARD -> KeyboardSettingsActivity::class.java
+    SettingsRoutes.DICTS -> DictSettingsActivity::class.java
+    SettingsRoutes.USER_DICT -> UserDictActivity::class.java
+    SettingsRoutes.BACKUP -> BackupActivity::class.java
+    SettingsRoutes.ABOUT -> AboutActivity::class.java
+    else -> null
 }
 
 @Composable

@@ -16,6 +16,18 @@
         android:theme="@style/Theme.Aegis">
 
         <activity
+            android:name=".ui.SetupActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|uiMode|density|navigation|locale|layoutDirection|fontScale"
+            android:theme="@style/Theme.Aegis"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
             android:name=".ui.InputSettingsActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|uiMode|density|navigation|locale|layoutDirection|fontScale"
