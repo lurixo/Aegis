@@ -1,6 +1,8 @@
 package com.aegis.ime
 
 import android.inputmethodservice.InputMethodService
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -10,6 +12,7 @@ import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.ime.ImeHost
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
+import java.io.File
 
 class AegisInputMethodService : InputMethodService(), ImeHost {
 
@@ -17,17 +20,27 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun onCreate() {
         super.onCreate()
-        val dict = loadDict("aegis_dict.bin")
-        val t9Dict = loadDict("aegis_t9.bin")
-        val lm = runCatching { CharBigramLM.fromAssets(this, "aegis_lm.bin") }
-            .onFailure { Log.e("Aegis", "lm load failed", it) }
-            .getOrNull()
-        controller = KeyboardController(this, DictEngine(dict, t9Dict, lm))
+        controller = KeyboardController(this, DictEngine(null, null, null))
+        Thread {
+            val dict = loadDict("aegis_dict.bin")
+            val t9Dict = loadDict("aegis_t9.bin")
+            val lm = loadLm("aegis_lm.bin")
+            val engine = DictEngine(dict, t9Dict, lm)
+            Handler(Looper.getMainLooper()).post { controller.setEngine(engine) }
+        }.apply { name = "aegis-dict-load"; isDaemon = true }.start()
     }
 
+    private fun downloadedOverride(name: String): File? =
+        File(File(filesDir, "downloaded"), name).takeIf { it.exists() && it.length() > 0 }
+
     private fun loadDict(name: String): BinaryDict? =
-        runCatching { BinaryDict.fromAssets(this, name) }
+        runCatching { downloadedOverride(name)?.let { BinaryDict.fromFile(it) } ?: BinaryDict.fromAssets(this, name) }
             .onFailure { Log.e("Aegis", "dict load failed: $name", it) }
+            .getOrNull()
+
+    private fun loadLm(name: String): CharBigramLM? =
+        runCatching { downloadedOverride(name)?.let { CharBigramLM.fromFile(it) } ?: CharBigramLM.fromAssets(this, name) }
+            .onFailure { Log.e("Aegis", "lm load failed: $name", it) }
             .getOrNull()
 
     override fun onCreateInputView(): View {

@@ -10,7 +10,7 @@ import com.aegis.ime.layout.Layouts
 
 class KeyboardController(
     private val host: ImeHost,
-    private val engine: CandidateEngine,
+    private var engine: CandidateEngine,
 ) {
     private var lang = Lang.CN
     private var shifted = false
@@ -22,6 +22,12 @@ class KeyboardController(
 
     fun attachView(v: InputView) {
         view = v
+        render()
+    }
+
+    fun setEngine(newEngine: CandidateEngine) {
+        engine = newEngine
+        refreshCandidates()
         render()
     }
 
