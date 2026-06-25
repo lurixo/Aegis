@@ -24,6 +24,20 @@ object Pinyin {
     /** True when [s] is a plausible toneless syllable (ascii a-z only). */
     fun isAsciiSyllable(s: String): Boolean = s.isNotEmpty() && s.all { it in 'a'..'z' }
 
+    private val letterToDigit: Map<Char, Char> = buildMap {
+        "abc".forEach { put(it, '2') }; "def".forEach { put(it, '3') }
+        "ghi".forEach { put(it, '4') }; "jkl".forEach { put(it, '5') }
+        "mno".forEach { put(it, '6') }; "pqrs".forEach { put(it, '7') }
+        "tuv".forEach { put(it, '8') }; "wxyz".forEach { put(it, '9') }
+    }
+
+    /** Map a toneless letter key to its T9 phone-keypad digit key (a/b/c->2, ... w/x/y/z->9). */
+    fun toT9(letters: String): String {
+        val sb = StringBuilder(letters.length)
+        for (c in letters) sb.append(letterToDigit[c] ?: c)
+        return sb.toString()
+    }
+
     /**
      * Canonical toneless Mandarin pinyin syllables (ü written as v for l/n; ju/qu/xu/yu keep u).
      * Used only to produce an advisory coverage diff against the wanxiang data — not a hard gate.

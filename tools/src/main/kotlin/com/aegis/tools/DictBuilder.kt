@@ -29,6 +29,7 @@ fun main(rawArgs: Array<String>) {
     val inputs = args.positionals.map { File(it) }
     require(inputs.isNotEmpty()) { "no input dict files given" }
     val minFreq = args.optional("--min-freq")?.toInt() ?: 0
+    val keyType = args.optional("--keytype") ?: "letter" // "letter" (26-key) or "digit" (T9)
     val syllablesOut = args.optional("--syllables")?.let { File(it) }
     val coverageOut = args.optional("--coverage")?.let { File(it) }
 
@@ -44,7 +45,7 @@ fun main(rawArgs: Array<String>) {
     tmpRecords.bufferedWriter().use { w ->
         for (file in inputs) {
             println("parsing ${file.name} ...")
-            file.bufferedReader().use { r -> parseDict(r, w, minFreq, syllableCounts) { kind ->
+            file.bufferedReader().use { r -> parseDict(r, w, minFreq, keyType, syllableCounts) { kind ->
                 when (kind) {
                     Skip.ROW -> totalRows++
                     Skip.KEPT -> kept++
@@ -72,6 +73,7 @@ private fun parseDict(
     r: BufferedReader,
     w: BufferedWriter,
     minFreq: Int,
+    keyType: String,
     syllableCounts: HashMap<String, Long>,
     tally: (Skip) -> Unit,
 ) {
@@ -95,7 +97,8 @@ private fun parseDict(
         }
         if (freq < minFreq) { tally(Skip.LOW_FREQ); continue }
         for (s in syllables) syllableCounts.merge(s, 1L, Long::plus)
-        val key = syllables.joinToString("")
+        val letterKey = syllables.joinToString("")
+        val key = if (keyType == "digit") Pinyin.toT9(letterKey) else letterKey
         w.write(key); w.write("\t"); w.write(word); w.write("\t"); w.write(freq.toString()); w.write("\n")
         tally(Skip.KEPT)
     }
