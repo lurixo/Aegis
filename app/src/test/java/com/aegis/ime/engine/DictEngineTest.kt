@@ -24,18 +24,18 @@ class DictEngineTest {
 
     @Test
     fun empty_engine_reports_no_chinese_support() {
-        assertFalse(DictEngine(null, null).supportsChinese)
+        assertFalse(DictEngine(null, null, null).supportsChinese)
     }
 
     @Test
     fun a_pinyin_dictionary_unlocks_chinese_support() {
         val dict = EngineFixture.build(listOf(EngineFixture.Row("ni", "你", 900)))
-        assertTrue(DictEngine(dict, null).supportsChinese)
+        assertTrue(DictEngine(dict, null, null).supportsChinese)
     }
 
     @Test
     fun a_t9_dictionary_unlocks_chinese_support() {
         val dict = EngineFixture.build(listOf(EngineFixture.Row("ni", "你", 900)))
-        assertTrue(DictEngine(null, dict).supportsChinese)
+        assertTrue(DictEngine(null, dict, null).supportsChinese)
     }
 }

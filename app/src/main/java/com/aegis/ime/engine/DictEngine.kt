@@ -19,19 +19,23 @@ import com.aegis.ime.decoder.Cand
 import com.aegis.ime.decoder.PinyinDecoder
 import com.aegis.ime.decoder.Syllable
 import com.aegis.ime.dict.BinaryDict
+import com.aegis.ime.dict.CharBigramLM
 
 class DictEngine(
     pinyinDict: BinaryDict?,
     t9Dict: BinaryDict?,
+    lm: CharBigramLM?,
 ) : CandidateEngine {
     private val decoder = pinyinDict?.let {
         PinyinDecoder(
             it,
+            lm,
         )
     }
     private val t9Decoder = t9Dict?.let {
         PinyinDecoder(
             it,
+            lm,
         )
     }
 
@@ -40,16 +44,16 @@ class DictEngine(
     override fun candidates(composing: String, t9: Boolean): List<String> =
         candidatesCovered(composing, t9).map { it.word }
 
-    override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>): List<Cand> {
+    override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> {
         if (composing.isEmpty()) return emptyList()
         val d = if (t9) t9Decoder else decoder
-        val out = d?.decodeCovered(composing, MAX_CANDIDATES, cuts) ?: emptyList()
+        val out = d?.decodeCovered(composing, MAX_CANDIDATES, cuts, context) ?: emptyList()
         return if (t9) out.filterNot { c -> c.word.all { it.code < 128 } } else out
     }
 
-    override fun candidatesForLockedReadingCovered(letters: String, cuts: Set<Int>): List<Cand> {
+    override fun candidatesForLockedReadingCovered(letters: String, cuts: Set<Int>, context: CharSequence): List<Cand> {
         if (letters.isEmpty()) return emptyList()
-        return decoder?.decodeCoveredAtomic(letters, MAX_CANDIDATES, cuts) ?: emptyList()
+        return decoder?.decodeCoveredAtomic(letters, MAX_CANDIDATES, cuts, context) ?: emptyList()
     }
 
     override fun syllables(composing: String, t9: Boolean): List<Syllable> =

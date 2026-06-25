@@ -16,6 +16,7 @@
 package com.aegis.ime.decoder
 
 import com.aegis.ime.dict.BinaryDict
+import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.DecodeCancellation
 import kotlin.math.ln
 
@@ -28,11 +29,14 @@ data class Syllable(val reading: String, val start: Int, val end: Int)
 
 class PinyinDecoder(
     private val dict: BinaryDict,
+    private val lm: CharBigramLM? = null,
+    private val lambda: Double = DEFAULT_LAMBDA,
+    private val contextWeight: Double = DEFAULT_CONTEXT_WEIGHT,
 ) {
     private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
 
     @Volatile private var edgeN =
-        1
+        if (lm != null) EDGE_N else 1
 
     private class Edge(val word: String, val freq: Int, val penalty: Double)
 
@@ -58,11 +62,69 @@ class PinyinDecoder(
         return out
     }
 
-    private fun wordModelScore(word: String, freq: Int): Double =
-        wordModelScore(word, freq.toDouble())
+    private fun resolveCtxId(ctxCp: Int): Int =
+        if (ctxCp == BOS) NO_CTX else lm?.charId(ctxCp) ?: NO_CTX
 
-    private fun wordModelScore(word: String, freq: Double): Double {
-        return (ln(freq) - lnTotal)
+    private fun activeLambda(ctx: Ctx): Double = if (ctx.cp == BOS) lambda else 0.0
+
+    private fun logCondMemo(model: CharBigramLM, id1: Int, id2: Int): Double {
+            return model.logCondById(id1, id2)
+    }
+
+    private fun internalBigramScore(word: String, model: CharBigramLM): Double {
+        if (word.isEmpty()) return 0.0
+        var offset = 0
+        var previous = word.codePointAt(offset)
+        offset += Character.charCount(previous)
+        var score = 0.0
+        while (offset < word.length) {
+            val next = word.codePointAt(offset)
+            score += logCondMemo(model, model.charId(previous), model.charId(next))
+            previous = next
+            offset += Character.charCount(next)
+        }
+        return score
+    }
+
+    private fun wordModelScore(word: String, freq: Int, ctxId: Int, ctx: Ctx): Double =
+        wordModelScore(word, freq.toDouble(), ctxId, ctx)
+
+    private fun wordModelScore(word: String, freq: Double, ctxId: Int, ctx: Ctx): Double {
+        return (ln(freq) - lnTotal) +
+            (lm?.let {
+                val lam = activeLambda(ctx)
+                (if (lam == 0.0) 0.0 else lam * internalBigramScore(word, it)) +
+                    if (ctxId != NO_CTX) contextWeight * logCondMemo(it, ctxId, it.charId(word.codePointAt(0))) else 0.0
+            } ?: 0.0)
+    }
+
+    internal data class Ctx(val cp: Int, val tail: String) {
+        companion object {
+            val EMPTY = Ctx(BOS, "")
+        }
+    }
+
+    internal fun parseContext(context: CharSequence): Ctx {
+        val tail = rollingHanTail("", context.toString())
+        return if (tail.isEmpty()) Ctx.EMPTY else Ctx(tail.codePointBefore(tail.length), tail)
+    }
+
+    private fun rollingHanTail(tail: String, word: String): String = hanTail(tail + word)
+
+    private fun hanTail(combined: String): String {
+        var start = combined.length
+        var chars = 0
+        while (start > 0 && chars < CTX_WORD_MAX) {
+            val cp = combined.codePointBefore(start)
+            if (!isHan(cp)) break
+            start -= Character.charCount(cp)
+            chars++
+        }
+        return combined.substring(start)
+    }
+
+    private fun isHan(cp: Int): Boolean {
+            return Character.isIdeographic(cp)
     }
 
     private fun isSingleChar(w: String): Boolean = w.codePointCount(0, w.length) == 1
@@ -101,33 +163,35 @@ class PinyinDecoder(
         return Norm(clean.toString(), interiorCuts, origLen.copyOf(ci + 1), cleanLenAtOrig)
     }
 
-    fun decodeCovered(input: String, limit: Int, cuts: Set<Int> = emptySet()): List<Cand> =
-        decodeCoveredLayered(input, limit, cuts).first
+    fun decodeCovered(input: String, limit: Int, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =
+        decodeCoveredLayered(input, limit, cuts, context).first
 
     internal fun decodeCoveredLayered(
         input: String,
         limit: Int,
         cuts: Set<Int> = emptySet(),
+        context: CharSequence = "",
     ): Pair<List<Cand>, Int> {
         if (input.isEmpty() || limit <= 0) return emptyList<Cand>() to 0
-        val norm = normalizeSeparators(input) ?: return decodeCoveredClean(input, limit, cuts)
+        val norm = normalizeSeparators(input) ?: return decodeCoveredClean(input, limit, cuts, context)
         if (norm.clean.isEmpty()) return emptyList<Cand>() to 0
         val passedClean = cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
         val (cands, remainderStart) =
-            decodeCoveredClean(norm.clean, limit, norm.cuts + passedClean)
+            decodeCoveredClean(norm.clean, limit, norm.cuts + passedClean, context)
         return cands.map {
             Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length })
         } to remainderStart
     }
 
-    fun decodeCoveredAtomic(input: String, limit: Int, cuts: Set<Int> = emptySet()): List<Cand> {
+    fun decodeCoveredAtomic(input: String, limit: Int, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> {
         if (input.isEmpty() || limit <= 0) return emptyList()
+        val ctx = parseContext(context)
         val norm = normalizeSeparators(input)
         val clean = norm?.clean ?: input
         if (clean.isEmpty()) return emptyList()
         val passedClean = if (norm == null) cuts else cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
         val interior = ((norm?.cuts ?: emptySet()) + passedClean).filter { it in 1 until clean.length }.toSet()
-        val decoded = decodeAtomic(clean, interior)
+        val decoded = decodeAtomic(clean, interior, ctx)
         return if (norm == null) {
             decoded
         } else {
@@ -141,12 +205,16 @@ class PinyinDecoder(
         input: String,
         limit: Int,
         cuts: Set<Int>,
+        context: CharSequence,
     ): Pair<List<Cand>, Int> {
+        val ctx = parseContext(context)
+
+        val ctxId = resolveCtxId(ctx.cp)
         val interior = cuts.filter { it in 1 until input.length }.toSortedSet()
-        if (interior.isNotEmpty()) return decodeAtomic(input, interior).let { it to it.size }
+        if (interior.isNotEmpty()) return decodeAtomic(input, interior, ctx).let { it to it.size }
         val cover = LinkedHashMap<String, Int>()
         val completionCap = completionCap(limit)
-        val sentence = bestSentence(input)?.also { cover[it] = input.length }
+        val sentence = bestSentence(input, ctx)?.also { cover[it] = input.length }
         DecodeCancellation.checkpoint()
         val pool = ArrayList<RankedWord>()
         val offered = HashSet<String>()
@@ -155,7 +223,7 @@ class PinyinDecoder(
             pool.add(
                 RankedWord(
                     wf,
-                    wordModelScore(wf.word, wf.freq) - penalty,
+                    wordModelScore(wf.word, wf.freq, ctxId, ctx) - penalty,
                 ),
             )
             return true
@@ -185,12 +253,13 @@ class PinyinDecoder(
         return out to remainderStart
     }
 
-    private fun decodeAtomic(input: String, interior: Set<Int>): List<Cand> {
+    private fun decodeAtomic(input: String, interior: Set<Int>, ctx: Ctx): List<Cand> {
+        val ctxId = resolveCtxId(ctx.cp)
         val B = atomicBounds(input, interior)
         val nSyl = B.size - 1
 
         val singlesCache = HashMap<String, Set<String>>()
-        val sentences = atomicSentences(input, B, interior, singlesCache)
+        val sentences = atomicSentences(input, B, interior, ctx, singlesCache)
         DecodeCancellation.checkpoint()
 
         val best = sentences.firstOrNull()?.text
@@ -213,7 +282,7 @@ class PinyinDecoder(
         val rest = ArrayList<String>(leadFreq.size + 1)
         best?.let { rest.add(it) }
         val leadRank = HashMap<String, Double>(leadFreq.size * 2)
-        for ((w, f) in leadFreq) leadRank[w] = wordModelScore(w, f)
+        for ((w, f) in leadFreq) leadRank[w] = wordModelScore(w, f, ctxId, ctx)
         for (w in leadFreq.keys.sortedByDescending { leadRank.getValue(it) }) {
             if (w !in rest) rest.add(w)
         }
@@ -276,11 +345,14 @@ class PinyinDecoder(
         input: String,
         B: List<Int>,
         interior: Set<Int>,
+        ctx: Ctx,
         singlesCache: HashMap<String, Set<String>>,
     ): List<SentencePath> {
+        val model = lm
+        val lam = activeLambda(ctx)
         val nSyl = B.size - 1
         val dp = Array(B.size) { ArrayList<APath>() }
-        dp[0].add(APath("", BOS, 0.0))
+        dp[0].add(APath("", ctx.cp, 0.0))
         for (i in 0 until nSyl) {
             DecodeCancellation.checkpoint()
             if (dp[i].isEmpty()) continue
@@ -294,14 +366,19 @@ class PinyinDecoder(
                 val edges = eligible.take(SENTENCE_EDGE_N).toMutableList()
                 for (wf in edges) {
                     val w = wf.word
+                    val firstCp = w.codePointAt(0)
+                    val idFirst = model?.charId(firstCp) ?: -1
                     val lastCp = w.codePointBefore(w.length)
                     val uni = ln(wf.freq.toDouble()) - lnTotal
+                    val inner = if (model == null || lam == 0.0) 0.0 else lam * internalBigramScore(w, model)
                     for (p in src) {
+                        val bw = if (p.text.isEmpty() && p.lastCp != BOS) contextWeight else lam
+                        val bi = if (model == null || p.lastCp == BOS || bw == 0.0) 0.0 else bw * logCondMemo(model, model.charId(p.lastCp), idFirst)
                         dp[j].add(
                             APath(
                                 p.text + w,
                                 lastCp,
-                                p.score + uni,
+                                p.score + uni + bi + inner
                             ),
                         )
                     }
@@ -403,19 +480,22 @@ class PinyinDecoder(
 
     private class Cell(val score: Double, val prevPos: Int, val prevState: SentenceState?, val word: String)
 
-    private fun bestSentence(input: String): String? {
-        val text = bestSentencePath(input)?.text
+    private fun bestSentence(input: String, ctx: Ctx): String? {
+        val text = bestSentencePath(input, ctx)?.text
         return text
     }
 
     private fun bestSentencePath(
         input: String,
+        ctx: Ctx,
     ): SentencePath? {
+        val model = lm
+        val lam = activeLambda(ctx)
         val n = input.length
         val dp = Array<MutableMap<SentenceState, Cell>>(n + 1) {
             HashMap()
         }
-        val initial = SentenceState(BOS)
+        val initial = SentenceState(ctx.cp)
         dp[0][initial] = Cell(0.0, -1, null, "")
 
         for (q in 1..n) {
@@ -429,9 +509,15 @@ class PinyinDecoder(
                 for (e in edges) {
                     val w = e.word
                     val uni = ln(e.freq.toDouble()) - lnTotal
+                    val firstCp = w.codePointAt(0)
+                    val idFirst = model?.charId(firstCp) ?: -1
                     val lastCp = w.codePointBefore(w.length)
+                    val inner = if (model == null || lam == 0.0) 0.0 else lam * internalBigramScore(w, model)
                     for ((state, cell) in from) {
-                        val score = cell.score + uni - e.penalty
+                        val bw = if (cell.prevPos < 0 && state.lastCp != BOS) contextWeight else lam
+                        val bi = if (model == null || state.lastCp == BOS || bw == 0.0) 0.0
+                        else bw * logCondMemo(model, model.charId(state.lastCp), idFirst)
+                        val score = cell.score + uni + bi + inner - e.penalty
                         val nextState = SentenceState(lastCp)
                         val cur = dp[q][nextState]
                         if (cur == null || score > cur.score) {
@@ -467,11 +553,16 @@ class PinyinDecoder(
     internal companion object {
         const val SEP = '\''
         const val BOS = -1
+        const val NO_CTX = Int.MIN_VALUE
+        const val EDGE_N = 20
+        const val DEFAULT_LAMBDA = 0.5
         const val BEAM_W = 12
         const val SENTENCE_EDGE_N = 6
         const val ATOMIC_BEAM_N = 8
         const val ATOMIC_BEAM_PER_SYL = 40
+        const val CTX_WORD_MAX = 4
         const val MAX_SYLLABLE_KEY_LEN = 6
+        const val DEFAULT_CONTEXT_WEIGHT = 1.0
         fun completionCap(limit: Int): Int = maxOf(1, (limit.toLong() * 2 / 3).toInt())
     }
 }

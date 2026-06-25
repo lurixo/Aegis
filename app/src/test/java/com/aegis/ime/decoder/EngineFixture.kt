@@ -16,6 +16,7 @@
 package com.aegis.ime.decoder
 
 import com.aegis.ime.dict.BinaryDict
+import com.aegis.ime.dict.CharBigramLM
 import java.io.ByteArrayOutputStream
 import java.io.File
 
@@ -109,5 +110,60 @@ object EngineFixture {
         file.deleteOnExit()
         file.writeBytes(out.toByteArray())
         return BinaryDict.fromFile(file)
+    }
+
+    fun buildLm(uni: Map<Int, Long>, bi: Map<Pair<Int, Int>, Long>): CharBigramLM {
+        val cps = sortedSetOf<Int>()
+        cps.addAll(uni.keys)
+        for ((pair, _) in bi) {
+            cps.add(pair.first)
+            cps.add(pair.second)
+        }
+        val codes = cps.toList()
+        val idOf = HashMap<Int, Int>(codes.size * 2)
+        for (i in codes.indices) idOf[codes[i]] = i
+        val rows = Array(codes.size) { ArrayList<Pair<Int, Long>>() }
+        val rowTotal = LongArray(codes.size)
+        for ((pair, count) in bi) {
+            val c1 = idOf.getValue(pair.first)
+            val c2 = idOf.getValue(pair.second)
+            rowTotal[c1] += count
+            rows[c1].add(c2 to count)
+        }
+        val rowStart = IntArray(codes.size + 1)
+        var numBigrams = 0
+        for (i in rows.indices) {
+            rows[i].sortBy { it.first }
+            rowStart[i] = numBigrams
+            numBigrams += rows[i].size
+        }
+        rowStart[codes.size] = numBigrams
+
+        val out = ByteArrayOutputStream()
+        fun le(v: Int) {
+            out.write(v)
+            out.write(v ushr 8)
+            out.write(v ushr 16)
+            out.write(v ushr 24)
+        }
+        fun leLong(v: Long) {
+            for (s in 0 until 64 step 8) out.write((v ushr s).toInt() and 0xFF)
+        }
+        out.write(byteArrayOf('A'.code.toByte(), 'E'.code.toByte(), 'G'.code.toByte(), 'L'.code.toByte()))
+        le(1)
+        le(codes.size)
+        leLong(uni.values.sum().coerceAtLeast(1L))
+        for (cp in codes) le(cp)
+        for (cp in codes) leLong(uni[cp] ?: 1L)
+        for (v in rowTotal) leLong(v)
+        for (v in rowStart) le(v)
+        le(numBigrams)
+        for (row in rows) for ((c2, _) in row) le(c2)
+        for (row in rows) for ((_, count) in row) leLong(count)
+
+        val file = File.createTempFile("aegis_lm_fixture", ".bin")
+        file.deleteOnExit()
+        file.writeBytes(out.toByteArray())
+        return CharBigramLM.fromFile(file)
     }
 }
