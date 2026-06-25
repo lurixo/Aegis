@@ -54,6 +54,43 @@ class OctagramReader private constructor(
 
     fun rawScore(text: String): Double? = lookup(encode(text))?.let { it / VALUE_SCALE }
 
+    fun bestSuffixScore(text: String, startLimit: Int): Double {
+        var best = 0.0
+        var start = 0
+        while (start < startLimit && start < text.length) {
+            val found = lookupFrom(text, start)
+            if (found != ABSENT) {
+                val score = found / VALUE_SCALE
+                if (score > best) best = score
+            }
+            start += Character.charCount(text.codePointAt(start))
+        }
+        return best
+    }
+
+    private fun lookupFrom(text: String, from: Int): Int {
+        var id = 0
+        var u = unit(0)
+        var i = from
+        while (i < text.length) {
+            val cp = text.codePointAt(i)
+            val packed = pack(cp)
+            val count = (packed ushr PACKED_COUNT_SHIFT).toInt()
+            for (k in 0 until count) {
+                val c = ((packed ushr (8 * k)) and 0xFF).toInt()
+                id = id xor offset(u) xor c
+                if (!inImage(id)) return ABSENT
+                u = unit(id)
+                if ((u and labelMask) != c) return ABSENT
+            }
+            i += Character.charCount(cp)
+        }
+        if (!hasLeaf(u)) return ABSENT
+        val leaf = id xor offset(u)
+        if (!inImage(leaf)) return ABSENT
+        return value(unit(leaf))
+    }
+
     companion object {
         private const val VALUE_SCALE = 10000.0
         private const val METADATA_SIZE = 44
@@ -61,6 +98,7 @@ class OctagramReader private constructor(
         private const val FORMAT_PREFIX = "Rime::Grammar/"
         private const val MAX_BYTES_PER_CHAR = 6
         private const val PACKED_COUNT_SHIFT = 56
+        private const val ABSENT = -1
 
         fun fromFile(file: File): OctagramReader {
             RandomAccessFile(file, "r").use { raf ->

@@ -15,6 +15,7 @@
 
 package com.aegis.ime.dict
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -50,6 +51,32 @@ class OctagramReaderTest {
         assertNull("a jump outside the image is not an answer", reader.rawScore("中国"))
         assertNull(reader.rawScore("的"))
         assertNull(reader.rawScore("一个词组"))
+    }
+
+    @Test
+    fun bestSuffixScoreKeepsTheBestSuffixStartingBeforeTheLimit() {
+        val supplementary = String(Character.toChars(0x20000))
+        val reader = OctagramFixture.reader(
+            mapOf(
+                "天气" to 3.0,
+                "今天天气" to 5.5,
+                "é天气" to 7.25,
+                "ꀀ天气" to 2.5,
+                "${supplementary}气" to 9.0,
+                "气" to 1.0,
+            ),
+        )
+        for (text in listOf("今天天气", "é天气", "ꀀ天气", "好${supplementary}气", "\uD800天气", "天气", "")) {
+            for (limit in 0..text.length) {
+                var expected = 0.0
+                var start = 0
+                while (start < limit && start < text.length) {
+                    reader.rawScore(text.substring(start))?.let { if (it > expected) expected = it }
+                    start += Character.charCount(text.codePointAt(start))
+                }
+                assertEquals("$text before $limit", expected, reader.bestSuffixScore(text, limit), 0.0)
+            }
+        }
     }
 
     @Test
