@@ -218,4 +218,30 @@ class LayoutsTest {
         assertEquals("pen width == 123 width", num.weight, pen.weight, 1e-4f)
         assertEquals("pen width == 中英 width", lang.weight, pen.weight, 1e-4f)
     }
+
+    @Test fun symbol_page_has_no_duplicate_key_labels() {
+        val labels = keysOf(Layouts.forId(LayoutId.SYMBOL, Lang.CN))
+            .filter { it.labelRes == null }
+            .map { it.label }
+        assertEquals("symbol page labels must be unique: $labels", labels.distinct(), labels)
+        assertTrue("§ fills the freed slot", "§" in labels)
+    }
+
+    @Test fun number_and_symbol_pages_share_the_control_width_baseline() {
+        for (id in listOf(LayoutId.NUMBER, LayoutId.SYMBOL)) {
+            val layout = Layouts.forId(id, Lang.CN)
+            val controls = layout.rows.flatMap { it.keys }.filter {
+                it.action in setOf(
+                    KeyAction.SWITCH_NUMBERS,
+                    KeyAction.SWITCH_SYMBOLS,
+                    KeyAction.SWITCH_TEXT,
+                    KeyAction.BACKSPACE,
+                    KeyAction.ENTER,
+                )
+            }
+            assertTrue(controls.isNotEmpty())
+            assertTrue(controls.all { it.weight == 1.5f })
+            assertEquals(3f, layout.rows.last().keys.first { it.action == KeyAction.SPACE }.weight, 0f)
+        }
+    }
 }

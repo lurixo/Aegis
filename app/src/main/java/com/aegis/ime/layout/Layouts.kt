@@ -26,6 +26,8 @@ import com.aegis.ime.layout.KeyAction.SHOW_SYMBOLS
 import com.aegis.ime.layout.KeyAction.SPACE
 import com.aegis.ime.layout.KeyAction.SWITCH_NUMBERS
 import com.aegis.ime.layout.KeyAction.SWITCH_NUMPAD
+import com.aegis.ime.layout.KeyAction.SWITCH_SYMBOLS
+import com.aegis.ime.layout.KeyAction.SWITCH_TEXT
 import com.aegis.ime.layout.KeyAction.TOGGLE_LANG
 
 object Layouts {
@@ -33,6 +35,8 @@ object Layouts {
     fun forId(id: LayoutId, lang: Lang, composing: Boolean = false): KeyboardLayout = when (id) {
         LayoutId.ALPHA -> qwerty(lang, composing)
         LayoutId.NINE -> nine(ninePunctuation())
+        LayoutId.NUMBER -> number()
+        LayoutId.SYMBOL -> symbol()
     }
 
     private const val NINE_LEFT_U = 0.85f
@@ -45,6 +49,10 @@ object Layouts {
     fun ninePunctuation(custom: List<String> = emptyList()): List<Key> =
         nineFixedPunctuation.map { Key(it, direct = true) } +
             custom.map { Key(it, direct = true) } + Key(labelRes = R.string.kbd_custom, action = CUSTOM_SYMBOL)
+
+    private fun row(vararg keys: Key) = KeyboardRow(keys.toList())
+
+    private fun letters(s: String): List<Key> = s.map { Key(it.toString()) }
 
     private fun subRow(letters: String, subs: List<String>): List<Key> =
         letters.mapIndexed { i, c -> Key(c.toString(), sub = subs.getOrNull(i)) }
@@ -129,4 +137,53 @@ object Layouts {
         cells.add(PlacedKey(Key("↵", action = ENTER, accent = true), xR, 0.5f, wR, 0.5f))
         return KeyboardLayout(LayoutId.NINE, cells = cells, rowCount = 4, scrollColumn = leftColumn)
     }
+
+    private fun number(): KeyboardLayout = KeyboardLayout(
+        LayoutId.NUMBER,
+        listOf(
+            KeyboardRow(letters("1234567890")),
+            row(
+                Key("@"), Key("#"), Key("$"), Key("_"), Key("&"),
+                Key("-"), Key("+"), Key("("), Key(")"), Key("/"),
+            ),
+            row(
+                Key("=\\<", action = SWITCH_SYMBOLS, rail = true, weight = 1.5f),
+                Key("*"), Key("\""), Key("'"), Key(":"), Key(";"), Key("!"), Key("?"),
+                Key("⌫", action = BACKSPACE, rail = true, weight = 1.5f),
+            ),
+            row(
+                Key(labelRes = R.string.kbd_back, action = SWITCH_TEXT, rail = true, weight = 1.5f),
+                Key(","),
+                Key(labelRes = R.string.kbd_space, output = " ", action = SPACE, weight = 3f),
+                Key("."),
+                Key("↵", action = ENTER, accent = true, weight = 1.5f),
+            ),
+        ),
+    )
+
+    private fun symbol(): KeyboardLayout = KeyboardLayout(
+        LayoutId.SYMBOL,
+        listOf(
+            row(
+                Key("~"), Key("`"), Key("|"), Key("•"), Key("√"),
+                Key("π"), Key("÷"), Key("×"), Key("¶"), Key("∆"),
+            ),
+            row(
+                Key("£"), Key("¢"), Key("€"), Key("¥"), Key("^"),
+                Key("°"), Key("="), Key("{"), Key("}"), Key("\\"),
+            ),
+            row(
+                Key("?123", action = SWITCH_NUMBERS, rail = true, weight = 1.5f),
+                Key("©"), Key("®"), Key("™"), Key("℅"), Key("["), Key("]"), Key("§"),
+                Key("⌫", action = BACKSPACE, rail = true, weight = 1.5f),
+            ),
+            row(
+                Key(labelRes = R.string.kbd_back, action = SWITCH_TEXT, rail = true, weight = 1.5f),
+                Key("<"),
+                Key(labelRes = R.string.kbd_space, output = " ", action = SPACE, weight = 3f),
+                Key(">"),
+                Key("↵", action = ENTER, accent = true, weight = 1.5f),
+            ),
+        ),
+    )
 }
