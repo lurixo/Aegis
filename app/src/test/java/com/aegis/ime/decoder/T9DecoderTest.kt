@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Copyright (C) 2026 lurixo
+//
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 3.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+// PARTICULAR PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
+
+package com.aegis.ime.decoder
+
+import com.aegis.ime.dict.BinaryDict
+import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
+import org.junit.Test
+import java.io.File
+
+class T9DecoderTest {
+
+    private val t9File = File("src/main/assets/aegis_t9.bin")
+
+    private fun decoder(): PinyinDecoder {
+        assumeTrue("T9 dict asset present", t9File.exists())
+        return PinyinDecoder(BinaryDict.fromFile(t9File))
+    }
+
+    @Test
+    fun can_type_xuan_选() {
+        val d = decoder()
+        assertTrue("9826 must surface 选", d.decodeCovered("9826", 30).any { it.word == "选" })
+    }
+}

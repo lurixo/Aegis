@@ -1,0 +1,110 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Copyright (C) 2026 lurixo
+//
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 3.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+// PARTICULAR PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
+
+package com.aegis.ime.decoder
+
+import com.aegis.ime.dict.BinaryDict
+import com.aegis.ime.dict.DecodeCancellation
+import kotlin.math.ln
+
+data class Cand(
+    val word: String,
+    val coveredLen: Int,
+)
+
+class PinyinDecoder(
+    private val dict: BinaryDict,
+) {
+    private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
+
+    private fun wordModelScore(word: String, freq: Int): Double =
+        wordModelScore(word, freq.toDouble())
+
+    private fun wordModelScore(word: String, freq: Double): Double {
+        return (ln(freq) - lnTotal)
+    }
+
+    private fun isSingleChar(w: String): Boolean = w.codePointCount(0, w.length) == 1
+
+    private fun cachedExact(source: BinaryDict, key: String): List<BinaryDict.WordFreq> =
+        source.exact(key)
+
+    private fun cachedPrefix(source: BinaryDict, prefix: String, limit: Int): List<BinaryDict.WordFreq> =
+        source.prefixByFreq(prefix, limit)
+
+    fun decodeCovered(input: String, limit: Int): List<Cand> =
+        decodeCoveredLayered(input, limit).first
+
+    internal fun decodeCoveredLayered(
+        input: String,
+        limit: Int,
+    ): Pair<List<Cand>, Int> {
+        if (input.isEmpty() || limit <= 0) return emptyList<Cand>() to 0
+        return decodeCoveredClean(input, limit)
+    }
+
+    private fun decodeCoveredClean(
+        input: String,
+        limit: Int,
+    ): Pair<List<Cand>, Int> {
+        val cover = LinkedHashMap<String, Int>()
+        val completionCap = completionCap(limit)
+        DecodeCancellation.checkpoint()
+        val pool = ArrayList<RankedWord>()
+        val offered = HashSet<String>()
+        fun offer(wf: BinaryDict.WordFreq, penalty: Double): Boolean {
+            if (!offered.add(wf.word)) return false
+            pool.add(
+                RankedWord(
+                    wf,
+                    wordModelScore(wf.word, wf.freq) - penalty,
+                ),
+            )
+            return true
+        }
+        val exactWords = HashSet<String>()
+        for (wf in cachedExact(dict, input)) {
+            if (!isSingleChar(wf.word)) exactWords.add(wf.word)
+            offer(wf, 0.0)
+        }
+        cachedPrefix(dict, input, completionCap).forEach { offer(it, 0.0) }
+        DecodeCancellation.checkpoint()
+        pool.sortWith(
+            compareByDescending<RankedWord> { it.score },
+        )
+        for ((wf, _) in pool) {
+            if (cover.size >= completionCap && wf.word !in exactWords) continue
+            cover.putIfAbsent(wf.word, input.length)
+        }
+        val out = ArrayList<Cand>(cover.size + 20)
+        val ordered = cover.keys.toList()
+        for ((i, w) in ordered.withIndex()) {
+            out.add(Cand(w, cover.getValue(w)))
+        }
+        val covered = out.mapTo(HashSet<String>(out.size * 2)) { it.word }
+        var remainderStart = 0
+        while (remainderStart < out.size && out[remainderStart].word in covered) remainderStart++
+        return out to remainderStart
+    }
+
+    private data class RankedWord(
+        val wordFreq: BinaryDict.WordFreq,
+        val score: Double,
+    )
+
+    internal companion object {
+        fun completionCap(limit: Int): Int = maxOf(1, (limit.toLong() * 2 / 3).toInt())
+    }
+}
