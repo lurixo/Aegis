@@ -32,6 +32,9 @@ import org.json.JSONObject
 
 object ModelDownload {
 
+    const val GRAM_URL =
+        "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/wanxiang-lts-zh-hans.gram"
+
     const val GRAM_NAME = "wanxiang-lts-zh-hans.gram"
 
     fun destFile(filesDir: File): File = File(File(filesDir, "downloaded"), GRAM_NAME)
@@ -434,6 +437,9 @@ object ModelDownload {
         return !destFile(filesDir).exists() && !partFile(filesDir).exists() &&
             !partMetaOf(partFile(filesDir)).exists()
     }
+
+
+    const val DICT_REPO_URL = "https://github.com/amzxyz/rime-wanxiang"
 
     const val DICT_LATEST_TAG = "dict-latest"
 

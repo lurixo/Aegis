@@ -190,6 +190,22 @@ tasks.withType<Test>().configureEach {
     inputs.dir(layout.projectDirectory.dir("../tools/t2s-data"))
         .withPropertyName("t2sDataReadByTests")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.file(providers.environmentVariable("AEGIS_BUILD_INFO").map(::file))
+        .optional()
+        .withPropertyName("externalBuildInfo")
+        .withPathSensitivity(PathSensitivity.NONE)
+    inputs.file(providers.environmentVariable("AEGIS_GRAMMAR_LOCK").map(::file))
+        .optional()
+        .withPropertyName("externalGrammarLock")
+        .withPathSensitivity(PathSensitivity.NONE)
+    inputs.file(providers.environmentVariable("AEGIS_GRAM").map(::file))
+        .optional()
+        .withPropertyName("externalGrammarModel")
+        .withPathSensitivity(PathSensitivity.NONE)
+    inputs.file(providers.environmentVariable("AEGIS_ENGLISH").map(::file))
+        .optional()
+        .withPropertyName("externalEnglishTable")
+        .withPathSensitivity(PathSensitivity.NONE)
 }
 
 tasks.register("verifyExternalModelsNotPackaged") {
