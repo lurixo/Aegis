@@ -45,6 +45,8 @@ interface CandidateEngine {
     fun homophonesForReadingAt(letters: String, index: Int, cuts: Set<Int>): List<String> =
         homophonesForReadingAt(letters, index)
 
+    fun predict(prevWord: String?): List<String>
+
     fun learn(prevWord: String?, word: String)
 
     fun learnWord(reading: String, word: String, assembled: Boolean)

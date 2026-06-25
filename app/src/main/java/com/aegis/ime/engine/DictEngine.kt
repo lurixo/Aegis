@@ -105,6 +105,14 @@ class DictEngine(
     override fun homophonesForReadingAt(letters: String, index: Int, cuts: Set<Int>): List<String> =
         if (letters.isEmpty()) emptyList() else decoder?.homophonesAt(letters, index, cuts) ?: emptyList()
 
+    override fun predict(prevWord: String?): List<String> {
+        if (prevWord.isNullOrEmpty()) return emptyList()
+        val out = LinkedHashSet<String>()
+        userLearning?.follows(prevWord)?.forEach { out.add(it.first) }
+        userModel?.successors(prevWord, MAX_PREDICTIONS)?.forEach(out::add)
+        return out.take(MAX_PREDICTIONS)
+    }
+
     override fun learn(prevWord: String?, word: String) {
         userModel?.record(prevWord, word, System.currentTimeMillis())
     }
@@ -124,6 +132,7 @@ class DictEngine(
 
     private companion object {
         const val MAX_CANDIDATES = 30
+        const val MAX_PREDICTIONS = 8
     }
 }
 
