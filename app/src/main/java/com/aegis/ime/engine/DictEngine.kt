@@ -20,7 +20,9 @@ class DictEngine(
     fuzzyDict: BinaryDict? = null,
     initialsDict: BinaryDict? = null,
     octagram: OctagramReader? = null,
+    enDict: BinaryDict? = null,
 ) : CandidateEngine {
+    private val englishEngine = enDict?.let { EnglishEngine(it) }
     // Fuzzy + 简拼 indexes apply to 26-key only (T9 is already lossy); octagram context serves both.
     private val decoder = pinyinDict?.let {
         PinyinDecoder(it, lm, userModel = userModel, fuzzyDict = fuzzyDict, initialsDict = initialsDict, octagram = octagram)
@@ -34,6 +36,9 @@ class DictEngine(
         val d = if (t9) t9Decoder else decoder
         return d?.decode(composing, MAX_CANDIDATES) ?: emptyList()
     }
+
+    override fun english(typed: String): List<String> =
+        englishEngine?.suggest(typed, MAX_CANDIDATES) ?: emptyList()
 
     override fun predict(prevWord: String?): List<String> {
         if (prevWord.isNullOrEmpty()) return emptyList()

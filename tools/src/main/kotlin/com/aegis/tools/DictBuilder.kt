@@ -24,9 +24,9 @@ import java.io.File
  * Entries for key i span [entryStart_i, entryStart_{i+1} | numEntries). Within a key: freq desc.
  */
 fun main(rawArgs: Array<String>) {
-    if (rawArgs.firstOrNull() == "lm") {
-        LmBuilder.build(rawArgs.copyOfRange(1, rawArgs.size))
-        return
+    when (rawArgs.firstOrNull()) {
+        "lm" -> { LmBuilder.build(rawArgs.copyOfRange(1, rawArgs.size)); return }
+        "en" -> { EnBuilder.build(rawArgs.copyOfRange(1, rawArgs.size)); return }
     }
     val args = Args(rawArgs)
     val out = File(args.required("--out"))
@@ -114,7 +114,7 @@ private fun parseDict(
     }
 }
 
-private fun externalSort(input: File, output: File) {
+internal fun externalSort(input: File, output: File) {
     val pb = ProcessBuilder("sort", "-t", "\t", "-k1,1", "-k3,3nr")
         .redirectInput(input)
         .redirectOutput(output)
@@ -124,7 +124,7 @@ private fun externalSort(input: File, output: File) {
     check(code == 0) { "sort failed with exit code $code" }
 }
 
-private fun writeBinary(sorted: File, out: File, maxPerKey: Int): Pair<Int, Int> {
+internal fun writeBinary(sorted: File, out: File, maxPerKey: Int): Pair<Int, Int> {
     val keyBlob = ByteArrayOutputStream(1 shl 20)
     val wordBlob = ByteArrayOutputStream(1 shl 22)
     val keyArr = IntList()    // (keyOffset, keyLen, entryStart) triples

@@ -16,6 +16,9 @@ interface CandidateEngine {
      */
     fun candidates(composing: String, t9: Boolean): List<String>
 
+    /** English completions + corrections for the buffered EN mode. */
+    fun english(typed: String): List<String> = emptyList()
+
     /** Learned next-word predictions to show on an empty buffer after [prevWord]. */
     fun predict(prevWord: String?): List<String> = emptyList()
 

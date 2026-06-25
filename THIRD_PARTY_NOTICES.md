@@ -18,6 +18,17 @@ shici, diming, duoyin, mingren, renming}` — frequency-filtered for size. Built
 The upstream "离线大模型" `.gram` and the ~32 GB training corpus are **not**
 bundled here; any future inclusion is gated in `README.md`.
 
+## Bundled English frequency list — FrequencyWords
+
+`app/src/main/assets/aegis_en.bin` is built from the English frequency list of
+**hermitdave/FrequencyWords** (`content/2018/en/en_50k.txt`), derived from the
+OpenSubtitles corpus.
+
+- Source: https://github.com/hermitdave/FrequencyWords
+- License: **CC BY-SA 4.0** (https://creativecommons.org/licenses/by-sa/4.0/)
+- Changes: kept word + count, re-keyed by letters-only/lowercased, repacked into Aegis's binary
+  dictionary format.
+
 ## Skeleton / algorithm references (not yet vendored)
 
 - AOSP PinyinIME (Apache-2.0) — decoder/trie/segmentation reference.
