@@ -64,4 +64,5 @@ tasks.withType<Test>().configureEach {
 dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
+    testImplementation(project(":tools"))
 }
