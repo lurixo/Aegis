@@ -17,6 +17,7 @@ fun main(rawArgs: Array<String>) {
     require(inputs.isNotEmpty()) { "no input dict files given" }
     val minFreq = args.optional("--min-freq")?.toInt() ?: 0
     val keyType = args.optional("--keytype") ?: "letter"
+    val maxPerKey = args.optional("--max-per-key")?.toInt() ?: Int.MAX_VALUE
     val syllablesOut = args.optional("--syllables")?.let { File(it) }
     val coverageOut = args.optional("--coverage")?.let { File(it) }
 
@@ -47,7 +48,7 @@ fun main(rawArgs: Array<String>) {
     externalSort(tmpRecords, tmpSorted)
     println("sorted -> ${tmpSorted.length()} bytes")
 
-    val (numKeys, numEntries) = writeBinary(tmpSorted, out)
+    val (numKeys, numEntries) = writeBinary(tmpSorted, out, maxPerKey)
     println("wrote ${out.path}: keys=$numKeys entries=$numEntries size=${out.length()} bytes")
 
     syllablesOut?.let { writeSyllables(it, syllableCounts) }
@@ -88,6 +89,7 @@ private fun parseDict(
         val key = when (keyType) {
             "digit" -> Pinyin.toT9(letterKey)
             "fuzzy" -> Pinyin.fuzzyNormalize(letterKey)
+            "initials" -> syllables.joinToString("") { it.substring(0, 1) }
             else -> letterKey
         }
         w.write(key); w.write("\t"); w.write(word); w.write("\t"); w.write(freq.toString()); w.write("\n")
@@ -105,7 +107,7 @@ private fun externalSort(input: File, output: File) {
     check(code == 0) { "sort failed with exit code $code" }
 }
 
-private fun writeBinary(sorted: File, out: File): Pair<Int, Int> {
+private fun writeBinary(sorted: File, out: File, maxPerKey: Int): Pair<Int, Int> {
     val keyBlob = ByteArrayOutputStream(1 shl 20)
     val wordBlob = ByteArrayOutputStream(1 shl 22)
     val keyArr = IntList()
@@ -116,6 +118,7 @@ private fun writeBinary(sorted: File, out: File): Pair<Int, Int> {
     var totalFreq = 0L
     var curKey: String? = null
     var curWords: HashSet<String>? = null
+    var perKeyCount = 0
 
     sorted.bufferedReader().use { r ->
         while (true) {
@@ -129,16 +132,18 @@ private fun writeBinary(sorted: File, out: File): Pair<Int, Int> {
             if (key != curKey) {
                 curKey = key
                 curWords = HashSet()
+                perKeyCount = 0
                 val kb = key.toByteArray(Charsets.US_ASCII)
                 keyArr.add(keyBlob.size()); keyArr.add(kb.size); keyArr.add(numEntries)
                 keyBlob.write(kb)
                 numKeys++
             }
-            if (curWords!!.add(word)) {
+            if (curWords!!.add(word) && perKeyCount < maxPerKey) {
                 val wb = word.toByteArray(Charsets.UTF_8)
                 entryArr.add(wordBlob.size()); entryArr.add(wb.size); entryArr.add(freq)
                 wordBlob.write(wb)
                 numEntries++
+                perKeyCount++
                 totalFreq += freq.toLong()
             }
         }

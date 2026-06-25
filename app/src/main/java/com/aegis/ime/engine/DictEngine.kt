@@ -11,9 +11,10 @@ class DictEngine(
     lm: CharBigramLM?,
     private val userModel: UserModel? = null,
     fuzzyDict: BinaryDict? = null,
+    initialsDict: BinaryDict? = null,
 ) : CandidateEngine {
     private val decoder = pinyinDict?.let {
-        PinyinDecoder(it, lm, userModel = userModel, fuzzyDict = fuzzyDict)
+        PinyinDecoder(it, lm, userModel = userModel, fuzzyDict = fuzzyDict, initialsDict = initialsDict)
     }
     private val t9Decoder = t9Dict?.let { PinyinDecoder(it, lm, userModel = userModel) }
 

@@ -134,7 +134,11 @@ class KeyboardController(
 
     private fun refreshCandidates() {
         candidates = when {
-            composing.isNotEmpty() -> engine.candidates(composing.toString(), layoutId == LayoutId.NINE)
+            composing.isNotEmpty() -> {
+                val raw = composing.toString()
+                val list = engine.candidates(raw, layoutId == LayoutId.NINE)
+                if (layoutId == LayoutId.ALPHA && raw !in list) list + raw else list
+            }
             composingMode() -> engine.predict(lastWord)
             else -> emptyList()
         }

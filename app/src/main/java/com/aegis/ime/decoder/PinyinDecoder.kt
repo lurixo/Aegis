@@ -12,9 +12,10 @@ class PinyinDecoder(
     private val lambda: Double = DEFAULT_LAMBDA,
     private val userModel: UserModel? = null,
     private val fuzzyDict: BinaryDict? = null,
+    private val initialsDict: BinaryDict? = null,
 ) {
     private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
-    private val edgeN = if (lm != null || fuzzyDict != null) EDGE_N else 1
+    private val edgeN = if (lm != null || fuzzyDict != null || initialsDict != null) EDGE_N else 1
 
     private class Edge(val word: String, val freq: Int, val penalty: Double)
 
@@ -25,10 +26,17 @@ class PinyinDecoder(
             if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, 0.0))
             if (out.size >= edgeN) return out
         }
-        val fd = fuzzyDict ?: return out
-        for (wf in fd.exact(Fuzzy.normalize(sub))) {
-            if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, FUZZY_PENALTY))
-            if (out.size >= edgeN) break
+        fuzzyDict?.let { fd ->
+            for (wf in fd.exact(Fuzzy.normalize(sub))) {
+                if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, FUZZY_PENALTY))
+                if (out.size >= edgeN) return out
+            }
+        }
+        initialsDict?.let { id ->
+            for (wf in id.exact(sub)) {
+                if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, INITIALS_PENALTY))
+                if (out.size >= edgeN) break
+            }
         }
         return out
     }
@@ -39,6 +47,7 @@ class PinyinDecoder(
         bestSentence(input)?.let { out.add(it) }
         out.addAll(dict.query(input, limit))
         if (out.size < limit) fuzzyDict?.let { out.addAll(it.query(Fuzzy.normalize(input), limit)) }
+        if (out.size < limit) initialsDict?.let { out.addAll(it.query(input, limit)) }
         return if (out.size <= limit) out.toList() else out.toList().subList(0, limit)
     }
 
@@ -99,5 +108,6 @@ class PinyinDecoder(
         const val EDGE_N = 8
         const val DEFAULT_LAMBDA = 1.0
         const val FUZZY_PENALTY = 3.0
+        const val INITIALS_PENALTY = 5.0
     }
 }
