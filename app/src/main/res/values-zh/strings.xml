@@ -10,6 +10,10 @@
     <string name="setup_first_run_title">首次使用</string>
     <string name="setup_first_run_body">中文输入需要先下载词库，可在候选栏点下载提示，或到下方词库设置中下载；英文词库也在同一个包里</string>
     <string name="setup_first_run_ack">知道了</string>
+    <string name="setup_steps_title">启用步骤</string>
+    <string name="setup_enable_button">1. 在系统设置中启用 Aegis 输入法</string>
+    <string name="setup_switch_button">2. 切换到 Aegis 输入法</string>
+    <string name="setup_try_field_label">在此试打</string>
 
     <string name="settings_group_input_title">输入设置</string>
     <string name="settings_group_input_desc">默认输入模式、模糊音、联想与学习</string>
@@ -159,6 +163,8 @@
     <string name="user_dict_toast_auto_cleared">已清空自动学习</string>
     <string name="auto_learn_title">自动学习</string>
     <string name="auto_learn_description">把你逐字拼出的词记下来并作为候选</string>
+
+    <string name="app_version_card_title">应用版本</string>
 
     <string name="settings_backup_title">数据备份</string>
     <string name="settings_backup_desc">将全部数据导出或导入为加密文件</string>

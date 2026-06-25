@@ -18,7 +18,9 @@ package com.aegis.ime.ui
 import android.content.Context
 import android.content.Intent
 import android.os.Looper
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
@@ -26,16 +28,19 @@ import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
+import androidx.test.ext.junit.rules.ActivityScenarioRule
 import com.aegis.ime.R
 import com.aegis.ime.dict.ModelDownload
 import com.aegis.ime.user.LiveUserDictHost
@@ -61,6 +66,111 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.TimeUnit
 
 private fun ctxString(id: Int) = RuntimeEnvironment.getApplication().getString(id)
+
+private fun <A : ComponentActivity> AndroidComposeTestRule<ActivityScenarioRule<A>, A>.assertSetupStepActionLayout(
+    expectCenteredInset: Boolean = false,
+) {
+    onNodeWithText(ctxString(R.string.setup_steps_title)).performScrollTo().assertExists()
+
+    val pageHorizontalPadding = 20f
+    val cardContentPadding = 16f
+    val buttonHorizontalContentPadding = 24f
+    val rootBounds = onRoot().getUnclippedBoundsInRoot()
+    val cardBounds = onNodeWithTag("setup_steps_card").getUnclippedBoundsInRoot()
+    val actionsBounds = onNodeWithTag("setup_step_actions").getUnclippedBoundsInRoot()
+    val enableButtonBounds = onNodeWithTag("setup_enable_action")
+        .getUnclippedBoundsInRoot()
+    val switchButtonBounds = onNodeWithTag("setup_switch_action")
+        .getUnclippedBoundsInRoot()
+    val enableLabelBounds = onNodeWithTag("setup_enable_label_block", useUnmergedTree = true)
+        .getUnclippedBoundsInRoot()
+    val switchLabelBounds = onNodeWithTag("setup_switch_label_block", useUnmergedTree = true)
+        .getUnclippedBoundsInRoot()
+
+    assertEquals(
+        "setup steps card should fill the page content width",
+        rootBounds.left.value + pageHorizontalPadding,
+        cardBounds.left.value,
+        1f,
+    )
+    assertEquals(
+        "setup steps card should fill the page content width",
+        rootBounds.right.value - pageHorizontalPadding,
+        cardBounds.right.value,
+        1f,
+    )
+    assertEquals(
+        "setup actions should fill the padded card width",
+        cardBounds.left.value + cardContentPadding,
+        actionsBounds.left.value,
+        1f,
+    )
+    assertEquals(
+        "setup actions should fill the padded card width",
+        cardBounds.right.value - cardContentPadding,
+        actionsBounds.right.value,
+        1f,
+    )
+    assertEquals(
+        "enable setup button should fill the action width",
+        actionsBounds.left.value,
+        enableButtonBounds.left.value,
+        0.5f,
+    )
+    assertEquals(
+        "enable setup button should fill the action width",
+        actionsBounds.right.value,
+        enableButtonBounds.right.value,
+        0.5f,
+    )
+    assertEquals(
+        "switch setup button should fill the action width",
+        actionsBounds.left.value,
+        switchButtonBounds.left.value,
+        0.5f,
+    )
+    assertEquals(
+        "switch setup button should fill the action width",
+        actionsBounds.right.value,
+        switchButtonBounds.right.value,
+        0.5f,
+    )
+
+    assertEquals(
+        "setup label blocks should share the same left edge",
+        enableLabelBounds.left.value,
+        switchLabelBounds.left.value,
+        0.5f,
+    )
+    assertEquals(
+        "setup label blocks should share the same width",
+        enableLabelBounds.right.value - enableLabelBounds.left.value,
+        switchLabelBounds.right.value - switchLabelBounds.left.value,
+        0.5f,
+    )
+    assertEquals(
+        "enable setup label block should be centered in the button",
+        (enableButtonBounds.left.value + enableButtonBounds.right.value) / 2f,
+        (enableLabelBounds.left.value + enableLabelBounds.right.value) / 2f,
+        1f,
+    )
+    assertEquals(
+        "switch setup label block should be centered in the button",
+        (switchButtonBounds.left.value + switchButtonBounds.right.value) / 2f,
+        (switchLabelBounds.left.value + switchLabelBounds.right.value) / 2f,
+        1f,
+    )
+    if (expectCenteredInset) {
+        assertTrue(
+            "setup label block should be centered beyond the button's horizontal content padding",
+            enableLabelBounds.left.value > enableButtonBounds.left.value + buttonHorizontalContentPadding,
+        )
+        assertTrue(
+            "setup label block should be centered beyond the button's horizontal content padding",
+            enableLabelBounds.right.value < enableButtonBounds.right.value - buttonHorizontalContentPadding,
+        )
+    }
+}
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
@@ -514,5 +624,57 @@ class DictSettingsActivityTest {
                 )
             }
         }
+    }
+}
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
+class AboutActivityTest {
+    @get:Rule val compose = createAndroidComposeRule<AboutActivity>()
+
+    @Test fun holds_version_enable_steps_and_the_try_field() {
+        compose.onNodeWithText(ctxString(R.string.app_version_card_title)).assertExists()
+        compose.onNodeWithText(ctxString(R.string.setup_steps_title)).performScrollTo().assertExists()
+        compose.onNodeWithText(ctxString(R.string.setup_try_field_label)).performScrollTo().assertExists()
+        compose.onNodeWithText(ctxString(R.string.settings_backup_title)).assertDoesNotExist()
+    }
+
+    @Test fun setup_step_actions_fill_card_width_and_labels_use_centered_shared_block() =
+        compose.assertSetupStepActionLayout()
+
+    @Test fun opening_licenses_starts_the_licenses_activity() {
+        compose.onNodeWithText(ctxString(R.string.settings_about_licenses_title)).performScrollTo().performClick()
+        compose.waitForIdle()
+        val started = shadowOf(compose.activity).nextStartedActivity
+        assertEquals(LicensesActivity::class.java.name, started?.component?.className)
+    }
+
+    @Test fun back_arrow_finishes_the_activity() {
+        compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).performClick()
+        compose.waitForIdle()
+        assertTrue(compose.activity.isFinishing)
+    }
+}
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], qualifiers = "zh-rCN-w411dp-h891dp-xxhdpi")
+class AboutActivityChineseTest {
+    @get:Rule val compose = createAndroidComposeRule<AboutActivity>()
+
+    @Test fun setup_step_actions_align_the_chinese_labels_in_a_centered_shared_block() =
+        compose.assertSetupStepActionLayout(expectCenteredInset = true)
+}
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
+class LicensesActivityTest {
+    @get:Rule val compose = createAndroidComposeRule<LicensesActivity>()
+
+    @Test fun lists_components_and_back_finishes() {
+        compose.onNodeWithText(ctxString(R.string.license_wanxiang_name)).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText(ctxString(R.string.license_androidx_name)).performScrollTo().assertExists()
+        compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).performClick()
+        compose.waitForIdle()
+        assertTrue("back arrow finishes the Activity", compose.activity.isFinishing)
     }
 }

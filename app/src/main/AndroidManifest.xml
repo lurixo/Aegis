@@ -31,6 +31,13 @@
             android:theme="@style/Theme.Aegis"
             android:windowSoftInputMode="adjustResize" />
         <activity
+            android:name=".ui.AboutActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|uiMode|density|navigation|locale|layoutDirection|fontScale"
+            android:label="@string/settings_group_about_title"
+            android:theme="@style/Theme.Aegis"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
             android:name=".ui.LicensesActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|uiMode|density|navigation|locale|layoutDirection|fontScale"

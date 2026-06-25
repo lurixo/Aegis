@@ -10,6 +10,10 @@
     <string name="setup_first_run_title">First use</string>
     <string name="setup_first_run_body">Chinese input needs a dictionary download — tap the prompt in the candidate bar, or use the dictionary settings below; the English dictionary is in the same pack</string>
     <string name="setup_first_run_ack">Got it</string>
+    <string name="setup_steps_title">Setup steps</string>
+    <string name="setup_enable_button">1. Enable Aegis IME in system settings</string>
+    <string name="setup_switch_button">2. Switch to Aegis IME</string>
+    <string name="setup_try_field_label">Try typing here</string>
 
     <string name="settings_group_input_title">Input settings</string>
     <string name="settings_group_input_desc">Default input mode, fuzzy Pinyin, suggestions and learning</string>
@@ -160,6 +164,7 @@
     <string name="auto_learn_title">Auto learning</string>
     <string name="auto_learn_description">Learn the words you assemble and offer them as candidates</string>
 
+    <string name="app_version_card_title">App release</string>
     <string name="app_release_label_format" translatable="false">Aegis v%1$s</string>
 
     <string name="settings_backup_title">Data backup</string>
