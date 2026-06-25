@@ -12,7 +12,7 @@ import java.nio.channels.FileChannel
  * (e.g. "nihao"); values are candidate words ordered by descending frequency.
  *
  * Format produced by `tools/DictBuilder` (little-endian):
- *   'A''E''G''D' | i32 version | i32 numKeys | i32 numEntries
+ *   'A''E''G''D' | i32 version=2 | i32 numKeys | i32 numEntries | i64 totalFreq
  *   i32 keyBlobLen  | keyBlob  (ascii, distinct keys concatenated, sorted asc)
  *   i32 wordBlobLen | wordBlob (utf-8, one slice per entry)
  *   keyArr  : numKeys   × (i32 keyOffset, i32 keyLen, i32 entryStart)
@@ -27,19 +27,46 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
     private val keyArrOff: Int
     private val entryArrOff: Int
 
+    /** Sum of all entry frequencies — denominator for unigram probabilities. */
+    val totalFreq: Long
+
     init {
         buf.order(ByteOrder.LITTLE_ENDIAN)
         require(buf.get(0) == 'A'.code.toByte() && buf.get(1) == 'E'.code.toByte() &&
             buf.get(2) == 'G'.code.toByte() && buf.get(3) == 'D'.code.toByte()) { "bad magic" }
         numKeys = buf.getInt(8)
         numEntries = buf.getInt(12)
-        val keyBlobLen = buf.getInt(16)
-        keyBlobOff = 20
-        val wordBlobLenPos = 20 + keyBlobLen
+        totalFreq = buf.getLong(16)
+        val keyBlobLen = buf.getInt(24)
+        keyBlobOff = 28
+        val wordBlobLenPos = 28 + keyBlobLen
         val wordBlobLen = buf.getInt(wordBlobLenPos)
         wordBlobOff = wordBlobLenPos + 4
         keyArrOff = wordBlobOff + wordBlobLen
         entryArrOff = keyArrOff + numKeys * 12
+    }
+
+    /** A candidate word and its corpus frequency. */
+    data class WordFreq(val word: String, val freq: Int)
+
+    /** Entries for an exact key (its full toneless pinyin), frequency-descending. Empty if absent. */
+    fun exact(key: String): List<WordFreq> {
+        if (key.isEmpty() || numKeys == 0) return emptyList()
+        val q = key.toByteArray(Charsets.US_ASCII)
+        val i = lowerBound(q)
+        if (i >= numKeys || compareKey(i, q) != 0) return emptyList()
+        val es = entryStart(i)
+        val ee = if (i + 1 < numKeys) entryStart(i + 1) else numEntries
+        val out = ArrayList<WordFreq>(ee - es)
+        var j = es
+        while (j < ee) {
+            val wo = buf.getInt(entryArrOff + j * 12)
+            val wl = buf.getInt(entryArrOff + j * 12 + 4)
+            val fr = buf.getInt(entryArrOff + j * 12 + 8)
+            out.add(WordFreq(readWord(wo, wl), fr))
+            j++
+        }
+        return out
     }
 
     /** Exact match for [input] (its full toneless pinyin), then prefix matches; freq-ordered, deduped. */
