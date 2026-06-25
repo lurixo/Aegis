@@ -8,6 +8,7 @@ import javax.inject.Inject
 
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.compose.compiler)
 }
 
 android {
@@ -41,6 +42,20 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        compose = true
+    }
+
+    packaging {
+        resources {
+            excludes += setOf(
+                "**/*.kotlin_builtins",
+                "/DebugProbesKt.bin",
+                "/META-INF/androidx/**/LICENSE.txt",
+            )
+        }
     }
 
     androidResources {
@@ -273,10 +288,25 @@ tasks.register("verifyExternalModelsNotPackaged") {
 
 dependencies {
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
+    implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    debugImplementation(libs.androidx.ui.tooling)
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.ui.test.junit4)
+    testImplementation(libs.androidx.ui.test.manifest)
     testImplementation(project(":tools"))
+
+    constraints {
+        implementation(libs.androidx.lifecycle.runtime.compose) {
+            because("Keep lifecycle-runtime-compose aligned with the API 37 stable toolchain")
+        }
+        implementation(libs.androidx.core) {
+            because("Keep core aligned with core-ktx for the API 37 stable toolchain")
+        }
+    }
 }
