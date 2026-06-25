@@ -34,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.edit
 import com.aegis.ime.ui.theme.AegisTheme
 import com.aegis.ime.user.UserModel
 import java.io.File
@@ -136,7 +137,7 @@ private fun SettingsCard() {
                     checked = fuzzy,
                     onCheckedChange = {
                         fuzzy = it
-                        prefs.edit().putBoolean("fuzzy", it).apply()
+                        prefs.edit { putBoolean("fuzzy", it) }
                     },
                 )
             }
