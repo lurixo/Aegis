@@ -475,6 +475,17 @@ class KeyboardControllerTest {
         assertEquals(listOf("×"), h.commits)
     }
 
+    @Test fun set_custom_symbols_surfaces_them_in_the_idle_column_before_自定义() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.switchTextLayoutForTest(nine = true)
+        c.setCustomSymbols(listOf("、", "《"))
+        val col = c.nineLeftColumn()
+        val labels = col.map { it.label }
+        assertTrue("、 present", "、" in labels)
+        assertTrue("《 present", "《" in labels)
+        assertEquals("custom key stays last", com.aegis.ime.R.string.kbd_custom, col.last().labelRes)
+    }
+
     @Test fun nine_left_column_ni_full_scroll_list_matches_reference() {
         val col = nineColumnFor("64744336488").filter { it.action == KeyAction.PICK_READING }.map { it.label }
         assertTrue("ni present, was $col", "ni" in col)

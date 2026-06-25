@@ -83,6 +83,8 @@ class KeyboardController(
 
     private val history = ArrayDeque<StepKind>()
 
+    private var customSymbols: List<String> = emptyList()
+
     private val englishWord = StringBuilder()
 
     private var directCommitCands: Set<Cand> = emptySet()
@@ -112,6 +114,11 @@ class KeyboardController(
         engine = newEngine
         pushedFuzzyRules?.let { newEngine.setFuzzyRules(it) }
         refreshCandidates()
+        render()
+    }
+
+    fun setCustomSymbols(symbols: List<String>) {
+        customSymbols = symbols
         render()
     }
 
@@ -974,7 +981,7 @@ class KeyboardController(
     }
 
     internal fun nineLeftColumn(): List<Key> {
-        if (composing.isEmpty()) return Layouts.ninePunctuation()
+        if (composing.isEmpty()) return Layouts.ninePunctuation(customSymbols)
         val start = ninePendingIndex()
         if (start < 0) return emptyList()
         val end = minOf(
