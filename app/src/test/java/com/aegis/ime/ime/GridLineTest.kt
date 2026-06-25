@@ -64,6 +64,26 @@ class GridLineTest {
         }
     }
 
+    @Test fun the_candidate_bar_keeps_hairlines_between_candidates_and_no_expand_divider() {
+        forEachScreen { label, density, line ->
+            val cv = CandidateView(ctx).apply {
+                applyPalette(ImePalette.STATIC_LIGHT)
+                setContent(listOf("你", "好", "吗"), "ni")
+            }
+            val bmp = render(cv, (360 * density).toInt(), (44 * density).toInt())
+            val expandLeft = cv.expandControlBoundsForTest().left.roundToInt()
+            val runs = blackRuns((0 until expandLeft).map { bmp.getPixel(it, cv.height / 2) })
+            assertEquals("$label three candidates retain two internal dividers: $runs", 2, runs.size)
+            assertTrue("$label every divider is $line px wide: $runs", runs.all { it == line })
+            for (x in expandLeft until expandLeft + line) {
+                for (y in 0 until cv.height) {
+                    assertEquals("$label expand boundary stays on the bar surface at $x,$y",
+                        ImePalette.STATIC_LIGHT.keyboardBg, bmp.getPixel(x, y))
+                }
+            }
+        }
+    }
+
     private fun forEachScreen(body: (String, Float, Int) -> Unit) {
         for ((qualifiers, expected) in screens) {
             RuntimeEnvironment.setQualifiers(qualifiers)

@@ -1426,6 +1426,11 @@ class KeyboardView(context: Context) : View(context) {
         const val KEY_GAP_DP = 6f
         private const val FACE_FLOOR_ROUNDING_PX = 0.001f
 
+        fun nineColumnBoundary(keyboardWidth: Int, density: Float): Float {
+            val outer = ((ImeShapes.edgeInsetDp - KEY_GAP_DP / 2f) * density).coerceAtLeast(0f)
+            return outer + Layouts.NINE_SIDE_FRACTION * (keyboardWidth - 2f * outer)
+        }
+
         fun scrollCellHeight(column: ScrollColumn, keyboardHeight: Float, verticalGap: Float): Float {
             val visible = (column.h / column.cellHFrac).roundToInt().coerceAtLeast(1)
             return (column.h * keyboardHeight - 2f * verticalGap) / visible

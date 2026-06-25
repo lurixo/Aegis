@@ -227,6 +227,13 @@ object Motion {
 
         fun release() = animateTo(0f, PRESS_OUT, STANDARD)
 
+        fun reset() {
+            animator?.cancel()
+            animator = null
+            level = 0f
+            invalidate()
+        }
+
         private fun animateTo(target: Float, duration: Long, interpolator: Interpolator) {
             animator?.cancel()
             if (!view.isAttachedToWindow || !enabled()) {

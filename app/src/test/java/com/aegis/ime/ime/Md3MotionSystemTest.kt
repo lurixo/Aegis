@@ -16,15 +16,20 @@
 package com.aegis.ime.ime
 
 import android.app.Activity
+import android.content.ContentResolver
+import android.content.Context
+import android.content.ContextWrapper
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.os.Looper
 import android.provider.Settings
+import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
@@ -50,6 +55,15 @@ class Md3MotionSystemTest {
 
     private val ctx = RuntimeEnvironment.getApplication()
 
+    private class CountingContext(base: Context) : ContextWrapper(base) {
+        var resolverAccesses = 0
+
+        override fun getContentResolver(): ContentResolver {
+            resolverAccesses++
+            return baseContext.contentResolver
+        }
+    }
+
     private fun animationsOn() = Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
     private fun animationsOff() = Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
 
@@ -70,6 +84,11 @@ class Md3MotionSystemTest {
         )
         host.layout(0, 0, width, height)
         return view
+    }
+
+    private fun tap(view: View, x: Float, y: Float) {
+        view.dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, x, y, 0))
+        view.dispatchTouchEvent(MotionEvent.obtain(0, 10, MotionEvent.ACTION_UP, x, y, 0))
     }
 
 
@@ -375,6 +394,39 @@ class Md3MotionSystemTest {
         }
     }
 
+    @Test fun attached_candidate_and_keyboard_presses_do_not_read_global_settings() {
+        animationsOn()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val context = CountingContext(activity)
+            val density = activity.resources.displayMetrics.density
+            val bar = CandidateView(context).apply { setContent(listOf("你", "泥"), "ni") }
+            attach(activity, bar, (360 * density).toInt(), (44 * density).toInt())
+            context.resolverAccesses = 0
+            var expandAccesses = -1
+            bar.onExpand = { expandAccesses = context.resolverAccesses }
+            val expandBounds = bar.expandControlBoundsForTest()
+            tap(bar, expandBounds.centerX(), expandBounds.centerY())
+            assertEquals(0, expandAccesses)
+            assertEquals(0, context.resolverAccesses)
+
+            val keyboard = KeyboardView(context).apply {
+                setLayout(Layouts.forId(LayoutId.ALPHA, Lang.CN), false, false, Lang.CN)
+            }
+            attach(activity, keyboard, (360 * density).toInt(), (260 * density).toInt())
+            context.resolverAccesses = 0
+            var picked: Key? = null
+            keyboard.onKey = { picked = it }
+            val keyCenter = requireNotNull(keyboard.centerOfLabelForTest("a"))
+            tap(keyboard, keyCenter.first, keyCenter.second)
+            assertEquals("a", picked?.label)
+            assertEquals(0, context.resolverAccesses)
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
 
     private fun laidOutKeyboard(): KeyboardView {
         val kv = KeyboardView(ctx)
@@ -397,5 +449,31 @@ class Md3MotionSystemTest {
         assertEquals("a real mode change is counted once", before + 1, kv.modeSwitchesForTest())
         kv.setLayout(Layouts.forId(LayoutId.NUMBER, Lang.CN), isShifted = false, isLocked = false, language = Lang.CN)
         assertEquals(before + 2, kv.modeSwitchesForTest())
+    }
+
+
+    @Test fun candidate_strip_covers_on_role_change_but_not_on_candidate_updates() {
+        val cv = CandidateView(ctx)
+        val start = cv.contentTransitionsForTest()
+        cv.setContent(listOf("你"), "ni")
+        assertEquals("toolbar→candidates covers once", start + 1, cv.contentTransitionsForTest())
+        cv.setContent(listOf("你", "好"), "nihao")
+        cv.setContent(listOf("你", "好", "吗"), "nihaoma")
+        assertEquals("candidate→candidate updates must NOT cover (fluidity, no strobe)", start + 1, cv.contentTransitionsForTest())
+        cv.setContent(emptyList(), "")
+        assertEquals("candidates→toolbar covers once", start + 2, cv.contentTransitionsForTest())
+    }
+
+    @Test fun candidate_strip_applies_content_immediately_under_reduced_motion() {
+        animationsOff()
+        val cv = CandidateView(ctx)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            attach(controller.get(), cv)
+            cv.setContent(listOf("你", "好", "吗"), "nihaoma")
+            assertEquals("reduced-motion role change still applies the content immediately", 3, cv.itemCount())
+        } finally {
+            controller.pause().stop().destroy()
+        }
     }
 }

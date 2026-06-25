@@ -21,6 +21,7 @@ import android.graphics.Color
 import android.view.View
 import android.widget.FrameLayout
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -45,6 +46,11 @@ class JankRemediationTest {
         )
     }
 
+    @Test fun candidate_strip_and_preedit_tab_are_not_on_a_software_layer() {
+        assertEquals(View.LAYER_TYPE_NONE, CandidateView(ctx).layerType)
+        assertEquals(View.LAYER_TYPE_NONE, PreeditView(ctx).layerType)
+    }
+
     private fun drawInHost(child: View, childHeight: Int, margin: Int): Bitmap {
         val width = (360 * ctx.resources.displayMetrics.density).toInt()
         val host = FrameLayout(ctx)
@@ -65,6 +71,30 @@ class JankRemediationTest {
         val row = IntArray(bitmap.width)
         bitmap.getPixels(row, 0, bitmap.width, 0, y, bitmap.width, 1)
         assertTrue("$label: nothing may paint outside the view bounds at y=$y", row.all { it == Color.MAGENTA })
+    }
+
+    @Test fun toolbar_capsule_keeps_its_shadow_clipped_to_the_strip() {
+        val density = ctx.resources.displayMetrics.density
+        val stripHeight = (44 * density).toInt()
+        val margin = (12 * density).toInt()
+        for (palette in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
+            val strip = CandidateView(ctx).apply {
+                applyPalette(palette)
+                setContent(emptyList(), "")
+            }
+            val bitmap = drawInHost(strip, stripHeight, margin)
+            val capsuleBottom = margin + stripHeight - ImeShapes.toolbarCapsuleMarginDp * density
+            val shadowY = (capsuleBottom + 2 * density).toInt()
+            val shadowed = bitmap.getPixel(bitmap.width / 2, shadowY)
+            assertNotEquals("the capsule still casts its shadow below itself", palette.keyboardBg, shadowed)
+            assertTrue(
+                "the shadow darkens the strip floor",
+                Color.red(shadowed) + Color.green(shadowed) + Color.blue(shadowed) <
+                    Color.red(palette.keyboardBg) + Color.green(palette.keyboardBg) + Color.blue(palette.keyboardBg),
+            )
+            assertRowUntouched(bitmap, margin - 1, "strip top")
+            assertRowUntouched(bitmap, margin + stripHeight, "strip bottom")
+        }
     }
 
     @Test fun preedit_tab_keeps_its_shadow_clipped_to_the_band() {
