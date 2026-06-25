@@ -76,8 +76,13 @@ class KeyboardController(
 
     private val history = ArrayDeque<StepKind>()
 
+    private val englishWord = StringBuilder()
+
     private var compositeCands: Set<Cand> = emptySet()
     private var literalCands: Set<Cand> = emptySet()
+    private var englishCands: Set<Cand> = emptySet()
+
+    private var enAssociationsEnabled = true
 
     var onShowCustomSymbols: () -> Unit = {}
     var onShowCustomOperators: () -> Unit = {}
@@ -86,6 +91,21 @@ class KeyboardController(
 
     fun attachView(v: InputView) {
         view = v
+        render()
+    }
+
+    private fun englishPreeditActive(): Boolean =
+        lang == Lang.EN && layoutId == LayoutId.ALPHA && enAssociationsEnabled
+
+    private fun forgetEnglishWord() { englishWord.setLength(0) }
+
+    internal fun englishWordForTest(): String = englishWord.toString()
+
+    fun setEnAssociationsEnabled(on: Boolean) {
+        if (enAssociationsEnabled == on) return
+        if (!on && englishWord.isNotEmpty()) flushComposing()
+        enAssociationsEnabled = on
+        refreshCandidates()
         render()
     }
 
@@ -102,6 +122,7 @@ class KeyboardController(
         history.clear()
         committedPrefix.setLength(0)
         shiftState = ShiftState.OFF
+        forgetEnglishWord()
 
         render()
     }
@@ -229,6 +250,10 @@ class KeyboardController(
         when {
             cand in compositeCands -> commitCompositeCandidate(cand)
             cand in literalCands -> commitLiteralCandidate(cand)
+            cand in englishCands -> {
+                host.commitText(cand.word)
+                forgetEnglishWord()
+            }
             else -> {
                 commitCandidate(cand)
             }
@@ -244,7 +269,7 @@ class KeyboardController(
 
     private fun handleCommit(key: Key) {
         if (key.direct) {
-            if (composing.isNotEmpty() || committedPrefix.isNotEmpty()) flushComposing()
+            if (composing.isNotEmpty() || committedPrefix.isNotEmpty() || englishWord.isNotEmpty()) flushComposing()
             val text = if (key.verbatim) key.output else applyCase(key.output)
             host.commitText(text)
             if (shiftState == ShiftState.ONCE && key.output.any { it.isLetter() }) shiftState = ShiftState.OFF
@@ -256,7 +281,12 @@ class KeyboardController(
             }
             Mode.DIRECT -> {
                 val text = applyCase(key.output)
-                host.commitText(text)
+                if (englishPreeditActive() && text.isNotEmpty() && text.all { it in 'a'..'z' || it in 'A'..'Z' }) {
+                    englishWord.append(text)
+                } else {
+                    if (englishWord.isNotEmpty()) flushComposing()
+                    host.commitText(text)
+                }
                 if (shiftState == ShiftState.ONCE && key.output.any { it.isLetter() }) shiftState = ShiftState.OFF
             }
         }
@@ -267,6 +297,10 @@ class KeyboardController(
             if (committedPrefix.isNotEmpty()) {
                 val removeCount = Character.charCount(committedPrefix.codePointBefore(committedPrefix.length))
                 committedPrefix.setLength(committedPrefix.length - removeCount)
+                return
+            }
+            if (englishWord.isNotEmpty()) {
+                englishWord.setLength(englishWord.length - 1)
                 return
             }
             host.deleteBackward()
@@ -299,12 +333,18 @@ class KeyboardController(
     }
 
     private fun handleClearComposing() {
+        forgetEnglishWord()
         clearComposingState()
     }
 
     private fun handleSpace() {
         if (composing.isEmpty()) {
             if (committedPrefix.isNotEmpty()) { flushComposing(); return }
+            if (englishWord.isNotEmpty()) {
+                host.commitText(englishWord.toString() + " ")
+                forgetEnglishWord()
+                return
+            }
             host.commitText(" ")
             return
         }
@@ -320,7 +360,7 @@ class KeyboardController(
     }
 
     private fun handleEnter() {
-        if (composing.isNotEmpty() || committedPrefix.isNotEmpty()) {
+        if (composing.isNotEmpty() || committedPrefix.isNotEmpty() || englishWord.isNotEmpty()) {
             flushComposing()
         } else {
             host.performEnter()
@@ -381,6 +421,11 @@ class KeyboardController(
     }
 
     private fun flushComposing() {
+        if (englishWord.isNotEmpty()) {
+            host.commitText(englishWord.toString())
+            forgetEnglishWord()
+            return
+        }
         val prefix = committedPrefix.toString()
         if (composing.isNotEmpty()) {
             host.commitText(prefix + rawComposingText())
@@ -479,6 +524,7 @@ class KeyboardController(
         val engine: CandidateEngine,
         val beforeCursor: String,
         val composingEmpty: Boolean,
+        val committedPrefixEmpty: Boolean,
         val mode: Mode,
         val raw: String,
         val literalIndices: Set<Int>,
@@ -490,12 +536,14 @@ class KeyboardController(
         val bounds: Map<Int, Int>,
         val isNine: Boolean,
         val forcedCuts: Set<Int>,
+        val englishTyped: String,
     )
 
     private class DecodeResult(
         val candidates: List<Cand>,
         val compositeCands: Set<Cand>,
         val literalCands: Set<Cand>,
+        val englishCands: Set<Cand> = emptySet(),
     )
 
     private fun buildDecodeRequest(): DecodeRequest {
@@ -513,15 +561,17 @@ class KeyboardController(
         } else {
             emptySet()
         }
+        val englishTyped = if (englishPreeditActive()) englishWord.toString() else ""
         val readsContext = if (composing.isNotEmpty()) {
             mode() == Mode.PINYIN
         } else {
-            committedPrefix.isEmpty()
+            committedPrefix.isEmpty() && englishTyped.isEmpty()
         }
         return DecodeRequest(
             engine = engine,
             beforeCursor = if (readsContext) host.textBeforeCursor(CALC_SCAN_LEN + 1).toString() else "",
             composingEmpty = composing.isEmpty(),
+            committedPrefixEmpty = committedPrefix.isEmpty(),
             mode = mode(),
             raw = composing.toString(),
             literalIndices = literalIndices.toSet(),
@@ -533,6 +583,7 @@ class KeyboardController(
             bounds = bounds,
             isNine = layoutId == LayoutId.NINE,
             forcedCuts = forcedCuts.toSet(),
+            englishTyped = englishTyped,
         )
     }
 
@@ -540,11 +591,13 @@ class KeyboardController(
         candidates = r.candidates
         compositeCands = r.compositeCands
         literalCands = r.literalCands
+        englishCands = r.englishCands
     }
 
     private fun computeDecode(req: DecodeRequest): DecodeResult {
         var composite: Set<Cand> = emptySet()
         var literal: Set<Cand> = emptySet()
+        var english: Set<Cand> = emptySet()
         val base = computeBase(req)
         val out = when {
             !req.composingEmpty && req.mode == Mode.PINYIN && req.literalIndices.isNotEmpty() -> {
@@ -553,9 +606,15 @@ class KeyboardController(
                 literal = mixed.literal
                 mixed.candidates
             }
+            req.composingEmpty && req.committedPrefixEmpty && req.englishTyped.isNotEmpty() -> {
+                val words = listOf(Cand(req.englishTyped, 0)) +
+                    req.engine.englishCompletions(req.englishTyped).map { Cand(it, 0) }
+                english = words.toSet()
+                words
+            }
             else -> base
         }
-        return DecodeResult(out, composite, literal)
+        return DecodeResult(out, composite, literal, english)
     }
 
     private class MixedCandidates(
@@ -663,6 +722,7 @@ class KeyboardController(
     private fun applyCase(s: String): String = if (shifted) s.uppercase() else s
 
     private fun preeditText(): String {
+        if (englishWord.isNotEmpty()) return englishWord.toString()
         val prefix = committedPrefix.toString()
         if (composing.isEmpty()) return prefix
         val tail = if (mode() == Mode.PINYIN && literalIndices.isNotEmpty()) {

@@ -266,6 +266,18 @@ class KeyboardControllerTest {
         assertEquals(listOf("ni", "，"), h.commits)
     }
 
+    @Test fun english_direct_apostrophe_is_plain_text_between_letters() {
+        val h = SymbolPairingHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        "don".forEach { c.onKey(out(it.toString())) }
+        c.onKey(Key("'", output = "'", direct = true))
+        c.onKey(out("t"))
+        c.onKey(act(KeyAction.SPACE))
+        assertEquals(listOf("don", "'", "t "), h.commits)
+        assertEquals("don't ", h.text.toString())
+    }
+
     @Test fun direct_pairable_symbol_flushes_pinyin_then_commits_plain_text() {
         val h = SymbolPairingHost()
         val c = KeyboardController(h, engine)
@@ -296,6 +308,34 @@ class KeyboardControllerTest {
         assertEquals("'\"[", h.text.toString())
     }
 
+
+    @Test fun single_shift_tap_is_one_shot_uppercase_then_back_to_lowercase() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        c.onKey(act(KeyAction.SHIFT))
+        assertEquals("ONCE", c.shiftStateName())
+        c.onKey(out("a"))
+        c.onKey(out("b"))
+        assertEquals("Ab", c.englishWordForTest())
+        assertEquals("OFF", c.shiftStateName())
+        c.onKey(act(KeyAction.SPACE))
+        assertEquals(listOf("Ab "), h.commits)
+    }
+
+    @Test fun double_tap_shift_lock_keeps_uppercasing_until_toggled() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        c.onKey(act(KeyAction.SHIFT_LOCK))
+        assertEquals("LOCK", c.shiftStateName())
+        c.onKey(out("a")); c.onKey(out("b"))
+        assertEquals("AB", c.englishWordForTest())
+        assertEquals("LOCK", c.shiftStateName())
+        c.onKey(act(KeyAction.SHIFT))
+        assertEquals("OFF", c.shiftStateName())
+    }
+
     @Test fun shift_is_inert_in_cn_full_pinyin_26_key() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
@@ -319,6 +359,21 @@ class KeyboardControllerTest {
         assertEquals("OFF", c.shiftStateName())
     }
 
+    @Test fun one_shot_shift_stays_pending_across_non_letter_commits_until_a_letter() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        c.onKey(act(KeyAction.SHIFT))
+        c.onKey(Key("1", output = "1", direct = true))
+        assertEquals("a digit must not consume the pending shift", "ONCE", c.shiftStateName())
+        c.onKey(Key(",", output = ",", direct = true))
+        assertEquals("punctuation must not consume the pending shift", "ONCE", c.shiftStateName())
+        c.onKey(out("a"))
+        assertEquals("the next letter consumes the pending shift", "OFF", c.shiftStateName())
+        assertEquals(listOf("1", ","), h.commits)
+        assertEquals("A", c.englishWordForTest())
+    }
+
     @Test fun one_shot_shift_survives_the_case_box_symbol_cell_but_not_its_letter_cells() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
@@ -329,6 +384,19 @@ class KeyboardControllerTest {
         c.onKey(Key("g", output = "g", direct = true, verbatim = true))
         assertEquals("an explicit case choice counts as the next letter", "OFF", c.shiftStateName())
         assertEquals(listOf("%", "g"), h.commits)
+    }
+
+    @Test fun english_letters_compose_until_space_commits_the_word() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.switchTextLayoutForTest(nine = true)
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        c.onKey(out("a"))
+        assertEquals(emptyList<String>(), h.commits)
+        assertEquals("a", c.englishWordForTest())
+        c.onKey(act(KeyAction.SPACE))
+        assertEquals(listOf("a "), h.commits)
+        assertEquals("", c.englishWordForTest())
     }
 
 
