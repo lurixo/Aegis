@@ -102,6 +102,7 @@ private fun writeBinary(sorted: File, out: File): Pair<Int, Int> {
 
     var numKeys = 0
     var numEntries = 0
+    var totalFreq = 0L
     var curKey: String? = null
     var curWords: HashSet<String>? = null
 
@@ -127,6 +128,7 @@ private fun writeBinary(sorted: File, out: File): Pair<Int, Int> {
                 entryArr.add(wordBlob.size()); entryArr.add(wb.size); entryArr.add(freq)
                 wordBlob.write(wb)
                 numEntries++
+                totalFreq += freq.toLong()
             }
         }
     }
@@ -135,9 +137,10 @@ private fun writeBinary(sorted: File, out: File): Pair<Int, Int> {
     val wordBytes = wordBlob.toByteArray()
     BufferedOutputStream(out.outputStream(), 1 shl 16).use { os ->
         os.write(byteArrayOf('A'.code.toByte(), 'E'.code.toByte(), 'G'.code.toByte(), 'D'.code.toByte()))
-        os.writeLeInt(1)
+        os.writeLeInt(2)
         os.writeLeInt(numKeys)
         os.writeLeInt(numEntries)
+        os.writeLeLong(totalFreq)
         os.writeLeInt(keyBytes.size); os.write(keyBytes)
         os.writeLeInt(wordBytes.size); os.write(wordBytes)
         for (i in 0 until keyArr.size) os.writeLeInt(keyArr[i])
@@ -173,6 +176,10 @@ private fun writeCoverage(file: File, counts: Map<String, Long>) {
 
 private fun java.io.OutputStream.writeLeInt(v: Int) {
     write(v and 0xFF); write((v ushr 8) and 0xFF); write((v ushr 16) and 0xFF); write((v ushr 24) and 0xFF)
+}
+
+private fun java.io.OutputStream.writeLeLong(v: Long) {
+    writeLeInt((v and 0xFFFFFFFFL).toInt()); writeLeInt((v ushr 32).toInt())
 }
 
 private class IntList {
