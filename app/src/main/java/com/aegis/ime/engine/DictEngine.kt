@@ -17,10 +17,11 @@ class DictEngine(
     lm: CharBigramLM?,
     private val userModel: UserModel? = null,
     fuzzyDict: BinaryDict? = null,
+    initialsDict: BinaryDict? = null,
 ) : CandidateEngine {
-    // Fuzzy index applies to 26-key only (T9 is already lossy).
+    // Fuzzy + 简拼 indexes apply to 26-key only (T9 is already lossy).
     private val decoder = pinyinDict?.let {
-        PinyinDecoder(it, lm, userModel = userModel, fuzzyDict = fuzzyDict)
+        PinyinDecoder(it, lm, userModel = userModel, fuzzyDict = fuzzyDict, initialsDict = initialsDict)
     }
     private val t9Decoder = t9Dict?.let { PinyinDecoder(it, lm, userModel = userModel) }
 
