@@ -6,8 +6,10 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -30,6 +32,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.aegis.ime.ui.theme.AegisTheme
+import com.aegis.ime.user.UserModel
+import java.io.File
 
 /** Landing screen: enable the IME, switch to it, and a field to try typing. */
 class SetupActivity : ComponentActivity() {
@@ -99,5 +103,62 @@ private fun SetupScreen() {
             label = { Text("3 · 在此试打") },
             modifier = Modifier.fillMaxWidth(),
         )
+
+        UserDictCard()
+    }
+}
+
+@Composable
+private fun UserDictCard() {
+    val context = LocalContext.current
+    val userDb = File(context.filesDir, "userdb.txt")
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain"),
+    ) { uri ->
+        if (uri != null && userDb.exists()) {
+            runCatching {
+                context.contentResolver.openOutputStream(uri)?.use { out ->
+                    userDb.inputStream().use { it.copyTo(out) }
+                }
+            }
+        }
+    }
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                val tmp = File(context.cacheDir, "import_userdb.txt")
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    tmp.outputStream().use { input.copyTo(it) }
+                }
+                val merged = UserModel().apply { if (userDb.exists()) load(userDb) }
+                merged.importFrom(tmp, System.currentTimeMillis())
+                merged.save(userDb)
+                tmp.delete()
+            }
+        }
+    }
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("学习词库", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Aegis 会离线学习你常用的词与下一个词；数据只存本机。导入会在下次切换到 Aegis 时生效。",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Button(
+                onClick = { exportLauncher.launch("aegis-userdb.txt") },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("导出学习词库") }
+            Button(
+                onClick = { importLauncher.launch(arrayOf("text/plain")) },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("导入学习词库") }
+        }
     }
 }

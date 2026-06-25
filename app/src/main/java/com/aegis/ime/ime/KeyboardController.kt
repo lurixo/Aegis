@@ -3,7 +3,6 @@ package com.aegis.ime.ime
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
-import com.aegis.ime.layout.KeyboardLayout
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
@@ -12,8 +11,9 @@ import com.aegis.ime.layout.Layouts
  * Input state machine. Owns the active layout, language, shift state and the composing buffer;
  * turns key taps into editor operations ([ImeHost]) and re-renders the [InputView].
  *
- * In CN + (ALPHA|NINE) letters/digits accumulate in [composing] and feed [engine]; everything
- * else commits directly. The engine is stubbed in P1 — only the plumbing is exercised here.
+ * In CN + (ALPHA|NINE) letters/digits accumulate in [composing] and feed [engine]; on an empty
+ * buffer the bar shows learned next-word predictions for [lastWord]. Committing a CN candidate
+ * teaches the engine ([CandidateEngine.learn]) so user-preferred words rise over time.
  */
 class KeyboardController(
     private val host: ImeHost,
@@ -24,6 +24,7 @@ class KeyboardController(
     private var layoutId = LayoutId.ALPHA
     private val composing = StringBuilder()
     private var candidates: List<String> = emptyList()
+    private var lastWord: String? = null
 
     private var view: InputView? = null
 
@@ -44,6 +45,7 @@ class KeyboardController(
         candidates = emptyList()
         shifted = false
         layoutId = LayoutId.ALPHA
+        lastWord = null
         render()
     }
 
@@ -63,15 +65,15 @@ class KeyboardController(
                 lang = if (lang == Lang.CN) Lang.EN else Lang.CN
             }
         }
+        refreshCandidates()
         render()
     }
 
     fun onPickCandidate(index: Int) {
-        if (index in candidates.indices) {
-            host.commitText(candidates[index])
-            clearComposing()
-            render()
-        }
+        if (index !in candidates.indices) return
+        commitWord(candidates[index])
+        refreshCandidates()
+        render()
     }
 
     private fun composingMode(): Boolean =
@@ -80,27 +82,28 @@ class KeyboardController(
     private fun handleCommit(key: Key) {
         if (composingMode()) {
             composing.append(if (layoutId == LayoutId.NINE) key.output else applyCase(key.output))
-            refreshCandidates()
         } else {
             host.commitText(applyCase(key.output))
+            lastWord = null
         }
     }
 
     private fun handleBackspace() {
         if (composing.isNotEmpty()) {
             composing.setLength(composing.length - 1)
-            refreshCandidates()
         } else {
             host.deleteBackward()
+            lastWord = null
         }
     }
 
     private fun handleSpace() {
         if (composing.isNotEmpty()) {
-            host.commitText(candidates.firstOrNull() ?: composing.toString())
-            clearComposing()
+            val pick = candidates.firstOrNull()
+            if (pick != null) commitWord(pick) else { host.commitText(composing.toString()); clearComposingState() }
         } else {
             host.commitText(" ")
+            lastWord = null
         }
     }
 
@@ -109,7 +112,16 @@ class KeyboardController(
             flushComposing()
         } else {
             host.performEnter()
+            lastWord = null
         }
+    }
+
+    /** Commit a learned CN word/prediction and teach the engine. */
+    private fun commitWord(word: String) {
+        host.commitText(word)
+        engine.learn(lastWord, word)
+        lastWord = word
+        clearComposingState()
     }
 
     private fun switchLayout(id: LayoutId) {
@@ -117,24 +129,25 @@ class KeyboardController(
         layoutId = id
     }
 
-    /** Commit any pending buffer verbatim (used when leaving a composing context). */
+    /** Commit any pending buffer verbatim (raw pinyin) — not a learned word. */
     private fun flushComposing() {
         if (composing.isNotEmpty()) {
             host.commitText(composing.toString())
-            clearComposing()
+            clearComposingState()
         }
+        lastWord = null
     }
 
-    private fun clearComposing() {
+    private fun clearComposingState() {
         composing.setLength(0)
         candidates = emptyList()
     }
 
     private fun refreshCandidates() {
-        candidates = if (composing.isEmpty()) {
-            emptyList()
-        } else {
-            engine.candidates(composing.toString(), layoutId == LayoutId.NINE)
+        candidates = when {
+            composing.isNotEmpty() -> engine.candidates(composing.toString(), layoutId == LayoutId.NINE)
+            composingMode() -> engine.predict(lastWord)
+            else -> emptyList()
         }
     }
 

@@ -2,6 +2,7 @@ package com.aegis.ime.decoder
 
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.user.UserModel
 import kotlin.math.ln
 
 /**
@@ -20,6 +21,7 @@ class PinyinDecoder(
     private val dict: BinaryDict,
     private val lm: CharBigramLM? = null,
     private val lambda: Double = DEFAULT_LAMBDA,
+    private val userModel: UserModel? = null,
 ) {
     private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
     private val edgeN = if (lm != null) EDGE_N else 1
@@ -51,12 +53,13 @@ class PinyinDecoder(
                     if (taken++ >= edgeN) break
                     val w = wf.word
                     val uni = ln(wf.freq.toDouble()) - lnTotal
+                    val boost = userModel?.wordBoost(w) ?: 0.0
                     val firstCp = w.codePointAt(0)
                     val lastCp = w.codePointBefore(w.length)
                     for ((prevChar, cell) in from) {
                         val bi = if (lm == null || prevChar == BOS) 0.0
                         else lambda * lm.logCond(prevChar, firstCp)
-                        val score = cell.score + uni + bi
+                        val score = cell.score + uni + bi + boost
                         val cur = dp[q][lastCp]
                         if (cur == null || score > cur.score) {
                             dp[q][lastCp] = Cell(score, p, prevChar, w)
