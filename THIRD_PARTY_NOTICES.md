@@ -2,9 +2,11 @@
 
 ## Bundled dictionary data — rime-wanxiang (万象)
 
-`app/src/main/assets/aegis_dict.bin` is a prebuilt, tone-stripped, re-serialized
-derivative of the **rime-wanxiang** dictionaries (`dicts/zi`, `dicts/jichu`),
-frequency-filtered for size. Built by `tools/` (see `DictBuilder`).
+`app/src/main/assets/aegis_dict.bin` (26-key), `aegis_t9.bin` (9-key/T9), and
+`aegis_lm.bin` (character bigram) are prebuilt, tone-stripped, re-serialized
+derivatives of the **rime-wanxiang** dictionaries — `dicts/{zi, jichu, lianxiang,
+shici, diming, duoyin, mingren, renming}` — frequency-filtered for size. Built by
+`tools/` (see `DictBuilder` / `LmBuilder`).
 
 - Source: https://github.com/amzxyz/rime-wanxiang (branch `wanxiang`)
 - License: **CC BY 4.0** (https://creativecommons.org/licenses/by/4.0/)
