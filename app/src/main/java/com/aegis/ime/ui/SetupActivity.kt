@@ -75,7 +75,8 @@ private fun SetupScreen() {
     ) {
         Text("Aegis 输入法", style = MaterialTheme.typography.headlineMedium)
         Text(
-            "离线中文 / 英文输入法 — P1 骨架。\n引擎为占位（stub）：英文模式可直接输入 ASCII；中文 / 九宫格展示候选管线。",
+            "离线中文 / 英文输入法。自建拼音引擎（全拼 + 九宫格 T9），模糊拼音、简拼、中英混输、" +
+                "英文补全纠错、离线自学习；可选下载万象大模型增强。全程离线，输入不联网。",
             style = MaterialTheme.typography.bodyMedium,
         )
 
