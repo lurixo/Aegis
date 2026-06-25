@@ -32,17 +32,32 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import com.aegis.ime.ui.appLocaleTag
+import com.aegis.ime.backup.RestoreJournal
+import com.aegis.ime.dict.BinaryDict
+import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.dict.EngineAssets
+import com.aegis.ime.dict.OctagramReader
 import com.aegis.ime.engine.DictEngine
+import com.aegis.ime.engine.StoredReadingRepair
 import com.aegis.ime.ime.DecodeLane
 import com.aegis.ime.ime.GraphemeText
 import com.aegis.ime.ime.ImeHost
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
+import com.aegis.ime.ime.ParallelLoad
 import com.aegis.ime.layout.SymbolCatalog
+import com.aegis.ime.user.LiveUserData
+import com.aegis.ime.user.LiveUserDictHost
+import com.aegis.ime.user.UserDeletionPromises
+import com.aegis.ime.user.UserDictHot
+import com.aegis.ime.user.UserLearning
+import com.aegis.ime.user.UserModel
+import java.io.File
 
 class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private lateinit var controller: KeyboardController
+    private val mainHandler = Handler(Looper.getMainLooper())
     private val decodeResults = Handler.createAsync(Looper.getMainLooper())
     private val decodeWorker: java.util.concurrent.ExecutorService =
         java.util.concurrent.Executors.newSingleThreadExecutor { r ->
@@ -60,6 +75,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         logError = { Log.e("Aegis", "decode failed", it) },
         workDone = ::reportDecodeWork,
     )
+    private val userModel = UserModel()
+    private val userLearning = UserLearning()
+    private val userDbFile by lazy { File(filesDir, "userdb.txt") }
+    private val userLearnFile by lazy { File(filesDir, "userlearn.txt") }
+    @Volatile private var userDbMtime = 0L
+    @Volatile private var userLearnMtime = 0L
 
     private var inputView: InputView? = null
     private var uiLocaleContext: Context? = null
@@ -91,6 +112,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var inputSessionActive = false
     private var resetControllerOnNextInputView = false
 
+    @Volatile private var userStoresLoaded = false
+    @Volatile private var engineSig = ""
+    @Volatile private var engineReloading = false
+
     private fun imeUiContext(): Context {
         val tags = appLocaleTags(this)
         val cached = uiLocaleContext
@@ -109,12 +134,140 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun onEvaluateFullscreenMode(): Boolean = false
 
+    private val liveUserDictHost by lazy {
+        LiveUserDictHost(
+            userModel,
+            userDbFile,
+            userLearning,
+            userLearnFile,
+            onSaved = { savedUserDb, savedUserLearn ->
+                savedUserDb?.let { userDbMtime = it }
+                savedUserLearn?.let { userLearnMtime = it }
+            },
+            onWordsReplaced = { readingRepair.request() },
+        )
+    }
+
+    private val readingRepair: StoredReadingRepair by lazy { StoredReadingRepair { liveUserDictHost.repairReadings(it) } }
+
+    private val userLexicon by lazy {
+        com.aegis.ime.user.UserLexicon(getSharedPreferences("aegis", MODE_PRIVATE))
+    }
+
     override fun onCreate() {
         super.onCreate()
+        runCatching {
+            RestoreJournal.finishAnyInterrupted(filesDir, getSharedPreferences("aegis", MODE_PRIVATE))
+        }.onFailure { Log.e("Aegis", "interrupted restore rollback failed", it) }
+        val reloadUserLexicons = {
+            val adoptRestoredStores = {
+                runCatching {
+                    userModel.replaceWordsFrom(userDbFile)
+                    userDbMtime = userDbFile.lastModified()
+                }
+                runCatching {
+                    userLearning.load(userLearnFile)
+                    userLearnMtime = userLearnFile.lastModified()
+                }
+                if (UserDeletionPromises.keep(userModel, userDbFile, userLearning, userLearnFile)) {
+                    userDbMtime = userDbFile.lastModified()
+                    userLearnMtime = userLearnFile.lastModified()
+                }
+                LiveUserData.restoreInProgress = false
+                readingRepair.request()
+            }
+            if (!liveUserDictHost.handOff(adoptRestoredStores)) adoptRestoredStores()
+        }
+        LiveUserData.onLexiconsRestored = {
+            mainHandler.post { reloadUserLexicons() }
+        }
         controller = KeyboardController(
-            this, DictEngine(null, null, null), decodeLane,
+            this, DictEngine(null, null, null, userLexicon = userLexicon), decodeLane,
             emailDomains = com.aegis.ime.ime.EmailDomains(getSharedPreferences("aegis", MODE_PRIVATE)),
         )
+        controller.userLearning = userLearning
+        Thread {
+            val (_, engine) = ParallelLoad.both({
+                runCatching { com.aegis.ime.engine.InputAssociations.lookup("nihao") }
+                runCatching {
+                    userModel.load(userDbFile)
+                    userDbMtime = userDbFile.lastModified()
+                }.onFailure {
+                    Log.e("Aegis", "userdb load failed", it)
+                    if (quarantineCorruptStore(userDbFile)) {
+                        runCatching { userModel.load(userDbFile) }
+                    }
+                }
+                runCatching {
+                    userLearning.load(userLearnFile)
+                    userLearnMtime = userLearnFile.lastModified()
+                }.onFailure {
+                    Log.e("Aegis", "userlearn load failed", it)
+                    if (quarantineCorruptStore(userLearnFile)) {
+                        runCatching { userLearning.load(userLearnFile) }
+                    }
+                }
+                if (UserDeletionPromises.keep(userModel, userDbFile, userLearning, userLearnFile)) {
+                    userDbMtime = userDbFile.lastModified()
+                    userLearnMtime = userLearnFile.lastModified()
+                }
+                userStoresLoaded = true
+                UserDictHot.host = liveUserDictHost
+            }, {
+                buildEngine()
+            })
+            readingRepair.request(engine)
+            Handler(Looper.getMainLooper()).post {
+                controller.setEngine(engine)
+                maybeReloadEngine()
+            }
+        }.apply { name = "aegis-dict-load"; isDaemon = true }.start()
+    }
+
+    private fun buildEngine(): DictEngine {
+        com.aegis.ime.dict.ModelDownload.recoverInterruptedDictionaryInstall(filesDir)
+        val (sig, dictionaries) = com.aegis.ime.dict.ModelDownload.withDictionaryGeneration {
+            EngineAssets.signature(File(filesDir, "downloaded")) to
+                ParallelLoad.results(
+                    (com.aegis.ime.dict.ModelDownload.DICT_BIN_FILES +
+                        com.aegis.ime.dict.ModelDownload.EN_NAME).map { { loadDict(it) } },
+                )
+        }
+        val (dict, t9Dict, initialsDict, englishDict) = dictionaries
+        val fuzzyRules = currentFuzzyRules()
+        val lm = loadLm(com.aegis.ime.dict.ModelDownload.LM_NAME)
+        val octagram = runCatching { OctagramReader.fromDownloads(this, "wanxiang-lts-zh-hans.gram") }
+            .onFailure { Log.e("Aegis", "octagram load failed", it) }.getOrNull()
+        val engine = DictEngine(
+            dict, t9Dict, lm, userModel, fuzzyRules, initialsDict, octagram, userLearning, englishDict, userLexicon,
+        )
+        engineSig = sig
+        return engine
+    }
+
+    private fun currentFuzzyRules(): Set<String> =
+        SettingsHotApply.fuzzyRules(getSharedPreferences("aegis", MODE_PRIVATE))
+
+    private fun maybeReloadEngine() {
+        if (engineSig.isEmpty() || engineReloading) return
+        if (com.aegis.ime.dict.ModelDownload.installInProgress(filesDir)) return
+        val current = EngineAssets.signature(File(filesDir, "downloaded"))
+        if (!EngineAssets.needsReload(engineSig, current)) return
+        engineReloading = true
+        try {
+            Thread {
+                val ok = runCatching {
+                    val engine = buildEngine()
+                    readingRepair.request(engine)
+                    Handler(Looper.getMainLooper()).post { controller.setEngine(engine) }
+                }.onFailure { Log.e("Aegis", "engine hot-reload failed", it) }.isSuccess
+                engineReloading = false
+                if (ok) Handler(Looper.getMainLooper()).post { maybeReloadEngine() }
+            }.apply { name = "aegis-dict-reload"; isDaemon = true }.start()
+        } catch (t: Throwable) {
+            Log.e("Aegis", "engine hot-reload thread start failed", t)
+            engineReloading = false
+        }
     }
 
     private fun editorTarget(info: EditorInfo?): EditorTarget? {
@@ -153,6 +306,35 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         personalizationBlocked = info != null && com.aegis.ime.user.ClipboardPolicy.blocksLearning(info.imeOptions)
         controller.setLearningBlocked(personalizationBlocked)
         controller.onInputTargetChanged()
+        val quiet = userStoresLoaded && !liveUserDictHost.writing && !LiveUserData.restoreInProgress
+        if (quiet && (!userModel.dirty || !userModel.readable) && userDbFile.lastModified() > userDbMtime) {
+            val readAt = userDbFile.lastModified()
+            val previous = userDbMtime
+            userDbMtime = readAt
+            val handedOff = liveUserDictHost.handOff {
+                val reloaded = runCatching { userModel.reloadIfUnchanged(userDbFile) }.getOrDefault(false)
+                if (UserDeletionPromises.keep(userModel, userDbFile, userLearning, userLearnFile)) {
+                    userDbMtime = userDbFile.lastModified()
+                    userLearnMtime = userLearnFile.lastModified()
+                }
+                if (reloaded) readingRepair.request()
+            }
+            if (!handedOff) userDbMtime = previous
+        }
+        if (quiet && !userLearning.dirty && userLearnFile.lastModified() > userLearnMtime) {
+            val readAt = userLearnFile.lastModified()
+            val previous = userLearnMtime
+            userLearnMtime = readAt
+            val handedOff = liveUserDictHost.handOff {
+                runCatching { userLearning.loadIfUnchanged(userLearnFile) }
+                if (UserDeletionPromises.keep(userModel, userDbFile, userLearning, userLearnFile)) {
+                    userDbMtime = userDbFile.lastModified()
+                    userLearnMtime = userLearnFile.lastModified()
+                }
+            }
+            if (!handedOff) userLearnMtime = previous
+        }
+        maybeReloadEngine()
     }
 
     override fun onFinishInput() {
@@ -162,6 +344,29 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         inputSessionActive = false
         resetControllerOnNextInputView = false
         personalizationBlocked = false
+        if (LiveUserData.restoreInProgress) return
+        liveUserDictHost.scheduleSave()
+    }
+
+    private fun downloadedOverride(name: String): File? =
+        EngineAssets.downloadedOverride(File(filesDir, "downloaded"), name)
+
+    private fun loadDict(name: String): BinaryDict? {
+        val file = downloadedOverride(name) ?: return null
+        return runCatching { BinaryDict.fromFile(file) }
+            .onFailure { Log.e("Aegis", "dict load failed: $name", it) }
+            .getOrNull()
+    }
+
+    private fun loadLm(name: String): CharBigramLM? {
+        val file = downloadedOverride(name)
+        if (file == null) {
+            Log.w("Aegis", "lm not installed, ranking without it: $name")
+            return null
+        }
+        return runCatching { CharBigramLM.fromFile(file) }
+            .onFailure { Log.e("Aegis", "lm load failed: $name", it) }
+            .getOrNull()
     }
 
     override fun onCreateInputView(): View {
@@ -272,6 +477,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             decodeHint?.let { session -> runCatching { session.close() } }
             decodeHint = null
         }
+        if (UserDictHot.host === liveUserDictHost) UserDictHot.host = null
+        runCatching { liveUserDictHost.flush() }
+        liveUserDictHost.stopSaving()
+        LiveUserData.onLexiconsRestored = null
         super.onDestroy()
     }
 
@@ -357,3 +566,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 }
 
 private const val DECODE_TARGET_NANOS = 16_666_667L
+
+internal fun quarantineCorruptStore(file: java.io.File): Boolean {
+    if (!file.exists()) return false
+    val aside = java.io.File(file.parentFile, file.name + ".corrupt-" + System.currentTimeMillis())
+    return file.renameTo(aside)
+}

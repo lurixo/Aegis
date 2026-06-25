@@ -15,6 +15,7 @@
 
 package com.aegis.ime.dict
 
+import android.content.Context
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
@@ -124,6 +125,11 @@ class OctagramReader private constructor(
                 )
                 return OctagramReader(mapped, imageStart.toInt())
             }
+        }
+
+        fun fromDownloads(context: Context, name: String): OctagramReader? {
+            val f = EngineAssets.downloadedOverride(File(context.filesDir, "downloaded"), name, minBytes = 1025L)
+            return if (f != null) fromFile(f) else null
         }
 
         fun encode(text: String): ByteArray {

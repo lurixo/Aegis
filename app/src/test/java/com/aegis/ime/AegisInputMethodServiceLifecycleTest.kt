@@ -25,6 +25,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedText
 import android.view.inputmethod.ExtractedTextRequest
 import android.widget.FrameLayout
+import com.aegis.ime.dict.ModelDownload
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.ime.BackspaceGesture
 import com.aegis.ime.ime.DecodeLane
@@ -33,13 +34,16 @@ import com.aegis.ime.ime.EditPanelView
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.layout.Key
+import com.aegis.ime.ui.DictDownloadWork
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w853dp-h388dp-land-hdpi")
@@ -171,6 +175,66 @@ class AegisInputMethodServiceLifecycleTest {
         this.inputType = inputType
     }
 
+    private fun userModelOf(service: AegisInputMethodService) =
+        service.javaClass.getDeclaredField("userModel").apply { isAccessible = true }
+            .get(service) as com.aegis.ime.user.UserModel
+
+    @Test fun saving_learned_data_must_not_swallow_a_user_dictionary_changed_outside() {
+        val f = fixture()
+        val service = f.service
+        val model = userModelOf(service)
+        val userDb = java.io.File(service.filesDir, "userdb.txt")
+        com.aegis.ime.user.UserModel().apply { addManualWord("nihao", "你好", 1L) }.save(userDb)
+        val loadedFrom = userDb.lastModified()
+        service.javaClass.getDeclaredField("userStoresLoaded").apply { isAccessible = true }.setBoolean(service, true)
+        service.javaClass.getDeclaredField("userDbMtime").apply { isAccessible = true }.setLong(service, loadedFrom)
+
+        val learning = service.javaClass.getDeclaredField("userLearning").apply { isAccessible = true }
+            .get(service) as com.aegis.ime.user.UserLearning
+        repeat(8) {
+            var prev: String? = null
+            for ((word, reading) in listOf("你" to "ni", "呢" to "ne", "嗯" to "n")) {
+                learning.observeCommit(prev, word, reading, 1_700_000_000_000L)
+                prev = word
+            }
+            learning.observeBreak()
+        }
+        assertTrue("the learning store must have something to write", learning.dirty)
+
+        com.aegis.ime.user.UserModel().apply {
+            load(userDb)
+            addManualWord("waibu", "外部", 2L)
+        }.save(userDb)
+        userDb.setLastModified(loadedFrom + 5_000L)
+
+        assertTrue(liveUserDictHost(service).clearLearned())
+        service.onStartInput(editor(), false)
+        drainWriteLane(service)
+
+        assertEquals(
+            "a word restored into userdb.txt from outside must still reach the running keyboard",
+            listOf("外部"),
+            model.readingSnapshot()["waibu"],
+        )
+    }
+
+    private fun liveUserDictHost(service: AegisInputMethodService): com.aegis.ime.user.UserDictHot.Host {
+        val delegate = service.javaClass.getDeclaredField("liveUserDictHost\$delegate").run {
+            isAccessible = true
+            get(service) as Lazy<*>
+        }
+        return delegate.value as com.aegis.ime.user.UserDictHot.Host
+    }
+
+    private fun drainWriteLane(service: AegisInputMethodService) {
+        val host = liveUserDictHost(service)
+        val io = host.javaClass.getDeclaredField("io").run {
+            isAccessible = true
+            get(host) as java.util.concurrent.ExecutorService
+        }
+        io.submit { }.get(10, TimeUnit.SECONDS)
+    }
+
     private fun fixture(info: EditorInfo = editor(), decodeLane: DecodeLane? = null): Fixture {
 
         val service = Robolectric.buildService(AegisInputMethodService::class.java).get()
@@ -251,6 +315,19 @@ class AegisInputMethodServiceLifecycleTest {
 
     private fun selectionEnd(connection: RecordingInputConnection): Int =
         Selection.getSelectionEnd(requireNotNull(connection.editable))
+
+    @Test fun starting_the_keyboard_with_no_dictionary_starts_no_download() {
+        val f = fixture()
+
+        f.service.onStartInputView(f.info, true)
+        f.service.onFinishInputView(false)
+        f.service.onStartInputView(f.info, false)
+
+        assertFalse(ModelDownload.isDictDownloaded(f.service.filesDir))
+        assertFalse("the keyboard must not start the dictionary download on its own", DictDownloadWork.snapshot(f.service).downloading)
+        assertFalse(ModelDownload.dictZipFile(f.service.filesDir).exists())
+        assertFalse(ModelDownload.dictPartFile(f.service.filesDir).exists())
+    }
 
     @Test fun symbol_panel_and_candidate_pairs_follow_the_current_paragraph_on_both_layouts() {
         for (nine in listOf(false, true)) {

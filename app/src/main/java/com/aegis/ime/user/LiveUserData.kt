@@ -17,6 +17,24 @@ package com.aegis.ime.user
 
 object LiveUserData {
     @Volatile
+    var onRestored: (() -> Unit)? = null
+
+    @Volatile
+    var onLexiconsRestored: (() -> Unit)? = null
+
+    private val clipboardPersistenceHookLock = Any()
+    private var beforeExportHook: (() -> Unit)? = null
+    private var beforeRestoreHook: (() -> Unit)? = null
+
+    var onBeforeExport: (() -> Unit)?
+        get() = synchronized(clipboardPersistenceHookLock) { beforeExportHook }
+        set(value) = synchronized(clipboardPersistenceHookLock) { beforeExportHook = value }
+
+    var onBeforeRestore: (() -> Unit)?
+        get() = synchronized(clipboardPersistenceHookLock) { beforeRestoreHook }
+        set(value) = synchronized(clipboardPersistenceHookLock) { beforeRestoreHook = value }
+
+    @Volatile
     var restoreInProgress: Boolean = false
 
     @Volatile

@@ -27,6 +27,10 @@ internal class RestoreJournal private constructor(
     private val dir: File,
 ) {
 
+    fun markDone() {
+        AtomicFileSwap.write(File(dir, DONE), TAG, "")
+    }
+
     fun discard() {
         dir.deleteRecursively()
     }
