@@ -53,6 +53,7 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     debugImplementation(libs.androidx.ui.tooling)
+    testImplementation("junit:junit:4.13.2")
 
     // Clamp transitive AndroidX that the Compose BOM would otherwise raise to API-37-only
     // releases, until AGP 9.1 + compileSdk 37 are stable.
