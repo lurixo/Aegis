@@ -40,4 +40,6 @@ class EmailDomains(private val prefs: SharedPreferences? = null) {
         val stored = prefs ?: return counts[domain] ?: 0L
         return runCatching { stored.getLong(UserLexicon.EMAIL_COUNT_PREFIX + domain, 0L) }.getOrDefault(0L).coerceAtLeast(0L)
     }
+
+    companion object
 }

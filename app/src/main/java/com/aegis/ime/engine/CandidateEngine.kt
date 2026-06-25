@@ -15,10 +15,17 @@
 
 package com.aegis.ime.engine
 
+import com.aegis.ime.decoder.Cand
 import com.aegis.ime.decoder.Syllable
 
 interface CandidateEngine {
     val supportsChinese: Boolean
+
+    fun candidates(composing: String, t9: Boolean): List<String>
+
+    fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int> = emptySet()): List<Cand>
+
+    fun candidatesForLockedReadingCovered(letters: String, cuts: Set<Int> = emptySet()): List<Cand>
 
     fun syllables(composing: String, t9: Boolean): List<Syllable>
 

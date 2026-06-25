@@ -101,21 +101,49 @@ class PinyinDecoder(
         return Norm(clean.toString(), interiorCuts, origLen.copyOf(ci + 1), cleanLenAtOrig)
     }
 
-    fun decodeCovered(input: String, limit: Int): List<Cand> =
-        decodeCoveredLayered(input, limit).first
+    fun decodeCovered(input: String, limit: Int, cuts: Set<Int> = emptySet()): List<Cand> =
+        decodeCoveredLayered(input, limit, cuts).first
 
     internal fun decodeCoveredLayered(
         input: String,
         limit: Int,
+        cuts: Set<Int> = emptySet(),
     ): Pair<List<Cand>, Int> {
         if (input.isEmpty() || limit <= 0) return emptyList<Cand>() to 0
-        return decodeCoveredClean(input, limit)
+        val norm = normalizeSeparators(input) ?: return decodeCoveredClean(input, limit, cuts)
+        if (norm.clean.isEmpty()) return emptyList<Cand>() to 0
+        val passedClean = cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
+        val (cands, remainderStart) =
+            decodeCoveredClean(norm.clean, limit, norm.cuts + passedClean)
+        return cands.map {
+            Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length })
+        } to remainderStart
+    }
+
+    fun decodeCoveredAtomic(input: String, limit: Int, cuts: Set<Int> = emptySet()): List<Cand> {
+        if (input.isEmpty() || limit <= 0) return emptyList()
+        val norm = normalizeSeparators(input)
+        val clean = norm?.clean ?: input
+        if (clean.isEmpty()) return emptyList()
+        val passedClean = if (norm == null) cuts else cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
+        val interior = ((norm?.cuts ?: emptySet()) + passedClean).filter { it in 1 until clean.length }.toSet()
+        val decoded = decodeAtomic(clean, interior)
+        return if (norm == null) {
+            decoded
+        } else {
+            decoded.map {
+                Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length })
+            }
+        }
     }
 
     private fun decodeCoveredClean(
         input: String,
         limit: Int,
+        cuts: Set<Int>,
     ): Pair<List<Cand>, Int> {
+        val interior = cuts.filter { it in 1 until input.length }.toSortedSet()
+        if (interior.isNotEmpty()) return decodeAtomic(input, interior).let { it to it.size }
         val cover = LinkedHashMap<String, Int>()
         val completionCap = completionCap(limit)
         val sentence = bestSentence(input)?.also { cover[it] = input.length }
@@ -157,7 +185,138 @@ class PinyinDecoder(
         return out to remainderStart
     }
 
+    private fun decodeAtomic(input: String, interior: Set<Int>): List<Cand> {
+        val B = atomicBounds(input, interior)
+        val nSyl = B.size - 1
+
+        val singlesCache = HashMap<String, Set<String>>()
+        val sentences = atomicSentences(input, B, interior, singlesCache)
+        DecodeCancellation.checkpoint()
+
+        val best = sentences.firstOrNull()?.text
+
+        val leadFreq = LinkedHashMap<String, Double>()
+        val leadCov = HashMap<String, Int>()
+        for (j in 2..nSyl) {
+            for (wf in cachedExact(dict, input.substring(0, B[j]))) if (!isSingleChar(wf.word)) {
+                if (!admissibleUnderCuts(wf.word, 0, B[j], interior, input, singlesCache)) continue
+                if (leadFreq.put(wf.word, wf.freq.toDouble()) == null) leadCov[wf.word] = B[j]
+            }
+        }
+        val out = ArrayList<Cand>(1 + leadFreq.size)
+        val seen = HashSet<String>()
+        fun emit(words: List<String>) {
+            for (w in words) {
+                if (seen.add(w)) out.add(Cand(w, leadCov[w] ?: input.length))
+            }
+        }
+        val rest = ArrayList<String>(leadFreq.size + 1)
+        best?.let { rest.add(it) }
+        val leadRank = HashMap<String, Double>(leadFreq.size * 2)
+        for ((w, f) in leadFreq) leadRank[w] = wordModelScore(w, f)
+        for (w in leadFreq.keys.sortedByDescending { leadRank.getValue(it) }) {
+            if (w !in rest) rest.add(w)
+        }
+        emit(rest)
+        return out
+    }
+
+    private fun admissibleUnderCuts(
+        word: String,
+        spanStart: Int,
+        spanEnd: Int,
+        cuts: Set<Int>,
+        input: String,
+        singlesCache: HashMap<String, Set<String>>,
+    ): Boolean {
+        var hasInner = false
+        for (c in cuts) if (c > spanStart && c < spanEnd) { hasInner = true; break }
+        if (!hasInner) return true
+        val key = input.substring(spanStart, spanEnd)
+        val n = key.length
+        val cps = ArrayList<String>(4)
+        var ci = 0
+        while (ci < word.length) {
+            val cp = word.codePointAt(ci)
+            cps.add(String(Character.toChars(cp)))
+            ci += Character.charCount(cp)
+        }
+        val m = cps.size
+        fun singles(k: String): Set<String> = singlesCache.getOrPut(k) {
+            val out = HashSet<String>()
+            for (wf in cachedExact(dict, k)) if (isSingleChar(wf.word)) out.add(wf.word)
+            out
+        }
+        fun parses(respectCuts: Boolean): Boolean {
+            val dp = Array(n + 1) { BooleanArray(m + 1) }
+            dp[0][0] = true
+            for (p in 0 until n) for (i in 0 until m) {
+                if (!dp[p][i]) continue
+                var q = p + 1
+                while (q <= n && q - p <= MAX_SYLLABLE_KEY_LEN) {
+                    var straddles = false
+                    if (respectCuts) {
+                        for (c in cuts) if (c > spanStart + p && c < spanStart + q) { straddles = true; break }
+                    }
+                    if (!straddles && cps[i] in singles(key.substring(p, q))) dp[q][i + 1] = true
+                    q++
+                }
+            }
+            return dp[n][m]
+        }
+        if (parses(respectCuts = true)) return true
+        return !parses(respectCuts = false)
+    }
+
+    private class APath(val text: String, val lastCp: Int, val score: Double)
+
     internal data class SentencePath(val text: String, val score: Double)
+
+    private fun atomicSentences(
+        input: String,
+        B: List<Int>,
+        interior: Set<Int>,
+        singlesCache: HashMap<String, Set<String>>,
+    ): List<SentencePath> {
+        val nSyl = B.size - 1
+        val dp = Array(B.size) { ArrayList<APath>() }
+        dp[0].add(APath("", BOS, 0.0))
+        for (i in 0 until nSyl) {
+            DecodeCancellation.checkpoint()
+            if (dp[i].isEmpty()) continue
+            val src = dp[i].sortedByDescending { it.score }.take(BEAM_W)
+            for (j in i + 1..nSyl) {
+                val seg = input.substring(B[i], B[j])
+                val raw = cachedExact(dict, seg)
+                val eligible = if (j == i + 1) raw.filter { isSingleChar(it.word) }
+                else raw.filterNot { isSingleChar(it.word) }
+                    .filter { admissibleUnderCuts(it.word, B[i], B[j], interior, input, singlesCache) }
+                val edges = eligible.take(SENTENCE_EDGE_N).toMutableList()
+                for (wf in edges) {
+                    val w = wf.word
+                    val lastCp = w.codePointBefore(w.length)
+                    val uni = ln(wf.freq.toDouble()) - lnTotal
+                    for (p in src) {
+                        dp[j].add(
+                            APath(
+                                p.text + w,
+                                lastCp,
+                                p.score + uni,
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+        if (dp[nSyl].isEmpty()) return emptyList()
+        val emit = ATOMIC_BEAM_N + ATOMIC_BEAM_PER_SYL * (nSyl - 2).coerceAtLeast(0)
+        val ordered = ArrayList<SentencePath>(emit)
+        val seen = HashSet<String>()
+        for (p in dp[nSyl].sortedByDescending { it.score }) {
+            if (seen.add(p.text)) { ordered.add(SentencePath(p.text, p.score)); if (ordered.size >= emit) break }
+        }
+        return ordered
+    }
 
     private data class RankedWord(
         val wordFreq: BinaryDict.WordFreq,
@@ -201,6 +360,13 @@ class PinyinDecoder(
             }
         }
         return out
+    }
+
+    private fun atomicBounds(clean: String, interior: Set<Int>): List<Int> {
+        val bset = sortedSetOf(0, clean.length)
+        bset.addAll(interior)
+        for (s in atomicSyllables(clean, interior)) bset.add(s.end)
+        return bset.toList()
     }
 
     private fun letterSyllables(input: String): List<Syllable> {
@@ -301,6 +467,11 @@ class PinyinDecoder(
     internal companion object {
         const val SEP = '\''
         const val BOS = -1
+        const val BEAM_W = 12
+        const val SENTENCE_EDGE_N = 6
+        const val ATOMIC_BEAM_N = 8
+        const val ATOMIC_BEAM_PER_SYL = 40
+        const val MAX_SYLLABLE_KEY_LEN = 6
         fun completionCap(limit: Int): Int = maxOf(1, (limit.toLong() * 2 / 3).toInt())
     }
 }

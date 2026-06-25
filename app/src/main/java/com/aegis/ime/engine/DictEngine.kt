@@ -15,6 +15,7 @@
 
 package com.aegis.ime.engine
 
+import com.aegis.ime.decoder.Cand
 import com.aegis.ime.decoder.PinyinDecoder
 import com.aegis.ime.decoder.Syllable
 import com.aegis.ime.dict.BinaryDict
@@ -36,6 +37,21 @@ class DictEngine(
 
     override val supportsChinese: Boolean = decoder != null || t9Decoder != null
 
+    override fun candidates(composing: String, t9: Boolean): List<String> =
+        candidatesCovered(composing, t9).map { it.word }
+
+    override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>): List<Cand> {
+        if (composing.isEmpty()) return emptyList()
+        val d = if (t9) t9Decoder else decoder
+        val out = d?.decodeCovered(composing, MAX_CANDIDATES, cuts) ?: emptyList()
+        return if (t9) out.filterNot { c -> c.word.all { it.code < 128 } } else out
+    }
+
+    override fun candidatesForLockedReadingCovered(letters: String, cuts: Set<Int>): List<Cand> {
+        if (letters.isEmpty()) return emptyList()
+        return decoder?.decodeCoveredAtomic(letters, MAX_CANDIDATES, cuts) ?: emptyList()
+    }
+
     override fun syllables(composing: String, t9: Boolean): List<Syllable> =
         syllables(composing, t9, emptySet())
 
@@ -49,4 +65,8 @@ class DictEngine(
 
     override fun syllablesForReading(letters: String, cuts: Set<Int>): List<Syllable> =
         if (letters.isEmpty()) emptyList() else decoder?.syllables(letters, cuts) ?: emptyList()
+
+    private companion object {
+        const val MAX_CANDIDATES = 30
+    }
 }
