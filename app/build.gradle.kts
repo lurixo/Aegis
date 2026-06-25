@@ -59,6 +59,9 @@ tasks.withType<Test>().configureEach {
         check(scratchDir.deleteRecursively()) { "could not clear $scratchDir" }
         check(scratchDir.mkdirs()) { "could not create $scratchDir" }
     }
+    inputs.dir(layout.projectDirectory.dir("../tools/t2s-data"))
+        .withPropertyName("t2sDataReadByTests")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 dependencies {
