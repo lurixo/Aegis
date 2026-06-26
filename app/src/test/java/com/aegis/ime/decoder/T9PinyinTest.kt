@@ -16,6 +16,7 @@
 package com.aegis.ime.decoder
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -47,5 +48,21 @@ class T9PinyinTest {
     @Test fun partial_buffer_still_shows_something() {
         val pre = T9Pinyin.preedit("6")
         assertTrue(pre.isNotEmpty())
+    }
+
+    @Test fun lock_first_reading_keeps_the_rest_of_the_buffer() {
+        val r = T9Pinyin.lockFirstReading("6433", "ni")!!
+        assertEquals("ni'de", r.display)
+        assertEquals("nide", r.letters)
+    }
+
+    @Test fun lock_first_reading_single_syllable_buffer() {
+        val r = T9Pinyin.lockFirstReading("64", "ni")!!
+        assertEquals("ni", r.display)
+        assertEquals("ni", r.letters)
+    }
+
+    @Test fun lock_first_reading_rejects_non_prefix_reading() {
+        assertNull(T9Pinyin.lockFirstReading("64", "mie"))
     }
 }
