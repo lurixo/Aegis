@@ -15,6 +15,7 @@
 
 package com.aegis.ime.backup
 
+import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.security.GeneralSecurityException
@@ -204,3 +205,5 @@ internal class GcmVerifyingInputStream(
         val EMPTY = ByteArray(0)
     }
 }
+
+internal class BackupCorruptException(message: String) : IOException(message)
