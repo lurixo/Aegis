@@ -8,4 +8,7 @@
     <string name="kbd_custom">自定义</string>
     <string name="lang_cn">中</string>
     <string name="lang_en">英</string>
+    <string name="panel_back">返回</string>
+
+    <string name="editbar_confirm">确定</string>
 </resources>

@@ -1,0 +1,272 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Copyright (C) 2026 lurixo
+//
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 3.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+// PARTICULAR PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
+
+package com.aegis.ime.ime
+
+import android.graphics.drawable.GradientDrawable
+import android.text.InputType
+import android.view.View
+import android.view.ViewGroup
+import android.widget.EditText
+import android.widget.TextView
+import com.aegis.ime.ime.theme.ImePalette
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
+class EditBarViewTest {
+
+    private val ctx = RuntimeEnvironment.getApplication()
+
+    private fun textViews(root: View): List<TextView> {
+        val out = ArrayList<TextView>()
+        fun walk(x: View) { if (x is TextView) out.add(x); if (x is ViewGroup) for (i in 0 until x.childCount) walk(x.getChildAt(i)) }
+        walk(root); return out
+    }
+    private fun field(v: EditBarView): EditText = v.fieldForTest()
+    private fun action(v: EditBarView, text: String): TextView = textViews(v).single { it.text?.toString() == text }
+
+    private fun layout(v: View, w: Int = 480) {
+        v.measure(
+            View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+        )
+        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+    }
+
+    @Test fun the_bar_keeps_the_toolbar_capsule_margin_above_its_row() {
+        val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        val density = ctx.resources.displayMetrics.density
+        val margin = (com.aegis.ime.ime.theme.ImeShapes.toolbarCapsuleMarginDp * density).toInt()
+        val sides = textViews(v).filterNot { it === field(v) }.filter { it.isClickable }
+        assertTrue("the bar has side controls", sides.isNotEmpty())
+        val flp = v.fieldBoxForTest().layoutParams as android.view.ViewGroup.MarginLayoutParams
+        assertEquals("the field keeps the toolbar capsule top margin", margin, flp.topMargin)
+        assertEquals("the field keeps the toolbar capsule bottom margin", margin, flp.bottomMargin)
+        for (side in sides) {
+            val lp = side.layoutParams as android.view.ViewGroup.MarginLayoutParams
+            assertEquals("a side control keeps the toolbar capsule top margin", margin, lp.topMargin)
+            assertEquals("a side control keeps the toolbar capsule bottom margin", margin, lp.bottomMargin)
+        }
+    }
+
+    @Test fun the_title_sits_inside_the_field_as_a_caption() {
+        val palette = ImePalette.STATIC_LIGHT
+        val v = EditBarView(ctx).apply { applyPalette(palette); setTitle("编辑常用语"); setText("你好") }
+        layout(v)
+        val box = v.fieldBoxForTest()
+        val caption = textViews(v).single { it.text?.toString() == "编辑常用语" }
+        assertTrue("the caption lives in the field box", caption.parent === box)
+        assertTrue("the editor lives in the same field box", field(v).parent === box)
+        assertTrue("the caption sits above the editor", caption.bottom <= field(v).top)
+        assertEquals(com.aegis.ime.ime.theme.ImeType.caption, caption.textSize / ctx.resources.displayMetrics.scaledDensity, 0.01f)
+        assertEquals(palette.keyHint, caption.currentTextColor)
+        assertEquals("the box carries the field surface", palette.keySurface, (box.background as GradientDrawable).color?.defaultColor)
+        assertNull("the editor paints no second surface inside the box", field(v).background)
+        val density = ctx.resources.displayMetrics.density
+        assertEquals("the caption row is fixed", (EditBarView.CAPTION_ROW_DP * density).toInt(), caption.height)
+        val f = field(v)
+        assertTrue("the editor shows its line", f.height >= f.lineHeight + f.paddingTop + f.paddingBottom)
+        val labelled = maxOf((EditBarView.LABELED_FIELD_HEIGHT_DP * density).toInt(), caption.height + f.height)
+        assertEquals("caption plus one line fill the labelled field height", labelled, box.height)
+        assertEquals("the bar is the field plus the capsule margins", box.height + 2 * (com.aegis.ime.ime.theme.ImeShapes.toolbarCapsuleMarginDp * density).toInt(), v.height)
+    }
+
+    @Test fun a_one_line_budget_drops_the_caption_and_the_compact_field_comes_back() {
+        val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT); setTitle("编辑常用语"); setText("你好") }
+        val caption = textViews(v).single { it.text?.toString() == "编辑常用语" }
+        val density = ctx.resources.displayMetrics.density
+        v.setFieldLineBudget(1)
+        layout(v)
+        assertEquals(View.GONE, caption.visibility)
+        val f = field(v)
+        val compact = maxOf((EditBarView.COMPACT_FIELD_HEIGHT_DP * density).toInt(), f.height)
+        assertEquals(compact, v.fieldBoxForTest().height)
+        v.setFieldLineBudget(EditBarView.MAX_FIELD_LINES)
+        layout(v)
+        assertEquals(View.VISIBLE, caption.visibility)
+        val labelled = maxOf((EditBarView.LABELED_FIELD_HEIGHT_DP * density).toInt(), caption.height + f.height)
+        assertEquals(labelled, v.fieldBoxForTest().height)
+        assertTrue("the labelled field is taller than the compact one", labelled > compact)
+    }
+
+    @Test fun the_caret_follows_the_palette_accent_across_palette_changes() {
+        val v = EditBarView(ctx)
+        v.applyPalette(ImePalette.STATIC_LIGHT)
+        val f = v.fieldForTest()
+        val caret = f.textCursorDrawable as GradientDrawable
+        assertEquals(ImePalette.STATIC_LIGHT.accentBottom, caret.color!!.defaultColor)
+        v.applyPalette(ImePalette.STATIC_DARK)
+        assertEquals("the cached caret instance takes the new accent", ImePalette.STATIC_DARK.accentBottom, caret.color!!.defaultColor)
+        assertTrue("the field still holds the same caret instance", f.textCursorDrawable === caret)
+    }
+
+    @Test fun the_field_is_a_real_editor_that_never_summons_another_ime() {
+        val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        val f = field(v)
+        assertTrue("a caret can blink only in an editable field", f.isCursorVisible)
+        assertTrue("tapping the field must be able to move the caret", f.isFocusableInTouchMode)
+        assertFalse("focusing it must not open a second keyboard", f.showSoftInputOnFocus)
+        assertNotEquals(
+            "the field accepts line breaks",
+            0,
+            f.inputType and InputType.TYPE_TEXT_FLAG_MULTI_LINE,
+        )
+    }
+
+    @Test fun the_field_carries_no_placeholder_caret_character() {
+        val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        v.setText("工作")
+        assertEquals("工作", field(v).text.toString())
+    }
+
+    @Test fun seeding_the_field_parks_the_caret_at_the_end() {
+        val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        v.setText("家庭住址")
+        assertEquals(4, field(v).selectionStart)
+        assertEquals(4, field(v).selectionEnd)
+    }
+
+    @Test fun the_exposed_editable_reads_and_writes_the_real_field() {
+        val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        v.setText("abcd")
+        val e = v.editable()
+        e.setSelection(1, 3)
+        assertEquals("abcd", e.snapshot())
+        assertEquals(1, e.selectionStart())
+        assertEquals(3, e.selectionEnd())
+        e.replace(1, 3, "XY")
+        assertEquals("aXYd", field(v).text.toString())
+        assertEquals("the caret lands after the replacement", 3, field(v).selectionStart)
+    }
+
+    @Test fun edits_report_out_but_seeding_does_not() {
+        val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        val seen = ArrayList<String>()
+        v.onTextChanged = { seen.add(it) }
+        v.setText("seed")
+        assertTrue("seeding the field is not a user edit", seen.isEmpty())
+        v.editable().replace(4, 4, "!")
+        assertEquals(listOf("seed!"), seen)
+    }
+
+    @Test fun field_viewport_is_capped_at_four_lines() {
+        val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT); setTitle("编辑常用语"); setText("短") }
+        val f = field(v)
+        assertEquals("the viewport is capped at 4 lines (maxHeight, not maxLines)",
+            f.lineHeight * 4 + f.paddingTop + f.paddingBottom, f.maxHeight)
+    }
+
+    @Test fun a_one_line_budget_keeps_the_bar_at_a_single_row() {
+        val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT); setTitle("编辑常用语") }
+        v.setFieldLineBudget(1)
+        v.setText((1..20).joinToString("\n") { "第${it}行内容" })
+        layout(v)
+        val f = field(v)
+        assertEquals("a constrained bar shows exactly one line",
+            f.lineHeight + f.paddingTop + f.paddingBottom, f.maxHeight)
+        val tall = f.height
+        v.setText("一行")
+        layout(v)
+        assertEquals("twenty lines take no more room than one", tall, field(v).height)
+    }
+
+    @Test fun restoring_the_budget_lets_the_field_grow_again() {
+        val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        v.setFieldLineBudget(1)
+        v.setFieldLineBudget(EditBarView.MAX_FIELD_LINES)
+        val f = field(v)
+        assertEquals(f.lineHeight * 4 + f.paddingTop + f.paddingBottom, f.maxHeight)
+    }
+
+    @Test fun long_content_overflows_four_lines_and_becomes_scrollable() {
+        val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT); setTitle("编辑常用语") }
+        v.setText((1..20).joinToString("\n") { "第${it}行内容" })
+        layout(v)
+        val f = field(v)
+        assertTrue("the full text lays out to more than 4 lines", f.lineCount > 4)
+        assertTrue("the viewport is capped near 4 lines, not the full content",
+            f.height <= f.lineHeight * 4 + f.paddingTop + f.paddingBottom + 1)
+        val contentHeight = f.layout.height + f.paddingTop + f.paddingBottom
+        assertTrue("the content overflows the capped 4-line viewport (so it scrolls)", contentHeight > f.height)
+    }
+
+    @Test fun short_content_does_not_scroll() {
+        val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT); setTitle("新建分类") }
+        v.setText("工作")
+        layout(v)
+        val f = field(v)
+        assertFalse("a short name needs no scrolling", f.canScrollVertically(1) || f.canScrollVertically(-1))
+    }
+
+    @Test fun both_bar_controls_stay_neutral_text_in_both_palettes() {
+        for (palette in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
+            val view = EditBarView(ctx).apply { applyPalette(palette) }
+            val back = action(view, ctx.getString(com.aegis.ime.R.string.panel_back))
+            val confirm = action(view, ctx.getString(com.aegis.ime.R.string.editbar_confirm))
+            assertTrue("the bar leads with the shared panel back control", back is PanelHeaderBackControl)
+            assertEquals(palette.keyLabel, back.currentTextColor)
+            assertEquals("confirm uses the body text color, not the accent", palette.keyLabel, confirm.currentTextColor)
+            assertNull("confirm paints no key face", confirm.background)
+            assertTrue("confirm is emphasised by weight instead of color", confirm.typeface.isBold)
+            val ripple = confirm.foreground as? android.graphics.drawable.RippleDrawable
+                ?: throw AssertionError("confirm keeps rounded tap feedback")
+            assertTrue((ripple.findDrawableByLayerId(android.R.id.mask) as GradientDrawable).cornerRadius > 0f)
+        }
+    }
+
+    @Test fun the_confirm_action_ends_at_the_shared_edge_inset() {
+        val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT); setTitle("编辑常用语") }
+        layout(v)
+        val confirm = action(v, ctx.getString(com.aegis.ime.R.string.editbar_confirm))
+        val inset = (com.aegis.ime.ime.theme.ImeShapes.edgeInsetDp * ctx.resources.displayMetrics.density).toInt()
+        assertEquals(v.width - inset, confirm.right)
+    }
+
+    @Test fun the_bar_keeps_back_field_and_confirm_left_to_right_in_a_right_to_left_layout() {
+        val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT); setTitle("编辑常用语") }
+        val host = android.widget.FrameLayout(ctx).apply {
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            addView(v, android.widget.FrameLayout.LayoutParams(android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT))
+        }
+        layout(host)
+        val back = action(v, ctx.getString(com.aegis.ime.R.string.panel_back))
+        val confirm = action(v, ctx.getString(com.aegis.ime.R.string.editbar_confirm))
+        assertTrue("back stays on the left", back.right <= v.fieldBoxForTest().left)
+        assertTrue("confirm stays on the right", v.fieldBoxForTest().right <= confirm.left)
+    }
+
+    @Test fun the_back_control_leads_the_bar_and_leaves_the_edit() {
+        var left = 0
+        val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT); setTitle("编辑常用语"); onCancel = { left++ } }
+        layout(v)
+        val back = action(v, ctx.getString(com.aegis.ime.R.string.panel_back))
+        assertTrue("the back control carries the back glyph", back.compoundDrawables[0] != null)
+        assertTrue("the back control is the first control in the bar", v.getChildAt(0) === back)
+        assertTrue("the back control sits left of the field", back.right <= v.fieldBoxForTest().left)
+        assertTrue("the back control keeps a 44dp hit height", back.height >= (44 * ctx.resources.displayMetrics.density).toInt())
+        back.performClick()
+        assertEquals(1, left)
+    }
+}

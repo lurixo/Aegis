@@ -69,6 +69,13 @@ object Glyphs {
         c.restoreToCount(layer)
     }
 
+    fun drawBack(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val w = s * 0.6f
+        val h = s * 0.82f
+        c.drawLine(cx + w, cy - h, cx - w, cy, paint)
+        c.drawLine(cx - w, cy, cx + w, cy + h, paint)
+    }
+
     fun drawBackspace(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val hw = s * 0.9f
         val hh = s * 0.7f

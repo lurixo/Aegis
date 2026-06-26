@@ -13,10 +13,12 @@
 // You should have received a copy of the GNU General Public License along with
 // this program. If not, see <https://www.gnu.org/licenses/>.
 
-package com.aegis.ime.ime.theme
+package com.aegis.ime.ime
 
-object ImeType {
-    const val caption = 12f
-    const val body = 16f
-    const val candidate = 18f
+interface PanelEditable {
+    fun snapshot(): String
+    fun selectionStart(): Int
+    fun selectionEnd(): Int
+    fun setSelection(start: Int, end: Int)
+    fun replace(start: Int, end: Int, text: CharSequence)
 }
