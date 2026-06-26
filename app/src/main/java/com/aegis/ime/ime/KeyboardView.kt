@@ -58,6 +58,11 @@ class KeyboardView(context: Context) : View(context) {
         textAlign = Paint.Align.CENTER
         textSize = sp(15f)
     }
+    private val accentLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFFFFFFF.toInt()
+        textAlign = Paint.Align.CENTER
+        textSize = sp(20f)
+    }
     private val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF78909C.toInt()
         textAlign = Paint.Align.CENTER
@@ -76,7 +81,7 @@ class KeyboardView(context: Context) : View(context) {
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
-        val rows = layout.rows.size
+        val rows = layout.rowCount
         val height = (rows * rowHeight + (rows + 1) * gap).toInt()
         setMeasuredDimension(width, height)
     }
@@ -89,6 +94,19 @@ class KeyboardView(context: Context) : View(context) {
     private fun relayout() {
         placed.clear()
         val w = width.toFloat()
+        val cells = layout.cells
+        if (cells != null) {
+            val h = height.toFloat()
+            for (pk in cells) {
+                placed.add(
+                    Placed(
+                        RectF(pk.x * w + gap, pk.y * h + gap, (pk.x + pk.w) * w - gap, (pk.y + pk.h) * h - gap),
+                        pk.key,
+                    ),
+                )
+            }
+            return
+        }
         var top = gap
         for (rowItem in layout.rows) {
             val totalWeight = rowItem.keys.sumOf { it.weight.toDouble() }.toFloat()
@@ -109,6 +127,7 @@ class KeyboardView(context: Context) : View(context) {
         for (p in placed) {
             val special = p.key.action != KeyAction.COMMIT && p.key.action != KeyAction.SPACE
             keyPaint.color = when {
+                p.key.accent -> if (p.key == pressed) 0xFF4CAF50.toInt() else 0xFF66BB6A.toInt()
                 p.key == pressed -> 0xFFB0BEC5.toInt()
                 special -> 0xFFCDD5DB.toInt()
                 else -> 0xFFFFFFFF.toInt()
@@ -122,7 +141,11 @@ class KeyboardView(context: Context) : View(context) {
         val cx = p.rect.centerX()
         val cy = p.rect.centerY()
         val display = displayLabel(p.key)
-        val paint = if (display.length > 1 && p.key.action != KeyAction.COMMIT) specialLabelPaint else labelPaint
+        val paint = when {
+            p.key.accent -> accentLabelPaint
+            display.length > 1 && p.key.action != KeyAction.COMMIT -> specialLabelPaint
+            else -> labelPaint
+        }
         if (p.key.sub != null) {
             val mainBaseline = cy - 3 * density
             canvas.drawText(display, cx, mainBaseline - (paint.descent() + paint.ascent()) / 2, paint)

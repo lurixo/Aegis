@@ -16,11 +16,12 @@
 package com.aegis.ime.layout
 
 import com.aegis.ime.layout.KeyAction.BACKSPACE
+import com.aegis.ime.layout.KeyAction.CLEAR_COMPOSING
 import com.aegis.ime.layout.KeyAction.ENTER
 import com.aegis.ime.layout.KeyAction.SHIFT
+import com.aegis.ime.layout.KeyAction.SHOW_EDIT
 import com.aegis.ime.layout.KeyAction.SPACE
 import com.aegis.ime.layout.KeyAction.SWITCH_ALPHA
-import com.aegis.ime.layout.KeyAction.SWITCH_NINE
 import com.aegis.ime.layout.KeyAction.SWITCH_NUMBERS
 import com.aegis.ime.layout.KeyAction.SWITCH_SYMBOLS
 import com.aegis.ime.layout.KeyAction.TOGGLE_LANG
@@ -35,67 +36,69 @@ object Layouts {
         LayoutId.NUMPAD -> numpad()
     }
 
-    private const val LEFT_W = 0.85f
-
-    fun defaultNineLeft(): List<Key> = listOf(
-        Key("，", weight = LEFT_W),
-        Key("。", weight = LEFT_W),
-        Key("？", weight = LEFT_W),
-        Key("符", action = SWITCH_SYMBOLS, weight = LEFT_W),
-    )
+    fun defaultNineLeft(): List<Key> = listOf(Key("，"), Key("。"), Key("？"), Key("！"))
 
     private fun row(vararg keys: Key) = KeyboardRow(keys.toList())
 
     private fun letters(s: String): List<Key> = s.map { Key(it.toString()) }
 
-    private fun langKey(lang: Lang) =
-        Key(if (lang == Lang.CN) "中" else "EN", action = TOGGLE_LANG, weight = 1.4f)
+    private fun subRow(letters: String, subs: List<String>): List<Key> =
+        letters.mapIndexed { i, c -> Key(c.toString(), sub = subs.getOrNull(i)) }
 
     private fun qwerty(lang: Lang): KeyboardLayout {
-        val r3 = ArrayList<Key>().apply {
+        val numbers = "1234567890".map { Key(it.toString(), direct = true) }
+        val q = subRow("qwertyuiop", listOf("`", "=", "+", "$", "…", "\"", "^", "[", "]", "|"))
+        val a = subRow("asdfghjkl", listOf("~", "!", "@", "#", "%", "'", "&", "*", "?"))
+        val z = ArrayList<Key>().apply {
             add(Key("⇧", action = SHIFT, weight = 1.5f))
-            addAll(letters("zxcvbnm"))
+            addAll(subRow("zxcvbnm", listOf("(", ")", "-", "_", ":", ";", "/")))
             add(Key("⌫", action = BACKSPACE, weight = 1.5f))
         }
-        val comma = if (lang == Lang.CN) Key("，") else Key(",")
-        val period = if (lang == Lang.CN) Key("。") else Key(".")
-        val r4 = listOf(
-            Key("?123", action = SWITCH_NUMBERS, weight = 1.6f),
-            Key("九", action = SWITCH_NINE, weight = 1.2f),
-            langKey(lang),
-            comma,
+        val comma = if (lang == Lang.CN) "，" else ","
+        val period = if (lang == Lang.CN) "。" else "."
+        val bottom = listOf(
+            Key("✎", action = SHOW_EDIT, weight = 1.3f),
+            Key("123", action = SWITCH_NUMBERS, weight = 1.5f),
+            Key(comma),
             Key("空格", output = " ", action = SPACE, weight = 3.5f),
-            period,
-            Key("⏎", action = ENTER, weight = 1.6f),
+            Key(period),
+            Key("中英", action = TOGGLE_LANG, weight = 1.5f),
+            Key("↵", action = ENTER, accent = true, weight = 1.6f),
         )
         return KeyboardLayout(
             LayoutId.ALPHA,
-            listOf(
-                KeyboardRow(letters("qwertyuiop")),
-                KeyboardRow(letters("asdfghjkl")),
-                KeyboardRow(r3),
-                KeyboardRow(r4),
-            ),
+            listOf(KeyboardRow(numbers), KeyboardRow(q), KeyboardRow(a), KeyboardRow(z), KeyboardRow(bottom)),
         )
     }
 
-    private fun t9(digit: String, sub: String) = Key(digit, output = digit, sub = sub)
+    private fun t9key(letters: String, digit: String) = Key(letters, output = digit)
 
-    fun nine(lang: Lang, left: List<Key>): KeyboardLayout = KeyboardLayout(
-        LayoutId.NINE,
-        listOf(
-            row(left[0], t9("1", "·"), t9("2", "ABC"), t9("3", "DEF"), Key("⌫", action = BACKSPACE)),
-            row(left[1], t9("4", "GHI"), t9("5", "JKL"), t9("6", "MNO"), Key("空格", output = " ", action = SPACE)),
-            row(left[2], t9("7", "PQRS"), t9("8", "TUV"), t9("9", "WXYZ"), Key("⏎", action = ENTER)),
-            row(
-                left[3],
-                Key("?123", action = SWITCH_NUMBERS),
-                Key("ABC", action = SWITCH_ALPHA),
-                langKey(lang),
-                t9("0", "，。"),
-            ),
-        ),
-    )
+    fun nine(lang: Lang, left: List<Key>): KeyboardLayout {
+        val u = 1f / 4.4f
+        val xL = 0f; val wL = 0.7f * u
+        val x1 = 0.7f * u; val x2 = 1.7f * u; val x3 = 2.7f * u; val wM = 1f * u
+        val xR = 3.7f * u; val wR = 0.7f * u
+        val pillH = 0.75f / 4f
+        val cells = ArrayList<PlacedKey>()
+        for (i in 0 until 4) cells.add(PlacedKey(left[i], xL, i * pillH, wL, pillH))
+        cells.add(PlacedKey(Key("✎", action = SHOW_EDIT), xL, 0.75f, wL, 0.25f))
+        cells.add(PlacedKey(Key("@#", action = SWITCH_SYMBOLS), x1, 0f, wM, 0.25f))
+        cells.add(PlacedKey(t9key("ABC", "2"), x2, 0f, wM, 0.25f))
+        cells.add(PlacedKey(t9key("DEF", "3"), x3, 0f, wM, 0.25f))
+        cells.add(PlacedKey(t9key("GHI", "4"), x1, 0.25f, wM, 0.25f))
+        cells.add(PlacedKey(t9key("JKL", "5"), x2, 0.25f, wM, 0.25f))
+        cells.add(PlacedKey(t9key("MNO", "6"), x3, 0.25f, wM, 0.25f))
+        cells.add(PlacedKey(t9key("PQRS", "7"), x1, 0.5f, wM, 0.25f))
+        cells.add(PlacedKey(t9key("TUV", "8"), x2, 0.5f, wM, 0.25f))
+        cells.add(PlacedKey(t9key("WXYZ", "9"), x3, 0.5f, wM, 0.25f))
+        cells.add(PlacedKey(Key("123", action = SWITCH_NUMBERS), x1, 0.75f, 0.8f * u, 0.25f))
+        cells.add(PlacedKey(Key("空格", output = " ", action = SPACE), 1.5f * u, 0.75f, 1.4f * u, 0.25f))
+        cells.add(PlacedKey(Key("中英", action = TOGGLE_LANG), 2.9f * u, 0.75f, 0.8f * u, 0.25f))
+        cells.add(PlacedKey(Key("⌫", action = BACKSPACE), xR, 0f, wR, 0.25f))
+        cells.add(PlacedKey(Key("重输", action = CLEAR_COMPOSING), xR, 0.25f, wR, 0.25f))
+        cells.add(PlacedKey(Key("↵", action = ENTER, accent = true), xR, 0.5f, wR, 0.5f))
+        return KeyboardLayout(LayoutId.NINE, cells = cells, rowCount = 4)
+    }
 
     private fun number(): KeyboardLayout = KeyboardLayout(
         LayoutId.NUMBER,
