@@ -18,8 +18,8 @@ package com.aegis.ime.layout
 /** Input language. CN routes letters through the (stubbed) pinyin engine; EN commits ASCII directly. */
 enum class Lang { CN, EN }
 
-/** The four P1 keyboard layouts. */
-enum class LayoutId { ALPHA, NINE, NUMBER, SYMBOL }
+/** Keyboard layouts: 26-key, 9-key T9, number page, symbol page, calculator-style number grid. */
+enum class LayoutId { ALPHA, NINE, NUMBER, SYMBOL, NUMPAD }
 
 /** What a key does when tapped. */
 enum class KeyAction {
@@ -32,7 +32,9 @@ enum class KeyAction {
     SWITCH_NUMBERS,
     SWITCH_ALPHA,
     SWITCH_NINE,
+    SWITCH_NUMPAD,   // calculator-style number 9-grid
     TOGGLE_LANG,
+    PICK_READING,    // 9-key left column: commit the best word for an explicit pinyin reading ([Key.output])
 }
 
 /**

@@ -31,6 +31,9 @@ interface CandidateEngine {
      */
     fun candidates(composing: String, t9: Boolean): List<String>
 
+    /** Candidates for an explicit full-pinyin reading (letters) — used by the 9-key reading column. */
+    fun candidatesForReading(letters: String): List<String> = emptyList()
+
     /** English completions + corrections for the buffered EN mode. */
     fun english(typed: String): List<String> = emptyList()
 
