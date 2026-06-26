@@ -121,4 +121,16 @@ class MotionSymmetryTest {
             controller.pause().stop().destroy()
         }
     }
+
+    @Test fun preedit_appear_and_disappear_reach_symmetric_end_states() {
+        animationsOff()
+        val pv = PreeditView(ctx)
+        pv.setText("ni")
+        assertEquals("appear lands shown", "ni", pv.shownTextForTest())
+        assertEquals(1f, pv.alpha, 0f)
+        pv.setText("")
+        assertEquals("disappear lands cleared (symmetric exit, not an instant-only cut on one side)", "", pv.shownTextForTest())
+        assertEquals("the band never leaves a half-faded rest state", 1f, pv.alpha, 0f)
+        assertEquals(View.VISIBLE, pv.visibility)
+    }
 }
