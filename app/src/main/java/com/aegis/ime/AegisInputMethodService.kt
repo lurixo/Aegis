@@ -42,6 +42,7 @@ import android.view.inputmethod.InputContentInfo
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import com.aegis.ime.ui.appLocaleTag
+import com.aegis.ime.R
 import com.aegis.ime.backup.RestoreJournal
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
@@ -65,6 +66,8 @@ import com.aegis.ime.ime.LayoutPanelView
 import com.aegis.ime.ime.ParallelLoad
 import com.aegis.ime.ime.phraseWriteNotice
 import com.aegis.ime.ime.SelectionMath
+import com.aegis.ime.ime.SettingsPanelView
+import com.aegis.ime.ime.SettingsShortcut
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.SymbolsView
 import com.aegis.ime.ime.ChunkedRead
@@ -146,6 +149,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var symbolsView: SymbolsView? = null
     private var editPanelView: EditPanelView? = null
     private var layoutPanelView: LayoutPanelView? = null
+    private var settingsPanelView: SettingsPanelView? = null
     private var customSymbolView: CustomSymbolPanel? = null
     private val customSymbolStore by lazy { CustomSymbolStore(getSharedPreferences("aegis", MODE_PRIVATE)) }
     private var customOperatorView: CustomSymbolPanel? = null
@@ -336,6 +340,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         symbolsView?.applyPalette(imePalette)
         editPanelView?.applyPalette(imePalette)
         layoutPanelView?.applyPalette(imePalette)
+        settingsPanelView?.applyPalette(imePalette)
         customSymbolView?.applyPalette(imePalette)
         customOperatorView?.applyPalette(imePalette)
     }
@@ -496,6 +501,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.onShowEdit = { showEditPanel() }
         controller.onShowLayout = { showLayoutPanel() }
         controller.onShowSymbols = { showSymbolsPanel() }
+        controller.onShowSettings = { showSettingsPanel() }
         controller.onShowCustomSymbols = { showCustomSymbolPanel() }
         controller.onShowCustomOperators = { showCustomOperatorPanel() }
         controller.userLearning = userLearning
@@ -752,6 +758,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onTranslateClose = { closeTranslateBar() }
             onTranslateFieldTap = { resumeTranslateRouting() }
             onOverlayChanged = { syncBackCallback() }
+            onRestoreNotice = { openBackup() }
             onPreeditTap = { controller.onPreeditTap() }
             onPreeditCaret = { index -> controller.onPreeditCaret(index) }
             onPreeditEditDone = { controller.onPreeditEditDone() }
@@ -1023,6 +1030,23 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         lp.applyPalette(imePalette)
         lp.setActiveChoice(controller.currentLayoutChoice())
         iv.showPanel(lp)
+    }
+
+    private fun showSettingsPanel() {
+        val iv = inputView ?: return
+        if (iv.isPanelShowing(settingsPanelView)) { iv.showPanel(null); return }
+        presentSettingsPanel()
+    }
+
+    private fun presentSettingsPanel() {
+        val iv = inputView ?: return
+        val sp = settingsPanelView ?: SettingsPanelView(imeUiContext()).also {
+            it.onPick = { shortcut -> openSettings(shortcut) }
+            it.onBack = { inputView?.showPanel(null) }
+            settingsPanelView = it
+        }
+        sp.applyPalette(imePalette)
+        iv.showPanel(sp)
     }
 
     private fun handleEdit(action: EditAction) {
@@ -1734,6 +1758,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onDeleteCategory = { name -> clipboardStore.deleteCategory(name) }
             it.onEditNote = { cat, text -> beginInlineEditNote(cat, text) }
             it.onClearCategory = { cat -> clipboardStore.clearPhrasesIn(cat) }
+            it.onExportPhrases = { launchPhraseTransfer(export = true) }
+            it.onImportPhrasesWithMode = { merge -> launchPhraseTransfer(export = false, merge = merge) }
             it.onClearHistory = { clipboardStore.clearHistory() }
             it.historyEnabledProvider = { historyEnabled() }
             it.historyReadableProvider = { clipboardStore.historyReadable }
@@ -1808,6 +1834,39 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         sv.resetToDefault()
         sv.applyPalette(imePalette)
         iv.showPanel(sv)
+    }
+
+    private fun openSettings(shortcut: SettingsShortcut) {
+        requestHideSelf(0)
+        runCatching {
+            val home = android.content.Intent(this, com.aegis.ime.ui.SetupActivity::class.java)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            val page = shortcut.route?.let { com.aegis.ime.ui.activityForGroup(it) }
+            if (page == null) {
+                startActivity(home)
+            } else {
+                startActivities(arrayOf(home, android.content.Intent(this, page)))
+            }
+        }
+    }
+
+    private fun openBackup() {
+        requestHideSelf(0)
+        runCatching {
+            startActivity(
+                android.content.Intent(this, com.aegis.ime.ui.BackupActivity::class.java)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+    }
+
+    private fun launchPhraseTransfer(export: Boolean, merge: Boolean = true) {
+        runCatching {
+            startActivity(
+                com.aegis.ime.ui.PhraseTransferActivity.launchIntent(this, export, merge),
+            )
+            inputView?.showPanel(null)
+        }
     }
 
 

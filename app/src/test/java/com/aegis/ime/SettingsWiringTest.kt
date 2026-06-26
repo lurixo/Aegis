@@ -1,0 +1,498 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Copyright (C) 2026 lurixo
+//
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 3.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+// PARTICULAR PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
+
+package com.aegis.ime
+
+import com.aegis.ime.user.UserModel
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.File
+
+class SettingsWiringTest {
+
+    private fun src(path: String) = File(path).readText()
+
+    private fun noticeLine(path: String, name: String): String {
+        val line = src(path).lineSequence().firstOrNull { it.contains("name=\"$name\"") }
+        assertTrue("$path must define $name", line != null)
+        return line!!
+    }
+
+    private fun memberBody(source: String, signature: String): String {
+        val start = source.indexOf(signature)
+        assertTrue("source must declare $signature", start >= 0)
+        var i = source.indexOf('{', start)
+        var depth = 0
+        val out = StringBuilder()
+        while (i < source.length) {
+            val c = source[i]
+            if (c == '{') depth++
+            if (depth > 0) out.append(c)
+            if (c == '}') {
+                depth--
+                if (depth == 0) break
+            }
+            i++
+        }
+        assertTrue("$signature must have a balanced body", depth == 0 && out.endsWith("}"))
+        assertFalse("$signature body must stop where the next member starts", out.contains("\n    private fun "))
+        return out.toString()
+    }
+
+    @Test fun service_registers_the_hot_apply_listener_for_its_whole_lifetime() {
+        val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
+        assertTrue(
+            "onCreate must register the settings hot-apply listener",
+            svc.contains("registerOnSharedPreferenceChangeListener(settingsHotApply)"),
+        )
+        assertTrue(
+            "onDestroy must unregister it",
+            svc.contains("unregisterOnSharedPreferenceChangeListener(settingsHotApply)"),
+        )
+        assertFalse(svc.contains("layoutPrefListener"))
+        assertFalse(svc.contains("associationPrefListener"))
+    }
+
+    @Test fun service_serves_the_live_user_dict_host_after_the_initial_load() {
+        val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
+        assertTrue(
+            "the live host must be registered once the initial userdb load finished",
+            svc.contains("UserDictHot.host = liveUserDictHost"),
+        )
+        assertTrue(
+            "onDestroy must withdraw only its own host",
+            svc.contains("if (UserDictHot.host === liveUserDictHost) UserDictHot.host = null"),
+        )
+        val loadDone = svc.indexOf("userStoresLoaded = true")
+        val hostReg = svc.indexOf("UserDictHot.host = liveUserDictHost")
+        assertTrue("host registration must follow the initial load", loadDone in 1 until hostReg)
+        assertFalse(
+            "a store that could not be read must not leave the settings page writing the same files as the keyboard",
+            svc.contains(") UserDictHot.host = liveUserDictHost"),
+        )
+    }
+
+    @Test fun service_loads_saves_reloads_and_routes_user_learning() {
+        val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
+        assertTrue(svc.contains("private val userLearning = UserLearning()"))
+        assertTrue(svc.contains("private val userLearnFile by lazy { File(filesDir, \"userlearn.txt\") }"))
+        val initialLoad = svc.substringAfter("runCatching { com.aegis.ime.engine.InputAssociations.lookup(\"nihao\") }")
+            .substringBefore("userStoresLoaded = true")
+        val userDbLoad = initialLoad.indexOf("userModel.load(userDbFile)")
+        val userLearnLoad = initialLoad.indexOf("userLearning.load(userLearnFile)")
+        assertTrue("secondary learning must load after userdb", userDbLoad in 1 until userLearnLoad)
+        assertTrue(svc.contains("controller.userLearning = userLearning"))
+        assertTrue(svc.contains("octagram, userLearning, englishDict,"))
+        assertTrue(
+            "a store that could not be read refuses its own write, so one store's failure must not gate the other",
+            svc.contains("liveUserDictHost.scheduleSave()") &&
+                !svc.contains(") liveUserDictHost.scheduleSave()"),
+        )
+        assertFalse(
+            "the end of an input session must not write the user dictionary on the main thread",
+            svc.contains("userModel.save(userDbFile)"),
+        )
+        assertFalse(
+            "the end of an input session must not write the learning store on the main thread",
+            svc.contains("userLearning.save(userLearnFile)"),
+        )
+        assertTrue(svc.contains("userLearnFile.lastModified() > userLearnMtime"))
+        assertTrue(
+            "a reload must stand down while the keyboard's own write is still in flight",
+            svc.contains("val quiet = userStoresLoaded && !liveUserDictHost.writing && !LiveUserData.restoreInProgress"),
+        )
+        assertTrue(
+            "each store's reload must turn on its own state only, never on the other store's",
+            svc.contains("if (quiet && (!userModel.dirty || !userModel.readable) && userDbFile.lastModified() > userDbMtime)") &&
+                svc.contains("if (quiet && !userLearning.dirty && userLearnFile.lastModified() > userLearnMtime)"),
+        )
+        val restored = memberBody(svc, "val reloadUserLexicons =")
+        assertTrue(restored.contains("userLearning.load(userLearnFile)"))
+    }
+
+    @Test fun a_restore_reaches_both_user_stores_before_the_capture_guard_comes_down() {
+        val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
+        for (callback in listOf("LiveUserData.onRestored =", "LiveUserData.onLexiconsRestored =")) {
+            assertTrue("both restore paths must reload the live user stores", memberBody(svc, callback).contains("reloadUserLexicons()"))
+        }
+        val restored = memberBody(svc, "val reloadUserLexicons =")
+        assertTrue(
+            "a restore replaces the user dictionary on disk, so the running keyboard must read it back, " +
+                "and it must read it back the way that leaves the archive's own deletions behind",
+            restored.contains("userModel.replaceWordsFrom(userDbFile)"),
+        )
+        assertFalse(
+            "the archive wins a restore, so an unwritten word must not veto the reload",
+            restored.contains("userModel.dirty") || restored.contains("reloadIfUnchanged"),
+        )
+        assertTrue(
+            "the watermark must follow, or the next focused field reparses the whole dictionary for nothing",
+            restored.contains("userDbMtime = userDbFile.lastModified()"),
+        )
+        val dictionary = restored.indexOf("userModel.replaceWordsFrom(userDbFile)")
+        val learning = restored.indexOf("userLearning.load(userLearnFile)")
+        val guardDown = restored.indexOf("LiveUserData.restoreInProgress = false")
+        assertTrue("the guard may only come down once the dictionary is in memory", dictionary in 1 until guardDown)
+        assertTrue("the guard may only come down once the learning store is in memory", learning in 1 until guardDown)
+        assertTrue(
+            "a lane that has already been shut down must not swallow the restored stores",
+            restored.contains("if (!liveUserDictHost.handOff(adoptRestoredStores)) adoptRestoredStores()"),
+        )
+    }
+
+    @Test fun service_teardown_drains_clipboard_persistence_without_clearing_the_restore_guard() {
+        val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
+        val onDestroy = memberBody(svc, "override fun onDestroy()")
+        assertTrue(
+            "onDestroy must drain owned clipboard persistence hooks before withdrawing them",
+            onDestroy.contains("LiveUserData.unregisterClipboardPersistenceHooks(clipboardPendingWriteFlush)"),
+        )
+        assertFalse(
+            "onDestroy must leave restore guard ownership to restore/reload code",
+            onDestroy.contains("LiveUserData.restoreInProgress = false"),
+        )
+        assertTrue(
+            "onDestroy must land whatever the user dictionary still owes before the process goes away",
+            onDestroy.contains("runCatching { liveUserDictHost.flush() }"),
+        )
+        assertTrue(
+            "onDestroy must stop the user dictionary writer it started",
+            onDestroy.contains("liveUserDictHost.stopSaving()"),
+        )
+        val flush = onDestroy.indexOf("liveUserDictHost.flush()")
+        val stop = onDestroy.indexOf("liveUserDictHost.stopSaving()")
+        assertTrue("the final flush must precede stopping the writer", flush in 1 until stop)
+    }
+
+    @Test fun focusing_a_field_hands_the_store_reparse_to_the_writer_lane() {
+        val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
+        val onStartInput = memberBody(svc, "override fun onStartInput(")
+        assertTrue(
+            "a field that gains focus must not reparse the whole user dictionary on the main thread",
+            onStartInput.contains("val handedOff = liveUserDictHost.handOff {") &&
+                onStartInput.contains("runCatching { userModel.reloadIfUnchanged(userDbFile) }"),
+        )
+        assertTrue(
+            "a lane that has already been shut down must leave the watermark where a later focus will retry",
+            onStartInput.contains("if (!handedOff) userDbMtime = previous"),
+        )
+        assertTrue(
+            "the watermark must be taken before the lane can move it, or a promise kept on the lane is undone here",
+            onStartInput.indexOf("userDbMtime = readAt") in 1 until onStartInput.indexOf("liveUserDictHost.handOff {"),
+        )
+        assertTrue(
+            "a field that gains focus must not reparse the whole learning store on the main thread",
+            onStartInput.contains("runCatching { userLearning.loadIfUnchanged(userLearnFile) }"),
+        )
+        assertTrue(
+            "the learning store's reload must be handed to the same lane",
+            onStartInput.contains("if (!handedOff) userLearnMtime = previous"),
+        )
+        assertTrue(
+            "the learning watermark must be taken before the lane can move it too",
+            onStartInput.indexOf("userLearnMtime = readAt") in 1 until onStartInput.lastIndexOf("liveUserDictHost.handOff {"),
+        )
+        assertFalse(
+            "waiting on the lane deadlocks behind the writes this very session queued onto it",
+            onStartInput.contains(".get("),
+        )
+        assertFalse(
+            "the reload must decline rather than overwrite what the user typed while the file was being read",
+            onStartInput.contains("userModel.reload(userDbFile)") || onStartInput.contains("userLearning.load(userLearnFile)"),
+        )
+    }
+
+    @Test fun every_place_that_reads_the_stores_back_keeps_the_deletions_they_still_owe() {
+        val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
+        val keeper = "UserDeletionPromises.keep(userModel, userDbFile, userLearning, userLearnFile)"
+
+        val coldStart = svc.substringAfter("runCatching { com.aegis.ime.engine.InputAssociations.lookup(\"nihao\") }")
+            .substringBefore("userStoresLoaded = true")
+        assertTrue("a cold start must finish the deletions the last session could not", coldStart.contains(keeper))
+        assertTrue(
+            "keeping a promise rewrites both files, so both watermarks must be taken again after it",
+            coldStart.lastIndexOf("userDbMtime = userDbFile.lastModified()") > coldStart.indexOf(keeper) &&
+                coldStart.lastIndexOf("userLearnMtime = userLearnFile.lastModified()") > coldStart.indexOf(keeper),
+        )
+
+        val restored = memberBody(svc, "val reloadUserLexicons =")
+        val kept = restored.indexOf(keeper)
+        assertTrue(
+            "the guard may only come down once the restored stores owe nothing",
+            kept in 1 until restored.indexOf("LiveUserData.restoreInProgress = false"),
+        )
+        assertTrue(
+            "keeping a promise rewrites both files, so both watermarks must be taken again after it",
+            restored.lastIndexOf("userDbMtime = userDbFile.lastModified()") > kept &&
+                restored.lastIndexOf("userLearnMtime = userLearnFile.lastModified()") > kept,
+        )
+
+        val onStartInput = memberBody(svc, "override fun onStartInput(")
+        assertTrue("a word list picked up after a focus change must have its promises kept", onStartInput.contains(keeper))
+        assertTrue(
+            "both stores are read back on a focus change, so both must cash what the word list owes",
+            onStartInput.indexOf(keeper) in 1 until onStartInput.lastIndexOf(keeper),
+        )
+        assertTrue(
+            "keeping a promise rewrites both files, so both watermarks must be taken again after it",
+            onStartInput.indexOf("userDbMtime = userDbFile.lastModified()") > onStartInput.indexOf(keeper) &&
+                onStartInput.indexOf("userLearnMtime = userLearnFile.lastModified()") > onStartInput.indexOf(keeper),
+        )
+    }
+
+    @Test fun the_keyboard_owns_the_live_clipboard_store_from_first_touch_until_teardown() {
+        val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
+        val liveStore = svc.substringAfter("private val clipboardStore by lazy {").substringBefore("\n    }")
+        assertTrue(
+            "the store the keyboard writes must be the one backup and restore reach for",
+            liveStore.contains("ClipboardStore(filesDir)") &&
+                liveStore.contains("it.load()") &&
+                liveStore.contains("LiveUserData.clipboardHost = it"),
+        )
+        assertTrue(
+            "the keyboard that owns the store must be the one told what its phrase writes did",
+            liveStore.contains("it.reportPhraseWritesTo(mainLane, ::reportPhraseWrite)"),
+        )
+        assertTrue(
+            "the clipboard panel must be told when the history could not be read, or it claims to be empty",
+            svc.contains("it.historyReadableProvider = { clipboardStore.historyReadable }"),
+        )
+        assertTrue(
+            "the phrase page must be told when the phrases could not be read, or it claims to be empty",
+            svc.contains("it.phrasesReadableProvider = { clipboardStore.phrasesReadable }"),
+        )
+        val onDestroy = memberBody(svc, "override fun onDestroy()")
+        assertTrue(
+            "onDestroy must stop the clipboard writer it started",
+            onDestroy.contains("clipboardStore.stopSaving()"),
+        )
+        assertTrue(
+            "onDestroy must take back the phrase write listener it left on the store",
+            onDestroy.contains("clipboardStore.stopReportingPhraseWrites()"),
+        )
+        val drained = onDestroy.indexOf("LiveUserData.unregisterClipboardPersistenceHooks(clipboardPendingWriteFlush)")
+        val stopped = onDestroy.indexOf("clipboardStore.stopSaving()")
+        assertTrue("what the clipboard still owes must be drained before its writer is stopped", drained in 1 until stopped)
+        assertTrue(
+            "onDestroy must withdraw only its own store, or it unpublishes a successor's",
+            onDestroy.contains("if (LiveUserData.clipboardHost === clipboardStore) LiveUserData.clipboardHost = null"),
+        )
+        assertFalse(
+            "withdrawing without checking ownership leaves backup and restore writing files nobody else knows about",
+            Regex("""(?<!=== clipboardStore\) )LiveUserData\.clipboardHost = null""").containsMatchIn(onDestroy),
+        )
+    }
+
+    @Test fun engine_reload_rechecks_after_initial_build_and_after_a_successful_hot_reload() {
+        val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
+        val calls = Regex("""(?<!fun )maybeReloadEngine\(\)""").findAll(svc).count()
+        assertTrue("expected the onStartInput call plus both build-site re-checks, found $calls", calls >= 3)
+    }
+
+    @Test fun opening_settings_hides_the_keyboard_before_launching_the_activity() {
+        val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
+        val body = memberBody(svc, "private fun openSettings(shortcut: SettingsShortcut)")
+        val hide = body.indexOf("requestHideSelf(0)")
+        val launch = body.indexOf("startActivit")
+        assertTrue("openSettings must request the IME hide", hide >= 0)
+        assertTrue("the hide request must precede the activity launch", launch > hide)
+    }
+
+    @Test fun the_restore_notice_hides_the_keyboard_before_opening_backup_and_restore() {
+        val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
+        val body = svc.substringAfter("private fun openBackup()").substringBefore("private fun launchPhraseTransfer")
+        val hide = body.indexOf("requestHideSelf(0)")
+        val launch = body.indexOf("startActivity(")
+        assertTrue("openBackup must request the IME hide", hide >= 0)
+        assertTrue("the hide request must precede the activity launch", launch > hide)
+        assertTrue("the notice must open the backup and restore page", body.contains("BackupActivity::class.java"))
+        assertTrue("an IME launches into its own task", body.contains("FLAG_ACTIVITY_NEW_TASK"))
+        assertTrue(
+            "a tap on the notice must reach openBackup",
+            svc.contains("onRestoreNotice = { openBackup() }"),
+        )
+    }
+
+    @Test fun download_work_is_screen_independent_and_observed_by_cards() {
+        val runtime = src("src/main/java/com/aegis/ime/ui/DownloadCardWork.kt")
+        assertTrue("download runtime must use the application context, not a screen context", runtime.contains("context.applicationContext"))
+        assertTrue("download runtime must expose observer snapshots for recreated cards", runtime.contains("fun observe(context: Context"))
+
+        val gram = src("src/main/java/com/aegis/ime/ui/GramDownloadCard.kt")
+        val dict = src("src/main/java/com/aegis/ime/ui/DictDownloadCard.kt")
+        assertTrue("model card must observe the process-level download runtime", gram.contains("GramDownloadWork.observe(context)"))
+        assertTrue("dictionary card must observe the process-level download runtime", dict.contains("DictDownloadWork.observe(context)"))
+        assertFalse("model card must not own the long-running download thread", gram.contains("ModelDownload.download("))
+        assertFalse("dictionary card must not own the long-running download thread", dict.contains("ModelDownload.download("))
+    }
+
+    @Test fun both_download_cards_bump_the_touch_counter_on_install_and_delete() {
+        val runtime = src("src/main/java/com/aegis/ime/ui/DownloadCardWork.kt")
+        val installBumps = Regex("""SettingsHotApply\.noteEnginePackChanged\(prefs\)""").findAll(runtime).count()
+        assertTrue("download runtime must bump the counter for model and dictionary installs", installBumps >= 2)
+        for (card in listOf(
+            "src/main/java/com/aegis/ime/ui/GramDownloadCard.kt",
+            "src/main/java/com/aegis/ime/ui/DictDownloadCard.kt",
+        )) {
+            val deleteBumps = Regex("""SettingsHotApply\.noteEnginePackChanged\(prefs\)""").findAll(src(card)).count()
+            assertTrue("$card must bump the counter on delete (found $deleteBumps)", deleteBumps >= 1)
+        }
+    }
+
+    @Test fun the_word_list_page_exports_on_the_store_lane_and_says_how_it_went() {
+        val page = src("src/main/java/com/aegis/ime/ui/UserLexiconTransferUi.kt")
+        val startExport = memberBody(page, "fun startExport()")
+        assertTrue(
+            "the flush before an export waits on the writer, so it must be handed to the store lane",
+            startExport.indexOf("UserStoreEdits.submit {") in
+                0 until startExport.indexOf("UserLexiconTransfer.export("),
+        )
+        val exportLauncher = page.substringAfter("val exportLauncher =").substringBefore("val importLauncher =")
+        assertTrue(
+            "and the file the picker chose must be written on that lane too",
+            exportLauncher.indexOf("UserStoreEdits.submit {") in
+                0 until exportLauncher.indexOf("stage.inputStream()"),
+        )
+        assertTrue(
+            "an export that could not be written must say so rather than look like it worked",
+            exportLauncher.contains("exportFailed"),
+        )
+        assertFalse(
+            "and the page must not copy the word list out on the thread that draws",
+            exportLauncher.contains("userDb.inputStream()"),
+        )
+    }
+
+    @Test fun the_rejected_word_notice_names_the_ceilings_the_dictionary_really_enforces() {
+        val limit = 256
+        assertTrue("a word of $limit characters is accepted", UserModel.acceptsManualWord("词".repeat(limit), "ceshi"))
+        assertFalse("a word of ${limit + 1} is not", UserModel.acceptsManualWord("词".repeat(limit + 1), "ceshi"))
+        assertTrue("a pinyin of $limit letters is accepted", UserModel.acceptsManualWord("词", "a".repeat(limit)))
+        assertFalse("a pinyin of ${limit + 1} is not", UserModel.acceptsManualWord("词", "a".repeat(limit + 1)))
+
+        val en = noticeLine("src/main/res/values/strings.xml", "user_dict_toast_add_rejected")
+        assertFalse("EN must not name a tighter ceiling than the one enforced", en.contains("under $limit"))
+        assertTrue("EN must name the ceiling that is enforced", en.contains("$limit characters or fewer"))
+        assertTrue("EN must cover the pinyin ceiling too", en.contains("pinyin"))
+
+        val zh = noticeLine("src/main/res/values-zh/strings.xml", "user_dict_toast_add_rejected")
+        assertTrue("ZH must name the ceiling that is enforced", zh.contains("$limit 字符以内"))
+        assertTrue("ZH must cover the pinyin ceiling too", zh.contains("拼音"))
+    }
+
+    @Test fun user_dict_page_does_not_own_the_app_version_label() {
+        val page = src("src/main/java/com/aegis/ime/ui/UserDictPage.kt")
+        assertFalse("user dict page must not read package versionName", page.contains("getPackageInfo"))
+        assertFalse("user dict page must not own the app version card", page.contains("AppVersionCard"))
+        assertFalse("user dict page must not own the app release label", page.contains("appReleaseLabel"))
+    }
+
+    @Test fun every_settings_page_keeps_the_edge_to_edge_inset_contract() {
+        val setup = src("src/main/java/com/aegis/ime/ui/SetupActivity.kt")
+        assertTrue(setup.contains("fun SettingsPageColumn") && setup.contains(".settingsScrollInsets("))
+        val components = src("src/main/java/com/aegis/ime/ui/AppComponents.kt")
+        assertTrue(components.contains(".appPageInsets("))
+        assertTrue(components.contains("bottomInsets: WindowInsets = WindowInsets.safeDrawing"))
+        assertTrue(components.contains("bottomInsets = bottomInsets"))
+        assertTrue(components.contains("topInsets = settingsTopInset()"))
+        assertTrue(components.contains("bottomInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)"))
+        assertTrue(components.contains("topInsets.only(WindowInsetsSides.Top)"))
+        assertFalse(
+            "app pages must not source top padding directly from safeDrawing",
+            components.contains(".windowInsetsPadding(WindowInsets.safeDrawing)"),
+        )
+    }
+
+    @Test fun app_design_tokens_and_navigation_are_not_visually_coupled_to_the_ime() {
+        val theme = src("src/main/java/com/aegis/ime/ui/theme/Theme.kt")
+        val tokens = src("src/main/java/com/aegis/ime/ui/theme/AppDesignTokens.kt")
+        val components = src("src/main/java/com/aegis/ime/ui/AppComponents.kt")
+
+        assertTrue(theme.contains("typography = aegisTypography"))
+        assertTrue(theme.contains("shapes = aegisShapes"))
+        assertTrue(components.contains("AppIconMetrics.backChevronHeight"))
+        assertTrue(components.contains("AppIconMetrics.touchTarget"))
+        assertFalse("App shapes must not inherit IME corner tokens", theme.contains("ImeShapes"))
+        assertFalse("App navigation must not draw through IME glyph code", components.contains("Glyphs"))
+        assertFalse("App design tokens must remain in the App layer", tokens.contains("com.aegis.ime.ime"))
+    }
+
+    @Test fun the_model_card_sits_above_the_dictionary_card_on_the_dicts_page() {
+        val setup = src("src/main/java/com/aegis/ime/ui/SetupActivity.kt")
+        val dictsPage = setup.substringAfter("fun DictSettingsPage").substringBefore("fun AboutPage")
+        val gram = dictsPage.indexOf("GramDownloadCard()")
+        val dict = dictsPage.indexOf("DictDownloadCard()")
+        assertTrue("both download cards must be on the dicts page", gram >= 0 && dict >= 0)
+        assertTrue("GramDownloadCard must render before DictDownloadCard", gram < dict)
+    }
+
+    @Test fun data_backup_is_a_home_group_not_an_about_entry() {
+        val setup = src("src/main/java/com/aegis/ime/ui/SetupActivity.kt")
+        assertTrue("home route order must place keyboard after input and backup between user dictionary and about", setup.contains("listOf(INPUT, KEYBOARD, DICTS, USER_DICT, BACKUP, ABOUT)"))
+        assertTrue("backup route must open BackupActivity directly", setup.contains("SettingsRoutes.BACKUP -> BackupActivity::class.java"))
+        val aboutPage = setup.substringAfter("fun AboutPage").substringBefore("fun SetupStepActions")
+        assertFalse("About page must not keep a duplicate data-backup entry", aboutPage.contains("settings_backup_title"))
+        val aboutActivity = src("src/main/java/com/aegis/ime/ui/AboutActivity.kt")
+        assertFalse("AboutActivity must not launch BackupActivity", aboutActivity.contains("BackupActivity"))
+    }
+
+    @Test fun backup_password_dialogs_keep_visibility_and_default_autofill_affordances() {
+        val backup = src("src/main/java/com/aegis/ime/ui/BackupActivity.kt")
+        assertTrue("password fields must route through the shared show/hide field", backup.contains("fun PasswordTextField"))
+        assertTrue("password fields must offer a show control", backup.contains("backup_password_show"))
+        assertTrue("password fields must offer a hide control", backup.contains("backup_password_hide"))
+        assertTrue("export/import dialogs must expose the saved default action", backup.contains("backup_default_password_use_button"))
+        assertTrue("default password fill must populate export password and confirmation", backup.contains("confirm = fill"))
+        assertTrue("default password fill must populate import password", backup.contains("password = fill"))
+        val store = src("src/main/java/com/aegis/ime/ui/BackupDefaultPasswordStore.kt")
+        assertTrue("default password must use Android Keystore AES-GCM", store.contains("AndroidKeyStore") && store.contains("AES/GCM/NoPadding"))
+        assertFalse("default password store must not use the backup settings prefs", store.contains("getSharedPreferences(\"aegis\""))
+    }
+
+    @Test fun the_keyboard_page_wires_the_case_card_and_the_merged_preview_card() {
+        val setup = src("src/main/java/com/aegis/ime/ui/SetupActivity.kt")
+        val keyboardPage = setup.substringAfter("fun KeyboardSettingsPage").substringBefore("fun DictSettingsPage")
+        for (card in listOf("LetterCaseCard()", "KeyPreviewCard()")) {
+            assertTrue("keyboard page must render $card", keyboardPage.contains(card))
+        }
+        assertFalse("the old split 9-key preview card must be gone", setup.contains("KeyPreviewNineToggleCard("))
+        assertFalse("the old split 26-key preview card must be gone", setup.contains("KeyPreviewAlphaToggleCard("))
+    }
+
+    @Test fun the_gram_card_drops_the_unsourced_internal_evaluation_score() {
+        val en = src("src/main/res/values/strings.xml")
+        val zh = src("src/main/res/values-zh/strings.xml")
+        assertFalse("EN gram card must not cite an internal evaluation score", en.contains("internal evaluation top-1"))
+        assertFalse("EN gram card must not cite an internal evaluation score", en.contains("about 9 points"))
+        assertFalse("ZH gram card must not cite an internal evaluation score", zh.contains("内部评测"))
+        assertFalse("ZH gram card must not cite an internal evaluation score", zh.contains("约 9 分"))
+    }
+
+    @Test fun no_ui_string_promises_a_delayed_settings_effect_any_more() {
+        for (path in listOf("src/main/res/values/strings.xml", "src/main/res/values-zh/strings.xml")) {
+            val text = src(path)
+            assertFalse("$path still promises next-switch effect", text.contains("next time you switch"))
+            assertFalse("$path still promises next-switch effect", text.contains("下次切换"))
+            assertFalse("$path still promises a restart", text.contains("重启输入法"))
+            assertFalse("$path still promises switch/restart loading", text.contains("切换/重启"))
+        }
+        val fuzzyCard = src("src/main/java/com/aegis/ime/ui/FuzzySettingsCard.kt")
+        assertFalse(
+            "FuzzySettingsCard's stale delayed-effect comment must stay gone",
+            fuzzyCard.contains("Takes effect next time"),
+        )
+    }
+}
