@@ -227,6 +227,8 @@ object Motion {
 
         fun release() = animateTo(0f, PRESS_OUT, STANDARD)
 
+        fun cancel() = release()
+
         fun reset() {
             animator?.cancel()
             animator = null

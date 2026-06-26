@@ -55,4 +55,13 @@ object GraphemeText {
 
     private fun boundaries(text: CharSequence): BreakIterator =
         BreakIterator.getCharacterInstance().apply { setText(text.toString()) }
+
+    fun clusterCount(text: CharSequence): Int {
+        if (text.isEmpty()) return 0
+        val it = BreakIterator.getCharacterInstance()
+        it.setText(text.toString())
+        var count = 0
+        while (it.next() != BreakIterator.DONE) count++
+        return count
+    }
 }

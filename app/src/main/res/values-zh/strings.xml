@@ -9,6 +9,8 @@
     <string name="lang_cn">中</string>
     <string name="lang_en">英</string>
     <string name="panel_back">返回</string>
+    <string name="panel_all">全部</string>
+    <string name="panel_singles">单字</string>
 
     <string name="editbar_confirm">确定</string>
 </resources>

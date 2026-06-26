@@ -17,6 +17,7 @@ package com.aegis.ime.ime
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Rect
 import android.view.View
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
@@ -45,6 +46,32 @@ class GridLineTest {
         assertEquals(1f, ImeShapes.gridLinePx(2f), 0f)
         assertEquals(1f, ImeShapes.gridLinePx(2.625f), 0f)
         assertEquals(2f, ImeShapes.gridLinePx(3.5f), 0f)
+    }
+
+    @Test fun the_expanded_panel_rules_are_black_hairlines() {
+        forEachScreen { label, density, line ->
+            val v = CandidateGridView(ctx).apply {
+                applyPalette(ImePalette.STATIC_LIGHT)
+                setReadings(listOf("ni", "hao", "ma"), 0)
+                setCandidates((1..40).map { "候$it" })
+            }
+            val bmp = render(v, (360 * density).toInt(), (250 * density).toInt())
+            val rows = v.visibleCandidateRowsForTest()
+            assertEquals("$label lays out the four candidate rows", CandidateGridView.ROWS, rows.size)
+            for (x in v.columnRulesForTest()) assertVerticalRule(bmp, "$label column rule at $x", x, line + 1, line)
+            val tile = requireNotNull(v.readingTileForTest(0))
+            val seam = Rect(0, 0, tile.width, tile.height).also { v.offsetDescendantRectToMyCoords(tile, it) }
+            assertHorizontalRule(bmp, "$label reading seam", seam.bottom, seam.left + line + 1, line)
+            rows.zipWithNext().forEach { (upper, lower) ->
+                assertEquals("$label rows sit one grid line apart", line, lower.top - upper.bottom)
+                assertHorizontalRule(bmp, "$label table seam under $upper", lower.top, upper.left + line + 1, line)
+            }
+            val inset = (com.aegis.ime.ime.theme.ImeShapes.edgeInsetDp * density).toInt()
+            for (y in v.actionRulesForTest()) assertHorizontalRule(bmp, "$label action rule at $y", y, v.width - inset - line - 2, line)
+            val x = rows[0].left + line + 1
+            assertHorizontalRule(bmp, "$label top outline", line, x, line)
+            assertHorizontalRule(bmp, "$label bottom outline", v.height, x, line)
+        }
     }
 
     @Test fun the_nine_key_scroll_column_separators_are_black_hairlines() {
@@ -121,6 +148,9 @@ class GridLineTest {
         if (run > 0) runs.add(run)
         return runs
     }
+
+    private fun assertVerticalRule(bmp: Bitmap, label: String, right: Int, y: Int, line: Int) =
+        assertRule(bmp, label, (right - line - 1..right).map { it to y })
 
     private fun assertHorizontalRule(bmp: Bitmap, label: String, bottom: Int, x: Int, line: Int) =
         assertRule(bmp, label, (bottom - line - 1..bottom).map { x to it })

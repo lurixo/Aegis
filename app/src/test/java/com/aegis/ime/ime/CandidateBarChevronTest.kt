@@ -16,6 +16,7 @@
 package com.aegis.ime.ime
 
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -245,6 +246,50 @@ class CandidateBarChevronTest {
         assertEquals("chevron height follows its aspect inside the box", taskbarGlyph.width() * (0.76f / 1.4f), taskbarGlyph.height(), 0.02f * density)
         assertTrue(candidateHit.contains(candidateGlyph))
         assertTrue(taskbarHit.contains(taskbarGlyph))
+    }
+
+    @Test fun collapsed_expand_hit_column_matches_back_and_requires_bounded_down_and_up() {
+        val context = ctx.createConfigurationContext(
+            Configuration(ctx.resources.configuration).apply { densityDpi = 411 },
+        )
+        val viewDensity = context.resources.displayMetrics.density
+        val bar = barView(context)
+        val grid = CandidateGridView(context)
+        grid.measure(
+            View.MeasureSpec.makeMeasureSpec(bar.width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec((230 * viewDensity).toInt(), View.MeasureSpec.EXACTLY),
+        )
+        grid.layout(0, 0, grid.measuredWidth, grid.measuredHeight)
+        bar.setContent(List(40) { "候选$it" }, "shi")
+        val bounds = bar.expandControlBoundsForTest()
+        assertEquals(grid.returnButtonForTest().width.toFloat(), bounds.width(), 0.01f)
+        val back = android.graphics.Rect(0, 0, grid.returnButtonForTest().width, grid.returnButtonForTest().height)
+            .also { grid.offsetDescendantRectToMyCoords(grid.returnButtonForTest(), it) }
+        assertEquals("the collapsed control sits where the open grid's return button does", back.left.toFloat(), bounds.left, 1f)
+        assertEquals("the collapsed control ends where the open grid's return button does", back.right.toFloat(), bounds.right, 1f)
+        var expansions = 0
+        var picks = 0
+        var time = 0L
+        bar.onExpand = { expansions++ }
+        bar.onPick = { picks++ }
+        fun gesture(downX: Float, downY: Float, upX: Float, upY: Float, move: Boolean = false) {
+            val downTime = time
+            bar.dispatchTouchEvent(MotionEvent.obtain(downTime, time, MotionEvent.ACTION_DOWN, downX, downY, 0))
+            time += 10
+            if (move) {
+                bar.dispatchTouchEvent(MotionEvent.obtain(downTime, time, MotionEvent.ACTION_MOVE, upX, upY, 0))
+                time += 10
+            }
+            bar.dispatchTouchEvent(MotionEvent.obtain(downTime, time, MotionEvent.ACTION_UP, upX, upY, 0))
+            time += 10
+        }
+        gesture(bounds.left + 1f, bounds.centerY(), bounds.left + 1f, bounds.centerY())
+        assertEquals(1, expansions)
+        gesture(bounds.centerX(), bounds.centerY(), bounds.centerX(), bounds.bottom + 1f, move = true)
+        gesture(bounds.right - 1f, bounds.centerY(), bounds.right + 1f, bounds.centerY())
+        gesture(bounds.left - 1f, bounds.centerY(), bounds.left + 1f, bounds.centerY())
+        assertEquals(1, expansions)
+        assertEquals(0, picks)
     }
 
     @Test fun the_idle_toolbar_capsule_keeps_the_shared_edge_inset() {

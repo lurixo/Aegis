@@ -20,11 +20,15 @@ import android.graphics.Canvas
 import android.graphics.Rect
 import android.graphics.RectF
 import android.view.View
+import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -89,5 +93,19 @@ class RetypeLabelTest {
             "the label is centred in its key: $ink in $cell",
             kotlin.math.abs(ink.centerX() - cell.centerX()) <= 2 * density,
         )
+    }
+
+    @Test fun the_expanded_retype_spells_out_its_label() {
+        val grid = CandidateGridView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        grid.measure(
+            View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec((250 * density).toInt(), View.MeasureSpec.EXACTLY),
+        )
+        grid.layout(0, 0, grid.measuredWidth, grid.measuredHeight)
+        val button = grid.clearButtonForTest()
+
+        assertEquals("the face spells out the retype name", ctx.getString(R.string.kbd_redo), button.text.toString())
+        assertNull("no glyph is left beside the words", button.compoundDrawables.firstOrNull { it != null })
+        assertEquals("it is set at the panel action size", ImeType.body * density, button.textSize, 0.01f)
     }
 }

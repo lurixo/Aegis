@@ -24,6 +24,21 @@ import android.graphics.RectF
 
 object Glyphs {
 
+    class Ink internal constructor(
+        private val boxLeft: Float,
+        private val boxTop: Float,
+        private val boxWidth: Float,
+        private val boxHeight: Float,
+        private val render: (Canvas, Paint, Float, Float, Float) -> Unit,
+    ) {
+        fun draw(c: Canvas, paint: Paint, cx: Float, cy: Float, sizePx: Float) {
+            val s = (sizePx - paint.strokeWidth) / maxOf(boxWidth, boxHeight)
+            render(c, paint, cx - (boxLeft + boxWidth / 2f) * s, cy - (boxTop + boxHeight / 2f) * s, s)
+        }
+    }
+
+    val backspaceInk = Ink(-0.9f, -0.7f, 1.8f, 1.4f) { c, p, x, y, s -> drawBackspace(c, p, x, y, s) }
+
     fun drawClipboard(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val w = s * 0.58f; val h = s * 0.78f
         c.drawRoundRect(cx - w, cy - h + s * 0.18f, cx + w, cy + h, s * 0.22f, s * 0.22f, paint)

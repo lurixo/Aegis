@@ -1431,6 +1431,13 @@ class KeyboardView(context: Context) : View(context) {
             return outer + Layouts.NINE_SIDE_FRACTION * (keyboardWidth - 2f * outer)
         }
 
+        fun nineScrollCellHeight(keyboardHeight: Int, density: Float): Float {
+            val nine = Layouts.forId(LayoutId.NINE, Lang.CN)
+            val column = nine.scrollColumn ?: return 0f
+            val available = LandscapeDockSizing.effectiveVerticalGap(keyboardHeight, nine.rowCount, density, fractionalRows = true)
+            return scrollCellHeight(column, keyboardHeight.toFloat(), minOf(KEY_GAP_DP * density / 2f, available / 2f))
+        }
+
         fun scrollCellHeight(column: ScrollColumn, keyboardHeight: Float, verticalGap: Float): Float {
             val visible = (column.h / column.cellHFrac).roundToInt().coerceAtLeast(1)
             return (column.h * keyboardHeight - 2f * verticalGap) / visible

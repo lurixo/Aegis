@@ -9,6 +9,8 @@
     <string name="lang_cn">CH</string>
     <string name="lang_en">EN</string>
     <string name="panel_back">Back</string>
+    <string name="panel_all">All</string>
+    <string name="panel_singles">Single</string>
 
     <string name="editbar_confirm">OK</string>
 </resources>
