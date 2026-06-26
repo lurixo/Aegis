@@ -20,6 +20,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.os.Looper
 import android.provider.Settings
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -67,6 +68,89 @@ class PanelMotionTest {
             if (v is ViewGroup) for (i in 0 until v.childCount) stack.add(v.getChildAt(i))
         }
         return found.single()
+    }
+
+    @Test fun clear_confirmation_dismiss_reaches_gone_in_the_same_call() {
+        animationsOn()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val v = attach(activity, EmojiView(activity).apply { applyPalette(light) })
+            v.clearBtnForTest().performClick()
+            assertTrue(v.clearDialogVisibleForTest())
+            assertTrue(v.cancelClearForTest())
+            assertFalse("cancel lands GONE in the same call", v.clearDialogVisibleForTest())
+
+            v.clearBtnForTest().performClick()
+            assertTrue(v.confirmClearForTest())
+            assertFalse("confirm lands GONE in the same call", v.clearDialogVisibleForTest())
+
+            v.clearBtnForTest().performClick()
+            assertTrue(v.cancelClearForTest())
+            v.clearBtnForTest().performClick()
+            assertTrue("a reopen right after a cancel settles visible", v.clearDialogVisibleForTest())
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun clear_confirmation_dismiss_is_immediate_under_reduced_motion() {
+        animationsOff()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val v = attach(activity, EmojiView(activity).apply { applyPalette(light) })
+            v.clearBtnForTest().performClick()
+            assertTrue(v.clearDialogVisibleForTest())
+            assertTrue(v.cancelClearForTest())
+            assertFalse("reduced motion jumps straight to GONE", v.clearDialogVisibleForTest())
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun emoji_variant_popup_dismiss_reaches_gone_in_the_same_call() {
+        animationsOn()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val v = attach(activity, EmojiView(activity).apply { applyPalette(light) })
+            v.openVariantsForTest("👋")
+            assertTrue(v.variantVisibleForTest())
+            val down = MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, 1f, 1f, 0)
+            assertTrue("the dismissing tap is consumed", v.variantBackdropForTest().dispatchTouchEvent(down))
+            down.recycle()
+            assertFalse("the dismissal lands GONE in the same call", v.variantVisibleForTest())
+
+            v.openVariantsForTest("👋")
+            assertTrue("a reopen settles visible", v.variantVisibleForTest())
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun emoji_variant_popup_commits_once_per_open() {
+        animationsOn()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val v = attach(activity, EmojiView(activity).apply { applyPalette(light) })
+            var commits = 0
+            v.onEmoji = { commits++ }
+            v.openVariantsForTest("👋")
+            assertTrue(v.tapVariantSkinForTest(1))
+            assertEquals("the first tap commits once and dismisses", 1, commits)
+            assertFalse("the popup leaves in the same call", v.variantVisibleForTest())
+
+            v.tapVariantSkinForTest(2)
+            assertEquals("a tap on the dismissed card commits nothing", 1, commits)
+
+            v.openVariantsForTest("👋")
+            assertTrue(v.tapVariantSkinForTest(1))
+            assertEquals("a reopened popup commits again", 2, commits)
+        } finally {
+            controller.pause().stop().destroy()
+        }
     }
 
     @Test fun edit_panel_selection_tint_crossfades_and_repeat_calls_are_free() {

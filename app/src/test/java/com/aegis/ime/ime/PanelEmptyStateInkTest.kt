@@ -56,6 +56,17 @@ class PanelEmptyStateInkTest {
         assertTrue("\"$text\" on the panel face: $contrast", contrast >= 4.5)
     }
 
+    @Test fun the_emoji_panel_writes_its_empty_line_in_body_ink() {
+        for (p in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
+            val view = EmojiView(ctx).apply {
+                recentProvider = { emptyList() }
+                applyPalette(p)
+                resetToDefault()
+            }
+            assertPanelBodyInk(view, ctx.getString(R.string.emoji_empty_hint), p)
+        }
+    }
+
     @Test fun the_symbol_panel_writes_its_empty_line_in_body_ink() {
         for (p in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
             val view = SymbolsView(ctx).apply {
@@ -65,5 +76,15 @@ class PanelEmptyStateInkTest {
             }
             assertPanelBodyInk(view, ctx.getString(R.string.symbols_empty_hint), p)
         }
+    }
+
+    @Test fun a_repainted_empty_panel_keeps_its_body_ink() {
+        val view = EmojiView(ctx).apply {
+            recentProvider = { emptyList() }
+            applyPalette(ImePalette.STATIC_LIGHT)
+            resetToDefault()
+        }
+        view.applyPalette(ImePalette.STATIC_DARK)
+        assertPanelBodyInk(view, ctx.getString(R.string.emoji_empty_hint), ImePalette.STATIC_DARK)
     }
 }

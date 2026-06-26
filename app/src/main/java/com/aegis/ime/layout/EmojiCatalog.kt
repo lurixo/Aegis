@@ -19,6 +19,8 @@ import com.aegis.ime.R
 
 object EmojiCatalog {
 
+    val RECENT_TITLE_RES = R.string.emoji_cat_recent
+
     data class Category(val id: String, val titleRes: Int, val emoji: List<String>)
 
     val supported: List<Category> by lazy {

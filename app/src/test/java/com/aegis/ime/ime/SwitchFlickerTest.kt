@@ -232,6 +232,28 @@ class SwitchFlickerTest {
         assertEquals("the original category stays at the top after motion settles", 0, viewport.scrollY)
     }
 
+    @Test fun emoji_category_switches_start_at_the_top_without_resetting_same_category_refreshes() {
+        for (scale in listOf(1f, 0f)) {
+            Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, scale)
+            val controller = Robolectric.buildActivity(Activity::class.java).setup()
+            try {
+                val activity = controller.get()
+                val panel = attached(activity, EmojiView(activity).apply { applyPalette(light) })
+                layoutPanel(panel)
+                assertCategoryScrollContract(
+                    panel,
+                    panel.gridViewportForTest() as ScrollView,
+                    first = 2,
+                    second = 3,
+                    open = { openCategoryForTest(it) },
+                    refresh = { refresh() },
+                )
+            } finally {
+                controller.pause().stop().destroy()
+            }
+        }
+    }
+
     @Test fun symbol_category_switches_start_at_the_top_without_resetting_same_category_refreshes() {
         for (scale in listOf(1f, 0f)) {
             Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, scale)
@@ -251,6 +273,48 @@ class SwitchFlickerTest {
             } finally {
                 controller.pause().stop().destroy()
             }
+        }
+    }
+
+    @Test fun emoji_category_switch_swaps_synchronously_at_full_opacity_when_animated() {
+        Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val v = attached(activity, EmojiView(activity).apply { applyPalette(light) })
+            v.openCategoryForTest(1)
+            flushMotion()
+            val first = v.gridCellTextsForTest()
+            assertTrue("the opened category grid is populated (never left blank)", first.isNotEmpty())
+            v.openCategoryForTest(2)
+            assertEquals("the selected category updates synchronously", 2, v.selectedCategoryForTest())
+            assertNotEquals("the animated switch swaps the grid content synchronously", first, v.gridCellTextsForTest())
+            assertTrue("the swapped-in grid is populated (never blank)", v.gridCellTextsForTest().isNotEmpty())
+            assertEquals("the viewport never leaves full opacity", 1f, v.gridViewportForTest().alpha, 0f)
+            flushMotion()
+            assertEquals("the viewport settles fully opaque", 1f, v.gridViewportForTest().alpha, 0f)
+            assertTrue("the settled grid stays populated", v.gridCellTextsForTest().isNotEmpty())
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun emoji_category_switch_swaps_immediately_under_reduced_motion() {
+        Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val v = attached(activity, EmojiView(activity).apply { applyPalette(light) })
+            v.openCategoryForTest(1)
+            val first = v.gridCellTextsForTest()
+            assertTrue("the opened category grid is populated (never left blank)", first.isNotEmpty())
+            v.openCategoryForTest(2)
+            assertEquals("the selected category updates", 2, v.selectedCategoryForTest())
+            assertNotEquals("reduced motion swaps the grid content in place immediately", first, v.gridCellTextsForTest())
+            assertTrue("the switched-to grid is populated in place (never blank)", v.gridCellTextsForTest().isNotEmpty())
+            assertEquals("reduced motion keeps the viewport fully opaque", 1f, v.gridViewportForTest().alpha, 0f)
+        } finally {
+            controller.pause().stop().destroy()
         }
     }
 

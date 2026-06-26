@@ -253,6 +253,14 @@ class PanelIconAlignmentTest {
         assertNormalLockControl(v, v.lockSlotForTest(), v.lockBtnForTest(), v.backBtnForTest(), "SymbolsView locked")
     }
 
+    @Test fun emoji_lock_control_fills_a_normal_bar_hit_target() {
+        val v = EmojiView(ctx)
+        assertNormalLockControl(v, v.lockSlotForTest(), v.lockBtnForTest(), v.backBtnForTest(), "EmojiView")
+
+        v.toggleLockForTest()
+        assertNormalLockControl(v, v.lockSlotForTest(), v.lockBtnForTest(), v.backBtnForTest(), "EmojiView locked")
+    }
+
     private fun assertNormalLockControl(root: View, slot: View, lock: TextView, back: TextView, name: String) {
         layout(root)
         assertTrue("$name: lock control must live inside its slot", lock.parent === slot)

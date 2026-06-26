@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -35,6 +36,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
@@ -114,6 +116,36 @@ class BottomBarSymmetryTest {
         assertEquals("$name face width matches its click target", control.width.toFloat(), face.width(), 0f)
         assertEquals("$name face height matches its click target", control.height.toFloat(), face.height(), 0f)
         assertEquals("$name glyph has equal left and right face clearance", face.centerX(), glyph.exactCenterX(), 0.6f + control.resources.displayMetrics.density)
+    }
+
+    private fun tap(root: View, x: Float, y: Float) {
+        root.dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, x, y, 0))
+        root.dispatchTouchEvent(MotionEvent.obtain(0, 10, MotionEvent.ACTION_UP, x, y, 0))
+        shadowOf(Looper.getMainLooper()).idle()
+    }
+
+    private fun tapControl(root: ViewGroup, control: View) {
+        val target = bounds(root, control)
+        tap(root, target.exactCenterX(), target.exactCenterY())
+    }
+
+    private fun assertActionsTileTheColumn(root: ViewGroup, controls: List<View>) {
+        val ordered = controls.sortedBy { bounds(root, it).top }
+        val column = bounds(root, ordered.first())
+        assertTrue("the column leaves the grid room to its left", column.left > 0)
+        for (control in ordered) {
+            val target = bounds(root, control)
+            assertEquals("every action shares the column's left edge", column.left, target.left)
+            assertEquals("every action shares the column's right edge", column.right, target.right)
+        }
+        for ((above, below) in ordered.zipWithNext()) {
+            assertEquals(
+                "the actions tile the column with no dead space between them",
+                bounds(root, above).bottom,
+                bounds(root, below).top,
+            )
+        }
+        assertTrue("the column stops above the category bar", bounds(root, ordered.last()).bottom < root.height)
     }
 
     private fun assertControlsUseKeySurfaces(
@@ -243,5 +275,106 @@ class BottomBarSymmetryTest {
                 assertControlsUseKeySurfaces(controls, "SymbolsView unlocked light")
             }
         }
+    }
+
+    @Test fun emoji_actions_stack_beside_the_grid_rows_in_ltr_and_rtl() {
+        for (layoutDirection in listOf(View.LAYOUT_DIRECTION_LTR, View.LAYOUT_DIRECTION_RTL)) {
+            for (width in listOf(360, 480)) {
+                val view = EmojiView(ctx).apply {
+                    this.layoutDirection = layoutDirection
+                    recentProvider = { (1..7).map(Int::toString) }
+                    applyPalette(ImePalette.STATIC_LIGHT)
+                    refresh()
+                }
+                layout(view, width)
+                val back = view.backBtnForTest()
+                val clear = view.clearBtnForTest()
+                val backspace = view.backspaceBtnForTest()
+                val controls = listOf(back, clear, view.lockBtnForTest(), backspace)
+                assertActionColumn(
+                    view,
+                    back,
+                    clear,
+                    view.lockBtnForTest(),
+                    backspace,
+                    view.cellHeightForTest(),
+                    view.gridViewportForTest(),
+                    "EmojiView",
+                )
+                assertControlsUseKeySurfaces(controls, "EmojiView")
+                controls.forEachIndexed { index, control -> assertPressStateLayer(control, "EmojiView control $index") }
+                view.applyPalette(ImePalette.STATIC_DARK)
+                assertControlsUseKeySurfaces(controls, "EmojiView")
+                view.toggleLockForTest()
+                shadowOf(Looper.getMainLooper()).idle()
+                assertControlsUseKeySurfaces(controls, "EmojiView locked")
+                view.applyPalette(ImePalette.STATIC_LIGHT)
+                assertControlsUseKeySurfaces(controls, "EmojiView locked light")
+                view.toggleLockForTest()
+                shadowOf(Looper.getMainLooper()).idle()
+                assertControlsUseKeySurfaces(controls, "EmojiView unlocked light")
+            }
+        }
+    }
+
+    @Test fun the_symbol_and_emoji_actions_tile_their_column_and_each_stays_clickable() {
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        var symbolBack = 0
+        var symbolBackspace = 0
+        val symbols = SymbolsView(ctx).apply {
+            onBack = { symbolBack++ }
+            onBackspace = { symbolBackspace++ }
+        }
+        controller.get().setContentView(symbols)
+        layout(symbols, 360)
+        val symbolControls = listOf(
+            symbols.backBtnForTest(),
+            symbols.clearBtnForTest(),
+            symbols.lockBtnForTest(),
+            symbols.backspaceBtnForTest(),
+        )
+        assertActionsTileTheColumn(symbols, symbolControls)
+        assertEquals(0, symbolBack)
+        assertEquals(0, symbolBackspace)
+        assertFalse(symbols.clearDialogVisibleForTest())
+        assertFalse(symbols.lockedForTest())
+        tapControl(symbols, symbolControls[0])
+        tapControl(symbols, symbolControls[1])
+        assertTrue(symbols.clearDialogVisibleForTest())
+        assertTrue(symbols.dismissClearForTest())
+        tapControl(symbols, symbolControls[2])
+        tapControl(symbols, symbolControls[3])
+        assertEquals(1, symbolBack)
+        assertEquals(1, symbolBackspace)
+        assertTrue(symbols.lockedForTest())
+
+        var emojiBack = 0
+        var emojiBackspace = 0
+        val emoji = EmojiView(ctx).apply {
+            onBack = { emojiBack++ }
+            onBackspace = { emojiBackspace++ }
+        }
+        controller.get().setContentView(emoji)
+        layout(emoji, 360)
+        val emojiControls = listOf(
+            emoji.backBtnForTest(),
+            emoji.clearBtnForTest(),
+            emoji.lockBtnForTest(),
+            emoji.backspaceBtnForTest(),
+        )
+        assertActionsTileTheColumn(emoji, emojiControls)
+        assertEquals(0, emojiBack)
+        assertEquals(0, emojiBackspace)
+        assertFalse(emoji.clearDialogVisibleForTest())
+        assertFalse(emoji.lockedForTest())
+        tapControl(emoji, emojiControls[0])
+        tapControl(emoji, emojiControls[1])
+        assertTrue(emoji.clearDialogVisibleForTest())
+        assertTrue(emoji.dismissClearForTest())
+        tapControl(emoji, emojiControls[2])
+        tapControl(emoji, emojiControls[3])
+        assertEquals(1, emojiBack)
+        assertEquals(1, emojiBackspace)
+        assertTrue(emoji.lockedForTest())
     }
 }

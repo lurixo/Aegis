@@ -24,6 +24,7 @@ import android.view.View
 import android.widget.HorizontalScrollView
 import android.widget.ScrollView
 import android.widget.TextView
+import com.aegis.ime.layout.EmojiCatalog
 import com.aegis.ime.ime.theme.ImePalette
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -180,6 +181,17 @@ class PanelResetOnExitTest {
         assertEquals("grid scrolled to top", 0, sv.gridScrollYForTest())
     }
 
+    @Test fun emoji_panel_resets_to_the_first_category() {
+        val ev = EmojiView(ctx)
+        ev.applyPalette(light)
+        ev.openCategoryForTest(2)
+        assertEquals(2, ev.selectedCategoryForTest())
+
+        ev.resetToDefault()
+
+        assertEquals(0, ev.selectedCategoryForTest())
+    }
+
     @Test fun reopening_after_an_input_view_recreate_still_starts_default() {
         val stale = SymbolsView(ctx).apply { applyPalette(light); openCategoryForTest(3); toggleLockForTest() }
         assertTrue("precondition: stale lock", stale.lockedForTest())
@@ -235,6 +247,24 @@ class PanelResetOnExitTest {
             "the symbols grid reopens at the top",
             0,
             flingSurvivingDismissal("symbols grid", sv, sv.gridViewportForTest() as ScrollView, 480, 220, dismiss, reopen),
+        )
+    }
+
+    @Test fun a_fling_in_the_emoji_panel_does_not_outlive_its_dismissal() = hosted { activity ->
+        val recents = EmojiCatalog.categories.first().emoji
+        val ev = EmojiView(ctx).apply { recentProvider = { recents }; applyPalette(light) }
+        host(activity, ev, 480, 220)
+        val dismiss = { ev.resetToDefault() }
+        val reopen = { ev.resetToDefault(); ev.applyPalette(light) }
+        assertEquals(
+            "the emoji category bar reopens at the left",
+            0,
+            sidewaysFlingSurvivingDismissal("emoji categories", ev, railOf(ev.railTabForTest(0)), 480, 220, dismiss, reopen),
+        )
+        assertEquals(
+            "the emoji grid reopens at the top",
+            0,
+            flingSurvivingDismissal("emoji grid", ev, ev.gridViewportForTest() as ScrollView, 480, 220, dismiss, reopen),
         )
     }
 

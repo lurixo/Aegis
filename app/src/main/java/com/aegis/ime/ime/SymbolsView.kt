@@ -761,6 +761,8 @@ class SymbolsView(context: Context) :
 
     internal fun cellHeightForTest(): Int = cellHeightPx
     internal fun categoryBarForTest(): View = railScroll
+    internal fun gridRuleColorForTest(): Int = currentPage.grid.ruleColor
+    internal fun panelFrameForTest(): ImePanelFrame = panelFrame
     internal fun categoryRailForTest(): ImePanelCategoryRail = rail
     internal fun actionColumnForTest(): View = actionColumnView
     internal fun gridTileHeightsForTest(): List<Int> =

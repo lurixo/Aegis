@@ -28,6 +28,7 @@ import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.ScrollView
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.layout.EmojiCatalog
 import com.aegis.ime.layout.SymbolCatalog
 import java.time.Duration
 import org.junit.After
@@ -581,4 +582,326 @@ class PanelSwipePagingTest {
             for (index in 0..lastSymbolCategory) tapped.openCategoryForTest(index)
             assertEquals("dragging keeps the page pool at the tap-sweep peak", tapped.tilesAllocatedForTest(), pageTiles)
         }
+
+    private fun emoji(activity: Activity, recents: List<String> = emptyList()) = EmojiView(activity).apply {
+        recentProvider = { recents }
+        applyPalette(light)
+        refresh()
+    }
+
+    private fun EmojiView.open(index: Int) {
+        openCategoryForTest(index)
+        frames(this)
+    }
+
+    private fun EmojiView.viewport(): ScrollView = gridViewportForTest() as ScrollView
+
+    private fun EmojiView.grid(): Rect = frameOf(this, viewport())
+
+    private fun EmojiView.cellCenter(index: Int): Pair<Float, Float> =
+        bounds(this, requireNotNull(gridCellForTest(index))).let { it.exactCenterX() to it.exactCenterY() }
+
+    private val lastEmojiCategory = EmojiCatalog.categories.size
+    private val hand = EmojiCatalog.categories.indexOfFirst { it.id == "hand" } + 1
+
+    @Test fun emoji_a_drag_left_past_half_pages_to_the_next_category_from_its_top() = hosted(create = { emoji(it) }) { panel ->
+        panel.open(3)
+        val next = panel.gridCellTextsForTest()
+        panel.open(2)
+        val viewport = panel.viewport()
+        viewport.scrollTo(0, maxScroll(viewport))
+        assertTrue("precondition: the outgoing category is parked away from its top", viewport.scrollY > 0)
+        val grid = panel.grid()
+        Finger(panel).slowSwipe(grid.exactCenterX() + 100f, grid.exactCenterY(), -grid.width() * 0.6f, slop)
+        assertEquals(2, panel.selectedCategoryForTest())
+        frames(panel)
+        assertEquals(3, panel.selectedCategoryForTest())
+        assertEquals(next, panel.gridCellTextsForTest())
+        assertEquals(0, viewport.scrollY)
+        assertEquals(0f, viewport.translationX, 0f)
+        assertEquals(View.GONE, panel.peekViewportForTest().visibility)
+        assertEquals(3, panel.categoryRailForTest().selectedIndex)
+        assertEquals(0f, panel.categoryRailForTest().pageOffset, 0f)
+        assertEquals(light.keyLabel, panel.railTabForTest(3).currentTextColor)
+        assertEquals(light.keyLabelSecondary, panel.railTabForTest(2).currentTextColor)
+
+        Finger(panel).slowSwipe(grid.exactCenterX() - 100f, grid.exactCenterY(), grid.width() * 0.6f, slop)
+        frames(panel)
+        assertEquals("dragging right pages back", 2, panel.selectedCategoryForTest())
+        assertEquals(0, viewport.scrollY)
+    }
+
+    @Test fun emoji_the_neighbour_shows_the_glyph_filtered_first_rows_while_the_underline_follows() =
+        hosted(create = { emoji(it) }) { panel ->
+            panel.open(3)
+            val viewport = panel.viewport()
+            val grid = panel.grid()
+            val quarter = grid.width() / 4f
+            val shown = (EmojiView.ROWS + 1) * panel.gridColumnCountForTest()
+            val finger = Finger(panel)
+            finger.down(grid.exactCenterX(), grid.exactCenterY())
+            finger.move(grid.exactCenterX() - slop - quarter, grid.exactCenterY())
+            layout(panel)
+            assertEquals(-quarter, viewport.translationX, 0f)
+            assertEquals(View.VISIBLE, panel.peekViewportForTest().visibility)
+            assertEquals(
+                "the neighbour binds the next category's supported glyphs",
+                EmojiCatalog.supported[3].emoji.take(shown),
+                panel.peekCellTextsForTest(),
+            )
+            val rail = panel.categoryRailForTest()
+            val from = panel.railTabForTest(3)
+            val to = panel.railTabForTest(4)
+            assertEquals(from.left + (to.left - from.left) * 0.25f, requireNotNull(rail.underlineBoundsForTest()).left, 0.01f)
+            assertEquals(light.keyLabel, from.currentTextColor)
+            finger.move(grid.exactCenterX() + quarter, grid.exactCenterY())
+            assertEquals(EmojiCatalog.supported[1].emoji.take(shown), panel.peekCellTextsForTest())
+            finger.up(grid.exactCenterX() + quarter, grid.exactCenterY(), 400L)
+            frames(panel)
+            assertEquals(3, panel.selectedCategoryForTest())
+        }
+
+    @Test fun emoji_the_first_and_last_categories_do_not_follow_toward_a_missing_neighbour() =
+        hosted(create = { emoji(it, recents = listOf("🙂", "👍")) }) { panel ->
+            val committed = mutableListOf<String>()
+            panel.onEmoji = { committed += it }
+            val viewport = panel.viewport()
+            val (x, y) = panel.cellCenter(0)
+            val finger = Finger(panel)
+            finger.down(x, y)
+            finger.move(x + slop + 80f, y)
+            layout(panel)
+            assertTrue(panel.pagerForTest().draggingForTest())
+            assertEquals(0f, viewport.translationX, 0f)
+            assertEquals(View.GONE, panel.peekViewportForTest().visibility)
+            finger.up(x + slop + 200f, y, 8L)
+            frames(panel)
+            assertEquals(0, panel.selectedCategoryForTest())
+            assertTrue(committed.isEmpty())
+
+            panel.open(lastEmojiCategory)
+            val grid = panel.grid()
+            finger.down(grid.exactCenterX(), grid.exactCenterY())
+            finger.move(grid.exactCenterX() - slop - 80f, grid.exactCenterY())
+            layout(panel)
+            assertTrue(panel.pagerForTest().draggingForTest())
+            assertEquals(0f, viewport.translationX, 0f)
+            finger.up(grid.exactCenterX() - slop - 200f, grid.exactCenterY(), 8L)
+            frames(panel)
+            assertEquals(lastEmojiCategory, panel.selectedCategoryForTest())
+            assertTrue(committed.isEmpty())
+        }
+
+    @Test fun emoji_a_wobble_short_of_the_lock_commits_and_closes_the_panel() = hosted(create = { emoji(it) }) { panel ->
+        val committed = mutableListOf<String>()
+        var closes = 0
+        panel.onEmoji = { committed += it }
+        panel.onBack = { closes++ }
+        panel.open(3)
+        val (x, y) = panel.cellCenter(0)
+        val finger = Finger(panel)
+        finger.down(x, y)
+        finger.move(x + slop / 2f, y)
+        finger.up(x + slop / 2f, y)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(listOf(panel.gridCellTextsForTest().first()), committed)
+        assertEquals(1, closes)
+        assertEquals(3, panel.selectedCategoryForTest())
+    }
+
+    @Test fun emoji_locking_the_page_drag_cancels_the_pressed_cell_without_committing_or_opening_variants() =
+        hosted(create = { emoji(it) }) { panel ->
+            val committed = mutableListOf<String>()
+            panel.onEmoji = { committed += it }
+            panel.open(hand)
+            val wave = panel.gridCellTextsForTest().indexOf("👋")
+            assertTrue("fixture present", wave >= 0)
+            val cell = requireNotNull(panel.gridCellForTest(wave))
+            val (x, y) = panel.cellCenter(wave)
+            val finger = Finger(panel)
+            finger.down(x, y)
+            finger.hold(ViewConfiguration.getTapTimeout() + 10L)
+            assertTrue(cell.isPressed)
+            finger.move(x - slop - 12f, y)
+            assertTrue(panel.pagerForTest().draggingForTest())
+            assertFalse(cell.isPressed)
+            finger.hold(ViewConfiguration.getLongPressTimeout() + 100L)
+            assertFalse("the page drag withdraws the skin-tone long press", panel.variantVisibleForTest())
+            finger.up(x - slop - 12f, y, 10L)
+            frames(panel)
+            assertTrue(committed.isEmpty())
+            assertEquals(0f, panel.gridCellFeedbackLevelForTest(wave), 0f)
+            assertEquals(hand, panel.selectedCategoryForTest())
+        }
+
+    @Test fun emoji_a_variant_popup_blocks_paging_while_it_holds_or_covers_the_grid() = hosted(create = { emoji(it) }) { panel ->
+        panel.open(hand)
+        val viewport = panel.viewport()
+        val wave = panel.gridCellTextsForTest().indexOf("👋")
+        val (x, y) = panel.cellCenter(wave)
+        val finger = Finger(panel)
+        finger.down(x, y)
+        finger.hold(ViewConfiguration.getLongPressTimeout() + 100L)
+        assertTrue("precondition: the long press opened the skin tones", panel.variantVisibleForTest())
+        finger.move(x - slop - 150f, y)
+        layout(panel)
+        assertFalse("the popup keeps the pointer it opened under", panel.pagerForTest().draggingForTest())
+        assertEquals(0f, viewport.translationX, 0f)
+        finger.up(x - slop - 200f, y, 8L)
+        frames(panel)
+        assertEquals(hand, panel.selectedCategoryForTest())
+        assertTrue("the popup stays open after the finger lifts", panel.variantVisibleForTest())
+
+        val grid = panel.grid()
+        Finger(panel).slowSwipe(grid.exactCenterX() + 100f, grid.exactCenterY(), -grid.width() * 0.6f, slop)
+        frames(panel)
+        assertEquals("a drag over the open popup only dismisses it", hand, panel.selectedCategoryForTest())
+        assertFalse(panel.variantVisibleForTest())
+        assertEquals(0f, viewport.translationX, 0f)
+    }
+
+    @Test fun emoji_a_delete_confirmation_blocks_paging() = hosted(create = { emoji(it, recents = listOf("🙂", "👍")) }) { panel ->
+        val (x, y) = panel.cellCenter(0)
+        val finger = Finger(panel)
+        finger.down(x, y)
+        finger.hold(ViewConfiguration.getLongPressTimeout() + 100L)
+        assertTrue(panel.clearDialogVisibleForTest())
+        finger.move(x - slop - 150f, y)
+        layout(panel)
+        assertFalse(panel.pagerForTest().draggingForTest())
+        assertEquals(0f, panel.viewport().translationX, 0f)
+        finger.up(x - slop - 200f, y, 8L)
+        frames(panel)
+        assertEquals(0, panel.selectedCategoryForTest())
+        assertTrue(panel.clearDialogVisibleForTest())
+    }
+
+    @Test fun emoji_a_vertical_scroll_never_turns_into_paging() = hosted(create = { emoji(it) }) { panel ->
+        panel.open(2)
+        val viewport = panel.viewport()
+        val grid = panel.grid()
+        val x = grid.exactCenterX()
+        val y = grid.bottom - 20f
+        val finger = Finger(panel)
+        finger.down(x, y)
+        finger.move(x, y - slop - 20f)
+        finger.move(x, y - slop - 50f)
+        assertTrue(viewport.scrollY > 0)
+        finger.move(x - 300f, y - slop - 50f)
+        assertFalse(panel.pagerForTest().draggingForTest())
+        assertEquals(0f, viewport.translationX, 0f)
+        finger.up(x - 300f, y - slop - 50f)
+        frames(panel)
+        assertEquals(2, panel.selectedCategoryForTest())
+    }
+
+    @Test fun emoji_a_touch_that_stops_a_fling_can_page_and_the_new_category_rests_at_its_top() =
+        hosted(create = { emoji(it) }) { panel ->
+            panel.open(2)
+            val viewport = panel.viewport()
+            viewport.fling(9000)
+            frames(panel, 3) { viewport.computeScroll() }
+            assertTrue(viewport.scrollY > 0)
+            val grid = panel.grid()
+            Finger(panel).slowSwipe(grid.exactCenterX() + 100f, grid.exactCenterY(), -grid.width() * 0.6f, slop)
+            frames(panel) { viewport.computeScroll() }
+            assertEquals(3, panel.selectedCategoryForTest())
+            frames(panel, 30) {
+                viewport.computeScroll()
+                assertEquals(0, viewport.scrollY)
+            }
+        }
+
+    @Test fun emoji_a_tab_tap_or_a_reset_drops_a_drag_in_progress() = hosted(create = { emoji(it) }) { panel ->
+        panel.open(3)
+        val viewport = panel.viewport()
+        val grid = panel.grid()
+        val finger = Finger(panel)
+        finger.down(grid.exactCenterX(), grid.exactCenterY())
+        finger.move(grid.exactCenterX() - slop - 80f, grid.exactCenterY())
+        assertEquals(-80f, viewport.translationX, 0f)
+        assertTrue(panel.railTabForTest(5).performClick())
+        assertEquals(5, panel.selectedCategoryForTest())
+        assertEquals(0f, viewport.translationX, 0f)
+        assertEquals(0f, panel.categoryRailForTest().pageOffset, 0f)
+        finger.up(grid.left - 100f, grid.exactCenterY(), 8L)
+        frames(panel)
+        assertEquals(5, panel.selectedCategoryForTest())
+
+        finger.down(grid.exactCenterX(), grid.exactCenterY())
+        finger.move(grid.exactCenterX() - slop - 80f, grid.exactCenterY())
+        panel.resetToDefault()
+        assertEquals(0, panel.selectedCategoryForTest())
+        assertEquals(0f, viewport.translationX, 0f)
+        assertEquals(View.GONE, panel.peekViewportForTest().visibility)
+        finger.up(grid.left - 100f, grid.exactCenterY(), 8L)
+        frames(panel)
+        assertEquals(0, panel.selectedCategoryForTest())
+    }
+
+    @Test fun emoji_a_sideways_drag_on_the_category_bar_only_scrolls_the_bar() = hosted(create = { emoji(it) }) { panel ->
+        panel.open(3)
+        val bar = panel.categoryBarForTest() as HorizontalScrollView
+        val box = frameOf(panel, bar)
+        Finger(panel).slowSwipe(box.exactCenterX() + 100f, box.exactCenterY(), -200f, slop)
+        frames(panel) { bar.computeScroll() }
+        assertTrue("the category bar scrolls under the drag", bar.scrollX > 0)
+        assertEquals("the drag never pages the grid", 3, panel.selectedCategoryForTest())
+        assertEquals(0f, panel.viewport().translationX, 0f)
+        assertEquals(View.GONE, panel.peekViewportForTest().visibility)
+        assertEquals(0f, panel.categoryRailForTest().pageOffset, 0f)
+    }
+
+    @Test fun emoji_a_landed_page_scrolls_its_tab_fully_into_the_category_bar() = hosted(create = { emoji(it) }) { panel ->
+        val bar = panel.categoryBarForTest() as HorizontalScrollView
+        val lastShown = (0 until lastEmojiCategory).last { panel.railTabForTest(it).right <= bar.width }
+        assertTrue("precondition: the next tab starts off screen", panel.railTabForTest(lastShown + 1).right > bar.width)
+        panel.open(lastShown)
+        val grid = panel.grid()
+        Finger(panel).slowSwipe(grid.exactCenterX() + 100f, grid.exactCenterY(), -grid.width() * 0.6f, slop)
+        frames(panel, 40) { bar.computeScroll() }
+        assertEquals(lastShown + 1, panel.selectedCategoryForTest())
+        val tab = panel.railTabForTest(lastShown + 1)
+        assertTrue(bar.scrollX > 0)
+        assertTrue(tab.left >= bar.scrollX && tab.right <= bar.scrollX + bar.width)
+    }
+
+    @Test fun emoji_the_neighbour_pool_stays_bounded_across_repeated_drag_sweeps() = hosted(create = { emoji(it) }) { panel ->
+        val grid = panel.grid()
+        fun sweep() {
+            repeat(lastEmojiCategory) {
+                Finger(panel).slowSwipe(grid.exactCenterX() + 100f, grid.exactCenterY(), -grid.width() * 0.6f, slop)
+                frames(panel)
+            }
+            assertEquals(lastEmojiCategory, panel.selectedCategoryForTest())
+            repeat(lastEmojiCategory) {
+                Finger(panel).slowSwipe(grid.exactCenterX() - 100f, grid.exactCenterY(), grid.width() * 0.6f, slop)
+                frames(panel)
+            }
+            assertEquals(0, panel.selectedCategoryForTest())
+        }
+        sweep()
+        val pageCells = panel.emojiCellsAllocatedForTest()
+        val peekCells = panel.peekCellsAllocatedForTest()
+        sweep()
+        assertEquals(pageCells, panel.emojiCellsAllocatedForTest())
+        assertEquals(peekCells, panel.peekCellsAllocatedForTest())
+        assertEquals(
+            "the page pool still tops out at the largest category",
+            EmojiCatalog.supported.maxOf { it.emoji.size },
+            pageCells,
+        )
+        assertTrue(peekCells <= (EmojiView.ROWS + 1) * panel.gridColumnCountForTest())
+    }
+
+    @Test fun emoji_reduced_motion_switches_on_release() = hosted(animated = false, create = { emoji(it) }) { panel ->
+        panel.open(2)
+        val viewport = panel.viewport()
+        viewport.scrollTo(0, maxScroll(viewport))
+        val grid = panel.grid()
+        Finger(panel).slowSwipe(grid.exactCenterX() + 100f, grid.exactCenterY(), -grid.width() * 0.6f, slop)
+        assertEquals(3, panel.selectedCategoryForTest())
+        assertEquals(0, viewport.scrollY)
+        assertFalse(panel.pagerForTest().settlingForTest())
+    }
 }

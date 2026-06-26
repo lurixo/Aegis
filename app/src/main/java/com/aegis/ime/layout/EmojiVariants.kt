@@ -71,6 +71,9 @@ object EmojiVariants {
     fun skinForms(form: String): List<String> =
         if (form in skinCapable) listOf(form) + SKIN_TONES.map { applyTone(form, it) } else listOf(form)
 
+    fun hasVariants(base: String): Boolean =
+        base in skinCapable || base in genderSwap || base in genderSign || base in genderStandalone
+
     private fun tokenSet(s: String): Set<String> =
         s.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.toSet()
 }

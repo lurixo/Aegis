@@ -148,9 +148,13 @@
     <string name="panel_singles">Single</string>
     <string name="backspace_bubble_clear">Swipe up to clear</string>
     <string name="backspace_bubble_undo">Swipe down to restore</string>
+    <string name="emoji_clear_recent">Clear recent emoji</string>
+    <string name="emoji_clear_recent_confirm">Clear recent emoji?</string>
+    <string name="emoji_delete_recent_confirm">Delete "%1$s" from recent emoji?</string>
     <string name="symbols_clear_recent">Clear recent symbols</string>
     <string name="symbols_clear_recent_confirm">Clear recent symbols?</string>
     <string name="symbols_delete_recent_confirm">Delete "%1$s" from recent symbols?</string>
+    <string name="emoji_empty_hint">Recently used emoji will appear here</string>
     <string name="symbols_empty_hint">Recently used symbols will appear here</string>
 
     <string name="sym_cat_recent">Common</string>
@@ -166,6 +170,7 @@
     <string name="sym_cat_ipa">IPA</string>
     <string name="sym_cat_pinyin">Pinyin</string>
 
+    <string name="emoji_cat_recent">Common</string>
     <string name="emoji_cat_face">Smileys</string>
     <string name="emoji_cat_hand">Gestures</string>
     <string name="emoji_cat_flag">Flags</string>

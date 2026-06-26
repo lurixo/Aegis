@@ -19,6 +19,7 @@ import android.util.TypedValue
 import androidx.core.widget.TextViewCompat
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeType
+import com.aegis.ime.layout.EmojiCatalog
 import com.aegis.ime.layout.SymbolCatalog
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -36,6 +37,34 @@ class PanelRecyclingTest {
     private val ctx = RuntimeEnvironment.getApplication()
     private val light = ImePalette.STATIC_LIGHT
     private val metrics = ctx.resources.displayMetrics
+
+
+    @Test fun emoji_grid_allocates_at_peak_not_sum_across_a_full_sweep() {
+        val v = EmojiView(ctx).apply { applyPalette(light) }
+        for (i in 0..EmojiCatalog.categories.size) v.openCategoryForTest(i)
+        val afterSweep1 = v.emojiCellsAllocatedForTest()
+        for (i in 0..EmojiCatalog.categories.size) v.openCategoryForTest(i)
+        assertEquals("a second full sweep must allocate zero new cells", afterSweep1, v.emojiCellsAllocatedForTest())
+        val peak = EmojiCatalog.supported.maxOf { it.emoji.size }
+        val total = EmojiCatalog.supported.sumOf { it.emoji.size }
+        assertEquals("the pool tops out at the largest category", peak, afterSweep1)
+        assertTrue("recycling beats the old per-sweep total ($total) of cell allocations", peak < total)
+    }
+
+    @Test fun emoji_grid_content_and_tap_are_correct_after_recycling() {
+        var picked = ""
+        val v = EmojiView(ctx).apply { applyPalette(light); onEmoji = { picked = it } }
+        val cat1 = EmojiCatalog.supported[0].emoji
+        val cat2 = EmojiCatalog.supported[1].emoji
+        v.openCategoryForTest(2)
+        v.openCategoryForTest(1)
+        assertEquals("recycled grid shows category 1's glyphs", cat1, v.gridCellTextsForTest())
+        v.tapCellForTest(0)
+        assertEquals("tapping a recycled cell emits its current glyph", cat1[0], picked)
+        v.openCategoryForTest(2)
+        assertEquals("recycled grid rebinds to category 2's glyphs", cat2, v.gridCellTextsForTest())
+    }
+
 
     private fun idx(id: String) = SymbolCatalog.categories.indexOfFirst { it.id == id } + 1
 

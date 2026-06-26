@@ -22,9 +22,11 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.ime.theme.ImeType
+import com.aegis.ime.layout.EmojiCatalog
 import com.aegis.ime.layout.SymbolCatalog
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -293,6 +295,53 @@ class RecentClearConfirmationTest {
 
         view.openCategoryForTest(1)
         assertEquals(SymbolCatalog.categories.first().symbols, view.gridCellTextsForTest())
+    }
+
+    @Test fun emoji_recents_clear_only_after_confirmation() {
+        val recents = mutableListOf("👋", "😀")
+        var clears = 0
+        val view = EmojiView(ctx).apply {
+            recentProvider = { recents.toList() }
+            onClearRecents = {
+                clears++
+                recents.clear()
+            }
+            applyPalette(ImePalette.STATIC_LIGHT)
+            resetToDefault()
+        }
+
+        assertEquals(listOf("👋", "😀"), view.gridCellTextsForTest())
+        assertTrue(view.clearBtnForTest().performClick())
+        assertTrue(view.clearDialogVisibleForTest())
+        assertEquals(0, clears)
+        assertEquals(listOf("👋", "😀"), recents)
+
+        assertTrue(view.cancelClearForTest())
+        assertFalse(view.clearDialogVisibleForTest())
+        assertEquals(0, clears)
+        assertEquals(listOf("👋", "😀"), recents)
+
+        assertTrue(view.clearBtnForTest().performClick())
+        assertTrue(view.dismissClearForTest())
+        assertFalse(view.clearDialogVisibleForTest())
+        assertEquals(0, clears)
+        assertEquals(listOf("👋", "😀"), recents)
+
+        assertTrue(view.clearBtnForTest().performClick())
+        view.resetToDefault()
+        assertFalse(view.clearDialogVisibleForTest())
+        assertEquals(0, clears)
+        assertEquals(listOf("👋", "😀"), recents)
+
+        assertTrue(view.clearBtnForTest().performClick())
+        assertTrue(view.confirmClearForTest())
+        assertFalse(view.clearDialogVisibleForTest())
+        assertEquals(1, clears)
+        assertTrue(recents.isEmpty())
+        assertEquals(listOf(ctx.getString(R.string.emoji_empty_hint)), view.gridCellTextsForTest())
+
+        view.openCategoryForTest(1)
+        assertEquals(EmojiCatalog.supported.first().emoji, view.gridCellTextsForTest())
     }
 
     @Test fun symbol_recent_item_delete_requires_confirmation_and_removes_only_that_item() {
