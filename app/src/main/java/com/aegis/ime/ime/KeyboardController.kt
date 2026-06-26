@@ -49,9 +49,13 @@ class KeyboardController(
     private var candidates: List<String> = emptyList()
     private var lastWord: String? = null
 
+    /** 9-key: when the user taps a reading in the left column, decode under that explicit reading. */
+    private var readingOverride: String? = null
+
     /** Extras-panel hooks wired by the IME service (it owns the InputConnection + Context). */
     var onShowEmoji: () -> Unit = {}
     var onShowClipboard: () -> Unit = {}
+    var onShowEdit: () -> Unit = {}
     var onClosePanel: () -> Unit = {}
 
     private var view: InputView? = null
@@ -81,6 +85,7 @@ class KeyboardController(
         when (key.action) {
             KeyAction.COMMIT -> handleCommit(key)
             KeyAction.BACKSPACE -> handleBackspace()
+            KeyAction.CLEAR_COMPOSING -> handleClearComposing()
             KeyAction.SPACE -> handleSpace()
             KeyAction.ENTER -> handleEnter()
             KeyAction.SHIFT -> shiftState = when (shiftState) {
@@ -94,9 +99,12 @@ class KeyboardController(
             KeyAction.SWITCH_NINE -> switchLayout(LayoutId.NINE)
             KeyAction.SWITCH_NUMPAD -> switchLayout(LayoutId.NUMPAD)
             KeyAction.PICK_READING -> handlePickReading(key)
+            KeyAction.SHOW_EDIT -> onShowEdit()
             KeyAction.TOGGLE_LANG -> {
                 flushComposing()
                 lang = if (lang == Lang.CN) Lang.EN else Lang.CN
+                // English is 26-key only (issue #10): never leave the user on the 9-key in EN.
+                if (lang == Lang.EN && layoutId == LayoutId.NINE) layoutId = LayoutId.ALPHA
             }
         }
         refreshCandidates()
@@ -108,7 +116,9 @@ class KeyboardController(
         when (f) {
             BarFunction.SWITCH_KBD -> {
                 onClosePanel()
-                switchLayout(if (layoutId == LayoutId.NINE) LayoutId.ALPHA else LayoutId.NINE)
+                // EN is 26-key only (issue #10); CN toggles 9-key ↔ 26-key.
+                val target = if (lang == Lang.EN || layoutId == LayoutId.NINE) LayoutId.ALPHA else LayoutId.NINE
+                switchLayout(target)
             }
             BarFunction.NUMPAD -> { onClosePanel(); switchLayout(LayoutId.NUMPAD) }
             BarFunction.EMOJI -> { onShowEmoji(); return }
@@ -118,12 +128,14 @@ class KeyboardController(
         render()
     }
 
-    /** 9-key left column: commit the best word for the tapped pinyin reading (issue #3). */
+    /**
+     * 9-key left column (issue #12b): tapping a reading switches the active pinyin segmentation and
+     * re-ranks the candidates under that reading — it does NOT commit the first word.
+     */
     private fun handlePickReading(key: Key) {
         val letters = key.output
         if (letters.isEmpty()) return
-        val word = engine.candidatesForReading(letters).firstOrNull() ?: letters
-        commitWord(word)
+        readingOverride = letters
     }
 
     fun onPickCandidate(index: Int) {
@@ -148,8 +160,16 @@ class KeyboardController(
     }
 
     private fun handleCommit(key: Key) {
+        // Number row / symbol keys always go straight to the editor, even mid-pinyin (resolve first).
+        if (key.direct) {
+            if (composing.isNotEmpty()) flushComposing()
+            host.commitText(applyCase(key.output))
+            if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
+            lastWord = null
+            return
+        }
         when (mode()) {
-            Mode.PINYIN -> composing.append(key.output) // pinyin / T9 buffer is always lowercase
+            Mode.PINYIN -> { composing.append(key.output); readingOverride = null } // T9/pinyin buffer is lowercase
             Mode.ENGLISH -> {
                 composing.append(applyCase(key.output))
                 if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
@@ -165,10 +185,16 @@ class KeyboardController(
     private fun handleBackspace() {
         if (composing.isNotEmpty()) {
             composing.setLength(composing.length - 1)
+            readingOverride = null
         } else {
             host.deleteBackward()
             lastWord = null
         }
+    }
+
+    /** 9-key "重输": drop the pending pinyin + candidates without touching committed text. */
+    private fun handleClearComposing() {
+        clearComposingState()
     }
 
     private fun handleSpace() {
@@ -208,18 +234,33 @@ class KeyboardController(
         layoutId = id
     }
 
-    /** Commit any pending buffer verbatim (raw pinyin) — not a learned word. */
+    /**
+     * Commit the pending buffer as raw text (not a learned word): the typed letters on the 26-key,
+     * the decoded pinyin (no separators) on the 9-key. Drives both layout switches and Enter (#9).
+     */
     private fun flushComposing() {
         if (composing.isNotEmpty()) {
-            host.commitText(composing.toString())
+            host.commitText(rawComposingText())
             clearComposingState()
         }
         lastWord = null
     }
 
+    /** The raw text the composing buffer represents (letters on 26-key, decoded pinyin on 9-key). */
+    private fun rawComposingText(): String {
+        if (composing.isEmpty()) return ""
+        readingOverride?.let { return it }
+        return if (layoutId == LayoutId.NINE && lang == Lang.CN) {
+            T9Pinyin.preedit(composing.toString()).replace("'", "")
+        } else {
+            composing.toString()
+        }
+    }
+
     private fun clearComposingState() {
         composing.setLength(0)
         candidates = emptyList()
+        readingOverride = null
     }
 
     private fun refreshCandidates() {
@@ -227,9 +268,10 @@ class KeyboardController(
             composing.isNotEmpty() -> {
                 val raw = composing.toString()
                 when (mode()) {
-                    // CN-EN mixed: on the 26-key, always offer the raw latin string too.
-                    Mode.PINYIN -> engine.candidates(raw, layoutId == LayoutId.NINE)
-                        .let { if (layoutId == LayoutId.ALPHA && raw !in it) it + raw else it }
+                    // 9-key reading locked via the left column (#12b): rank under that explicit reading.
+                    Mode.PINYIN -> readingOverride?.let { engine.candidatesForReading(it) }
+                        ?: engine.candidates(raw, layoutId == LayoutId.NINE)
+                            .let { if (layoutId == LayoutId.ALPHA && raw !in it) it + raw else it }
                     Mode.ENGLISH -> engine.english(raw).let { if (raw !in it) it + raw else it }
                     Mode.DIRECT -> emptyList()
                 }
@@ -241,9 +283,10 @@ class KeyboardController(
 
     private fun applyCase(s: String): String = if (shifted) s.uppercase() else s
 
-    /** What to show in the preedit zone: real pinyin on the 9-key (digits decoded), letters elsewhere. */
+    /** Preedit pinyin tab: the locked reading, else the decoded 9-key pinyin, else the typed letters. */
     private fun preeditText(): String {
         if (composing.isEmpty()) return ""
+        readingOverride?.let { return it }
         return if (mode() == Mode.PINYIN && layoutId == LayoutId.NINE) {
             T9Pinyin.preedit(composing.toString())
         } else {
