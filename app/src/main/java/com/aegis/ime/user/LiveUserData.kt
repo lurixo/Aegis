@@ -39,6 +39,13 @@ object LiveUserData {
         get() = synchronized(clipboardPersistenceHookLock) { beforeRestoreHook }
         set(value) = synchronized(clipboardPersistenceHookLock) { beforeRestoreHook = value }
 
+    internal fun registerClipboardPersistenceHooks(flush: () -> Unit) {
+        synchronized(clipboardPersistenceHookLock) {
+            beforeExportHook = flush
+            beforeRestoreHook = flush
+        }
+    }
+
     internal fun flushBeforeExport() {
         val hook = synchronized(clipboardPersistenceHookLock) { beforeExportHook }
         hook?.invoke()

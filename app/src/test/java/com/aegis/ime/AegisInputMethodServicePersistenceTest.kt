@@ -16,8 +16,10 @@
 package com.aegis.ime
 
 import android.content.Context
+import android.os.Looper
 import android.view.inputmethod.EditorInfo
 import com.aegis.ime.backup.RestoreJournal
+import com.aegis.ime.user.ClipboardStore
 import com.aegis.ime.user.LiveUserDictHost
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.RestoreTrouble
@@ -29,6 +31,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -36,6 +39,7 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import java.io.File
 import java.util.concurrent.CountDownLatch
@@ -65,6 +69,7 @@ class AegisInputMethodServicePersistenceTest {
 
     @After fun letGo() {
         release?.countDown()
+        LiveUserData.clipboardHost = null
         UserDictHot.host = null
         LiveUserData.onBeforeExport = null
         LiveUserData.onBeforeRestore = null
@@ -149,6 +154,25 @@ class AegisInputMethodServicePersistenceTest {
         val service = started()
         assertTrue("the cold start finished, so the reload gate must be open", userStoresLoaded(service))
         assertTrue("the live host must be serving once the cold start finished", UserDictHot.host === liveHost(service))
+    }
+
+    @Test fun the_cold_start_loads_the_clipboard_store_before_the_panel_asks_for_it() {
+        val history = File(filesDir, "clipboard.txt").apply { writeText("冷启动前复制的\n") }
+        try {
+            val service = started()
+            val delegate = service.javaClass.getDeclaredField("clipboardStore\$delegate").run {
+                isAccessible = true
+                get(service) as Lazy<*>
+            }
+
+            assertTrue("the loader thread must have opened the clipboard store, not the first panel open", delegate.isInitialized())
+            val store = delegate.value as ClipboardStore
+            assertEquals(listOf("冷启动前复制的"), store.history().map { it.body() })
+            assertSame("the store it opened is the one backup and restore reach for", store, LiveUserData.clipboardHost)
+            service.onDestroy()
+        } finally {
+            history.delete()
+        }
     }
 
     private fun prefs() =
@@ -499,6 +523,64 @@ class AegisInputMethodServicePersistenceTest {
         assertEquals("only the learning file was written, so the dictionary watermark must stay", marker, userDbMtime)
     }
 
+    private fun handRestoredFilesToTheKeyboard() {
+        LiveUserData.restoreInProgress = true
+        requireNotNull(LiveUserData.onRestored).invoke()
+        shadowOf(Looper.getMainLooper()).idle()
+    }
+
+    private fun archiveUserDbWith(reading: String, word: String) {
+        UserModel().apply { addManualWord(reading, word, 2L) }.save(userDb)
+        userDb.setLastModified(System.currentTimeMillis() + 60_000L)
+    }
+
+    @Test fun a_restore_replaces_the_dictionary_the_keyboard_is_still_holding() {
+        val service = started()
+        model(service).record(null, "恢复前打的", 1L)
+        assertTrue("precondition: the keyboard holds a word it has not written", model(service).dirty)
+        archiveUserDbWith("gd", "归档")
+
+        handRestoredFilesToTheKeyboard()
+        drainWriteLane(service)
+
+        assertEquals(
+            "a restore that never reaches the running dictionary is undone the moment the user types",
+            listOf("归档"),
+            model(service).readingSnapshot()["gd"],
+        )
+        assertEquals("the archive wins a restore, memory does not", 0.0, model(service).wordBoost("恢复前打的"), 0.0)
+        assertFalse("the capture guard must come down once the restored stores are in memory", LiveUserData.restoreInProgress)
+    }
+
+    @Test fun a_restore_leaves_the_next_focused_field_nothing_to_reparse() {
+        val service = started()
+        archiveUserDbWith("gd", "归档")
+
+        handRestoredFilesToTheKeyboard()
+        drainWriteLane(service)
+
+        assertEquals(
+            "the restore already read the file, so focusing a field must not read it a second time",
+            userDb.lastModified(),
+            service.javaClass.getDeclaredField("userDbMtime").apply { isAccessible = true }.getLong(service),
+        )
+    }
+
+    @Test fun a_restore_still_lands_when_the_write_lane_is_already_gone() {
+        val service = started()
+        archiveUserDbWith("gd", "归档")
+        liveHost(service).stopSaving()
+
+        handRestoredFilesToTheKeyboard()
+
+        assertEquals(
+            "a lane nobody can queue on must not swallow the restored dictionary",
+            listOf("归档"),
+            model(service).readingSnapshot()["gd"],
+        )
+        assertFalse("nor leave the capture guard standing forever", LiveUserData.restoreInProgress)
+    }
+
     @Test fun a_restart_of_the_input_session_does_not_lose_the_handed_over_write() {
         val service = started()
         occupyWriter(service)
@@ -546,6 +628,16 @@ class AegisInputMethodServicePersistenceTest {
             save(userDb)
         }
         assertEquals("precondition: the word list carries the promise", listOf(word to reading), promisesOnDisk())
+    }
+
+    private fun blockTheWriteTo(file: File) {
+        val blocker = File(file.absoluteFile.parentFile, file.name + ".tmp")
+        assertTrue(blocker.mkdir())
+        assertTrue(File(blocker, "occupied").createNewFile())
+    }
+
+    private fun unblockTheWriteTo(file: File) {
+        assertTrue(File(file.absoluteFile.parentFile, file.name + ".tmp").deleteRecursively())
     }
 
     private fun age(stamp: Long) {
@@ -655,6 +747,73 @@ class AegisInputMethodServicePersistenceTest {
         assertEquals(emptyList<String>(), learnedOnDisk())
         assertEquals(
             "keeping the promise rewrote both files, so both watermarks must be the ones it wrote",
+            userDb.lastModified(),
+            watermark(service, "userDbMtime"),
+        )
+        assertEquals(userLearn.lastModified(), watermark(service, "userLearnMtime"))
+    }
+
+    @Test fun a_restore_does_not_take_on_the_deletions_the_archive_asks_for() {
+        val service = started()
+        aGluedWordOnDisk()
+        aWordListOwing("你呢嗯", "")
+        age(System.currentTimeMillis() - 600_000L)
+
+        LiveUserData.restoreInProgress = true
+        LiveUserData.onRestored?.invoke()
+        shadowOf(Looper.getMainLooper()).idle()
+        drainWriteLane(service)
+
+        assertFalse("the capture guard must come down again", LiveUserData.restoreInProgress)
+        assertEquals(
+            "the words the archive carries do arrive",
+            listOf("张伟明"),
+            model(service).userWordEntries().map { it.word },
+        )
+        assertTrue(
+            "a deletion written down in someone else's archive is not this phone's to take on",
+            model(service).tombstones().isEmpty(),
+        )
+        assertEquals(
+            "so the learned entry the archive asked to delete is still on disk",
+            listOf("你呢嗯"),
+            learnedOnDisk(),
+        )
+        assertEquals(listOf("你呢嗯"), learning(service).formedEntries().map { it.word })
+    }
+
+    @Test fun a_restore_still_owes_the_deletion_this_phone_could_not_finish() {
+        aGluedWordOnDisk()
+        val service = started()
+        assertTrue("precondition: the word is in the list to be deleted", liveHost(service).addWord("ninen", "你呢嗯", 1L))
+        blockTheWriteTo(userLearn)
+        assertTrue(liveHost(service).removeWord("ninen", "你呢嗯"))
+        assertEquals("precondition: the deletion is still owed", listOf("你呢嗯" to ""), model(service).tombstones())
+        unblockTheWriteTo(userLearn)
+        assertEquals("precondition: what it promised to delete is still in the file", listOf("你呢嗯"), learnedOnDisk())
+        archiveUserDbWith("gd", "归档")
+
+        LiveUserData.restoreInProgress = true
+        LiveUserData.onRestored?.invoke()
+        shadowOf(Looper.getMainLooper()).idle()
+        drainWriteLane(service)
+
+        assertFalse("the capture guard must come down again", LiveUserData.restoreInProgress)
+        assertEquals("the words the archive carries do arrive", listOf("归档"), model(service).userWordEntries().map { it.word })
+        assertEquals(
+            "the deletion this phone owed outlived the restore, so the learned data that came back must lose the word",
+            emptyList<String>(),
+            learnedOnDisk(),
+        )
+        assertEquals(emptyList<String>(), learning(service).formedEntries().map { it.word })
+        assertEquals(
+            "and the promise must be struck off once it is kept",
+            emptyList<Pair<String, String>>(),
+            model(service).tombstones(),
+        )
+        assertEquals(emptyList<Pair<String, String>>(), promisesOnDisk())
+        assertEquals(
+            "keeping the promise rewrote both stores, so the watermarks must be the ones it wrote",
             userDb.lastModified(),
             watermark(service, "userDbMtime"),
         )

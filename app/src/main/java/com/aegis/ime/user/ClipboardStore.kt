@@ -236,6 +236,8 @@ class ClipboardStore(private val dir: File) {
         clipReport = report
     }
 
+    fun stopReportingClipWrites() { clipReport = null }
+
     private fun reportClipWrite(landed: Boolean) {
         if (clipReport == null) return
         clipReportLane.execute { clipReport?.invoke(landed) }

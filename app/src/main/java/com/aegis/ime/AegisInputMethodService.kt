@@ -53,6 +53,7 @@ import com.aegis.ime.ime.ParallelLoad
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.SymbolsView
 import com.aegis.ime.layout.SymbolCatalog
+import com.aegis.ime.user.ClipboardStore
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.LiveUserDictHost
 import com.aegis.ime.user.SymbolUsageStore
@@ -121,6 +122,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private val panelInput = com.aegis.ime.ime.PanelTextInput().also {
         it.onTargetChanged = { if (::controller.isInitialized) controller.onInputTargetChanged() }
     }
+    private val clipboardStore by lazy {
+        ClipboardStore(filesDir).also {
+            it.load()
+            LiveUserData.clipboardHost = it
+        }
+    }
+    private val clipboardPendingWriteFlush: () -> Unit = { clipboardStore.flushPendingWrites() }
     private val symbolUsageStore by lazy {
         SymbolUsageStore(filesDir).also {
             it.load()
@@ -313,6 +321,15 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         LiveUserData.onLexiconsRestored = {
             mainHandler.post { reloadUserLexicons() }
         }
+        LiveUserData.onRestored = {
+            mainHandler.post {
+                runCatching { clipboardStore.load() }
+                runCatching { symbolUsageStore.load() }
+                runCatching { emojiUsageStore.load() }
+                reloadUserLexicons()
+            }
+        }
+        LiveUserData.registerClipboardPersistenceHooks(clipboardPendingWriteFlush)
         controller = KeyboardController(
             this, DictEngine(null, null, null, userLexicon = userLexicon), decodeLane,
             emailDomains = com.aegis.ime.ime.EmailDomains(getSharedPreferences("aegis", MODE_PRIVATE)),
@@ -357,6 +374,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 controller.setEngine(engine)
                 maybeReloadEngine()
             }
+            runCatching { clipboardStore }
         }.apply { name = "aegis-dict-load"; isDaemon = true }.start()
     }
 
@@ -952,8 +970,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (UserDictHot.host === liveUserDictHost) UserDictHot.host = null
         runCatching { liveUserDictHost.flush() }
         liveUserDictHost.stopSaving()
+        LiveUserData.unregisterClipboardPersistenceHooks(clipboardPendingWriteFlush)
+        clipboardStore.stopReportingPhraseWrites()
+        clipboardStore.stopReportingClipWrites()
         symbolUsageStore.stopReportingWrites()
         emojiUsageStore.stopReportingWrites()
+        clipboardStore.stopSaving()
+        if (LiveUserData.clipboardHost === clipboardStore) LiveUserData.clipboardHost = null
+        LiveUserData.onRestored = null
         LiveUserData.onLexiconsRestored = null
         runCatching {
             getSharedPreferences("aegis", MODE_PRIVATE)
