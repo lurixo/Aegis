@@ -24,6 +24,8 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.sin
 
 enum class BarFunction(val glyph: String) {
     SETTINGS("⚙"), SWITCH_KBD("⌨"), EMOJI("☺"), EDIT("✎"), CLIPBOARD("📋"), NUMPAD("123")
@@ -45,12 +47,15 @@ class CandidateView(context: Context) : View(context) {
 
     private val functions = BarFunction.entries
     private val funcRects = ArrayList<RectF>().also { l -> repeat(functions.size) { l.add(RectF()) } }
+    private val collapseRect = RectF()
     private var showingFunctions = false
 
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private var downX = 0f
     private var downScroll = 0f
     private var dragging = false
+
+    init { setLayerType(LAYER_TYPE_SOFTWARE, null) }
 
     private fun hitRect(i: Int): RectF {
         while (hitRects.size <= i) hitRects.add(RectF())
@@ -60,6 +65,8 @@ class CandidateView(context: Context) : View(context) {
     private val density = resources.displayMetrics.density
     private val padding = 14f * density
     private val expandW = 40f * density
+    private val capMarginH = 8f * density
+    private val capMarginV = 5f * density
 
     private fun sp(value: Float) =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, resources.displayMetrics)
@@ -72,17 +79,21 @@ class CandidateView(context: Context) : View(context) {
         color = 0xFF2E7D32.toInt()
         textSize = sp(18f)
     }
-    private val funcPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF455A64.toInt()
+        style = Paint.Style.STROKE
+        strokeWidth = 1.8f * density
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+    private val icon123Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF455A64.toInt()
         textAlign = Paint.Align.CENTER
-        textSize = sp(18f)
+        textSize = sp(14f)
     }
-    private val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFB0BEC5.toInt()
-        textSize = sp(15f)
-    }
+    private val capsulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
     private val sepPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFD5DADF.toInt() }
-    private val expandBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFF2F4F6.toInt() }
+    private val expandBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFE9ECF1.toInt() }
     private val chevronPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF607D8B.toInt()
         textAlign = Paint.Align.CENTER
@@ -111,7 +122,7 @@ class CandidateView(context: Context) : View(context) {
     private fun maxScroll(): Float = maxOf(0f, contentWidth - (width - expandW))
 
     override fun onDraw(canvas: Canvas) {
-        canvas.drawColor(0xFFF2F4F6.toInt())
+        canvas.drawColor(0xFFE9ECF1.toInt())
         val baseline = height / 2f - (textPaint.descent() + textPaint.ascent()) / 2
 
         if (items.isEmpty()) {
@@ -142,15 +153,75 @@ class CandidateView(context: Context) : View(context) {
     }
 
     private fun drawFunctions(canvas: Canvas, baseline: Float) {
-        val cellW = 48f * density
+        val capL = capMarginH
+        val capR = width - capMarginH
+        val capT = capMarginV
+        val capB = height - capMarginV
+        val rad = (capB - capT) / 2f
+        capsulePaint.setShadowLayer(6f * density, 0f, 2f * density, 0x22000000)
+        canvas.drawRoundRect(capL, capT, capR, capB, rad, rad, capsulePaint)
+        capsulePaint.clearShadowLayer()
+
+        val cy = (capT + capB) / 2f
+        val collapseW = 34f * density
+        val areaL = capL + 10f * density
+        val areaR = capR - collapseW
+        val slot = (areaR - areaL) / functions.size
+        val s = 9f * density
         for ((i, f) in functions.withIndex()) {
-            val left = i * cellW
-            funcRects[i].set(left, 0f, left + cellW, height.toFloat())
-            canvas.drawText(f.glyph, left + cellW / 2f, baseline, funcPaint)
+            val cx = areaL + slot * (i + 0.5f)
+            funcRects[i].set(areaL + slot * i, capT, areaL + slot * (i + 1), capB)
+            drawIcon(canvas, f, cx, cy, s)
         }
-        val visibleW = width - expandW
-        canvas.drawRect(visibleW, height * 0.2f, visibleW + density, height * 0.8f, sepPaint)
-        canvas.drawText("⌄", visibleW + expandW / 2f, baseline, chevronPaint)
+        collapseRect.set(areaR, capT, capR, capB)
+        drawChevronDown(canvas, capR - collapseW / 2f, cy, s)
+    }
+
+    private fun drawIcon(c: Canvas, f: BarFunction, cx: Float, cy: Float, s: Float) {
+        when (f) {
+            BarFunction.SETTINGS -> {
+                c.drawCircle(cx, cy, s * 0.5f, iconPaint)
+                c.drawCircle(cx, cy, s * 0.2f, iconPaint)
+                for (k in 0 until 8) {
+                    val a = k * (Math.PI / 4).toFloat()
+                    c.drawLine(cx + cos(a) * s * 0.55f, cy + sin(a) * s * 0.55f, cx + cos(a) * s * 0.85f, cy + sin(a) * s * 0.85f, iconPaint)
+                }
+            }
+            BarFunction.SWITCH_KBD -> {
+                val w = s * 0.95f; val h = s * 0.62f
+                c.drawRoundRect(cx - w, cy - h, cx + w, cy + h, 3f * density, 3f * density, iconPaint)
+                c.drawLine(cx - w * 0.55f, cy - h * 0.25f, cx + w * 0.55f, cy - h * 0.25f, iconPaint)
+                c.drawLine(cx - w * 0.55f, cy + h * 0.25f, cx + w * 0.2f, cy + h * 0.25f, iconPaint)
+            }
+            BarFunction.EMOJI -> {
+                c.drawCircle(cx, cy, s * 0.7f, iconPaint)
+                val eye = 1.4f * density
+                iconPaint.style = Paint.Style.FILL
+                c.drawCircle(cx - s * 0.28f, cy - s * 0.15f, eye, iconPaint)
+                c.drawCircle(cx + s * 0.28f, cy - s * 0.15f, eye, iconPaint)
+                iconPaint.style = Paint.Style.STROKE
+                c.drawArc(cx - s * 0.4f, cy - s * 0.1f, cx + s * 0.4f, cy + s * 0.35f, 20f, 140f, false, iconPaint)
+            }
+            BarFunction.EDIT -> {
+                c.drawLine(cx, cy - s * 0.75f, cx, cy + s * 0.75f, iconPaint)
+                c.drawLine(cx - s * 0.32f, cy - s * 0.75f, cx + s * 0.32f, cy - s * 0.75f, iconPaint)
+                c.drawLine(cx - s * 0.32f, cy + s * 0.75f, cx + s * 0.32f, cy + s * 0.75f, iconPaint)
+            }
+            BarFunction.CLIPBOARD -> {
+                val w = s * 0.55f; val h = s * 0.78f
+                c.drawRoundRect(cx - w, cy - h + s * 0.18f, cx + w, cy + h, 2f * density, 2f * density, iconPaint)
+                c.drawRoundRect(cx - s * 0.26f, cy - h - s * 0.02f, cx + s * 0.26f, cy - h + s * 0.28f, 1.5f * density, 1.5f * density, iconPaint)
+                c.drawLine(cx - w * 0.5f, cy - h * 0.1f, cx + w * 0.5f, cy - h * 0.1f, iconPaint)
+                c.drawLine(cx - w * 0.5f, cy + h * 0.3f, cx + w * 0.5f, cy + h * 0.3f, iconPaint)
+            }
+            BarFunction.NUMPAD ->
+                c.drawText("123", cx, cy - (icon123Paint.descent() + icon123Paint.ascent()) / 2, icon123Paint)
+        }
+    }
+
+    private fun drawChevronDown(c: Canvas, cx: Float, cy: Float, s: Float) {
+        c.drawLine(cx - s * 0.5f, cy - s * 0.2f, cx, cy + s * 0.28f, iconPaint)
+        c.drawLine(cx, cy + s * 0.28f, cx + s * 0.5f, cy - s * 0.2f, iconPaint)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -173,7 +244,7 @@ class CandidateView(context: Context) : View(context) {
             MotionEvent.ACTION_UP -> {
                 if (dragging) { dragging = false; return true }
                 if (showingFunctions) {
-                    if (event.x >= width - expandW) { performClick(); onCollapse(); return true }
+                    if (collapseRect.contains(event.x, event.y)) { performClick(); onCollapse(); return true }
                     funcRects.indexOfFirst { it.contains(event.x, event.y) }
                         .takeIf { it >= 0 }?.let { performClick(); onFunction(functions[it]) }
                     return true
