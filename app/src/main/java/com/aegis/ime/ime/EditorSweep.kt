@@ -22,6 +22,11 @@ object EditorSweep {
     const val CHUNK = 65_536
     const val MAX_CHARS = 33_554_432
 
+    fun nearbyLength(ic: InputConnection, bound: Int = CHUNK): Int =
+        (ic.getTextBeforeCursor(bound, 0)?.length ?: 0) +
+            (ic.getSelectedText(0)?.length ?: 0) +
+            (ic.getTextAfterCursor(bound, 0)?.length ?: 0)
+
     fun clearCapturing(ic: InputConnection): CharSequence {
         val capture = Capture(ic)
         while (true) {

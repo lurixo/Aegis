@@ -291,6 +291,17 @@ class AegisInputMethodServiceLifecycleTest {
         }
     }
 
+    @Test fun select_all_keeps_the_shortcut_away_from_editors_that_take_raw_keys() {
+        val f = fixture()
+
+        assertTrue(
+            "a raw key editor must not receive the shortcut",
+            f.service.takesRawKeys(editor().apply { inputType = InputType.TYPE_NULL }),
+        )
+        assertFalse("an ordinary text field still gets it", f.service.takesRawKeys(editor()))
+        assertFalse("an unknown editor still gets it", f.service.takesRawKeys(null))
+    }
+
     private enum class AnchorEffect { RESYNC, HOST_NEUTRAL, SELECTION_OWNED }
 
     private val editActionAnchorEffect: Map<EditAction, AnchorEffect> = mapOf(

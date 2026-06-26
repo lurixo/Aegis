@@ -853,5 +853,6 @@ internal class WindowedEditorUndoHistory {
         private const val LOCAL_DELETE = WINDOW
         private const val MAX_EXPECTATIONS = 50
         private const val MAX_CONTRADICTIONS = 3
+        val MAX_INLINE_INSERTION = minOf(REPLAY_CHUNK, LargeCommit.CHUNK)
     }
 }

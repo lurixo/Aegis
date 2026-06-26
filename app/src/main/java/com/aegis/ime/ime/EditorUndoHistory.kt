@@ -19,6 +19,7 @@ import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.SpannedString
 import android.text.style.ReplacementSpan
+import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.CompletionInfo
@@ -303,6 +304,7 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
     private var clearDraft: ClearDraft? = null
     val hasPendingClear: Boolean get() = clearDraft?.swept != null
     private var clearedContent: EditorTextSnapshot? = null
+    private var nativeCleared: Pair<InputConnection, EditorTextSnapshot>? = null
     val hasClearedContent: Boolean get() = clearedContent != null
     private data class ReplayPart(val text: CharSequence? = null, val image: EditorImageToken? = null)
     private data class ReplayStep(val before: EditorTextSnapshot, val start: Int, val end: Int, val part: ReplayPart)
@@ -317,8 +319,8 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
     val hasPendingUndo: Boolean get() = replay != null || windowHistory.hasPendingUndo || nativeHistory.hasPendingUndo
     val hasPendingInsertion: Boolean get() = windowHistory.hasPendingInsertion || nativeHistory.hasPendingInsertion
     val hasUndo: Boolean get() = richDispatch == null && replay == null &&
-        (windowHistory.hasUndo || nativeHistory.hasUndo || history.hasUndo || compositionBefore != null && !compositionUnsafe || delayed != null)
-    val hasDeletionToRestore: Boolean get() = hasUndo && (windowHistory.hasDeletion || !windowHistory.active &&
+        (nativeCleared != null || windowHistory.hasUndo || nativeHistory.hasUndo || history.hasUndo || compositionBefore != null && !compositionUnsafe || delayed != null)
+    val hasDeletionToRestore: Boolean get() = hasUndo && (nativeCleared != null || windowHistory.hasDeletion || !windowHistory.active &&
         (nativeHistory.hasDeletion || history.hasDeletion || delayed?.let { it.first.text.length > it.second.length } == true))
 
     private fun changed() {
@@ -349,6 +351,7 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
         imageText = null
         clearDraft = null
         clearedContent = null
+        nativeCleared = null
         replay = null
         compositionUnsafe = false
         history.clear()
@@ -375,6 +378,7 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
         compositionAfter = null
         compositionUnsafe = false
         delayed = null
+        nativeCleared = null
         return wrapped
     }
 
@@ -387,12 +391,14 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
     fun cutCopiedSelection(target: InputConnection, copiedText: CharSequence?): Boolean {
         if (!preferNativeUndo || copiedText == null) return target.performContextMenuAction(android.R.id.cut)
         webTabInput.clear()
+        nativeCleared = null
         return nativeHistory.cut(unwrap(target), copiedText)
     }
 
     fun pasteCopiedText(target: InputConnection, copiedText: CharSequence): Boolean {
         if (!preferNativeUndo) return target.performContextMenuAction(android.R.id.paste)
         webTabInput.clear()
+        nativeCleared = null
         return nativeHistory.paste(unwrap(target), copiedText)
     }
 
@@ -400,7 +406,18 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
         inserted: CharSequence, selectionStart: Int, selectionEnd: Int): Boolean {
         if (preferNativeUndo) return target.commitText(inserted, 1)
         webTabInput.clear()
+        nativeCleared = null
         return windowHistory.replace(unwrap(target), start, removed, inserted, selectionStart, selectionEnd)
+    }
+
+    fun commitCapturedText(target: InputConnection, text: CharSequence, action: (InputConnection) -> Boolean): Boolean {
+        val selection = selectionProvider?.invoke()
+        if (preferNativeUndo || text.length <= WindowedEditorUndoHistory.MAX_INLINE_INSERTION || selection == null || selection.first != selection.second)
+            return action(target)
+        webTabInput.clear()
+        nativeCleared = null
+        val raw = unwrap(target)
+        return windowHistory.insert(raw, text)
     }
 
     fun beginRichContent(target: InputConnection, image: ImageContent? = null) {
@@ -465,13 +482,14 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
     fun canUndo(target: InputConnection): Boolean {
         if (richDispatch != null) return false
         val raw = unwrap(target)
-        if (preferNativeUndo) return nativeHistory.canUndo(raw)
-        if (windowHistory.active) return windowHistory.canUndo(raw)
+        if (nativeCleared == null && preferNativeUndo) return nativeHistory.canUndo(raw)
+        if (nativeCleared == null && windowHistory.active) return windowHistory.canUndo(raw)
         if (replay != null) {
             if (replay?.target !== raw) finishReplay(false) else continueReplay()
             if (replay != null) return false
         }
         val current = capture(raw)
+        nativeCleared?.let { return it.first === raw && it.second.sameText(current ?: return false) }
         settleDelayed(current)
         if (!richBoundary.observe(current)) history.clear()
         reconcileComposition(current)
@@ -552,6 +570,35 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
         if (accepted) finishClearRestore(raw, before.text)
         else { clearDraft = null; changed() }
         return true
+    }
+
+    fun untracked(target: InputConnection): InputConnection = unwrap(target)
+
+    fun finishEditorClear(target: InputConnection): Boolean {
+        val draft = clearDraft ?: return false
+        if (unwrap(target) !== draft.target) return false
+        val before = draft.before
+        val after = readRaw(draft.target)
+        clearDraft = null
+        val success = after != null && before?.sameText(after) != true &&
+            after.selectionStart == after.selectionEnd
+        if (success) {
+            val observed = acceptEdit(before, after, null)
+            history.record(compositionBefore ?: before, observed, restoresDeletion = false)
+            nativeCleared = draft.target to requireNotNull(after)
+            compositionBefore = null
+            compositionAfter = null
+            compositionUnsafe = false
+            delayed = null
+            clearedContent = null
+        }
+        changed()
+        return success
+    }
+
+    fun cancelClear() {
+        clearDraft = null
+        changed()
     }
 
     private fun settleClear(after: EditorTextSnapshot?): Boolean {
@@ -643,9 +690,30 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
         webTabInput.clear()
         if (richDispatch != null || replay != null) return false
         val raw = unwrap(target)
-        if (preferNativeUndo) return nativeHistory.undo(raw)
-        if (windowHistory.active) return windowHistory.undo(raw)
+        if (nativeCleared == null && preferNativeUndo) return nativeHistory.undo(raw)
+        if (nativeCleared == null && windowHistory.active) return windowHistory.undo(raw)
         val current = capture(raw)
+        nativeCleared?.let { cleared ->
+            if (cleared.first !== raw || current == null || !cleared.second.sameText(current)) return false
+            val entry = history.peek(current)
+            nativeCleared = null
+            val now = SystemClock.uptimeMillis()
+            val meta = KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON
+            val accepted = raw.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_Z, 0, meta))
+            raw.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_Z, 0, meta))
+            raw.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MOVE_END, 0, meta))
+            raw.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MOVE_END, 0, meta))
+            if (accepted) {
+                if (entry != null) history.pop()
+                val restored = readRaw(raw)
+                if (entry != null && restored?.text?.toString() == entry.before.text.toString()) {
+                    imageRanges = entry.before.images
+                    imageText = restored.text.toString()
+                }
+            }
+            changed()
+            return accepted
+        }
         settleDelayed(current)
         if (!richBoundary.observe(current)) history.clear()
         reconcileComposition(current)
@@ -803,6 +871,7 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
 
     private fun capture(target: InputConnection): EditorTextSnapshot? {
         val raw = readRaw(target) ?: return null
+        if (nativeCleared?.second?.sameText(raw) == false) nativeCleared = null
         settleClear(raw)
         val queued = delayed
         if (queued != null && raw.text.toString() != queued.first.text.toString()) {
@@ -1011,7 +1080,7 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
         private var nativeBatch = false
 
         private fun allowsWindow(): Boolean = richDispatch == null && pendingImage == null && anonymousBefore == null &&
-            imageRanges.isEmpty() && !richBoundary.isActive && replay == null
+            imageRanges.isEmpty() && !richBoundary.isActive && replay == null && nativeCleared == null
 
         private fun allowsLocal(): Boolean = allowsWindow() && compositionBefore == null && delayed == null &&
             clearDraft == null && selectionProvider?.invoke() != null
@@ -1027,6 +1096,7 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
             if (windowEdit !is WindowEdit.Commit || windowEdit.composing) webTabInput.clear()
             if (connection !== this || richDispatch != null) return action()
             if (preferNativeUndo) {
+                nativeCleared = null
                 return nativeHistory.track(target, composing = composing,
                     finishesComposition = finishesComposition, expected = expected, operation = windowEdit, action = action)
             }
@@ -1205,7 +1275,7 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
 
         override fun finishComposingText(): Boolean {
             webTabInput.clear()
-            return if (compositionBefore == null && !windowHistory.active && !preferNativeUndo) target.finishComposingText()
+            return if (nativeCleared != null || compositionBefore == null && !windowHistory.active && !preferNativeUndo) target.finishComposingText()
             else tracked(finishesComposition = true, windowEdit = WindowEdit.FinishComposition) { target.finishComposingText() }
         }
 

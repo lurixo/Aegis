@@ -15,17 +15,514 @@
 
 package com.aegis.ime
 
+import android.os.Looper
+import android.text.InputType
+import android.text.Selection
+import android.view.View
+import android.view.inputmethod.BaseInputConnection
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.ExtractedText
+import android.view.inputmethod.ExtractedTextRequest
+import android.view.inputmethod.SurroundingText
+import android.widget.FrameLayout
+import com.aegis.ime.engine.CandidateEngine
+import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.ime.ClearedTextRestore
+import com.aegis.ime.ime.LargeCommit
 import com.aegis.ime.ime.EditorSweep
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class BackspaceSwipeClearTest {
+
+    @Before fun clean() {
+        File(RuntimeEnvironment.getApplication().filesDir, "cleared_text.txt").delete()
+    }
+
+    private val engine = object : CandidateEngine {
+        override fun candidates(composing: String, t9: Boolean): List<String> = emptyList()
+    }
+
+    private class FakeEditor(target: View) : BaseInputConnection(target, true) {
+        val committedChunks = ArrayList<Int>()
+        val readSizes = ArrayList<Int>()
+        var extractedWindow = Int.MAX_VALUE
+        var walkWindow = Int.MAX_VALUE
+        var hidesExtractedText = false
+        var hidesWalkedText = false
+        var acceptsSelectAll = true
+        var acceptsSurroundingDelete = true
+        var surroundingDeletesAllowed = Int.MAX_VALUE
+        var selectAllCalls = 0
+        var selectionDelayMs = 0L
+        var deletionDelayMs = 0L
+
+        override fun getSurroundingText(beforeLength: Int, afterLength: Int, flags: Int): SurroundingText {
+            val text = requireNotNull(editable)
+            val low = minOf(Selection.getSelectionStart(text), Selection.getSelectionEnd(text))
+            val high = maxOf(Selection.getSelectionStart(text), Selection.getSelectionEnd(text))
+            val from = maxOf(0, low - beforeLength)
+            val end = minOf(text.length, high + afterLength)
+            return SurroundingText(text.subSequence(from, end), low - from, high - from, from)
+        }
+
+        fun hold(text: CharSequence) {
+            val content = requireNotNull(editable)
+            content.replace(0, content.length, text)
+            Selection.setSelection(content, content.length)
+        }
+
+        fun held(): String = requireNotNull(editable).toString()
+
+        override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText? {
+            if (hidesExtractedText) return null
+            val content = editable ?: return null
+            val window = minOf(content.length, extractedWindow)
+            return ExtractedText().apply {
+                startOffset = 0
+                text = content.subSequence(0, window)
+                selectionStart = Selection.getSelectionStart(content).coerceIn(0, window)
+                selectionEnd = Selection.getSelectionEnd(content).coerceIn(0, window)
+            }
+        }
+
+        override fun getTextBeforeCursor(length: Int, flags: Int): CharSequence? =
+            if (hidesWalkedText) null else {
+                readSizes.add(length)
+                super.getTextBeforeCursor(minOf(length, walkWindow), flags)
+            }
+
+        override fun getTextAfterCursor(length: Int, flags: Int): CharSequence? =
+            if (hidesWalkedText) null else {
+                readSizes.add(length)
+                super.getTextAfterCursor(minOf(length, walkWindow), flags)
+            }
+
+        override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+            if (!text.isNullOrEmpty()) committedChunks.add(text.length)
+            return super.commitText(text, newCursorPosition)
+        }
+
+        override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
+            if (!acceptsSurroundingDelete || surroundingDeletesAllowed <= 0) return false
+            surroundingDeletesAllowed--
+            if (deletionDelayMs > 0) {
+                android.os.Handler(Looper.getMainLooper()).postDelayed({
+                    super.deleteSurroundingText(beforeLength, afterLength)
+                }, deletionDelayMs)
+                return true
+            }
+            return super.deleteSurroundingText(beforeLength, afterLength)
+        }
+
+        override fun setSelection(start: Int, end: Int): Boolean {
+            if (selectionDelayMs > 0) {
+                android.os.Handler(Looper.getMainLooper()).postDelayed({ super.setSelection(start, end) }, selectionDelayMs)
+                return true
+            }
+            return super.setSelection(start, end)
+        }
+
+        override fun performContextMenuAction(id: Int): Boolean {
+            if (id != android.R.id.selectAll) return super.performContextMenuAction(id)
+            selectAllCalls++
+            if (!acceptsSelectAll) return false
+            val content = editable ?: return false
+            Selection.setSelection(content, 0, content.length)
+            return true
+        }
+    }
+
+    private class Fixture(val service: AegisInputMethodService, val editor: FakeEditor)
+
+    private fun fixture(inputType: Int = InputType.TYPE_CLASS_TEXT, fieldId: Int = 101): Fixture {
+        val service = Robolectric.buildService(AegisInputMethodService::class.java).get()
+        service.javaClass.getDeclaredField("controller").apply {
+            isAccessible = true
+            set(service, KeyboardController(service, engine, null))
+        }
+        val info = editor(fieldId, inputType)
+        service.onStartInput(info, false)
+        return Fixture(service, attach(service, FakeEditor(FrameLayout(service))))
+    }
+
+    private fun <T> attach(service: AegisInputMethodService, connection: T): T {
+        val framework = requireNotNull(service.javaClass.superclass)
+        for (fieldName in listOf("mInputConnection", "mStartedInputConnection")) {
+            framework.getDeclaredField(fieldName).apply {
+                isAccessible = true
+                set(service, connection)
+            }
+        }
+        return connection
+    }
+
+    private fun detach(service: AegisInputMethodService) {
+        val framework = requireNotNull(service.javaClass.superclass)
+        for (fieldName in listOf("mInputConnection", "mStartedInputConnection")) {
+            framework.getDeclaredField(fieldName).apply {
+                isAccessible = true
+                set(service, null)
+            }
+        }
+    }
+
+    private fun canSwipe(service: AegisInputMethodService, up: Boolean): Boolean =
+        service.javaClass.getDeclaredMethod("canBackspaceSwipe", Boolean::class.javaPrimitiveType).run {
+            isAccessible = true
+            invoke(service, up) as Boolean
+        }
+
+    private fun editor(fieldId: Int, inputType: Int) = EditorInfo().apply {
+        packageName = "com.example.editor"
+        this.fieldId = fieldId
+        fieldName = "message"
+        this.inputType = inputType
+    }
+
+    private fun startSwipe(service: AegisInputMethodService, up: Boolean) {
+        service.javaClass.getDeclaredMethod("backspaceSwipe", Boolean::class.javaPrimitiveType).apply {
+            isAccessible = true
+            invoke(service, up)
+        }
+    }
+
+    private fun swipe(service: AegisInputMethodService, up: Boolean) {
+        startSwipe(service, up)
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMinutes(10))
+    }
+
+    private fun snapshotFile(): File = File(RuntimeEnvironment.getApplication().filesDir, "cleared_text.txt")
+
+    private fun longText(chars: Int): String = String(CharArray(chars) { '一' + (it % 2048) })
+
+    @Test fun a_field_the_editor_only_shows_a_window_of_still_comes_back_whole() {
+        val f = fixture()
+        val written = longText(20890)
+        f.editor.hold(written)
+        f.editor.extractedWindow = 5000
+
+        swipe(f.service, up = true)
+        assertEquals("the swipe must clear the whole field", "", f.editor.held())
+
+        swipe(f.service, up = false)
+        assertEquals("what the window hid must come back too", written, f.editor.held())
+    }
+
+    @Test fun a_field_longer_than_one_read_comes_back_whole_without_the_extracted_text() {
+        val f = fixture()
+        val written = longText(12345)
+        f.editor.hold(written)
+        f.editor.hidesExtractedText = true
+
+        swipe(f.service, up = true)
+        assertEquals("the swipe must clear the whole field", "", f.editor.held())
+
+        swipe(f.service, up = false)
+        assertEquals("walking the field in chunks must reach its end", written, f.editor.held())
+    }
+
+    @Test fun a_selection_pending_when_the_swipe_lands_is_part_of_what_comes_back() {
+        val f = fixture()
+        val written = longText(9000)
+        f.editor.hold(written)
+        f.editor.hidesExtractedText = true
+        Selection.setSelection(requireNotNull(f.editor.editable), 1000, 6000)
+
+        swipe(f.service, up = true)
+        assertEquals("the swipe must clear the whole field", "", f.editor.held())
+
+        swipe(f.service, up = false)
+        assertEquals("the selected run sits between the two walks", written, f.editor.held())
+    }
+
+    @Test fun an_editor_that_refuses_select_all_is_still_emptied() {
+        val f = fixture()
+        val written = "先写下的内容"
+        f.editor.hold(written)
+        f.editor.acceptsSelectAll = false
+
+        swipe(f.service, up = true)
+        assertEquals("select all is not the only way to empty a field", "", f.editor.held())
+
+        swipe(f.service, up = false)
+        assertEquals("what was cleared comes back once, not twice", written, f.editor.held())
+    }
+
+    @Test fun an_editor_that_deletes_nothing_at_all_keeps_what_it_holds_undoubled() {
+        val f = fixture()
+        val written = "删不掉的内容"
+        f.editor.hold(written)
+        f.editor.acceptsSelectAll = false
+        f.editor.acceptsSurroundingDelete = false
+
+        swipe(f.service, up = true)
+        assertEquals("nothing was deleted, so nothing was lost", written, f.editor.held())
+
+        swipe(f.service, up = false)
+        assertEquals("a clear that never landed must not be restored on top", written, f.editor.held())
+    }
+
+    @Test fun a_field_that_reads_back_as_empty_is_cleared_all_the_same() {
+        val f = fixture()
+        f.editor.hold("读不出来的内容")
+        f.editor.hidesExtractedText = true
+        f.editor.hidesWalkedText = true
+
+        swipe(f.service, up = true)
+
+        assertEquals("an unreadable field is no reason to leave it filled", "", f.editor.held())
+    }
+
+    @Test fun what_a_swipe_cleared_outlives_the_editor_it_came_from() {
+        val f = fixture()
+        val written = "换个输入框也要回得来"
+        f.editor.hold(written)
+        swipe(f.service, up = true)
+
+        f.service.onStartInput(editor(fieldId = 202, inputType = InputType.TYPE_CLASS_TEXT), false)
+
+        swipe(f.service, up = false)
+        assertEquals("leaving the field must not throw the cleared text away", written, f.editor.held())
+    }
+
+    @Test fun what_a_swipe_cleared_outlives_the_process_that_cleared_it() {
+        val first = fixture()
+        val written = "进程重建也要回得来"
+        first.editor.hold(written)
+        swipe(first.service, up = true)
+
+        val second = fixture()
+        swipe(second.service, up = false)
+
+        assertEquals("a snapshot only in memory dies with the process", written, second.editor.held())
+    }
+
+    @Test fun what_a_swipe_cleared_is_put_back_once_and_not_again() {
+        val f = fixture()
+        val written = "一次"
+        f.editor.hold(written)
+        swipe(f.service, up = true)
+
+        swipe(f.service, up = false)
+        swipe(f.service, up = false)
+
+        assertEquals("a second restore has nothing left to put back", written, f.editor.held())
+    }
+
+    @Test fun a_field_bigger_than_one_read_still_comes_back_whole() {
+        val f = fixture()
+        val written = longText(EditorSweep.CHUNK * 5 + 77)
+        f.editor.hold(written)
+        f.editor.walkWindow = EditorSweep.CHUNK
+        f.editor.extractedWindow = EditorSweep.CHUNK
+
+        swipe(f.service, up = true)
+        assertEquals("a field no single read can reach must still be emptied", "", f.editor.held())
+
+        swipe(f.service, up = false)
+        assertEquals("what no single read could reach must still come back", written, f.editor.held())
+    }
+
+    @Test fun a_swipe_reads_the_field_in_bounded_steps() {
+        val f = fixture()
+        f.editor.hold(longText(EditorSweep.CHUNK * 3))
+        f.editor.walkWindow = EditorSweep.CHUNK
+
+        swipe(f.service, up = true)
+
+        assertTrue(
+            "no single read may ask for the whole field, was " + f.editor.readSizes,
+            f.editor.readSizes.isNotEmpty() && f.editor.readSizes.all { it <= EditorSweep.CHUNK + 1 },
+        )
+    }
+
+    @Test fun a_small_editor_window_does_not_limit_a_clear_to_256_reads() {
+        val written = longText(8 * 256 + 952) + "\r\n"
+        for (caret in listOf(0, written.length / 2, written.length)) {
+            val f = fixture()
+            f.editor.hold(written)
+            f.editor.walkWindow = 8
+            f.editor.hidesExtractedText = true
+            Selection.setSelection(requireNotNull(f.editor.editable), caret)
+
+            swipe(f.service, up = true)
+            assertEquals("every position must clear the entire field", "", f.editor.held())
+            assertEquals(written, snapshotFile().readText())
+            swipe(f.service, up = false)
+            assertEquals("small windows must not change the restore order or line endings", written, f.editor.held())
+        }
+    }
+
+    @Test fun clearing_yields_to_the_ui_and_waits_for_delayed_moves_and_deletions() {
+        val f = fixture()
+        val written = "甲乙丙\r\n\u0000".repeat(300)
+        f.editor.hold(written)
+        Selection.setSelection(requireNotNull(f.editor.editable), written.length / 2)
+        f.editor.hidesExtractedText = true
+        f.editor.walkWindow = 8
+        f.editor.selectionDelayMs = 40
+        f.editor.deletionDelayMs = 40
+
+        startSwipe(f.service, up = true)
+        var ranBeforeClearCompleted = false
+        android.os.Handler(Looper.getMainLooper()).post {
+            ranBeforeClearCompleted = f.editor.held().isNotEmpty()
+        }
+        assertFalse("a second gesture must not overlap pending edits", canSwipe(f.service, up = true))
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMinutes(10))
+        assertTrue("the clear must let other UI work run", ranBeforeClearCompleted)
+        assertEquals("", f.editor.held())
+        assertEquals(written, snapshotFile().readText())
+
+        f.editor.selectionDelayMs = 0
+        f.editor.deletionDelayMs = 0
+        swipe(f.service, up = false)
+        assertEquals(written, f.editor.held())
+    }
+
+    @Test fun a_restore_the_editor_walked_out_on_can_be_run_again() {
+        val f = fixture()
+        val written = longText(EditorSweep.CHUNK * 4)
+        f.editor.hold(written)
+        swipe(f.service, up = true)
+
+        startSwipe(f.service, up = false)
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(50))
+        detach(f.service)
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMinutes(10))
+
+        assertTrue("a restore that never landed must keep what it has not written", snapshotFile().exists())
+        assertEquals(written, snapshotFile().readText())
+
+        val second = attach(f.service, FakeEditor(FrameLayout(f.service)))
+        assertTrue("and the swipe has to stay armed for another try", canSwipe(f.service, up = false))
+
+        swipe(f.service, up = false)
+        assertEquals("the second try has to put the whole snapshot back", written, second.held())
+    }
+
+    @Test fun a_restore_the_input_session_ended_under_leaves_the_swipe_armed_for_another_try() {
+        val f = fixture()
+        val written = longText(EditorSweep.CHUNK * 4)
+        f.editor.hold(written)
+        swipe(f.service, up = true)
+
+        startSwipe(f.service, up = false)
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(50))
+        f.service.onFinishInput()
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMinutes(10))
+
+        assertTrue("a restore the session ended under must keep what it has not written", snapshotFile().exists())
+        assertEquals(written, snapshotFile().readText())
+
+        val second = attach(f.service, FakeEditor(FrameLayout(f.service)))
+        assertTrue(
+            "the swipe must not stay locked by a restore the session ended under",
+            canSwipe(f.service, up = false),
+        )
+
+        swipe(f.service, up = false)
+        assertEquals("the second try has to put the whole snapshot back", written, second.held())
+    }
+
+    @Test fun a_restore_that_lands_lets_the_snapshot_go() {
+        val f = fixture()
+        val written = longText(EditorSweep.CHUNK * 4)
+        f.editor.hold(written)
+        swipe(f.service, up = true)
+        assertTrue("precondition: the clear kept a snapshot", snapshotFile().exists())
+
+        swipe(f.service, up = false)
+
+        assertEquals(written, f.editor.held())
+        assertFalse("a restore that landed has nothing left to hold", snapshotFile().exists())
+    }
+
+    @Test fun a_delete_the_editor_stops_taking_leaves_the_rest_where_it_is() {
+        val f = fixture()
+        val reach = 8
+        val taken = 3
+        val written = longText(reach * (taken + 4))
+        f.editor.hold(written)
+        f.editor.walkWindow = reach
+        f.editor.surroundingDeletesAllowed = taken
+
+        swipe(f.service, up = true)
+
+        val left = written.length - reach * taken
+        assertEquals(
+            "a walk the editor cut short must not hand the rest to select all",
+            0,
+            f.editor.selectAllCalls,
+        )
+        assertEquals(
+            "what the editor would not delete has to stay where it is",
+            written.substring(0, left),
+            f.editor.held(),
+        )
+        assertEquals(
+            "and only what it did delete may be the snapshot",
+            written.substring(left),
+            File(RuntimeEnvironment.getApplication().filesDir, "cleared_text.txt").readText(),
+        )
+
+        swipe(f.service, up = false)
+        assertEquals("the two halves have to add back up", written, f.editor.held())
+    }
+
+    @Test fun a_field_too_big_for_one_transaction_goes_back_in_chunks() {
+        val f = fixture()
+        val written = longText(LargeCommit.CHUNK * 2 + 1234)
+        f.editor.hold(written)
+
+        swipe(f.service, up = true)
+        f.editor.committedChunks.clear()
+        swipe(f.service, up = false)
+
+        assertTrue(
+            "one commit of this size would not fit through a binder transaction, was " +
+                f.editor.committedChunks,
+            f.editor.committedChunks.size > 1 && f.editor.committedChunks.all { it <= LargeCommit.CHUNK },
+        )
+        assertEquals("the chunks must put the field back exactly as it was", written, f.editor.held())
+    }
+
+    @Test fun a_first_line_longer_than_one_frame_still_comes_back_in_order() {
+        val f = fixture()
+        val written = longText(20_000) + "\nBBB\nCCC"
+        f.editor.hold(written)
+
+        swipe(f.service, up = true)
+        swipe(f.service, up = false)
+
+        assertEquals(
+            "a piece handed over across frames must finish before the next one starts",
+            written,
+            f.editor.held(),
+        )
+    }
+
+    @Test fun one_commit_stays_inside_what_a_binder_transaction_can_carry() {
+        val worst = String(CharArray(LargeCommit.CHUNK) { '\uFFFD' })
+        val bytes = worst.toByteArray(Charsets.UTF_8).size
+        assertTrue(
+            "a commit of ${LargeCommit.CHUNK} characters would put $bytes bytes through one transaction",
+            bytes <= 128 * 1024,
+        )
+    }
 
     @Test fun a_restore_reaches_as_far_as_a_clear_can_capture() {
         assertEquals(
@@ -33,6 +530,159 @@ class BackspaceSwipeClearTest {
             EditorSweep.MAX_CHARS,
             ClearedTextRestore.MAX_CHARS,
         )
+    }
+
+    private class OpeningEditor(target: View, val opens: Int) : BaseInputConnection(target, true) {
+        fun held(): String = requireNotNull(editable).toString()
+
+        override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+            val done = super.commitText(text, newCursorPosition)
+            val content = requireNotNull(editable)
+            val at = Selection.getSelectionEnd(content)
+            if (opens > 0 && !text.isNullOrEmpty() && at == content.length) {
+                content.insert(at, "\n".repeat(opens))
+                Selection.setSelection(content, at)
+            }
+            return done
+        }
+
+        override fun sendKeyEvent(event: android.view.KeyEvent?): Boolean {
+            if (event?.action != android.view.KeyEvent.ACTION_DOWN ||
+                event.keyCode != android.view.KeyEvent.KEYCODE_DPAD_RIGHT
+            ) {
+                return super.sendKeyEvent(event)
+            }
+            val content = requireNotNull(editable)
+            val at = Selection.getSelectionEnd(content)
+            Selection.setSelection(content, minOf(at + 1, content.length))
+            return true
+        }
+    }
+
+    private fun openingFixture(opens: Int): Pair<AegisInputMethodService, OpeningEditor> {
+        val service = Robolectric.buildService(AegisInputMethodService::class.java).get()
+        service.javaClass.getDeclaredField("controller").apply {
+            isAccessible = true
+            set(service, KeyboardController(service, engine, null))
+        }
+        service.onStartInput(editor(101, InputType.TYPE_CLASS_TEXT), false)
+        val opened = OpeningEditor(FrameLayout(service), opens)
+        val framework = requireNotNull(service.javaClass.superclass)
+        for (fieldName in listOf("mInputConnection", "mStartedInputConnection")) {
+            framework.getDeclaredField(fieldName).apply {
+                isAccessible = true
+                set(service, opened)
+            }
+        }
+        return service to opened
+    }
+
+    @Test fun empty_lines_the_editor_opens_are_not_left_behind_by_a_restore() {
+        val (service, opened) = openingFixture(opens = 2)
+        seedCleared("AAA")
+
+        swipe(service, up = false)
+
+        assertEquals("what was put back must end where the snapshot ended", "AAA", opened.held())
+    }
+
+    @Test fun empty_lines_the_editor_opens_are_not_left_behind_after_a_restore_with_breaks() {
+        val (service, opened) = openingFixture(opens = 2)
+        seedCleared("AAA\nBBB")
+
+        swipe(service, up = false)
+
+        assertEquals("what was put back must end where the snapshot ended", "AAA\nBBB", opened.held())
+    }
+
+    private class BlockEditor(target: View) : BaseInputConnection(target, true) {
+        val paragraphs = ArrayList<String>().apply { add("") }
+
+        fun read(): String =
+            if (paragraphs.size == 1 && paragraphs[0].isEmpty()) "" else paragraphs.joinToString("") { it + "\n\n" }
+
+        override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+            val parts = (text ?: "").toString().split('\n')
+            paragraphs[paragraphs.size - 1] = paragraphs.last() + parts.first()
+            for (part in parts.drop(1)) paragraphs.add(part)
+            return true
+        }
+
+        override fun getTextBeforeCursor(length: Int, flags: Int): CharSequence {
+            val held = read()
+            return held.substring(maxOf(0, held.length - length))
+        }
+
+        override fun getTextAfterCursor(length: Int, flags: Int): CharSequence = ""
+
+        override fun getSelectedText(flags: Int): CharSequence? = null
+
+        override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText =
+            ExtractedText().apply {
+                startOffset = 0
+                text = read()
+                selectionStart = text.length
+                selectionEnd = text.length
+            }
+    }
+
+    private fun blockFixture(): Pair<AegisInputMethodService, BlockEditor> {
+        val service = Robolectric.buildService(AegisInputMethodService::class.java).get()
+        service.javaClass.getDeclaredField("controller").apply {
+            isAccessible = true
+            set(service, KeyboardController(service, engine, null))
+        }
+        service.onStartInput(editor(101, InputType.TYPE_CLASS_TEXT), false)
+        val block = BlockEditor(FrameLayout(service))
+        val framework = requireNotNull(service.javaClass.superclass)
+        for (fieldName in listOf("mInputConnection", "mStartedInputConnection")) {
+            framework.getDeclaredField(fieldName).apply {
+                isAccessible = true
+                set(service, block)
+            }
+        }
+        return service to block
+    }
+
+    private fun seedCleared(text: String) {
+        File(RuntimeEnvironment.getApplication().filesDir, "cleared_text.txt").writeText(text)
+    }
+
+    @Test fun a_block_editor_gets_one_break_for_each_pair_of_newlines_it_reported() {
+        val (service, block) = blockFixture()
+        seedCleared("AAA\n\nBBB\n\nCCC\n\n")
+
+        swipe(service, up = false)
+
+        assertEquals(
+            "each paragraph must come back as one paragraph, not one paragraph and a blank line",
+            listOf("AAA", "BBB", "CCC", ""),
+            block.paragraphs,
+        )
+    }
+
+    @Test fun a_block_editor_keeps_the_blank_paragraph_that_was_really_there() {
+        val (service, block) = blockFixture()
+        seedCleared("AAA\n\n\n\nCCC\n\n")
+
+        swipe(service, up = false)
+
+        assertEquals(
+            "a run of four newlines stood for a real empty paragraph",
+            listOf("AAA", "", "CCC", ""),
+            block.paragraphs,
+        )
+    }
+
+    @Test fun a_plain_field_still_gets_every_newline_it_reported() {
+        val f = fixture()
+        val written = "AAA\nBBB\n\nCCC"
+        f.editor.hold(written)
+
+        swipe(f.service, up = true)
+        swipe(f.service, up = false)
+
+        assertEquals("a field that reads back what it was given must round trip", written, f.editor.held())
     }
 
     @Test fun an_unmeasurable_target_falls_back_to_writing_the_newlines_verbatim() {

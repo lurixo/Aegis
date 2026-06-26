@@ -42,6 +42,8 @@ import com.aegis.ime.dict.EngineAssets
 import com.aegis.ime.dict.OctagramReader
 import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.engine.StoredReadingRepair
+import com.aegis.ime.ime.CaretRealign
+import com.aegis.ime.ime.ClearedTextRestore
 import com.aegis.ime.ime.CustomSymbolPanel
 import com.aegis.ime.ime.EmojiView
 import com.aegis.ime.ime.DecodeLane
@@ -53,8 +55,13 @@ import com.aegis.ime.ime.LayoutPanelView
 import com.aegis.ime.ime.ParallelLoad
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.SymbolsView
+import com.aegis.ime.ime.ChunkedRead
+import com.aegis.ime.ime.EditorSweep
+import com.aegis.ime.ime.EditorUndoHistory
+import com.aegis.ime.ime.WindowedEditorUndoHistory
 import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.SymbolCatalog
+import com.aegis.ime.user.ClearedTextStore
 import com.aegis.ime.user.ClipboardStore
 import com.aegis.ime.user.CustomSymbolStore
 import com.aegis.ime.user.LiveUserData
@@ -132,7 +139,41 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
     private var selStart = -1
     private var selEnd = -1
+    private var chunkedRead: ChunkedRead? = null
+    private var readDropped: (() -> Unit)? = null
+    private val readTimeout = Runnable { chunkedRead?.giveUp() }
+    private var undoBlocked = true
+    private var silentUndo = false
+    private var largeEdit = false
+    private val editorUndo = EditorUndoHistory().also {
+        it.webWriteSettleMs = WEB_WRITE_SETTLE_MS
+        it.selectionProvider = { if (selStart >= 0 && selEnd >= 0) selStart to selEnd else null }
+        it.onUndoCompleted = { restored -> finishEditingUndo(restored) }
+        it.onInsertionCompleted = { inserted ->
+            largeEdit = false
+            controller.onEditorContextChanged()
+        }
+        it.onClearedContentRestored = { restored -> finishClearedContentRestore(restored) }
+        it.onClearCompleted = { kind, text ->
+            if (kind == EditorUndoHistory.ClearCapture.PLAIN) clearedText.keep(text) else clearedText.forget()
+        }
+    }
 
+    override fun getCurrentInputConnection(): InputConnection? {
+        val connection = super.getCurrentInputConnection() ?: return null
+        return if (undoBlocked || clearSweep != null || webClear != null || largeRestore) connection else editorUndo.wrap(connection)
+    }
+
+    private fun finishEditingUndo(restored: Boolean) {
+        val notify = !silentUndo
+        silentUndo = false
+        if (restored) {
+            controller.onEditorContextChanged()
+        }
+        if (notify) toast(uiString(if (restored) R.string.edit_undo_done else R.string.edit_undo_unavailable))
+    }
+
+    private val clearedText by lazy { ClearedTextStore(filesDir) }
     private val panelInput = com.aegis.ime.ime.PanelTextInput().also {
         it.onTargetChanged = { if (::controller.isInitialized) controller.onInputTargetChanged() }
     }
@@ -454,8 +495,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun clearEditorTransientState(resetController: Boolean, abortInline: Boolean = true, preserveLayout: Boolean = false) {
         finishTranslation()
+        editorUndo.clear()
+        largeEdit = false
         inputView?.clearEditorTransientUiImmediately()
         if (abortInline) abortInlineInput(hideBar = false)
+        dropChunkedRead()
+        dropRestoreStream()
         if (resetController && ::controller.isInitialized) controller.reset(preserveLayout)
     }
 
@@ -464,6 +509,18 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun onStartInput(info: EditorInfo?, restarting: Boolean) {
         super.onStartInput(info, restarting)
+        val inputType = info?.inputType ?: InputType.TYPE_NULL
+        val inputClass = inputType and InputType.TYPE_MASK_CLASS
+        val variation = inputType and InputType.TYPE_MASK_VARIATION
+        undoBlocked = inputType == InputType.TYPE_NULL ||
+            (inputClass == InputType.TYPE_CLASS_TEXT && variation in setOf(
+                InputType.TYPE_TEXT_VARIATION_PASSWORD,
+                InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
+                InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD,
+            )) || (inputClass == InputType.TYPE_CLASS_NUMBER && variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD)
+        editorUndo.preferNativeUndo = !undoBlocked && inputClass == InputType.TYPE_CLASS_TEXT &&
+            variation == InputType.TYPE_TEXT_VARIATION_WEB_EDIT_TEXT
+        if (undoBlocked) editorUndo.clear()
 
         val nextTarget = editorTarget(info)
         val preserveLayout = nextTarget != null && nextTarget.packageName == layoutSessionPackage
@@ -477,6 +534,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             resetControllerOnNextInputView = true
         }
         if (nextTarget != null) layoutSessionPackage = nextTarget.packageName
+        dropChunkedRead()
         selStart = info?.initialSelStart ?: -1
         selEnd = info?.initialSelEnd ?: -1
         currentEditorTarget = nextTarget
@@ -564,6 +622,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onPickCandidate = { index -> controller.onPickCandidate(index) }
             onPickReading = { index -> controller.onPickReadingIndex(index) }
             onFunction = { f -> controller.onBarFunction(f) }
+            onBackspaceSwipe = { up -> backspaceSwipe(up) }
+            backspaceSwipeAvailable = { up -> canBackspaceSwipe(up) }
             onPanelBackspace = { controller.onPanelBackspace() }
             onPanelClear = { controller.onPanelClear() }
             onExpandClosed = { controller.clearDrill() }
@@ -729,8 +789,22 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         candidatesStart: Int, candidatesEnd: Int,
     ) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
+        val scan = chunkedRead
+        if (scan != null && scan.pending) {
+            if (newSelEnd >= 0) {
+                mainHandler.removeCallbacks(readTimeout)
+                mainHandler.postDelayed(readTimeout, READ_TIMEOUT_MS)
+                scan.onCaret(newSelEnd)
+            }
+            return
+        }
         selStart = newSelStart
         selEnd = newSelEnd
+        if (!undoBlocked) editorUndo.selectionUpdated(newSelStart, newSelEnd)
+        if (clearSweep != null || webClear != null || largeRestore) return
+        if ((editorUndo.hasPendingClear || editorUndo.hasPendingUndo) && !panelInput.active && !undoBlocked) {
+            currentInputConnection?.let { editorUndo.canUndo(it) }
+        }
         if (::controller.isInitialized) controller.onEditorContextChanged()
     }
 
@@ -755,6 +829,124 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         iv.showPanel(lp)
     }
 
+    private fun canBackspaceSwipe(up: Boolean): Boolean {
+        if (up && controller.hasComposingToClear()) return true
+        if (panelInput.active) return up && panelInput.text().isNotEmpty()
+        if (currentInputConnection == null || restoring || clearSweep != null || webClear != null || editorUndo.hasPendingClear || editorUndo.hasPendingUndo || editorUndo.hasPendingInsertion) return false
+        return up || editorUndo.hasClearedContent || editorUndo.hasDeletionToRestore || clearedText.hasContent()
+    }
+
+    private fun backspaceSwipe(up: Boolean) {
+        if (!controller.onBackspaceSwipe(up)) {
+            if (panelInput.active) { if (up) { panelInput.selectAll(); panelInput.deleteSelection() } }
+            else handleBackspaceSwipe(up)
+        }
+    }
+
+    internal fun takesRawKeys(info: EditorInfo?): Boolean =
+        info != null && info.inputType == InputType.TYPE_NULL
+
+    private fun isWebEditor(): Boolean = currentInputEditorInfo?.inputType?.let {
+        it and InputType.TYPE_MASK_CLASS == InputType.TYPE_CLASS_TEXT &&
+            it and InputType.TYPE_MASK_VARIATION == InputType.TYPE_TEXT_VARIATION_WEB_EDIT_TEXT
+    } == true
+
+    private fun trackedSelectionSpan(): Int {
+        val from = minOf(selStart, selEnd)
+        val to = maxOf(selStart, selEnd)
+        return if (from >= 0 && to > from) to - from else -1
+    }
+
+    private fun readSelection(
+        ic: InputConnection,
+        from: Int,
+        to: Int,
+        dropped: () -> Unit,
+        then: (CharSequence, Boolean) -> Unit,
+    ) {
+        dropChunkedRead()
+        val read = ChunkedRead(
+            from,
+            to,
+            select = { at -> ic.setSelection(at, at) },
+            before = { length -> ic.getTextBeforeCursor(length, 0) },
+            done = { taken, whole ->
+                chunkedRead = null
+                readDropped = null
+                mainHandler.removeCallbacks(readTimeout)
+                ic.setSelection(from, to)
+                then(taken, whole)
+            },
+        )
+        chunkedRead = read
+        readDropped = dropped
+        mainHandler.postDelayed(readTimeout, READ_TIMEOUT_MS)
+        read.begin()
+    }
+
+    private fun replaceLargeSelection(inserted: CharSequence): Boolean {
+        if (panelInput.active || isWebEditor() || takesRawKeys(currentInputEditorInfo)) return false
+        val span = trackedSelectionSpan()
+        if (span <= 0 || span < ChunkedRead.CHUNK / 2 && inserted.length <= WindowedEditorUndoHistory.MAX_INLINE_INSERTION) return false
+        val ic = currentInputConnection ?: return false
+        if (chunkedRead?.pending == true || editorUndo.hasPendingInsertion) return true
+        largeEdit = true
+        val targetEditor = currentEditorTarget
+        val originalStart = selStart
+        val originalEnd = selEnd
+        val from = minOf(originalStart, originalEnd)
+        val to = maxOf(originalStart, originalEnd)
+        fun failed() {
+            largeEdit = false
+        }
+        fun replace(removed: CharSequence, whole: Boolean) {
+            if (ic !== currentInputConnection || targetEditor != currentEditorTarget) {
+                failed()
+                return
+            }
+            if (!whole || removed.length != to - from) {
+                ic.setSelection(originalStart, originalEnd)
+                failed()
+                return
+            }
+            val accepted = editorUndo.replaceCapturedSelection(ic, from, removed, inserted, originalStart, originalEnd)
+            if (!accepted) failed()
+            else if (!editorUndo.hasPendingInsertion) {
+                largeEdit = false
+                controller.onEditorContextChanged()
+            }
+        }
+        val direct = if (span <= ChunkedRead.CHUNK) runCatching { ic.getSelectedText(InputConnection.GET_TEXT_WITH_STYLES) }.getOrNull() else null
+        if (direct != null && direct.length == span) replace(direct, true)
+        else readSelection(ic, from, to, dropped = ::failed, then = ::replace)
+        return true
+    }
+
+    private fun dropChunkedRead() {
+        mainHandler.removeCallbacks(readTimeout)
+        val dropped = if (chunkedRead != null) readDropped else null
+        chunkedRead = null
+        readDropped = null
+        dropped?.invoke()
+    }
+
+    private fun dropRestoreStream() {
+        mainHandler.removeCallbacks(clearPump)
+        clearSweep?.let { operation ->
+            val captured = operation.capture.text()
+            if (operation.kind == EditorUndoHistory.ClearCapture.PLAIN && captured.isNotEmpty()) clearedText.keep(captured)
+        }
+        clearSweep = null
+        mainHandler.removeCallbacks(webClearPump)
+        if (webClear != null) editorUndo.cancelClear()
+        webClear = null
+        mainHandler.removeCallbacks(streamPump)
+        streaming = null
+        afterStreaming = null
+        restoring = false
+        largeRestore = false
+    }
+
     private fun sendKey(code: Int, shift: Boolean) =
         sendKeyWithMeta(code, if (shift) KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON else 0)
 
@@ -764,6 +956,135 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val now = SystemClock.uptimeMillis()
         ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0, meta))
         ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, code, 0, meta))
+    }
+
+    private var restoring = false
+    private var largeRestore = false
+    private class ClearSweep(val target: InputConnection, val kind: EditorUndoHistory.ClearCapture) {
+        val capture = EditorSweep.Capture(target)
+        var progressedAt = SystemClock.uptimeMillis()
+    }
+    private var clearSweep: ClearSweep? = null
+    private class WebClear(val target: InputConnection, var confirming: Boolean = false)
+    private var webClear: WebClear? = null
+    private val webClearPump = object : Runnable {
+        override fun run() {
+            val operation = webClear ?: return
+            if (currentInputConnection?.let(editorUndo::untracked) !== operation.target) {
+                webClear = null
+                editorUndo.cancelClear()
+                return
+            }
+            if (!operation.confirming) {
+                operation.confirming = true
+                sendKeyWithMeta(KeyEvent.KEYCODE_A, KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON)
+                mainHandler.postDelayed(this, 32L)
+                return
+            }
+            val emptySelection = operation.target.getSelectedText(0).isNullOrEmpty()
+            if (emptySelection) {
+                if (editorUndo.finishEditorClear(operation.target)) clearedText.forget()
+            } else {
+                editorUndo.cancelClear()
+                sendKeyWithMeta(KeyEvent.KEYCODE_MOVE_END, KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON)
+            }
+            webClear = null
+            controller.onEditorContextChanged()
+        }
+    }
+    private val clearPump = object : Runnable {
+        override fun run() {
+            val operation = clearSweep ?: return
+            if (currentInputConnection?.let(editorUndo::untracked) !== operation.target) {
+                dropRestoreStream()
+                return
+            }
+            val progress = operation.capture.advance()
+            val timedOut = progress == EditorSweep.Progress.WAITING &&
+                SystemClock.uptimeMillis() - operation.progressedAt >= READ_TIMEOUT_MS
+            if (progress == EditorSweep.Progress.DONE || timedOut) {
+                if (timedOut) operation.capture.cancel()
+                clearSweep = null
+                editorUndo.finishClearRestore(operation.target, operation.capture.text())
+                controller.onEditorContextChanged()
+                return
+            }
+            if (progress == EditorSweep.Progress.MORE) operation.progressedAt = SystemClock.uptimeMillis()
+            mainHandler.postDelayed(this, if (progress == EditorSweep.Progress.WAITING) STREAM_GAP_MS else 1L)
+        }
+    }
+
+    private fun handleBackspaceSwipe(up: Boolean) {
+        if (panelInput.active) return
+        val ic = currentInputConnection ?: return
+        controller.expireCandidateChoiceUndo()
+        if (up) {
+            if (restoring || clearSweep != null || webClear != null || editorUndo.hasPendingClear || editorUndo.hasPendingUndo || editorUndo.hasPendingInsertion) return
+            val kind = editorUndo.beginClearRestore(ic)
+            if (isWebEditor()) {
+                val target = editorUndo.untracked(ic)
+                webClear = WebClear(target)
+                target.finishComposingText()
+                sendKeyWithMeta(KeyEvent.KEYCODE_A, KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON)
+                sendKey(KeyEvent.KEYCODE_DEL, false)
+                mainHandler.postDelayed(webClearPump, 120L)
+                return
+            }
+            if (!editorUndo.clearCaptured(ic)) {
+                clearSweep = ClearSweep(editorUndo.untracked(ic), kind)
+                clearPump.run()
+            }
+        } else {
+            if (restoring || clearSweep != null || webClear != null || editorUndo.hasPendingClear || editorUndo.hasPendingInsertion) return
+            if (editorUndo.hasClearedContent) {
+                restoring = true
+                val restored = editorUndo.restoreClearedContent(ic)
+                if (!editorUndo.hasPendingUndo) finishClearedContentRestore(restored)
+                return
+            }
+            if (editorUndo.hasDeletionToRestore) {
+                silentUndo = true
+                val restored = editorUndo.undo(ic)
+                if (restored) clearedText.forget()
+                if (!editorUndo.hasPendingUndo) finishEditingUndo(restored)
+                return
+            }
+            clearedText.held()?.let {
+                val within =
+                    if (it.length > ClearedTextRestore.MAX_CHARS) it.subSequence(0, ClearedTextRestore.MAX_CHARS)
+                    else it
+                val span = maxOf(CaretRealign.breaksIn(within), TRIM_WINDOW)
+                val followed = CaretRealign.following(ic, span)
+                restoring = true
+                largeRestore = within.length > EditorSweep.CHUNK
+                val restoreTarget = if (largeRestore) editorUndo.untracked(ic) else ic
+                ClearedTextRestore.restore(
+                    within,
+                    measure = { EditorSweep.nearbyLength(restoreTarget) },
+                    commit = { part, then ->
+                        if (part.length > STREAM_CHUNK) {
+                            commitStreamed(part, then)
+                        } else {
+                            commitLargeText(part, realign = false)
+                            then()
+                        }
+                    },
+                    done = {
+                        restoring = false
+                        settleRestore(restoreTarget, within, span, followed)
+                        largeRestore = false
+                        clearedText.forget()
+                    },
+                )
+            }
+        }
+    }
+
+    private fun finishClearedContentRestore(restored: Boolean) {
+        restoring = false
+        if (restored) {
+            controller.onEditorContextChanged()
+        }
     }
 
     private fun showEmojiPanel() {
@@ -778,6 +1099,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onClearRecents = { emojiUsageStore.clear() }
             it.onDeleteRecent = { emoji -> emojiUsageStore.remove(emoji) }
             it.onBackspace = { panelBackspace() }
+            it.onBackspaceSwipe = { up -> backspaceSwipe(up) }
+            it.backspaceSwipeAvailable = { up -> canBackspaceSwipe(up) }
             it.onBack = { inputView?.showPanel(null) }
             emojiView = it
         }
@@ -830,6 +1153,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 commitExternalSymbol(s)
             }
             it.onBackspace = { panelBackspace() }
+            it.onBackspaceSwipe = { up -> backspaceSwipe(up) }
+            it.backspaceSwipeAvailable = { up -> canBackspaceSwipe(up) }
             it.onBack = { inputView?.showPanel(null) }
             symbolsView = it
         }
@@ -1004,6 +1329,16 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         liveUserDictHost.scheduleSave()
     }
 
+    override fun onUnbindInput() {
+        clearEditorTransientState(resetController = true)
+        currentEditorTarget = null
+        layoutSessionPackage = null
+        inputSessionActive = false
+        resetControllerOnNextInputView = false
+        personalizationBlocked = false
+        super.onUnbindInput()
+    }
+
     override fun onDestroy() {
         clearEditorTransientState(resetController = true)
         currentEditorTarget = null
@@ -1046,6 +1381,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             return
         }
         controller.expireCandidateChoiceUndo()
+        if (replaceLargeSelection(text)) return
         if (currentInputConnection?.commitText(text, 1) == true) controller.onEditorContextChanged()
     }
 
@@ -1084,6 +1420,88 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         } finally {
             ic.endBatchEdit()
         }
+    }
+
+    private var streaming: CharSequence? = null
+    private var streamedAt = 0
+    private var afterStreaming: (() -> Unit)? = null
+
+    private val streamPump = object : Runnable {
+        override fun run() {
+            val text = streaming ?: return
+            val ic = currentInputConnection
+            if (ic == null) { streaming = null; afterStreaming = null; restoring = false; largeRestore = false; return }
+            val end = minOf(streamedAt + STREAM_CHUNK, text.length)
+            ic.commitText(text.subSequence(streamedAt, end), 1)
+            streamedAt = end
+            if (end < text.length) {
+                mainHandler.postDelayed(this, STREAM_GAP_MS)
+                return
+            }
+            streaming = null
+            val then = afterStreaming
+            afterStreaming = null
+            then?.invoke()
+            controller.onEditorContextChanged()
+        }
+    }
+
+    private fun commitStreamed(text: CharSequence, then: () -> Unit) {
+        mainHandler.removeCallbacks(streamPump)
+        streaming = text
+        streamedAt = 0
+        afterStreaming = then
+        streamPump.run()
+    }
+
+    private fun commitLargeText(text: CharSequence, realign: Boolean = true): Boolean {
+        if (panelInput.commit(text)) {
+            controller.onEditorContextChanged()
+            return true
+        }
+        controller.expireCandidateChoiceUndo()
+        val ic = currentInputConnection ?: return false
+        if (replaceLargeSelection(text)) return true
+        val breaks = if (realign) CaretRealign.breaksIn(text) else 0
+        val following = CaretRealign.following(ic, breaks)
+        val committed = editorUndo.commitCapturedText(ic, text) { target ->
+            target.beginBatchEdit()
+            try {
+                var accepted = true
+                com.aegis.ime.ime.LargeCommit.commit(text) {
+                    accepted = target.commitText(it, 1) && accepted
+                }
+                accepted
+            } finally { target.endBatchEdit() }
+        }
+        if (editorUndo.hasPendingInsertion) return committed
+        catchCaretUp(ic, breaks, following)
+        controller.onEditorContextChanged()
+        return committed
+    }
+
+    private fun settleRestore(ic: InputConnection, written: CharSequence, span: Int, followed: String) {
+        catchCaretUp(ic, span, followed)
+        if (followed.isNotEmpty() || written.isEmpty() || written.last() == '\n') return
+        val before = ic.getTextBeforeCursor(TRIM_WINDOW, 0) ?: return
+        val extra = before.length - 1 - before.indexOfLast { it != '\n' }
+        if (extra > 0) ic.deleteSurroundingText(extra, 0)
+    }
+
+    private fun catchCaretUp(ic: InputConnection, span: Int, following: String) {
+        if (span <= 0) return
+        val window = span * 2
+        val lag = { CaretRealign.lagBetween(following, CaretRealign.following(ic, window)) }
+        var behind = lag()
+        if (behind <= 0) return
+        val reshow = isInputViewShown
+        while (behind > 0) {
+            ic.commitText("", 1 + behind)
+            val now = lag()
+            if (now >= behind) break
+            behind = now
+        }
+        if (reshow) requestShowSelf(0)
     }
 
     override fun deleteBackward() {
@@ -1137,6 +1555,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun deleteSelection() {
         if (panelInput.active) { panelInput.deleteSelection(); return }
+        if (replaceLargeSelection("")) return
         sendKey(KeyEvent.KEYCODE_DEL, false)
     }
 
@@ -1158,6 +1577,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 }
 
 private const val DECODE_TARGET_NANOS = 16_666_667L
+private const val STREAM_GAP_MS = 16L
+private const val STREAM_CHUNK = 16_384
+private const val TRIM_WINDOW = 8
+private const val READ_TIMEOUT_MS = 1_500L
+private const val WEB_WRITE_SETTLE_MS = 160L
 private const val PREF_TRANSLATE_MODE = "translate_mode"
 private const val TRANSLATE_DEBOUNCE_MS = 300L
 
