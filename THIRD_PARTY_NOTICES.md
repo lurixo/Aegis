@@ -34,8 +34,10 @@ OpenSubtitles corpus.
   → **CC BY-SA 4.0**.
 - Attribution: © Hermit Dave; data derived from the OpenSubtitles corpus (OPUS).
 - Changes: kept word + count, re-keyed by letters-only/lowercased, repacked into Aegis's binary
-  dictionary format. CC BY-SA **4.0** is one-way compatible with GPL-3.0, so the derivative may be
-  conveyed under GPL-3.0; attribution + ShareAlike are preserved either way.
+  dictionary format. CC BY-SA **4.0** is one-way compatible with the GNU GPL **version 3 only**
+  (not "or later"), so the derived blob `aegis_en.bin` is incorporated into this project under
+  **GPL-3.0-only** (which is why every source file is marked `GPL-3.0-only`); attribution +
+  ShareAlike are preserved either way.
 
 ## Optional download — wanxiang octagram model
 
@@ -57,4 +59,4 @@ source was copied.
 ## Algorithm / skeleton references (not vendored)
 
 - AOSP PinyinIME (Apache-2.0) — decoder/trie/segmentation reference.
-- darts-clone (BSD / LGPL-2.1) — double-array trie design reference.
+- darts-clone (BSD-2-Clause) — double-array trie design reference.
