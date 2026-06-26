@@ -71,6 +71,9 @@ class ClipEntry private constructor(
         return prefix
     }
 
+    internal fun bodySizeHint(): Long =
+        resident?.let { return it.length.toLong() } ?: source()?.length() ?: 0L
+
     internal fun pendingBody(): String? = if (hash == null) null else resident
 
     internal fun importSource(): File? = source()
@@ -535,6 +538,8 @@ class ClipboardStore(private val dir: File) {
         return true
     }
 
+    fun clipEntry(key: String): ClipEntry? = synchronized(history) { history.firstOrNull { it.key == key } }
+
     fun latestEntry(): ClipEntry? = synchronized(history) { history.firstOrNull() }
 
     fun retainImageForInput(entry: ClipEntry): InputImageLease? {
@@ -715,6 +720,11 @@ class ClipboardStore(private val dir: File) {
         }
         return restored
     }
+
+    fun clipBody(key: String): String? = clipEntry(key)?.body()
+
+    fun clipBodySizeHint(key: String): Long =
+        synchronized(history) { history.firstOrNull { it.key == key } }?.bodySizeHint() ?: 0L
 
     fun editClip(key: String, newText: String): Boolean {
         if (!clipWritesAllowed()) { reportClipWrite(false); return false }

@@ -28,6 +28,7 @@ import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.historyText
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -84,6 +85,13 @@ class ClipboardCaptureGateTest {
         return delegate.value as ClipboardStore
     }
 
+    private fun copyBlocks(service: AegisInputMethodService, blocks: List<String>) {
+        service.javaClass
+            .getDeclaredMethod("copyBlocksToAegis", List::class.java)
+            .apply { isAccessible = true }
+            .invoke(service, blocks)
+    }
+
     private fun captureClip(service: AegisInputMethodService) {
         service.javaClass.getDeclaredMethod("captureClip").apply { isAccessible = true }.invoke(service)
     }
@@ -91,6 +99,26 @@ class ClipboardCaptureGateTest {
     private fun systemClip(text: String) {
         val manager = app.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         manager.setPrimaryClip(ClipData.newPlainText("label", text))
+    }
+
+    @Test fun split_blocks_copied_in_an_ordinary_field_are_still_kept() {
+        val service = startedIn(ordinary())
+
+        copyBlocks(service, listOf("拆出来的一块"))
+
+        assertEquals(listOf("拆出来的一块"), store(service).historyText())
+    }
+
+    @Test fun split_blocks_copied_during_a_restore_are_never_kept() {
+        val service = startedIn(ordinary())
+        LiveUserData.restoreInProgress = true
+
+        copyBlocks(service, listOf("恢复期拆出来的"))
+
+        assertTrue(
+            "a restore owns the history file, so nothing may be written beside it",
+            store(service).historyText().isEmpty(),
+        )
     }
 
     @Test fun the_clip_on_the_system_board_is_kept_in_an_ordinary_field() {

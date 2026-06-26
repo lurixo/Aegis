@@ -25,6 +25,10 @@ import android.view.ViewGroup
 import android.widget.HorizontalScrollView
 import android.widget.ScrollView
 import android.widget.TextView
+import android.text.InputType
+import android.view.inputmethod.EditorInfo
+import com.aegis.ime.AegisInputMethodService
+import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.EmojiCatalog
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.user.asClipEntries
@@ -490,6 +494,57 @@ class PanelResetOnExitTest {
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(16))
         val entry = tapFullyVisibleRow(cv, "first tap", 9000)
         assertEquals("the first tap after reopening must commit the entry", entry, picked)
+    }
+
+    private val stubEngine = object : CandidateEngine {
+        override fun candidates(composing: String, t9: Boolean): List<String> = emptyList()
+    }
+
+    private fun startedService(): Pair<AegisInputMethodService, InputView> {
+        val service = Robolectric.buildService(AegisInputMethodService::class.java).get()
+        service.javaClass.getDeclaredField("controller").apply {
+            isAccessible = true
+            set(service, KeyboardController(service, stubEngine, null))
+        }
+        val info = EditorInfo().apply {
+            packageName = "com.example.editor"
+            fieldId = 7
+            inputType = InputType.TYPE_CLASS_TEXT
+        }
+        service.onStartInput(info, false)
+        val view = service.onCreateInputView() as InputView
+        service.onStartInputView(info, false)
+        return service to view
+    }
+
+    private fun press(service: AegisInputMethodService, entry: String) {
+        service.javaClass.getDeclaredMethod(entry).run {
+            isAccessible = true
+            invoke(service)
+        }
+    }
+
+    private fun openClipboardView(service: AegisInputMethodService): ClipboardView =
+        service.javaClass.getDeclaredField("clipboardView").run {
+            isAccessible = true
+            get(service) as ClipboardView
+        }
+
+    @Test fun pressing_the_clipboard_key_while_the_panel_is_open_closes_it() = hosted { activity ->
+        val (service, iv) = startedService()
+        activity.setContentView(iv)
+        press(service, "showClipboardPanel")
+        idle()
+        val cv = openClipboardView(service)
+        cv.showPhraseTab("")
+        idle()
+        assertTrue("precondition: the panel is open on the phrases tab", iv.isPanelShowing(cv))
+        assertFalse("precondition: the phrases tab is showing", cv.isClipboardTabForTest())
+
+        press(service, "showClipboardPanel")
+        idle()
+
+        assertFalse("the 剪贴板 key toggles the open panel closed rather than reopening it", iv.isPanelShowing(cv))
     }
 
     @Test fun switching_between_the_two_tabs_returns_to_the_top() = hosted { activity ->

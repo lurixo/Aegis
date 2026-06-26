@@ -74,6 +74,12 @@ class TranslateBarSessionTest {
             .invoke(service, text)
     }
 
+    private fun beginAddPhrase(service: AegisInputMethodService) {
+        service.javaClass.getDeclaredMethod("beginInlineAddPhrase", String::class.java)
+            .apply { isAccessible = true }
+            .invoke(service, "默认")
+    }
+
     private fun open(s: Session) = s.controller.onBarFunction(BarFunction.TRANSLATE)
 
     @Test fun the_toolbar_entry_opens_the_bar_and_routes_typing_into_its_field() {
@@ -98,6 +104,42 @@ class TranslateBarSessionTest {
         type(s.service, "abc")
         s.view.translateBarForTest().closeButtonForTest().performClick()
         assertFalse(s.service.translateBarOpenForTest())
+        assertFalse(s.view.isTranslateBarShowing())
+        assertFalse(panelInput(s.service).active)
+    }
+
+    @Test fun an_inline_edit_covers_the_bar_and_hands_typing_back_afterwards() {
+        val s = started()
+        open(s)
+        type(s.service, "keep me")
+
+        beginAddPhrase(s.service)
+        assertTrue(s.view.isEditBarShowing())
+        assertFalse(s.view.isTranslateBarShowing())
+        assertTrue(s.service.translateBarOpenForTest())
+        type(s.service, "新短语")
+        assertEquals("新短语", panelInput(s.service).text())
+        assertEquals("keep me", s.view.translateText())
+
+        call(s.service, "confirmInlineInput")
+        assertFalse(s.view.isEditBarShowing())
+        assertTrue(s.view.isTranslateBarShowing())
+        type(s.service, "!")
+        assertEquals("keep me!", s.view.translateText())
+        assertEquals("keep me!", panelInput(s.service).text())
+    }
+
+    @Test fun the_toggle_is_inert_while_an_inline_edit_is_active() {
+        val s = started()
+        beginAddPhrase(s.service)
+        type(s.service, "短语")
+        open(s)
+        assertFalse("the toggle must not arm a hidden translate bar", s.service.translateBarOpenForTest())
+        assertFalse(s.view.isTranslateBarShowing())
+        assertTrue(s.view.isEditBarShowing())
+        assertEquals("短语", panelInput(s.service).text())
+
+        call(s.service, "confirmInlineInput")
         assertFalse(s.view.isTranslateBarShowing())
         assertFalse(panelInput(s.service).active)
     }

@@ -61,6 +61,12 @@ import com.aegis.ime.ime.ClipboardPanelState.Tab
 
 class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, CoversToolbar, KeyHapticsAware, LayeredPanel {
 
+    internal data class RecreationState(
+        val phrasesTab: Boolean,
+        val phraseCategory: String,
+        val categoryAdmin: Boolean = false,
+    )
+
     var onPick: (String) -> Unit = {}
     var onPickImage: (ClipEntry) -> Unit = {}
     var onCopyImage: (ClipEntry) -> Unit = {}
@@ -205,6 +211,20 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         if (reveal >= 0) {
             appendListRows(reveal + 1)
             pendingListReveal = reveal
+        }
+    }
+
+    internal fun recreationState(): RecreationState = RecreationState(
+        phrasesTab = st.tab == ClipboardPanelState.Tab.PHRASE,
+        phraseCategory = phraseCat,
+        categoryAdmin = st.tab == ClipboardPanelState.Tab.PHRASE && categorySortMode,
+    )
+
+    internal fun restoreRecreationState(state: RecreationState) {
+        when {
+            state.categoryAdmin -> showCategoryAdmin(state.phraseCategory)
+            state.phrasesTab -> showPhraseTab(state.phraseCategory)
+            else -> refresh(animate = false)
         }
     }
 
@@ -2943,6 +2963,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         card.addView(menuItem(context.getString(R.string.clip_done)) { hideOverlay(); onDone() })
         showPopupCard(card)
     }
+
+    fun reportClipWrite() = showNotice(R.string.clip_change_not_saved)
 
     fun reportPhraseWrite(change: PhraseChange, leftOut: Int = 0) {
         val message = phraseWriteNotice(context, change, leftOut)

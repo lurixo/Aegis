@@ -391,7 +391,9 @@ class InputView(context: Context) : LinearLayout(context) {
         onOverlayChanged()
     }
     fun isEditBarShowing(): Boolean = editBarView.visibility == VISIBLE
+    fun setEditTitle(t: String) { editBarView.setTitle(t) }
     fun setEditText(t: String) { editBarView.setText(t) }
+    fun editEditable(): PanelEditable = editBarView.editable()
     internal fun dismissEditBarForPanelReturn() {
         editBarActive = false
         editBarView.releaseField()

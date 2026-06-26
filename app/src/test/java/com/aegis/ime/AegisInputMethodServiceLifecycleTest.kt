@@ -65,6 +65,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
@@ -400,6 +401,36 @@ class AegisInputMethodServiceLifecycleTest {
         view.layout(0, 0, view.measuredWidth, view.measuredHeight)
     }
 
+    private fun clipboard(service: AegisInputMethodService): ClipboardView {
+        service.javaClass.getDeclaredMethod("showClipboardPanel").apply { isAccessible = true }.invoke(service)
+        return service.javaClass.getDeclaredField("clipboardView").run {
+            isAccessible = true
+            get(service) as ClipboardView
+        }
+    }
+
+    @Test fun split_selection_composes_into_one_region_and_finishes_when_the_popup_closes() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        val cv = clipboard(f.service)
+        cv.showSplitForTest("检查一下，检查")
+
+        cv.onSplitSelectionChanged("检查")
+        cv.onSplitSelectionChanged("检查，")
+        cv.onSplitSelectionChanged("检查一下，")
+        cv.onSplitSelectionChanged("一下，")
+
+        assertEquals(listOf("检查", "检查，", "检查一下，", "一下，"), connection.composingUpdates)
+        assertEquals("一下，", connection.editable.toString())
+        assertEquals(0, connection.finishes)
+        cv.hideOverlayForTest()
+        assertEquals(1, connection.finishes)
+        assertEquals("一下，", connection.editable.toString())
+        cv.finishSplitSelection()
+        assertEquals("the ended session must not finish twice", 1, connection.finishes)
+    }
+
     @Test fun copy_bar_split_selection_composes_in_source_order_without_writing_either_clipboard() {
         val f = fixture()
         val connection = RecordingInputConnection(FrameLayout(f.service))
@@ -432,6 +463,22 @@ class AegisInputMethodServiceLifecycleTest {
         assertEquals(1, connection.finishes)
         bar.finishSplitSelection()
         assertEquals("the completed taskbar session must not finish twice", 1, connection.finishes)
+    }
+
+    @Test fun active_split_selection_finishes_once_when_the_input_target_ends() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        val cv = clipboard(f.service)
+        cv.showSplitForTest("检查一下，检查")
+        cv.onSplitSelectionChanged("检查")
+
+        assertEquals(0, connection.finishes)
+        f.service.onFinishInput()
+        assertEquals(1, connection.finishes)
+        assertEquals("检查", connection.editable.toString())
+        cv.finishSplitSelection()
+        assertEquals("the ended target must not finish the split session twice", 1, connection.finishes)
     }
 
     @Test fun active_copy_bar_split_selection_finishes_once_when_the_input_target_ends() {
@@ -1333,6 +1380,28 @@ class AegisInputMethodServiceLifecycleTest {
         assertFalse("the keyboard must not start the dictionary download on its own", DictDownloadWork.snapshot(f.service).downloading)
         assertFalse(ModelDownload.dictZipFile(f.service.filesDir).exists())
         assertFalse(ModelDownload.dictPartFile(f.service.filesDir).exists())
+    }
+
+    @Test fun inline_exit_drops_a_decode_result_already_queued_for_main_delivery() {
+        val worker = ArrayDeque<Runnable>()
+        val main = ArrayDeque<Runnable>()
+        val lane = DecodeLane(Executor { worker.add(it) }, Executor { main.add(it) })
+        val f = fixture(decodeLane = lane)
+        val cv = clipboard(f.service)
+        cv.onEditNote("默认", "原文")
+        f.view.onKey(Key("6", output = "6"))
+        assertTrue(worker.isNotEmpty())
+        while (worker.isNotEmpty()) worker.removeFirst().run()
+        assertTrue(main.isNotEmpty())
+
+        f.view.onEditCancel()
+        assertEquals("", f.controller.preeditForTest())
+        assertTrue(f.view.isPanelShowing(cv))
+        while (main.isNotEmpty()) main.removeFirst().run()
+
+        assertEquals("", f.controller.preeditForTest())
+        assertTrue(f.controller.candidateWords().isEmpty())
+        assertTrue(f.view.isPanelShowing(cv))
     }
 
     @Test fun window_hidden_restores_nine_twenty_six_and_english_base_keyboards() {

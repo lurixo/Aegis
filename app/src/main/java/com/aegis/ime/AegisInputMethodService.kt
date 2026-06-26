@@ -51,6 +51,7 @@ import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.engine.StoredReadingRepair
 import com.aegis.ime.ime.CaretRealign
 import com.aegis.ime.ime.ClearedTextRestore
+import com.aegis.ime.ime.ClipboardView
 import com.aegis.ime.ime.CustomSymbolPanel
 import com.aegis.ime.ime.EditAction
 import com.aegis.ime.ime.EditPanelView
@@ -62,6 +63,7 @@ import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.ime.LayoutPanelView
 import com.aegis.ime.ime.ParallelLoad
+import com.aegis.ime.ime.phraseWriteNotice
 import com.aegis.ime.ime.SelectionMath
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.SymbolsView
@@ -80,6 +82,8 @@ import com.aegis.ime.user.ClipboardImageTooLargeException
 import com.aegis.ime.user.CustomSymbolStore
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.LiveUserDictHost
+import com.aegis.ime.user.PhraseChange
+import com.aegis.ime.user.PhraseEdit
 import com.aegis.ime.user.SymbolUsageStore
 import com.aegis.ime.user.UserDeletionPromises
 import com.aegis.ime.user.UserDictHot
@@ -138,6 +142,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var backCallback: OnBackInvokedCallback? = null
     private var backRegistered = false
     private var emojiView: EmojiView? = null
+    private var clipboardView: ClipboardView? = null
     private var symbolsView: SymbolsView? = null
     private var editPanelView: EditPanelView? = null
     private var layoutPanelView: LayoutPanelView? = null
@@ -248,9 +253,20 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private val panelInput = com.aegis.ime.ime.PanelTextInput().also {
         it.onTargetChanged = { if (::controller.isInitialized) controller.onInputTargetChanged() }
     }
+    private enum class InputPurpose { EDIT_PHRASE, EDIT_CLIP, ADD_PHRASE, EDIT_NOTE, ADD_CATEGORY, RENAME_CATEGORY }
+    private var inputPurpose: InputPurpose? = null
+    private var inputCat = ""
+    private var inputOld = ""
+    private var inlineOriginPhrasesTab = false
+    private var inlineOriginCategoryAdmin = false
+    private var pendingPhraseAdds: List<String> = emptyList()
+    private var pendingMoveFrom = ""
+    private var pendingMoveTexts: List<String> = emptyList()
     private val clipboardStore by lazy {
         ClipboardStore(filesDir).also {
             it.load()
+            it.reportPhraseWritesTo(mainLane, ::reportPhraseWrite)
+            it.reportClipWritesTo(mainLane, ::reportClipWrite)
             LiveUserData.clipboardHost = it
         }
     }
@@ -293,6 +309,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var inputSessionActive = false
     private var resetControllerOnNextInputView = false
 
+    private var clipboardRecreationState: ClipboardView.RecreationState? = null
+    private var restoreClipboardWithoutCapture = false
     private var splitSelectionInputConnection: InputConnection? = null
     private var frameworkWillFinishInput = false
     private var translateOpen = false
@@ -314,6 +332,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         imePalette = computePalette()
         inputView?.applyPalette(imePalette)
         emojiView?.applyPalette(imePalette)
+        clipboardView?.applyPalette(imePalette)
         symbolsView?.applyPalette(imePalette)
         editPanelView?.applyPalette(imePalette)
         layoutPanelView?.applyPalette(imePalette)
@@ -472,6 +491,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             emailDomains = com.aegis.ime.ime.EmailDomains(getSharedPreferences("aegis", MODE_PRIVATE)),
         )
         controller.onShowEmoji = { showEmojiPanel() }
+        controller.onShowClipboard = { showClipboardPanel() }
         controller.onShowTranslate = { toggleTranslateBar() }
         controller.onShowEdit = { showEditPanel() }
         controller.onShowLayout = { showLayoutPanel() }
@@ -585,6 +605,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         cutCompletionNotice = null
         dropChunkedRead()
         dropRestoreStream()
+        clipboardRecreationState = null
         stopSelecting()
         if (resetController && ::controller.isInitialized) controller.reset(preserveLayout)
     }
@@ -662,6 +683,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     override fun onFinishInput() {
         frameworkWillFinishInput = true
         try {
+            clipboardView?.finishSplitSelection()
             inputView?.finishCopySplitSelection()
             finishTranslation()
         } finally {
@@ -725,6 +747,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 controller.expireCandidateChoiceUndo()
                 lastCopy = null
             }
+            onEditConfirm = { confirmInlineInput() }
+            onEditCancel = { cancelInlineInput() }
             onTranslateClose = { closeTranslateBar() }
             onTranslateFieldTap = { resumeTranslateRouting() }
             onOverlayChanged = { syncBackCallback() }
@@ -733,6 +757,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onPreeditEditDone = { controller.onPreeditEditDone() }
         }
         inputView = view
+        view.onEditTextChanged = { txt ->
+            refreshUndoAvailability()
+            refreshPanelEmailContext(view)
+        }
         view.onEditSelectionChanged = { has ->
             if (panelInput.active) editPanelView?.setHasSelection(has)
             refreshPanelEmailContext(view)
@@ -771,6 +799,15 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             if (inputView === view && panelInput.active && ::controller.isInitialized) {
                 controller.onEditorContextChanged()
             }
+        }
+    }
+
+    private fun restoreClipboardPanel() {
+        restoreClipboardWithoutCapture = true
+        try {
+            showClipboardPanel()
+        } finally {
+            restoreClipboardWithoutCapture = false
         }
     }
 
@@ -1121,6 +1158,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (keep) {
             clipboardStore.record(text)
             rememberUnpublishedClipboard(publication, previousOrder)
+            refreshOpenClipboardPanel()
         }
         if (!keep && !publication.published) return false
         toast(uiString(notice))
@@ -1350,6 +1388,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 recordTextClip(body)
             } else {
                 clipboardStore.record(body)
+                refreshOpenClipboardPanel()
             }
             rememberUnpublishedClipboard(publication, previousOrder)
         }
@@ -1655,6 +1694,68 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         iv.showPanel(ev)
     }
 
+    private fun showClipboardPanel() {
+        val iv = inputView ?: return
+        iv.showPhraseNotice(null)
+        val captureCurrentClip = !restoreClipboardWithoutCapture
+        if (!restoreClipboardWithoutCapture) {
+        if (iv.isPanelShowing(clipboardView)) { iv.showPanel(null); return }
+        }
+        if (captureCurrentClip) clipboardRecreationState = null
+        val recreationState = clipboardRecreationState
+        val cv = clipboardView ?: ClipboardView(imeUiContext()).also {
+            it.historyProvider = { clipboardStore.history() }
+            it.categoriesProvider = { clipboardStore.categories() }
+            it.phrasesInProvider = { cat -> clipboardStore.phrasesIn(cat) }
+            it.phraseNoteProvider = { cat, text -> clipboardStore.noteFor(cat, text) }
+            it.onPick = { t -> commitLargeText(t); inputView?.showPanel(null) }
+            it.onPickImage = { entry -> pasteImage(entry) }
+            it.onCopyImage = { entry ->
+                if (publishImageClip(entry)) toast(uiString(R.string.edit_copy_done))
+            }
+            it.onCopyBlocksToAegis = { blocks -> copyBlocksToAegis(blocks) }
+            it.onSplitSelectionChanged = { text -> updateSplitSelection(text) }
+            it.onSplitSelectionFinished = { finishSplitSelection() }
+            it.onBack = { inputView?.showPanel(null) }
+            it.onDeleteClips = { list -> clipboardStore.deleteAll(list) }
+            it.onDeletePhrasesFrom = { cat, list -> clipboardStore.deletePhrasesFrom(cat, list) }
+            it.onSaveAsPhrasesTo = { cat, list -> clipboardStore.addPhrasesTo(cat, list) }
+            it.onEditPhrase = { cat, text -> beginInlineEdit(cat, text) }
+            it.onEditClip = { key -> beginInlineEditClip(key) }
+            it.onMovePhrase = { from, text, to -> clipboardStore.movePhrase(from, text, to) }
+            it.onMovePhrasesTo = { from, list, to -> clipboardStore.movePhrasesTo(from, list, to) }
+            it.onReorderPhrase = { cat, fromIdx, toIdx -> clipboardStore.reorderPhrase(cat, fromIdx, toIdx) }
+            it.onReorderCategory = { fromIdx, toIdx -> clipboardStore.reorderCategory(fromIdx, toIdx) }
+            it.onAddPhrase = { cat -> beginInlineAddPhrase(cat) }
+            it.onAddCategory = { beginInlineAddCategory() }
+            it.onAddCategoryThenAdd = { texts -> beginInlineAddCategory(texts) }
+            it.onAddCategoryThenMove = { from, texts -> beginInlineAddCategory(pendingMove = from to texts) }
+            it.onRenameCategory = { old -> beginInlineRenameCategory(old) }
+            it.onDeleteCategory = { name -> clipboardStore.deleteCategory(name) }
+            it.onEditNote = { cat, text -> beginInlineEditNote(cat, text) }
+            it.onClearCategory = { cat -> clipboardStore.clearPhrasesIn(cat) }
+            it.onClearHistory = { clipboardStore.clearHistory() }
+            it.historyEnabledProvider = { historyEnabled() }
+            it.historyReadableProvider = { clipboardStore.historyReadable }
+            it.phrasesReadableProvider = { clipboardStore.phrasesReadable }
+            it.onSetHistoryEnabled = { on -> setHistoryEnabled(on) }
+            clipboardView = it
+        }
+
+        if (captureCurrentClip) {
+        cv.resetToDefault()
+        }
+        cv.applyPalette(imePalette)
+        recreationState?.let(cv::restoreRecreationState)
+        clipboardRecreationState = null
+        iv.showPanelImmediately(cv)
+        iv.post {
+            if (captureCurrentClip) captureClip()
+            clipboardStore.reloadPhrases()
+            refreshOpenClipboardPanel()
+        }
+    }
+
     private fun showCustomSymbolPanel() {
         val iv = inputView ?: return
         val panel = customSymbolView ?: CustomSymbolPanel(imeUiContext()).also {
@@ -1709,10 +1810,155 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         iv.showPanel(sv)
     }
 
+
+    private fun beginInlineEdit(category: String, phrase: String) {
+        if (phrase.length > EDITABLE_CLIP_CHARS) {
+            toast(uiString(R.string.phrase_edit_too_long))
+            return
+        }
+        inputPurpose = InputPurpose.EDIT_PHRASE; inputCat = category; inputOld = phrase
+        startInlineInput(uiString(R.string.svc_edit_phrase), phrase)
+    }
+
+    private fun beginInlineEditClip(key: String) {
+        if (clipboardStore.clipBodySizeHint(key) > EDITABLE_CLIP_CHARS) {
+            toast(uiString(R.string.clip_edit_too_long))
+            return
+        }
+        val body = clipboardStore.clipBody(key)
+        if (body == null) {
+            toast(uiString(R.string.clip_entry_unreadable_body))
+            return
+        }
+        inputPurpose = InputPurpose.EDIT_CLIP; inputCat = ""; inputOld = key
+        startInlineInput(uiString(R.string.svc_edit_clip), body)
+    }
+
+    private fun beginInlineAddPhrase(category: String) {
+        inputPurpose = InputPurpose.ADD_PHRASE; inputCat = category; inputOld = ""
+        startInlineInput(uiString(R.string.svc_add_phrase), "")
+    }
+
+    private fun beginInlineEditNote(category: String, text: String) {
+        inputPurpose = InputPurpose.EDIT_NOTE; inputCat = category; inputOld = text
+        startInlineInput(uiString(R.string.svc_note), clipboardStore.noteFor(category, text))
+    }
+
+    private fun beginInlineAddCategory(
+        pendingAdds: List<String> = emptyList(),
+        pendingMove: Pair<String, List<String>>? = null,
+    ) {
+        inputPurpose = InputPurpose.ADD_CATEGORY; inputCat = ""; inputOld = ""
+        pendingPhraseAdds = pendingAdds
+        pendingMoveFrom = pendingMove?.first ?: ""
+        pendingMoveTexts = pendingMove?.second ?: emptyList()
+        startInlineInput(uiString(R.string.svc_new_category), "")
+    }
+
+    private fun beginInlineRenameCategory(old: String) {
+        inputPurpose = InputPurpose.RENAME_CATEGORY; inputCat = ""; inputOld = old
+        startInlineInput(uiString(R.string.svc_rename_category), categoryLabel(old))
+    }
+
+    private fun categoryLabel(name: String): String =
+        if (name == com.aegis.ime.user.ClipboardStore.DEFAULT_CATEGORY_ID) uiString(R.string.clip_default_category) else name
+
+    private fun namesCategory(): Boolean =
+        inputPurpose == InputPurpose.ADD_CATEGORY || inputPurpose == InputPurpose.RENAME_CATEGORY
+
+    private fun startInlineInput(title: String, initial: String) {
+        val iv = inputView ?: return
+        val origin = clipboardView?.recreationState()
+        inlineOriginPhrasesTab = origin?.phrasesTab == true
+        inlineOriginCategoryAdmin = origin?.categoryAdmin == true
+        iv.showPanel(null)
+        val shown = if (namesCategory()) com.aegis.ime.user.ClipboardStore.foldLineBreaks(initial) else initial
+        iv.setEditTitle(title)
+        iv.setEditText(shown)
+        iv.showEditBar(true)
+        panelInput.begin(iv.editEditable(), namesCategory()) { iv.isEditBarShowing() }
+    }
+
+    private fun confirmInlineInput() {
+        val text = panelInput.text()
+        when (inputPurpose) {
+            InputPurpose.EDIT_PHRASE -> clipboardStore.editPhrase(inputCat, inputOld, text)
+            InputPurpose.EDIT_CLIP -> clipboardStore.editClip(inputOld, text)
+            InputPurpose.ADD_PHRASE -> if (text.isNotBlank()) clipboardStore.addPhrasesTo(inputCat, listOf(text))
+            InputPurpose.EDIT_NOTE -> clipboardStore.setPhraseNote(inputCat, inputOld, text)
+            InputPurpose.ADD_CATEGORY -> {
+                val name = com.aegis.ime.user.ClipboardStore.categoryName(text)
+                if (name.isNotBlank()) {
+                    clipboardStore.addCategory(name)
+                    if (pendingPhraseAdds.isNotEmpty()) clipboardStore.addPhrasesTo(name, pendingPhraseAdds)
+                    if (pendingMoveTexts.isNotEmpty()) clipboardStore.movePhrasesTo(pendingMoveFrom, pendingMoveTexts, name)
+                    inputCat = name
+                }
+            }
+            InputPurpose.RENAME_CATEGORY -> if (text != inputOld && text != categoryLabel(inputOld) &&
+                text != com.aegis.ime.user.ClipboardStore.foldLineBreaks(categoryLabel(inputOld))
+            ) {
+                val n = com.aegis.ime.user.ClipboardStore.categoryName(text)
+                if (clipboardStore.renameCategory(inputOld, n)) inputCat = n
+            }
+            null -> {}
+        }
+        endInlineInput()
+    }
+
+    private fun reportClipWrite(landed: Boolean) {
+        if (landed) {
+            inputView?.showPhraseNotice(null)
+            return
+        }
+        val panel = clipboardView
+        if (panel != null && inputView?.isPanelShowing(panel) == true) panel.reportClipWrite()
+        else inputView?.showPhraseNotice(uiString(R.string.clip_change_not_saved))
+    }
+
+    private fun reportPhraseWrite(change: PhraseChange) {
+        val panel = clipboardView
+        val leftOut = if (change.edit == PhraseEdit.ADD) panel?.takeClipsLeftOut() ?: 0 else 0
+        val message = phraseWriteNotice(this, change, leftOut)
+        if (change.saved && leftOut <= 0) {
+            inputView?.showPhraseNotice(null)
+            if (message.isNotEmpty()) toast(message)
+            return
+        }
+        if (panel != null && inputView?.isPanelShowing(panel) == true) panel.reportPhraseWrite(change, leftOut)
+        else inputView?.showPhraseNotice(message)
+    }
+
+    private fun cancelInlineInput() = endInlineInput()
+
+    private fun endInlineInput() {
+        val reopenCat = inputCat
+        val returningView = inputView
+        val returningClipboard = clipboardView
+        if (::controller.isInitialized) controller.onPanelClear()
+        panelInput.end()
+        inputPurpose = null; inputCat = ""; inputOld = ""; pendingPhraseAdds = emptyList(); pendingMoveFrom = ""; pendingMoveTexts = emptyList()
+        if (returningView == null) return
+        returningView.dismissEditBarForPanelReturn()
+        bindTranslateInput(returningView)
+        if (returningClipboard != null) {
+            when {
+                inlineOriginCategoryAdmin -> returningClipboard.showCategoryAdmin(reopenCat)
+                inlineOriginPhrasesTab -> returningClipboard.showPhraseTab(reopenCat)
+                else -> returningClipboard.reopenAfterInline(reopenCat)
+            }
+            returningView.showPanelImmediately(returningClipboard)
+        } else {
+            clipboardRecreationState = ClipboardView.RecreationState(inlineOriginPhrasesTab, reopenCat, inlineOriginCategoryAdmin)
+            restoreClipboardPanel()
+        }
+    }
+
     private fun abortInlineInput(hideBar: Boolean = true) {
-        if (!panelInput.active) return
+        if (!panelInput.active && inputPurpose == null) return
         panelInput.end()
         if (hideBar) inputView?.showEditBar(false)
+        inputPurpose = null; inputCat = ""; inputOld = ""; pendingPhraseAdds = emptyList(); pendingMoveFrom = ""; pendingMoveTexts = emptyList()
         bindTranslateInput()
     }
 
@@ -1721,6 +1967,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun openTranslateBar() {
+        if (inputPurpose != null) return
         val iv = inputView ?: return
         translateOpen = true
         translateEngaged = true
@@ -1731,7 +1978,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun closeTranslateBar() {
         translateOpen = false
         finishTranslation()
-        if (panelInput.active) {
+        if (inputPurpose == null && panelInput.active) {
             if (::controller.isInitialized) controller.onPanelClear()
             panelInput.end()
         }
@@ -1743,7 +1990,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun bindTranslateInput(view: InputView? = inputView) {
         val iv = view ?: return
-        if (!translateOpen) return
+        if (!translateOpen || inputPurpose != null) return
         iv.setTranslateMode(translateMode())
         iv.setTranslateFieldEngaged(translateEngaged)
         iv.showTranslateBar(true)
@@ -1751,7 +1998,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun pauseTranslateRouting() {
-        if (!translateOpen || !translateEngaged) return
+        if (!translateOpen || !translateEngaged || inputPurpose != null) return
         translateEngaged = false
         if (panelInput.active) {
             if (::controller.isInitialized) controller.onPanelClear()
@@ -1765,7 +2012,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun resumeTranslateRouting() {
-        if (!translateOpen || translateEngaged) return
+        if (!translateOpen || translateEngaged || inputPurpose != null) return
         translateEngaged = true
         bindTranslateInput()
     }
@@ -1870,6 +2117,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                             lastCopy = null
                             inputView?.hideCopyBar()
                         }
+                        refreshOpenClipboardPanel()
                     } else result.exceptionOrNull()?.let { reportImageFailure(it) }
                 }
             }
@@ -2116,6 +2364,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         clipboardStore.recordImage(contentResolver, uri, mime) { result ->
             mainHandler.post {
                 val entry = result.getOrNull() ?: return@post
+                refreshOpenClipboardPanel()
                 val currentClip = runCatching { clipboardManager.primaryClip }.getOrNull()
                 val sameClip = currentClip != null && currentClip.itemCount > 0 && currentClip.getItemAt(0).uri == uri
                 if (!cut) {
@@ -2140,6 +2389,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun recordTextClip(t: String) {
         clipboardStore.record(t)
+        refreshOpenClipboardPanel()
         lastCopy = t
         if (inputView?.isPanelShowing(editPanelView) == true) {
             inputView?.stageCopyBar(t)
@@ -2151,6 +2401,15 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun toast(msg: String) { inputView?.showToast(msg) }
 
     internal fun toastTextForTest(): String? = inputView?.toastTextForTest()
+
+    private fun copyBlocksToAegis(blocks: List<String>) {
+        if (LiveUserData.restoreInProgress) return
+        if (!com.aegis.ime.user.ClipboardStore.shouldCapture(historyEnabled())) return
+        if (blocks.isEmpty()) return
+        for (block in blocks) clipboardStore.record(block)
+        refreshOpenClipboardPanel()
+        toast(uiString(R.string.svc_saved_to_clipboard))
+    }
 
     private fun updateSplitSelection(text: String) {
         val connection = splitSelectionInputConnection ?: currentInputConnection?.also {
@@ -2165,8 +2424,17 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         splitSelectionInputConnection = null
     }
 
+    private fun refreshOpenClipboardPanel() {
+        val cv = clipboardView ?: return
+        if (inputView?.isPanelShowing(cv) == true) cv.refresh()
+    }
+
     private fun historyEnabled() =
         runCatching { getSharedPreferences("aegis", MODE_PRIVATE).getBoolean("clip_history", true) }.getOrDefault(true)
+    private fun setHistoryEnabled(on: Boolean) {
+        getSharedPreferences("aegis", MODE_PRIVATE).edit().putBoolean("clip_history", on).apply()
+        toast(uiString(if (on) R.string.clip_history_resumed else R.string.clip_history_paused))
+    }
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
@@ -2444,6 +2712,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     override fun performEnter() {
+        if (panelInput.active && panelInput.singleLine) { confirmInlineInput(); return }
         if (panelInput.newline()) return
         val ic = currentInputConnection ?: return
         val info = currentInputEditorInfo
@@ -2460,6 +2729,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 }
 
+private const val EDITABLE_CLIP_CHARS = 4096L
 private const val DECODE_TARGET_NANOS = 16_666_667L
 private const val STREAM_GAP_MS = 16L
 private const val STREAM_CHUNK = 16_384

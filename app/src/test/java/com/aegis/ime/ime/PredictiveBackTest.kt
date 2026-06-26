@@ -27,8 +27,11 @@ import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.FrameLayout
 import android.widget.TextView
+import android.window.OnBackInvokedCallback
 import com.aegis.ime.AegisInputMethodService
+import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.clipEntries
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -389,6 +392,53 @@ class PredictiveBackTest {
         assertFalse(iv.hasOverlay())
     }
 
+    @Test fun the_service_back_callback_closes_one_clipboard_layer_per_press() {
+        LiveUserData.clipboardHost = null
+        try {
+            val service = Robolectric.buildService(AegisInputMethodService::class.java).get()
+            val engine = object : CandidateEngine {
+                override fun candidates(composing: String, t9: Boolean): List<String> = emptyList()
+            }
+            service.javaClass.getDeclaredField("controller").apply {
+                isAccessible = true
+                set(service, KeyboardController(service, engine, null))
+            }
+            val info = EditorInfo().apply {
+                packageName = "com.example.editor"
+                fieldId = 11
+                inputType = InputType.TYPE_CLASS_TEXT
+            }
+            service.onStartInput(info, false)
+            val iv = service.onCreateInputView() as InputView
+            service.onStartInputView(info, false)
+            service.javaClass.getDeclaredMethod("showClipboardPanel").apply { isAccessible = true }.invoke(service)
+            val panel = service.javaClass.getDeclaredField("clipboardView").run {
+                isAccessible = true
+                get(service) as ClipboardView
+            }
+            panel.switchTabForTest(toClipboard = false)
+            panel.enterCategorySortModeForTest()
+            assertTrue(clickable(panel, ctx.getString(com.aegis.ime.R.string.clip_import_phrases)).performClick())
+            val back = service.javaClass.getDeclaredMethod("buildBackCallback").run {
+                isAccessible = true
+                invoke(service) as OnBackInvokedCallback
+            }
+
+            assertTrue(panel.overlayVisibleForTest())
+            back.onBackInvoked()
+            assertFalse("the first Back closes the import choice", panel.overlayVisibleForTest())
+            assertTrue(panel.isCategorySortModeForTest())
+            assertTrue(iv.isPanelShowing(panel))
+            back.onBackInvoked()
+            assertFalse("the second Back leaves the category page", panel.isCategorySortModeForTest())
+            assertTrue(iv.isPanelShowing(panel))
+            back.onBackInvoked()
+            assertFalse("the third Back closes the panel", iv.panelShown)
+        } finally {
+            LiveUserData.clipboardHost = null
+        }
+    }
+
     private fun startedService(shown: Boolean): Pair<AegisInputMethodService, InputView> {
         val service = Robolectric.buildService(AegisInputMethodService::class.java).create().get()
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
@@ -416,6 +466,45 @@ class PredictiveBackTest {
             .let { if (canceled) KeyEvent.changeFlags(it, KeyEvent.FLAG_CANCELED) else it }
         val state = service.keyDispatcherState
         return listOf(down.dispatch(service, state, service), up.dispatch(service, state, service))
+    }
+
+    @Test fun the_back_key_closes_one_layer_per_press_and_keeps_the_keyboard_shown() {
+        LiveUserData.clipboardHost = null
+        val (service, iv) = startedService(shown = true)
+        try {
+            assertTrue(service.isInputViewShown)
+            service.javaClass.getDeclaredMethod("showClipboardPanel").apply { isAccessible = true }.invoke(service)
+            val panel = service.javaClass.getDeclaredField("clipboardView").run {
+                isAccessible = true
+                get(service) as ClipboardView
+            }
+            panel.switchTabForTest(toClipboard = false)
+            panel.enterCategorySortModeForTest()
+            assertTrue(clickable(panel, ctx.getString(com.aegis.ime.R.string.clip_import_phrases)).performClick())
+            assertTrue(panel.overlayVisibleForTest())
+
+            assertEquals("the IME takes Back while a layer is open", listOf(true, true), pressBack(service))
+            assertTrue("the first Back keeps the keyboard shown", service.isInputViewShown)
+            assertFalse("the first Back closes the import choice", panel.overlayVisibleForTest())
+            assertTrue("the first Back stays on the category page", panel.isCategorySortModeForTest())
+            assertTrue(iv.isPanelShowing(panel))
+
+            assertEquals(listOf(true, true), pressBack(service))
+            assertFalse("the second Back leaves the category page", panel.isCategorySortModeForTest())
+            assertTrue(iv.isPanelShowing(panel))
+            assertTrue(service.isInputViewShown)
+
+            assertEquals(listOf(true, true), pressBack(service))
+            assertFalse("the third Back closes the panel", iv.panelShown)
+            assertFalse(iv.hasOverlay())
+            assertTrue("closing the last panel keeps the keyboard", service.isInputViewShown)
+
+            assertEquals(listOf(true, true), pressBack(service))
+            assertFalse("with nothing open, Back hides the keyboard as before", service.isInputViewShown)
+        } finally {
+            service.onDestroy()
+            LiveUserData.clipboardHost = null
+        }
     }
 
     @Test fun a_canceled_back_key_closes_nothing() {
