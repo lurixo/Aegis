@@ -16,6 +16,8 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+        // Ship arm64-v8a only (drops the other ABIs of the one transitive native lib).
+        ndk { abiFilters += "arm64-v8a" }
     }
 
     buildTypes {
