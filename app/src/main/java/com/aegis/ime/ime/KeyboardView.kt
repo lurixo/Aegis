@@ -77,7 +77,7 @@ class KeyboardView(context: Context) : View(context) {
     private val density = resources.displayMetrics.density
     private val rowHeight = 52f * density
     private val gap = 6f * density
-    private val radius = 11f * density
+    private val radius = 13f * density // softer squircle corners
 
     init {
         // Software layer so the neumorphic soft shadows (setShadowLayer) render on every device;
@@ -250,9 +250,13 @@ class KeyboardView(context: Context) : View(context) {
         val rad = rect.height() / 2f
         fun shape(p: Paint) { if (tall) canvas.drawOval(rect, p) else canvas.drawRoundRect(rect, rad, rad, p) }
         if (!pressed) {
+            // The tall 9-key oval glow already reads well; the wide 26-key / number-page stadium needs a
+            // punchier halo (higher alpha + larger radius) to match it.
+            val glow = if (tall) 0x9943A047.toInt() else 0xCC43A047.toInt()
+            val glowBlur = if (tall) 13f * density else 15f * density
             gradPaint.shader = null
             gradPaint.color = 0xFF66BB6A.toInt()
-            gradPaint.setShadowLayer(13f * density, 0f, 3f * density, 0x9943A047.toInt()) // green glow halo
+            gradPaint.setShadowLayer(glowBlur, 0f, 3f * density, glow)
             shape(gradPaint)
             gradPaint.clearShadowLayer()
         }
