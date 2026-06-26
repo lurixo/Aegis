@@ -64,6 +64,8 @@ class SymbolUsageStore(private val dir: File) {
         this.report = report
     }
 
+    fun stopReportingWrites() { report = null }
+
     private fun reportWrite(landed: Boolean) {
         if (report == null) return
         reportLane.execute { report?.invoke(landed) }

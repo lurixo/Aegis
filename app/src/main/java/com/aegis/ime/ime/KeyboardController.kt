@@ -186,6 +186,7 @@ class KeyboardController(
     var onShowTranslate: () -> Unit = {}
     var onShowEdit: () -> Unit = {}
     var onShowLayout: () -> Unit = {}
+    var onShowSymbols: () -> Unit = {}
     var onShowSettings: () -> Unit = {}
     var onShowCustomSymbols: () -> Unit = {}
     var onShowCustomOperators: () -> Unit = {}
@@ -383,7 +384,7 @@ class KeyboardController(
             KeyAction.SEGMENT -> handleSegment()
             KeyAction.CUSTOM_SYMBOL -> onShowCustomSymbols()
             KeyAction.CUSTOM_OPERATOR -> onShowCustomOperators()
-            KeyAction.SHOW_SYMBOLS -> { flushComposing() }
+            KeyAction.SHOW_SYMBOLS -> { flushComposing(); onShowSymbols() }
             KeyAction.TOGGLE_LANG -> {
                 flushComposing()
                 shiftState = ShiftState.OFF

@@ -205,6 +205,7 @@
     <string name="edit_select_all">全选</string>
     <string name="edit_text_end">末尾</string>
     <string name="edit_paste">粘贴</string>
+    <string name="svc_recents_update_failed">常用记录更新失败，已恢复原内容</string>
     <string name="clip_delete">删除</string>
     <string name="clip_cancel">取消</string>
     <string name="clip_clear">清空</string>

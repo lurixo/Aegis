@@ -31,6 +31,7 @@ import com.aegis.ime.ime.BackspaceGesture
 import com.aegis.ime.ime.DecodeLane
 import com.aegis.ime.ime.EditAction
 import com.aegis.ime.ime.EditPanelView
+import com.aegis.ime.ime.EmojiView
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.layout.Key
@@ -274,6 +275,12 @@ class AegisInputMethodServiceLifecycleTest {
         return Fixture(service, controller, info, view)
     }
 
+    private fun cachedPanel(service: AegisInputMethodService, fieldName: String): Any? =
+        service.javaClass.getDeclaredField(fieldName).run {
+            isAccessible = true
+            get(service)
+        }
+
     private fun installInputConnection(service: AegisInputMethodService, connection: RecordingInputConnection) {
         val framework = requireNotNull(service.javaClass.superclass)
         for (fieldName in listOf("mInputConnection", "mStartedInputConnection")) {
@@ -438,6 +445,24 @@ class AegisInputMethodServiceLifecycleTest {
             if (hadLang) edit.putString("pref_default_lang", previousLang) else edit.remove("pref_default_lang")
             edit.commit()
         }
+    }
+
+    @Test fun a_same_editor_start_keeps_the_emoji_clear_confirmation_up() {
+        val f = fixture()
+        f.service.javaClass.getDeclaredMethod("showEmojiPanel").apply { isAccessible = true }.invoke(f.service)
+        val panel = requireNotNull(cachedPanel(f.service, "emojiView")) as EmojiView
+        panel.clearBtnForTest().performClick()
+        assertEquals(View.VISIBLE, panel.clearDialogForTest().visibility)
+
+        f.service.onStartInput(f.info, true)
+        f.service.onStartInputView(f.info, true)
+        assertTrue(f.view.isPanelShowing(panel))
+        assertEquals("a same-editor restart keeps the confirmation up", View.VISIBLE, panel.clearDialogForTest().visibility)
+
+        f.service.onStartInput(f.info, false)
+        f.service.onStartInputView(f.info, false)
+        assertTrue(f.view.isPanelShowing(panel))
+        assertEquals("a stable same-editor start without the restart flag keeps it too", View.VISIBLE, panel.clearDialogForTest().visibility)
     }
 
     @Test fun symbol_panel_and_candidate_pairs_follow_the_current_paragraph_on_both_layouts() {

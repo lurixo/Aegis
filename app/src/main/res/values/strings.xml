@@ -207,6 +207,7 @@
     <string name="edit_select_all">Select all</string>
     <string name="edit_text_end">End</string>
     <string name="edit_paste">Paste</string>
+    <string name="svc_recents_update_failed">The recent list could not be updated, so its previous contents were restored</string>
     <string name="clip_delete">Delete</string>
     <string name="clip_cancel">Cancel</string>
     <string name="clip_clear">Clear</string>

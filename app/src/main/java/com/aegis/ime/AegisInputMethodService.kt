@@ -41,6 +41,7 @@ import com.aegis.ime.dict.EngineAssets
 import com.aegis.ime.dict.OctagramReader
 import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.engine.StoredReadingRepair
+import com.aegis.ime.ime.EmojiView
 import com.aegis.ime.ime.DecodeLane
 import com.aegis.ime.ime.GraphemeText
 import com.aegis.ime.ime.ImeHost
@@ -49,9 +50,11 @@ import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.ime.LayoutPanelView
 import com.aegis.ime.ime.ParallelLoad
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.SymbolsView
 import com.aegis.ime.layout.SymbolCatalog
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.LiveUserDictHost
+import com.aegis.ime.user.SymbolUsageStore
 import com.aegis.ime.user.UserDeletionPromises
 import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserLearning
@@ -62,6 +65,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private lateinit var controller: KeyboardController
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val mainLane = java.util.concurrent.Executor { r -> mainHandler.post(r) }
     private val decodeResults = Handler.createAsync(Looper.getMainLooper())
     private val decodeWorker: java.util.concurrent.ExecutorService =
         java.util.concurrent.Executors.newSingleThreadExecutor { r ->
@@ -94,10 +98,29 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private var backCallback: OnBackInvokedCallback? = null
     private var backRegistered = false
+    private var emojiView: EmojiView? = null
+    private var symbolsView: SymbolsView? = null
     private var layoutPanelView: LayoutPanelView? = null
     private var selStart = -1
     private var selEnd = -1
 
+    private val symbolUsageStore by lazy {
+        SymbolUsageStore(filesDir).also {
+            it.load()
+            it.reportWritesTo(mainLane) { landed -> reportRecentsWrite(landed) { symbolsView?.refresh() } }
+        }
+    }
+    private val emojiUsageStore by lazy {
+        SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).also {
+            it.load()
+            it.reportWritesTo(mainLane) { landed -> reportRecentsWrite(landed) { emojiView?.refresh() } }
+        }
+    }
+
+    private fun reportRecentsWrite(landed: Boolean, redraw: () -> Unit) {
+        redraw()
+        if (!landed) toast(uiString(R.string.svc_recents_update_failed))
+    }
     @Volatile private var personalizationBlocked = false
 
     private data class EditorTarget(
@@ -132,6 +155,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun applyPaletteEverywhere() {
         imePalette = computePalette()
         inputView?.applyPalette(imePalette)
+        emojiView?.applyPalette(imePalette)
+        symbolsView?.applyPalette(imePalette)
         layoutPanelView?.applyPalette(imePalette)
     }
 
@@ -150,6 +175,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         uiLocaleContext = context
         return context
     }
+
+    private fun uiString(res: Int): String = imeUiContext().getString(res)
 
     override fun onEvaluateFullscreenMode(): Boolean = false
 
@@ -266,7 +293,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             this, DictEngine(null, null, null, userLexicon = userLexicon), decodeLane,
             emailDomains = com.aegis.ime.ime.EmailDomains(getSharedPreferences("aegis", MODE_PRIVATE)),
         )
+        controller.onShowEmoji = { showEmojiPanel() }
         controller.onShowLayout = { showLayoutPanel() }
+        controller.onShowSymbols = { showSymbolsPanel() }
         controller.userLearning = userLearning
         Thread {
             val (_, engine) = ParallelLoad.both({
@@ -632,6 +661,51 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, code, 0, meta))
     }
 
+    private fun showEmojiPanel() {
+        val iv = inputView ?: return
+        if (iv.isPanelShowing(emojiView)) { iv.showPanel(null); return }
+        val ev = emojiView ?: EmojiView(imeUiContext()).also {
+            it.recentProvider = { emojiUsageStore.recent() }
+            it.onEmoji = { e ->
+                if (!personalizationBlocked) emojiUsageStore.record(e)
+                commitExternalText(e)
+            }
+            it.onClearRecents = { emojiUsageStore.clear() }
+            it.onDeleteRecent = { emoji -> emojiUsageStore.remove(emoji) }
+            it.onBackspace = { panelBackspace() }
+            it.onBack = { inputView?.showPanel(null) }
+            emojiView = it
+        }
+        ev.resetToDefault()
+        ev.applyPalette(imePalette)
+        iv.showPanel(ev)
+    }
+
+    private fun showSymbolsPanel() {
+        val iv = inputView ?: return
+        if (iv.isPanelShowing(symbolsView)) { iv.showPanel(null); return }
+        val sv = symbolsView ?: SymbolsView(imeUiContext()).also {
+            it.recentProvider = { symbolUsageStore.recent() }
+            it.recentOriginOf = { s -> symbolUsageStore.originOf(s) }
+            it.onClearRecents = { symbolUsageStore.clear() }
+            it.onDeleteRecent = { symbol -> symbolUsageStore.remove(symbol) }
+            it.onSymbol = { s, origin ->
+                if (!personalizationBlocked) symbolUsageStore.record(s, origin)
+                commitExternalSymbol(s)
+            }
+            it.onBackspace = { panelBackspace() }
+            it.onBack = { inputView?.showPanel(null) }
+            symbolsView = it
+        }
+        sv.resetToDefault()
+        sv.applyPalette(imePalette)
+        iv.showPanel(sv)
+    }
+
+    private fun toast(msg: String) { inputView?.showToast(msg) }
+
+    internal fun toastTextForTest(): String? = inputView?.toastTextForTest()
+
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
         unregisterBackCallback()
@@ -677,6 +751,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (UserDictHot.host === liveUserDictHost) UserDictHot.host = null
         runCatching { liveUserDictHost.flush() }
         liveUserDictHost.stopSaving()
+        symbolUsageStore.stopReportingWrites()
+        emojiUsageStore.stopReportingWrites()
         LiveUserData.onLexiconsRestored = null
         runCatching {
             getSharedPreferences("aegis", MODE_PRIVATE)
@@ -687,8 +763,19 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         super.onDestroy()
     }
 
+
+    private fun commitExternalText(text: CharSequence) {
+        controller.expireCandidateChoiceUndo()
+        if (currentInputConnection?.commitText(text, 1) == true) controller.onEditorContextChanged()
+    }
+
     override fun commitText(text: CharSequence) {
         currentInputConnection?.commitText(text, 1)
+    }
+
+    private fun commitExternalSymbol(symbol: CharSequence) {
+        controller.expireCandidateChoiceUndo()
+        if (commitSymbolToEditor(symbol)) controller.onEditorContextChanged()
     }
 
     override fun commitSymbol(symbol: CharSequence) {
