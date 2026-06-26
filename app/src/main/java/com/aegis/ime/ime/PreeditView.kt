@@ -29,7 +29,12 @@ class PreeditView(context: Context) : View(context) {
     private val pad = 12f * density
     private val tab = RectF()
 
-    private val tabPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
+    init { setLayerType(LAYER_TYPE_SOFTWARE, null) }
+
+    private val tabPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFFFFFFF.toInt()
+        setShadowLayer(5f * density, 0f, 2f * density, 0x22000000)
+    }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF1565C0.toInt()
         textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 16f, resources.displayMetrics)

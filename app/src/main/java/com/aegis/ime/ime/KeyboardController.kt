@@ -286,7 +286,7 @@ class KeyboardController(
 
     private fun render() {
         val v = view ?: return
-        val layout = if (layoutId == LayoutId.NINE) Layouts.nine(lang, nineLeftColumn())
+        val layout = if (layoutId == LayoutId.NINE) Layouts.nine(lang, nineLeftColumn(), composing.isNotEmpty())
         else Layouts.forId(layoutId, lang)
         v.showKeyboard(layout, shifted)
         v.showCandidates(candidates, preeditText())

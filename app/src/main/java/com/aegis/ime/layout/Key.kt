@@ -48,7 +48,7 @@ data class Key(
 
 data class KeyboardRow(val keys: List<Key>)
 
-data class PlacedKey(val key: Key, val x: Float, val y: Float, val w: Float, val h: Float)
+data class PlacedKey(val key: Key, val x: Float, val y: Float, val w: Float, val h: Float, val groupId: Int = 0)
 
 data class KeyboardLayout(
     val id: LayoutId,
