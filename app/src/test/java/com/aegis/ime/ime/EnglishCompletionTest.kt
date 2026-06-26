@@ -303,6 +303,16 @@ class EnglishCompletionTest {
     }
 
     @Test
+    fun a_bar_function_flushes_the_word_before_its_panel_opens() {
+        val h = FakeHost()
+        val c = english(h)
+        type(c, "or")
+        c.onBarFunction(BarFunction.EMOJI)
+        assertEquals(listOf("or"), h.commits)
+        assertEquals("", c.englishWordForTest())
+    }
+
+    @Test
     fun changing_the_default_language_away_flushes_the_word() {
         val h = FakeHost()
         val c = english(h)

@@ -100,6 +100,12 @@ class KeyboardController(
 
     private var pushedFuzzyRules: Set<String>? = null
 
+    var onShowEmoji: () -> Unit = {}
+    var onShowClipboard: () -> Unit = {}
+    var onShowTranslate: () -> Unit = {}
+    var onShowEdit: () -> Unit = {}
+    var onShowLayout: () -> Unit = {}
+    var onShowSettings: () -> Unit = {}
     var onShowCustomSymbols: () -> Unit = {}
     var onShowCustomOperators: () -> Unit = {}
 
@@ -253,6 +259,22 @@ class KeyboardController(
         }
         refreshCandidates()
         render()
+    }
+
+    fun onBarFunction(f: BarFunction) {
+        if (composing.isNotEmpty() || committedPrefix.isNotEmpty() || englishWord.isNotEmpty()) {
+            flushComposing()
+            refreshCandidates()
+            render()
+        }
+        when (f) {
+            BarFunction.BRAND -> onShowSettings()
+            BarFunction.LAYOUT -> onShowLayout()
+            BarFunction.EMOJI -> onShowEmoji()
+            BarFunction.EDIT -> onShowEdit()
+            BarFunction.CLIPBOARD -> onShowClipboard()
+            BarFunction.TRANSLATE -> onShowTranslate()
+        }
     }
 
     fun currentLayoutChoice(): LayoutChoice = when {

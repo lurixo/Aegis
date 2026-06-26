@@ -94,4 +94,30 @@ class Debug12FixATest {
         withCut.onKey(pick("ni"))
         assertFalse("with a forced cut a word spanning it is suppressed", "好的" in withCut.candidateWords())
     }
+
+    @Test fun f7_toolbar_entries_defensively_flush_a_pending_buffer_before_opening() {
+        for (f in BarFunction.entries) {
+            val host = RecordingHost()
+            val c = KeyboardController(host, ProbeEngine())
+            var commitsWhenOpened: List<String>? = null
+            val recordOpen = { commitsWhenOpened = host.commits.toList() }
+            c.onShowEmoji = recordOpen
+            c.onShowClipboard = recordOpen
+            c.onShowTranslate = recordOpen
+            c.onShowEdit = recordOpen
+            c.onShowLayout = recordOpen
+            c.onShowSettings = recordOpen
+
+            c.switchTextLayoutForTest(nine = true)
+            "42633".forEach { c.onKey(digit(it)) }
+            assertEquals("precondition: buffer is live for $f", false, c.preeditForTest().isEmpty())
+
+            c.onBarFunction(f)
+
+            assertTrue("$f committed the in-progress buffer, commits=${host.commits}", host.commits.isNotEmpty())
+            assertEquals("$f flushed BEFORE opening its panel", host.commits, commitsWhenOpened)
+            assertEquals("no dangling preedit after $f", "", c.preeditForTest())
+            assertEquals("no dangling assembled prefix after $f", "", c.composingPrefix())
+        }
+    }
 }
