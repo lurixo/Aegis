@@ -102,6 +102,16 @@ internal class DownloadRuntime(
         return synchronized(lock) { snapshotLocked(app) }
     }
 
+    fun observe(context: Context, observer: (DownloadCardSnapshot) -> Unit): () -> Unit {
+        val app = context.applicationContext
+        val initial = synchronized(lock) {
+            observers[observer] = app
+            snapshotLocked(app)
+        }
+        observer(initial)
+        return { synchronized(lock) { observers.remove(observer) } }
+    }
+
     fun start(
         context: Context,
         startTask: (Thread) -> Unit = Thread::start,
@@ -292,6 +302,11 @@ internal object DictDownloadWork {
     fun snapshot(context: Context): DownloadCardSnapshot {
         ModelDownload.reconcileInterruptedDownloads(context.filesDir)
         return runtime.snapshot(context)
+    }
+
+    fun observe(context: Context, observer: (DownloadCardSnapshot) -> Unit): () -> Unit {
+        ModelDownload.reconcileInterruptedDownloads(context.filesDir)
+        return runtime.observe(context, observer)
     }
 
     fun start(

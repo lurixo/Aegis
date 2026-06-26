@@ -40,6 +40,10 @@ import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.ime.theme.ImeType
+import com.aegis.ime.ui.DictDownloadWork
+import com.aegis.ime.ui.DownloadCardSnapshot
+import com.aegis.ime.ui.LocalizedText
+import com.aegis.ime.user.RestoreTrouble
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.KeyboardLayout
@@ -75,6 +79,7 @@ class InputView(context: Context) : LinearLayout(context) {
     var onTranslateModeChanged: (TranslateMode) -> Unit = {}
     var onTranslateSelectionChanged: (Boolean) -> Unit = {}
     var onOverlayChanged: () -> Unit = {}
+    var onRestoreNotice: () -> Unit = {}
     var onPreeditTap: () -> Unit = {}
     var onPreeditCaret: (Int) -> Unit = {}
     var onPreeditEditDone: () -> Unit = {}
@@ -109,6 +114,9 @@ class InputView(context: Context) : LinearLayout(context) {
     private var editBarActive = false
     private var translateBarActive = false
     private var palette = ImePalette.STATIC_LIGHT
+    private var barTrouble: RestoreTrouble? = null
+    private var phraseNotice: String? = null
+    private var gateDisposer: (() -> Unit)? = null
     private var windowNavBottomPx = lastNavBottomPx
     private var windowLeftSystemInsetPx = 0
     private var windowRightSystemInsetPx = 0
@@ -421,6 +429,8 @@ class InputView(context: Context) : LinearLayout(context) {
         candidateView.onExpand = { showExpandedCandidates() }
         candidateView.onCollapse = { onCollapse() }
         candidateView.onCollapseExpanded = { showPanel(null) }
+        candidateView.onDictGate = { DictDownloadWork.start(context); startGateMonitoring() }
+        candidateView.onRestoreNotice = { if (barTrouble != null) onRestoreNotice() else showPhraseNotice(null) }
         gridView.onPick = { index -> pickCandidateIfSeen(index) }
         gridView.onCandidatePress = { downTime -> candidateTapGuard.press(downTime) }
         gridView.onPickReading = { index -> onPickReading(index) }
@@ -640,6 +650,7 @@ class InputView(context: Context) : LinearLayout(context) {
         super.onDetachedFromWindow()
         hideToast()
         keySoundPlayer.release()
+        stopGateMonitoring()
         Motion.cancelCover(panelContainer)
         Motion.reset(keyboardView)
         Motion.reset(preeditView)
@@ -718,6 +729,8 @@ class InputView(context: Context) : LinearLayout(context) {
         preedit: String,
         readings: List<String>,
         selectedReading: Int = -1,
+        gate: Boolean = false,
+        restoreTrouble: RestoreTrouble? = null,
         candidateProjection: CandidateProjectionPolicy? = null,
         preeditModel: PreeditModel? = null,
         candidatesPending: Boolean = false,
@@ -736,8 +749,10 @@ class InputView(context: Context) : LinearLayout(context) {
             invalidate()
             onOverlayChanged()
         }
-        candidateView.setContent(candidates, preedit)
-
+        candidateView.setContent(candidates, preedit, gate)
+        barTrouble = restoreTrouble
+        candidateView.setRestoreNotice(barNotice())
+        if (gate) startGateMonitoring() else stopGateMonitoring()
         composingNow = candidates.isNotEmpty() || preedit.isNotEmpty()
         if (copyBarActive && composingNow) { hideCopyBar(); onCopyDismiss() }
         if (currentPanel === gridView) {
@@ -745,6 +760,58 @@ class InputView(context: Context) : LinearLayout(context) {
             else if (pendingGridBind == null) bindExpandedCandidates(animateContentChange = true)
         }
     }
+
+    private fun startGateMonitoring() {
+        if (gateDisposer != null) return
+        gateDisposer = DictDownloadWork.observe(context) { snap ->
+            post { candidateView.setGateStatus(gateLabelFor(snap), gateShowsFailure(snap)) }
+        }
+    }
+
+    private fun stopGateMonitoring() {
+        gateDisposer?.invoke()
+        gateDisposer = null
+    }
+
+    private fun gateLabelFor(snap: DownloadCardSnapshot): String {
+        val progress = snap.progress
+        return when {
+            snap.downloading && progress != null ->
+                context.getString(R.string.dict_gate_downloading) + " " + (progress * 100).toInt() + "%"
+            snap.downloading -> context.getString(R.string.dict_gate_verifying)
+            gateShowsFailure(snap) -> context.getString(R.string.dict_gate_failed)
+            else -> context.getString(R.string.dict_gate_cta)
+        }
+    }
+
+    private fun gateShowsFailure(snap: DownloadCardSnapshot): Boolean =
+        !snap.downloading && !snap.present && gateStatusIsFailure(snap.status)
+
+    private fun gateStatusIsFailure(status: LocalizedText): Boolean = when (status) {
+        is LocalizedText.Resource ->
+            status.id == R.string.dict_status_download_failed ||
+                status.id == R.string.dict_status_install_failed ||
+                status.id == R.string.dict_status_metadata_failed ||
+                status.id == R.string.dict_status_download_blocked
+        is LocalizedText.ResourceNested ->
+            status.id == R.string.download_status_failed_format ||
+                status.id == R.string.dict_status_metadata_failed_format
+        else -> false
+    }
+
+    private fun restoreNoticeLabel(trouble: RestoreTrouble): String = when (trouble) {
+        RestoreTrouble.ROLLBACK_FAILED -> context.getString(R.string.restore_gate_rollback_failed)
+        RestoreTrouble.ROLLBACK_IMPOSSIBLE -> context.getString(R.string.restore_gate_rollback_impossible)
+    }
+
+    fun showPhraseNotice(message: String?) {
+        phraseNotice = message?.takeIf { it.isNotEmpty() }
+        candidateView.setRestoreNotice(barNotice())
+    }
+
+    private fun barNotice(): String? = barTrouble?.let(::restoreNoticeLabel) ?: phraseNotice
+
+    internal fun gateShowsFailureForTest(snap: DownloadCardSnapshot): Boolean = gateShowsFailure(snap)
 
     internal fun candidateBarForTest(): CandidateView = candidateView
 

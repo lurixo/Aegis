@@ -20,6 +20,8 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import android.text.TextPaint
+import android.text.TextUtils
 import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
@@ -44,9 +46,15 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
     var onExpand: () -> Unit = {}
     var onCollapse: () -> Unit = {}
     var onCollapseExpanded: () -> Unit = {}
+    var onDictGate: (() -> Unit)? = null
+    var onRestoreNotice: (() -> Unit)? = null
 
     private var items: List<String> = emptyList()
     private var composing: String = ""
+    private var gateActive = false
+    private var gateLabel = ""
+    private var gateFailed = false
+    private var restoreNoticeLabel: String? = null
     private var expanded = false
     private val hitRects = ArrayList<RectF>()
     private var hitCount = 0
@@ -70,6 +78,8 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
     private var pressedTarget: PressTarget? = null
     private var visualPressedTarget: PressTarget? = null
     private var gestureTarget: PressTarget? = null
+    private var barActionGesture = false
+    private var barActionArmed = false
     private val pressFeedback = Motion.PressFeedback(this)
 
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
@@ -105,6 +115,10 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
         textSize = sp(ImeType.candidate)
         typeface = android.graphics.Typeface.DEFAULT_BOLD
     }
+    private val gatePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = palette.candidateFirst
+        textSize = sp(ImeType.candidate)
+    }
     private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = palette.icon
         style = Paint.Style.STROKE
@@ -123,17 +137,18 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
         palette = p
         textPaint.color = p.candidateText
         firstPaint.color = p.candidateFirst
+        gatePaint.color = p.candidateFirst
         iconPaint.color = p.icon
         capsulePaint.color = p.keySurface
         sepPaint.color = p.gridLine
         invalidate()
     }
 
-    fun setContent(candidates: List<String>, composingText: String) {
-        if (candidates == items && composingText == composing) return
+    fun setContent(candidates: List<String>, composingText: String, gate: Boolean = false) {
+        if (candidates == items && composingText == composing && gate == gateActive) return
         val roleChanged = stripRole(items.isEmpty(), composing) != stripRole(candidates.isEmpty(), composingText)
-        val visualChange = candidates != items
-
+        val visualChange = candidates != items || gate != gateActive
+        gateActive = gate
         when {
             roleChanged -> {
                 contentTransitions++
@@ -142,6 +157,21 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
             visualChange -> applyContent(candidates, composingText)
             else -> composing = composingText
         }
+    }
+
+    fun setGateStatus(text: String, failed: Boolean = false) {
+        if (text == gateLabel && failed == gateFailed) return
+        resetTouchFeedback()
+        gateLabel = text
+        gateFailed = failed
+        invalidate()
+    }
+
+    fun setRestoreNotice(label: String?) {
+        if (label == restoreNoticeLabel) return
+        resetTouchFeedback()
+        restoreNoticeLabel = label
+        invalidate()
     }
 
     private fun applyContent(candidates: List<String>, composingText: String) {
@@ -258,6 +288,8 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
 
         if (items.isEmpty()) {
             when {
+                gateActive -> drawGate(canvas, baseline)
+                isRestoreNoticeMode() -> drawRestoreNotice(canvas, baseline)
                 isFunctionMode() -> drawFunctions(canvas)
             }
             return
@@ -287,6 +319,33 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
         val chCx = expand.centerX(); val chCy = height / 2f; val chS = 9f * density * CHEVRON_SCALE
         Glyphs.drawChevron(canvas, iconPaint, chCx, chCy, chS, down = !expanded)
     }
+
+    private fun drawGate(canvas: Canvas, baseline: Float) =
+        drawBarNotice(canvas, baseline, gateLabel, gateColor())
+
+    private fun drawRestoreNotice(canvas: Canvas, baseline: Float) =
+        drawBarNotice(canvas, baseline, restoreNoticeLabel.orEmpty(), restoreNoticeColor())
+
+    private fun drawBarNotice(canvas: Canvas, baseline: Float, text: String, color: Int) {
+        if (text.isEmpty()) return
+        gatePaint.color = color
+        val base = gatePaint.textSize
+        val available = width - 2f * padding
+        val measured = gatePaint.measureText(text)
+        if (available > 0f && measured > available) {
+            gatePaint.textSize = (base * available / measured).coerceAtLeast(sp(12f))
+        }
+        val shown =
+            if (available > 0f) TextUtils.ellipsize(text, gatePaint, available, TextUtils.TruncateAt.END).toString()
+            else text
+        val x = ((width - gatePaint.measureText(shown)) / 2f).coerceAtLeast(padding)
+        canvas.drawText(shown, x, baseline, gatePaint)
+        gatePaint.textSize = base
+    }
+
+    private fun gateColor(): Int = if (gateFailed) palette.deletable else palette.candidateFirst
+
+    private fun restoreNoticeColor(): Int = palette.deletable
 
     private fun drawFunctions(canvas: Canvas) {
         val capL = capMarginH
@@ -401,8 +460,10 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
                 stripGesture = gestureTarget?.kind == PressKind.CANDIDATE ||
                     (items.isNotEmpty() && insideView(event.x, event.y) && event.x < expandRect().left)
                 if (gestureTarget?.kind == PressKind.CANDIDATE) onCandidatePress(event.downTime)
+                barActionGesture = (isGateMode() || isRestoreNoticeMode()) && insideBar(event.x, event.y)
+                barActionArmed = barActionGesture
                 setPressedTarget(gestureTarget)
-                if (gestureTarget != null) {
+                if (gestureTarget != null || barActionArmed) {
                     playImeKeyFeedback(hapticEnabled)
                 }
             }
@@ -420,6 +481,8 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
                     }
                 } else if (!dragging && gestureTarget != null) {
                     setPressedTarget(gestureTarget.takeIf { targetAt(event.x, event.y) == it })
+                } else if (barActionGesture) {
+                    barActionArmed = insideBar(event.x, event.y)
                 }
             }
             MotionEvent.ACTION_UP -> {
@@ -427,9 +490,12 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
                 val acceptedTarget = downTarget?.takeIf {
                     pressedTarget == it && targetAt(event.x, event.y) == it
                 }
+                val acceptedBarAction = barActionArmed && insideBar(event.x, event.y)
                 releasePressedTarget()
                 gestureTarget = null
                 stripGesture = false
+                barActionGesture = false
+                barActionArmed = false
                 if (dragging) {
                     dragging = false
                     layoutCellsTo(fling.predictFinalOffset(scrollX) + expandRect().left)
@@ -437,6 +503,14 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
                     return true
                 }
                 if (fling.stopArmed) return true
+                if (isGateMode()) {
+                    if (acceptedBarAction) { performClick(); onDictGate?.invoke() }
+                    return true
+                }
+                if (isRestoreNoticeMode()) {
+                    if (acceptedBarAction) { performClick(); onRestoreNotice?.invoke() }
+                    return true
+                }
                 when (acceptedTarget?.kind) {
                     PressKind.COLLAPSE -> { performClick(); onCollapse() }
                     PressKind.FUNCTION -> {
@@ -458,6 +532,8 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
                 dragging = false
                 gestureTarget = null
                 stripGesture = false
+                barActionGesture = false
+                barActionArmed = false
                 releasePressedTarget()
             }
         }
@@ -472,10 +548,15 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
     private fun insideView(x: Float, y: Float): Boolean =
         x >= 0f && x < width && y >= 0f && y < height
 
+    private fun insideBar(x: Float, y: Float): Boolean =
+        x >= edgeInset && x < width - edgeInset && y >= 0f && y < height
+
     private fun resetTouchFeedback() {
         dragging = false
         gestureTarget = null
         stripGesture = false
+        barActionGesture = false
+        barActionArmed = false
         pressedTarget = null
         visualPressedTarget = null
         pressFeedback.reset()
@@ -483,10 +564,23 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
 
     private fun isFunctionMode(): Boolean = items.isEmpty() && composing.isEmpty()
 
+    private fun isGateMode(): Boolean = gateActive && items.isEmpty()
+
+    private fun isRestoreNoticeMode(): Boolean = !gateActive && restoreNoticeLabel != null && items.isEmpty()
+
+    internal fun gateActiveForTest(): Boolean = gateActive
+
+    internal fun gateTextColorForTest(): Int = gateColor()
+
+    internal fun restoreNoticeShownForTest(): Boolean = isRestoreNoticeMode()
+
     internal fun pressedTargetForTest(): String? = pressedTarget?.kind?.name
+
+    internal fun restoreNoticeTextColorForTest(): Int = restoreNoticeColor()
 
     private fun targetAt(x: Float, y: Float): PressTarget? {
         if (!insideView(x, y)) return null
+        if (isGateMode() || isRestoreNoticeMode()) return null
         if (isFunctionMode()) {
             return toolbarTargetAt(x, y)
         }

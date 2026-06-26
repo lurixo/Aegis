@@ -21,6 +21,10 @@
     <string name="dict_status_metadata_failed">无法获取下载信息</string>
     <string name="dict_status_metadata_failed_format">无法获取下载信息（%1$s）</string>
     <string name="dict_status_download_blocked">无法开始下载，存在残留文件；请先删除词库</string>
+    <string name="dict_gate_cta">点按下载词库，解锁中文输入</string>
+    <string name="dict_gate_downloading">正在下载词库…</string>
+    <string name="dict_gate_verifying">正在校验安装…</string>
+    <string name="dict_gate_failed">下载失败，点按重试</string>
 
     <string name="key_haptic_system">系统</string>
     <string name="key_haptic_soft">柔波</string>
@@ -36,6 +40,9 @@
     <string name="key_haptic_crisp_description">短促单击，收尾利落</string>
     <string name="key_haptic_soft_description">缓起缓落，柔和绵长</string>
     <string name="key_haptic_system_description">使用设备默认的按键触感</string>
+
+    <string name="restore_gate_rollback_failed">恢复没做完，撤销失败，点这里</string>
+    <string name="restore_gate_rollback_impossible">恢复没做完，无法撤销，点这里</string>
 
     <string name="kbd_space">空格</string>
     <string name="kbd_symbols">符号</string>

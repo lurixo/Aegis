@@ -21,6 +21,10 @@
     <string name="dict_status_metadata_failed">Could not get the download details</string>
     <string name="dict_status_metadata_failed_format">Could not get the download details (%1$s)</string>
     <string name="dict_status_download_blocked">Could not start the download — leftover files remain; delete the dictionary first</string>
+    <string name="dict_gate_cta">Tap to download the Chinese dictionary</string>
+    <string name="dict_gate_downloading">Downloading dictionary…</string>
+    <string name="dict_gate_verifying">Verifying…</string>
+    <string name="dict_gate_failed">Download failed — tap to retry</string>
 
     <string name="key_haptic_system">System</string>
     <string name="key_haptic_soft">Smooth wave</string>
@@ -36,6 +40,9 @@
     <string name="key_haptic_crisp_description">One sharp tap with a clean finish</string>
     <string name="key_haptic_soft_description">A smooth rise and a gentle fade</string>
     <string name="key_haptic_system_description">The device’s standard keyboard feedback</string>
+
+    <string name="restore_gate_rollback_failed">Restore unfinished — undo failed, tap here</string>
+    <string name="restore_gate_rollback_impossible">Restore unfinished — cannot undo, tap here</string>
 
     <string name="kbd_space">Space</string>
     <string name="kbd_symbols">Symbols</string>
