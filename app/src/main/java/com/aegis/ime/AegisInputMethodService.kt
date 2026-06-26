@@ -32,6 +32,7 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
@@ -46,6 +47,8 @@ import com.aegis.ime.engine.StoredReadingRepair
 import com.aegis.ime.ime.CaretRealign
 import com.aegis.ime.ime.ClearedTextRestore
 import com.aegis.ime.ime.CustomSymbolPanel
+import com.aegis.ime.ime.EditAction
+import com.aegis.ime.ime.EditPanelView
 import com.aegis.ime.ime.EmojiView
 import com.aegis.ime.ime.DecodeLane
 import com.aegis.ime.ime.GraphemeText
@@ -54,16 +57,19 @@ import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.ime.LayoutPanelView
 import com.aegis.ime.ime.ParallelLoad
+import com.aegis.ime.ime.SelectionMath
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.SymbolsView
 import com.aegis.ime.ime.ChunkedRead
 import com.aegis.ime.ime.EditorSweep
 import com.aegis.ime.ime.EditorUndoHistory
 import com.aegis.ime.ime.WindowedEditorUndoHistory
+import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.SymbolCatalog
 import com.aegis.ime.user.ClearedTextStore
 import com.aegis.ime.user.ClipboardStore
+import com.aegis.ime.user.ClipEntry
 import com.aegis.ime.user.ClipboardImages
 import com.aegis.ime.user.ClipboardImageTooLargeException
 import com.aegis.ime.user.CustomSymbolStore
@@ -128,6 +134,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var backRegistered = false
     private var emojiView: EmojiView? = null
     private var symbolsView: SymbolsView? = null
+    private var editPanelView: EditPanelView? = null
     private var layoutPanelView: LayoutPanelView? = null
     private var customSymbolView: CustomSymbolPanel? = null
     private val customSymbolStore by lazy { CustomSymbolStore(getSharedPreferences("aegis", MODE_PRIVATE)) }
@@ -140,6 +147,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val hidden = Layouts.defaultNumpadOperators.toSet() - Layouts.numpadOperatorsInCustomPalette.toSet()
         SymbolCatalog.categories.first { it.id == "math" }.symbols.filter { it !in hidden }
     }
+    private var selecting = false
+    private var selAnchor = -1
+    private var selMoving = -1
     private var selStart = -1
     private var selEnd = -1
     private var chunkedRead: ChunkedRead? = null
@@ -148,13 +158,26 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var undoBlocked = true
     private var silentUndo = false
     private var largeEdit = false
+    private var pasteCompletionNotice = false
+    private var cutCompletionNotice: String? = null
     private val editorUndo = EditorUndoHistory().also {
         it.webWriteSettleMs = WEB_WRITE_SETTLE_MS
         it.selectionProvider = { if (selStart >= 0 && selEnd >= 0) selStart to selEnd else null }
+        it.onChange = { refreshUndoAvailability() }
         it.onUndoCompleted = { restored -> finishEditingUndo(restored) }
         it.onInsertionCompleted = { inserted ->
             largeEdit = false
             controller.onEditorContextChanged()
+            refreshUndoAvailability()
+            if (pasteCompletionNotice) {
+                pasteCompletionNotice = false
+                toast(uiString(if (inserted) R.string.edit_paste_done else R.string.edit_paste_failed))
+            }
+            cutCompletionNotice?.let { notice ->
+                cutCompletionNotice = null
+                if (inserted) resetSelectionAnchor()
+                toast(if (inserted) notice else uiString(R.string.edit_cut_failed))
+            }
         }
         it.onClearedContentRestored = { restored -> finishClearedContentRestore(restored) }
         it.onClearCompleted = { kind, text ->
@@ -167,12 +190,29 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         return if (undoBlocked || clearSweep != null || webClear != null || largeRestore) connection else editorUndo.wrap(connection)
     }
 
+    private fun refreshUndoAvailability() {
+        editPanelView?.setUndoAvailable(if (panelInput.active) panelInput.canUndo()
+            else !undoBlocked && (editorUndo.hasUndo ||
+                (editorUndo.hasPendingUndo || editorUndo.hasPendingInsertion || largeEdit) && !restoring))
+    }
+
+    private fun undoEditing() {
+        silentUndo = false
+        val restored = if (panelInput.active) panelInput.undo()
+            else currentInputConnection?.let { !undoBlocked && editorUndo.undo(it) } == true
+        if (!restored && editorUndo.hasPendingUndo) { refreshUndoAvailability(); return }
+        finishEditingUndo(restored)
+    }
+
     private fun finishEditingUndo(restored: Boolean) {
         val notify = !silentUndo
         silentUndo = false
         if (restored) {
+            stopSelecting()
+            editPanelView?.setSelecting(false)
             controller.onEditorContextChanged()
         }
+        refreshUndoAvailability()
         if (notify) toast(uiString(if (restored) R.string.edit_undo_done else R.string.edit_undo_unavailable))
     }
 
@@ -246,6 +286,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         inputView?.applyPalette(imePalette)
         emojiView?.applyPalette(imePalette)
         symbolsView?.applyPalette(imePalette)
+        editPanelView?.applyPalette(imePalette)
         layoutPanelView?.applyPalette(imePalette)
         customSymbolView?.applyPalette(imePalette)
         customOperatorView?.applyPalette(imePalette)
@@ -401,6 +442,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         )
         controller.onShowEmoji = { showEmojiPanel() }
         controller.onShowTranslate = { toggleTranslateBar() }
+        controller.onShowEdit = { showEditPanel() }
         controller.onShowLayout = { showLayoutPanel() }
         controller.onShowSymbols = { showSymbolsPanel() }
         controller.onShowCustomSymbols = { showCustomSymbolPanel() }
@@ -507,8 +549,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         largeEdit = false
         inputView?.clearEditorTransientUiImmediately()
         if (abortInline) abortInlineInput(hideBar = false)
+        pasteCompletionNotice = false
+        cutCompletionNotice = null
         dropChunkedRead()
         dropRestoreStream()
+        stopSelecting()
         if (resetController && ::controller.isInitialized) controller.reset(preserveLayout)
     }
 
@@ -814,10 +859,33 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         selEnd = newSelEnd
         if (!undoBlocked) editorUndo.selectionUpdated(newSelStart, newSelEnd)
         if (clearSweep != null || webClear != null || largeRestore) return
-        if ((editorUndo.hasPendingClear || editorUndo.hasPendingUndo) && !panelInput.active && !undoBlocked) {
+        if ((editorUndo.hasPendingClear || editorUndo.hasPendingUndo || inputView?.isPanelShowing(editPanelView) == true) && !panelInput.active && !undoBlocked) {
             currentInputConnection?.let { editorUndo.canUndo(it) }
+            refreshUndoAvailability()
         }
         if (::controller.isInitialized) controller.onEditorContextChanged()
+        if (newSelStart >= 0 && newSelEnd >= 0) {
+            if (!panelInput.active) editPanelView?.setHasSelection(newSelStart != newSelEnd)
+        }
+    }
+
+    private fun showEditPanel() {
+        val iv = inputView ?: return
+        if (iv.isPanelShowing(editPanelView)) { iv.showPanel(null); return }
+        stopSelecting()
+        val ep = editPanelView ?: EditPanelView(imeUiContext()).also {
+            it.onAction = { a -> handleEdit(a) }
+            editPanelView = it
+        }
+        ep.applyPalette(imePalette)
+        ep.setSelecting(false)
+        ep.setHasSelection(
+            if (panelInput.active) panelInput.hasSelection()
+            else hasSelection() || !editorReportsNoSelection(),
+        )
+        currentInputConnection?.let(editorUndo::confirmReconnect)
+        refreshUndoAvailability()
+        iv.showPanel(ep)
     }
 
     private fun showLayoutPanel() {
@@ -841,6 +909,71 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         iv.showPanel(lp)
     }
 
+    private fun handleEdit(action: EditAction) {
+        if (action == EditAction.BACK) {
+            stopSelecting()
+            inputView?.showPanel(null)
+            return
+        }
+        when (action) {
+            EditAction.TAB, EditAction.DELETE, EditAction.UNDO, EditAction.FORWARD_DELETE,
+            EditAction.SELECT_ALL, EditAction.COPY, EditAction.CUT, EditAction.PASTE -> stopSelecting()
+            else -> Unit
+        }
+        if (chunkedRead?.pending == true || clearSweep != null || webClear != null || restoring || editorUndo.hasPendingUndo || editorUndo.hasPendingInsertion) return
+        val keyAction = action.keyAction
+        if (keyAction == null) {
+            controller.expireCandidateChoiceUndo()
+        }
+        when (action) {
+            EditAction.UNDO -> undoEditing()
+            EditAction.UP -> nav(KeyEvent.KEYCODE_DPAD_UP, SelectionMath.Move.UP)
+            EditAction.DOWN -> nav(KeyEvent.KEYCODE_DPAD_DOWN, SelectionMath.Move.DOWN)
+            EditAction.LEFT -> nav(KeyEvent.KEYCODE_DPAD_LEFT, SelectionMath.Move.LEFT)
+            EditAction.RIGHT -> nav(KeyEvent.KEYCODE_DPAD_RIGHT, SelectionMath.Move.RIGHT)
+            EditAction.HOME -> navDocument(toStart = true)
+            EditAction.END -> navDocument(toStart = false)
+            EditAction.START_SELECT -> toggleSelecting()
+            EditAction.DELETE -> keyAction?.let { key ->
+                controller.onKey(Key(action = key))
+                resetSelectionAnchor()
+            }
+            EditAction.TAB -> {
+                if (takesRawKeys(currentInputEditorInfo)) sendKey(KeyEvent.KEYCODE_TAB, false)
+                else commitExternalText("\t")
+                resetSelectionAnchor()
+            }
+            EditAction.FORWARD_DELETE -> {
+                deleteNextEditorCluster()
+                controller.onEditorContextChanged()
+                resetSelectionAnchor()
+            }
+            EditAction.COPY -> if (editorReportsNoSelection()) {
+                toast(uiString(R.string.edit_no_selection))
+            } else {
+                takeSelection(cut = false)
+            }
+            EditAction.CUT -> if (editorReportsNoSelection()) {
+                toast(uiString(R.string.edit_no_selection))
+            } else {
+                takeSelection(cut = true)
+            }
+            EditAction.SELECT_ALL -> {
+                if (!isWebEditor()) currentInputConnection?.performContextMenuAction(android.R.id.selectAll)
+                if (!takesRawKeys(currentInputEditorInfo)) {
+                    sendKeyWithMeta(KeyEvent.KEYCODE_A, KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON)
+                }
+                resetSelectionAnchor()
+                toast(uiString(R.string.edit_select_all_done))
+            }
+            EditAction.PASTE -> {
+                pasteClipboard()
+                resetSelectionAnchor()
+            }
+            EditAction.BACK -> { stopSelecting(); inputView?.showPanel(null) }
+        }
+    }
+
     private fun canBackspaceSwipe(up: Boolean): Boolean {
         if (up && controller.hasComposingToClear()) return true
         if (panelInput.active) return up && panelInput.text().isNotEmpty()
@@ -855,6 +988,60 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
     }
 
+    private data class SystemClipboardIdentity(val timestamp: Long, val fingerprint: String)
+    private data class ClipboardPublication(val published: Boolean, val unchangedSystem: SystemClipboardIdentity?)
+    private data class UnpublishedClipboard(val system: SystemClipboardIdentity, val entryOrder: Long)
+    private var unpublishedClipboard: UnpublishedClipboard? = null
+
+    private fun systemClipboardIdentity(clip: ClipData?): SystemClipboardIdentity {
+        if (clip == null) return SystemClipboardIdentity(-1L, "")
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        fun include(value: String?) {
+            val bytes = value?.toByteArray(Charsets.UTF_8)
+            digest.update(java.nio.ByteBuffer.allocate(4).putInt(bytes?.size ?: -1).array())
+            if (bytes != null) digest.update(bytes)
+        }
+        include(clip.description.label?.toString())
+        include(clip.description.mimeTypeCount.toString())
+        for (index in 0 until clip.description.mimeTypeCount) include(clip.description.getMimeType(index))
+        include(clip.itemCount.toString())
+        for (index in 0 until clip.itemCount) {
+            val item = clip.getItemAt(index)
+            include(item.text?.toString())
+            include(item.htmlText)
+            include(item.uri?.toString())
+            include(item.intent?.toUri(0))
+        }
+        return SystemClipboardIdentity(clip.description.timestamp, digest.digest().joinToString("") { "%02x".format(it) })
+    }
+
+    private fun readSystemClipboardIdentity(): SystemClipboardIdentity? =
+        runCatching { systemClipboardIdentity(clipboardManager.primaryClip) }.getOrNull()
+
+    private fun syncSystemClipboard(text: String): ClipboardPublication {
+        unpublishedClipboard = null
+        val before = readSystemClipboardIdentity()
+        val published = runCatching { clipboardManager.setPrimaryClip(ClipData.newPlainText("Aegis", text)) }.isSuccess
+        val unchanged = if (!published && before != null && before == readSystemClipboardIdentity()) before else null
+        return ClipboardPublication(published, unchanged)
+    }
+
+    private fun rememberUnpublishedClipboard(publication: ClipboardPublication, previousOrder: Long?) {
+        val system = publication.unchangedSystem ?: return
+        val entry = clipboardStore.latestEntry() ?: return
+        if (!entry.isImage && entry.captureOrder != previousOrder) {
+            unpublishedClipboard = UnpublishedClipboard(system, entry.captureOrder)
+        }
+    }
+
+    private fun hasUnpublishedClipboard(clip: ClipData?, entry: ClipEntry?): Boolean {
+        val pending = unpublishedClipboard ?: return false
+        val matches = entry != null && !entry.isImage && entry.captureOrder == pending.entryOrder &&
+            runCatching { systemClipboardIdentity(clip) }.getOrNull() == pending.system
+        if (!matches) unpublishedClipboard = null
+        return matches
+    }
+
     internal fun takesRawKeys(info: EditorInfo?): Boolean =
         info != null && info.inputType == InputType.TYPE_NULL
 
@@ -863,10 +1050,39 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it and InputType.TYPE_MASK_VARIATION == InputType.TYPE_TEXT_VARIATION_WEB_EDIT_TEXT
     } == true
 
+    private fun keepsCopies(): Boolean =
+        !LiveUserData.restoreInProgress && com.aegis.ime.user.ClipboardStore.shouldCapture(historyEnabled())
+
     private fun trackedSelectionSpan(): Int {
         val from = minOf(selStart, selEnd)
         val to = maxOf(selStart, selEnd)
         return if (from >= 0 && to > from) to - from else -1
+    }
+
+    private fun takeSelection(cut: Boolean) {
+        val ic = currentInputConnection ?: run {
+            toast(uiString(if (cut) R.string.edit_cut_failed else R.string.edit_copy_failed))
+            return
+        }
+        val from = minOf(selStart, selEnd)
+        val to = maxOf(selStart, selEnd)
+        if (trackedSelectionSpan() <= ChunkedRead.DIRECT_MAX) {
+            val direct = ic.getSelectedText(0)
+            if (!direct.isNullOrEmpty()) {
+                settleSelection(ic, cut, null, direct, whole = true)
+                return
+            }
+        }
+        if (from < 0 || to <= from) {
+            toast(uiString(if (cut) R.string.edit_cut_failed else R.string.edit_copy_failed))
+            return
+        }
+        readSelection(
+            ic,
+            from,
+            to,
+            dropped = { toast(uiString(if (cut) R.string.edit_cut_failed else R.string.edit_copy_failed)) },
+        ) { taken, whole -> settleSelection(ic, cut, from, taken, whole) }
     }
 
     private fun readSelection(
@@ -903,6 +1119,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val ic = currentInputConnection ?: return false
         if (chunkedRead?.pending == true || editorUndo.hasPendingInsertion) return true
         largeEdit = true
+        refreshUndoAvailability()
         val targetEditor = currentEditorTarget
         val originalStart = selStart
         val originalEnd = selEnd
@@ -910,6 +1127,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val to = maxOf(originalStart, originalEnd)
         fun failed() {
             largeEdit = false
+            if (pasteCompletionNotice) {
+                pasteCompletionNotice = false
+                toast(uiString(R.string.edit_paste_failed))
+            }
+            refreshUndoAvailability()
         }
         fun replace(removed: CharSequence, whole: Boolean) {
             if (ic !== currentInputConnection || targetEditor != currentEditorTarget) {
@@ -926,6 +1148,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             else if (!editorUndo.hasPendingInsertion) {
                 largeEdit = false
                 controller.onEditorContextChanged()
+                refreshUndoAvailability()
+                if (pasteCompletionNotice) {
+                    pasteCompletionNotice = false
+                    toast(uiString(R.string.edit_paste_done))
+                }
             }
         }
         val direct = if (span <= ChunkedRead.CHUNK) runCatching { ic.getSelectedText(InputConnection.GET_TEXT_WITH_STYLES) }.getOrNull() else null
@@ -957,6 +1184,156 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         afterStreaming = null
         restoring = false
         largeRestore = false
+    }
+
+    private fun settleSelection(ic: InputConnection, cut: Boolean, from: Int?, taken: CharSequence, whole: Boolean) {
+        if (taken.isEmpty()) {
+            toast(uiString(if (cut) R.string.edit_cut_failed else R.string.edit_copy_failed))
+            return
+        }
+        val body = taken.toString()
+        val keep = keepsCopies()
+        val previousOrder = if (keep) clipboardStore.latestEntry()?.captureOrder else null
+        val publication = syncSystemClipboard(body)
+        if (!keep && !publication.published) return
+        if (keep) {
+            if (body.length <= com.aegis.ime.user.ClipboardStore.BIG_THRESHOLD) {
+                recordTextClip(body)
+            } else {
+                clipboardStore.record(body)
+            }
+            rememberUnpublishedClipboard(publication, previousOrder)
+        }
+        val notice = if (whole) uiString(if (cut) R.string.edit_cut_done else R.string.edit_copy_done)
+            else imeUiContext().resources.getQuantityString(
+                if (cut) R.plurals.edit_cut_partial else R.plurals.edit_copy_partial,
+                body.length,
+                body.length,
+            )
+        if (cut) {
+            if (from != null) ic.setSelection(from, from + body.length)
+            val accepted = if (from != null && body.length >= ChunkedRead.CHUNK / 2) {
+                editorUndo.replaceCapturedSelection(ic, from, body, "", from, from + body.length)
+            } else editorUndo.deleteCapturedSelection(ic, from ?: minOf(selStart, selEnd), body)
+            if (!accepted) {
+                toast(uiString(R.string.edit_cut_failed))
+                return
+            }
+            if (editorUndo.hasPendingInsertion) {
+                cutCompletionNotice = notice
+                return
+            }
+            resetSelectionAnchor()
+        }
+        toast(notice)
+    }
+
+    private fun editorReportsNoSelection(): Boolean {
+        if (selStart >= 0 && selEnd >= 0 && selStart != selEnd) return false
+        val around = currentInputConnection?.getSurroundingText(0, 0, 0) ?: return false
+        return around.selectionStart >= 0 && around.selectionStart == around.selectionEnd
+    }
+
+    private fun toggleSelecting() {
+        selecting = !selecting
+        if (selecting) {
+            if (trackedSelectionSpan() > ChunkedRead.DIRECT_MAX) {
+                selAnchor = selStart
+                selMoving = selEnd
+            } else {
+                val window = currentInputConnection?.let(::caretWindow)
+                selAnchor = window?.let { it.base + it.start } ?: -1
+                selMoving = window?.let { it.base + it.end } ?: -1
+            }
+        } else stopSelecting()
+        editPanelView?.setSelecting(selecting)
+    }
+
+    private fun stopSelecting() {
+        selecting = false
+        selAnchor = -1
+        selMoving = -1
+        editPanelView?.setSelecting(false)
+    }
+
+    private fun resetSelectionAnchor() {
+        if (!selecting) return
+        selAnchor = -1
+        selMoving = -1
+    }
+
+    private class CaretWindow(val text: CharSequence, val base: Int, val start: Int, val end: Int)
+
+    private fun caretWindow(ic: InputConnection): CaretWindow? {
+        val around = ic.getSurroundingText(NAV_WINDOW, NAV_WINDOW, 0)
+        val aroundText = around?.text
+        if (around != null && aroundText != null && around.offset >= 0) {
+            return CaretWindow(aroundText, around.offset, around.selectionStart.coerceAtLeast(0), around.selectionEnd.coerceAtLeast(0))
+        }
+        val extracted = ic.getExtractedText(ExtractedTextRequest(), 0) ?: return null
+        val text = extracted.text ?: return null
+        if (extracted.startOffset != 0 || extracted.selectionStart < 0 || extracted.selectionEnd < 0) return null
+        return CaretWindow(text, 0, extracted.selectionStart.coerceAtMost(text.length), extracted.selectionEnd.coerceAtMost(text.length))
+    }
+
+    private fun navDocument(toStart: Boolean) {
+        val ic = currentInputConnection ?: return
+        val extracted = if (takesRawKeys(currentInputEditorInfo) || isWebEditor()) null
+            else ic.getExtractedText(ExtractedTextRequest(), 0)
+        val text = extracted?.text
+        if (extracted == null || text == null || extracted.startOffset != 0 ||
+            extracted.partialStartOffset >= 0 || extracted.selectionStart < 0 || extracted.selectionEnd < 0
+        ) {
+            val shift = if (selecting) KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON else 0
+            sendKeyWithMeta(
+                if (toStart) KeyEvent.KEYCODE_MOVE_HOME else KeyEvent.KEYCODE_MOVE_END,
+                KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON or shift,
+            )
+            return
+        }
+        val next = if (toStart) 0 else text.length
+        if (selecting) {
+            if (selAnchor < 0) selAnchor = extracted.selectionStart.coerceIn(0, text.length)
+            selMoving = next
+            ic.setSelection(minOf(selAnchor, next), maxOf(selAnchor, next))
+        } else ic.setSelection(next, next)
+    }
+
+    private fun nav(keyCode: Int, move: SelectionMath.Move) {
+        val ic = currentInputConnection ?: return
+        val window = ic.takeIf { trackedSelectionSpan() <= ChunkedRead.DIRECT_MAX }?.let(::caretWindow)
+        if (window == null) { sendNativeNavigationKey(ic, keyCode, selecting); return }
+        val base = window.base
+        val text = window.text
+        if (!selecting) {
+            val lo = base + minOf(window.start, window.end)
+            val hi = base + maxOf(window.start, window.end)
+            val collapsing = lo != hi && (move == SelectionMath.Move.LEFT || move == SelectionMath.Move.RIGHT)
+            val from = if (move == SelectionMath.Move.LEFT || move == SelectionMath.Move.UP || move == SelectionMath.Move.HOME) lo else hi
+            val next = if (collapsing) from else base + SelectionMath.step(text, from - base, move)
+            ic.setSelection(next, next)
+            return
+        }
+        if (selAnchor < 0) selAnchor = base + window.start
+        if (selMoving < 0) selMoving = base + window.end
+        selMoving = base + SelectionMath.step(text, selMoving - base, move)
+        ic.setSelection(minOf(selAnchor, selMoving), maxOf(selAnchor, selMoving))
+    }
+
+    private fun sendNativeNavigationKey(ic: InputConnection, code: Int, shift: Boolean) {
+        if (panelInput.active) return
+        val downTime = SystemClock.uptimeMillis()
+        val meta = if (shift) KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON else 0
+        try {
+            if (shift) ic.sendKeyEvent(KeyEvent(downTime, downTime, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_SHIFT_LEFT, 0, meta))
+            try {
+                ic.sendKeyEvent(KeyEvent(downTime, SystemClock.uptimeMillis(), KeyEvent.ACTION_DOWN, code, 0, meta))
+            } finally {
+                ic.sendKeyEvent(KeyEvent(downTime, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, code, 0, meta))
+            }
+        } finally {
+            if (shift) ic.sendKeyEvent(KeyEvent(downTime, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, KeyEvent.KEYCODE_SHIFT_LEFT, 0, 0))
+        }
     }
 
     private fun sendKey(code: Int, shift: Boolean) =
@@ -1001,6 +1378,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 sendKeyWithMeta(KeyEvent.KEYCODE_MOVE_END, KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON)
             }
             webClear = null
+            resetSelectionAnchor()
+            refreshUndoAvailability()
             controller.onEditorContextChanged()
         }
     }
@@ -1018,6 +1397,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 if (timedOut) operation.capture.cancel()
                 clearSweep = null
                 editorUndo.finishClearRestore(operation.target, operation.capture.text())
+                resetSelectionAnchor()
                 controller.onEditorContextChanged()
                 return
             }
@@ -1046,6 +1426,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 clearSweep = ClearSweep(editorUndo.untracked(ic), kind)
                 clearPump.run()
             }
+            resetSelectionAnchor()
         } else {
             if (restoring || clearSweep != null || webClear != null || editorUndo.hasPendingClear || editorUndo.hasPendingInsertion) return
             if (editorUndo.hasClearedContent) {
@@ -1088,6 +1469,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                         clearedText.forget()
                     },
                 )
+                resetSelectionAnchor()
             }
         }
     }
@@ -1095,8 +1477,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun finishClearedContentRestore(restored: Boolean) {
         restoring = false
         if (restored) {
+            resetSelectionAnchor()
             controller.onEditorContextChanged()
         }
+        refreshUndoAvailability()
     }
 
     private fun showEmojiPanel() {
@@ -1323,6 +1707,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun captureSystemClip(clip: ClipData, showText: Boolean) {
+        if (hasUnpublishedClipboard(clip, clipboardStore.latestEntry())) return
         if (clip.itemCount == 0) return
         val item = clip.getItemAt(0)
         val mime = ClipboardImages.imageMimeType(contentResolver, clip, item)
@@ -1346,6 +1731,38 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (showText) recordTextClip(text) else clipboardStore.record(text)
     }
 
+    private fun pasteClipboard() {
+        val system = runCatching { clipboardManager.primaryClip }.getOrNull()
+        val item = system?.takeIf { it.itemCount > 0 }?.getItemAt(0)
+        val systemText = item?.text?.toString()
+        val entry = clipboardStore.latestEntry()
+        val localPublication = keepsCopies() && hasUnpublishedClipboard(system, entry)
+        if (!systemText.isNullOrEmpty() && (systemText.isBlank() && !localPublication || !keepsCopies() || entry == null)) {
+            pastePlainText(systemText)
+            return
+        }
+        when {
+            entry == null -> toast(uiString(R.string.edit_paste_empty))
+            else -> pastePlainText(entry.body())
+        }
+    }
+
+    private fun pastePlainText(text: CharSequence?) {
+        pasteCompletionNotice = true
+        val nativeClip = if (!panelInput.active && isWebEditor() && text != null) {
+            runCatching { clipboardManager.primaryClip }.getOrNull()?.takeIf { it.itemCount == 1 }
+                ?.getItemAt(0)?.takeIf { it.htmlText == null && it.uri == null && it.intent == null &&
+                    it.text?.toString() == text.toString() }
+        } else null
+        val inserted = if (nativeClip != null && text != null) {
+            currentInputConnection?.let { editorUndo.pasteCopiedText(it, text) } == true
+        } else text?.let { commitLargeText(it) } == true
+        if (pasteCompletionNotice && !editorUndo.hasPendingInsertion && chunkedRead?.pending != true) {
+            pasteCompletionNotice = false
+            toast(uiString(if (inserted) R.string.edit_paste_done else R.string.edit_paste_failed))
+        }
+    }
+
     private fun reportImageFailure(failure: Throwable) {
         toast(uiString(if (failure is ClipboardImageTooLargeException) R.string.clip_image_too_large else R.string.clip_image_save_failed))
     }
@@ -1353,7 +1770,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun recordTextClip(t: String) {
         clipboardStore.record(t)
         lastCopy = t
-        if (inputView?.isComposing() != true) inputView?.showCopyBar(t)
+        if (inputView?.isPanelShowing(editPanelView) == true) {
+            inputView?.stageCopyBar(t)
+        } else {
+            if (inputView?.isComposing() != true) inputView?.showCopyBar(t)
+        }
     }
 
     private fun toast(msg: String) { inputView?.showToast(msg) }
@@ -1578,6 +1999,21 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         deleteLastEditorCluster()
     }
 
+    private fun deleteNextEditorCluster() {
+        val ic = currentInputConnection ?: return
+        if (takesRawKeys(currentInputEditorInfo) || isWebEditor()) {
+            sendKey(KeyEvent.KEYCODE_FORWARD_DEL, false)
+            return
+        }
+        if (hasSelection()) {
+            if (!replaceLargeSelection("")) ic.commitText("", 1)
+            return
+        }
+        val after = ic.getTextAfterCursor(GraphemeText.WINDOW, 0)
+        if (after == null) sendKey(KeyEvent.KEYCODE_FORWARD_DEL, false)
+        else if (after.isNotEmpty()) ic.deleteSurroundingText(0, GraphemeText.nextCluster(after, 0))
+    }
+
     private fun deleteLastEditorCluster() {
         val ic = currentInputConnection ?: return
         val before = ic.getTextBeforeCursor(GraphemeText.WINDOW, 0) ?: ""
@@ -1644,6 +2080,7 @@ private const val DECODE_TARGET_NANOS = 16_666_667L
 private const val STREAM_GAP_MS = 16L
 private const val STREAM_CHUNK = 16_384
 private const val TRIM_WINDOW = 8
+private const val NAV_WINDOW = 16_384
 private const val READ_TIMEOUT_MS = 1_500L
 private const val WEB_WRITE_SETTLE_MS = 160L
 private const val PREF_TRANSLATE_MODE = "translate_mode"

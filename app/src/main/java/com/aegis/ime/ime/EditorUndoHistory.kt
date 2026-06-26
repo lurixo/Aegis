@@ -382,6 +382,13 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
         return wrapped
     }
 
+    /** Confirms a history kept across a connection swap before the panel offers it. */
+    fun confirmReconnect(target: InputConnection) {
+        windowHistory.settlePending()
+        if (!windowHistory.needsConfirmation) return
+        windowHistory.canUndo(unwrap(target))
+    }
+
     fun cancelWebTabInput() { webTabInput.clear() }
 
     fun selectionUpdated(start: Int, end: Int) {
@@ -400,6 +407,17 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
         webTabInput.clear()
         nativeCleared = null
         return nativeHistory.paste(unwrap(target), copiedText)
+    }
+
+    fun deleteCapturedSelection(target: InputConnection, start: Int, removed: CharSequence): Boolean {
+        if (preferNativeUndo || removed.length < ChunkedRead.CHUNK / 2) return target.commitText("", 1)
+        webTabInput.clear()
+        nativeCleared = null
+        val raw = unwrap(target)
+        val selection = selectionProvider?.invoke()
+        val from = selection?.first ?: start
+        val to = selection?.second ?: start + removed.length
+        return windowHistory.replace(raw, start, removed, "", from, to)
     }
 
     fun replaceCapturedSelection(target: InputConnection, start: Int, removed: CharSequence,

@@ -15,10 +15,18 @@
 
 package com.aegis.ime
 
+import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.graphics.Rect
+import android.os.Looper
 import android.text.InputType
 import android.text.Selection
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedText
@@ -27,9 +35,14 @@ import android.view.inputmethod.InputContentInfo
 import android.view.inputmethod.SurroundingText
 import android.widget.FrameLayout
 import com.aegis.ime.engine.CandidateEngine
+import com.aegis.ime.ime.EditAction
+import com.aegis.ime.ime.EditPanelView
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.ime.LayoutChoice
+import com.aegis.ime.ime.PanelEditable
+import com.aegis.ime.ime.PanelTextInput
+import com.aegis.ime.user.ClipboardStore
 import com.aegis.ime.user.LiveUserData
 import androidx.core.content.FileProvider
 import org.junit.After
@@ -39,6 +52,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -160,6 +174,82 @@ class AegisEditingIntegrationTest {
     private fun invoke(service: AegisInputMethodService, name: String) {
         service.javaClass.getDeclaredMethod(name).apply { isAccessible = true }.invoke(service)
     }
+    private fun edit(f: Fixture, action: EditAction) {
+        f.service.javaClass.getDeclaredMethod("handleEdit", EditAction::class.java).apply { isAccessible = true }.invoke(f.service, action)
+    }
+    private fun usePanelEditor(f: Fixture) {
+        val input = f.service.javaClass.getDeclaredField("panelInput").apply { isAccessible = true }.get(f.service) as PanelTextInput
+        input.begin(object : PanelEditable {
+            override fun snapshot(): String = f.connection.editable.toString()
+            override fun selectionStart(): Int = Selection.getSelectionStart(f.connection.editable)
+            override fun selectionEnd(): Int = Selection.getSelectionEnd(f.connection.editable)
+            override fun setSelection(start: Int, end: Int) { f.connection.setSelection(start, end) }
+            override fun replace(start: Int, end: Int, text: CharSequence) {
+                f.connection.setSelection(start, end)
+                f.connection.commitText(text, 1)
+            }
+        })
+    }
+    private fun syncSelection(f: Fixture, panel: EditPanelView? = null) {
+        val start = Selection.getSelectionStart(f.connection.editable)
+        val end = Selection.getSelectionEnd(f.connection.editable)
+        f.service.onUpdateSelection(-1, -1, start, end, -1, -1)
+        panel?.setHasSelection(start != end)
+    }
+    private fun withEditPanel(f: Fixture, widthDp: Int, heightDp: Int, block: (EditPanelView) -> Unit) {
+        val host = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            invoke(f.service, "showEditPanel")
+            val panel = f.service.javaClass.getDeclaredField("editPanelView").apply { isAccessible = true }.get(f.service) as EditPanelView
+            (panel.parent as ViewGroup).removeView(panel)
+            host.get().setContentView(panel)
+            shadowOf(Looper.getMainLooper()).idle()
+            val density = panel.resources.displayMetrics.density
+            val root = requireNotNull(host.get().findViewById<ViewGroup>(android.R.id.content))
+            root.measure(
+                View.MeasureSpec.makeMeasureSpec((widthDp * density).toInt(), View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec((heightDp * density).toInt(), View.MeasureSpec.EXACTLY),
+            )
+            root.layout(0, 0, root.measuredWidth, root.measuredHeight)
+            block(panel)
+        } finally {
+            host.pause().stop().destroy()
+        }
+    }
+    private fun tapEdit(panel: EditPanelView, action: EditAction) {
+        val target = requireNotNull(panel.actionViewForTest(action))
+        assertTrue("$action must be enabled", target.isEnabled)
+        val hit = Rect(0, 0, target.width, target.height)
+        panel.offsetDescendantRectToMyCoords(target, hit)
+        for ((eventAction, time) in listOf(MotionEvent.ACTION_DOWN to 0L, MotionEvent.ACTION_UP to 10L)) {
+            val event = MotionEvent.obtain(0, time, eventAction, hit.exactCenterX(), hit.exactCenterY(), 0)
+            try {
+                assertTrue("$action receives the touch", panel.dispatchTouchEvent(event))
+            } finally {
+                event.recycle()
+            }
+        }
+        shadowOf(Looper.getMainLooper()).idle()
+    }
+    private fun store(f: Fixture): ClipboardStore {
+        val lazy = f.service.javaClass.getDeclaredField("clipboardStore\$delegate").apply { isAccessible = true }.get(f.service) as Lazy<*>
+        return lazy.value as ClipboardStore
+    }
+    private fun clipboard(f: Fixture) = f.service.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+
+    @Test fun edit_panel_back_remains_available_while_text_is_being_restored() {
+        for (choice in listOf(LayoutChoice.CN_ALPHA, LayoutChoice.CN_NINE)) {
+            val f = fixture(choice)
+            invoke(f.service, "showEditPanel")
+            val input = f.service.javaClass.getDeclaredField("inputView").apply { isAccessible = true }.get(f.service) as InputView
+            val panel = f.service.javaClass.getDeclaredField("editPanelView").apply { isAccessible = true }.get(f.service) as EditPanelView
+            assertTrue(input.isPanelShowing(panel))
+            field(f.service, "restoring", true)
+            edit(f, EditAction.BACK)
+            assertFalse(input.isPanelShowing(panel))
+            assertTrue(f.service.javaClass.getDeclaredField("restoring").apply { isAccessible = true }.getBoolean(f.service))
+        }
+    }
 
     @Test fun checking_backspace_gesture_availability_never_queries_the_host_editor() {
         for (layout in listOf(LayoutChoice.CN_ALPHA, LayoutChoice.CN_NINE)) {
@@ -173,6 +263,141 @@ class AegisEditingIntegrationTest {
                 available.invoke(f.service, false)
             }
             assertEquals(0, f.connection.reads)
+        }
+    }
+
+    @Test fun both_keyboard_layouts_undo_insert_tab_delete_cut_paste_and_clear_in_order() {
+        for (layout in listOf(LayoutChoice.CN_ALPHA, LayoutChoice.CN_NINE)) {
+            val f = fixture(layout)
+            val c = f.connection
+            c.commitText("甲😀乙", 1)
+            f.service.commitText("新增")
+            edit(f, EditAction.UNDO)
+            assertEquals("甲😀乙", c.editable.toString())
+            c.setSelection(1, 1)
+            edit(f, EditAction.FORWARD_DELETE)
+            assertEquals("甲乙", c.editable.toString())
+            edit(f, EditAction.UNDO)
+            assertEquals("甲😀乙", c.editable.toString())
+            assertEquals(1, Selection.getSelectionStart(c.editable))
+            edit(f, EditAction.TAB)
+            assertEquals("甲\t😀乙", c.editable.toString())
+            edit(f, EditAction.UNDO)
+            assertEquals("甲😀乙", c.editable.toString())
+            c.setSelection(1, 3)
+            f.service.onUpdateSelection(1, 1, 1, 3, -1, -1)
+            edit(f, EditAction.CUT)
+            assertEquals("甲乙", c.editable.toString())
+            edit(f, EditAction.UNDO)
+            assertEquals("甲😀乙", c.editable.toString())
+            assertEquals(1, Selection.getSelectionStart(c.editable))
+            assertEquals(3, Selection.getSelectionEnd(c.editable))
+            store(f).record("粘贴")
+            clipboard(f).setPrimaryClip(ClipData.newPlainText("text", "粘贴"))
+            edit(f, EditAction.PASTE)
+            assertEquals("甲粘贴乙", c.editable.toString())
+            edit(f, EditAction.UNDO)
+            assertEquals("甲😀乙", c.editable.toString())
+            f.service.javaClass.getDeclaredMethod("handleBackspaceSwipe", Boolean::class.javaPrimitiveType).apply { isAccessible = true }.invoke(f.service, true)
+            assertEquals("", c.editable.toString())
+            edit(f, EditAction.UNDO)
+            assertEquals("甲😀乙", c.editable.toString())
+            invoke(f.service, "showEditPanel")
+            val panel = f.service.javaClass.getDeclaredField("editPanelView").apply { isAccessible = true }.get(f.service) as EditPanelView
+            assertNotNull(panel.actionViewForTest(EditAction.UNDO))
+            assertFalse(c.menus.contains(android.R.id.undo))
+            store(f).stopSaving()
+        }
+    }
+
+    @Test fun right_side_actions_exit_selection_mode_and_keep_their_selection_semantics() {
+        val original = "abc\ndef"
+        val actions = listOf(
+            EditAction.TAB, EditAction.DELETE, EditAction.UNDO, EditAction.FORWARD_DELETE,
+            EditAction.SELECT_ALL, EditAction.COPY, EditAction.CUT, EditAction.PASTE,
+        )
+        for (layout in listOf(LayoutChoice.CN_ALPHA, LayoutChoice.CN_NINE)) {
+            for (internal in listOf(false, true)) {
+                for ((width, height) in listOf(411 to 324, 640 to 220)) {
+                    for (action in actions) {
+                        val f = fixture(layout)
+                        val c = f.connection
+                        c.commitText(original, 1)
+                        syncSelection(f)
+                        if (internal) usePanelEditor(f)
+                        f.service.commitText("!")
+                        syncSelection(f)
+                        store(f).record("P")
+                        clipboard(f).setPrimaryClip(ClipData.newPlainText("paste", "P"))
+                        c.onMenu = { id ->
+                            when (id) {
+                                android.R.id.selectAll -> c.setSelection(0, c.editable!!.length)
+                                android.R.id.copy -> clipboard(f).setPrimaryClip(ClipData.newPlainText("copy", c.getSelectedText(0)))
+                            }
+                        }
+                        c.setSelection(1, 1)
+                        syncSelection(f)
+                        withEditPanel(f, width, height) { panel ->
+                            val select = requireNotNull(panel.actionViewForTest(EditAction.START_SELECT))
+                            val message = "$layout internal=$internal $width x $height $action"
+                            tapEdit(panel, EditAction.START_SELECT)
+                            tapEdit(panel, EditAction.RIGHT)
+                            syncSelection(f, panel)
+                            assertTrue(message, select.isSelected)
+                            assertEquals(message, "b", c.getSelectedText(0).toString())
+                            tapEdit(panel, action)
+                            syncSelection(f, panel)
+                            assertFalse(message, select.isSelected)
+                            val expected = when (action) {
+                                EditAction.TAB -> "a\tc\ndef!"
+                                EditAction.DELETE, EditAction.FORWARD_DELETE, EditAction.CUT -> "ac\ndef!"
+                                EditAction.PASTE -> "aPc\ndef!"
+                                EditAction.UNDO -> original
+                                else -> original + "!"
+                            }
+                            assertEquals(message, expected, c.editable.toString())
+                            when (action) {
+                                EditAction.COPY -> {
+                                    assertEquals(message, "b", clipboard(f).primaryClip!!.getItemAt(0).text.toString())
+                                    assertEquals(message, "b", c.getSelectedText(0).toString())
+                                }
+                                EditAction.SELECT_ALL -> assertEquals(message, expected, c.getSelectedText(0).toString())
+                                else -> Unit
+                            }
+                            tapEdit(panel, EditAction.LEFT)
+                            syncSelection(f, panel)
+                            assertEquals(message, Selection.getSelectionStart(c.editable), Selection.getSelectionEnd(c.editable))
+                        }
+                        store(f).stopSaving()
+                    }
+                }
+            }
+        }
+    }
+
+    @Test fun navigation_and_document_jumps_continue_extending_selection_in_both_editors() {
+        for (layout in listOf(LayoutChoice.CN_ALPHA, LayoutChoice.CN_NINE)) {
+            for (internal in listOf(false, true)) {
+                val f = fixture(layout)
+                val c = f.connection
+                c.commitText("abc\ndef", 1)
+                c.setSelection(5, 5)
+                syncSelection(f)
+                if (internal) usePanelEditor(f)
+                withEditPanel(f, 411, 324) { panel ->
+                    val select = requireNotNull(panel.actionViewForTest(EditAction.START_SELECT))
+                    tapEdit(panel, EditAction.START_SELECT)
+                    for (action in listOf(EditAction.HOME, EditAction.END, EditAction.LEFT, EditAction.RIGHT, EditAction.UP, EditAction.DOWN)) {
+                        tapEdit(panel, action)
+                        syncSelection(f, panel)
+                        assertTrue("$layout internal=$internal $action", select.isSelected)
+                        if (action == EditAction.HOME) assertEquals("abc\nd", c.getSelectedText(0).toString())
+                        if (action == EditAction.END) assertEquals("ef", c.getSelectedText(0).toString())
+                    }
+                    tapEdit(panel, EditAction.START_SELECT)
+                    assertFalse(select.isSelected)
+                }
+            }
         }
     }
 

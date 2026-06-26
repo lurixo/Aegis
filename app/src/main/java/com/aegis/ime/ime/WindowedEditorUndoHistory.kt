@@ -378,6 +378,15 @@ internal class WindowedEditorUndoHistory {
         return accepted
     }
 
+    /** True while a kept history still has to be confirmed against the editor. */
+    val needsConfirmation get() = contradicted && entries.isNotEmpty()
+
+    /** Confirms an edit the editor applied after the key returned, before the panel reads [hasUndo]. */
+    fun settlePending() {
+        pendingChange?.let { settle(it.target) }
+        pending?.let { settle(it.target) }
+    }
+
     /**
      * The editor handed over a fresh connection. Anything in flight is void, but an editor that
      * rewrote its content keeps the same text, so hold on to the recorded steps and let the next

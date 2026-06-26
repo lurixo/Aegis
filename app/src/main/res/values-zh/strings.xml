@@ -398,6 +398,21 @@
     <string name="edit_select_all">全选</string>
     <string name="edit_text_end">末尾</string>
     <string name="edit_paste">粘贴</string>
+    <string name="edit_select_all_done">已全选</string>
+    <string name="edit_no_selection">没有选中内容</string>
+    <string name="edit_copy_done">已复制</string>
+    <string name="edit_copy_failed">复制失败</string>
+    <string name="edit_cut_done">已剪切</string>
+    <string name="edit_cut_failed">剪切失败</string>
+    <plurals name="edit_copy_partial">
+        <item quantity="other">只复制了 %1$d 个字</item>
+    </plurals>
+    <plurals name="edit_cut_partial">
+        <item quantity="other">只剪切了 %1$d 个字</item>
+    </plurals>
+    <string name="edit_paste_done">已粘贴</string>
+    <string name="edit_paste_failed">粘贴失败</string>
+    <string name="edit_paste_empty">Aegis 剪贴板为空</string>
     <string name="svc_recents_update_failed">常用记录更新失败，已恢复原内容</string>
     <string name="clip_back">返回</string>
     <string name="clip_delete">删除</string>

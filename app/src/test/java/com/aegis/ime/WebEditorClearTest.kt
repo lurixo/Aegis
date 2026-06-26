@@ -15,6 +15,7 @@
 
 package com.aegis.ime
 
+import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.Looper
@@ -28,6 +29,7 @@ import android.view.inputmethod.ExtractedText
 import android.view.inputmethod.ExtractedTextRequest
 import android.widget.FrameLayout
 import com.aegis.ime.engine.CandidateEngine
+import com.aegis.ime.ime.EditAction
 import com.aegis.ime.ime.KeyboardController
 import java.io.File
 import java.time.Duration
@@ -223,6 +225,45 @@ class WebEditorClearTest {
             isAccessible = true
             invoke(f.service, up) as Boolean
         }
+
+    private fun undo(f: Fixture) {
+        val before = f.editor.document
+        f.editor.documentChanges.clear()
+        f.service.javaClass.getDeclaredMethod("handleEdit", EditAction::class.java).apply {
+            isAccessible = true
+            invoke(f.service, EditAction.UNDO)
+        }
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200))
+        val after = f.editor.document
+        assertTrue("Unexpected intermediate editor contents: ${f.editor.documentChanges}",
+            f.editor.documentChanges.all { it == before || it == after })
+    }
+
+    private fun edit(f: Fixture, action: EditAction) {
+        f.service.javaClass.getDeclaredMethod("handleEdit", EditAction::class.java).apply {
+            isAccessible = true
+            invoke(f.service, action)
+        }
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200))
+    }
+
+    @Test fun system_plain_text_paste_uses_the_web_editor_command_and_retains_native_undo() {
+        val original = "prefix\nsuffix"
+        val payload = "pasted line\n".repeat(4096)
+        val f = fixture(original, 7)
+        f.editor.acceptNativePaste = true
+        f.editor.rejectTextCommits = true
+        val clipboard = f.service.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("test", payload))
+        edit(f, EditAction.PASTE)
+        assertTrue("Native paste inserts the entire payload", f.editor.document == "prefix\n" + payload + "suffix")
+        assertEquals(listOf(android.R.id.paste), f.editor.contextMenuRequests)
+        assertEquals("No chunk is committed into the rendered DOM", 0, f.editor.rejectedTextCommits)
+        undo(f)
+        assertEquals(original, f.editor.document)
+        assertEquals(1, f.editor.nativeUndoCalls)
+        assertEquals(0, f.editor.rejectedTextCommits)
+    }
 
     @Test fun clear_uses_the_editors_document_range_instead_of_the_raw_dom_suffix() {
         for (caret in listOf(0, 3, 7)) {

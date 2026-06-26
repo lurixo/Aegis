@@ -400,6 +400,23 @@
     <string name="edit_select_all">Select all</string>
     <string name="edit_text_end">End</string>
     <string name="edit_paste">Paste</string>
+    <string name="edit_select_all_done">Selected all</string>
+    <string name="edit_no_selection">Nothing selected</string>
+    <string name="edit_copy_done">Copied</string>
+    <string name="edit_copy_failed">Could not copy</string>
+    <string name="edit_cut_done">Cut</string>
+    <string name="edit_cut_failed">Could not cut</string>
+    <plurals name="edit_copy_partial">
+        <item quantity="one">Copied %1$d character only</item>
+        <item quantity="other">Copied %1$d characters only</item>
+    </plurals>
+    <plurals name="edit_cut_partial">
+        <item quantity="one">Cut %1$d character only</item>
+        <item quantity="other">Cut %1$d characters only</item>
+    </plurals>
+    <string name="edit_paste_done">Pasted</string>
+    <string name="edit_paste_failed">Could not paste</string>
+    <string name="edit_paste_empty">Aegis clipboard is empty</string>
     <string name="svc_recents_update_failed">The recent list could not be updated, so its previous contents were restored</string>
     <string name="clip_back">Back</string>
     <string name="clip_delete">Delete</string>

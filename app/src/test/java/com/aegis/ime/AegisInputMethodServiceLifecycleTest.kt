@@ -15,9 +15,14 @@
 
 package com.aegis.ime
 
+import com.aegis.ime.user.historyText
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.os.Looper
 import android.text.InputType
 import android.text.Selection
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.SurroundingText
@@ -34,18 +39,26 @@ import com.aegis.ime.ime.EditPanelView
 import com.aegis.ime.ime.EmojiView
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
+import com.aegis.ime.ime.LargeCommit
+import com.aegis.ime.ime.Motion
+import com.aegis.ime.ime.SelectionMath
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
+import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
+import com.aegis.ime.layout.Layouts
 import com.aegis.ime.ui.DictDownloadWork
+import com.aegis.ime.user.ClipboardStore
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import java.util.concurrent.TimeUnit
 
@@ -291,6 +304,361 @@ class AegisInputMethodServiceLifecycleTest {
         }
     }
 
+    private fun clipboardStore(service: AegisInputMethodService): ClipboardStore {
+        val delegate = service.javaClass.getDeclaredField("clipboardStore\$delegate").run {
+            isAccessible = true
+            get(service) as Lazy<*>
+        }
+        return delegate.value as ClipboardStore
+    }
+
+    private fun swipeBackspace(view: View, x: Float, y: Float, up: Boolean) {
+        val reach = 24f * view.resources.displayMetrics.density + 15f
+        val endY = if (up) y - reach else y + reach
+        val steps = listOf(
+            Triple(MotionEvent.ACTION_DOWN, y, 0L),
+            Triple(MotionEvent.ACTION_MOVE, endY, 12L),
+            Triple(MotionEvent.ACTION_UP, endY, 24L),
+        )
+        for ((action, py, time) in steps) {
+            val event = MotionEvent.obtain(0, time, action, x, py, 0)
+            try {
+                view.dispatchTouchEvent(event)
+            } finally {
+                event.recycle()
+            }
+        }
+    }
+
+    private fun swipePanelDelete(panel: EditPanelView, up: Boolean) {
+        val delete = requireNotNull(panel.actionViewForTest(EditAction.DELETE))
+        assertTrue("the delete button must be laid out", delete.width > 0 && delete.height > 0)
+        swipeBackspace(delete, delete.width / 2f, delete.height / 2f, up)
+    }
+
+    private fun selectAllOnCut(connection: RecordingInputConnection) {
+        connection.onContextMenuAction = { id ->
+            if (id == android.R.id.selectAll) {
+                connection.setSelection(0, requireNotNull(connection.editable).length)
+            }
+        }
+    }
+
+    private fun backspaceSwipe(service: AegisInputMethodService, up: Boolean) {
+        service.javaClass.getDeclaredMethod("backspaceSwipe", Boolean::class.javaPrimitiveType).apply {
+            isAccessible = true
+            invoke(service, up)
+        }
+    }
+
+    private fun handleEdit(service: AegisInputMethodService, action: EditAction) {
+        service.javaClass.getDeclaredMethod("handleEdit", EditAction::class.java).apply {
+            isAccessible = true
+            invoke(service, action)
+        }
+    }
+
+    private fun showEditPanel(service: AegisInputMethodService): EditPanelView {
+        service.javaClass.getDeclaredMethod("showEditPanel").apply {
+            isAccessible = true
+            invoke(service)
+        }
+        return cachedPanel(service, "editPanelView") as EditPanelView
+    }
+
+    private fun layoutInput(view: InputView) {
+        val width = view.resources.displayMetrics.widthPixels
+        view.measure(
+            View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+        )
+        view.layout(0, 0, view.measuredWidth, view.measuredHeight)
+    }
+
+    @Test fun edit_paste_replaces_the_selection_with_the_latest_aegis_entry_without_system_paste() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        val systemClipboard = f.service.getSystemService(ClipboardManager::class.java)
+        systemClipboard.setPrimaryClip(ClipData.newPlainText("system", "SYSTEM_CLIPBOARD"))
+        clipboardStore(f.service).apply {
+            clearHistory()
+            record("older")
+            record("Aegis latest")
+        }
+        connection.commitText("before TARGET after", 1)
+        connection.committedChunks.clear()
+        connection.setSelection(7, 13)
+
+        handleEdit(f.service, EditAction.PASTE)
+
+        assertEquals("before Aegis latest after", connection.editable.toString())
+        assertEquals(listOf("Aegis latest"), connection.committedChunks)
+        assertTrue(connection.contextMenuActions.isEmpty())
+        assertEquals(f.service.getString(R.string.edit_paste_done), f.service.toastTextForTest())
+    }
+
+    @Test fun edit_paste_keeps_large_aegis_entries_on_the_chunked_commit_path() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        val big = "大".repeat(LargeCommit.CHUNK + 1)
+        clipboardStore(f.service).apply {
+            clearHistory()
+            record(big)
+        }
+
+        handleEdit(f.service, EditAction.PASTE)
+
+        assertEquals(listOf(LargeCommit.CHUNK, 1), connection.committedChunks.map { it.length })
+        assertEquals(big, connection.committedChunks.joinToString(""))
+        assertEquals(big, connection.editable.toString())
+        assertTrue(connection.contextMenuActions.isEmpty())
+        assertEquals(f.service.getString(R.string.edit_paste_done), f.service.toastTextForTest())
+    }
+
+    @Test fun edit_paste_uses_system_text_when_aegis_history_is_empty() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        f.service.getSystemService(ClipboardManager::class.java)
+            .setPrimaryClip(ClipData.newPlainText("system", "SYSTEM_CLIPBOARD"))
+        clipboardStore(f.service).clearHistory()
+
+        handleEdit(f.service, EditAction.PASTE)
+
+        assertEquals("SYSTEM_CLIPBOARD", connection.editable.toString())
+        assertEquals("SYSTEM_CLIPBOARD", connection.committedChunks.joinToString(""))
+        assertTrue(connection.contextMenuActions.isEmpty())
+        assertEquals(f.service.getString(R.string.edit_paste_done), f.service.toastTextForTest())
+    }
+
+    @Test fun edit_paste_does_nothing_when_both_clipboards_are_empty() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        f.service.getSystemService(ClipboardManager::class.java)
+            .clearPrimaryClip()
+        clipboardStore(f.service).clearHistory()
+
+        handleEdit(f.service, EditAction.PASTE)
+
+        assertEquals("", connection.editable.toString())
+        assertTrue(connection.committedChunks.isEmpty())
+        assertTrue(connection.contextMenuActions.isEmpty())
+        assertEquals(f.service.getString(R.string.edit_paste_empty), f.service.toastTextForTest())
+    }
+
+    @Test fun a_panel_down_swipe_without_a_snapshot_changes_nothing() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        selectAllOnCut(connection)
+        connection.commitText("keep every character", 1)
+        val panel = showEditPanel(f.service)
+        layoutInput(f.view)
+        connection.committedChunks.clear()
+
+        swipePanelDelete(panel, up = false)
+
+        assertEquals("a down swipe with nothing to restore is a no-op", "keep every character", connection.editable.toString())
+        assertTrue("it must not commit an empty string either", connection.committedChunks.isEmpty())
+        assertTrue(connection.contextMenuActions.isEmpty())
+    }
+
+    @Test fun the_edit_panel_delete_tracks_the_key_haptics_toggle_on_both_faces() {
+        val faces = listOf(
+            Lang.EN to Layouts.forId(LayoutId.ALPHA, Lang.EN),
+            Lang.CN to Layouts.nine(Layouts.ninePunctuation(), false),
+        )
+        for ((lang, layout) in faces) {
+            val f = fixture()
+            f.view.showKeyboard(layout, false, false, lang)
+
+            f.view.setKeyHaptics(false)
+            val panel = showEditPanel(f.service)
+            assertFalse("${layout.id}: a panel opened with the toggle off starts silent", panel.hapticEnabled)
+
+            f.view.setKeyHaptics(true)
+            assertTrue("${layout.id}: switching the toggle on reaches the open panel", panel.hapticEnabled)
+
+            f.view.setKeyHaptics(false)
+            assertFalse("${layout.id}: switching it back off reaches the open panel", panel.hapticEnabled)
+
+            showEditPanel(f.service)
+            f.view.setKeyHaptics(true)
+            showEditPanel(f.service)
+            assertTrue("${layout.id}: a reopened panel picks up the current toggle", panel.hapticEnabled)
+        }
+    }
+
+    @Test fun edit_delete_runs_the_keyboard_backspace_chain_instead_of_a_raw_key_event() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("ab😀", 1)
+
+        handleEdit(f.service, EditAction.DELETE)
+
+        assertEquals("delete removes the whole grapheme cluster", "ab", connection.editable.toString())
+        assertTrue("the panel must not fall back to a raw KEYCODE_DEL", connection.sentKeyCodes.isEmpty())
+    }
+
+    @Test fun a_reported_selection_uses_one_delete_key_pair_without_double_deleting() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("leftSELECTright", 1)
+        Selection.setSelection(connection.editable, 4, 10)
+        connection.committedChunks.clear()
+
+        handleEdit(f.service, EditAction.DELETE)
+
+        assertEquals("only the selection is removed", "leftright", connection.editable.toString())
+        assertEquals("the cursor collapses at the former selection start", 4, selectionStart(connection))
+        assertEquals(
+            "selection deletion is exactly one KEYCODE_DEL down/up pair",
+            listOf(
+                KeyEvent.ACTION_DOWN to KeyEvent.KEYCODE_DEL,
+                KeyEvent.ACTION_UP to KeyEvent.KEYCODE_DEL,
+            ),
+            connection.sentKeyEvents,
+        )
+        assertTrue("selection deletion must not commit an empty string", connection.committedChunks.isEmpty())
+        assertTrue("selection deletion must not also use a ranged delete", connection.surroundingDeletes.isEmpty())
+    }
+
+    @Test fun backspace_without_a_selection_sends_one_delete_key_pair_for_a_line_break() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("ab\n", 1)
+
+        handleEdit(f.service, EditAction.DELETE)
+
+        assertEquals("the line break is gone", "ab", connection.editable.toString())
+        assertEquals(
+            "a line break is removed by exactly one KEYCODE_DEL down/up pair",
+            listOf(
+                KeyEvent.ACTION_DOWN to KeyEvent.KEYCODE_DEL,
+                KeyEvent.ACTION_UP to KeyEvent.KEYCODE_DEL,
+            ),
+            connection.sentKeyEvents,
+        )
+        assertTrue("no ranged delete is used for a line break", connection.surroundingDeletes.isEmpty())
+    }
+
+    @Test fun backspace_without_a_selection_keeps_using_a_ranged_delete_for_a_grapheme_cluster() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("ab😀", 1)
+
+        handleEdit(f.service, EditAction.DELETE)
+
+        assertEquals("the cluster is gone", "ab", connection.editable.toString())
+        assertEquals("the cluster is removed in one ranged delete", listOf(2), connection.surroundingDeletes)
+        assertTrue("a cluster never goes through a key event", connection.sentKeyEvents.isEmpty())
+    }
+
+    @Test fun select_all_also_reaches_editors_that_own_their_selection() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("hello", 1)
+
+        handleEdit(f.service, EditAction.SELECT_ALL)
+
+        assertTrue(
+            "select all still uses the editor action",
+            connection.contextMenuActions.contains(android.R.id.selectAll),
+        )
+        assertTrue("select all also sends the editor shortcut", connection.sentKeyCodes.contains(KeyEvent.KEYCODE_A))
+    }
+
+    @Test fun copy_leaves_the_clipboard_alone_when_the_editor_reports_a_bare_cursor() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("hello", 1)
+
+        handleEdit(f.service, EditAction.COPY)
+        handleEdit(f.service, EditAction.CUT)
+
+        assertTrue("a bare cursor must not reach copy or cut", connection.contextMenuActions.isEmpty())
+        assertEquals("cut must not touch the text either", "hello", connection.editable.toString())
+    }
+
+    @Test fun edit_panel_uses_the_extracted_selection_when_selected_text_is_hidden() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("before selected after", 1)
+        Selection.setSelection(connection.editable, 7, 15)
+        connection.hidesSelection = true
+
+        val panel = showEditPanel(f.service)
+
+        for (action in listOf(EditAction.COPY, EditAction.CUT)) {
+            val key = requireNotNull(panel.actionViewForTest(action))
+            assertTrue("$action is enabled for the extracted selection", key.isEnabled)
+            assertTrue("$action is clickable for the extracted selection", key.isClickable)
+        }
+    }
+
+    @Test fun edit_panel_keeps_copy_and_cut_available_when_selection_state_is_unknown() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("unknown selection state", 1)
+        connection.hidesExtractedText = true
+
+        val panel = showEditPanel(f.service)
+
+        for (action in listOf(EditAction.COPY, EditAction.CUT)) {
+            val key = requireNotNull(panel.actionViewForTest(action))
+            assertTrue("$action remains enabled when the editor reports no selection state", key.isEnabled)
+            assertTrue("$action remains clickable when the editor reports no selection state", key.isClickable)
+        }
+    }
+
+    @Test fun edit_panel_ignores_unknown_selection_updates_but_follows_reported_ranges() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("selection updates", 1)
+        connection.hidesExtractedText = true
+        val panel = showEditPanel(f.service)
+        val copy = requireNotNull(panel.actionViewForTest(EditAction.COPY))
+
+        f.service.onUpdateSelection(0, 0, -1, -1, -1, -1)
+        assertTrue("an unknown callback preserves the optimistic state", copy.isEnabled)
+        assertTrue(copy.isClickable)
+
+        f.service.onUpdateSelection(-1, -1, 4, 4, -1, -1)
+        assertFalse("a reported bare cursor disables copy", copy.isEnabled)
+        assertFalse(copy.isClickable)
+
+        f.service.onUpdateSelection(4, 4, 2, 5, -1, -1)
+        assertTrue("a reported range enables copy", copy.isEnabled)
+        assertTrue(copy.isClickable)
+    }
+
+    @Test fun edit_panel_disables_copy_and_cut_for_an_explicit_bare_cursor() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("bare cursor", 1)
+
+        val panel = showEditPanel(f.service)
+
+        for (action in listOf(EditAction.COPY, EditAction.CUT)) {
+            val key = requireNotNull(panel.actionViewForTest(action))
+            assertFalse("$action is disabled for a reported bare cursor", key.isEnabled)
+            assertFalse("$action is not clickable for a reported bare cursor", key.isClickable)
+        }
+    }
+
     @Test fun select_all_keeps_the_shortcut_away_from_editors_that_take_raw_keys() {
         val f = fixture()
 
@@ -300,6 +668,88 @@ class AegisInputMethodServiceLifecycleTest {
         )
         assertFalse("an ordinary text field still gets it", f.service.takesRawKeys(editor()))
         assertFalse("an unknown editor still gets it", f.service.takesRawKeys(null))
+    }
+
+    @Test fun delete_removes_a_selection_the_editor_never_reported() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("abHIDDENcd", 1)
+        Selection.setSelection(connection.editable, 2, 8)
+        connection.hidesSelection = true
+        connection.hidesExtractedSelection = true
+        connection.committedChunks.clear()
+
+        handleEdit(f.service, EditAction.DELETE)
+
+        assertEquals("the hidden selection is what gets removed", "abcd", connection.editable.toString())
+        assertEquals(
+            "the unknown-selection fallback still emits one KEYCODE_DEL down/up pair",
+            listOf(
+                KeyEvent.ACTION_DOWN to KeyEvent.KEYCODE_DEL,
+                KeyEvent.ACTION_UP to KeyEvent.KEYCODE_DEL,
+            ),
+            connection.sentKeyEvents,
+        )
+        assertTrue("the hidden-selection fallback must not commit an empty string", connection.committedChunks.isEmpty())
+        assertTrue("the hidden-selection fallback must not also use a ranged delete", connection.surroundingDeletes.isEmpty())
+    }
+
+    private fun assertDeleteUsesExtractedSelection(prefix: String) {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        val selected = "HIDDEN"
+        connection.commitText(prefix + selected + "cd", 1)
+        val from = prefix.length
+        val to = from + selected.length
+        Selection.setSelection(connection.editable, from, to)
+        connection.hidesSelection = true
+        connection.committedChunks.clear()
+
+        assertNull(connection.getSelectedText(0))
+        val extracted = requireNotNull(connection.getExtractedText(ExtractedTextRequest(), 0))
+        assertEquals(from, extracted.selectionStart)
+        assertEquals(to, extracted.selectionEnd)
+
+        handleEdit(f.service, EditAction.DELETE)
+
+        assertEquals(prefix + "cd", connection.editable.toString())
+        assertEquals(from, Selection.getSelectionStart(connection.editable))
+        assertEquals(from, Selection.getSelectionEnd(connection.editable))
+        assertEquals(
+            listOf(
+                KeyEvent.ACTION_DOWN to KeyEvent.KEYCODE_DEL,
+                KeyEvent.ACTION_UP to KeyEvent.KEYCODE_DEL,
+            ),
+            connection.sentKeyEvents,
+        )
+        assertEquals(listOf(KeyEvent.KEYCODE_DEL), connection.sentKeyCodes)
+        assertTrue(connection.surroundingDeletes.isEmpty())
+        assertTrue(connection.committedChunks.isEmpty())
+    }
+
+    @Test fun delete_uses_extracted_selection_when_selected_text_is_null_after_surrogate_pair() {
+        assertDeleteUsesExtractedSelection("😀")
+    }
+
+    @Test fun delete_uses_extracted_selection_when_selected_text_is_null_after_combining_grapheme() {
+        assertDeleteUsesExtractedSelection("e\u0301")
+    }
+
+    @Test fun edit_delete_consumes_the_preedit_before_the_editor_text() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("abc", 1)
+        f.view.onKey(Key("6", output = "6"))
+        assertTrue("precondition: the key builds a preedit", f.controller.preeditForTest().isNotEmpty())
+
+        handleEdit(f.service, EditAction.DELETE)
+
+        assertEquals("the preedit absorbs the delete", "", f.controller.preeditForTest())
+        assertEquals("committed text stays untouched", "abc", connection.editable.toString())
+        assertTrue(connection.sentKeyCodes.isEmpty())
     }
 
     private enum class AnchorEffect { RESYNC, HOST_NEUTRAL, SELECTION_OWNED }
@@ -323,12 +773,187 @@ class AegisInputMethodServiceLifecycleTest {
         EditAction.BACK to AnchorEffect.SELECTION_OWNED,
     )
 
+    private data class AnchorPath(val name: String, val run: (Fixture, RecordingInputConnection) -> Unit)
+
+    private fun anchorResyncPaths(): List<AnchorPath> {
+        val actions = editActionAnchorEffect
+            .filterValues { it == AnchorEffect.RESYNC }
+            .keys
+            .map { action -> AnchorPath(action.name) { f, _ -> handleEdit(f.service, action) } }
+        val gestures = listOf(
+            AnchorPath("BACKSPACE_TAP") { f, _ -> handleEdit(f.service, EditAction.DELETE) },
+            AnchorPath("BACKSPACE_REPEAT") { f, _ -> repeat(2) { handleEdit(f.service, EditAction.DELETE) } },
+            AnchorPath("BACKSPACE_SWIPE_UP") { f, connection ->
+                backspaceSwipe(f.service, up = true)
+                connection.commitText("xyz", 1)
+            },
+            AnchorPath("BACKSPACE_SWIPE_DOWN") { f, _ ->
+                backspaceSwipe(f.service, up = true)
+                handleEdit(f.service, EditAction.LEFT)
+                backspaceSwipe(f.service, up = false)
+            },
+        )
+        return actions + gestures
+    }
+
     @Test fun every_edit_action_declares_its_selection_anchor_effect() {
         assertEquals(
             "a new EditAction must declare whether it invalidates the selection anchor",
             EditAction.entries.toSet(),
             editActionAnchorEffect.keys,
         )
+    }
+
+    @Test fun every_text_changing_path_resyncs_the_selection_anchor() {
+        for (path in anchorResyncPaths()) {
+            val f = fixture()
+            val connection = RecordingInputConnection(FrameLayout(f.service))
+            installInputConnection(f.service, connection)
+            connection.onContextMenuAction = { id ->
+                if (id == android.R.id.selectAll) {
+                    connection.setSelection(0, requireNotNull(connection.editable).length)
+                }
+                if (id == android.R.id.cut) connection.commitText("", 1)
+            }
+            clipboardStore(f.service).apply { clearHistory(); record("XY") }
+            connection.commitText("abcdefghij", 1)
+            connection.setSelection(2, 2)
+
+            handleEdit(f.service, EditAction.START_SELECT)
+            handleEdit(f.service, EditAction.RIGHT)
+            assertEquals("${path.name}: the selection grows from the anchor", 2, selectionStart(connection))
+            assertEquals("${path.name}: the selection grows from the anchor", 3, selectionEnd(connection))
+
+            path.run(f, connection)
+
+            if (path.name !in setOf("BACKSPACE_SWIPE_UP", "BACKSPACE_SWIPE_DOWN")) {
+                assertEquals("${path.name}: text actions exit selection mode", false, cachedPanel(f.service, "selecting"))
+                handleEdit(f.service, EditAction.START_SELECT)
+            }
+            val text = connection.editable.toString()
+            val anchor = selectionStart(connection)
+            val moving = selectionEnd(connection)
+            handleEdit(f.service, EditAction.LEFT)
+
+            val moved = SelectionMath.step(text, moving, SelectionMath.Move.LEFT)
+            assertEquals(
+                "${path.name}: the next move starts from the live selection, not a stale anchor",
+                minOf(anchor, moved) to maxOf(anchor, moved),
+                selectionStart(connection) to selectionEnd(connection),
+            )
+        }
+    }
+
+    @Test fun edit_panel_arrows_place_the_caret_without_sending_navigation_keys() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("ab\ncd", 1)
+        connection.setSelection(1, 1)
+
+        handleEdit(f.service, EditAction.UP)
+        assertEquals("up on the first line parks at the start instead of leaving the field", 0 to 0, selectionStart(connection) to selectionEnd(connection))
+        handleEdit(f.service, EditAction.DOWN)
+        assertEquals("down keeps the column on the next line", 3 to 3, selectionStart(connection) to selectionEnd(connection))
+        handleEdit(f.service, EditAction.DOWN)
+        assertEquals("down on the last line parks at the end instead of leaving the field", 5 to 5, selectionStart(connection) to selectionEnd(connection))
+        handleEdit(f.service, EditAction.HOME)
+        assertEquals(0 to 0, selectionStart(connection) to selectionEnd(connection))
+        handleEdit(f.service, EditAction.END)
+        assertEquals(5 to 5, selectionStart(connection) to selectionEnd(connection))
+        handleEdit(f.service, EditAction.LEFT)
+        assertEquals(4 to 4, selectionStart(connection) to selectionEnd(connection))
+        handleEdit(f.service, EditAction.RIGHT)
+        assertEquals(5 to 5, selectionStart(connection) to selectionEnd(connection))
+
+        connection.setSelection(1, 4)
+        handleEdit(f.service, EditAction.LEFT)
+        assertEquals("left collapses a selection to its start", 1 to 1, selectionStart(connection) to selectionEnd(connection))
+        connection.setSelection(1, 4)
+        handleEdit(f.service, EditAction.RIGHT)
+        assertEquals("right collapses a selection to its end", 4 to 4, selectionStart(connection) to selectionEnd(connection))
+
+        assertTrue("caret moves never reach the editor as key events", connection.sentKeyCodes.isEmpty())
+        assertEquals("ab\ncd", connection.editable.toString())
+
+        connection.hidesExtractedText = true
+        connection.setSelection(2, 2)
+        handleEdit(f.service, EditAction.LEFT)
+        assertEquals("an editor that hides its text still gets the key fallback", listOf(KeyEvent.KEYCODE_DPAD_LEFT), connection.sentKeyCodes)
+    }
+
+    @Test fun edit_panel_navigation_falls_back_to_extracted_text_when_offsets_are_unknown() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.hidesSurroundingOffset = true
+        connection.commitText("ab\ncd", 1)
+        connection.setSelection(4, 4)
+
+        handleEdit(f.service, EditAction.HOME)
+        assertEquals("home reaches the document start through the extracted text", 0 to 0, selectionStart(connection) to selectionEnd(connection))
+        handleEdit(f.service, EditAction.END)
+        assertEquals(5 to 5, selectionStart(connection) to selectionEnd(connection))
+        handleEdit(f.service, EditAction.UP)
+        assertEquals(2 to 2, selectionStart(connection) to selectionEnd(connection))
+
+        connection.setSelection(4, 4)
+        handleEdit(f.service, EditAction.START_SELECT)
+        handleEdit(f.service, EditAction.RIGHT)
+        assertEquals("the selection anchors at the live caret, not the document start", 4 to 5, selectionStart(connection) to selectionEnd(connection))
+        handleEdit(f.service, EditAction.START_SELECT)
+
+        assertTrue("no navigation key reaches the editor", connection.sentKeyCodes.isEmpty())
+
+        connection.hidesExtractedText = true
+        handleEdit(f.service, EditAction.END)
+        assertEquals("with neither source the key fallback remains", listOf(KeyEvent.KEYCODE_MOVE_END), connection.sentKeyCodes)
+    }
+
+    @Test fun actions_that_keep_the_anchor_leave_the_editor_text_alone() {
+        for ((action, effect) in editActionAnchorEffect) {
+            if (effect == AnchorEffect.RESYNC) continue
+            val f = fixture()
+            val connection = RecordingInputConnection(FrameLayout(f.service))
+            installInputConnection(f.service, connection)
+            connection.onContextMenuAction = { id ->
+                if (id == android.R.id.selectAll) {
+                    connection.setSelection(0, requireNotNull(connection.editable).length)
+                }
+                if (id == android.R.id.cut) connection.commitText("", 1)
+            }
+            clipboardStore(f.service).apply { clearHistory(); record("XY") }
+            connection.commitText("abcdefghij", 1)
+            connection.setSelection(2, 2)
+
+            handleEdit(f.service, EditAction.START_SELECT)
+            handleEdit(f.service, EditAction.RIGHT)
+
+            handleEdit(f.service, action)
+
+            assertEquals(
+                "$action is classified as anchor-safe, so it must not change the text",
+                "abcdefghij",
+                connection.editable.toString(),
+            )
+            assertTrue(
+                "$action is classified as anchor-safe, so the anchor must survive as one selection edge",
+                selectionStart(connection) == 2 || selectionEnd(connection) == 2,
+            )
+            if (effect == AnchorEffect.HOST_NEUTRAL) {
+                assertEquals(
+                    "$action is classified as anchor-safe, so it must not move the selection",
+                    2 to 3,
+                    selectionStart(connection) to selectionEnd(connection),
+                )
+                handleEdit(f.service, EditAction.LEFT)
+                assertEquals(
+                    "$action keeps the anchor usable for the next move",
+                    2 to 2,
+                    selectionStart(connection) to selectionEnd(connection),
+                )
+            }
+        }
     }
 
     @Test fun the_panel_input_surface_stays_within_the_classified_paths() {
@@ -358,6 +983,89 @@ class AegisInputMethodServiceLifecycleTest {
 
     private fun selectionEnd(connection: RecordingInputConnection): Int =
         Selection.getSelectionEnd(requireNotNull(connection.editable))
+
+    @Test fun edit_copy_and_cut_report_a_rejected_editor_action() {
+        val cases = listOf(
+            EditAction.COPY to R.string.edit_copy_failed,
+            EditAction.CUT to R.string.edit_cut_failed,
+        )
+        for ((action, expected) in cases) {
+            val f = fixture()
+            val connection = RecordingInputConnection(FrameLayout(f.service)).apply {
+                commitText("selected text", 1)
+                setSelection(0, "selected text".length)
+                hidesSelection = true
+            }
+            installInputConnection(f.service, connection)
+
+            handleEdit(f.service, action)
+
+            assertEquals(f.service.getString(expected), f.service.toastTextForTest())
+        }
+    }
+
+    @Test fun same_editor_restart_keeps_the_staged_copy_result_behind_the_edit_panel() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("restart copy", 1)
+        connection.setSelection(0, "restart copy".length)
+        val editPanel = showEditPanel(f.service)
+        layoutInput(f.view)
+        val rootHeight = f.view.measuredHeight
+
+        assertTrue(requireNotNull(editPanel.actionViewForTest(EditAction.COPY)).performClick())
+        shadowOf(Looper.getMainLooper()).idle()
+        f.service.onStartInput(f.info, true)
+        f.service.onStartInputView(f.info, true)
+        layoutInput(f.view)
+
+        assertTrue(f.view.isPanelShowing(editPanel))
+        assertFalse(f.view.copyBarShown)
+        assertTrue(f.view.copyBarActiveForTest())
+        assertEquals("restart copy", f.view.copyBarForTest().contentForTest())
+        assertFalse(Motion.coverActiveForTest(f.view.copyBarForTest()))
+        assertFalse(f.view.toolbarShownForTest())
+        assertEquals(rootHeight, f.view.measuredHeight)
+
+        assertTrue(f.view.closeTopOverlay())
+        shadowOf(Looper.getMainLooper()).idle()
+        layoutInput(f.view)
+        assertTrue(f.view.copyBarShown)
+        assertEquals("restart copy", f.view.copyBarForTest().contentForTest())
+        assertEquals(rootHeight, f.view.measuredHeight)
+    }
+
+    @Test fun repeated_copy_and_cut_keep_only_the_latest_staged_result() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("first copy and latest cut", 1)
+        Selection.setSelection(connection.editable, 0, "first copy".length)
+        val editPanel = showEditPanel(f.service)
+
+        assertTrue(requireNotNull(editPanel.actionViewForTest(EditAction.COPY)).performClick())
+        assertEquals("first copy", f.view.copyBarForTest().contentForTest())
+        Selection.setSelection(
+            connection.editable,
+            "first copy and ".length,
+            "first copy and latest cut".length,
+        )
+        assertTrue(requireNotNull(editPanel.actionViewForTest(EditAction.CUT)).performClick())
+
+        assertTrue(f.view.isPanelShowing(editPanel))
+        assertFalse(f.view.copyBarShown)
+        assertTrue(f.view.copyBarActiveForTest())
+        assertEquals("latest cut", f.view.copyBarForTest().contentForTest())
+        assertEquals("latest cut", cachedPanel(f.service, "lastCopy"))
+        assertEquals("latest cut", clipboardStore(f.service).historyText().firstOrNull())
+
+        handleEdit(f.service, EditAction.BACK)
+
+        assertTrue(f.view.copyBarShown)
+        assertEquals("latest cut", f.view.copyBarForTest().contentForTest())
+        assertFalse(f.view.toolbarShownForTest())
+    }
 
     private fun hideShowThroughRealServiceCallbacks(f: Fixture) {
         val sameView = f.view
@@ -509,6 +1217,102 @@ class AegisInputMethodServiceLifecycleTest {
                 }
             }
         }
+    }
+
+    @Test fun editing_tab_and_forward_delete_preserve_the_other_side_and_whole_emoji() {
+        for (nine in listOf(false, true)) {
+            val f = fixture()
+            f.controller.switchTextLayoutForTest(nine)
+            val connection = RecordingInputConnection(FrameLayout(f.service))
+            installInputConnection(f.service, connection)
+            connection.commitText("前👨‍👩‍👧‍👦后", 1)
+            connection.setSelection(1, 1)
+            handleEdit(f.service, EditAction.FORWARD_DELETE)
+            assertEquals("前后", connection.editable.toString())
+            assertEquals(1, selectionStart(connection))
+            handleEdit(f.service, EditAction.TAB)
+            assertEquals("前\t后", connection.editable.toString())
+            connection.setSelection(1, 3)
+            handleEdit(f.service, EditAction.FORWARD_DELETE)
+            assertEquals("前", connection.editable.toString())
+            handleEdit(f.service, EditAction.FORWARD_DELETE)
+            assertEquals("前", connection.editable.toString())
+        }
+    }
+
+    @Test fun editing_home_end_reach_past_the_surrounding_window_and_extend_selection() {
+        for (nine in listOf(false, true)) {
+            val f = fixture()
+            f.controller.switchTextLayoutForTest(nine)
+            val connection = RecordingInputConnection(FrameLayout(f.service))
+            installInputConnection(f.service, connection)
+            val content = "前文\n".repeat(6000) + "末尾"
+            connection.commitText(content, 1)
+            connection.setSelection(9000, 9000)
+            handleEdit(f.service, EditAction.HOME)
+            assertEquals(0, selectionStart(connection))
+            handleEdit(f.service, EditAction.END)
+            assertEquals(content.length, selectionStart(connection))
+            connection.setSelection(9000, 9000)
+            handleEdit(f.service, EditAction.START_SELECT)
+            handleEdit(f.service, EditAction.HOME)
+            assertEquals(0 to 9000, selectionStart(connection) to selectionEnd(connection))
+            handleEdit(f.service, EditAction.END)
+            assertEquals(9000 to content.length, selectionStart(connection) to selectionEnd(connection))
+        }
+    }
+
+
+    @Test fun document_navigation_fallback_keeps_control_and_selection_modifiers() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.hidesExtractedText = true
+        handleEdit(f.service, EditAction.HOME)
+        handleEdit(f.service, EditAction.START_SELECT)
+        handleEdit(f.service, EditAction.END)
+        assertEquals(listOf(KeyEvent.KEYCODE_MOVE_HOME, KeyEvent.KEYCODE_MOVE_END), connection.sentKeyCodes)
+        assertTrue(connection.sentKeyMetas.all { it and KeyEvent.META_CTRL_ON != 0 })
+        assertEquals(0, connection.sentKeyMetas[0] and KeyEvent.META_SHIFT_ON)
+        assertTrue(connection.sentKeyMetas[1] and KeyEvent.META_SHIFT_ON != 0)
+    }
+
+    @Test fun web_document_navigation_uses_editor_commands_instead_of_extracted_end_offsets() {
+        val info = editor(inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_WEB_EDIT_TEXT)
+        val f = fixture(info)
+        requireNotNull(f.service.javaClass.superclass).getDeclaredField("mInputEditorInfo").apply {
+            isAccessible = true
+            set(f.service, info)
+        }
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("AAA\nBBB\n", 1)
+        connection.setSelection(0, 0)
+
+        handleEdit(f.service, EditAction.END)
+        handleEdit(f.service, EditAction.HOME)
+        handleEdit(f.service, EditAction.START_SELECT)
+        handleEdit(f.service, EditAction.END)
+
+        assertEquals(listOf(KeyEvent.KEYCODE_MOVE_END, KeyEvent.KEYCODE_MOVE_HOME, KeyEvent.KEYCODE_MOVE_END), connection.sentKeyCodes)
+        assertTrue(connection.sentKeyMetas.all { it and KeyEvent.META_CTRL_ON != 0 })
+        assertTrue(connection.sentKeyMetas.last() and KeyEvent.META_SHIFT_ON != 0)
+        assertEquals("document commands never place the caret beyond the editable content", 0, selectionEnd(connection))
+    }
+
+    @Test fun raw_editors_receive_tab_and_forward_delete_key_events() {
+        val info = editor(inputType = InputType.TYPE_NULL)
+        val f = fixture(info)
+        requireNotNull(f.service.javaClass.superclass).getDeclaredField("mInputEditorInfo").apply {
+            isAccessible = true
+            set(f.service, info)
+        }
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        handleEdit(f.service, EditAction.TAB)
+        handleEdit(f.service, EditAction.FORWARD_DELETE)
+        assertEquals(listOf(KeyEvent.KEYCODE_TAB, KeyEvent.KEYCODE_FORWARD_DEL), connection.sentKeyCodes)
+        assertTrue(connection.committedChunks.isEmpty())
     }
 
 }

@@ -75,5 +75,6 @@ class ChunkedRead(
     companion object {
         const val CHUNK = 65_536
         const val FLOOR = 1_024
+        const val DIRECT_MAX = 131_072
     }
 }
