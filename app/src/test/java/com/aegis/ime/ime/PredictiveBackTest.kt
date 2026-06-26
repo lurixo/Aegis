@@ -216,6 +216,15 @@ class PredictiveBackTest {
         assertEquals("each routed state change pings the service so it can resync the back callback", 6, notifications)
     }
 
+
+    private fun phrasePanel(): ClipboardView = ClipboardView(ctx).apply {
+        categoriesProvider = { listOf("默认", "工作") }
+        phrasesInProvider = { listOf("你好", "在吗") }
+        applyPalette(ImePalette.STATIC_LIGHT)
+        forcePhrasesStateForTest("默认")
+        refresh()
+    }
+
     private fun backStep(iv: InputView, expected: String) {
         assertTrue("Back stays claimed while $expected is open", iv.hasOverlay())
         assertEquals(expected, iv.backTargetKindForTest())
@@ -236,6 +245,15 @@ class PredictiveBackTest {
         assertEquals("Back commits no emoji", 0, committed)
         backStep(iv, "PANEL")
         assertFalse("a second Back closes the emoji panel", iv.panelShown)
+    }
+
+    @Test fun a_clipboard_panel_with_nothing_open_closes_on_the_first_back() {
+        val iv = InputView(ctx)
+        val panel = phrasePanel()
+        iv.showPanel(panel)
+        backStep(iv, "PANEL")
+        assertFalse(iv.panelShown)
+        assertFalse(iv.hasOverlay())
     }
 
     private fun startedService(shown: Boolean): Pair<AegisInputMethodService, InputView> {

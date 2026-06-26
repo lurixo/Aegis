@@ -42,6 +42,7 @@ class ClipboardPanelState {
         if (selected.add(item)) true else { selected.remove(item); false }
 
     fun toggleExpand(item: String) { expanded = if (expanded == item) null else item }
+    fun collapse() { expanded = null }
     fun collapseIfExpanded(item: String) { if (expanded == item) expanded = null }
 
     fun isAllSelected(all: List<String>): Boolean = all.isNotEmpty() && selected.containsAll(all)

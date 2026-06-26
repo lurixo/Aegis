@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.user.clipEntries
 import android.util.TypedValue
 import androidx.core.widget.TextViewCompat
 import com.aegis.ime.ime.theme.ImePalette
@@ -132,5 +133,25 @@ class PanelRecyclingTest {
             SymbolCatalog.categories[catNo].id,
             tappedOrigin,
         )
+    }
+
+
+    @Test fun clipboard_tab_switch_rebuilds_in_place_only_on_a_real_tab_change() {
+        val v = ClipboardView(ctx).apply {
+            historyProvider = { clipEntries("clip-a", "clip-b") }
+            categoriesProvider = { listOf("默认") }
+            phrasesInProvider = { c -> if (c == "默认") listOf("phrase-a") else emptyList() }
+            applyPalette(light)
+            refresh()
+        }
+        val t0 = v.tabTransitionsForTest()
+        v.refresh()
+        assertEquals("a plain refresh is not a tab change", t0, v.tabTransitionsForTest())
+        v.switchTabForTest(toClipboard = false)
+        assertEquals("a real tab switch is counted once", t0 + 1, v.tabTransitionsForTest())
+        v.switchTabForTest(toClipboard = false)
+        assertEquals("re-selecting the current tab is not counted", t0 + 1, v.tabTransitionsForTest())
+        v.switchTabForTest(toClipboard = true)
+        assertEquals("switching back is counted once more", t0 + 2, v.tabTransitionsForTest())
     }
 }

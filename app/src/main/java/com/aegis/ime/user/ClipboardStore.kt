@@ -99,6 +99,9 @@ class ClipEntry private constructor(
         internal fun isSidecarHash(s: String): Boolean =
             s.length == SIDECAR_HASH_CHARS && s.all { it in '0'..'9' || it in 'a'..'f' }
 
+        internal fun isReferenceKey(key: String): Boolean =
+            key.startsWith(LOST_KEY) || imageReference(key) != null || (key.startsWith(BIG_KEY) && isSidecarHash(key.substring(BIG_KEY.length)))
+
         internal fun imageReference(line: String): Pair<String, String>? {
             if (!line.startsWith(IMAGE_KEY)) return null
             val parts = line.substring(IMAGE_KEY.length).split('\t')

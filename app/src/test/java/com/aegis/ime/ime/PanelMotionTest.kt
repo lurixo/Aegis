@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.user.asClipEntries
 import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -69,6 +70,29 @@ class PanelMotionTest {
             if (v is ViewGroup) for (i in 0 until v.childCount) stack.add(v.getChildAt(i))
         }
         return found.single()
+    }
+
+    private fun clipboardView(activity: Activity, history: () -> List<String>): ClipboardView =
+        ClipboardView(activity).apply {
+            historyProvider = { history().asClipEntries() }
+            categoriesProvider = { listOf("默认", "工作") }
+            phrasesInProvider = { listOf("短语") }
+            applyPalette(light)
+        }
+
+    @Test fun clipboard_content_swaps_immediately_under_reduced_motion() {
+        animationsOff()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val v = attach(activity, clipboardView(activity) { listOf("clip-a") })
+            v.switchTabForTest(toClipboard = false)
+            assertEquals("the logical cover is still counted", 1, v.contentFadesForTest())
+            assertEquals("reduced motion rebuilds the content immediately", listOf("短语"), v.listRowTextsForTest())
+            assertEquals("reduced motion keeps the viewport fully opaque", 1f, v.listViewportForTest().alpha, 0f)
+        } finally {
+            controller.pause().stop().destroy()
+        }
     }
 
     @Test fun clear_confirmation_dismiss_reaches_gone_in_the_same_call() {

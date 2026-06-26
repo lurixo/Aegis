@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.user.clipEntries
 import android.app.Activity
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
@@ -52,6 +53,30 @@ class SwitchFlickerTest {
         val floor = iv.panelFloorColorForTest()
         assertEquals("the panel slot must be painted the keyboard-floor colour", light.keyboardBg, floor)
         assertEquals("…and it must be fully opaque so an alpha-0 panel never reveals the window", 0xFF, Color.alpha(floor!!))
+    }
+
+    @Test fun clipboard_open_starts_fully_opaque_with_current_content() {
+        Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val host = FrameLayout(activity)
+            val input = InputView(activity)
+            host.addView(input)
+            activity.setContentView(host)
+            val clipboard = ClipboardView(activity).apply {
+                historyProvider = { clipEntries("current clip") }
+                applyPalette(light)
+            }
+
+            input.showPanelImmediately(clipboard)
+
+            assertEquals(1f, clipboard.alpha, 0f)
+            assertEquals(0f, clipboard.translationY, 0f)
+            assertEquals(listOf("current clip"), clipboard.listRowTextsForTest())
+        } finally {
+            controller.pause().stop().destroy()
+        }
     }
 
     @Test fun composing_dismisses_the_copy_bar_once_and_synchronously() {
