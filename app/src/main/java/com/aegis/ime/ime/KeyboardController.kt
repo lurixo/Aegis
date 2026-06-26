@@ -56,6 +56,7 @@ class KeyboardController(
     var onShowEmoji: () -> Unit = {}
     var onShowClipboard: () -> Unit = {}
     var onShowEdit: () -> Unit = {}
+    var onShowSettings: () -> Unit = {}
     var onClosePanel: () -> Unit = {}
 
     private var view: InputView? = null
@@ -121,6 +122,7 @@ class KeyboardController(
                 switchLayout(target)
             }
             BarFunction.NUMPAD -> { onClosePanel(); switchLayout(LayoutId.NUMPAD) }
+            BarFunction.SETTINGS -> { onShowSettings(); return }
             BarFunction.EMOJI -> { onShowEmoji(); return }
             BarFunction.EDIT -> { onShowEdit(); return }
             BarFunction.CLIPBOARD -> { onShowClipboard(); return }
@@ -250,7 +252,9 @@ class KeyboardController(
     /** The raw text the composing buffer represents (letters on 26-key, decoded pinyin on 9-key). */
     private fun rawComposingText(): String {
         if (composing.isEmpty()) return ""
-        readingOverride?.let { return it }
+        readingOverride?.let { ro ->
+            return T9Pinyin.lockFirstReading(composing.toString(), ro)?.letters ?: ro
+        }
         return if (layoutId == LayoutId.NINE && lang == Lang.CN) {
             T9Pinyin.preedit(composing.toString()).replace("'", "")
         } else {
@@ -269,10 +273,12 @@ class KeyboardController(
             composing.isNotEmpty() -> {
                 val raw = composing.toString()
                 when (mode()) {
-                    // 9-key reading locked via the left column (#12b): rank under that explicit reading.
-                    Mode.PINYIN -> readingOverride?.let { engine.candidatesForReading(it) }
-                        ?: engine.candidates(raw, layoutId == LayoutId.NINE)
-                            .let { if (layoutId == LayoutId.ALPHA && raw !in it) it + raw else it }
+                    // 9-key reading locked via the left column (#12b): re-rank the WHOLE buffer with the
+                    // first syllable fixed to the picked reading (keeps the trailing syllables).
+                    Mode.PINYIN -> readingOverride?.let { ro ->
+                        engine.candidatesForReading(T9Pinyin.lockFirstReading(raw, ro)?.letters ?: ro)
+                    } ?: engine.candidates(raw, layoutId == LayoutId.NINE)
+                        .let { if (layoutId == LayoutId.ALPHA && raw !in it) it + raw else it }
                     Mode.ENGLISH -> engine.english(raw).let { if (raw !in it) it + raw else it }
                     Mode.DIRECT -> emptyList()
                 }
@@ -284,10 +290,12 @@ class KeyboardController(
 
     private fun applyCase(s: String): String = if (shifted) s.uppercase() else s
 
-    /** Preedit pinyin tab: the locked reading, else the decoded 9-key pinyin, else the typed letters. */
+    /** Preedit pinyin tab: the locked reading over the full buffer, else decoded 9-key pinyin, else letters. */
     private fun preeditText(): String {
         if (composing.isEmpty()) return ""
-        readingOverride?.let { return it }
+        readingOverride?.let { ro ->
+            return T9Pinyin.lockFirstReading(composing.toString(), ro)?.display ?: ro
+        }
         return if (mode() == Mode.PINYIN && layoutId == LayoutId.NINE) {
             T9Pinyin.preedit(composing.toString())
         } else {
@@ -296,8 +304,8 @@ class KeyboardController(
     }
 
     /**
-     * 9-key left column (issue #3): pinyin-combination readings while composing (tap → commit that
-     * reading's best word), common punctuation when idle. Always 4 keys so the grid height is stable.
+     * 9-key left column (issue #12b): pinyin-combination readings while composing (tap → lock that
+     * first-syllable reading and re-rank, no commit), common punctuation when idle. Always 4 keys.
      */
     private fun nineLeftColumn(): List<Key> {
         val w = 0.85f

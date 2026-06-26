@@ -68,6 +68,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.onShowEmoji = { showEmojiPanel() }
         controller.onShowClipboard = { showClipboardPanel() }
         controller.onShowEdit = { showEditPanel() }
+        controller.onShowSettings = { openSettings() }
         controller.onClosePanel = { inputView?.showPanel(null) }
         Thread {
             runCatching { userModel.load(userDbFile); userDbMtime = userDbFile.lastModified() }
@@ -122,6 +123,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onPickCandidate = { index -> controller.onPickCandidate(index) }
             onFunction = { f -> controller.onBarFunction(f) }
             onBackspaceSwipe = { up -> handleBackspaceSwipe(up) }
+            onCollapse = { requestHideSelf(0) } // idle toolbar ⌄ collapses the keyboard
         }
         inputView = view
         controller.attachView(view)
@@ -221,6 +223,16 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         cv.refresh()
         iv.showPanel(cv)
+    }
+
+    /** In-keyboard settings entry: open the setup/settings screen. */
+    private fun openSettings() {
+        runCatching {
+            startActivity(
+                android.content.Intent(this, com.aegis.ime.ui.SetupActivity::class.java)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
     }
 
     private fun captureClip() {
