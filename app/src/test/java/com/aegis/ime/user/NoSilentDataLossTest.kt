@@ -48,6 +48,17 @@ class NoSilentDataLossTest {
         return rows - 1
     }
 
+    private fun assertSameSequence(what: String, expected: List<String>, actual: List<String>) {
+        assertEquals("$what: entry count", expected.size, actual.size)
+        for (i in expected.indices) {
+            if (expected[i] != actual[i]) {
+                throw AssertionError("$what: entry $i is \"${actual[i]}\", expected \"${expected[i]}\"")
+            }
+        }
+    }
+
+    private fun clipEntries(n: Int): List<String> = List(n) { "clip-%07d".format(it) }
+
     private fun typeRun(l: UserLearning, vararg commits: Pair<String, String>) {
         var prev: String? = null
         for ((word, reading) in commits) {
@@ -55,6 +66,19 @@ class NoSilentDataLossTest {
             prev = word
         }
         l.observeBreak()
+    }
+
+    @Test fun aClipboardFileLongerThanTheOldCeilingLoadsEveryEntry() {
+        val dir = tmp.newFolder()
+        val entries = clipEntries(OLD_HISTORY_CEILING + 100)
+        File(dir, "clipboard.txt").bufferedWriter().use { w ->
+            for (e in entries) {
+                w.write(e)
+                w.write("\n")
+            }
+        }
+        val loaded = ClipboardStore(dir).apply { load() }.historyText()
+        assertSameSequence("an oversized clipboard file", entries, loaded)
     }
 
     private fun writeTallUserDb(file: File, words: Int) {
@@ -324,6 +348,7 @@ class NoSilentDataLossTest {
     }
 
     private companion object {
+        const val OLD_HISTORY_CEILING = 100_000
         const val OLD_USERDB_ROW_CEILING = 250_000
         const val OLD_USERDB_BYTE_CEILING = 4L * 1024L * 1024L
         const val OLD_FORMED_CEILING = 500
