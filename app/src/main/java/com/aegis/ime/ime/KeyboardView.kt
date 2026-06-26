@@ -19,9 +19,12 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
+import android.os.Handler
+import android.os.Looper
 import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
+import kotlin.math.abs
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.KeyboardLayout
@@ -33,11 +36,32 @@ class KeyboardView(context: Context) : View(context) {
 
     var onKey: (Key) -> Unit = {}
 
+    var onBackspaceSwipe: (Boolean) -> Unit = {}
+
     private var layout: KeyboardLayout = Layouts.forId(LayoutId.ALPHA, Lang.CN)
     private var shifted = false
 
     private val placed = ArrayList<Placed>()
     private var pressed: Key? = null
+
+    private val repeatHandler = Handler(Looper.getMainLooper())
+    private var downKey: Key? = null
+    private var downX = 0f
+    private var downY = 0f
+    private var repeating = false
+    private var swiped = false
+    private val swipeThreshold = 24f * resources.displayMetrics.density
+    private val repeatRunnable = object : Runnable {
+        override fun run() {
+            val k = downKey ?: return
+            repeating = true
+            onKey(k)
+            repeatHandler.postDelayed(this, REPEAT_INTERVAL_MS)
+        }
+    }
+
+    private fun isRepeatable(key: Key) =
+        key.action == KeyAction.BACKSPACE || key.action == KeyAction.SPACE || key.action == KeyAction.ENTER
 
     private val density = resources.displayMetrics.density
     private val rowHeight = 52f * density
@@ -165,27 +189,46 @@ class KeyboardView(context: Context) : View(context) {
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                pressed = keyAt(event.x, event.y)
+                downKey = keyAt(event.x, event.y)
+                pressed = downKey
+                downX = event.x; downY = event.y
+                repeating = false; swiped = false
+                downKey?.let { if (isRepeatable(it)) repeatHandler.postDelayed(repeatRunnable, REPEAT_DELAY_MS) }
                 invalidate()
             }
             MotionEvent.ACTION_MOVE -> {
-                val k = keyAt(event.x, event.y)
-                if (k !== pressed) {
-                    pressed = k
-                    invalidate()
+                val dk = downKey
+                if (dk != null && dk.action == KeyAction.BACKSPACE) {
+                    val dy = event.y - downY
+                    if (!swiped && abs(dy) > swipeThreshold && abs(dy) > abs(event.x - downX)) {
+                        swiped = true
+                        repeatHandler.removeCallbacks(repeatRunnable)
+                    }
+                } else {
+                    val k = keyAt(event.x, event.y)
+                    if (k !== pressed) {
+                        pressed = k
+                        if (k !== downKey) repeatHandler.removeCallbacks(repeatRunnable)
+                        invalidate()
+                    }
                 }
             }
             MotionEvent.ACTION_UP -> {
-                val k = keyAt(event.x, event.y)
+                repeatHandler.removeCallbacks(repeatRunnable)
+                val dk = downKey
                 pressed = null
                 invalidate()
-                if (k != null) {
-                    performClick()
-                    onKey(k)
+                if (dk != null && dk.action == KeyAction.BACKSPACE && swiped) {
+                    onBackspaceSwipe(event.y - downY < 0)
+                } else if (!repeating) {
+                    keyAt(event.x, event.y)?.let { performClick(); onKey(it) }
                 }
+                downKey = null
             }
             MotionEvent.ACTION_CANCEL -> {
+                repeatHandler.removeCallbacks(repeatRunnable)
                 pressed = null
+                downKey = null
                 invalidate()
             }
         }
@@ -198,5 +241,10 @@ class KeyboardView(context: Context) : View(context) {
     override fun performClick(): Boolean {
         super.performClick()
         return true
+    }
+
+    private companion object {
+        const val REPEAT_DELAY_MS = 400L
+        const val REPEAT_INTERVAL_MS = 55L
     }
 }

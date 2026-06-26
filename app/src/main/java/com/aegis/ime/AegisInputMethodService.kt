@@ -18,6 +18,7 @@ package com.aegis.ime
 import android.inputmethodservice.InputMethodService
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
@@ -27,6 +28,8 @@ import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.OctagramReader
 import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.ime.ClipboardView
+import com.aegis.ime.ime.EditAction
+import com.aegis.ime.ime.EditPanelView
 import com.aegis.ime.ime.EmojiView
 import com.aegis.ime.ime.ImeHost
 import com.aegis.ime.ime.InputView
@@ -45,6 +48,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var inputView: InputView? = null
     private var emojiView: EmojiView? = null
     private var clipboardView: ClipboardView? = null
+    private var editPanelView: EditPanelView? = null
+    private var selecting = false
+    private var deletedSnapshot: CharSequence? = null
     private val clipboardStore by lazy { ClipboardStore(filesDir).also { it.load() } }
 
     override fun onCreate() {
@@ -52,6 +58,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller = KeyboardController(this, DictEngine(null, null, null))
         controller.onShowEmoji = { showEmojiPanel() }
         controller.onShowClipboard = { showClipboardPanel() }
+        controller.onShowEdit = { showEditPanel() }
         controller.onClosePanel = { inputView?.showPanel(null) }
         Thread {
             runCatching { userModel.load(userDbFile); userDbMtime = userDbFile.lastModified() }
@@ -102,6 +109,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onKey = { key -> controller.onKey(key) }
             onPickCandidate = { index -> controller.onPickCandidate(index) }
             onFunction = { f -> controller.onBarFunction(f) }
+            onBackspaceSwipe = { up -> handleBackspaceSwipe(up) }
         }
         inputView = view
         controller.attachView(view)
@@ -112,6 +120,66 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         super.onStartInputView(info, restarting)
         inputView?.showPanel(null)
         controller.reset()
+    }
+
+    override fun onUpdateSelection(
+        oldSelStart: Int, oldSelEnd: Int, newSelStart: Int, newSelEnd: Int,
+        candidatesStart: Int, candidatesEnd: Int,
+    ) {
+        super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
+        editPanelView?.setHasSelection(newSelStart != newSelEnd)
+    }
+
+    private fun showEditPanel() {
+        val iv = inputView ?: return
+        selecting = false
+        val ep = editPanelView ?: EditPanelView(this).also {
+            it.onAction = { a -> handleEdit(a) }
+            editPanelView = it
+        }
+        ep.setSelecting(false)
+        ep.setHasSelection(!currentInputConnection?.getSelectedText(0).isNullOrEmpty())
+        iv.showPanel(ep)
+    }
+
+    private fun handleEdit(action: EditAction) {
+        when (action) {
+            EditAction.UP -> sendKey(KeyEvent.KEYCODE_DPAD_UP, selecting)
+            EditAction.DOWN -> sendKey(KeyEvent.KEYCODE_DPAD_DOWN, selecting)
+            EditAction.LEFT -> sendKey(KeyEvent.KEYCODE_DPAD_LEFT, selecting)
+            EditAction.RIGHT -> sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, selecting)
+            EditAction.HOME -> sendKey(KeyEvent.KEYCODE_MOVE_HOME, selecting)
+            EditAction.END -> sendKey(KeyEvent.KEYCODE_MOVE_END, selecting)
+            EditAction.START_SELECT -> { selecting = !selecting; editPanelView?.setSelecting(selecting) }
+            EditAction.DELETE -> sendKey(KeyEvent.KEYCODE_DEL, false)
+            EditAction.COPY -> currentInputConnection?.performContextMenuAction(android.R.id.copy)
+            EditAction.CUT -> currentInputConnection?.performContextMenuAction(android.R.id.cut)
+            EditAction.SELECT_ALL -> currentInputConnection?.performContextMenuAction(android.R.id.selectAll)
+            EditAction.PASTE -> currentInputConnection?.performContextMenuAction(android.R.id.paste)
+            EditAction.BACK -> { selecting = false; inputView?.showPanel(null) }
+        }
+    }
+
+    private fun sendKey(code: Int, shift: Boolean) {
+        val ic = currentInputConnection ?: return
+        val meta = if (shift) KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON else 0
+        val now = SystemClock.uptimeMillis()
+        ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0, meta))
+        ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, code, 0, meta))
+    }
+
+    private fun handleBackspaceSwipe(up: Boolean) {
+        val ic = currentInputConnection ?: return
+        if (up) {
+            val all = ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)?.text
+            if (!all.isNullOrEmpty()) {
+                deletedSnapshot = all
+                ic.performContextMenuAction(android.R.id.selectAll)
+                ic.commitText("", 1)
+            }
+        } else {
+            deletedSnapshot?.let { ic.commitText(it, 1); deletedSnapshot = null }
+        }
     }
 
     private fun showEmojiPanel() {
