@@ -15,11 +15,13 @@
 
 package com.aegis.ime.user
 
+import com.aegis.ime.AegisInputMethodService
 import com.aegis.ime.ui.flagOr
 import com.aegis.ime.ui.textOr
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
@@ -34,6 +36,15 @@ class PrefTypeToleranceTest {
         val prefs = app.getSharedPreferences("aegis", 0)
         prefs.edit().putInt("custom_symbols", 7).commit()
         assertEquals(emptyList<String>(), CustomSymbolStore(prefs).list())
+    }
+
+    @Test fun a_wrong_typed_history_flag_does_not_take_the_keyboard_down() {
+        app.getSharedPreferences("aegis", 0).edit().putInt("clip_history", 7).commit()
+        val service = Robolectric.buildService(AegisInputMethodService::class.java).get()
+        val enabled = service.javaClass.getDeclaredMethod("historyEnabled")
+            .apply { isAccessible = true }
+            .invoke(service)
+        assertEquals(true, enabled)
     }
 
     @Test fun the_settings_read_helpers_survive_wrong_typed_values() {

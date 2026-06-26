@@ -15,6 +15,7 @@
 
 package com.aegis.ime
 
+import android.content.ClipData
 import android.content.Context
 import android.os.LocaleList
 import android.content.res.Configuration
@@ -63,6 +64,8 @@ import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.SymbolCatalog
 import com.aegis.ime.user.ClearedTextStore
 import com.aegis.ime.user.ClipboardStore
+import com.aegis.ime.user.ClipboardImages
+import com.aegis.ime.user.ClipboardImageTooLargeException
 import com.aegis.ime.user.CustomSymbolStore
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.LiveUserDictHost
@@ -227,6 +230,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var translateEngaged = true
     private var translateInputConnection: InputConnection? = null
     private var translatePending: Runnable? = null
+    private var lastCopy: String? = null
     @Volatile private var userStoresLoaded = false
     @Volatile private var engineSig = ""
     @Volatile private var engineReloading = false
@@ -268,6 +272,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun uiString(res: Int, vararg args: Any): String = imeUiContext().getString(res, *args)
 
     override fun onEvaluateFullscreenMode(): Boolean = false
+
+    private val clipboardManager by lazy { getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager }
+    private val clipChangedListener = android.content.ClipboardManager.OnPrimaryClipChangedListener { onSystemClipChanged() }
 
     private val settingsHotApply = SettingsHotApply(
         onCnLayout = { id ->
@@ -350,6 +357,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         runCatching {
             RestoreJournal.finishAnyInterrupted(filesDir, getSharedPreferences("aegis", MODE_PRIVATE))
         }.onFailure { Log.e("Aegis", "interrupted restore rollback failed", it) }
+        runCatching { clipboardManager.addPrimaryClipChangedListener(clipChangedListener) }
         runCatching {
             getSharedPreferences("aegis", MODE_PRIVATE)
                 .registerOnSharedPreferenceChangeListener(settingsHotApply)
@@ -628,6 +636,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onPanelClear = { controller.onPanelClear() }
             onExpandClosed = { controller.clearDrill() }
             onCollapse = { requestHideSelf(0) }
+            onCopyDismiss = {
+                controller.expireCandidateChoiceUndo()
+                lastCopy = null
+            }
             onTranslateClose = { closeTranslateBar() }
             onTranslateFieldTap = { resumeTranslateRouting() }
             onOverlayChanged = { syncBackCallback() }
@@ -1296,9 +1308,60 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     internal fun setTranslateClientForTest(client: TranslateClient) { translateClient = client }
 
+    private fun captureClip() {
+        if (LiveUserData.restoreInProgress) return
+        if (!com.aegis.ime.user.ClipboardStore.shouldCapture(historyEnabled())) return
+        val clip = runCatching { clipboardManager.primaryClip }.getOrNull() ?: return
+        captureSystemClip(clip, showText = false)
+    }
+
+    private fun onSystemClipChanged() {
+        if (LiveUserData.restoreInProgress) return
+        if (!com.aegis.ime.user.ClipboardStore.shouldCapture(historyEnabled())) return
+        val clip = runCatching { clipboardManager.primaryClip }.getOrNull() ?: return
+        captureSystemClip(clip, showText = true)
+    }
+
+    private fun captureSystemClip(clip: ClipData, showText: Boolean) {
+        if (clip.itemCount == 0) return
+        val item = clip.getItemAt(0)
+        val mime = ClipboardImages.imageMimeType(contentResolver, clip, item)
+        if (mime != null && item.uri != null) {
+            clipboardStore.recordImage(contentResolver, item.uri, mime) { result ->
+                mainHandler.post {
+                    if (result.isSuccess) {
+                        val current = runCatching { clipboardManager.primaryClip }.getOrNull()
+                        if (current != null && current.itemCount > 0 && current.getItemAt(0).uri == item.uri) {
+                            lastCopy = null
+                            inputView?.hideCopyBar()
+                        }
+                    } else result.exceptionOrNull()?.let { reportImageFailure(it) }
+                }
+            }
+            return
+        }
+        if (item.uri != null && item.text == null) return
+        val text = runCatching { item.coerceToText(this)?.toString() }.getOrNull().orEmpty()
+        if (text.isBlank()) return
+        if (showText) recordTextClip(text) else clipboardStore.record(text)
+    }
+
+    private fun reportImageFailure(failure: Throwable) {
+        toast(uiString(if (failure is ClipboardImageTooLargeException) R.string.clip_image_too_large else R.string.clip_image_save_failed))
+    }
+
+    private fun recordTextClip(t: String) {
+        clipboardStore.record(t)
+        lastCopy = t
+        if (inputView?.isComposing() != true) inputView?.showCopyBar(t)
+    }
+
     private fun toast(msg: String) { inputView?.showToast(msg) }
 
     internal fun toastTextForTest(): String? = inputView?.toastTextForTest()
+
+    private fun historyEnabled() =
+        runCatching { getSharedPreferences("aegis", MODE_PRIVATE).getBoolean("clip_history", true) }.getOrDefault(true)
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
@@ -1353,6 +1416,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             decodeHint?.let { session -> runCatching { session.close() } }
             decodeHint = null
         }
+        runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
         if (UserDictHot.host === liveUserDictHost) UserDictHot.host = null
         runCatching { liveUserDictHost.flush() }
         liveUserDictHost.stopSaving()
