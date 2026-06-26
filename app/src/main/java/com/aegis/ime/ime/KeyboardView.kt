@@ -20,6 +20,7 @@ import android.graphics.Canvas
 import android.graphics.LinearGradient
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Shader
 import android.os.Handler
@@ -82,16 +83,19 @@ class KeyboardView(context: Context) : View(context) {
         color = 0xFF202124.toInt()
         textAlign = Paint.Align.CENTER
         textSize = sp(20f)
+        setShadowLayer(1.2f * density, 0f, 1f * density, 0x33000000)
     }
     private val specialLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF37474F.toInt()
         textAlign = Paint.Align.CENTER
         textSize = sp(15f)
+        setShadowLayer(1.2f * density, 0f, 1f * density, 0x33000000)
     }
     private val accentLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFFFFFFFF.toInt()
         textAlign = Paint.Align.CENTER
         textSize = sp(20f)
+        setShadowLayer(1.2f * density, 0f, 1f * density, 0x55000000)
     }
     private val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF90A4AE.toInt()
@@ -171,12 +175,12 @@ class KeyboardView(context: Context) : View(context) {
         for (p in placed) {
             if (p.groupId > 0 && drawnGroups.add(p.groupId)) {
                 val cells = placed.filter { it.groupId == p.groupId }.sortedBy { it.rect.top }
-                val union = RectF(cells.first().rect)
-                cells.forEach { union.union(it.rect) }
-                drawNeumorphicKey(canvas, union, accent = false, pressed = false)
+                drawNeumorphicShape(canvas, buildPeanut(cells))
+                val l = cells.first().rect.left + 10 * density
+                val r = cells.first().rect.right - 10 * density
                 for (i in 1 until cells.size) {
                     val yMid = (cells[i - 1].rect.bottom + cells[i].rect.top) / 2f
-                    canvas.drawLine(union.left + 10 * density, yMid, union.right - 10 * density, yMid, sepLinePaint)
+                    canvas.drawLine(l, yMid, r, yMid, sepLinePaint)
                 }
             }
         }
@@ -191,24 +195,82 @@ class KeyboardView(context: Context) : View(context) {
         }
     }
 
+    private val tmpBounds = RectF()
+
+    private fun applyGradient(grad: LinearGradient, top: Float, h: Float) {
+        gradMatrix.setScale(1f, h / rowHeight)
+        gradMatrix.postTranslate(0f, top)
+        grad.setLocalMatrix(gradMatrix)
+        gradPaint.shader = grad
+    }
+
     private fun drawNeumorphicKey(canvas: Canvas, rect: RectF, accent: Boolean, pressed: Boolean) {
+        if (accent) { drawAccentKey(canvas, rect, pressed); return }
         if (!pressed) {
             val o = 3f * density
             val blur = 7f * density
             gradPaint.shader = null
-            gradPaint.color = if (accent) 0xFF66BB6A.toInt() else 0xFFFFFFFF.toInt()
-            gradPaint.setShadowLayer(blur, o, o, if (accent) 0x55388E3C else 0x33586173)
+            gradPaint.color = 0xFFFFFFFF.toInt()
+            gradPaint.setShadowLayer(blur, o, o, 0x33586173)
             canvas.drawRoundRect(rect, radius, radius, gradPaint)
             gradPaint.setShadowLayer(blur, -o, -o, 0xCCFFFFFF.toInt())
             canvas.drawRoundRect(rect, radius, radius, gradPaint)
             gradPaint.clearShadowLayer()
         }
-        val grad = if (pressed) pressedGradient else if (accent) accentGradient else keyGradient
-        gradMatrix.setTranslate(0f, rect.top)
-        grad.setLocalMatrix(gradMatrix)
-        gradPaint.shader = grad
+        applyGradient(if (pressed) pressedGradient else keyGradient, rect.top, rect.height())
         canvas.drawRoundRect(rect, radius, radius, gradPaint)
         gradPaint.shader = null
+    }
+
+    private fun drawAccentKey(canvas: Canvas, rect: RectF, pressed: Boolean) {
+        val tall = rect.height() > rect.width() * 1.1f
+        val rad = rect.height() / 2f
+        fun shape(p: Paint) { if (tall) canvas.drawOval(rect, p) else canvas.drawRoundRect(rect, rad, rad, p) }
+        if (!pressed) {
+            gradPaint.shader = null
+            gradPaint.color = 0xFF66BB6A.toInt()
+            gradPaint.setShadowLayer(13f * density, 0f, 3f * density, 0x9943A047.toInt())
+            shape(gradPaint)
+            gradPaint.clearShadowLayer()
+        }
+        applyGradient(accentGradient, rect.top, rect.height())
+        shape(gradPaint)
+        gradPaint.shader = null
+        if (pressed) { gradPaint.color = 0x18000000; shape(gradPaint) }
+    }
+
+    private fun drawNeumorphicShape(canvas: Canvas, path: Path) {
+        val o = 3f * density
+        val blur = 7f * density
+        gradPaint.shader = null
+        gradPaint.color = 0xFFFFFFFF.toInt()
+        gradPaint.setShadowLayer(blur, o, o, 0x33586173)
+        canvas.drawPath(path, gradPaint)
+        gradPaint.setShadowLayer(blur, -o, -o, 0xCCFFFFFF.toInt())
+        canvas.drawPath(path, gradPaint)
+        gradPaint.clearShadowLayer()
+        path.computeBounds(tmpBounds, true)
+        applyGradient(keyGradient, tmpBounds.top, tmpBounds.height())
+        canvas.drawPath(path, gradPaint)
+        gradPaint.shader = null
+    }
+
+    private fun buildPeanut(cells: List<Placed>): Path {
+        val extra = 7f * density
+        val left = cells.first().rect.left
+        val right = cells.first().rect.right
+        val top = cells.first().rect.top
+        val bottom = cells.last().rect.bottom
+        val peanut = Path()
+        for (c in cells) {
+            val oval = Path().apply {
+                addOval(left, c.rect.top - gap - extra, right, c.rect.bottom + gap + extra, Path.Direction.CW)
+            }
+            if (peanut.isEmpty) peanut.set(oval) else peanut.op(oval, Path.Op.UNION)
+        }
+        val envelope = Path().apply { addRoundRect(left, top, right, bottom, radius, radius, Path.Direction.CW) }
+        peanut.op(envelope, Path.Op.INTERSECT)
+        return peanut
     }
 
     private fun drawLabel(canvas: Canvas, p: Placed) {

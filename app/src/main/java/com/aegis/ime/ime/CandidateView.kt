@@ -24,8 +24,6 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import kotlin.math.abs
-import kotlin.math.cos
-import kotlin.math.sin
 
 enum class BarFunction(val glyph: String) {
     SETTINGS("⚙"), SWITCH_KBD("⌨"), EMOJI("☺"), EDIT("✎"), CLIPBOARD("📋"), NUMPAD("123")
@@ -98,6 +96,13 @@ class CandidateView(context: Context) : View(context) {
         color = 0xFF607D8B.toInt()
         textAlign = Paint.Align.CENTER
         textSize = sp(18f)
+    }
+    private val brandTilePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF57A35B.toInt() }
+    private val brandTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFFFFFFF.toInt()
+        textAlign = Paint.Align.CENTER
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+        textSize = sp(13f)
     }
 
     fun setContent(candidates: List<String>, composingText: String) {
@@ -174,19 +179,13 @@ class CandidateView(context: Context) : View(context) {
             drawIcon(canvas, f, cx, cy, s)
         }
         collapseRect.set(areaR, capT, capR, capB)
+        canvas.drawRect(areaR, cy - s * 0.8f, areaR + density, cy + s * 0.8f, sepPaint)
         drawChevronDown(canvas, capR - collapseW / 2f, cy, s)
     }
 
     private fun drawIcon(c: Canvas, f: BarFunction, cx: Float, cy: Float, s: Float) {
         when (f) {
-            BarFunction.SETTINGS -> {
-                c.drawCircle(cx, cy, s * 0.5f, iconPaint)
-                c.drawCircle(cx, cy, s * 0.2f, iconPaint)
-                for (k in 0 until 8) {
-                    val a = k * (Math.PI / 4).toFloat()
-                    c.drawLine(cx + cos(a) * s * 0.55f, cy + sin(a) * s * 0.55f, cx + cos(a) * s * 0.85f, cy + sin(a) * s * 0.85f, iconPaint)
-                }
-            }
+            BarFunction.SETTINGS -> drawBrand(c, cx, cy, s)
             BarFunction.SWITCH_KBD -> {
                 val w = s * 0.95f; val h = s * 0.62f
                 c.drawRoundRect(cx - w, cy - h, cx + w, cy + h, 3f * density, 3f * density, iconPaint)
@@ -217,6 +216,13 @@ class CandidateView(context: Context) : View(context) {
             BarFunction.NUMPAD ->
                 c.drawText("123", cx, cy - (icon123Paint.descent() + icon123Paint.ascent()) / 2, icon123Paint)
         }
+    }
+
+    private fun drawBrand(c: Canvas, cx: Float, cy: Float, s: Float) {
+        val half = s * 0.95f
+        val r = 4f * density
+        c.drawRoundRect(cx - half, cy - half, cx + half, cy + half, r, r, brandTilePaint)
+        c.drawText("A", cx, cy - (brandTextPaint.descent() + brandTextPaint.ascent()) / 2, brandTextPaint)
     }
 
     private fun drawChevronDown(c: Canvas, cx: Float, cy: Float, s: Float) {
