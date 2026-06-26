@@ -17,6 +17,8 @@ package com.aegis.ime.ime
 
 import android.content.Context
 import android.widget.LinearLayout
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyboardLayout
 
@@ -31,10 +33,25 @@ class InputView(context: Context) : LinearLayout(context) {
 
     init {
         orientation = VERTICAL
+        // Keyboard-grey fill so the inset gutters (behind the gesture bar / cutout) match the keys.
+        setBackgroundColor(0xFFE2E6EA.toInt())
         candidateView.onPick = { index -> onPickCandidate(index) }
         keyboardView.onKey = { key -> onKey(key) }
         addView(candidateView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
         addView(keyboardView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+
+        // targetSdk 36 forces the IME window edge-to-edge, so the input view would otherwise extend
+        // behind the gesture nav bar and screen edges. Consume the insets ourselves: raise the bottom
+        // above the nav/home bar and inset the sides off the cutout / edge-gesture zone.
+        ViewCompat.setOnApplyWindowInsetsListener(this) { v, insets ->
+            val bars = insets.getInsets(
+                WindowInsetsCompat.Type.navigationBars() or
+                    WindowInsetsCompat.Type.displayCutout() or
+                    WindowInsetsCompat.Type.systemGestures(),
+            )
+            v.setPadding(bars.left, 0, bars.right, bars.bottom)
+            WindowInsetsCompat.CONSUMED
+        }
     }
 
     fun showKeyboard(layout: KeyboardLayout, shifted: Boolean) {

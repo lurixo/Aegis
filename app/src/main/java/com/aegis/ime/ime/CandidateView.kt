@@ -73,16 +73,23 @@ class CandidateView(context: Context) : View(context) {
         val cy = height / 2f
         val baseline = cy - (textPaint.descent() + textPaint.ascent()) / 2
 
+        var x = padding
+        // Preedit: always show the in-progress pinyin (composing buffer) at the left, even while
+        // candidates are present, so the user can see what they have typed. Cleared on commit/pick.
+        if (composing.isNotEmpty()) {
+            canvas.drawText(composing, x, baseline, composingPaint)
+            x += composingPaint.measureText(composing) + padding
+            canvas.drawRect(x, height * 0.2f, x + density, height * 0.8f, sepPaint)
+            x += padding
+        }
+
         if (items.isEmpty()) {
-            if (composing.isNotEmpty()) {
-                canvas.drawText(composing, padding, baseline, composingPaint)
-            } else {
+            if (composing.isEmpty()) {
                 canvas.drawText("Aegis", padding, baseline, hintPaint)
             }
             return
         }
 
-        var x = padding
         hitCount = items.size
         for ((i, item) in items.withIndex()) {
             val tw = textPaint.measureText(item)

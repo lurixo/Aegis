@@ -74,6 +74,10 @@ class KeyboardView(context: Context) : View(context) {
     fun setLayout(newLayout: KeyboardLayout, isShifted: Boolean) {
         layout = newLayout
         shifted = isShifted
+        // All four layouts have the same row count, so swapping between them leaves the measured
+        // height unchanged and onSizeChanged never fires — relay out here so the new keys (and their
+        // hit rects) take effect immediately instead of redrawing the stale layout.
+        if (width > 0) relayout()
         requestLayout()
         invalidate()
     }
