@@ -132,4 +132,24 @@ class ClipboardRestoreWriteGuardTest {
         assertTrue(live.clearHistory())
         assertTrue("a delete with nothing to remove has nothing to report", live.deleteAll(listOf("不存在")))
     }
+
+    @Test fun the_panel_writes_again_once_the_restore_is_over() {
+        val dir = newDir()
+        val live = store(dir)
+        live.record("旧一")
+        live.flushPendingWrites()
+
+        LiveUserData.restoreInProgress = true
+        store(dir).importHistory(clipEntries("恢复一"), merge = false)
+        LiveUserData.restoreInProgress = false
+
+        live.load()
+        live.record("恢复后复制的")
+        live.addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("恢复后的常用语"))
+        live.flushPendingWrites()
+
+        val reloaded = store(dir)
+        assertEquals(listOf("恢复后复制的", "恢复一"), reloaded.historyText())
+        assertTrue("恢复后的常用语" in reloaded.phrases())
+    }
 }

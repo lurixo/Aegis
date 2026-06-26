@@ -115,9 +115,14 @@ class ClipEntry private constructor(
     }
 }
 
+enum class PhraseEdit { ADD }
+
+class PhraseChange(val edit: PhraseEdit, val count: Int, val requested: Int, val saved: Boolean)
+
 class ClipboardStore(private val dir: File) {
 
     private val histFile get() = File(dir, "clipboard.txt")
+    private val phraseFile get() = File(dir, "phrases.txt")
     private fun clipsDir() = File(dir, "clips")
 
     private val tmpTag = TMP_TAGS.incrementAndGet()
@@ -132,6 +137,15 @@ class ClipboardStore(private val dir: File) {
     }
     private val captureOrders = AtomicLong(0)
     private val saveGen = AtomicLong(0)
+    private val phrasesPending = AtomicLong(0)
+
+    private class Phrase(var text: String, var note: String = "")
+    private class Category(var name: String, val phrases: ArrayList<Phrase> = ArrayList())
+    private val phraseCats = ArrayList<Category>()
+    private var phraseRevision = 0L
+
+    private class LoadedPhrases(val categories: ArrayList<Category>, val readable: Boolean)
+    private class PhraseWrite(val text: String, val revision: Long)
 
     @Volatile
     private var historyWriteFailed = false
@@ -139,6 +153,23 @@ class ClipboardStore(private val dir: File) {
     @Volatile
     var historyReadable: Boolean = true
         private set
+
+    @Volatile
+    var phrasesReadable: Boolean = true
+        private set
+
+    @Volatile
+    private var writeReportLane: Executor = Executor { it.run() }
+
+    @Volatile
+    private var writeReport: ((PhraseChange) -> Unit)? = null
+
+    fun reportPhraseWritesTo(lane: Executor, report: (PhraseChange) -> Unit) {
+        writeReportLane = lane
+        writeReport = report
+    }
+
+    fun stopReportingPhraseWrites() { writeReport = null }
 
     @Volatile
     private var clipReportLane: Executor = Executor { it.run() }
@@ -162,6 +193,7 @@ class ClipboardStore(private val dir: File) {
         val reload = Runnable { adoptHistory(readHistory()) }
         val queued = if (Thread.currentThread() === writer) null else runCatching { io.submit(reload) }.getOrNull()
         if (queued == null) reload.run() else runCatching { queued.get() }
+        loadPhrases()
     }
 
     private class LoadedHistory(val entries: List<ClipEntry>, val readable: Boolean)
@@ -198,6 +230,82 @@ class ClipboardStore(private val dir: File) {
             if (ClipEntry.isSidecarHash(hash)) return ClipEntry.stored(clipsDir(), hash)
         }
         return decode(line)?.let(ClipEntry::of)
+    }
+
+    private fun loadPhrases() {
+        val loaded = readPhrases()
+        synchronized(phraseCats) { adoptPhrases(loaded) }
+    }
+
+    private fun readPhrases(): LoadedPhrases {
+        if (!phraseFile.exists()) {
+            val defaults = Category(DEFAULT_CATEGORY_ID, ArrayList(DEFAULT_PHRASES.map { Phrase(it) }))
+            return LoadedPhrases(arrayListOf(defaults), true)
+        }
+        val read = runCatching { Files.readAllLines(phraseFile.toPath()) }
+        val lines = read.getOrDefault(emptyList())
+        val categories = ArrayList<Category>()
+        if (lines.none { it.startsWith("C\t") }) {
+            val c = Category(DEFAULT_CATEGORY_ID)
+            lines.forEach { decode(it)?.let { p -> if (p.isNotBlank()) c.phrases.add(Phrase(p)) } }
+            categories.add(c)
+        } else {
+            categories.addAll(canonicalCategories(parseCategories(lines)))
+            if (categories.isEmpty()) categories.add(Category(DEFAULT_CATEGORY_ID))
+        }
+        return LoadedPhrases(categories, read.isSuccess)
+    }
+
+    private fun adoptPhrases(loaded: LoadedPhrases) {
+        phraseCats.clear()
+        phraseCats.addAll(loaded.categories)
+        phrasesReadable = loaded.readable
+        phraseEdited()
+    }
+
+    private fun phraseEdited() {
+        phraseRevision++
+    }
+
+    private fun phraseSnapshot(): PhraseWrite {
+        phraseEdited()
+        return PhraseWrite(serialize(phraseCats), phraseRevision)
+    }
+
+    private fun parseCategories(lines: List<String>): List<Category> {
+        val out = ArrayList<Category>()
+        var cur: Category? = null
+        var last: Phrase? = null
+        for (line in lines) when {
+            line.startsWith("C\t") -> { val c = Category(decode(line.substring(2)).orEmpty()); out.add(c); cur = c; last = null }
+            line.startsWith("P\t") -> decode(line.substring(2))?.let { p -> Phrase(p).also { cur?.phrases?.add(it); last = it } }
+            line.startsWith("N\t") -> decode(line.substring(2))?.let { n -> last?.note = n }
+        }
+        return out
+    }
+
+    private fun canonicalCategories(categories: List<Category>): ArrayList<Category> {
+        val out = mergeSameNameCategories(categories)
+        if (out.none { it.name == DEFAULT_CATEGORY_ID }) {
+            out.firstOrNull { it.name == LEGACY_DEFAULT_NAME }?.let { it.name = DEFAULT_CATEGORY_ID }
+        }
+        return mergeSameNameCategories(out)
+    }
+
+    private fun mergeSameNameCategories(categories: List<Category>): ArrayList<Category> {
+        val out = ArrayList<Category>()
+        val byName = LinkedHashMap<String, Category>()
+        val indexes = HashMap<String, HashMap<String, Phrase>>()
+        for (source in categories) {
+            if (source.name.isBlank()) continue
+            val dest = byName[source.name] ?: Category(source.name).also {
+                byName[source.name] = it
+                out.add(it)
+            }
+            val index = indexes.getOrPut(source.name) { HashMap() }
+            for (p in source.phrases) mergePhraseInto(dest, p, index)
+        }
+        return out
     }
 
     fun record(text: String?) {
@@ -311,6 +419,56 @@ class ClipboardStore(private val dir: File) {
 
     private fun snapshot(): List<ClipEntry> = synchronized(history) { ArrayList(history) }
 
+    fun categories(): List<String> = synchronized(phraseCats) { phraseCats.map { it.name } }
+
+    fun phrasesIn(category: String): List<String> =
+        synchronized(phraseCats) { find(category)?.phrases?.map { it.text } ?: emptyList() }
+
+    fun phrases(): List<String> =
+        synchronized(phraseCats) { phraseCats.flatMap { c -> c.phrases.map { it.text } } }
+
+    fun addPhrasesTo(category: String, texts: Collection<String>): Int {
+        val requested = texts.size
+        val name = sanitizePhraseText(category)
+        if (name.isBlank()) return 0
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.ADD, requested); return 0 }
+        var added = 0
+        val after = synchronized(phraseCats) {
+            val c = find(category) ?: Category(name).also { phraseCats.add(it); phraseEdited() }
+            val seen = c.phrases.mapTo(HashSet()) { sanitizePhraseText(it.text) }
+            val fresh = ArrayList<Phrase>()
+            for (raw in texts) {
+                val t = sanitizePhraseText(raw)
+                if (t.isBlank() || !seen.add(t)) continue
+                fresh.add(Phrase(t))
+            }
+            if (fresh.isEmpty()) null
+            else {
+                c.phrases.addAll(0, fresh)
+                added = fresh.size
+                phraseSnapshot()
+            }
+        }
+        if (after == null) reportPhraseWrite(PhraseChange(PhraseEdit.ADD, 0, requested, true))
+        else writePhrases(PhraseEdit.ADD, added, requested, after)
+        return added
+    }
+
+    fun addPhrases(texts: Collection<String>): Int =
+        addPhrasesTo(synchronized(phraseCats) { phraseCats.firstOrNull()?.name ?: DEFAULT_CATEGORY_ID }, texts)
+
+    private fun mergePhraseInto(to: Category, p: Phrase, index: HashMap<String, Phrase>?) {
+        if (p.text.isBlank()) return
+        val existing = if (index == null) findPhrase(to, p.text) else index[p.text]
+        if (existing == null) Phrase(p.text, p.note).also { to.phrases.add(it); index?.put(it.text, it) }
+        else if (existing.note.isEmpty() && p.note.isNotEmpty()) existing.note = p.note
+    }
+
+    private fun find(name: String): Category? =
+        phraseCats.firstOrNull { it.name == name }
+            ?: sanitizePhraseText(name).let { n -> phraseCats.firstOrNull { sanitizePhraseText(it.name) == n } }
+    private fun findPhrase(c: Category?, text: String): Phrase? = c?.phrases?.firstOrNull { it.text == text }
+
     private class PendingWrite(val gen: Long, val rows: List<ClipEntry>)
 
     private fun stampPendingWrite(): PendingWrite =
@@ -408,6 +566,43 @@ class ClipboardStore(private val dir: File) {
         }
     }
 
+    private fun phraseWritesAllowed(): Boolean = phrasesReadable && !LiveUserData.restoreInProgress
+
+    private fun writePhrases(edit: PhraseEdit, count: Int, requested: Int, write: PhraseWrite) {
+        phrasesPending.incrementAndGet()
+        val queued = runCatching {
+            io.execute {
+                val landed = runCatching { atomicWrite(phraseFile, write.text) }.isSuccess
+                phrasesPending.decrementAndGet()
+                reportPhraseWrite(PhraseChange(edit, count, requested, landed))
+            }
+        }.isSuccess
+        if (!queued) {
+            phrasesPending.decrementAndGet()
+            reportPhraseWrite(PhraseChange(edit, count, requested, false))
+        }
+    }
+
+    private fun refusePhraseWrite(edit: PhraseEdit, requested: Int) =
+        reportPhraseWrite(PhraseChange(edit, 0, requested, false))
+
+    private fun reportPhraseWrite(change: PhraseChange) {
+        if (writeReport == null) return
+        writeReportLane.execute { writeReport?.invoke(change) }
+    }
+
+    private fun serialize(categories: List<Category>): String {
+        val sb = StringBuilder()
+        for (c in categories) {
+            sb.append("C\t").append(encode(c.name)).append('\n')
+            for (p in c.phrases) {
+                sb.append("P\t").append(encode(p.text)).append('\n')
+                if (p.note.isNotEmpty()) sb.append("N\t").append(encode(p.note)).append('\n')
+            }
+        }
+        return sb.toString()
+    }
+
     private fun encode(s: String) = s.replace("\\", "\\\\").replace("\n", "\\n").replace("\r", "\\r")
     private fun decode(line: String): String? {
         if (line.isEmpty()) return null
@@ -433,6 +628,9 @@ class ClipboardStore(private val dir: File) {
         fun isLegacyImageEntry(entry: String): Boolean =
             entry.startsWith(LEGACY_IMG_PREFIX) && entry.contains(LEGACY_IMG_DIR)
 
+        fun sanitizePhraseText(s: String): String =
+            s.filterNot { it != '\n' && it != '\r' && it != '\t' && Character.isISOControl(it) }
+
         fun foldLineBreaks(s: String): String = s.trim { it in LINE_BREAKS }.replace(LINE_BREAK_RUN, " ")
 
         private const val LINE_BREAKS = "\n\r\u2028\u2029"
@@ -440,5 +638,9 @@ class ClipboardStore(private val dir: File) {
 
         private const val BIG_LINE = "B\t"
         const val BIG_THRESHOLD = 64 * 1024
+
+        const val DEFAULT_CATEGORY_ID = "default"
+        private const val LEGACY_DEFAULT_NAME = "默认"
+        private val DEFAULT_PHRASES = emptyList<String>()
     }
 }

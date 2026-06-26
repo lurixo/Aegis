@@ -179,6 +179,34 @@ class ClipboardRecordQueueTest {
         assertEquals(emptyList<String>(), sideFiles(dir))
     }
 
+    @Test fun a_phrase_edit_does_not_write_on_the_thread_that_made_it() {
+        val dir = newDir()
+        val s = store(dir)
+        occupy(s)
+
+        s.addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("排队中的常用语"))
+
+        assertFalse(
+            "a phrase edit must be handed to the writer, not written where it was made",
+            File(dir, "phrases.txt").exists(),
+        )
+        release?.countDown()
+        s.flushPendingWrites()
+        assertEquals(listOf("排队中的常用语"), store(dir).phrases())
+    }
+
+    @Test fun an_export_flush_lands_a_phrase_edit_that_was_still_queued() {
+        val dir = newDir()
+        val s = store(dir)
+        occupy(s)
+
+        s.addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("待落盘"))
+        release?.countDown()
+        s.flushPendingWrites()
+
+        assertEquals(listOf("待落盘"), store(dir).phrases())
+    }
+
     @Test fun a_stopped_store_still_lands_the_writes_already_queued() {
         val dir = newDir()
         val s = store(dir)
