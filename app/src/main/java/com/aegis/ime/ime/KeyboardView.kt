@@ -93,12 +93,22 @@ class KeyboardView(context: Context) : View(context) {
     private var downEventTime = 0L
     private var retargetUnlocked = false
     private var activePointerId = MotionEvent.INVALID_POINTER_ID
+    private var swiped = false
+    private var vSwipeDir = 0
+    private val swipeThreshold = 24f * resources.displayMetrics.density
     private val backspace = BackspaceGesture(resources.displayMetrics.density).apply {
         onRepeat = { downKey?.let { key -> onKey(key) } }
         onSwipe = { up -> onBackspaceSwipe(up) }
     }
 
     private fun isRepeatable(key: Key) = key.action == KeyAction.BACKSPACE
+
+    private fun isAlphaLetter(key: Key) =
+        layout.id == LayoutId.ALPHA && key.action == KeyAction.COMMIT &&
+            key.label.length == 1 && key.label[0] in 'a'..'z'
+
+    private fun isNineSwipeKey(key: Key) =
+        layout.id == LayoutId.NINE && (key.swipeUp != null || key.swipeDown != null)
 
     private val density = resources.displayMetrics.density
     private val rowHeight = 52f * density
@@ -831,6 +841,7 @@ class KeyboardView(context: Context) : View(context) {
         setPressedKey(downKey)
         downX = x; downY = y
         downEventTime = eventTime; retargetUnlocked = false
+        swiped = false; vSwipeDir = 0
         backspace.cancel()
         val dp = downPlaced
         val dk = downKey
@@ -847,6 +858,34 @@ class KeyboardView(context: Context) : View(context) {
                 val bounds = downPlaced?.let(::heldBounds)
                 backspace.move(x, y, bounds == null || bounds.contains(x, y))
             }
+            dk != null && isAlphaLetter(dk) -> {
+                val dy = y - downY
+                if (!swiped && abs(dy) > swipeThreshold && abs(dy) > abs(x - downX)) {
+                    swiped = true
+                    vSwipeDir = if (dy < 0) -1 else 1
+                } else if (!swiped) {
+                    val k = currentTarget(x, y)
+                    if (k !== pressed) {
+                        setPressedKey(k)
+                    }
+                }
+            }
+            dk != null && isNineSwipeKey(dk) -> {
+                val dx = x - downX
+                val dy = y - downY
+                if (abs(dy) > abs(dx)) {
+                    if (pressed !== downKey) setPressedKey(downKey)
+                    if (!swiped && abs(dy) > swipeThreshold) {
+                        swiped = true
+                        vSwipeDir = if (dy < 0) -1 else 1
+                    }
+                } else {
+                    val k = currentTarget(x, y)
+                    if (k !== pressed) {
+                        setPressedKey(k)
+                    }
+                }
+            }
             else -> {
                 val k = currentTarget(x, y)
                 if (k !== pressed) {
@@ -859,12 +898,29 @@ class KeyboardView(context: Context) : View(context) {
     private fun finishPrimary(x: Float, y: Float, eventTime: Long) {
         maybeUnlockRetarget(x, y, eventTime)
         val dk = downKey
+        val stickyPressed = pressed
         releasePressedKey()
         when {
             dk != null && dk.action == KeyAction.BACKSPACE -> {
                 val bounds = downPlaced?.let(::heldBounds)
                 backspace.move(x, y, bounds == null || bounds.contains(x, y))
                 if (backspace.finish()) currentTarget(x, y)?.let { performClick(); emitKey(it, eventTime) }
+            }
+            dk != null && isAlphaLetter(dk) && swiped -> {
+                performClick()
+                if (vSwipeDir < 0 && dk.swipeUp != null) {
+                    onKey(Key(dk.swipeUp, output = dk.swipeUp, direct = true, preeditLiteral = dk.swipeUp != "@"))
+                }
+                else onKey(dk)
+            }
+            dk != null && isNineSwipeKey(dk) -> {
+                performClick()
+                val output = if (!swiped) null else if (vSwipeDir < 0) dk.swipeUp else dk.swipeDown
+                if (output != null) {
+                    onKey(Key(output, output = output, direct = true, preeditLiteral = output != "@"))
+                } else {
+                    emitKey(stickyPressed ?: dk, eventTime)
+                }
             }
             else ->
                 currentTarget(x, y)?.let { performClick(); emitKey(it, eventTime) }

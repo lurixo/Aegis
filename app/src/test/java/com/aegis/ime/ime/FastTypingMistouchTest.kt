@@ -57,6 +57,16 @@ class FastTypingMistouchTest {
     private fun KeyboardView.hitRightOf(label: String): Float =
         keyHitBoundsForTest().first { it.first.label == label }.second.right
 
+    @Test fun a_fast_tap_lifting_past_the_9key_shared_edge_commits_the_down_key() {
+        var picked: String? = null
+        val v = nineView().apply { onKey = { picked = it.output } }
+        val (ax, ay) = v.centerOfLabelForTest("ABC")!!
+        val edge = v.hitRightOf("ABC")
+        v.send(MotionEvent.ACTION_DOWN, ax, ay, 0)
+        v.send(MotionEvent.ACTION_UP, edge + 10f * density, ay, 30)
+        assertEquals("a fast tap whose UP drifts into DEF still commits the key under the DOWN", "2", picked)
+    }
+
     @Test fun a_fast_micro_slide_across_the_9key_edge_commits_the_down_key() {
         var picked: String? = null
         val v = nineView().apply { onKey = { picked = it.output } }
