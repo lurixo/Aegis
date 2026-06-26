@@ -18,6 +18,7 @@ package com.aegis.ime.layout
 import com.aegis.ime.R
 import com.aegis.ime.layout.KeyAction.BACKSPACE
 import com.aegis.ime.layout.KeyAction.CLEAR_COMPOSING
+import com.aegis.ime.layout.KeyAction.CUSTOM_OPERATOR
 import com.aegis.ime.layout.KeyAction.CUSTOM_SYMBOL
 import com.aegis.ime.layout.KeyAction.ENTER
 import com.aegis.ime.layout.KeyAction.SHIFT
@@ -37,6 +38,7 @@ object Layouts {
         LayoutId.NINE -> nine(ninePunctuation())
         LayoutId.NUMBER -> number()
         LayoutId.SYMBOL -> symbol()
+        LayoutId.NUMPAD -> numpad()
     }
 
     private const val NINE_LEFT_U = 0.85f
@@ -160,6 +162,32 @@ object Layouts {
             ),
         ),
     )
+
+    val defaultNumpadOperators: List<String> = listOf("+", "-", "×", "÷", "=", "(", ")", "%", ".")
+
+    fun numpadOperators(custom: List<String> = emptyList()): List<Key> =
+        (defaultNumpadOperators + custom).distinct().map { Key(it, direct = true) } +
+            Key(labelRes = R.string.kbd_custom, action = CUSTOM_OPERATOR)
+
+    fun numpad(operators: List<Key> = numpadOperators()): KeyboardLayout {
+        val u = 1f / NINE_TOTAL_U
+        val wL = NINE_LEFT_U * u
+        val x1 = NINE_LEFT_U * u; val x2 = (NINE_LEFT_U + 1f) * u; val x3 = (NINE_LEFT_U + 2f) * u; val wM = NINE_MAIN_U * u
+        val xR = (NINE_LEFT_U + 3f) * u; val wR = NINE_RIGHT_U * u
+        val opCol = ScrollColumn(operators, 0f, 0f, wL, 1f, cellHFrac = 0.25f)
+        val cells = ArrayList<PlacedKey>()
+        fun digit(label: String, x: Float, row: Float) = cells.add(PlacedKey(Key(label), x, row, wM, 0.25f))
+        digit("1", x1, 0f); digit("2", x2, 0f); digit("3", x3, 0f)
+        digit("4", x1, 0.25f); digit("5", x2, 0.25f); digit("6", x3, 0.25f)
+        digit("7", x1, 0.5f); digit("8", x2, 0.5f); digit("9", x3, 0.5f)
+        cells.add(PlacedKey(Key("⌫", action = BACKSPACE, rail = true), xR, 0f, wR, 0.25f))
+        cells.add(PlacedKey(Key(".", rail = true), xR, 0.25f, wR, 0.25f))
+        cells.add(PlacedKey(Key("↵", action = ENTER, accent = true), xR, 0.5f, wR, 0.5f))
+        cells.add(PlacedKey(Key(labelRes = R.string.kbd_back, action = SWITCH_TEXT, rail = true), x1, 0.75f, wM, 0.25f))
+        cells.add(PlacedKey(Key("0"), x2, 0.75f, wM, 0.25f))
+        cells.add(PlacedKey(Key(labelRes = R.string.kbd_space, output = " ", action = SPACE, rail = true), x3, 0.75f, wM, 0.25f))
+        return KeyboardLayout(LayoutId.NUMPAD, cells = cells, rowCount = 4, scrollColumn = opCol)
+    }
 
     private fun symbol(): KeyboardLayout = KeyboardLayout(
         LayoutId.SYMBOL,

@@ -17,7 +17,7 @@ package com.aegis.ime.layout
 
 enum class Lang { CN, EN }
 
-enum class LayoutId { ALPHA, NINE, NUMBER, SYMBOL }
+enum class LayoutId { ALPHA, NINE, NUMBER, SYMBOL, NUMPAD }
 
 enum class KeyAction {
     COMMIT,
@@ -35,6 +35,7 @@ enum class KeyAction {
     SHOW_SYMBOLS,
     SEGMENT,
     CUSTOM_SYMBOL,
+    CUSTOM_OPERATOR,
 }
 
 data class Key(

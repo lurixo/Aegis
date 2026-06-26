@@ -63,6 +63,18 @@ class LayoutsTest {
         assertTrue("enter should be the green accent key", right.last().key.accent)
     }
 
+    @Test fun all_backspace_keys_use_the_delete_glyph() {
+        val layouts = listOf(
+            qwerty, nine,
+            Layouts.forId(LayoutId.NUMBER, Lang.CN),
+            Layouts.forId(LayoutId.SYMBOL, Lang.CN),
+            Layouts.forId(LayoutId.NUMPAD, Lang.CN),
+        )
+        for (l in layouts) {
+            keysOf(l).filter { it.action == KeyAction.BACKSPACE }.forEach { assertEquals("⌫", it.label) }
+        }
+    }
+
     @Test fun qwerty_is_four_rows_with_digit_subsymbols_on_the_top_letter_row() {
         assertEquals("26-key drops the standalone digit row for four rows", 4, qwerty.rowCount)
         assertEquals("26-key drops the standalone digit row for four rows", 4, qwertyEn.rowCount)
@@ -203,6 +215,35 @@ class LayoutsTest {
         assertTrue("custom marks commit directly", sc.items.filter { it.label in listOf("、", "《") }.all { it.direct })
     }
 
+
+    @Test fun numpad_operators_are_defaults_then_custom_then_自定义() {
+        val ops = Layouts.numpadOperators(listOf("√", "^"))
+        val labels = ops.map { it.label }
+        assertTrue("default math operators present",
+            listOf("+", "-", "×", "÷", "=", "(", ")", "%", ".").all { it in labels })
+        assertTrue("custom operators appended after the defaults", listOf("√", "^").all { it in labels })
+        assertEquals("custom entry (labelRes) is the last item", com.aegis.ime.R.string.kbd_custom, ops.last().labelRes)
+        assertEquals("自定义 opens the operator panel", KeyAction.CUSTOM_OPERATOR, ops.last().action)
+        assertTrue("every operator commits directly", ops.dropLast(1).all { it.direct })
+    }
+
+    @Test fun numpad_operators_dedupe_a_custom_equal_to_a_default() {
+        val ops = Layouts.numpadOperators(listOf("+", "√")).map { it.label }
+        assertEquals("a custom operator equal to a built-in default is not duplicated", 1, ops.count { it == "+" })
+        assertTrue("a genuinely new custom operator is still added", "√" in ops)
+    }
+
+    @Test fun numpad_left_column_is_a_scrollable_operator_strip() {
+        val ops = Layouts.numpadOperators()
+        val np = Layouts.numpad(ops)
+        assertEquals("operators populate the scroll column", ops.map { it.label }, np.scrollColumn!!.items.map { it.label })
+        assertEquals("numpad is 4 rows so it shares the short-page height (no 9-key⇄123 resize)", 4, np.rowCount)
+        val grid = np.cells!!.map { it.key.label }
+        assertTrue("the digit grid is intact", (0..9).all { it.toString() in grid })
+        assertTrue("backspace + enter present", "⌫" in grid && "↵" in grid)
+        assertTrue("operator column is the leftmost strip", np.scrollColumn.x <= 1e-4f)
+    }
+
     @Test fun qwerty_pen_opens_symbols() {
         val actions = keysOf(qwerty).map { it.action }
         assertTrue("pen / symbols entry present", KeyAction.SHOW_SYMBOLS in actions)
@@ -225,6 +266,40 @@ class LayoutsTest {
             .map { it.label }
         assertEquals("symbol page labels must be unique: $labels", labels.distinct(), labels)
         assertTrue("§ fills the freed slot", "§" in labels)
+    }
+
+    @Test fun rail_fill_marks_exactly_the_intended_function_keys() {
+        fun rails(l: KeyboardLayout) = keysOf(l).filter { it.rail }
+        assertEquals(
+            setOf(KeyAction.SHOW_SYMBOLS, KeyAction.SWITCH_NUMPAD, KeyAction.TOGGLE_LANG, KeyAction.SHIFT, KeyAction.BACKSPACE),
+            rails(qwerty).map { it.action }.toSet(),
+        )
+        assertEquals(5, rails(qwerty).size)
+        assertEquals(
+            setOf(KeyAction.SHOW_SYMBOLS, KeyAction.SWITCH_NUMPAD, KeyAction.TOGGLE_LANG, KeyAction.BACKSPACE, KeyAction.CLEAR_COMPOSING),
+            rails(nine).map { it.action }.toSet(),
+        )
+        assertEquals(5, rails(nine).size)
+        val composing = Layouts.nine(Layouts.ninePunctuation(), composing = true)
+        assertEquals(rails(nine).map { it.action }.toSet(), rails(composing).map { it.action }.toSet())
+        val numpad = Layouts.forId(LayoutId.NUMPAD, Lang.CN)
+        assertEquals(
+            setOf(KeyAction.BACKSPACE, KeyAction.COMMIT, KeyAction.SWITCH_TEXT, KeyAction.SPACE),
+            rails(numpad).map { it.action }.toSet(),
+        )
+        assertEquals(4, rails(numpad).size)
+        assertEquals(listOf("."), rails(numpad).filter { it.action == KeyAction.COMMIT }.map { it.label })
+        for (id in listOf(LayoutId.NUMBER, LayoutId.SYMBOL)) {
+            val page = Layouts.forId(id, Lang.CN)
+            val switch = if (id == LayoutId.NUMBER) KeyAction.SWITCH_SYMBOLS else KeyAction.SWITCH_NUMBERS
+            assertEquals(setOf(switch, KeyAction.BACKSPACE, KeyAction.SWITCH_TEXT), rails(page).map { it.action }.toSet())
+            assertEquals(3, rails(page).size)
+        }
+        assertTrue("space keeps the key surface outside the numpad", keysOf(qwerty).none { it.rail && it.action == KeyAction.SPACE })
+        assertTrue(keysOf(nine).none { it.rail && it.action == KeyAction.SPACE })
+        assertTrue("enter keeps the accent fill", listOf(qwerty, nine, numpad).flatMap(::keysOf).none { it.rail && it.accent })
+        assertTrue(nine.scrollColumn!!.items.none { it.rail })
+        assertTrue(numpad.scrollColumn!!.items.none { it.rail })
     }
 
     @Test fun number_and_symbol_pages_share_the_control_width_baseline() {
