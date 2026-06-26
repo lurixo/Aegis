@@ -42,7 +42,13 @@ class DictEngine(
     override fun candidates(composing: String, t9: Boolean): List<String> {
         if (composing.isEmpty()) return emptyList()
         val d = if (t9) t9Decoder else decoder
-        return d?.decode(composing, MAX_CANDIDATES) ?: emptyList()
+        val out = d?.decode(composing, MAX_CANDIDATES) ?: emptyList()
+        return if (t9) out.filterNot { s -> s.all { it.code < 128 } } else out
+    }
+
+    override fun candidatesForReading(letters: String): List<String> {
+        if (letters.isEmpty()) return emptyList()
+        return decoder?.decode(letters, MAX_CANDIDATES) ?: emptyList()
     }
 
     override fun english(typed: String): List<String> =

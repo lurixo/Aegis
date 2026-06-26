@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
@@ -37,6 +38,10 @@ class KeyboardController(
     private val composing = StringBuilder()
     private var candidates: List<String> = emptyList()
     private var lastWord: String? = null
+
+    var onShowEmoji: () -> Unit = {}
+    var onShowClipboard: () -> Unit = {}
+    var onClosePanel: () -> Unit = {}
 
     private var view: InputView? = null
 
@@ -75,6 +80,8 @@ class KeyboardController(
             KeyAction.SWITCH_NUMBERS -> switchLayout(LayoutId.NUMBER)
             KeyAction.SWITCH_ALPHA -> switchLayout(LayoutId.ALPHA)
             KeyAction.SWITCH_NINE -> switchLayout(LayoutId.NINE)
+            KeyAction.SWITCH_NUMPAD -> switchLayout(LayoutId.NUMPAD)
+            KeyAction.PICK_READING -> handlePickReading(key)
             KeyAction.TOGGLE_LANG -> {
                 flushComposing()
                 lang = if (lang == Lang.CN) Lang.EN else Lang.CN
@@ -82,6 +89,27 @@ class KeyboardController(
         }
         refreshCandidates()
         render()
+    }
+
+    fun onBarFunction(f: BarFunction) {
+        when (f) {
+            BarFunction.SWITCH_KBD -> {
+                onClosePanel()
+                switchLayout(if (layoutId == LayoutId.NINE) LayoutId.ALPHA else LayoutId.NINE)
+            }
+            BarFunction.NUMPAD -> { onClosePanel(); switchLayout(LayoutId.NUMPAD) }
+            BarFunction.EMOJI -> { onShowEmoji(); return }
+            BarFunction.CLIPBOARD -> { onShowClipboard(); return }
+        }
+        refreshCandidates()
+        render()
+    }
+
+    private fun handlePickReading(key: Key) {
+        val letters = key.output
+        if (letters.isEmpty()) return
+        val word = engine.candidatesForReading(letters).firstOrNull() ?: letters
+        commitWord(word)
     }
 
     fun onPickCandidate(index: Int) {
@@ -195,9 +223,33 @@ class KeyboardController(
 
     private fun applyCase(s: String): String = if (shifted) s.uppercase() else s
 
+    private fun preeditText(): String {
+        if (composing.isEmpty()) return ""
+        return if (mode() == Mode.PINYIN && layoutId == LayoutId.NINE) {
+            T9Pinyin.preedit(composing.toString())
+        } else {
+            composing.toString()
+        }
+    }
+
+    private fun nineLeftColumn(): List<Key> {
+        val w = 0.85f
+        if (composing.isEmpty()) return Layouts.defaultNineLeft()
+        val keys = ArrayList<Key>(4)
+        for (r in T9Pinyin.firstSyllableOptions(composing.toString(), 4)) {
+            keys.add(Key(r, output = r, action = KeyAction.PICK_READING, weight = w))
+        }
+        val pads = Layouts.defaultNineLeft()
+        var i = 0
+        while (keys.size < 4) keys.add(pads[i++])
+        return keys
+    }
+
     private fun render() {
         val v = view ?: return
-        v.showKeyboard(Layouts.forId(layoutId, lang), shifted)
-        v.showCandidates(candidates, composing.toString())
+        val layout = if (layoutId == LayoutId.NINE) Layouts.nine(lang, nineLeftColumn())
+        else Layouts.forId(layoutId, lang)
+        v.showKeyboard(layout, shifted)
+        v.showCandidates(candidates, preeditText())
     }
 }
