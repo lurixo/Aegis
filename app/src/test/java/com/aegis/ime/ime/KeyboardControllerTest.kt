@@ -67,6 +67,7 @@ class KeyboardControllerTest {
 
     private fun act(a: KeyAction) = Key("", action = a)
     private fun out(s: String) = Key(s, output = s)
+    private fun swipe(s: String) = Key(s, output = s, direct = true, preeditLiteral = true)
     private fun clearCandidateUndo(c: KeyboardController) {
         c.onKey(out("2"))
         c.onKey(act(KeyAction.BACKSPACE))
@@ -215,6 +216,23 @@ class KeyboardControllerTest {
         assertEquals("no leaked 你 in the new field", listOf("nihao"), h.commits)
     }
 
+    @Test fun direct_key_after_deleting_the_remaining_reading_follows_the_committed_prefix() {
+        val h = FakeHost()
+        val partial = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
+        }
+        val c = KeyboardController(h, partial)
+        c.switchTextLayoutForTest(nine = true)
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        clearCandidateUndo(c)
+        repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }
+        c.onKey(Key("，", output = "，", direct = true))
+        assertEquals(listOf("你", "，"), h.commits)
+    }
+
     @Test fun segment_forces_a_syllable_boundary() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
@@ -237,6 +255,34 @@ class KeyboardControllerTest {
         "26".forEach { c.onKey(out(it.toString())) }
         c.onKey(act(KeyAction.ENTER))
         assertTrue("cut gone -> single syllable xi.., was ${h.commits[0]}", h.commits[0].startsWith("xi"))
+    }
+
+    @Test fun direct_punctuation_flushes_pinyin_then_commits_directly() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.switchTextLayoutForTest(nine = true)
+        "64".forEach { c.onKey(out(it.toString())) }
+        c.onKey(Key("，", output = "，", direct = true))
+        assertEquals(listOf("ni", "，"), h.commits)
+    }
+
+    @Test fun direct_pairable_symbol_flushes_pinyin_then_commits_plain_text() {
+        val h = SymbolPairingHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(out("n"))
+        c.onKey(Key("\"", output = "\"", direct = true))
+        assertEquals(listOf("n", "\""), h.commits)
+        assertEquals("n\"", h.text.toString())
+    }
+
+    @Test fun direct_pairable_symbols_from_keyboard_commit_plain_text() {
+        val h = SymbolPairingHost()
+        val c = KeyboardController(h, engine)
+        for (symbol in listOf("\"", "[", "(", "`")) {
+            c.onKey(Key(symbol, output = symbol, direct = true))
+        }
+        assertEquals(listOf("\"", "[", "(", "`"), h.commits)
+        assertEquals("\"[(`", h.text.toString())
     }
 
     @Test fun direct_mode_pairable_symbols_commit_plain_text() {
@@ -271,6 +317,18 @@ class KeyboardControllerTest {
         assertEquals("LOCK", c.shiftStateName())
         c.onKey(act(KeyAction.TOGGLE_LANG))
         assertEquals("OFF", c.shiftStateName())
+    }
+
+    @Test fun one_shot_shift_survives_the_case_box_symbol_cell_but_not_its_letter_cells() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        c.onKey(act(KeyAction.SHIFT))
+        c.onKey(Key("%", output = "%", direct = true, verbatim = true))
+        assertEquals("the symbol cell must not consume the pending shift", "ONCE", c.shiftStateName())
+        c.onKey(Key("g", output = "g", direct = true, verbatim = true))
+        assertEquals("an explicit case choice counts as the next letter", "OFF", c.shiftStateName())
+        assertEquals(listOf("%", "g"), h.commits)
     }
 
 
@@ -513,6 +571,14 @@ class KeyboardControllerTest {
         val text = Layouts.forId(LayoutId.NUMPAD, Lang.CN).cells!!.first { it.key.action == KeyAction.SWITCH_TEXT }.key
         c.onKey(text)
         assertEquals(LayoutId.ALPHA, c.activeLayoutId())
+    }
+
+    @Test fun alpha_up_swipe_digit_still_commits_directly_when_preedit_is_idle() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(swipe("1"))
+        assertEquals(listOf("1"), h.commits)
+        assertEquals("", c.preeditForTest())
     }
 
     @Test fun alpha_preedit_automatically_displays_syllable_boundaries() {

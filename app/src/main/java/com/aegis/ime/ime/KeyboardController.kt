@@ -167,6 +167,13 @@ class KeyboardController(
     }
 
     private fun handleCommit(key: Key) {
+        if (key.direct) {
+            if (composing.isNotEmpty() || committedPrefix.isNotEmpty()) flushComposing()
+            val text = if (key.verbatim) key.output else applyCase(key.output)
+            host.commitText(text)
+            if (shiftState == ShiftState.ONCE && key.output.any { it.isLetter() }) shiftState = ShiftState.OFF
+            return
+        }
         when (mode()) {
             Mode.PINYIN -> {
                 composing.append(key.output); history.addLast(StepKind.DIGIT)
