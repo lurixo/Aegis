@@ -69,6 +69,7 @@ class KeyboardView(context: Context) : View(context) {
     fun setLayout(newLayout: KeyboardLayout, isShifted: Boolean) {
         layout = newLayout
         shifted = isShifted
+        if (width > 0) relayout()
         requestLayout()
         invalidate()
     }
