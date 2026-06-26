@@ -92,6 +92,30 @@ class NineVerticalSwipeTest {
         assertEquals("9-key main-block swipe contract: $fails", emptyList<String>(), fails)
     }
 
+    @Test fun one_down_swipe_emits_one_ascii_at_with_or_without_composing_and_previews() {
+        for (composing in listOf(false, true)) {
+            for (previews in listOf(false, true)) {
+                val emitted = ArrayList<Key>()
+                val view = nineView(composing).apply {
+                    previewNineEnabled = previews
+                    onKey = { emitted.add(it) }
+                }
+                val action = if (composing) KeyAction.SEGMENT else KeyAction.SWITCH_NUMBERS
+                val (x, y) = view.centerOfActionForTest(action)!!
+                val endY = y + swipeThreshold + 15f * density
+                view.send(MotionEvent.ACTION_DOWN, x, y, 0)
+                view.send(MotionEvent.ACTION_MOVE, x, endY, 12)
+                assertEquals(if (previews) "@" else null, view.previewLabelForTest())
+                assertEquals(emptyList<Key>(), emitted)
+                view.send(MotionEvent.ACTION_UP, x, endY, 24)
+                assertEquals("@", emitted.single().output)
+                assertEquals(KeyAction.COMMIT, emitted.single().action)
+                assertEquals(true, emitted.single().direct)
+                assertEquals(false, emitted.single().preeditLiteral)
+            }
+        }
+    }
+
     @Test fun one_position_keeps_its_tap_and_up_swipe_actions_in_both_composing_states() {
         for (composing in listOf(false, true)) {
             for (dy in listOf(0f, swipeThreshold / 2f, -swipeThreshold - 15f * density)) {

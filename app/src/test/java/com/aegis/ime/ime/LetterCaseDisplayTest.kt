@@ -73,6 +73,15 @@ class LetterCaseDisplayTest {
     }
 
 
+    @Test fun the_preview_bubble_reflects_the_case_setting() {
+        val v = alphaView(shifted = false, LetterCase.UPPER).apply { previewAlphaEnabled = true }
+        val (x, y) = v.centerOfLabelForTest("q")!!
+        v.dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, x, y, 0))
+        assertEquals("the bubble shows the UPPER-cased letter", "Q", v.previewLabelForTest())
+        v.dispatchTouchEvent(MotionEvent.obtain(0, 10, MotionEvent.ACTION_UP, x, y, 0))
+    }
+
+
     @Test fun the_case_setting_never_changes_the_committed_character() {
         for (case in LetterCase.entries) {
             val emitted = mutableListOf<String>()
