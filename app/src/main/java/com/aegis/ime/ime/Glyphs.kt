@@ -84,6 +84,22 @@ object Glyphs {
         c.restoreToCount(layer)
     }
 
+
+    enum class Arrow { UP, DOWN, LEFT, RIGHT }
+
+    fun drawArrow(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, dir: Arrow) {
+        val angle = when (dir) {
+            Arrow.UP -> 0f
+            Arrow.RIGHT -> 90f
+            Arrow.DOWN -> 180f
+            Arrow.LEFT -> 270f
+        }
+        c.save()
+        c.rotate(angle, cx, cy)
+        drawUpArrow(c, paint, cx, cy, s)
+        c.restore()
+    }
+
     fun drawBack(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val w = s * 0.6f
         val h = s * 0.82f
@@ -120,6 +136,49 @@ object Glyphs {
 
     internal fun enterBounds(cx: Float, cy: Float, s: Float): RectF =
         RectF(cx - s * 0.9f, cy - s * 0.7f, cx + s * 0.9f, cy + s * 0.7f)
+
+    fun drawCopy(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val w = s * 0.5f; val h = s * 0.66f; val r = s * 0.16f; val d = s * 0.3f
+        c.drawRoundRect(cx - w + d, cy - h - d, cx + w + d, cy + h - d, r, r, paint)
+        c.drawRoundRect(cx - w - d, cy - h + d, cx + w - d, cy + h + d, r, r, paint)
+    }
+
+    fun drawCut(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val ringR = s * 0.26f
+        val hy = cy + s * 0.62f
+        c.drawCircle(cx - s * 0.42f, hy, ringR, paint)
+        c.drawCircle(cx + s * 0.42f, hy, ringR, paint)
+        c.drawLine(cx - s * 0.42f + ringR * 0.4f, hy - ringR * 0.4f, cx + s * 0.5f, cy - s * 0.72f, paint)
+        c.drawLine(cx + s * 0.42f - ringR * 0.4f, hy - ringR * 0.4f, cx - s * 0.5f, cy - s * 0.72f, paint)
+    }
+
+    fun drawSelectAll(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val hw = s * 0.74f
+        c.drawRoundRect(cx - hw, cy - hw, cx + hw, cy + hw, s * 0.22f, s * 0.22f, paint)
+        c.drawLine(cx - hw * 0.44f, cy + hw * 0.04f, cx - hw * 0.06f, cy + hw * 0.42f, paint)
+        c.drawLine(cx - hw * 0.06f, cy + hw * 0.42f, cx + hw * 0.52f, cy - hw * 0.4f, paint)
+    }
+
+    fun drawArrowToEdge(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, toStart: Boolean) {
+        val angle = if (toStart) 270f else 90f
+        val wingX = s * 0.62f
+        c.save()
+        c.rotate(angle, cx, cy)
+        drawUpArrow(c, paint, cx, cy, s)
+        c.drawLine(cx - wingX, cy - s * 1.10f, cx + wingX, cy - s * 1.10f, paint)
+        c.restore()
+    }
+
+    private fun drawUpArrow(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val tipY = cy - s * 0.82f
+        val tailY = cy + s * 0.82f
+        val wingY = cy - s * 0.18f
+        val wingX = s * 0.62f
+        c.drawLine(cx, tailY, cx, tipY, paint)
+        c.drawLine(cx, tipY, cx - wingX, wingY, paint)
+        c.drawLine(cx, tipY, cx + wingX, wingY, paint)
+    }
+
 
     fun drawEmoji(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         c.drawCircle(cx, cy, s * 0.82f, paint)
@@ -188,6 +247,16 @@ object Glyphs {
 
     internal fun chevronBounds(cx: Float, cy: Float, s: Float): RectF =
         RectF(cx - s * 0.7f, cy - s * 0.38f, cx + s * 0.7f, cy + s * 0.38f)
+
+    fun drawUndo(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val left = cx - s * 0.85f
+        val topY = cy - s * 0.30f
+        c.drawLine(left + s * 0.52f, topY - s * 0.52f, left, topY, paint)
+        c.drawLine(left, topY, left + s * 0.52f, topY + s * 0.52f, paint)
+        c.drawLine(left, topY, cx + s * 0.32f, topY, paint)
+        c.drawArc(cx - s * 0.20f, topY, cx + s * 0.84f, topY + s * 1.04f, 270f, 180f, false, paint)
+        c.drawLine(cx + s * 0.32f, topY + s * 1.04f, cx - s * 0.16f, topY + s * 1.04f, paint)
+    }
 
     fun drawAppMark(c: Canvas, cx: Float, cy: Float, sizePx: Float, mono: Boolean, monoColor: Int) {
         val scale = sizePx / 58f

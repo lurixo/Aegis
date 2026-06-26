@@ -49,6 +49,7 @@ internal data class ImePanelSurfaceMetrics(
 internal interface ImeKeySurface {
     val faceColor: Int
     val cornerRadiusPx: Float
+    val faceCornerRadiusPx: Float
     fun faceBoundsForTest(width: Int, height: Int): RectF
 }
 
@@ -84,6 +85,8 @@ class ImeKeyFeedback(
             get() = face
         override val cornerRadiusPx: Float
             get() = radius
+        override val faceCornerRadiusPx: Float
+            get() = faceRadius
 
         override fun faceBoundsForTest(width: Int, height: Int): RectF = RectF().also {
             setFaceBounds(it, 0, 0, width, height)
@@ -185,6 +188,8 @@ class ImeKeyFeedback(
         const val DEFAULT_FACE_INSET_DP = 3f
     }
 }
+
+internal interface BackspaceBubbleSource
 
 class ImeBackspaceTouch(
     private val view: View,

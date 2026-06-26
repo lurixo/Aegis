@@ -24,6 +24,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.TextView
+import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
 import java.time.Duration
 import org.junit.Assert.assertEquals
@@ -66,6 +67,103 @@ class PanelMotionTest {
             if (v is ViewGroup) for (i in 0 until v.childCount) stack.add(v.getChildAt(i))
         }
         return found.single()
+    }
+
+    @Test fun edit_panel_selection_tint_crossfades_and_repeat_calls_are_free() {
+        animationsOn()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val v = attach(activity, EditPanelView(activity).apply { applyPalette(light) })
+            val copy = v.actionViewForTest(EditAction.COPY) as TextView
+            assertEquals(light.disabled, copy.currentTextColor)
+
+            v.setHasSelection(true)
+            assertTrue("copy stays tappable while selected", copy.isEnabled)
+            assertTrue("the tint change cross-fades", v.selectionTintAnimatingForTest())
+            flushMotion()
+            assertEquals(light.keyLabel, copy.currentTextColor)
+            assertFalse(v.selectionTintAnimatingForTest())
+
+            v.setHasSelection(true)
+            assertFalse("a same-state call does not restart the fade", v.selectionTintAnimatingForTest())
+            assertEquals(light.keyLabel, copy.currentTextColor)
+
+            v.setHasSelection(false)
+            assertFalse("copy is disabled when the host reports no selection", copy.isEnabled)
+            assertFalse("copy is not clickable when the host reports no selection", copy.isClickable)
+            assertTrue(v.selectionTintAnimatingForTest())
+            flushMotion()
+            assertEquals(light.disabled, copy.currentTextColor)
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun edit_panel_selection_tint_is_immediate_under_reduced_motion() {
+        animationsOff()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val v = attach(activity, EditPanelView(activity).apply { applyPalette(light) })
+            val copy = v.actionViewForTest(EditAction.COPY) as TextView
+            v.setHasSelection(true)
+            assertFalse(v.selectionTintAnimatingForTest())
+            assertEquals("reduced motion jumps straight to the target tint", light.keyLabel, copy.currentTextColor)
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun edit_panel_palette_reapply_applies_the_selection_tint_instantly() {
+        animationsOn()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val v = attach(activity, EditPanelView(activity).apply { applyPalette(light) })
+            val copy = v.actionViewForTest(EditAction.COPY) as TextView
+            val cut = v.actionViewForTest(EditAction.CUT) as TextView
+            v.setHasSelection(false)
+            flushMotion()
+            assertEquals(light.disabled, copy.currentTextColor)
+
+            val dark = ImePalette.STATIC_DARK
+            v.applyPalette(dark)
+            assertFalse("a palette reapply must not start a tint fade", v.selectionTintAnimatingForTest())
+            assertEquals("copy is already at the final disabled tint", dark.disabled, copy.currentTextColor)
+            assertEquals("cut is already at the final disabled tint", dark.disabled, cut.currentTextColor)
+            assertFalse("a palette reapply preserves the disabled key state", copy.isEnabled)
+            assertFalse("a palette reapply preserves the non-clickable key state", copy.isClickable)
+            flushMotion()
+            assertEquals(dark.disabled, copy.currentTextColor)
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun edit_panel_selection_state_lands_synchronously_when_animated() {
+        animationsOn()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val v = attach(activity, EditPanelView(activity).apply { applyPalette(light) })
+            val start = activity.getString(R.string.edit_start_select)
+            val end = activity.getString(R.string.edit_end_select)
+            val select = requireNotNull(v.actionViewForTest(EditAction.START_SELECT))
+            val label = activity.getString(R.string.edit_select)
+            assertEquals(label, v.selectingLabelForTest().toString())
+            assertEquals(start, select.contentDescription)
+            v.setSelecting(true)
+            assertEquals("selection is announced in the same call", end, select.contentDescription)
+            assertEquals("the short label is stable", label, v.selectingLabelForTest().toString())
+            flushMotion()
+            assertEquals(end, select.contentDescription)
+            v.setSelecting(true)
+            assertEquals("a same-state call preserves the announcement", end, select.contentDescription)
+            assertEquals(label, v.selectingLabelForTest().toString())
+        } finally {
+            controller.pause().stop().destroy()
+        }
     }
 
     @Test fun copy_bar_split_toggle_re_renders_synchronously() {

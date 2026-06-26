@@ -53,6 +53,9 @@ class InputView(context: Context) : LinearLayout(context) {
     var onFunction: (BarFunction) -> Unit = {}
     var onBackspaceSwipe: (Boolean) -> Unit = {}
 
+    var backspaceSwipeAvailable: (Boolean) -> Boolean
+        get() = keyboardView.backspaceSwipeAvailable
+        set(value) { keyboardView.backspaceSwipeAvailable = value }
     var onPanelBackspace: () -> Unit = {}
     var onPanelClear: () -> Unit = {}
     var onExpandClosed: () -> Unit = {}

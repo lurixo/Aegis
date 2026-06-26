@@ -107,6 +107,10 @@ class KeyboardView(context: Context) : View(context) {
         onSwipe = { up -> onBackspaceSwipe(up) }
     }
 
+    var backspaceSwipeAvailable: (Boolean) -> Boolean
+        get() = backspace.canSwipe
+        set(value) { backspace.canSwipe = value }
+
     private val longPressRunnable = Runnable {
         val dk = downKey ?: return@Runnable
         val dp = downPlaced ?: return@Runnable

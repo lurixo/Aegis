@@ -27,6 +27,7 @@ import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -156,5 +157,42 @@ class ImeVisualPolishTest {
         val picked = block()
         assertEquals("a picked block keeps the chip radius", r, (picked.background as GradientDrawable).cornerRadius, 0.01f)
         assertEquals("a picked block keeps the same press corners", r, mask(picked).cornerRadius, 0.01f)
+    }
+
+    @Test fun edit_panel_controls_all_use_rounded_tap_feedback() {
+        val panel = EditPanelView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        assertAllClickableViewsUseRoundedTapFeedback(panel, "text edit panel")
+    }
+
+    private fun assertAllClickableViewsUseRoundedTapFeedback(root: View, label: String) {
+        val clickable = clickableViews(root)
+        assertTrue("$label exposes click targets for the audit", clickable.isNotEmpty())
+        clickable.forEach { view ->
+            if (view.background is ImeKeySurface) {
+                assertFalse(
+                    "$label click target ${view.javaClass.simpleName} must not stack a platform ripple on the shared key surface",
+                    view.foreground is RippleDrawable,
+                )
+                return@forEach
+            }
+            val ripple = view.foreground as? RippleDrawable
+                ?: throw AssertionError("$label click target ${view.javaClass.simpleName} lost rounded feedback")
+            val mask = ripple.findDrawableByLayerId(android.R.id.mask) as? GradientDrawable
+                ?: throw AssertionError("$label click target ${view.javaClass.simpleName} lost its ripple mask")
+            assertTrue(
+                "$label click target ${view.javaClass.simpleName} uses a rounded ripple mask",
+                mask.cornerRadius > 0f || mask.cornerRadii?.any { it > 0f } == true,
+            )
+        }
+    }
+
+    private fun clickableViews(root: View): List<View> {
+        val out = ArrayList<View>()
+        fun walk(v: View) {
+            if (v.hasOnClickListeners()) out.add(v)
+            if (v is ViewGroup) for (i in 0 until v.childCount) walk(v.getChildAt(i))
+        }
+        walk(root)
+        return out
     }
 }
