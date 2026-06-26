@@ -23,6 +23,7 @@ import android.graphics.Outline
 import android.graphics.Rect
 import android.graphics.RectF
 import android.os.SystemClock
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
@@ -41,9 +42,13 @@ class InputView(context: Context) : LinearLayout(context) {
 
     var onKey: (Key) -> Unit = {}
     var onPickCandidate: (Int) -> Unit = {}
+    var onPickReading: (Int) -> Unit = {}
     var onFunction: (BarFunction) -> Unit = {}
     var onBackspaceSwipe: (Boolean) -> Unit = {}
 
+    var onPanelBackspace: () -> Unit = {}
+    var onPanelClear: () -> Unit = {}
+    var onExpandClosed: () -> Unit = {}
     var onCollapse: () -> Unit = {}
     var onEditConfirm: () -> Unit = {}
     var onEditTextChanged: (String) -> Unit = {}
@@ -60,10 +65,16 @@ class InputView(context: Context) : LinearLayout(context) {
     private val editBarView = EditBarView(context)
     private val keyboardView = KeyboardView(context)
     private val panelContainer = FrameLayout(context)
+    private val gridView = CandidateGridView(context)
 
     private val body = SurfaceContainer(context)
     private val bodySlot = CompactDock(context) { resolveDockWidth(it) }.apply { addDockedView(body) }
+    private var lastCandidates: List<String> = emptyList()
     private val candidateTapGuard = CandidateTapGuard()
+    private var lastCandidateProjection: CandidateProjectionPolicy? = null
+    private var lastReadings: List<String> = emptyList()
+    private var lastSelectedReading = -1
+    private var pendingGridBind: Any? = null
     private var currentPanel: View? = null
     private var palette = ImePalette.STATIC_LIGHT
     private var windowNavBottomPx = lastNavBottomPx
@@ -81,6 +92,7 @@ class InputView(context: Context) : LinearLayout(context) {
         preeditView.applyPalette(p)
         candidateView.applyPalette(p)
         keyboardView.applyPalette(p)
+        gridView.applyPalette(p)
         editBarView.applyPalette(p)
     }
 
@@ -105,7 +117,15 @@ class InputView(context: Context) : LinearLayout(context) {
         candidateView.onPick = { index -> pickCandidateIfSeen(index) }
         candidateView.onCandidatePress = { downTime -> candidateTapGuard.press(downTime) }
         candidateView.onFunction = { f -> onFunction(f) }
+        candidateView.onExpand = { showExpandedCandidates() }
         candidateView.onCollapse = { onCollapse() }
+        candidateView.onCollapseExpanded = { showPanel(null) }
+        gridView.onPick = { index -> pickCandidateIfSeen(index) }
+        gridView.onCandidatePress = { downTime -> candidateTapGuard.press(downTime) }
+        gridView.onPickReading = { index -> onPickReading(index) }
+        gridView.onClose = { showPanel(null) }
+        gridView.onBackspace = { onPanelBackspace() }
+        gridView.onClear = { onPanelClear() }
         keyboardView.onKey = { key -> onKey(key) }
         keyboardView.onBackspaceSwipe = { up -> onBackspaceSwipe(up) }
         editBarView.onConfirm = { onEditConfirm() }
@@ -289,12 +309,66 @@ class InputView(context: Context) : LinearLayout(context) {
         candidatesPending: Boolean = false,
     ) {
         candidateTapGuard.show(candidates, candidatesPending, SystemClock.uptimeMillis())
+        lastCandidates = candidates
+        lastCandidateProjection = candidateProjection
+        lastReadings = readings
+        lastSelectedReading = selectedReading
         preeditView.setText(preedit)
 
         candidateView.setContent(candidates, preedit)
+
+        if (currentPanel === gridView) {
+            if (preedit.isEmpty()) showPanel(null)
+            else if (pendingGridBind == null) bindExpandedCandidates(animateContentChange = true)
+        }
     }
 
     internal fun candidateBarForTest(): CandidateView = candidateView
+
+    internal fun showExpandedCandidates() {
+        if (lastCandidates.isEmpty()) return
+        if (pendingGridBind != null && currentPanel === gridView) return
+        val deferBinding = isAttachedToWindow &&
+            gridView.needsPoolGrowth(lastCandidates.size, lastReadings.size)
+        val token = if (deferBinding) Any().also { pendingGridBind = it } else null
+        if (token != null) gridView.setSelectionContentVisible(false)
+        if (currentPanel !== gridView) gridView.prepareForOpen()
+        showPanel(gridView)
+        if (token != null) {
+            gridView.postOnAnimation {
+                if (pendingGridBind !== token || currentPanel !== gridView) return@postOnAnimation
+                gridView.post(object : Runnable {
+                    override fun run() {
+                        if (pendingGridBind !== token || currentPanel !== gridView) return
+                        if (!gridView.isAttachedToWindow) {
+                            gridView.post(this)
+                            return
+                        }
+                        pendingGridBind = null
+                        bindExpandedCandidates()
+                    }
+                })
+            }
+        } else {
+            bindExpandedCandidates()
+        }
+    }
+
+    private fun bindExpandedCandidates(animateContentChange: Boolean = false) {
+        if (currentPanel !== gridView) return
+        val swap = {
+            gridView.setCandidates(lastCandidates, lastCandidateProjection)
+            gridView.setReadings(lastReadings, lastSelectedReading)
+            gridView.setSelectionContentVisible(true)
+        }
+        if (animateContentChange && gridView.candidatesWouldChange(lastCandidates, lastCandidateProjection)) {
+            Motion.coverThrough(gridView, palette.keyboardBg, swap)
+        } else {
+            swap()
+        }
+    }
+
+    internal fun toolbarShownForTest(): Boolean = candidateView.visibility == VISIBLE
 
     fun showPanel(panel: View?) = showPanel(panel, animateReveal = true)
 
@@ -303,8 +377,11 @@ class InputView(context: Context) : LinearLayout(context) {
     private fun showPanel(panel: View?, animateReveal: Boolean) {
         val outgoing = currentPanel
         (outgoing as? ResettablePanel)?.takeIf { it !== panel }?.resetToDefault()
+        if (outgoing === gridView && panel !== gridView) onExpandClosed()
         currentPanel = panel
         (panel as? CoversToolbar)?.setCoveredBarHeight(coveredBarHeightPx())
+        if (panel !== gridView) pendingGridBind = null
+        candidateView.setExpanded(panel === gridView)
         val coversBar = panel is CoversToolbar
         val restoredBar = outgoing is CoversToolbar && !coversBar
         if (panel == null) {
@@ -407,7 +484,9 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun panelVisualRightPx(): Int = panelVisualLeftPx() + panelContainer.width
     internal fun preeditVisualLeftPx(): Int = preeditSlot.left + preeditView.left
     internal fun preeditVisualRightPx(): Int = preeditVisualLeftPx() + preeditView.width
+    internal fun toolbarVisualTopPx(): Int = bodySlot.top + body.top + candidateView.top
     internal fun keyboardVisualTopPx(): Int = bodySlot.top + body.top + keyboardView.top
+    internal fun panelVisualTopPx(): Int = bodySlot.top + body.top + panelContainer.top
     internal fun dockSurfaceWidthPx(): Int = body.width
     internal fun dockSurfaceLeftPx(): Int = bodySlot.left + body.left
     internal fun dockSurfaceRightPx(): Int = dockSurfaceLeftPx() + body.width
@@ -423,6 +502,28 @@ class InputView(context: Context) : LinearLayout(context) {
                 keyboardVisualTopPx() + local.bottom,
             )
         }
+
+    internal fun tapExpandCandidatesForTest(): Boolean {
+        val bounds = candidateView.expandControlBoundsForTest()
+        return dispatchTapForTest(
+            toolbarVisualLeftPx() + bounds.centerX(),
+            toolbarVisualTopPx() + bounds.centerY(),
+        )
+    }
+
+    internal fun expandedGridForTest(): CandidateGridView = gridView
+
+    private fun dispatchTapForTest(x: Float, y: Float): Boolean {
+        val down = MotionEvent.obtain(0L, 0L, MotionEvent.ACTION_DOWN, x, y, 0)
+        val up = MotionEvent.obtain(0L, 16L, MotionEvent.ACTION_UP, x, y, 0)
+        return try {
+            val accepted = dispatchTouchEvent(down)
+            dispatchTouchEvent(up) && accepted
+        } finally {
+            down.recycle()
+            up.recycle()
+        }
+    }
 
     internal fun isCompactLandscapeDock(): Boolean =
         resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&

@@ -24,6 +24,7 @@ import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -104,5 +105,23 @@ class CandidateTapWiringTest {
         advance(CandidateTapGuard.SETTLE_MILLIS + 10)
         tapStrip(iv, 0)
         assertEquals(listOf(0), picked)
+    }
+
+    @Test fun anExpandedGridWordReplacedUnderTheFingerIsNotCommitted() {
+        val picked = ArrayList<Int>()
+        val iv = inputView(picked)
+        iv.showExpandedCandidates()
+        shadowOf(Looper.getMainLooper()).idle()
+        val grid = iv.expandedGridForTest()
+        val x = grid.width / 2f
+        val y = grid.height / 2f
+        val down = SystemClock.uptimeMillis()
+        grid.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, down, x, y))
+        grid.dispatchTouchEvent(event(MotionEvent.ACTION_CANCEL, down, x, y))
+        iv.showCandidates(fresh, "jiu", emptyList(), candidatesPending = false)
+        assertTrue(grid.tapCandidateForTest(1))
+        assertEquals(emptyList<Int>(), picked)
+        assertTrue(grid.tapCandidateForTest(2))
+        assertEquals(listOf(2), picked)
     }
 }

@@ -689,7 +689,25 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     internal fun candidateRebuildsForTest(): Int = candidateRebuilds
     internal fun readingRebuildsForTest(): Int = readingRebuilds
     internal fun chipsAllocatedForTest(): Int = chipsAllocated
+    internal fun needsPoolGrowth(candidateCount: Int, readingCount: Int): Boolean =
+        (candidateCount > 0 && table.childCount == 0) || readingCount > readingPool.size
+    internal fun candidatesWouldChange(
+        candidates: List<String>,
+        projection: CandidateProjectionPolicy?,
+    ): Boolean {
+        if (candidates != sourceCandidates) return true
+        if (projection == sourceCandidateProjection) return false
+        if (renderedCandidateWidth <= 0) return true
+        return sourceIndicesFor(candidates, renderedCandidateWidth, projection) != renderedSourceIndices
+    }
+    internal fun setSelectionContentVisible(visible: Boolean) {
+        val target = if (visible) View.VISIBLE else View.INVISIBLE
+        readingScroll.visibility = target
+        table.visibility = target
+    }
     internal fun readingsAllocatedForTest(): Int = readingsAllocated
+    internal fun selectionContentVisibleForTest(): Boolean =
+        readingScroll.visibility == View.VISIBLE && table.visibility == View.VISIBLE
     internal fun renderedCandidateTextsForTest(): List<String> = renderedCandidates.orEmpty()
     internal fun renderedSourceIndicesForTest(): List<Int> = renderedSourceIndices
     internal fun rowTextsForTest(): List<List<String>> {
@@ -793,6 +811,8 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     internal fun singlesWordsForTest(): Pair<String, String> = singlesKey.leading to singlesKey.trailing
     internal fun backspaceGlyphForTest(): Drawable = backspaceGlyph
     internal fun gridScrollYForTest(): Int = gridScrollOffsetForTest
+    internal fun firstVisibleCandidateRowForTest(): Int = table.firstVisiblePosition
+    internal fun firstVisibleCandidateTopForTest(): Int? = table.getChildAt(0)?.top
     internal fun readingScrollYForTest(): Int = readingScroll.scrollY
     internal fun scrollForTest(gridY: Int, readingY: Int = 0) {
         val stride = candidateRowStride()

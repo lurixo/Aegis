@@ -21,8 +21,10 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.RectF
+import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
+import android.widget.FrameLayout
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.layout.Layouts
@@ -34,10 +36,12 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.LooperMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -290,6 +294,236 @@ class CandidateBarChevronTest {
         gesture(bounds.left - 1f, bounds.centerY(), bounds.left + 1f, bounds.centerY())
         assertEquals(1, expansions)
         assertEquals(0, picks)
+    }
+
+    private fun activityInput(): Pair<FrameLayout, InputView> {
+        val activity = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
+        val root = FrameLayout(activity)
+        val iv = InputView(activity)
+        root.addView(iv)
+        activity.setContentView(root)
+        layoutRoot(root)
+        Shadows.shadowOf(Looper.getMainLooper()).runToEndOfTasks()
+        return root to iv
+    }
+
+    private fun layoutRoot(root: FrameLayout) {
+        val viewDensity = root.resources.displayMetrics.density
+        val width = (360 * viewDensity).toInt()
+        val height = (500 * viewDensity).toInt()
+        root.measure(
+            View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY),
+        )
+        root.layout(0, 0, width, height)
+    }
+
+    @Test fun expanded_grid_covers_the_toolbar_row_and_keeps_a_reachable_collapse_chevron() {
+        val (root, iv) = activityInput()
+        val mainLooper = Shadows.shadowOf(Looper.getMainLooper())
+        iv.showCandidates(List(30) { "候选$it" }, "shi", listOf("shi"), 0)
+        layoutRoot(root)
+        assertTrue("the bar is visible while composing", iv.toolbarShownForTest())
+        val barTop = iv.toolbarVisualTopPx()
+
+        iv.showExpandedCandidates()
+        layoutRoot(root)
+        mainLooper.runToEndOfTasks()
+        assertTrue(iv.panelShown)
+        assertFalse("the expanded surface covers the bar row", iv.toolbarShownForTest())
+        assertEquals("expanded surface top == former bar top", barTop, iv.panelVisualTopPx())
+
+        val collapse = iv.expandedGridForTest().returnButtonForTest()
+        assertEquals(
+            "the in-surface collapse control spells out its name",
+            ctx.getString(com.aegis.ime.R.string.panel_back),
+            collapse.text.toString(),
+        )
+        assertTrue("no glyph is left beside the words", collapse.compoundDrawables.all { it == null })
+
+        assertTrue("collapse is reachable inside the expanded surface", collapse.performClick())
+        layoutRoot(root)
+        mainLooper.runToEndOfTasks()
+        assertFalse("collapsing returns to the keyboard", iv.panelShown)
+        assertTrue("collapsing restores the bar", iv.toolbarShownForTest())
+        assertEquals("the bar returns to its former position", barTop, iv.toolbarVisualTopPx())
+    }
+
+    @Test fun reopening_the_expanded_grid_resets_the_real_list_and_reading_viewports() {
+        val (root, iv) = activityInput()
+        val mainLooper = Shadows.shadowOf(Looper.getMainLooper())
+        iv.showCandidates(List(120) { "候选$it" }, "shi", List(30) { "reading$it" }, 0)
+        iv.showExpandedCandidates()
+        layoutRoot(root)
+        mainLooper.runToEndOfTasks()
+        layoutRoot(root)
+        val grid = iv.expandedGridForTest()
+
+        grid.scrollForTest(gridY = 180, readingY = 96)
+        layoutRoot(root)
+        assertTrue(
+            "precondition: the real ListView moved away from its initial top",
+            grid.firstVisibleCandidateRowForTest() > 0 || grid.firstVisibleCandidateTopForTest() != 0,
+        )
+        assertTrue("precondition: reading rail moved", grid.readingScrollYForTest() > 0)
+
+        iv.showPanel(null)
+        layoutRoot(root)
+        mainLooper.runToEndOfTasks()
+        iv.showExpandedCandidates()
+        layoutRoot(root)
+        mainLooper.runToEndOfTasks()
+        layoutRoot(root)
+
+        assertEquals("reopened ListView starts at row zero", 0, grid.firstVisibleCandidateRowForTest())
+        assertEquals("reopened first row starts at its exact top", 0, grid.firstVisibleCandidateTopForTest())
+        assertEquals("reopened reading rail starts at its exact top", 0, grid.readingScrollYForTest())
+    }
+
+    @Test fun pending_expand_coalesces_rapid_updates_and_repeated_open_requests() {
+        val (root, iv) = activityInput()
+        val candidates = List(54) { "候选$it" }
+        val readings = listOf("shi")
+        iv.showCandidates(candidates, "shi", readings, 0)
+        val grid = iv.expandedGridForTest()
+        val mainLooper = Shadows.shadowOf(Looper.getMainLooper())
+        var firstPreDrawPools: Pair<Int, Int>? = null
+        root.viewTreeObserver.addOnPreDrawListener {
+            if (firstPreDrawPools == null) {
+                firstPreDrawPools = grid.chipsAllocatedForTest() to grid.readingsAllocatedForTest()
+            }
+            true
+        }
+        assertEquals(0, grid.chipsAllocatedForTest())
+        assertTrue(iv.tapExpandCandidatesForTest())
+        assertTrue(iv.panelShown)
+        assertEquals(0, grid.chipsAllocatedForTest())
+        assertFalse(grid.selectionContentVisibleForTest())
+        assertEquals(View.VISIBLE, grid.returnButtonForTest().visibility)
+        root.postOnAnimation { root.viewTreeObserver.dispatchOnPreDraw() }
+        mainLooper.runToEndOfTasks()
+        assertEquals(0 to 0, firstPreDrawPools)
+        val initialCandidatePool = grid.chipsAllocatedForTest()
+        assertTrue(initialCandidatePool in 1 until candidates.size)
+        assertEquals(candidates, grid.renderedCandidateTextsForTest())
+        assertEquals(readings, grid.renderedReadingTextsForTest())
+        assertEquals(ImePalette.STATIC_LIGHT.lockedReading, grid.readingTextColorForTest(0))
+        assertTrue(grid.selectionContentVisibleForTest())
+
+        iv.showPanel(null)
+        mainLooper.runToEndOfTasks()
+        iv.showCandidates(List(60) { "打开$it" }, "shi", listOf("shi", "si"), 0)
+        val candidateRebuilds = grid.candidateRebuildsForTest()
+        val readingRebuilds = grid.readingRebuildsForTest()
+        var growthPreDrawPools: Pair<Int, Int>? = null
+        root.viewTreeObserver.addOnPreDrawListener {
+            if (growthPreDrawPools == null) {
+                growthPreDrawPools = grid.chipsAllocatedForTest() to grid.readingsAllocatedForTest()
+            }
+            true
+        }
+        assertTrue(iv.tapExpandCandidatesForTest())
+        iv.showExpandedCandidates()
+        iv.showCandidates(List(68) { "中间$it" }, "shi", listOf("shi", "si", "chi", "zhi"), 3)
+        iv.showExpandedCandidates()
+        val latestCandidates = List(63) { "最新$it" }
+        val latestReadings = listOf("chi", "shi", "si")
+        iv.showCandidates(latestCandidates, "shi", latestReadings, 1)
+        assertEquals(initialCandidatePool, grid.chipsAllocatedForTest())
+        assertEquals(1, grid.readingsAllocatedForTest())
+        assertEquals(candidateRebuilds, grid.candidateRebuildsForTest())
+        assertEquals(readingRebuilds, grid.readingRebuildsForTest())
+        assertEquals(candidates, grid.renderedCandidateTextsForTest())
+        assertEquals(readings, grid.renderedReadingTextsForTest())
+        assertFalse(grid.selectionContentVisibleForTest())
+        assertEquals(View.VISIBLE, grid.returnButtonForTest().visibility)
+        assertTrue(grid.returnButtonForTest().isClickable)
+        root.postOnAnimation { root.viewTreeObserver.dispatchOnPreDraw() }
+        mainLooper.runToEndOfTasks()
+        assertEquals(initialCandidatePool to 1, growthPreDrawPools)
+        assertTrue(grid.chipsAllocatedForTest() in 1 until latestCandidates.size)
+        assertEquals(latestReadings.size, grid.readingsAllocatedForTest())
+        assertEquals(latestCandidates, grid.renderedCandidateTextsForTest())
+        assertEquals(latestReadings, grid.renderedReadingTextsForTest())
+        assertEquals(ImePalette.STATIC_LIGHT.candidateText, grid.readingTextColorForTest(0))
+        assertEquals(ImePalette.STATIC_LIGHT.lockedReading, grid.readingTextColorForTest(1))
+        assertEquals(ImePalette.STATIC_LIGHT.candidateText, grid.readingTextColorForTest(2))
+        assertEquals(candidateRebuilds + 1, grid.candidateRebuildsForTest())
+        assertEquals(readingRebuilds + 1, grid.readingRebuildsForTest())
+        assertTrue(grid.selectionContentVisibleForTest())
+    }
+
+    @LooperMode(LooperMode.Mode.PAUSED)
+    @Test fun close_then_reopen_rejects_the_old_nested_bind() {
+        val (root, iv) = activityInput()
+        val grid = iv.expandedGridForTest()
+        val mainLooper = Shadows.shadowOf(Looper.getMainLooper())
+        iv.showCandidates(List(70) { "旧候选$it" }, "shi", listOf("shi", "si", "chi", "zhi"), 2)
+        assertTrue(iv.tapExpandCandidatesForTest())
+        var checkpointPools: Pair<Int, Int>? = null
+        grid.postOnAnimation {
+            assertTrue(grid.returnButtonForTest().performClick())
+            val latestCandidates = List(12) { "重开$it" }
+            val latestReadings = listOf("si", "shi")
+            iv.showCandidates(latestCandidates, "shi", latestReadings, 1)
+            iv.showExpandedCandidates()
+            grid.postOnAnimation {
+                checkpointPools = grid.chipsAllocatedForTest() to grid.readingsAllocatedForTest()
+                assertFalse(grid.selectionContentVisibleForTest())
+                assertEquals(View.VISIBLE, grid.returnButtonForTest().visibility)
+            }
+        }
+        root.postOnAnimation { root.viewTreeObserver.dispatchOnPreDraw() }
+        mainLooper.runToEndOfTasks()
+        assertEquals(0 to 0, checkpointPools)
+        assertTrue(grid.chipsAllocatedForTest() in 1..12)
+        assertEquals(2, grid.readingsAllocatedForTest())
+        assertEquals(List(12) { "重开$it" }, grid.renderedCandidateTextsForTest())
+        assertEquals(listOf("si", "shi"), grid.renderedReadingTextsForTest())
+        assertEquals(ImePalette.STATIC_LIGHT.candidateText, grid.readingTextColorForTest(0))
+        assertEquals(ImePalette.STATIC_LIGHT.lockedReading, grid.readingTextColorForTest(1))
+        assertEquals(1, grid.candidateRebuildsForTest())
+        assertEquals(1, grid.readingRebuildsForTest())
+        assertTrue(grid.selectionContentVisibleForTest())
+    }
+
+    @LooperMode(LooperMode.Mode.PAUSED)
+    @Test fun pending_open_inter_stage_detach_waits_for_reattach_and_binds_latest_once() {
+        val (root, iv) = activityInput()
+        val grid = iv.expandedGridForTest()
+        val mainLooper = Shadows.shadowOf(Looper.getMainLooper())
+        iv.showCandidates(List(54) { "分离前$it" }, "shi", listOf("shi"), 0)
+        assertTrue(iv.tapExpandCandidatesForTest())
+        grid.postOnAnimation { root.removeView(iv) }
+        mainLooper.runToEndOfTasks()
+        assertFalse(iv.isAttachedToWindow)
+        assertEquals(0, grid.chipsAllocatedForTest())
+        assertEquals(0, grid.readingsAllocatedForTest())
+        assertEquals(0, grid.candidateRebuildsForTest())
+        assertEquals(0, grid.readingRebuildsForTest())
+        assertFalse(grid.selectionContentVisibleForTest())
+        assertEquals(View.VISIBLE, grid.returnButtonForTest().visibility)
+        assertTrue(grid.returnButtonForTest().isClickable)
+        val latestCandidates = List(51) { "重连$it" }
+        val latestReadings = listOf("si", "shi", "chi")
+        iv.showCandidates(latestCandidates, "shi", latestReadings, 2)
+        assertEquals(0, grid.chipsAllocatedForTest())
+        assertEquals(0, grid.readingsAllocatedForTest())
+        root.addView(iv)
+        layoutRoot(root)
+        assertTrue(iv.isAttachedToWindow)
+        assertEquals(0, grid.chipsAllocatedForTest())
+        mainLooper.runToEndOfTasks()
+        assertTrue(grid.chipsAllocatedForTest() in 1 until latestCandidates.size)
+        assertEquals(latestReadings.size, grid.readingsAllocatedForTest())
+        assertEquals(latestCandidates, grid.renderedCandidateTextsForTest())
+        assertEquals(latestReadings, grid.renderedReadingTextsForTest())
+        assertEquals(ImePalette.STATIC_LIGHT.candidateText, grid.readingTextColorForTest(0))
+        assertEquals(ImePalette.STATIC_LIGHT.candidateText, grid.readingTextColorForTest(1))
+        assertEquals(ImePalette.STATIC_LIGHT.lockedReading, grid.readingTextColorForTest(2))
+        assertEquals(1, grid.candidateRebuildsForTest())
+        assertEquals(1, grid.readingRebuildsForTest())
+        assertTrue(grid.selectionContentVisibleForTest())
     }
 
     @Test fun the_idle_toolbar_capsule_keeps_the_shared_edge_inset() {
