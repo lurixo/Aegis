@@ -22,23 +22,34 @@ import android.graphics.RectF
 import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
+import kotlin.math.abs
 
 enum class BarFunction(val glyph: String) {
-    SWITCH_KBD("⌨"), NUMPAD("123"), EMOJI("☺"), CLIPBOARD("📋")
+    SWITCH_KBD("⌨"), EMOJI("☺"), EDIT("✎"), CLIPBOARD("📋"), NUMPAD("123")
 }
 
 class CandidateView(context: Context) : View(context) {
 
     var onPick: (Int) -> Unit = {}
     var onFunction: (BarFunction) -> Unit = {}
+    var onExpand: () -> Unit = {}
 
     private var items: List<String> = emptyList()
     private var composing: String = ""
     private val hitRects = ArrayList<RectF>()
     private var hitCount = 0
+    private var contentWidth = 0f
+    private var scrollX = 0f
+
     private val functions = BarFunction.entries
     private val funcRects = ArrayList<RectF>().also { l -> repeat(functions.size) { l.add(RectF()) } }
     private var showingFunctions = false
+
+    private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+    private var downX = 0f
+    private var downScroll = 0f
+    private var dragging = false
 
     private fun hitRect(i: Int): RectF {
         while (hitRects.size <= i) hitRects.add(RectF())
@@ -47,6 +58,7 @@ class CandidateView(context: Context) : View(context) {
 
     private val density = resources.displayMetrics.density
     private val padding = 14f * density
+    private val expandW = 40f * density
 
     private fun sp(value: Float) =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, resources.displayMetrics)
@@ -55,40 +67,51 @@ class CandidateView(context: Context) : View(context) {
         color = 0xFF202124.toInt()
         textSize = sp(18f)
     }
-    private val composingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF1565C0.toInt()
-        textSize = sp(16f)
-    }
-    private val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFB0BEC5.toInt()
-        textSize = sp(15f)
+    private val firstPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF2E7D32.toInt()
+        textSize = sp(18f)
     }
     private val funcPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF455A64.toInt()
         textAlign = Paint.Align.CENTER
         textSize = sp(18f)
     }
+    private val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFB0BEC5.toInt()
+        textSize = sp(15f)
+    }
     private val sepPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFD5DADF.toInt() }
+    private val expandBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFF2F4F6.toInt() }
+    private val chevronPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF607D8B.toInt()
+        textAlign = Paint.Align.CENTER
+        textSize = sp(18f)
+    }
 
     fun setContent(candidates: List<String>, composingText: String) {
         items = candidates
         composing = composingText
+        scrollX = 0f
+        layoutCells()
         invalidate()
     }
 
+    private fun layoutCells() {
+        hitCount = items.size
+        var x = padding
+        for ((i, item) in items.withIndex()) {
+            val cellW = textPaint.measureText(item) + padding * 2
+            hitRect(i).set(x, 0f, x + cellW, 0f)
+            x += cellW
+        }
+        contentWidth = x
+    }
+
+    private fun maxScroll(): Float = maxOf(0f, contentWidth - (width - expandW))
+
     override fun onDraw(canvas: Canvas) {
         canvas.drawColor(0xFFF2F4F6.toInt())
-        hitCount = 0
-        val cy = height / 2f
-        val baseline = cy - (textPaint.descent() + textPaint.ascent()) / 2
-
-        var x = padding
-        if (composing.isNotEmpty()) {
-            canvas.drawText(composing, x, baseline, composingPaint)
-            x += composingPaint.measureText(composing) + padding
-            canvas.drawRect(x, height * 0.2f, x + density, height * 0.8f, sepPaint)
-            x += padding
-        }
+        val baseline = height / 2f - (textPaint.descent() + textPaint.ascent()) / 2
 
         if (items.isEmpty()) {
             showingFunctions = composing.isEmpty()
@@ -96,18 +119,25 @@ class CandidateView(context: Context) : View(context) {
             return
         }
         showingFunctions = false
+        scrollX = scrollX.coerceIn(0f, maxScroll())
 
-        hitCount = items.size
-        for ((i, item) in items.withIndex()) {
-            val tw = textPaint.measureText(item)
-            val cellW = tw + padding * 2
-            hitRect(i).set(x, 0f, x + cellW, height.toFloat())
-            canvas.drawText(item, x + padding, baseline, textPaint)
-            x += cellW
-            if (i != items.lastIndex) {
-                canvas.drawRect(x, height * 0.25f, x + density, height * 0.75f, sepPaint)
+        val visibleW = width - expandW
+        canvas.save()
+        canvas.clipRect(0f, 0f, visibleW, height.toFloat())
+        for (i in 0 until hitCount) {
+            val r = hitRects[i]
+            r.bottom = height.toFloat()
+            val left = r.left - scrollX
+            canvas.drawText(items[i], left + padding, baseline, if (i == 0) firstPaint else textPaint)
+            if (i != hitCount - 1) {
+                canvas.drawRect(r.right - scrollX, height * 0.25f, r.right - scrollX + density, height * 0.75f, sepPaint)
             }
         }
+        canvas.restore()
+
+        canvas.drawRect(visibleW, 0f, width.toFloat(), height.toFloat(), expandBgPaint)
+        canvas.drawRect(visibleW, height * 0.2f, visibleW + density, height * 0.8f, sepPaint)
+        canvas.drawText("⌄", visibleW + expandW / 2f, baseline, chevronPaint)
     }
 
     private fun drawFunctions(canvas: Canvas, baseline: Float) {
@@ -120,22 +150,36 @@ class CandidateView(context: Context) : View(context) {
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked == MotionEvent.ACTION_UP) {
-            if (showingFunctions) {
-                for (i in functions.indices) {
-                    if (funcRects[i].contains(event.x, event.y)) {
-                        performClick()
-                        onFunction(functions[i])
-                        break
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                downX = event.x
+                downScroll = scrollX
+                dragging = false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (!showingFunctions && items.isNotEmpty()) {
+                    val dx = event.x - downX
+                    if (!dragging && abs(dx) > touchSlop) dragging = true
+                    if (dragging) {
+                        scrollX = (downScroll - dx).coerceIn(0f, maxScroll())
+                        invalidate()
                     }
                 }
-            } else {
+            }
+            MotionEvent.ACTION_UP -> {
+                if (dragging) { dragging = false; return true }
+                if (showingFunctions) {
+                    funcRects.indexOfFirst { it.contains(event.x, event.y) }
+                        .takeIf { it >= 0 }?.let { performClick(); onFunction(functions[it]) }
+                    return true
+                }
+                if (items.isNotEmpty() && event.x >= width - expandW) {
+                    performClick(); onExpand(); return true
+                }
+                val cx = event.x + scrollX
                 for (i in 0 until hitCount) {
-                    if (hitRects[i].contains(event.x, event.y)) {
-                        performClick()
-                        onPick(i)
-                        break
-                    }
+                    val r = hitRects[i]
+                    if (cx >= r.left && cx < r.right) { performClick(); onPick(i); break }
                 }
             }
         }
