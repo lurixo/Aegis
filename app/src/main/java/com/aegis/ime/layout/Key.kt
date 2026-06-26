@@ -22,6 +22,7 @@ enum class LayoutId { ALPHA, NINE, NUMBER, SYMBOL, NUMPAD }
 enum class KeyAction {
     COMMIT,
     BACKSPACE,
+    CLEAR_COMPOSING,
     ENTER,
     SHIFT,
     SPACE,
@@ -32,6 +33,7 @@ enum class KeyAction {
     SWITCH_NUMPAD,
     TOGGLE_LANG,
     PICK_READING,
+    SHOW_EDIT,
 }
 
 data class Key(
@@ -40,8 +42,17 @@ data class Key(
     val action: KeyAction = KeyAction.COMMIT,
     val sub: String? = null,
     val weight: Float = 1f,
+    val direct: Boolean = false,
+    val accent: Boolean = false,
 )
 
 data class KeyboardRow(val keys: List<Key>)
 
-data class KeyboardLayout(val id: LayoutId, val rows: List<KeyboardRow>)
+data class PlacedKey(val key: Key, val x: Float, val y: Float, val w: Float, val h: Float)
+
+data class KeyboardLayout(
+    val id: LayoutId,
+    val rows: List<KeyboardRow> = emptyList(),
+    val cells: List<PlacedKey>? = null,
+    val rowCount: Int = rows.size,
+)

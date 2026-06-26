@@ -39,8 +39,11 @@ class KeyboardController(
     private var candidates: List<String> = emptyList()
     private var lastWord: String? = null
 
+    private var readingOverride: String? = null
+
     var onShowEmoji: () -> Unit = {}
     var onShowClipboard: () -> Unit = {}
+    var onShowEdit: () -> Unit = {}
     var onClosePanel: () -> Unit = {}
 
     private var view: InputView? = null
@@ -69,6 +72,7 @@ class KeyboardController(
         when (key.action) {
             KeyAction.COMMIT -> handleCommit(key)
             KeyAction.BACKSPACE -> handleBackspace()
+            KeyAction.CLEAR_COMPOSING -> handleClearComposing()
             KeyAction.SPACE -> handleSpace()
             KeyAction.ENTER -> handleEnter()
             KeyAction.SHIFT -> shiftState = when (shiftState) {
@@ -82,9 +86,11 @@ class KeyboardController(
             KeyAction.SWITCH_NINE -> switchLayout(LayoutId.NINE)
             KeyAction.SWITCH_NUMPAD -> switchLayout(LayoutId.NUMPAD)
             KeyAction.PICK_READING -> handlePickReading(key)
+            KeyAction.SHOW_EDIT -> onShowEdit()
             KeyAction.TOGGLE_LANG -> {
                 flushComposing()
                 lang = if (lang == Lang.CN) Lang.EN else Lang.CN
+                if (lang == Lang.EN && layoutId == LayoutId.NINE) layoutId = LayoutId.ALPHA
             }
         }
         refreshCandidates()
@@ -95,7 +101,8 @@ class KeyboardController(
         when (f) {
             BarFunction.SWITCH_KBD -> {
                 onClosePanel()
-                switchLayout(if (layoutId == LayoutId.NINE) LayoutId.ALPHA else LayoutId.NINE)
+                val target = if (lang == Lang.EN || layoutId == LayoutId.NINE) LayoutId.ALPHA else LayoutId.NINE
+                switchLayout(target)
             }
             BarFunction.NUMPAD -> { onClosePanel(); switchLayout(LayoutId.NUMPAD) }
             BarFunction.EMOJI -> { onShowEmoji(); return }
@@ -108,8 +115,7 @@ class KeyboardController(
     private fun handlePickReading(key: Key) {
         val letters = key.output
         if (letters.isEmpty()) return
-        val word = engine.candidatesForReading(letters).firstOrNull() ?: letters
-        commitWord(word)
+        readingOverride = letters
     }
 
     fun onPickCandidate(index: Int) {
@@ -133,8 +139,15 @@ class KeyboardController(
     }
 
     private fun handleCommit(key: Key) {
+        if (key.direct) {
+            if (composing.isNotEmpty()) flushComposing()
+            host.commitText(applyCase(key.output))
+            if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
+            lastWord = null
+            return
+        }
         when (mode()) {
-            Mode.PINYIN -> composing.append(key.output)
+            Mode.PINYIN -> { composing.append(key.output); readingOverride = null }
             Mode.ENGLISH -> {
                 composing.append(applyCase(key.output))
                 if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
@@ -150,10 +163,15 @@ class KeyboardController(
     private fun handleBackspace() {
         if (composing.isNotEmpty()) {
             composing.setLength(composing.length - 1)
+            readingOverride = null
         } else {
             host.deleteBackward()
             lastWord = null
         }
+    }
+
+    private fun handleClearComposing() {
+        clearComposingState()
     }
 
     private fun handleSpace() {
@@ -194,15 +212,26 @@ class KeyboardController(
 
     private fun flushComposing() {
         if (composing.isNotEmpty()) {
-            host.commitText(composing.toString())
+            host.commitText(rawComposingText())
             clearComposingState()
         }
         lastWord = null
     }
 
+    private fun rawComposingText(): String {
+        if (composing.isEmpty()) return ""
+        readingOverride?.let { return it }
+        return if (layoutId == LayoutId.NINE && lang == Lang.CN) {
+            T9Pinyin.preedit(composing.toString()).replace("'", "")
+        } else {
+            composing.toString()
+        }
+    }
+
     private fun clearComposingState() {
         composing.setLength(0)
         candidates = emptyList()
+        readingOverride = null
     }
 
     private fun refreshCandidates() {
@@ -210,8 +239,9 @@ class KeyboardController(
             composing.isNotEmpty() -> {
                 val raw = composing.toString()
                 when (mode()) {
-                    Mode.PINYIN -> engine.candidates(raw, layoutId == LayoutId.NINE)
-                        .let { if (layoutId == LayoutId.ALPHA && raw !in it) it + raw else it }
+                    Mode.PINYIN -> readingOverride?.let { engine.candidatesForReading(it) }
+                        ?: engine.candidates(raw, layoutId == LayoutId.NINE)
+                            .let { if (layoutId == LayoutId.ALPHA && raw !in it) it + raw else it }
                     Mode.ENGLISH -> engine.english(raw).let { if (raw !in it) it + raw else it }
                     Mode.DIRECT -> emptyList()
                 }
@@ -225,6 +255,7 @@ class KeyboardController(
 
     private fun preeditText(): String {
         if (composing.isEmpty()) return ""
+        readingOverride?.let { return it }
         return if (mode() == Mode.PINYIN && layoutId == LayoutId.NINE) {
             T9Pinyin.preedit(composing.toString())
         } else {

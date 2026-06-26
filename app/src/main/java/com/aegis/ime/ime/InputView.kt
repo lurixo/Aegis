@@ -47,12 +47,10 @@ class InputView(context: Context) : LinearLayout(context) {
         addView(panelContainer, LayoutParams(LayoutParams.MATCH_PARENT, dp(250)))
 
         ViewCompat.setOnApplyWindowInsetsListener(this) { v, insets ->
-            val bars = insets.getInsets(
-                WindowInsetsCompat.Type.navigationBars() or
-                    WindowInsetsCompat.Type.displayCutout() or
-                    WindowInsetsCompat.Type.systemGestures(),
-            )
-            v.setPadding(bars.left, 0, bars.right, bars.bottom)
+            val nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+            val cut = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
+            val side = dp(4)
+            v.setPadding(maxOf(cut.left, side), 0, maxOf(cut.right, side), nav.bottom + dp(10))
             WindowInsetsCompat.CONSUMED
         }
     }
