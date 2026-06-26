@@ -1,0 +1,257 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Copyright (C) 2026 lurixo
+//
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 3.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+// PARTICULAR PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
+
+package com.aegis.ime.decoder
+
+object T9Pinyin {
+
+    private val letterToDigit: Map<Char, Char> = buildMap {
+        "abc".forEach { put(it, '2') }; "def".forEach { put(it, '3') }
+        "ghi".forEach { put(it, '4') }; "jkl".forEach { put(it, '5') }
+        "mno".forEach { put(it, '6') }; "pqrs".forEach { put(it, '7') }
+        "tuv".forEach { put(it, '8') }; "wxyz".forEach { put(it, '9') }
+    }
+
+    fun toT9(letters: String): String {
+        val sb = StringBuilder(letters.length)
+        for (c in letters) sb.append(letterToDigit[c] ?: c)
+        return sb.toString()
+    }
+
+
+    private val DIGIT_INITIAL: Map<Char, Char> = mapOf(
+        '2' to 'a', '3' to 'd', '4' to 'g', '5' to 'j', '6' to 'm', '7' to 'p', '8' to 't', '9' to 'w',
+    )
+
+    private val KEY_LETTERS: Map<Char, String> = mapOf(
+        '2' to "abc", '3' to "def", '4' to "ghi", '5' to "jkl",
+        '6' to "mno", '7' to "pqrs", '8' to "tuv", '9' to "wxyz",
+    )
+
+    internal val SYLLABLES: Set<String> = com.aegis.ime.dict.PinyinSyllables.ALL
+
+    private val NASAL_CODAS: Set<String> = setOf("ng", "n", "m")
+
+    private val freqRank: Map<String, Int> = listOf(
+        "de", "shi", "yi", "bu", "le", "zai", "wo", "ni", "ng", "ta", "men", "zhe", "ge", "shang",
+        "you", "he", "zhong", "da", "wei", "dao", "shuo", "guo", "jiu", "hai", "er", "na", "hao",
+        "hen", "xia", "lai", "qu", "kan", "xiang", "hui", "neng", "dui", "jia", "xue", "gong",
+        "fang", "dian", "yong", "fa", "xin", "zi", "ren", "sheng", "cheng", "ming", "mei", "hua",
+        "dong", "xi", "ye", "yao", "qing", "wen", "ke", "zhi", "chu", "fen", "jian", "shou",
+        "tian", "di", "gao", "xiao", "zhu", "kai", "dou", "wang", "yu", "li", "shen", "zui",
+        "yue", "yan", "mian", "jin", "xian", "qian", "zhen", "san", "wan", "bian", "guan",
+    ).withIndex().associate { (i, s) -> s to i }
+
+    private const val NON_INITIAL_LETTERS = "iuv"
+
+    private const val DEFAULT_RANK = 1000
+    private const val UNKNOWN_LEN_BONUS = 240
+    private const val LEN_BONUS = 480
+    private const val SYLLABLE_PENALTY = 50.0
+    private val maxDigits: Int = SYLLABLES.maxOf { toT9(it).length }
+    private val maxLetters: Int = SYLLABLES.maxOf { it.length }
+
+    private val byDigits: Map<String, List<String>> = run {
+        val m = HashMap<String, MutableList<String>>()
+        for (s in SYLLABLES) m.getOrPut(toT9(s)) { ArrayList() }.add(s)
+        m.mapValues { (_, v) -> v.sortedBy { freqRank[it] ?: DEFAULT_RANK } }
+    }
+
+    private fun rankOf(s: String) = freqRank[s] ?: (DEFAULT_RANK - UNKNOWN_LEN_BONUS * s.length)
+
+    private fun runRank(s: String): Int {
+        val best = byDigits[toT9(s)]?.firstOrNull() ?: s
+        return rankOf(best) - LEN_BONUS * s.length
+    }
+
+    private class Segmentation(val cost: Double, val parts: List<String>)
+
+    private fun segmentDigits(digits: String): Segmentation? {
+        val n = digits.length
+        if (n == 0 || digits.any { it < '2' || it > '9' }) return null
+        val cost = DoubleArray(n + 1) { Double.POSITIVE_INFINITY }
+        val pick = arrayOfNulls<String>(n + 1)
+        val back = IntArray(n + 1) { -1 }
+        cost[0] = 0.0
+        for (i in 1..n) {
+            val lo = maxOf(0, i - maxDigits)
+            for (j in lo until i) {
+                if (cost[j] == Double.POSITIVE_INFINITY) continue
+                val best = byDigits[digits.substring(j, i)]?.firstOrNull() ?: continue
+                val c = cost[j] + rankOf(best) + SYLLABLE_PENALTY
+                if (c < cost[i]) { cost[i] = c; pick[i] = best; back[i] = j }
+            }
+        }
+        if (cost[n] == Double.POSITIVE_INFINITY) return null
+        val out = ArrayList<String>()
+        var i = n
+        while (i > 0) { out.add(pick[i]!!); i = back[i] }
+        out.reverse()
+        return Segmentation(cost[n], out)
+    }
+
+    private fun segmentLetterRun(letters: String): Segmentation? {
+        val n = letters.length
+        if (n == 0 || letters.any { it < 'a' || it > 'z' }) return null
+        val cost = DoubleArray(n + 1) { Double.POSITIVE_INFINITY }
+        val pick = arrayOfNulls<String>(n + 1)
+        val back = IntArray(n + 1) { -1 }
+        cost[0] = 0.0
+        for (i in 1..n) {
+            val lo = maxOf(0, i - maxLetters)
+            for (j in lo until i) {
+                if (cost[j] == Double.POSITIVE_INFINITY) continue
+                val sub = letters.substring(j, i)
+                if (sub !in SYLLABLES) continue
+                if (sub in NASAL_CODAS && j > 0 &&
+                    (lo until j).any { k -> cost[k] != Double.POSITIVE_INFINITY && letters.substring(k, i) in SYLLABLES }
+                ) continue
+                val c = cost[j] + rankOf(sub) + SYLLABLE_PENALTY
+                if (c < cost[i]) { cost[i] = c; pick[i] = sub; back[i] = j }
+            }
+        }
+        if (cost[n] == Double.POSITIVE_INFINITY) return null
+        val out = ArrayList<String>()
+        var i = n
+        while (i > 0) { out.add(pick[i]!!); i = back[i] }
+        out.reverse()
+        return Segmentation(cost[n], out)
+    }
+
+    fun segment(digits: String): List<String>? = segmentDigits(digits)?.parts
+
+    fun segmentLetters(letters: String): List<String>? = segmentLetterRun(letters)?.parts
+
+    fun syllableReading(digitGroup: String): String = byDigits[digitGroup]?.firstOrNull() ?: ""
+
+    fun preedit(digits: String): String {
+        if (digits.isEmpty()) return ""
+        syllableReading(digits).takeIf { it.isNotEmpty() }?.let { return it }
+        segment(digits)?.let { return it.joinToString("'") }
+        val sb = StringBuilder()
+        var i = 0
+        while (i < digits.length) {
+            var matched = false
+            val hi = minOf(digits.length, i + maxDigits)
+            for (k in hi downTo i + 1) {
+                val g = byDigits[digits.substring(i, k)]?.firstOrNull()
+                if (g != null) {
+                    if (sb.isNotEmpty()) sb.append('\'')
+                    sb.append(g); i = k; matched = true; break
+                }
+            }
+            if (!matched) {
+                if (sb.isNotEmpty()) sb.append('\'')
+                sb.append(DIGIT_INITIAL[digits[i]] ?: digits[i]); i++
+            }
+        }
+        return sb.toString()
+    }
+
+    fun preeditLetters(letters: String): String {
+        if (letters.isEmpty()) return ""
+        val parts = letters.split('\'')
+        return buildString {
+            parts.forEachIndexed { index, part ->
+                if (index > 0) append('\'')
+                append(preeditLetterChunk(part))
+            }
+        }
+    }
+
+    private fun preeditLetterChunk(letters: String): String {
+        if (letters.isEmpty()) return ""
+        if (letters in SYLLABLES) return letters
+        segmentLetters(letters)?.let { return it.joinToString("'") }
+        for (end in letters.length - 1 downTo 1) {
+            val prefix = segmentLetters(letters.substring(0, end)) ?: continue
+            return prefix.joinToString("'") + "'" + letters.substring(end)
+        }
+        return letters
+    }
+
+    fun longestDecodablePrefix(digits: String): String {
+        for (p in digits.length downTo 1) {
+            if (segment(digits.substring(0, p)) != null) return digits.substring(0, p)
+        }
+        return ""
+    }
+
+    fun leftColumnReadings(digits: String, limit: Int): List<String> {
+        if (digits.isEmpty() || digits[0] < '2' || digits[0] > '9') return emptyList()
+        val out = LinkedHashSet<String>()
+        out.addAll(firstSyllableOptions(digits, limit))
+        KEY_LETTERS[digits[0]]?.toList()
+            ?.filterNot { it in NON_INITIAL_LETTERS }
+            ?.sortedByDescending { it.toString() in SYLLABLES }
+            ?.forEach { out.add(it.toString()) }
+        return out.toList().take(limit)
+    }
+
+    fun leftColumnLetterReadings(letters: String, limit: Int): List<String> {
+        if (letters.isEmpty() || letters.any { it !in 'a'..'z' }) return emptyList()
+        val out = LinkedHashSet<String>()
+        out.addAll(firstLetterSyllableOptions(letters))
+        if (letters.first() !in NON_INITIAL_LETTERS) out.add(letters.first().toString())
+        return out.toList().take(limit)
+    }
+
+    private fun firstLetterSyllableOptions(letters: String): List<String> {
+        val reachable = BooleanArray(letters.length + 1)
+        reachable[letters.length] = true
+        for (start in letters.length - 1 downTo 0) {
+            val hi = minOf(letters.length, start + maxLetters)
+            for (end in start + 1..hi) {
+                if (letters.substring(start, end) in SYLLABLES && reachable[end]) {
+                    reachable[start] = true
+                    break
+                }
+            }
+        }
+        val requireReach = reachable[0]
+        val out = ArrayList<String>()
+        val hi = minOf(letters.length, maxLetters)
+        for (end in 1..hi) {
+            val syllable = letters.substring(0, end)
+            if (syllable !in SYLLABLES) continue
+            if (requireReach && !reachable[end]) continue
+            out.add(syllable)
+        }
+        return out.sortedBy { rankOf(it) - LEN_BONUS * it.length }
+    }
+
+    fun firstSyllableOptions(digits: String, limit: Int): List<String> {
+        val n = digits.length
+        if (n == 0 || digits.any { it < '2' || it > '9' }) return emptyList()
+        val reachable = BooleanArray(n + 1)
+        reachable[n] = true
+        for (j in n - 1 downTo 0) {
+            val hi = minOf(n, j + maxDigits)
+            for (k in j + 1..hi) {
+                if (byDigits.containsKey(digits.substring(j, k)) && reachable[k]) { reachable[j] = true; break }
+            }
+        }
+        val out = LinkedHashSet<String>()
+        val requireReach = reachable[0]
+        val hi = minOf(n, maxDigits)
+        for (k in 1..hi) {
+            if (requireReach && !reachable[k]) continue
+            byDigits[digits.substring(0, k)]?.let { out.addAll(it) }
+        }
+        return out.toList()
+            .sortedWith(compareBy({ runRank(it) }, { freqRank[it] ?: DEFAULT_RANK }))
+            .take(limit)
+    }
+}
