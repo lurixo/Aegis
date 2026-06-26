@@ -144,6 +144,23 @@ object T9Pinyin {
         return sb.toString()
     }
 
+    /** A locked-first-syllable reading of a digit buffer: [display] is apostrophe-joined, [letters] for decoding. */
+    data class Reading(val display: String, val letters: String)
+
+    /**
+     * Lock the first syllable to [firstReading] (a value from [firstSyllableOptions]) and keep the rest
+     * of [digits] segmented normally, so picking a reading re-ranks the WHOLE buffer instead of
+     * collapsing to a single syllable (issue #12b). e.g. ("6433","ni") -> display "ni'de", letters "nide".
+     */
+    fun lockFirstReading(digits: String, firstReading: String): Reading? {
+        val fd = toT9(firstReading)
+        if (!digits.startsWith(fd)) return null
+        val rest = digits.substring(fd.length)
+        if (rest.isEmpty()) return Reading(firstReading, firstReading)
+        val restDisplay = preedit(rest)
+        return Reading("$firstReading'$restDisplay", firstReading + restDisplay.replace("'", ""))
+    }
+
     /** Distinct syllable readings that can begin a segmentation of [digits] (for the left column). */
     fun firstSyllableOptions(digits: String, limit: Int): List<String> {
         val n = digits.length
