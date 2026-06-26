@@ -30,10 +30,21 @@ object Layouts {
 
     fun forId(id: LayoutId, lang: Lang): KeyboardLayout = when (id) {
         LayoutId.ALPHA -> qwerty(lang)
-        LayoutId.NINE -> nine(lang)
+        LayoutId.NINE -> nine(lang, defaultNineLeft())
         LayoutId.NUMBER -> number()
         LayoutId.SYMBOL -> symbol()
+        LayoutId.NUMPAD -> numpad()
     }
+
+    private const val LEFT_W = 0.85f
+
+    /** Resting 9-key left column: common punctuation + the symbol page (issue #3). */
+    fun defaultNineLeft(): List<Key> = listOf(
+        Key("，", weight = LEFT_W),
+        Key("。", weight = LEFT_W),
+        Key("？", weight = LEFT_W),
+        Key("符", action = SWITCH_SYMBOLS, weight = LEFT_W),
+    )
 
     private fun row(vararg keys: Key) = KeyboardRow(keys.toList())
 
@@ -72,13 +83,18 @@ object Layouts {
 
     private fun t9(digit: String, sub: String) = Key(digit, output = digit, sub = sub)
 
-    private fun nine(lang: Lang): KeyboardLayout = KeyboardLayout(
+    /**
+     * 9-key T9 with a dynamic left column ([left], exactly 4 keys, top→bottom): the caller passes
+     * punctuation at rest or pinyin-combination readings while composing (issue #3).
+     */
+    fun nine(lang: Lang, left: List<Key>): KeyboardLayout = KeyboardLayout(
         LayoutId.NINE,
         listOf(
-            row(t9("1", "·"), t9("2", "ABC"), t9("3", "DEF"), Key("⌫", action = BACKSPACE)),
-            row(t9("4", "GHI"), t9("5", "JKL"), t9("6", "MNO"), Key("空格", output = " ", action = SPACE)),
-            row(t9("7", "PQRS"), t9("8", "TUV"), t9("9", "WXYZ"), Key("⏎", action = ENTER)),
+            row(left[0], t9("1", "·"), t9("2", "ABC"), t9("3", "DEF"), Key("⌫", action = BACKSPACE)),
+            row(left[1], t9("4", "GHI"), t9("5", "JKL"), t9("6", "MNO"), Key("空格", output = " ", action = SPACE)),
+            row(left[2], t9("7", "PQRS"), t9("8", "TUV"), t9("9", "WXYZ"), Key("⏎", action = ENTER)),
             row(
+                left[3],
                 Key("?123", action = SWITCH_NUMBERS),
                 Key("ABC", action = SWITCH_ALPHA),
                 langKey(lang),
@@ -106,6 +122,23 @@ object Layouts {
                 Key("空格", output = " ", action = SPACE, weight = 4f),
                 Key("."),
                 Key("⏎", action = ENTER, weight = 1.6f),
+            ),
+        ),
+    )
+
+    /** Calculator-style number 9-grid for fast digit entry (issue #6). */
+    private fun numpad(): KeyboardLayout = KeyboardLayout(
+        LayoutId.NUMPAD,
+        listOf(
+            row(Key("%"), Key("1"), Key("2"), Key("3"), Key("⌫", action = BACKSPACE)),
+            row(Key("+"), Key("4"), Key("5"), Key("6"), Key(".")),
+            row(Key("-"), Key("7"), Key("8"), Key("9"), Key("@")),
+            row(
+                Key("*"),
+                Key("返回", action = SWITCH_ALPHA),
+                Key("0"),
+                Key("空格", output = " ", action = SPACE),
+                Key("⏎", action = ENTER),
             ),
         ),
     )

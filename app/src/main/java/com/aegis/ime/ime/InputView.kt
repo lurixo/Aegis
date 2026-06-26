@@ -16,29 +16,37 @@
 package com.aegis.ime.ime
 
 import android.content.Context
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyboardLayout
 
-/** Root IME view: candidate strip stacked above the self-drawn keyboard. */
+/** Root IME view: candidate strip stacked above the self-drawn keyboard (or an extras panel). */
 class InputView(context: Context) : LinearLayout(context) {
 
     var onKey: (Key) -> Unit = {}
     var onPickCandidate: (Int) -> Unit = {}
+    var onFunction: (BarFunction) -> Unit = {}
 
     private val candidateView = CandidateView(context)
     private val keyboardView = KeyboardView(context)
+    private val panelContainer = FrameLayout(context)
 
     init {
         orientation = VERTICAL
         // Keyboard-grey fill so the inset gutters (behind the gesture bar / cutout) match the keys.
         setBackgroundColor(0xFFE2E6EA.toInt())
         candidateView.onPick = { index -> onPickCandidate(index) }
+        candidateView.onFunction = { f -> onFunction(f) }
         keyboardView.onKey = { key -> onKey(key) }
         addView(candidateView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
         addView(keyboardView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        panelContainer.visibility = GONE
+        addView(panelContainer, LayoutParams(LayoutParams.MATCH_PARENT, dp(250)))
 
         // targetSdk 36 forces the IME window edge-to-edge, so the input view would otherwise extend
         // behind the gesture nav bar and screen edges. Consume the insets ourselves: raise the bottom
@@ -61,6 +69,25 @@ class InputView(context: Context) : LinearLayout(context) {
     fun showCandidates(candidates: List<String>, composing: String) {
         candidateView.setContent(candidates, composing)
     }
+
+    /** Swap the keyboard area for an extras panel (emoji / clipboard); null restores the keyboard. */
+    fun showPanel(panel: View?) {
+        panelContainer.removeAllViews()
+        if (panel == null) {
+            panelContainer.visibility = GONE
+            keyboardView.visibility = VISIBLE
+        } else {
+            (panel.parent as? ViewGroup)?.removeView(panel)
+            panelContainer.addView(
+                panel,
+                FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT),
+            )
+            panelContainer.visibility = VISIBLE
+            keyboardView.visibility = GONE
+        }
+    }
+
+    val panelShown: Boolean get() = panelContainer.visibility == VISIBLE
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 }
