@@ -15,9 +15,11 @@
 
 package com.aegis.ime.ime
 
+import android.app.Activity
 import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.Lang
@@ -30,6 +32,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows
@@ -44,6 +47,7 @@ class KeyboardViewInteractionTest {
     private val density = context.resources.displayMetrics.density
     private val gap = 3f * density
     private val u = 1f / 4.7f
+    private val swipeThreshold = 24f * density
 
     private fun nineView(left: List<Key>, composing: Boolean): KeyboardView {
         val v = KeyboardView(context)
@@ -349,6 +353,159 @@ class KeyboardViewInteractionTest {
     @Test fun a_held_english_letter_does_NOT_auto_repeat() {
         val emitted = alphaView().holdFirstAction(KeyAction.COMMIT, 700)
         assertEquals("a held English letter emits exactly once (no repeat)", 1, emitted.size)
+    }
+
+    @Test fun a_held_backspace_still_auto_repeats() {
+        val emitted = alphaView().holdFirstAction(KeyAction.BACKSPACE, 700)
+        assertTrue("a held backspace auto-repeats (got ${emitted.size})", emitted.size >= 3)
+    }
+
+    @Test fun backspace_repeat_stops_when_the_finger_slides_off_the_key() {
+        val emitted = mutableListOf<String>()
+        var swipes = 0
+        val v = alphaView().apply { onKey = { emitted.add(it.output) }; onBackspaceSwipe = { swipes++ } }
+        val (x, y) = v.centerOfActionForTest(KeyAction.BACKSPACE)!!
+        val hit = v.keyHitBoundsForTest().first { it.first.action == KeyAction.BACKSPACE }.second
+        v.send(MotionEvent.ACTION_DOWN, x, y, 0)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+        assertTrue("precondition: the repeat is running", emitted.size >= 2)
+        v.send(MotionEvent.ACTION_MOVE, hit.left - 10f, y, 500)
+        val atSlideOff = emitted.size
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(400))
+        assertEquals("sliding off the key stops the repeat", atSlideOff, emitted.size)
+        v.send(MotionEvent.ACTION_UP, hit.left - 10f, y, 900)
+        assertEquals("lifting after a stopped repeat emits nothing more", atSlideOff, emitted.size)
+        assertEquals("no swipe fires after a repeat", 0, swipes)
+    }
+
+    @Test fun backspace_repeat_survives_vertical_drift_within_the_key() {
+        val emitted = mutableListOf<String>()
+        var swipes = 0
+        val v = alphaView().apply { onKey = { emitted.add(it.output) }; onBackspaceSwipe = { swipes++ } }
+        val (x, y) = v.centerOfActionForTest(KeyAction.BACKSPACE)!!
+        val hit = v.keyHitBoundsForTest().first { it.first.action == KeyAction.BACKSPACE }.second
+        val driftY = y + swipeThreshold + 2f
+        assertTrue("precondition: the drift target stays inside the key", driftY < hit.bottom)
+        v.send(MotionEvent.ACTION_DOWN, x, y, 0)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+        assertTrue("precondition: the repeat is running", emitted.size >= 2)
+        v.send(MotionEvent.ACTION_MOVE, x, driftY, 500)
+        val atDrift = emitted.size
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(400))
+        assertTrue("vertical drift inside the key keeps the repeat running", emitted.size > atDrift)
+        v.send(MotionEvent.ACTION_UP, x, driftY, 900)
+        assertEquals("the drift never converts into a swipe", 0, swipes)
+    }
+
+    @Test fun backspace_repeat_survives_a_drift_into_the_edge_inset() {
+        val emitted = mutableListOf<String>()
+        val v = alphaView().apply { onKey = { emitted.add(it.output) } }
+        val (x, y) = v.centerOfActionForTest(KeyAction.BACKSPACE)!!
+        val hit = v.keyHitBoundsForTest().first { it.first.action == KeyAction.BACKSPACE }.second
+        val inset = com.aegis.ime.ime.theme.ImeShapes.edgeInsetDp * v.resources.displayMetrics.density
+        assertEquals("precondition: the backspace touch area stops at the edge inset", v.width - inset, hit.right, 0.02f)
+        v.send(MotionEvent.ACTION_DOWN, x, y, 0)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+        assertTrue("precondition: the repeat is running", emitted.size >= 2)
+        val edgeX = v.width - inset / 2f
+        v.send(MotionEvent.ACTION_MOVE, edgeX, y, 500)
+        val atDrift = emitted.size
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(400))
+        assertTrue("a drift into the edge inset keeps the repeat running", emitted.size > atDrift)
+        v.send(MotionEvent.ACTION_UP, edgeX, y, 900)
+    }
+
+    @Test fun a_backspace_swipe_before_the_repeat_starts_still_fires() {
+        val emitted = mutableListOf<String>()
+        val swipes = mutableListOf<Boolean>()
+        val v = alphaView().apply { onKey = { emitted.add(it.output) }; onBackspaceSwipe = { swipes.add(it) } }
+        val (x, y) = v.centerOfActionForTest(KeyAction.BACKSPACE)!!
+        v.send(MotionEvent.ACTION_DOWN, x, y, 0)
+        v.send(MotionEvent.ACTION_MOVE, x, y - (swipeThreshold + 15f), 12)
+        v.send(MotionEvent.ACTION_UP, x, y - (swipeThreshold + 15f), 24)
+        assertEquals("an up swipe fires the swipe gesture", listOf(true), swipes)
+        assertEquals("a swipe commits no key", emptyList<String>(), emitted)
+    }
+
+    @Test fun the_nine_key_backspace_shares_the_same_repeat_and_swipe_rules() {
+        val emitted = mutableListOf<String>()
+        val swipes = mutableListOf<Boolean>()
+        val held = nineView(Layouts.ninePunctuation(), composing = false).apply {
+            onKey = { emitted.add(it.output) }
+            onBackspaceSwipe = { swipes.add(it) }
+        }
+        val (hx, hy) = held.centerOfActionForTest(KeyAction.BACKSPACE)!!
+        held.send(MotionEvent.ACTION_DOWN, hx, hy, 0)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(700))
+        val whileHeld = emitted.size
+        assertTrue("the 9-key backspace auto-repeats (got $whileHeld)", whileHeld >= 3)
+        held.send(MotionEvent.ACTION_UP, hx, hy, 700)
+        assertEquals("lifting after a repeat adds nothing", whileHeld, emitted.size)
+        assertTrue("a repeat never converts into a swipe", swipes.isEmpty())
+
+        val swiped = nineView(Layouts.ninePunctuation(), composing = false).apply {
+            onKey = { emitted.add(it.output) }
+            onBackspaceSwipe = { swipes.add(it) }
+        }
+        val (sx, sy) = swiped.centerOfActionForTest(KeyAction.BACKSPACE)!!
+        val before = emitted.size
+        swiped.send(MotionEvent.ACTION_DOWN, sx, sy, 0)
+        swiped.send(MotionEvent.ACTION_MOVE, sx, sy + (swipeThreshold + 15f), 12)
+        swiped.send(MotionEvent.ACTION_UP, sx, sy + (swipeThreshold + 15f), 24)
+        assertEquals("a down swipe fires on the 9-key face too", listOf(false), swipes)
+        assertEquals("a swipe commits no key", before, emitted.size)
+    }
+
+    @Test fun detaching_the_keyboard_stops_a_running_backspace_repeat() {
+        for ((face, build) in listOf<Pair<String, () -> KeyboardView>>(
+            "26-key" to { alphaView() },
+            "9-key" to { nineView(Layouts.ninePunctuation(), composing = false) },
+        )) {
+            val controller = Robolectric.buildActivity(Activity::class.java).setup()
+            try {
+                val root = requireNotNull(controller.get().findViewById<ViewGroup>(android.R.id.content))
+                val emitted = mutableListOf<KeyAction>()
+                val v = build().apply { onKey = { emitted.add(it.action) } }
+                root.addView(v)
+                root.measure(
+                    View.MeasureSpec.makeMeasureSpec(v.measuredWidth, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(v.measuredHeight, View.MeasureSpec.EXACTLY),
+                )
+                root.layout(0, 0, v.measuredWidth, v.measuredHeight)
+                val (x, y) = requireNotNull(v.centerOfActionForTest(KeyAction.BACKSPACE))
+                v.send(MotionEvent.ACTION_DOWN, x, y, 0)
+                Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+                val whileHeld = emitted.size
+                assertTrue("$face: precondition: the repeat is running", whileHeld >= 2)
+
+                root.removeView(v)
+                Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(400))
+
+                assertEquals("$face: detaching stops the repeat", whileHeld, emitted.size)
+            } finally {
+                controller.pause().stop().destroy()
+            }
+        }
+    }
+
+    @Test fun releasing_the_backspace_off_the_key_still_commits_one_backspace() {
+        for ((face, v) in listOf(
+            "26-key" to alphaView(),
+            "9-key" to nineView(Layouts.ninePunctuation(), composing = false),
+        )) {
+            val emitted = mutableListOf<KeyAction>()
+            val swipes = mutableListOf<Boolean>()
+            v.onKey = { emitted.add(it.action) }
+            v.onBackspaceSwipe = { swipes.add(it) }
+            val (x, y) = v.centerOfActionForTest(KeyAction.BACKSPACE)!!
+            val outside = v.width + 40f
+            v.send(MotionEvent.ACTION_DOWN, x, y, 0)
+            v.send(MotionEvent.ACTION_MOVE, outside, y, 150)
+            v.send(MotionEvent.ACTION_UP, outside, y, 160)
+
+            assertEquals("$face: lifting off the key still deletes once", listOf(KeyAction.BACKSPACE), emitted)
+            assertTrue("$face: leaving sideways is never a swipe", swipes.isEmpty())
+        }
     }
 
     @Test fun a_quick_tap_emits_exactly_once_no_repeat() {

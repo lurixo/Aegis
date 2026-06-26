@@ -46,6 +46,8 @@ class KeyboardView(context: Context) : View(context) {
 
     var onKey: (Key) -> Unit = {}
 
+    var onBackspaceSwipe: (Boolean) -> Unit = {}
+
     private var layout: KeyboardLayout = Layouts.forId(LayoutId.ALPHA, Lang.CN)
     private var modeSwitches = 0
     private var layoutApplies = 0
@@ -91,6 +93,12 @@ class KeyboardView(context: Context) : View(context) {
     private var downEventTime = 0L
     private var retargetUnlocked = false
     private var activePointerId = MotionEvent.INVALID_POINTER_ID
+    private val backspace = BackspaceGesture(resources.displayMetrics.density).apply {
+        onRepeat = { downKey?.let { key -> onKey(key) } }
+        onSwipe = { up -> onBackspaceSwipe(up) }
+    }
+
+    private fun isRepeatable(key: Key) = key.action == KeyAction.BACKSPACE
 
     private val density = resources.displayMetrics.density
     private val rowHeight = 52f * density
@@ -811,6 +819,11 @@ class KeyboardView(context: Context) : View(context) {
 
     private fun inEdgeInset(x: Float): Boolean = x < edgeInset || x >= width - edgeInset
 
+    private fun heldBounds(p: Placed): RectF = RectF(p.hitRect ?: p.rect).apply {
+        if (left <= edgeInset) left = 0f
+        if (right >= width - edgeInset) right = width.toFloat()
+    }
+
     private fun beginPrimary(x: Float, y: Float, eventTime: Long) {
         downPlaced = placedAt(x, y)
         downInEdgeInset = downPlaced == null && inEdgeInset(x)
@@ -818,25 +831,50 @@ class KeyboardView(context: Context) : View(context) {
         setPressedKey(downKey)
         downX = x; downY = y
         downEventTime = eventTime; retargetUnlocked = false
+        backspace.cancel()
+        val dp = downPlaced
+        val dk = downKey
+        if (dk != null && dp != null) {
+            if (isRepeatable(dk)) backspace.begin(x, y)
+        }
     }
 
     private fun handlePrimaryMove(x: Float, y: Float, eventTime: Long) {
         maybeUnlockRetarget(x, y, eventTime)
+        val dk = downKey
+        when {
+            dk != null && dk.action == KeyAction.BACKSPACE -> {
+                val bounds = downPlaced?.let(::heldBounds)
+                backspace.move(x, y, bounds == null || bounds.contains(x, y))
+            }
+            else -> {
                 val k = currentTarget(x, y)
                 if (k !== pressed) {
                     setPressedKey(k)
                 }
+            }
+        }
     }
 
     private fun finishPrimary(x: Float, y: Float, eventTime: Long) {
         maybeUnlockRetarget(x, y, eventTime)
+        val dk = downKey
         releasePressedKey()
-        currentTarget(x, y)?.let { performClick(); emitKey(it, eventTime) }
+        when {
+            dk != null && dk.action == KeyAction.BACKSPACE -> {
+                val bounds = downPlaced?.let(::heldBounds)
+                backspace.move(x, y, bounds == null || bounds.contains(x, y))
+                if (backspace.finish()) currentTarget(x, y)?.let { performClick(); emitKey(it, eventTime) }
+            }
+            else ->
+                currentTarget(x, y)?.let { performClick(); emitKey(it, eventTime) }
+        }
         downKey = null
         downPlaced = null
     }
 
     private fun cancelPrimary() {
+        backspace.cancel()
         releasePressedKey()
         downKey = null
         downPlaced = null
@@ -962,6 +1000,7 @@ class KeyboardView(context: Context) : View(context) {
 
     override fun onDetachedFromWindow() {
         removeCallbacks(scrollbarTick)
+        backspace.cancel()
         super.onDetachedFromWindow()
     }
 
