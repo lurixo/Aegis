@@ -95,8 +95,8 @@ class KeyboardView(context: Context) : View(context) {
         textSize = sp(20f)
     }
     private val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF78909C.toInt()
-        textAlign = Paint.Align.CENTER
+        color = 0xFF90A4AE.toInt()
+        textAlign = Paint.Align.RIGHT
         textSize = sp(10f)
     }
 
@@ -181,12 +181,10 @@ class KeyboardView(context: Context) : View(context) {
             display.length > 1 && p.key.action != KeyAction.COMMIT -> specialLabelPaint
             else -> labelPaint
         }
+        canvas.drawText(display, cx, cy - (paint.descent() + paint.ascent()) / 2, paint)
+        // 26-key super-script symbol at the top-right corner.
         if (p.key.sub != null) {
-            val mainBaseline = cy - 3 * density
-            canvas.drawText(display, cx, mainBaseline - (paint.descent() + paint.ascent()) / 2, paint)
-            canvas.drawText(p.key.sub, cx, cy + 13 * density, subPaint)
-        } else {
-            canvas.drawText(display, cx, cy - (paint.descent() + paint.ascent()) / 2, paint)
+            canvas.drawText(p.key.sub, p.rect.right - 6 * density, p.rect.top + 15 * density, subPaint)
         }
     }
 
