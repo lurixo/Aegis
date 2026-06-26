@@ -31,10 +31,14 @@ class InputView(context: Context) : LinearLayout(context) {
     var onKey: (Key) -> Unit = {}
     var onPickCandidate: (Int) -> Unit = {}
     var onFunction: (BarFunction) -> Unit = {}
+    var onBackspaceSwipe: (Boolean) -> Unit = {}
 
+    private val preeditView = PreeditView(context)
     private val candidateView = CandidateView(context)
     private val keyboardView = KeyboardView(context)
     private val panelContainer = FrameLayout(context)
+    private val gridView = CandidateGridView(context)
+    private var lastCandidates: List<String> = emptyList()
 
     init {
         orientation = VERTICAL
@@ -42,7 +46,13 @@ class InputView(context: Context) : LinearLayout(context) {
         setBackgroundColor(0xFFE2E6EA.toInt())
         candidateView.onPick = { index -> onPickCandidate(index) }
         candidateView.onFunction = { f -> onFunction(f) }
+        candidateView.onExpand = { showExpandedCandidates() }
+        gridView.onPick = { index -> showPanel(null); onPickCandidate(index) }
+        gridView.onClose = { showPanel(null) }
         keyboardView.onKey = { key -> onKey(key) }
+        keyboardView.onBackspaceSwipe = { up -> onBackspaceSwipe(up) }
+        preeditView.visibility = GONE
+        addView(preeditView, LayoutParams(LayoutParams.MATCH_PARENT, dp(28)))
         addView(candidateView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
         addView(keyboardView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         panelContainer.visibility = GONE
@@ -64,8 +74,19 @@ class InputView(context: Context) : LinearLayout(context) {
         keyboardView.setLayout(layout, shifted)
     }
 
-    fun showCandidates(candidates: List<String>, composing: String) {
-        candidateView.setContent(candidates, composing)
+    /** [preedit] is the pinyin tab text (separate from candidates, C1); empty hides the tab. */
+    fun showCandidates(candidates: List<String>, preedit: String) {
+        lastCandidates = candidates
+        preeditView.setText(preedit)
+        preeditView.visibility = if (preedit.isEmpty()) GONE else VISIBLE
+        candidateView.setContent(candidates, preedit)
+        if (panelShown && candidates.isEmpty()) showPanel(null) // composing ended → drop the grid
+    }
+
+    private fun showExpandedCandidates() {
+        if (lastCandidates.isEmpty()) return
+        gridView.setCandidates(lastCandidates)
+        showPanel(gridView)
     }
 
     /** Swap the keyboard area for an extras panel (emoji / clipboard); null restores the keyboard. */

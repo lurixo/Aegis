@@ -122,6 +122,7 @@ class KeyboardController(
             }
             BarFunction.NUMPAD -> { onClosePanel(); switchLayout(LayoutId.NUMPAD) }
             BarFunction.EMOJI -> { onShowEmoji(); return }
+            BarFunction.EDIT -> { onShowEdit(); return }
             BarFunction.CLIPBOARD -> { onShowClipboard(); return }
         }
         refreshCandidates()
