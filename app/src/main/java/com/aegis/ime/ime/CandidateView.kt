@@ -23,14 +23,22 @@ import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
 
+enum class BarFunction(val glyph: String) {
+    SWITCH_KBD("⌨"), NUMPAD("123"), EMOJI("☺"), CLIPBOARD("📋")
+}
+
 class CandidateView(context: Context) : View(context) {
 
     var onPick: (Int) -> Unit = {}
+    var onFunction: (BarFunction) -> Unit = {}
 
     private var items: List<String> = emptyList()
     private var composing: String = ""
     private val hitRects = ArrayList<RectF>()
     private var hitCount = 0
+    private val functions = BarFunction.entries
+    private val funcRects = ArrayList<RectF>().also { l -> repeat(functions.size) { l.add(RectF()) } }
+    private var showingFunctions = false
 
     private fun hitRect(i: Int): RectF {
         while (hitRects.size <= i) hitRects.add(RectF())
@@ -55,6 +63,11 @@ class CandidateView(context: Context) : View(context) {
         color = 0xFFB0BEC5.toInt()
         textSize = sp(15f)
     }
+    private val funcPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF455A64.toInt()
+        textAlign = Paint.Align.CENTER
+        textSize = sp(18f)
+    }
     private val sepPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFD5DADF.toInt() }
 
     fun setContent(candidates: List<String>, composingText: String) {
@@ -78,11 +91,11 @@ class CandidateView(context: Context) : View(context) {
         }
 
         if (items.isEmpty()) {
-            if (composing.isEmpty()) {
-                canvas.drawText("Aegis", padding, baseline, hintPaint)
-            }
+            showingFunctions = composing.isEmpty()
+            if (showingFunctions) drawFunctions(canvas, baseline)
             return
         }
+        showingFunctions = false
 
         hitCount = items.size
         for ((i, item) in items.withIndex()) {
@@ -97,13 +110,32 @@ class CandidateView(context: Context) : View(context) {
         }
     }
 
+    private fun drawFunctions(canvas: Canvas, baseline: Float) {
+        val cellW = 48f * density
+        for ((i, f) in functions.withIndex()) {
+            val left = i * cellW
+            funcRects[i].set(left, 0f, left + cellW, height.toFloat())
+            canvas.drawText(f.glyph, left + cellW / 2f, baseline, funcPaint)
+        }
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_UP) {
-            for (i in 0 until hitCount) {
-                if (hitRects[i].contains(event.x, event.y)) {
-                    performClick()
-                    onPick(i)
-                    break
+            if (showingFunctions) {
+                for (i in functions.indices) {
+                    if (funcRects[i].contains(event.x, event.y)) {
+                        performClick()
+                        onFunction(functions[i])
+                        break
+                    }
+                }
+            } else {
+                for (i in 0 until hitCount) {
+                    if (hitRects[i].contains(event.x, event.y)) {
+                        performClick()
+                        onPick(i)
+                        break
+                    }
                 }
             }
         }

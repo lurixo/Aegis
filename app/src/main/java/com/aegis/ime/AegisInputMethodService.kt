@@ -25,9 +25,12 @@ import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.OctagramReader
 import com.aegis.ime.engine.DictEngine
+import com.aegis.ime.ime.ClipboardView
+import com.aegis.ime.ime.EmojiView
 import com.aegis.ime.ime.ImeHost
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
+import com.aegis.ime.user.ClipboardStore
 import com.aegis.ime.user.UserModel
 import java.io.File
 
@@ -38,9 +41,17 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private val userDbFile by lazy { File(filesDir, "userdb.txt") }
     @Volatile private var userDbMtime = 0L
 
+    private var inputView: InputView? = null
+    private var emojiView: EmojiView? = null
+    private var clipboardView: ClipboardView? = null
+    private val clipboardStore by lazy { ClipboardStore(filesDir).also { it.load() } }
+
     override fun onCreate() {
         super.onCreate()
         controller = KeyboardController(this, DictEngine(null, null, null))
+        controller.onShowEmoji = { showEmojiPanel() }
+        controller.onShowClipboard = { showClipboardPanel() }
+        controller.onClosePanel = { inputView?.showPanel(null) }
         Thread {
             runCatching { userModel.load(userDbFile); userDbMtime = userDbFile.lastModified() }
             val dict = loadDict("aegis_dict.bin")
@@ -89,14 +100,50 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val view = InputView(this).apply {
             onKey = { key -> controller.onKey(key) }
             onPickCandidate = { index -> controller.onPickCandidate(index) }
+            onFunction = { f -> controller.onBarFunction(f) }
         }
+        inputView = view
         controller.attachView(view)
         return view
     }
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        inputView?.showPanel(null)
         controller.reset()
+    }
+
+    private fun showEmojiPanel() {
+        val iv = inputView ?: return
+        val ev = emojiView ?: EmojiView(this).also {
+            it.onEmoji = { e -> currentInputConnection?.commitText(e, 1) }
+            it.onBackspace = { currentInputConnection?.deleteSurroundingTextInCodePoints(1, 0) }
+            it.onBack = { inputView?.showPanel(null) }
+            emojiView = it
+        }
+        iv.showPanel(ev)
+    }
+
+    private fun showClipboardPanel() {
+        val iv = inputView ?: return
+        captureClip()
+        val cv = clipboardView ?: ClipboardView(this).also {
+            it.historyProvider = { clipboardStore.history() }
+            it.phraseProvider = { clipboardStore.phrases() }
+            it.onPick = { t -> currentInputConnection?.commitText(t, 1); inputView?.showPanel(null) }
+            it.onBack = { inputView?.showPanel(null) }
+            clipboardView = it
+        }
+        cv.refresh()
+        iv.showPanel(cv)
+    }
+
+    private fun captureClip() {
+        runCatching {
+            val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val clip = cm.primaryClip ?: return
+            if (clip.itemCount > 0) clipboardStore.record(clip.getItemAt(0).coerceToText(this)?.toString())
+        }
     }
 
 
