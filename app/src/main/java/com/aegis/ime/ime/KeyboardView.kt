@@ -20,6 +20,7 @@ import com.aegis.ime.R
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.os.SystemClock
 import android.util.TypedValue
@@ -27,6 +28,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.widget.OverScroller
+import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -66,7 +68,18 @@ class KeyboardView(context: Context) : View(context) {
     private var scrollAccentIndex = -1
     private var pendingAccentReveal = false
     private var scrollY = 0f
+    private var scrollPressedIndex = -1
+    private var scrollVisualPressedIndex = -1
+    private val scrollPress = Motion.PressFeedback(this)
+    private var scrollPointerId = MotionEvent.INVALID_POINTER_ID
+    private var scrollDownY = 0f
+    private var scrollLastY = 0f
+    private var scrolling = false
     private val tmpRect = RectF()
+    private val scrollTrackPath = Path()
+    private val scrollPressPath = Path()
+    private val scrollSlop = 6f * resources.displayMetrics.density
+    private val fling = FlingScroller(context)
     private val scrollbarFade = ScrollbarFade()
     private val scrollbarTick = Runnable { invalidate() }
 
@@ -152,7 +165,7 @@ class KeyboardView(context: Context) : View(context) {
         shiftLocked = isLocked
         lang = language
         scrollColumn = newLayout.scrollColumn
-        if (!sameColumn) { scrollY = 0f }
+        if (!sameColumn) { fling.forceFinish(); scrollY = 0f; scrollbarFade.hide() }
         if (width > 0) relayout()
         if (sizingChanged || width <= 0) requestLayout()
         invalidate()
@@ -368,6 +381,22 @@ class KeyboardView(context: Context) : View(context) {
         clampScroll()
     }
 
+    override fun computeScroll() {
+        fling.computeOffset()?.let {
+            scrollY = it
+            clampScroll()
+            scrollbarFade.scrolled(SystemClock.uptimeMillis())
+            postInvalidateOnAnimation()
+        }
+    }
+
+    private fun scrollIndexAt(y: Float): Int {
+        val sc = scrollColumn ?: return -1
+        if (scrollCellH <= 0f || y < scrollRegion.top || y > scrollRegion.bottom) return -1
+        val idx = ((y - scrollRegion.top + scrollY) / scrollCellH).toInt()
+        return if (idx in sc.items.indices) idx else -1
+    }
+
     private fun scrollLabelMinTextSize(): Float = SCROLL_LABEL_MIN_DP * density
 
     private fun fittedScrollLabelTextSize(label: String, baseTextSize: Float): Float {
@@ -391,6 +420,17 @@ class KeyboardView(context: Context) : View(context) {
             val top = scrollRegion.top - scrollY + i * scrollCellH
             val bottom = top + scrollCellH
             if (bottom < scrollRegion.top || top > scrollRegion.bottom) continue
+            val pressLevel = if (i == scrollVisualPressedIndex) scrollPress.level else 0f
+            if (pressLevel > 0f) {
+                tmpRect.set(scrollRegion.left, top, scrollRegion.right, bottom)
+                pressHighlight.color = Motion.stateLayerColor(palette.keyLabel, pressLevel)
+                scrollTrackPath.reset()
+                scrollTrackPath.addRoundRect(scrollRegion, keyRadius, keyRadius, Path.Direction.CW)
+                scrollPressPath.reset()
+                scrollPressPath.addRect(tmpRect, Path.Direction.CW)
+                scrollPressPath.op(scrollTrackPath, Path.Op.INTERSECT)
+                canvas.drawPath(scrollPressPath, pressHighlight)
+            }
             val label = displayLabel(key)
             paint.color = if (key.accent) palette.lockedReading else baseColor
             paint.textSize = fittedScrollLabelTextSize(label, baseTextSize)
@@ -697,32 +737,53 @@ class KeyboardView(context: Context) : View(context) {
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                if (scrollColumn != null && scrollTouch.contains(event.x, event.y)) {
+                    scrollPointerId = event.getPointerId(0)
+                    beginScroll(event.y)
+                } else {
                     activePointerId = event.getPointerId(0)
                     beginPrimary(event.x, event.y, event.eventTime)
+                }
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 val newIdx = event.actionIndex
                 val x = event.getX(newIdx)
                 val y = event.getY(newIdx)
-                if (!inEdgeInset(x)) {
+                if (scrollColumn != null && scrollTouch.contains(x, y)) {
+                    if (scrollPointerId == MotionEvent.INVALID_POINTER_ID) {
+                        finishActivePrimary(event)
+                        scrollPointerId = event.getPointerId(newIdx)
+                        beginScroll(y)
+                    }
+                } else if (!inEdgeInset(x)) {
                     finishActivePrimary(event)
                     activePointerId = event.getPointerId(newIdx)
                     beginPrimary(x, y, event.eventTime)
                 }
             }
             MotionEvent.ACTION_MOVE -> {
+                val si = event.findPointerIndex(scrollPointerId)
+                if (si >= 0) moveScroll(event.getY(si), event.eventTime)
                 val ai = event.findPointerIndex(activePointerId)
                 if (ai >= 0) handlePrimaryMove(event.getX(ai), event.getY(ai), event.eventTime)
             }
             MotionEvent.ACTION_POINTER_UP -> {
                 val id = event.getPointerId(event.actionIndex)
-                if (id == activePointerId) {
+                if (id == scrollPointerId) {
+                    endScroll(event.getY(event.actionIndex))
+                    scrollPointerId = MotionEvent.INVALID_POINTER_ID
+                } else if (id == activePointerId) {
                     val ai = event.actionIndex
                     finishPrimary(event.getX(ai), event.getY(ai), event.eventTime)
                     activePointerId = MotionEvent.INVALID_POINTER_ID
                 }
             }
             MotionEvent.ACTION_UP -> {
+                if (scrollPointerId != MotionEvent.INVALID_POINTER_ID) {
+                    val si = event.findPointerIndex(scrollPointerId)
+                    endScroll(if (si >= 0) event.getY(si) else event.y)
+                    scrollPointerId = MotionEvent.INVALID_POINTER_ID
+                }
                 if (activePointerId != MotionEvent.INVALID_POINTER_ID) {
                     val ai = event.findPointerIndex(activePointerId)
                     if (ai >= 0) finishPrimary(event.getX(ai), event.getY(ai), event.eventTime)
@@ -731,6 +792,8 @@ class KeyboardView(context: Context) : View(context) {
                 activePointerId = MotionEvent.INVALID_POINTER_ID
             }
             MotionEvent.ACTION_CANCEL -> {
+                if (scrollPointerId != MotionEvent.INVALID_POINTER_ID) cancelScroll()
+                scrollPointerId = MotionEvent.INVALID_POINTER_ID
                 cancelPrimary()
                 activePointerId = MotionEvent.INVALID_POINTER_ID
             }
@@ -796,10 +859,60 @@ class KeyboardView(context: Context) : View(context) {
         invalidate()
     }
 
+    private fun beginScroll(y: Float) {
+        scrolling = false
+        fling.onDown()
+        scrollDownY = y; scrollLastY = y
+        scrollPressedIndex = if (fling.stopArmed) -1 else scrollIndexAt(y)
+        scrollVisualPressedIndex = scrollPressedIndex
+        if (scrollPressedIndex >= 0) scrollPress.press() else scrollPress.release()
+        invalidate()
+    }
+
+    private fun moveScroll(y: Float, eventTime: Long) {
+        fling.addSample(eventTime, y)
+        if (!scrolling && abs(y - scrollDownY) > scrollSlop) {
+            scrolling = true; scrollPressedIndex = -1; scrollPress.release()
+        }
+        if (scrolling) {
+            val before = scrollY
+            scrollY += scrollLastY - y
+            clampScroll()
+            if (scrollY != before) scrollbarFade.scrolled(SystemClock.uptimeMillis())
+            invalidate()
+        }
+        scrollLastY = y
+    }
+
+    private fun endScroll(y: Float) {
+        val col = scrollColumn
+        if (scrolling) {
+            if (col != null && fling.fling(scrollY, maxScroll())) postInvalidateOnAnimation()
+        } else if (col != null && !fling.stopArmed) {
+            val idx = scrollIndexAt(y)
+            if (idx >= 0 && idx == scrollPressedIndex) { performClick(); onKey(col.items[idx]) }
+        }
+        scrollPressedIndex = -1; scrolling = false
+        scrollPress.release()
+        invalidate()
+    }
+
+    private fun cancelScroll() {
+        scrollPressedIndex = -1; scrolling = false
+        scrollPress.release()
+        invalidate()
+    }
+
     internal fun scrollOffsetForTest(): Float = scrollY
+    internal fun scrollbarAlphaForTest(): Float = scrollbarFade.alphaAt(SystemClock.uptimeMillis())
     internal fun scrollRegionForTest(): RectF = RectF(scrollRegion)
     internal fun scrollTouchForTest(): RectF = RectF(scrollTouch)
     internal fun scrollCellHeightForTest(): Float = scrollCellH
+    internal fun maxScrollForTest(): Float = maxScroll()
+    internal fun isFlingingForTest(): Boolean = !fling.isFinished
+    internal fun flingFinalForTest(): Float = fling.finalOffset()
+
+    internal fun flingVelocityForTest(): Float = fling.velocity()
 
     private fun placedAt(x: Float, y: Float): Placed? {
         var nearest: Placed? = null
@@ -845,6 +958,11 @@ class KeyboardView(context: Context) : View(context) {
         val deliberate = eventTime - downEventTime >= RETARGET_HOLD_MS ||
             hypot(x - downX, y - downY) >= retargetDistance
         if (deliberate) retargetUnlocked = true
+    }
+
+    override fun onDetachedFromWindow() {
+        removeCallbacks(scrollbarTick)
+        super.onDetachedFromWindow()
     }
 
     private fun currentTarget(x: Float, y: Float): Key? {
@@ -914,6 +1032,12 @@ class FlingScroller(context: Context) {
         count = 0; head = 0
     }
 
+    fun forceFinish() {
+        scroller.forceFinished(true)
+        stopArmed = false
+        count = 0; head = 0
+    }
+
     fun addSample(t: Long, pos: Float) {
         sampleT[head] = t; samplePos[head] = pos
         head = (head + 1) % SAMPLES
@@ -950,6 +1074,8 @@ class FlingScroller(context: Context) {
         scroller.forceFinished(true)
         return end
     }
+
+    fun computeOffset(): Float? = if (scroller.computeScrollOffset()) scroller.currY.toFloat() else null
 
     val isFinished: Boolean get() = scroller.isFinished
 

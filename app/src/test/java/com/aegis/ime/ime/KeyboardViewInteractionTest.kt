@@ -23,7 +23,10 @@ import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.Layouts
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -39,6 +42,7 @@ class KeyboardViewInteractionTest {
 
     private val context = RuntimeEnvironment.getApplication()
     private val density = context.resources.displayMetrics.density
+    private val gap = 3f * density
     private val u = 1f / 4.7f
 
     private fun nineView(left: List<Key>, composing: Boolean): KeyboardView {
@@ -71,6 +75,78 @@ class KeyboardViewInteractionTest {
         send(MotionEvent.ACTION_UP, x, y, 10)
     }
 
+    private fun KeyboardView.regTop() = gap
+    private fun KeyboardView.cx() = (gap + (0.85f * u * width - gap)) / 2f
+    private fun KeyboardView.cellH() = ((0.75f * height - gap) - gap) / 4f
+    private fun KeyboardView.colCellY(i: Int) = regTop() + cellH() * (i + 0.5f)
+
+    @Test fun tap_punctuation_in_scroll_column_commits_it() {
+        var picked: Key? = null
+        val v = nineView(Layouts.ninePunctuation(), composing = false).apply { onKey = { picked = it } }
+        v.tap(v.cx(), v.colCellY(0))
+        assertNotNull("a tap in the scroll column must pick an item", picked)
+        assertEquals("，", picked?.label)
+    }
+
+    @Test fun scroll_then_tap_picks_a_later_punctuation() {
+        var picked: Key? = null
+        val v = nineView(Layouts.ninePunctuation(), composing = false).apply { onKey = { picked = it } }
+        val x = v.cx()
+        v.send(MotionEvent.ACTION_DOWN, x, v.regTop() + v.cellH() * 3.5f, 0)
+        v.send(MotionEvent.ACTION_MOVE, x, v.regTop() + v.cellH() * 0.5f, 16)
+        v.send(MotionEvent.ACTION_UP, x, v.regTop() + v.cellH() * 0.5f, 32)
+        v.tap(x, v.colCellY(0))
+        assertNotNull(picked)
+        assertNotEquals("after scrolling, the top row is no longer the first punctuation", "，", picked?.label)
+        assertEquals("！", picked?.label)
+    }
+
+    private fun longComboView(): KeyboardView {
+        val combos = (1..24).map { Key("p$it", output = "p$it", action = KeyAction.PICK_READING) }
+        return nineView(combos, composing = true)
+    }
+
+    private fun KeyboardView.fastFlickUp() {
+        val x = cx()
+        send(MotionEvent.ACTION_DOWN, x, regTop() + cellH() * 3.5f, 0)
+        send(MotionEvent.ACTION_MOVE, x, regTop() + cellH() * 2.0f, 8)
+        send(MotionEvent.ACTION_MOVE, x, regTop() + cellH() * 0.5f, 16)
+        send(MotionEvent.ACTION_UP, x, regTop() + cellH() * 0.5f, 16)
+    }
+
+    @Test fun a_fast_flick_flings_to_the_bottom_in_one_gesture() {
+        val v = longComboView()
+        assertTrue("the list overflows so there is somewhere to scroll", v.maxScrollForTest() > 0f)
+        v.fastFlickUp()
+        assertTrue("a fast flick starts a momentum fling", v.isFlingingForTest())
+        assertEquals(
+            "the fling reaches the bottom in ONE gesture",
+            v.maxScrollForTest(), v.flingFinalForTest(), 1f,
+        )
+    }
+
+    @Test fun tapping_during_a_fling_stops_it_without_picking() {
+        val v = longComboView()
+        var picked: Key? = null
+        v.onKey = { picked = it }
+        v.fastFlickUp()
+        assertTrue("precondition: a fling is running", v.isFlingingForTest())
+        v.tap(v.cx(), v.colCellY(0))
+        assertFalse("the tap halts the fling", v.isFlingingForTest())
+        assertNull("halting a fling must not select an item", picked)
+    }
+
+    @Test fun a_drag_that_pauses_before_release_does_not_fling() {
+        val v = longComboView()
+        val x = v.cx()
+        v.send(MotionEvent.ACTION_DOWN, x, v.regTop() + v.cellH() * 3.5f, 0)
+        v.send(MotionEvent.ACTION_MOVE, x, v.regTop() + v.cellH() * 2.5f, 200)
+        v.send(MotionEvent.ACTION_MOVE, x, v.regTop() + v.cellH() * 2.5f, 500)
+        v.send(MotionEvent.ACTION_UP, x, v.regTop() + v.cellH() * 2.5f, 500)
+        assertFalse("a paused-before-release drag must not fling", v.isFlingingForTest())
+        assertTrue("but it did scroll while dragging", v.scrollOffsetForTest() > 0f)
+    }
+
     @Test fun tap_letter_key_outside_scroll_column_still_works() {
         var picked: Key? = null
         val v = nineView(Layouts.ninePunctuation(), composing = false).apply { onKey = { picked = it } }
@@ -78,6 +154,37 @@ class KeyboardViewInteractionTest {
         assertNotNull(picked)
         assertEquals("ABC", picked?.label)
         assertEquals("2", picked?.output)
+    }
+
+    @Test fun tap_combo_in_composing_column_fires_pick_reading() {
+        val combos = listOf(
+            Key("hao", output = "hao", action = KeyAction.PICK_READING),
+            Key("gao", output = "gao", action = KeyAction.PICK_READING),
+        )
+        var picked: Key? = null
+        val v = nineView(combos, composing = true).apply { onKey = { picked = it } }
+        v.tap(v.cx(), v.colCellY(1))
+        assertNotNull(picked)
+        assertEquals(KeyAction.PICK_READING, picked?.action)
+        assertEquals("gao", picked?.label)
+    }
+
+    @Test fun a_pure_tap_does_not_scroll() {
+        var picked: Key? = null
+        val v = nineView(Layouts.ninePunctuation(), composing = false).apply { onKey = { picked = it } }
+        v.tap(v.cx(), v.colCellY(1))
+        assertEquals("。", picked?.label)
+    }
+
+    @Test fun non_scrollable_short_list_taps_still_resolve() {
+        var picked: Key? = null
+        val v = nineView(listOf(Key("ni", output = "ni", action = KeyAction.PICK_READING)), composing = true)
+            .apply { onKey = { picked = it } }
+        v.tap(v.cx(), v.colCellY(0))
+        assertEquals("ni", picked?.label)
+        assertNull("tapping below the single item picks nothing, never crashes", run {
+            picked = null; v.tap(v.cx(), v.regTop() + v.cellH() * 3.5f); picked
+        })
     }
 
 
@@ -120,6 +227,90 @@ class KeyboardViewInteractionTest {
         v.setLayout(alpha, true, false, Lang.EN); assertEquals("ONCE (hollow arrow)", "ONCE", v.shiftRenderState())
         v.setLayout(alpha, true, true, Lang.EN); assertEquals("LOCK (solid arrow)", "LOCK", v.shiftRenderState())
     }
+
+
+    @Test fun dragging_scrolls_exactly_one_to_one_with_the_finger() {
+        val v = longComboView()
+        assertTrue("the list overflows so 1:1 has room", v.maxScrollForTest() > 120f)
+        val x = v.cx()
+        val y0 = v.regTop() + v.cellH() * 3.5f
+        v.send(MotionEvent.ACTION_DOWN, x, y0, 0)
+        v.send(MotionEvent.ACTION_MOVE, x, y0 - 80f, 16)
+        assertEquals("content moved exactly 80px (1:1)", 80f, v.scrollOffsetForTest(), 0.5f)
+        v.send(MotionEvent.ACTION_MOVE, x, y0 - 30f, 32)
+        assertEquals("still 1:1 after reversing direction", 30f, v.scrollOffsetForTest(), 0.5f)
+        v.send(MotionEvent.ACTION_UP, x, y0 - 30f, 48)
+    }
+
+    @Test fun windowed_velocity_matches_a_steady_flick_speed() {
+        val v = longComboView()
+        val x = v.cx()
+        val y0 = v.regTop() + 100f
+        v.send(MotionEvent.ACTION_DOWN, x, y0, 0)
+        v.send(MotionEvent.ACTION_MOVE, x, y0 - 16f, 16)
+        v.send(MotionEvent.ACTION_MOVE, x, y0 - 32f, 32)
+        v.send(MotionEvent.ACTION_MOVE, x, y0 - 48f, 48)
+        v.send(MotionEvent.ACTION_MOVE, x, y0 - 64f, 64)
+        v.send(MotionEvent.ACTION_MOVE, x, y0 - 80f, 80)
+        assertEquals("release velocity ≈ the steady flick speed", -1000f, v.flingVelocityForTest(), 80f)
+    }
+
+    @Test fun a_flick_that_eases_off_at_the_very_end_still_flings() {
+        val v = longComboView()
+        val x = v.cx()
+        fun y(c: Float) = v.regTop() + v.cellH() * c
+        v.send(MotionEvent.ACTION_DOWN, x, y(3.8f), 0)
+        v.send(MotionEvent.ACTION_MOVE, x, y(3.0f), 16)
+        v.send(MotionEvent.ACTION_MOVE, x, y(2.0f), 32)
+        v.send(MotionEvent.ACTION_MOVE, x, y(1.0f), 48)
+        v.send(MotionEvent.ACTION_MOVE, x, y(1.0f), 80)
+        v.send(MotionEvent.ACTION_UP, x, y(1.0f), 80)
+        assertTrue("a real flick with a soft finish still hands off to a fling", v.isFlingingForTest())
+    }
+
+    @Test fun new_column_content_cancels_a_running_fling_and_renders_from_zero() {
+        val v = longComboView()
+        v.fastFlickUp()
+        assertTrue("precondition: a fling is running", v.isFlingingForTest())
+        assertTrue("precondition: it scrolled away from the top", v.scrollOffsetForTest() > 0f)
+
+        val other = (1..24).map { Key("q$it", output = "q$it", action = KeyAction.PICK_READING) }
+        v.setLayout(Layouts.nine(other, composing = true), false, false, Lang.CN)
+        assertFalse("the content-change reset cancels the fling", v.isFlingingForTest())
+        assertEquals("the offset is reset to 0", 0f, v.scrollOffsetForTest(), 0f)
+        v.computeScroll()
+        assertEquals("the next frame does NOT restore the stale fling offset", 0f, v.scrollOffsetForTest(), 0f)
+    }
+
+    @Test fun reversing_after_overscroll_tracks_the_finger_immediately() {
+        val v = longComboView()
+        val max = v.maxScrollForTest()
+        assertTrue("the list overflows", max > 0f)
+        val x = v.cx()
+        val y0 = v.regTop() + v.cellH() * 3.5f
+        v.send(MotionEvent.ACTION_DOWN, x, y0, 0)
+        v.send(MotionEvent.ACTION_MOVE, x, y0 - (max + 200f), 16)
+        assertEquals("pinned at the bottom", max, v.scrollOffsetForTest(), 0.5f)
+        v.send(MotionEvent.ACTION_MOVE, x, y0 - (max + 200f) + 30f, 32)
+        assertEquals("reverse tracks the finger 1:1, no absorbed overshoot", max - 30f, v.scrollOffsetForTest(), 0.5f)
+        v.send(MotionEvent.ACTION_UP, x, y0 - (max + 200f) + 30f, 48)
+    }
+
+
+    private fun numpadView(): KeyboardView {
+        val v = KeyboardView(context)
+        v.setLayout(Layouts.numpad(Layouts.numpadOperators()), false, false, Lang.CN)
+        v.measure(
+            View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+        )
+        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+        return v
+    }
+
+    private fun KeyboardView.opCx() = (0.85f * u * width) / 2f
+    private fun KeyboardView.opCellH() = (height - 2 * gap) / 4f
+    private fun KeyboardView.opCellY(i: Int) = gap + opCellH() * (i + 0.5f)
 
     @Test fun all_four_row_pages_share_one_height_so_switching_never_resizes() {
         fun measuredH(layout: com.aegis.ime.layout.KeyboardLayout): Int {
@@ -168,5 +359,79 @@ class KeyboardViewInteractionTest {
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(100))
         v.send(MotionEvent.ACTION_UP, x, y, 100)
         assertEquals("a quick tap emits exactly once", 1, emitted.size)
+    }
+
+    @Test fun tapping_an_operator_in_the_numpad_column_commits_it() {
+        var picked: Key? = null
+        val v = numpadView().apply { onKey = { picked = it } }
+        v.tap(v.opCx(), v.opCellY(0))
+        assertEquals("+", picked?.label)
+    }
+
+    @Test fun the_numpad_operator_column_scrolls_one_to_one_too() {
+        val v = numpadView()
+        assertTrue("9 operators over 4 visible → it overflows", v.maxScrollForTest() > 40f)
+        val x = v.opCx(); val y0 = v.opCellY(3)
+        v.send(MotionEvent.ACTION_DOWN, x, y0, 0)
+        v.send(MotionEvent.ACTION_MOVE, x, y0 - 40f, 16)
+        assertEquals("the operator strip tracks the finger 1:1", 40f, v.scrollOffsetForTest(), 0.5f)
+        v.send(MotionEvent.ACTION_UP, x, y0 - 40f, 32)
+    }
+
+    private fun idle(ms: Long) = Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ms))
+
+    @Test fun the_scroll_column_thumb_stays_hidden_until_the_user_scrolls() {
+        val v = nineView(Layouts.ninePunctuation(), composing = false)
+        assertTrue("precondition: the punctuation column overflows", v.maxScrollForTest() > 0f)
+        assertEquals("nothing is scrolling, so no thumb", 0f, v.scrollbarAlphaForTest(), 0f)
+        v.tap(v.cx(), v.colCellY(0))
+        assertEquals("a tap is not a scroll", 0f, v.scrollbarAlphaForTest(), 0f)
+    }
+
+    @Test fun a_drag_shows_the_thumb_and_it_fades_out_on_the_toast_timing() {
+        val v = nineView(Layouts.ninePunctuation(), composing = false)
+        val x = v.cx()
+        v.send(MotionEvent.ACTION_DOWN, x, v.regTop() + v.cellH() * 3.5f, 0)
+        v.send(MotionEvent.ACTION_MOVE, x, v.regTop() + v.cellH() * 2.5f, 300)
+        idle(ScrollbarFade.FADE_MS)
+        assertEquals("the drag faded the thumb in", 1f, v.scrollbarAlphaForTest(), 0f)
+        v.send(MotionEvent.ACTION_MOVE, x, v.regTop() + v.cellH() * 2.5f, 600)
+        v.send(MotionEvent.ACTION_UP, x, v.regTop() + v.cellH() * 2.5f, 600)
+        assertFalse("precondition: the paused release does not fling", v.isFlingingForTest())
+        idle(ScrollbarFade.HOLD_MS - ScrollbarFade.FADE_MS)
+        assertEquals("shown for the toast hold after the last movement, not the release", 1f, v.scrollbarAlphaForTest(), 0f)
+        idle(ScrollbarFade.FADE_MS / 2)
+        assertEquals("then it fades on the toast fade", 0.5f, v.scrollbarAlphaForTest(), 0.02f)
+        idle(ScrollbarFade.FADE_MS / 2)
+        assertEquals(0f, v.scrollbarAlphaForTest(), 0f)
+    }
+
+    @Test fun a_running_fling_keeps_the_thumb_shown() {
+        val v = longComboView()
+        v.fastFlickUp()
+        assertTrue("precondition: a fling is running", v.isFlingingForTest())
+        assertEquals("the release itself is not a frame yet", 0f, v.scrollbarAlphaForTest(), 0f)
+        v.computeScroll()
+        idle(ScrollbarFade.FADE_MS)
+        assertEquals("each fling frame counts as scrolling", 1f, v.scrollbarAlphaForTest(), 0f)
+    }
+
+    @Test fun revealing_the_marked_reading_does_not_flash_the_thumb() {
+        val v = longComboView()
+        val marked = (1..24).map { Key("p$it", output = "p$it", action = KeyAction.PICK_READING, accent = it == 20) }
+        v.setLayout(Layouts.nine(marked, composing = true), false, false, Lang.CN)
+        assertTrue("precondition: the column scrolled to reveal the mark", v.scrollOffsetForTest() > 0f)
+        idle(ScrollbarFade.FADE_MS)
+        assertEquals("a programmatic reveal is not a user scroll", 0f, v.scrollbarAlphaForTest(), 0f)
+    }
+
+    @Test fun a_new_column_hides_the_thumb_at_once() {
+        val v = longComboView()
+        v.fastFlickUp()
+        v.computeScroll()
+        idle(ScrollbarFade.FADE_MS)
+        assertEquals(1f, v.scrollbarAlphaForTest(), 0f)
+        v.setLayout(Layouts.nine(Layouts.ninePunctuation(), composing = false), false, false, Lang.CN)
+        assertEquals("swapping the column resets the scroll and its thumb", 0f, v.scrollbarAlphaForTest(), 0f)
     }
 }
