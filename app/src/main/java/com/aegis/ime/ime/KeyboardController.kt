@@ -44,6 +44,7 @@ class KeyboardController(
     var onShowEmoji: () -> Unit = {}
     var onShowClipboard: () -> Unit = {}
     var onShowEdit: () -> Unit = {}
+    var onShowSettings: () -> Unit = {}
     var onClosePanel: () -> Unit = {}
 
     private var view: InputView? = null
@@ -105,6 +106,7 @@ class KeyboardController(
                 switchLayout(target)
             }
             BarFunction.NUMPAD -> { onClosePanel(); switchLayout(LayoutId.NUMPAD) }
+            BarFunction.SETTINGS -> { onShowSettings(); return }
             BarFunction.EMOJI -> { onShowEmoji(); return }
             BarFunction.EDIT -> { onShowEdit(); return }
             BarFunction.CLIPBOARD -> { onShowClipboard(); return }
@@ -221,7 +223,9 @@ class KeyboardController(
 
     private fun rawComposingText(): String {
         if (composing.isEmpty()) return ""
-        readingOverride?.let { return it }
+        readingOverride?.let { ro ->
+            return T9Pinyin.lockFirstReading(composing.toString(), ro)?.letters ?: ro
+        }
         return if (layoutId == LayoutId.NINE && lang == Lang.CN) {
             T9Pinyin.preedit(composing.toString()).replace("'", "")
         } else {
@@ -240,9 +244,10 @@ class KeyboardController(
             composing.isNotEmpty() -> {
                 val raw = composing.toString()
                 when (mode()) {
-                    Mode.PINYIN -> readingOverride?.let { engine.candidatesForReading(it) }
-                        ?: engine.candidates(raw, layoutId == LayoutId.NINE)
-                            .let { if (layoutId == LayoutId.ALPHA && raw !in it) it + raw else it }
+                    Mode.PINYIN -> readingOverride?.let { ro ->
+                        engine.candidatesForReading(T9Pinyin.lockFirstReading(raw, ro)?.letters ?: ro)
+                    } ?: engine.candidates(raw, layoutId == LayoutId.NINE)
+                        .let { if (layoutId == LayoutId.ALPHA && raw !in it) it + raw else it }
                     Mode.ENGLISH -> engine.english(raw).let { if (raw !in it) it + raw else it }
                     Mode.DIRECT -> emptyList()
                 }
@@ -256,7 +261,9 @@ class KeyboardController(
 
     private fun preeditText(): String {
         if (composing.isEmpty()) return ""
-        readingOverride?.let { return it }
+        readingOverride?.let { ro ->
+            return T9Pinyin.lockFirstReading(composing.toString(), ro)?.display ?: ro
+        }
         return if (mode() == Mode.PINYIN && layoutId == LayoutId.NINE) {
             T9Pinyin.preedit(composing.toString())
         } else {

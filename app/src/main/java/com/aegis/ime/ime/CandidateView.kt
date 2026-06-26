@@ -26,7 +26,7 @@ import android.view.ViewConfiguration
 import kotlin.math.abs
 
 enum class BarFunction(val glyph: String) {
-    SWITCH_KBD("⌨"), EMOJI("☺"), EDIT("✎"), CLIPBOARD("📋"), NUMPAD("123")
+    SETTINGS("⚙"), SWITCH_KBD("⌨"), EMOJI("☺"), EDIT("✎"), CLIPBOARD("📋"), NUMPAD("123")
 }
 
 class CandidateView(context: Context) : View(context) {
@@ -34,6 +34,7 @@ class CandidateView(context: Context) : View(context) {
     var onPick: (Int) -> Unit = {}
     var onFunction: (BarFunction) -> Unit = {}
     var onExpand: () -> Unit = {}
+    var onCollapse: () -> Unit = {}
 
     private var items: List<String> = emptyList()
     private var composing: String = ""
@@ -147,6 +148,9 @@ class CandidateView(context: Context) : View(context) {
             funcRects[i].set(left, 0f, left + cellW, height.toFloat())
             canvas.drawText(f.glyph, left + cellW / 2f, baseline, funcPaint)
         }
+        val visibleW = width - expandW
+        canvas.drawRect(visibleW, height * 0.2f, visibleW + density, height * 0.8f, sepPaint)
+        canvas.drawText("⌄", visibleW + expandW / 2f, baseline, chevronPaint)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -169,6 +173,7 @@ class CandidateView(context: Context) : View(context) {
             MotionEvent.ACTION_UP -> {
                 if (dragging) { dragging = false; return true }
                 if (showingFunctions) {
+                    if (event.x >= width - expandW) { performClick(); onCollapse(); return true }
                     funcRects.indexOfFirst { it.contains(event.x, event.y) }
                         .takeIf { it >= 0 }?.let { performClick(); onFunction(functions[it]) }
                     return true

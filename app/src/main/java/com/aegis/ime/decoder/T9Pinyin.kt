@@ -124,6 +124,17 @@ object T9Pinyin {
         return sb.toString()
     }
 
+    data class Reading(val display: String, val letters: String)
+
+    fun lockFirstReading(digits: String, firstReading: String): Reading? {
+        val fd = toT9(firstReading)
+        if (!digits.startsWith(fd)) return null
+        val rest = digits.substring(fd.length)
+        if (rest.isEmpty()) return Reading(firstReading, firstReading)
+        val restDisplay = preedit(rest)
+        return Reading("$firstReading'$restDisplay", firstReading + restDisplay.replace("'", ""))
+    }
+
     fun firstSyllableOptions(digits: String, limit: Int): List<String> {
         val n = digits.length
         if (n == 0 || digits.any { it < '2' || it > '9' }) return emptyList()

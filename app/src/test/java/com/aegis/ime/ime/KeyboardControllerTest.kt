@@ -61,6 +61,16 @@ class KeyboardControllerTest {
         assertTrue(h.commits.isEmpty())
     }
 
+    @Test fun picking_a_reading_then_enter_commits_the_full_pinyin() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "6433".forEach { c.onKey(out(it.toString())) }
+        c.onKey(Key("ni", output = "ni", action = KeyAction.PICK_READING))
+        c.onKey(act(KeyAction.ENTER))
+        assertEquals(listOf("nide"), h.commits)
+    }
+
     @Test fun toggling_to_english_leaves_the_nine_key() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)

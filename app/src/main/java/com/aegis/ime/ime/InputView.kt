@@ -31,6 +31,7 @@ class InputView(context: Context) : LinearLayout(context) {
     var onPickCandidate: (Int) -> Unit = {}
     var onFunction: (BarFunction) -> Unit = {}
     var onBackspaceSwipe: (Boolean) -> Unit = {}
+    var onCollapse: () -> Unit = {}
 
     private val preeditView = PreeditView(context)
     private val candidateView = CandidateView(context)
@@ -45,6 +46,7 @@ class InputView(context: Context) : LinearLayout(context) {
         candidateView.onPick = { index -> onPickCandidate(index) }
         candidateView.onFunction = { f -> onFunction(f) }
         candidateView.onExpand = { showExpandedCandidates() }
+        candidateView.onCollapse = { onCollapse() }
         gridView.onPick = { index -> showPanel(null); onPickCandidate(index) }
         gridView.onClose = { showPanel(null) }
         keyboardView.onKey = { key -> onKey(key) }
