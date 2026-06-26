@@ -97,13 +97,6 @@ class CandidateView(context: Context) : View(context) {
         textAlign = Paint.Align.CENTER
         textSize = sp(18f)
     }
-    private val brandTilePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF57A35B.toInt() }
-    private val brandTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFFFFFFF.toInt()
-        textAlign = Paint.Align.CENTER
-        typeface = android.graphics.Typeface.DEFAULT_BOLD
-        textSize = sp(13f)
-    }
 
     fun setContent(candidates: List<String>, composingText: String) {
         items = candidates
@@ -219,10 +212,13 @@ class CandidateView(context: Context) : View(context) {
     }
 
     private fun drawBrand(c: Canvas, cx: Float, cy: Float, s: Float) {
-        val half = s * 0.95f
-        val r = 4f * density
-        c.drawRoundRect(cx - half, cy - half, cx + half, cy + half, r, r, brandTilePaint)
-        c.drawText("A", cx, cy - (brandTextPaint.descent() + brandTextPaint.ascent()) / 2, brandTextPaint)
+        val apexY = cy - s
+        val blX = cx - s * 0.66f; val brX = cx + s * 0.66f; val baseY = cy + s
+        c.drawLine(cx, apexY, blX, baseY, iconPaint)
+        c.drawLine(cx, apexY, brX, baseY, iconPaint)
+        val t = 0.62f
+        val ly = apexY + (baseY - apexY) * t
+        c.drawLine(cx + (blX - cx) * t, ly, cx + (brX - cx) * t, ly, iconPaint)
     }
 
     private fun drawChevronDown(c: Canvas, cx: Float, cy: Float, s: Float) {

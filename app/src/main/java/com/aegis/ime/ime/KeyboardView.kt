@@ -70,7 +70,7 @@ class KeyboardView(context: Context) : View(context) {
     private val density = resources.displayMetrics.density
     private val rowHeight = 52f * density
     private val gap = 6f * density
-    private val radius = 11f * density
+    private val radius = 13f * density
 
     init {
         setLayerType(LAYER_TYPE_SOFTWARE, null)
@@ -227,9 +227,11 @@ class KeyboardView(context: Context) : View(context) {
         val rad = rect.height() / 2f
         fun shape(p: Paint) { if (tall) canvas.drawOval(rect, p) else canvas.drawRoundRect(rect, rad, rad, p) }
         if (!pressed) {
+            val glow = if (tall) 0x9943A047.toInt() else 0xCC43A047.toInt()
+            val glowBlur = if (tall) 13f * density else 15f * density
             gradPaint.shader = null
             gradPaint.color = 0xFF66BB6A.toInt()
-            gradPaint.setShadowLayer(13f * density, 0f, 3f * density, 0x9943A047.toInt())
+            gradPaint.setShadowLayer(glowBlur, 0f, 3f * density, glow)
             shape(gradPaint)
             gradPaint.clearShadowLayer()
         }
