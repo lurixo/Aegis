@@ -48,16 +48,14 @@ class InputView(context: Context) : LinearLayout(context) {
         panelContainer.visibility = GONE
         addView(panelContainer, LayoutParams(LayoutParams.MATCH_PARENT, dp(250)))
 
-        // targetSdk 36 forces the IME window edge-to-edge, so the input view would otherwise extend
-        // behind the gesture nav bar and screen edges. Consume the insets ourselves: raise the bottom
-        // above the nav/home bar and inset the sides off the cutout / edge-gesture zone.
+        // targetSdk 36 forces the IME window edge-to-edge. Consume the insets ourselves: raise the
+        // bottom above the nav/home bar (#2) and keep only a small side margin (#1 — the previous
+        // systemGestures inset narrowed the keyboard far too much; the keys should nearly fill width).
         ViewCompat.setOnApplyWindowInsetsListener(this) { v, insets ->
-            val bars = insets.getInsets(
-                WindowInsetsCompat.Type.navigationBars() or
-                    WindowInsetsCompat.Type.displayCutout() or
-                    WindowInsetsCompat.Type.systemGestures(),
-            )
-            v.setPadding(bars.left, 0, bars.right, bars.bottom)
+            val nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+            val cut = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
+            val side = dp(4)
+            v.setPadding(maxOf(cut.left, side), 0, maxOf(cut.right, side), nav.bottom + dp(10))
             WindowInsetsCompat.CONSUMED
         }
     }

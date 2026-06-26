@@ -19,6 +19,7 @@ import android.inputmethodservice.InputMethodService
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import com.aegis.ime.dict.BinaryDict
@@ -171,6 +172,19 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     override fun performEnter() {
-        sendDefaultEditorAction(true)
+        // #7: editor-action fields (search/send/go/done) fire the action; everything else gets a real
+        // ENTER key event so multi-line fields actually get a newline (sendDefaultEditorAction did neither).
+        val ic = currentInputConnection ?: return
+        val info = currentInputEditorInfo
+        val action = (info?.imeOptions ?: 0) and EditorInfo.IME_MASK_ACTION
+        val noEnterAction = (info?.imeOptions ?: 0) and EditorInfo.IME_FLAG_NO_ENTER_ACTION != 0
+        val hasAction = !noEnterAction &&
+            action != EditorInfo.IME_ACTION_NONE && action != EditorInfo.IME_ACTION_UNSPECIFIED
+        if (hasAction) {
+            sendDefaultEditorAction(true)
+        } else {
+            ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
+            ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
+        }
     }
 }
