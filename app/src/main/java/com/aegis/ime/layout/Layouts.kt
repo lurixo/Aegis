@@ -66,7 +66,7 @@ object Layouts {
         val bottom = listOf(
             Key("✎", action = SHOW_EDIT, weight = 1.3f),
             Key("123", action = SWITCH_NUMBERS, weight = 1.5f),
-            Key(comma),
+            Key(comma, sub = "A"), // small caps/English indicator badge
             Key("空格", output = " ", action = SPACE, weight = 3.5f),
             Key(period),
             Key("中英", action = TOGGLE_LANG, weight = 1.5f),
@@ -86,17 +86,19 @@ object Layouts {
      * (4 sub-cells over rows 0–2) and the tall green enter (rows 2–3). [left] = the 4 left sub-cells:
      * punctuation at rest, pinyin-reading options while composing.
      */
-    fun nine(lang: Lang, left: List<Key>): KeyboardLayout {
+    fun nine(lang: Lang, left: List<Key>, composing: Boolean = false): KeyboardLayout {
         val u = 1f / 4.4f                 // column unit: widths 0.7 | 1 | 1 | 1 | 0.7
         val xL = 0f; val wL = 0.7f * u
         val x1 = 0.7f * u; val x2 = 1.7f * u; val x3 = 2.7f * u; val wM = 1f * u
         val xR = 3.7f * u; val wR = 0.7f * u
         val pillH = 0.75f / 4f            // 4 left sub-cells stacked over the first 3 rows
         val cells = ArrayList<PlacedKey>()
-        for (i in 0 until 4) cells.add(PlacedKey(left[i], xL, i * pillH, wL, pillH))
+        // groupId 1 = the merged "peanut" capsule behind the 4 left sub-cells.
+        for (i in 0 until 4) cells.add(PlacedKey(left[i], xL, i * pillH, wL, pillH, groupId = 1))
         cells.add(PlacedKey(Key("✎", action = SHOW_EDIT), xL, 0.75f, wL, 0.25f))
-        // middle 3×3: letters as the main label, T9 digit as the emitted output; "1" position = symbols.
-        cells.add(PlacedKey(Key("@#", action = SWITCH_SYMBOLS), x1, 0f, wM, 0.25f))
+        // middle 3×3: letters as the main label, T9 digit as the emitted output; "1" position = symbols
+        // (idle "@#", more symbols "@!./" while composing).
+        cells.add(PlacedKey(Key(if (composing) "@!./" else "@#", action = SWITCH_SYMBOLS), x1, 0f, wM, 0.25f))
         cells.add(PlacedKey(t9key("ABC", "2"), x2, 0f, wM, 0.25f))
         cells.add(PlacedKey(t9key("DEF", "3"), x3, 0f, wM, 0.25f))
         cells.add(PlacedKey(t9key("GHI", "4"), x1, 0.25f, wM, 0.25f))
@@ -134,7 +136,7 @@ object Layouts {
                 Key(","),
                 Key("空格", output = " ", action = SPACE, weight = 4f),
                 Key("."),
-                Key("⏎", action = ENTER, weight = 1.6f),
+                Key("↵", action = ENTER, accent = true, weight = 1.6f),
             ),
         ),
     )
@@ -151,7 +153,7 @@ object Layouts {
                 Key("返回", action = SWITCH_ALPHA),
                 Key("0"),
                 Key("空格", output = " ", action = SPACE),
-                Key("⏎", action = ENTER),
+                Key("↵", action = ENTER, accent = true),
             ),
         ),
     )
@@ -177,7 +179,7 @@ object Layouts {
                 Key("<"),
                 Key("空格", output = " ", action = SPACE, weight = 4f),
                 Key(">"),
-                Key("⏎", action = ENTER, weight = 1.6f),
+                Key("↵", action = ENTER, accent = true, weight = 1.6f),
             ),
         ),
     )

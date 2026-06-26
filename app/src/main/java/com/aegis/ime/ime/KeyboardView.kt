@@ -17,8 +17,11 @@ package com.aegis.ime.ime
 
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.LinearGradient
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.Shader
 import android.os.Handler
 import android.os.Looper
 import android.util.TypedValue
@@ -72,13 +75,18 @@ class KeyboardView(context: Context) : View(context) {
 
     private val density = resources.displayMetrics.density
     private val rowHeight = 52f * density
-    private val gap = 5f * density
-    private val radius = 7f * density
+    private val gap = 6f * density
+    private val radius = 11f * density
+
+    init {
+        // Software layer so the neumorphic soft shadows (setShadowLayer) render on every device;
+        // the keyboard only redraws on key press, so the cost is negligible.
+        setLayerType(LAYER_TYPE_SOFTWARE, null)
+    }
 
     private fun sp(value: Float) =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, resources.displayMetrics)
 
-    private val keyPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF202124.toInt()
         textAlign = Paint.Align.CENTER
@@ -100,7 +108,20 @@ class KeyboardView(context: Context) : View(context) {
         textSize = sp(10f)
     }
 
-    private data class Placed(val rect: RectF, val key: Key)
+    // --- Neumorphic key surface: vertical gradient + dual soft shadow (light top-left, dark bottom-right).
+    private val baseColor = 0xFFE6E9EF.toInt()
+    private val gradPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val gradMatrix = Matrix()
+    private val keyGradient =
+        LinearGradient(0f, 0f, 0f, rowHeight, 0xFFFFFFFF.toInt(), 0xFFECEFF3.toInt(), Shader.TileMode.CLAMP)
+    private val accentGradient =
+        LinearGradient(0f, 0f, 0f, rowHeight, 0xFF7CC47F.toInt(), 0xFF57A35B.toInt(), Shader.TileMode.CLAMP)
+    private val pressedGradient =
+        LinearGradient(0f, 0f, 0f, rowHeight, 0xFFDCE0E6.toInt(), 0xFFE9ECF1.toInt(), Shader.TileMode.CLAMP)
+    private val sepLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFD2D7DE.toInt(); strokeWidth = density }
+    private val pressHighlight = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x18000000 }
+
+    private data class Placed(val rect: RectF, val key: Key, val groupId: Int = 0)
 
     fun setLayout(newLayout: KeyboardLayout, isShifted: Boolean) {
         layout = newLayout
@@ -136,7 +157,7 @@ class KeyboardView(context: Context) : View(context) {
                 placed.add(
                     Placed(
                         RectF(pk.x * w + gap, pk.y * h + gap, (pk.x + pk.w) * w - gap, (pk.y + pk.h) * h - gap),
-                        pk.key,
+                        pk.key, pk.groupId,
                     ),
                 )
             }
@@ -157,19 +178,54 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     override fun onDraw(canvas: Canvas) {
-        canvas.drawColor(0xFFE2E6EA.toInt())
+        canvas.drawColor(baseColor)
         if (placed.isEmpty()) relayout()
+
+        // 1. Merged group capsules (the 9-key peanut left column) — one raised pill behind its cells.
+        val drawnGroups = HashSet<Int>()
         for (p in placed) {
-            val special = p.key.action != KeyAction.COMMIT && p.key.action != KeyAction.SPACE
-            keyPaint.color = when {
-                p.key.accent -> if (p.key == pressed) 0xFF4CAF50.toInt() else 0xFF66BB6A.toInt()
-                p.key == pressed -> 0xFFB0BEC5.toInt()
-                special -> 0xFFCDD5DB.toInt()
-                else -> 0xFFFFFFFF.toInt()
+            if (p.groupId > 0 && drawnGroups.add(p.groupId)) {
+                val cells = placed.filter { it.groupId == p.groupId }.sortedBy { it.rect.top }
+                val union = RectF(cells.first().rect)
+                cells.forEach { union.union(it.rect) }
+                drawNeumorphicKey(canvas, union, accent = false, pressed = false)
+                for (i in 1 until cells.size) {
+                    val yMid = (cells[i - 1].rect.bottom + cells[i].rect.top) / 2f
+                    canvas.drawLine(union.left + 10 * density, yMid, union.right - 10 * density, yMid, sepLinePaint)
+                }
             }
-            canvas.drawRoundRect(p.rect, radius, radius, keyPaint)
+        }
+
+        // 2. Individual keys (grouped cells only get a pressed highlight; their bg is the capsule).
+        for (p in placed) {
+            if (p.groupId == 0) {
+                drawNeumorphicKey(canvas, p.rect, p.key.accent, p.key == pressed)
+            } else if (p.key == pressed) {
+                canvas.drawRoundRect(p.rect, radius * 0.7f, radius * 0.7f, pressHighlight)
+            }
             drawLabel(canvas, p)
         }
+    }
+
+    /** One neumorphic key: dual soft shadow (raised) + vertical gradient surface; inset look when pressed. */
+    private fun drawNeumorphicKey(canvas: Canvas, rect: RectF, accent: Boolean, pressed: Boolean) {
+        if (!pressed) {
+            val o = 3f * density
+            val blur = 7f * density
+            gradPaint.shader = null
+            gradPaint.color = if (accent) 0xFF66BB6A.toInt() else 0xFFFFFFFF.toInt()
+            gradPaint.setShadowLayer(blur, o, o, if (accent) 0x55388E3C else 0x33586173)        // dark, bottom-right
+            canvas.drawRoundRect(rect, radius, radius, gradPaint)
+            gradPaint.setShadowLayer(blur, -o, -o, 0xCCFFFFFF.toInt())                            // light, top-left
+            canvas.drawRoundRect(rect, radius, radius, gradPaint)
+            gradPaint.clearShadowLayer()
+        }
+        val grad = if (pressed) pressedGradient else if (accent) accentGradient else keyGradient
+        gradMatrix.setTranslate(0f, rect.top)
+        grad.setLocalMatrix(gradMatrix)
+        gradPaint.shader = grad
+        canvas.drawRoundRect(rect, radius, radius, gradPaint)
+        gradPaint.shader = null
     }
 
     private fun drawLabel(canvas: Canvas, p: Placed) {

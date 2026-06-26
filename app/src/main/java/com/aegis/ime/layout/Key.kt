@@ -60,8 +60,11 @@ data class Key(
 
 data class KeyboardRow(val keys: List<Key>)
 
-/** A key placed by fractional rectangle (0..1 of the keyboard) — for grids the simple row model can't express. */
-data class PlacedKey(val key: Key, val x: Float, val y: Float, val w: Float, val h: Float)
+/**
+ * A key placed by fractional rectangle (0..1 of the keyboard) — for grids the simple row model can't
+ * express. [groupId] > 0 marks cells that share one merged background capsule (the 9-key peanut column).
+ */
+data class PlacedKey(val key: Key, val x: Float, val y: Float, val w: Float, val h: Float, val groupId: Int = 0)
 
 /**
  * A keyboard layout. Most layouts are [rows] (equal-height rows, per-key [Key.weight] widths). Layouts
