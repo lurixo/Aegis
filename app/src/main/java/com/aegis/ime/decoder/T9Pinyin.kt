@@ -160,6 +160,24 @@ object T9Pinyin {
         return sb.toString()
     }
 
+    fun preedit(digits: String, cuts: Set<Int>): String {
+        if (cuts.isEmpty()) return preedit(digits)
+        val sb = StringBuilder()
+        var prev = 0
+        for (c in cuts.filter { it in 1..digits.length }.toSortedSet()) {
+            if (c > prev) {
+                if (sb.isNotEmpty()) sb.append('\'')
+                sb.append(preedit(digits.substring(prev, c)))
+            }
+            prev = c
+        }
+        when {
+            prev < digits.length -> { if (sb.isNotEmpty()) sb.append('\''); sb.append(preedit(digits.substring(prev))) }
+            digits.isNotEmpty() -> sb.append('\'')
+        }
+        return sb.toString()
+    }
+
     fun preeditLetters(letters: String): String {
         if (letters.isEmpty()) return ""
         val parts = letters.split('\'')
@@ -169,6 +187,27 @@ object T9Pinyin {
                 append(preeditLetterChunk(part))
             }
         }
+    }
+
+    fun preeditLetters(letters: String, cuts: Set<Int>): String {
+        if (cuts.isEmpty()) return preeditLetters(letters)
+        val sb = StringBuilder()
+        var prev = 0
+        for (c in cuts.filter { it in 1..letters.length }.toSortedSet()) {
+            if (c > prev) {
+                if (sb.isNotEmpty()) sb.append('\'')
+                sb.append(preeditLetters(letters.substring(prev, c)))
+            }
+            prev = c
+        }
+        when {
+            prev < letters.length -> {
+                if (sb.isNotEmpty()) sb.append('\'')
+                sb.append(preeditLetters(letters.substring(prev)))
+            }
+            letters.isNotEmpty() -> sb.append('\'')
+        }
+        return sb.toString()
     }
 
     private fun preeditLetterChunk(letters: String): String {
@@ -187,6 +226,17 @@ object T9Pinyin {
             if (segment(digits.substring(0, p)) != null) return digits.substring(0, p)
         }
         return ""
+    }
+
+    data class Reading(val display: String, val letters: String)
+
+    fun lockFirstReading(digits: String, firstReading: String): Reading? {
+        val fd = toT9(firstReading)
+        if (!digits.startsWith(fd)) return null
+        val rest = digits.substring(fd.length)
+        if (rest.isEmpty()) return Reading(firstReading, firstReading)
+        val restDisplay = preedit(rest)
+        return Reading("$firstReading'$restDisplay", firstReading + restDisplay.replace("'", ""))
     }
 
     fun leftColumnReadings(digits: String, limit: Int): List<String> {

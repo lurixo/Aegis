@@ -16,6 +16,7 @@
 package com.aegis.ime.decoder
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -83,6 +84,16 @@ class T9PinyinTest {
         }
     }
 
+    @Test fun jiangzhi_keeps_the_jiang_boundary_in_continuous_input() {
+        assertEquals(listOf("jiang", "zhi"), T9Pinyin.segmentLetters("jiangzhi"))
+
+        val digits = T9Pinyin.toT9("jiangzhi")
+        assertTrue("jiang must be selectable from its T9 code", "jiang" in T9Pinyin.leftColumnReadings(digits, 12))
+        val locked = T9Pinyin.lockFirstReading(digits, "jiang")!!
+        assertEquals("jiang'zhi", locked.display)
+        assertEquals("jiangzhi", locked.letters)
+    }
+
     @Test fun partial_buffer_still_shows_something() {
         val pre = T9Pinyin.preedit("6")
         assertTrue(pre.isNotEmpty())
@@ -94,10 +105,22 @@ class T9PinyinTest {
         assertTrue("preedit should keep the confirmed prefix: '$pre'", pre.startsWith("ni"))
     }
 
+    @Test fun preedit_renders_forced_cuts_as_separators() {
+        assertEquals("ni'", T9Pinyin.preedit("64", setOf(2)))
+        assertTrue(T9Pinyin.preedit("6433", setOf(2)).startsWith("ni'"))
+        assertEquals(T9Pinyin.preedit("6433"), T9Pinyin.preedit("6433", emptySet()))
+    }
+
     @Test fun letter_preedit_prefers_whole_syllables_and_segments_complete_sequences() {
         assertEquals("ni'hao", T9Pinyin.preeditLetters("nihao"))
         assertEquals("xian", T9Pinyin.preeditLetters("xian"))
         assertEquals("ni'hao'z", T9Pinyin.preeditLetters("nihaoz"))
+    }
+
+    @Test fun letter_preedit_renders_forced_cuts_without_changing_the_raw_letters() {
+        assertEquals("xi'an", T9Pinyin.preeditLetters("xian", setOf(2)))
+        assertEquals("xi'", T9Pinyin.preeditLetters("xi", setOf(2)))
+        assertEquals("chai'ci", T9Pinyin.preeditLetters("chai'ci"))
     }
 
     @Test fun letter_reading_column_exposes_every_reachable_leading_syllable_and_fallback() {
@@ -112,6 +135,22 @@ class T9PinyinTest {
         assertEquals("64", T9Pinyin.longestDecodablePrefix("647"))
         assertEquals("6433", T9Pinyin.longestDecodablePrefix("6433"))
         assertEquals("", T9Pinyin.longestDecodablePrefix(""))
+    }
+
+    @Test fun lock_first_reading_keeps_the_rest_of_the_buffer() {
+        val r = T9Pinyin.lockFirstReading("6433", "ni")!!
+        assertEquals("ni'de", r.display)
+        assertEquals("nide", r.letters)
+    }
+
+    @Test fun lock_first_reading_single_syllable_buffer() {
+        val r = T9Pinyin.lockFirstReading("64", "ni")!!
+        assertEquals("ni", r.display)
+        assertEquals("ni", r.letters)
+    }
+
+    @Test fun lock_first_reading_rejects_non_prefix_reading() {
+        assertNull(T9Pinyin.lockFirstReading("64", "mie"))
     }
 
 
