@@ -53,7 +53,10 @@ class InputView(context: Context) : LinearLayout(context) {
         gridView.onClose = { showPanel(null) }
         keyboardView.onKey = { key -> onKey(key) }
         keyboardView.onBackspaceSwipe = { up -> onBackspaceSwipe(up) }
-        preeditView.visibility = GONE
+        // the preedit + candidate rows are FIXED-HEIGHT and ALWAYS present — only their
+        // CONTENT changes, never their visibility — so the IME's total height never changes while typing.
+        // (Toggling the preedit GONE/VISIBLE grew/shrank the window by 28dp on every keystroke that
+        // started or ended composing, which made hosts like Telegram re-layout their compose box.)
         addView(preeditView, LayoutParams(LayoutParams.MATCH_PARENT, dp(28)))
         addView(candidateView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
         addView(keyboardView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
@@ -79,8 +82,9 @@ class InputView(context: Context) : LinearLayout(context) {
     /** [preedit] is the pinyin tab text (separate from candidates, C1); empty hides the tab. */
     fun showCandidates(candidates: List<String>, preedit: String) {
         lastCandidates = candidates
+        // Content-only: empty text just blanks the row; the row keeps its fixed height so the IME window
+        // height is constant and the host's layout never jitters while typing.
         preeditView.setText(preedit)
-        preeditView.visibility = if (preedit.isEmpty()) GONE else VISIBLE
         candidateView.setContent(candidates, preedit)
         if (panelShown && candidates.isEmpty()) showPanel(null) // composing ended → drop the grid
     }
