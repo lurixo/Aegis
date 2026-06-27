@@ -116,6 +116,16 @@ class LayoutsTest {
         assertEquals(KeyAction.CUSTOM_SYMBOL, sc.items.last().action)
     }
 
+    @Test fun nine_punctuation_inserts_custom_marks_before_the_自定义_entry() {
+        val sc = Layouts.nine(Lang.CN, Layouts.ninePunctuation(listOf("、", "《"))).scrollColumn!!
+        assertEquals(
+            listOf("，", "。", "？", "！", "…", "：", "；", "~", ".", "-", "@", "、", "《", "自定义"),
+            sc.items.map { it.label },
+        )
+        assertEquals(KeyAction.CUSTOM_SYMBOL, sc.items.last().action)
+        assertTrue("custom marks commit directly", sc.items.filter { it.label in listOf("、", "《") }.all { it.direct })
+    }
+
     @Test fun qwerty_has_no_nine_switch_key_and_has_pen() {
         val actions = keysOf(qwerty).map { it.action }
         assertTrue("9-key switch is via the toolbar, not a key", KeyAction.SWITCH_NINE !in actions)

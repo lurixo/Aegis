@@ -39,12 +39,12 @@ object Layouts {
         LayoutId.NUMPAD -> numpad()
     }
 
-    fun ninePunctuation(): List<Key> = listOf(
-        Key("，", direct = true), Key("。", direct = true), Key("？", direct = true), Key("！", direct = true),
-        Key("…", direct = true), Key("：", direct = true), Key("；", direct = true), Key("~", direct = true),
-        Key(".", direct = true), Key("-", direct = true), Key("@", direct = true),
-        Key("自定义", action = CUSTOM_SYMBOL),
-    )
+    fun ninePunctuation(custom: List<String> = emptyList()): List<Key> =
+        listOf(
+            Key("，", direct = true), Key("。", direct = true), Key("？", direct = true), Key("！", direct = true),
+            Key("…", direct = true), Key("：", direct = true), Key("；", direct = true), Key("~", direct = true),
+            Key(".", direct = true), Key("-", direct = true), Key("@", direct = true),
+        ) + custom.map { Key(it, direct = true) } + Key("自定义", action = CUSTOM_SYMBOL)
 
     private fun row(vararg keys: Key) = KeyboardRow(keys.toList())
 
