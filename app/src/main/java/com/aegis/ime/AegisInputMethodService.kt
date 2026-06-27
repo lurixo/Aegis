@@ -110,7 +110,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onKey = { key -> controller.onKey(key) }
             onPickCandidate = { index -> controller.onPickCandidate(index) }
             onFunction = { f -> controller.onBarFunction(f) }
-            onBackspaceSwipe = { up -> handleBackspaceSwipe(up) }
+            onBackspaceSwipe = { up -> if (!controller.onBackspaceSwipe(up)) handleBackspaceSwipe(up) }
             onCollapse = { requestHideSelf(0) }
         }
         inputView = view

@@ -19,6 +19,7 @@ import com.aegis.ime.layout.KeyAction.BACKSPACE
 import com.aegis.ime.layout.KeyAction.CLEAR_COMPOSING
 import com.aegis.ime.layout.KeyAction.ENTER
 import com.aegis.ime.layout.KeyAction.SHIFT
+import com.aegis.ime.layout.KeyAction.SEGMENT
 import com.aegis.ime.layout.KeyAction.SHOW_EDIT
 import com.aegis.ime.layout.KeyAction.SPACE
 import com.aegis.ime.layout.KeyAction.SWITCH_ALPHA
@@ -84,7 +85,10 @@ object Layouts {
         val cells = ArrayList<PlacedKey>()
         for (i in 0 until 4) cells.add(PlacedKey(left[i], xL, i * pillH, wL, pillH, groupId = 1))
         cells.add(PlacedKey(Key("✎", action = SHOW_EDIT), xL, 0.75f, wL, 0.25f))
-        cells.add(PlacedKey(Key(if (composing) "@!./" else "@#", action = SWITCH_SYMBOLS), x1, 0f, wM, 0.25f))
+        cells.add(PlacedKey(
+            if (composing) Key("分词", action = SEGMENT) else Key("@#", action = SWITCH_SYMBOLS),
+            x1, 0f, wM, 0.25f,
+        ))
         cells.add(PlacedKey(t9key("ABC", "2"), x2, 0f, wM, 0.25f))
         cells.add(PlacedKey(t9key("DEF", "3"), x3, 0f, wM, 0.25f))
         cells.add(PlacedKey(t9key("GHI", "4"), x1, 0.25f, wM, 0.25f))

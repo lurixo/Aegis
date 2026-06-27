@@ -26,7 +26,7 @@ import com.aegis.ime.layout.Layouts
 
 private enum class ShiftState { OFF, ONCE, LOCK }
 
-private enum class Mode { PINYIN, ENGLISH, DIRECT }
+private enum class Mode { PINYIN, DIRECT }
 
 class KeyboardController(
     private val host: ImeHost,
@@ -91,6 +91,7 @@ class KeyboardController(
             KeyAction.SWITCH_NINE -> switchLayout(LayoutId.NINE)
             KeyAction.SWITCH_NUMPAD -> switchLayout(LayoutId.NUMPAD)
             KeyAction.PICK_READING -> handlePickReading(key)
+            KeyAction.SEGMENT -> handleSegment()
             KeyAction.SHOW_EDIT -> onShowEdit()
             KeyAction.TOGGLE_LANG -> {
                 flushComposing()
@@ -128,23 +129,31 @@ class KeyboardController(
         activeStart = (activeStart + digits.length).coerceAtMost(composing.length)
     }
 
+    private fun handleSegment() {
+        if (composing.isEmpty()) return
+        val top = T9Pinyin.firstSyllableOptions(activeDigits(), 1).firstOrNull() ?: return
+        lockedReadings.add(top)
+        activeStart = (activeStart + T9Pinyin.toT9(top).length).coerceAtMost(composing.length)
+    }
+
+    fun onBackspaceSwipe(up: Boolean): Boolean {
+        if (up && composing.isNotEmpty()) {
+            clearComposingState()
+            render()
+            return true
+        }
+        return false
+    }
+
     fun onPickCandidate(index: Int) {
         if (index !in candidates.indices) return
-        val cand = candidates[index]
-        if (mode() == Mode.ENGLISH) {
-            host.commitText("${cand.word} ")
-            clearComposingState()
-            lastWord = null
-        } else {
-            commitCandidate(cand)
-        }
+        commitCandidate(candidates[index])
         refreshCandidates()
         render()
     }
 
     private fun mode(): Mode = when {
         lang == Lang.CN && (layoutId == LayoutId.ALPHA || layoutId == LayoutId.NINE) -> Mode.PINYIN
-        lang == Lang.EN && layoutId == LayoutId.ALPHA -> Mode.ENGLISH
         else -> Mode.DIRECT
     }
 
@@ -158,10 +167,6 @@ class KeyboardController(
         }
         when (mode()) {
             Mode.PINYIN -> composing.append(key.output)
-            Mode.ENGLISH -> {
-                composing.append(applyCase(key.output))
-                if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
-            }
             Mode.DIRECT -> {
                 host.commitText(applyCase(key.output))
                 if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
@@ -191,14 +196,9 @@ class KeyboardController(
             lastWord = null
             return
         }
-        when (mode()) {
-            Mode.ENGLISH -> { host.commitText(composing.toString() + " "); clearComposingState(); lastWord = null }
-            else -> {
-                val pick = candidates.firstOrNull()
-                if (pick != null) commitCandidate(pick)
-                else { host.commitText(rawComposingText()); clearComposingState() }
-            }
-        }
+        val pick = candidates.firstOrNull()
+        if (pick != null) commitCandidate(pick)
+        else { host.commitText(rawComposingText()); clearComposingState() }
     }
 
     private fun handleEnter() {
@@ -271,7 +271,6 @@ class KeyboardController(
                         }
                         if (layoutId == LayoutId.ALPHA && c.none { it.word == raw }) c + Cand(raw, raw.length) else c
                     }
-                    Mode.ENGLISH -> engine.english(raw).let { if (raw !in it) it + raw else it }.map { Cand(it, raw.length) }
                     Mode.DIRECT -> emptyList()
                 }
             }

@@ -107,13 +107,25 @@ class KeyboardControllerTest {
         assertEquals(listOf("ni", "，"), h.commits)
     }
 
-    @Test fun toggling_to_english_leaves_the_nine_key() {
+    @Test fun english_letters_commit_directly_not_buffered() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
         c.onKey(act(KeyAction.SWITCH_NINE))
         c.onKey(act(KeyAction.TOGGLE_LANG))
         c.onKey(out("a"))
         c.onKey(act(KeyAction.SPACE))
-        assertEquals(listOf("a "), h.commits)
+        assertEquals(listOf("a", " "), h.commits)
+    }
+
+    @Test fun backspace_up_swipe_clears_pending_pinyin_in_any_layout() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "6433".forEach { c.onKey(out(it.toString())) }
+        assertTrue("up-swipe must consume + clear the buffer", c.onBackspaceSwipe(true))
+        c.onKey(act(KeyAction.ENTER))
+        assertEquals(1, h.enters)
+        assertTrue(h.commits.isEmpty())
+        assertEquals(false, c.onBackspaceSwipe(true))
     }
 }
