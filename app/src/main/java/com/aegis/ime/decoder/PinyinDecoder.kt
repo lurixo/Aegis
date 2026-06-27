@@ -21,6 +21,8 @@ import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.user.UserModel
 import kotlin.math.ln
 
+data class Cand(val word: String, val coveredLen: Int)
+
 class PinyinDecoder(
     private val dict: BinaryDict,
     private val lm: CharBigramLM? = null,
@@ -66,6 +68,29 @@ class PinyinDecoder(
         if (out.size < limit) fuzzyDict?.let { out.addAll(it.query(Fuzzy.normalize(input), limit)) }
         if (out.size < limit) initialsDict?.let { out.addAll(it.query(input, limit)) }
         return if (out.size <= limit) out.toList() else out.toList().subList(0, limit)
+    }
+
+    fun decodeCovered(input: String, limit: Int): List<Cand> {
+        if (input.isEmpty()) return emptyList()
+        val cover = LinkedHashMap<String, Int>()
+        val completionCap = maxOf(1, limit * 2 / 3)
+        fun addCompletions(words: List<String>) {
+            for (w in words) { if (cover.size >= completionCap) return; cover.putIfAbsent(w, input.length) }
+        }
+        bestSentence(input)?.let { cover[it] = input.length }
+        addCompletions(dict.query(input, completionCap))
+        fuzzyDict?.let { addCompletions(it.query(Fuzzy.normalize(input), completionCap)) }
+        initialsDict?.let { addCompletions(it.query(input, completionCap)) }
+        for (q in input.length downTo 1) {
+            if (cover.size >= limit) break
+            var added = 0
+            for (wf in dict.exact(input.substring(0, q))) {
+                if (cover.putIfAbsent(wf.word, q) == null && ++added >= PREFIX_PER_LEN) break
+            }
+        }
+        val out = ArrayList<Cand>(minOf(cover.size, limit))
+        for ((w, len) in cover) { out.add(Cand(w, len)); if (out.size >= limit) break }
+        return out
     }
 
     private class Cell(val score: Double, val prevPos: Int, val prevChar: Int, val word: String)
@@ -129,5 +154,6 @@ class PinyinDecoder(
         const val FUZZY_PENALTY = 3.0
         const val INITIALS_PENALTY = 5.0
         const val DEFAULT_OCTAGRAM_WEIGHT = 0.3
+        const val PREFIX_PER_LEN = 8
     }
 }

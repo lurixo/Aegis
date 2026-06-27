@@ -38,4 +38,14 @@ class T9DecoderTest {
         assertTrue("23744 -> 测试", d.decode("23744", 30).contains("测试"))
         assertEquals("我是中国人", d.decode("9674494664486736", 30).firstOrNull())
     }
+
+    @Test
+    fun decodeCovered_surfaces_leading_single_chars_with_coverage() {
+        val d = decoder()
+        val cands = d.decodeCovered("64426", 30)
+        assertTrue("你好 still present", cands.any { it.word == "你好" })
+        val ni = cands.firstOrNull { it.word == "你" }
+        assertTrue("你 (leading single char) must surface for multi-syllable input", ni != null)
+        assertEquals(2, ni!!.coveredLen)
+    }
 }
