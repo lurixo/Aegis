@@ -308,6 +308,15 @@
     <string name="translate_mode_zh_ja">中日互译</string>
     <string name="translate_caption">翻译</string>
     <string name="translate_failed_cause">翻译失败：%1$s</string>
+    <string name="csp_punctuation_title">自定义标点</string>
+    <string name="csp_operators_title">自定义运算符</string>
+    <string name="csp_section_added">已添加</string>
+    <string name="csp_added_empty">从下方点击添加</string>
+    <string name="csp_section_all_punctuation">全部标点</string>
+    <string name="csp_section_all_operators">全部运算符</string>
+    <string name="csp_remove_symbol">移除 %1$s</string>
+    <string name="csp_remove_symbol_confirm">移除「%1$s」？</string>
+    <string name="csp_remove">移除</string>
     <string name="edit_title">文字编辑</string>
     <string name="edit_start_select">开始选择</string>
     <string name="edit_select">选择</string>
@@ -326,6 +335,7 @@
     <string name="edit_text_end">末尾</string>
     <string name="edit_paste">粘贴</string>
     <string name="svc_recents_update_failed">常用记录更新失败，已恢复原内容</string>
+    <string name="clip_back">返回</string>
     <string name="clip_delete">删除</string>
     <string name="clip_cancel">取消</string>
     <string name="clip_clear">清空</string>

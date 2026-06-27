@@ -377,6 +377,12 @@ object Glyphs {
         if (locked) c.drawLine(cx - headW, botY + s * 0.28f, cx + headW, botY + s * 0.28f, paint)
     }
 
+    fun drawClose(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val r = s * 0.72f
+        c.drawLine(cx - r, cy - r, cx + r, cy + r, paint)
+        c.drawLine(cx - r, cy + r, cx + r, cy - r, paint)
+    }
+
     fun drawTrash(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val w = s * 0.56f; val top = cy - s * 0.46f; val bot = cy + s * 0.8f
         c.drawLine(cx - w, top, cx - w * 0.8f, bot, paint)

@@ -268,6 +268,29 @@ class PanelResetOnExitTest {
         )
     }
 
+    @Test fun a_fling_in_the_custom_symbol_panel_does_not_outlive_its_dismissal() = hosted { activity ->
+        val panel = CustomSymbolPanel(ctx).apply {
+            addPalette = (1..48).map { "S$it" }
+            current = { emptyList() }
+            applyPalette(light)
+            refresh()
+        }
+        host(activity, panel, 480, 220)
+        assertEquals(
+            "the custom symbol page reopens at the top",
+            0,
+            flingSurvivingDismissal(
+                "custom symbols",
+                panel,
+                panel.contentViewportForTest() as ScrollView,
+                480,
+                220,
+                { panel.resetToDefault() },
+                { panel.resetToDefault(); panel.applyPalette(light) },
+            ),
+        )
+    }
+
     @Test fun dragging_the_edit_panel_leaves_no_motion_after_its_dismissal() = hosted { activity ->
         val ep = EditPanelView(ctx).apply { applyPalette(light); setSelecting(true) }
         host(activity, ep, 480, 160)

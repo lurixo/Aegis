@@ -310,6 +310,15 @@
     <string name="translate_mode_zh_ja">Chinese ⇄ Japanese</string>
     <string name="translate_caption">Translate</string>
     <string name="translate_failed_cause">Translation failed: %1$s</string>
+    <string name="csp_punctuation_title">Custom punctuation</string>
+    <string name="csp_operators_title">Custom operators</string>
+    <string name="csp_section_added">Added</string>
+    <string name="csp_added_empty">Tap below to add</string>
+    <string name="csp_section_all_punctuation">All punctuation</string>
+    <string name="csp_section_all_operators">All operators</string>
+    <string name="csp_remove_symbol">Remove %1$s</string>
+    <string name="csp_remove_symbol_confirm">Remove \"%1$s\"?</string>
+    <string name="csp_remove">Remove</string>
     <string name="edit_title">Text editing</string>
     <string name="edit_start_select">Start selection</string>
     <string name="edit_select">Select</string>
@@ -328,6 +337,7 @@
     <string name="edit_text_end">End</string>
     <string name="edit_paste">Paste</string>
     <string name="svc_recents_update_failed">The recent list could not be updated, so its previous contents were restored</string>
+    <string name="clip_back">Back</string>
     <string name="clip_delete">Delete</string>
     <string name="clip_cancel">Cancel</string>
     <string name="clip_clear">Clear</string>

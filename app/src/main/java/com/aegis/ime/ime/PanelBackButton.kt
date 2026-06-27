@@ -84,4 +84,6 @@ internal class PanelHeaderBackControl(
         glyph.applyTint(tint)
         Motion.applyTapFeedback(this, tint, radiusDp = ImeShapes.keyRadiusDp)
     }
+
+    internal fun glyphForTest(): EditPanelView.GlyphDrawable = glyph
 }

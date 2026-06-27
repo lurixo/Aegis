@@ -30,6 +30,7 @@ import com.aegis.ime.ime.theme.ImePalette
 import java.time.Duration
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -356,6 +357,54 @@ class PanelMotionTest {
             assertEquals(View.GONE, candidates.visibility)
             assertFalse("the re-shown bar renders the un-split content", bar.splitModeForTest())
             assertFalse(bar.splitRenderedForTest())
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun custom_symbol_refresh_rebuilds_instantly_even_when_animated() {
+        animationsOn()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val added = mutableListOf<String>()
+            val v = attach(
+                activity,
+                CustomSymbolPanel(activity).apply {
+                    addPalette = listOf("★", "☆")
+                    current = { added.toList() }
+                    applyPalette(light)
+                },
+            )
+            assertNotNull(v.paletteChipForTest("★"))
+            added.add("★")
+            v.refresh()
+            assertNull("a chip change rebuilds in the same call, with no animation at all", v.paletteChipForTest("★"))
+            assertEquals(1f, v.contentViewportForTest().alpha, 0f)
+            flushMotion()
+            assertNull(v.paletteChipForTest("★"))
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun custom_symbol_refresh_is_immediate_under_reduced_motion() {
+        animationsOff()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val added = mutableListOf<String>()
+            val v = attach(
+                activity,
+                CustomSymbolPanel(activity).apply {
+                    addPalette = listOf("★", "☆")
+                    current = { added.toList() }
+                    applyPalette(light)
+                },
+            )
+            added.add("★")
+            v.refresh()
+            assertNull("reduced motion rebuilds immediately", v.paletteChipForTest("★"))
         } finally {
             controller.pause().stop().destroy()
         }
