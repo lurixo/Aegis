@@ -38,6 +38,10 @@ class KeyboardController(
     private var shiftState = ShiftState.OFF
     private val shifted get() = shiftState != ShiftState.OFF
     private var layoutId = LayoutId.ALPHA
+
+    private var cnDefaultLayout = LayoutId.NINE
+
+    private var cnLayout = LayoutId.NINE
     private val composing = StringBuilder()
     private var candidates: List<Cand> = emptyList()
     private var lastWord: String? = null
@@ -76,6 +80,8 @@ class KeyboardController(
         render()
     }
 
+    fun setCnDefaultLayout(id: LayoutId) { cnDefaultLayout = id }
+
     fun reset() {
         composing.setLength(0)
         candidates = emptyList()
@@ -84,10 +90,13 @@ class KeyboardController(
         forcedCuts.clear()
         history.clear()
         shiftState = ShiftState.OFF
-        layoutId = LayoutId.ALPHA
+        cnLayout = cnDefaultLayout
+        layoutId = if (lang == Lang.CN) cnDefaultLayout else LayoutId.ALPHA
         lastWord = null
         render()
     }
+
+    internal fun activeLayoutId(): LayoutId = layoutId
 
     fun onKey(key: Key) {
         when (key.action) {
@@ -112,8 +121,14 @@ class KeyboardController(
             KeyAction.CUSTOM_SYMBOL -> onShowCustomSymbols()
             KeyAction.TOGGLE_LANG -> {
                 flushComposing()
-                lang = if (lang == Lang.CN) Lang.EN else Lang.CN
-                if (lang == Lang.EN && layoutId == LayoutId.NINE) layoutId = LayoutId.ALPHA
+                if (lang == Lang.CN) {
+                    cnLayout = layoutId
+                    lang = Lang.EN
+                    layoutId = LayoutId.ALPHA
+                } else {
+                    lang = Lang.CN
+                    layoutId = cnLayout
+                }
             }
         }
         refreshCandidates()
@@ -360,7 +375,7 @@ class KeyboardController(
         val v = view ?: return
         val layout = if (layoutId == LayoutId.NINE) Layouts.nine(lang, nineLeftColumn(), composing.isNotEmpty())
         else Layouts.forId(layoutId, lang)
-        v.showKeyboard(layout, shifted)
+        v.showKeyboard(layout, shifted, lang)
         v.showCandidates(candidates.map { it.word }, preeditText(), expandedReadings())
     }
 

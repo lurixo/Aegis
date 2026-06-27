@@ -37,6 +37,7 @@ import com.aegis.ime.ime.EmojiView
 import com.aegis.ime.ime.ImeHost
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
+import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.user.ClipboardStore
 import com.aegis.ime.user.CustomSymbolStore
 import com.aegis.ime.user.UserModel
@@ -134,6 +135,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         inputView?.showPanel(null)
+        val cnLayout = getSharedPreferences("aegis", MODE_PRIVATE).getString("cn_layout", "nine")
+        controller.setCnDefaultLayout(if (cnLayout == "alpha") LayoutId.ALPHA else LayoutId.NINE)
         controller.reset()
     }
 

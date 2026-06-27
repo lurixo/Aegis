@@ -42,7 +42,7 @@ class KeyboardViewInteractionTest {
 
     private fun nineView(left: List<Key>, composing: Boolean): KeyboardView {
         val v = KeyboardView(context)
-        v.setLayout(Layouts.nine(Lang.CN, left, composing), false)
+        v.setLayout(Layouts.nine(Lang.CN, left, composing), false, Lang.CN)
         v.measure(
             View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),

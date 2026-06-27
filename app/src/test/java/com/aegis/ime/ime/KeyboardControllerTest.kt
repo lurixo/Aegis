@@ -19,6 +19,7 @@ import com.aegis.ime.decoder.Cand
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
+import com.aegis.ime.layout.LayoutId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -286,6 +287,53 @@ class KeyboardControllerTest {
         c.onKey(act(KeyAction.BACKSPACE))
         assertTrue("hao gone (one letter removed)", "hao" !in c.expandedReadings())
         assertTrue("ha still present", "ha" in c.expandedReadings())
+    }
+
+
+    @Test fun reset_opens_cn_on_the_chosen_default_keyboard() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.reset()
+        assertEquals("CN defaults to 9-key (B5)", LayoutId.NINE, c.activeLayoutId())
+        c.setCnDefaultLayout(LayoutId.ALPHA)
+        c.reset()
+        assertEquals("CN honours the 26-key choice (B5)", LayoutId.ALPHA, c.activeLayoutId())
+    }
+
+    @Test fun reset_keeps_en_on_26_key_even_with_a_nine_default() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        c.setCnDefaultLayout(LayoutId.NINE)
+        c.reset()
+        assertEquals("EN is always 26-key", LayoutId.ALPHA, c.activeLayoutId())
+    }
+
+    @Test fun lang_round_trip_returns_to_the_cn_default_keyboard() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.reset()
+        assertEquals(LayoutId.NINE, c.activeLayoutId())
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        assertEquals(LayoutId.ALPHA, c.activeLayoutId())
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        assertEquals(LayoutId.NINE, c.activeLayoutId())
+    }
+
+    @Test fun lang_round_trip_preserves_a_manual_cn_26_key_choice() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.reset()
+        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        assertEquals(LayoutId.ALPHA, c.activeLayoutId())
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        assertEquals(LayoutId.ALPHA, c.activeLayoutId())
+    }
+
+
+    @Test fun b2_up_swipe_symbol_commits_directly_even_mid_pinyin() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(Key("n", output = "n"))
+        c.onKey(Key("@", output = "@", direct = true))
+        assertEquals(listOf("n", "@"), h.commits)
     }
 
     @Test fun backspace_up_swipe_clears_pending_pinyin_in_any_layout() {

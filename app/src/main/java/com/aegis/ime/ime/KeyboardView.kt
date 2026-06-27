@@ -46,6 +46,7 @@ class KeyboardView(context: Context) : View(context) {
 
     private var layout: KeyboardLayout = Layouts.forId(LayoutId.ALPHA, Lang.CN)
     private var shifted = false
+    private var lang = Lang.CN
 
     private val placed = ArrayList<Placed>()
     private var pressed: Key? = null
@@ -69,6 +70,7 @@ class KeyboardView(context: Context) : View(context) {
     private var downY = 0f
     private var repeating = false
     private var swiped = false
+    private var vSwipeDir = 0
     private val swipeThreshold = 24f * resources.displayMetrics.density
     private val repeatRunnable = object : Runnable {
         override fun run() {
@@ -80,7 +82,12 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     private fun isRepeatable(key: Key) =
-        key.action == KeyAction.BACKSPACE || key.action == KeyAction.SPACE || key.action == KeyAction.ENTER
+        key.action == KeyAction.BACKSPACE || key.action == KeyAction.SPACE || key.action == KeyAction.ENTER ||
+            (lang == Lang.EN && isAlphaLetter(key))
+
+    private fun isAlphaLetter(key: Key) =
+        layout.id == LayoutId.ALPHA && key.action == KeyAction.COMMIT &&
+            key.label.length == 1 && key.label[0] in 'a'..'z'
 
     private val density = resources.displayMetrics.density
     private val rowHeight = 52f * density
@@ -117,6 +124,17 @@ class KeyboardView(context: Context) : View(context) {
         textAlign = Paint.Align.RIGHT
         textSize = sp(10f)
     }
+    private val langActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF37474F.toInt()
+        textAlign = Paint.Align.CENTER
+        textSize = sp(17f)
+        setShadowLayer(1.2f * density, 0f, 1f * density, 0x33000000)
+    }
+    private val langSmallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF90A4AE.toInt()
+        textAlign = Paint.Align.RIGHT
+        textSize = sp(11f)
+    }
 
     private val baseColor = 0xFFE6E9EF.toInt()
     private val gradPaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -139,10 +157,11 @@ class KeyboardView(context: Context) : View(context) {
 
     private data class Placed(val rect: RectF, val key: Key, val groupId: Int = 0)
 
-    fun setLayout(newLayout: KeyboardLayout, isShifted: Boolean) {
+    fun setLayout(newLayout: KeyboardLayout, isShifted: Boolean, language: Lang) {
         val sameColumn = newLayout.scrollColumn?.items?.map { it.label } == layout.scrollColumn?.items?.map { it.label }
         layout = newLayout
         shifted = isShifted
+        lang = language
         scrollColumn = newLayout.scrollColumn
         if (!sameColumn) scrollY = 0f
         if (width > 0) relayout()
@@ -356,6 +375,7 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     private fun drawLabel(canvas: Canvas, p: Placed) {
+        if (p.key.action == KeyAction.TOGGLE_LANG) { drawLangToggle(canvas, p.rect); return }
         val cx = p.rect.centerX()
         val cy = p.rect.centerY()
         val display = displayLabel(p.key)
@@ -368,6 +388,14 @@ class KeyboardView(context: Context) : View(context) {
         if (p.key.sub != null) {
             canvas.drawText(p.key.sub, p.rect.right - 6 * density, p.rect.top + 15 * density, subPaint)
         }
+    }
+
+    private fun drawLangToggle(canvas: Canvas, rect: RectF) {
+        val active = if (lang == Lang.CN) "中" else "英"
+        val small = if (lang == Lang.CN) "英" else "中"
+        val baseline = rect.centerY() - (langActivePaint.descent() + langActivePaint.ascent()) / 2
+        canvas.drawText(active, rect.centerX(), baseline, langActivePaint)
+        canvas.drawText(small, rect.right - 5 * density, rect.bottom - 6 * density, langSmallPaint)
     }
 
     private fun displayLabel(key: Key): String {
@@ -388,24 +416,42 @@ class KeyboardView(context: Context) : View(context) {
                 downKey = downPlaced?.key
                 pressed = downKey
                 downX = event.x; downY = event.y
-                repeating = false; swiped = false
+                repeating = false; swiped = false; vSwipeDir = 0
                 downKey?.let { if (isRepeatable(it)) repeatHandler.postDelayed(repeatRunnable, REPEAT_DELAY_MS) }
                 invalidate()
             }
             MotionEvent.ACTION_MOVE -> {
                 val dk = downKey
-                if (dk != null && dk.action == KeyAction.BACKSPACE) {
-                    val dy = event.y - downY
-                    if (!swiped && abs(dy) > swipeThreshold && abs(dy) > abs(event.x - downX)) {
-                        swiped = true
-                        repeatHandler.removeCallbacks(repeatRunnable)
+                when {
+                    dk != null && dk.action == KeyAction.BACKSPACE -> {
+                        val dy = event.y - downY
+                        if (!swiped && abs(dy) > swipeThreshold && abs(dy) > abs(event.x - downX)) {
+                            swiped = true
+                            repeatHandler.removeCallbacks(repeatRunnable)
+                        }
                     }
-                } else {
-                    val k = currentTarget(event.x, event.y)
-                    if (k !== pressed) {
-                        pressed = k
-                        if (k !== downKey) repeatHandler.removeCallbacks(repeatRunnable)
-                        invalidate()
+                    dk != null && lang == Lang.EN && isAlphaLetter(dk) -> {
+                        val dy = event.y - downY
+                        if (!swiped && abs(dy) > swipeThreshold && abs(dy) > abs(event.x - downX)) {
+                            swiped = true
+                            vSwipeDir = if (dy < 0) -1 else 1
+                            repeatHandler.removeCallbacks(repeatRunnable)
+                        } else if (!swiped) {
+                            val k = currentTarget(event.x, event.y)
+                            if (k !== pressed) {
+                                pressed = k
+                                if (k !== downKey) repeatHandler.removeCallbacks(repeatRunnable)
+                                invalidate()
+                            }
+                        }
+                    }
+                    else -> {
+                        val k = currentTarget(event.x, event.y)
+                        if (k !== pressed) {
+                            pressed = k
+                            if (k !== downKey) repeatHandler.removeCallbacks(repeatRunnable)
+                            invalidate()
+                        }
                     }
                 }
             }
@@ -414,10 +460,16 @@ class KeyboardView(context: Context) : View(context) {
                 val dk = downKey
                 pressed = null
                 invalidate()
-                if (dk != null && dk.action == KeyAction.BACKSPACE && swiped) {
-                    onBackspaceSwipe(event.y - downY < 0)
-                } else if (!repeating) {
-                    currentTarget(event.x, event.y)?.let { performClick(); onKey(it) }
+                when {
+                    dk != null && dk.action == KeyAction.BACKSPACE && swiped && !repeating ->
+                        onBackspaceSwipe(event.y - downY < 0)
+                    dk != null && lang == Lang.EN && isAlphaLetter(dk) && swiped && !repeating -> {
+                        performClick()
+                        if (vSwipeDir < 0 && dk.sub != null) onKey(Key(dk.sub, output = dk.sub, direct = true))
+                        else onKey(dk)
+                    }
+                    !repeating ->
+                        currentTarget(event.x, event.y)?.let { performClick(); onKey(it) }
                 }
                 downKey = null
                 downPlaced = null
