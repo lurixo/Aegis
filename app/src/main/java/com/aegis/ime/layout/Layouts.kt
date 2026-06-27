@@ -19,6 +19,7 @@ import com.aegis.ime.layout.KeyAction.BACKSPACE
 import com.aegis.ime.layout.KeyAction.CLEAR_COMPOSING
 import com.aegis.ime.layout.KeyAction.ENTER
 import com.aegis.ime.layout.KeyAction.SHIFT
+import com.aegis.ime.layout.KeyAction.SEGMENT
 import com.aegis.ime.layout.KeyAction.SHOW_EDIT
 import com.aegis.ime.layout.KeyAction.SPACE
 import com.aegis.ime.layout.KeyAction.SWITCH_ALPHA
@@ -101,7 +102,12 @@ object Layouts {
         cells.add(PlacedKey(Key("✎", action = SHOW_EDIT), xL, 0.75f, wL, 0.25f))
         // middle 3×3: letters as the main label, T9 digit as the emitted output; "1" position = symbols
         // (idle "@#", more symbols "@!./" while composing).
-        cells.add(PlacedKey(Key(if (composing) "@!./" else "@#", action = SWITCH_SYMBOLS), x1, 0f, wM, 0.25f))
+        // Top-left: while composing it is the 分词/隔音 key (lock a syllable boundary);
+        // idle it stays the symbols shortcut (punctuation otherwise via the left column / 符号 panel).
+        cells.add(PlacedKey(
+            if (composing) Key("分词", action = SEGMENT) else Key("@#", action = SWITCH_SYMBOLS),
+            x1, 0f, wM, 0.25f,
+        ))
         cells.add(PlacedKey(t9key("ABC", "2"), x2, 0f, wM, 0.25f))
         cells.add(PlacedKey(t9key("DEF", "3"), x3, 0f, wM, 0.25f))
         cells.add(PlacedKey(t9key("GHI", "4"), x1, 0.25f, wM, 0.25f))

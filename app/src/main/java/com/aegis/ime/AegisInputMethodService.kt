@@ -122,7 +122,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onKey = { key -> controller.onKey(key) }
             onPickCandidate = { index -> controller.onPickCandidate(index) }
             onFunction = { f -> controller.onBarFunction(f) }
-            onBackspaceSwipe = { up -> handleBackspaceSwipe(up) }
+            // C: up-swipe clears the pending pinyin (重输) in any layout first; only if there's nothing
+            // composing does it fall back to the editor-field clear/restore (#5).
+            onBackspaceSwipe = { up -> if (!controller.onBackspaceSwipe(up)) handleBackspaceSwipe(up) }
             onCollapse = { requestHideSelf(0) } // idle toolbar ⌄ collapses the keyboard
         }
         inputView = view
