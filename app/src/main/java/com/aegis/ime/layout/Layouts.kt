@@ -84,7 +84,8 @@ object Layouts {
         val xR = 3.7f * u; val wR = 0.7f * u
         val pillH = 0.75f / 4f
         val cells = ArrayList<PlacedKey>()
-        for (i in 0 until 4) cells.add(PlacedKey(left[i], xL, i * pillH, wL, pillH, groupId = 1))
+        val nLeft = left.size.coerceAtMost(4)
+        for (i in 0 until nLeft) cells.add(PlacedKey(left[i], xL, i * pillH, wL, pillH, groupId = 1))
         cells.add(PlacedKey(Key("✎", action = SHOW_EDIT), xL, 0.75f, wL, 0.25f))
         cells.add(PlacedKey(
             if (composing) Key("分词", action = SEGMENT) else Key("@#", action = SWITCH_SYMBOLS),

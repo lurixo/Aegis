@@ -90,4 +90,57 @@ class T9PinyinTest {
     @Test fun lock_first_reading_rejects_non_prefix_reading() {
         assertNull(T9Pinyin.lockFirstReading("64", "mie"))
     }
+
+
+    private fun assertCleanColumn(opts: List<String>) {
+        assertTrue("no empty placeholder slots, was $opts", opts.none { it.isEmpty() })
+        assertTrue("only a-z (no punctuation / digits), was $opts", opts.all { s -> s.all { it in 'a'..'z' } })
+        assertEquals("no duplicates, was $opts", opts.size, opts.toSet().size)
+    }
+
+    @Test fun left_column_ceshi_is_syllable_then_first_key_letters() {
+        val opts = T9Pinyin.leftColumnReadings("23744", 4)
+        assertEquals(listOf("ce", "a", "b", "c"), opts)
+        assertCleanColumn(opts)
+    }
+
+    @Test fun left_column_ni_full_content_matches_reference() {
+        val opts = T9Pinyin.leftColumnReadings("64744336488", 6)
+        assertTrue("must offer ni, was $opts", "ni" in opts)
+        assertTrue("must offer mi, was $opts", "mi" in opts)
+        assertTrue("must offer the first-key letters m/n/o, was $opts", listOf("m", "n", "o").all { it in opts })
+        assertCleanColumn(opts)
+    }
+
+    @Test fun left_column_ni_at_production_limit_keeps_the_real_syllables() {
+        val opts = T9Pinyin.leftColumnReadings("64744336488", 4)
+        assertTrue("ni must survive the cap, was $opts", "ni" in opts)
+        assertTrue("mi must survive the cap, was $opts", "mi" in opts)
+        assertCleanColumn(opts)
+    }
+
+    @Test fun left_column_can_reach_xuan_9826() {
+        assertTrue("xuan must be offered", "xuan" in T9Pinyin.leftColumnReadings("9826", 6))
+    }
+
+    @Test fun left_column_multi_candidate_shi() {
+        val opts = T9Pinyin.leftColumnReadings("744", 6)
+        assertTrue("shi must be offered, was $opts", "shi" in opts)
+        assertCleanColumn(opts)
+    }
+
+    @Test fun left_column_single_ambiguous_key_shows_letters_not_blanks() {
+        assertEquals(listOf("w", "x", "y", "z"), T9Pinyin.leftColumnReadings("9", 4))
+    }
+
+    @Test fun left_column_is_deterministic_same_input_same_output() {
+        repeat(5) { assertEquals(T9Pinyin.leftColumnReadings("23744", 4), T9Pinyin.leftColumnReadings("23744", 4)) }
+        assertEquals(T9Pinyin.leftColumnReadings("9826", 6), T9Pinyin.leftColumnReadings("9826", 6))
+    }
+
+    @Test fun left_column_respects_the_limit_and_handles_blank() {
+        assertTrue(T9Pinyin.leftColumnReadings("64744336488", 4).size <= 4)
+        assertTrue(T9Pinyin.leftColumnReadings("", 4).isEmpty())
+        assertTrue(T9Pinyin.leftColumnReadings("1", 4).isEmpty())
+    }
 }
