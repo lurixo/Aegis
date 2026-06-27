@@ -21,6 +21,10 @@ import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.user.UserModel
 import kotlin.math.ln
 
+/** A candidate word plus how many leading input units (digits/letters) it consumes — for ★E
+ *  per-syllable partial commit and the ★G mixed long-word/short-word/single-char grid. */
+data class Cand(val word: String, val coveredLen: Int)
+
 /**
  * Word-lattice Viterbi decoder for full-pinyin input (26-key letters or T9 digits — the dict
  * key space differs, the algorithm doesn't).
@@ -80,6 +84,40 @@ class PinyinDecoder(
         if (out.size < limit) fuzzyDict?.let { out.addAll(it.query(Fuzzy.normalize(input), limit)) }
         if (out.size < limit) initialsDict?.let { out.addAll(it.query(input, limit)) }
         return if (out.size <= limit) out.toList() else out.toList().subList(0, limit)
+    }
+
+    /**
+     * Candidates tagged with coverage length (★E/★G): best full sentence + full-input completions
+     * (all covering the whole input), then per-prefix words enumerated longest-prefix-first so
+     * multi-syllable words rank above their leading single chars. Each [Cand.coveredLen] is how many
+     * leading input units that word consumes, so picking it can partially commit and continue the rest.
+     * [decode] is intentionally left unchanged so the accuracy eval path is unaffected.
+     */
+    fun decodeCovered(input: String, limit: Int): List<Cand> {
+        if (input.isEmpty()) return emptyList()
+        val cover = LinkedHashMap<String, Int>()
+        // Reserve part of the budget for leading single-chars/short words so full-input completions
+        // (which can alone fill `limit`) never starve the ★G mixed grid.
+        val completionCap = maxOf(1, limit * 2 / 3)
+        fun addCompletions(words: List<String>) {
+            for (w in words) { if (cover.size >= completionCap) return; cover.putIfAbsent(w, input.length) }
+        }
+        bestSentence(input)?.let { cover[it] = input.length }
+        addCompletions(dict.query(input, completionCap))
+        fuzzyDict?.let { addCompletions(it.query(Fuzzy.normalize(input), completionCap)) }
+        initialsDict?.let { addCompletions(it.query(input, completionCap)) }
+        // Prefix words straight from the main dict (freq-ordered), independent of the lattice edge cap,
+        // so the leading single chars (你 米 迷 泥 …) surface even without an LM (★G).
+        for (q in input.length downTo 1) {
+            if (cover.size >= limit) break
+            var added = 0
+            for (wf in dict.exact(input.substring(0, q))) {
+                if (cover.putIfAbsent(wf.word, q) == null && ++added >= PREFIX_PER_LEN) break
+            }
+        }
+        val out = ArrayList<Cand>(minOf(cover.size, limit))
+        for ((w, len) in cover) { out.add(Cand(w, len)); if (out.size >= limit) break }
+        return out
     }
 
     private class Cell(val score: Double, val prevPos: Int, val prevChar: Int, val word: String)
@@ -144,5 +182,6 @@ class PinyinDecoder(
         const val FUZZY_PENALTY = 3.0     // log-domain cost so exact matches outrank fuzzy ones
         const val INITIALS_PENALTY = 5.0  // 简拼 is the most ambiguous → lowest preference
         const val DEFAULT_OCTAGRAM_WEIGHT = 0.3 // scales the large positive octagram log-weights
+        const val PREFIX_PER_LEN = 8  // max leading single-chars/short-words pulled per prefix length (★G)
     }
 }
