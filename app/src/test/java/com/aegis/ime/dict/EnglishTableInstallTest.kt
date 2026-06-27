@@ -118,6 +118,16 @@ class EnglishTableInstallTest {
     }
 
     @Test
+    fun purging_the_dictionary_takes_the_english_table_with_it() {
+        val filesDir = tempDir()
+        val downloaded = File(filesDir, "downloaded").apply { mkdirs() }
+        ModelDownload.DICT_MANAGED_FILES.forEach { File(downloaded, it).writeBytes(ByteArray(2048)) }
+
+        assertTrue(ModelDownload.purgeDict(filesDir))
+        assertFalse(File(downloaded, ModelDownload.EN_NAME).exists())
+    }
+
+    @Test
     fun installing_a_pack_without_english_drops_a_previously_installed_english_table() {
         val filesDir = tempDir()
         val downloaded = File(filesDir, "downloaded").apply { mkdirs() }

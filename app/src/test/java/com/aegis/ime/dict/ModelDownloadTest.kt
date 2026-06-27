@@ -25,6 +25,8 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.random.Random
@@ -57,6 +59,81 @@ class ModelDownloadTest {
         assertFalse("interrupted .part is cleaned too", part.exists())
         assertFalse("the partial identity sidecar is cleaned too", sidecar.exists())
         assertTrue("second purge still confirms absence", ModelDownload.purge(base))
+
+        base.deleteRecursively()
+    }
+
+    @Test
+    fun purgeOnlyReportsSuccessWhenEveryManagedPathIsAbsent() {
+        val base = tempFilesDir()
+        val model = ModelDownload.destFile(base).apply {
+            mkdirs()
+            File(this, "retained").writeText("model")
+        }
+        val downloaded = File(base, "downloaded")
+        val dict = File(downloaded, ModelDownload.DICT_PACK_FILES.first()).apply {
+            mkdirs()
+            File(this, "retained").writeText("dictionary")
+        }
+
+        assertFalse(ModelDownload.purge(base))
+        assertFalse(ModelDownload.purgeDict(base))
+        assertTrue(model.exists())
+        assertTrue(dict.exists())
+
+        base.deleteRecursively()
+    }
+
+    @Test
+    fun deletingTheDictionaryAlsoRemovesTheBundledEraCopiesOutsideTheManagedDirectory() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        val bundledEraNames = ModelDownload.DICT_PACK_FILES + listOf("aegis_en.bin", "aegis_fuzzy.bin")
+        ModelDownload.DICT_PACK_FILES.forEach { name ->
+            File(downloaded, name).writeBytes(ByteArray(2_048) { 1 })
+        }
+        bundledEraNames.forEach { name ->
+            File(base, name).writeBytes(ByteArray(4_096) { 2 })
+            File(base, "$name.part").writeBytes(ByteArray(512))
+        }
+        File(downloaded, ModelDownload.DICT_INSTALLED_SHA_NAME).writeText("d".repeat(64))
+        val grammar = File(base, ModelDownload.GRAM_NAME).apply { writeBytes(ByteArray(2_048) { 3 }) }
+
+        assertTrue(ModelDownload.isDictDownloaded(base))
+        assertTrue(ModelDownload.purgeDict(base))
+
+        assertFalse(ModelDownload.isDictDownloaded(base))
+        bundledEraNames.forEach { name ->
+            assertFalse(File(base, name).exists())
+            assertFalse(File(base, "$name.part").exists())
+        }
+        assertTrue("the bundled grammar model is not dictionary state", grammar.exists())
+        assertEquals(2_048L, grammar.length())
+
+        base.deleteRecursively()
+    }
+
+    @Test
+    fun purgeOnlyConfirmsSuccessOnceTheBundledEraCopiesAreGone() {
+        val base = tempFilesDir()
+        val blocked = File(base, ModelDownload.DICT_PACK_FILES.first()).apply {
+            mkdirs()
+            File(this, "retained").writeText("cache")
+        }
+
+        assertFalse(ModelDownload.purgeDict(base))
+        assertTrue(blocked.exists())
+        assertTrue(blocked.deleteRecursively())
+
+        val debugEra = File(base, "aegis_en.bin").apply {
+            mkdirs()
+            File(this, "retained").writeText("cache")
+        }
+
+        assertFalse(ModelDownload.purgeDict(base))
+        assertTrue(debugEra.exists())
+        assertTrue(debugEra.deleteRecursively())
+        assertTrue(ModelDownload.purgeDict(base))
 
         base.deleteRecursively()
     }
@@ -700,6 +777,7 @@ class ModelDownloadTest {
         assertEquals(oldSha, ModelDownload.installedDictionaryFileSha(base))
         assertFalse(zip.exists())
         assertFalse(File(downloaded, "dict-install").exists())
+
         base.deleteRecursively()
     }
 
@@ -721,6 +799,44 @@ class ModelDownloadTest {
         assertTrue(residue.delete())
         ModelDownload.reconcileInterruptedDownloads(base)
         assertFalse(backup.exists())
+        base.deleteRecursively()
+    }
+
+    @Test
+    fun dictionaryDeleteDoesNotRaceAnInstallTransaction() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        ModelDownload.DICT_PACK_FILES.forEach { name ->
+            File(downloaded, name).writeBytes(ByteArray(2_048) { 9 })
+        }
+        val replacements = mapOf(
+            "aegis_dict.bin" to ByteArray(3_000) { 1 },
+            "aegis_t9.bin" to ByteArray(3_000) { 2 },
+            "aegis_jianpin.bin" to ByteArray(3_000) { 3 },
+            "aegis_lm.bin" to ByteArray(3_000) { 4 },
+        )
+        val zip = ModelDownload.dictZipFile(base)
+        writeZip(zip, replacements)
+        val sha = ModelDownload.sha256Of(zip)
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        var installed = false
+        val thread = Thread {
+            installed = ModelDownload.installDictPack(base, sha) {
+                entered.countDown()
+                release.await(2, TimeUnit.SECONDS)
+            }
+        }
+        thread.start()
+        assertTrue(entered.await(2, TimeUnit.SECONDS))
+
+        assertFalse(ModelDownload.purgeDict(base))
+
+        release.countDown()
+        thread.join(2_000)
+        assertTrue(installed)
+        replacements.forEach { (name, bytes) -> assertArrayEquals(bytes, File(downloaded, name).readBytes()) }
+        assertEquals(sha, ModelDownload.installedDictionaryFileSha(base))
         base.deleteRecursively()
     }
 
@@ -1043,6 +1159,44 @@ class ModelDownloadTest {
             ModelDownload.DICT_PACK_FILES.forEach { name ->
                 assertFalse(File(File(base, "downloaded"), name).exists())
             }
+        } finally {
+            server.stop(0)
+            base.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun reconciliationKeepsABoundPartialAndDropsAnUnboundOne() {
+        val base = tempFilesDir()
+        val body = ByteArray(100_000) { (it % 245).toByte() }
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/asset") { exchange -> serveTruncated(exchange, body, 30_000, etag = "model-1") }
+        server.start()
+        try {
+            val target = ModelDownload.destFile(base)
+            val part = ModelDownload.partFile(base)
+            val sidecar = File(part.parentFile, "${part.name}.meta")
+
+            val first = ModelDownload.download("http://127.0.0.1:${server.address.port}/asset", target) { _, _ -> }
+
+            assertFalse(first.ok)
+            assertEquals(30_000L, part.length())
+            assertTrue(sidecar.exists())
+
+            ModelDownload.reconcileInterruptedDownloads(base)
+            assertTrue("a bound partial survives reconciliation", part.exists())
+            assertTrue(sidecar.exists())
+
+            sidecar.writeText("not the recorded identity")
+            ModelDownload.reconcileInterruptedDownloads(base)
+            assertFalse("an unbound partial is discarded", part.exists())
+            assertFalse(sidecar.exists())
+
+            val dictPart = ModelDownload.dictPartFile(base).apply { parentFile?.mkdirs(); writeBytes(ByteArray(5_000)) }
+            val dictSidecar = File(dictPart.parentFile, "${dictPart.name}.meta").apply { writeText("stale") }
+            assertTrue(ModelDownload.purgeDict(base))
+            assertFalse(dictPart.exists())
+            assertFalse(dictSidecar.exists())
         } finally {
             server.stop(0)
             base.deleteRecursively()

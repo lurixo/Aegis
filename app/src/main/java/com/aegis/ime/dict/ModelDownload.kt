@@ -886,4 +886,47 @@ object ModelDownload {
     private fun moveReplacing(source: File, target: File) {
         Files.move(source.toPath(), target.toPath(), ATOMIC_MOVE, REPLACE_EXISTING)
     }
+
+    fun purgeDict(filesDir: File): Boolean {
+        if (!dictionaryRecoveryLock.tryLock()) return false
+        try {
+            val key = filesDir.absolutePath
+            if (
+                key in installingDicts ||
+                key in recoveringDicts ||
+                dictZipFile(filesDir).absolutePath in inFlight
+            ) return false
+            DICT_MANAGED_FILES.forEach {
+                File(downloadedDir(filesDir), it).delete()
+                File(downloadedDir(filesDir), "$it.part").delete()
+                dictBackupFile(filesDir, it).delete()
+            }
+            dictInstalledShaFile(filesDir).delete()
+            dictBackupFile(filesDir, DICT_INSTALLED_SHA_NAME).delete()
+            clearPendingDictionarySha(filesDir)
+            dictStagingDir(filesDir).deleteRecursively()
+            dictZipFile(filesDir).delete()
+            dictPartFile(filesDir).delete()
+            partMetaOf(dictPartFile(filesDir)).delete()
+            legacyDictZipFile(filesDir).delete()
+            legacyDictPartFile(filesDir).delete()
+            deleteBundledDictCache(filesDir)
+            return DICT_MANAGED_FILES.none {
+                File(downloadedDir(filesDir), it).exists() ||
+                    File(downloadedDir(filesDir), "$it.part").exists() ||
+                    dictBackupFile(filesDir, it).exists()
+            } && bundledDictCacheFiles(filesDir).none(File::exists) &&
+                !dictInstalledShaFile(filesDir).exists() &&
+                !dictBackupFile(filesDir, DICT_INSTALLED_SHA_NAME).exists() &&
+                !dictPendingShaFile(filesDir).exists() &&
+                !dictStagingDir(filesDir).exists() &&
+                !dictZipFile(filesDir).exists() &&
+                !dictPartFile(filesDir).exists() &&
+                !partMetaOf(dictPartFile(filesDir)).exists() &&
+                !legacyDictZipFile(filesDir).exists() &&
+                !legacyDictPartFile(filesDir).exists()
+        } finally {
+            dictionaryRecoveryLock.unlock()
+        }
+    }
 }
