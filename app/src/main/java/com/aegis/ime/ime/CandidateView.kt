@@ -108,7 +108,7 @@ class CandidateView(context: Context) : View(context) {
 
     private fun layoutCells() {
         hitCount = items.size
-        var x = padding
+        var x = 0f
         for ((i, item) in items.withIndex()) {
             val cellW = textPaint.measureText(item) + padding * 2
             hitRect(i).set(x, 0f, x + cellW, 0f)

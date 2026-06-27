@@ -62,7 +62,7 @@ class InputView(context: Context) : LinearLayout(context) {
             val nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
             val cut = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
             val side = dp(4)
-            v.setPadding(maxOf(cut.left, side), 0, maxOf(cut.right, side), nav.bottom + dp(10))
+            v.setPadding(maxOf(cut.left, side), 0, maxOf(cut.right, side), nav.bottom + dp(16))
             WindowInsetsCompat.CONSUMED
         }
     }

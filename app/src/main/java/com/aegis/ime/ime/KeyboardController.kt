@@ -252,7 +252,6 @@ class KeyboardController(
                     Mode.DIRECT -> emptyList()
                 }
             }
-            mode() == Mode.PINYIN -> engine.predict(lastWord)
             else -> emptyList()
         }
     }
