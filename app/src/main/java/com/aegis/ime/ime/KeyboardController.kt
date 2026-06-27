@@ -59,6 +59,10 @@ class KeyboardController(
     private val lockedReadings = mutableListOf<String>()
     private var activeStart = 0
 
+    /** 分词/隔音: user-forced syllable boundaries — indices into [composing] where a word may
+     *  not span. The decoder, preedit and reading column all honour these. See [handleSegment]. */
+    private val forcedCuts = sortedSetOf<Int>()
+
     /** Extras-panel hooks wired by the IME service (it owns the InputConnection + Context). */
     var onShowEmoji: () -> Unit = {}
     var onShowClipboard: () -> Unit = {}
@@ -85,6 +89,7 @@ class KeyboardController(
         candidates = emptyList()
         lockedReadings.clear()
         activeStart = 0
+        forcedCuts.clear()
         shiftState = ShiftState.OFF
         layoutId = LayoutId.ALPHA
         lastWord = null
@@ -155,14 +160,13 @@ class KeyboardController(
     }
 
     /**
-     * 分词/隔音: lock the active syllable's top reading, advancing the boundary so the next
-     * syllable can be chosen. Basic behaviour — the precise disambiguation interaction is defined separately.
+     * 分词/隔音: force a syllable boundary at the current input position. The
+     * decoder won't let a word span it, the preedit splits there, and the reading column scopes to the
+     * chunk — imposing a boundary WITHOUT forcing a particular reading (xi'an vs xian, long-string cuts).
      */
     private fun handleSegment() {
         if (composing.isEmpty()) return
-        val top = T9Pinyin.firstSyllableOptions(activeDigits(), 1).firstOrNull() ?: return
-        lockedReadings.add(top)
-        activeStart = (activeStart + T9Pinyin.toT9(top).length).coerceAtMost(composing.length)
+        forcedCuts.add(composing.length)
     }
 
     /**
@@ -213,7 +217,10 @@ class KeyboardController(
 
     private fun handleBackspace() {
         if (composing.isNotEmpty()) {
+            // 分词 first: backspace at a freshly forced boundary undoes the cut, not a digit.
+            if (forcedCuts.remove(composing.length)) return
             composing.setLength(composing.length - 1)
+            forcedCuts.removeIf { it > composing.length }
             // ★E: editing the buffer invalidates the locked syllable readings — re-derive from scratch.
             lockedReadings.clear()
             activeStart = 0
@@ -258,6 +265,9 @@ class KeyboardController(
         lastWord = cand.word
         if (cand.coveredLen in 1 until composing.length) {
             composing.delete(0, cand.coveredLen)
+            // ★E×分词: drop consumed cuts, shift the rest left by the consumed length.
+            val shifted = forcedCuts.filter { it > cand.coveredLen }.map { it - cand.coveredLen }
+            forcedCuts.clear(); forcedCuts.addAll(shifted)
             lockedReadings.clear()
             activeStart = 0
             candidates = emptyList()
@@ -287,9 +297,24 @@ class KeyboardController(
     private fun activeDigits(): String =
         if (activeStart < composing.length) composing.substring(activeStart) else ""
 
-    /** Full pinyin letters the 9-key buffer represents: locked syllable readings + decoded active tail. */
+    /** Forced-cut offsets within the active tail, relative to [activeDigits] (★分词). */
+    private fun activeCuts(): List<Int> =
+        forcedCuts.filter { it in (activeStart + 1) until composing.length }.map { it - activeStart }
+
+    /** Split [digits] at the (ascending, in-range) cut offsets into independent chunks. */
+    private fun chunked(digits: String, cuts: List<Int>): List<String> {
+        if (cuts.isEmpty() || digits.isEmpty()) return listOf(digits)
+        val out = ArrayList<String>(cuts.size + 1)
+        var prev = 0
+        for (c in cuts) if (c in (prev + 1) until digits.length) { out.add(digits.substring(prev, c)); prev = c }
+        out.add(digits.substring(prev))
+        return out
+    }
+
+    /** Full pinyin letters the 9-key buffer represents: locked readings + each forced chunk decoded. */
     private fun fullLetters(): String =
-        lockedReadings.joinToString("") + T9Pinyin.preedit(activeDigits()).replace("'", "")
+        lockedReadings.joinToString("") +
+            chunked(activeDigits(), activeCuts()).joinToString("") { T9Pinyin.preedit(it).replace("'", "") }
 
     /** The raw text the composing buffer represents (letters on 26-key, decoded pinyin on 9-key). */
     private fun rawComposingText(): String {
@@ -302,6 +327,7 @@ class KeyboardController(
         candidates = emptyList()
         lockedReadings.clear()
         activeStart = 0
+        forcedCuts.clear()
     }
 
     private fun refreshCandidates() {
@@ -314,7 +340,7 @@ class KeyboardController(
                         engine.candidatesForReading(fullLetters()).map { Cand(it, composing.length) }
                     } else {
                         val isNine = layoutId == LayoutId.NINE
-                        var c = engine.candidatesCovered(raw, isNine)
+                        var c = engine.candidatesCovered(raw, isNine, forcedCuts)
                         // ★N: mid-syllable the full digit buffer may not segment yet — fall back to the
                         // longest decodable syllable prefix so the grid keeps the confirmed words
                         // (你/你说…) instead of going blank when a half-typed syllable trails.
@@ -342,7 +368,8 @@ class KeyboardController(
         if (composing.isEmpty()) return ""
         if (mode() == Mode.PINYIN && layoutId == LayoutId.NINE) {
             val locked = lockedReadings.joinToString("'")
-            val rest = T9Pinyin.preedit(activeDigits())
+            // ★分词: split the active tail at forced boundaries and preedit each chunk independently.
+            val rest = chunked(activeDigits(), activeCuts()).joinToString("'") { T9Pinyin.preedit(it) }
             return when {
                 locked.isEmpty() -> rest
                 rest.isEmpty() -> locked
@@ -361,8 +388,11 @@ class KeyboardController(
         if (composing.isEmpty()) return Layouts.defaultNineLeft()
         val active = activeDigits()
         if (active.isEmpty()) return Layouts.defaultNineLeft() // every syllable locked → resting punctuation
+        // ★分词: the active syllable is bounded by the first forced cut in the active region.
+        val firstCut = activeCuts().firstOrNull()
+        val chunk = if (firstCut != null) active.substring(0, firstCut) else active
         val keys = ArrayList<Key>(4)
-        for (r in T9Pinyin.firstSyllableOptions(active, 4)) {
+        for (r in T9Pinyin.firstSyllableOptions(chunk, 4)) {
             keys.add(Key(r, output = r, action = KeyAction.PICK_READING, weight = w))
         }
         val pads = Layouts.defaultNineLeft()

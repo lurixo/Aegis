@@ -93,22 +93,27 @@ class PinyinDecoder(
      * leading input units that word consumes, so picking it can partially commit and continue the rest.
      * [decode] is intentionally left unchanged so the accuracy eval path is unaffected.
      */
-    fun decodeCovered(input: String, limit: Int): List<Cand> {
+    fun decodeCovered(input: String, limit: Int, cuts: Set<Int> = emptySet()): List<Cand> {
         if (input.isEmpty()) return emptyList()
         val cover = LinkedHashMap<String, Int>()
         // Reserve part of the budget for leading single-chars/short words so full-input completions
         // (which can alone fill `limit`) never starve the ★G mixed grid.
         val completionCap = maxOf(1, limit * 2 / 3)
+        // ★分词: a forced boundary strictly inside the input means whole-input completions (which would
+        // span it) are invalid, and leading prefix words may not extend past it.
+        val firstCut = cuts.filter { it in 1 until input.length }.minOrNull()
         fun addCompletions(words: List<String>) {
             for (w in words) { if (cover.size >= completionCap) return; cover.putIfAbsent(w, input.length) }
         }
-        bestSentence(input)?.let { cover[it] = input.length }
-        addCompletions(dict.query(input, completionCap))
-        fuzzyDict?.let { addCompletions(it.query(Fuzzy.normalize(input), completionCap)) }
-        initialsDict?.let { addCompletions(it.query(input, completionCap)) }
+        bestSentence(input, cuts)?.let { cover[it] = input.length }
+        if (firstCut == null) {
+            addCompletions(dict.query(input, completionCap))
+            fuzzyDict?.let { addCompletions(it.query(Fuzzy.normalize(input), completionCap)) }
+            initialsDict?.let { addCompletions(it.query(input, completionCap)) }
+        }
         // Prefix words straight from the main dict (freq-ordered), independent of the lattice edge cap,
-        // so the leading single chars (你 米 迷 泥 …) surface even without an LM (★G).
-        for (q in input.length downTo 1) {
+        // so the leading single chars (你 米 迷 泥 …) surface even without an LM (★G); capped at the cut.
+        for (q in (firstCut ?: input.length) downTo 1) {
             if (cover.size >= limit) break
             var added = 0
             for (wf in dict.exact(input.substring(0, q))) {
@@ -122,7 +127,7 @@ class PinyinDecoder(
 
     private class Cell(val score: Double, val prevPos: Int, val prevChar: Int, val word: String)
 
-    private fun bestSentence(input: String): String? {
+    private fun bestSentence(input: String, cuts: Set<Int> = emptySet()): String? {
         val n = input.length
         val dp = Array(n + 1) { HashMap<Int, Cell>() }
         dp[0][BOS] = Cell(0.0, -1, BOS, "")
@@ -131,6 +136,7 @@ class PinyinDecoder(
             for (p in 0 until q) {
                 val from = dp[p]
                 if (from.isEmpty()) continue
+                if (cuts.any { it > p && it < q }) continue // ★分词: no word may cross a forced syllable boundary
                 val edges = edgesFor(input.substring(p, q))
                 if (edges.isEmpty()) continue
                 for (e in edges) {
