@@ -437,6 +437,13 @@
     <string name="clip_rename_named">Rename \"%1$s\"</string>
     <string name="clip_delete_named">Delete \"%1$s\"</string>
     <string name="clip_rename">Rename</string>
+    <string name="clip_select_all">Select all</string>
+    <string name="clip_edit_phrases">Batch phrases</string>
+    <string name="clip_edit_clipboard">Batch clipboard</string>
+    <plurals name="clip_selected_count">
+        <item quantity="one">%1$d selected</item>
+        <item quantity="other">%1$d selected</item>
+    </plurals>
     <string name="clip_move_to_category">Move to category</string>
     <string name="clip_no_other_categories">No other categories</string>
     <string name="clip_delete_category">Delete category</string>

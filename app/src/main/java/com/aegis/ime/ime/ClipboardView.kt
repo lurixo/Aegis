@@ -64,6 +64,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     var onEditPhrase: (String, String) -> Unit = { _, _ -> }
     var onEditClip: (String) -> Unit = {}
     var onMovePhrase: (String, String, String) -> Unit = { _, _, _ -> }
+    var onMovePhrasesTo: (String, List<String>, String) -> Unit = { _, _, _ -> }
     var onAddPhrase: (String) -> Unit = {}
     var onAddCategoryThenAdd: (List<String>) -> Unit = {}
     var onAddCategoryThenMove: (String, List<String>) -> Unit = { _, _ -> }
@@ -85,6 +86,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private var RED = palette.onErrorContainer
     private var GREY_PILL = palette.chipBg
     private var TEXT_DARK = palette.keyLabel
+    private var TEXT_SECONDARY = palette.keyLabelSecondary
     private var HINT = palette.keyHint
     private var CARD = palette.keySurface
     private var BG = palette.keyboardBg
@@ -96,10 +98,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         palette = p
         ACCENT = p.candidateFirst; RED = p.onErrorContainer
         GREY_PILL = p.chipBg
-        TEXT_DARK = p.keyLabel; HINT = p.keyHint; CARD = p.keySurface
+        TEXT_DARK = p.keyLabel; TEXT_SECONDARY = p.keyLabelSecondary; HINT = p.keyHint; CARD = p.keySurface
         BG = p.keyboardBg
         main.setBackgroundColor(BG)
         if (changed) {
+            selectRowPool.clear()
             forceNextRebuild = true
         }
         refresh(animate = false)
@@ -119,6 +122,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private var renderedTab: ClipboardPanelState.Tab? = null
     private var tabTransitions = 0
     private var renderedMode = -1
+    private var modeTransitions = 0
     private var pendingCategoryFade = false
     private var pendingCategorySlideFromX = 0f
     private var contentFades = 0
@@ -130,6 +134,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private var renderedCategoriesSig: List<String> = emptyList()
     private var renderedCategorySig = ""
     private var renderedHistoryEnabled = true
+    private var applySelectionState: (() -> Unit)? = null
 
     fun showPhraseTab(category: String) {
         val switching = st.switchTab(ClipboardPanelState.Tab.PHRASE)
@@ -279,7 +284,29 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private var pagedEntries: List<String> = emptyList()
     private var pagedRow: ((String, Int) -> View)? = null
     private var loadedRows = 0
+    private var selectAllAction: TextView? = null
+    private var cancelSelectAction: TextView? = null
     private val immediateActionFeedback = HashMap<View, ImeKeyFeedback>()
+
+    private class SelectRowHolder(val row: LinearLayout, val radio: RadioGlyph, val label: TextView)
+    private val selectRowPool = ArrayList<SelectRowHolder>()
+
+    private inner class RadioGlyph : View(context) {
+        private val paint = glyphPaint(TEXT_DARK)
+        private var on = false
+        fun bind(tint: Int, checked: Boolean) { paint.color = tint; on = checked; invalidate() }
+        override fun onDraw(c: Canvas) = Glyphs.drawRadio(c, paint, width / 2f, height / 2f, dp(8).toFloat(), on)
+    }
+
+    private fun retintRow(v: View, color: Int) {
+        immediateActionFeedback[v]?.let {
+            it.update(CARD, color)
+            return
+        }
+        val fg = v.foreground
+        if (fg is RippleDrawable) fg.setColor(ColorStateList.valueOf(Motion.withAlpha(color, 0x24)))
+        else Motion.applyTapFeedback(v, color)
+    }
 
     private fun bindImmediateAction(
         view: View,
@@ -312,6 +339,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         immediateActionFeedback.values.forEach(ImeKeyFeedback::reset)
     }
 
+    internal fun selectRowsAllocatedForTest(): Int = selectRowPool.size
     internal fun isImmediateActionForTest(view: View): Boolean = immediateActionFeedback.containsKey(view)
     internal fun immediateActionFeedbackCountForTest(): Int = immediateActionFeedback.size
     internal fun immediateActionFeedbackLevelForTest(view: View): Float? = immediateActionFeedback[view]?.levelForTest()
@@ -328,6 +356,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
 
         const val TAB_PILL_DP = 76
         const val SHRINK_PASSES = 4
+        const val COMPACT_ACTION_HEIGHT_DP = 48
         const val CATEGORY_BAR_HEIGHT_DP = 40
         const val CATEGORY_TAB_PADDING_DP = 12
         const val CATEGORY_TAB_MIN_WIDTH_DP = 48
@@ -379,6 +408,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         if (!ClipEntry.isReferenceKey(key)) return true
         return clipIndex[key]?.available == true
     }
+
+    private var clipsLeftOut = 0
+
+    internal fun takeClipsLeftOut(): Int = clipsLeftOut.also { clipsLeftOut = 0 }
 
     private fun ll(w: Int, h: Int, weight: Float = 0f) = LinearLayout.LayoutParams(w, h, weight)
 
@@ -624,6 +657,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
 
     private fun innerLayerCloser(): (() -> Unit)? = when {
         overlay.visibility == VISIBLE -> ::hideOverlay
+        st.selectMode -> ::exitSelect
         else -> null
     }
 
@@ -634,6 +668,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         refresh()
     }
     internal fun forcePhrasesStateForTest(cat: String) { st.switchTab(ClipboardPanelState.Tab.PHRASE); phraseCat = cat }
+    internal fun enterSelectForTest(selected: List<String> = emptyList()) { st.enterSelect(); st.selected.addAll(selected); refresh() }
+    internal fun isSelectModeForTest(): Boolean = st.selectMode
+    internal fun toggleSelectForTest(text: String) { st.toggleSelect(text); refresh() }
+    internal fun exitSelectForTest() { exitSelect() }
     internal fun showMoveChooserForTest(current: String) { chooseMoveCategoryThen(current, emptyList()) { target -> onMovePhrase(current, "", target) } }
     internal fun listScrollYForTest(): Int = listScroll.scrollY
     internal fun listRowViewForTest(index: Int): View? = listColumn.getChildAt(index)
@@ -648,6 +686,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         return true
     }
     internal fun hasPendingListAppendForTest(): Boolean = pendingListAppend != null
+    internal fun disabledActionTextColorForTest(): Int = TEXT_DARK
+    internal fun disabledActionBackgroundColorForTest(): Int = BG
+    internal fun selectAllActionForTest(): TextView? = selectAllAction
+    internal fun cancelSelectActionForTest(): TextView? = cancelSelectAction
     internal fun fixedChromeViewsForTest(): List<View> =
         (0 until main.childCount).map { main.getChildAt(it) }.filter { it !== listScroll }
     internal fun listViewportForTest(): View = listScroll
@@ -690,6 +732,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             return
         }
         if (tabChanged) tabTransitions++
+        if (modeChanged) modeTransitions++
         if (transition) {
             listScrollY = 0
             listScrollRestoreTarget = 0
@@ -766,9 +809,13 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         fixedChromeMinimumHeights.clear()
         fixedChromePreferredWidth = -1
         fixedChromeCompressed = null
+        selectAllAction = null
+        cancelSelectAction = null
+        applySelectionState = null
         forgetImmediateActions(main)
         main.removeAllViews()
         when {
+            st.selectMode -> buildSelectMode()
             else -> buildNormal()
         }
         renderedExpanded = st.expanded
@@ -832,8 +879,13 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
 
     private fun currentRenderMode(): Int = when {
+        st.selectMode -> 1
         else -> 0
     }
+
+    private fun batchManagementTitle(): String = context.getString(
+        if (st.tab == Tab.PHRASE) R.string.clip_edit_phrases else R.string.clip_edit_clipboard,
+    )
 
     private fun historyToggleTitle(enabled: Boolean): String = context.getString(
         if (enabled) R.string.clip_pause_history else R.string.clip_resume_history,
@@ -856,9 +908,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
 
     internal fun tabTransitionsForTest(): Int = tabTransitions
+    internal fun modeTransitionsForTest(): Int = modeTransitions
     internal fun contentFadesForTest(): Int = contentFades
     internal fun overlayVisibleForTest(): Boolean = overlay.visibility == VISIBLE
     internal fun hideOverlayForTest() = hideOverlay()
+    internal fun selectPhraseCategoryForTest(name: String) = selectPhraseCategory(name)
 
     private fun cancelPendingListAppend() {
         pendingListAppend?.let { removeCallbacks(it) }
@@ -951,6 +1005,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
                     iconLp(true),
                 )
             }
+            addView(glyphToolbarBtn(desc = batchManagementTitle(), onClick = { enterSelect() }) { c, p, x, y, s -> Glyphs.drawList(c, p, x, y, s) }, iconLp(true))
             if (st.tab == Tab.PHRASE) addView(glyphToolbarBtn(desc = context.getString(R.string.clip_clear_category), tint = TEXT_DARK, faceAtRightEdge = true, onClick = { confirmClearCurrentCategory() }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }, lastIconLp)
             else addView(glyphToolbarBtn(desc = context.getString(R.string.clip_clear_history), tint = TEXT_DARK, faceAtRightEdge = true, onClick = { confirmClearHistory() }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }, lastIconLp)
         }
@@ -1278,8 +1333,185 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         showPopupCard(card)
     }
 
+    private fun enterSelect() { st.enterSelect(); refresh() }
+    private fun exitSelect() { st.exitSelect(); refresh() }
+
+    private fun buildSelectMode() {
+        val categories = if (st.tab == Tab.PHRASE) categoriesProvider() else emptyList()
+        val category = if (st.tab == Tab.PHRASE) currentCategory(categories) else ""
+        val all = if (st.tab == Tab.CLIPBOARD) clipKeys() else phrasesInProvider(category)
+        recordRenderSignature(categories, category, all)
+        lateinit var selectAll: TextView
+        lateinit var countView: TextView
+        val topBar = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(edgeInset, dp(4), edgeInset, dp(4))
+            val allSel = st.isAllSelected(all)
+            selectAll = TextView(context).apply {
+                text = context.getString(R.string.clip_select_all)
+                gravity = Gravity.CENTER_VERTICAL or Gravity.START
+                setTextColor(TEXT_DARK)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+                setCompoundDrawablesWithIntrinsicBounds(glyphIcon(if (allSel) ACCENT else TEXT_DARK, 22) { c, p, x, y, s -> Glyphs.drawRadio(c, p, x, y, s, allSel) }, null, null, null)
+                compoundDrawablePadding = paint.measureText(" ").roundToInt().coerceAtLeast(1)
+                setPadding(dp(9), 0, dp(10), 0)
+                setOnClickListener { st.selectAll(all); rebindVisibleSelectRows(all); applySelectionState?.invoke() }
+                bindImmediateAction(this, TEXT_DARK, faceColor = Color.TRANSPARENT)
+            }
+            selectAllAction = selectAll
+            addView(selectAll, ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)))
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                addView(TextView(context).apply {
+                    text = batchManagementTitle()
+                    gravity = Gravity.CENTER
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                }, ll(WC, MP))
+                countView = TextView(context).apply {
+                    text = context.resources.getQuantityString(
+                        R.plurals.clip_selected_count,
+                        st.selected.size,
+                        st.selected.size,
+                    )
+                    gravity = Gravity.CENTER
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    setPadding(dp(6), 0, 0, 0)
+                    setTextColor(TEXT_SECONDARY); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.caption)
+                }
+                addView(countView, ll(WC, MP))
+            }, ll(0, dp(COMPACT_ACTION_HEIGHT_DP), 1f))
+            val cancel = compactActionButton(context.getString(R.string.clip_back), true) { exitSelect() }
+            cancelSelectAction = cancel
+            addView(cancel, ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)))
+        }
+        main.addView(topBar, ll(MP, WC))
+
+        populateListRows(all) { e, i -> selectRowFor(e, i, category) }
+        main.addView(listScroll, ll(MP, 0, 1f))
+
+        val hasSel = st.hasSelection()
+        val primaryLabel: String
+        val primaryClick: () -> Unit
+        if (st.tab == Tab.PHRASE) {
+            primaryLabel = context.getString(R.string.clip_move_to_category)
+            primaryClick = {
+                val victims = st.selected.toList()
+                chooseMoveCategoryThen(category, victims, after = { exitSelect() }) { target -> onMovePhrasesTo(category, victims, target); exitSelect() }
+            }
+        } else {
+            primaryLabel = context.getString(R.string.clip_add_phrase)
+            primaryClick = { chooseCategoryThen(st.selected.toList()) { exitSelect() } }
+        }
+        val primaryAction = compactActionButton(primaryLabel, hasSel, primaryClick)
+        val deleteClick: () -> Unit = {
+            val victims = st.selected.toList()
+            confirmDelete(victims) { st.exitSelect() }
+        }
+        val deleteAction = compactActionButton(context.getString(R.string.clip_delete), hasSel, deleteClick)
+        val bottom = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(edgeInset, dp(4), edgeInset, 0)
+            addView(primaryAction, ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)))
+            addView(View(context), ll(0, dp(1), 1f))
+            addView(deleteAction, ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)))
+        }
+        main.addView(bottom, ll(MP, WC))
+
+        applySelectionState = {
+            val nowAll = st.isAllSelected(all)
+            selectAll.setCompoundDrawablesWithIntrinsicBounds(glyphIcon(if (nowAll) ACCENT else TEXT_DARK, 22) { c, p, x, y, s -> Glyphs.drawRadio(c, p, x, y, s, nowAll) }, null, null, null)
+            countView.text = context.resources.getQuantityString(
+                R.plurals.clip_selected_count,
+                st.selected.size,
+                st.selected.size,
+            )
+            val nowHasSel = st.hasSelection()
+            updateCompactActionEnabled(primaryAction, nowHasSel, primaryClick)
+            updateCompactActionEnabled(deleteAction, nowHasSel, deleteClick)
+            renderedSelectedSig = st.selected.toList()
+        }
+    }
+
+    private fun selectRowFor(text: String, index: Int, category: String): View {
+        val h = if (index < selectRowPool.size) selectRowPool[index] else buildSelectRow()
+        val on = text in st.selected
+        val tint = if (on) ACCENT else TEXT_DARK
+        Motion.reset(h.row)
+        h.radio.bind(tint, on)
+        h.label.text = if (st.tab == Tab.PHRASE) phraseDisplayText(category, text) else entryDisplay(text)
+        if (!immediateActionFeedback.containsKey(h.row)) {
+            bindImmediateAction(h.row, tint, radiusDp = ImeShapes.cardRadiusDp, faceInsetDp = 0f)
+        }
+        retintRow(h.row, tint)
+        h.row.setOnClickListener {
+            val nowOn = st.toggleSelect(text)
+            val nowTint = if (nowOn) ACCENT else TEXT_DARK
+            h.radio.bind(nowTint, nowOn)
+            retintRow(h.row, nowTint)
+            applySelectionState?.invoke()
+        }
+        return h.row
+    }
+
+    private fun rebindVisibleSelectRows(all: List<String>) {
+        val n = minOf(listColumn.childCount, selectRowPool.size)
+        for (i in 0 until n) {
+            val holder = selectRowPool[i]
+            if (listColumn.getChildAt(i) !== holder.row) continue
+            val on = i < all.size && all[i] in st.selected
+            val tint = if (on) ACCENT else TEXT_DARK
+            holder.radio.bind(tint, on)
+            retintRow(holder.row, tint)
+        }
+    }
+
+    private fun updateCompactActionEnabled(btn: TextView, enabled: Boolean, onClick: () -> Unit) {
+        if (btn.isEnabled == enabled && btn.isClickable == enabled) return
+        immediateActionFeedback[btn]?.reset()
+        if (enabled) {
+            btn.isEnabled = true
+            btn.setOnClickListener { onClick() }
+            btn.isClickable = true
+        } else {
+            btn.setOnClickListener(null)
+            btn.isClickable = false
+            btn.isEnabled = false
+        }
+    }
+
     private fun selectLeadingGap(): Int =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, ImeType.body, resources.displayMetrics).roundToInt()
+
+    private fun buildSelectRow(): SelectRowHolder {
+        val radio = RadioGlyph()
+        val label = TextView(context).apply {
+            maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(TEXT_DARK)
+            setPadding(paint.measureText(" ").roundToInt().coerceAtLeast(1), dp(12), dp(14), dp(12))
+        }
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(48)
+            background = rounded(CARD, ImeShapes.cardRadiusDp)
+            layoutParams = ll(MP, WC).apply { topMargin = dp(8) }
+            addView(radio, ll(dp(22), MP).apply { marginStart = dp(9) })
+            addView(label, ll(0, WC, 1f))
+        }
+        bindImmediateAction(row, TEXT_DARK, radiusDp = ImeShapes.cardRadiusDp, faceInsetDp = 0f)
+        return SelectRowHolder(row, radio, label).also { selectRowPool.add(it) }
+    }
+
 
     private fun hideOverlay() {
         overlay.resetBackdropGesture()
@@ -1478,16 +1710,19 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun saveAsPhrasesAndReport(category: String, keys: List<String>) {
         val bodies = entryBodies(keys)
         val leftOut = keys.size - bodies.size
+        clipsLeftOut = 0
         if (bodies.isEmpty()) {
             if (leftOut > 0) showNotice(context.getString(R.string.clip_entries_unreadable_count, leftOut), RED)
             return
         }
+        clipsLeftOut = leftOut
         onSaveAsPhrasesTo(category, bodies)
     }
 
     private fun handOffToNewCategory(keys: List<String>) {
         val bodies = entryBodies(keys)
         val leftOut = keys.size - bodies.size
+        clipsLeftOut = 0
         if (leftOut <= 0) { onAddCategoryThenAdd(bodies); return }
         val told = context.getString(R.string.clip_entries_unreadable_count, leftOut)
         if (bodies.isEmpty()) showNotice(told, RED) else showNotice(told, RED) { onAddCategoryThenAdd(bodies) }
@@ -1661,6 +1896,20 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         setOnClickListener { onClick() }
         bindImmediateAction(this, TEXT_DARK, faceColor = Color.TRANSPARENT)
     }
+
+    private fun compactActionButton(label: String, enabled: Boolean, onClick: () -> Unit): TextView =
+        TextView(context).apply {
+            text = label; gravity = Gravity.CENTER
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+            setPadding(dp(12), 0, dp(12), 0)
+            setTextColor(TEXT_DARK)
+            isEnabled = enabled
+            isClickable = enabled
+            if (enabled) {
+                setOnClickListener { onClick() }
+            }
+            bindImmediateAction(this, TEXT_DARK, faceColor = Color.TRANSPARENT)
+        }
 
     private fun glyphPaint(tint: Int) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND

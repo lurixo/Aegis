@@ -80,6 +80,57 @@ class PanelMotionTest {
             applyPalette(light)
         }
 
+    @Test fun clipboard_content_covers_only_on_tab_mode_and_category_changes() {
+        animationsOn()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            var clips = listOf("clip-a", "clip-b")
+            val v = attach(activity, clipboardView(activity) { clips })
+            assertEquals(0, v.contentFadesForTest())
+
+            v.switchTabForTest(toClipboard = false)
+            assertEquals("a tab switch runs one content cover", 1, v.contentFadesForTest())
+            assertEquals("the tab swap lands synchronously", listOf("短语"), v.listRowTextsForTest())
+            assertEquals("the viewport never leaves full opacity", 1f, v.listViewportForTest().alpha, 0f)
+            flushMotion()
+            assertEquals("the viewport settles fully opaque", 1f, v.listViewportForTest().alpha, 0f)
+            assertEquals(listOf("短语"), v.listRowTextsForTest())
+
+            v.selectPhraseCategoryForTest("工作")
+            assertEquals("a category selection runs one content cover", 2, v.contentFadesForTest())
+            assertEquals(1f, v.listViewportForTest().alpha, 0f)
+            flushMotion()
+            assertEquals(1f, v.listViewportForTest().alpha, 0f)
+
+            v.enterSelectForTest()
+            assertEquals("a mode switch runs one content cover", 3, v.contentFadesForTest())
+            assertEquals(1f, v.listViewportForTest().alpha, 0f)
+            flushMotion()
+            v.exitSelectForTest()
+            assertEquals(4, v.contentFadesForTest())
+            assertEquals(1f, v.listViewportForTest().alpha, 0f)
+            flushMotion()
+
+            v.switchTabForTest(toClipboard = true)
+            assertEquals(5, v.contentFadesForTest())
+            assertEquals("the tab swap lands synchronously", listOf("clip-a", "clip-b"), v.listRowTextsForTest())
+            assertEquals(1f, v.listViewportForTest().alpha, 0f)
+            flushMotion()
+            assertEquals(1f, v.listViewportForTest().alpha, 0f)
+
+            clips = listOf("clip-a")
+            v.refresh()
+            assertEquals("a store-driven refresh stays instant", 5, v.contentFadesForTest())
+            assertEquals(listOf("clip-a"), v.listRowTextsForTest())
+
+            v.expandForTest("clip-a")
+            assertEquals("row expansion stays instant", 5, v.contentFadesForTest())
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
     @Test fun clipboard_content_swaps_immediately_under_reduced_motion() {
         animationsOff()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()

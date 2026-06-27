@@ -16,9 +16,11 @@
 package com.aegis.ime.ime
 
 import com.aegis.ime.user.asClipEntries
+import com.aegis.ime.user.clipEntries
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Rect
+import android.graphics.RectF
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -131,6 +133,182 @@ class PhrasePanelTest {
         overlayOf(v).performClick()
         assertEquals(View.GONE, overlayOf(v).visibility)
         assertNull(del)
+    }
+
+
+    @Test fun phrase_select_mode_title_and_batch_actions() {
+        val v = phraseView().apply { enterSelectForTest(listOf("你好", "在吗")) }
+        val ls = labels(v)
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_edit_phrases) in ls)
+        assertFalse(ctx.getString(com.aegis.ime.R.string.clip_edit_clipboard) in ls)
+        assertTrue(ctx.resources.getQuantityString(com.aegis.ime.R.plurals.clip_selected_count, 2, 2) in ls)
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_move_to_category) in ls)
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_delete) in ls)
+        assertFalse(ctx.getString(com.aegis.ime.R.string.clip_add_phrase) in ls)
+
+        v.toggleSelectForTest("你好")
+        assertTrue(ctx.resources.getQuantityString(com.aegis.ime.R.plurals.clip_selected_count, 1, 1) in labels(v))
+    }
+
+    @Test fun clipboard_select_mode_keeps_add_phrase_action() {
+        val v = ClipboardView(ctx).apply {
+            historyProvider = { clipEntries("a", "b") }; applyPalette(pal); refresh(); enterSelectForTest(listOf("a"))
+        }
+        val ls = labels(v)
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_edit_clipboard) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_add_phrase) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_delete) in ls)
+        assertTrue(ctx.resources.getQuantityString(com.aegis.ime.R.plurals.clip_selected_count, 1, 1) in ls)
+        assertFalse(ctx.getString(com.aegis.ime.R.string.clip_move_to_category) in ls)
+
+        v.toggleSelectForTest("b")
+        assertTrue(ctx.resources.getQuantityString(com.aegis.ime.R.plurals.clip_selected_count, 2, 2) in labels(v))
+    }
+
+    @Test fun select_mode_top_actions_keep_physical_order_and_symmetry_in_ltr_and_rtl() {
+        for (layoutDirection in listOf(View.LAYOUT_DIRECTION_LTR, View.LAYOUT_DIRECTION_RTL)) {
+            val clipboard = ClipboardView(ctx).apply {
+                this.layoutDirection = layoutDirection
+                historyProvider = { clipEntries("a", "b") }; applyPalette(pal); refresh(); enterSelectForTest(listOf("a"))
+            }
+            val phrases = phraseView().apply {
+                this.layoutDirection = layoutDirection
+                enterSelectForTest(listOf("你好"))
+            }
+            val geometries = listOf(clipboard, phrases).map { view ->
+                layout(view, w = 480, h = 400)
+                val selectAll = checkNotNull(view.selectAllActionForTest())
+                val cancel = checkNotNull(view.cancelSelectActionForTest())
+                val topBar = selectAll.parent as ViewGroup
+                val title = topBar.getChildAt(1)
+                assertTrue(cancel.parent === topBar)
+                assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, selectAll.layoutParams.width)
+                assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, cancel.layoutParams.width)
+                assertEquals(dp(48), selectAll.height)
+                assertEquals(dp(48), cancel.height)
+                assertTrue(selectAll.left < cancel.left)
+                assertEquals(topBar.paddingLeft, selectAll.left)
+                assertEquals(topBar.width - topBar.paddingRight, cancel.right)
+                assertEquals(selectAll.left, topBar.width - cancel.right)
+                assertEquals(selectAll.top, cancel.top)
+                assertEquals(selectAll.bottom, cancel.bottom)
+                assertTrue(selectAll.right <= title.left)
+                assertTrue(title.right <= cancel.left)
+                assertEquals(Gravity.CENTER_VERTICAL or Gravity.START, selectAll.gravity)
+                assertEquals(Gravity.CENTER, cancel.gravity)
+                assertTrue(selectAll.hasOnClickListeners())
+                assertTrue(cancel.hasOnClickListeners())
+                assertTrue(view.isImmediateActionForTest(selectAll))
+                assertTrue(view.isImmediateActionForTest(cancel))
+                assertTrue(selectAll.background === view.immediateActionDrawableForTest(selectAll))
+                assertTrue(cancel.background === view.immediateActionDrawableForTest(cancel))
+                assertTrue(selectAll.foreground == null && cancel.foreground == null)
+                assertEquals(selectAll.paint.measureText(" ").roundToInt().coerceAtLeast(1), selectAll.compoundDrawablePadding)
+
+                val bottomLeftLabel = if (view.isClipboardTabForTest()) {
+                    ctx.getString(com.aegis.ime.R.string.clip_add_phrase)
+                } else {
+                    ctx.getString(com.aegis.ime.R.string.clip_move_to_category)
+                }
+                val bottomLeft = textViews(view).single { it.text?.toString() == bottomLeftLabel }
+                val bottom = bottomLeft.parent as ViewGroup
+                val bottomRight = textViews(bottom).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_delete) }
+                val selectBounds = boundsInRoot(view, selectAll)
+                val cancelBounds = boundsInRoot(view, cancel)
+                val bottomLeftBounds = boundsInRoot(view, bottomLeft)
+                val bottomRightBounds = boundsInRoot(view, bottomRight)
+                assertEquals(dp(48), bottomLeft.height)
+                assertEquals(dp(48), bottomRight.height)
+                assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, bottomLeft.layoutParams.width)
+                assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, bottomRight.layoutParams.width)
+                assertEquals(selectBounds.left, bottomLeftBounds.left)
+                assertEquals(cancelBounds.right, bottomRightBounds.right)
+                assertTrue(bottomLeftBounds.right <= bottomRightBounds.left)
+                assertTrue(view.isImmediateActionForTest(bottomLeft))
+                assertTrue(view.isImmediateActionForTest(bottomRight))
+                assertTrue(bottomLeft.background === view.immediateActionDrawableForTest(bottomLeft))
+                assertTrue(bottomRight.background === view.immediateActionDrawableForTest(bottomRight))
+                assertEquals(selectAll.currentTextColor, bottomLeft.currentTextColor)
+                assertEquals(cancel.currentTextColor, bottomRight.currentTextColor)
+
+                val firstRow = checkNotNull(view.listRowViewForTest(0)) as ViewGroup
+                val itemCircle = firstRow.getChildAt(0)
+                val itemLabel = firstRow.getChildAt(1) as TextView
+                val selectAllCircleCenterX = selectBounds.left + selectAll.paddingLeft + selectAll.compoundDrawables[0].intrinsicWidth / 2
+                assertEquals("the per-item circle center lines up with the select-all circle center", selectAllCircleCenterX, boundsInRoot(view, itemCircle).left + itemCircle.width / 2)
+                assertTrue(boundsInRoot(view, itemCircle).right <= boundsInRoot(view, itemLabel).left)
+                listOf(selectAll.left, selectAll.top, selectAll.right, selectAll.bottom, cancel.left, cancel.top, cancel.right, cancel.bottom)
+            }
+            assertEquals(1, geometries.toSet().size)
+        }
+    }
+
+    @Test fun select_mode_row_circle_and_text_line_up_with_the_select_all_control() {
+        val select = phraseView().apply { enterSelectForTest() }
+        layout(select)
+        val row = checkNotNull(select.listRowViewForTest(0)) as ViewGroup
+        val radio = row.getChildAt(0)
+        val label = row.getChildAt(1) as TextView
+        val selectAll = checkNotNull(select.selectAllActionForTest())
+        val selectAllBounds = boundsInRoot(select, selectAll)
+
+        val selectAllCircleCenterX = selectAllBounds.left + selectAll.paddingLeft + selectAll.compoundDrawables[0].intrinsicWidth / 2
+        assertEquals("the per-item circle center lines up with the select-all circle center", selectAllCircleCenterX, boundsInRoot(select, radio).left + radio.width / 2)
+        val selectAllTextLeft = selectAllBounds.left + selectAll.totalPaddingLeft
+        val rowTextLeft = boundsInRoot(select, label).left + label.totalPaddingLeft
+        assertEquals("the row text lines up with the select-all button text", selectAllTextLeft, rowTextLeft)
+        assertTrue("the radio stays left of the text", boundsInRoot(select, radio).right <= boundsInRoot(select, label).left)
+    }
+
+    @Test fun batch_rows_fill_the_same_edges_as_the_list_cards() {
+        val list = phraseView()
+        layout(list, w = 480, h = 400)
+        val card = boundsInRoot(list, checkNotNull(list.listRowViewForTest(0)))
+        val select = phraseView().apply { enterSelectForTest() }
+        layout(select, w = 480, h = 400)
+        val row = checkNotNull(select.listRowViewForTest(0))
+        val bounds = boundsInRoot(select, row)
+        val face = (row.background as ImeKeySurface).faceBoundsForTest(row.width, row.height)
+        assertEquals((com.aegis.ime.ime.theme.ImeShapes.edgeInsetDp * ctx.resources.displayMetrics.density).toInt(), card.left)
+        assertEquals(card.left.toFloat(), bounds.left + face.left, 0.5f)
+        assertEquals(card.right.toFloat(), bounds.left + face.right, 0.5f)
+        assertEquals("a row fills its height like a card", RectF(0f, 0f, row.width.toFloat(), row.height.toFloat()), face)
+        assertEquals("a row stands where a card does", card, bounds)
+        val nextCard = boundsInRoot(list, checkNotNull(list.listRowViewForTest(1)))
+        val nextRow = boundsInRoot(select, checkNotNull(select.listRowViewForTest(1)))
+        assertEquals("rows keep the cards' spacing", nextCard.top - card.bottom, nextRow.top - bounds.bottom)
+        assertEquals(nextCard, nextRow)
+    }
+
+    @Test fun batch_move_invokes_onMovePhrasesTo_with_selection_and_target() {
+        var batch: Triple<String, List<String>, String>? = null
+        val v = phraseView().apply {
+            onMovePhrasesTo = { f, list, to -> batch = Triple(f, list, to) }
+            enterSelectForTest(listOf("你好", "稍等"))
+        }
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_move_to_category)))
+        assertTrue(click(overlayOf(v), "工作"))
+        assertEquals("默认", batch?.first)
+        assertEquals(listOf("你好", "稍等"), batch?.second)
+        assertEquals("工作", batch?.third)
+    }
+
+    @Test fun batch_delete_requires_confirmation_before_onDeletePhrasesFrom() {
+        var del: Pair<String, List<String>>? = null
+        val v = phraseView().apply { onDeletePhrasesFrom = { c, l -> del = c to l; true }; enterSelectForTest(listOf("你好")) }
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_delete)))
+        assertNull(del)
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_delete_phrase_confirm) in labels(overlayOf(v)))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_cancel)))
+        assertNull(del)
+        assertTrue(v.isSelectModeForTest())
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_delete)))
+        overlayOf(v).performClick()
+        assertNull(del)
+        assertTrue(v.isSelectModeForTest())
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_delete)))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete)))
+        assertEquals("默认", del?.first)
+        assertEquals(listOf("你好"), del?.second)
+        assertFalse(v.isSelectModeForTest())
     }
 
     @Test fun category_chip_long_press_offers_rename_and_delete_in_one_row() {
@@ -522,6 +700,39 @@ class PhrasePanelTest {
         assertEquals("新分类", v.phraseCatForTest())
         assertTrue(scroll.scrollX > 0)
         assertTabInView(scroll, textViews(scroll).single { it.text?.toString() == "新分类" })
+    }
+
+    @Test fun top_bar_icons_are_uniform_size() {
+        val v = phraseView()
+        val wanted = setOf(ctx.getString(com.aegis.ime.R.string.clip_back), ctx.getString(com.aegis.ime.R.string.clip_add_phrase), ctx.getString(com.aegis.ime.R.string.clip_edit_phrases), ctx.getString(com.aegis.ime.R.string.clip_clear_category))
+        val icons = allViews(v).filter { it.contentDescription?.toString() in wanted && it.hasOnClickListeners() }
+        assertEquals("all 4 phrase-tab top icons present", 4, icons.size)
+        assertTrue("返回 is no longer a '‹' text glyph", textViews(v).none { it.text?.toString() == "‹" })
+        val back = icons.single { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_back) }
+        val actions = icons.filterNot { it === back }
+        assertTrue("返回 uses the shared panel back control", back is TextView)
+        assertEquals(
+            "返回 carries its own label",
+            ctx.getString(com.aegis.ime.R.string.clip_back),
+            (back as TextView).text.toString(),
+        )
+        val backTarget = (48 * ctx.resources.displayMetrics.density).toInt()
+        assertEquals("返回 keeps a 48dp hit target", backTarget, back.layoutParams.height)
+        assertEquals(
+            "返回 is sized by its label",
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            back.layoutParams.width,
+        )
+        layout(v)
+        assertTrue("返回 keeps a 48dp hit target however its label is sized", back.width >= backTarget)
+        assertEquals("all top action icons share one width (item7)", 1, actions.map { it.layoutParams.width }.toSet().size)
+        assertEquals("all top action icons share one height (item7)", 1, actions.map { it.layoutParams.height }.toSet().size)
+        val surfaced = icons.filter { it.contentDescription?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_add_phrase), ctx.getString(com.aegis.ime.R.string.clip_edit_phrases), ctx.getString(com.aegis.ime.R.string.clip_clear_category)) }
+        assertTrue(surfaced.all(v::isImmediateActionForTest))
+        val iconSize = (48 * ctx.resources.displayMetrics.density).toInt()
+        assertTrue(surfaced.all { it.layoutParams.width == iconSize && it.layoutParams.height == iconSize })
+        assertTrue(surfaced.all { it.background === v.immediateActionDrawableForTest(it) && it.foreground == null })
+        assertTrue(icons.filterNot { it in surfaced }.all { it.background == null })
     }
 
 

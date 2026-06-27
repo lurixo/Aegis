@@ -457,6 +457,57 @@ class ClipboardFailureNoticeTest {
         assertFalse(text(R.string.clip_done) in labels(v))
     }
 
+    private fun lostClip(dir: File): ClipEntry = ClipEntry.stored(File(dir, "clips"), "a".repeat(64))
+
+    @Test fun a_clip_nobody_can_read_is_never_silently_dropped_from_a_save_as_phrases() {
+        val dir = Files.createTempDirectory("clipsavelost").toFile()
+        try {
+            val lost = lostClip(dir)
+            var handed: List<String>? = null
+            val v = view(listOf(lost)).apply {
+                categoriesProvider = { listOf("甲") }
+                onSaveAsPhrasesTo = { _, list -> handed = list }
+            }
+
+            v.enterSelectForTest(listOf(lost.key))
+            layout(v)
+            clickText(mainOf(v), text(R.string.clip_add_phrase))
+            layout(v)
+            clickText(overlayOf(v), "甲")
+            layout(v)
+
+            assertNull("a clip with nothing behind it must not be handed on as a phrase", handed)
+            assertTrue(ctx.getString(R.string.clip_entries_unreadable_count, 1) in labels(v))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test fun a_batch_that_lost_one_clip_hands_on_the_rest_and_keeps_the_loss_for_the_answer() {
+        val dir = Files.createTempDirectory("clipsavemixed").toFile()
+        try {
+            val lost = lostClip(dir)
+            var handed: List<String>? = null
+            val v = view(listOf(lost) + listOf("还在的").asClipEntries()).apply {
+                categoriesProvider = { listOf("甲") }
+                onSaveAsPhrasesTo = { _, list -> handed = list }
+            }
+
+            v.enterSelectForTest(listOf(lost.key, "还在的"))
+            layout(v)
+            clickText(mainOf(v), text(R.string.clip_add_phrase))
+            layout(v)
+            clickText(overlayOf(v), "甲")
+            layout(v)
+
+            assertEquals("the clip that could be read must still be saved", listOf("还在的"), handed)
+            assertEquals("and the one that could not must be held for the write result", 1, v.takeClipsLeftOut())
+            assertEquals("which the count may only be handed out once", 0, v.takeClipsLeftOut())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
     @Test fun a_save_that_left_clips_out_names_them_next_to_what_the_writer_did() {
         val v = view(emptyList())
 
@@ -482,6 +533,36 @@ class ClipboardFailureNoticeTest {
             ctx.getString(R.string.clip_phrases_saved, 1),
             phraseWriteNotice(ctx, PhraseChange(PhraseEdit.ADD, 1, 1, saved = true), leftOut = 0),
         )
+    }
+
+    @Test fun a_new_category_hand_off_names_what_it_left_out_before_the_panel_closes() {
+        val dir = Files.createTempDirectory("clipsavenewcat").toFile()
+        try {
+            val lost = lostClip(dir)
+            var handed: List<String>? = null
+            val v = view(listOf(lost) + listOf("还在的").asClipEntries()).apply {
+                categoriesProvider = { listOf("甲") }
+                onAddCategoryThenAdd = { list -> handed = list }
+            }
+
+            v.enterSelectForTest(listOf(lost.key, "还在的"))
+            layout(v)
+            clickText(mainOf(v), text(R.string.clip_add_phrase))
+            layout(v)
+            clickText(overlayOf(v), text(R.string.clip_new_category))
+            layout(v)
+
+            assertNull("the panel must say what it left out before it hands over", handed)
+            assertTrue(ctx.getString(R.string.clip_entries_unreadable_count, 1) in labels(v))
+
+            clickText(overlayOf(v), text(R.string.clip_done))
+            layout(v)
+
+            assertEquals("and then carry on with the clips it could read", listOf("还在的"), handed)
+            assertEquals("a hand-off that already spoke leaves nothing for the write result", 0, v.takeClipsLeftOut())
+        } finally {
+            dir.deleteRecursively()
+        }
     }
 
     @Test fun tapping_a_clip_that_is_still_there_still_commits_it() {

@@ -413,6 +413,13 @@ object Glyphs {
         c.drawLine(cx - r, cy + r, cx + r, cy - r, paint)
     }
 
+    fun drawList(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val w = s * 0.78f; val g = s * 0.5f
+        c.drawLine(cx - w, cy - g, cx + w, cy - g, paint)
+        c.drawLine(cx - w, cy, cx + w, cy, paint)
+        c.drawLine(cx - w, cy + g, cx + w, cy + g, paint)
+    }
+
     fun drawTrash(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val w = s * 0.56f; val top = cy - s * 0.46f; val bot = cy + s * 0.8f
         c.drawLine(cx - w, top, cx - w * 0.8f, bot, paint)
@@ -514,5 +521,15 @@ object Glyphs {
         strokeJoin = Paint.Join.ROUND
         strokeCap = Paint.Cap.ROUND
         this.color = color
+    }
+
+    fun drawRadio(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, on: Boolean) {
+        c.drawCircle(cx, cy, s * 0.72f, paint)
+        if (on) {
+            val saved = paint.style
+            paint.style = Paint.Style.FILL
+            c.drawCircle(cx, cy, s * 0.36f, paint)
+            paint.style = saved
+        }
     }
 }

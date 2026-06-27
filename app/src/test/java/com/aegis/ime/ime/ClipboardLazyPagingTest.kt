@@ -122,6 +122,13 @@ class ClipboardLazyPagingTest {
         assertReachesTheEndByScrolling("phrases", phrases, open(phraseView(phrases)))
     }
 
+    @Test fun scrolling_reaches_the_last_entry_in_batch_management_too() {
+        val history = (1..farPastTheOldCap).map { "clip-$it" }
+        val v = clipView(history)
+        v.enterSelectForTest()
+        assertReachesTheEndByScrolling("select mode", history, open(v))
+    }
+
     @Test fun every_scroll_to_the_bottom_grows_the_loaded_prefix_without_gaps() {
         val history = (1..300).map { "clip-$it" }
         val v = open(clipView(history))

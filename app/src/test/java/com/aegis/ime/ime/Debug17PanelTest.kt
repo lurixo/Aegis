@@ -16,8 +16,10 @@
 package com.aegis.ime.ime
 
 import com.aegis.ime.user.asClipEntries
+import com.aegis.ime.user.clipEntries
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import android.graphics.Rect
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
@@ -140,6 +142,23 @@ class Debug17PanelTest {
         assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete_item)))
         assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete)))
         assertEquals(listOf(listOf("hello")), deleted)
+    }
+
+    @Test fun clipboard_batch_delete_cancel_close_and_confirm_preserve_selection_until_confirmation() {
+        val deleted = ArrayList<List<String>>()
+        val v = clipView().apply { onDeleteClips = { deleted.add(it) }; enterSelectForTest(listOf("hello")) }
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_delete)))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_cancel)))
+        assertTrue(deleted.isEmpty())
+        assertTrue(v.isSelectModeForTest())
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_delete)))
+        overlayOf(v).performClick()
+        assertTrue(deleted.isEmpty())
+        assertTrue(v.isSelectModeForTest())
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_delete)))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete)))
+        assertEquals(listOf(listOf("hello")), deleted)
+        assertFalse(v.isSelectModeForTest())
     }
 
     @Test fun phrase_item_delete_cancels_and_confirms_without_early_mutation() {
@@ -362,6 +381,87 @@ class Debug17PanelTest {
         assertTrue(rightRadii[0] == 0f && rightRadii[2] > 0f && rightRadii[4] > 0f && rightRadii[6] == 0f)
         assertEquals(pal.keyLabel, phraseClipTab.currentTextColor)
         assertEquals(pal.candidateFirst, selectedPhraseTab.currentTextColor)
+    }
+
+    @Test fun clipboard_and_phrase_tabs_keep_order_and_bounds_while_switching() {
+        val clipboard = ctx.getString(com.aegis.ime.R.string.clip_clipboard)
+        val phrases = ctx.getString(com.aegis.ime.R.string.clip_phrases)
+        val view = ClipboardView(ctx).apply {
+            historyProvider = { clipEntries("clipboard body") }
+            categoriesProvider = { listOf("默认") }
+            phrasesInProvider = { listOf("phrase body") }
+            applyPalette(pal)
+            refresh()
+        }
+        fun layoutView() {
+            view.measure(
+                View.MeasureSpec.makeMeasureSpec((600 * ctx.resources.displayMetrics.density).toInt(), View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec((400 * ctx.resources.displayMetrics.density).toInt(), View.MeasureSpec.EXACTLY),
+            )
+            view.layout(0, 0, view.measuredWidth, view.measuredHeight)
+        }
+        fun absoluteBounds(child: View): Rect {
+            var x = 0
+            var y = 0
+            var current: View? = child
+            while (current != null) {
+                x += current.left
+                y += current.top
+                current = current.parent as? View
+            }
+            return Rect(x, y, x + child.width, y + child.height)
+        }
+        fun tabs(): List<Pair<String, Rect>> = textViews(view)
+            .filter { it.text?.toString() == clipboard || it.text?.toString() == phrases }
+            .map { it.text.toString() to absoluteBounds(it) }
+            .sortedBy { it.second.left }
+
+        layoutView()
+        val initial = tabs()
+        assertEquals(listOf(clipboard, phrases), initial.map { it.first })
+        assertEquals(2, initial.size)
+        assertTrue(initial.all { it.second.width() == (76 * ctx.resources.displayMetrics.density).toInt() })
+        assertTrue(initial.all { it.second.height() == (34 * ctx.resources.displayMetrics.density).toInt() })
+        assertTrue(click(view, phrases))
+        layoutView()
+        assertFalse(view.isClipboardTabForTest())
+        assertEquals(initial, tabs())
+        assertTrue("phrase body" in labels(view))
+        val phraseTab = textViews(view).first { it.text?.toString() == phrases }
+        val tray = phraseTab.parent as View
+        val plus = allViews(view).first { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_add_phrase) }
+        val list = allViews(view).first { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_edit_phrases) }
+        assertTrue(plus.background is ImeKeySurface)
+        assertTrue(list.background is ImeKeySurface)
+        val trayToPlus = absoluteBounds(plus).left - absoluteBounds(tray).right
+        val plusToList = absoluteBounds(list).left - absoluteBounds(plus).right
+        assertTrue(trayToPlus > 0)
+        assertEquals(trayToPlus, plusToList)
+        assertTrue(click(view, clipboard))
+        layoutView()
+        assertTrue(view.isClipboardTabForTest())
+        assertEquals(initial, tabs())
+        assertTrue("clipboard body" in labels(view))
+    }
+
+    @Test fun select_mode_action_buttons_are_text_actions_when_enabled() {
+        val clip = clipView().apply { enterSelectForTest(listOf("hello")) }
+        for (label in listOf(ctx.getString(com.aegis.ime.R.string.clip_add_phrase), ctx.getString(com.aegis.ime.R.string.clip_delete))) {
+            val button = textViews(clip).first { it.text?.toString() == label }
+            assertTrue("$label keeps the shared key feedback surface", button.background is ImeKeySurface)
+            assertEquals("$label draws no key face", Color.TRANSPARENT, bgColor(button))
+            assertEquals("$label uses body text color", pal.keyLabel, button.currentTextColor)
+            assertTrue("$label remains clickable when enabled", button.hasOnClickListeners())
+        }
+
+        val phrase = phraseView().apply { enterSelectForTest(listOf("你好")) }
+        for (label in listOf(ctx.getString(com.aegis.ime.R.string.clip_move_to_category), ctx.getString(com.aegis.ime.R.string.clip_delete))) {
+            val button = textViews(phrase).first { it.text?.toString() == label }
+            assertTrue("$label keeps the shared key feedback surface", button.background is ImeKeySurface)
+            assertEquals("$label draws no key face", Color.TRANSPARENT, bgColor(button))
+            assertEquals("$label uses body text color", pal.keyLabel, button.currentTextColor)
+            assertTrue("$label remains clickable when enabled", button.hasOnClickListeners())
+        }
     }
 
     @Test fun clear_confirmation_title_and_actions_use_body_text_color() {

@@ -23,8 +23,10 @@ import android.provider.Settings
 import android.text.InputType
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.FrameLayout
+import android.widget.TextView
 import com.aegis.ime.AegisInputMethodService
 import com.aegis.ime.ime.theme.ImePalette
 import org.junit.Assert.assertEquals
@@ -225,6 +227,16 @@ class PredictiveBackTest {
         refresh()
     }
 
+    private fun clickable(root: View, label: String): View {
+        val found = ArrayList<View>()
+        fun walk(v: View) {
+            if (v is TextView && v.text?.toString() == label && v.hasOnClickListeners()) found.add(v)
+            if (v is ViewGroup) for (i in 0 until v.childCount) walk(v.getChildAt(i))
+        }
+        walk(root)
+        return found.first()
+    }
+
     private fun backStep(iv: InputView, expected: String) {
         assertTrue("Back stays claimed while $expected is open", iv.hasOverlay())
         assertEquals(expected, iv.backTargetKindForTest())
@@ -245,6 +257,39 @@ class PredictiveBackTest {
         assertEquals("Back commits no emoji", 0, committed)
         backStep(iv, "PANEL")
         assertFalse("a second Back closes the emoji panel", iv.panelShown)
+    }
+
+    @Test fun back_closes_batch_popups_before_leaving_batch_management() {
+        val iv = InputView(ctx)
+        val moved = ArrayList<List<String>>()
+        val deleted = ArrayList<List<String>>()
+        val panel = phrasePanel().apply {
+            onMovePhrasesTo = { _, list, _ -> moved.add(list) }
+            onDeletePhrasesFrom = { _, list -> deleted.add(list); true }
+        }
+        iv.showPanel(panel)
+        panel.enterSelectForTest(listOf("你好"))
+
+        assertTrue(clickable(panel, ctx.getString(com.aegis.ime.R.string.clip_move_to_category)).performClick())
+        assertTrue("precondition: the move chooser is up", panel.overlayVisibleForTest())
+        backStep(iv, "PANEL_LAYER")
+        assertFalse(panel.overlayVisibleForTest())
+        assertTrue("Back moves nothing", moved.isEmpty())
+        assertTrue("batch management stays", panel.isSelectModeForTest())
+
+        assertTrue(clickable(panel, ctx.getString(com.aegis.ime.R.string.clip_delete)).performClick())
+        assertTrue("precondition: the delete confirmation is up", panel.overlayVisibleForTest())
+        backStep(iv, "PANEL_LAYER")
+        assertFalse(panel.overlayVisibleForTest())
+        assertTrue("Back deletes nothing", deleted.isEmpty())
+        assertTrue(panel.isSelectModeForTest())
+
+        backStep(iv, "PANEL_LAYER")
+        assertFalse("the next Back leaves batch management like its back action", panel.isSelectModeForTest())
+        assertTrue(iv.isPanelShowing(panel))
+
+        backStep(iv, "PANEL")
+        assertFalse(iv.panelShown)
     }
 
     @Test fun a_clipboard_panel_with_nothing_open_closes_on_the_first_back() {

@@ -174,6 +174,34 @@ class ClipboardViewInteractionTest {
         )
     }
 
+    @Test fun the_header_icon_faces_and_touch_areas_end_at_the_shared_edge_inset() {
+        val density = ctx.resources.displayMetrics.density
+        val inset = (ImeShapes.edgeInsetDp * density).toInt()
+        for ((name, v) in listOf("clipboard" to clipView(listOf("甲")), "phrases" to phraseView(listOf("乙")))) {
+            layout(v)
+            val icons = allViews(v).filter { it.isClickable && it.width == dp(48) && it.height == dp(48) && boundsInRoot(v, it).top < dp(56) }
+            assertTrue("$name header carries its icons", icons.size >= 3)
+            val last = icons.maxByOrNull { boundsInRoot(v, it).right }!!
+            val face = (last.background as ImeKeySurface).faceBoundsForTest(last.width, last.height)
+            val box = boundsInRoot(v, last)
+            assertEquals("$name: the last icon face lines up with the card edge", (v.width - inset).toFloat(), box.left + face.right, 1f)
+            assertEquals("$name: the last icon's touch area ends at the edge inset", v.width - inset, box.right)
+            val other = icons.first { it !== last }
+            val otherFace = (other.background as ImeKeySurface).faceBoundsForTest(other.width, other.height)
+            assertEquals("$name: the last face keeps the icon face size", otherFace.width(), face.width(), 0.01f)
+            val shot = android.graphics.Bitmap.createBitmap(v.width, v.height, android.graphics.Bitmap.Config.ARGB_8888)
+                .also { v.draw(android.graphics.Canvas(it)) }
+            val cy = box.centerY()
+            val faceColor = shot.getPixel((box.left + face.left + 2 * density).toInt(), cy)
+            val rows = (cy - (6 * density).toInt())..(cy + (6 * density).toInt())
+            val ink = ((box.left + face.left).toInt() until (box.left + face.right).toInt()).filter { x -> rows.any { shot.getPixel(x, it) != faceColor } }
+            assertTrue("$name: precondition: the glyph is drawn", ink.isNotEmpty())
+            assertEquals("$name: the glyph sits in the middle of its face", box.left + face.centerX(), (ink.first() + ink.last() + 1) / 2f, 1f)
+            val card = boundsInRoot(v, checkNotNull(v.listRowViewForTest(0)))
+            assertEquals("$name: the cards keep the same edge", v.width - inset, card.right)
+        }
+    }
+
     @Test fun a_pressed_card_part_lights_only_its_side_of_the_card() {
         val r = ImeShapes.cardRadiusDp * ctx.resources.displayMetrics.density
         for ((name, v, text) in listOf(Triple("clipboard", clipView(listOf("甲")), "甲"), Triple("phrases", phraseView(listOf("乙")), "乙"))) {
@@ -315,6 +343,43 @@ class ClipboardViewInteractionTest {
             assertEquals("默认", v.phraseCatForTest())
         } finally {
             activity.pause().stop().destroy()
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "zh-rCN-mdpi")
+    fun batch_management_entry_header_and_count_are_exact_single_line_text_at_supported_widths() {
+        val cases = listOf(
+            Triple(clipView(listOf("第一条")), "批量管理剪贴板", "第一条"),
+            Triple(phraseView(listOf("你好")), "批量管理常用语", "你好"),
+        )
+        for ((view, title, item) in cases) {
+            layout(view, 320)
+            val entry = allViews(view).single { it.contentDescription?.toString() == title }
+            assertEquals(title, entry.contentDescription?.toString())
+            assertTrue(view.isImmediateActionForTest(entry))
+            assertTrue(entry.background === view.immediateActionDrawableForTest(entry))
+            assertNull(entry.foreground)
+            view.enterSelectForTest()
+            for (width in listOf(320, 360, 480)) {
+                layout(view, width)
+                val titleView = textViews(view).single { it.text?.toString() == title }
+                val countView = textViews(view).single { it.text?.toString() == "已选择 0 项" }
+                val header = titleView.parent as ViewGroup
+                assertTrue(countView.parent === header)
+                assertEquals(LinearLayout.HORIZONTAL, (header as LinearLayout).orientation)
+                assertEquals(1, titleView.lineCount)
+                assertEquals(1, countView.lineCount)
+                assertTrue(titleView.left >= 0 && titleView.right <= header.width)
+                assertTrue(countView.left >= titleView.right && countView.right <= header.width)
+                assertTrue(titleView.paint.measureText(title) <= titleView.width - titleView.paddingLeft - titleView.paddingRight)
+                assertTrue(countView.paint.measureText("已选择 0 项") <= countView.width - countView.paddingLeft - countView.paddingRight)
+            }
+            view.toggleSelectForTest(item)
+            layout(view, 320)
+            val updated = textViews(view).single { it.text?.toString() == "已选择 1 项" }
+            assertEquals(1, updated.lineCount)
+            assertTrue(updated.right <= (updated.parent as View).width)
         }
     }
 
@@ -560,6 +625,85 @@ class ClipboardViewInteractionTest {
         } finally {
             activity.pause().stop().destroy()
         }
+    }
+
+    @Test fun ticking_a_select_row_updates_the_count_and_enables_actions_in_place() {
+        val v = clipView(listOf("a", "b", "c")).apply { enterSelectForTest() }
+        layout(v)
+        val row0 = requireNotNull(v.listRowViewForTest(0))
+        val delete = textViews(v).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_delete) }
+        assertFalse("batch delete is disabled with an empty selection", delete.isClickable)
+        assertTrue(ctx.resources.getQuantityString(com.aegis.ime.R.plurals.clip_selected_count, 0, 0) in labels(v))
+        row0.performClick()
+        assertTrue(
+            "the tick updates the header count in place",
+            ctx.resources.getQuantityString(com.aegis.ime.R.plurals.clip_selected_count, 1, 1) in labels(v),
+        )
+        assertTrue("the tick enables the batch actions in place", delete.isClickable)
+        assertTrue("the tapped row is mutated, not rebuilt", row0 === v.listRowViewForTest(0))
+    }
+
+    @Test fun empty_batch_actions_have_no_press_haptic_or_click_until_a_row_is_selected() {
+        shadowOf(ctx.getSystemService(android.os.Vibrator::class.java)).setHasVibrator(false)
+        val primaryPayloads = ArrayList<List<String>>()
+        val v = clipView(listOf("a", "b")).apply {
+            onAddCategoryThenAdd = { primaryPayloads += it }
+            enterSelectForTest()
+            hapticEnabled = true
+        }
+        val activity = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            activity.get().setContentView(v)
+            layout(v)
+            val primary = textViews(v).single {
+                it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_add_phrase)
+            }
+            val delete = textViews(v).single {
+                it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_delete)
+            }
+
+            for (action in listOf(primary, delete)) {
+                assertFalse(action.isEnabled)
+                assertFalse(action.isClickable)
+                send(action, MotionEvent.ACTION_DOWN, action.width / 2f, action.height / 2f, 0)
+                send(action, MotionEvent.ACTION_UP, action.width / 2f, action.height / 2f, 16)
+                flushMotion()
+                assertEquals(0f, requireNotNull(v.immediateActionFeedbackLevelForTest(action)), 0f)
+                assertEquals(-1, shadowOf(action).lastHapticFeedbackPerformed())
+            }
+            assertTrue(primaryPayloads.isEmpty())
+            assertEquals(View.GONE, overlayOf(v).visibility)
+
+            requireNotNull(v.listRowViewForTest(0)).performClick()
+            for (action in listOf(primary, delete)) {
+                assertTrue(action.isEnabled)
+                assertTrue(action.isClickable)
+                assertTrue(action.hasOnClickListeners())
+                send(action, MotionEvent.ACTION_DOWN, action.width / 2f, action.height / 2f, 32)
+                shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(Motion.PRESS_IN))
+                assertEquals(1f, requireNotNull(v.immediateActionFeedbackLevelForTest(action)), 0f)
+                assertEquals(HapticFeedbackConstants.KEYBOARD_TAP, shadowOf(action).lastHapticFeedbackPerformed())
+                send(action, MotionEvent.ACTION_CANCEL, action.width / 2f, action.height / 2f, 48)
+                flushMotion()
+            }
+            assertTrue(primaryPayloads.isEmpty())
+
+            rootTap(v, primary)
+            assertEquals(listOf(listOf("a")), primaryPayloads)
+        } finally {
+            activity.pause().stop().destroy()
+        }
+    }
+
+    @Test fun select_all_rebinds_every_row_and_the_count_without_a_rebuild() {
+        val v = clipView(listOf("a", "b", "c")).apply { enterSelectForTest() }
+        layout(v)
+        val row0 = requireNotNull(v.listRowViewForTest(0))
+        val row2 = requireNotNull(v.listRowViewForTest(2))
+        requireNotNull(v.selectAllActionForTest()).performClick()
+        assertTrue(ctx.resources.getQuantityString(com.aegis.ime.R.plurals.clip_selected_count, 3, 3) in labels(v))
+        assertTrue("select-all rebinds rows in place", row0 === v.listRowViewForTest(0) && row2 === v.listRowViewForTest(2))
+        assertTrue(v.isSelectModeForTest())
     }
 
     @Test fun expanding_a_card_leaves_its_sibling_rows_untouched() {

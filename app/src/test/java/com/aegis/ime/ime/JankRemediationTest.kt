@@ -15,6 +15,8 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.user.asClipEntries
+import com.aegis.ime.user.clipEntries
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -36,6 +38,8 @@ import org.robolectric.annotation.Config
 class JankRemediationTest {
 
     private val ctx = RuntimeEnvironment.getApplication()
+    private val light = ImePalette.STATIC_LIGHT
+
 
     @Test fun keyboard_view_is_not_on_a_software_layer() {
         val kv = KeyboardView(ctx)
@@ -115,5 +119,101 @@ class JankRemediationTest {
             assertRowUntouched(bitmap, margin - 1, "band top")
             assertRowUntouched(bitmap, margin + bandHeight, "band bottom")
         }
+    }
+
+
+    private fun clip(history: List<String>, phrases: Map<String, List<String>> = emptyMap()): ClipboardView =
+        ClipboardView(ctx).apply {
+            historyProvider = { history.asClipEntries() }
+            categoriesProvider = { phrases.keys.toList() }
+            phrasesInProvider = { phrases[it] ?: emptyList() }
+            applyPalette(light)
+            refresh()
+        }
+
+    @Test fun select_mode_recycles_rows_a_radio_toggle_allocates_zero_new_rows() {
+        val clips = (1..5).map { "clip-$it" }
+        val v = clip(clips)
+        v.enterSelectForTest()
+        val afterFirst = v.selectRowsAllocatedForTest()
+        assertEquals("the pool tops out at the row count", clips.size, afterFirst)
+        v.listRowViewForTest(0)?.performClick()
+        v.listRowViewForTest(2)?.performClick()
+        assertEquals("re-rendering on every toggle allocates no new rows", afterFirst, v.selectRowsAllocatedForTest())
+        v.exitSelectForTest()
+        v.enterSelectForTest()
+        assertEquals("a re-sweep allocates nothing new", afterFirst, v.selectRowsAllocatedForTest())
+    }
+
+    @Test fun select_mode_content_is_correct_after_recycling() {
+        val v = clip(listOf("alpha", "beta", "gamma"))
+        v.enterSelectForTest()
+        v.exitSelectForTest()
+        v.enterSelectForTest()
+        val texts = (0 until v.listRowCountForTest()).map { rowText(v.listRowViewForTest(it)!!) }
+        assertEquals(listOf("alpha", "beta", "gamma"), texts)
+    }
+
+    @Test fun select_mode_is_framed_not_one_synchronous_pass() {
+        val v = clip((1..60).map { "c$it" })
+        v.enterSelectForTest()
+        assertEquals("first frame is capped at the sync window", v.initialSyncRowsForTest(), v.listRowCountForTest())
+        while (v.runPendingListAppendForTest()) {  }
+        assertEquals("all rows present once the frames drain", 60, v.listRowCountForTest())
+        assertEquals("and the pool still tops out at the total, allocating each once", 60, v.selectRowsAllocatedForTest())
+    }
+
+
+    @Test fun clipboard_mode_change_rebuilds_in_place_only_on_a_real_mode_change() {
+        val v = clip(listOf("a", "b"))
+        val m0 = v.modeTransitionsForTest()
+        v.enterSelectForTest()
+        assertEquals("entering select is counted once", m0 + 1, v.modeTransitionsForTest())
+        v.exitSelectForTest()
+        assertEquals("leaving select is counted once", m0 + 2, v.modeTransitionsForTest())
+        v.enterSelectForTest()
+        val m = v.modeTransitionsForTest()
+        v.listRowViewForTest(0)?.performClick()
+        assertEquals("a same-mode refresh is not counted", m, v.modeTransitionsForTest())
+    }
+
+    @Test fun recycled_select_rows_repaint_on_a_light_to_dark_palette_change() {
+        val v = ClipboardView(ctx).apply {
+            historyProvider = { clipEntries("a", "b") }
+            applyPalette(ImePalette.STATIC_LIGHT)
+            refresh()
+        }
+        v.enterSelectForTest()
+        v.applyPalette(ImePalette.STATIC_DARK)
+        val label = (v.listRowViewForTest(0) as android.view.ViewGroup).getChildAt(1) as android.widget.TextView
+        assertEquals(
+            "recycled select rows must follow a light→dark switch, not keep the stale light colour",
+            ImePalette.STATIC_DARK.keyLabel,
+            label.currentTextColor,
+        )
+    }
+
+    @Test fun recycled_select_rows_are_kept_when_the_same_palette_is_applied_again() {
+        val clips = (1..5).map { "clip-$it" }
+        val v = clip(clips)
+        v.enterSelectForTest()
+        v.exitSelectForTest()
+        val pooled = v.selectRowsAllocatedForTest()
+        assertEquals(clips.size, pooled)
+
+        v.applyPalette(light)
+
+        assertEquals("reapplying the palette in use must not throw the recycled rows away", pooled, v.selectRowsAllocatedForTest())
+        v.enterSelectForTest()
+        assertEquals("and a later sweep still allocates nothing new", pooled, v.selectRowsAllocatedForTest())
+    }
+
+    private fun rowText(row: View): String {
+        fun first(v: View): String? {
+            if (v is android.widget.TextView) return v.text?.toString()
+            if (v is android.view.ViewGroup) for (i in 0 until v.childCount) first(v.getChildAt(i))?.let { return it }
+            return null
+        }
+        return first(row) ?: ""
     }
 }

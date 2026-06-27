@@ -433,6 +433,12 @@
     <string name="clip_rename_named">重命名「%1$s」</string>
     <string name="clip_delete_named">删除「%1$s」</string>
     <string name="clip_rename">重命名</string>
+    <string name="clip_select_all">全选</string>
+    <string name="clip_edit_phrases">批量管理常用语</string>
+    <string name="clip_edit_clipboard">批量管理剪贴板</string>
+    <plurals name="clip_selected_count">
+        <item quantity="other">已选择 %1$d 项</item>
+    </plurals>
     <string name="clip_move_to_category">移动到分类</string>
     <string name="clip_no_other_categories">没有其它分类</string>
     <string name="clip_delete_category">删除分类</string>

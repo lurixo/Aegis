@@ -26,6 +26,7 @@ import android.view.ViewGroup
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
+import kotlin.math.pow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertFalse
@@ -235,6 +236,16 @@ class ImeVisualPolishTest {
         )
     }
 
+    @Test fun clipboard_select_mode_disabled_actions_keep_readable_contrast_in_light_and_dark() {
+        assertDisabledActionContrast(ImePalette.STATIC_LIGHT)
+        assertDisabledActionContrast(ImePalette.STATIC_DARK)
+    }
+
+    @Test fun phrase_select_mode_disabled_actions_keep_readable_contrast_in_light_and_dark() {
+        assertPhraseDisabledActionContrast(ImePalette.STATIC_LIGHT)
+        assertPhraseDisabledActionContrast(ImePalette.STATIC_DARK)
+    }
+
     private fun assertRoundedRailTab(tab: TextView, label: String, faceColor: Int) {
         val surface = tab.background as? ImeKeySurface
         assertTrue("$label uses the shared rounded key surface", surface != null)
@@ -273,5 +284,75 @@ class ImeVisualPolishTest {
         }
         walk(root)
         return out
+    }
+
+    private fun assertDisabledActionContrast(palette: ImePalette) {
+        val v = ClipboardView(ctx).apply {
+            historyProvider = { clipEntries("clip") }
+            categoriesProvider = { listOf("默认") }
+            applyPalette(palette)
+            enterSelectForTest()
+        }
+        val add = textView(v, ctx.getString(com.aegis.ime.R.string.clip_add_phrase))
+        val delete = textView(v, ctx.getString(com.aegis.ime.R.string.clip_delete))
+        assertDisabledButton(add, palette)
+        assertDisabledButton(delete, palette)
+        assertEquals(palette.keyLabel, v.disabledActionTextColorForTest())
+        assertEquals(palette.keyboardBg, v.disabledActionBackgroundColorForTest())
+    }
+
+    private fun assertPhraseDisabledActionContrast(palette: ImePalette) {
+        val v = ClipboardView(ctx).apply {
+            categoriesProvider = { listOf("默认", "工作") }
+            phrasesInProvider = { listOf("你好") }
+            applyPalette(palette)
+            forcePhrasesStateForTest("默认")
+            enterSelectForTest()
+        }
+        val move = textView(v, ctx.getString(com.aegis.ime.R.string.clip_move_to_category))
+        val delete = textView(v, ctx.getString(com.aegis.ime.R.string.clip_delete))
+        assertDisabledButton(move, palette)
+        assertDisabledButton(delete, palette)
+    }
+
+    private fun assertDisabledButton(tv: TextView, palette: ImePalette) {
+        val surface = tv.background as? ImeKeySurface
+            ?: throw AssertionError("disabled immediate action keeps the shared key surface")
+        assertEquals("a text action draws no key face", Color.TRANSPARENT, surface.faceColor)
+        val bg = palette.keyboardBg
+        assertEquals(palette.keyLabel, tv.currentTextColor)
+        assertTrue("disabled action text contrast is readable", contrastRatio(tv.currentTextColor, bg) >= 4.5)
+        assertTrue("disabled action stays disabled", !tv.hasOnClickListeners())
+    }
+
+    private fun textView(root: View, label: String): TextView =
+        textViews(root).first { it.text?.toString() == label }
+
+    private fun textViews(root: View): List<TextView> {
+        val out = ArrayList<TextView>()
+        fun walk(v: View) {
+            if (v is TextView) out.add(v)
+            if (v is ViewGroup) for (i in 0 until v.childCount) walk(v.getChildAt(i))
+        }
+        walk(root)
+        return out
+    }
+
+    private fun contrastRatio(fg: Int, bg: Int): Double {
+        val l1 = luminance(fg)
+        val l2 = luminance(bg)
+        val lighter = maxOf(l1, l2)
+        val darker = minOf(l1, l2)
+        return (lighter + 0.05) / (darker + 0.05)
+    }
+
+    private fun luminance(color: Int): Double =
+        0.2126 * channel(Color.red(color)) +
+            0.7152 * channel(Color.green(color)) +
+            0.0722 * channel(Color.blue(color))
+
+    private fun channel(v: Int): Double {
+        val c = v / 255.0
+        return if (c <= 0.03928) c / 12.92 else ((c + 0.055) / 1.055).pow(2.4)
     }
 }
