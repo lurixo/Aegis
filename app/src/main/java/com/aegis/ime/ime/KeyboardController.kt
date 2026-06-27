@@ -55,6 +55,8 @@ class KeyboardController(
 
     private var customSymbols: List<String> = emptyList()
 
+    private var learningBlocked = false
+
     var onShowEmoji: () -> Unit = {}
     var onShowClipboard: () -> Unit = {}
     var onShowEdit: () -> Unit = {}
@@ -80,6 +82,8 @@ class KeyboardController(
         customSymbols = symbols
         render()
     }
+
+    fun setLearningBlocked(blocked: Boolean) { learningBlocked = blocked }
 
     fun setCnDefaultLayout(id: LayoutId) { cnDefaultLayout = id }
 
@@ -255,7 +259,7 @@ class KeyboardController(
 
     private fun commitCandidate(cand: Cand) {
         host.commitText(cand.word)
-        engine.learn(lastWord, cand.word)
+        if (!learningBlocked) engine.learn(lastWord, cand.word)
         lastWord = cand.word
         if (cand.coveredLen in 1 until composing.length) {
             composing.delete(0, cand.coveredLen)

@@ -23,9 +23,11 @@ class UserModel {
     private val lastUsed = HashMap<String, Long>()
     private val bigram = HashMap<String, HashMap<String, Int>>()
 
+    @Volatile
     var dirty: Boolean = false
         private set
 
+    @Synchronized
     fun record(prevWord: String?, word: String, now: Long) {
         if (word.isEmpty()) return
         count[word] = (count[word] ?: 0) + 1
@@ -37,19 +39,23 @@ class UserModel {
         dirty = true
     }
 
+    @Synchronized
     fun wordBoost(word: String): Double {
         val c = count[word] ?: return 0.0
         return BOOST_WEIGHT * ln(1.0 + c)
     }
 
+    @Synchronized
     fun successors(prevWord: String, limit: Int): List<String> {
         val m = bigram[prevWord] ?: return emptyList()
         return m.entries.sortedByDescending { it.value }.take(limit).map { it.key }
     }
 
+    @Synchronized
     fun isEmpty(): Boolean = count.isEmpty()
 
 
+    @Synchronized
     fun save(file: File) {
         file.bufferedWriter().use { w ->
             w.write("aegis-userdb 1\n")
@@ -59,14 +65,18 @@ class UserModel {
         dirty = false
     }
 
+    @Synchronized
     fun reload(file: File) {
         count.clear()
         lastUsed.clear()
         bigram.clear()
-        load(file)
+        loadLocked(file)
     }
 
-    fun load(file: File) {
+    @Synchronized
+    fun load(file: File) = loadLocked(file)
+
+    private fun loadLocked(file: File) {
         if (!file.exists()) return
         file.bufferedReader().useLines { lines ->
             for (line in lines) {
@@ -85,6 +95,7 @@ class UserModel {
         dirty = false
     }
 
+    @Synchronized
     fun importFrom(file: File, now: Long) {
         val other = UserModel().apply { load(file) }
         for ((word, c) in other.count) {
