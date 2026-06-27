@@ -73,6 +73,7 @@ object T9Pinyin {
     ).withIndex().associate { (i, s) -> s to i }
 
     private const val DEFAULT_RANK = 1000
+    private const val LEN_BONUS = 480
     private const val SYLLABLE_PENALTY = 50.0
     private val maxDigits: Int = SYLLABLES.maxOf { toT9(it).length }
 
@@ -167,6 +168,6 @@ object T9Pinyin {
             if (requireReach && !reachable[k]) continue
             byDigits[digits.substring(0, k)]?.let { out.addAll(it) }
         }
-        return out.toList().sortedBy { rankOf(it) }.take(limit)
+        return out.toList().sortedBy { rankOf(it) - LEN_BONUS * it.length }.take(limit)
     }
 }

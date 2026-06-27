@@ -45,6 +45,13 @@ class T9PinyinTest {
         assertTrue("ni should be an option for 64..", opts.contains("ni"))
     }
 
+    @Test fun first_syllable_options_surface_the_full_syllable_xuan_yuan() {
+        val opts = T9Pinyin.firstSyllableOptions("9826", 4)
+        assertTrue("xuan must be offered, was $opts", opts.contains("xuan"))
+        assertTrue("yuan must be offered, was $opts", opts.contains("yuan"))
+        assertTrue("xian must be offered", T9Pinyin.firstSyllableOptions("9426", 4).contains("xian"))
+    }
+
     @Test fun partial_buffer_still_shows_something() {
         val pre = T9Pinyin.preedit("6")
         assertTrue(pre.isNotEmpty())
