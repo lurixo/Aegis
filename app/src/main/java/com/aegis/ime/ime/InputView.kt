@@ -39,12 +39,16 @@ class InputView(context: Context) : LinearLayout(context) {
     private val keyboardView = KeyboardView(context)
     private val panelContainer = FrameLayout(context)
     private val gridView = CandidateGridView(context)
+    private val body = LinearLayout(context) // grey-filled body: candidate bar + keyboard / panel
     private var lastCandidates: List<String> = emptyList()
 
     init {
         orientation = VERTICAL
-        // Keyboard-grey fill so the inset gutters (behind the gesture bar / cutout) match the keys.
-        setBackgroundColor(0xFFE2E6EA.toInt())
+        // the root is TRANSPARENT so the preedit band at the very top shows the app through it
+        // — only the floating pinyin tab pokes above the candidate bar. The
+        // keyboard-grey fill (for the inset gutters behind the gesture bar / cutout) lives on [body], which
+        // is also where the window-insets padding is applied. Before this the whole top was a tall opaque
+        // grey band, which read as "顶部背景过高".
         candidateView.onPick = { index -> onPickCandidate(index) }
         candidateView.onFunction = { f -> onFunction(f) }
         candidateView.onExpand = { showExpandedCandidates() }
@@ -55,25 +59,39 @@ class InputView(context: Context) : LinearLayout(context) {
         keyboardView.onBackspaceSwipe = { up -> onBackspaceSwipe(up) }
         // the preedit + candidate rows are FIXED-HEIGHT and ALWAYS present — only their
         // CONTENT changes, never their visibility — so the IME's total height never changes while typing.
-        // (Toggling the preedit GONE/VISIBLE grew/shrank the window by 28dp on every keystroke that
-        // started or ended composing, which made hosts like Telegram re-layout their compose box.)
-        addView(preeditView, LayoutParams(LayoutParams.MATCH_PARENT, dp(28)))
-        addView(candidateView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
-        addView(keyboardView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-        panelContainer.visibility = GONE
-        addView(panelContainer, LayoutParams(LayoutParams.MATCH_PARENT, dp(250)))
+        // (Toggling the preedit GONE/VISIBLE grew/shrank the window on every keystroke that started or
+        // ended composing, which made hosts like Telegram re-layout their compose box.) The transparent root keeps
+        // it fixed-height but transparent: AegisInputMethodService.onComputeInsets reports the content top
+        // at the candidate bar, so the host app reclaims this band instead of being pushed up by it.
+        addView(preeditView, LayoutParams(LayoutParams.MATCH_PARENT, barTopInsetPx()))
 
-        // targetSdk 36 forces the IME window edge-to-edge. Consume the insets ourselves: raise the
-        // bottom above the nav/home bar (#2) and keep only a small side margin (#1 — the previous
-        // systemGestures inset narrowed the keyboard far too much; the keys should nearly fill width).
-        ViewCompat.setOnApplyWindowInsetsListener(this) { v, insets ->
+        body.orientation = VERTICAL
+        body.setBackgroundColor(0xFFE2E6EA.toInt())
+        body.addView(candidateView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
+        body.addView(keyboardView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        panelContainer.visibility = GONE
+        body.addView(panelContainer, LayoutParams(LayoutParams.MATCH_PARENT, dp(250)))
+        addView(body, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+
+        // targetSdk 36 forces the IME window edge-to-edge. Consume the insets on [body] (NOT the
+        // transparent band): raise the bottom above the nav/home bar (#2) and keep only a small side
+        // margin (#1) so the grey fill still covers the keyboard gutters without painting the top band.
+        ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets ->
             val nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
             val cut = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
             val side = dp(4)
-            v.setPadding(maxOf(cut.left, side), 0, maxOf(cut.right, side), nav.bottom + dp(16))
+            body.setPadding(maxOf(cut.left, side), 0, maxOf(cut.right, side), nav.bottom + dp(16))
             WindowInsetsCompat.CONSUMED
         }
     }
+
+    /**
+     * Height of the transparent preedit band above the candidate bar. The IME service
+     * reports its content/visible top this far below the input-view top, so the host app keeps this strip
+     * and only the floating pinyin tab overlaps it — instead of a full-width grey bar. Constant height ⇒
+     * the host layout still never jitters.
+     */
+    fun barTopInsetPx(): Int = dp(26)
 
     fun showKeyboard(layout: KeyboardLayout, shifted: Boolean) {
         keyboardView.setLayout(layout, shifted)
