@@ -71,11 +71,15 @@ class KeyboardController(
      *  digit, a reading lock (left-column pick), or a forced cut — never dropping a whole locked syllable. */
     private val history = ArrayDeque<StepKind>()
 
+    /** A3 自定义: the user's custom punctuation marks (injected from prefs by the service). */
+    private var customSymbols: List<String> = emptyList()
+
     /** Extras-panel hooks wired by the IME service (it owns the InputConnection + Context). */
     var onShowEmoji: () -> Unit = {}
     var onShowClipboard: () -> Unit = {}
     var onShowEdit: () -> Unit = {}
     var onShowSettings: () -> Unit = {}
+    var onShowCustomSymbols: () -> Unit = {} // A3 自定义 entry tapped
     var onClosePanel: () -> Unit = {}
 
     private var view: InputView? = null
@@ -89,6 +93,12 @@ class KeyboardController(
     fun setEngine(newEngine: CandidateEngine) {
         engine = newEngine
         refreshCandidates()
+        render()
+    }
+
+    /** A3 自定义: set the user's custom punctuation marks (from prefs) and re-render the column. */
+    fun setCustomSymbols(symbols: List<String>) {
+        customSymbols = symbols
         render()
     }
 
@@ -125,9 +135,7 @@ class KeyboardController(
             KeyAction.PICK_READING -> handlePickReading(key)
             KeyAction.SEGMENT -> handleSegment()
             KeyAction.SHOW_EDIT -> onShowEdit()
-            // A3: the 自定义 entry in the punctuation column — per-symbol customization UI is a follow-up;
-            // for now it is an inert entry (kept so the column matches the defined list order).
-            KeyAction.CUSTOM_SYMBOL -> {}
+            KeyAction.CUSTOM_SYMBOL -> onShowCustomSymbols() // A3: open the 自定义 punctuation panel
             KeyAction.TOGGLE_LANG -> {
                 flushComposing()
                 lang = if (lang == Lang.CN) Lang.EN else Lang.CN
@@ -427,9 +435,9 @@ class KeyboardController(
      */
     internal fun nineLeftColumn(): List<Key> {
         val w = 0.85f
-        if (composing.isEmpty()) return Layouts.ninePunctuation()
+        if (composing.isEmpty()) return Layouts.ninePunctuation(customSymbols)
         val active = activeDigits()
-        if (active.isEmpty()) return Layouts.ninePunctuation() // every syllable locked → resting punctuation
+        if (active.isEmpty()) return Layouts.ninePunctuation(customSymbols) // all syllables locked → punctuation
         // ★分词: the active syllable is bounded by the first forced cut in the active region.
         val firstCut = activeCuts().firstOrNull()
         val chunk = if (firstCut != null) active.substring(0, firstCut) else active

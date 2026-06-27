@@ -29,6 +29,7 @@ import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.OctagramReader
 import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.ime.ClipboardView
+import com.aegis.ime.ime.CustomSymbolPanel
 import com.aegis.ime.ime.EditAction
 import com.aegis.ime.ime.EditPanelView
 import com.aegis.ime.ime.EmojiView
@@ -36,6 +37,7 @@ import com.aegis.ime.ime.ImeHost
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.user.ClipboardStore
+import com.aegis.ime.user.CustomSymbolStore
 import com.aegis.ime.user.UserModel
 import java.io.File
 
@@ -57,6 +59,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var emojiView: EmojiView? = null
     private var clipboardView: ClipboardView? = null
     private var editPanelView: EditPanelView? = null
+    private var customSymbolView: CustomSymbolPanel? = null
+    private val customSymbolStore by lazy { CustomSymbolStore(getSharedPreferences("aegis", MODE_PRIVATE)) }
     private var selecting = false
     private var deletedSnapshot: CharSequence? = null // for the backspace up/down restore gesture (#5)
     private val clipboardStore by lazy { ClipboardStore(filesDir).also { it.load() } }
@@ -70,7 +74,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.onShowClipboard = { showClipboardPanel() }
         controller.onShowEdit = { showEditPanel() }
         controller.onShowSettings = { openSettings() }
+        controller.onShowCustomSymbols = { showCustomSymbolPanel() }
         controller.onClosePanel = { inputView?.showPanel(null) }
+        controller.setCustomSymbols(customSymbolStore.list()) // A3: seed the punctuation column with saved marks
         Thread {
             runCatching { userModel.load(userDbFile); userDbMtime = userDbFile.lastModified() }
             val dict = loadDict("aegis_dict.bin")
@@ -246,6 +252,20 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         cv.refresh()
         iv.showPanel(cv)
+    }
+
+    /** A3 自定义: edit the user's custom punctuation marks; changes persist + refresh the 9-key column live. */
+    private fun showCustomSymbolPanel() {
+        val iv = inputView ?: return
+        val panel = customSymbolView ?: CustomSymbolPanel(this).also {
+            it.current = { customSymbolStore.list() }
+            it.onAdd = { s -> customSymbolStore.add(s); controller.setCustomSymbols(customSymbolStore.list()); it.refresh() }
+            it.onRemove = { s -> customSymbolStore.remove(s); controller.setCustomSymbols(customSymbolStore.list()); it.refresh() }
+            it.onBack = { inputView?.showPanel(null) }
+            customSymbolView = it
+        }
+        panel.refresh()
+        iv.showPanel(panel)
     }
 
     /** In-keyboard settings entry: open the setup/settings screen. */

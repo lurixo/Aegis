@@ -41,16 +41,16 @@ object Layouts {
     }
 
     /**
-     * Resting 9-key left column (A3): the full scrollable punctuation list, top→bottom
-     * ，。？！…：；~.-@ then 自定义 (per-symbol customization). ★D: each commits straight to the editor
-     * (never buffers as pinyin); 自定义 opens the customization entry.
+     * Resting 9-key left column (A3): the scrollable punctuation list, top→bottom ，。？！…：；~.-@ then any
+     * user [custom] marks, then 自定义 (opens the customization panel). ★D: each mark commits straight to
+     * the editor (never buffers as pinyin).
      */
-    fun ninePunctuation(): List<Key> = listOf(
-        Key("，", direct = true), Key("。", direct = true), Key("？", direct = true), Key("！", direct = true),
-        Key("…", direct = true), Key("：", direct = true), Key("；", direct = true), Key("~", direct = true),
-        Key(".", direct = true), Key("-", direct = true), Key("@", direct = true),
-        Key("自定义", action = CUSTOM_SYMBOL),
-    )
+    fun ninePunctuation(custom: List<String> = emptyList()): List<Key> =
+        listOf(
+            Key("，", direct = true), Key("。", direct = true), Key("？", direct = true), Key("！", direct = true),
+            Key("…", direct = true), Key("：", direct = true), Key("；", direct = true), Key("~", direct = true),
+            Key(".", direct = true), Key("-", direct = true), Key("@", direct = true),
+        ) + custom.map { Key(it, direct = true) } + Key("自定义", action = CUSTOM_SYMBOL)
 
     private fun row(vararg keys: Key) = KeyboardRow(keys.toList())
 
