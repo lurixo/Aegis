@@ -60,6 +60,7 @@ class KeyboardView(context: Context) : View(context) {
     private var scrollStartY = 0f
     private var scrolling = false
     private val tmpRect = RectF()
+    private val scrollSlop = 6f * resources.displayMetrics.density
 
     private val repeatHandler = Handler(Looper.getMainLooper())
     private var downKey: Key? = null
@@ -442,7 +443,7 @@ class KeyboardView(context: Context) : View(context) {
             }
             MotionEvent.ACTION_MOVE -> {
                 val dy = event.y - scrollDownY
-                if (!scrolling && abs(dy) > swipeThreshold) { scrolling = true; scrollPressedIndex = -1 }
+                if (!scrolling && abs(dy) > scrollSlop) { scrolling = true; scrollPressedIndex = -1 }
                 if (scrolling) { scrollY = scrollStartY - dy; clampScroll(); invalidate() }
             }
             MotionEvent.ACTION_UP -> {

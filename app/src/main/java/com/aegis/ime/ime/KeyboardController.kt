@@ -28,6 +28,8 @@ private enum class ShiftState { OFF, ONCE, LOCK }
 
 private enum class Mode { PINYIN, DIRECT }
 
+private enum class StepKind { DIGIT, LOCK, CUT }
+
 class KeyboardController(
     private val host: ImeHost,
     private var engine: CandidateEngine,
@@ -44,6 +46,8 @@ class KeyboardController(
     private var activeStart = 0
 
     private val forcedCuts = sortedSetOf<Int>()
+
+    private val history = ArrayDeque<StepKind>()
 
     var onShowEmoji: () -> Unit = {}
     var onShowClipboard: () -> Unit = {}
@@ -70,6 +74,7 @@ class KeyboardController(
         lockedReadings.clear()
         activeStart = 0
         forcedCuts.clear()
+        history.clear()
         shiftState = ShiftState.OFF
         layoutId = LayoutId.ALPHA
         lastWord = null
@@ -131,11 +136,12 @@ class KeyboardController(
         if (!activeDigits().startsWith(digits)) return
         lockedReadings.add(reading)
         activeStart = (activeStart + digits.length).coerceAtMost(composing.length)
+        history.addLast(StepKind.LOCK)
     }
 
     private fun handleSegment() {
         if (composing.isEmpty()) return
-        forcedCuts.add(composing.length)
+        if (forcedCuts.add(composing.length)) history.addLast(StepKind.CUT)
     }
 
     fun onBackspaceSwipe(up: Boolean): Boolean {
@@ -168,7 +174,7 @@ class KeyboardController(
             return
         }
         when (mode()) {
-            Mode.PINYIN -> composing.append(key.output)
+            Mode.PINYIN -> { composing.append(key.output); history.addLast(StepKind.DIGIT) }
             Mode.DIRECT -> {
                 host.commitText(applyCase(key.output))
                 if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
@@ -178,15 +184,30 @@ class KeyboardController(
     }
 
     private fun handleBackspace() {
-        if (composing.isNotEmpty()) {
-            if (forcedCuts.remove(composing.length)) return
-            composing.setLength(composing.length - 1)
-            forcedCuts.removeIf { it > composing.length }
-            lockedReadings.clear()
-            activeStart = 0
-        } else {
+        if (composing.isEmpty()) {
             host.deleteBackward()
             lastWord = null
+            return
+        }
+        when (history.removeLastOrNull()) {
+            StepKind.LOCK -> if (lockedReadings.isNotEmpty()) {
+                val r = lockedReadings.removeAt(lockedReadings.lastIndex)
+                activeStart = (activeStart - T9Pinyin.toT9(r).length).coerceAtLeast(0)
+            }
+            StepKind.CUT -> forcedCuts.remove(composing.length)
+            StepKind.DIGIT, null -> {
+                composing.setLength(composing.length - 1)
+                forcedCuts.removeIf { it > composing.length }
+                if (activeStart > composing.length) activeStart = composing.length
+            }
+        }
+    }
+
+    private fun rebuildHistory() {
+        history.clear()
+        for (i in 1..composing.length) {
+            history.addLast(StepKind.DIGIT)
+            if (i in forcedCuts) history.addLast(StepKind.CUT)
         }
     }
 
@@ -225,6 +246,7 @@ class KeyboardController(
             lockedReadings.clear()
             activeStart = 0
             candidates = emptyList()
+            rebuildHistory()
         } else {
             clearComposingState()
         }
@@ -273,6 +295,7 @@ class KeyboardController(
         lockedReadings.clear()
         activeStart = 0
         forcedCuts.clear()
+        history.clear()
     }
 
     private fun refreshCandidates() {

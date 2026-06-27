@@ -220,6 +220,43 @@ class KeyboardControllerTest {
         assertTrue(h.commits.isEmpty())
     }
 
+
+    @Test fun backspace_steps_back_a_locked_reading_not_the_whole_syllable() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "426".forEach { c.onKey(out(it.toString())) }
+        c.onKey(Key("hao", output = "hao", action = KeyAction.PICK_READING))
+        c.onKey(act(KeyAction.BACKSPACE))
+        assertTrue("pick undone → hao offered again, was ${c.expandedReadings()}", "hao" in c.expandedReadings())
+        c.onKey(act(KeyAction.BACKSPACE))
+        assertTrue("one letter removed → hao gone", "hao" !in c.expandedReadings())
+        assertTrue("…but the 2-digit syllable remains", "ha" in c.expandedReadings())
+    }
+
+    @Test fun backspace_after_two_locks_steps_back_each_pick_then_keeps_digits() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "42633".forEach { c.onKey(out(it.toString())) }
+        c.onKey(Key("hao", output = "hao", action = KeyAction.PICK_READING))
+        c.onKey(Key("de", output = "de", action = KeyAction.PICK_READING))
+        c.onKey(act(KeyAction.BACKSPACE))
+        assertTrue("de offered again", "de" in c.expandedReadings())
+        c.onKey(act(KeyAction.BACKSPACE))
+        assertTrue("hao offered again", "hao" in c.expandedReadings())
+        c.onKey(act(KeyAction.ENTER))
+        assertEquals(listOf("haode"), h.commits)
+    }
+
+    @Test fun backspace_without_a_pick_deletes_one_letter_only() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "426".forEach { c.onKey(out(it.toString())) }
+        c.onKey(act(KeyAction.BACKSPACE))
+        assertTrue("hao gone (one letter removed)", "hao" !in c.expandedReadings())
+        assertTrue("ha still present", "ha" in c.expandedReadings())
+    }
+
     @Test fun backspace_up_swipe_clears_pending_pinyin_in_any_layout() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
