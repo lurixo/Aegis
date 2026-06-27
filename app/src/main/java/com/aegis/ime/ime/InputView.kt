@@ -24,6 +24,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyboardLayout
+import com.aegis.ime.layout.Lang
 
 /** Root IME view: candidate strip stacked above the self-drawn keyboard (or an extras panel). */
 class InputView(context: Context) : LinearLayout(context) {
@@ -89,7 +90,8 @@ class InputView(context: Context) : LinearLayout(context) {
             val nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
             val cut = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
             val side = dp(4)
-            body.setPadding(maxOf(cut.left, side), 0, maxOf(cut.right, side), nav.bottom + dp(16))
+            // B4: lift the whole keyboard a little higher off the gesture/home bar (was dp(16) — too tight).
+            body.setPadding(maxOf(cut.left, side), 0, maxOf(cut.right, side), nav.bottom + dp(28))
             WindowInsetsCompat.CONSUMED
         }
     }
@@ -102,8 +104,8 @@ class InputView(context: Context) : LinearLayout(context) {
      */
     fun barTopInsetPx(): Int = dp(26)
 
-    fun showKeyboard(layout: KeyboardLayout, shifted: Boolean) {
-        keyboardView.setLayout(layout, shifted)
+    fun showKeyboard(layout: KeyboardLayout, shifted: Boolean, lang: Lang) {
+        keyboardView.setLayout(layout, shifted, lang)
     }
 
     /** [preedit] is the pinyin tab text (separate from candidates, C1); [readings] = the active syllable's

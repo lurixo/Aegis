@@ -50,6 +50,20 @@ class KeyboardController(
     private var shiftState = ShiftState.OFF
     private val shifted get() = shiftState != ShiftState.OFF
     private var layoutId = LayoutId.ALPHA
+
+    /**
+     * B5: the CN startup keyboard — 全拼九键 by default, 全拼26键 optional (the user picks in the setup
+     * screen; the IME service pushes the pref via [setCnDefaultLayout]). EN is always 26-key; [reset]
+     * applies this at the start of each input session.
+     */
+    private var cnDefaultLayout = LayoutId.NINE
+
+    /**
+     * The CN keyboard to restore when toggling back from EN (EN is 26-key only). A 中英 round-trip must
+     * NOT silently demote a 9-key user to 26-key (B5): captured when leaving CN, seeded to the default
+     * each input session, so it also preserves a manual 9↔26 toolbar switch across one EN excursion.
+     */
+    private var cnLayout = LayoutId.NINE
     private val composing = StringBuilder()
     private var candidates: List<Cand> = emptyList()
     private var lastWord: String? = null
@@ -102,6 +116,9 @@ class KeyboardController(
         render()
     }
 
+    /** B5: choose the CN default keyboard (NINE / ALPHA). Applied on the next [reset]; EN ignores it. */
+    fun setCnDefaultLayout(id: LayoutId) { cnDefaultLayout = id }
+
     fun reset() {
         composing.setLength(0)
         candidates = emptyList()
@@ -110,10 +127,15 @@ class KeyboardController(
         forcedCuts.clear()
         history.clear()
         shiftState = ShiftState.OFF
-        layoutId = LayoutId.ALPHA
+        // B5: CN opens on the user's default keyboard (9-key unless they chose 26-key); EN is 26-key only.
+        cnLayout = cnDefaultLayout
+        layoutId = if (lang == Lang.CN) cnDefaultLayout else LayoutId.ALPHA
         lastWord = null
         render()
     }
+
+    /** Test accessor for the active layout (drives the B5 default-keyboard assertions). */
+    internal fun activeLayoutId(): LayoutId = layoutId
 
     fun onKey(key: Key) {
         when (key.action) {
@@ -138,9 +160,17 @@ class KeyboardController(
             KeyAction.CUSTOM_SYMBOL -> onShowCustomSymbols() // A3: open the 自定义 punctuation panel
             KeyAction.TOGGLE_LANG -> {
                 flushComposing()
-                lang = if (lang == Lang.CN) Lang.EN else Lang.CN
-                // English is 26-key only (issue #10): never leave the user on the 9-key in EN.
-                if (lang == Lang.EN && layoutId == LayoutId.NINE) layoutId = LayoutId.ALPHA
+                if (lang == Lang.CN) {
+                    // Leaving CN: remember the CN keyboard (issue #10: EN is 26-key only).
+                    cnLayout = layoutId
+                    lang = Lang.EN
+                    layoutId = LayoutId.ALPHA
+                } else {
+                    // Returning to CN: restore the CN keyboard so a 中英 round-trip keeps the user's
+                    // 9-key/26-key choice (B5) instead of demoting a 9-key user to 26-key.
+                    lang = Lang.CN
+                    layoutId = cnLayout
+                }
             }
         }
         refreshCandidates()
@@ -450,7 +480,7 @@ class KeyboardController(
         val v = view ?: return
         val layout = if (layoutId == LayoutId.NINE) Layouts.nine(lang, nineLeftColumn(), composing.isNotEmpty())
         else Layouts.forId(layoutId, lang)
-        v.showKeyboard(layout, shifted)
+        v.showKeyboard(layout, shifted, lang)
         v.showCandidates(candidates.map { it.word }, preeditText(), expandedReadings())
     }
 

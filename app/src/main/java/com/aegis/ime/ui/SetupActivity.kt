@@ -86,6 +86,13 @@ private fun SetupScreen() {
             style = MaterialTheme.typography.bodyMedium,
         )
 
+        // B5 启动界面顺序: 增强模型(置顶) → 模糊拼音(每项单独开关) → 全拼9键/26键(二选一, 默认9键)。
+        // The E-group cards are each in their own file so the B5 order work and the model/dict/fuzzy (E)
+        // work don't collide on this screen — here we only set the ORDER and add LayoutChoiceCard.
+        GramDownloadCard()
+        FuzzySettingsCard()
+        LayoutChoiceCard()
+
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(
                 modifier = Modifier.padding(16.dp),
@@ -119,10 +126,6 @@ private fun SetupScreen() {
             modifier = Modifier.fillMaxWidth(),
         )
 
-        // E-group cards (each extracted to its own file so the startup-order (J) work and the
-        // model/dict/fuzzy work don't collide on this screen).
-        FuzzySettingsCard()
-        GramDownloadCard()
         UserDictCard()
     }
 }

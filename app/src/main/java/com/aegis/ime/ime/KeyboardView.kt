@@ -52,6 +52,7 @@ class KeyboardView(context: Context) : View(context) {
 
     private var layout: KeyboardLayout = Layouts.forId(LayoutId.ALPHA, Lang.CN)
     private var shifted = false
+    private var lang = Lang.CN
 
     private val placed = ArrayList<Placed>()
     private var pressed: Key? = null
@@ -79,6 +80,7 @@ class KeyboardView(context: Context) : View(context) {
     private var downY = 0f
     private var repeating = false
     private var swiped = false
+    private var vSwipeDir = 0 // B2 26-key letter flick: -1 = up (symbol), +1 = down (letter), 0 = none
     private val swipeThreshold = 24f * resources.displayMetrics.density
     private val repeatRunnable = object : Runnable {
         override fun run() {
@@ -89,8 +91,15 @@ class KeyboardView(context: Context) : View(context) {
         }
     }
 
+    // B2: a long-press on a 26-key English letter repeats it ("长按连续输入字母"); functional keys repeat too.
     private fun isRepeatable(key: Key) =
-        key.action == KeyAction.BACKSPACE || key.action == KeyAction.SPACE || key.action == KeyAction.ENTER
+        key.action == KeyAction.BACKSPACE || key.action == KeyAction.SPACE || key.action == KeyAction.ENTER ||
+            (lang == Lang.EN && isAlphaLetter(key))
+
+    /** A 26-key letter key (single a–z label, COMMIT) — the target of the B2 swipe / long-press gestures. */
+    private fun isAlphaLetter(key: Key) =
+        layout.id == LayoutId.ALPHA && key.action == KeyAction.COMMIT &&
+            key.label.length == 1 && key.label[0] in 'a'..'z'
 
     private val density = resources.displayMetrics.density
     private val rowHeight = 52f * density
@@ -130,6 +139,19 @@ class KeyboardView(context: Context) : View(context) {
         textAlign = Paint.Align.RIGHT
         textSize = sp(10f)
     }
+    // B3 中英字号: the ACTIVE language is drawn large & centred, the inactive one shrinks into the
+    // bottom-right corner (中文态 "英" 变小 / 英文态 "中" 变小).
+    private val langActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF37474F.toInt()
+        textAlign = Paint.Align.CENTER
+        textSize = sp(17f)
+        setShadowLayer(1.2f * density, 0f, 1f * density, 0x33000000)
+    }
+    private val langSmallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF90A4AE.toInt()
+        textAlign = Paint.Align.RIGHT
+        textSize = sp(11f)
+    }
 
     // --- Neumorphic key surface: vertical gradient + dual soft shadow (light top-left, dark bottom-right).
     private val baseColor = 0xFFE6E9EF.toInt()
@@ -156,12 +178,13 @@ class KeyboardView(context: Context) : View(context) {
 
     private data class Placed(val rect: RectF, val key: Key, val groupId: Int = 0)
 
-    fun setLayout(newLayout: KeyboardLayout, isShifted: Boolean) {
+    fun setLayout(newLayout: KeyboardLayout, isShifted: Boolean, language: Lang) {
         // A3: reset the left column to the top whenever its CONTENT changes (new syllable / rest↔compose),
         // but keep the scroll offset on a pure re-render of the same list.
         val sameColumn = newLayout.scrollColumn?.items?.map { it.label } == layout.scrollColumn?.items?.map { it.label }
         layout = newLayout
         shifted = isShifted
+        lang = language
         scrollColumn = newLayout.scrollColumn
         if (!sameColumn) scrollY = 0f
         // All four layouts have the same row count, so swapping between them leaves the measured
@@ -400,6 +423,7 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     private fun drawLabel(canvas: Canvas, p: Placed) {
+        if (p.key.action == KeyAction.TOGGLE_LANG) { drawLangToggle(canvas, p.rect); return }
         val cx = p.rect.centerX()
         val cy = p.rect.centerY()
         val display = displayLabel(p.key)
@@ -413,6 +437,18 @@ class KeyboardView(context: Context) : View(context) {
         if (p.key.sub != null) {
             canvas.drawText(p.key.sub, p.rect.right - 6 * density, p.rect.top + 15 * density, subPaint)
         }
+    }
+
+    /**
+     * B3 中英 toggle: draw the ACTIVE input language large & centred and the inactive one small in the
+     * bottom-right corner — 中文态 shrinks "英", 英文态 shrinks "中".
+     */
+    private fun drawLangToggle(canvas: Canvas, rect: RectF) {
+        val active = if (lang == Lang.CN) "中" else "英"
+        val small = if (lang == Lang.CN) "英" else "中"
+        val baseline = rect.centerY() - (langActivePaint.descent() + langActivePaint.ascent()) / 2
+        canvas.drawText(active, rect.centerX(), baseline, langActivePaint)
+        canvas.drawText(small, rect.right - 5 * density, rect.bottom - 6 * density, langSmallPaint)
     }
 
     private fun displayLabel(key: Key): String {
@@ -436,25 +472,46 @@ class KeyboardView(context: Context) : View(context) {
                 downKey = downPlaced?.key
                 pressed = downKey
                 downX = event.x; downY = event.y
-                repeating = false; swiped = false
+                repeating = false; swiped = false; vSwipeDir = 0
                 downKey?.let { if (isRepeatable(it)) repeatHandler.postDelayed(repeatRunnable, REPEAT_DELAY_MS) }
                 invalidate()
             }
             MotionEvent.ACTION_MOVE -> {
                 val dk = downKey
-                if (dk != null && dk.action == KeyAction.BACKSPACE) {
-                    // Vertical drag on backspace = a swipe gesture, not a key press.
-                    val dy = event.y - downY
-                    if (!swiped && abs(dy) > swipeThreshold && abs(dy) > abs(event.x - downX)) {
-                        swiped = true
-                        repeatHandler.removeCallbacks(repeatRunnable)
+                when {
+                    dk != null && dk.action == KeyAction.BACKSPACE -> {
+                        // Vertical drag on backspace = a swipe gesture, not a key press.
+                        val dy = event.y - downY
+                        if (!swiped && abs(dy) > swipeThreshold && abs(dy) > abs(event.x - downX)) {
+                            swiped = true
+                            repeatHandler.removeCallbacks(repeatRunnable)
+                        }
                     }
-                } else {
-                    val k = currentTarget(event.x, event.y)
-                    if (k !== pressed) {
-                        pressed = k
-                        if (k !== downKey) repeatHandler.removeCallbacks(repeatRunnable)
-                        invalidate()
+                    dk != null && lang == Lang.EN && isAlphaLetter(dk) -> {
+                        // B2 (英文26键 only): a deliberate vertical flick on a letter selects symbol (up) /
+                        // letter (down); a horizontal slide still retargets to the neighbour (★V slide-to-correct).
+                        // Gated to EN so it never flushes a half-typed CN pinyin buffer.
+                        val dy = event.y - downY
+                        if (!swiped && abs(dy) > swipeThreshold && abs(dy) > abs(event.x - downX)) {
+                            swiped = true
+                            vSwipeDir = if (dy < 0) -1 else 1
+                            repeatHandler.removeCallbacks(repeatRunnable)
+                        } else if (!swiped) {
+                            val k = currentTarget(event.x, event.y)
+                            if (k !== pressed) {
+                                pressed = k
+                                if (k !== downKey) repeatHandler.removeCallbacks(repeatRunnable)
+                                invalidate()
+                            }
+                        }
+                    }
+                    else -> {
+                        val k = currentTarget(event.x, event.y)
+                        if (k !== pressed) {
+                            pressed = k
+                            if (k !== downKey) repeatHandler.removeCallbacks(repeatRunnable)
+                            invalidate()
+                        }
                     }
                 }
             }
@@ -463,10 +520,19 @@ class KeyboardView(context: Context) : View(context) {
                 val dk = downKey
                 pressed = null
                 invalidate()
-                if (dk != null && dk.action == KeyAction.BACKSPACE && swiped) {
-                    onBackspaceSwipe(event.y - downY < 0)
-                } else if (!repeating) {
-                    currentTarget(event.x, event.y)?.let { performClick(); onKey(it) }
+                when {
+                    // !repeating: a long-press that already auto-fired must not ALSO emit a swipe/tap on lift.
+                    dk != null && dk.action == KeyAction.BACKSPACE && swiped && !repeating ->
+                        onBackspaceSwipe(event.y - downY < 0)
+                    dk != null && lang == Lang.EN && isAlphaLetter(dk) && swiped && !repeating -> {
+                        // B2: up-flick commits the super-script symbol straight to the editor (direct);
+                        // down-flick commits the letter itself.
+                        performClick()
+                        if (vSwipeDir < 0 && dk.sub != null) onKey(Key(dk.sub, output = dk.sub, direct = true))
+                        else onKey(dk)
+                    }
+                    !repeating ->
+                        currentTarget(event.x, event.y)?.let { performClick(); onKey(it) }
                 }
                 downKey = null
                 downPlaced = null

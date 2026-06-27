@@ -19,6 +19,7 @@ import com.aegis.ime.decoder.Cand
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
+import com.aegis.ime.layout.LayoutId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -303,6 +304,59 @@ class KeyboardControllerTest {
         c.onKey(act(KeyAction.BACKSPACE)) // 426 → 42, never a whole syllable
         assertTrue("hao gone (one letter removed)", "hao" !in c.expandedReadings())
         assertTrue("ha still present", "ha" in c.expandedReadings())
+    }
+
+    // ---- B5: CN default keyboard (9-key unless the user chose 26-key); EN is 26-key only ----
+
+    @Test fun reset_opens_cn_on_the_chosen_default_keyboard() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.reset()
+        assertEquals("CN defaults to 9-key (B5)", LayoutId.NINE, c.activeLayoutId())
+        c.setCnDefaultLayout(LayoutId.ALPHA)
+        c.reset()
+        assertEquals("CN honours the 26-key choice (B5)", LayoutId.ALPHA, c.activeLayoutId())
+    }
+
+    @Test fun reset_keeps_en_on_26_key_even_with_a_nine_default() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.onKey(act(KeyAction.TOGGLE_LANG)) // CN -> EN
+        c.setCnDefaultLayout(LayoutId.NINE)
+        c.reset()
+        assertEquals("EN is always 26-key", LayoutId.ALPHA, c.activeLayoutId())
+    }
+
+    @Test fun lang_round_trip_returns_to_the_cn_default_keyboard() {
+        // B5 regression: 中英 there-and-back must NOT demote a 9-key user to 26-key.
+        val c = KeyboardController(FakeHost(), engine)
+        c.reset() // CN, 9-key default
+        assertEquals(LayoutId.NINE, c.activeLayoutId())
+        c.onKey(act(KeyAction.TOGGLE_LANG)) // CN -> EN (26-key only)
+        assertEquals(LayoutId.ALPHA, c.activeLayoutId())
+        c.onKey(act(KeyAction.TOGGLE_LANG)) // EN -> CN: restores 9-key
+        assertEquals(LayoutId.NINE, c.activeLayoutId())
+    }
+
+    @Test fun lang_round_trip_preserves_a_manual_cn_26_key_choice() {
+        // If the user manually switched CN to 26-key, a 中英 round-trip keeps 26-key (captured on leave).
+        val c = KeyboardController(FakeHost(), engine)
+        c.reset() // CN 9-key
+        c.onKey(act(KeyAction.SWITCH_ALPHA)) // manual CN -> 26-key
+        assertEquals(LayoutId.ALPHA, c.activeLayoutId())
+        c.onKey(act(KeyAction.TOGGLE_LANG)) // -> EN (26-key)
+        c.onKey(act(KeyAction.TOGGLE_LANG)) // -> CN: restores the manual 26-key, not the 9-key default
+        assertEquals(LayoutId.ALPHA, c.activeLayoutId())
+    }
+
+    // ---- B2: the 26-key up-flick emits the super-script symbol as a direct commit ----
+
+    @Test fun b2_up_swipe_symbol_commits_directly_even_mid_pinyin() {
+        // KeyboardView turns an up-flick on a letter into a direct symbol key; the controller must flush any
+        // pending CN pinyin first, then commit the symbol straight to the editor.
+        val h = FakeHost()
+        val c = KeyboardController(h, engine) // CN 26-key (ALPHA) → letters buffer as pinyin
+        c.onKey(Key("n", output = "n"))
+        c.onKey(Key("@", output = "@", direct = true)) // up-flick symbol
+        assertEquals(listOf("n", "@"), h.commits)
     }
 
     @Test fun backspace_up_swipe_clears_pending_pinyin_in_any_layout() {
