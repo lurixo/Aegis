@@ -132,6 +132,24 @@ object T9Pinyin {
         return sb.toString()
     }
 
+    fun preedit(digits: String, cuts: Set<Int>): String {
+        if (cuts.isEmpty()) return preedit(digits)
+        val sb = StringBuilder()
+        var prev = 0
+        for (c in cuts.filter { it in 1..digits.length }.toSortedSet()) {
+            if (c > prev) {
+                if (sb.isNotEmpty()) sb.append('\'')
+                sb.append(preedit(digits.substring(prev, c)))
+            }
+            prev = c
+        }
+        when {
+            prev < digits.length -> { if (sb.isNotEmpty()) sb.append('\''); sb.append(preedit(digits.substring(prev))) }
+            digits.isNotEmpty() -> sb.append('\'')
+        }
+        return sb.toString()
+    }
+
     fun longestDecodablePrefix(digits: String): String {
         for (p in digits.length downTo 1) {
             if (segment(digits.substring(0, p)) != null) return digits.substring(0, p)

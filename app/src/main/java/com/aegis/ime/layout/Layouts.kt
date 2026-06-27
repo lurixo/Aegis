@@ -24,6 +24,7 @@ import com.aegis.ime.layout.KeyAction.SHOW_EDIT
 import com.aegis.ime.layout.KeyAction.SPACE
 import com.aegis.ime.layout.KeyAction.SWITCH_ALPHA
 import com.aegis.ime.layout.KeyAction.SWITCH_NUMBERS
+import com.aegis.ime.layout.KeyAction.SWITCH_NUMPAD
 import com.aegis.ime.layout.KeyAction.SWITCH_SYMBOLS
 import com.aegis.ime.layout.KeyAction.TOGGLE_LANG
 
@@ -97,7 +98,7 @@ object Layouts {
         cells.add(PlacedKey(t9key("PQRS", "7"), x1, 0.5f, wM, 0.25f))
         cells.add(PlacedKey(t9key("TUV", "8"), x2, 0.5f, wM, 0.25f))
         cells.add(PlacedKey(t9key("WXYZ", "9"), x3, 0.5f, wM, 0.25f))
-        cells.add(PlacedKey(Key("123", action = SWITCH_NUMBERS), x1, 0.75f, 0.8f * u, 0.25f))
+        cells.add(PlacedKey(Key("123", action = SWITCH_NUMPAD), x1, 0.75f, 0.8f * u, 0.25f))
         cells.add(PlacedKey(Key("空格", output = " ", action = SPACE), 1.5f * u, 0.75f, 1.4f * u, 0.25f))
         cells.add(PlacedKey(Key("中英", action = TOGGLE_LANG), 2.9f * u, 0.75f, 0.8f * u, 0.25f))
         cells.add(PlacedKey(Key("⌫", action = BACKSPACE), xR, 0f, wR, 0.25f))

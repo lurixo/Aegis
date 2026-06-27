@@ -63,6 +63,12 @@ class T9PinyinTest {
         assertTrue("preedit should keep the confirmed prefix: '$pre'", pre.startsWith("ni"))
     }
 
+    @Test fun preedit_renders_forced_cuts_as_separators() {
+        assertEquals("ni'", T9Pinyin.preedit("64", setOf(2)))
+        assertTrue(T9Pinyin.preedit("6433", setOf(2)).startsWith("ni'"))
+        assertEquals(T9Pinyin.preedit("6433"), T9Pinyin.preedit("6433", emptySet()))
+    }
+
     @Test fun longest_decodable_prefix_drops_unfinished_tail() {
         assertEquals("64", T9Pinyin.longestDecodablePrefix("647"))
         assertEquals("6433", T9Pinyin.longestDecodablePrefix("6433"))
