@@ -46,6 +46,12 @@ object T9Pinyin {
         '2' to 'a', '3' to 'd', '4' to 'g', '5' to 'j', '6' to 'm', '7' to 'p', '8' to 't', '9' to 'w',
     )
 
+    /** Letters printed on each T9 key — the 首键字母 fallback options for the left column. */
+    private val KEY_LETTERS: Map<Char, String> = mapOf(
+        '2' to "abc", '3' to "def", '4' to "ghi", '5' to "jkl",
+        '6' to "mno", '7' to "pqrs", '8' to "tuv", '9' to "wxyz",
+    )
+
     /** Canonical toneless Mandarin syllables (ported from tools `Pinyin.canonicalSyllables`). */
     private val SYLLABLES: Set<String> = """
         a o e ai ei ao ou an en ang eng er
@@ -202,6 +208,25 @@ object T9Pinyin {
         if (rest.isEmpty()) return Reading(firstReading, firstReading)
         val restDisplay = preedit(rest)
         return Reading("$firstReading'$restDisplay", firstReading + restDisplay.replace("'", ""))
+    }
+
+    /**
+     * The 9-key left-column readings for the active syllable. REAL options only,
+     * deterministic, with NO padding: the canonical syllable readings that can begin [digits] (ranked by
+     * [firstSyllableOptions]), followed by the individual letters of the FIRST digit key (首键字母) not
+     * already present — letters that are themselves syllables (a/o/e…) ordered ahead of the rest, so e.g.
+     * "23"→[ce, a, b, c] and "64…"→[ni, mi, o, m, n]. A bare ambiguous key with no
+     * syllable still yields its letters ("9"→[w, x, y, z]), never an empty slot. The caller renders
+     * EXACTLY this list (the column height follows the count) — it must never inject blanks or punctuation.
+     */
+    fun leftColumnReadings(digits: String, limit: Int): List<String> {
+        if (digits.isEmpty() || digits[0] < '2' || digits[0] > '9') return emptyList()
+        val out = LinkedHashSet<String>()
+        out.addAll(firstSyllableOptions(digits, limit))
+        KEY_LETTERS[digits[0]]?.toList()
+            ?.sortedByDescending { it.toString() in SYLLABLES } // vowel/syllable letters first, keypad order kept (stable)
+            ?.forEach { out.add(it.toString()) }
+        return out.toList().take(limit)
     }
 
     /** Distinct syllable readings that can begin a segmentation of [digits] (for the left column). */

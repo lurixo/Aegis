@@ -98,4 +98,68 @@ class T9PinyinTest {
     @Test fun lock_first_reading_rejects_non_prefix_reading() {
         assertNull(T9Pinyin.lockFirstReading("64", "mie")) // mie -> 643, not a prefix of 64
     }
+
+    // ---- 9-key left column = real readings only (syllables + 首键字母), no blanks/punct ----
+
+    private fun assertCleanColumn(opts: List<String>) {
+        assertTrue("no empty placeholder slots, was $opts", opts.none { it.isEmpty() })
+        assertTrue("only a-z (no punctuation / digits), was $opts", opts.all { s -> s.all { it in 'a'..'z' } })
+        assertEquals("no duplicates, was $opts", opts.size, opts.toSet().size)
+    }
+
+    @Test fun left_column_ceshi_is_syllable_then_first_key_letters() {
+        // ce'shi: first key '2' (ABC). Expect the real syllable ce + the first-key letters a,b,c — exactly
+        // the second expected output, and crucially NOT the first's "ce, a, ▢, ▢" (the blank-pad bug).
+        val opts = T9Pinyin.leftColumnReadings("23744", 4) // c-e-s-h-i
+        assertEquals(listOf("ce", "a", "b", "c"), opts)
+        assertCleanColumn(opts)
+    }
+
+    @Test fun left_column_ni_full_content_matches_reference() {
+        // ni'shuo'de'bu'dui (expected candidate layout): first key '6' (MNO) → mi, ni + the letters o, m, n.
+        // Asserted at the expanded-screen depth (limit 6) where the whole reference set is present.
+        val opts = T9Pinyin.leftColumnReadings("64744336488", 6)
+        assertTrue("must offer ni, was $opts", "ni" in opts)
+        assertTrue("must offer mi, was $opts", "mi" in opts)
+        assertTrue("must offer the first-key letters m/n/o, was $opts", listOf("m", "n", "o").all { it in opts })
+        assertCleanColumn(opts)
+    }
+
+    @Test fun left_column_ni_at_production_limit_keeps_the_real_syllables() {
+        // Guards the actual on-device depth (the resting peanut shows ≤ NINE_LEFT_SLOTS): the real
+        // syllable readings ni & mi must survive the cap (only the bare first-key letters may be trimmed),
+        // and the column stays clean. (Closes the limit-6-only test blind spot.)
+        val opts = T9Pinyin.leftColumnReadings("64744336488", 4)
+        assertTrue("ni must survive the cap, was $opts", "ni" in opts)
+        assertTrue("mi must survive the cap, was $opts", "mi" in opts)
+        assertCleanColumn(opts)
+    }
+
+    @Test fun left_column_can_reach_xuan_9826() {
+        // 9826 = xuan/yuan share a T9 code — xuan must be selectable from the column (★T regression guard).
+        assertTrue("xuan must be offered", "xuan" in T9Pinyin.leftColumnReadings("9826", 6))
+    }
+
+    @Test fun left_column_multi_candidate_shi() {
+        val opts = T9Pinyin.leftColumnReadings("744", 6) // shi
+        assertTrue("shi must be offered, was $opts", "shi" in opts)
+        assertCleanColumn(opts)
+    }
+
+    @Test fun left_column_single_ambiguous_key_shows_letters_not_blanks() {
+        // A bare "9" forms no syllable — show the key's letters w,x,y,z, NEVER empty placeholders.
+        assertEquals(listOf("w", "x", "y", "z"), T9Pinyin.leftColumnReadings("9", 4))
+    }
+
+    @Test fun left_column_is_deterministic_same_input_same_output() {
+        // Locks the A-vs-B "same input ce'shi, different column" inconsistency on debug.8.
+        repeat(5) { assertEquals(T9Pinyin.leftColumnReadings("23744", 4), T9Pinyin.leftColumnReadings("23744", 4)) }
+        assertEquals(T9Pinyin.leftColumnReadings("9826", 6), T9Pinyin.leftColumnReadings("9826", 6))
+    }
+
+    @Test fun left_column_respects_the_limit_and_handles_blank() {
+        assertTrue(T9Pinyin.leftColumnReadings("64744336488", 4).size <= 4)
+        assertTrue(T9Pinyin.leftColumnReadings("", 4).isEmpty())
+        assertTrue(T9Pinyin.leftColumnReadings("1", 4).isEmpty()) // 0/1 aren't T9 letter keys
+    }
 }
