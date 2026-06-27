@@ -98,6 +98,15 @@ class UserModel {
         dirty = false
     }
 
+    /** Replace this model wholesale with the contents of [file] (import = 覆盖, not merge). */
+    fun replaceWith(file: File) {
+        count.clear()
+        lastUsed.clear()
+        bigram.clear()
+        load(file)
+        dirty = true
+    }
+
     /** Merge another userdb file into this model (import; counts add up). */
     fun importFrom(file: File, now: Long) {
         val other = UserModel().apply { load(file) }
