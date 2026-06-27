@@ -84,6 +84,20 @@ class LayoutsTest {
         )
     }
 
+    @Test fun nine_123_key_opens_the_numpad_grid() {
+        // the 9-key 123 switches to the calculator-style numpad, not the row-based number page.
+        val k123 = nine.cells!!.first { it.key.label == "123" }
+        assertEquals(KeyAction.SWITCH_NUMPAD, k123.key.action)
+    }
+
+    @Test fun nine_composing_top_left_is_the_segment_key() {
+        val composing = Layouts.nine(Lang.CN, Layouts.defaultNineLeft(), composing = true)
+        assertTrue(
+            "composing 9-key top-left must be the 分词 key",
+            composing.cells!!.any { it.key.label == "分词" && it.key.action == KeyAction.SEGMENT },
+        )
+    }
+
     @Test fun qwerty_has_no_nine_switch_key_and_has_pen() {
         val actions = keysOf(qwerty).map { it.action }
         assertTrue("9-key switch is via the toolbar, not a key", KeyAction.SWITCH_NINE !in actions)

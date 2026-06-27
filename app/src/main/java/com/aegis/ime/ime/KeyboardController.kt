@@ -297,9 +297,10 @@ class KeyboardController(
     private fun activeDigits(): String =
         if (activeStart < composing.length) composing.substring(activeStart) else ""
 
-    /** Forced-cut offsets within the active tail, relative to [activeDigits] (★分词). */
+    /** Forced-cut offsets within the active tail, relative to [activeDigits] (★分词); includes a boundary
+     *  at the very end so the 隔音符 shows the moment 分词 is pressed. */
     private fun activeCuts(): List<Int> =
-        forcedCuts.filter { it in (activeStart + 1) until composing.length }.map { it - activeStart }
+        forcedCuts.filter { it in (activeStart + 1)..composing.length }.map { it - activeStart }
 
     /** Split [digits] at the (ascending, in-range) cut offsets into independent chunks. */
     private fun chunked(digits: String, cuts: List<Int>): List<String> {
@@ -368,8 +369,8 @@ class KeyboardController(
         if (composing.isEmpty()) return ""
         if (mode() == Mode.PINYIN && layoutId == LayoutId.NINE) {
             val locked = lockedReadings.joinToString("'")
-            // ★分词: split the active tail at forced boundaries and preedit each chunk independently.
-            val rest = chunked(activeDigits(), activeCuts()).joinToString("'") { T9Pinyin.preedit(it) }
+            // ★分词: render the active tail with its forced boundaries as 隔音符 ' (incl. a trailing one).
+            val rest = T9Pinyin.preedit(activeDigits(), activeCuts().toSet())
             return when {
                 locked.isEmpty() -> rest
                 rest.isEmpty() -> locked
