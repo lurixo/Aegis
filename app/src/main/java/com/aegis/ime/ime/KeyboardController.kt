@@ -159,6 +159,8 @@ class KeyboardController(
 
     private var customSymbols: List<String> = emptyList()
 
+    private var customOperators: List<String> = emptyList()
+
     private val englishWord = StringBuilder()
 
     private var directCommitCands: Set<Cand> = emptySet()
@@ -215,6 +217,11 @@ class KeyboardController(
 
     fun setCustomSymbols(symbols: List<String>) {
         customSymbols = symbols
+        render()
+    }
+
+    fun setCustomOperators(operators: List<String>) {
+        customOperators = operators
         render()
     }
 
@@ -1757,7 +1764,7 @@ class KeyboardController(
         val highlight = lockedHighlightReading()
         val layout = when (layoutId) {
             LayoutId.NINE -> Layouts.nine(nineLeftColumn(highlight), composing.isNotEmpty())
-            LayoutId.NUMPAD -> Layouts.numpad()
+            LayoutId.NUMPAD -> Layouts.numpad(Layouts.numpadOperators(customOperators))
             else -> Layouts.forId(layoutId, lang, composing.isNotEmpty())
         }
         v.showKeyboard(layout, shifted, shiftState == ShiftState.LOCK, lang)

@@ -42,6 +42,7 @@ import com.aegis.ime.dict.EngineAssets
 import com.aegis.ime.dict.OctagramReader
 import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.engine.StoredReadingRepair
+import com.aegis.ime.ime.CustomSymbolPanel
 import com.aegis.ime.ime.EmojiView
 import com.aegis.ime.ime.DecodeLane
 import com.aegis.ime.ime.GraphemeText
@@ -52,8 +53,10 @@ import com.aegis.ime.ime.LayoutPanelView
 import com.aegis.ime.ime.ParallelLoad
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.SymbolsView
+import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.SymbolCatalog
 import com.aegis.ime.user.ClipboardStore
+import com.aegis.ime.user.CustomSymbolStore
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.LiveUserDictHost
 import com.aegis.ime.user.SymbolUsageStore
@@ -116,6 +119,17 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var emojiView: EmojiView? = null
     private var symbolsView: SymbolsView? = null
     private var layoutPanelView: LayoutPanelView? = null
+    private var customSymbolView: CustomSymbolPanel? = null
+    private val customSymbolStore by lazy { CustomSymbolStore(getSharedPreferences("aegis", MODE_PRIVATE)) }
+    private var customOperatorView: CustomSymbolPanel? = null
+    private val customOperatorStore by lazy { CustomSymbolStore(getSharedPreferences("aegis", MODE_PRIVATE), "custom_operators") }
+    private val zhSymbolPalette: List<String> by lazy {
+        SymbolCatalog.categories.first { it.id == "zh" }.symbols.filter { it !in Layouts.nineFixedPunctuation }
+    }
+    private val mathOperatorPalette: List<String> by lazy {
+        val hidden = Layouts.defaultNumpadOperators.toSet() - Layouts.numpadOperatorsInCustomPalette.toSet()
+        SymbolCatalog.categories.first { it.id == "math" }.symbols.filter { it !in hidden }
+    }
     private var selStart = -1
     private var selEnd = -1
 
@@ -188,6 +202,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         emojiView?.applyPalette(imePalette)
         symbolsView?.applyPalette(imePalette)
         layoutPanelView?.applyPalette(imePalette)
+        customSymbolView?.applyPalette(imePalette)
+        customOperatorView?.applyPalette(imePalette)
     }
 
     private fun imeUiContext(): Context {
@@ -338,7 +354,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.onShowTranslate = { toggleTranslateBar() }
         controller.onShowLayout = { showLayoutPanel() }
         controller.onShowSymbols = { showSymbolsPanel() }
+        controller.onShowCustomSymbols = { showCustomSymbolPanel() }
+        controller.onShowCustomOperators = { showCustomOperatorPanel() }
         controller.userLearning = userLearning
+        controller.setCustomSymbols(customSymbolStore.list())
+        controller.setCustomOperators(customOperatorStore.list())
         Thread {
             val (_, engine) = ParallelLoad.both({
                 runCatching { com.aegis.ime.engine.InputAssociations.lookup("nihao") }
@@ -764,6 +784,37 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         ev.resetToDefault()
         ev.applyPalette(imePalette)
         iv.showPanel(ev)
+    }
+
+    private fun showCustomSymbolPanel() {
+        val iv = inputView ?: return
+        val panel = customSymbolView ?: CustomSymbolPanel(imeUiContext()).also {
+            it.addPalette = zhSymbolPalette
+            it.current = { customSymbolStore.list() }
+            it.onAdd = { s -> customSymbolStore.add(s); controller.setCustomSymbols(customSymbolStore.list()); it.refresh() }
+            it.onRemove = { s -> customSymbolStore.remove(s); controller.setCustomSymbols(customSymbolStore.list()); it.refresh() }
+            it.onBack = { inputView?.showPanel(null) }
+            customSymbolView = it
+        }
+        panel.resetToDefault()
+        panel.applyPalette(imePalette)
+        iv.showPanel(panel)
+    }
+
+    private fun showCustomOperatorPanel() {
+        val iv = inputView ?: return
+        val panel = customOperatorView ?: CustomSymbolPanel(imeUiContext()).also {
+            it.backTitle = uiString(R.string.csp_operators_title)
+            it.paletteTitle = uiString(R.string.csp_section_all_operators)
+            it.addPalette = mathOperatorPalette
+            it.current = { customOperatorStore.list() }
+            it.onAdd = { s -> customOperatorStore.add(s); controller.setCustomOperators(customOperatorStore.list()); it.refresh() }
+            it.onRemove = { s -> customOperatorStore.remove(s); controller.setCustomOperators(customOperatorStore.list()); it.refresh() }
+            it.onBack = { inputView?.showPanel(null) }
+            customOperatorView = it
+        }
+        panel.applyPalette(imePalette)
+        iv.showPanel(panel)
     }
 
     private fun showSymbolsPanel() {
