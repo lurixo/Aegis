@@ -33,6 +33,7 @@ enum class KeyAction {
     SWITCH_NUMBERS,
     SWITCH_ALPHA,
     SWITCH_NINE,
+    SWITCH_TEXT,     // H-1: number/symbol/numpad 返回 → the CN default text keyboard (9-key) / EN 26-key
     SWITCH_NUMPAD,   // calculator-style number 9-grid
     TOGGLE_LANG,
     PICK_READING,    // 9-key left column: switch to an explicit pinyin reading ([Key.output]) and re-rank

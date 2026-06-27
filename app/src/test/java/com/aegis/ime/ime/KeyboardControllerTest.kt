@@ -347,6 +347,37 @@ class KeyboardControllerTest {
         assertEquals(LayoutId.ALPHA, c.activeLayoutId())
     }
 
+    // ---- H-1: a default-9-key user must be able to return to the 9-key from the number/symbol pages ----
+
+    @Test fun nine_key_default_user_can_return_from_the_numpad() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.reset() // CN, 9-key default
+        assertEquals(LayoutId.NINE, c.activeLayoutId())
+        c.onKey(act(KeyAction.SWITCH_NUMPAD)) // 123 → numpad
+        assertEquals(LayoutId.NUMPAD, c.activeLayoutId())
+        c.onKey(act(KeyAction.SWITCH_TEXT))   // 返回
+        assertEquals("返回 lands back on the 9-key default, not 26-key (H-1)", LayoutId.NINE, c.activeLayoutId())
+    }
+
+    @Test fun nine_key_default_user_can_return_from_the_symbol_page() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.reset()
+        c.onKey(act(KeyAction.SWITCH_SYMBOLS)) // @# → symbols
+        assertEquals(LayoutId.SYMBOL, c.activeLayoutId())
+        c.onKey(act(KeyAction.SWITCH_TEXT))    // 返回
+        assertEquals(LayoutId.NINE, c.activeLayoutId())
+    }
+
+    @Test fun en_user_returns_from_the_number_page_to_26_key() {
+        // SWITCH_TEXT in EN returns to the 26-key (EN has no 9-key).
+        val c = KeyboardController(FakeHost(), engine)
+        c.reset()
+        c.onKey(act(KeyAction.TOGGLE_LANG))    // → EN (26-key)
+        c.onKey(act(KeyAction.SWITCH_NUMBERS)) // 123 → number page
+        c.onKey(act(KeyAction.SWITCH_TEXT))    // 返回
+        assertEquals(LayoutId.ALPHA, c.activeLayoutId())
+    }
+
     // ---- B2: the 26-key up-flick emits the super-script symbol as a direct commit ----
 
     @Test fun b2_up_swipe_symbol_commits_directly_even_mid_pinyin() {

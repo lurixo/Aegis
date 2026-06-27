@@ -154,6 +154,10 @@ class KeyboardController(
             KeyAction.SWITCH_NUMBERS -> switchLayout(LayoutId.NUMBER)
             KeyAction.SWITCH_ALPHA -> switchLayout(LayoutId.ALPHA)
             KeyAction.SWITCH_NINE -> switchLayout(LayoutId.NINE)
+            // H-1: 返回 from the number/symbol/numpad page goes to the CN TEXT keyboard the user actually
+            // uses (9-key by default — B5) rather than hard-forcing 26-key, which trapped a 9-key user with
+            // no in-field way back. EN stays 26-key (it has no 9-key).
+            KeyAction.SWITCH_TEXT -> switchLayout(if (lang == Lang.CN) cnLayout else LayoutId.ALPHA)
             KeyAction.SWITCH_NUMPAD -> switchLayout(LayoutId.NUMPAD)
             KeyAction.PICK_READING -> handlePickReading(key)
             KeyAction.SEGMENT -> handleSegment()

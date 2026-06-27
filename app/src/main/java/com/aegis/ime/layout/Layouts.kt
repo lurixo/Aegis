@@ -23,10 +23,10 @@ import com.aegis.ime.layout.KeyAction.SHIFT
 import com.aegis.ime.layout.KeyAction.SEGMENT
 import com.aegis.ime.layout.KeyAction.SHOW_SYMBOLS
 import com.aegis.ime.layout.KeyAction.SPACE
-import com.aegis.ime.layout.KeyAction.SWITCH_ALPHA
 import com.aegis.ime.layout.KeyAction.SWITCH_NUMBERS
 import com.aegis.ime.layout.KeyAction.SWITCH_NUMPAD
 import com.aegis.ime.layout.KeyAction.SWITCH_SYMBOLS
+import com.aegis.ime.layout.KeyAction.SWITCH_TEXT
 import com.aegis.ime.layout.KeyAction.TOGGLE_LANG
 
 /** Static layout definitions. Pure data — no Android dependencies. */
@@ -150,7 +150,7 @@ object Layouts {
                 Key("⌫", action = BACKSPACE, weight = 1.5f),
             ),
             row(
-                Key("ABC", action = SWITCH_ALPHA, weight = 1.6f),
+                Key("返回", action = SWITCH_TEXT, weight = 1.6f), // H-1: back to the user's text keyboard
                 Key(","),
                 Key("空格", output = " ", action = SPACE, weight = 4f),
                 Key("."),
@@ -168,7 +168,7 @@ object Layouts {
             row(Key("-"), Key("7"), Key("8"), Key("9"), Key("@")),
             row(
                 Key("*"),
-                Key("返回", action = SWITCH_ALPHA),
+                Key("返回", action = SWITCH_TEXT), // H-1: back to the user's text keyboard (9-key by default)
                 Key("0"),
                 Key("空格", output = " ", action = SPACE),
                 Key("↵", action = ENTER, accent = true),
@@ -193,7 +193,7 @@ object Layouts {
                 Key("⌫", action = BACKSPACE, weight = 1.5f),
             ),
             row(
-                Key("ABC", action = SWITCH_ALPHA, weight = 1.6f),
+                Key("返回", action = SWITCH_TEXT, weight = 1.6f), // H-1: back to the user's text keyboard
                 Key("<"),
                 Key("空格", output = " ", action = SPACE, weight = 4f),
                 Key(">"),
