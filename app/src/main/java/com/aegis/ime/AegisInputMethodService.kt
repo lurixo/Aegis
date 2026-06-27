@@ -64,6 +64,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private val clipboardStore by lazy { ClipboardStore(filesDir).also { it.load() } }
     private val symbolUsageStore by lazy { SymbolUsageStore(filesDir).also { it.load() } }
     @Volatile private var secureField = false
+    @Volatile private var userDbLoaded = false
     private val clipboardManager by lazy { getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager }
     private val clipChangedListener = android.content.ClipboardManager.OnPrimaryClipChangedListener { captureClip() }
 
@@ -81,6 +82,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.setCustomSymbols(customSymbolStore.list())
         Thread {
             runCatching { userModel.load(userDbFile); userDbMtime = userDbFile.lastModified() }
+            userDbLoaded = true
             val dict = loadDict("aegis_dict.bin")
             val t9Dict = loadDict("aegis_t9.bin")
             val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
@@ -100,7 +102,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     override fun onStartInput(info: EditorInfo?, restarting: Boolean) {
         super.onStartInput(info, restarting)
         secureField = info != null && com.aegis.ime.user.ClipboardPolicy.isSensitive(info.inputType)
-        if (!userModel.dirty && userDbFile.lastModified() > userDbMtime) {
+        controller.setLearningBlocked(
+            info != null && com.aegis.ime.user.ClipboardPolicy.blocksLearning(info.inputType, info.imeOptions),
+        )
+        if (userDbLoaded && !userModel.dirty && userDbFile.lastModified() > userDbMtime) {
             runCatching { userModel.reload(userDbFile); userDbMtime = userDbFile.lastModified() }
         }
     }
