@@ -328,6 +328,35 @@ class KeyboardControllerTest {
     }
 
 
+    @Test fun nine_key_default_user_can_return_from_the_numpad() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.reset()
+        assertEquals(LayoutId.NINE, c.activeLayoutId())
+        c.onKey(act(KeyAction.SWITCH_NUMPAD))
+        assertEquals(LayoutId.NUMPAD, c.activeLayoutId())
+        c.onKey(act(KeyAction.SWITCH_TEXT))
+        assertEquals("返回 lands back on the 9-key default, not 26-key (H-1)", LayoutId.NINE, c.activeLayoutId())
+    }
+
+    @Test fun nine_key_default_user_can_return_from_the_symbol_page() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.reset()
+        c.onKey(act(KeyAction.SWITCH_SYMBOLS))
+        assertEquals(LayoutId.SYMBOL, c.activeLayoutId())
+        c.onKey(act(KeyAction.SWITCH_TEXT))
+        assertEquals(LayoutId.NINE, c.activeLayoutId())
+    }
+
+    @Test fun en_user_returns_from_the_number_page_to_26_key() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.reset()
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        c.onKey(act(KeyAction.SWITCH_NUMBERS))
+        c.onKey(act(KeyAction.SWITCH_TEXT))
+        assertEquals(LayoutId.ALPHA, c.activeLayoutId())
+    }
+
+
     @Test fun b2_up_swipe_symbol_commits_directly_even_mid_pinyin() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)

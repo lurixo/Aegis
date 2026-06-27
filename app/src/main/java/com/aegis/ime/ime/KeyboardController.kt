@@ -115,6 +115,7 @@ class KeyboardController(
             KeyAction.SWITCH_NUMBERS -> switchLayout(LayoutId.NUMBER)
             KeyAction.SWITCH_ALPHA -> switchLayout(LayoutId.ALPHA)
             KeyAction.SWITCH_NINE -> switchLayout(LayoutId.NINE)
+            KeyAction.SWITCH_TEXT -> switchLayout(if (lang == Lang.CN) cnLayout else LayoutId.ALPHA)
             KeyAction.SWITCH_NUMPAD -> switchLayout(LayoutId.NUMPAD)
             KeyAction.PICK_READING -> handlePickReading(key)
             KeyAction.SEGMENT -> handleSegment()
