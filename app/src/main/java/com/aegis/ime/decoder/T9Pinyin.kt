@@ -34,6 +34,11 @@ object T9Pinyin {
         '2' to 'a', '3' to 'd', '4' to 'g', '5' to 'j', '6' to 'm', '7' to 'p', '8' to 't', '9' to 'w',
     )
 
+    private val KEY_LETTERS: Map<Char, String> = mapOf(
+        '2' to "abc", '3' to "def", '4' to "ghi", '5' to "jkl",
+        '6' to "mno", '7' to "pqrs", '8' to "tuv", '9' to "wxyz",
+    )
+
     private val SYLLABLES: Set<String> = """
         a o e ai ei ao ou an en ang eng er
         yi ya yo ye yao you yan yin yang ying yong
@@ -166,6 +171,16 @@ object T9Pinyin {
         if (rest.isEmpty()) return Reading(firstReading, firstReading)
         val restDisplay = preedit(rest)
         return Reading("$firstReading'$restDisplay", firstReading + restDisplay.replace("'", ""))
+    }
+
+    fun leftColumnReadings(digits: String, limit: Int): List<String> {
+        if (digits.isEmpty() || digits[0] < '2' || digits[0] > '9') return emptyList()
+        val out = LinkedHashSet<String>()
+        out.addAll(firstSyllableOptions(digits, limit))
+        KEY_LETTERS[digits[0]]?.toList()
+            ?.sortedByDescending { it.toString() in SYLLABLES }
+            ?.forEach { out.add(it.toString()) }
+        return out.toList().take(limit)
     }
 
     fun firstSyllableOptions(digits: String, limit: Int): List<String> {

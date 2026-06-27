@@ -95,6 +95,27 @@ class LayoutsTest {
         )
     }
 
+    @Test fun nine_left_column_shrinks_to_content_no_empty_cells() {
+        val twoReadings = listOf(
+            Key("ce", action = KeyAction.PICK_READING),
+            Key("a", action = KeyAction.PICK_READING),
+        )
+        val cells = Layouts.nine(Lang.CN, twoReadings, composing = true).cells!!
+        val peanut = cells.filter { it.groupId == 1 }
+        assertEquals("only the real readings get cells", 2, peanut.size)
+        assertTrue("cells stay within the upper 0.75 band", peanut.all { it.y + it.h <= 0.75f + 1e-4f })
+        assertTrue("pen present below the column", cells.any { it.key.action == KeyAction.SHOW_EDIT })
+        assertTrue(
+            "no cell escapes the [0,1] keyboard",
+            cells.all { it.x >= -1e-4f && it.x + it.w <= 1f + 1e-4f && it.y >= -1e-4f && it.y + it.h <= 1f + 1e-4f },
+        )
+    }
+
+    @Test fun nine_full_left_column_still_places_four_cells() {
+        val l = Layouts.nine(Lang.CN, Layouts.defaultNineLeft())
+        assertEquals(4, l.cells!!.filter { it.groupId == 1 }.size)
+    }
+
     @Test fun qwerty_has_no_nine_switch_key_and_has_pen() {
         val actions = keysOf(qwerty).map { it.action }
         assertTrue("9-key switch is via the toolbar, not a key", KeyAction.SWITCH_NINE !in actions)

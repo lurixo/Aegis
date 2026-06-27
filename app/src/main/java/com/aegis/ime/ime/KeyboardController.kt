@@ -313,20 +313,15 @@ class KeyboardController(
         return composing.toString()
     }
 
-    private fun nineLeftColumn(): List<Key> {
+    internal fun nineLeftColumn(): List<Key> {
         val w = 0.85f
         if (composing.isEmpty()) return Layouts.defaultNineLeft()
         val active = activeDigits()
         if (active.isEmpty()) return Layouts.defaultNineLeft()
         val firstCut = activeCuts().firstOrNull()
         val chunk = if (firstCut != null) active.substring(0, firstCut) else active
-        val keys = ArrayList<Key>(4)
-        for (r in T9Pinyin.firstSyllableOptions(chunk, 4)) {
-            keys.add(Key(r, output = r, action = KeyAction.PICK_READING, weight = w))
-        }
-        val blank = Key("", output = "", action = KeyAction.PICK_READING, weight = w)
-        while (keys.size < 4) keys.add(blank)
-        return keys
+        return T9Pinyin.leftColumnReadings(chunk, NINE_LEFT_SLOTS)
+            .map { Key(it, output = it, action = KeyAction.PICK_READING, weight = w) }
     }
 
     private fun render() {
@@ -335,5 +330,9 @@ class KeyboardController(
         else Layouts.forId(layoutId, lang)
         v.showKeyboard(layout, shifted)
         v.showCandidates(candidates.map { it.word }, preeditText())
+    }
+
+    private companion object {
+        const val NINE_LEFT_SLOTS = 4
     }
 }
