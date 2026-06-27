@@ -15,6 +15,8 @@
 
 package com.aegis.ime.engine
 
+import com.aegis.ime.decoder.Cand
+
 /**
  * Produces candidates for a composing buffer.
  *
@@ -30,6 +32,14 @@ interface CandidateEngine {
      * @return ordered candidates, best first; empty when there is nothing to show.
      */
     fun candidates(composing: String, t9: Boolean): List<String>
+
+    /**
+     * Candidates tagged with how many leading input units each consumes, longest-prefix words first
+     * then leading single chars (★G), so picking one can partially commit and continue (★E). Defaults
+     * to assuming each candidate covers the whole buffer.
+     */
+    fun candidatesCovered(composing: String, t9: Boolean): List<Cand> =
+        candidates(composing, t9).map { Cand(it, composing.length) }
 
     /** Candidates for an explicit full-pinyin reading (letters) — used by the 9-key reading column. */
     fun candidatesForReading(letters: String): List<String> = emptyList()
