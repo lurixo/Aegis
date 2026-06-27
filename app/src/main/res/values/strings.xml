@@ -36,6 +36,19 @@
     <string name="dict_gate_verifying">Verifying…</string>
     <string name="dict_gate_failed">Download failed — tap to retry</string>
 
+    <string name="fuzzy_master_title">Fuzzy Pinyin</string>
+    <string name="fuzzy_master_description">Tolerate common Pinyin confusions</string>
+    <string name="fuzzy_rule_zh_title">zh = z</string>
+    <string name="fuzzy_rule_ch_title">ch = c</string>
+    <string name="fuzzy_rule_sh_title">sh = s</string>
+    <string name="fuzzy_rule_ang_title">ang = an</string>
+    <string name="fuzzy_rule_eng_title">eng = en</string>
+    <string name="fuzzy_rule_ing_title">ing = in</string>
+    <string name="fuzzy_rule_n_l_title">n = l</string>
+    <string name="fuzzy_rule_f_h_title">h = f</string>
+    <string name="fuzzy_rule_l_r_title">r = l</string>
+    <string name="fuzzy_rule_k_g_title">k = g</string>
+
     <string name="key_vibration_title">Key vibration</string>
     <string name="key_vibration_description">Choose a feel and tap to try it</string>
     <string name="key_haptic_system">System</string>
@@ -170,5 +183,18 @@
     <string name="key_sound_purple">Cherry MX Purple</string>
     <string name="key_sound_silent_red">Cherry MX Silent Red</string>
     <string name="key_sound_silent_black">Cherry MX Silent Black</string>
+    <string name="fuzzy_rule_iang_title">iang = ian</string>
+    <string name="fuzzy_rule_uang_title">uang = uan</string>
+    <string name="fuzzy_rule_un_ong_title">un = ong</string>
+    <string name="fuzzy_rule_on_ong_title">on = ong</string>
+    <string name="fuzzy_rule_un_iong_title">un = iong</string>
+    <string name="fuzzy_rule_eng_ong_title">eng = ong</string>
+    <string name="fuzzy_rule_an_ai_title">an = ai</string>
+    <string name="fuzzy_rule_hui_fei_title">hui = fei</string>
+    <string name="fuzzy_rule_hu_fu_title">hu = fu</string>
+    <string name="fuzzy_rule_huang_wang_title">huang = wang</string>
+    <string name="fuzzy_group_initial">Initials</string>
+    <string name="fuzzy_group_final">Finals</string>
+    <string name="fuzzy_group_syllable">Whole syllables</string>
     <string name="sym_cat_vertical">Vertical</string>
 </resources>

@@ -36,6 +36,19 @@
     <string name="dict_gate_verifying">正在校验安装…</string>
     <string name="dict_gate_failed">下载失败，点按重试</string>
 
+    <string name="fuzzy_master_title">模糊音</string>
+    <string name="fuzzy_master_description">容忍常见拼音混淆</string>
+    <string name="fuzzy_rule_zh_title">zh = z</string>
+    <string name="fuzzy_rule_ch_title">ch = c</string>
+    <string name="fuzzy_rule_sh_title">sh = s</string>
+    <string name="fuzzy_rule_ang_title">ang = an</string>
+    <string name="fuzzy_rule_eng_title">eng = en</string>
+    <string name="fuzzy_rule_ing_title">ing = in</string>
+    <string name="fuzzy_rule_n_l_title">n = l</string>
+    <string name="fuzzy_rule_f_h_title">h = f</string>
+    <string name="fuzzy_rule_l_r_title">r = l</string>
+    <string name="fuzzy_rule_k_g_title">k = g</string>
+
     <string name="key_vibration_title">按键振动</string>
     <string name="key_vibration_description">选择手感，点击体验</string>
     <string name="key_haptic_system">系统</string>
@@ -168,5 +181,18 @@
     <string name="key_sound_purple">Cherry MX 紫轴</string>
     <string name="key_sound_silent_red">Cherry MX 静音红轴</string>
     <string name="key_sound_silent_black">Cherry MX 静音黑轴</string>
+    <string name="fuzzy_rule_iang_title">iang = ian</string>
+    <string name="fuzzy_rule_uang_title">uang = uan</string>
+    <string name="fuzzy_rule_un_ong_title">un = ong</string>
+    <string name="fuzzy_rule_on_ong_title">on = ong</string>
+    <string name="fuzzy_rule_un_iong_title">un = iong</string>
+    <string name="fuzzy_rule_eng_ong_title">eng = ong</string>
+    <string name="fuzzy_rule_an_ai_title">an = ai</string>
+    <string name="fuzzy_rule_hui_fei_title">hui = fei</string>
+    <string name="fuzzy_rule_hu_fu_title">hu = fu</string>
+    <string name="fuzzy_rule_huang_wang_title">huang = wang</string>
+    <string name="fuzzy_group_initial">声母</string>
+    <string name="fuzzy_group_final">韵母</string>
+    <string name="fuzzy_group_syllable">整音节</string>
     <string name="sym_cat_vertical">竖标</string>
 </resources>

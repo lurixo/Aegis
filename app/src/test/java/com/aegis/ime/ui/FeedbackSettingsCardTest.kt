@@ -25,17 +25,22 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import com.aegis.ime.R
+import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.ime.KeySound
 import com.aegis.ime.ime.KeyHaptic
 import com.aegis.ime.ui.theme.AegisTheme
@@ -232,5 +237,40 @@ class FeedbackSettingsCardTest {
         node(R.string.key_preview_alpha_label).assertExists()
         assertFalse(prefs.getBoolean(PREF_KEY_PREVIEW_NINE, true))
         assertFalse(prefs.getBoolean(PREF_KEY_PREVIEW_ALPHA, true))
+    }
+
+    @Test
+    @Config(qualifiers = "en-rUS-w411dp-h891dp-xxhdpi")
+    fun fuzzy_rules_hide_when_off_and_keep_their_choices() {
+        assertFuzzyTitleAndRuleChoices("Fuzzy Pinyin")
+    }
+
+    @Test
+    @Config(qualifiers = "zh-rCN-w411dp-h891dp-xxhdpi")
+    fun chinese_fuzzy_title_shows_once_and_rules_keep_their_choices() {
+        assertFuzzyTitleAndRuleChoices("模糊音")
+    }
+
+    private fun assertFuzzyTitleAndRuleChoices(title: String) {
+        assertEquals(title, context.getString(R.string.fuzzy_master_title))
+        prefs.edit().putBoolean("fuzzy", false).commit()
+        compose.setContent {
+            AegisTheme {
+                Column(Modifier.verticalScroll(rememberScrollState())) { FuzzySettingsCard() }
+            }
+        }
+        val master = compose.onNode(hasText(title) and hasClickAction())
+        compose.onAllNodesWithText(title, useUnmergedTree = true).assertCountEquals(1)
+        node(R.string.fuzzy_rule_zh_title).assertDoesNotExist()
+        master.performClick()
+        compose.onAllNodesWithText(title, useUnmergedTree = true).assertCountEquals(1)
+        node(R.string.fuzzy_rule_zh_title).performScrollTo().performClick()
+        master.performScrollTo().performClick()
+        compose.onAllNodesWithText(title, useUnmergedTree = true).assertCountEquals(1)
+        node(R.string.fuzzy_rule_zh_title).assertDoesNotExist()
+        master.performClick()
+        compose.onAllNodesWithText(title, useUnmergedTree = true).assertCountEquals(1)
+        node(R.string.fuzzy_rule_zh_title).assertExists()
+        assertFalse(prefs.getBoolean(Fuzzy.prefKey("zh"), true))
     }
 }
