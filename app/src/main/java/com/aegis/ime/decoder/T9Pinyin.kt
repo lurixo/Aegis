@@ -40,6 +40,12 @@ object T9Pinyin {
         return sb.toString()
     }
 
+    /** Representative pinyin initial per T9 key — shows an in-progress (not-yet-segmentable) syllable
+     *  as a letter instead of the raw 2-9 digit (★N). */
+    private val DIGIT_INITIAL: Map<Char, Char> = mapOf(
+        '2' to 'a', '3' to 'd', '4' to 'g', '5' to 'j', '6' to 'm', '7' to 'p', '8' to 't', '9' to 'w',
+    )
+
     /** Canonical toneless Mandarin syllables (ported from tools `Pinyin.canonicalSyllables`). */
     private val SYLLABLES: Set<String> = """
         a o e ai ei ao ou an en ang eng er
@@ -139,9 +145,22 @@ object T9Pinyin {
                     sb.append(g); i = k; matched = true; break
                 }
             }
-            if (!matched) { sb.append(digits[i]); i++ }
+            if (!matched) {
+                // ★N: never surface the raw 2-9 digit; show the key's representative initial so the
+                // preedit stays pinyin-like ("ni'p") instead of "pinyin+digits" ("ni7").
+                if (sb.isNotEmpty()) sb.append('\'')
+                sb.append(DIGIT_INITIAL[digits[i]] ?: digits[i]); i++
+            }
         }
         return sb.toString()
+    }
+
+    /** The longest prefix of [digits] that fully segments into known syllables, or "" if none (★N). */
+    fun longestDecodablePrefix(digits: String): String {
+        for (p in digits.length downTo 1) {
+            if (segment(digits.substring(0, p)) != null) return digits.substring(0, p)
+        }
+        return ""
     }
 
     /** A locked-first-syllable reading of a digit buffer: [display] is apostrophe-joined, [letters] for decoding. */
