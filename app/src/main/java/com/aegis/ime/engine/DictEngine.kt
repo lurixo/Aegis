@@ -27,14 +27,14 @@ class DictEngine(
     t9Dict: BinaryDict?,
     lm: CharBigramLM?,
     private val userModel: UserModel? = null,
-    fuzzyDict: BinaryDict? = null,
+    fuzzyRules: Set<String> = emptySet(),
     initialsDict: BinaryDict? = null,
     octagram: OctagramReader? = null,
     enDict: BinaryDict? = null,
 ) : CandidateEngine {
     private val englishEngine = enDict?.let { EnglishEngine(it) }
     private val decoder = pinyinDict?.let {
-        PinyinDecoder(it, lm, userModel = userModel, fuzzyDict = fuzzyDict, initialsDict = initialsDict, octagram = octagram)
+        PinyinDecoder(it, lm, userModel = userModel, fuzzyRules = fuzzyRules, initialsDict = initialsDict, octagram = octagram)
     }
     private val t9Decoder = t9Dict?.let {
         PinyinDecoder(it, lm, userModel = userModel, octagram = octagram)

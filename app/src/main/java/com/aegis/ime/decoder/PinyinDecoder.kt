@@ -28,13 +28,13 @@ class PinyinDecoder(
     private val lm: CharBigramLM? = null,
     private val lambda: Double = DEFAULT_LAMBDA,
     private val userModel: UserModel? = null,
-    private val fuzzyDict: BinaryDict? = null,
+    private val fuzzyRules: Set<String> = emptySet(),
     private val initialsDict: BinaryDict? = null,
     private val octagram: com.aegis.ime.dict.OctagramReader? = null,
     private val octagramWeight: Double = DEFAULT_OCTAGRAM_WEIGHT,
 ) {
     private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
-    private val edgeN = if (lm != null || fuzzyDict != null || initialsDict != null) EDGE_N else 1
+    private val edgeN = if (lm != null || fuzzyRules.isNotEmpty() || initialsDict != null) EDGE_N else 1
 
     private class Edge(val word: String, val freq: Int, val penalty: Double)
 
@@ -45,10 +45,13 @@ class PinyinDecoder(
             if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, 0.0))
             if (out.size >= edgeN) return out
         }
-        fuzzyDict?.let { fd ->
-            for (wf in fd.exact(Fuzzy.normalize(sub))) {
-                if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, FUZZY_PENALTY))
-                if (out.size >= edgeN) return out
+        if (fuzzyRules.isNotEmpty()) {
+            for (variant in Fuzzy.variants(sub, fuzzyRules)) {
+                if (variant == sub) continue
+                for (wf in dict.exact(variant)) {
+                    if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, FUZZY_PENALTY))
+                    if (out.size >= edgeN) return out
+                }
             }
         }
         initialsDict?.let { id ->
@@ -65,7 +68,13 @@ class PinyinDecoder(
         val out = LinkedHashSet<String>()
         bestSentence(input)?.let { out.add(it) }
         out.addAll(dict.query(input, limit))
-        if (out.size < limit) fuzzyDict?.let { out.addAll(it.query(Fuzzy.normalize(input), limit)) }
+        if (out.size < limit && fuzzyRules.isNotEmpty()) {
+            for (variant in Fuzzy.variants(input, fuzzyRules)) {
+                if (variant == input) continue
+                out.addAll(dict.query(variant, limit))
+                if (out.size >= limit) break
+            }
+        }
         if (out.size < limit) initialsDict?.let { out.addAll(it.query(input, limit)) }
         return if (out.size <= limit) out.toList() else out.toList().subList(0, limit)
     }
@@ -81,7 +90,13 @@ class PinyinDecoder(
         bestSentence(input, cuts)?.let { cover[it] = input.length }
         if (firstCut == null) {
             addCompletions(dict.query(input, completionCap))
-            fuzzyDict?.let { addCompletions(it.query(Fuzzy.normalize(input), completionCap)) }
+            if (fuzzyRules.isNotEmpty()) {
+                for (variant in Fuzzy.variants(input, fuzzyRules)) {
+                    if (variant == input) continue
+                    addCompletions(dict.query(variant, completionCap))
+                    if (cover.size >= completionCap) break
+                }
+            }
             initialsDict?.let { addCompletions(it.query(input, completionCap)) }
         }
         for (q in (firstCut ?: input.length) downTo 1) {
