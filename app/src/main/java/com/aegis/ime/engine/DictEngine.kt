@@ -16,6 +16,7 @@
 package com.aegis.ime.engine
 
 import com.aegis.ime.decoder.PinyinDecoder
+import com.aegis.ime.decoder.Syllable
 import com.aegis.ime.dict.BinaryDict
 
 class DictEngine(
@@ -34,4 +35,18 @@ class DictEngine(
     }
 
     override val supportsChinese: Boolean = decoder != null || t9Decoder != null
+
+    override fun syllables(composing: String, t9: Boolean): List<Syllable> =
+        syllables(composing, t9, emptySet())
+
+    override fun syllables(composing: String, t9: Boolean, cuts: Set<Int>): List<Syllable> {
+        if (composing.isEmpty()) return emptyList()
+        return (if (t9) t9Decoder else decoder)?.syllables(composing, cuts) ?: emptyList()
+    }
+
+    override fun syllablesForReading(letters: String): List<Syllable> =
+        syllablesForReading(letters, emptySet())
+
+    override fun syllablesForReading(letters: String, cuts: Set<Int>): List<Syllable> =
+        if (letters.isEmpty()) emptyList() else decoder?.syllables(letters, cuts) ?: emptyList()
 }

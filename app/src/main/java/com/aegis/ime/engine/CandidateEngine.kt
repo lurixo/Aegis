@@ -15,6 +15,16 @@
 
 package com.aegis.ime.engine
 
+import com.aegis.ime.decoder.Syllable
+
 interface CandidateEngine {
     val supportsChinese: Boolean
+
+    fun syllables(composing: String, t9: Boolean): List<Syllable>
+
+    fun syllables(composing: String, t9: Boolean, cuts: Set<Int>): List<Syllable> = syllables(composing, t9)
+
+    fun syllablesForReading(letters: String): List<Syllable>
+
+    fun syllablesForReading(letters: String, cuts: Set<Int>): List<Syllable> = syllablesForReading(letters)
 }

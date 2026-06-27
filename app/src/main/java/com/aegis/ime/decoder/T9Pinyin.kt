@@ -218,6 +218,18 @@ object T9Pinyin {
 
     internal fun isSyllableDigitPrefix(digits: String): Boolean = digits in syllableDigitPrefixes
 
+    fun firstSyllableLetters(letters: String): String {
+        val hi = minOf(letters.length, maxLetters)
+        for (k in hi downTo 1) if (letters.substring(0, k) in SYLLABLES) return letters.substring(0, k)
+        return ""
+    }
+
+    fun firstSyllableDigitLen(digits: String): Int {
+        val hi = minOf(digits.length, maxDigits)
+        for (k in hi downTo 1) if (byDigits.containsKey(digits.substring(0, k))) return k
+        return 0
+    }
+
     fun syllableReading(digitGroup: String): String = byDigits[digitGroup]?.firstOrNull() ?: ""
 
     fun preedit(digits: String): String {

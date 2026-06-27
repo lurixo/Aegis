@@ -24,6 +24,8 @@ data class Cand(
     val coveredLen: Int,
 )
 
+data class Syllable(val reading: String, val start: Int, val end: Int)
+
 class PinyinDecoder(
     private val dict: BinaryDict,
 ) {
@@ -70,6 +72,34 @@ class PinyinDecoder(
 
     private fun cachedPrefix(source: BinaryDict, prefix: String, limit: Int): List<BinaryDict.WordFreq> =
         source.prefixByFreq(prefix, limit)
+
+    private class Norm(val clean: String, val cuts: Set<Int>, val origLen: IntArray, private val cleanLenAtOrig: IntArray) {
+        fun cleanIndexOfOrig(o: Int): Int? = cleanLenAtOrig.getOrNull(o)
+    }
+
+    private fun normalizeSeparators(input: String): Norm? {
+        if (input.indexOf(SEP) < 0) return null
+        val clean = StringBuilder(input.length)
+        val cuts = HashSet<Int>()
+        val origLen = IntArray(input.length + 1)
+        val cleanLenAtOrig = IntArray(input.length + 1)
+        var ci = 0
+        var oi = 0
+        while (oi < input.length) {
+            cleanLenAtOrig[oi] = ci
+            if (input[oi] == SEP) {
+                oi++
+                if (ci in 1 until input.length) cuts.add(ci)
+                origLen[ci] = oi
+            } else {
+                clean.append(input[oi]); oi++; ci++
+                origLen[ci] = oi
+            }
+        }
+        cleanLenAtOrig[input.length] = ci
+        val interiorCuts = cuts.filterTo(HashSet()) { it in 1 until ci }
+        return Norm(clean.toString(), interiorCuts, origLen.copyOf(ci + 1), cleanLenAtOrig)
+    }
 
     fun decodeCovered(input: String, limit: Int): List<Cand> =
         decodeCoveredLayered(input, limit).first
@@ -133,6 +163,75 @@ class PinyinDecoder(
         val wordFreq: BinaryDict.WordFreq,
         val score: Double,
     )
+
+    fun syllables(input: String, cuts: Set<Int> = emptySet()): List<Syllable> {
+        if (input.isEmpty()) return emptyList()
+        val norm = normalizeSeparators(input)
+        val clean = norm?.clean ?: input
+        if (clean.isEmpty()) return emptyList()
+        val spans = atomicSyllables(clean, cleanInterior(norm, clean, cuts))
+        return if (norm == null) spans
+        else spans.map { Syllable(it.reading, norm.origLen[it.start], norm.origLen[it.end]) }
+    }
+
+    private fun cleanInterior(norm: Norm?, clean: String, cuts: Set<Int>): Set<Int> {
+        val passedClean = if (norm == null) cuts else cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
+        return ((norm?.cuts ?: emptySet()) + passedClean).filterTo(HashSet()) { it in 1 until clean.length }
+    }
+
+    private fun syllablesClean(input: String): List<Syllable> =
+        if (input[0] in '2'..'9') t9Syllables(input) else letterSyllables(input)
+
+    private fun wholeSegmentReading(segment: String): String? =
+        if (segment[0] in '2'..'9') T9Pinyin.syllableReading(segment).takeIf { it.isNotEmpty() }
+        else segment.takeIf { T9Pinyin.firstSyllableLetters(it) == it }
+
+    private fun atomicSyllables(clean: String, interior: Set<Int>): List<Syllable> {
+        val bounds = listOf(0) + interior.filter { it in 1 until clean.length }.sorted() + listOf(clean.length)
+        val out = ArrayList<Syllable>()
+        for (b in 0 until bounds.size - 1) {
+            val lo = bounds[b]; val hi = bounds[b + 1]
+            if (lo >= hi) continue
+            val segment = clean.substring(lo, hi)
+            val whole = wholeSegmentReading(segment)
+            if (whole != null) {
+                out.add(Syllable(whole, lo, hi))
+            } else {
+                for (s in syllablesClean(segment)) out.add(Syllable(s.reading, lo + s.start, lo + s.end))
+            }
+        }
+        return out
+    }
+
+    private fun letterSyllables(input: String): List<Syllable> {
+        val out = ArrayList<Syllable>()
+        var pos = 0
+        T9Pinyin.segmentLetters(input)?.let { segs ->
+            for (s in segs) { out.add(Syllable(s, pos, pos + s.length)); pos += s.length }
+            return out
+        }
+        while (pos < input.length) {
+            val syl = T9Pinyin.firstSyllableLetters(input.substring(pos))
+            if (syl.isEmpty()) break
+            out.add(Syllable(syl, pos, pos + syl.length)); pos += syl.length
+        }
+        return out
+    }
+
+    private fun t9Syllables(input: String): List<Syllable> {
+        val out = ArrayList<Syllable>()
+        var pos = 0
+        T9Pinyin.segment(input)?.let { segs ->
+            for (s in segs) { val d = T9Pinyin.toT9(s).length; out.add(Syllable(s, pos, pos + d)); pos += d }
+            return out
+        }
+        while (pos < input.length) {
+            val d = T9Pinyin.firstSyllableDigitLen(input.substring(pos))
+            if (d == 0) break
+            out.add(Syllable(T9Pinyin.syllableReading(input.substring(pos, pos + d)), pos, pos + d)); pos += d
+        }
+        return out
+    }
 
     private data class SentenceState(val lastCp: Int)
 
@@ -200,6 +299,7 @@ class PinyinDecoder(
     }
 
     internal companion object {
+        const val SEP = '\''
         const val BOS = -1
         fun completionCap(limit: Int): Int = maxOf(1, (limit.toLong() * 2 / 3).toInt())
     }
