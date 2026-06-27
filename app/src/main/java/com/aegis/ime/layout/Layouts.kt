@@ -17,6 +17,7 @@ package com.aegis.ime.layout
 
 import com.aegis.ime.layout.KeyAction.BACKSPACE
 import com.aegis.ime.layout.KeyAction.CLEAR_COMPOSING
+import com.aegis.ime.layout.KeyAction.CUSTOM_SYMBOL
 import com.aegis.ime.layout.KeyAction.ENTER
 import com.aegis.ime.layout.KeyAction.SHIFT
 import com.aegis.ime.layout.KeyAction.SEGMENT
@@ -32,14 +33,17 @@ object Layouts {
 
     fun forId(id: LayoutId, lang: Lang): KeyboardLayout = when (id) {
         LayoutId.ALPHA -> qwerty(lang)
-        LayoutId.NINE -> nine(lang, defaultNineLeft())
+        LayoutId.NINE -> nine(lang, ninePunctuation())
         LayoutId.NUMBER -> number()
         LayoutId.SYMBOL -> symbol()
         LayoutId.NUMPAD -> numpad()
     }
 
-    fun defaultNineLeft(): List<Key> = listOf(
+    fun ninePunctuation(): List<Key> = listOf(
         Key("，", direct = true), Key("。", direct = true), Key("？", direct = true), Key("！", direct = true),
+        Key("…", direct = true), Key("：", direct = true), Key("；", direct = true), Key("~", direct = true),
+        Key(".", direct = true), Key("-", direct = true), Key("@", direct = true),
+        Key("自定义", action = CUSTOM_SYMBOL),
     )
 
     private fun row(vararg keys: Key) = KeyboardRow(keys.toList())
@@ -82,10 +86,8 @@ object Layouts {
         val xL = 0f; val wL = 0.7f * u
         val x1 = 0.7f * u; val x2 = 1.7f * u; val x3 = 2.7f * u; val wM = 1f * u
         val xR = 3.7f * u; val wR = 0.7f * u
-        val pillH = 0.75f / 4f
         val cells = ArrayList<PlacedKey>()
-        val nLeft = left.size.coerceAtMost(4)
-        for (i in 0 until nLeft) cells.add(PlacedKey(left[i], xL, i * pillH, wL, pillH, groupId = 1))
+        val leftColumn = ScrollColumn(left, xL, 0f, wL, 0.75f, cellHFrac = 0.75f / 4f)
         cells.add(PlacedKey(Key("✎", action = SHOW_EDIT), xL, 0.75f, wL, 0.25f))
         cells.add(PlacedKey(
             if (composing) Key("分词", action = SEGMENT) else Key("@#", action = SWITCH_SYMBOLS),
@@ -105,7 +107,7 @@ object Layouts {
         cells.add(PlacedKey(Key("⌫", action = BACKSPACE), xR, 0f, wR, 0.25f))
         cells.add(PlacedKey(Key("重输", action = CLEAR_COMPOSING), xR, 0.25f, wR, 0.25f))
         cells.add(PlacedKey(Key("↵", action = ENTER, accent = true), xR, 0.5f, wR, 0.5f))
-        return KeyboardLayout(LayoutId.NINE, cells = cells, rowCount = 4)
+        return KeyboardLayout(LayoutId.NINE, cells = cells, rowCount = 4, scrollColumn = leftColumn)
     }
 
     private fun number(): KeyboardLayout = KeyboardLayout(

@@ -29,8 +29,11 @@ class InputView(context: Context) : LinearLayout(context) {
 
     var onKey: (Key) -> Unit = {}
     var onPickCandidate: (Int) -> Unit = {}
+    var onPickReading: (Int) -> Unit = {}
     var onFunction: (BarFunction) -> Unit = {}
     var onBackspaceSwipe: (Boolean) -> Unit = {}
+    var onPanelBackspace: () -> Unit = {}
+    var onPanelClear: () -> Unit = {}
     var onCollapse: () -> Unit = {}
 
     private val preeditView = PreeditView(context)
@@ -40,6 +43,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private val gridView = CandidateGridView(context)
     private val body = LinearLayout(context)
     private var lastCandidates: List<String> = emptyList()
+    private var lastReadings: List<String> = emptyList()
 
     init {
         orientation = VERTICAL
@@ -47,8 +51,11 @@ class InputView(context: Context) : LinearLayout(context) {
         candidateView.onFunction = { f -> onFunction(f) }
         candidateView.onExpand = { showExpandedCandidates() }
         candidateView.onCollapse = { onCollapse() }
-        gridView.onPick = { index -> showPanel(null); onPickCandidate(index) }
+        gridView.onPick = { index -> onPickCandidate(index) }
+        gridView.onPickReading = { index -> onPickReading(index) }
         gridView.onClose = { showPanel(null) }
+        gridView.onBackspace = { onPanelBackspace() }
+        gridView.onClear = { onPanelClear() }
         keyboardView.onKey = { key -> onKey(key) }
         keyboardView.onBackspaceSwipe = { up -> onBackspaceSwipe(up) }
         addView(preeditView, LayoutParams(LayoutParams.MATCH_PARENT, barTopInsetPx()))
@@ -76,16 +83,21 @@ class InputView(context: Context) : LinearLayout(context) {
         keyboardView.setLayout(layout, shifted)
     }
 
-    fun showCandidates(candidates: List<String>, preedit: String) {
+    fun showCandidates(candidates: List<String>, preedit: String, readings: List<String>) {
         lastCandidates = candidates
+        lastReadings = readings
         preeditView.setText(preedit)
         candidateView.setContent(candidates, preedit)
-        if (panelShown && candidates.isEmpty()) showPanel(null)
+        if (panelShown) {
+            if (preedit.isEmpty()) showPanel(null)
+            else { gridView.setCandidates(candidates); gridView.setReadings(readings) }
+        }
     }
 
     private fun showExpandedCandidates() {
         if (lastCandidates.isEmpty()) return
         gridView.setCandidates(lastCandidates)
+        gridView.setReadings(lastReadings)
         showPanel(gridView)
     }
 

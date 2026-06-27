@@ -96,6 +96,7 @@ class KeyboardController(
             KeyAction.PICK_READING -> handlePickReading(key)
             KeyAction.SEGMENT -> handleSegment()
             KeyAction.SHOW_EDIT -> onShowEdit()
+            KeyAction.CUSTOM_SYMBOL -> {}
             KeyAction.TOGGLE_LANG -> {
                 flushComposing()
                 lang = if (lang == Lang.CN) Lang.EN else Lang.CN
@@ -315,12 +316,12 @@ class KeyboardController(
 
     internal fun nineLeftColumn(): List<Key> {
         val w = 0.85f
-        if (composing.isEmpty()) return Layouts.defaultNineLeft()
+        if (composing.isEmpty()) return Layouts.ninePunctuation()
         val active = activeDigits()
-        if (active.isEmpty()) return Layouts.defaultNineLeft()
+        if (active.isEmpty()) return Layouts.ninePunctuation()
         val firstCut = activeCuts().firstOrNull()
         val chunk = if (firstCut != null) active.substring(0, firstCut) else active
-        return T9Pinyin.leftColumnReadings(chunk, NINE_LEFT_SLOTS)
+        return T9Pinyin.leftColumnReadings(chunk, NINE_LEFT_MAX)
             .map { Key(it, output = it, action = KeyAction.PICK_READING, weight = w) }
     }
 
@@ -329,10 +330,33 @@ class KeyboardController(
         val layout = if (layoutId == LayoutId.NINE) Layouts.nine(lang, nineLeftColumn(), composing.isNotEmpty())
         else Layouts.forId(layoutId, lang)
         v.showKeyboard(layout, shifted)
-        v.showCandidates(candidates.map { it.word }, preeditText())
+        v.showCandidates(candidates.map { it.word }, preeditText(), expandedReadings())
+    }
+
+    internal fun expandedReadings(): List<String> =
+        nineLeftColumn().filter { it.action == KeyAction.PICK_READING }.map { it.label }
+
+    fun onPickReadingIndex(index: Int) {
+        val readings = expandedReadings()
+        if (index !in readings.indices) return
+        handlePickReading(Key(readings[index], output = readings[index], action = KeyAction.PICK_READING))
+        refreshCandidates()
+        render()
+    }
+
+    fun onPanelBackspace() {
+        if (composing.isEmpty()) return
+        handleBackspace()
+        refreshCandidates()
+        render()
+    }
+
+    fun onPanelClear() {
+        handleClearComposing()
+        render()
     }
 
     private companion object {
-        const val NINE_LEFT_SLOTS = 4
+        const val NINE_LEFT_MAX = 24
     }
 }
