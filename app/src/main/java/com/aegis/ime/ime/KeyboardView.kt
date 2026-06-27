@@ -57,6 +57,7 @@ class KeyboardView(context: Context) : View(context) {
     // Long-press key repeat (#8) + backspace swipe (#5).
     private val repeatHandler = Handler(Looper.getMainLooper())
     private var downKey: Key? = null
+    private var downPlaced: Placed? = null
     private var downX = 0f
     private var downY = 0f
     private var repeating = false
@@ -332,7 +333,8 @@ class KeyboardView(context: Context) : View(context) {
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                downKey = keyAt(event.x, event.y)
+                downPlaced = placedAt(event.x, event.y)
+                downKey = downPlaced?.key
                 pressed = downKey
                 downX = event.x; downY = event.y
                 repeating = false; swiped = false
@@ -349,7 +351,7 @@ class KeyboardView(context: Context) : View(context) {
                         repeatHandler.removeCallbacks(repeatRunnable)
                     }
                 } else {
-                    val k = keyAt(event.x, event.y)
+                    val k = currentTarget(event.x, event.y)
                     if (k !== pressed) {
                         pressed = k
                         if (k !== downKey) repeatHandler.removeCallbacks(repeatRunnable)
@@ -365,22 +367,62 @@ class KeyboardView(context: Context) : View(context) {
                 if (dk != null && dk.action == KeyAction.BACKSPACE && swiped) {
                     onBackspaceSwipe(event.y - downY < 0)
                 } else if (!repeating) {
-                    keyAt(event.x, event.y)?.let { performClick(); onKey(it) }
+                    currentTarget(event.x, event.y)?.let { performClick(); onKey(it) }
                 }
                 downKey = null
+                downPlaced = null
             }
             MotionEvent.ACTION_CANCEL -> {
                 repeatHandler.removeCallbacks(repeatRunnable)
                 pressed = null
                 downKey = null
+                downPlaced = null
                 invalidate()
             }
         }
         return true
     }
 
-    private fun keyAt(x: Float, y: Float): Key? =
-        placed.firstOrNull { it.rect.contains(x, y) }?.key
+    /**
+     * ★V follow-finger hit-test: exact containment first, else snap to the NEAREST key (by clamped
+     * edge distance, capped at ~one key height) so taps landing in the inter-key gaps are no longer
+     * dropped. Kills the 6dp row / 12dp 9-key dead bands behind "indeterminate aim / no response".
+     */
+    private fun placedAt(x: Float, y: Float): Placed? {
+        var nearest: Placed? = null
+        var best = Float.MAX_VALUE
+        for (p in placed) {
+            if (p.rect.contains(x, y)) return p
+            val dx = when {
+                x < p.rect.left -> p.rect.left - x
+                x > p.rect.right -> x - p.rect.right
+                else -> 0f
+            }
+            val dy = when {
+                y < p.rect.top -> p.rect.top - y
+                y > p.rect.bottom -> y - p.rect.bottom
+                else -> 0f
+            }
+            val d = dx * dx + dy * dy
+            if (d < best) { best = d; nearest = p }
+        }
+        val cap = rowHeight // don't snap taps that fall well outside the keyboard
+        return if (best <= cap * cap) nearest else null
+    }
+
+    /**
+     * ★V "commit the key the finger went DOWN on": a normal tap yields [downKey] even if the finger
+     * micro-rolls before lift (the old code committed whatever was under the finger at ACTION_UP, so a
+     * tiny slide off key A produced neighbor B). Only a deliberate slide past half the pressed key's
+     * width retargets to the key now under the finger (preserves slide-to-correct).
+     */
+    private fun currentTarget(x: Float, y: Float): Key? {
+        val dp = downPlaced ?: return placedAt(x, y)?.key
+        val t = 0.5f * dp.rect.width()
+        val dx = x - downX
+        val dy = y - downY
+        return if (dx * dx + dy * dy <= t * t) dp.key else placedAt(x, y)?.key ?: dp.key
+    }
 
     override fun performClick(): Boolean {
         super.performClick()
