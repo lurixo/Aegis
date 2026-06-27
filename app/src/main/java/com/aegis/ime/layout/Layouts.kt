@@ -38,7 +38,10 @@ object Layouts {
     }
 
     /** Resting 9-key left column: 4 common punctuation marks (no 符 key — symbols via @# / 123). */
-    fun defaultNineLeft(): List<Key> = listOf(Key("，"), Key("。"), Key("？"), Key("！"))
+    // ★D: resting-state punctuation commits straight to the editor (never buffers as pinyin).
+    fun defaultNineLeft(): List<Key> = listOf(
+        Key("，", direct = true), Key("。", direct = true), Key("？", direct = true), Key("！", direct = true),
+    )
 
     private fun row(vararg keys: Key) = KeyboardRow(keys.toList())
 
@@ -66,9 +69,9 @@ object Layouts {
         val bottom = listOf(
             Key("✎", action = SHOW_EDIT, weight = 1.3f),
             Key("123", action = SWITCH_NUMBERS, weight = 1.5f),
-            Key(comma, sub = "A"), // small caps/English indicator badge
+            Key(comma, sub = "A", direct = true), // ★D punctuation direct; caps/English badge unchanged
             Key("空格", output = " ", action = SPACE, weight = 3.5f),
-            Key(period),
+            Key(period, direct = true), // ★D: punctuation commits directly
             Key("中英", action = TOGGLE_LANG, weight = 1.5f),
             Key("↵", action = ENTER, accent = true, weight = 1.6f),
         )
