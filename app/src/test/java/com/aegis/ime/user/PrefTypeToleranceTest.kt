@@ -30,6 +30,12 @@ class PrefTypeToleranceTest {
 
     private val app = RuntimeEnvironment.getApplication()
 
+    @Test fun a_wrong_typed_symbol_list_reads_as_empty_instead_of_throwing() {
+        val prefs = app.getSharedPreferences("aegis", 0)
+        prefs.edit().putInt("custom_symbols", 7).commit()
+        assertEquals(emptyList<String>(), CustomSymbolStore(prefs).list())
+    }
+
     @Test fun the_settings_read_helpers_survive_wrong_typed_values() {
         val prefs = app.getSharedPreferences("aegis-ui", 0)
         prefs.edit().putString("flag", "not a flag").putInt("text", 5).commit()
