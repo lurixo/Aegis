@@ -148,6 +148,48 @@ class KeyboardControllerTest {
         assertEquals(listOf("a", " "), h.commits)
     }
 
+    // ---- 9-key left column subsystem (no blanks / no punctuation / consistent) ----
+
+    private fun nineColumnFor(digits: String): List<Key> {
+        val c = KeyboardController(FakeHost(), engine)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        digits.forEach { c.onKey(out(it.toString())) }
+        return c.nineLeftColumn()
+    }
+
+    @Test fun nine_left_column_shows_only_real_readings_no_blanks_no_punct() {
+        val col = nineColumnFor("23744") // ce'shi
+        assertEquals(listOf("ce", "a", "b", "c"), col.map { it.label })
+        assertTrue("no blank keys", col.none { it.label.isEmpty() })
+        assertTrue("no punctuation", col.all { k -> k.label.all { it in 'a'..'z' } })
+        assertTrue("all are pick-reading actions", col.all { it.action == KeyAction.PICK_READING })
+    }
+
+    @Test fun nine_left_column_is_punctuation_only_when_idle() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        assertEquals(
+            com.aegis.ime.layout.Layouts.defaultNineLeft().map { it.label }, // ，。？！
+            c.nineLeftColumn().map { it.label },
+        )
+    }
+
+    @Test fun nine_left_column_consistent_for_same_input() {
+        // Guards the debug.8 A-vs-B "same input ce'shi, two different columns" inconsistency.
+        assertEquals(nineColumnFor("23744").map { it.label }, nineColumnFor("23744").map { it.label })
+    }
+
+    @Test fun nine_left_column_ni_keeps_real_syllables_at_production_limit() {
+        // The PRODUCTION column (nineLeftColumn → NINE_LEFT_SLOTS) for ni'shuo'de'bu'dui keeps the real
+        // readings ni & mi, stays clean, and never exceeds the slot cap — locks on-device behaviour.
+        val col = nineColumnFor("64744336488").map { it.label }
+        assertTrue("ni present, was $col", "ni" in col)
+        assertTrue("mi present, was $col", "mi" in col)
+        assertTrue("no blank keys, was $col", col.none { it.isEmpty() })
+        assertTrue("clean a-z only, was $col", col.all { s -> s.all { it in 'a'..'z' } })
+        assertTrue("within the slot cap, was $col", col.size <= 5)
+    }
+
     @Test fun backspace_up_swipe_clears_pending_pinyin_in_any_layout() {
         // C: up-swipe on backspace clears the 任务栏 (pending pinyin) and is consumed before the field clear.
         val h = FakeHost()

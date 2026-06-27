@@ -381,10 +381,17 @@ class KeyboardController(
     }
 
     /**
-     * 9-key left column (★E): readings of the ACTIVE (next-unconfirmed) syllable while composing (tap →
-     * lock that syllable and advance, no commit), common punctuation when idle. Always 4 keys.
+     * 9-key left column (★E): readings of the ACTIVE (next-unconfirmed) syllable while
+     * composing (tap → lock that syllable and advance, no commit), common punctuation when idle.
+     *
+     * the column shows ONLY real readings (canonical syllables + 首键字母, via
+     * [T9Pinyin.leftColumnReadings]) and its length follows the option count: NEVER pad with empty
+     * placeholder boxes, punctuation or junk letters, and never the
+     * fixed 4 slots. [Layouts.nine] places exactly `left.size` peanut cells so the column shrinks to fit.
+     * Punctuation only appears at rest / once every syllable is locked (the early returns) — the two are
+     * mutually exclusive. `internal` so the option set can be asserted in unit tests.
      */
-    private fun nineLeftColumn(): List<Key> {
+    internal fun nineLeftColumn(): List<Key> {
         val w = 0.85f
         if (composing.isEmpty()) return Layouts.defaultNineLeft()
         val active = activeDigits()
@@ -392,17 +399,8 @@ class KeyboardController(
         // ★分词: the active syllable is bounded by the first forced cut in the active region.
         val firstCut = activeCuts().firstOrNull()
         val chunk = if (firstCut != null) active.substring(0, firstCut) else active
-        val keys = ArrayList<Key>(4)
-        for (r in T9Pinyin.firstSyllableOptions(chunk, 4)) {
-            keys.add(Key(r, output = r, action = KeyAction.PICK_READING, weight = w))
-        }
-        // ②: while active pinyin readings are showing, the left column is the pinyin-options
-        // column — it must NOT co-display punctuation (the two are mutually exclusive). Pad the unused
-        // slots with inert blanks; punctuation returns only at rest / once every syllable is locked
-        // (both handled by the early returns above). handlePickReading no-ops on an empty reading.
-        val blank = Key("", output = "", action = KeyAction.PICK_READING, weight = w)
-        while (keys.size < 4) keys.add(blank)
-        return keys
+        return T9Pinyin.leftColumnReadings(chunk, NINE_LEFT_SLOTS)
+            .map { Key(it, output = it, action = KeyAction.PICK_READING, weight = w) }
     }
 
     private fun render() {
@@ -411,5 +409,10 @@ class KeyboardController(
         else Layouts.forId(layoutId, lang)
         v.showKeyboard(layout, shifted)
         v.showCandidates(candidates.map { it.word }, preeditText())
+    }
+
+    private companion object {
+        /** Max readings shown in the 9-key left peanut (its geometry stacks up to this many cells). */
+        const val NINE_LEFT_SLOTS = 4
     }
 }

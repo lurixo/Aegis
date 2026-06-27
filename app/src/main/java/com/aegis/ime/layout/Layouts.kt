@@ -96,10 +96,14 @@ object Layouts {
         val xL = 0f; val wL = 0.7f * u
         val x1 = 0.7f * u; val x2 = 1.7f * u; val x3 = 2.7f * u; val wM = 1f * u
         val xR = 3.7f * u; val wR = 0.7f * u
-        val pillH = 0.75f / 4f            // 4 left sub-cells stacked over the first 3 rows
+        val pillH = 0.75f / 4f            // each left sub-cell = a quarter of the upper 0.75 band
         val cells = ArrayList<PlacedKey>()
-        // groupId 1 = the merged "peanut" capsule behind the 4 left sub-cells.
-        for (i in 0 until 4) cells.add(PlacedKey(left[i], xL, i * pillH, wL, pillH, groupId = 1))
+        // groupId 1 = the merged "peanut" capsule behind the left sub-cells. Place EXACTLY
+        // [left].size cells (capped at 4) so the column shrinks to the real option count — the renderer
+        // draws no empty placeholder boxes when there are fewer than 4 readings ([KeyboardView] groups any
+        // count). 4 punctuation keys at rest fill the full band; a 2-reading column covers only the top half.
+        val nLeft = left.size.coerceAtMost(4)
+        for (i in 0 until nLeft) cells.add(PlacedKey(left[i], xL, i * pillH, wL, pillH, groupId = 1))
         cells.add(PlacedKey(Key("✎", action = SHOW_EDIT), xL, 0.75f, wL, 0.25f))
         // middle 3×3: letters as the main label, T9 digit as the emitted output; "1" position = symbols
         // (idle "@#", more symbols "@!./" while composing).
