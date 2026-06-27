@@ -26,7 +26,7 @@ import android.view.ViewConfiguration
 import kotlin.math.abs
 
 enum class BarFunction(val glyph: String) {
-    SETTINGS("⚙"), SWITCH_KBD("⌨"), EMOJI("☺"), EDIT("✎"), CLIPBOARD("📋"), NUMPAD("123")
+    BRAND("A"), EMOJI("☺"), EDIT("✎"), CLIPBOARD("📋")
 }
 
 class CandidateView(context: Context) : View(context) {
@@ -83,11 +83,6 @@ class CandidateView(context: Context) : View(context) {
         strokeWidth = 1.8f * density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-    }
-    private val icon123Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF455A64.toInt()
-        textAlign = Paint.Align.CENTER
-        textSize = sp(14f)
     }
     private val capsulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
     private val sepPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFD5DADF.toInt() }
@@ -178,13 +173,7 @@ class CandidateView(context: Context) : View(context) {
 
     private fun drawIcon(c: Canvas, f: BarFunction, cx: Float, cy: Float, s: Float) {
         when (f) {
-            BarFunction.SETTINGS -> drawBrand(c, cx, cy, s)
-            BarFunction.SWITCH_KBD -> {
-                val w = s * 0.95f; val h = s * 0.62f
-                c.drawRoundRect(cx - w, cy - h, cx + w, cy + h, 3f * density, 3f * density, iconPaint)
-                c.drawLine(cx - w * 0.55f, cy - h * 0.25f, cx + w * 0.55f, cy - h * 0.25f, iconPaint)
-                c.drawLine(cx - w * 0.55f, cy + h * 0.25f, cx + w * 0.2f, cy + h * 0.25f, iconPaint)
-            }
+            BarFunction.BRAND -> drawBrand(c, cx, cy, s)
             BarFunction.EMOJI -> {
                 c.drawCircle(cx, cy, s * 0.7f, iconPaint)
                 val eye = 1.4f * density
@@ -206,8 +195,6 @@ class CandidateView(context: Context) : View(context) {
                 c.drawLine(cx - w * 0.5f, cy - h * 0.1f, cx + w * 0.5f, cy - h * 0.1f, iconPaint)
                 c.drawLine(cx - w * 0.5f, cy + h * 0.3f, cx + w * 0.5f, cy + h * 0.3f, iconPaint)
             }
-            BarFunction.NUMPAD ->
-                c.drawText("123", cx, cy - (icon123Paint.descent() + icon123Paint.ascent()) / 2, icon123Paint)
         }
     }
 

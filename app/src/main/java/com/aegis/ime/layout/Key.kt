@@ -34,6 +34,7 @@ enum class KeyAction {
     TOGGLE_LANG,
     PICK_READING,
     SHOW_EDIT,
+    SHOW_SYMBOLS,
     SEGMENT,
     CUSTOM_SYMBOL,
 }

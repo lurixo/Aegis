@@ -23,29 +23,38 @@ import android.widget.GridLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import com.aegis.ime.layout.EmojiCatalog
+import com.aegis.ime.layout.SymbolCatalog
 
-class EmojiView(context: Context) : LinearLayout(context) {
+class SymbolsView(context: Context) : LinearLayout(context) {
 
-    var onEmoji: (String) -> Unit = {}
+    var onSymbol: (String) -> Unit = {}
     var onBackspace: () -> Unit = {}
     var onBack: () -> Unit = {}
+    var recentProvider: () -> List<String> = { emptyList() }
 
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
 
+    private val titles: List<String> =
+        listOf(SymbolCatalog.RECENT_TITLE) + SymbolCatalog.categories.map { it.title }
     private var selected = 0
+
     private val rail = LinearLayout(context).apply { orientation = VERTICAL }
     private val grid = GridLayout(context).apply {
         columnCount = COLUMNS
         val p = dp(4); setPadding(p, p, p, p)
     }
 
+    private companion object {
+        const val COLUMNS = 7
+        const val ACCENT = 0xFFF5821F.toInt()
+    }
+
     init {
         orientation = VERTICAL
         setBackgroundColor(0xFFF7F8FA.toInt())
 
-        for ((i, c) in EmojiCatalog.categories.withIndex()) rail.addView(railTab(i, c.title))
+        for ((i, t) in titles.withIndex()) rail.addView(railTab(i, t))
 
         val content = LinearLayout(context).apply {
             orientation = HORIZONTAL
@@ -60,21 +69,27 @@ class EmojiView(context: Context) : LinearLayout(context) {
         }
         addView(content, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         addView(bottomBar(), LayoutParams(LayoutParams.MATCH_PARENT, dp(46)))
-        showCategory(0)
     }
+
+    fun refresh() = showCategory(selected)
 
     private fun showCategory(index: Int) {
         selected = index
         for (i in 0 until rail.childCount) {
             val tab = rail.getChildAt(i) as TextView
             val on = i == index
-            tab.setTextColor(if (on) 0xFF4C9A55.toInt() else 0xFF455A64.toInt())
+            tab.setTextColor(if (on) ACCENT else 0xFF455A64.toInt())
             tab.setBackgroundColor(if (on) 0xFFFFFFFF.toInt() else 0x00000000)
             tab.setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         }
         grid.removeAllViews()
-        for (e in EmojiCatalog.categories[index].emoji) grid.addView(emojiCell(e))
+        val symbols = symbolsFor(index)
+        if (symbols.isEmpty()) { grid.addView(emptySpan()); return }
+        for (s in symbols) grid.addView(cell(s))
     }
+
+    private fun symbolsFor(index: Int): List<String> =
+        if (index == 0) recentProvider() else SymbolCatalog.categories[index - 1].symbols
 
     private fun railTab(index: Int, title: String): TextView = TextView(context).apply {
         text = title
@@ -85,18 +100,34 @@ class EmojiView(context: Context) : LinearLayout(context) {
         setOnClickListener { showCategory(index) }
     }
 
-    private fun emojiCell(emoji: String): TextView = TextView(context).apply {
-        text = emoji
+    private fun cell(symbol: String): TextView = TextView(context).apply {
+        text = symbol
         gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
-        val p = dp(8)
-        setPadding(0, p, 0, p)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 19f)
+        setTextColor(0xFF202124.toInt())
+        val p = dp(8); setPadding(0, p, 0, p)
         isClickable = true
-        setOnClickListener { onEmoji(emoji) }
+        setOnClickListener {
+            onSymbol(symbol)
+            if (selected == 0) showCategory(0)
+        }
         layoutParams = GridLayout.LayoutParams().apply {
             width = 0
             height = LayoutParams.WRAP_CONTENT
             columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
+            setGravity(Gravity.FILL_HORIZONTAL)
+        }
+    }
+
+    private fun emptySpan(): TextView = TextView(context).apply {
+        text = "最近使用的符号会显示在这里"
+        gravity = Gravity.CENTER
+        setTextColor(0xFF9AA0A6.toInt())
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        setPadding(dp(16), dp(40), dp(16), dp(16))
+        layoutParams = GridLayout.LayoutParams().apply {
+            width = 0
+            columnSpec = GridLayout.spec(0, COLUMNS, 1f)
             setGravity(Gravity.FILL_HORIZONTAL)
         }
     }
@@ -114,9 +145,5 @@ class EmojiView(context: Context) : LinearLayout(context) {
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
         isClickable = true
         setOnClickListener { onClick() }
-    }
-
-    private companion object {
-        const val COLUMNS = 7
     }
 }
