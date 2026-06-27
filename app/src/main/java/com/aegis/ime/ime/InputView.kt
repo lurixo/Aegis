@@ -24,6 +24,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyboardLayout
+import com.aegis.ime.layout.Lang
 
 class InputView(context: Context) : LinearLayout(context) {
 
@@ -72,15 +73,15 @@ class InputView(context: Context) : LinearLayout(context) {
             val nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
             val cut = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
             val side = dp(4)
-            body.setPadding(maxOf(cut.left, side), 0, maxOf(cut.right, side), nav.bottom + dp(16))
+            body.setPadding(maxOf(cut.left, side), 0, maxOf(cut.right, side), nav.bottom + dp(28))
             WindowInsetsCompat.CONSUMED
         }
     }
 
     fun barTopInsetPx(): Int = dp(26)
 
-    fun showKeyboard(layout: KeyboardLayout, shifted: Boolean) {
-        keyboardView.setLayout(layout, shifted)
+    fun showKeyboard(layout: KeyboardLayout, shifted: Boolean, lang: Lang) {
+        keyboardView.setLayout(layout, shifted, lang)
     }
 
     fun showCandidates(candidates: List<String>, preedit: String, readings: List<String>) {

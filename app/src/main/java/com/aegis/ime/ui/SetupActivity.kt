@@ -84,6 +84,10 @@ private fun SetupScreen() {
             style = MaterialTheme.typography.bodyMedium,
         )
 
+        GramDownloadCard()
+        FuzzySettingsCard()
+        LayoutChoiceCard()
+
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(
                 modifier = Modifier.padding(16.dp),
@@ -117,8 +121,6 @@ private fun SetupScreen() {
             modifier = Modifier.fillMaxWidth(),
         )
 
-        FuzzySettingsCard()
-        GramDownloadCard()
         UserDictCard()
     }
 }
