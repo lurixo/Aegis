@@ -541,6 +541,15 @@ class KeyboardController(
 
     internal fun preeditForTest(): String = preeditText()
 
+    fun onPickReadingIndex(index: Int) {
+        val readings = expandedReadings()
+        if (index !in readings.indices) return
+        val reading = readings[index]
+        handlePickReading(Key(reading, output = reading, action = KeyAction.PICK_READING))
+        refreshCandidates()
+        render()
+    }
+
     private companion object {
         const val NINE_LEFT_MAX = 24
         const val CALC_SCAN_LEN = 32

@@ -403,6 +403,17 @@ class KeyboardControllerTest {
         assertTrue("hao among combos while composing, was ${c.expandedReadings()}", "hao" in c.expandedReadings())
     }
 
+    @Test fun panel_pick_reading_advances_syllables_and_commits_both() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.switchTextLayoutForTest(nine = true)
+        "42633".forEach { c.onKey(out(it.toString())) }
+        c.onPickReadingIndex(c.expandedReadings().indexOf("hao"))
+        c.onPickReadingIndex(c.expandedReadings().indexOf("de"))
+        c.onKey(act(KeyAction.ENTER))
+        assertEquals(listOf("haode"), h.commits)
+    }
+
     @Test fun no_ghost_suggestion_after_commit() {
         val full = object : CandidateEngine {
             override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
