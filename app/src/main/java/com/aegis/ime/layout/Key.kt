@@ -38,6 +38,7 @@ enum class KeyAction {
     PICK_READING,    // 9-key left column: switch to an explicit pinyin reading ([Key.output]) and re-rank
     SHOW_EDIT,       // open the text-editing (cursor/selection) panel
     SEGMENT,         // 9-key 分词/隔音: lock the active syllable boundary while composing
+    CUSTOM_SYMBOL,   // 9-key left punctuation list: the "自定义" entry (per-symbol customization, A3)
 }
 
 /**
@@ -68,13 +69,27 @@ data class KeyboardRow(val keys: List<Key>)
 data class PlacedKey(val key: Key, val x: Float, val y: Float, val w: Float, val h: Float, val groupId: Int = 0)
 
 /**
+ * A vertically-SCROLLABLE column of keys placed by a fractional rectangle (A3: the 9-key left column —
+ * all pinyin combinations while composing, or the punctuation list at rest). [items] may exceed what the
+ * region shows; the renderer scrolls. [cellHFrac] is each row's height as a fraction of the keyboard
+ * height (so the visible count = h / cellHFrac).
+ */
+data class ScrollColumn(
+    val items: List<Key>,
+    val x: Float, val y: Float, val w: Float, val h: Float,
+    val cellHFrac: Float,
+)
+
+/**
  * A keyboard layout. Most layouts are [rows] (equal-height rows, per-key [Key.weight] widths). Layouts
- * that need merged/spanning cells (the 9-key's peanut left column + tall enter) instead provide [cells]
- * with explicit fractional rectangles; [rowCount] then drives the measured height.
+ * that need merged/spanning cells (the 9-key's tall enter) instead provide [cells] with explicit
+ * fractional rectangles; [rowCount] then drives the measured height. [scrollColumn] is an optional
+ * vertically-scrollable strip (the 9-key left column, A3) drawn/hit-tested separately from [cells].
  */
 data class KeyboardLayout(
     val id: LayoutId,
     val rows: List<KeyboardRow> = emptyList(),
     val cells: List<PlacedKey>? = null,
     val rowCount: Int = rows.size,
+    val scrollColumn: ScrollColumn? = null,
 )

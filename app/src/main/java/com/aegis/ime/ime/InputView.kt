@@ -30,8 +30,11 @@ class InputView(context: Context) : LinearLayout(context) {
 
     var onKey: (Key) -> Unit = {}
     var onPickCandidate: (Int) -> Unit = {}
+    var onPickReading: (Int) -> Unit = {}   // A2 expanded screen: pick a pinyin combination (left column)
     var onFunction: (BarFunction) -> Unit = {}
     var onBackspaceSwipe: (Boolean) -> Unit = {}
+    var onPanelBackspace: () -> Unit = {}   // A2 expanded screen: 退格
+    var onPanelClear: () -> Unit = {}       // A2 expanded screen: 重输
     var onCollapse: () -> Unit = {}
 
     private val preeditView = PreeditView(context)
@@ -41,6 +44,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private val gridView = CandidateGridView(context)
     private val body = LinearLayout(context) // grey-filled body: candidate bar + keyboard / panel
     private var lastCandidates: List<String> = emptyList()
+    private var lastReadings: List<String> = emptyList()
 
     init {
         orientation = VERTICAL
@@ -53,8 +57,13 @@ class InputView(context: Context) : LinearLayout(context) {
         candidateView.onFunction = { f -> onFunction(f) }
         candidateView.onExpand = { showExpandedCandidates() }
         candidateView.onCollapse = { onCollapse() }
-        gridView.onPick = { index -> showPanel(null); onPickCandidate(index) }
+        // A2 expanded screen: don't force-close on pick — showCandidates() refreshes the grid if composing
+        // continues (partial / per-syllable commit) and closes it once the buffer empties.
+        gridView.onPick = { index -> onPickCandidate(index) }
+        gridView.onPickReading = { index -> onPickReading(index) }
         gridView.onClose = { showPanel(null) }
+        gridView.onBackspace = { onPanelBackspace() }
+        gridView.onClear = { onPanelClear() }
         keyboardView.onKey = { key -> onKey(key) }
         keyboardView.onBackspaceSwipe = { up -> onBackspaceSwipe(up) }
         // the preedit + candidate rows are FIXED-HEIGHT and ALWAYS present — only their
@@ -97,19 +106,28 @@ class InputView(context: Context) : LinearLayout(context) {
         keyboardView.setLayout(layout, shifted)
     }
 
-    /** [preedit] is the pinyin tab text (separate from candidates, C1); empty hides the tab. */
-    fun showCandidates(candidates: List<String>, preedit: String) {
+    /** [preedit] is the pinyin tab text (separate from candidates, C1); [readings] = the active syllable's
+     *  combinations for the expanded screen's left column (A2). */
+    fun showCandidates(candidates: List<String>, preedit: String, readings: List<String>) {
         lastCandidates = candidates
+        lastReadings = readings
         // Content-only: empty text just blanks the row; the row keeps its fixed height so the IME window
         // height is constant and the host's layout never jitters while typing.
         preeditView.setText(preedit)
         candidateView.setContent(candidates, preedit)
-        if (panelShown && candidates.isEmpty()) showPanel(null) // composing ended → drop the grid
+        if (panelShown) {
+            // A2: keep the expanded screen live — refresh it as the user picks readings/candidates, and
+            // drop it only once COMPOSING finishes (preedit empty). Gating on composing rather than on
+            // candidates keeps the screen open when a trailing partial syllable momentarily has 0 candidates.
+            if (preedit.isEmpty()) showPanel(null)
+            else { gridView.setCandidates(candidates); gridView.setReadings(readings) }
+        }
     }
 
     private fun showExpandedCandidates() {
         if (lastCandidates.isEmpty()) return
         gridView.setCandidates(lastCandidates)
+        gridView.setReadings(lastReadings)
         showPanel(gridView)
     }
 

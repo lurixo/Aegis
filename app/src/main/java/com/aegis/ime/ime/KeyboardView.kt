@@ -29,12 +29,14 @@ import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.KeyboardLayout
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
+import com.aegis.ime.layout.ScrollColumn
 
 /**
  * Self-drawn (View + Canvas) typing grid — the perf-sensitive surface deliberately kept off
@@ -53,6 +55,18 @@ class KeyboardView(context: Context) : View(context) {
 
     private val placed = ArrayList<Placed>()
     private var pressed: Key? = null
+
+    // A3: the scrollable left column (pinyin combos while composing / punctuation at rest).
+    private var scrollColumn: ScrollColumn? = null
+    private val scrollRegion = RectF()
+    private var scrollCellH = 0f
+    private var scrollY = 0f
+    private var scrollPressedIndex = -1
+    private var inScrollDown = false
+    private var scrollDownY = 0f
+    private var scrollStartY = 0f
+    private var scrolling = false
+    private val tmpRect = RectF()
 
     // Long-press key repeat (#8) + backspace swipe (#5).
     private val repeatHandler = Handler(Looper.getMainLooper())
@@ -126,12 +140,27 @@ class KeyboardView(context: Context) : View(context) {
         LinearGradient(0f, 0f, 0f, rowHeight, 0xFFDCE0E6.toInt(), 0xFFE9ECF1.toInt(), Shader.TileMode.CLAMP)
     private val sepLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFD2D7DE.toInt(); strokeWidth = density }
     private val pressHighlight = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x18000000 }
+    // A3 scroll column: a soft raised track behind the list + a slim scrollbar thumb when it overflows.
+    private val scrollTrackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFEFF1F5.toInt() }
+    private val scrollbarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x553A4A5A }
+    // One UNIFORM label for the whole list (readings/punct all same size),
+    // sized to still fit 3-4 char entries (xuan / shuo / 自定义) in the narrow column.
+    private val scrollLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF202124.toInt()
+        textAlign = Paint.Align.CENTER
+        textSize = sp(17f)
+    }
 
     private data class Placed(val rect: RectF, val key: Key, val groupId: Int = 0)
 
     fun setLayout(newLayout: KeyboardLayout, isShifted: Boolean) {
+        // A3: reset the left column to the top whenever its CONTENT changes (new syllable / rest↔compose),
+        // but keep the scroll offset on a pure re-render of the same list.
+        val sameColumn = newLayout.scrollColumn?.items?.map { it.label } == layout.scrollColumn?.items?.map { it.label }
         layout = newLayout
         shifted = isShifted
+        scrollColumn = newLayout.scrollColumn
+        if (!sameColumn) scrollY = 0f
         // All four layouts have the same row count, so swapping between them leaves the measured
         // height unchanged and onSizeChanged never fires — relay out here so the new keys (and their
         // hit rects) take effect immediately instead of redrawing the stale layout.
@@ -155,10 +184,19 @@ class KeyboardView(context: Context) : View(context) {
     private fun relayout() {
         placed.clear()
         val w = width.toFloat()
+        val h = height.toFloat()
+        // A3 scrollable left column — computed first since the 9-key layout also carries `cells`.
+        val sc = layout.scrollColumn
+        scrollColumn = sc
+        if (sc != null && h > 0) {
+            scrollRegion.set(sc.x * w + gap, sc.y * h + gap, (sc.x + sc.w) * w - gap, (sc.y + sc.h) * h - gap)
+            val visible = (sc.h / sc.cellHFrac).roundToInt().coerceAtLeast(1)
+            scrollCellH = scrollRegion.height() / visible
+            clampScroll()
+        }
         // Fractional-cell layout (9-key): keys carry explicit rectangles for merged / spanning cells.
         val cells = layout.cells
         if (cells != null) {
-            val h = height.toFloat()
             for (pk in cells) {
                 placed.add(
                     Placed(
@@ -180,6 +218,54 @@ class KeyboardView(context: Context) : View(context) {
                 left += keyW + gap
             }
             top += rowHeight + gap
+        }
+    }
+
+    private fun clampScroll() {
+        val sc = scrollColumn ?: return
+        val maxScroll = maxOf(0f, sc.items.size * scrollCellH - scrollRegion.height())
+        scrollY = scrollY.coerceIn(0f, maxScroll)
+    }
+
+    /** Index of the scroll-column item under [y] (accounting for the scroll offset), or -1. */
+    private fun scrollIndexAt(y: Float): Int {
+        val sc = scrollColumn ?: return -1
+        if (scrollCellH <= 0f || y < scrollRegion.top || y > scrollRegion.bottom) return -1
+        val idx = ((y - scrollRegion.top + scrollY) / scrollCellH).toInt()
+        return if (idx in sc.items.indices) idx else -1
+    }
+
+    /** A3 left column: clean vertical list (track + separators), clipped + translated by the scroll. */
+    private fun drawScrollColumn(canvas: Canvas) {
+        val sc = scrollColumn ?: return
+        if (scrollRegion.isEmpty || scrollCellH <= 0f || sc.items.isEmpty()) return
+        canvas.drawRoundRect(scrollRegion, radius, radius, scrollTrackPaint)
+        canvas.save()
+        canvas.clipRect(scrollRegion)
+        val paint = scrollLabelPaint // uniform size for every row (reference look)
+        for ((i, key) in sc.items.withIndex()) {
+            val top = scrollRegion.top - scrollY + i * scrollCellH
+            val bottom = top + scrollCellH
+            if (bottom < scrollRegion.top || top > scrollRegion.bottom) continue // off-screen
+            if (i == scrollPressedIndex) {
+                tmpRect.set(scrollRegion.left, top, scrollRegion.right, bottom)
+                canvas.drawRoundRect(tmpRect, radius * 0.6f, radius * 0.6f, pressHighlight)
+            }
+            canvas.drawText(displayLabel(key), scrollRegion.centerX(), (top + bottom) / 2f - (paint.descent() + paint.ascent()) / 2, paint)
+            if (i < sc.items.size - 1 && bottom < scrollRegion.bottom) {
+                canvas.drawLine(scrollRegion.left + 6 * density, bottom, scrollRegion.right - 6 * density, bottom, sepLinePaint)
+            }
+        }
+        canvas.restore()
+        // Slim scrollbar thumb when the list overflows the region.
+        val contentH = sc.items.size * scrollCellH
+        val trackH = scrollRegion.height()
+        if (contentH > trackH + 0.5f) {
+            val thumbH = maxOf(18f * density, trackH * trackH / contentH)
+            val thumbTop = scrollRegion.top + (scrollY / (contentH - trackH)) * (trackH - thumbH)
+            val right = scrollRegion.right - 2f * density
+            tmpRect.set(right - 2.5f * density, thumbTop, right, thumbTop + thumbH)
+            canvas.drawRoundRect(tmpRect, 2f * density, 2f * density, scrollbarPaint)
         }
     }
 
@@ -211,6 +297,9 @@ class KeyboardView(context: Context) : View(context) {
             }
             drawLabel(canvas, p)
         }
+
+        // 3. A3 scrollable left column (pinyin combos / punctuation), drawn over its own region.
+        drawScrollColumn(canvas)
     }
 
     private val tmpBounds = RectF()
@@ -331,6 +420,13 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        // A3: a gesture that starts in the left scroll column is handled as scroll/pick, fully isolated
+        // from key presses (so it never triggers the keyboard's tap / backspace-swipe paths). A fresh DOWN
+        // outside the region clears any stuck latch (defensive: a lost UP/CANCEL must not swallow the tap).
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            inScrollDown = scrollColumn != null && scrollRegion.contains(event.x, event.y)
+        }
+        if (inScrollDown) return handleScrollTouch(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downPlaced = placedAt(event.x, event.y)
@@ -377,6 +473,40 @@ class KeyboardView(context: Context) : View(context) {
                 pressed = null
                 downKey = null
                 downPlaced = null
+                invalidate()
+            }
+        }
+        return true
+    }
+
+    /**
+     * A3 left scroll column: a vertical drag past the swipe threshold scrolls the list; a tap (no
+     * scroll) on the item the finger went down on picks it. Isolated from the keyboard's key handling.
+     */
+    private fun handleScrollTouch(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                inScrollDown = true; scrolling = false
+                scrollDownY = event.y; scrollStartY = scrollY
+                scrollPressedIndex = scrollIndexAt(event.y)
+                invalidate()
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dy = event.y - scrollDownY
+                if (!scrolling && abs(dy) > swipeThreshold) { scrolling = true; scrollPressedIndex = -1 }
+                if (scrolling) { scrollY = scrollStartY - dy; clampScroll(); invalidate() }
+            }
+            MotionEvent.ACTION_UP -> {
+                val col = scrollColumn
+                if (!scrolling && col != null) {
+                    val idx = scrollIndexAt(event.y)
+                    if (idx >= 0 && idx == scrollPressedIndex) { performClick(); onKey(col.items[idx]) }
+                }
+                scrollPressedIndex = -1; inScrollDown = false; scrolling = false
+                invalidate()
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                scrollPressedIndex = -1; inScrollDown = false; scrolling = false
                 invalidate()
             }
         }
