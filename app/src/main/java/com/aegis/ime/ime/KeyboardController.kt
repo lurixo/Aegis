@@ -49,10 +49,13 @@ class KeyboardController(
 
     private val history = ArrayDeque<StepKind>()
 
+    private var customSymbols: List<String> = emptyList()
+
     var onShowEmoji: () -> Unit = {}
     var onShowClipboard: () -> Unit = {}
     var onShowEdit: () -> Unit = {}
     var onShowSettings: () -> Unit = {}
+    var onShowCustomSymbols: () -> Unit = {}
     var onClosePanel: () -> Unit = {}
 
     private var view: InputView? = null
@@ -65,6 +68,11 @@ class KeyboardController(
     fun setEngine(newEngine: CandidateEngine) {
         engine = newEngine
         refreshCandidates()
+        render()
+    }
+
+    fun setCustomSymbols(symbols: List<String>) {
+        customSymbols = symbols
         render()
     }
 
@@ -101,7 +109,7 @@ class KeyboardController(
             KeyAction.PICK_READING -> handlePickReading(key)
             KeyAction.SEGMENT -> handleSegment()
             KeyAction.SHOW_EDIT -> onShowEdit()
-            KeyAction.CUSTOM_SYMBOL -> {}
+            KeyAction.CUSTOM_SYMBOL -> onShowCustomSymbols()
             KeyAction.TOGGLE_LANG -> {
                 flushComposing()
                 lang = if (lang == Lang.CN) Lang.EN else Lang.CN
@@ -339,9 +347,9 @@ class KeyboardController(
 
     internal fun nineLeftColumn(): List<Key> {
         val w = 0.85f
-        if (composing.isEmpty()) return Layouts.ninePunctuation()
+        if (composing.isEmpty()) return Layouts.ninePunctuation(customSymbols)
         val active = activeDigits()
-        if (active.isEmpty()) return Layouts.ninePunctuation()
+        if (active.isEmpty()) return Layouts.ninePunctuation(customSymbols)
         val firstCut = activeCuts().firstOrNull()
         val chunk = if (firstCut != null) active.substring(0, firstCut) else active
         return T9Pinyin.leftColumnReadings(chunk, NINE_LEFT_MAX)

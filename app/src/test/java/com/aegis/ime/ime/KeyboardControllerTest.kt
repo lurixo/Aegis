@@ -170,6 +170,24 @@ class KeyboardControllerTest {
         assertEquals(nineColumnFor("23744").map { it.label }, nineColumnFor("23744").map { it.label })
     }
 
+    @Test fun custom_symbol_key_opens_the_panel() {
+        var opened = false
+        val c = KeyboardController(FakeHost(), engine).apply { onShowCustomSymbols = { opened = true } }
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.onKey(Key("自定义", action = KeyAction.CUSTOM_SYMBOL))
+        assertTrue("自定义 tap opens the custom-symbol panel", opened)
+    }
+
+    @Test fun set_custom_symbols_surfaces_them_in_the_idle_column_before_自定义() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.setCustomSymbols(listOf("、", "《"))
+        val labels = c.nineLeftColumn().map { it.label }
+        assertTrue("、 present", "、" in labels)
+        assertTrue("《 present", "《" in labels)
+        assertEquals("自定义 stays last", "自定义", labels.last())
+    }
+
     @Test fun nine_left_column_ni_full_scroll_list_matches_reference() {
         val col = nineColumnFor("64744336488").map { it.label }
         assertTrue("ni present, was $col", "ni" in col)
