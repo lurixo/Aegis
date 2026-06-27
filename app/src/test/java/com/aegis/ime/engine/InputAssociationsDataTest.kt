@@ -16,6 +16,9 @@
 package com.aegis.ime.engine
 
 import com.aegis.ime.decoder.T9Pinyin
+import com.aegis.ime.layout.EmojiCatalog
+import com.aegis.ime.layout.EmojiVariants
+import com.aegis.ime.layout.SymbolCatalog
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -38,6 +41,27 @@ class InputAssociationsDataTest {
         }
     }
 
+    @Test fun every_entry_has_glyphs_and_no_full_half_width_twins() {
+        for ((key, glyphs) in InputAssociations.entriesForTest()) {
+            assertTrue("key '$key' has no glyphs", glyphs.isNotEmpty())
+            val folded = glyphs.map { SymbolCatalog.foldFullWidth(it) }
+            assertEquals(
+                "key '$key' lists full/half-width twins of one character: $glyphs (folds=$folded)",
+                folded.size, folded.toSet().size,
+            )
+        }
+    }
+
+    @Test fun no_symbol_row_lists_a_full_half_width_twin_of_one_character() {
+        for (row in SymbolAssociations.rows()) {
+            val folded = row.glyphList.map { SymbolCatalog.foldFullWidth(it) }
+            assertEquals(
+                "row '${row.name.ifEmpty { row.keys }}' lists full/half-width twins: ${row.glyphList} (folds=$folded)",
+                folded.size, folded.toSet().size,
+            )
+        }
+    }
+
     @Test fun reported_full_half_duplicates_now_surface_only_the_full_width_form() {
         val renminbi = InputAssociations.lookup("renminbi")
         assertTrue("renminbi offers the full-width ￥ (got $renminbi)", "￥" in renminbi)
@@ -46,6 +70,20 @@ class InputAssociationsDataTest {
         assertTrue("wenhao offers the full-width ？ (got $wenhao)", "？" in wenhao)
         assertTrue("half-width ? (U+003F) must NOT be a wenhao candidate (got $wenhao)", "?" !in wenhao)
         assertTrue("¥ stays reachable via riyuan (日元)", "¥" in InputAssociations.lookup("riyuan"))
+    }
+
+
+    private fun catalogEmoji(): List<String> = EmojiCatalog.categories.flatMap { it.emoji }
+        .flatMap { EmojiVariants.genderForms(it) }
+        .flatMap { EmojiVariants.skinForms(it) }
+        .distinct()
+
+    @Test fun every_association_emoji_is_present_in_the_catalog() {
+        val catalog = catalogEmoji().toSet()
+        val rows = EmojiAssociations.rows().map { it.emoji }
+        val dangling = rows.filter { it !in catalog }
+        assertTrue("association emoji missing from the catalog (dangling injection): $dangling", dangling.isEmpty())
+        assertEquals("no association emoji is listed twice", rows.size, rows.toSet().size)
     }
 
     @Test fun every_emoji_row_has_aligned_names_and_keys() {
@@ -63,6 +101,28 @@ class InputAssociationsDataTest {
                 assertTrue("${row.emoji} (${row.names}) must appear for '$key'", row.emoji in InputAssociations.lookup(key))
             }
         }
+    }
+
+
+    private fun catalogSymbols(): List<String> = SymbolCatalog.categories.flatMap { it.symbols }.distinct()
+
+    private fun reachableGlyphs(): Set<String> {
+        val r = HashSet<String>()
+        for (key in InputAssociations.entriesForTest().keys) r.addAll(InputAssociations.lookup(key))
+        return r
+    }
+
+    @Test fun every_catalog_symbol_and_emoji_is_reachable() {
+        val reachable = reachableGlyphs()
+        val catalog = catalogSymbols().toSet()
+        val missing = catalog.filter { it !in reachable }
+        assertTrue(
+            "symbols without a supported pinyin input: $missing",
+            missing.isEmpty(),
+        )
+        assertTrue("emoji without a supported pinyin input: ${catalogEmoji().filter { it !in reachable }}", catalogEmoji().all { it in reachable })
+        println("symbol coverage: catalog=${catalog.size} covered=${catalog.count { it in reachable }}")
+        println("emoji coverage: catalog=${catalogEmoji().size} covered=${catalogEmoji().count { it in reachable }}")
     }
 
     @Test fun every_symbol_row_glyph_surfaces_for_every_name() {
