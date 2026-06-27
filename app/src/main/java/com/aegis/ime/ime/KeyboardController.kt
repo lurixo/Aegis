@@ -60,6 +60,8 @@ class KeyboardController(
     private var engine: CandidateEngine,
     private val decodeLane: DecodeLane? = null,
 ) {
+    private data class LearnEvent(val prevWord: String?, val word: String, val prefixEnd: Int)
+
     private var beforeCursor: String? = null
 
     private val host: ImeHost = object : ImeHost by editor {
@@ -119,6 +121,8 @@ class KeyboardController(
     private val forcedCuts = sortedSetOf<Int>()
 
     private val history = ArrayDeque<StepKind>()
+
+    private val deferredLearnEvents = ArrayDeque<LearnEvent>()
 
     private var drillSyllable = -1
 
@@ -258,6 +262,7 @@ class KeyboardController(
         activeStart = 0
         forcedCuts.clear()
         history.clear()
+        deferredLearnEvents.clear()
         drillSyllable = -1
         drillChoices.clear()
         committedPrefix.setLength(0)
@@ -500,6 +505,7 @@ class KeyboardController(
             cand in directCommitCands -> {
                 if (committedPrefix.isNotEmpty()) host.commitText(committedPrefix.toString())
                 host.commitSymbol(cand.word)
+                applyDeferredLearning()
                 clearComposingState(); lastWord = null
             }
             cand in compositeCands -> commitCompositeCandidate(cand)
@@ -511,6 +517,7 @@ class KeyboardController(
             }
             cand in predictionCands -> {
                 host.commitText(cand.word)
+                if (!learningBlocked) engine.learn(lastWord, cand.word)
                 lastWord = cand.word
             }
             else -> {
@@ -578,6 +585,7 @@ class KeyboardController(
             if (committedPrefix.isNotEmpty()) {
                 val removeCount = Character.charCount(committedPrefix.codePointBefore(committedPrefix.length))
                 committedPrefix.setLength(committedPrefix.length - removeCount)
+                trimDeferredLearningToPrefix()
                 if (committedPrefix.isEmpty()) lastWord = null
                 return
             }
@@ -646,6 +654,7 @@ class KeyboardController(
             pick != null && pick in directCommitCands -> {
                 if (committedPrefix.isNotEmpty()) host.commitText(committedPrefix.toString())
                 host.commitSymbol(pick.word)
+                applyDeferredLearning()
                 clearComposingState(); lastWord = null
             }
             pick != null -> {
@@ -666,6 +675,7 @@ class KeyboardController(
 
     private fun commitCompositeCandidate(cand: Cand) {
         host.commitText(committedPrefix.toString() + cand.word)
+        applyDeferredLearning()
         clearComposingState()
         lastWord = null
     }
@@ -676,6 +686,7 @@ class KeyboardController(
             consumeComposingPrefix(cand.coveredLen)
         } else {
             host.commitText(committedPrefix.toString() + cand.word)
+            applyDeferredLearning()
             clearComposingState()
             lastWord = null
         }
@@ -716,12 +727,15 @@ class KeyboardController(
 
     private fun commitCandidate(cand: Cand) {
         if (candidateStaysInPreedit(cand)) {
+            val prefixEnd = committedPrefix.length + cand.word.length
+            if (!learningBlocked) deferredLearnEvents.addLast(LearnEvent(lastWord, cand.word, prefixEnd))
             lastWord = cand.word
             committedPrefix.append(cand.word)
             consumeComposingPrefix(cand.coveredLen)
         } else {
             val wholeWord = committedPrefix.toString() + cand.word
             host.commitText(wholeWord)
+            applyDeferredLearning(cand.word)
             lastWord = cand.word
             clearComposingState()
         }
@@ -747,9 +761,11 @@ class KeyboardController(
         val prefix = committedPrefix.toString()
         if (composing.isNotEmpty()) {
             host.commitText(prefix + rawComposingText())
+            applyDeferredLearning()
             clearComposingState()
         } else if (prefix.isNotEmpty()) {
             host.commitText(prefix)
+            applyDeferredLearning()
             clearComposingState()
         }
         lastWord = null
@@ -832,9 +848,32 @@ class KeyboardController(
         activeStart = 0
         forcedCuts.clear()
         history.clear()
+        deferredLearnEvents.clear()
         committedPrefix.setLength(0)
         drillSyllable = -1
         drillChoices.clear()
+    }
+
+    private fun applyDeferredLearning(finalWord: String? = null) {
+        if (!learningBlocked) {
+            for (event in deferredLearnEvents) {
+                engine.learn(event.prevWord, event.word)
+            }
+            if (finalWord != null) {
+                engine.learn(lastWord, finalWord)
+            }
+        }
+        deferredLearnEvents.clear()
+    }
+
+    private fun trimDeferredLearningToPrefix() {
+        val baseLastWord = deferredLearnEvents.firstOrNull()?.prevWord
+        var removed = false
+        while (deferredLearnEvents.lastOrNull()?.prefixEnd?.let { it > committedPrefix.length } == true) {
+            deferredLearnEvents.removeLast()
+            removed = true
+        }
+        if (removed) lastWord = deferredLearnEvents.lastOrNull()?.word ?: baseLastWord
     }
 
     private fun refreshCandidates() {

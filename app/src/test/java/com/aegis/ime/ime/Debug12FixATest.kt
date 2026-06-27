@@ -95,6 +95,15 @@ class Debug12FixATest {
         assertFalse("with a forced cut a word spanning it is suppressed", "好的" in withCut.candidateWords())
     }
 
+
+    private class LearnSpyEngine : CandidateEngine {
+        val learns = mutableListOf<Pair<String?, String>>()
+        override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+        override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+            if (composing.isEmpty()) emptyList() else listOf(Cand("好", composing.length))
+        override fun learn(prevWord: String?, word: String) { learns.add(prevWord to word) }
+    }
+
     @Test fun f7_toolbar_entries_defensively_flush_a_pending_buffer_before_opening() {
         for (f in BarFunction.entries) {
             val host = RecordingHost()
@@ -119,5 +128,22 @@ class Debug12FixATest {
             assertEquals("no dangling preedit after $f", "", c.preeditForTest())
             assertEquals("no dangling assembled prefix after $f", "", c.composingPrefix())
         }
+    }
+
+    @Test fun f7_an_idle_toolbar_tap_does_not_disturb_bigram_context() {
+        val eng = LearnSpyEngine()
+        val c = KeyboardController(RecordingHost(), eng)
+        "hao".forEach { c.onKey(Key(it.toString(), output = it.toString())) }
+        c.onPickCandidate(c.candidateWords().indexOf("好"))
+        assertTrue("precondition: nothing pending after the commit", c.preeditForTest().isEmpty())
+
+        c.onBarFunction(BarFunction.EMOJI)
+
+        "hao".forEach { c.onKey(Key(it.toString(), output = it.toString())) }
+        c.onPickCandidate(c.candidateWords().indexOf("好"))
+        assertEquals(
+            "an idle toolbar tap preserves the bigram predecessor",
+            listOf<Pair<String?, String>>(null to "好", "好" to "好"), eng.learns,
+        )
     }
 }
