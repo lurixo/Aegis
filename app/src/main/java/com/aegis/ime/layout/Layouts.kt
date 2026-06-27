@@ -36,7 +36,9 @@ object Layouts {
         LayoutId.NUMPAD -> numpad()
     }
 
-    fun defaultNineLeft(): List<Key> = listOf(Key("，"), Key("。"), Key("？"), Key("！"))
+    fun defaultNineLeft(): List<Key> = listOf(
+        Key("，", direct = true), Key("。", direct = true), Key("？", direct = true), Key("！", direct = true),
+    )
 
     private fun row(vararg keys: Key) = KeyboardRow(keys.toList())
 
@@ -59,9 +61,9 @@ object Layouts {
         val bottom = listOf(
             Key("✎", action = SHOW_EDIT, weight = 1.3f),
             Key("123", action = SWITCH_NUMBERS, weight = 1.5f),
-            Key(comma, sub = "A"),
+            Key(comma, sub = "A", direct = true),
             Key("空格", output = " ", action = SPACE, weight = 3.5f),
-            Key(period),
+            Key(period, direct = true),
             Key("中英", action = TOGGLE_LANG, weight = 1.5f),
             Key("↵", action = ENTER, accent = true, weight = 1.6f),
         )
