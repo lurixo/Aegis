@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.decoder.Cand
 import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.Key
@@ -36,10 +37,11 @@ class KeyboardController(
     private val shifted get() = shiftState != ShiftState.OFF
     private var layoutId = LayoutId.ALPHA
     private val composing = StringBuilder()
-    private var candidates: List<String> = emptyList()
+    private var candidates: List<Cand> = emptyList()
     private var lastWord: String? = null
 
-    private var readingOverride: String? = null
+    private val lockedReadings = mutableListOf<String>()
+    private var activeStart = 0
 
     var onShowEmoji: () -> Unit = {}
     var onShowClipboard: () -> Unit = {}
@@ -63,6 +65,8 @@ class KeyboardController(
     fun reset() {
         composing.setLength(0)
         candidates = emptyList()
+        lockedReadings.clear()
+        activeStart = 0
         shiftState = ShiftState.OFF
         layoutId = LayoutId.ALPHA
         lastWord = null
@@ -116,20 +120,23 @@ class KeyboardController(
     }
 
     private fun handlePickReading(key: Key) {
-        val letters = key.output
-        if (letters.isEmpty()) return
-        readingOverride = letters
+        val reading = key.output
+        if (reading.isEmpty()) return
+        val digits = T9Pinyin.toT9(reading)
+        if (!activeDigits().startsWith(digits)) return
+        lockedReadings.add(reading)
+        activeStart = (activeStart + digits.length).coerceAtMost(composing.length)
     }
 
     fun onPickCandidate(index: Int) {
         if (index !in candidates.indices) return
-        val word = candidates[index]
+        val cand = candidates[index]
         if (mode() == Mode.ENGLISH) {
-            host.commitText("$word ")
+            host.commitText("${cand.word} ")
             clearComposingState()
             lastWord = null
         } else {
-            commitWord(word)
+            commitCandidate(cand)
         }
         refreshCandidates()
         render()
@@ -150,7 +157,7 @@ class KeyboardController(
             return
         }
         when (mode()) {
-            Mode.PINYIN -> { composing.append(key.output); readingOverride = null }
+            Mode.PINYIN -> composing.append(key.output)
             Mode.ENGLISH -> {
                 composing.append(applyCase(key.output))
                 if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
@@ -166,7 +173,8 @@ class KeyboardController(
     private fun handleBackspace() {
         if (composing.isNotEmpty()) {
             composing.setLength(composing.length - 1)
-            readingOverride = null
+            lockedReadings.clear()
+            activeStart = 0
         } else {
             host.deleteBackward()
             lastWord = null
@@ -187,7 +195,8 @@ class KeyboardController(
             Mode.ENGLISH -> { host.commitText(composing.toString() + " "); clearComposingState(); lastWord = null }
             else -> {
                 val pick = candidates.firstOrNull()
-                if (pick != null) commitWord(pick) else { host.commitText(composing.toString()); clearComposingState() }
+                if (pick != null) commitCandidate(pick)
+                else { host.commitText(rawComposingText()); clearComposingState() }
             }
         }
     }
@@ -201,11 +210,18 @@ class KeyboardController(
         }
     }
 
-    private fun commitWord(word: String) {
-        host.commitText(word)
-        engine.learn(lastWord, word)
-        lastWord = word
-        clearComposingState()
+    private fun commitCandidate(cand: Cand) {
+        host.commitText(cand.word)
+        engine.learn(lastWord, cand.word)
+        lastWord = cand.word
+        if (cand.coveredLen in 1 until composing.length) {
+            composing.delete(0, cand.coveredLen)
+            lockedReadings.clear()
+            activeStart = 0
+            candidates = emptyList()
+        } else {
+            clearComposingState()
+        }
     }
 
     private fun switchLayout(id: LayoutId) {
@@ -221,22 +237,22 @@ class KeyboardController(
         lastWord = null
     }
 
+    private fun activeDigits(): String =
+        if (activeStart < composing.length) composing.substring(activeStart) else ""
+
+    private fun fullLetters(): String =
+        lockedReadings.joinToString("") + T9Pinyin.preedit(activeDigits()).replace("'", "")
+
     private fun rawComposingText(): String {
         if (composing.isEmpty()) return ""
-        readingOverride?.let { ro ->
-            return T9Pinyin.lockFirstReading(composing.toString(), ro)?.letters ?: ro
-        }
-        return if (layoutId == LayoutId.NINE && lang == Lang.CN) {
-            T9Pinyin.preedit(composing.toString()).replace("'", "")
-        } else {
-            composing.toString()
-        }
+        return if (layoutId == LayoutId.NINE && lang == Lang.CN) fullLetters() else composing.toString()
     }
 
     private fun clearComposingState() {
         composing.setLength(0)
         candidates = emptyList()
-        readingOverride = null
+        lockedReadings.clear()
+        activeStart = 0
     }
 
     private fun refreshCandidates() {
@@ -244,18 +260,18 @@ class KeyboardController(
             composing.isNotEmpty() -> {
                 val raw = composing.toString()
                 when (mode()) {
-                    Mode.PINYIN -> readingOverride?.let { ro ->
-                        engine.candidatesForReading(T9Pinyin.lockFirstReading(raw, ro)?.letters ?: ro)
-                    } ?: run {
+                    Mode.PINYIN -> if (lockedReadings.isNotEmpty()) {
+                        engine.candidatesForReading(fullLetters()).map { Cand(it, composing.length) }
+                    } else {
                         val isNine = layoutId == LayoutId.NINE
-                        var c = engine.candidates(raw, isNine)
+                        var c = engine.candidatesCovered(raw, isNine)
                         if (c.isEmpty() && isNine) {
                             val pfx = T9Pinyin.longestDecodablePrefix(raw)
-                            if (pfx.length in 1 until raw.length) c = engine.candidates(pfx, true)
+                            if (pfx.length in 1 until raw.length) c = engine.candidatesCovered(pfx, true)
                         }
-                        if (layoutId == LayoutId.ALPHA && raw !in c) c + raw else c
+                        if (layoutId == LayoutId.ALPHA && c.none { it.word == raw }) c + Cand(raw, raw.length) else c
                     }
-                    Mode.ENGLISH -> engine.english(raw).let { if (raw !in it) it + raw else it }
+                    Mode.ENGLISH -> engine.english(raw).let { if (raw !in it) it + raw else it }.map { Cand(it, raw.length) }
                     Mode.DIRECT -> emptyList()
                 }
             }
@@ -267,21 +283,25 @@ class KeyboardController(
 
     private fun preeditText(): String {
         if (composing.isEmpty()) return ""
-        readingOverride?.let { ro ->
-            return T9Pinyin.lockFirstReading(composing.toString(), ro)?.display ?: ro
+        if (mode() == Mode.PINYIN && layoutId == LayoutId.NINE) {
+            val locked = lockedReadings.joinToString("'")
+            val rest = T9Pinyin.preedit(activeDigits())
+            return when {
+                locked.isEmpty() -> rest
+                rest.isEmpty() -> locked
+                else -> "$locked'$rest"
+            }
         }
-        return if (mode() == Mode.PINYIN && layoutId == LayoutId.NINE) {
-            T9Pinyin.preedit(composing.toString())
-        } else {
-            composing.toString()
-        }
+        return composing.toString()
     }
 
     private fun nineLeftColumn(): List<Key> {
         val w = 0.85f
         if (composing.isEmpty()) return Layouts.defaultNineLeft()
+        val active = activeDigits()
+        if (active.isEmpty()) return Layouts.defaultNineLeft()
         val keys = ArrayList<Key>(4)
-        for (r in T9Pinyin.firstSyllableOptions(composing.toString(), 4)) {
+        for (r in T9Pinyin.firstSyllableOptions(active, 4)) {
             keys.add(Key(r, output = r, action = KeyAction.PICK_READING, weight = w))
         }
         val pads = Layouts.defaultNineLeft()
@@ -295,6 +315,6 @@ class KeyboardController(
         val layout = if (layoutId == LayoutId.NINE) Layouts.nine(lang, nineLeftColumn(), composing.isNotEmpty())
         else Layouts.forId(layoutId, lang)
         v.showKeyboard(layout, shifted)
-        v.showCandidates(candidates, preeditText())
+        v.showCandidates(candidates.map { it.word }, preeditText())
     }
 }
