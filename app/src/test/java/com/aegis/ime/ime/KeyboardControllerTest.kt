@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.decoder.Cand
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
@@ -71,6 +72,34 @@ class KeyboardControllerTest {
         c.onKey(act(KeyAction.ENTER))
         // #12b: locking "ni" must keep "de" — commit "nide", not "ni".
         assertEquals(listOf("nide"), h.commits)
+    }
+
+    @Test fun left_column_advances_to_the_second_syllable_then_enter_commits_both() {
+        // ★E: the actual bug — after locking syllable 1 you must be able to pick syllable 2.
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "42633".forEach { c.onKey(out(it.toString())) } // hao(426) + de(33)
+        c.onKey(Key("hao", output = "hao", action = KeyAction.PICK_READING)) // lock syllable 1
+        c.onKey(Key("de", output = "de", action = KeyAction.PICK_READING))   // syllable 2 now selectable
+        c.onKey(act(KeyAction.ENTER))
+        assertEquals(listOf("haode"), h.commits)
+    }
+
+    @Test fun picking_a_partial_candidate_commits_it_and_keeps_the_rest() {
+        // ★E: a candidate whose reading covers only part of the buffer commits that part, continues the rest.
+        val h = FakeHost()
+        val partial = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2)) // 你 covers the first 2 digits "64"
+        }
+        val c = KeyboardController(h, partial)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) } // ni(64) hao(426)
+        c.onPickCandidate(0) // pick 你 → commits 你, drops "64", keeps "426"
+        c.onKey(act(KeyAction.ENTER)) // flush the remaining hao as raw pinyin
+        assertEquals(listOf("你", "hao"), h.commits)
     }
 
     @Test fun direct_punctuation_flushes_pinyin_then_commits_directly() {

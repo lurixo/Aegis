@@ -46,6 +46,14 @@ class T9DecoderTest {
     }
 
     @Test
+    fun can_type_xuan_选() {
+        // ★T: 选 is keyed under 9826 (xuan); it must be reachable in the candidate list. (Selecting it via
+        // the 'xuan' reading needs the scrollable reading column F; here we lock that the dict surfaces it.)
+        val d = decoder()
+        assertTrue("9826 must surface 选", d.decode("9826", 30).contains("选"))
+    }
+
+    @Test
     fun decodeCovered_surfaces_leading_single_chars_with_coverage() {
         val d = decoder()
         val cands = d.decodeCovered("64426", 30) // nihao

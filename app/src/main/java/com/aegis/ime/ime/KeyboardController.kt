@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.decoder.Cand
 import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.Key
@@ -46,11 +47,17 @@ class KeyboardController(
     private val shifted get() = shiftState != ShiftState.OFF
     private var layoutId = LayoutId.ALPHA
     private val composing = StringBuilder()
-    private var candidates: List<String> = emptyList()
+    private var candidates: List<Cand> = emptyList()
     private var lastWord: String? = null
 
-    /** 9-key: when the user taps a reading in the left column, decode under that explicit reading. */
-    private var readingOverride: String? = null
+    /**
+     * 9-key per-syllable selection (★E): [lockedReadings] are the syllable readings the user has picked
+     * from the left column (letter form, e.g. ["hao"]); [activeStart] is where the still-unconfirmed
+     * digits begin in [composing]. The left column shows the readings of the active (next) syllable, so
+     * picking advances syllable-by-syllable instead of only ever choosing the first.
+     */
+    private val lockedReadings = mutableListOf<String>()
+    private var activeStart = 0
 
     /** Extras-panel hooks wired by the IME service (it owns the InputConnection + Context). */
     var onShowEmoji: () -> Unit = {}
@@ -76,6 +83,8 @@ class KeyboardController(
     fun reset() {
         composing.setLength(0)
         candidates = emptyList()
+        lockedReadings.clear()
+        activeStart = 0
         shiftState = ShiftState.OFF
         layoutId = LayoutId.ALPHA
         lastWord = null
@@ -132,24 +141,27 @@ class KeyboardController(
     }
 
     /**
-     * 9-key left column (issue #12b): tapping a reading switches the active pinyin segmentation and
-     * re-ranks the candidates under that reading — it does NOT commit the first word.
+     * 9-key left column (★E): tapping a reading LOCKS that syllable and advances to the next syllable's
+     * readings — it does NOT commit any word. Re-ranks candidates under the locked prefix.
      */
     private fun handlePickReading(key: Key) {
-        val letters = key.output
-        if (letters.isEmpty()) return
-        readingOverride = letters
+        val reading = key.output
+        if (reading.isEmpty()) return
+        val digits = T9Pinyin.toT9(reading)
+        if (!activeDigits().startsWith(digits)) return // reading must encode the active syllable's prefix
+        lockedReadings.add(reading)
+        activeStart = (activeStart + digits.length).coerceAtMost(composing.length)
     }
 
     fun onPickCandidate(index: Int) {
         if (index !in candidates.indices) return
-        val word = candidates[index]
+        val cand = candidates[index]
         if (mode() == Mode.ENGLISH) {
-            host.commitText("$word ")
+            host.commitText("${cand.word} ")
             clearComposingState()
             lastWord = null
         } else {
-            commitWord(word)
+            commitCandidate(cand)
         }
         refreshCandidates()
         render()
@@ -172,7 +184,7 @@ class KeyboardController(
             return
         }
         when (mode()) {
-            Mode.PINYIN -> { composing.append(key.output); readingOverride = null } // T9/pinyin buffer is lowercase
+            Mode.PINYIN -> composing.append(key.output) // T9/pinyin buffer (lowercase); locked syllables persist
             Mode.ENGLISH -> {
                 composing.append(applyCase(key.output))
                 if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
@@ -188,7 +200,9 @@ class KeyboardController(
     private fun handleBackspace() {
         if (composing.isNotEmpty()) {
             composing.setLength(composing.length - 1)
-            readingOverride = null
+            // ★E: editing the buffer invalidates the locked syllable readings — re-derive from scratch.
+            lockedReadings.clear()
+            activeStart = 0
         } else {
             host.deleteBackward()
             lastWord = null
@@ -210,7 +224,8 @@ class KeyboardController(
             Mode.ENGLISH -> { host.commitText(composing.toString() + " "); clearComposingState(); lastWord = null }
             else -> {
                 val pick = candidates.firstOrNull()
-                if (pick != null) commitWord(pick) else { host.commitText(composing.toString()); clearComposingState() }
+                if (pick != null) commitCandidate(pick)
+                else { host.commitText(rawComposingText()); clearComposingState() }
             }
         }
     }
@@ -224,12 +239,22 @@ class KeyboardController(
         }
     }
 
-    /** Commit a learned CN word/prediction and teach the engine. */
-    private fun commitWord(word: String) {
-        host.commitText(word)
-        engine.learn(lastWord, word)
-        lastWord = word
-        clearComposingState()
+    /**
+     * Commit a CN candidate and teach the engine. ★E: if the candidate covers only part of the buffer
+     * (its reading is a prefix of the input), commit that part and keep composing the remaining digits.
+     */
+    private fun commitCandidate(cand: Cand) {
+        host.commitText(cand.word)
+        engine.learn(lastWord, cand.word)
+        lastWord = cand.word
+        if (cand.coveredLen in 1 until composing.length) {
+            composing.delete(0, cand.coveredLen)
+            lockedReadings.clear()
+            activeStart = 0
+            candidates = emptyList()
+        } else {
+            clearComposingState()
+        }
     }
 
     private fun switchLayout(id: LayoutId) {
@@ -249,23 +274,25 @@ class KeyboardController(
         lastWord = null
     }
 
+    /** The active (still-unconfirmed) digits of the 9-key buffer, after any locked syllables. */
+    private fun activeDigits(): String =
+        if (activeStart < composing.length) composing.substring(activeStart) else ""
+
+    /** Full pinyin letters the 9-key buffer represents: locked syllable readings + decoded active tail. */
+    private fun fullLetters(): String =
+        lockedReadings.joinToString("") + T9Pinyin.preedit(activeDigits()).replace("'", "")
+
     /** The raw text the composing buffer represents (letters on 26-key, decoded pinyin on 9-key). */
     private fun rawComposingText(): String {
         if (composing.isEmpty()) return ""
-        readingOverride?.let { ro ->
-            return T9Pinyin.lockFirstReading(composing.toString(), ro)?.letters ?: ro
-        }
-        return if (layoutId == LayoutId.NINE && lang == Lang.CN) {
-            T9Pinyin.preedit(composing.toString()).replace("'", "")
-        } else {
-            composing.toString()
-        }
+        return if (layoutId == LayoutId.NINE && lang == Lang.CN) fullLetters() else composing.toString()
     }
 
     private fun clearComposingState() {
         composing.setLength(0)
         candidates = emptyList()
-        readingOverride = null
+        lockedReadings.clear()
+        activeStart = 0
     }
 
     private fun refreshCandidates() {
@@ -273,23 +300,22 @@ class KeyboardController(
             composing.isNotEmpty() -> {
                 val raw = composing.toString()
                 when (mode()) {
-                    // 9-key reading locked via the left column (#12b): re-rank the WHOLE buffer with the
-                    // first syllable fixed to the picked reading (keeps the trailing syllables).
-                    Mode.PINYIN -> readingOverride?.let { ro ->
-                        engine.candidatesForReading(T9Pinyin.lockFirstReading(raw, ro)?.letters ?: ro)
-                    } ?: run {
+                    Mode.PINYIN -> if (lockedReadings.isNotEmpty()) {
+                        // ★E: syllable(s) locked via the left column — decode the combined full pinyin.
+                        engine.candidatesForReading(fullLetters()).map { Cand(it, composing.length) }
+                    } else {
                         val isNine = layoutId == LayoutId.NINE
-                        var c = engine.candidates(raw, isNine)
+                        var c = engine.candidatesCovered(raw, isNine)
                         // ★N: mid-syllable the full digit buffer may not segment yet — fall back to the
                         // longest decodable syllable prefix so the grid keeps the confirmed words
                         // (你/你说…) instead of going blank when a half-typed syllable trails.
                         if (c.isEmpty() && isNine) {
                             val pfx = T9Pinyin.longestDecodablePrefix(raw)
-                            if (pfx.length in 1 until raw.length) c = engine.candidates(pfx, true)
+                            if (pfx.length in 1 until raw.length) c = engine.candidatesCovered(pfx, true)
                         }
-                        if (layoutId == LayoutId.ALPHA && raw !in c) c + raw else c
+                        if (layoutId == LayoutId.ALPHA && c.none { it.word == raw }) c + Cand(raw, raw.length) else c
                     }
-                    Mode.ENGLISH -> engine.english(raw).let { if (raw !in it) it + raw else it }
+                    Mode.ENGLISH -> engine.english(raw).let { if (raw !in it) it + raw else it }.map { Cand(it, raw.length) }
                     Mode.DIRECT -> emptyList()
                 }
             }
@@ -303,28 +329,32 @@ class KeyboardController(
 
     private fun applyCase(s: String): String = if (shifted) s.uppercase() else s
 
-    /** Preedit pinyin tab: the locked reading over the full buffer, else decoded 9-key pinyin, else letters. */
+    /** Preedit pinyin tab: locked syllable readings + decoded active tail (9-key), else typed letters. */
     private fun preeditText(): String {
         if (composing.isEmpty()) return ""
-        readingOverride?.let { ro ->
-            return T9Pinyin.lockFirstReading(composing.toString(), ro)?.display ?: ro
+        if (mode() == Mode.PINYIN && layoutId == LayoutId.NINE) {
+            val locked = lockedReadings.joinToString("'")
+            val rest = T9Pinyin.preedit(activeDigits())
+            return when {
+                locked.isEmpty() -> rest
+                rest.isEmpty() -> locked
+                else -> "$locked'$rest"
+            }
         }
-        return if (mode() == Mode.PINYIN && layoutId == LayoutId.NINE) {
-            T9Pinyin.preedit(composing.toString())
-        } else {
-            composing.toString()
-        }
+        return composing.toString()
     }
 
     /**
-     * 9-key left column (issue #12b): pinyin-combination readings while composing (tap → lock that
-     * first-syllable reading and re-rank, no commit), common punctuation when idle. Always 4 keys.
+     * 9-key left column (★E): readings of the ACTIVE (next-unconfirmed) syllable while composing (tap →
+     * lock that syllable and advance, no commit), common punctuation when idle. Always 4 keys.
      */
     private fun nineLeftColumn(): List<Key> {
         val w = 0.85f
         if (composing.isEmpty()) return Layouts.defaultNineLeft()
+        val active = activeDigits()
+        if (active.isEmpty()) return Layouts.defaultNineLeft() // every syllable locked → resting punctuation
         val keys = ArrayList<Key>(4)
-        for (r in T9Pinyin.firstSyllableOptions(composing.toString(), 4)) {
+        for (r in T9Pinyin.firstSyllableOptions(active, 4)) {
             keys.add(Key(r, output = r, action = KeyAction.PICK_READING, weight = w))
         }
         val pads = Layouts.defaultNineLeft()
@@ -338,6 +368,6 @@ class KeyboardController(
         val layout = if (layoutId == LayoutId.NINE) Layouts.nine(lang, nineLeftColumn(), composing.isNotEmpty())
         else Layouts.forId(layoutId, lang)
         v.showKeyboard(layout, shifted)
-        v.showCandidates(candidates, preeditText())
+        v.showCandidates(candidates.map { it.word }, preeditText())
     }
 }
