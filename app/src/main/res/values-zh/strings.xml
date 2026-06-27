@@ -56,6 +56,8 @@
     <string name="default_lang_cn">中文</string>
     <string name="default_lang_en">英文</string>
 
+    <string name="layout_card_title">全拼键盘</string>
+    <string name="layout_card_description">中文默认使用哪种键盘</string>
     <string name="layout_nine">全拼9键</string>
     <string name="layout_alpha">全拼26键</string>
     <string name="layout_en">英文26键</string>

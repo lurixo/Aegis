@@ -56,6 +56,8 @@
     <string name="default_lang_cn">Chinese</string>
     <string name="default_lang_en">English</string>
 
+    <string name="layout_card_title">Full Pinyin keyboard</string>
+    <string name="layout_card_description">Default keyboard for Chinese input</string>
     <string name="layout_nine">Full Pinyin T9</string>
     <string name="layout_alpha">Full Pinyin 26-key</string>
     <string name="layout_en">English 26-key</string>
