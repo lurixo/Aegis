@@ -596,6 +596,102 @@ class KeyboardControllerTest {
         assertTrue("ha still present", "ha" in c.expandedReadings())
     }
 
+
+    @Test fun reset_opens_cn_on_the_chosen_default_keyboard() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.reset()
+        assertEquals("CN defaults to 9-key (B5)", LayoutId.NINE, c.activeLayoutId())
+        c.setCnDefaultLayout(LayoutId.ALPHA)
+        c.reset()
+        assertEquals("CN honours the 26-key choice (B5)", LayoutId.ALPHA, c.activeLayoutId())
+    }
+
+    @Test fun reset_keeps_en_on_26_key_even_with_a_nine_default() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.setDefaultLang(Lang.EN)
+        c.setCnDefaultLayout(LayoutId.NINE)
+        c.reset()
+        assertEquals("EN is always 26-key", LayoutId.ALPHA, c.activeLayoutId())
+    }
+
+    @Test fun reset_starts_in_the_configured_default_language() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        assertEquals(LayoutId.ALPHA, c.activeLayoutId())
+        c.reset()
+        assertEquals("the CN default overrides the remembered EN", LayoutId.NINE, c.activeLayoutId())
+
+        c.setDefaultLang(Lang.EN)
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        assertEquals(LayoutId.NINE, c.activeLayoutId())
+        c.reset()
+        assertEquals("the EN default overrides the remembered CN", LayoutId.ALPHA, c.activeLayoutId())
+        c.onKey(out("a"))
+        assertEquals("the new session composes EN letters", "a", c.englishWordForTest())
+        assertTrue(h.commits.isEmpty())
+    }
+
+    @Test fun same_package_reset_keeps_the_last_used_language_over_the_default() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.setDefaultLang(Lang.EN)
+        c.reset()
+        assertEquals(LayoutId.ALPHA, c.activeLayoutId())
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        assertEquals(LayoutId.NINE, c.activeLayoutId())
+
+        c.reset(preserveLayout = true)
+
+        assertEquals("same-package continuity keeps the manual Chinese", LayoutId.NINE, c.activeLayoutId())
+        c.onKey(out("6"))
+        assertTrue("Chinese composition still active", c.preeditForTest().isNotEmpty())
+        c.onKey(act(KeyAction.CLEAR_COMPOSING))
+
+        c.reset()
+        assertEquals("a full reset returns to the EN default", LayoutId.ALPHA, c.activeLayoutId())
+    }
+
+    @Test fun changing_the_default_language_hot_applies_in_place_when_idle() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.reset()
+        assertEquals(LayoutId.NINE, c.activeLayoutId())
+        c.setDefaultLang(Lang.EN)
+        assertEquals("switches to the English keyboard in place", LayoutId.ALPHA, c.activeLayoutId())
+        c.setDefaultLang(Lang.CN)
+        assertEquals("switches back to Chinese in place", LayoutId.NINE, c.activeLayoutId())
+    }
+
+    @Test fun changing_the_default_language_never_disturbs_an_active_composition() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.reset()
+        c.switchTextLayoutForTest(nine = false)
+        "ni".forEach { c.onKey(out(it.toString())) }
+
+        c.setDefaultLang(Lang.EN)
+
+        assertEquals("composition keeps the Chinese keyboard", LayoutId.ALPHA, c.activeLayoutId())
+        assertEquals("ni", c.preeditForTest())
+        assertTrue(h.commits.isEmpty())
+
+        c.onKey(act(KeyAction.CLEAR_COMPOSING))
+        c.reset()
+        c.onKey(out("a"))
+        assertEquals("the stored default still applies on the next reset", "a", c.englishWordForTest())
+        assertTrue(h.commits.isEmpty())
+    }
+
+    @Test fun lang_round_trip_returns_to_the_cn_default_keyboard() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.reset()
+        assertEquals(LayoutId.NINE, c.activeLayoutId())
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        assertEquals(LayoutId.ALPHA, c.activeLayoutId())
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        assertEquals(LayoutId.NINE, c.activeLayoutId())
+    }
+
     @Test fun lang_round_trip_preserves_a_manual_cn_26_key_choice() {
         val c = KeyboardController(FakeHost(), engine)
         c.reset()
@@ -604,6 +700,40 @@ class KeyboardControllerTest {
         c.onKey(act(KeyAction.TOGGLE_LANG))
         c.onKey(act(KeyAction.TOGGLE_LANG))
         assertEquals(LayoutId.ALPHA, c.activeLayoutId())
+    }
+
+
+    @Test fun changing_the_cn_default_keyboard_hot_applies_without_a_relaunch() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.reset()
+        assertEquals(LayoutId.NINE, c.activeLayoutId())
+        c.setCnDefaultLayout(LayoutId.ALPHA)
+        assertEquals("switches to 26-key in place", LayoutId.ALPHA, c.activeLayoutId())
+        c.setCnDefaultLayout(LayoutId.NINE)
+        assertEquals("switches back to 9-key in place", LayoutId.NINE, c.activeLayoutId())
+    }
+
+    @Test fun changing_the_cn_default_does_not_yank_en_off_26_key() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.reset()
+        c.setCnDefaultLayout(LayoutId.ALPHA)
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        assertEquals(LayoutId.ALPHA, c.activeLayoutId())
+        c.setCnDefaultLayout(LayoutId.NINE)
+        assertEquals("EN stays 26-key regardless of the CN default flip", LayoutId.ALPHA, c.activeLayoutId())
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        assertEquals("returning to CN uses the latest setting without an IME relaunch", LayoutId.NINE, c.activeLayoutId())
+    }
+
+
+    @Test fun nine_key_default_user_can_return_from_the_numpad() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.reset()
+        assertEquals(LayoutId.NINE, c.activeLayoutId())
+        c.onKey(act(KeyAction.SWITCH_NUMPAD))
+        assertEquals(LayoutId.NUMPAD, c.activeLayoutId())
+        c.onKey(act(KeyAction.SWITCH_TEXT))
+        assertEquals("返回 lands back on the 9-key default, not 26-key (H-1)", LayoutId.NINE, c.activeLayoutId())
     }
 
     @Test fun nine_key_default_user_can_return_from_the_symbol_page() {

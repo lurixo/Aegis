@@ -61,6 +61,10 @@ class KeyboardController(
     private val shifted get() = shiftState != ShiftState.OFF
     private var layoutId = LayoutId.ALPHA
 
+    private var cnDefaultLayout = LayoutId.NINE
+
+    private var defaultLang = Lang.CN
+
     private var cnLayout = LayoutId.NINE
     private val composing = StringBuilder()
     private val literalIndices = sortedSetOf<Int>()
@@ -101,6 +105,34 @@ class KeyboardController(
 
     internal fun englishWordForTest(): String = englishWord.toString()
 
+    fun setCnDefaultLayout(id: LayoutId) {
+        if (cnDefaultLayout == id) return
+        cnDefaultLayout = id
+        cnLayout = id
+        if (lang == Lang.CN && (layoutId == LayoutId.NINE || layoutId == LayoutId.ALPHA) &&
+            composing.isEmpty() && committedPrefix.isEmpty()
+        ) {
+            switchLayout(id)
+            refreshCandidates()
+            render()
+        }
+    }
+
+    fun setDefaultLang(l: Lang) {
+        if (defaultLang == l) return
+        defaultLang = l
+        if (lang != l && (layoutId == LayoutId.NINE || layoutId == LayoutId.ALPHA) &&
+            composing.isEmpty() && committedPrefix.isEmpty()
+        ) {
+            flushComposing()
+            lang = l
+            shiftState = ShiftState.OFF
+            layoutId = if (l == Lang.CN) cnLayout else LayoutId.ALPHA
+            refreshCandidates()
+            render()
+        }
+    }
+
     fun setEnAssociationsEnabled(on: Boolean) {
         if (enAssociationsEnabled == on) return
         if (!on && englishWord.isNotEmpty()) flushComposing()
@@ -109,7 +141,7 @@ class KeyboardController(
         render()
     }
 
-    fun reset() {
+    fun reset(preserveLayout: Boolean = false) {
         composing.setLength(0)
         literalIndices.clear()
         candidates = emptyList()
@@ -123,7 +155,11 @@ class KeyboardController(
         committedPrefix.setLength(0)
         shiftState = ShiftState.OFF
         forgetEnglishWord()
-
+        if (!preserveLayout) {
+            lang = defaultLang
+            cnLayout = cnDefaultLayout
+            layoutId = if (lang == Lang.CN) cnDefaultLayout else LayoutId.ALPHA
+        }
         render()
     }
 

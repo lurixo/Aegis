@@ -18,6 +18,8 @@ package com.aegis.ime.ime
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
+import com.aegis.ime.layout.Lang
+import com.aegis.ime.layout.LayoutId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -288,6 +290,18 @@ class EnglishCompletionTest {
         assertEquals("", c.englishWordForTest())
         c.switchTextLayoutForTest(nine = false)
         assertEquals(emptyList<String>(), c.candidateWords())
+    }
+
+    @Test
+    fun changing_the_default_language_away_flushes_the_word() {
+        val h = FakeHost()
+        val c = english(h)
+        c.setDefaultLang(Lang.EN)
+        type(c, "or")
+        c.setDefaultLang(Lang.CN)
+        assertEquals(listOf("or"), h.commits)
+        assertEquals("", c.englishWordForTest())
+        assertEquals(LayoutId.NINE, c.activeLayoutId())
     }
 
     @Test
