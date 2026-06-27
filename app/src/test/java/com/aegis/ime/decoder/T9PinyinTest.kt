@@ -69,6 +69,13 @@ class T9PinyinTest {
         assertTrue("preedit should keep the confirmed prefix: '$pre'", pre.startsWith("ni"))
     }
 
+    @Test fun preedit_renders_forced_cuts_as_separators() {
+        // a forced boundary must show as 隔音符 ' — including a trailing one right after 分词.
+        assertEquals("ni'", T9Pinyin.preedit("64", setOf(2)))          // boundary at the very end
+        assertTrue(T9Pinyin.preedit("6433", setOf(2)).startsWith("ni'")) // internal boundary kept in place
+        assertEquals(T9Pinyin.preedit("6433"), T9Pinyin.preedit("6433", emptySet())) // no cuts == plain preedit
+    }
+
     @Test fun longest_decodable_prefix_drops_unfinished_tail() {
         assertEquals("64", T9Pinyin.longestDecodablePrefix("647")) // ni + half-typed 7
         assertEquals("6433", T9Pinyin.longestDecodablePrefix("6433")) // already fully decodable

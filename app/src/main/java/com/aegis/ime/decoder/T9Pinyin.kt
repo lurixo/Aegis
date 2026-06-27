@@ -156,6 +156,29 @@ object T9Pinyin {
         return sb.toString()
     }
 
+    /**
+     * Preedit with explicit forced syllable boundaries [cuts] (positions in [digits]) rendered as the
+     * 隔音符 ' — including a TRAILING ' when a boundary sits at the very end, so pressing 分词 immediately
+     * shows the split (e.g. "ni'") even before the next syllable is typed.
+     */
+    fun preedit(digits: String, cuts: Set<Int>): String {
+        if (cuts.isEmpty()) return preedit(digits)
+        val sb = StringBuilder()
+        var prev = 0
+        for (c in cuts.filter { it in 1..digits.length }.toSortedSet()) {
+            if (c > prev) {
+                if (sb.isNotEmpty()) sb.append('\'')
+                sb.append(preedit(digits.substring(prev, c)))
+            }
+            prev = c
+        }
+        when {
+            prev < digits.length -> { if (sb.isNotEmpty()) sb.append('\''); sb.append(preedit(digits.substring(prev))) }
+            digits.isNotEmpty() -> sb.append('\'') // boundary at the very end → trailing 隔音符
+        }
+        return sb.toString()
+    }
+
     /** The longest prefix of [digits] that fully segments into known syllables, or "" if none (★N). */
     fun longestDecodablePrefix(digits: String): String {
         for (p in digits.length downTo 1) {
