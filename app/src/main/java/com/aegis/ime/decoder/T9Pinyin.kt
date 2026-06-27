@@ -232,6 +232,20 @@ object T9Pinyin {
 
     fun syllableReading(digitGroup: String): String = byDigits[digitGroup]?.firstOrNull() ?: ""
 
+    fun leadingSyllableLetterLens(letters: String): List<Int> {
+        val out = ArrayList<Int>()
+        val hi = minOf(letters.length, maxLetters)
+        for (k in hi downTo 1) if (letters.substring(0, k) in SYLLABLES) out.add(k)
+        return out
+    }
+
+    fun leadingSyllableDigitLens(digits: String): List<Int> {
+        val out = ArrayList<Int>()
+        val hi = minOf(digits.length, maxDigits)
+        for (k in hi downTo 1) if (byDigits.containsKey(digits.substring(0, k))) out.add(k)
+        return out
+    }
+
     fun preedit(digits: String): String {
         if (digits.isEmpty()) return ""
         syllableReading(digits).takeIf { it.isNotEmpty() }?.let { return it }

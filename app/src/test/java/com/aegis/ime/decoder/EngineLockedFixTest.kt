@@ -83,6 +83,14 @@ class EngineLockedFixTest {
         return CharBigramLM.fromFile(file)
     }
 
+
+    @Test fun unlockedDecodeDoesNotFloodTheFrontWithSupplementarySingles() {
+        val top = words(d.decodeCovered("ciku", 30))
+        assertFalse("no extension-area single floods the front", top.take(15).any { isSupp(it) })
+        assertEquals("the real word still leads", "词库", top.first())
+        assertTrue("the common 同音字 follow it", top.take(6).containsAll(listOf("次", "此", "词")))
+    }
+
     @Test fun homophoneLayerIncludesSupplementaryAtItsFrequencyTail() {
         val h = d.homophonesAt("ciku", 0)
         assertTrue("common 次 present", "次" in h)
