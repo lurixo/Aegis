@@ -100,11 +100,8 @@ class UserModel {
 
     /** Replace this model wholesale with the contents of [file] (import = 覆盖, not merge). */
     fun replaceWith(file: File) {
-        count.clear()
-        lastUsed.clear()
-        bigram.clear()
-        load(file)
-        dirty = true
+        reload(file)
+        dirty = true // a 覆盖 import diverges from disk until the caller save()s it
     }
 
     /** Merge another userdb file into this model (import; counts add up). */
