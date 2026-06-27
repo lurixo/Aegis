@@ -719,6 +719,9 @@ class InputView(context: Context) : LinearLayout(context) {
     }
 
     val copyBarShown: Boolean get() = copyBarView.visibility == VISIBLE
+    internal fun copyBarActiveForTest(): Boolean = copyBarActive
+    internal fun copyBarForTest(): CopyBarView = copyBarView
+    internal fun coveredBarForTest(): View? = coveredBar()
 
     private fun pickCandidateIfSeen(index: Int) {
         if (candidateTapGuard.accepts(index, SystemClock.uptimeMillis())) onPickCandidate(index)
