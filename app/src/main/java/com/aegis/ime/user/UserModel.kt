@@ -86,10 +86,7 @@ class UserModel {
     }
 
     fun replaceWith(file: File) {
-        count.clear()
-        lastUsed.clear()
-        bigram.clear()
-        load(file)
+        reload(file)
         dirty = true
     }
 
