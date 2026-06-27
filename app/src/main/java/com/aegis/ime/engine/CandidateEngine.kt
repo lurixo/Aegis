@@ -20,7 +20,7 @@ import com.aegis.ime.decoder.Cand
 interface CandidateEngine {
     fun candidates(composing: String, t9: Boolean): List<String>
 
-    fun candidatesCovered(composing: String, t9: Boolean): List<Cand> =
+    fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int> = emptySet()): List<Cand> =
         candidates(composing, t9).map { Cand(it, composing.length) }
 
     fun candidatesForReading(letters: String): List<String> = emptyList()

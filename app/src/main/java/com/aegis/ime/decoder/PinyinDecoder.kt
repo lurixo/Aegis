@@ -70,18 +70,21 @@ class PinyinDecoder(
         return if (out.size <= limit) out.toList() else out.toList().subList(0, limit)
     }
 
-    fun decodeCovered(input: String, limit: Int): List<Cand> {
+    fun decodeCovered(input: String, limit: Int, cuts: Set<Int> = emptySet()): List<Cand> {
         if (input.isEmpty()) return emptyList()
         val cover = LinkedHashMap<String, Int>()
         val completionCap = maxOf(1, limit * 2 / 3)
+        val firstCut = cuts.filter { it in 1 until input.length }.minOrNull()
         fun addCompletions(words: List<String>) {
             for (w in words) { if (cover.size >= completionCap) return; cover.putIfAbsent(w, input.length) }
         }
-        bestSentence(input)?.let { cover[it] = input.length }
-        addCompletions(dict.query(input, completionCap))
-        fuzzyDict?.let { addCompletions(it.query(Fuzzy.normalize(input), completionCap)) }
-        initialsDict?.let { addCompletions(it.query(input, completionCap)) }
-        for (q in input.length downTo 1) {
+        bestSentence(input, cuts)?.let { cover[it] = input.length }
+        if (firstCut == null) {
+            addCompletions(dict.query(input, completionCap))
+            fuzzyDict?.let { addCompletions(it.query(Fuzzy.normalize(input), completionCap)) }
+            initialsDict?.let { addCompletions(it.query(input, completionCap)) }
+        }
+        for (q in (firstCut ?: input.length) downTo 1) {
             if (cover.size >= limit) break
             var added = 0
             for (wf in dict.exact(input.substring(0, q))) {
@@ -95,7 +98,7 @@ class PinyinDecoder(
 
     private class Cell(val score: Double, val prevPos: Int, val prevChar: Int, val word: String)
 
-    private fun bestSentence(input: String): String? {
+    private fun bestSentence(input: String, cuts: Set<Int> = emptySet()): String? {
         val n = input.length
         val dp = Array(n + 1) { HashMap<Int, Cell>() }
         dp[0][BOS] = Cell(0.0, -1, BOS, "")
@@ -104,6 +107,7 @@ class PinyinDecoder(
             for (p in 0 until q) {
                 val from = dp[p]
                 if (from.isEmpty()) continue
+                if (cuts.any { it > p && it < q }) continue
                 val edges = edgesFor(input.substring(p, q))
                 if (edges.isEmpty()) continue
                 for (e in edges) {
