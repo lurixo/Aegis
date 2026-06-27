@@ -30,6 +30,10 @@ object T9Pinyin {
         return sb.toString()
     }
 
+    private val DIGIT_INITIAL: Map<Char, Char> = mapOf(
+        '2' to 'a', '3' to 'd', '4' to 'g', '5' to 'j', '6' to 'm', '7' to 'p', '8' to 't', '9' to 'w',
+    )
+
     private val SYLLABLES: Set<String> = """
         a o e ai ei ao ou an en ang eng er
         yi ya yo ye yao you yan yin yang ying yong
@@ -119,9 +123,19 @@ object T9Pinyin {
                     sb.append(g); i = k; matched = true; break
                 }
             }
-            if (!matched) { sb.append(digits[i]); i++ }
+            if (!matched) {
+                if (sb.isNotEmpty()) sb.append('\'')
+                sb.append(DIGIT_INITIAL[digits[i]] ?: digits[i]); i++
+            }
         }
         return sb.toString()
+    }
+
+    fun longestDecodablePrefix(digits: String): String {
+        for (p in digits.length downTo 1) {
+            if (segment(digits.substring(0, p)) != null) return digits.substring(0, p)
+        }
+        return ""
     }
 
     data class Reading(val display: String, val letters: String)

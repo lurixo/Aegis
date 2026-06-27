@@ -50,6 +50,18 @@ class T9PinyinTest {
         assertTrue(pre.isNotEmpty())
     }
 
+    @Test fun midsyllable_tail_never_shows_a_digit() {
+        val pre = T9Pinyin.preedit("647")
+        assertTrue("preedit leaked a digit: '$pre'", pre.none { it in '0'..'9' })
+        assertTrue("preedit should keep the confirmed prefix: '$pre'", pre.startsWith("ni"))
+    }
+
+    @Test fun longest_decodable_prefix_drops_unfinished_tail() {
+        assertEquals("64", T9Pinyin.longestDecodablePrefix("647"))
+        assertEquals("6433", T9Pinyin.longestDecodablePrefix("6433"))
+        assertEquals("", T9Pinyin.longestDecodablePrefix(""))
+    }
+
     @Test fun lock_first_reading_keeps_the_rest_of_the_buffer() {
         val r = T9Pinyin.lockFirstReading("6433", "ni")!!
         assertEquals("ni'de", r.display)
