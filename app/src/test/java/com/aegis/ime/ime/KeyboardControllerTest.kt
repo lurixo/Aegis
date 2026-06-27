@@ -252,6 +252,21 @@ class KeyboardControllerTest {
         assertTrue(h.commits.isEmpty())
     }
 
+    @Test fun no_ghost_suggestion_after_commit() {
+        // ★A5/★S regression: committing a word must NOT auto-resurface a prediction in the bar (the old
+        // un-clearable "ghost"). An empty buffer always yields zero candidates.
+        val full = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>) =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你好", composing.length))
+        }
+        val c = KeyboardController(FakeHost(), full)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0) // commit 你好 → buffer empties
+        assertTrue("no candidates linger after commit (no ghost)", c.candidateWords().isEmpty())
+    }
+
     // ---- ★A9 退格 = 退回上一步 (a left-column pick is a step; never drop a whole syllable) ----
 
     @Test fun backspace_steps_back_a_locked_reading_not_the_whole_syllable() {

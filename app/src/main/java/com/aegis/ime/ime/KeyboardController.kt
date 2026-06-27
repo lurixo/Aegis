@@ -458,6 +458,9 @@ class KeyboardController(
     internal fun expandedReadings(): List<String> =
         nineLeftColumn().filter { it.action == KeyAction.PICK_READING }.map { it.label }
 
+    /** Current candidate words (test seam — locks ★S: no ghost suggestion lingers on an empty buffer). */
+    internal fun candidateWords(): List<String> = candidates.map { it.word }
+
     /** A2 expanded screen: pick the combination at [index] in the left column — locks that syllable. */
     fun onPickReadingIndex(index: Int) {
         val readings = expandedReadings()
