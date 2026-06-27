@@ -430,7 +430,16 @@
     <string name="clip_edit">Edit</string>
     <string name="clip_note">Note</string>
     <string name="clip_move">Move</string>
+    <string name="clip_drag_sort">Drag to reorder</string>
     <string name="clip_done">Done</string>
+    <string name="clip_manage">Manage</string>
+    <string name="clip_manage_categories">Manage categories</string>
+    <string name="clip_add_category">New category</string>
+    <string name="clip_import_phrases">Import phrases</string>
+    <string name="clip_export_phrases">Export phrases</string>
+    <string name="clip_import_body">\"Merge\" appends the imported entries to your existing phrases (deduplicated per category); \"Overwrite\" replaces the entire phrase library with the imported file, and an empty file clears nothing</string>
+    <string name="clip_overwrite">Overwrite</string>
+    <string name="clip_merge_recommended">Merge (recommended)</string>
     <string name="clip_cancel">Cancel</string>
     <string name="clip_clear_category_confirm">Clear all phrases in category \"%1$s\"?</string>
     <string name="clip_clear">Clear</string>

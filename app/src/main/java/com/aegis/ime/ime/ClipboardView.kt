@@ -32,6 +32,9 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.drawable.RippleDrawable
 import android.graphics.drawable.GradientDrawable
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
@@ -70,13 +73,19 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     var onEditClip: (String) -> Unit = {}
     var onMovePhrase: (String, String, String) -> Unit = { _, _, _ -> }
     var onMovePhrasesTo: (String, List<String>, String) -> Unit = { _, _, _ -> }
+    var onReorderPhrase: (String, Int, Int) -> Unit = { _, _, _ -> }
+    var onReorderCategory: (Int, Int) -> Unit = { _, _ -> }
     var onAddPhrase: (String) -> Unit = {}
+    var onAddCategory: () -> Unit = {}
     var onAddCategoryThenAdd: (List<String>) -> Unit = {}
     var onAddCategoryThenMove: (String, List<String>) -> Unit = { _, _ -> }
     var onRenameCategory: (String) -> Unit = {}
     var onDeleteCategory: (String) -> Unit = {}
     var onEditNote: (String, String) -> Unit = { _, _ -> }
     var onClearCategory: (String) -> Unit = {}
+    var onExportPhrases: () -> Unit = {}
+    var onImportPhrases: () -> Unit = {}
+    var onImportPhrasesWithMode: (Boolean) -> Unit = { onImportPhrases() }
     var onClearHistory: () -> Boolean = { true }
     var historyEnabledProvider: () -> Boolean = { true }
     var onSetHistoryEnabled: (Boolean) -> Unit = {}
@@ -113,7 +122,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         BG = p.keyboardBg
         main.setBackgroundColor(BG)
         if (changed) {
-            selectRowPool.clear()
+            selectRowPool.clear(); sortRowPool.clear(); catSortRowPool.clear()
             forceNextRebuild = true
         }
         refresh(animate = false)
@@ -128,9 +137,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private var listScrollY = 0
     private var listScrollRestoreTarget = 0
     private var listScrollRestoreActive = false
+    private var pendingListReveal = -1
     private var applyingListScroll = false
     private var listTouchActive = false
 
+    private var sortMode = false
     private var categorySortMode = false
     private var splitSelection: SplitSelectionModel? = null
     private var splitSessionActive = false
@@ -154,7 +165,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
 
     fun showPhraseTab(category: String) {
         val switching = st.switchTab(ClipboardPanelState.Tab.PHRASE)
-        st.collapse(); swipeRevealed = null
+        st.collapse(); swipeRevealed = null; sortMode = false; categorySortMode = false
         val retarget = category.isNotEmpty() && phraseCat != category && category in categoriesProvider()
         if (retarget) phraseCat = category
         if (switching || retarget) {
@@ -165,13 +176,46 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
 
     fun reopenAfterInline(category: String) {
-        st.collapse(); swipeRevealed = null
+        st.collapse(); swipeRevealed = null; sortMode = false; categorySortMode = false
         if (st.tab == ClipboardPanelState.Tab.PHRASE) {
             if (category.isNotEmpty() && category in categoriesProvider()) phraseCat = category
             forceNextRebuild = true
             revealSelectedCategory = true
         }
         refresh(animate = false)
+    }
+
+    fun showCategoryAdmin(category: String) {
+        st.switchTab(ClipboardPanelState.Tab.PHRASE)
+        st.collapse(); swipeRevealed = null; sortMode = false; categorySortMode = true
+        val categories = categoriesProvider()
+        if (category.isNotEmpty() && category in categories) phraseCat = category
+        forceNextRebuild = true
+        revealSelectedCategory = true
+        refresh(animate = false)
+        val reveal = categories.indexOf(category)
+        if (reveal >= 0) {
+            appendListRows(reveal + 1)
+            pendingListReveal = reveal
+        }
+    }
+
+    private var dragFrom = -1
+    private var dragCurrent = -1
+    private var dragTouchOffsetY = 0f
+    private var dragLastRawY = 0f
+    private var dragView: View? = null
+    private val dragRowTargets = WeakHashMap<View, Float>()
+    private enum class DragKind { NONE, PHRASE, CATEGORY }
+    private var dragKind = DragKind.NONE
+    private val dragHandler = Handler(Looper.getMainLooper())
+    private val isDragging get() = dragFrom >= 0
+    private var dragAutoScrollScheduled = false
+    private val dragAutoScrollRunnable = object : Runnable {
+        override fun run() {
+            dragAutoScrollScheduled = false
+            if (runDragAutoScrollFrame()) scheduleDragAutoScroll()
+        }
     }
 
     private val main = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(BG) }
@@ -267,6 +311,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
 
         override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
             super.onLayout(changed, l, t, r, b)
+            revealPendingListRow()
             scheduleListAppendIfNeeded()
             if (!listScrollRestoreActive) return
             val max = (listColumn.height - height).coerceAtLeast(0)
@@ -305,7 +350,18 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private val immediateActionFeedback = HashMap<View, ImeKeyFeedback>()
 
     private class SelectRowHolder(val row: LinearLayout, val radio: RadioGlyph, val label: TextView)
+    private class TextRowHolder(val row: LinearLayout, val label: TextView, val handle: View)
+    private class CategoryRowHolder(
+        val row: LinearLayout,
+        val label: TextView,
+        val labelScroller: HorizontalScrollView,
+        val rename: TextView,
+        val delete: TextView,
+        val handle: View,
+    )
     private val selectRowPool = ArrayList<SelectRowHolder>()
+    private val sortRowPool = ArrayList<TextRowHolder>()
+    private val catSortRowPool = ArrayList<CategoryRowHolder>()
 
     private inner class RadioGlyph : View(context) {
         private val paint = glyphPaint(TEXT_DARK)
@@ -356,6 +412,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
 
     internal fun selectRowsAllocatedForTest(): Int = selectRowPool.size
+    internal fun sortRowsAllocatedForTest(): Int = sortRowPool.size
+    internal fun catSortRowsAllocatedForTest(): Int = catSortRowPool.size
     internal fun isImmediateActionForTest(view: View): Boolean = immediateActionFeedback.containsKey(view)
     internal fun immediateActionFeedbackCountForTest(): Int = immediateActionFeedback.size
     internal fun immediateActionFeedbackLevelForTest(view: View): Float? = immediateActionFeedback[view]?.levelForTest()
@@ -383,6 +441,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         const val ACTION_BAR_GAP_DP = 16
         const val ACTION_BAR_BUTTON_PADDING_DP = 4
         const val SWIPE_VERTICAL_BIAS = 1.5f
+        const val DRAG_HORIZONTAL_INTENT_FRACTION = 0.5f
+        const val DRAG_AUTO_SCROLL_INTERVAL_MS = 16L
+        const val DRAG_AUTO_SCROLL_MIN_STEP_DP = 2
+        const val DRAG_AUTO_SCROLL_MAX_STEP_DP = 8
+        const val DRAG_HYSTERESIS_FRACTION = 0.25f
     }
 
     private fun preview(s: String): CharSequence = if (s.length > DISPLAY_CAP) s.substring(0, DISPLAY_CAP) + "…" else s
@@ -440,6 +503,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (isDragging && ev.actionMasked != MotionEvent.ACTION_DOWN) return handleActiveDrag(ev)
         return super.dispatchTouchEvent(ev)
     }
 
@@ -647,12 +711,22 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         for (i in 0 until group.childCount) adaptDescendant(group.getChildAt(i), contentHeight)
     }
 
+    private fun handleActiveDrag(e: MotionEvent): Boolean {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_MOVE -> updateActiveDrag(e.rawY)
+            MotionEvent.ACTION_UP -> endDrag()
+            MotionEvent.ACTION_CANCEL -> cancelDrag()
+        }
+        return true
+    }
+
     fun reset() {
         invalidateListRender()
+        pendingListReveal = -1
         revealSelectedCategory = false
         listTouchActive = false
         resetImmediateActions()
-        st.reset(); hideOverlayImmediately(); swipeRevealed = null
+        st.reset(); hideOverlayImmediately(); swipeRevealed = null; sortMode = false; categorySortMode = false
     }
 
     override fun resetToDefault() {
@@ -670,6 +744,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
 
     override fun closeInnerLayer(): Boolean {
         val close = innerLayerCloser() ?: return false
+        if (isDragging) cancelDrag()
         close()
         return true
     }
@@ -677,6 +752,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun innerLayerCloser(): (() -> Unit)? = when {
         overlay.visibility == VISIBLE -> ::hideOverlay
         st.selectMode -> ::exitSelect
+        categorySortMode -> ::exitCategorySortMode
+        sortMode -> ::exitSortMode
         else -> null
     }
 
@@ -692,6 +769,17 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     internal fun toggleSelectForTest(text: String) { st.toggleSelect(text); refresh() }
     internal fun exitSelectForTest() { exitSelect() }
     internal fun showMoveChooserForTest(current: String) { chooseMoveCategoryThen(current, emptyList()) { target -> onMovePhrase(current, "", target) } }
+    internal fun dragStartForTest(index: Int) { if (categorySortMode) startCategoryDrag(index) else startDrag(index) }
+    internal fun dragStartAtForTest(index: Int, rawY: Float) { if (categorySortMode) startCategoryDrag(index, rawY) else startDrag(index, rawY) }
+    internal fun dragMoveToForTest(index: Int) { moveDragTo(index) }
+    internal fun dragMoveAtForTest(index: Int, rawY: Float) { updateActiveDrag(rawY); moveDragTo(index, rawY) }
+    internal fun dragDropForTest() { endDrag() }
+    internal fun dragCancelForTest() { cancelDrag() }
+    internal fun isDraggingForTest(): Boolean = isDragging
+    internal fun dragTranslationYForTest(): Float = dragView?.translationY ?: 0f
+    internal fun dragUpdateForTest(rawY: Float) { updateActiveDrag(rawY) }
+    internal fun runDragAutoScrollFrameForTest(): Boolean = runDragAutoScrollFrame()
+    internal fun isDragAutoScrollScheduledForTest(): Boolean = dragAutoScrollScheduled
     internal fun listScrollYForTest(): Int = listScroll.scrollY
     internal fun listRowViewForTest(index: Int): View? = listColumn.getChildAt(index)
     internal fun listRowCountForTest(): Int = listColumn.childCount
@@ -709,6 +797,12 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     internal fun disabledActionBackgroundColorForTest(): Int = BG
     internal fun selectAllActionForTest(): TextView? = selectAllAction
     internal fun cancelSelectActionForTest(): TextView? = cancelSelectAction
+    internal fun listScrollRawTopForTest(): Int {
+        val loc = IntArray(2)
+        listScroll.getLocationOnScreen(loc)
+        return loc[1]
+    }
+    internal fun listScrollRawBottomForTest(): Int = listScrollRawTopForTest() + listScroll.height
     internal fun fixedChromeViewsForTest(): List<View> =
         (0 until main.childCount).map { main.getChildAt(it) }.filter { it !== listScroll }
     internal fun listViewportForTest(): View = listScroll
@@ -718,6 +812,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     internal fun swipeRevealedForTest(): String? = swipeRevealed
     internal fun confirmClearForTest() { confirmClearCurrentCategory() }
     internal fun confirmClearHistoryForTest() { confirmClearHistory() }
+    internal fun enterSortModeForTest() { enterSortMode() }
+    internal fun isSortModeForTest(): Boolean = sortMode
+    internal fun enterCategorySortModeForTest() { enterCategorySortMode() }
+    internal fun isCategorySortModeForTest(): Boolean = categorySortMode
     internal fun showSplitForTest(text: String) { showSplit(text) }
     internal fun splitSelectedForTest(): Set<Int> = splitSelection?.selectedIndices().orEmpty()
     internal fun settleSwipeForTest(dxPx: Float, text: String) { settleSwipe(dxPx, text) }
@@ -729,7 +827,15 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             return null
         }
         for (i in 0 until listColumn.childCount) firstText(listColumn.getChildAt(i))?.let { out.add(it) }
-        return out
+        return dragPreviewOrder(out)
+    }
+
+    private fun <T> dragPreviewOrder(items: List<T>): List<T> {
+        if (!isDragging || dragFrom !in items.indices || dragCurrent !in items.indices || dragFrom == dragCurrent) return items
+        return items.toMutableList().apply {
+            val item = removeAt(dragFrom)
+            add(dragCurrent.coerceIn(0, size), item)
+        }
     }
 
     fun refresh() = refresh(animate = true)
@@ -794,6 +900,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         val category = if (st.tab == Tab.PHRASE) currentCategory(categories) else ""
         if (category != renderedCategorySig) return false
         val entries = when {
+            categorySortMode -> categories
             st.tab == Tab.CLIPBOARD -> clipKeys()
             else -> phrasesInProvider(category)
         }
@@ -843,6 +950,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         main.removeAllViews()
         when {
             st.selectMode -> buildSelectMode()
+            categorySortMode -> buildCategorySortMode()
+            sortMode -> buildSortMode()
             else -> buildNormal()
         }
         renderedExpanded = st.expanded
@@ -852,7 +961,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
 
     private fun canReconcileEntriesOnly(): Boolean {
-        if (!hasRenderedOnce || st.selectMode) return false
+        if (!hasRenderedOnce || st.selectMode || sortMode || categorySortMode || isDragging) return false
         if (st.expanded != renderedExpanded || swipeRevealed != renderedSwipe) return false
         if (st.selected.toList() != renderedSelectedSig) return false
         if (historyToggleStale()) return false
@@ -909,6 +1018,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
 
     private fun currentRenderMode(): Int = when {
         st.selectMode -> 1
+        categorySortMode -> 3
+        sortMode -> 2
         else -> 0
     }
 
@@ -983,6 +1094,29 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         if (viewport <= 0) return true
         val anchor = if (listScrollRestoreActive) maxOf(listScroll.scrollY, listScrollRestoreTarget) else listScroll.scrollY
         return listColumn.height < anchor + viewport * LIST_LOOKAHEAD_VIEWPORTS
+    }
+
+    private fun revealPendingListRow() {
+        val index = pendingListReveal
+        if (index < 0) return
+        if (!categorySortMode) {
+            pendingListReveal = -1
+            return
+        }
+        val row = listColumn.getChildAt(index) ?: return
+        val viewport = listScroll.height
+        if (viewport <= 0 || row.height <= 0) return
+        pendingListReveal = -1
+        val top = listColumn.top + row.top - ((row.layoutParams as? MarginLayoutParams)?.topMargin ?: 0)
+        val bottom = listColumn.top + row.bottom
+        val current = if (listScrollRestoreActive) listScrollRestoreTarget else listScroll.scrollY
+        val target = when {
+            top < current -> top
+            bottom > current + viewport -> bottom - viewport
+            else -> current
+        }
+        listScrollRestoreTarget = target
+        listScrollRestoreActive = true
     }
 
     private fun scheduleListAppendIfNeeded() {
@@ -1150,6 +1284,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         if (expanded) {
             attachSwipeReveal(chevron, text)
             attachSwipeReveal(body, text)
+        } else if (phrase) {
+            attachDragHandle(chevron, column, index, text, header, headerFrame, revealWidthDp)
+            attachDragHandle(body, column, index, text, header, headerFrame, revealWidthDp)
         } else {
             attachSwipeReveal(chevron, text, header, headerFrame, revealWidthDp)
             attachSwipeReveal(body, text, header, headerFrame, revealWidthDp)
@@ -1279,6 +1416,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         addView(action, ll(WC, dp(48)).apply { if (childCount > 0) marginStart = dp(4) })
     }
 
+
+    private fun liveRowIndex(row: View, fallback: Int): Int =
+        listColumn.indexOfChild(row).let { if (it >= 0) it else fallback }
+
     private fun toggleExpandInPlace(text: String) {
         val previous = st.expanded
         swipeRevealed = null
@@ -1336,6 +1477,67 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         cancel.action = MotionEvent.ACTION_CANCEL
         target.onTouchEvent(cancel)
         cancel.recycle()
+    }
+
+    private fun cancelPressFeedback(target: View) {
+        val now = SystemClock.uptimeMillis()
+        val cancel = MotionEvent.obtain(now, now, MotionEvent.ACTION_CANCEL, 0f, 0f, 0)
+        target.onTouchEvent(cancel)
+        cancel.recycle()
+    }
+
+    private fun attachDragHandle(touchTarget: View, card: View, index: Int, text: String, header: View, frame: View, revealWidthDp: Int) {
+        val slop = ViewConfiguration.get(context).scaledTouchSlop
+        var downX = 0f; var downY = 0f
+        var mode = 0
+        var startTx = 0f
+        var revealPx = 0f
+        val longPress = Runnable { cancelPressFeedback(touchTarget); startDrag(liveRowIndex(card, index), downY); requestDragCapture() }
+        touchTarget.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    touchTarget.playImeTapFeedback()
+                    downX = e.rawX; downY = e.rawY; mode = 0
+                    revealPx = swipeRevealPx(frame, revealWidthDp)
+                    startTx = if (swipeRevealed == text) -revealPx else 0f
+                    if (swipeRevealed != text) dragHandler.postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
+                    false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (isDragging) {
+                        updateActiveDrag(e.rawY)
+                        true
+                    } else {
+                        val dx = e.rawX - downX; val dy = e.rawY - downY
+                        if (mode == 0 && abs(dx) > abs(dy) && abs(dx) > slop * DRAG_HORIZONTAL_INTENT_FRACTION) {
+                            dragHandler.removeCallbacks(longPress)
+                        }
+                        if (mode == 0 && (abs(dx) > slop || abs(dy) > slop)) {
+                            dragHandler.removeCallbacks(longPress)
+                            mode = if (abs(dy) > abs(dx) * SWIPE_VERTICAL_BIAS) 2 else 1
+                            if (mode == 1) {
+                                cancelPressFeedback(touchTarget, e)
+                                card.parent?.requestDisallowInterceptTouchEvent(true)
+                                header.animate().cancel()
+                            }
+                        }
+                        if (mode == 1) header.translationX = (startTx + dx).coerceIn(-revealPx, 0f)
+                        mode == 1
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    dragHandler.removeCallbacks(longPress)
+                    when {
+                        isDragging && e.actionMasked == MotionEvent.ACTION_UP -> { endDrag(); true }
+                        isDragging -> { cancelDrag(); true }
+                        mode == 1 && e.actionMasked == MotionEvent.ACTION_UP -> { settleSwipe(header, revealPx, text, header.translationX < -revealPx / 2f); true }
+                        mode == 1 -> { settleSwipe(header, revealPx, text, startTx != 0f); true }
+                        else -> false
+                    }
+                }
+                else -> false
+            }
+        }
     }
 
     private fun attachSwipeReveal(target: View, text: String, header: View, frame: View, revealWidthDp: Int) {
@@ -1466,11 +1668,492 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         }
     }
 
+    private fun indexAtRawY(rawY: Float): Int? {
+        val n = listColumn.childCount
+        if (n == 0) return null
+        val contentTop = listContentRawTop()
+        val current = dragCurrent
+        var target = (n - 1).coerceAtLeast(0)
+        for (i in 0 until n) {
+            if (i == dragFrom) continue
+            val child = listColumn.getChildAt(i)
+            if (child.height <= 0) return null
+            val center = contentTop + child.top + child.translationY + child.height / 2f
+            val mapped = if (i < dragFrom) i else i - 1
+            val margin = child.height * DRAG_HYSTERESIS_FRACTION
+            val bias = if (mapped >= current) margin else -margin
+            if (rawY < center + bias) {
+                target = mapped
+                break
+            }
+        }
+        return target.coerceIn(0, n - 1)
+    }
+
+    private fun listContentRawTop(): Int {
+        val loc = IntArray(2)
+        listScroll.getLocationOnScreen(loc)
+        return loc[1] + listColumn.top - listScroll.scrollY
+    }
+
+    internal fun rowAt(tops: IntArray, heights: IntArray, skip: Int, y: Int): Int? {
+        for (i in tops.indices) {
+            if (i == skip) continue
+            if (y >= tops[i] && y <= tops[i] + heights[i]) return i
+        }
+        return null
+    }
+
+    private fun updateActiveDrag(rawY: Float) {
+        if (!isDragging) return
+        requestDragCapture()
+        updateDraggedTranslation(rawY)
+        indexAtRawY(rawY)?.let { moveDragTo(it, rawY) }
+        updateDragAutoScroll()
+    }
+
+    private fun updateDragAutoScroll() {
+        if (dragAutoScrollDelta(dragLastRawY) == 0) stopDragAutoScroll() else scheduleDragAutoScroll()
+    }
+
+    private fun scheduleDragAutoScroll() {
+        if (dragAutoScrollScheduled || !isDragging) return
+        dragAutoScrollScheduled = true
+        dragHandler.postDelayed(dragAutoScrollRunnable, DRAG_AUTO_SCROLL_INTERVAL_MS)
+    }
+
+    private fun stopDragAutoScroll() {
+        dragAutoScrollScheduled = false
+        dragHandler.removeCallbacks(dragAutoScrollRunnable)
+    }
+
+    private fun runDragAutoScrollFrame(): Boolean {
+        if (!isDragging) {
+            stopDragAutoScroll()
+            return false
+        }
+        requestDragCapture()
+        val dy = dragAutoScrollDelta(dragLastRawY)
+        if (dy == 0) {
+            stopDragAutoScroll()
+            return false
+        }
+        val before = listScroll.scrollY
+        listScroll.scrollBy(0, dy)
+        updateDraggedTranslation(dragLastRawY)
+        indexAtRawY(dragLastRawY)?.let { moveDragTo(it, dragLastRawY) }
+        return listScroll.scrollY != before && dragAutoScrollDelta(dragLastRawY) != 0
+    }
+
+    private fun dragAutoScrollDelta(rawY: Float): Int {
+        val h = listScroll.height
+        if (h <= 0) return 0
+        val loc = IntArray(2)
+        listScroll.getLocationOnScreen(loc)
+        val top = loc[1].toFloat()
+        val bottom = top + h
+        val edge = min(dp(48), h / 3).coerceAtLeast(1)
+        return when {
+            rawY <= top + edge && listScroll.canScrollVertically(-1) -> -dragAutoScrollStep(top + edge - rawY, edge)
+            rawY >= bottom - edge && listScroll.canScrollVertically(1) -> dragAutoScrollStep(rawY - (bottom - edge), edge)
+            else -> 0
+        }
+    }
+
+    private fun dragAutoScrollStep(distanceIntoEdge: Float, edge: Int): Int {
+        val minStep = dp(DRAG_AUTO_SCROLL_MIN_STEP_DP).coerceAtLeast(1)
+        val maxStep = dp(DRAG_AUTO_SCROLL_MAX_STEP_DP).coerceAtLeast(minStep)
+        val ratio = (distanceIntoEdge.coerceIn(0f, edge.toFloat()) / edge)
+        return minStep + ((maxStep - minStep) * ratio).toInt()
+    }
+
+    private fun requestDragCapture() {
+        dragView?.parent?.requestDisallowInterceptTouchEvent(true)
+        listColumn.requestDisallowInterceptTouchEvent(true)
+        listScroll.requestDisallowInterceptTouchEvent(true)
+        requestDisallowInterceptTouchEvent(true)
+        parent?.requestDisallowInterceptTouchEvent(true)
+    }
+
+    private fun startDrag(index: Int, rawY: Float? = null) {
+        dragKind = DragKind.PHRASE
+        dragFrom = index; dragCurrent = index
+        dragView = listColumn.getChildAt(index)?.also {
+            rawY?.let { y ->
+                val loc = IntArray(2)
+                it.getLocationOnScreen(loc)
+                dragTouchOffsetY = y - loc[1]
+            }
+            it.translationZ = dp(8).toFloat(); it.alpha = 0.92f
+            requestDragCapture()
+        }
+        rawY?.let { y -> updateDraggedTranslation(y); updateDragAutoScroll() }
+    }
+
+    private fun startCategoryDrag(index: Int, rawY: Float? = null) {
+        dragKind = DragKind.CATEGORY
+        dragFrom = index; dragCurrent = index
+        dragView = listColumn.getChildAt(index)?.also {
+            rawY?.let { y ->
+                val loc = IntArray(2)
+                it.getLocationOnScreen(loc)
+                dragTouchOffsetY = y - loc[1]
+            }
+            it.translationZ = dp(8).toFloat(); it.alpha = 0.92f
+            requestDragCapture()
+        }
+        rawY?.let { y -> updateDraggedTranslation(y); updateDragAutoScroll() }
+    }
+
+    private fun moveDragTo(index: Int, rawY: Float? = null) {
+        val n = if (dragKind == DragKind.CATEGORY) categoriesProvider().size else currentEntries().size
+        if (index !in 0 until n) return
+        val old = dragCurrent
+        dragCurrent = index
+        if (dragView != null && index != old) {
+            updateDragPreviewTranslations()
+            rawY?.let { updateDraggedTranslation(it) }
+        }
+    }
+
+    private fun updateDragPreviewTranslations() {
+        val from = dragFrom
+        val to = dragCurrent
+        if (from !in 0 until listColumn.childCount || to !in 0 until listColumn.childCount) {
+            resetDragPreviewTranslations()
+            return
+        }
+        val lifted = dragView
+        for (i in 0 until listColumn.childCount) {
+            val child = listColumn.getChildAt(i)
+            if (child === lifted) continue
+            val targetTop = when {
+                from < to && i in (from + 1)..to -> listColumn.getChildAt(i - 1).top
+                to < from && i in to until from -> listColumn.getChildAt(i + 1).top
+                else -> child.top
+            }
+            settleRowTranslation(child, (targetTop - child.top).toFloat())
+        }
+        listColumn.invalidate()
+    }
+
+    private fun settleRowTranslation(child: View, target: Float) {
+        if (dragRowTargets[child] == target) return
+        dragRowTargets[child] = target
+        child.animate().cancel()
+        if (!child.isAttachedToWindow || !Motion.enabled()) {
+            child.translationY = target
+            return
+        }
+        child.animate()
+            .translationY(target)
+            .setDuration(Motion.SHORT2)
+            .setInterpolator(Motion.STANDARD_DECEL)
+            .start()
+    }
+
+    private fun resetDragPreviewTranslations() {
+        for (i in 0 until listColumn.childCount) {
+            val child = listColumn.getChildAt(i)
+            child.animate().cancel()
+            child.translationY = 0f
+        }
+        dragRowTargets.clear()
+    }
+
+    private fun updateDraggedTranslation(rawY: Float) {
+        val view = dragView ?: return
+        dragLastRawY = rawY
+        val baseTop = listContentRawTop() + view.top
+        view.translationY = rawY - dragTouchOffsetY - baseTop
+    }
+
+    private fun endDrag() {
+        stopDragAutoScroll()
+        val from = dragFrom; val to = dragCurrent
+        val kind = dragKind
+        val lifted = dragView
+        val reordered = from >= 0 && to >= 0 && from != to
+        val settleTarget = if (lifted != null && from in 0 until listColumn.childCount && to in 0 until listColumn.childCount)
+            (listColumn.getChildAt(to).top - lifted.top).toFloat() else 0f
+        if (reordered) {
+            if (kind == DragKind.CATEGORY) onReorderCategory(from, to) else onReorderPhrase(currentCategory(), from, to)
+        }
+        if (reordered && lifted != null && lifted.isAttachedToWindow && Motion.enabled()) {
+            dragFrom = -1; dragCurrent = -1; dragTouchOffsetY = 0f; dragLastRawY = 0f; dragKind = DragKind.NONE
+            settleLiftedThenReconcile(lifted, settleTarget, from, to)
+        } else {
+            resetDragState()
+            refresh()
+        }
+    }
+
+    private fun settleLiftedThenReconcile(lifted: View, target: Float, from: Int, to: Int) {
+        lifted.animate()
+            .translationY(target)
+            .translationZ(0f)
+            .alpha(1f)
+            .setDuration(Motion.SHORT2)
+            .setInterpolator(Motion.STANDARD_DECEL)
+            .withEndAction {
+                if (dragView === lifted) {
+                    dragView = null
+                    reconcileReorderedRows(lifted, from, to)
+                }
+            }
+            .start()
+    }
+
+    private fun reconcileReorderedRows(lifted: View, from: Int, to: Int) {
+        cancelPendingListAppend()
+        val count = listColumn.childCount
+        if (from != to && from in 0 until count && listColumn.getChildAt(from) === lifted) {
+            listColumn.removeViewAt(from)
+            listColumn.addView(lifted, to.coerceIn(0, listColumn.childCount))
+            if (from in renderedEntriesSig.indices) {
+                renderedEntriesSig = renderedEntriesSig.toMutableList().apply {
+                    val moved = removeAt(from)
+                    add(to.coerceIn(0, size), moved)
+                }
+            }
+        }
+        for (i in 0 until listColumn.childCount) {
+            val child = listColumn.getChildAt(i)
+            child.animate().cancel()
+            child.translationY = 0f
+        }
+        lifted.translationZ = 0f; lifted.alpha = 1f; lifted.translationY = 0f
+        dragRowTargets.clear()
+    }
+
+    private fun cancelDrag() {
+        stopDragAutoScroll()
+        resetDragState()
+        refresh()
+    }
+
+    private fun resetDragState() {
+        resetDragPreviewTranslations()
+        dragView?.let { it.translationZ = 0f; it.alpha = 1f; it.translationY = 0f }
+        dragFrom = -1; dragCurrent = -1; dragTouchOffsetY = 0f; dragLastRawY = 0f; dragView = null; dragKind = DragKind.NONE
+    }
+
     override fun onDetachedFromWindow() {
         finishSplitSelection()
         resetImmediateActions()
+        dragHandler.removeCallbacksAndMessages(null)
         cancelPendingListAppend()
+        resetDragPreviewTranslations()
+        dragView?.let { it.translationZ = 0f; it.alpha = 1f }
+        dragAutoScrollScheduled = false
+        dragFrom = -1; dragCurrent = -1; dragTouchOffsetY = 0f; dragLastRawY = 0f; dragView = null; dragKind = DragKind.NONE
         super.onDetachedFromWindow()
+    }
+
+
+    private fun enterSortMode() { st.collapse(); swipeRevealed = null; categorySortMode = false; sortMode = true; refresh() }
+    private fun exitSortMode() { sortMode = false; refresh() }
+    private fun enterCategorySortMode() { st.collapse(); swipeRevealed = null; sortMode = false; categorySortMode = true; refresh() }
+    private fun exitCategorySortMode() { categorySortMode = false; refresh() }
+
+    private fun buildSortMode() {
+        val categories = categoriesProvider()
+        val cat = currentCategory(categories)
+        val topBar = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(4), dp(12), dp(4))
+            addView(TextView(context).apply {
+                text = context.getString(R.string.clip_drag_sort)
+                maxLines = 1
+                setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                androidx.core.widget.TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
+                    this,
+                    10,
+                    ImeType.body.toInt(),
+                    1,
+                    TypedValue.COMPLEX_UNIT_SP,
+                )
+            }, ll(0, WC, 1f))
+            addView(TextView(context).apply {
+                text = if (cat.isEmpty()) "" else cat
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                gravity = Gravity.CENTER; setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
+            }, ll(0, WC, 1f))
+            addView(TextView(context).apply {
+                text = context.getString(R.string.clip_done); gravity = Gravity.END
+                setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+                setOnClickListener { exitSortMode() }
+                bindImmediateAction(this, TEXT_DARK, faceColor = Color.TRANSPARENT)
+            }, ll(0, dp(48), 1f))
+        }
+        main.addView(topBar, ll(MP, WC))
+
+        val entries = phrasesInProvider(cat)
+        recordRenderSignature(categories, cat, entries)
+        populateListRows(entries) { e, i -> sortRowFor(e, i, cat) }
+        main.addView(listScroll, ll(MP, 0, 1f))
+    }
+
+    private fun sortRowFor(text: String, index: Int, category: String): View {
+        val h = if (index < sortRowPool.size) sortRowPool[index] else buildTextRow(sortRowPool, maxLines = 2)
+        Motion.reset(h.row)
+        h.label.text = preview(phraseDisplayText(category, text))
+        attachSortDrag(h.handle, h.row, index)
+        return h.row
+    }
+
+    private fun buildTextRow(pool: ArrayList<TextRowHolder>, maxLines: Int): TextRowHolder {
+        val label = TextView(context).apply {
+            this.maxLines = maxLines; ellipsize = android.text.TextUtils.TruncateAt.END
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(TEXT_DARK)
+            setPadding(dp(14), dp(12), dp(8), dp(12))
+        }
+        val handle = glyphView(TEXT_DARK, 9) { c, p, x, y, s -> Glyphs.drawList(c, p, x, y, s) }
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = rounded(CARD, ImeShapes.cardRadiusDp)
+            layoutParams = ll(MP, WC).apply { topMargin = dp(8) }
+            addView(label, ll(0, WC, 1f))
+            addView(handle, ll(dp(44), MP))
+        }
+        return TextRowHolder(row, label, handle).also { pool.add(it) }
+    }
+
+    private fun attachSortDrag(handle: View, card: View, index: Int) {
+        handle.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { handle.playImeTapFeedback(); startDrag(liveRowIndex(card, index), e.rawY); requestDragCapture(); true }
+                MotionEvent.ACTION_MOVE -> {
+                    if (isDragging) { updateActiveDrag(e.rawY); true } else false
+                }
+                MotionEvent.ACTION_UP -> { if (isDragging) { endDrag(); true } else false }
+                MotionEvent.ACTION_CANCEL -> { if (isDragging) { cancelDrag(); true } else false }
+                else -> false
+            }
+        }
+    }
+
+    private fun buildCategorySortMode() {
+        val cats = categoriesProvider()
+        val current = currentCategory(cats)
+        val backControl = PanelBackButton.control(
+            context,
+            context.getString(R.string.clip_back),
+            TEXT_DARK,
+        ) { exitCategorySortMode() }
+        val topBar = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(4), edgeInset, dp(4))
+            addView(backControl, ll(WC, dp(PanelBackButton.HIT_DP)).apply { leftMargin = edgeInset })
+            addView(TextView(context).apply {
+                text = context.getString(R.string.clip_manage_categories)
+                gravity = Gravity.CENTER
+                maxLines = 1
+                setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                androidx.core.widget.TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
+                    this,
+                    10,
+                    ImeType.body.toInt(),
+                    1,
+                    TypedValue.COMPLEX_UNIT_SP,
+                )
+            }, ll(0, WC, 1f))
+            addView(
+                compactActionButton(context.getString(R.string.clip_add_category), true) { onAddCategory() }.apply {
+                    setPadding(dp(12), 0, dp(14), 0)
+                },
+                ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)),
+            )
+        }
+        main.addView(topBar, ll(MP, WC))
+
+        recordRenderSignature(cats, current, cats)
+        populateListRows(cats) { name, i -> catSortRowFor(name, i, current) }
+        main.addView(listScroll, ll(MP, 0, 1f))
+
+        val bottom = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(edgeInset, dp(4), edgeInset, 0)
+            addView(
+                compactActionButton(context.getString(R.string.clip_import_phrases), true) { showImportConfirm() },
+                ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)),
+            )
+            addView(View(context), ll(0, dp(1), 1f))
+            addView(
+                compactActionButton(context.getString(R.string.clip_export_phrases), true) { onExportPhrases() },
+                ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)),
+            )
+        }
+        main.addView(bottom, ll(MP, WC))
+    }
+
+    private fun buildCategoryRow(): CategoryRowHolder {
+        val label = TextView(context).apply {
+            maxLines = 1
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(TEXT_DARK)
+            setPadding(dp(14), dp(12), dp(8), dp(12))
+        }
+        val labelScroller = HorizontalScrollView(context).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(label)
+        }
+        val rename = compactActionButton(context.getString(R.string.clip_rename), true) {}
+        val delete = compactActionButton(context.getString(R.string.clip_delete), true) {}
+        val handle = glyphView(TEXT_DARK, 9) { c, p, x, y, s -> Glyphs.drawList(c, p, x, y, s) }
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(COMPACT_ACTION_HEIGHT_DP)
+            background = rounded(CARD, ImeShapes.cardRadiusDp)
+            layoutParams = ll(MP, WC).apply { topMargin = dp(8) }
+            addView(labelScroller, ll(0, WC, 1f))
+            addView(rename, ll(WC, MP))
+            addView(delete, ll(WC, MP))
+            addView(handle, ll(dp(44), MP))
+        }
+        return CategoryRowHolder(row, label, labelScroller, rename, delete, handle).also { catSortRowPool.add(it) }
+    }
+
+    private fun catSortRowFor(name: String, index: Int, current: String): View {
+        val h = if (index < catSortRowPool.size) catSortRowPool[index] else buildCategoryRow()
+        Motion.reset(h.row)
+        val shown = com.aegis.ime.user.ClipboardStore.foldLineBreaks(displayCat(name))
+        h.label.text = shown
+        h.label.setTypeface(null, if (name == current) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+        h.labelScroller.scrollTo(0, 0)
+        h.rename.contentDescription = context.getString(R.string.clip_rename_named, shown)
+        h.delete.contentDescription = context.getString(R.string.clip_delete_named, shown)
+        for (action in listOf(h.rename, h.delete)) {
+            if (!immediateActionFeedback.containsKey(action)) bindImmediateAction(action, TEXT_DARK, faceColor = Color.TRANSPARENT)
+        }
+        h.rename.setOnClickListener { onRenameCategory(name) }
+        h.delete.setOnClickListener { confirmDeleteCategory(name) }
+        attachCategorySortDrag(h.handle, h.row, index)
+        return h.row
+    }
+
+    private fun attachCategorySortDrag(handle: View, card: View, index: Int) {
+        handle.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { handle.playImeTapFeedback(); startCategoryDrag(liveRowIndex(card, index), e.rawY); requestDragCapture(); true }
+                MotionEvent.ACTION_MOVE -> {
+                    if (isDragging) { updateActiveDrag(e.rawY); true } else false
+                }
+                MotionEvent.ACTION_UP -> { if (isDragging) { endDrag(); true } else false }
+                MotionEvent.ACTION_CANCEL -> { if (isDragging) { cancelDrag(); true } else false }
+                else -> false
+            }
+        }
     }
 
     private fun categoryBar(categories: List<String>, current: String): View {
@@ -1482,6 +2165,27 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             addView(rail)
             setOnScrollChangeListener { _, left, _, _, _ -> categoryScrollX = left }
         }
+        val manage = TextView(context).apply {
+            text = context.getString(R.string.clip_manage)
+            gravity = Gravity.CENTER
+            maxLines = 1
+            includeFontPadding = false
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+            setTextColor(TEXT_DARK)
+            setPadding(dp(12), 0, dp(12), 0)
+            contentDescription = context.getString(R.string.clip_manage_categories)
+            setOnClickListener { enterCategorySortMode() }
+            setOnLongClickListener {
+                enterCategorySortMode()
+                true
+            }
+            bindImmediateAction(this, TEXT_DARK, faceColor = Color.TRANSPARENT)
+        }
+        val manageWidth = maxOf(
+            dp(48),
+            manage.paddingLeft + manage.paddingRight + kotlin.math.ceil(manage.paint.measureText(manage.text.toString())).toInt(),
+        )
+        tabs.setPaddingRelative(0, 0, manageWidth, 0)
         return object : FrameLayout(context) {
             override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
                 val saved = categoryScrollX
@@ -1491,6 +2195,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             }
         }.apply {
             addView(tabs, FrameLayout.LayoutParams(MP, MP))
+            addView(manage, FrameLayout.LayoutParams(manageWidth, MP, Gravity.END))
         }
     }
 
@@ -1506,6 +2211,16 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             end > from + viewport -> end - viewport
             else -> from
         }
+    }
+
+    private fun showImportConfirm() {
+        val card = menuCard()
+        card.addView(menuTitle(context.getString(R.string.clip_import_phrases)))
+        card.addView(menuBody(context.getString(R.string.clip_import_body)))
+        card.addView(menuItem(context.getString(R.string.clip_overwrite), compact = true) { hideOverlay(); onImportPhrasesWithMode(false) })
+        card.addView(menuItem(context.getString(R.string.clip_merge_recommended), compact = true) { hideOverlay(); onImportPhrasesWithMode(true) })
+        card.addView(menuItem(context.getString(R.string.clip_back), compact = true) { hideOverlay() })
+        showPopupCard(card)
     }
 
     private fun confirmClearCurrentCategory() {
@@ -1608,7 +2323,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         showPopupCard(card)
     }
 
-    private fun enterSelect() { swipeRevealed = null; st.enterSelect(); refresh() }
+
+    private fun enterSelect() { swipeRevealed = null; sortMode = false; categorySortMode = false; st.enterSelect(); refresh() }
     private fun exitSelect() { st.exitSelect(); refresh() }
 
     private fun buildSelectMode() {
@@ -2096,6 +2812,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         return phraseCat
     }
 
+    private fun currentEntries(): List<String> =
+        if (st.tab == Tab.CLIPBOARD) clipKeys() else phrasesInProvider(currentCategory())
+
     private fun confirmDelete(texts: List<String>, after: () -> Unit = {}) {
         val deleteTab = st.tab
         val category = if (deleteTab == Tab.PHRASE) currentCategory() else ""
@@ -2121,8 +2840,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         background = rounded(CARD, ImeShapes.toolbarPillRadiusDp)
-        addView(pill(context.getString(R.string.clip_clipboard), st.tab == Tab.CLIPBOARD, true) { if (st.switchTab(Tab.CLIPBOARD)) { swipeRevealed = null; refresh() } }, ll(dp(TAB_PILL_DP), MP))
-        addView(pill(context.getString(R.string.clip_phrases), st.tab == Tab.PHRASE, false) { if (st.switchTab(Tab.PHRASE)) { swipeRevealed = null; refresh() } }, ll(dp(TAB_PILL_DP), MP))
+        addView(pill(context.getString(R.string.clip_clipboard), st.tab == Tab.CLIPBOARD, true) { if (st.switchTab(Tab.CLIPBOARD)) { swipeRevealed = null; sortMode = false; categorySortMode = false; refresh() } }, ll(dp(TAB_PILL_DP), MP))
+        addView(pill(context.getString(R.string.clip_phrases), st.tab == Tab.PHRASE, false) { if (st.switchTab(Tab.PHRASE)) { swipeRevealed = null; sortMode = false; categorySortMode = false; refresh() } }, ll(dp(TAB_PILL_DP), MP))
     }
 
     private fun shrinkToWidth(view: TextView, availablePx: Int) {
@@ -2210,6 +2929,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
 
     private fun confirmationCard(question: String): LinearLayout = menuCard().apply {
         addView(menuTitle(question))
+    }
+
+    private fun menuBody(s: String): View = TextView(context).apply {
+        text = s; gravity = Gravity.START; setTextColor(TEXT_DARK)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label); setPadding(popupInset(), dp(6), popupInset(), dp(10))
     }
 
     private fun categoryMenuTitle(name: String): TextView = TextView(context).apply {

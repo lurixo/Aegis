@@ -19,6 +19,7 @@ import com.aegis.ime.user.asClipEntries
 import com.aegis.ime.user.clipEntries
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.drawable.GradientDrawable
@@ -80,6 +81,8 @@ class PhrasePanelTest {
         val tv = textViews(root).firstOrNull { it.text?.toString() == label && it.hasOnClickListeners() && it.compoundDrawables.any { d -> d != null } } ?: return false
         tv.performClick(); return true
     }
+    private fun send(root: View, action: Int, y: Float) =
+        root.dispatchTouchEvent(MotionEvent.obtain(0, 16, action, 20f, y, 0))
     private fun layout(v: View, w: Int = 480, h: Int = 320) {
         v.measure(
             View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
@@ -88,6 +91,7 @@ class PhrasePanelTest {
         v.layout(0, 0, v.measuredWidth, v.measuredHeight)
     }
     private fun dp(value: Int): Int = (value * ctx.resources.displayMetrics.density).toInt()
+    private fun maxAutoScrollStepPx(): Int = (8 * ctx.resources.displayMetrics.density).toInt().coerceAtLeast(1)
     private fun boundsInRoot(root: ViewGroup, target: View): Rect = Rect(0, 0, target.width, target.height).also {
         root.offsetDescendantRectToMyCoords(target, it)
     }
@@ -194,6 +198,225 @@ class PhrasePanelTest {
         overlayOf(v).performClick()
         assertEquals(View.GONE, overlayOf(v).visibility)
         assertNull(del)
+    }
+
+
+    @Test fun drag_reorder_fires_onReorderPhrase_with_from_and_to() {
+        var r: Triple<String, Int, Int>? = null
+        val v = phraseView().apply { onReorderPhrase = { c, f, t -> r = Triple(c, f, t) } }
+        v.dragStartForTest(0)
+        assertTrue(v.isDraggingForTest())
+        v.dragMoveToForTest(2)
+        v.dragDropForTest()
+        assertFalse(v.isDraggingForTest())
+        assertEquals(Triple("默认", 0, 2), r)
+    }
+
+    @Test fun drag_move_reorders_phrase_rows_live_before_drop() {
+        var r: Triple<String, Int, Int>? = null
+        val v = phraseView().apply { onReorderPhrase = { c, f, t -> r = Triple(c, f, t) } }
+        assertEquals(listOf("你好", "在吗", "稍等"), v.listRowTextsForTest())
+        v.dragStartForTest(0)
+        v.dragMoveToForTest(2)
+        assertEquals("row order updates while dragging", listOf("在吗", "稍等", "你好"), v.listRowTextsForTest())
+        assertNull("drop callback has not fired yet", r)
+        v.dragDropForTest()
+        assertEquals(Triple("默认", 0, 2), r)
+    }
+
+    @Test fun drag_visual_translation_tracks_finger_before_drop() {
+        val v = phraseView()
+        v.dragStartAtForTest(0, 20f)
+        v.dragMoveAtForTest(0, 76f)
+        assertEquals("dragged row follows the finger before any drop", 56f, v.dragTranslationYForTest(), 0.01f)
+        v.dragMoveAtForTest(2, 140f)
+        assertEquals("row order updates while the drag is still active", listOf("在吗", "稍等", "你好"), v.listRowTextsForTest())
+        assertTrue("drop callback has not reset the lifted row yet", v.dragTranslationYForTest() != 0f)
+        v.dragDropForTest()
+    }
+
+    @Test fun active_drag_does_not_reparent_the_touched_row_while_preview_reorders() {
+        val v = phraseView()
+        val row = v.listRowViewForTest(0)
+        v.dragStartAtForTest(0, 20f)
+        v.dragMoveToForTest(2)
+        assertTrue("dragged row remains the same physical child until pointer up", row === v.listRowViewForTest(0))
+        assertEquals("visual order still previews the pending drop", listOf("在吗", "稍等", "你好"), v.listRowTextsForTest())
+        v.dragCancelForTest()
+    }
+
+    @Test fun active_drag_can_move_back_to_the_original_slot_before_drop() {
+        val v = phraseView()
+        layout(v)
+        val top = v.listScrollRawTopForTest().toFloat()
+        v.dragStartAtForTest(0, top + 24f)
+        v.dragUpdateForTest(top + 220f)
+        assertEquals(listOf("在吗", "稍等", "你好"), v.listRowTextsForTest())
+        v.dragUpdateForTest(top + 12f)
+        assertEquals(listOf("你好", "在吗", "稍等"), v.listRowTextsForTest())
+        v.dragCancelForTest()
+    }
+
+    @Test fun active_drag_stays_captured_after_live_row_reorder_until_pointer_up() {
+        var r: Triple<String, Int, Int>? = null
+        val v = phraseView().apply { onReorderPhrase = { c, f, t -> r = Triple(c, f, t) } }
+        v.dragStartAtForTest(0, 20f)
+        v.dragMoveAtForTest(1, 90f)
+        assertTrue(v.isDraggingForTest())
+        assertTrue(send(v, MotionEvent.ACTION_MOVE, 120f))
+        assertTrue("drag remains live after the row moved under the finger", v.isDraggingForTest())
+        assertNull(r)
+        assertTrue(send(v, MotionEvent.ACTION_UP, 120f))
+        assertFalse(v.isDraggingForTest())
+        assertEquals(Triple("默认", 0, 1), r)
+    }
+
+    @Test fun active_drag_auto_scrolls_at_edges_and_keeps_rows_live_until_drop() {
+        val phrases = (0 until 30).map { "P" + it.toString().padStart(2, '0') }
+        val drops = ArrayList<Triple<String, Int, Int>>()
+        val v = phraseView(phrases).apply {
+            onReorderPhrase = { c, f, t -> drops.add(Triple(c, f, t)) }
+            enterSortModeForTest()
+        }
+        layout(v)
+        val top = v.listScrollRawTopForTest().toFloat()
+        val bottom = v.listScrollRawBottomForTest().toFloat()
+        v.dragStartAtForTest(0, top + 24f)
+
+        v.dragUpdateForTest(bottom - 2f)
+        val indexAfterEdgeMove = v.listRowTextsForTest().indexOf("P00")
+        assertTrue("bottom edge starts the auto-scroll loop", v.isDragAutoScrollScheduledForTest())
+        assertTrue("drag remains captured at the bottom edge", v.isDraggingForTest())
+        val scrollBeforeDown = v.listScrollYForTest()
+        repeat(24) { v.runDragAutoScrollFrameForTest() }
+        val indexAfterScroll = v.listRowTextsForTest().indexOf("P00")
+        assertTrue("the list scrolls down while the drag stays active", v.listScrollYForTest() > scrollBeforeDown)
+        assertTrue(
+            "row order keeps updating as edge scrolling changes the target",
+            indexAfterScroll > indexAfterEdgeMove,
+        )
+        assertTrue(v.isDraggingForTest())
+        assertTrue("drop callback has not fired during live scrolling", drops.isEmpty())
+
+        v.dragUpdateForTest(top + 2f)
+        assertTrue("top edge keeps the auto-scroll loop active", v.isDragAutoScrollScheduledForTest())
+        val scrollBeforeUp = v.listScrollYForTest()
+        repeat(12) { v.runDragAutoScrollFrameForTest() }
+        assertTrue("the list scrolls back up while the same drag is active", v.listScrollYForTest() < scrollBeforeUp)
+
+        v.dragUpdateForTest((top + bottom) / 2f)
+        assertFalse("leaving the edge stops auto-scroll without dropping", v.isDragAutoScrollScheduledForTest())
+        assertTrue(v.isDraggingForTest())
+        val finalIndex = v.listRowTextsForTest().indexOf("P00")
+        v.dragDropForTest()
+        assertFalse(v.isDraggingForTest())
+        assertEquals(listOf(Triple("默认", 0, finalIndex)), drops)
+    }
+
+    @Test fun drag_auto_scroll_step_is_capped_for_control() {
+        val phrases = (0 until 40).map { "P" + it.toString().padStart(2, '0') }
+        val v = phraseView(phrases).apply { enterSortModeForTest() }
+        layout(v)
+        val top = v.listScrollRawTopForTest().toFloat()
+        val bottom = v.listScrollRawBottomForTest().toFloat()
+        v.dragStartAtForTest(0, top + 24f)
+        v.dragUpdateForTest(bottom + 1000f)
+
+        val before = v.listScrollYForTest()
+        assertTrue(v.runDragAutoScrollFrameForTest())
+        val step = v.listScrollYForTest() - before
+        assertTrue("edge auto-scroll should stay slow and controllable", step in 1..maxAutoScrollStepPx())
+        v.dragCancelForTest()
+    }
+
+    @Test fun action_cancel_cleans_phrase_drag_without_reorder_callback() {
+        var r: Triple<String, Int, Int>? = null
+        val v = phraseView().apply { onReorderPhrase = { c, f, t -> r = Triple(c, f, t) } }
+        v.dragStartAtForTest(0, 20f)
+        v.dragMoveAtForTest(2, 140f)
+        assertTrue(v.isDraggingForTest())
+        assertTrue(send(v, MotionEvent.ACTION_CANCEL, 140f))
+        assertFalse(v.isDraggingForTest())
+        assertNull("cancel is cleanup, not a persisted drop", r)
+        assertEquals("cancel restores the original visual order", listOf("你好", "在吗", "稍等"), v.listRowTextsForTest())
+    }
+
+    @Test fun drag_move_reorders_category_rows_live_before_drop() {
+        var r: Pair<Int, Int>? = null
+        val v = phraseView().apply { onReorderCategory = { f, t -> r = f to t } }
+        v.enterCategorySortModeForTest()
+        assertEquals(listOf("默认", "工作", "私人"), v.listRowTextsForTest())
+        v.dragStartForTest(0)
+        v.dragMoveToForTest(2)
+        assertEquals("category rows update while dragging", listOf("工作", "私人", "默认"), v.listRowTextsForTest())
+        assertNull("drop callback has not fired yet", r)
+        v.dragDropForTest()
+        assertEquals(0 to 2, r)
+    }
+
+    @Test fun active_category_drag_auto_scrolls_at_edges_and_drops_once() {
+        val cats = (0 until 30).map { "C" + it.toString().padStart(2, '0') }
+        val drops = ArrayList<Pair<Int, Int>>()
+        val v = ClipboardView(ctx).apply {
+            categoriesProvider = { cats }
+            phrasesInProvider = { emptyList() }
+            onReorderCategory = { f, t -> drops.add(f to t) }
+            applyPalette(pal)
+            forcePhrasesStateForTest(cats.first())
+            refresh()
+            enterCategorySortModeForTest()
+        }
+        layout(v)
+        val top = v.listScrollRawTopForTest().toFloat()
+        val bottom = v.listScrollRawBottomForTest().toFloat()
+        v.dragStartAtForTest(0, top + 24f)
+
+        v.dragUpdateForTest(bottom - 2f)
+        val indexAfterEdgeMove = v.listRowTextsForTest().indexOf("C00")
+        assertTrue("bottom edge starts category auto-scroll", v.isDragAutoScrollScheduledForTest())
+        val scrollBeforeDown = v.listScrollYForTest()
+        repeat(24) { v.runDragAutoScrollFrameForTest() }
+        val indexAfterScroll = v.listRowTextsForTest().indexOf("C00")
+        assertTrue("category list scrolls down while dragging", v.listScrollYForTest() > scrollBeforeDown)
+        assertTrue("category row order updates during edge scroll", indexAfterScroll > indexAfterEdgeMove)
+        assertTrue(v.isDraggingForTest())
+        assertTrue("drop callback waits for pointer up", drops.isEmpty())
+
+        v.dragUpdateForTest((top + bottom) / 2f)
+        val finalIndex = v.listRowTextsForTest().indexOf("C00")
+        v.dragDropForTest()
+        assertFalse(v.isDraggingForTest())
+        assertEquals(listOf(0 to finalIndex), drops)
+    }
+
+    @Test fun action_cancel_cleans_category_drag_without_reorder_callback() {
+        var r: Pair<Int, Int>? = null
+        val v = phraseView().apply { onReorderCategory = { f, t -> r = f to t } }
+        v.enterCategorySortModeForTest()
+        v.dragStartAtForTest(0, 20f)
+        v.dragMoveAtForTest(2, 140f)
+        assertTrue(v.isDraggingForTest())
+        assertTrue(send(v, MotionEvent.ACTION_CANCEL, 140f))
+        assertFalse(v.isDraggingForTest())
+        assertNull("category cancel is cleanup, not a persisted drop", r)
+        assertEquals("category cancel restores the original visual order", listOf("默认", "工作", "私人"), v.listRowTextsForTest())
+    }
+
+    @Test fun rowAt_skips_the_dragged_row_so_downward_drag_finds_a_lower_target() {
+        val v = ClipboardView(ctx)
+        val tops = intArrayOf(0, 100, 200)
+        val heights = intArrayOf(100, 100, 100)
+        assertEquals(2, v.rowAt(tops, heights, skip = 0, y = 250))
+        assertEquals(1, v.rowAt(tops, heights, skip = 0, y = 150))
+        assertEquals(0, v.rowAt(tops, heights, skip = 2, y = 50))
+        assertNull(v.rowAt(tops, heights, skip = 0, y = 999))
+    }
+
+    @Test fun drag_drop_in_place_is_a_noop() {
+        var r: Triple<String, Int, Int>? = null
+        val v = phraseView().apply { onReorderPhrase = { c, f, t -> r = Triple(c, f, t) } }
+        v.dragStartForTest(1); v.dragMoveToForTest(1); v.dragDropForTest()
+        assertNull("same index → no reorder callback", r)
     }
 
 
@@ -319,6 +542,87 @@ class PhrasePanelTest {
         assertTrue("the radio stays left of the text", boundsInRoot(select, radio).right <= boundsInRoot(select, label).left)
     }
 
+    @Test
+    fun category_page_header_rows_and_footer_share_the_requested_edges() {
+        for (layoutDirection in listOf(View.LAYOUT_DIRECTION_LTR, View.LAYOUT_DIRECTION_RTL)) {
+            val list = phraseView().apply { this.layoutDirection = layoutDirection }
+            layout(list, w = 480, h = 400)
+            val listBack = allViews(list).filterIsInstance<PanelHeaderBackControl>().single()
+            val view = phraseView().apply {
+                this.layoutDirection = layoutDirection
+                enterCategorySortModeForTest()
+            }
+            layout(view, w = 480, h = 400)
+            val back = allViews(view).filterIsInstance<PanelHeaderBackControl>().single()
+            val title = textViews(view).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_manage_categories) }
+            val create = textViews(view).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_add_category) }
+            val import = textViews(view).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_import_phrases) }
+            val export = textViews(view).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_export_phrases) }
+            val firstRow = checkNotNull(view.listRowViewForTest(0)) as ViewGroup
+            assertEquals(4, firstRow.childCount)
+            val categoryArea = firstRow.getChildAt(0) as HorizontalScrollView
+            val category = categoryArea.getChildAt(0) as TextView
+            val rename = firstRow.getChildAt(1) as TextView
+            val delete = firstRow.getChildAt(2) as TextView
+            val handle = firstRow.getChildAt(3)
+            val backBounds = boundsInRoot(view, back)
+            val titleBounds = boundsInRoot(view, title)
+            val createBounds = boundsInRoot(view, create)
+            val categoryBounds = boundsInRoot(view, categoryArea)
+            val renameBounds = boundsInRoot(view, rename)
+            val deleteBounds = boundsInRoot(view, delete)
+            val handleBounds = boundsInRoot(view, handle)
+            assertEquals(ctx.getString(com.aegis.ime.R.string.clip_back), back.text.toString())
+            assertEquals("the page's back sits where the phrase list's back sits", boundsInRoot(list, listBack), backBounds)
+            assertTrue(back.height >= dp(48))
+            assertEquals(pal.keyLabel, back.currentTextColor)
+            assertEquals(android.graphics.Typeface.BOLD, title.typeface.style and android.graphics.Typeface.BOLD)
+            assertEquals(pal.keyLabel, title.currentTextColor)
+            assertTrue(backBounds.right <= titleBounds.left)
+            assertTrue(titleBounds.right <= createBounds.left)
+            assertEquals(View.LAYOUT_DIRECTION_LTR, firstRow.layoutDirection)
+            assertEquals("默认", category.text.toString())
+            assertEquals(ctx.getString(com.aegis.ime.R.string.clip_rename), rename.text.toString())
+            assertEquals(ctx.getString(com.aegis.ime.R.string.clip_delete), delete.text.toString())
+            for (action in listOf(create, rename, delete, import, export)) {
+                assertEquals(pal.keyLabel, action.currentTextColor)
+                assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, action.layoutParams.width)
+                assertTrue(action.hasOnClickListeners())
+                assertTrue(view.isImmediateActionForTest(action))
+                assertTrue(action.background === view.immediateActionDrawableForTest(action))
+                assertEquals(Color.TRANSPARENT, (action.background as ImeKeySurface).faceColor)
+                assertNull(action.foreground)
+            }
+            assertEquals(dp(48), create.height)
+            assertEquals(dp(48), import.height)
+            assertEquals(dp(48), export.height)
+            assertEquals(firstRow.height, rename.height)
+            assertEquals(firstRow.height, delete.height)
+            assertEquals(dp(44), handle.width)
+            assertEquals(firstRow.height, handle.height)
+            assertEquals(categoryBounds.right, renameBounds.left)
+            assertEquals(renameBounds.right, deleteBounds.left)
+            assertEquals(deleteBounds.right, handleBounds.left)
+            val createTextRight = createBounds.left + create.totalPaddingLeft + create.layout.getLineRight(0)
+            val handleVisibleRight = handleBounds.exactCenterX() + dp(9) * 0.78f + ctx.resources.displayMetrics.density
+            assertEquals(handleVisibleRight, createTextRight, 0.6f)
+            val edge = (com.aegis.ime.ime.theme.ImeShapes.edgeInsetDp * ctx.resources.displayMetrics.density).toInt()
+            assertEquals(edge, boundsInRoot(view, import).left)
+            assertEquals(view.width - edge, boundsInRoot(view, export).right)
+            assertTrue(boundsInRoot(view, import).right <= boundsInRoot(view, export).left)
+        }
+        val phraseSort = phraseView().apply {
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            enterSortModeForTest()
+        }
+        layout(phraseSort, w = 480, h = 400)
+        val phraseRow = checkNotNull(phraseSort.listRowViewForTest(0)) as ViewGroup
+        val phraseLabelBounds = boundsInRoot(phraseSort, phraseRow.getChildAt(0))
+        val phraseHandleBounds = boundsInRoot(phraseSort, phraseRow.getChildAt(1))
+        assertEquals(View.LAYOUT_DIRECTION_RTL, phraseRow.layoutDirection)
+        assertEquals(phraseHandleBounds.right, phraseLabelBounds.left)
+    }
+
     @Test fun batch_rows_fill_the_same_edges_as_the_list_cards() {
         val list = phraseView()
         layout(list, w = 480, h = 400)
@@ -370,6 +674,107 @@ class PhrasePanelTest {
         assertEquals("默认", del?.first)
         assertEquals(listOf("你好"), del?.second)
         assertFalse(v.isSelectModeForTest())
+    }
+
+
+    @Test fun categorybar_manage_page_new_category_still_triggers_onAddCategory() {
+        var adds = 0
+        val v = phraseView().apply { onAddCategory = { adds++ } }
+        clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_add_phrase)); assertEquals("top-bar ＋ no longer creates a category", 0, adds)
+        assertTrue("categoryBar 管理", clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_manage_categories)))
+        assertTrue("管理 opens the category page", v.isCategorySortModeForTest())
+        assertEquals("管理 opens no menu", View.GONE, overlayOf(v).visibility)
+        assertTrue("the page has 新建分类", click(v, ctx.getString(com.aegis.ime.R.string.clip_add_category))); assertEquals(1, adds)
+    }
+
+    @Test fun the_empty_phrase_hint_points_to_the_manage_action_in_both_languages() {
+        val zh = ctx.createConfigurationContext(
+            android.content.res.Configuration(ctx.resources.configuration).apply { setLocale(java.util.Locale.SIMPLIFIED_CHINESE) },
+        )
+        for (local in listOf(ctx, zh)) {
+            val hint = local.getString(com.aegis.ime.R.string.clip_phrases_empty_hint)
+            assertTrue("$hint names the manage action", local.getString(com.aegis.ime.R.string.clip_manage) in hint)
+            assertFalse("$hint no longer points at a pencil", "✎" in hint)
+        }
+        assertEquals("点 ＋ 添加常用语，在「管理」里新建分类", zh.getString(com.aegis.ime.R.string.clip_phrases_empty_hint))
+        val v = ClipboardView(ctx).apply {
+            categoriesProvider = { listOf("默认", "工作") }
+            phrasesInProvider = { emptyList() }
+            applyPalette(pal); forcePhrasesStateForTest("工作"); refresh()
+        }
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_phrases_empty_hint) in labels(v))
+    }
+
+    @Test fun category_page_rows_rename_delete_and_stay_on_the_page() {
+        val cats = mutableListOf(com.aegis.ime.user.ClipboardStore.DEFAULT_CATEGORY_ID, "工作", "私人")
+        val renamed = ArrayList<String>()
+        val deleted = ArrayList<String>()
+        val v = ClipboardView(ctx).apply {
+            categoriesProvider = { cats.toList() }
+            phrasesInProvider = { emptyList() }
+            onRenameCategory = { renamed.add(it) }
+            onDeleteCategory = { deleted.add(it); cats.remove(it) }
+            applyPalette(pal); forcePhrasesStateForTest("工作"); refresh()
+            enterCategorySortModeForTest()
+        }
+        layout(v)
+        val shownDefault = ctx.getString(com.aegis.ime.R.string.clip_default_category)
+        fun row(label: String): ViewGroup = (0 until v.listRowCountForTest())
+            .map { checkNotNull(v.listRowViewForTest(it)) as ViewGroup }
+            .single { ((it.getChildAt(0) as HorizontalScrollView).getChildAt(0) as TextView).text.toString() == label }
+        assertEquals(listOf(shownDefault, "工作", "私人"), v.listRowTextsForTest())
+        assertEquals(
+            "the current category stays bold",
+            listOf(false, true, false),
+            listOf(shownDefault, "工作", "私人").map { ((row(it).getChildAt(0) as HorizontalScrollView).getChildAt(0) as TextView).typeface?.isBold == true },
+        )
+        assertEquals(
+            ctx.getString(com.aegis.ime.R.string.clip_rename_named, shownDefault),
+            row(shownDefault).getChildAt(1).contentDescription?.toString(),
+        )
+        assertTrue(row(shownDefault).getChildAt(1).performClick())
+        assertEquals("the default category is renamed by its id", listOf(com.aegis.ime.user.ClipboardStore.DEFAULT_CATEGORY_ID), renamed)
+
+        assertTrue(row("私人").getChildAt(2).performClick())
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_delete_category_confirm, "私人") in labels(overlayOf(v)))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_cancel)))
+        assertEquals(View.GONE, overlayOf(v).visibility)
+        assertTrue("cancel stays on the page", v.isCategorySortModeForTest())
+        assertTrue(deleted.isEmpty())
+
+        assertTrue(row("私人").getChildAt(2).performClick())
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete)))
+        assertEquals(listOf("私人"), deleted)
+        assertTrue("confirm stays on the page", v.isCategorySortModeForTest())
+        layout(v)
+        assertEquals("the page lists what is left", listOf(shownDefault, "工作"), v.listRowTextsForTest())
+    }
+
+    @Test fun category_page_delete_of_the_last_category_explains_instead_of_confirming() {
+        var deleted: String? = null
+        val v = singleCatPhraseView().apply {
+            onDeleteCategory = { deleted = it }
+            enterCategorySortModeForTest()
+        }
+        layout(v)
+        val row = checkNotNull(v.listRowViewForTest(0)) as ViewGroup
+        assertTrue(row.getChildAt(2).performClick())
+        val shown = labels(overlayOf(v))
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_keep_one_category) in shown)
+        assertFalse(ctx.getString(com.aegis.ime.R.string.clip_delete_category_confirm, "默认") in shown)
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_done)))
+        assertNull(deleted)
+        assertTrue("the notice leaves the page open", v.isCategorySortModeForTest())
+    }
+
+    @Test fun category_page_back_returns_to_the_phrase_list() {
+        val v = phraseView().apply { enterCategorySortModeForTest() }
+        layout(v)
+        assertTrue(allViews(v).filterIsInstance<PanelHeaderBackControl>().single().performClick())
+        assertFalse(v.isCategorySortModeForTest())
+        layout(v)
+        assertEquals(listOf("你好", "在吗", "稍等"), v.listRowTextsForTest())
+        assertTrue("the category rail is back", allViews(v).any { it is ImePanelCategoryBar })
     }
 
     @Test fun category_chip_long_press_offers_rename_and_delete_in_one_row() {
@@ -546,6 +951,107 @@ class PhrasePanelTest {
             assertEquals("$name: the action starts two characters in", cardBox.left + inset, actionBox.left + action.totalPaddingLeft)
             assertEquals("$name: cancel ends two characters in", cardBox.right - inset, cancelBox.right - cancel.totalPaddingRight)
             assertTrue("$name: the actions stay apart", cancelBox.left - actionBox.right >= dp(48))
+        }
+    }
+
+    @Test fun clipboard_picker_and_import_menus_use_48dp_rows() {
+        val clip = clipboardView(listOf("第一条"), listOf("默认", "工作"))
+        layout(clip)
+        assertTrue(textViews(clip).first { it.text?.toString() == "第一条" && it.isLongClickable }.performLongClick())
+        layout(clip)
+        for (label in listOf(com.aegis.ime.R.string.clip_delete_item, com.aegis.ime.R.string.clip_add_phrase, com.aegis.ime.R.string.clip_split_title).map(ctx::getString)) {
+            assertEquals("clipboard menu $label", dp(48), textViews(overlayOf(clip)).single { it.text?.toString() == label }.height)
+        }
+        assertTrue(click(overlayOf(clip), ctx.getString(com.aegis.ime.R.string.clip_add_phrase)))
+        layout(clip)
+        for (label in listOf("默认", "工作", ctx.getString(com.aegis.ime.R.string.clip_new_category))) {
+            assertEquals("category picker $label", dp(48), textViews(overlayOf(clip)).single { it.text?.toString() == label }.height)
+        }
+
+        val move = ClipboardView(ctx).apply {
+            categoriesProvider = { listOf("默认", "工作", "私人") }
+            phrasesInProvider = { emptyList() }
+            applyPalette(pal); forcePhrasesStateForTest("默认"); refresh()
+            showMoveChooserForTest("默认")
+        }
+        layout(move)
+        for (label in listOf("工作", "私人", ctx.getString(com.aegis.ime.R.string.clip_new_category))) {
+            assertEquals("move picker $label", dp(48), textViews(overlayOf(move)).single { it.text?.toString() == label }.height)
+        }
+        for (name in listOf("工作", "私人")) {
+            val row = textViews(overlayOf(move)).single { it.text?.toString() == name }.parent as View
+            assertEquals("move picker $name row with its delete glyph", dp(48), row.height)
+        }
+
+        val import = phraseView().apply { enterCategorySortModeForTest() }
+        layout(import)
+        assertTrue(click(import, ctx.getString(com.aegis.ime.R.string.clip_import_phrases)))
+        layout(import)
+        for (label in listOf(com.aegis.ime.R.string.clip_overwrite, com.aegis.ime.R.string.clip_merge_recommended, com.aegis.ime.R.string.clip_back).map(ctx::getString)) {
+            assertEquals("import menu $label", dp(48), textViews(overlayOf(import)).single { it.text?.toString() == label }.height)
+        }
+    }
+
+    @Test fun popups_of_one_kind_keep_one_width_whatever_they_say() {
+        val long = "这是一个很长很长很长很长很长很长很长很长的分类名称用来测试弹窗宽度"
+        fun withCategories(vararg cats: String) = ClipboardView(ctx).apply {
+            categoriesProvider = { cats.toList() }
+            phrasesInProvider = { c -> if (c == "默认") listOf("你好") else emptyList() }
+            applyPalette(pal); forcePhrasesStateForTest("默认"); refresh()
+        }
+        fun deleteCategory(v: ClipboardView, name: String) = v.also {
+            layout(v)
+            assertTrue(textViews(v).first { it.text?.toString() == name && it.isLongClickable }.performLongClick())
+            assertTrue(clickDesc(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete_named, name)))
+        }
+        fun pickCategory(cats: List<String>) = clipboardView(listOf("第一条"), cats).also { v ->
+            layout(v)
+            assertTrue(textViews(v).first { it.text?.toString() == "第一条" && it.isLongClickable }.performLongClick())
+            assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_add_phrase)))
+        }
+        val popups = listOf(
+            "delete a short category" to deleteCategory(phraseView(), "工作"),
+            "delete a long category" to deleteCategory(withCategories("默认", long), long),
+            "delete a phrase" to phraseView().apply { expandForTest("你好") }.also { assertTrue(click(it, ctx.getString(com.aegis.ime.R.string.clip_delete))) },
+            "clear a category" to phraseView().apply { confirmClearForTest() },
+            "keep one category" to deleteCategory(singleCatPhraseView(), "默认"),
+            "pick among short names" to pickCategory(listOf("默认")),
+            "pick among long names" to pickCategory(listOf("默认", long)),
+            "move among long names" to withCategories("默认", long).apply { showMoveChooserForTest("默认") },
+            "import" to phraseView().apply { enterCategorySortModeForTest() }.also {
+                layout(it)
+                assertTrue(click(it, ctx.getString(com.aegis.ime.R.string.clip_import_phrases)))
+            },
+        )
+        val width = ImeShapes.popupWidthPx(ctx.resources.displayMetrics)
+        for ((name, v) in popups) {
+            layout(v)
+            assertEquals("$name: the one popup width", width, (overlayOf(v) as ViewGroup).getChildAt(0).width)
+        }
+    }
+
+    @Test fun popups_in_a_panel_narrower_than_the_popup_width_keep_the_edge_inset() {
+        val metrics = ctx.resources.displayMetrics
+        val edge = (ImeShapes.edgeInsetDp * metrics.density).toInt()
+        val narrow = ImeShapes.popupWidthPx(metrics)
+        val popups = listOf(
+            "clear a category" to phraseView().also { layout(it, w = narrow); it.confirmClearForTest() },
+            "move among categories" to ClipboardView(ctx).apply {
+                categoriesProvider = { listOf("默认", "工作") }
+                phrasesInProvider = { emptyList() }
+                applyPalette(pal); forcePhrasesStateForTest("默认"); refresh()
+            }.also { layout(it, w = narrow); it.showMoveChooserForTest("默认") },
+            "import" to phraseView().apply { enterCategorySortModeForTest() }.also {
+                layout(it, w = narrow)
+                assertTrue(click(it, ctx.getString(com.aegis.ime.R.string.clip_import_phrases)))
+            },
+        )
+        for ((name, v) in popups) {
+            layout(v, w = narrow)
+            val card = (overlayOf(v) as ViewGroup).getChildAt(0)
+            assertEquals("$name: the popup narrows to the panel", narrow - 2 * edge, card.width)
+            assertEquals("$name: the popup keeps the edge inset on the left", edge, card.left)
+            assertEquals("$name: the popup keeps the edge inset on the right", narrow - edge, card.right)
         }
     }
 
@@ -778,6 +1284,35 @@ class PhrasePanelTest {
         assertEquals(listOf(d), deleted)
     }
 
+    @Test fun categorybar_manage_is_a_plain_text_action_beside_the_rail() {
+        val v = phraseView()
+        layout(v)
+        val edit = allViews(v).single {
+            it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_manage_categories)
+        } as TextView
+        assertEquals(ctx.getString(com.aegis.ime.R.string.clip_manage), edit.text.toString())
+        val surface = edit.background as ImeKeySurface
+        assertTrue(v.isImmediateActionForTest(edit))
+        assertEquals(Color.TRANSPARENT, surface.faceColor)
+        assertEquals(ImeShapes.toolbarFeedbackRadiusDp * ctx.resources.displayMetrics.density, surface.cornerRadiusPx, 0f)
+        assertEquals(pal.keyLabel, edit.currentTextColor)
+        assertNull(edit.foreground)
+    }
+
+    @Test fun the_phrase_category_bar_keeps_the_shared_edge_inset() {
+        val v = phraseView()
+        layout(v)
+        val inset = (ImeShapes.edgeInsetDp * ctx.resources.displayMetrics.density).toInt()
+        val bar = allViews(v).filterIsInstance<ImePanelCategoryBar>().single()
+        val rail = allViews(bar).filterIsInstance<ImePanelCategoryRail>().single()
+        val manage = allViews(v).single {
+            it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_manage_categories)
+        }
+        assertEquals("the first tab and its underline start at the edge inset", inset, boundsInRoot(v, rail.getChildAt(0)).left)
+        assertEquals("the manage action ends at the edge inset", v.width - inset, boundsInRoot(v, manage).right)
+        assertEquals("the list cards share the same edges", inset, boundsInRoot(v, checkNotNull(v.listRowViewForTest(0))).left)
+    }
+
     @Test fun the_list_scrollbar_sits_inside_the_shared_edge_inset() {
         val v = phraseView()
         layout(v)
@@ -788,6 +1323,124 @@ class PhrasePanelTest {
         assertEquals(View.SCROLLBARS_INSIDE_OVERLAY, viewport.scrollBarStyle)
         assertEquals("the cards keep their edges", inset, boundsInRoot(v, checkNotNull(v.listRowViewForTest(0))).left)
         assertEquals(v.width - inset, boundsInRoot(v, checkNotNull(v.listRowViewForTest(0))).right)
+    }
+
+    @Test fun the_phrase_category_bar_is_40dp_tall() {
+        val v = phraseView()
+        layout(v)
+        val bar = allViews(v).filterIsInstance<ImePanelCategoryBar>().single()
+        assertEquals(dp(40), bar.height)
+        val tab = textViews(v).first { it.text?.toString() == "工作" && it.isLongClickable }
+        assertEquals("the tabs fill the bar", dp(40), tab.height)
+        val manage = allViews(v).single {
+            it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_manage_categories)
+        }
+        assertEquals("the manage action fills the bar", dp(40), manage.height)
+    }
+
+    @Test fun phrase_category_bar_sets_the_symbol_rail_tabs_on_the_panel_background() {
+        for (palette in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
+            val v = ClipboardView(ctx).apply {
+                categoriesProvider = { listOf("默认", "工作", "私人") }
+                phrasesInProvider = { emptyList() }
+                applyPalette(palette); forcePhrasesStateForTest("工作"); refresh()
+            }
+            layout(v)
+            val symbols = SymbolsView(ctx).apply { applyPalette(palette); refresh() }
+            val bar = allViews(v).filterIsInstance<ImePanelCategoryBar>().single()
+            val rail = allViews(bar).filterIsInstance<ImePanelCategoryRail>().single()
+            val symbolRail = symbols.categoryRailForTest()
+            assertNull("the phrase tabs lie on the panel itself, with no function surface band", bar.background)
+            assertEquals("no grid rule is drawn above the phrase tabs", 0, Color.alpha(bar.ruleColor))
+            assertEquals(palette.accentBottom, rail.underlineColor)
+            assertEquals(symbolRail.underlineColor, rail.underlineColor)
+            assertEquals("the underline follows the selected category", 1, rail.selectedIndex)
+            val tabs = (0 until rail.childCount).map { rail.getChildAt(it) as TextView }
+            assertEquals(listOf("默认", "工作", "私人"), tabs.map { it.text.toString() })
+            assertEquals(palette.keyLabel, tabs[1].currentTextColor)
+            assertEquals(palette.keyLabelSecondary, tabs[0].currentTextColor)
+            assertEquals(palette.keyLabelSecondary, tabs[2].currentTextColor)
+            for ((index, tab) in tabs.withIndex()) {
+                val reference = symbols.railTabForTest(if (index == 1) 0 else 1)
+                assertEquals(index == 1, tab.isSelected)
+                assertEquals(reference.isSelected, tab.isSelected)
+                assertEquals(reference.currentTextColor, tab.currentTextColor)
+                assertEquals(reference.textSize, tab.textSize, 0f)
+                assertEquals(reference.typeface?.style, tab.typeface?.style)
+                assertEquals(
+                    listOf(reference.paddingLeft, reference.paddingTop, reference.paddingRight, reference.paddingBottom),
+                    listOf(tab.paddingLeft, tab.paddingTop, tab.paddingRight, tab.paddingBottom),
+                )
+                assertEquals(reference.minimumWidth, tab.minimumWidth)
+                assertEquals(reference.gravity, tab.gravity)
+                assertEquals("a tab fills the rail height", bar.height, tab.height)
+                val surface = tab.background as ImeKeySurface
+                val referenceSurface = reference.background as ImeKeySurface
+                assertEquals(referenceSurface.faceColor, surface.faceColor)
+                assertNull(tab.foreground)
+            }
+            val underline = requireNotNull(rail.underlineBoundsForTest())
+            assertEquals(tabs[1].left.toFloat(), underline.left, 0f)
+            assertEquals(tabs[1].right.toFloat(), underline.right, 0f)
+            assertEquals(rail.height.toFloat(), underline.bottom, 0f)
+            assertTrue(
+                "no capsule remains behind the categories",
+                allViews(bar.parent as View).none { it.background is GradientDrawable },
+            )
+            val frame = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
+            v.draw(Canvas(frame))
+            val barBox = boundsInRoot(v, bar)
+            val railBox = boundsInRoot(v, rail)
+            val manageBox = boundsInRoot(v, (bar.parent as ViewGroup).getChildAt(1))
+            for (x in listOf(barBox.left + 1, barBox.centerX(), barBox.right - 2)) {
+                assertEquals("the panel background runs across the bar's top edge at x=$x", palette.keyboardBg, frame.getPixel(x, barBox.top))
+            }
+            assertTrue(railBox.right < manageBox.left)
+            assertEquals(
+                "the panel background shows between the last tab and the edit action",
+                palette.keyboardBg,
+                frame.getPixel((railBox.right + manageBox.left) / 2, barBox.centerY()),
+            )
+        }
+    }
+
+    @Test fun phrase_category_tabs_press_like_the_manage_action() {
+        for (palette in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
+            val v = ClipboardView(ctx).apply {
+                categoriesProvider = { listOf("默认", "工作", "私人") }
+                phrasesInProvider = { emptyList() }
+                applyPalette(palette); forcePhrasesStateForTest("工作"); refresh()
+            }
+            layout(v)
+            val rail = allViews(v).filterIsInstance<ImePanelCategoryRail>().single()
+            val manage = allViews(v).single {
+                it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_manage_categories)
+            }
+            val manageSurface = manage.background as ImeKeySurface
+            val faceInset = manageSurface.faceBoundsForTest(manage.width, manage.height).left
+            assertTrue("the manage action insets its press", faceInset > 0f)
+            assertTrue("the manage action rounds its press", manageSurface.cornerRadiusPx > 0f)
+            for (index in 0 until rail.childCount) {
+                val tab = rail.getChildAt(index)
+                val surface = tab.background as ImeKeySurface
+                assertEquals(manageSurface.faceColor, surface.faceColor)
+                assertEquals("tab $index", manageSurface.cornerRadiusPx, surface.cornerRadiusPx, 0f)
+                assertEquals(
+                    "tab $index",
+                    RectF(faceInset, faceInset, tab.width - faceInset, tab.height - faceInset),
+                    surface.faceBoundsForTest(tab.width, tab.height),
+                )
+                tab.dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, tab.width / 2f, tab.height / 2f, 0))
+                val frame = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
+                v.draw(Canvas(frame))
+                val box = boundsInRoot(v, tab)
+                val face = Rect(box).apply { inset(faceInset.roundToInt(), faceInset.roundToInt()) }
+                assertEquals("tab $index: the press stays off the tab corner", palette.keyboardBg, frame.getPixel(box.left, box.top))
+                assertEquals("tab $index: the press rounds its corner", palette.keyboardBg, frame.getPixel(face.left, face.top))
+                assertTrue("tab $index: the press lights its face", frame.getPixel(face.centerX(), face.top + 1) != palette.keyboardBg)
+                tab.dispatchTouchEvent(MotionEvent.obtain(0, 16, MotionEvent.ACTION_CANCEL, tab.width / 2f, tab.height / 2f, 0))
+            }
+        }
     }
 
     @Test fun the_selected_tab_press_keeps_its_rounded_bottom_over_the_underline() {
@@ -814,6 +1467,150 @@ class PhrasePanelTest {
             assertEquals("the press keeps its rounded corner on the underline", resting.getPixel(face.left, row), pressed.getPixel(face.left, row))
             tab.dispatchTouchEvent(MotionEvent.obtain(0, 16, MotionEvent.ACTION_CANCEL, tab.width / 2f, tab.height / 2f, 0))
         }
+    }
+
+    @Test fun the_category_page_scrolls_a_long_name_instead_of_cutting_it() {
+        val long = "很长很长的分类名称".repeat(6)
+        var cats = listOf("默认", long)
+        val v = ClipboardView(ctx).apply {
+            categoriesProvider = { cats }
+            phrasesInProvider = { emptyList() }
+            applyPalette(pal); forcePhrasesStateForTest("默认"); refresh()
+            enterCategorySortModeForTest()
+        }
+        layout(v)
+        val name = textViews(v).single { it.text?.toString() == long }
+        val scroller = name.parent as HorizontalScrollView
+        assertFalse("the name scroller hides its scrollbar like the copy bar", scroller.isHorizontalScrollBarEnabled)
+        assertEquals("the name stays on one line", 1, name.maxLines)
+        assertNull("the rest of the name is reached by scrolling, not cut off with an ellipsis", name.ellipsize)
+        assertTrue("the whole name is laid out past the visible part", name.width > scroller.width)
+        assertTrue(scroller.canScrollHorizontally(1))
+        val row = scroller.parent as ViewGroup
+        assertEquals("the rename action follows the name area", scroller.right, row.getChildAt(1).left)
+        scroller.scrollTo(name.width, 0)
+        assertEquals("the end of the name scrolls into view", name.width - scroller.width, scroller.scrollX)
+        val short = textViews(v).single { it.text?.toString() == "默认" }
+        assertFalse("a name that fits does not scroll", (short.parent as HorizontalScrollView).canScrollHorizontally(1))
+        val other = "另一个很长的分类名称".repeat(6)
+        cats = listOf("默认", other)
+        v.refresh()
+        layout(v)
+        val rebound = textViews(v).single { it.text?.toString() == other }
+        assertTrue("precondition: the new name also scrolls", (rebound.parent as HorizontalScrollView).canScrollHorizontally(1))
+        assertEquals("the scrolled row starts its new name at the beginning", 0, (rebound.parent as HorizontalScrollView).scrollX)
+    }
+
+    @Test fun dragging_a_long_category_name_sideways_scrolls_it_and_dragging_up_scrolls_the_page() {
+        val long = "很长很长的分类名称".repeat(6)
+        var actions = 0
+        val v = ClipboardView(ctx).apply {
+            categoriesProvider = { listOf("默认", "分类1", "分类2", long) + (3..12).map { "分类$it" } }
+            phrasesInProvider = { emptyList() }
+            onRenameCategory = { actions++ }
+            onDeleteCategory = { actions++ }
+            applyPalette(pal); forcePhrasesStateForTest("默认"); refresh()
+            enterCategorySortModeForTest()
+        }
+        layout(v)
+        val name = textViews(v).single { it.text?.toString() == long }
+        val scroller = name.parent as HorizontalScrollView
+        var page: View = scroller
+        while (page !is android.widget.ScrollView) page = page.parent as View
+        fun drag(dx: Float, dy: Float) {
+            val box = boundsInRoot(v, scroller)
+            val x = box.exactCenterX()
+            val y = box.exactCenterY()
+            v.dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, x, y, 0))
+            for (step in 1..10) v.dispatchTouchEvent(MotionEvent.obtain(0, step * 16L, MotionEvent.ACTION_MOVE, x + dx * step / 10f, y + dy * step / 10f, 0))
+            v.dispatchTouchEvent(MotionEvent.obtain(0, 176, MotionEvent.ACTION_UP, x + dx, y + dy, 0))
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(3))
+            v.draw(Canvas(Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)))
+        }
+        assertTrue("precondition: the long name is in view", boundsInRoot(v, scroller).exactCenterY() < page.bottom)
+        drag(0f, -dp(60).toFloat())
+        assertTrue("an upward drag from the name scrolls the page", page.scrollY > 0)
+        assertTrue("precondition: the long name is still in view", boundsInRoot(v, scroller).exactCenterY() > page.top)
+        assertEquals("the upward drag leaves the name where it was", 0, scroller.scrollX)
+        val pageAfterUpward = page.scrollY
+        drag(-dp(120).toFloat(), 0f)
+        assertTrue("a sideways drag on the name scrolls it", scroller.scrollX > 0)
+        assertEquals("the sideways drag leaves the page where it was", pageAfterUpward, page.scrollY)
+        assertEquals("neither drag renames or deletes", 0, actions)
+    }
+
+    @Test fun the_category_page_shows_a_stored_multiline_name_on_one_line() {
+        val tail = "很长很长的客户分类".repeat(6)
+        val stored = "工作\n$tail"
+        val v = ClipboardView(ctx).apply {
+            categoriesProvider = { listOf("默认", stored) }
+            phrasesInProvider = { emptyList() }
+            applyPalette(pal); forcePhrasesStateForTest("默认"); refresh()
+            enterCategorySortModeForTest()
+        }
+        layout(v)
+        val name = textViews(v).single { it.text?.toString()?.startsWith("工作") == true }
+        assertEquals("the line break shows as a space", "工作 $tail", name.text.toString())
+        assertEquals("the whole name sits on one line", 1, name.lineCount)
+        val scroller = name.parent as HorizontalScrollView
+        assertTrue("the whole name is laid out past the visible part", name.width > scroller.width)
+        scroller.scrollTo(name.width, 0)
+        assertEquals("the end of the name scrolls into view", name.width - scroller.width, scroller.scrollX)
+    }
+
+    @Test fun categorybar_manage_long_press_opens_the_category_page() {
+        val v = phraseView()
+        val manage = allViews(v).single {
+            it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_manage_categories)
+        }
+
+        assertTrue(manage.performLongClick())
+        assertTrue(v.isCategorySortModeForTest())
+        assertEquals("the page opens without a menu", View.GONE, overlayOf(v).visibility)
+        assertTrue(
+            textViews(v).any {
+                it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_add_category) && it.hasOnClickListeners()
+            },
+        )
+    }
+
+    @Test fun non_first_category_selection_retains_scroll_with_edit_pinned_outside() {
+        val categories = (0..11).map { "分类${it.toString().padStart(2, '0')}" }
+        val v = ClipboardView(ctx).apply {
+            categoriesProvider = { categories }
+            phrasesInProvider = { listOf("短语") }
+            applyPalette(pal)
+            forcePhrasesStateForTest(categories.first())
+            refresh()
+        }
+        layout(v, w = 320, h = 400)
+        val initialScroll = categoryScroll(v)
+        val railViewport = initialScroll.width - initialScroll.paddingLeft - initialScroll.paddingRight
+        initialScroll.scrollTo((initialScroll.getChildAt(0).width - railViewport).coerceAtLeast(0), 0)
+        val savedScroll = initialScroll.scrollX
+        assertTrue(savedScroll > 0)
+
+        val selectedName = categories.last()
+        assertTrue(textViews(v).first { it.text?.toString() == selectedName }.performClick())
+        layout(v, w = 320, h = 400)
+
+        val retainedScroll = categoryScroll(v)
+        val selected = textViews(v).first { it.text?.toString() == selectedName }
+        val manage = allViews(v).first { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_manage_categories) }
+        assertTrue(retainedScroll !== initialScroll)
+        assertEquals(selectedName, v.phraseCatForTest())
+        assertTrue(retainedScroll.scrollX > 0)
+        assertTrue(selected.left - retainedScroll.scrollX < retainedScroll.width - retainedScroll.paddingRight)
+        assertTrue(selected.right - retainedScroll.scrollX > 0)
+        assertTrue(retainedScroll.parent === manage.parent)
+        assertFalse(allViews(retainedScroll).contains(manage))
+        assertTrue("the categories scroll in the symbol panel's rail", retainedScroll is ImePanelCategoryBar)
+        assertTrue("the rail marks the selection instead of a pill", selected.isSelected && selected.background is ImeKeySurface)
+
+        v.refresh()
+        layout(v, w = 320, h = 400)
+        assertEquals(selectedName, v.phraseCatForTest())
+        assertTrue(categoryScroll(v).scrollX > 0)
     }
 
 
@@ -867,6 +1664,22 @@ class PhrasePanelTest {
         val scroll = categoryScroll(v)
         assertEquals("新分类", v.phraseCatForTest())
         assertTrue(scroll.scrollX > 0)
+        assertTabInView(scroll, textViews(scroll).single { it.text?.toString() == "新分类" })
+    }
+
+    @Test fun leaving_the_category_page_after_making_a_category_shows_it_on_the_rail() {
+        val cats = (0..10).map { "分类" + it.toString().padStart(2, '0') }.toMutableList()
+        val v = manyCategoryView(cats)
+        layout(v, w = 320, h = 400)
+        v.resetToDefault()
+        cats.add("新分类")
+        v.showCategoryAdmin("新分类")
+        layout(v, w = 320, h = 400)
+        assertTrue(v.isCategorySortModeForTest())
+        assertTrue(allViews(v).filterIsInstance<PanelHeaderBackControl>().single().performClick())
+        layout(v, w = 320, h = 400)
+        val scroll = categoryScroll(v)
+        assertTrue("the rail had to scroll to reach the new category", scroll.scrollX > 0)
         assertTabInView(scroll, textViews(scroll).single { it.text?.toString() == "新分类" })
     }
 

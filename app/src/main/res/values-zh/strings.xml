@@ -426,7 +426,16 @@
     <string name="clip_edit">编辑</string>
     <string name="clip_note">备注</string>
     <string name="clip_move">移动</string>
+    <string name="clip_drag_sort">拖动排序</string>
     <string name="clip_done">完成</string>
+    <string name="clip_manage">管理</string>
+    <string name="clip_manage_categories">分类管理</string>
+    <string name="clip_add_category">新建分类</string>
+    <string name="clip_import_phrases">导入常用语</string>
+    <string name="clip_export_phrases">导出常用语</string>
+    <string name="clip_import_body">「合并」把导入内容累加到现有常用语（按分类去重）；「覆盖」用导入文件整体替换常用语库，空文件不会清空</string>
+    <string name="clip_overwrite">覆盖</string>
+    <string name="clip_merge_recommended">合并（推荐）</string>
     <string name="clip_cancel">取消</string>
     <string name="clip_clear_category_confirm">清空「%1$s」分类中的全部常用语？</string>
     <string name="clip_clear">清空</string>

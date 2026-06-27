@@ -260,6 +260,40 @@ class PredictiveBackTest {
         assertFalse("a second Back closes the emoji panel", iv.panelShown)
     }
 
+    @Test fun back_closes_category_page_layers_one_at_a_time_before_the_panel() {
+        val iv = InputView(ctx)
+        val deleted = ArrayList<String>()
+        val imports = ArrayList<Boolean>()
+        val panel = phrasePanel().apply {
+            onDeleteCategory = { deleted.add(it) }
+            onImportPhrasesWithMode = { imports.add(it) }
+        }
+        iv.showPanel(panel)
+        panel.enterCategorySortModeForTest()
+
+        assertTrue((panel.listRowViewForTest(1) as ViewGroup).getChildAt(2).performClick())
+        assertTrue("precondition: the delete confirmation is up", panel.overlayVisibleForTest())
+        backStep(iv, "PANEL_LAYER")
+        assertFalse("Back closes the confirmation", panel.overlayVisibleForTest())
+        assertTrue("Back never takes the delete path", deleted.isEmpty())
+        assertTrue("the category page stays", panel.isCategorySortModeForTest())
+
+        assertTrue(clickable(panel, ctx.getString(com.aegis.ime.R.string.clip_import_phrases)).performClick())
+        assertTrue("precondition: the import choice is up", panel.overlayVisibleForTest())
+        backStep(iv, "PANEL_LAYER")
+        assertFalse(panel.overlayVisibleForTest())
+        assertTrue("Back imports nothing", imports.isEmpty())
+        assertTrue(panel.isCategorySortModeForTest())
+
+        backStep(iv, "PANEL_LAYER")
+        assertFalse("the next Back leaves the page like its back control", panel.isCategorySortModeForTest())
+        assertTrue("the phrase list is still open", iv.isPanelShowing(panel))
+
+        backStep(iv, "PANEL")
+        assertFalse("only the last Back closes the panel", iv.panelShown)
+        assertFalse(iv.hasOverlay())
+    }
+
     @Test fun back_closes_batch_popups_before_leaving_batch_management() {
         val iv = InputView(ctx)
         val moved = ArrayList<List<String>>()
@@ -314,6 +348,36 @@ class PredictiveBackTest {
         backStep(iv, "PANEL")
         assertFalse(iv.panelShown)
         assertEquals(1, finished)
+    }
+
+    @Test fun back_leaves_phrase_sort_mode_like_its_done_action() {
+        val iv = InputView(ctx)
+        val panel = phrasePanel()
+        iv.showPanel(panel)
+        panel.enterSortModeForTest()
+
+        backStep(iv, "PANEL_LAYER")
+        assertFalse(panel.isSortModeForTest())
+        assertTrue(iv.isPanelShowing(panel))
+
+        backStep(iv, "PANEL")
+        assertFalse(iv.panelShown)
+    }
+
+    @Test fun back_during_a_category_drag_leaves_the_page_without_dropping() {
+        val iv = InputView(ctx)
+        val reorders = ArrayList<Pair<Int, Int>>()
+        val panel = phrasePanel().apply { onReorderCategory = { from, to -> reorders.add(from to to) } }
+        iv.showPanel(panel)
+        panel.enterCategorySortModeForTest()
+        panel.dragStartForTest(0)
+        panel.dragMoveToForTest(1)
+        assertTrue("precondition: a category is lifted", panel.isDraggingForTest())
+
+        backStep(iv, "PANEL_LAYER")
+        assertFalse(panel.isDraggingForTest())
+        assertFalse(panel.isCategorySortModeForTest())
+        assertTrue("Back never drops the lifted category", reorders.isEmpty())
     }
 
     @Test fun a_clipboard_panel_with_nothing_open_closes_on_the_first_back() {

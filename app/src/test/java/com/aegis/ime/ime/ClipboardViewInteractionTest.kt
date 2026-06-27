@@ -34,6 +34,7 @@ import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -236,6 +237,119 @@ class ClipboardViewInteractionTest {
         )
     }
 
+    @Test fun immediate_clipboard_actions_use_keyboard_feedback_haptics_and_touch_sized_targets() {
+        val top = phraseView(listOf("你好"))
+        layout(top)
+        assertImmediateKey(
+            top,
+            allViews(top).single { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_add_phrase) },
+            "top add",
+        )
+
+        val swipe = clipView(listOf("第一条")).apply { revealSwipeForTest("第一条") }
+        layout(swipe)
+        assertImmediateKey(swipe, swipeActions(swipe, "第一条").first(), "revealed action")
+
+        val expanded = clipView(listOf("第一条")).apply { expandForTest("第一条") }
+        layout(expanded)
+        assertImmediateKey(expanded, actionButtons(expanded).first(), "expanded action")
+
+        val selected = clipView(listOf("a", "b")).apply { enterSelectForTest(listOf("a")) }
+        layout(selected)
+        assertImmediateKey(selected, requireNotNull(selected.listRowViewForTest(0)), "selection row")
+        assertImmediateKey(selected, requireNotNull(selected.selectAllActionForTest()), "select all")
+        assertImmediateKey(selected, requireNotNull(selected.cancelSelectActionForTest()), "cancel selection")
+
+        val sorted = phraseView(listOf("你好")).apply { enterSortModeForTest() }
+        layout(sorted)
+        assertImmediateKey(
+            sorted,
+            textViews(sorted).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_done) },
+            "finish sorting",
+        )
+
+        val rail = phraseView(listOf("你好"))
+        layout(rail)
+        assertImmediateKey(
+            rail,
+            textViews(rail).first { it.text?.toString() == "工作" && it.hasOnClickListeners() },
+            "category tab",
+            minHeightDp = 40,
+        )
+        assertImmediateKey(
+            rail,
+            allViews(rail).single { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_manage_categories) },
+            "manage",
+            minHeightDp = 40,
+        )
+
+        val categoryPage = phraseView(listOf("你好")).apply { enterCategorySortModeForTest() }
+        layout(categoryPage)
+        assertImmediateKey(
+            categoryPage,
+            textViews(categoryPage).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_add_category) },
+            "new category",
+        )
+        val pageRow = requireNotNull(categoryPage.listRowViewForTest(0)) as ViewGroup
+        assertImmediateKey(categoryPage, pageRow.getChildAt(1), "rename")
+        assertImmediateKey(categoryPage, pageRow.getChildAt(2), "delete")
+        for (label in listOf(com.aegis.ime.R.string.clip_import_phrases, com.aegis.ime.R.string.clip_export_phrases).map(ctx::getString)) {
+            assertImmediateKey(categoryPage, textViews(categoryPage).single { it.text?.toString() == label }, label)
+        }
+        val pageBack = allViews(categoryPage).filterIsInstance<PanelHeaderBackControl>().single()
+        assertTrue("page back width is at least 48dp", pageBack.width >= dp(48))
+        assertTrue("page back height is at least 48dp", pageBack.height >= dp(48))
+
+        val split = clipView(listOf("one two")).apply { showSplitForTest("one two") }
+        layout(split)
+        val copyAll = textViews(overlayOf(split)).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_copy_all) }
+        val splitBack = textViews(overlayOf(split)).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_back) }
+        assertImmediateKey(split, copyAll, "copy all split blocks")
+        for ((name, action) in listOf("copy all" to copyAll, "split back" to splitBack)) {
+            assertEquals("$name is a text action without a key face", Color.TRANSPARENT, (action.background as ImeKeySurface).faceColor)
+            assertEquals("$name uses the body text color", pal.keyLabel, action.currentTextColor)
+        }
+    }
+
+    @Test fun content_navigation_keeps_complex_gestures_while_simple_menu_actions_use_key_feedback() {
+        val phrase = phraseView(listOf("你好"))
+        layout(phrase)
+        val body = bodyOf(phrase, "你好")
+        val chevron = allViews(phrase).single {
+            it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_expand)
+        }
+        val tab = textViews(phrase).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_phrases) }
+        val category = textViews(phrase).first { it.text?.toString() == "默认" && it.hasOnClickListeners() }
+        for ((name, control) in listOf("body" to body, "chevron" to chevron, "tab" to tab)) {
+            assertFalse("$name stays outside immediate-key feedback", phrase.isImmediateActionForTest(control))
+            assertTrue("$name keeps its existing ripple", control.foreground is RippleDrawable)
+        }
+        assertTrue("a category tab takes the rail's key feedback", phrase.isImmediateActionForTest(category))
+        assertTrue(category.background === phrase.immediateActionDrawableForTest(category))
+        val categorySurface = category.background as ImeKeySurface
+        assertEquals(Color.TRANSPARENT, categorySurface.faceColor)
+        assertNull("a category tab stacks no platform ripple", category.foreground)
+        assertTrue("a category tab keeps its long-press menu", category.isLongClickable)
+        phrase.enterCategorySortModeForTest()
+        assertTrue(clickText(phrase, ctx.getString(com.aegis.ime.R.string.clip_import_phrases)))
+        val menu = textViews(overlayOf(phrase)).first { it.hasOnClickListeners() }
+        assertTrue(phrase.isImmediateActionForTest(menu))
+        assertTrue(menu.background === phrase.immediateActionDrawableForTest(menu))
+        assertNull(menu.foreground)
+
+        val split = clipView(listOf("one two")).apply { showSplitForTest("one two") }
+        layout(split)
+        val chip = textViews(overlayOf(split)).first { it.text?.toString() == "one" }
+        assertFalse(split.isImmediateActionForTest(chip))
+        assertTrue(chip.foreground is RippleDrawable)
+
+        val sorted = phraseView(listOf("你好")).apply { enterCategorySortModeForTest() }
+        layout(sorted)
+        val row = requireNotNull(sorted.listRowViewForTest(0)) as ViewGroup
+        val handle = row.getChildAt(row.childCount - 1)
+        assertFalse(sorted.isImmediateActionForTest(handle))
+    }
+
     private fun assertSwipeActionStrip(v: ClipboardView, text: String, descriptions: List<String>): List<View> {
         val actions = swipeActions(v, text)
         val size = dp(48)
@@ -414,6 +528,23 @@ class ClipboardViewInteractionTest {
         assertNull(picked)
     }
 
+    @Test fun a_slow_horizontal_swipe_on_a_phrase_card_never_enters_drag() {
+        val v = phraseView(listOf("你好", "在吗"))
+        layout(v)
+        val body = bodyOf(v, "你好")
+        val slop = ViewConfiguration.get(ctx).scaledTouchSlop
+        send(body, MotionEvent.ACTION_DOWN, 320f, 12f, 0)
+        send(body, MotionEvent.ACTION_MOVE, 320f - slop * 0.75f, 12f, 16)
+        shadowOf(Looper.getMainLooper()).idleFor(
+            Duration.ofMillis(ViewConfiguration.getLongPressTimeout().toLong() + 100),
+        )
+        assertFalse("horizontal intent must cancel the pending long-press-drag", v.isDraggingForTest())
+        send(body, MotionEvent.ACTION_MOVE, 120f, 12f, 32)
+        send(body, MotionEvent.ACTION_UP, 120f, 12f, 48)
+        assertEquals("the gesture settles as a swipe reveal, not a drag", "你好", v.swipeRevealedForTest())
+        assertFalse(v.isDraggingForTest())
+    }
+
     @Test fun a_swipe_clears_the_clipboard_card_press_highlight() {
         val v = clipView(listOf("第一条", "第二条"))
         layout(v)
@@ -564,6 +695,144 @@ class ClipboardViewInteractionTest {
         flushMotion()
         assertEquals(0f, header.translationX, 0f)
         assertNull(v.swipeRevealedForTest())
+    }
+
+    @Test fun phrase_horizontal_lock_cancels_the_pending_long_press_drag() {
+        val v = phraseView(listOf("你好", "在吗"))
+        layout(v)
+        val body = bodyOf(v, "你好")
+        val header = headerOf(v, "你好")
+        send(body, MotionEvent.ACTION_DOWN, 320f, 12f, 0)
+        send(body, MotionEvent.ACTION_MOVE, 250f, 12f, 16)
+        assertEquals(-70f, header.translationX, 0f)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ViewConfiguration.getLongPressTimeout() + 100L))
+        assertFalse("a locked-in swipe never morphs into drag", v.isDraggingForTest())
+        send(body, MotionEvent.ACTION_MOVE, 120f, 12f, 32)
+        send(body, MotionEvent.ACTION_UP, 120f, 12f, 48)
+        flushMotion()
+        assertFalse(v.isDraggingForTest())
+        assertEquals("你好", v.swipeRevealedForTest())
+        assertEquals(-dp(208).toFloat(), header.translationX, 0f)
+    }
+
+    @Test fun stationary_phrase_hold_still_starts_drag_reorder() {
+        val v = phraseView(listOf("你好", "在吗"))
+        layout(v)
+        val body = bodyOf(v, "你好")
+        send(body, MotionEvent.ACTION_DOWN, 320f, 12f, 0)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ViewConfiguration.getLongPressTimeout() + 100L))
+        assertTrue("a stationary hold still enters drag-reorder", v.isDraggingForTest())
+        send(body, MotionEvent.ACTION_CANCEL, 320f, 12f, 16)
+        assertFalse(v.isDraggingForTest())
+        assertEquals(0f, headerOf(v, "你好").translationX, 0f)
+    }
+
+    @Test fun a_phrase_hold_that_lifts_the_row_releases_its_press() {
+        val v = phraseView(listOf("你好", "在吗"))
+        val activity = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            activity.get().setContentView(v)
+            layout(v)
+            val body = bodyOf(v, "你好")
+            val (x, y) = centerInRoot(v, body)
+            send(v, MotionEvent.ACTION_DOWN, x, y, 0)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ViewConfiguration.getTapTimeout() + 20L))
+            assertTrue("the row shows its press before the hold lifts it", body.isPressed)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ViewConfiguration.getLongPressTimeout() + 100L))
+            assertTrue(v.isDraggingForTest())
+            assertFalse("the lifted row drops its press highlight", body.isPressed)
+            send(v, MotionEvent.ACTION_UP, x, y, ViewConfiguration.getLongPressTimeout() + 200L)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertFalse(v.isDraggingForTest())
+            assertFalse("no press highlight is left behind once the finger lifts", body.isPressed)
+        } finally {
+            activity.pause().stop().destroy()
+        }
+    }
+
+    @Test fun holding_a_phrase_chevron_lifts_the_row_to_reorder_like_its_text() {
+        var reorder: Triple<String, Int, Int>? = null
+        val v = phraseView(listOf("你好", "在吗", "再见")).apply { onReorderPhrase = { c, f, t -> reorder = Triple(c, f, t) } }
+        val expand = ctx.getString(com.aegis.ime.R.string.clip_expand)
+        fun chevronOf(root: ClipboardView, row: Int) =
+            allViews(requireNotNull(root.listRowViewForTest(row))).single { it.contentDescription?.toString() == expand }
+        val activity = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            activity.get().setContentView(v)
+            layout(v)
+            val (x, y) = centerInRoot(v, chevronOf(v, 0))
+            send(v, MotionEvent.ACTION_DOWN, x, y, 0)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ViewConfiguration.getLongPressTimeout() + 100L))
+            assertTrue("holding the chevron lifts its row", v.isDraggingForTest())
+            assertFalse(chevronOf(v, 0).isPressed)
+            val next = requireNotNull(v.listRowViewForTest(1))
+            val below = IntArray(2).also { next.getLocationOnScreen(it) }[1] + next.height - 2f
+            send(v, MotionEvent.ACTION_MOVE, x, below, ViewConfiguration.getLongPressTimeout() + 200L)
+            send(v, MotionEvent.ACTION_UP, x, below, ViewConfiguration.getLongPressTimeout() + 216L)
+            flushMotion()
+            assertFalse(v.isDraggingForTest())
+            assertEquals(Triple("默认", 0, 1), reorder)
+            layout(v)
+            rootTap(v, chevronOf(v, 0))
+            assertTrue(
+                "a tap on the chevron still expands the row",
+                ctx.getString(com.aegis.ime.R.string.clip_collapse) in allViews(v).mapNotNull { it.contentDescription?.toString() },
+            )
+        } finally {
+            activity.pause().stop().destroy()
+        }
+
+        val swiped = phraseView(listOf("你好", "在吗"))
+        layout(swiped)
+        rootSwipe(swiped, chevronOf(swiped, 0), -200f)
+        flushMotion()
+        assertEquals("a sideways swipe from the chevron still reveals the row actions", "你好", swiped.swipeRevealedForTest())
+    }
+
+    @Test fun a_row_expanded_after_an_animated_drag_reorder_opens_in_its_new_place() {
+        val phrases = mutableListOf("你好", "在吗", "再见")
+        val v = ClipboardView(ctx).apply {
+            categoriesProvider = { listOf("默认", "工作") }
+            phrasesInProvider = { c -> if (c == "默认") phrases.toList() else emptyList() }
+            onReorderPhrase = { _, from, to -> phrases.add(to, phrases.removeAt(from)) }
+            applyPalette(pal); forcePhrasesStateForTest("默认"); refresh()
+        }
+        val resolver = ctx.contentResolver
+        val scale = Settings.Global.getFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        Settings.Global.putFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        val activity = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            activity.get().setContentView(v)
+            layout(v)
+            val (x, y) = centerInRoot(v, bodyOf(v, "你好"))
+            send(v, MotionEvent.ACTION_DOWN, x, y, 0)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ViewConfiguration.getLongPressTimeout() + 100L))
+            assertTrue(v.isDraggingForTest())
+            val next = requireNotNull(v.listRowViewForTest(1))
+            val below = IntArray(2).also { next.getLocationOnScreen(it) }[1] + next.height - 2f
+            send(v, MotionEvent.ACTION_MOVE, x, below, ViewConfiguration.getLongPressTimeout() + 200L)
+            send(v, MotionEvent.ACTION_UP, x, below, ViewConfiguration.getLongPressTimeout() + 216L)
+            flushMotion()
+            assertEquals(listOf("在吗", "你好", "再见"), phrases)
+            assertEquals(listOf("在吗", "你好", "再见"), v.listRowTextsForTest())
+
+            val expand = ctx.getString(com.aegis.ime.R.string.clip_expand)
+            val collapse = ctx.getString(com.aegis.ime.R.string.clip_collapse)
+            allViews(requireNotNull(v.listRowViewForTest(0))).single { it.contentDescription?.toString() == expand }.performClick()
+            flushMotion()
+            layout(v)
+            assertEquals("no row is replaced or lost", listOf("在吗", "你好", "再见"), v.listRowTextsForTest())
+            assertTrue(
+                "the tapped row is the one that opens",
+                allViews(requireNotNull(v.listRowViewForTest(0))).any { it.contentDescription?.toString() == collapse },
+            )
+            v.refresh()
+            layout(v)
+            assertEquals("a later refresh keeps the new order", listOf("在吗", "你好", "再见"), v.listRowTextsForTest())
+        } finally {
+            activity.pause().stop().destroy()
+            Settings.Global.putFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, scale)
+        }
     }
 
     @Test fun covered_strip_actions_stay_untappable_until_the_row_is_revealed() {
@@ -1091,6 +1360,25 @@ class ClipboardViewInteractionTest {
         v.showSplitForTest(text)
         assertTrue(clickText(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_copy_all)))
         assertEquals("Copy All invokes the batch callback exactly once", listOf(blocks), batches)
+    }
+
+
+    @Test fun manage_opens_the_category_page_where_reordering_lives() {
+        val v = phraseView(listOf("你好"))
+        layout(v)
+        val manage = allViews(v).single {
+            it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_manage_categories)
+        } as TextView
+        assertEquals(ctx.getString(com.aegis.ime.R.string.clip_manage), manage.text.toString())
+        assertTrue(manage.performClick())
+        assertTrue("管理 lands on the category page", v.isCategorySortModeForTest())
+        assertEquals("no menu stands between 管理 and the page", View.GONE, overlayOf(v).visibility)
+        layout(v)
+        val ls = labels(v)
+        assertFalse("the bare 「移动」 label is gone", ls.any { it == ctx.getString(com.aegis.ime.R.string.clip_move) })
+        val row = requireNotNull(v.listRowViewForTest(0)) as ViewGroup
+        val handle = row.getChildAt(row.childCount - 1)
+        assertTrue("each category row keeps its drag handle", handle !is TextView && handle.width == dp(44))
     }
 
 

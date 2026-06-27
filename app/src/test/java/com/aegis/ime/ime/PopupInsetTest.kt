@@ -25,6 +25,7 @@ import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.user.asClipEntries
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -150,6 +151,58 @@ class PopupInsetTest {
     }
 
     private data class Quad(val name: String, val view: ClipboardView, val question: String, val action: String)
+
+    @Test fun menus_and_notices_sit_two_characters_in() {
+        val clip = clipView(listOf("第一条"))
+        layout(clip)
+        assertTrue(textViews(clip).first { it.text?.toString() == "第一条" && it.isLongClickable }.performLongClick())
+        layout(clip)
+        val clipActions = listOf(R.string.clip_delete_item, R.string.clip_add_phrase, R.string.clip_split_title).map(ctx::getString)
+        assertStartsTwoCharactersIn("clipboard menu ${clipActions.first()}", clip, text(overlayOf(clip), clipActions.first()))
+        assertEndsTwoCharactersIn("clipboard menu ${clipActions.last()}", clip, text(overlayOf(clip), clipActions.last()))
+
+        assertTrue(text(overlayOf(clip), ctx.getString(R.string.clip_add_phrase)).performClick())
+        layout(clip)
+        assertPaddedTwoCharacters("category picker title", text(overlayOf(clip), ctx.getString(R.string.clip_choose_category)))
+        for (label in listOf("默认", "工作", ctx.getString(R.string.clip_new_category))) {
+            assertPaddedTwoCharacters("category picker $label", text(overlayOf(clip), label))
+        }
+
+        val move = phraseView(listOf("默认", "工作", "私人")).apply { showMoveChooserForTest("默认") }
+        layout(move)
+        assertPaddedTwoCharacters("move picker title", text(overlayOf(move), ctx.getString(R.string.clip_move_to_category)))
+        val card = box(move, cardOf(move))
+        for (name in listOf("工作", "私人")) {
+            assertPaddedTwoCharacters("move picker $name", text(overlayOf(move), name))
+            assertStartsTwoCharactersIn("move picker $name", move, text(overlayOf(move), name))
+        }
+        for (trash in allViews(overlayOf(move)).filter { it.contentDescription?.toString() == ctx.getString(R.string.clip_delete_category) }) {
+            val glyph = box(move, trash)
+            assertTrue(
+                "the delete glyph is centred half a character past the two-character line: ${card.right - glyph.centerX()}",
+                abs(card.right - glyph.centerX() - (inset() + inset() / 4)) <= 1,
+            )
+        }
+
+        val notice = phraseView(listOf("默认")).also { v ->
+            longPressTab(v, "默认")
+            assertTrue(clickDesc(overlayOf(v), ctx.getString(R.string.clip_delete_named, "默认")))
+        }
+        layout(notice)
+        assertPaddedTwoCharacters("notice", text(overlayOf(notice), ctx.getString(R.string.clip_keep_one_category)))
+        assertPaddedTwoCharacters("notice done", text(overlayOf(notice), ctx.getString(R.string.clip_done)))
+
+        val import = phraseView().apply { enterCategorySortModeForTest() }
+        layout(import)
+        assertTrue(textViews(import).first { it.text?.toString() == ctx.getString(R.string.clip_import_phrases) && it.hasOnClickListeners() }.performClick())
+        layout(import)
+        val importMenu = overlayOf(import)
+        assertPaddedTwoCharacters("import title", text(importMenu, ctx.getString(R.string.clip_import_phrases)))
+        assertPaddedTwoCharacters("import body", text(importMenu, ctx.getString(R.string.clip_import_body)))
+        for (label in listOf(R.string.clip_overwrite, R.string.clip_merge_recommended, R.string.clip_back).map(ctx::getString)) {
+            assertPaddedTwoCharacters("import $label", text(importMenu, label))
+        }
+    }
 
     @Test fun the_split_panel_sits_two_characters_in() {
         val entry = "今天天气很好我们一起去公园散步吧"

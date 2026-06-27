@@ -28,6 +28,7 @@ import android.widget.HorizontalScrollView
 import android.widget.ScrollView
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -80,6 +81,9 @@ class Debug17PanelTest {
         walk(root); return out
     }
     private fun descs(root: View): List<String> = allViews(root).mapNotNull { it.contentDescription?.toString() }
+    private fun categoryScroll(root: View): HorizontalScrollView =
+        allViews(root).filterIsInstance<HorizontalScrollView>()
+            .single { scroll -> textViews(scroll).any { it.text?.toString() == "默认" && it.hasOnClickListeners() } }
     private fun clickDesc(root: View, desc: String): Boolean {
         val v = allViews(root).firstOrNull { it.contentDescription?.toString() == desc && it.hasOnClickListeners() } ?: return false
         v.performClick(); return true
@@ -140,6 +144,55 @@ class Debug17PanelTest {
         applyPalette(pal); refresh()
     }
 
+
+    @Test fun top_plus_adds_phrase_to_current_category_not_a_new_category() {
+        var addPhraseCat: String? = null
+        var addCategoryFired = false
+        val v = phraseView().apply { onAddPhrase = { addPhraseCat = it }; onAddCategory = { addCategoryFired = true } }
+        assertTrue("top ＋ present on 常用语 tab", clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_add_phrase)))
+        assertEquals("＋ adds a phrase to the CURRENT category", "默认", addPhraseCat)
+        assertFalse("＋ no longer creates a category", addCategoryFired)
+    }
+
+
+    @Test fun categorybar_manage_opens_the_category_page_instead_of_a_popup() {
+        val v = phraseView()
+        assertTrue(clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_manage_categories)))
+        layout(v)
+        assertEquals("管理 raises no popup", View.GONE, overlayOf(v).visibility)
+        assertTrue(v.isCategorySortModeForTest())
+        val main = mainOf(v) as ViewGroup
+        val header = main.getChildAt(0)
+        val footer = main.getChildAt(main.childCount - 1)
+        assertEquals(
+            listOf(
+                ctx.getString(com.aegis.ime.R.string.clip_back),
+                ctx.getString(com.aegis.ime.R.string.clip_manage_categories),
+                ctx.getString(com.aegis.ime.R.string.clip_add_category),
+            ),
+            labels(header),
+        )
+        assertEquals(
+            listOf(
+                ctx.getString(com.aegis.ime.R.string.clip_import_phrases),
+                ctx.getString(com.aegis.ime.R.string.clip_export_phrases),
+            ),
+            labels(footer),
+        )
+        val retired = listOf(com.aegis.ime.R.string.clip_edit, com.aegis.ime.R.string.clip_cancel, com.aegis.ime.R.string.clip_done).map(ctx::getString)
+        assertTrue("the page carries no 编辑, 取消 or 完成", labels(main).none { it in retired })
+        val textActions = (textViews(header) + textViews(footer)).filter { it.hasOnClickListeners() && it !is PanelHeaderBackControl }
+        assertEquals(
+            listOf(
+                ctx.getString(com.aegis.ime.R.string.clip_add_category),
+                ctx.getString(com.aegis.ime.R.string.clip_import_phrases),
+                ctx.getString(com.aegis.ime.R.string.clip_export_phrases),
+            ),
+            textActions.map { it.text.toString() },
+        )
+        assertTrue(textActions.all { it.currentTextColor == pal.keyLabel && bgColor(it) == Color.TRANSPARENT && it.foreground == null })
+    }
+
     @Test fun clipboard_long_press_popup_keeps_the_action_popup_style() {
         val v = clipView()
         assertTrue(textViews(v).first { it.text?.toString() == "hello" }.performLongClick())
@@ -181,6 +234,70 @@ class Debug17PanelTest {
         assertNull(deleted)
         assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete)))
         assertEquals("工作", deleted)
+    }
+
+    @Test fun manage_enters_the_category_page_directly() {
+        val v = phraseView()
+        assertTrue(clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_manage_categories)))
+        assertTrue("管理 → the category page", v.isCategorySortModeForTest())
+        assertFalse("does not enter phrase sort mode", v.isSortModeForTest())
+        val ls = labels(v)
+        assertTrue("category page title", ctx.getString(com.aegis.ime.R.string.clip_manage_categories) in ls)
+        assertTrue("back button", ctx.getString(com.aegis.ime.R.string.clip_back) in ls)
+        assertFalse("the old 完成 is gone", ctx.getString(com.aegis.ime.R.string.clip_done) in ls)
+    }
+
+    @Test fun category_page_new_category_triggers_inline_create() {
+        var addCategoryFired = false
+        val v = phraseView().apply { onAddCategory = { addCategoryFired = true } }
+        assertTrue(clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_manage_categories)))
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_add_category)))
+        assertTrue("新建分类 → inline 新建分类", addCategoryFired)
+    }
+
+    @Test fun sort_mode_done_exits() {
+        val v = phraseView(); v.enterSortModeForTest()
+        assertTrue(v.isSortModeForTest())
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_done))); assertFalse(v.isSortModeForTest())
+    }
+
+    @Test fun sort_mode_drag_reorders_current_category() {
+        var reorder: Triple<String, Int, Int>? = null
+        val v = phraseView().apply { onReorderPhrase = { c, f, t -> reorder = Triple(c, f, t) } }
+        v.enterSortModeForTest()
+        v.dragStartForTest(0); v.dragMoveToForTest(2); v.dragDropForTest()
+        assertEquals("drag in 排序模式 reorders the current category", Triple("默认", 0, 2), reorder)
+    }
+
+    @Test fun category_sort_mode_drag_reorders_categories_not_phrases() {
+        var categoryReorder: Pair<Int, Int>? = null
+        var phraseReorder: Triple<String, Int, Int>? = null
+        val v = phraseView().apply {
+            onReorderCategory = { from, to -> categoryReorder = from to to }
+            onReorderPhrase = { c, f, t -> phraseReorder = Triple(c, f, t) }
+        }
+        v.enterCategorySortModeForTest()
+        v.dragStartForTest(0); v.dragMoveToForTest(1); v.dragDropForTest()
+        assertEquals("category drag calls category reorder callback", 0 to 1, categoryReorder)
+        assertNull("category drag must not call phrase reorder", phraseReorder)
+    }
+
+    @Test fun category_sort_mode_updates_category_chip_order() {
+        val cats = mutableListOf("默认", "工作", "私人")
+        val v = ClipboardView(ctx).apply {
+            categoriesProvider = { cats }
+            phrasesInProvider = { emptyList() }
+            onReorderCategory = { from, to -> cats.add(to, cats.removeAt(from)) }
+            applyPalette(pal); forcePhrasesStateForTest("默认"); refresh()
+        }
+        v.enterCategorySortModeForTest()
+        v.dragStartForTest(2); v.dragMoveToForTest(0); v.dragDropForTest()
+        assertEquals(listOf("私人", "默认", "工作"), labels(v).filter { it in cats })
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_back)))
+        val chipOrder = textViews(v)
+            .filter { it.text?.toString() in cats && it.hasOnClickListeners() }
+            .map { it.text.toString() }
+        assertEquals("category chips follow persisted category order", listOf("私人", "默认", "工作"), chipOrder)
     }
 
 
@@ -596,6 +713,44 @@ class Debug17PanelTest {
         assertEquals("默认" to "你好", note)
     }
 
+    @Test fun category_page_offers_import_and_export() {
+        val imports = ArrayList<Boolean>(); var exp = 0
+        val v = phraseView().apply { onImportPhrasesWithMode = { imports.add(it) }; onExportPhrases = { exp++ } }
+        v.enterCategorySortModeForTest()
+        val ls = labels(mainOf(v))
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_import_phrases) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_export_phrases) in ls)
+        assertTrue(click(mainOf(v), ctx.getString(com.aegis.ime.R.string.clip_import_phrases)))
+        assertTrue("import opens the in-panel confirmation", ctx.getString(com.aegis.ime.R.string.clip_overwrite) in labels(overlayOf(v)) && ctx.getString(com.aegis.ime.R.string.clip_merge_recommended) in labels(overlayOf(v)))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_back)))
+        assertEquals("返回 imports nothing", View.GONE, overlayOf(v).visibility)
+        assertTrue(imports.isEmpty())
+        assertTrue(click(mainOf(v), ctx.getString(com.aegis.ime.R.string.clip_import_phrases)))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_merge_recommended)))
+        assertEquals(listOf(true), imports)
+        assertTrue(click(mainOf(v), ctx.getString(com.aegis.ime.R.string.clip_import_phrases)))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_overwrite)))
+        assertEquals(listOf(true, false), imports)
+        assertTrue(click(mainOf(v), ctx.getString(com.aegis.ime.R.string.clip_export_phrases))); assertEquals(1, exp)
+        assertTrue("import and export leave the page as it was", v.isCategorySortModeForTest())
+    }
+
+    @Test fun import_confirmation_uses_normal_panel_colors() {
+        val v = phraseView()
+        v.enterCategorySortModeForTest()
+        assertTrue(click(mainOf(v), ctx.getString(com.aegis.ime.R.string.clip_import_phrases)))
+        val expected = setOf(
+            ctx.getString(com.aegis.ime.R.string.clip_import_phrases),
+            ctx.getString(com.aegis.ime.R.string.clip_import_body),
+            ctx.getString(com.aegis.ime.R.string.clip_overwrite),
+            ctx.getString(com.aegis.ime.R.string.clip_merge_recommended),
+            ctx.getString(com.aegis.ime.R.string.clip_back),
+        )
+        val views = textViews(overlayOf(v)).filter { it.text?.toString() in expected }
+        assertEquals(expected.size, views.size)
+        assertTrue(views.all { it.currentTextColor == pal.keyLabel })
+        assertFalse("the exit choice reads 返回, not 取消", ctx.getString(com.aegis.ime.R.string.clip_cancel) in labels(overlayOf(v)))
+    }
+
     @Test fun phrase_tab_last_top_icon_clears_current_category_with_confirm() {
         var cleared: String? = null
         val v = phraseView().apply { onClearCategory = { cleared = it } }
@@ -727,6 +882,82 @@ class Debug17PanelTest {
         assertTrue(view.isClipboardTabForTest())
         assertEquals(initial, tabs())
         assertTrue("clipboard body" in labels(view))
+    }
+
+    @Test fun phrase_category_row_uses_the_rail_with_manage_outside_the_scroll() {
+        val v = phraseView()
+        layout(v)
+        val category = textViews(v).first { it.text?.toString() == "默认" && it.hasOnClickListeners() }
+        val inactiveCategory = textViews(v).first { it.text?.toString() == "工作" && it.hasOnClickListeners() }
+        val manage = textViews(v).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_manage) && it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_manage_categories) }
+        val categoryScroll = categoryScroll(v)
+        assertEquals(pal.keyLabel, category.currentTextColor)
+        assertEquals(pal.keyLabelSecondary, inactiveCategory.currentTextColor)
+        assertEquals(pal.keyLabel, manage.currentTextColor)
+        assertTrue(category.isSelected)
+        assertFalse(inactiveCategory.isSelected)
+        assertEquals(Color.TRANSPARENT, bgColor(category))
+        assertEquals(Color.TRANSPARENT, bgColor(inactiveCategory))
+        val manageSurface = manage.background as ImeKeySurface
+        assertEquals(Color.TRANSPARENT, manageSurface.faceColor)
+        assertEquals(
+            ImeShapes.toolbarFeedbackRadiusDp * ctx.resources.displayMetrics.density,
+            manageSurface.cornerRadiusPx,
+            0f,
+        )
+        assertNull(manage.foreground)
+        assertTrue(categoryScroll is ImePanelCategoryBar)
+        assertTrue(categoryScroll.parent === manage.parent)
+        assertNull("the tabs lie on the panel background, not on a band of their own", categoryScroll.background)
+        assertNull((categoryScroll.parent as View).background)
+        assertEquals("the tab strip runs under the edit action", (categoryScroll.parent as View).width, categoryScroll.width)
+        assertEquals("the tabs stop where the edit action begins", manage.width, categoryScroll.paddingRight)
+        assertEquals(categoryScroll.width - manage.width, manage.left)
+        assertFalse(allViews(categoryScroll).contains(manage))
+        assertTrue(clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_manage_categories)))
+    }
+
+    @Test fun edit_chrome_and_action_rows_use_enabled_colors_and_rounded_surfaces() {
+        val selected = clipView().apply { enterSelectForTest() }
+        val selectAll = textViews(selected).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_select_all) }
+        val cancel = textViews(selected).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_back) }
+        assertEquals(pal.keyLabel, selectAll.currentTextColor)
+        assertEquals(pal.keyLabel, cancel.currentTextColor)
+        assertTrue(selectAll.background is ImeKeySurface)
+        assertTrue(cancel.background is ImeKeySurface)
+        assertEquals("select all is a text action without a key face", Color.TRANSPARENT, bgColor(selectAll))
+        assertEquals("cancel is a text action without a key face", Color.TRANSPARENT, bgColor(cancel))
+
+        val categoryPage = phraseView().apply { enterCategorySortModeForTest() }
+        val create = textViews(categoryPage).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_add_category) }
+        val pageTitle = textViews(categoryPage).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_manage_categories) }
+        assertEquals(pal.keyLabel, create.currentTextColor)
+        assertEquals(pageTitle.currentTextColor, create.currentTextColor)
+        assertTrue(create.background is ImeKeySurface)
+        assertEquals("new category is a text action without a key face", Color.TRANSPARENT, bgColor(create))
+        for (label in listOf(
+            com.aegis.ime.R.string.clip_rename,
+            com.aegis.ime.R.string.clip_delete,
+            com.aegis.ime.R.string.clip_import_phrases,
+            com.aegis.ime.R.string.clip_export_phrases,
+        ).map(ctx::getString)) {
+            val action = textViews(categoryPage).first { it.text?.toString() == label }
+            assertEquals("$label uses body text color", pal.keyLabel, action.currentTextColor)
+            assertTrue(action.background is ImeKeySurface)
+            assertEquals("$label is a text action without a key face", Color.TRANSPARENT, bgColor(action))
+        }
+
+        val sort = phraseView().apply { enterSortModeForTest() }
+        val sortDone = textViews(sort).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_done) }
+        assertEquals(pal.keyLabel, sortDone.currentTextColor)
+        assertTrue(sortDone.background is ImeKeySurface)
+        assertEquals("sort done is a text action without a key face", Color.TRANSPARENT, bgColor(sortDone))
+
+        val expanded = clipView().apply { expandForTest("hello") }
+        val actions = textViews(expanded)
+            .filter { it.text?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_phrases), ctx.getString(com.aegis.ime.R.string.clip_split_word), ctx.getString(com.aegis.ime.R.string.clip_delete)) && it.compoundDrawables.any { d -> d != null } }
+        assertEquals(3, actions.size)
+        assertTrue(actions.all { it.currentTextColor == pal.keyLabel })
     }
 
     @Test fun select_mode_action_buttons_are_text_actions_when_enabled() {

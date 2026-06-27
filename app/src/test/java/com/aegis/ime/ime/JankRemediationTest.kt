@@ -154,6 +154,28 @@ class JankRemediationTest {
         assertEquals(listOf("alpha", "beta", "gamma"), texts)
     }
 
+    @Test fun sort_mode_recycles_rows_across_re_renders() {
+        val phrases = mapOf("默认" to listOf("p1", "p2", "p3", "p4"))
+        val v = clip(emptyList(), phrases)
+        v.forcePhrasesStateForTest("默认")
+        v.enterSortModeForTest()
+        val first = v.sortRowsAllocatedForTest()
+        assertEquals(4, first)
+        v.enterSortModeForTest()
+        assertEquals("sort rows recycle across rebuilds", first, v.sortRowsAllocatedForTest())
+    }
+
+    @Test fun category_sort_mode_recycles_rows_across_re_renders() {
+        val phrases = mapOf("A" to listOf("x"), "B" to listOf("y"), "C" to listOf("z"))
+        val v = clip(emptyList(), phrases)
+        v.forcePhrasesStateForTest("A")
+        v.enterCategorySortModeForTest()
+        val first = v.catSortRowsAllocatedForTest()
+        assertEquals(3, first)
+        v.enterCategorySortModeForTest()
+        assertEquals("category-sort rows recycle across rebuilds", first, v.catSortRowsAllocatedForTest())
+    }
+
     @Test fun select_mode_is_framed_not_one_synchronous_pass() {
         val v = clip((1..60).map { "c$it" })
         v.enterSelectForTest()
