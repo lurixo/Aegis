@@ -1121,6 +1121,18 @@ class KeyboardController(
         render()
     }
 
+    fun onPanelBackspace() {
+        if (composing.isEmpty()) return
+        handleBackspace()
+        refreshCandidates()
+        render()
+    }
+
+    fun onPanelClear() {
+        handleClearComposing()
+        render()
+    }
+
     private companion object {
         const val NINE_LEFT_MAX = 24
         const val CALC_SCAN_LEN = 32

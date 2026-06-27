@@ -515,6 +515,47 @@ class KeyboardControllerTest {
         assertEquals(listOf("haode"), h.commits)
     }
 
+    @Test fun panel_backspace_removes_one_unit() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.switchTextLayoutForTest(nine = true)
+        "426".forEach { c.onKey(out(it.toString())) }
+        assertTrue("hao present before backspace", "hao" in c.expandedReadings())
+        c.onPanelBackspace()
+        assertTrue("hao gone after one backspace", "hao" !in c.expandedReadings())
+    }
+
+    @Test fun panel_backspace_with_empty_composing_after_a_full_pick_does_not_delete_editor_text() {
+        val h = FakeHost()
+        val full = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你好", composing.length))
+        }
+        val c = KeyboardController(h, full)
+        "nihao".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        assertEquals("你好", h.text.toString())
+        assertEquals("", c.preeditForTest())
+
+        c.onPanelBackspace()
+
+        assertEquals("empty panel backspace must not touch committed editor text", "你好", h.text.toString())
+        assertEquals("empty panel backspace must not call raw deleteBackward", 0, h.deletes)
+        assertEquals("", c.preeditForTest())
+    }
+
+    @Test fun panel_clear_drops_composing() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.switchTextLayoutForTest(nine = true)
+        "426".forEach { c.onKey(out(it.toString())) }
+        c.onPanelClear()
+        assertTrue("combos gone after 重输", c.expandedReadings().isEmpty())
+        c.onKey(act(KeyAction.ENTER))
+        assertEquals(1, h.enters)
+        assertTrue(h.commits.isEmpty())
+    }
+
     @Test fun no_ghost_suggestion_after_commit() {
         val full = object : CandidateEngine {
             override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
