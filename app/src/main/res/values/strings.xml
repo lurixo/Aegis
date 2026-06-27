@@ -2,6 +2,6 @@
 <resources>
     <string name="app_name">Aegis</string>
     <string name="ime_label">Aegis 输入法</string>
-    <string name="subtype_zh">Aegis 拼音</string>
+    <string name="subtype_zh">Aegis 输入法</string>
     <string name="subtype_en">Aegis English</string>
 </resources>

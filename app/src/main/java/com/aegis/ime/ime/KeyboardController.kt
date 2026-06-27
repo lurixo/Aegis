@@ -283,7 +283,10 @@ class KeyboardController(
                     Mode.DIRECT -> emptyList()
                 }
             }
-            mode() == Mode.PINYIN -> engine.predict(lastWord)
+            // ★S: no next-word prediction. An empty buffer shows the toolbar, never a "ghost"
+            // suggestion (the old predict(lastWord) display was un-dismissable by 重输 because clear
+            // left lastWord set). Frequency learning (engine.learn / UserModel) is intentionally kept;
+            // only the auto-display of successors is removed.
             else -> emptyList()
         }
     }

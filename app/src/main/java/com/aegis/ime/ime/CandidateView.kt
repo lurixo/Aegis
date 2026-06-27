@@ -115,7 +115,8 @@ class CandidateView(context: Context) : View(context) {
 
     private fun layoutCells() {
         hitCount = items.size
-        var x = padding
+        var x = 0f // ★U: start flush-left so the first candidate sits ~one padding (14dp) from the edge,
+        // not the doubled ~28dp it had when the layout itself also started at `padding`.
         for ((i, item) in items.withIndex()) {
             val cellW = textPaint.measureText(item) + padding * 2
             hitRect(i).set(x, 0f, x + cellW, 0f) // bottom filled at draw (needs height)
