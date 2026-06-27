@@ -12,9 +12,22 @@
     <string name="panel_all">All</string>
     <string name="panel_singles">Single</string>
 
+    <string name="sym_cat_zh">Chinese</string>
+    <string name="sym_cat_en">English</string>
+    <string name="sym_cat_currency">Currency</string>
+    <string name="sym_cat_net">Web</string>
+    <string name="sym_cat_math">Math</string>
+    <string name="sym_cat_greek">Greek</string>
+    <string name="sym_cat_arrow">Arrows</string>
+    <string name="sym_cat_supsub">Super/Sub</string>
+    <string name="sym_cat_ordinal">Numbers</string>
+    <string name="sym_cat_ipa">IPA</string>
+    <string name="sym_cat_pinyin">Pinyin</string>
+
     <string name="editbar_confirm">OK</string>
     <string name="translate_mode_auto">Auto</string>
     <string name="translate_mode_zh_en">Chinese ⇄ English</string>
     <string name="translate_mode_zh_ja">Chinese ⇄ Japanese</string>
     <string name="translate_caption">Translate</string>
+    <string name="sym_cat_vertical">Vertical</string>
 </resources>

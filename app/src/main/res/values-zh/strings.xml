@@ -12,9 +12,22 @@
     <string name="panel_all">全部</string>
     <string name="panel_singles">单字</string>
 
+    <string name="sym_cat_zh">中文</string>
+    <string name="sym_cat_en">英文</string>
+    <string name="sym_cat_currency">货币</string>
+    <string name="sym_cat_net">网络</string>
+    <string name="sym_cat_math">数学</string>
+    <string name="sym_cat_greek">希腊</string>
+    <string name="sym_cat_arrow">箭头</string>
+    <string name="sym_cat_supsub">角标</string>
+    <string name="sym_cat_ordinal">序号</string>
+    <string name="sym_cat_ipa">音标</string>
+    <string name="sym_cat_pinyin">拼音</string>
+
     <string name="editbar_confirm">确定</string>
     <string name="translate_mode_auto">自动</string>
     <string name="translate_mode_zh_en">中英互译</string>
     <string name="translate_mode_zh_ja">中日互译</string>
     <string name="translate_caption">翻译</string>
+    <string name="sym_cat_vertical">竖标</string>
 </resources>
