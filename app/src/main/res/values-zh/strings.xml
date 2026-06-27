@@ -1,5 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="download_status_downloading">下载中…</string>
+    <string name="download_status_failed_format">下载失败（%1$s）</string>
+    <string name="download_cause_offline">网络不可用</string>
+    <string name="download_cause_timeout">连接超时</string>
+    <string name="download_cause_server">服务器不可用或响应异常</string>
+    <string name="download_cause_incomplete">传输在文件完整前中断</string>
+    <string name="download_cause_corrupt">下载的文件未通过完整性校验</string>
+    <string name="download_cause_install">下载的文件无法安装</string>
+
+    <string name="gram_status_enabled">✅ 已启用（约 %1$d MB）</string>
+    <string name="gram_status_not_downloaded">⚠ 增强语法未启用</string>
+    <string name="gram_status_download_failed">下载失败</string>
+
+    <string name="dict_status_enabled">✅ 已启用：全量词库（约 %1$d MB）</string>
+    <string name="dict_status_not_downloaded">⚠ 中文词库未下载，中文输入不可用</string>
+    <string name="dict_status_verifying_extracting">校验并解压…</string>
+    <string name="dict_status_install_failed">校验或解压失败</string>
+    <string name="dict_status_download_failed">下载失败</string>
+    <string name="dict_status_metadata_failed">无法获取下载信息</string>
+    <string name="dict_status_metadata_failed_format">无法获取下载信息（%1$s）</string>
+    <string name="dict_status_download_blocked">无法开始下载，存在残留文件；请先删除词库</string>
+
     <string name="key_haptic_system">系统</string>
     <string name="key_haptic_soft">柔波</string>
     <string name="key_haptic_crisp">清脆</string>

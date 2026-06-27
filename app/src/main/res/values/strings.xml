@@ -1,5 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="download_status_downloading">Downloading…</string>
+    <string name="download_status_failed_format">Download failed (%1$s)</string>
+    <string name="download_cause_offline">network unavailable</string>
+    <string name="download_cause_timeout">connection timed out</string>
+    <string name="download_cause_server">server unavailable or unexpected response</string>
+    <string name="download_cause_incomplete">the transfer ended before the file was complete</string>
+    <string name="download_cause_corrupt">the downloaded file failed its integrity check</string>
+    <string name="download_cause_install">the downloaded file could not be installed</string>
+
+    <string name="gram_status_enabled">✅ Enabled (about %1$d MB)</string>
+    <string name="gram_status_not_downloaded">⚠ Enhanced grammar is not enabled</string>
+    <string name="gram_status_download_failed">Download failed</string>
+
+    <string name="dict_status_enabled">✅ Enabled: full dictionary (about %1$d MB)</string>
+    <string name="dict_status_not_downloaded">⚠ Chinese dictionary not downloaded — Chinese input is locked</string>
+    <string name="dict_status_verifying_extracting">Verifying and extracting…</string>
+    <string name="dict_status_install_failed">Verification or extraction failed</string>
+    <string name="dict_status_download_failed">Download failed</string>
+    <string name="dict_status_metadata_failed">Could not get the download details</string>
+    <string name="dict_status_metadata_failed_format">Could not get the download details (%1$s)</string>
+    <string name="dict_status_download_blocked">Could not start the download — leftover files remain; delete the dictionary first</string>
+
     <string name="key_haptic_system">System</string>
     <string name="key_haptic_soft">Smooth wave</string>
     <string name="key_haptic_crisp">Crisp</string>

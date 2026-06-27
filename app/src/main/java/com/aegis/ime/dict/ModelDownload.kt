@@ -37,6 +37,10 @@ object ModelDownload {
 
     const val GRAM_NAME = "wanxiang-lts-zh-hans.gram"
 
+    const val VALIDATOR_PREF = "gram_validator"
+    const val GRAM_SHA256_PREF = "gram_sha256"
+    const val GRAM_SIZE_PREF = "gram_size_bytes"
+
     fun destFile(filesDir: File): File = File(File(filesDir, "downloaded"), GRAM_NAME)
 
     fun installedGramBytes(filesDir: File): Long = destFile(filesDir).length()
@@ -475,6 +479,13 @@ object ModelDownload {
     fun installedDictionaryBytes(filesDir: File): Long =
         DICT_MANAGED_FILES.sumOf { File(downloadedDir(filesDir), it).length() }
 
+    const val DICT_VALIDATOR_PREF = "dict_validator"
+    const val DICT_SHA256_PREF = "dict_sha256"
+    const val DICT_ASSET_NAME_PREF = "dict_asset_name"
+    const val DICT_ASSET_URL_PREF = "dict_asset_url"
+    const val DICT_RELEASE_TAG_PREF = "dict_release_tag"
+    const val DICT_RELEASE_PUBLISHED_PREF = "dict_release_published_at"
+
     data class DictionaryAsset(
         val url: String,
         val assetName: String,
@@ -745,6 +756,9 @@ object ModelDownload {
             installingDicts.remove(installKey)
         }
     }
+
+    fun resolveDictionaryDownloadAsset(): Result<DictionaryAsset> =
+        resolveDictionaryDownloadAsset { fetchText(DICT_UPDATE_URL) }
 
     internal fun resolveDictionaryDownloadAsset(fetch: () -> String): Result<DictionaryAsset> =
         runCatching { dictionaryAssetFromUpdateJson(fetch()) }
