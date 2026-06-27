@@ -25,9 +25,13 @@ import android.view.View
 import android.view.ViewConfiguration
 import kotlin.math.abs
 
-/** Toolbar shortcuts shown on the idle candidate strip. */
+/**
+ * Toolbar shortcuts on the idle candidate strip (C2).
+ * the bar keeps ONLY: A (brand/settings) · 表情 · 文字编辑 · 剪贴板·常用语 — plus the collapse ⌄ (separate).
+ * The leftover ⌨ (9↔26 switch → the keyboard's startup setting) and 123 (numpad, still on the keyboards) are gone.
+ */
 enum class BarFunction(val glyph: String) {
-    SETTINGS("⚙"), SWITCH_KBD("⌨"), EMOJI("☺"), EDIT("✎"), CLIPBOARD("📋"), NUMPAD("123")
+    BRAND("A"), EMOJI("☺"), EDIT("✎"), CLIPBOARD("📋")
 }
 
 /**
@@ -90,11 +94,6 @@ class CandidateView(context: Context) : View(context) {
         strokeWidth = 1.8f * density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-    }
-    private val icon123Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF455A64.toInt()
-        textAlign = Paint.Align.CENTER
-        textSize = sp(14f)
     }
     private val capsulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
     private val sepPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFD5DADF.toInt() }
@@ -191,13 +190,7 @@ class CandidateView(context: Context) : View(context) {
     /** Dispatch to a self-drawn linear icon for each toolbar function (no font assets). */
     private fun drawIcon(c: Canvas, f: BarFunction, cx: Float, cy: Float, s: Float) {
         when (f) {
-            BarFunction.SETTINGS -> drawBrand(c, cx, cy, s) // leading brand mark
-            BarFunction.SWITCH_KBD -> { // keyboard outline + key rows
-                val w = s * 0.95f; val h = s * 0.62f
-                c.drawRoundRect(cx - w, cy - h, cx + w, cy + h, 3f * density, 3f * density, iconPaint)
-                c.drawLine(cx - w * 0.55f, cy - h * 0.25f, cx + w * 0.55f, cy - h * 0.25f, iconPaint)
-                c.drawLine(cx - w * 0.55f, cy + h * 0.25f, cx + w * 0.2f, cy + h * 0.25f, iconPaint)
-            }
+            BarFunction.BRAND -> drawBrand(c, cx, cy, s) // leading brand mark → settings
             BarFunction.EMOJI -> { // smiley
                 c.drawCircle(cx, cy, s * 0.7f, iconPaint)
                 val eye = 1.4f * density
@@ -212,16 +205,13 @@ class CandidateView(context: Context) : View(context) {
                 c.drawLine(cx - s * 0.32f, cy - s * 0.75f, cx + s * 0.32f, cy - s * 0.75f, iconPaint)
                 c.drawLine(cx - s * 0.32f, cy + s * 0.75f, cx + s * 0.32f, cy + s * 0.75f, iconPaint)
             }
-            // Slots 5/6: clipboard history + numeric pad, drawn as designed linear icons.
-            BarFunction.CLIPBOARD -> { // clipboard board + clip + lines
+            BarFunction.CLIPBOARD -> { // clipboard board + clip + lines (剪贴板·常用语 panel)
                 val w = s * 0.55f; val h = s * 0.78f
                 c.drawRoundRect(cx - w, cy - h + s * 0.18f, cx + w, cy + h, 2f * density, 2f * density, iconPaint)
                 c.drawRoundRect(cx - s * 0.26f, cy - h - s * 0.02f, cx + s * 0.26f, cy - h + s * 0.28f, 1.5f * density, 1.5f * density, iconPaint)
                 c.drawLine(cx - w * 0.5f, cy - h * 0.1f, cx + w * 0.5f, cy - h * 0.1f, iconPaint)
                 c.drawLine(cx - w * 0.5f, cy + h * 0.3f, cx + w * 0.5f, cy + h * 0.3f, iconPaint)
             }
-            BarFunction.NUMPAD -> // numeric label
-                c.drawText("123", cx, cy - (icon123Paint.descent() + icon123Paint.ascent()) / 2, icon123Paint)
         }
     }
 
