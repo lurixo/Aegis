@@ -377,6 +377,36 @@ object Glyphs {
         if (locked) c.drawLine(cx - headW, botY + s * 0.28f, cx + headW, botY + s * 0.28f, paint)
     }
 
+    fun drawEditSquare(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val box = Path().apply {
+            moveTo(cx + s * 0.1f, cy - s * 0.7f)
+            lineTo(cx - s * 0.5f, cy - s * 0.7f)
+            quadTo(cx - s * 0.7f, cy - s * 0.7f, cx - s * 0.7f, cy - s * 0.5f)
+            lineTo(cx - s * 0.7f, cy + s * 0.6f)
+            quadTo(cx - s * 0.7f, cy + s * 0.8f, cx - s * 0.5f, cy + s * 0.8f)
+            lineTo(cx + s * 0.5f, cy + s * 0.8f)
+            quadTo(cx + s * 0.7f, cy + s * 0.8f, cx + s * 0.7f, cy + s * 0.6f)
+            lineTo(cx + s * 0.7f, cy)
+        }
+        c.drawPath(box, paint)
+        val pen = Path().apply {
+            moveTo(cx + s * 0.61f, cy - s * 0.91f)
+            lineTo(cx + s * 0.91f, cy - s * 0.61f)
+            lineTo(cx + s * 0.5f, cy - s * 0.2f)
+            lineTo(cx + s * 0.12f, cy - s * 0.12f)
+            lineTo(cx + s * 0.2f, cy - s * 0.5f)
+            close()
+        }
+        c.drawPath(pen, paint)
+    }
+
+
+    fun drawPlus(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val r = s * 0.72f
+        c.drawLine(cx - r, cy, cx + r, cy, paint)
+        c.drawLine(cx, cy - r, cx, cy + r, paint)
+    }
+
     fun drawClose(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val r = s * 0.72f
         c.drawLine(cx - r, cy - r, cx + r, cy + r, paint)
@@ -407,6 +437,14 @@ object Glyphs {
 
     internal fun chevronBounds(cx: Float, cy: Float, s: Float): RectF =
         RectF(cx - s * 0.7f, cy - s * 0.38f, cx + s * 0.7f, cy + s * 0.38f)
+
+    fun drawTag(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val l = cx - s * 0.85f; val r = cx + s * 0.45f; val tip = cx + s * 0.92f
+        val top = cy - s * 0.6f; val bot = cy + s * 0.6f
+        val p = Path().apply { moveTo(l, top); lineTo(r, top); lineTo(tip, cy); lineTo(r, bot); lineTo(l, bot); close() }
+        c.drawPath(p, paint)
+        c.drawCircle(l + s * 0.3f, cy, s * 0.13f, paint)
+    }
 
     fun drawUndo(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val left = cx - s * 0.85f

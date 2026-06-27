@@ -352,6 +352,117 @@ class SharedPanelBackControlTest {
         if (phrase) showPhraseTab("默认") else refresh()
     }
 
+    private fun assertTopBarTargetsStayReachable(widthDp: Int, phrase: Boolean) {
+        val clipboard = clipboardView(phrase)
+        layout(clipboard, width = dp(widthDp), height = dp(400))
+        val name = "${widthDp}dp ${if (phrase) "phrases" else "clipboard"}"
+        val bar = topBarOf(clipboard)
+        val content = bar.getChildAt(0)
+        val targets = topBarTargets(content)
+        assertTrue("$name exposes top bar targets", targets.size >= 4)
+
+        for (target in targets) {
+            val inContent = Rect(0, 0, target.width, target.height).also { rect ->
+                var current: View = target
+                while (current !== content) {
+                    rect.offset(current.left, current.top)
+                    current = current.parent as View
+                }
+            }
+            assertTrue("$name target is laid out", target.width > 0 && target.height > 0)
+            assertTrue(
+                "$name target must stay inside the top bar content: $inContent width=${content.width}",
+                inContent.left >= 0 && inContent.right <= content.width,
+            )
+        }
+
+        if (content.width <= bar.width) {
+            assertEquals("$name top bar content must fill the viewport", bar.width, content.width)
+            assertTrue("$name flexible gap must expand with the viewport", topBarSpacer(content).width > 0)
+        } else {
+            assertEquals("$name flexible gap collapses before anything is dropped", 0, topBarSpacer(content).width)
+        }
+
+        val last = targets.last()
+        bar.scrollTo(content.width, 0)
+        val visible = boundsIn(clipboard, last)
+        val viewport = boundsIn(clipboard, bar)
+        assertTrue(
+            "$name last target must be fully visible after scrolling to the end: $visible in $viewport",
+            visible.left >= viewport.left && visible.right <= viewport.right,
+        )
+    }
+
+    @Test
+    @Config(qualifiers = "w360dp-h780dp-xhdpi")
+    fun the_clipboard_top_bar_keeps_every_target_reachable_at_three_hundred_sixty_dp() {
+        assertTopBarTargetsStayReachable(360, phrase = false)
+        assertTopBarTargetsStayReachable(360, phrase = true)
+        val clipboard = clipboardView(phrase = true)
+        layout(clipboard, width = dp(360), height = dp(400))
+        val bar = topBarOf(clipboard)
+        val back = backControls(clipboard).single()
+        assertEquals("360dp keeps back fixed at the shared edge inset", (com.aegis.ime.ime.theme.ImeShapes.edgeInsetDp * density).toInt(), boundsIn(clipboard, back).left)
+        assertFalse("360dp keeps back outside the scrolling actions", hasAncestor(back, HorizontalScrollView::class.java))
+        assertTrue("360dp leaves a non-empty viewport for every action", bar.width > 0)
+    }
+
+    @Test
+    @Config(qualifiers = "w360dp-h780dp-xhdpi")
+    fun the_clipboard_top_bar_keeps_every_target_reachable_at_every_system_font_scale() {
+        try {
+            for (locale in listOf("+en-rUS", "+zh-rCN")) {
+                RuntimeEnvironment.setQualifiers(locale)
+                for (scale in listOf(1f, 1.3f, 1.4f, 1.5f, 1.8f, 2f)) {
+                    RuntimeEnvironment.setFontScale(scale)
+                    assertEquals(
+                        "precondition: the system font must be at $scale",
+                        scale,
+                        ctx.resources.configuration.fontScale,
+                        0.001f,
+                    )
+                    for (phrase in listOf(false, true)) {
+                        val clipboard = clipboardView(phrase)
+                        layout(clipboard, width = dp(360), height = dp(400))
+                        val name = "$locale at x$scale ${if (phrase) "phrases" else "clipboard"}"
+                        val bar = topBarOf(clipboard)
+                        val content = bar.getChildAt(0)
+                        val back = backControls(clipboard).single()
+                        val viewport = boundsIn(clipboard, bar)
+                        val fixedBack = boundsIn(clipboard, back)
+                        assertEquals("$name back label stays on one line", 1, back.lineCount)
+                        assertEquals("$name keeps back at the shared edge inset", (com.aegis.ime.ime.theme.ImeShapes.edgeInsetDp * density).toInt(), fixedBack.left)
+                        assertFalse("$name keeps back outside the scrolling actions", hasAncestor(back, HorizontalScrollView::class.java))
+                        val clear = ctx.getString(
+                            if (phrase) R.string.clip_clear_category else R.string.clip_clear_history,
+                        )
+                        val destructive = topBarTargets(content)
+                            .single { it.contentDescription?.toString() == clear }
+                        bar.scrollTo(content.width, 0)
+                        val destructiveBox = boundsIn(clipboard, destructive)
+                        assertTrue(
+                            "$name keeps '$clear' reachable after scrolling: $destructiveBox in $viewport",
+                            destructiveBox.left >= viewport.left && destructiveBox.right <= viewport.right,
+                        )
+                        assertEquals("$name action scrolling must not move back", fixedBack, boundsIn(clipboard, back))
+                        assertEquals(
+                            "$name must keep the back label at 360dp",
+                            ctx.getString(R.string.clip_back),
+                            back.text.toString(),
+                        )
+                        assertTrue(
+                            "$name draws the back label at ${back.textSize}px, below the unscaled size it is authored at",
+                            back.textSize >= ImeType.body * density - 0.01f,
+                        )
+                    }
+                }
+            }
+        } finally {
+            RuntimeEnvironment.setFontScale(1f)
+            RuntimeEnvironment.setQualifiers("+en-rUS")
+        }
+    }
+
     @Test
     @Config(qualifiers = "w320dp-h640dp-mdpi")
     fun the_clipboard_keeps_back_fixed_and_named_while_only_the_remaining_toolbar_scrolls() {
@@ -503,6 +614,13 @@ class SharedPanelBackControlTest {
             "411dp keeps spacing between the fixed back control and the tab pills while preserving 48dp actions",
             topBarSpacer(content).width >= dp(8),
         )
+    }
+
+    @Test
+    @Config(qualifiers = "w320dp-h640dp-mdpi")
+    fun the_clipboard_top_bar_keeps_every_target_reachable_at_three_hundred_twenty_dp() {
+        assertTopBarTargetsStayReachable(320, phrase = false)
+        assertTopBarTargetsStayReachable(320, phrase = true)
     }
 
     @Test fun clipboard_and_phrase_pages_use_the_same_header_back_geometry() {

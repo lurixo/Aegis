@@ -17,6 +17,9 @@ package com.aegis.ime.ime
 
 import com.aegis.ime.user.asClipEntries
 import com.aegis.ime.user.clipEntries
+import android.view.View
+import android.view.ViewGroup
+import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -134,6 +137,16 @@ class ClipboardOpenPathTest {
         assertEquals(v.initialSyncRowsForTest(), v.listRowCountForTest())
     }
 
+    private fun descriptions(root: View): List<String> {
+        val out = ArrayList<String>()
+        fun walk(v: View) {
+            v.contentDescription?.let { out.add(it.toString()) }
+            if (v is ViewGroup) for (i in 0 until v.childCount) walk(v.getChildAt(i))
+        }
+        walk(root)
+        return out
+    }
+
     @Test fun reapplying_the_same_palette_keeps_the_rows_already_built() {
         var historyReads = 0
         val v = ClipboardView(ctx).apply {
@@ -167,5 +180,25 @@ class ClipboardOpenPathTest {
         }
 
         assertEquals("a reopened list must still reach its last row", clips, v.listRowTextsForTest())
+    }
+
+    @Test fun reopening_with_the_same_palette_shows_the_history_switch_as_it_is_now() {
+        var recording = true
+        val v = ClipboardView(ctx).apply {
+            historyProvider = { clipEntries("clip") }
+            historyEnabledProvider = { recording }
+            applyPalette(pal)
+        }
+        assertTrue(ctx.getString(R.string.clip_pause_history) in descriptions(v))
+
+        recording = false
+        v.resetToDefault()
+        v.applyPalette(pal)
+
+        assertTrue(
+            "a switch flipped while the panel was closed must not keep its old label",
+            ctx.getString(R.string.clip_resume_history) in descriptions(v),
+        )
+        assertFalse(ctx.getString(R.string.clip_pause_history) in descriptions(v))
     }
 }

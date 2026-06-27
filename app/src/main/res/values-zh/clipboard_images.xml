@@ -7,4 +7,5 @@
     <string name="clip_image_paste_unsupported">未能将图片粘贴到当前输入框</string>
     <string name="clip_image_paste_requested">已请求粘贴图片</string>
     <string name="clip_image_paste_cursor">请将光标移到插入位置后再粘贴图片</string>
+    <string name="clip_image_text_only">图片无法保存为常用语</string>
 </resources>

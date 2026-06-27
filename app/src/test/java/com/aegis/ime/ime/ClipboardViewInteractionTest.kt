@@ -27,11 +27,14 @@ import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.os.Looper
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.widget.LinearLayout
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -43,6 +46,7 @@ import org.robolectric.Robolectric
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import java.time.Duration
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -61,6 +65,33 @@ class ClipboardViewInteractionTest {
 
     private fun send(v: View, action: Int, x: Float, y: Float, t: Long) =
         v.dispatchTouchEvent(MotionEvent.obtain(0, t, action, x, y, 0))
+
+    private fun sendPointers(
+        view: View,
+        action: Int,
+        time: Long,
+        ids: IntArray,
+        xs: FloatArray,
+        ys: FloatArray,
+    ): Boolean {
+        val properties = Array(ids.size) {
+            MotionEvent.PointerProperties().apply {
+                id = ids[it]
+                toolType = MotionEvent.TOOL_TYPE_FINGER
+            }
+        }
+        val coordinates = Array(ids.size) {
+            MotionEvent.PointerCoords().apply {
+                x = xs[it]
+                y = ys[it]
+                pressure = 1f
+                size = 1f
+            }
+        }
+        return view.dispatchTouchEvent(
+            MotionEvent.obtain(0, time, action, ids.size, properties, coordinates, 0, 0, 1f, 1f, 0, 0, 0, 0),
+        )
+    }
 
     private fun rootTap(root: View, target: View) {
         val bounds = boundsInRoot(root as ViewGroup, target)
@@ -85,15 +116,115 @@ class ClipboardViewInteractionTest {
         walk(root); return out
     }
     private fun textViews(root: View): List<TextView> = allViews(root).filterIsInstance<TextView>()
+    private fun actionButtons(root: View): List<TextView> = textViews(root).filter {
+        it.compoundDrawables[0] != null && it.foreground == null && it.hasOnClickListeners()
+    }
     private fun bodyOf(root: View, text: String): TextView =
         textViews(root).first { it.text?.toString() == text }
     private fun mainOf(v: ClipboardView): View = (v as ViewGroup).getChildAt(0)
+    private fun overlayOf(v: ClipboardView): View = (v as ViewGroup).getChildAt(1)
     private fun labels(root: View): List<String> = textViews(root).mapNotNull { it.text?.toString() }
+    private fun clickText(root: View, label: String): Boolean {
+        val tv = textViews(root).firstOrNull { it.text?.toString() == label && it.hasOnClickListeners() } ?: return false
+        tv.performClick(); return true
+    }
+    private fun clickDesc(root: View, desc: String): Boolean {
+        val v = allViews(root).firstOrNull { it.contentDescription?.toString() == desc && it.hasOnClickListeners() } ?: return false
+        v.performClick(); return true
+    }
+    private fun dp(value: Int): Int = (value * ctx.resources.displayMetrics.density).toInt()
     private fun draw(view: View) {
         view.draw(Canvas(Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)))
     }
     private fun rippleMask(view: View): GradientDrawable =
         ((view.foreground as RippleDrawable).findDrawableByLayerId(android.R.id.mask) as GradientDrawable)
+
+    private fun flushMotion() = shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+
+    private fun assertImmediateKey(owner: ClipboardView, action: View, name: String, minHeightDp: Int = 48) {
+        shadowOf(ctx.getSystemService(android.os.Vibrator::class.java)).setHasVibrator(false)
+        assertTrue("$name is registered as an immediate key", owner.isImmediateActionForTest(action))
+        assertTrue("$name width is at least 48dp", action.width >= dp(48))
+        assertTrue("$name height is at least ${minHeightDp}dp", action.height >= dp(minHeightDp))
+        assertTrue("$name owns the keyboard feedback face", action.background === owner.immediateActionDrawableForTest(action))
+        assertNull("$name has no platform ripple", action.foreground)
+        owner.hapticEnabled = true
+        send(action, MotionEvent.ACTION_DOWN, action.width / 2f, action.height / 2f, 0)
+        assertEquals(
+            "$name enters the keyboard pressed state",
+            1f,
+            requireNotNull(owner.immediateActionFeedbackLevelForTest(action)),
+            0f,
+        )
+        assertEquals(HapticFeedbackConstants.KEYBOARD_TAP, shadowOf(action).lastHapticFeedbackPerformed())
+        send(action, MotionEvent.ACTION_MOVE, action.width / 2f + dp(2), action.height / 2f + dp(1), 12)
+        assertEquals(
+            "$name tolerates slight drift",
+            1f,
+            requireNotNull(owner.immediateActionFeedbackLevelForTest(action)),
+            0f,
+        )
+        send(action, MotionEvent.ACTION_CANCEL, action.width / 2f + dp(2), action.height / 2f + dp(1), 24)
+        flushMotion()
+        assertEquals(
+            "$name cancels cleanly",
+            0f,
+            requireNotNull(owner.immediateActionFeedbackLevelForTest(action)),
+            0f,
+        )
+    }
+
+    @Test fun a_pressed_card_part_lights_only_its_side_of_the_card() {
+        val r = ImeShapes.cardRadiusDp * ctx.resources.displayMetrics.density
+        for ((name, v, text) in listOf(Triple("clipboard", clipView(listOf("甲")), "甲"), Triple("phrases", phraseView(listOf("乙")), "乙"))) {
+            layout(v)
+            val body = bodyOf(v, text)
+            val card = body.parent as ViewGroup
+            val chevron = allViews(card).single { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_expand) }
+            assertEquals("$name: the card face keeps its radius", r, (card.background as GradientDrawable).cornerRadius, 0.01f)
+            assertNull("$name: the card draws no press of its own", card.foreground)
+            assertEquals("$name: the body fills the card up to the chevron", Rect(0, 0, chevron.left, card.height), Rect(body.left, body.top, body.right, body.bottom))
+            assertEquals("$name: the chevron fills the rest of the card", Rect(body.right, 0, card.width, card.height), Rect(chevron.left, chevron.top, chevron.right, chevron.bottom))
+            assertEquals("$name: the body rounds only the card's left corners", listOf(r, r, 0f, 0f, 0f, 0f, r, r), rippleMask(body).cornerRadii?.toList())
+            assertEquals("$name: the chevron rounds only the card's right corners", listOf(0f, 0f, r, r, r, r, 0f, 0f), rippleMask(chevron).cornerRadii?.toList())
+            draw(card)
+            for (part in listOf(body, chevron)) assertEquals("$name: the press fills its part", Rect(0, 0, part.width, part.height), part.foreground.bounds)
+            body.isPressed = true
+            assertFalse("$name: a pressed body leaves the chevron unlit", chevron.drawableState.contains(android.R.attr.state_pressed))
+            assertFalse("$name: a pressed body leaves the card unlit", card.drawableState.contains(android.R.attr.state_pressed))
+            body.isPressed = false
+            chevron.isPressed = true
+            assertFalse("$name: a pressed chevron leaves the body unlit", body.drawableState.contains(android.R.attr.state_pressed))
+            assertFalse("$name: a pressed chevron leaves the card unlit", card.drawableState.contains(android.R.attr.state_pressed))
+            chevron.isPressed = false
+        }
+        val open = phraseView(listOf("丙")).apply { expandForTest("丙") }
+        layout(open)
+        val body = bodyOf(open, "丙")
+        val header = body.parent as ViewGroup
+        val surface = (header.parent as View).parent as View
+        val chevron = allViews(header).single { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_collapse) }
+        assertEquals("an open card face keeps its radius", r, (surface.background as GradientDrawable).cornerRadius, 0.01f)
+        assertEquals("the open card header starts at the card top", 0, header.top + (header.parent as View).top)
+        assertEquals("the open card header spans the card", surface.width, header.width)
+        assertEquals("an open card squares the body's bottom corner", listOf(r, r, 0f, 0f, 0f, 0f, 0f, 0f), rippleMask(body).cornerRadii?.toList())
+        assertEquals("an open card squares the chevron's bottom corner", listOf(0f, 0f, r, r, 0f, 0f, 0f, 0f), rippleMask(chevron).cornerRadii?.toList())
+    }
+
+    @Test fun rtl_cards_keep_the_body_left_and_the_chevron_right_with_matching_presses() {
+        val r = ImeShapes.cardRadiusDp * ctx.resources.displayMetrics.density
+        for ((name, v, text) in listOf(Triple("clipboard", clipView(listOf("甲")), "甲"), Triple("phrases", phraseView(listOf("乙")), "乙"))) {
+            v.layoutDirection = View.LAYOUT_DIRECTION_RTL
+            layout(v)
+            val body = bodyOf(v, text)
+            val card = body.parent as ViewGroup
+            val chevron = allViews(card).single { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_expand) }
+            assertEquals("$name: the body stays on the left", 0, body.left)
+            assertEquals("$name: the chevron stays on the right", card.width, chevron.right)
+            assertEquals("$name: the body rounds only the card's left corners", listOf(r, r, 0f, 0f, 0f, 0f, r, r), rippleMask(body).cornerRadii?.toList())
+            assertEquals("$name: the chevron rounds only the card's right corners", listOf(0f, 0f, r, r, r, r, 0f, 0f), rippleMask(chevron).cornerRadii?.toList())
+        }
+    }
 
     private fun clipView(history: List<String>): ClipboardView = ClipboardView(ctx).apply {
         historyProvider = { history.asClipEntries() }; applyPalette(pal); refresh()
@@ -185,6 +316,137 @@ class ClipboardViewInteractionTest {
         } finally {
             activity.pause().stop().destroy()
         }
+    }
+
+    @Test fun the_dropdown_edit_action_hands_back_the_row_key_alone() {
+        val v = clipView(listOf("第一条"))
+        val seen = ArrayList<String>()
+        v.onEditClip = { key -> seen.add(key) }
+        layout(v)
+        v.expandForTest("第一条")
+        layout(v)
+        val edit = actionButtons(v).single { it.text.toString() == ctx.getString(com.aegis.ime.R.string.clip_edit) }
+        edit.performClick()
+        assertEquals(listOf("第一条"), seen)
+    }
+
+
+    @Test fun clear_history_top_icon_requires_confirmation() {
+        var clears = 0
+        val v = clipView(listOf("第一条")).apply { onClearHistory = { clears++; true } }
+        layout(v)
+        assertTrue("tap the clear-history icon", clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_clear_history)))
+        assertEquals("top icon does not clear immediately", 0, clears)
+        assertTrue(clickText(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_clear)))
+        assertEquals("confirming clears history", 1, clears)
+        assertFalse("old settings gear is gone", allViews(v).any { it.contentDescription?.toString() == "设置" })
+    }
+
+    @Test fun clipboard_top_slot_exposes_pause_and_resume_without_overloading_the_trash_button() {
+        var enabled = true
+        val changes = ArrayList<Boolean>()
+        val v = clipView(listOf("第一条")).apply {
+            historyEnabledProvider = { enabled }
+            onSetHistoryEnabled = { next -> enabled = next; changes += next }
+        }
+        layout(v)
+
+        val pause = allViews(v).single {
+            it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_pause_history)
+        }
+        assertImmediateKey(v, pause, "pause history")
+        assertTrue(pause.performClick())
+        assertEquals(listOf(false), changes)
+
+        layout(v)
+        val resume = allViews(v).single {
+            it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_resume_history)
+        }
+        assertImmediateKey(v, resume, "resume history")
+        val trash = allViews(v).single {
+            it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_clear_history)
+        }
+        assertFalse("trash no longer hides the history toggle behind long press", trash.isLongClickable)
+        assertTrue(resume.performClick())
+        assertEquals(listOf(false, true), changes)
+    }
+
+    @Test fun confirmation_actions_keep_the_destructive_action_first_and_cancel_at_the_trailing_edge() {
+        val v = phraseView(listOf("你好"))
+        v.confirmClearForTest()
+        layout(v)
+        val overlay = overlayOf(v)
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_clear_category_confirm, "默认") in labels(overlay))
+        val clear = textViews(overlay).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_clear) }
+        val cancel = textViews(overlay).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_cancel) }
+        val row = clear.parent as ViewGroup
+        assertTrue(row === cancel.parent)
+        assertEquals(3, row.childCount)
+        assertEquals("the destructive action stays at the leading edge", row.paddingLeft, clear.left)
+        assertEquals("cancel sits at the trailing edge", row.width - row.paddingRight, cancel.right)
+        assertTrue(cancel.left - clear.right >= dp(14))
+        val card = (overlay as ViewGroup).getChildAt(0)
+        assertEquals("the card keeps the one popup width", ImeShapes.popupWidthPx(ctx.resources.displayMetrics), card.width)
+        assertTrue(v.isImmediateActionForTest(clear))
+        assertTrue(v.isImmediateActionForTest(cancel))
+        assertEquals(0f, (clear.layoutParams as LinearLayout.LayoutParams).weight, 0f)
+        assertEquals(0f, (cancel.layoutParams as LinearLayout.LayoutParams).weight, 0f)
+    }
+
+    @Test fun overlay_backdrop_owns_the_full_touch_stream_and_resets_on_cancel_or_reopen() {
+        val v = phraseView(listOf("你好"))
+        v.showMoveChooserForTest("默认")
+        layout(v)
+        val backdrop = overlayOf(v)
+        val card = (backdrop as ViewGroup).getChildAt(0)
+
+        assertTrue(send(backdrop, MotionEvent.ACTION_DOWN, 1f, 1f, 0))
+        assertTrue(send(backdrop, MotionEvent.ACTION_MOVE, card.left + card.width / 2f, card.top + card.height / 2f, 16))
+        assertTrue(send(backdrop, MotionEvent.ACTION_UP, card.left + card.width / 2f, card.top + card.height / 2f, 32))
+        assertFalse(v.overlayVisibleForTest())
+
+        v.showMoveChooserForTest("默认")
+        layout(v)
+        assertTrue(send(backdrop, MotionEvent.ACTION_DOWN, 1f, 1f, 40))
+        assertTrue(send(backdrop, MotionEvent.ACTION_CANCEL, 1f, 1f, 56))
+        assertTrue("cancel resets tracking without dismissing", v.overlayVisibleForTest())
+
+        assertTrue(sendPointers(backdrop, MotionEvent.ACTION_DOWN, 58, intArrayOf(4), floatArrayOf(1f), floatArrayOf(1f)))
+        assertTrue(sendPointers(
+            backdrop,
+            MotionEvent.ACTION_POINTER_DOWN or (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT),
+            60,
+            intArrayOf(4, 7),
+            floatArrayOf(1f, 2f),
+            floatArrayOf(1f, 2f),
+        ))
+        assertTrue(sendPointers(
+            backdrop,
+            MotionEvent.ACTION_POINTER_UP,
+            62,
+            intArrayOf(4, 7),
+            floatArrayOf(1f, 2f),
+            floatArrayOf(1f, 2f),
+        ))
+        assertTrue("lifting the original pointer transfers backdrop ownership", v.overlayVisibleForTest())
+        assertTrue(sendPointers(backdrop, MotionEvent.ACTION_UP, 63, intArrayOf(7), floatArrayOf(2f), floatArrayOf(2f)))
+        assertFalse("the replacement pointer closes on its final UP", v.overlayVisibleForTest())
+
+        v.showMoveChooserForTest("默认")
+        layout(v)
+
+        assertTrue(send(backdrop, MotionEvent.ACTION_DOWN, 1f, 1f, 64))
+        v.showMoveChooserForTest("默认")
+        layout(v)
+        send(backdrop, MotionEvent.ACTION_UP, 1f, 1f, 80)
+        assertTrue("an old terminal event cannot close a freshly reopened popup", v.overlayVisibleForTest())
+
+        val reopenedCard = (backdrop as ViewGroup).getChildAt(0)
+        val insideX = reopenedCard.left + 1f
+        val insideY = reopenedCard.top + 1f
+        send(backdrop, MotionEvent.ACTION_DOWN, insideX, insideY, 96)
+        send(backdrop, MotionEvent.ACTION_UP, insideX, insideY, 112)
+        assertTrue("touches inside the popup never dismiss through the backdrop", v.overlayVisibleForTest())
     }
 
     @Test fun a_full_rebuild_re_applies_scroll_once_the_deferred_rows_land() {
@@ -300,6 +562,71 @@ class ClipboardViewInteractionTest {
         }
     }
 
+    @Test fun expanding_a_card_leaves_its_sibling_rows_untouched() {
+        val v = clipView(listOf("a", "b", "c"))
+        layout(v)
+        val row1 = v.listRowViewForTest(1)
+        val row2 = v.listRowViewForTest(2)
+        val chevron = allViews(requireNotNull(v.listRowViewForTest(0))).first {
+            it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_expand) && it.hasOnClickListeners()
+        }
+        chevron.performClick()
+        layout(v)
+        assertTrue("sibling rows keep their identity through a targeted expand", row1 === v.listRowViewForTest(1))
+        assertTrue(row2 === v.listRowViewForTest(2))
+        assertTrue("the expanded card renders its action row", actionButtons(v).isNotEmpty())
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_collapse) in allViews(v).mapNotNull { it.contentDescription?.toString() })
+    }
+
+    @Test fun card_replacement_and_entry_reconcile_release_removed_action_feedback() {
+        val history = mutableListOf("a", "b", "c")
+        val v = clipView(history)
+        layout(v)
+        val collapsedCount = v.immediateActionFeedbackCountForTest()
+        var expandedCount = -1
+
+        repeat(5) {
+            val collapsedRow = requireNotNull(v.listRowViewForTest(0))
+            val expand = allViews(collapsedRow).single {
+                it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_expand)
+            }
+            expand.performClick()
+            layout(v)
+            val expandedRow = requireNotNull(v.listRowViewForTest(0))
+            val oldActions = allViews(expandedRow).filter(v::isImmediateActionForTest)
+            assertTrue(oldActions.isNotEmpty())
+            val nowExpanded = v.immediateActionFeedbackCountForTest()
+            if (expandedCount < 0) expandedCount = nowExpanded else assertEquals(expandedCount, nowExpanded)
+
+            val collapse = allViews(expandedRow).single {
+                it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_collapse)
+            }
+            collapse.performClick()
+            layout(v)
+            assertTrue(oldActions.none(v::isImmediateActionForTest))
+            assertEquals(collapsedCount, v.immediateActionFeedbackCountForTest())
+        }
+
+        val expand = allViews(requireNotNull(v.listRowViewForTest(0))).single {
+            it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_expand)
+        }
+        expand.performClick()
+        layout(v)
+        val removedActions = allViews(requireNotNull(v.listRowViewForTest(0))).filter(v::isImmediateActionForTest)
+        history[0] = "replacement"
+        v.refresh()
+        layout(v)
+        assertTrue(removedActions.none(v::isImmediateActionForTest))
+        assertEquals(collapsedCount, v.immediateActionFeedbackCountForTest())
+
+        repeat(5) { index ->
+            history[0] = "replacement-$index"
+            v.refresh()
+            layout(v)
+            assertEquals(collapsedCount, v.immediateActionFeedbackCountForTest())
+        }
+    }
+
     @Test fun reopen_after_inline_from_the_clipboard_tab_stays_on_the_clipboard_tab() {
         val v = clipView(listOf("clip")).apply {
             categoriesProvider = { listOf("默认") }
@@ -371,6 +698,21 @@ class ClipboardViewInteractionTest {
         layout(v)
         assertTrue(bigRow(v).performClick())
         assertEquals("上屏 gets the whole original string", bigBody, picked)
+        dir.deleteRecursively()
+    }
+
+    @Test fun saving_a_big_clipboard_row_as_a_phrase_carries_the_whole_body() {
+        val dir = storeDir()
+        val store = lazyStore(dir, bigBody)
+        var saved: Pair<String, List<String>>? = null
+        val v = storeView(store).apply { onSaveAsPhrasesTo = { c, l -> saved = c to l } }
+        layout(v)
+        v.expandForTest(store.history().first().key)
+        layout(v)
+        val toPhrases = actionButtons(mainOf(v)).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_phrases) }
+        assertTrue(toPhrases.performClick())
+        assertTrue(clickText(overlayOf(v), "默认"))
+        assertEquals("存为短语 gets the whole original string", "默认" to listOf(bigBody), saved)
         dir.deleteRecursively()
     }
 

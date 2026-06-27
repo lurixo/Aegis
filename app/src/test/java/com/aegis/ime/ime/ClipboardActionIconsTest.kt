@@ -1,0 +1,157 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Copyright (C) 2026 lurixo
+//
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 3.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+// PARTICULAR PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
+
+package com.aegis.ime.ime
+
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Rect
+import android.graphics.Typeface
+import android.graphics.drawable.Drawable
+import android.util.TypedValue
+import android.view.View
+import android.view.ViewGroup
+import android.widget.TextView
+import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeType
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], qualifiers = "zh-w411dp-h891dp-xxhdpi")
+class ClipboardActionIconsTest {
+
+    private val ctx = RuntimeEnvironment.getApplication()
+    private val density = ctx.resources.displayMetrics.density
+    private val pal = ImePalette.STATIC_LIGHT
+
+    private fun dp(v: Int) = (v * density).toInt()
+
+    private fun layout(v: View) {
+        v.measure(
+            View.MeasureSpec.makeMeasureSpec((411 * density).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec((600 * density).toInt(), View.MeasureSpec.EXACTLY),
+        )
+        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+    }
+
+    private fun phraseView(phrases: List<String>): ClipboardView = ClipboardView(ctx).apply {
+        categoriesProvider = { listOf("默认") }
+        phrasesInProvider = { c -> if (c == "默认") phrases else emptyList() }
+        applyPalette(pal); forcePhrasesStateForTest("默认"); refresh()
+    }
+
+    private fun allViews(root: View): List<View> {
+        val out = ArrayList<View>()
+        fun walk(x: View) { out.add(x); if (x is ViewGroup) for (i in 0 until x.childCount) walk(x.getChildAt(i)) }
+        walk(root); return out
+    }
+
+    private fun actionIcon(v: ClipboardView, label: String): Drawable =
+        requireNotNull(
+            allViews(v).filterIsInstance<TextView>()
+                .first { it.text?.toString() == label && it.compoundDrawables[0] != null }
+                .compoundDrawables[0],
+        )
+
+    private fun renderIcon(icon: Drawable): Bitmap {
+        val bmp = Bitmap.createBitmap(icon.intrinsicWidth, icon.intrinsicHeight, Bitmap.Config.ARGB_8888)
+        icon.setBounds(0, 0, icon.intrinsicWidth, icon.intrinsicHeight)
+        icon.draw(Canvas(bmp))
+        return bmp
+    }
+
+    private fun isInk(pixel: Int): Boolean {
+        if ((pixel ushr 24) < 128) return false
+        val r = (pixel shr 16) and 0xFF; val g = (pixel shr 8) and 0xFF; val b = pixel and 0xFF
+        return (r + g + b) / 3 < 110
+    }
+
+    private fun inkBox(bmp: Bitmap, left: Int, top: Int, right: Int, bottom: Int): IntArray? {
+        var minX = Int.MAX_VALUE; var minY = Int.MAX_VALUE; var maxX = Int.MIN_VALUE; var maxY = Int.MIN_VALUE
+        for (y in top until bottom) for (x in left until right) {
+            if (isInk(bmp.getPixel(x, y))) {
+                if (x < minX) minX = x; if (x > maxX) maxX = x
+                if (y < minY) minY = y; if (y > maxY) maxY = y
+            }
+        }
+        return if (maxX < minX) null else intArrayOf(minX, minY, maxX, maxY)
+    }
+
+    private fun inkRectOf(symbol: String): Rect {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, ImeType.caption, ctx.resources.displayMetrics)
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        return Rect().also { paint.getTextBounds(symbol, 0, symbol.length, it) }
+    }
+
+    private class TextRecordingCanvas(bitmap: Bitmap) : Canvas(bitmap) {
+        val texts = ArrayList<Triple<String, Paint.Align, Pair<Float, Float>>>()
+
+        override fun drawText(text: String, x: Float, y: Float, paint: Paint) {
+            super.drawText(text, x, y, paint)
+            texts.add(Triple(text, paint.textAlign, x to y))
+        }
+    }
+
+    @Test fun inline_char_glyph_is_ink_centered_in_its_box() {
+        val phrase = phraseView(listOf("你好")).apply { expandForTest("你好") }
+        layout(phrase)
+        val icon = actionIcon(phrase, ctx.getString(com.aegis.ime.R.string.clip_move))
+        val size = icon.intrinsicWidth
+        val canvas = TextRecordingCanvas(Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888))
+        icon.setBounds(0, 0, size, size)
+        icon.draw(canvas)
+        val ink = inkRectOf("移")
+        assertEquals(1, canvas.texts.size)
+        val (text, align, anchor) = canvas.texts[0]
+        assertEquals("移", text)
+        assertEquals(Paint.Align.LEFT, align)
+        assertEquals(size / 2f - ink.exactCenterX(), anchor.first, 0.01f)
+        assertEquals(size / 2f - ink.exactCenterY(), anchor.second, 0.01f)
+        val inset = dp(2)
+        val glyph = requireNotNull(inkBox(renderIcon(icon), inset, inset, size - inset, size - inset))
+        assertEquals(size / 2f, (glyph[0] + glyph[2] + 1) / 2f, 1.5f)
+        assertEquals(size / 2f, (glyph[1] + glyph[3] + 1) / 2f, 1.5f)
+    }
+
+    @Test fun edit_square_glyph_ink_matches_the_designed_geometry() {
+        val s = 50f
+        val cx = 100f
+        val cy = 100f
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+            strokeWidth = 2f * density; color = pal.keyLabel
+        }
+        val bmp = Bitmap.createBitmap(200, 200, Bitmap.Config.ARGB_8888)
+        Glyphs.drawEditSquare(Canvas(bmp), paint, cx, cy, s)
+        val half = paint.strokeWidth / 2f
+        val ink = requireNotNull(inkBox(bmp, 0, 0, 200, 200))
+        assertEquals(cx - 0.7f * s - half, ink[0].toFloat(), 2f)
+        assertEquals(cy - 0.91f * s - half, ink[1].toFloat(), 2f)
+        assertEquals(cx + 0.91f * s + half, ink[2].toFloat(), 2f)
+        assertEquals(cy + 0.8f * s + half, ink[3].toFloat(), 2f)
+        assertTrue(inkBox(bmp, (cx + 0.25f * s).toInt(), (cy - s).toInt(), (cx + s).toInt(), (cy - 0.25f * s).toInt()) != null)
+        assertNull(inkBox(bmp, (cx - 0.2f * s).toInt(), (cy + 0.05f * s).toInt(), (cx + 0.05f * s).toInt(), (cy + 0.3f * s).toInt()))
+    }
+}

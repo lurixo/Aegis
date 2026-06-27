@@ -7,4 +7,5 @@
     <string name="clip_image_paste_unsupported">Could not paste the image into this input field</string>
     <string name="clip_image_paste_requested">Image paste requested</string>
     <string name="clip_image_paste_cursor">Place the cursor where you want the image, then paste again</string>
+    <string name="clip_image_text_only">Images cannot be saved as phrases</string>
 </resources>
