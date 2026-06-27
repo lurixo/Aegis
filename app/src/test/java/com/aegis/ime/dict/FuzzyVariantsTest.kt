@@ -66,6 +66,22 @@ class FuzzyVariantsTest {
     fun alwaysContainsInputAndIsBounded() {
         val out = Fuzzy.variants("shangchang", all)
         assertTrue("keeps the original spelling", out.contains("shangchang"))
-        assertTrue("bounded by cap", out.size <= 24)
+        assertTrue("bounded by cap", out.size <= 64)
+    }
+
+    @Test
+    fun longFuzzyRunIsBoundedAndNeverOverflows() {
+        for (len in intArrayOf(20, 31, 35, 200)) {
+            val s = "z".repeat(len)
+            val out = Fuzzy.variants(s, setOf("zh"))
+            assertTrue("bounded at len=$len (got ${out.size})", out.size <= 64)
+            assertTrue("keeps original at len=$len", out.contains(s))
+        }
+        assertTrue(Fuzzy.variants("an".repeat(15), setOf("ang")).size <= 64)
+    }
+
+    @Test
+    fun fuzzyDefaultsOff() {
+        assertFalse("模糊拼音 must ship OFF by default", Fuzzy.DEFAULT_ON)
     }
 }

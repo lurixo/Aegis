@@ -85,11 +85,6 @@ class UserModel {
         dirty = false
     }
 
-    fun replaceWith(file: File) {
-        reload(file)
-        dirty = true
-    }
-
     fun importFrom(file: File, now: Long) {
         val other = UserModel().apply { load(file) }
         for ((word, c) in other.count) {

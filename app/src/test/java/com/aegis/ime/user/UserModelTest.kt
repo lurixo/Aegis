@@ -52,17 +52,19 @@ class UserModelTest {
 
     @Test
     fun importOverwriteReplaces() {
-        val imported = UserModel().apply { record(null, "新", 3); record("新", "词", 3) }
-        val f = File.createTempFile("udb", ".txt")
-        imported.save(f)
-        val live = UserModel().apply { record(null, "旧", 1); record("旧", "话", 1) }
-        live.replaceWith(f)
-        assertEquals("overwrite drops old entries", 0.0, live.wordBoost("旧"), 0.0)
-        assertTrue("overwrite keeps imported entries", live.wordBoost("新") > 0.0)
-        assertEquals(listOf("词"), live.successors("新", 8))
-        assertTrue("emptyForOldPrev", live.successors("旧", 8).isEmpty())
-        assertTrue("replace marks dirty for save", live.dirty)
-        f.delete()
+        val userDb = File.createTempFile("userdb", ".txt")
+        UserModel().apply { record(null, "旧", 1); record("旧", "话", 1) }.save(userDb)
+        val importFile = File.createTempFile("imp", ".txt")
+        UserModel().apply { record(null, "新", 3); record("新", "词", 3) }.save(importFile)
+
+        UserModel().apply { load(importFile) }.save(userDb)
+
+        val reloaded = UserModel().apply { load(userDb) }
+        assertEquals("overwrite drops old entries", 0.0, reloaded.wordBoost("旧"), 0.0)
+        assertTrue("overwrite keeps imported entries", reloaded.wordBoost("新") > 0.0)
+        assertEquals(listOf("词"), reloaded.successors("新", 8))
+        assertTrue("no old successors survive", reloaded.successors("旧", 8).isEmpty())
+        userDb.delete(); importFile.delete()
     }
 
     @Test

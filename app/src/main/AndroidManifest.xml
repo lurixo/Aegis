@@ -14,6 +14,7 @@
         <activity
             android:name=".ui.SetupActivity"
             android:exported="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|uiMode|density|navigation|locale|layoutDirection|fontScale"
             android:theme="@style/Theme.Aegis">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
