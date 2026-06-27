@@ -26,6 +26,7 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.dict.OctagramReader
 import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.ime.ClipboardView
@@ -81,15 +82,19 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             runCatching { userModel.load(userDbFile); userDbMtime = userDbFile.lastModified() }
             val dict = loadDict("aegis_dict.bin")
             val t9Dict = loadDict("aegis_t9.bin")
-            val fuzzyEnabled = getSharedPreferences("aegis", MODE_PRIVATE).getBoolean("fuzzy", true)
-            val fuzzyDict = if (fuzzyEnabled) loadDict("aegis_fuzzy.bin") else null
+            // Per-rule fuzzy (E4): the enabled rule keys drive query-time variant expansion in the
+            // decoder, so no separate fuzzy index is loaded. Master "fuzzy" off → no rules.
+            val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
+            val fuzzyRules = if (!prefs.getBoolean("fuzzy", true)) emptySet()
+                else Fuzzy.RULES.filter { prefs.getBoolean(Fuzzy.prefKey(it.key), true) }
+                    .mapTo(LinkedHashSet()) { it.key }
             val initialsDict = loadDict("aegis_jianpin.bin")
             val lm = loadLm("aegis_lm.bin")
             // Optional top-tier context model, only if the user downloaded it.
             val octagram = runCatching { OctagramReader.fromDownloads(this, "wanxiang-lts-zh-hans.gram") }
                 .onFailure { Log.e("Aegis", "octagram load failed", it) }.getOrNull()
             val enDict = loadDict("aegis_en.bin")
-            val engine = DictEngine(dict, t9Dict, lm, userModel, fuzzyDict, initialsDict, octagram, enDict)
+            val engine = DictEngine(dict, t9Dict, lm, userModel, fuzzyRules, initialsDict, octagram, enDict)
             Handler(Looper.getMainLooper()).post { controller.setEngine(engine) }
         }.apply { name = "aegis-dict-load"; isDaemon = true }.start()
     }

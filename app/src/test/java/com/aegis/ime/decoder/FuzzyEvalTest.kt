@@ -31,15 +31,13 @@ class FuzzyEvalTest {
 
     private val dictFile = File("src/main/assets/aegis_dict.bin")
     private val lmFile = File("src/main/assets/aegis_lm.bin")
-    private val fuzzyFile = File("src/main/assets/aegis_fuzzy.bin")
     private val evalFile = File("src/test/resources/eval_set.tsv")
 
     @Test
     fun fuzzyRecall() {
-        assumeTrue(dictFile.exists() && lmFile.exists() && fuzzyFile.exists() && evalFile.exists())
+        assumeTrue(dictFile.exists() && lmFile.exists() && evalFile.exists())
         val dict = BinaryDict.fromFile(dictFile)
         val lm = CharBigramLM.fromFile(lmFile)
-        val fuzzy = BinaryDict.fromFile(fuzzyFile)
 
         val pairs = evalFile.readLines().mapNotNull {
             val t = it.indexOf('\t'); if (t <= 0) null else it.substring(0, t) to it.substring(t + 1)
@@ -49,7 +47,8 @@ class FuzzyEvalTest {
         assumeTrue("have fuzzy-relevant sentences", relevant.isNotEmpty())
 
         val off = PinyinDecoder(dict, lm)
-        val on = PinyinDecoder(dict, lm, fuzzyDict = fuzzy)
+        // fuzzy ON = all rules enabled, matched by query-time variant expansion against the exact dict.
+        val on = PinyinDecoder(dict, lm, fuzzyRules = Fuzzy.RULES.mapTo(LinkedHashSet()) { it.key })
 
         // two scenarios: a single fuzzy slip (realistic) and every fuzzy point collapsed (worst case)
         fun recall(perturb: (String) -> String): Pair<Int, Int> {
