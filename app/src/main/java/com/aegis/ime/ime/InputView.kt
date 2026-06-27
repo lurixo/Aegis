@@ -46,6 +46,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private val body = LinearLayout(context) // grey-filled body: candidate bar + keyboard / panel
     private var lastCandidates: List<String> = emptyList()
     private var lastReadings: List<String> = emptyList()
+    private var currentPanel: View? = null // which panel is showing (B-1: only the A2 grid auto-closes)
 
     init {
         orientation = VERTICAL
@@ -117,16 +118,17 @@ class InputView(context: Context) : LinearLayout(context) {
         // height is constant and the host's layout never jitters while typing.
         preeditView.setText(preedit)
         candidateView.setContent(candidates, preedit)
-        if (panelShown) {
-            // A2: keep the expanded screen live — refresh it as the user picks readings/candidates, and
-            // drop it only once COMPOSING finishes (preedit empty). Gating on composing rather than on
-            // candidates keeps the screen open when a trailing partial syllable momentarily has 0 candidates.
+        // B-1/M-1/L-1: ONLY the A2 expanded candidate grid reacts to a render here — it live-refreshes and
+        // closes when composing ends. Every OTHER panel (emoji / clipboard / symbols / 自定义 / edit) must
+        // SURVIVE the render() that trails each onKey / setCustomSymbols / setEngine; the old code closed ANY
+        // visible panel the moment the preedit emptied, so a panel opened then immediately auto-closed.
+        if (currentPanel === gridView) {
             if (preedit.isEmpty()) showPanel(null)
             else { gridView.setCandidates(candidates); gridView.setReadings(readings) }
         }
     }
 
-    private fun showExpandedCandidates() {
+    internal fun showExpandedCandidates() {
         if (lastCandidates.isEmpty()) return
         gridView.setCandidates(lastCandidates)
         gridView.setReadings(lastReadings)
@@ -136,6 +138,7 @@ class InputView(context: Context) : LinearLayout(context) {
     /** Swap the keyboard area for an extras panel (emoji / clipboard); null restores the keyboard. */
     fun showPanel(panel: View?) {
         panelContainer.removeAllViews()
+        currentPanel = panel
         if (panel == null) {
             panelContainer.visibility = GONE
             keyboardView.visibility = VISIBLE
