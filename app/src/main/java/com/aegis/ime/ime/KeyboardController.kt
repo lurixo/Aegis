@@ -367,6 +367,8 @@ class KeyboardController(
     internal fun expandedReadings(): List<String> =
         nineLeftColumn().filter { it.action == KeyAction.PICK_READING }.map { it.label }
 
+    internal fun candidateWords(): List<String> = candidates.map { it.word }
+
     fun onPickReadingIndex(index: Int) {
         val readings = expandedReadings()
         if (index !in readings.indices) return

@@ -238,6 +238,19 @@ class KeyboardControllerTest {
         assertTrue(h.commits.isEmpty())
     }
 
+    @Test fun no_ghost_suggestion_after_commit() {
+        val full = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>) =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你好", composing.length))
+        }
+        val c = KeyboardController(FakeHost(), full)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        assertTrue("no candidates linger after commit (no ghost)", c.candidateWords().isEmpty())
+    }
+
 
     @Test fun backspace_steps_back_a_locked_reading_not_the_whole_syllable() {
         val c = KeyboardController(FakeHost(), engine)
