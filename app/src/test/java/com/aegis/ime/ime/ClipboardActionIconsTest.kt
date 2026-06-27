@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.user.asClipEntries
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -52,6 +53,10 @@ class ClipboardActionIconsTest {
             View.MeasureSpec.makeMeasureSpec((600 * density).toInt(), View.MeasureSpec.EXACTLY),
         )
         v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+    }
+
+    private fun clipView(history: List<String>): ClipboardView = ClipboardView(ctx).apply {
+        historyProvider = { history.asClipEntries() }; applyPalette(pal); refresh()
     }
 
     private fun phraseView(phrases: List<String>): ClipboardView = ClipboardView(ctx).apply {
@@ -111,6 +116,25 @@ class ClipboardActionIconsTest {
         override fun drawText(text: String, x: Float, y: Float, paint: Paint) {
             super.drawText(text, x, y, paint)
             texts.add(Triple(text, paint.textAlign, x to y))
+        }
+    }
+
+    @Test fun inline_action_row_char_icons_measure_14dp_square() {
+        val clip = clipView(listOf("第一条")).apply { expandForTest("第一条") }
+        layout(clip)
+        val phrase = phraseView(listOf("你好")).apply { expandForTest("你好") }
+        layout(phrase)
+        val cases = listOf(
+            clip to ctx.getString(com.aegis.ime.R.string.clip_split_word),
+            phrase to ctx.getString(com.aegis.ime.R.string.clip_move),
+        )
+        for ((view, label) in cases) {
+            val icon = actionIcon(view, label)
+            assertEquals(label, dp(14), icon.intrinsicWidth)
+            assertEquals(label, dp(14), icon.intrinsicHeight)
+            val ink = requireNotNull(inkBox(renderIcon(icon), 0, 0, icon.intrinsicWidth, icon.intrinsicHeight))
+            assertEquals("$label ink width", dp(14), ink[2] - ink[0] + 1)
+            assertEquals("$label ink height", dp(14), ink[3] - ink[1] + 1)
         }
     }
 

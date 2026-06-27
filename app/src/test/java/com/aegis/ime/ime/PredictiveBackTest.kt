@@ -29,6 +29,7 @@ import android.widget.FrameLayout
 import android.widget.TextView
 import com.aegis.ime.AegisInputMethodService
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.user.clipEntries
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -290,6 +291,29 @@ class PredictiveBackTest {
 
         backStep(iv, "PANEL")
         assertFalse(iv.panelShown)
+    }
+
+    @Test fun back_closes_the_split_sheet_before_the_clipboard_panel() {
+        val iv = InputView(ctx)
+        var finished = 0
+        val panel = ClipboardView(ctx).apply {
+            historyProvider = { clipEntries("one two") }
+            onSplitSelectionFinished = { finished++ }
+            applyPalette(ImePalette.STATIC_LIGHT)
+            refresh()
+        }
+        iv.showPanel(panel)
+        panel.showSplitForTest("one two")
+        assertTrue("precondition: the split sheet is up", panel.overlayVisibleForTest())
+
+        backStep(iv, "PANEL_LAYER")
+        assertFalse(panel.overlayVisibleForTest())
+        assertEquals("closing the split sheet ends its selection once", 1, finished)
+        assertTrue(iv.isPanelShowing(panel))
+
+        backStep(iv, "PANEL")
+        assertFalse(iv.panelShown)
+        assertEquals(1, finished)
     }
 
     @Test fun a_clipboard_panel_with_nothing_open_closes_on_the_first_back() {

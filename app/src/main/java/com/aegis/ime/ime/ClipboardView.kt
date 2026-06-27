@@ -51,6 +51,9 @@ import com.aegis.ime.ime.ClipboardPanelState.Tab
 class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, CoversToolbar, KeyHapticsAware, LayeredPanel {
 
     var onPick: (String) -> Unit = {}
+    var onCopyBlocksToAegis: (List<String>) -> Unit = {}
+    var onSplitSelectionChanged: (String) -> Unit = {}
+    var onSplitSelectionFinished: () -> Unit = {}
     var onBack: () -> Unit = {}
     var historyProvider: () -> List<ClipEntry> = { emptyList() }
     var historyReadableProvider: () -> Boolean = { true }
@@ -85,11 +88,16 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private var ACCENT = palette.candidateFirst
     private var RED = palette.onErrorContainer
     private var GREY_PILL = palette.chipBg
+    private var SPLIT_BLOCK_BG = palette.accentBottom
+    private var SPLIT_BLOCK_TEXT = palette.accentLabel
+    private var SPLIT_BLOCK_COPIED_BG = palette.chipBg
+    private var SPLIT_BLOCK_COPIED_TEXT = palette.chipText
     private var TEXT_DARK = palette.keyLabel
     private var TEXT_SECONDARY = palette.keyLabelSecondary
     private var HINT = palette.keyHint
     private var CARD = palette.keySurface
     private var BG = palette.keyboardBg
+    private val splitSymbol = "拆"
     private val moveSymbol = "移"
     private val charActionIcons = resources.getBoolean(R.bool.clip_char_action_icons)
 
@@ -97,7 +105,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         val changed = p != palette
         palette = p
         ACCENT = p.candidateFirst; RED = p.onErrorContainer
-        GREY_PILL = p.chipBg
+        GREY_PILL = p.chipBg; SPLIT_BLOCK_BG = p.accentBottom; SPLIT_BLOCK_TEXT = p.accentLabel
+        SPLIT_BLOCK_COPIED_BG = p.chipBg; SPLIT_BLOCK_COPIED_TEXT = p.chipText
         TEXT_DARK = p.keyLabel; TEXT_SECONDARY = p.keyLabelSecondary; HINT = p.keyHint; CARD = p.keySurface
         BG = p.keyboardBg
         main.setBackgroundColor(BG)
@@ -119,6 +128,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private var listTouchActive = false
 
     private var categorySortMode = false
+    private var splitSelection: SplitSelectionModel? = null
+    private var splitSessionActive = false
     private var renderedTab: ClipboardPanelState.Tab? = null
     private var tabTransitions = 0
     private var renderedMode = -1
@@ -696,6 +707,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     internal fun expandForTest(text: String) { if (st.expanded != text) st.toggleExpand(text); refresh() }
     internal fun confirmClearForTest() { confirmClearCurrentCategory() }
     internal fun confirmClearHistoryForTest() { confirmClearHistory() }
+    internal fun showSplitForTest(text: String) { showSplit(text) }
+    internal fun splitSelectedForTest(): Set<Int> = splitSelection?.selectedIndices().orEmpty()
     internal fun listRowTextsForTest(): List<String> {
         val out = ArrayList<String>()
         fun firstText(v: View): String? {
@@ -1117,6 +1130,12 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         if (entryEditable(text)) {
             addActionButton(glyphAction(context.getString(R.string.clip_edit), render = { c, p, x, y, s -> Glyphs.drawEditSquare(c, p, x, y, s) }) { onEditClip(text) })
         }
+        addActionButton(
+            (
+                if (charActionIcons) charAction(splitSymbol, context.getString(R.string.clip_split_word)) { showSplit(text) }
+                else glyphAction(context.getString(R.string.clip_split_word), render = { c, p, x, y, s -> Glyphs.drawCut(c, p, x, y, s) }) { showSplit(text) }
+                ).apply { tag = splitSymbol },
+        )
         addActionButton(glyphAction(context.getString(R.string.clip_delete), render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { confirmDelete(listOf(text)) })
     }
 
@@ -1194,6 +1213,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
 
     override fun onDetachedFromWindow() {
+        finishSplitSelection()
         resetImmediateActions()
         cancelPendingListAppend()
         super.onDetachedFromWindow()
@@ -1514,6 +1534,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
 
 
     private fun hideOverlay() {
+        finishSplitSelection()
         overlay.resetBackdropGesture()
         if (overlay.visibility != VISIBLE) {
             forgetImmediateActions(overlay)
@@ -1528,6 +1549,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
 
     private fun hideOverlayImmediately() {
+        finishSplitSelection()
         overlay.resetBackdropGesture()
         forgetImmediateActions(overlay)
         overlay.setOnClickListener(null)
@@ -1544,6 +1566,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
 
     private fun showOverlay(content: View, gravity: Int = Gravity.CENTER, maxWidthDp: Int? = null, anchor: View? = null, across: Boolean = false) {
+        finishSplitSelection()
         overlay.resetBackdropGesture()
         Motion.reset(overlay)
         forgetImmediateActions(overlay)
@@ -1648,6 +1671,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun showLongPressMenu(text: String, anchor: View) {
         val actions = mutableListOf<Pair<String, () -> Unit>>(context.getString(R.string.clip_delete_item) to { confirmDelete(listOf(text)) })
             actions += context.getString(R.string.clip_add_phrase) to { hideOverlay(); chooseCategoryThen(listOf(text)) }
+            actions += context.getString(R.string.clip_split_title) to { hideOverlay(); showSplit(text) }
         val card = menuCard()
         val bar = actionBar(actions)
         if (fitsAcross(bar, actions.size - 1)) {
@@ -1726,6 +1750,87 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         if (leftOut <= 0) { onAddCategoryThenAdd(bodies); return }
         val told = context.getString(R.string.clip_entries_unreadable_count, leftOut)
         if (bodies.isEmpty()) showNotice(told, RED) else showNotice(told, RED) { onAddCategoryThenAdd(bodies) }
+    }
+
+    private fun showSplit(key: String) {
+        finishSplitSelection()
+        val text = entryBody(key)
+        if (text == null) {
+            showNotice(
+                if (clipTab() && clipIndex[key]?.available == true) R.string.clip_entry_unreadable_body
+                else R.string.clip_entry_lost_body,
+            )
+            return
+        }
+        val selection = SplitSelectionModel.from(text)
+        splitSelection = selection
+        val inset = popupInset()
+        val panel = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(0, dp(14), 0, dp(16))
+        }
+        panel.addView(TextView(context).apply {
+            this.text = context.getString(R.string.clip_split_title); gravity = Gravity.CENTER; setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setPadding(inset, 0, inset, dp(10))
+        })
+        val chips = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+        val blocks = selection.blocks
+        if (blocks.isEmpty()) chips.addView(TextView(context).apply { this.text = context.getString(R.string.clip_nothing_to_split); setTextColor(TEXT_DARK) })
+        for ((index, b) in blocks.withIndex()) {
+            val chip = TextView(context).apply {
+                this.text = b
+                setTextColor(SPLIT_BLOCK_TEXT); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+                setPadding(dp(12), dp(8), dp(12), dp(8))
+                background = rounded(SPLIT_BLOCK_BG, ImeShapes.chipRadiusDp)
+                layoutParams = ll(WC, WC).apply { rightMargin = dp(8) }
+            }
+            chip.setOnClickListener {
+                val selected = selection.toggle(index)
+                chip.setTextColor(if (selected) SPLIT_BLOCK_COPIED_TEXT else SPLIT_BLOCK_TEXT)
+                chip.background = rounded(
+                    if (selected) SPLIT_BLOCK_COPIED_BG else SPLIT_BLOCK_BG,
+                    ImeShapes.chipRadiusDp,
+                )
+                Motion.applyTapFeedback(
+                    chip,
+                    if (selected) SPLIT_BLOCK_COPIED_TEXT else SPLIT_BLOCK_TEXT,
+                    radiusDp = ImeShapes.chipRadiusDp,
+                )
+                onSplitSelectionChanged(selection.projection())
+            }
+            Motion.applyTapFeedback(chip, SPLIT_BLOCK_TEXT, radiusDp = ImeShapes.chipRadiusDp)
+            chips.addView(chip)
+        }
+        panel.addView(
+            HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) },
+            ll(MP, WC).apply { leftMargin = inset; rightMargin = inset },
+        )
+        val footerSide = (inset - dp(12)).coerceAtLeast(0)
+        val footer = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(footerSide, dp(12), footerSide, 0) }
+        footer.addView(TextView(context).apply {
+            this.text = context.getString(R.string.clip_back); gravity = Gravity.CENTER
+            setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+            setPadding(dp(12), 0, dp(12), 0)
+            setOnClickListener { hideOverlay() }
+            bindImmediateAction(this, TEXT_DARK, faceColor = Color.TRANSPARENT)
+        }, ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)))
+        footer.addView(View(context), ll(0, dp(1), 1f))
+        if (blocks.isNotEmpty()) footer.addView(TextView(context).apply {
+            this.text = context.getString(R.string.clip_copy_all); gravity = Gravity.CENTER
+            setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+            setPadding(dp(12), 0, dp(12), 0)
+            setOnClickListener { onCopyBlocksToAegis(blocks) }
+            bindImmediateAction(this, TEXT_DARK, faceColor = Color.TRANSPARENT)
+        }, ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)))
+        panel.addView(footer, ll(MP, WC))
+        showOverlay(panel, maxWidthDp = 340)
+        splitSessionActive = true
+    }
+
+    internal fun finishSplitSelection() {
+        if (!splitSessionActive) return
+        splitSessionActive = false
+        onSplitSelectionFinished()
     }
 
 

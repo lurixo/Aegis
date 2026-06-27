@@ -20,12 +20,16 @@ import com.aegis.ime.user.clipEntries
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.graphics.Rect
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -49,6 +53,11 @@ class Debug17PanelTest {
         walk(root); return out
     }
     private fun labels(root: View): List<String> = textViews(root).mapNotNull { it.text?.toString() }
+    private fun actionButtons(root: View): List<TextView> = textViews(root).filter {
+        it.compoundDrawables[0] != null &&
+            (it.background is GradientDrawable || it.background is ImeKeySurface) &&
+            it.hasOnClickListeners()
+    }
     private fun layout(root: View, width: Int = 480, height: Int = 400) {
         root.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
         root.layout(0, 0, root.measuredWidth, root.measuredHeight)
@@ -57,6 +66,8 @@ class Debug17PanelTest {
         val tv = textViews(root).firstOrNull { it.text?.toString() == label && it.hasOnClickListeners() } ?: return false
         tv.performClick(); return true
     }
+    private fun chip(root: View, label: String): TextView? =
+        textViews(root).firstOrNull { it.text?.toString() == label && it.hasOnClickListeners() }
     private fun bgColor(v: View): Int? = when (val background = v.background) {
         is GradientDrawable -> background.color?.defaultColor
         is ImeKeySurface -> background.faceColor
@@ -72,6 +83,29 @@ class Debug17PanelTest {
         val v = allViews(root).firstOrNull { it.contentDescription?.toString() == desc && it.hasOnClickListeners() } ?: return false
         v.performClick(); return true
     }
+    private fun dp(value: Int): Int = (value * ctx.resources.displayMetrics.density).toInt()
+
+    private fun assertActionPopup(v: ClipboardView, expectedItems: List<String>): List<TextView> {
+        layout(v)
+        val overlay = overlayOf(v) as ViewGroup
+        val scroll = overlay.getChildAt(0) as ScrollView
+        val card = scroll.getChildAt(0)
+        val items = textViews(card).filter { it.hasOnClickListeners() }
+        val margin = dp(24)
+        val expectedWidth = minOf(dp(320), (ctx.resources.displayMetrics.widthPixels - margin * 2).coerceAtLeast(dp(260)))
+        assertEquals(expectedItems, items.map { it.text.toString() })
+        assertEquals(expectedWidth, scroll.width)
+        assertEquals(overlay.width, scroll.left + scroll.right)
+        assertEquals(Gravity.CENTER, (scroll.layoutParams as FrameLayout.LayoutParams).gravity)
+        assertTrue(scroll.background is GradientDrawable)
+        assertEquals(pal.keySurface, bgColor(scroll))
+        assertTrue((scroll.background as GradientDrawable).cornerRadius > 0f)
+        assertTrue(scroll.clipToOutline)
+        assertTrue(scroll.elevation > 0f)
+        assertTrue(items.all { it.currentTextColor == pal.keyLabel })
+        assertTrue(items.all { Gravity.getAbsoluteGravity(it.gravity, it.layoutDirection) and Gravity.HORIZONTAL_GRAVITY_MASK == Gravity.LEFT })
+        return items
+    }
 
     private fun phraseView(phrases: List<String> = listOf("你好", "在吗", "稍等")): ClipboardView = ClipboardView(ctx).apply {
         categoriesProvider = { listOf("默认", "工作") }
@@ -81,6 +115,20 @@ class Debug17PanelTest {
     private fun clipView(history: List<String> = listOf("hello")): ClipboardView = ClipboardView(ctx).apply {
         historyProvider = { history.asClipEntries() }; categoriesProvider = { listOf("默认") }
         applyPalette(pal); refresh()
+    }
+
+    @Test fun clipboard_long_press_popup_keeps_the_action_popup_style() {
+        val v = clipView()
+        assertTrue(textViews(v).first { it.text?.toString() == "hello" }.performLongClick())
+        val items = assertActionPopup(
+            v,
+            listOf(
+                ctx.getString(com.aegis.ime.R.string.clip_delete_item),
+                ctx.getString(com.aegis.ime.R.string.clip_add_phrase),
+                ctx.getString(com.aegis.ime.R.string.clip_split_title),
+            ),
+        )
+        assertTrue(items.all { v.isImmediateActionForTest(it) && bgColor(it) == Color.TRANSPARENT })
     }
 
     @Test fun category_long_press_popup_uses_action_style_and_preserves_actions() {
@@ -110,6 +158,14 @@ class Debug17PanelTest {
         assertNull(deleted)
         assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete)))
         assertEquals("工作", deleted)
+    }
+
+    @Test fun clipboard_longpress_menu_unchanged() {
+        val v = clipView()
+        val body = textViews(v).first { it.text?.toString() == "hello" }
+        assertTrue("body keeps its long-press menu", body.performLongClick())
+        val ls = labels(overlayOf(v))
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_split_title), ctx.getString(com.aegis.ime.R.string.clip_split_title) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_add_phrase), ctx.getString(com.aegis.ime.R.string.clip_add_phrase) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_delete_item), ctx.getString(com.aegis.ime.R.string.clip_delete_item) in ls)
     }
 
     @Test fun clipboard_item_delete_cancels_and_confirms_without_early_mutation() {
@@ -282,6 +338,91 @@ class Debug17PanelTest {
         val ls = labels(overlayOf(v))
         assertTrue("target 工作 present", "工作" in ls)
         assertTrue("＋ 新建分类… available in the non-empty chooser too", ctx.getString(com.aegis.ime.R.string.clip_new_category) in ls)
+    }
+
+    @Test fun split_blocks_start_neutral() {
+        val v = clipView()
+        v.showSplitForTest("你好abc def")
+        val a = chip(overlayOf(v), "你好"); val b = chip(overlayOf(v), "abc")
+        assertTrue("blocks present", a != null && b != null)
+        assertEquals("block default uses enter background", pal.accentBottom, bgColor(a!!))
+        assertEquals("block default uses enter background", pal.accentBottom, bgColor(b!!))
+        assertEquals("block default text uses enter label", pal.accentLabel, a.currentTextColor)
+        assertEquals("block default text uses enter label", pal.accentLabel, b.currentTextColor)
+        assertTrue("nothing copied yet", v.splitSelectedForTest().isEmpty())
+    }
+
+    @Test fun split_block_tap_toggles_selection_without_copying_and_panel_stays_open() {
+        val changed = ArrayList<String>()
+        val copied = ArrayList<List<String>>()
+        val v = clipView().apply {
+            onSplitSelectionChanged = { changed.add(it) }
+            onCopyBlocksToAegis = { copied.add(it) }
+        }
+        v.showSplitForTest("你好abc def")
+        val a = chip(overlayOf(v), "你好")!!
+        val b = chip(overlayOf(v), "abc")!!
+        val defaultBg = bgColor(a)
+        val defaultText = a.currentTextColor
+        a.performClick()
+        assertEquals(listOf("你好"), changed)
+        assertTrue("single-item selection does not invoke clipboard recording", copied.isEmpty())
+        assertEquals("selected block uses selected background", pal.chipBg, bgColor(a))
+        assertEquals("selected block uses selected text", pal.chipText, a.currentTextColor)
+        assertNotEquals("selected background differs from default", defaultBg, bgColor(a))
+        assertNotEquals("selected text differs from default", defaultText, a.currentTextColor)
+        assertEquals("untapped block keeps default background", defaultBg, bgColor(b))
+        assertEquals("untapped block keeps default text", defaultText, b.currentTextColor)
+        assertEquals(setOf(0), v.splitSelectedForTest())
+        a.performClick()
+        assertEquals(listOf("你好", ""), changed)
+        assertEquals(defaultBg, bgColor(a))
+        assertEquals(defaultText, a.currentTextColor)
+        assertTrue(v.splitSelectedForTest().isEmpty())
+        assertTrue(copied.isEmpty())
+        assertEquals("panel stays open", View.VISIBLE.toLong(), overlayOf(v).visibility.toLong())
+    }
+
+    @Test fun split_copy_all_uses_one_batch_without_changing_selection_or_chip_styles() {
+        val copied = ArrayList<List<String>>()
+        val changed = ArrayList<String>()
+        val v = clipView().apply {
+            onCopyBlocksToAegis = { copied.add(it) }
+            onSplitSelectionChanged = { changed.add(it) }
+        }
+        v.showSplitForTest("你好abc def")
+        val blockLabels = listOf("你好", "abc", "def")
+        val chips = blockLabels.map { chip(overlayOf(v), it)!! }
+        chips[1].performClick()
+        val stateBefore = v.splitSelectedForTest()
+        val stylesBefore = chips.map { bgColor(it) to it.currentTextColor }
+        val changesBefore = changed.toList()
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_copy_all)))
+        assertEquals(listOf(blockLabels), copied)
+        assertEquals(stateBefore, v.splitSelectedForTest())
+        assertEquals(stylesBefore, chips.map { bgColor(it) to it.currentTextColor })
+        assertEquals(changesBefore, changed)
+        assertEquals(View.VISIBLE, overlayOf(v).visibility)
+    }
+
+    @Test fun split_copy_all_uses_batch_callback_once_when_available() {
+        val batches = ArrayList<List<String>>()
+        val v = clipView().apply { onCopyBlocksToAegis = { batches.add(it) } }
+        v.showSplitForTest("你好abc def")
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_copy_all)))
+        assertEquals(listOf(listOf("你好", "abc", "def")), batches)
+    }
+
+    @Test fun split_chooser_hides_original_preview_and_keeps_copy_all_as_body_text() {
+        val v = clipView()
+        v.showSplitForTest("你好abc def")
+        assertFalse("original preview removed", "你好abc def" in labels(overlayOf(v)))
+        val back = textViews(overlayOf(v)).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_back) }
+        val copyAll = textViews(overlayOf(v)).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_copy_all) }
+        assertEquals(pal.keyLabel, back.currentTextColor)
+        assertEquals(pal.keyLabel, copyAll.currentTextColor)
+        assertEquals(Color.TRANSPARENT, bgColor(back))
+        assertEquals(Color.TRANSPARENT, bgColor(copyAll))
     }
 
     @Test fun phrase_note_is_displayed_but_pick_commits_the_original() {
@@ -501,5 +642,18 @@ class Debug17PanelTest {
             .first { tv -> tv.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_phrases) && tv.compoundDrawables.any { d -> d != null } }
             .performClick()
         assertEquals(pal.keyLabel, textViews(overlayOf(category)).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_choose_category) }.currentTextColor)
+    }
+
+    @Test fun dropdown_actions_expand_below_without_translating_the_foreground() {
+        val v = clipView(listOf("a long clip"))
+        layout(v)
+        val closedBody = textViews(v).first { it.text?.toString() == "a long clip" }
+        assertEquals(0f, (closedBody.parent as View).translationX, 0f)
+        v.expandForTest("a long clip")
+        layout(v)
+        val openBody = textViews(v).first { it.text?.toString() == "a long clip" }
+        assertEquals(0f, (openBody.parent as View).translationX, 0f)
+        assertEquals(2, openBody.maxLines)
+        assertEquals(4, actionButtons(v).size)
     }
 }

@@ -146,6 +146,44 @@ class PanelMotionTest {
         }
     }
 
+    @Test fun clipboard_overlay_dismiss_reaches_gone_in_the_same_call() {
+        animationsOn()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val v = attach(activity, clipboardView(activity) { listOf("你好，世界") })
+            v.showSplitForTest("你好，世界")
+            assertTrue(v.overlayVisibleForTest())
+            v.hideOverlayForTest()
+            assertFalse("the dismissal lands GONE in the same call", v.overlayVisibleForTest())
+
+            v.showSplitForTest("你好，世界")
+            v.hideOverlayForTest()
+            v.showSplitForTest("你好，世界")
+            flushMotion()
+            assertTrue("a reopen right after a dismiss wins and settles visible", v.overlayVisibleForTest())
+            v.hideOverlayForTest()
+            assertFalse(v.overlayVisibleForTest())
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun clipboard_overlay_dismiss_is_immediate_under_reduced_motion() {
+        animationsOff()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val v = attach(activity, clipboardView(activity) { listOf("你好，世界") })
+            v.showSplitForTest("你好，世界")
+            assertTrue(v.overlayVisibleForTest())
+            v.hideOverlayForTest()
+            assertFalse("reduced motion jumps straight to GONE", v.overlayVisibleForTest())
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
     @Test fun clear_confirmation_dismiss_reaches_gone_in_the_same_call() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()

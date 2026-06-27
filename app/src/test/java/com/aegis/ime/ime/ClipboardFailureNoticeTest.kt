@@ -565,6 +565,22 @@ class ClipboardFailureNoticeTest {
         }
     }
 
+    @Test fun splitting_a_clip_whose_contents_are_gone_says_so_instead_of_doing_nothing() {
+        val dir = Files.createTempDirectory("clipsplitlost").toFile()
+        try {
+            val lost = lostClip(dir)
+            val v = view(listOf(lost))
+
+            v.showSplitForTest(lost.key)
+            layout(v)
+
+            assertTrue(text(R.string.clip_entry_lost_body) in labels(v))
+            assertFalse("nothing may be offered to split", text(R.string.clip_split_title) in labels(v))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
     @Test fun tapping_a_clip_that_is_still_there_still_commits_it() {
         var picked: String? = null
         val v = view(listOf("还在的").asClipEntries()).apply { onPick = { picked = it } }

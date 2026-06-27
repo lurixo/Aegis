@@ -421,6 +421,7 @@
     <string name="clip_collapse">收起</string>
     <string name="clip_expand">展开</string>
     <string name="clip_phrases">常用语</string>
+    <string name="clip_split_word">拆词</string>
     <string name="clip_delete">删除</string>
     <string name="clip_edit">编辑</string>
     <string name="clip_note">备注</string>
@@ -447,9 +448,11 @@
     <string name="clip_delete_item">删除此条内容</string>
     <string name="clip_delete_clip_confirm">删除选中的剪贴板条目？</string>
     <string name="clip_delete_phrase_confirm">删除选中的常用语？</string>
+    <string name="clip_split_title">拆分选词</string>
     <string name="clip_pause_history">暂停剪贴板记录</string>
     <string name="clip_resume_history">继续剪贴板记录</string>
     <string name="clip_choose_category">选择分类</string>
+    <string name="clip_nothing_to_split">无可拆分内容</string>
     <string name="clip_copy_all">全部复制</string>
     <string name="clip_clipboard">剪贴板</string>
     <string name="clip_default_category">默认</string>

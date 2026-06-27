@@ -21,6 +21,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Rect
 import android.graphics.RectF
+import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -29,11 +30,13 @@ import android.widget.HorizontalScrollView
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -105,6 +108,64 @@ class PhrasePanelTest {
         assertEquals(expected, actions.map { it.text.toString() })
         assertTrue(actions.all { it.compoundDrawables[0] != null && it.text.isNotEmpty() })
         assertFalse(labels(v).any { it == "置顶" || it == "Pin to top" })
+    }
+
+    @Test fun expanded_clipboard_card_keeps_add_split_delete() {
+        val v = ClipboardView(ctx).apply {
+            historyProvider = { clipEntries("abc") }; applyPalette(pal); refresh(); expandForTest("abc")
+        }
+        layout(v)
+        val expected = listOf(ctx.getString(com.aegis.ime.R.string.clip_phrases), ctx.getString(com.aegis.ime.R.string.clip_split_word), ctx.getString(com.aegis.ime.R.string.clip_delete))
+        val actions = textViews(v).filter { it.text?.toString() in expected && it.compoundDrawables[0] != null && it.hasOnClickListeners() }
+        assertEquals(expected, actions.map { it.text.toString() })
+        assertTrue(actions.all { it.compoundDrawables[0] != null && it.text.isNotEmpty() })
+    }
+
+    @Test fun clipboard_and_phrase_action_buttons_share_height_rounding_and_spacing() {
+        val clip = ClipboardView(ctx).apply {
+            historyProvider = { clipEntries("abc") }; applyPalette(pal); refresh(); expandForTest("abc")
+        }
+        layout(clip)
+        val phrase = phraseView().apply { expandForTest("你好") }
+        layout(phrase)
+        val clipActions = textViews(clip)
+            .filter { it.text?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_phrases), ctx.getString(com.aegis.ime.R.string.clip_split_word), ctx.getString(com.aegis.ime.R.string.clip_delete)) && it.compoundDrawables.any { d -> d != null } }
+        val phraseActions = textViews(phrase)
+            .filter { it.text?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_edit), ctx.getString(com.aegis.ime.R.string.clip_note), ctx.getString(com.aegis.ime.R.string.clip_move), ctx.getString(com.aegis.ime.R.string.clip_delete)) && it.compoundDrawables.any { d -> d != null } }
+        assertEquals(3, clipActions.size)
+        assertEquals(4, phraseActions.size)
+        val all = clipActions + phraseActions
+        assertEquals(1, all.map { it.layoutParams.height }.toSet().size)
+        assertTrue(all.all { it.layoutParams.width == ViewGroup.LayoutParams.WRAP_CONTENT })
+        assertTrue(all.all { it.compoundDrawablePadding == it.paint.measureText(" ").roundToInt().coerceAtLeast(1) })
+        assertTrue(all.all { Gravity.getAbsoluteGravity(it.gravity, it.layoutDirection) and Gravity.HORIZONTAL_GRAVITY_MASK == Gravity.LEFT })
+        val heightTolerance = 2 * ctx.resources.displayMetrics.density + 1f
+        assertTrue(all.all { abs(it.compoundDrawables[0].intrinsicHeight - it.textSize) <= heightTolerance })
+        assertTrue(clipActions.all { clip.isImmediateActionForTest(it) })
+        assertTrue(phraseActions.all { phrase.isImmediateActionForTest(it) })
+        assertTrue(clipActions.all { it.background === clip.immediateActionDrawableForTest(it) })
+        assertTrue(phraseActions.all { it.background === phrase.immediateActionDrawableForTest(it) })
+        assertTrue(all.all { it.foreground == null && it.height == dp(48) })
+        for (action in all) {
+            action.draw(Canvas(Bitmap.createBitmap(action.width, action.height, Bitmap.Config.ARGB_8888)))
+            val hit = Rect()
+            action.getHitRect(hit)
+            assertEquals(Rect(action.left, action.top, action.right, action.bottom), hit)
+        }
+        val gap = (4 * ctx.resources.displayMetrics.density).toInt()
+        assertEquals(listOf(0, gap, gap), clipActions.map { (it.layoutParams as android.widget.LinearLayout.LayoutParams).marginStart })
+        assertEquals(listOf(0, gap, gap, gap), phraseActions.map { (it.layoutParams as android.widget.LinearLayout.LayoutParams).marginStart })
+        for ((view, body, actions) in listOf(Triple(clip, "abc", clipActions), Triple(phrase, "你好", phraseActions))) {
+            val row = actions.first().parent as View
+            val surface = row.parent as View
+            val header = textViews(view).first { it.text?.toString() == body }.parent as View
+            val headerFrame = header.parent as View
+            assertTrue(headerFrame.parent === surface)
+            assertTrue(surface.background is GradientDrawable)
+            assertTrue((surface.background as GradientDrawable).cornerRadius > 0f)
+            assertTrue(header.background == null)
+            assertEquals((row as ViewGroup).paddingLeft, actions.first().left)
+        }
     }
 
     @Test fun edit_action_invokes_onEditPhrase() {
@@ -564,6 +625,113 @@ class PhrasePanelTest {
             val cardBox = boundsInRoot(move, (overlayOf(move) as ViewGroup).getChildAt(0))
             val trashBox = boundsInRoot(move, trash)
             assertTrue("the delete glyph stays inside the card", trashBox.left >= cardBox.left && trashBox.right <= cardBox.right)
+        }
+    }
+
+    @Test fun the_clipboard_item_menu_lays_its_actions_in_one_row_and_stacks_when_too_narrow() {
+        val inset = com.aegis.ime.ime.theme.ImeType.popupInsetPx(ctx.resources.displayMetrics)
+        val actionLabels = listOf(
+            com.aegis.ime.R.string.clip_delete_item,
+            com.aegis.ime.R.string.clip_add_phrase,
+            com.aegis.ime.R.string.clip_split_title,
+        ).map(ctx::getString)
+        fun open(w: Int): Pair<ClipboardView, List<TextView>> {
+            val v = clipboardView(listOf("第一条"), listOf("默认"))
+            layout(v, w, 320)
+            assertTrue(textViews(v).first { it.text?.toString() == "第一条" && it.isLongClickable }.performLongClick())
+            layout(v, w, 320)
+            return v to actionLabels.map { label -> textViews(overlayOf(v)).single { it.text?.toString() == label } }
+        }
+
+        val (wide, wideActions) = open(480)
+        val wideCard = boundsInRoot(wide, (overlayOf(wide) as ViewGroup).getChildAt(0))
+        val wideBoxes = wideActions.map { boundsInRoot(wide, it) }
+        assertTrue("one row", wideBoxes.all { it.top == wideBoxes[0].top })
+        assertTrue("in reading order", wideBoxes.zipWithNext().all { (a, b) -> a.right <= b.left })
+        assertEquals("the first action starts two characters in", wideCard.left + inset, wideBoxes.first().left + wideActions.first().totalPaddingLeft)
+        assertEquals("the last action ends two characters in", wideCard.right - inset, wideBoxes.last().right - wideActions.last().totalPaddingRight)
+        assertTrue("roomy gaps on a wide panel", wideBoxes.zipWithNext().all { (a, b) -> b.left - a.right == dp(16) })
+        for (action in wideActions) {
+            assertTrue(wide.isImmediateActionForTest(action))
+            assertEquals(dp(48), action.height)
+        }
+
+        val tight = wideActions.sumOf { it.width } + 2 * (inset - dp(4)) + 2 * (ImeShapes.edgeInsetDp * ctx.resources.displayMetrics.density).toInt()
+        val (squeezed, squeezedActions) = open(tight + 4)
+        val squeezedCard = boundsInRoot(squeezed, (overlayOf(squeezed) as ViewGroup).getChildAt(0))
+        val squeezedBoxes = squeezedActions.map { boundsInRoot(squeezed, it) }
+        assertTrue("a narrow panel keeps one row", squeezedBoxes.all { it.top == squeezedBoxes[0].top })
+        assertTrue("by closing the gaps", squeezedBoxes.zipWithNext().all { (a, b) -> b.left - a.right in 0 until dp(16) })
+        assertEquals(squeezedCard.left + inset, squeezedBoxes.first().left + squeezedActions.first().totalPaddingLeft)
+        assertEquals(squeezedCard.right - inset, squeezedBoxes.last().right - squeezedActions.last().totalPaddingRight)
+
+        val (narrow, narrowActions) = open(tight - 20)
+        val narrowBoxes = narrowActions.map { boundsInRoot(narrow, it) }
+        assertTrue("too narrow for one row: the actions stack", narrowBoxes.zipWithNext().all { (a, b) -> b.top >= a.bottom })
+
+        assertTrue(wideActions[1].performClick())
+        assertTrue(
+            "the add action still opens the category chooser",
+            ctx.getString(com.aegis.ime.R.string.clip_choose_category) in labels(overlayOf(wide)),
+        )
+    }
+
+    @Test fun the_clipboard_item_menu_opens_beside_the_pressed_item() {
+        val entries = (1..8).map { "第${it}条剪贴板内容" }
+        for ((w, h) in listOf(480 to 320, 480 to 200)) {
+            val v = clipboardView(entries, listOf("默认"))
+            layout(v, w, h)
+            val actionLabels = listOf(
+                com.aegis.ime.R.string.clip_delete_item,
+                com.aegis.ime.R.string.clip_add_phrase,
+                com.aegis.ime.R.string.clip_split_title,
+            ).map(ctx::getString)
+            var above = 0
+            var below = 0
+            for (i in 0 until v.listRowCountForTest()) {
+                layout(v, w, h)
+                val viewport = boundsInRoot(v, v.listViewportForTest())
+                val row = requireNotNull(v.listRowViewForTest(i))
+                val rowBox = boundsInRoot(v, row)
+                if (rowBox.top < viewport.top || rowBox.bottom > viewport.bottom) continue
+                assertTrue(textViews(row).first { it.isLongClickable }.performLongClick())
+                layout(v, w, h)
+                val card = (overlayOf(v) as ViewGroup).getChildAt(0) as ViewGroup
+                val cardBox = boundsInRoot(v, card)
+                val full = card.getChildAt(0).height
+                val roomAbove = rowBox.top - dp(4) - dp(8)
+                val roomBelow = v.height - dp(8) - rowBox.bottom - dp(4)
+                val where = "entry $i at ${w}x$h"
+                val actions = actionLabels.map { label -> textViews(card).single { it.text?.toString() == label } }
+                assertTrue("$where: the actions share one row", actions.all { boundsInRoot(v, it).top == boundsInRoot(v, actions[0]).top })
+                assertEquals("$where: one 48dp row inside the card padding", dp(6) + dp(48) + dp(6), full)
+                val side = (ImeShapes.edgeInsetDp * ctx.resources.displayMetrics.density).toInt()
+                assertTrue("$where: stays inside the panel", cardBox.left >= side && cardBox.right <= v.width - side)
+                assertEquals("$where: stays centred", (v.width - card.width) / 2, cardBox.left)
+                assertFalse("$where: leaves the pressed entry uncovered", Rect.intersects(cardBox, rowBox))
+                when {
+                    full <= roomAbove -> {
+                        assertEquals("$where: sits just above the entry", rowBox.top - dp(4), cardBox.bottom); above++
+                        assertEquals("$where: shows every action", full, card.height)
+                    }
+                    full <= roomBelow -> {
+                        assertEquals("$where: sits just below the entry", rowBox.bottom + dp(4), cardBox.top); below++
+                        assertEquals("$where: shows every action", full, card.height)
+                    }
+                    roomAbove >= roomBelow -> {
+                        assertEquals("$where: takes the roomier side above", rowBox.top - dp(4), cardBox.bottom); above++
+                        assertEquals("$where: scrolls within the room above", roomAbove, card.height)
+                    }
+                    else -> {
+                        assertEquals("$where: takes the roomier side below", rowBox.bottom + dp(4), cardBox.top); below++
+                        assertEquals("$where: scrolls within the room below", roomBelow, card.height)
+                    }
+                }
+                if (cardBox.top < dp(8) || cardBox.bottom > v.height - dp(8)) fail("$where: the menu leaves the panel: $cardBox")
+                v.hideOverlayForTest()
+            }
+            assertTrue("${w}x$h: a lower entry opens the menu above it", above > 0)
+            assertTrue("${w}x$h: the top entry opens the menu below it", below > 0)
         }
     }
 

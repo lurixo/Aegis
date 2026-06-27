@@ -20,6 +20,7 @@ import java.io.File
 import com.aegis.ime.user.ClipboardStore
 import com.aegis.ime.user.ClipEntry
 import com.aegis.ime.user.asClipEntries
+import com.aegis.ime.user.clipEntries
 import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -27,6 +28,7 @@ import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.os.Looper
+import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
@@ -35,6 +37,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
+import com.aegis.ime.user.ClipSplitter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -202,6 +205,26 @@ class ClipboardViewInteractionTest {
         }
     }
 
+    @Test fun split_blocks_press_in_their_own_corners() {
+        val r = ImeShapes.chipRadiusDp * ctx.resources.displayMetrics.density
+        val split = clipView(listOf("one two")).apply { showSplitForTest("one two") }
+        layout(split)
+        val chip = textViews(overlayOf(split)).first { it.text?.toString() == "one" }
+        assertEquals("a block face keeps the chip radius", r, (chip.background as GradientDrawable).cornerRadius, 0.01f)
+        assertEquals("a resting block presses in its own corners", r, rippleMask(chip).cornerRadius, 0.01f)
+        chip.performClick()
+        assertEquals("a picked block keeps the chip radius", r, (chip.background as GradientDrawable).cornerRadius, 0.01f)
+        assertEquals("a picked block keeps the same press corners", r, rippleMask(chip).cornerRadius, 0.01f)
+    }
+
+    @Test fun the_split_selection_heading_is_centered_across_the_card() {
+        val split = clipView(listOf("one two")).apply { showSplitForTest("one two") }
+        layout(split)
+        val heading = textViews(overlayOf(split)).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_split_title) }
+        assertEquals("the heading is centered", Gravity.CENTER_HORIZONTAL, heading.gravity and Gravity.HORIZONTAL_GRAVITY_MASK)
+        assertEquals("the heading spans the card", (heading.parent as View).width, heading.width)
+    }
+
     @Test fun a_pressed_card_part_lights_only_its_side_of_the_card() {
         val r = ImeShapes.cardRadiusDp * ctx.resources.displayMetrics.density
         for ((name, v, text) in listOf(Triple("clipboard", clipView(listOf("甲")), "甲"), Triple("phrases", phraseView(listOf("乙")), "乙"))) {
@@ -284,6 +307,119 @@ class ClipboardViewInteractionTest {
         v.refresh()
         assertTrue("new item appears in the existing panel", "new" in labels(v))
         assertTrue("existing item remains visible", "old" in labels(v))
+    }
+
+    @Test fun split_selection_rebuilds_in_source_order_and_toggles_duplicate_items_by_index() {
+        val source = "检查一下，检查"
+        assertEquals(listOf("检查", "一下", "，", "检查"), ClipSplitter.copyBlocks(source))
+        val changed = ArrayList<String>()
+        val copied = ArrayList<List<String>>()
+        val v = ClipboardView(ctx).apply {
+            onSplitSelectionChanged = { changed.add(it) }
+            onCopyBlocksToAegis = { copied.add(it) }
+            applyPalette(pal)
+            refresh()
+        }
+        v.showSplitForTest(source)
+
+        assertTrue(clickText(overlayOf(v), "检查"))
+        assertEquals("检查", changed.last())
+        assertEquals(setOf(0), v.splitSelectedForTest())
+        assertTrue(clickText(overlayOf(v), "，"))
+        assertEquals("检查，", changed.last())
+        assertEquals(setOf(0, 2), v.splitSelectedForTest())
+        assertTrue(clickText(overlayOf(v), "一下"))
+        assertEquals("检查一下，", changed.last())
+        assertEquals(setOf(0, 1, 2), v.splitSelectedForTest())
+        assertTrue(clickText(overlayOf(v), "检查"))
+        assertEquals("一下，", changed.last())
+        assertEquals(setOf(1, 2), v.splitSelectedForTest())
+        assertTrue(copied.isEmpty())
+
+        assertTrue(clickText(overlayOf(v), "一下"))
+        assertEquals("，", changed.last())
+        assertTrue(clickText(overlayOf(v), "，"))
+        assertEquals("", changed.last())
+        assertTrue(v.splitSelectedForTest().isEmpty())
+        assertTrue(copied.isEmpty())
+
+        val duplicateChecks = textViews(overlayOf(v)).filter {
+            it.text?.toString() == "检查" && it.hasOnClickListeners()
+        }
+        assertEquals(2, duplicateChecks.size)
+        duplicateChecks[1].performClick()
+        assertEquals("检查", changed.last())
+        assertEquals(setOf(3), v.splitSelectedForTest())
+        duplicateChecks[1].performClick()
+        assertEquals("", changed.last())
+        assertTrue(v.splitSelectedForTest().isEmpty())
+    }
+
+    @Test fun pure_punctuation_projections_match_the_taskbar_and_clipboard_entries() {
+        val taskbarChanges = ArrayList<String>()
+        val taskbar = CopyBarController(
+            commit = {},
+            selectionChanged = { taskbarChanges.add(it) },
+            selectionFinished = {},
+            dismiss = {},
+        )
+        taskbar.show("，。")
+        taskbar.toggleSplit()
+        assertEquals(listOf("，。"), taskbar.blocks)
+        assertTrue(taskbar.tapBlock(0) == true)
+
+        val clipboardChanges = ArrayList<String>()
+        val clipboard = ClipboardView(ctx).apply {
+            onSplitSelectionChanged = { clipboardChanges.add(it) }
+            applyPalette(pal)
+            refresh()
+        }
+        clipboard.showSplitForTest("，。")
+        assertTrue(clickText(overlayOf(clipboard), "，。"))
+
+        assertEquals(listOf("，。"), taskbarChanges)
+        assertEquals(taskbarChanges, clipboardChanges)
+    }
+
+    @Test fun every_split_popup_exit_finishes_the_composing_session_once() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup()
+        val input = InputView(ctx)
+        val v = ClipboardView(ctx).apply { applyPalette(pal); refresh() }
+        var finishes = 0
+        v.onSplitSelectionFinished = { finishes++ }
+        activity.get().setContentView(input)
+        input.showPanelImmediately(v)
+
+        fun assertSingleFinish(exit: () -> Unit) {
+            val before = finishes
+            v.showSplitForTest("检查一下，检查")
+            exit()
+            assertEquals(before + 1, finishes)
+            v.hideOverlayForTest()
+            assertEquals("a finished split session must not finish twice", before + 1, finishes)
+        }
+
+        try {
+            assertSingleFinish { v.hideOverlayForTest() }
+            assertSingleFinish {
+                assertTrue(clickText(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_back)))
+            }
+            assertSingleFinish { overlayOf(v).performClick() }
+            assertSingleFinish { v.resetToDefault() }
+
+            val beforeSwitch = finishes
+            v.showSplitForTest("检查一下，检查")
+            input.showPanelImmediately(TextView(ctx))
+            assertEquals(beforeSwitch + 1, finishes)
+
+            input.showPanelImmediately(v)
+            val beforeDetach = finishes
+            v.showSplitForTest("检查一下，检查")
+            (v.parent as ViewGroup).removeView(v)
+            assertEquals(beforeDetach + 1, finishes)
+        } finally {
+            activity.pause().stop().destroy()
+        }
     }
 
     @Test fun tabs_and_categories_dispatch_only_inside_their_own_targets() {
@@ -393,6 +529,62 @@ class ClipboardViewInteractionTest {
         val edit = actionButtons(v).single { it.text.toString() == ctx.getString(com.aegis.ime.R.string.clip_edit) }
         edit.performClick()
         assertEquals(listOf("第一条"), seen)
+    }
+
+    @Test fun rtl_dropdown_action_rows_keep_physical_order_and_left_alignment() {
+        val cases = listOf(
+            Triple(
+                clipView(listOf("第一条")),
+                "第一条",
+                listOf(
+                    ctx.getString(com.aegis.ime.R.string.clip_phrases),
+                    ctx.getString(com.aegis.ime.R.string.clip_edit),
+                    ctx.getString(com.aegis.ime.R.string.clip_split_word),
+                    ctx.getString(com.aegis.ime.R.string.clip_delete),
+                ),
+            ),
+            Triple(
+                phraseView(listOf("你好")),
+                "你好",
+                listOf(
+                    ctx.getString(com.aegis.ime.R.string.clip_edit),
+                    ctx.getString(com.aegis.ime.R.string.clip_note),
+                    ctx.getString(com.aegis.ime.R.string.clip_move),
+                    ctx.getString(com.aegis.ime.R.string.clip_delete),
+                ),
+            ),
+        )
+        for ((view, text, expected) in cases) {
+            view.layoutDirection = View.LAYOUT_DIRECTION_RTL
+            view.expandForTest(text)
+            layout(view)
+            val actions = actionButtons(view)
+            val physical = actions.sortedBy { it.left }
+            val row = actions.first().parent as ViewGroup
+            assertEquals(expected, physical.map { it.text.toString() })
+            assertEquals(row.paddingLeft, physical.first().left)
+            assertTrue(physical.zipWithNext().all { (left, right) -> left.right <= right.left })
+            assertTrue(actions.all {
+                Gravity.getAbsoluteGravity(it.gravity, it.layoutDirection) and Gravity.HORIZONTAL_GRAVITY_MASK == Gravity.LEFT
+            })
+        }
+    }
+
+
+    @Test fun copy_all_records_each_split_block_separately() {
+        val text = "visit https://x.com and copy each block"
+        val blocks = ClipSplitter.copyBlocks(text)
+        assertTrue("precondition: the text splits into ≥2 blocks", blocks.size >= 2)
+        val batches = ArrayList<List<String>>()
+        val v = ClipboardView(ctx).apply {
+            historyProvider = { clipEntries(text) }
+            onCopyBlocksToAegis = { batches.add(it) }
+            applyPalette(pal)
+            refresh()
+        }
+        v.showSplitForTest(text)
+        assertTrue(clickText(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_copy_all)))
+        assertEquals("Copy All invokes the batch callback exactly once", listOf(blocks), batches)
     }
 
 
@@ -842,6 +1034,18 @@ class ClipboardViewInteractionTest {
         layout(v)
         assertTrue(bigRow(v).performClick())
         assertEquals("上屏 gets the whole original string", bigBody, picked)
+        dir.deleteRecursively()
+    }
+
+    @Test fun splitting_a_big_clipboard_row_sees_the_whole_body() {
+        val dir = storeDir()
+        val store = lazyStore(dir, bigBody)
+        var copied: List<String>? = null
+        val v = storeView(store).apply { onCopyBlocksToAegis = { copied = it } }
+        layout(v)
+        v.showSplitForTest(store.history().first().key)
+        assertTrue(clickText(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_copy_all)))
+        assertEquals("拆分 works on the whole original string", ClipSplitter.copyBlocks(bigBody), copied)
         dir.deleteRecursively()
     }
 

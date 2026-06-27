@@ -425,6 +425,7 @@
     <string name="clip_collapse">Collapse</string>
     <string name="clip_expand">Expand</string>
     <string name="clip_phrases">Phrases</string>
+    <string name="clip_split_word">Split</string>
     <string name="clip_delete">Delete</string>
     <string name="clip_edit">Edit</string>
     <string name="clip_note">Note</string>
@@ -452,9 +453,11 @@
     <string name="clip_delete_item">Delete this item</string>
     <string name="clip_delete_clip_confirm">Delete the selected clipboard item(s)?</string>
     <string name="clip_delete_phrase_confirm">Delete the selected phrase(s)?</string>
+    <string name="clip_split_title">Split into words</string>
     <string name="clip_pause_history">Pause clipboard history</string>
     <string name="clip_resume_history">Resume clipboard history</string>
     <string name="clip_choose_category">Choose category</string>
+    <string name="clip_nothing_to_split">Nothing to split</string>
     <string name="clip_copy_all">Copy all</string>
     <string name="clip_clipboard">Clipboard</string>
     <string name="clip_default_category">Default</string>

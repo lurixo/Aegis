@@ -19,6 +19,7 @@ import android.graphics.Rect
 import android.util.TypedValue
 import android.view.View
 import android.view.ViewGroup
+import android.widget.HorizontalScrollView
 import android.widget.TextView
 import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
@@ -149,6 +150,20 @@ class PopupInsetTest {
     }
 
     private data class Quad(val name: String, val view: ClipboardView, val question: String, val action: String)
+
+    @Test fun the_split_panel_sits_two_characters_in() {
+        val entry = "今天天气很好我们一起去公园散步吧"
+        val v = clipView(listOf(entry)).apply { showSplitForTest(entry) }
+        layout(v)
+        val overlay = overlayOf(v)
+        val card = box(v, cardOf(v))
+        assertStartsTwoCharactersIn("split title", v, text(overlay, ctx.getString(R.string.clip_split_title)))
+        val chips = box(v, allViews(overlay).filterIsInstance<HorizontalScrollView>().single())
+        assertEquals("the words start two characters in", card.left + inset(), chips.left)
+        assertEquals("the words stop two characters in", card.right - inset(), chips.right)
+        assertStartsTwoCharactersIn("split back", v, text(overlay, ctx.getString(R.string.clip_back)))
+        assertEndsTwoCharactersIn("split copy all", v, text(overlay, ctx.getString(R.string.clip_copy_all)))
+    }
 
     @Test fun panel_confirmations_put_their_question_two_characters_in() {
         val overlay = PanelConfirmationOverlay(ctx)
