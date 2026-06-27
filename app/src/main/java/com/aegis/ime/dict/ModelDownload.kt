@@ -18,6 +18,7 @@ package com.aegis.ime.dict
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.atomic.AtomicBoolean
 
 object ModelDownload {
 
@@ -36,11 +37,14 @@ object ModelDownload {
 
     data class DownloadResult(val ok: Boolean, val validator: String?)
 
+    private val inFlight = AtomicBoolean(false)
+
     fun download(url: String, dest: File, onProgress: (Long, Long) -> Unit): DownloadResult {
-        dest.parentFile?.mkdirs()
-        val tmp = File(dest.parentFile, dest.name + ".part")
+        if (!inFlight.compareAndSet(false, true)) return DownloadResult(false, null)
         var conn: HttpURLConnection? = null
+        val tmp = File(dest.parentFile, dest.name + ".part")
         return try {
+            dest.parentFile?.mkdirs()
             conn = (URL(url).openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = true
                 connectTimeout = 20_000
@@ -69,6 +73,7 @@ object ModelDownload {
             DownloadResult(false, null)
         } finally {
             conn?.disconnect()
+            inFlight.set(false)
         }
     }
 

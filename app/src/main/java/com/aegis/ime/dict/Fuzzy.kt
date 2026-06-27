@@ -32,6 +32,12 @@ object Fuzzy {
 
     fun prefKey(ruleKey: String): String = "fuzzy_$ruleKey"
 
+    const val DEFAULT_ON: Boolean = false
+
+    private const val MAX_VARIANTS = 64
+    private const val TOGGLE_BITS = 6
+    private const val MAX_FUZZY_LEN = 40
+
     fun normalize(s: String): String = collapse(s, ALL_KEYS)
 
     fun collapse(s: String, enabled: Set<String>): String {
@@ -40,13 +46,16 @@ object Fuzzy {
         return r
     }
 
-    fun variants(s: String, enabled: Set<String>, cap: Int = 24): List<String> {
+    fun variants(s: String, enabled: Set<String>, cap: Int = MAX_VARIANTS): List<String> {
         val active = RULES.filter { it.key in enabled }
-        if (active.isEmpty()) return listOf(s)
+        if (active.isEmpty() || s.length > MAX_FUZZY_LEN) return listOf(s)
         var set: LinkedHashSet<String> = linkedSetOf(collapse(s, enabled))
         for (rule in active) {
             val next = LinkedHashSet<String>()
-            for (v in set) next.addAll(expandSites(v, rule.short, rule.long))
+            for (v in set) {
+                expandSitesInto(v, rule.short, rule.long, cap, next)
+                if (next.size >= cap) break
+            }
             set = next
             if (set.size >= cap) break
         }
@@ -54,13 +63,12 @@ object Fuzzy {
         return set.toList()
     }
 
-    private fun expandSites(s: String, short: String, long: String): List<String> {
-        val pos = ArrayList<Int>()
+    private fun expandSitesInto(s: String, short: String, long: String, cap: Int, out: MutableSet<String>) {
+        val pos = ArrayList<Int>(TOGGLE_BITS)
         var i = s.indexOf(short)
-        while (i >= 0) { pos.add(i); i = s.indexOf(short, i + short.length) }
-        if (pos.isEmpty()) return listOf(s)
+        while (i >= 0 && pos.size < TOGGLE_BITS) { pos.add(i); i = s.indexOf(short, i + short.length) }
+        if (pos.isEmpty()) { out.add(s); return }
         val n = pos.size
-        val out = ArrayList<String>(1 shl n)
         for (mask in 0 until (1 shl n)) {
             val sb = StringBuilder(s.length + n)
             var prev = 0
@@ -71,7 +79,7 @@ object Fuzzy {
             }
             sb.append(s, prev, s.length)
             out.add(sb.toString())
+            if (out.size >= cap) return
         }
-        return out
     }
 }

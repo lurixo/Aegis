@@ -74,7 +74,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             val dict = loadDict("aegis_dict.bin")
             val t9Dict = loadDict("aegis_t9.bin")
             val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
-            val fuzzyRules = if (!prefs.getBoolean("fuzzy", true)) emptySet()
+            val fuzzyRules = if (!prefs.getBoolean("fuzzy", Fuzzy.DEFAULT_ON)) emptySet()
                 else Fuzzy.RULES.filter { prefs.getBoolean(Fuzzy.prefKey(it.key), true) }
                     .mapTo(LinkedHashSet()) { it.key }
             val initialsDict = loadDict("aegis_jianpin.bin")

@@ -53,7 +53,7 @@ internal fun FuzzySettingsCard() {
         "ing" to ("ing → in" to "前后鼻音：心=星、林=灵"),
     )
 
-    var master by remember { mutableStateOf(prefs.getBoolean("fuzzy", true)) }
+    var master by remember { mutableStateOf(prefs.getBoolean("fuzzy", Fuzzy.DEFAULT_ON)) }
     val ruleOn = remember {
         mutableStateMapOf<String, Boolean>().apply {
             for (rule in Fuzzy.RULES) put(rule.key, prefs.getBoolean(Fuzzy.prefKey(rule.key), true))
