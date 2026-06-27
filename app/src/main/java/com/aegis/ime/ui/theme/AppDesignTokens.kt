@@ -47,6 +47,7 @@ internal object AppIconMetrics {
 
 internal object AppShapes {
     val section = RoundedCornerShape(12.dp)
+    val sheet = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
 }
 
 internal val aegisShapes = Shapes(

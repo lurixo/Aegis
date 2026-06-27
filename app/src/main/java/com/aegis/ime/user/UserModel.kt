@@ -629,6 +629,8 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
             return isValidWord(word.trim()) && (r.isEmpty() || r.length <= MAX_READING_LENGTH)
         }
 
+        internal fun normalizeReading(reading: String): String = sanitizeReading(reading)
+
         private fun isStoredReading(reading: String): Boolean =
             reading.isNotEmpty() && reading.length <= MAX_READING_LENGTH && reading == sanitizeReading(reading)
 

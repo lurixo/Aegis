@@ -629,6 +629,21 @@ class DictSettingsActivityTest {
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
+class UserDictActivityTest {
+    @get:Rule val compose = createAndroidComposeRule<UserDictActivity>()
+
+    @Test fun holds_the_search_field_and_tools_and_back_finishes() {
+        compose.onNodeWithTag("user_dict_search").assertExists()
+        compose.onNodeWithTag("user_dict_open_more").assertExists()
+        compose.onNodeWithText(ctxString(R.string.user_dict_export_button)).assertDoesNotExist()
+        compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).performClick()
+        compose.waitForIdle()
+        assertTrue("back arrow finishes the Activity", compose.activity.isFinishing)
+    }
+}
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
 class AboutActivityTest {
     @get:Rule val compose = createAndroidComposeRule<AboutActivity>()
 
