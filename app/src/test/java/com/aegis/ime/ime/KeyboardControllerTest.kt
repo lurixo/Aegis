@@ -24,6 +24,7 @@ import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.SymbolCatalog
+import com.aegis.ime.user.UserLearning
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -639,6 +640,49 @@ class KeyboardControllerTest {
         override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence) =
             if (composing.isEmpty()) emptyList() else listOf(Cand("密码", composing.length))
         override fun learn(prevWord: String?, word: String) { learned.add(word) }
+    }
+
+    private fun stagedLetterLearningEngine() = object : CandidateEngine {
+        override fun candidates(composing: String, t9: Boolean) =
+            candidatesCovered(composing, t9).map { it.word }
+
+        override fun candidatesCovered(
+            composing: String,
+            t9: Boolean,
+            cuts: Set<Int>,
+            context: CharSequence,
+        ): List<Cand> = when (composing) {
+            "nihao" -> listOf(Cand("你", 2))
+            "hao" -> listOf(Cand("好", 3))
+            else -> emptyList()
+        }
+    }
+
+    @Test fun deferred_chunks_and_the_final_reading_reach_user_learning() {
+        val learning = UserLearning { 1_000L }
+        val c = KeyboardController(FakeHost(), stagedLetterLearningEngine())
+        c.userLearning = learning
+        repeat(3) {
+            c.switchTextLayoutForTest(nine = false)
+            "nihao".forEach { c.onKey(out(it.toString())) }
+            c.onPickCandidate(0)
+            c.onPickCandidate(0)
+            c.reset()
+        }
+        assertEquals(listOf("你好"), learning.formedWordsFor("nihao"))
+    }
+
+    @Test fun sensitive_field_commit_is_not_learned() {
+        val learned = mutableListOf<String>()
+        val c = KeyboardController(FakeHost(), learnSpyEngine(learned))
+        val learning = UserLearning { 1_000L }
+        c.userLearning = learning
+        c.setLearningBlocked(true)
+        c.switchTextLayoutForTest(nine = true)
+        "426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        assertTrue("a blocked field must never learn the committed word", learned.isEmpty())
+        assertTrue("a blocked field must never reach the secondary learning store", learning.isEmpty())
     }
 
     @Test fun ordinary_field_commit_is_learned_no_regression() {

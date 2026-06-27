@@ -28,6 +28,7 @@ import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.SymbolCatalog
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.RestoreTrouble
+import com.aegis.ime.user.UserLearning
 
 private enum class ShiftState { OFF, ONCE, LOCK }
 
@@ -60,7 +61,7 @@ class KeyboardController(
     private var engine: CandidateEngine,
     private val decodeLane: DecodeLane? = null,
 ) {
-    private data class LearnEvent(val prevWord: String?, val word: String, val prefixEnd: Int)
+    private data class LearnEvent(val prevWord: String?, val word: String, val prefixEnd: Int, val reading: String)
 
     private var beforeCursor: String? = null
 
@@ -155,6 +156,7 @@ class KeyboardController(
     var onShowSettings: () -> Unit = {}
     var onShowCustomSymbols: () -> Unit = {}
     var onShowCustomOperators: () -> Unit = {}
+    var userLearning: UserLearning? = null
 
     private var view: InputView? = null
 
@@ -249,6 +251,7 @@ class KeyboardController(
     }
 
     fun reset(preserveLayout: Boolean = false) {
+        userLearning?.observeBreak()
         decodeLane?.markSatisfiedSynchronously()
         beforeCursor = null
         composing.setLength(0)
@@ -518,6 +521,9 @@ class KeyboardController(
             cand in predictionCands -> {
                 host.commitText(cand.word)
                 if (!learningBlocked) engine.learn(lastWord, cand.word)
+                if (!learningBlocked) {
+                    userLearning?.observeCommit(lastWord, cand.word, "", System.currentTimeMillis())
+                }
                 lastWord = cand.word
             }
             else -> {
@@ -728,17 +734,24 @@ class KeyboardController(
     private fun commitCandidate(cand: Cand) {
         if (candidateStaysInPreedit(cand)) {
             val prefixEnd = committedPrefix.length + cand.word.length
-            if (!learningBlocked) deferredLearnEvents.addLast(LearnEvent(lastWord, cand.word, prefixEnd))
+            val chunkReading = cand.correctedReading ?: consumedReading(cand.coveredLen)
+            if (!learningBlocked) deferredLearnEvents.addLast(LearnEvent(lastWord, cand.word, prefixEnd, chunkReading))
             lastWord = cand.word
             committedPrefix.append(cand.word)
             consumeComposingPrefix(cand.coveredLen)
         } else {
+            val finalReading = cand.correctedReading ?: consumedReading(cand.coveredLen)
             val wholeWord = committedPrefix.toString() + cand.word
             host.commitText(wholeWord)
-            applyDeferredLearning(cand.word)
+            applyDeferredLearning(cand.word, finalReading)
             lastWord = cand.word
             clearComposingState()
         }
+    }
+
+    private fun consumedReading(coveredLen: Int): String {
+        val letters = rawComposingText()
+        return letters.take(coveredLen.coerceIn(0, letters.length)).replace("'", "")
     }
 
     private fun candidateStaysInPreedit(cand: Cand): Boolean =
@@ -854,13 +867,16 @@ class KeyboardController(
         drillChoices.clear()
     }
 
-    private fun applyDeferredLearning(finalWord: String? = null) {
+    private fun applyDeferredLearning(finalWord: String? = null, finalReading: String = "") {
         if (!learningBlocked) {
+            val now = System.currentTimeMillis()
             for (event in deferredLearnEvents) {
                 engine.learn(event.prevWord, event.word)
+                userLearning?.observeCommit(event.prevWord, event.word, event.reading, now)
             }
             if (finalWord != null) {
                 engine.learn(lastWord, finalWord)
+                userLearning?.observeCommit(lastWord, finalWord, finalReading, now)
             }
         }
         deferredLearnEvents.clear()

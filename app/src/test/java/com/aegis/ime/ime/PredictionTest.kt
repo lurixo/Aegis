@@ -19,6 +19,7 @@ import com.aegis.ime.decoder.Cand
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
+import com.aegis.ime.user.UserLearning
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -64,6 +65,27 @@ class PredictionTest {
         c.onPickCandidate(c.candidateWords().indexOf("世界"))
         assertEquals("the prediction is committed after 你好", "你好世界", h.text)
         assertTrue("no prediction after 世界", c.candidateWords().isEmpty())
+    }
+
+    @Test fun picking_a_prediction_records_the_follow_relation() {
+        val h = EditorHost()
+        val learning = UserLearning()
+        val c = KeyboardController(h, niHaoEngine())
+        c.userLearning = learning
+        commitNiHao(c)
+        c.onPickCandidate(c.candidateWords().indexOf("世界"))
+        assertEquals(listOf("世界"), learning.follows("你好").map { it.first })
+    }
+
+    @Test fun a_visible_prediction_does_not_learn_after_the_field_becomes_blocked() {
+        val h = EditorHost()
+        val learning = UserLearning()
+        val c = KeyboardController(h, niHaoEngine())
+        c.userLearning = learning
+        commitNiHao(c)
+        c.setLearningBlocked(true)
+        c.onPickCandidate(c.candidateWords().indexOf("世界"))
+        assertTrue(learning.follows("你好").isEmpty())
     }
 
     @Test fun association_toggle_off_hides_predictions() {
