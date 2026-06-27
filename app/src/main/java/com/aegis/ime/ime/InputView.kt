@@ -51,7 +51,6 @@ class InputView(context: Context) : LinearLayout(context) {
         gridView.onClose = { showPanel(null) }
         keyboardView.onKey = { key -> onKey(key) }
         keyboardView.onBackspaceSwipe = { up -> onBackspaceSwipe(up) }
-        preeditView.visibility = GONE
         addView(preeditView, LayoutParams(LayoutParams.MATCH_PARENT, dp(28)))
         addView(candidateView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
         addView(keyboardView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
@@ -74,7 +73,6 @@ class InputView(context: Context) : LinearLayout(context) {
     fun showCandidates(candidates: List<String>, preedit: String) {
         lastCandidates = candidates
         preeditView.setText(preedit)
-        preeditView.visibility = if (preedit.isEmpty()) GONE else VISIBLE
         candidateView.setContent(candidates, preedit)
         if (panelShown && candidates.isEmpty()) showPanel(null)
     }
