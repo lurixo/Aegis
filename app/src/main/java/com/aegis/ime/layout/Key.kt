@@ -37,6 +37,7 @@ enum class KeyAction {
     TOGGLE_LANG,
     PICK_READING,    // 9-key left column: switch to an explicit pinyin reading ([Key.output]) and re-rank
     SHOW_EDIT,       // open the text-editing (cursor/selection) panel
+    SEGMENT,         // 9-key 分词/隔音: lock the active syllable boundary while composing
 }
 
 /**

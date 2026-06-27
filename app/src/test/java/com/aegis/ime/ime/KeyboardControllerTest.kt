@@ -111,14 +111,28 @@ class KeyboardControllerTest {
         assertEquals(listOf("ni", "，"), h.commits)
     }
 
-    @Test fun toggling_to_english_leaves_the_nine_key() {
+    @Test fun english_letters_commit_directly_not_buffered() {
+        // D: EN letters go straight to the editor (no candidate bar). Toggling to EN also drops off the 9-key.
         val h = FakeHost()
         val c = KeyboardController(h, engine)
         c.onKey(act(KeyAction.SWITCH_NINE))
-        c.onKey(act(KeyAction.TOGGLE_LANG)) // CN -> EN; must drop to the 26-key
-        c.onKey(out("a"))
+        c.onKey(act(KeyAction.TOGGLE_LANG)) // CN -> EN
+        c.onKey(out("a"))                   // committed straight away, not buffered as "a "
         c.onKey(act(KeyAction.SPACE))
-        // English buffered mode commits "a " as one chunk; DIRECT (still-9-key) would commit "a" then " ".
-        assertEquals(listOf("a "), h.commits)
+        assertEquals(listOf("a", " "), h.commits)
+    }
+
+    @Test fun backspace_up_swipe_clears_pending_pinyin_in_any_layout() {
+        // C: up-swipe on backspace clears the 任务栏 (pending pinyin) and is consumed before the field clear.
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "6433".forEach { c.onKey(out(it.toString())) } // ni'de pending
+        assertTrue("up-swipe must consume + clear the buffer", c.onBackspaceSwipe(true))
+        c.onKey(act(KeyAction.ENTER)) // buffer gone → editor action, no text committed
+        assertEquals(1, h.enters)
+        assertTrue(h.commits.isEmpty())
+        // nothing pending → not consumed, so the service does its field-level clear/restore
+        assertEquals(false, c.onBackspaceSwipe(true))
     }
 }
