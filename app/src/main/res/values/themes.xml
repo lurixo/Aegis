@@ -3,5 +3,9 @@
     <style name="Theme.Aegis" parent="android:Theme.DeviceDefault.DayNight">
         <item name="android:windowActionBar">false</item>
         <item name="android:windowNoTitle">true</item>
+        <!-- B6: paint the starting/transition window with the resolved theme background so returning to the
+             app from another app no longer flashes the default (white/black) window background before
+             Compose draws. DayNight-aware via the attr, so dark mode stays dark. -->
+        <item name="android:windowBackground">?android:attr/colorBackground</item>
     </style>
 </resources>
