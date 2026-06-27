@@ -270,6 +270,13 @@ class KeyboardController(
         if (forcedCuts.add(composing.length)) history.addLast(StepKind.CUT)
     }
 
+    private fun shiftLiteralIndicesForInsert(at: Int, count: Int) {
+        if (count <= 0 || literalIndices.isEmpty()) return
+        val shifted = literalIndices.map { if (it >= at) it + count else it }
+        literalIndices.clear()
+        literalIndices.addAll(shifted)
+    }
+
     private fun removeComposingCharAt(index: Int) {
         if (index !in composing.indices) return
         composing.deleteCharAt(index)
@@ -278,6 +285,21 @@ class KeyboardController(
             .map { if (it > index) it - 1 else it }
         literalIndices.clear()
         literalIndices.addAll(shifted)
+    }
+
+    private fun insertPreeditLiteral(text: String) {
+        if (text.isEmpty()) return
+        val at = composing.length
+        shiftLiteralIndicesForInsert(at, text.length)
+        composing.insert(at, text)
+        for (i in text.indices) literalIndices.add(at + i)
+        val shiftedCuts = forcedCuts.map { if (it > at) it + text.length else it }
+        forcedCuts.clear()
+        forcedCuts.addAll(shiftedCuts)
+        lockedReadings.clear()
+        lockedInputLengths.clear()
+        activeStart = 0
+        rebuildHistory()
     }
 
     fun onPickCandidate(index: Int) {
@@ -304,6 +326,12 @@ class KeyboardController(
     }
 
     private fun handleCommit(key: Key) {
+        if (key.preeditLiteral && mode() == Mode.PINYIN &&
+            (composing.isNotEmpty() || committedPrefix.isNotEmpty())
+        ) {
+            insertPreeditLiteral(key.output)
+            return
+        }
         if (key.direct) {
             if (composing.isNotEmpty() || committedPrefix.isNotEmpty() || englishWord.isNotEmpty()) flushComposing()
             val text = if (key.verbatim) key.output else applyCase(key.output)
