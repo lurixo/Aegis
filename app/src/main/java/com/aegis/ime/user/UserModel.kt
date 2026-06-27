@@ -24,6 +24,10 @@ import kotlin.math.ln
  *
  * Pure Kotlin + a plain-text file format → fully offline, inspectable, portable (the file *is*
  * the import/export artifact), and unit-testable on the JVM without SQLite/Robolectric.
+ *
+ * M-2: the background dict-load thread and the main thread (onStartInput reload / commit record) touch
+ * the same maps, so every accessor is `@Synchronized` — reload (clear+load) and save are then atomic
+ * w.r.t. record/load, preventing lost updates, ConcurrentModificationException and a corrupted userdb.txt.
  */
 class UserModel {
     private val count = HashMap<String, Int>()
@@ -31,10 +35,12 @@ class UserModel {
     private val bigram = HashMap<String, HashMap<String, Int>>() // prevWord -> (word -> count)
 
     /** Set when in-memory state diverges from disk; the IME saves on finish when dirty. */
+    @Volatile
     var dirty: Boolean = false
         private set
 
     /** Record that the user committed [word] after [prevWord] (null = sentence start). */
+    @Synchronized
     fun record(prevWord: String?, word: String, now: Long) {
         if (word.isEmpty()) return
         count[word] = (count[word] ?: 0) + 1
@@ -47,21 +53,25 @@ class UserModel {
     }
 
     /** Additive log-domain ranking boost for a word the user has used before (0 if unseen). */
+    @Synchronized
     fun wordBoost(word: String): Double {
         val c = count[word] ?: return 0.0
         return BOOST_WEIGHT * ln(1.0 + c)
     }
 
     /** Learned next-word predictions after [prevWord], most-used first. */
+    @Synchronized
     fun successors(prevWord: String, limit: Int): List<String> {
         val m = bigram[prevWord] ?: return emptyList()
         return m.entries.sortedByDescending { it.value }.take(limit).map { it.key }
     }
 
+    @Synchronized
     fun isEmpty(): Boolean = count.isEmpty()
 
     // --- persistence (the file is the import/export format) ---
 
+    @Synchronized
     fun save(file: File) {
         file.bufferedWriter().use { w ->
             w.write("aegis-userdb 1\n")
@@ -72,14 +82,19 @@ class UserModel {
     }
 
     /** Replace in-memory state from disk (used when an import changed the file under us). */
+    @Synchronized
     fun reload(file: File) {
         count.clear()
         lastUsed.clear()
         bigram.clear()
-        load(file)
+        loadLocked(file)
     }
 
-    fun load(file: File) {
+    @Synchronized
+    fun load(file: File) = loadLocked(file)
+
+    /** Body of [load]; callers already hold the monitor (reload reuses it without re-locking). */
+    private fun loadLocked(file: File) {
         if (!file.exists()) return
         file.bufferedReader().useLines { lines ->
             for (line in lines) {
@@ -99,6 +114,7 @@ class UserModel {
     }
 
     /** Merge another userdb file into this model (import; counts add up). */
+    @Synchronized
     fun importFrom(file: File, now: Long) {
         val other = UserModel().apply { load(file) }
         for ((word, c) in other.count) {

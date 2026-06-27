@@ -16,6 +16,7 @@
 package com.aegis.ime.user
 
 import android.text.InputType
+import android.view.inputmethod.EditorInfo
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -38,5 +39,22 @@ class ClipboardPolicyTest {
         assertFalse(ClipboardPolicy.isSensitive(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS))
         assertFalse(ClipboardPolicy.isSensitive(InputType.TYPE_CLASS_NUMBER))
         assertFalse(ClipboardPolicy.isSensitive(0))
+    }
+
+    // ---- M-3/L-3: on-device learning must be blocked for password + NO_PERSONALIZED_LEARNING fields ----
+
+    @Test fun learning_blocked_for_password_fields() {
+        val pw = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        assertTrue(ClipboardPolicy.blocksLearning(pw, 0))
+        assertTrue(ClipboardPolicy.blocksLearning(InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD, 0))
+    }
+
+    @Test fun learning_blocked_when_field_opts_out_of_personalized_learning() {
+        assertTrue(ClipboardPolicy.blocksLearning(InputType.TYPE_CLASS_TEXT, EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING))
+    }
+
+    @Test fun learning_allowed_for_ordinary_fields() {
+        assertFalse(ClipboardPolicy.blocksLearning(InputType.TYPE_CLASS_TEXT, 0))
+        assertFalse(ClipboardPolicy.blocksLearning(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS, EditorInfo.IME_ACTION_DONE))
     }
 }

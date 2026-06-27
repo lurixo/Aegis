@@ -268,6 +268,34 @@ class KeyboardControllerTest {
         assertTrue("no candidates linger after commit (no ghost)", c.candidateWords().isEmpty())
     }
 
+    // ---- M-3/L-3: password / NO_PERSONALIZED_LEARNING fields must not learn committed words ----
+
+    private fun learnSpyEngine(learned: MutableList<String>) = object : CandidateEngine {
+        override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+        override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>) =
+            if (composing.isEmpty()) emptyList() else listOf(Cand("密码", composing.length))
+        override fun learn(prevWord: String?, word: String) { learned.add(word) }
+    }
+
+    @Test fun sensitive_field_commit_is_not_learned() {
+        val learned = mutableListOf<String>()
+        val c = KeyboardController(FakeHost(), learnSpyEngine(learned))
+        c.setLearningBlocked(true) // password / NO_PERSONALIZED_LEARNING field
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0) // commit 密码
+        assertTrue("a blocked field must never learn the committed word", learned.isEmpty())
+    }
+
+    @Test fun ordinary_field_commit_is_learned_no_regression() {
+        val learned = mutableListOf<String>()
+        val c = KeyboardController(FakeHost(), learnSpyEngine(learned)) // learningBlocked defaults false
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        assertEquals(listOf("密码"), learned)
+    }
+
     // ---- ★A9 退格 = 退回上一步 (a left-column pick is a step; never drop a whole syllable) ----
 
     @Test fun backspace_steps_back_a_locked_reading_not_the_whole_syllable() {
