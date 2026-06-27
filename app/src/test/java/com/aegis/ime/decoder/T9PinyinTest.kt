@@ -47,6 +47,16 @@ class T9PinyinTest {
         assertTrue("ni should be an option for 64..", opts.contains("ni"))
     }
 
+    @Test fun first_syllable_options_surface_the_full_syllable_xuan_yuan() {
+        // xuan/yuan = 9826 (x,y both on key 9). The left column (limit 4) must offer the WHOLE syllables,
+        // not just the 2-letter prefixes yu/wu/xu/zu — else the user can never pick xuan to reach 选 (★T).
+        val opts = T9Pinyin.firstSyllableOptions("9826", 4)
+        assertTrue("xuan must be offered, was $opts", opts.contains("xuan"))
+        assertTrue("yuan must be offered, was $opts", opts.contains("yuan"))
+        // xian = 9426 likewise
+        assertTrue("xian must be offered", T9Pinyin.firstSyllableOptions("9426", 4).contains("xian"))
+    }
+
     @Test fun partial_buffer_still_shows_something() {
         val pre = T9Pinyin.preedit("6") // mid-syllable, not a full syllable
         assertTrue(pre.isNotEmpty())
