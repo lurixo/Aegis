@@ -38,6 +38,14 @@ android {
     buildFeatures {
         compose = true
     }
+
+    // A3/A2 interaction verification: Robolectric runs real View touch/scroll tests on the JVM
+    // (dispatch MotionEvents, assert behaviour) so render/touch bugs are caught in CI, not on-device.
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
 }
 
 kotlin {
@@ -56,6 +64,7 @@ dependencies {
     implementation(libs.androidx.material3)
     debugImplementation(libs.androidx.ui.tooling)
     testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
 
     // Clamp transitive AndroidX that the Compose BOM would otherwise raise to API-37-only
     // releases, until AGP 9.1 + compileSdk 37 are stable.
