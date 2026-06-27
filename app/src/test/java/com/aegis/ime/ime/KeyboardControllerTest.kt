@@ -71,6 +71,15 @@ class KeyboardControllerTest {
         assertEquals(listOf("nide"), h.commits)
     }
 
+    @Test fun direct_punctuation_flushes_pinyin_then_commits_directly() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64".forEach { c.onKey(out(it.toString())) }
+        c.onKey(Key("，", output = "，", direct = true))
+        assertEquals(listOf("ni", "，"), h.commits)
+    }
+
     @Test fun toggling_to_english_leaves_the_nine_key() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
