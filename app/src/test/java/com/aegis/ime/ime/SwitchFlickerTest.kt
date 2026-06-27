@@ -21,10 +21,12 @@ import android.os.Looper
 import android.provider.Settings
 import android.view.View
 import android.widget.FrameLayout
+import android.widget.ScrollView
 import com.aegis.ime.ime.theme.ImePalette
 import java.time.Duration
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -179,4 +181,118 @@ class SwitchFlickerTest {
     }
 
     private fun flushMotion() = shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+
+    private fun layoutPanel(panel: View, widthDp: Int = 480, heightDp: Int = 220) {
+        val density = panel.resources.displayMetrics.density
+        val width = (widthDp * density).toInt()
+        val height = (heightDp * density).toInt()
+        panel.measure(
+            View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY),
+        )
+        panel.layout(0, 0, width, height)
+    }
+
+    private fun maxScroll(viewport: ScrollView): Int =
+        ((viewport.getChildAt(0)?.height ?: 0) - viewport.height).coerceAtLeast(0)
+
+    private fun <T : View> assertCategoryScrollContract(
+        panel: T,
+        viewport: ScrollView,
+        first: Int,
+        second: Int,
+        open: T.(Int) -> Unit,
+        refresh: T.() -> Unit,
+    ) {
+        panel.open(first)
+        flushMotion()
+        layoutPanel(panel)
+        assertTrue("the first category must overflow the viewport", maxScroll(viewport) > 0)
+        viewport.scrollTo(0, maxScroll(viewport))
+        val firstRestingScroll = viewport.scrollY
+        assertTrue("the first category must be parked away from the top", firstRestingScroll > 0)
+
+        panel.refresh()
+        layoutPanel(panel)
+        assertEquals("refreshing the current category keeps its scroll position", firstRestingScroll, viewport.scrollY)
+
+        panel.open(second)
+        assertEquals("a category switch resets to the top synchronously", 0, viewport.scrollY)
+        flushMotion()
+        layoutPanel(panel)
+        assertEquals("the switched category stays at the top after motion settles", 0, viewport.scrollY)
+        assertTrue("the second category must overflow the viewport", maxScroll(viewport) > 0)
+        viewport.scrollTo(0, maxScroll(viewport))
+        assertTrue("the second category must be parked away from the top", viewport.scrollY > 0)
+
+        panel.open(first)
+        assertEquals("switching back also resets to the top synchronously", 0, viewport.scrollY)
+        flushMotion()
+        layoutPanel(panel)
+        assertEquals("the original category stays at the top after motion settles", 0, viewport.scrollY)
+    }
+
+    @Test fun symbol_category_switches_start_at_the_top_without_resetting_same_category_refreshes() {
+        for (scale in listOf(1f, 0f)) {
+            Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, scale)
+            val controller = Robolectric.buildActivity(Activity::class.java).setup()
+            try {
+                val activity = controller.get()
+                val panel = attached(activity, SymbolsView(activity).apply { applyPalette(light) })
+                layoutPanel(panel)
+                assertCategoryScrollContract(
+                    panel,
+                    panel.gridViewportForTest() as ScrollView,
+                    first = 5,
+                    second = 9,
+                    open = { openCategoryForTest(it) },
+                    refresh = { refresh() },
+                )
+            } finally {
+                controller.pause().stop().destroy()
+            }
+        }
+    }
+
+    @Test fun symbol_category_switch_swaps_synchronously_at_full_opacity_when_animated() {
+        Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val v = attached(activity, SymbolsView(activity).apply { applyPalette(light) })
+            v.openCategoryForTest(1)
+            flushMotion()
+            val first = v.gridCellTextsForTest()
+            assertTrue("the opened category grid is populated (never left blank)", first.isNotEmpty())
+            v.openCategoryForTest(2)
+            assertEquals("the selected category updates synchronously", 2, v.selectedCategoryForTest())
+            assertNotEquals("the animated switch swaps the tile content synchronously", first, v.gridCellTextsForTest())
+            assertTrue("the swapped-in grid is populated (never blank)", v.gridCellTextsForTest().isNotEmpty())
+            assertEquals("the viewport never leaves full opacity", 1f, v.gridViewportForTest().alpha, 0f)
+            flushMotion()
+            assertEquals("the viewport settles fully opaque", 1f, v.gridViewportForTest().alpha, 0f)
+            assertTrue("the settled grid stays populated", v.gridCellTextsForTest().isNotEmpty())
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun symbol_category_switch_swaps_immediately_under_reduced_motion() {
+        Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val v = attached(activity, SymbolsView(activity).apply { applyPalette(light) })
+            v.openCategoryForTest(1)
+            val first = v.gridCellTextsForTest()
+            assertTrue("the opened category grid is populated (never left blank)", first.isNotEmpty())
+            v.openCategoryForTest(2)
+            assertEquals("switching categories updates the selection", 2, v.selectedCategoryForTest())
+            assertNotEquals("reduced motion swaps the tile content in place immediately", first, v.gridCellTextsForTest())
+            assertTrue("the switched-to grid is populated in place (never blank)", v.gridCellTextsForTest().isNotEmpty())
+            assertEquals("reduced motion keeps the viewport fully opaque", 1f, v.gridViewportForTest().alpha, 0f)
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
 }

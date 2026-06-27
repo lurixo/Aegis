@@ -70,11 +70,17 @@
     <string name="lang_cn">CH</string>
     <string name="lang_en">EN</string>
     <string name="panel_back">Back</string>
+    <string name="panel_lock">Lock</string>
     <string name="panel_all">All</string>
     <string name="panel_singles">Single</string>
     <string name="backspace_bubble_clear">Swipe up to clear</string>
     <string name="backspace_bubble_undo">Swipe down to restore</string>
+    <string name="symbols_clear_recent">Clear recent symbols</string>
+    <string name="symbols_clear_recent_confirm">Clear recent symbols?</string>
+    <string name="symbols_delete_recent_confirm">Delete "%1$s" from recent symbols?</string>
+    <string name="symbols_empty_hint">Recently used symbols will appear here</string>
 
+    <string name="sym_cat_recent">Common</string>
     <string name="sym_cat_zh">Chinese</string>
     <string name="sym_cat_en">English</string>
     <string name="sym_cat_currency">Currency</string>
@@ -123,6 +129,9 @@
     <string name="edit_select_all">Select all</string>
     <string name="edit_text_end">End</string>
     <string name="edit_paste">Paste</string>
+    <string name="clip_delete">Delete</string>
+    <string name="clip_cancel">Cancel</string>
+    <string name="clip_clear">Clear</string>
     <string name="clip_copy_all">Copy all</string>
     <string name="key_sound_off">Off</string>
     <string name="key_sound_blue">Cherry MX Blue</string>

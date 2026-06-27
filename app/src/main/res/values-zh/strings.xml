@@ -68,11 +68,17 @@
     <string name="lang_cn">中</string>
     <string name="lang_en">英</string>
     <string name="panel_back">返回</string>
+    <string name="panel_lock">锁定</string>
     <string name="panel_all">全部</string>
     <string name="panel_singles">单字</string>
     <string name="backspace_bubble_clear">上滑清空</string>
     <string name="backspace_bubble_undo">下滑恢复</string>
+    <string name="symbols_clear_recent">清空常用符号</string>
+    <string name="symbols_clear_recent_confirm">清空常用符号？</string>
+    <string name="symbols_delete_recent_confirm">从常用符号中删除「%1$s」？</string>
+    <string name="symbols_empty_hint">常用符号会显示在这里</string>
 
+    <string name="sym_cat_recent">常用</string>
     <string name="sym_cat_zh">中文</string>
     <string name="sym_cat_en">英文</string>
     <string name="sym_cat_currency">货币</string>
@@ -121,6 +127,9 @@
     <string name="edit_select_all">全选</string>
     <string name="edit_text_end">末尾</string>
     <string name="edit_paste">粘贴</string>
+    <string name="clip_delete">删除</string>
+    <string name="clip_cancel">取消</string>
+    <string name="clip_clear">清空</string>
     <string name="clip_copy_all">全部复制</string>
     <string name="key_sound_off">关闭</string>
     <string name="key_sound_blue">Cherry MX 青轴</string>

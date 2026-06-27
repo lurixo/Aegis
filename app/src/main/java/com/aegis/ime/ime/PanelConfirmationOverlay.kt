@@ -131,6 +131,7 @@ internal class PanelConfirmationOverlay(context: Context) : FrameLayout(context)
     }
 
     internal fun confirmForTest(): Boolean = confirmAction?.performClick() ?: false
+    internal fun cancelForTest(): Boolean = cancelAction?.performClick() ?: false
     internal fun confirmActionForTest(): View? = confirmAction
     internal fun cancelActionForTest(): View? = cancelAction
     internal fun cardForTest(): View? = cardView

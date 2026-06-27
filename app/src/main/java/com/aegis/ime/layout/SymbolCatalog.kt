@@ -22,6 +22,9 @@ object SymbolCatalog {
     data class Category(val id: String, val titleRes: Int, val symbols: List<String>)
     data class Pairing(val left: String, val right: String)
 
+    const val RECENT_ID = "recent"
+    val RECENT_TITLE_RES = R.string.sym_cat_recent
+
     val categories: List<Category> = listOf(
         Category("zh", R.string.sym_cat_zh, tokens(
             "， 。 、 ？ ！ ； ： … — ～ · “ ” ‘ ’ （ " +
@@ -113,6 +116,9 @@ object SymbolCatalog {
         recordedOrigin == "supsub" && symbol in setOf("℃", "℉", "㎡", "㎥", "㎏", "㎜", "㎝", "㎞", "㎎", "㎖") -> "math"
         else -> recordedOrigin ?: categoryIdOf(symbol)
     }
+
+    fun titleResOf(id: String): Int? =
+        if (id == RECENT_ID) RECENT_TITLE_RES else categories.firstOrNull { it.id == id }?.titleRes
 
     fun foldFullWidth(s: String): String {
         var changed = false

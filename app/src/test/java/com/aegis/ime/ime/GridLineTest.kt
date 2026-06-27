@@ -23,6 +23,7 @@ import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.Layouts
+import com.aegis.ime.layout.SymbolCatalog
 import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -80,6 +81,18 @@ class GridLineTest {
             val x = rows[0].left + line + 1
             assertHorizontalRule(bmp, "$label top outline", line, x, line)
             assertHorizontalRule(bmp, "$label bottom outline", v.height, x, line)
+        }
+    }
+
+    @Test fun the_symbol_grid_rules_are_black_hairlines() {
+        forEachScreen { label, density, line ->
+            val en = SymbolCatalog.categories.indexOfFirst { it.id == "en" } + 1
+            val sv = SymbolsView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT); openCategoryForTest(en) }
+            val bmp = render(sv, (360 * density).toInt(), (250 * density).toInt())
+            val cell = requireNotNull(sv.gridCellForTest(SymbolCatalog.categories[en - 1].symbols.first()))
+            val r = Rect(0, 0, cell.width, cell.height).also { sv.offsetDescendantRectToMyCoords(cell, it) }
+            assertVerticalRule(bmp, "$label symbol cell right rule", r.right, r.top + line + 1, line)
+            assertHorizontalRule(bmp, "$label symbol cell bottom rule", r.bottom, r.left + line + 1, line)
         }
     }
 

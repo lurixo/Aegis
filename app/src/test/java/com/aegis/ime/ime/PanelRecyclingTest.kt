@@ -1,0 +1,107 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Copyright (C) 2026 lurixo
+//
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 3.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+// PARTICULAR PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
+
+package com.aegis.ime.ime
+
+import android.util.TypedValue
+import androidx.core.widget.TextViewCompat
+import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeType
+import com.aegis.ime.layout.SymbolCatalog
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
+class PanelRecyclingTest {
+
+    private val ctx = RuntimeEnvironment.getApplication()
+    private val light = ImePalette.STATIC_LIGHT
+    private val metrics = ctx.resources.displayMetrics
+
+    private fun idx(id: String) = SymbolCatalog.categories.indexOfFirst { it.id == id } + 1
+
+    @Test fun symbol_grid_allocates_at_peak_not_sum_across_a_full_sweep() {
+        val v = SymbolsView(ctx).apply { applyPalette(light) }
+        for (i in 1..SymbolCatalog.categories.size) v.openCategoryForTest(i)
+        val afterSweep1 = v.tilesAllocatedForTest()
+        for (i in 1..SymbolCatalog.categories.size) v.openCategoryForTest(i)
+        assertEquals("a second full sweep must allocate zero new tiles", afterSweep1, v.tilesAllocatedForTest())
+        val totalGridGlyphs = SymbolCatalog.categories.sumOf { c -> c.symbols.count { it.length == 1 } }
+        assertTrue("the pool caps well below the old per-sweep total ($totalGridGlyphs)", afterSweep1 < totalGridGlyphs)
+    }
+
+    @Test fun reused_symbol_tile_toggles_autosize_off_for_a_fixed_wide_glyph() {
+        var recent = listOf("arcsin")
+        val v = SymbolsView(ctx).apply { recentProvider = { recent }; applyPalette(light) }
+        v.openCategoryForTest(0)
+        val multi = v.gridGlyphForTest("arcsin")!!
+        assertEquals(
+            "multi-char token uses auto-size",
+            TextViewCompat.AUTO_SIZE_TEXT_TYPE_UNIFORM,
+            TextViewCompat.getAutoSizeTextType(multi),
+        )
+        recent = listOf("℃")
+        v.openCategoryForTest(0)
+        val wide = v.gridGlyphForTest("℃")!!
+        assertEquals(
+            "reused tile turns auto-size back off for a single glyph",
+            TextViewCompat.AUTO_SIZE_TEXT_TYPE_NONE,
+            TextViewCompat.getAutoSizeTextType(wide),
+        )
+        val expected = TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_SP,
+            ImeType.display * SymbolsView.WIDE_GLYPH_SCALE,
+            metrics,
+        )
+        assertEquals("wide fallback glyph keeps its one-step-smaller fixed size after reuse", expected, wide.textSize, 0.5f)
+    }
+
+    @Test fun reused_symbol_tile_hides_the_badge_when_moving_off_the_recent_tab() {
+        val recent = listOf("$")
+        val v = SymbolsView(ctx).apply {
+            recentProvider = { recent }
+            recentOriginOf = { if (it == "$") "currency" else null }
+            applyPalette(light)
+        }
+        v.openCategoryForTest(0)
+        assertEquals("Cu", v.gridBadgeForTest("$"))
+        val catId = SymbolCatalog.categories[0].id
+        val firstCatSymbol = SymbolCatalog.categories[0].symbols.first { it.length == 1 }
+        v.openCategoryForTest(idx(catId))
+        assertNull("a recycled tile must hide its badge on a non-recent tab", v.gridBadgeForTest(firstCatSymbol))
+    }
+
+    @Test fun symbol_tap_reports_the_origin_after_recycling() {
+        var tappedOrigin: String? = "unset"
+        val v = SymbolsView(ctx).apply { applyPalette(light); onSymbol = { _, origin -> tappedOrigin = origin } }
+        val catNo = SymbolCatalog.categories.indexOfFirst { it.id != "net" && it.symbols.any { s -> s.length == 1 } }
+        v.openCategoryForTest(idx("net"))
+        v.openCategoryForTest(catNo + 1)
+        val sym = SymbolCatalog.categories[catNo].symbols.first { it.length == 1 }
+        assertTrue(v.tapCellForTest(sym))
+        assertEquals(
+            "a recycled tile reports its current tab as the tap origin",
+            SymbolCatalog.categories[catNo].id,
+            tappedOrigin,
+        )
+    }
+}

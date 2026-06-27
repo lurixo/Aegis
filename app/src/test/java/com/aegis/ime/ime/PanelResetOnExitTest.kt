@@ -21,6 +21,9 @@ import android.graphics.Rect
 import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
+import android.widget.HorizontalScrollView
+import android.widget.ScrollView
+import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -54,6 +57,9 @@ class PanelResetOnExitTest {
         v.layout(0, 0, v.measuredWidth, v.measuredHeight)
     }
 
+    private fun maxScrollOf(viewport: ScrollView): Int =
+        ((viewport.getChildAt(0)?.height ?: 0) - viewport.height).coerceAtLeast(0)
+
     private fun <T> hosted(body: (Activity) -> T): T {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -61,6 +67,69 @@ class PanelResetOnExitTest {
         } finally {
             controller.pause().stop().destroy()
         }
+    }
+
+    private fun flingSurvivingDismissal(
+        label: String,
+        panel: View,
+        viewport: ScrollView,
+        width: Int,
+        height: Int,
+        dismiss: () -> Unit,
+        reopen: () -> Unit,
+    ): Int {
+        fun frame(ms: Long) {
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ms))
+            viewport.computeScroll()
+            layout(panel, width, height)
+        }
+        layout(panel, width, height)
+        assertTrue("$label precondition: the content must overflow its viewport", maxScrollOf(viewport) > 0)
+        viewport.scrollTo(0, 0)
+        layout(panel, width, height)
+        assertEquals("$label precondition: parked at the top before the fling", 0, viewport.scrollY)
+        viewport.fling(9000)
+        frame(48)
+        assertTrue("$label precondition: the fling actually moves the content", viewport.scrollY > 0)
+        dismiss()
+        reopen()
+        layout(panel, width, height)
+        assertEquals("$label precondition: the reopened panel starts at the top", 0, viewport.scrollY)
+        assertTrue("$label precondition: the reopened content still overflows", maxScrollOf(viewport) > 0)
+        repeat(30) { frame(16) }
+        return viewport.scrollY
+    }
+
+    private fun sidewaysFlingSurvivingDismissal(
+        label: String,
+        panel: View,
+        viewport: HorizontalScrollView,
+        width: Int,
+        height: Int,
+        dismiss: () -> Unit,
+        reopen: () -> Unit,
+    ): Int {
+        fun frame(ms: Long) {
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ms))
+            viewport.computeScroll()
+            layout(panel, width, height)
+        }
+        fun maxScroll(): Int = ((viewport.getChildAt(0)?.width ?: 0) - viewport.width).coerceAtLeast(0)
+        layout(panel, width, height)
+        assertTrue("$label precondition: the content must overflow its viewport", maxScroll() > 0)
+        viewport.scrollTo(0, 0)
+        layout(panel, width, height)
+        assertEquals("$label precondition: parked at the start before the fling", 0, viewport.scrollX)
+        viewport.fling(9000)
+        frame(48)
+        assertTrue("$label precondition: the fling actually moves the content", viewport.scrollX > 0)
+        dismiss()
+        reopen()
+        layout(panel, width, height)
+        assertEquals("$label precondition: the reopened panel starts at the left", 0, viewport.scrollX)
+        assertTrue("$label precondition: the reopened content still overflows", maxScroll() > 0)
+        repeat(30) { frame(16) }
+        return viewport.scrollX
     }
 
     @Test fun dismissing_a_panel_resets_it() {
@@ -90,6 +159,43 @@ class PanelResetOnExitTest {
         assertEquals(0, spy.resets)
     }
 
+
+    @Test fun symbols_panel_resets_to_the_common_tab_unlocked_and_scrolled_up() = hosted { activity ->
+        val sv = SymbolsView(ctx).apply { recentProvider = { (1..80).map { "S$it" } } }
+        sv.applyPalette(light)
+        host(activity, sv, 480, 220)
+        sv.openCategoryForTest(5)
+        sv.toggleLockForTest()
+        layout(sv, 480, 220)
+        val grid = sv.gridViewportForTest() as ScrollView
+        grid.scrollTo(0, maxScrollOf(grid))
+        assertEquals(5, sv.selectedCategoryForTest())
+        assertTrue(sv.lockedForTest())
+        assertTrue("precondition: the grid is parked away from the top", sv.gridScrollYForTest() > 0)
+
+        sv.resetToDefault()
+
+        assertEquals("back to 常用 (index 0)", 0, sv.selectedCategoryForTest())
+        assertFalse("lock cleared (P3 spirit)", sv.lockedForTest())
+        assertEquals("grid scrolled to top", 0, sv.gridScrollYForTest())
+    }
+
+    @Test fun reopening_after_an_input_view_recreate_still_starts_default() {
+        val stale = SymbolsView(ctx).apply { applyPalette(light); openCategoryForTest(3); toggleLockForTest() }
+        assertTrue("precondition: stale lock", stale.lockedForTest())
+        assertEquals("precondition: stale category", 3, stale.selectedCategoryForTest())
+
+        val goneIv = InputView(ctx)
+        goneIv.showPanel(stale)
+        goneIv.showPanel(null)
+
+        val freshIv = InputView(ctx)
+        freshIv.showPanel(stale)
+
+        assertEquals("reopens on 常用", 0, stale.selectedCategoryForTest())
+        assertFalse("reopens unlocked", stale.lockedForTest())
+    }
+
     @Test fun edit_panel_resets_selection_mode() {
         val ep = EditPanelView(ctx)
         ep.applyPalette(light)
@@ -106,10 +212,30 @@ class PanelResetOnExitTest {
         assertFalse(select.isSelected)
     }
 
+    private fun railOf(tab: TextView): HorizontalScrollView = (tab.parent as View).parent as HorizontalScrollView
+
     private fun host(activity: Activity, panel: View, width: Int, height: Int) {
         val root = android.widget.FrameLayout(ctx)
         activity.setContentView(root)
         root.addView(panel, android.widget.FrameLayout.LayoutParams(width, height))
+    }
+
+    @Test fun a_fling_in_the_symbols_panel_does_not_outlive_its_dismissal() = hosted { activity ->
+        val recents = (1..80).map { "S$it" }
+        val sv = SymbolsView(ctx).apply { recentProvider = { recents }; applyPalette(light) }
+        host(activity, sv, 480, 220)
+        val dismiss = { sv.resetToDefault() }
+        val reopen = { sv.resetToDefault(); sv.applyPalette(light) }
+        assertEquals(
+            "the symbols category bar reopens at the left",
+            0,
+            sidewaysFlingSurvivingDismissal("symbols categories", sv, railOf(sv.railTabForTest(0)), 480, 220, dismiss, reopen),
+        )
+        assertEquals(
+            "the symbols grid reopens at the top",
+            0,
+            flingSurvivingDismissal("symbols grid", sv, sv.gridViewportForTest() as ScrollView, 480, 220, dismiss, reopen),
+        )
     }
 
     @Test fun dragging_the_edit_panel_leaves_no_motion_after_its_dismissal() = hosted { activity ->

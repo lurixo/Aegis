@@ -22,22 +22,94 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
+import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.GridLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 import kotlin.math.abs
 
 interface KeyHapticsAware {
     var hapticEnabled: Boolean
+}
+
+internal fun panelActionSlot(slot: FrameLayout, button: View): FrameLayout =
+    slot.apply {
+        addView(
+            button,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                Gravity.CENTER,
+            ),
+        )
+    }
+
+internal class ImePanelFaceGrid(context: Context, density: Float) : GridLayout(context) {
+    private val rulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = ImeShapes.gridLinePx(density) }
+
+    var ruleColor: Int
+        get() = rulePaint.color
+        set(value) {
+            rulePaint.color = value
+            invalidate()
+        }
+
+    override fun dispatchDraw(canvas: Canvas) {
+        super.dispatchDraw(canvas)
+        val half = rulePaint.strokeWidth / 2f
+        for (index in 0 until childCount) {
+            val child = getChildAt(index)
+            if (child.visibility != View.VISIBLE || child.background !is ImeKeySurface) continue
+            val right = child.right - half
+            val bottom = child.bottom - half
+            if (child.right < width) {
+                canvas.drawLine(right, child.top.toFloat(), right, child.bottom.toFloat(), rulePaint)
+            }
+            canvas.drawLine(child.left.toFloat(), bottom, child.right.toFloat(), bottom, rulePaint)
+        }
+    }
+}
+
+internal class ImePanelFrame(context: Context, density: Float) : FrameLayout(context) {
+    private val radius = ImeShapes.cardRadiusDp * density
+    private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = ImeShapes.gridLinePx(density) }
+    private val outlineRect = RectF()
+    private val clip = Path()
+
+    var outlineColor: Int
+        get() = outlinePaint.color
+        set(value) {
+            outlinePaint.color = value
+            invalidate()
+        }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        clip.reset()
+        clip.addRoundRect(0f, 0f, w.toFloat(), h.toFloat(), radius, radius, Path.Direction.CW)
+    }
+
+    override fun dispatchDraw(canvas: Canvas) {
+        val saved = canvas.save()
+        canvas.clipPath(clip)
+        super.dispatchDraw(canvas)
+        canvas.restoreToCount(saved)
+        val half = outlinePaint.strokeWidth / 2f
+        outlineRect.set(half, half, width - half, height - half)
+        canvas.drawRoundRect(outlineRect, radius, radius, outlinePaint)
+    }
 }
 
 internal class ImePanelViewport(context: Context) : ScrollView(context) {
@@ -301,6 +373,13 @@ internal class ImePanelCategoryBar(context: Context, density: Float) : Horizonta
         isHorizontalScrollBarEnabled = false
     }
 
+    var ruleColor: Int
+        get() = rulePaint.color
+        set(value) {
+            rulePaint.color = value
+            invalidate()
+        }
+
     fun reveal(index: Int) {
         val content = getChildAt(0) as? ViewGroup ?: return
         val child = content.getChildAt(index) ?: return
@@ -322,6 +401,45 @@ internal class ImePanelCategoryBar(context: Context, density: Float) : Horizonta
     }
 }
 
+internal class ImePanelActionColumn(context: Context, density: Float) : LinearLayout(context) {
+    private val rulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = ImeShapes.gridLinePx(density) }
+
+    init {
+        orientation = VERTICAL
+    }
+
+    fun applyPalette(p: ImePalette) {
+        setBackgroundColor(p.functionSurface)
+        rulePaint.color = p.gridLine
+        invalidate()
+    }
+
+    override fun dispatchDraw(canvas: Canvas) {
+        super.dispatchDraw(canvas)
+        val half = rulePaint.strokeWidth / 2f
+        canvas.drawLine(half, 0f, half, height.toFloat(), rulePaint)
+        for (index in 0 until childCount - 1) {
+            val y = getChildAt(index).bottom - half
+            canvas.drawLine(0f, y, width.toFloat(), y, rulePaint)
+        }
+    }
+}
+
+internal data class ImePanelGridMetrics(
+    val columns: Int,
+    val cellWidthPx: Int,
+) {
+    companion object {
+        fun fit(availableWidthPx: Int, minimumCellWidthPx: Int, maximumColumns: Int): ImePanelGridMetrics {
+            val available = availableWidthPx.coerceAtLeast(1)
+            val minimum = minimumCellWidthPx.coerceAtLeast(1)
+            val maximum = maximumColumns.coerceAtLeast(1)
+            val columns = (available / minimum).coerceIn(1, maximum)
+            return ImePanelGridMetrics(columns, available / columns)
+        }
+    }
+}
+
 internal data class ImePanelSurfaceMetrics(
     val faceHeightPx: Int,
     val faceInsetPx: Int,
@@ -330,7 +448,20 @@ internal data class ImePanelSurfaceMetrics(
     val gridTopPaddingPx: Int,
     val minimumGridCellWidthPx: Int,
 ) {
+    fun actionWidthPx(panelWidthPx: Int, columns: Int): Int = panelWidthPx / (columns + 1)
+
+    fun fitGrid(panelWidthPx: Int, maximumColumns: Int): ImePanelGridMetrics =
+        ImePanelGridMetrics.fit(
+            panelWidthPx - actionWidthPx(panelWidthPx, maximumColumns),
+            minimumGridCellWidthPx,
+            maximumColumns,
+        )
+
+    fun outerWidth(cellWidthPx: Int, span: Int = 1): Int =
+        cellWidthPx * span.coerceAtLeast(1)
+
     companion object {
+        const val ACTION_WIDTH_DP = 60
         const val FACE_HEIGHT_DP = 45
         const val FACE_INSET_DP = 3
         const val GRID_SIDE_PADDING_DP = 4

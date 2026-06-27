@@ -23,6 +23,8 @@ import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.widget.TextView
+import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.layout.SymbolCatalog
 import java.time.Duration
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -76,6 +78,8 @@ class PanelActionKeyParityTest {
     private fun event(action: Int, x: Float, y: Float, time: Long = 0L): MotionEvent =
         MotionEvent.obtain(0, time, action, x, y, 0)
 
+    private fun surface(view: View): ImeKeySurface = view.background as ImeKeySurface
+
     private fun exercisePressLifecycle(
         name: String,
         tab: TextView,
@@ -104,6 +108,25 @@ class PanelActionKeyParityTest {
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(Motion.PRESS_OUT))
         assertEquals("$name cancellation releases the shared level", 0f, level(), 0f)
         assertFalse("$name cancellation clears pressed state", tab.isPressed)
+    }
+
+    @Test fun multi_span_symbols_use_the_shared_base_face_width_and_gap() {
+        val symbols = SymbolsView(context).apply {
+            applyPalette(ImePalette.STATIC_LIGHT)
+            openCategoryForTest(SymbolCatalog.categories.indexOfFirst { it.id == "net" } + 1)
+        }
+        layout(symbols, 360)
+        val single = requireNotNull(symbols.gridCellForTest("."))
+        val wide = requireNotNull(symbols.gridCellForTest("https://"))
+        val metrics = ImePanelSurfaceMetrics.resolve(symbols.resources.displayMetrics.density)
+        val singleFace = surface(single).faceBoundsForTest(single.width, single.height)
+        val wideFace = surface(wide).faceBoundsForTest(wide.width, wide.height)
+        val faceInset = 0f
+        assertEquals("a single-column face fills its cell", single.width - faceInset, singleFace.width(), 0f)
+        assertEquals("a two-column face fills both cells", wide.width - faceInset, wideFace.width(), 0f)
+        assertEquals("the wide face bridges the inner gap", singleFace.width() * 2 + faceInset, wideFace.width(), 0f)
+        assertEquals(symbols.cellHeightForTest() - faceInset, singleFace.height(), 0f)
+        assertEquals(symbols.cellHeightForTest() - faceInset, wideFace.height(), 0f)
     }
 
     @Test fun expanded_candidate_actions_use_the_same_static_face_and_haptic_policy() {

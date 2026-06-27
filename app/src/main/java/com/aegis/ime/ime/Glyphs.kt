@@ -39,6 +39,14 @@ object Glyphs {
 
     val backspaceInk = Ink(-0.9f, -0.7f, 1.8f, 1.4f) { c, p, x, y, s -> drawBackspace(c, p, x, y, s) }
 
+    val trashInk = Ink(-0.6825f, -0.68f, 1.365f, 1.48f) { c, p, x, y, s -> drawTrash(c, p, x, y, s) }
+
+    private val lockClosedInk = Ink(-0.62f, -0.9f, 1.24f, 1.64f) { c, p, x, y, s -> drawLock(c, p, x, y, s, true) }
+
+    private val lockOpenInk = Ink(-0.62f, -1.18f, 1.24f, 1.92f) { c, p, x, y, s -> drawLock(c, p, x, y, s, false) }
+
+    fun lockInk(closed: Boolean): Ink = if (closed) lockClosedInk else lockOpenInk
+
     fun drawClipboard(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val w = s * 0.58f; val h = s * 0.78f
         c.drawRoundRect(cx - w, cy - h + s * 0.18f, cx + w, cy + h, s * 0.22f, s * 0.22f, paint)
@@ -82,6 +90,24 @@ object Glyphs {
         c.drawLine(fx - aw * 0.62f, fy + ah * 0.35f, fx + aw * 0.62f, fy + ah * 0.35f, paint)
         paint.strokeWidth = save
         c.restoreToCount(layer)
+    }
+
+    fun drawLock(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, closed: Boolean) {
+        val bw = s * 0.62f
+        val bTop = cy - s * 0.16f
+        val bBot = cy + s * 0.74f
+        c.drawRoundRect(cx - bw, bTop, cx + bw, bBot, s * 0.20f, s * 0.20f, paint)
+        val sr = s * 0.40f
+        if (closed) {
+            val top = bTop - s * 0.74f
+            c.drawLine(cx - sr, bTop, cx - sr, top + sr, paint)
+            c.drawLine(cx + sr, bTop, cx + sr, top + sr, paint)
+            c.drawArc(cx - sr, top, cx + sr, top + sr * 2f, 180f, 180f, false, paint)
+        } else {
+            val top = bTop - s * 1.02f
+            c.drawLine(cx - sr, bTop, cx - sr, top + sr, paint)
+            c.drawArc(cx - sr, top, cx + sr, top + sr * 2f, 180f, 150f, false, paint)
+        }
     }
 
 

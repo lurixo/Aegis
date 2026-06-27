@@ -20,12 +20,15 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Rect
 import android.os.Looper
+import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
+import com.aegis.ime.layout.Layouts
 import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -240,5 +243,42 @@ class PanelIconAlignmentTest {
             assertTrue(button.performClick())
         }
         assertEquals(navigation, dispatched)
+    }
+
+    @Test fun symbols_lock_control_fills_a_normal_bar_hit_target() {
+        val v = SymbolsView(ctx)
+        assertNormalLockControl(v, v.lockSlotForTest(), v.lockBtnForTest(), v.backBtnForTest(), "SymbolsView")
+
+        v.toggleLockForTest()
+        assertNormalLockControl(v, v.lockSlotForTest(), v.lockBtnForTest(), v.backBtnForTest(), "SymbolsView locked")
+    }
+
+    private fun assertNormalLockControl(root: View, slot: View, lock: TextView, back: TextView, name: String) {
+        layout(root)
+        assertTrue("$name: lock control must live inside its slot", lock.parent === slot)
+        val lp = lock.layoutParams as FrameLayout.LayoutParams
+        val actionWidth = (Layouts.CANDIDATE_ACTION_WIDTH_DP * density).toInt()
+        assertEquals("$name: lock hit target should fill its slot width", ViewGroup.LayoutParams.MATCH_PARENT, lp.width)
+        assertEquals("$name: lock hit target should fill its slot height", ViewGroup.LayoutParams.MATCH_PARENT, lp.height)
+        assertEquals("$name: lock sits centred in its slot", Gravity.CENTER, lp.gravity)
+        assertEquals("$name: lock hit target should take the whole slot width", slot.width, lock.width)
+        assertEquals("$name: lock hit target should take the whole slot height", slot.height, lock.height)
+        assertTrue("$name: the action column is at least one action wide", lock.width >= actionWidth)
+        assertEquals("$name: lock hit target should match Return width", back.width, lock.width)
+        assertEquals("$name: lock hit target should match Return height", back.height, lock.height)
+        assertEquals(Gravity.CENTER, lock.gravity)
+        assertTrue("$name: lock remains independently clickable", lock.hasOnClickListeners())
+
+        assertEquals("$name: lock key face is icon-only", "", lock.text.toString())
+        val icon = requireNotNull(lock.compoundDrawables[0])
+        assertTrue("$name: lock glyph keeps a drawable box", icon.bounds.width() > 0 && icon.bounds.height() > 0)
+        assertTrue("$name: lock glyph stays within the key face", icon.bounds.width() <= lock.width && icon.bounds.height() <= lock.height)
+        assertEquals(
+            "$name: back key face spells out its name",
+            back.context.getString(com.aegis.ime.R.string.panel_back),
+            back.text.toString(),
+        )
+        assertNull("$name: back key face carries no glyph", back.compoundDrawables.firstOrNull { it != null })
+        assertEquals("$name: back label is centred", Gravity.CENTER, back.gravity)
     }
 }

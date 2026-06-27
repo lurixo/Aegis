@@ -25,6 +25,7 @@ import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.ime.theme.ImeType
+import com.aegis.ime.layout.SymbolCatalog
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -245,5 +246,84 @@ class RecentClearConfirmationTest {
         assertEquals(0, first)
         assertTrue(overlay.confirmForTest())
         assertEquals(1, second)
+    }
+
+    @Test fun symbol_recents_clear_only_after_confirmation() {
+        val recents = mutableListOf("★", "→")
+        var clears = 0
+        val view = SymbolsView(ctx).apply {
+            recentProvider = { recents.toList() }
+            onClearRecents = {
+                clears++
+                recents.clear()
+            }
+            applyPalette(ImePalette.STATIC_LIGHT)
+            resetToDefault()
+        }
+
+        assertEquals(listOf("★", "→"), view.gridCellTextsForTest())
+        assertTrue(view.clearBtnForTest().performClick())
+        assertTrue(view.clearDialogVisibleForTest())
+        assertEquals(0, clears)
+        assertEquals(listOf("★", "→"), recents)
+
+        assertTrue(view.cancelClearForTest())
+        assertFalse(view.clearDialogVisibleForTest())
+        assertEquals(0, clears)
+        assertEquals(listOf("★", "→"), recents)
+
+        assertTrue(view.clearBtnForTest().performClick())
+        assertTrue(view.dismissClearForTest())
+        assertFalse(view.clearDialogVisibleForTest())
+        assertEquals(0, clears)
+        assertEquals(listOf("★", "→"), recents)
+
+        assertTrue(view.clearBtnForTest().performClick())
+        view.resetToDefault()
+        assertFalse(view.clearDialogVisibleForTest())
+        assertEquals(0, clears)
+        assertEquals(listOf("★", "→"), recents)
+
+        assertTrue(view.clearBtnForTest().performClick())
+        assertTrue(view.confirmClearForTest())
+        assertFalse(view.clearDialogVisibleForTest())
+        assertEquals(1, clears)
+        assertTrue(recents.isEmpty())
+        assertTrue(view.gridCellTextsForTest().isEmpty())
+
+        view.openCategoryForTest(1)
+        assertEquals(SymbolCatalog.categories.first().symbols, view.gridCellTextsForTest())
+    }
+
+    @Test fun symbol_recent_item_delete_requires_confirmation_and_removes_only_that_item() {
+        val recents = mutableListOf("★", "→")
+        val origins = mutableMapOf("★" to "math", "→" to "zh")
+        val removed = mutableListOf<String>()
+        val view = SymbolsView(ctx).apply {
+            recentProvider = { recents.toList() }
+            recentOriginOf = { origins[it] }
+            onDeleteRecent = { symbol ->
+                removed += symbol
+                recents.remove(symbol)
+                origins.remove(symbol)
+            }
+            applyPalette(ImePalette.STATIC_LIGHT)
+            resetToDefault()
+        }
+
+        assertTrue(view.longPressCellForTest("★"))
+        assertTrue(view.clearDialogVisibleForTest())
+        assertTrue(removed.isEmpty())
+        assertTrue(view.cancelClearForTest())
+        assertEquals(listOf("★", "→"), view.gridCellTextsForTest())
+
+        assertTrue(view.longPressCellForTest("★"))
+        assertTrue(view.confirmClearForTest())
+        assertEquals(listOf("★"), removed)
+        assertEquals(listOf("→"), view.gridCellTextsForTest())
+        assertEquals("zh", origins["→"])
+
+        view.openCategoryForTest(1)
+        assertFalse("regular symbol categories do not route long-press to recent deletion", view.longPressCellForTest(SymbolCatalog.categories.first().symbols.first()))
     }
 }
