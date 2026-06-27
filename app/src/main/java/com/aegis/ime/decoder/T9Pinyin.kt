@@ -87,6 +87,7 @@ object T9Pinyin {
     ).withIndex().associate { (i, s) -> s to i }
 
     private const val DEFAULT_RANK = 1000
+    private const val LEN_BONUS = 480 // ★T/xuan: per-letter bonus so full syllables (xuan/yuan…) beat 2-letter prefixes
     private const val SYLLABLE_PENALTY = 50.0 // bias toward fewer, longer syllables
     private val maxDigits: Int = SYLLABLES.maxOf { toT9(it).length }
 
@@ -199,6 +200,9 @@ object T9Pinyin {
             if (requireReach && !reachable[k]) continue
             byDigits[digits.substring(0, k)]?.let { out.addAll(it) }
         }
-        return out.toList().sortedBy { rankOf(it) }.take(limit)
+        // ★T/xuan: prefer LONGER syllables so a full single syllable (xuan/yuan/xian…) surfaces instead of
+        // only its 2-letter prefixes (yu/wu/xu/zu). Tuned to outrank same-prefix common short syllables
+        // without burying a genuinely top-ranked shorter reading.
+        return out.toList().sortedBy { rankOf(it) - LEN_BONUS * it.length }.take(limit)
     }
 }
