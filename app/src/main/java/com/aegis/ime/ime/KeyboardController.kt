@@ -246,7 +246,7 @@ class KeyboardController(
         if (activeStart < composing.length) composing.substring(activeStart) else ""
 
     private fun activeCuts(): List<Int> =
-        forcedCuts.filter { it in (activeStart + 1) until composing.length }.map { it - activeStart }
+        forcedCuts.filter { it in (activeStart + 1)..composing.length }.map { it - activeStart }
 
     private fun chunked(digits: String, cuts: List<Int>): List<String> {
         if (cuts.isEmpty() || digits.isEmpty()) return listOf(digits)
@@ -303,7 +303,7 @@ class KeyboardController(
         if (composing.isEmpty()) return ""
         if (mode() == Mode.PINYIN && layoutId == LayoutId.NINE) {
             val locked = lockedReadings.joinToString("'")
-            val rest = chunked(activeDigits(), activeCuts()).joinToString("'") { T9Pinyin.preedit(it) }
+            val rest = T9Pinyin.preedit(activeDigits(), activeCuts().toSet())
             return when {
                 locked.isEmpty() -> rest
                 rest.isEmpty() -> locked
