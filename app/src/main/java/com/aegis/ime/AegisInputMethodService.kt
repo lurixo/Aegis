@@ -16,6 +16,7 @@
 package com.aegis.ime
 
 import android.inputmethodservice.InputMethodService
+import android.inputmethodservice.InputMethodService.Insets
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -122,6 +123,17 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         super.onStartInputView(info, restarting)
         inputView?.showPanel(null)
         controller.reset()
+    }
+
+    override fun onComputeInsets(outInsets: Insets) {
+        super.onComputeInsets(outInsets)
+        val v = inputView ?: return
+        val loc = IntArray(2)
+        v.getLocationInWindow(loc)
+        val top = loc[1] + v.barTopInsetPx()
+        outInsets.contentTopInsets = top
+        outInsets.visibleTopInsets = top
+        outInsets.touchableInsets = Insets.TOUCHABLE_INSETS_VISIBLE
     }
 
     override fun onUpdateSelection(

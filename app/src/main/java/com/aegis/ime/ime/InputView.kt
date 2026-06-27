@@ -38,11 +38,11 @@ class InputView(context: Context) : LinearLayout(context) {
     private val keyboardView = KeyboardView(context)
     private val panelContainer = FrameLayout(context)
     private val gridView = CandidateGridView(context)
+    private val body = LinearLayout(context)
     private var lastCandidates: List<String> = emptyList()
 
     init {
         orientation = VERTICAL
-        setBackgroundColor(0xFFE2E6EA.toInt())
         candidateView.onPick = { index -> onPickCandidate(index) }
         candidateView.onFunction = { f -> onFunction(f) }
         candidateView.onExpand = { showExpandedCandidates() }
@@ -51,20 +51,26 @@ class InputView(context: Context) : LinearLayout(context) {
         gridView.onClose = { showPanel(null) }
         keyboardView.onKey = { key -> onKey(key) }
         keyboardView.onBackspaceSwipe = { up -> onBackspaceSwipe(up) }
-        addView(preeditView, LayoutParams(LayoutParams.MATCH_PARENT, dp(28)))
-        addView(candidateView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
-        addView(keyboardView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-        panelContainer.visibility = GONE
-        addView(panelContainer, LayoutParams(LayoutParams.MATCH_PARENT, dp(250)))
+        addView(preeditView, LayoutParams(LayoutParams.MATCH_PARENT, barTopInsetPx()))
 
-        ViewCompat.setOnApplyWindowInsetsListener(this) { v, insets ->
+        body.orientation = VERTICAL
+        body.setBackgroundColor(0xFFE2E6EA.toInt())
+        body.addView(candidateView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
+        body.addView(keyboardView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        panelContainer.visibility = GONE
+        body.addView(panelContainer, LayoutParams(LayoutParams.MATCH_PARENT, dp(250)))
+        addView(body, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+
+        ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets ->
             val nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
             val cut = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
             val side = dp(4)
-            v.setPadding(maxOf(cut.left, side), 0, maxOf(cut.right, side), nav.bottom + dp(16))
+            body.setPadding(maxOf(cut.left, side), 0, maxOf(cut.right, side), nav.bottom + dp(16))
             WindowInsetsCompat.CONSUMED
         }
     }
+
+    fun barTopInsetPx(): Int = dp(26)
 
     fun showKeyboard(layout: KeyboardLayout, shifted: Boolean) {
         keyboardView.setLayout(layout, shifted)
