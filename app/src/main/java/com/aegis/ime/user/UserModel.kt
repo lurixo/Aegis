@@ -85,6 +85,14 @@ class UserModel {
         dirty = false
     }
 
+    fun replaceWith(file: File) {
+        count.clear()
+        lastUsed.clear()
+        bigram.clear()
+        load(file)
+        dirty = true
+    }
+
     fun importFrom(file: File, now: Long) {
         val other = UserModel().apply { load(file) }
         for ((word, c) in other.count) {

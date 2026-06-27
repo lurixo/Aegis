@@ -26,11 +26,17 @@ object ModelDownload {
 
     const val GRAM_NAME = "wanxiang-lts-zh-hans.gram"
 
+    const val VALIDATOR_PREF = "gram_validator"
+
     fun destFile(filesDir: File): File = File(File(filesDir, "downloaded"), GRAM_NAME)
+
+    fun partFile(filesDir: File): File = File(File(filesDir, "downloaded"), "$GRAM_NAME.part")
 
     fun isDownloaded(filesDir: File): Boolean = destFile(filesDir).let { it.exists() && it.length() > 1024 }
 
-    fun download(url: String, dest: File, onProgress: (Long, Long) -> Unit): Boolean {
+    data class DownloadResult(val ok: Boolean, val validator: String?)
+
+    fun download(url: String, dest: File, onProgress: (Long, Long) -> Unit): DownloadResult {
         dest.parentFile?.mkdirs()
         val tmp = File(dest.parentFile, dest.name + ".part")
         var conn: HttpURLConnection? = null
@@ -40,7 +46,8 @@ object ModelDownload {
                 connectTimeout = 20_000
                 readTimeout = 30_000
             }
-            if (conn.responseCode !in 200..299) return false
+            if (conn.responseCode !in 200..299) return DownloadResult(false, null)
+            val validator = conn.getHeaderField("ETag") ?: conn.getHeaderField("Last-Modified")
             val total = conn.contentLengthLong
             conn.inputStream.use { input ->
                 tmp.outputStream().use { out ->
@@ -56,12 +63,38 @@ object ModelDownload {
                 }
             }
             dest.delete()
-            tmp.renameTo(dest)
+            DownloadResult(tmp.renameTo(dest), validator)
         } catch (e: Exception) {
             tmp.delete()
-            false
+            DownloadResult(false, null)
         } finally {
             conn?.disconnect()
         }
+    }
+
+    fun remoteValidator(url: String): String? {
+        var conn: HttpURLConnection? = null
+        return try {
+            conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                requestMethod = "HEAD"
+                instanceFollowRedirects = true
+                connectTimeout = 20_000
+                readTimeout = 20_000
+            }
+            if (conn.responseCode !in 200..299) null
+            else conn.getHeaderField("ETag") ?: conn.getHeaderField("Last-Modified")
+        } catch (e: Exception) {
+            null
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    fun updateAvailable(local: String?, remote: String?): Boolean = !(remote != null && remote == local)
+
+    fun purge(filesDir: File): Boolean {
+        val a = destFile(filesDir).delete()
+        val b = partFile(filesDir).delete()
+        return a || b
     }
 }
