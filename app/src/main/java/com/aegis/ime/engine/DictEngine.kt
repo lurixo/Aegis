@@ -15,6 +15,7 @@
 
 package com.aegis.ime.engine
 
+import com.aegis.ime.decoder.Cand
 import com.aegis.ime.decoder.PinyinDecoder
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
@@ -39,11 +40,14 @@ class DictEngine(
         PinyinDecoder(it, lm, userModel = userModel, octagram = octagram)
     }
 
-    override fun candidates(composing: String, t9: Boolean): List<String> {
+    override fun candidates(composing: String, t9: Boolean): List<String> =
+        candidatesCovered(composing, t9).map { it.word }
+
+    override fun candidatesCovered(composing: String, t9: Boolean): List<Cand> {
         if (composing.isEmpty()) return emptyList()
         val d = if (t9) t9Decoder else decoder
-        val out = d?.decode(composing, MAX_CANDIDATES) ?: emptyList()
-        return if (t9) out.filterNot { s -> s.all { it.code < 128 } } else out
+        val out = d?.decodeCovered(composing, MAX_CANDIDATES) ?: emptyList()
+        return if (t9) out.filterNot { c -> c.word.all { it.code < 128 } } else out
     }
 
     override fun candidatesForReading(letters: String): List<String> {
