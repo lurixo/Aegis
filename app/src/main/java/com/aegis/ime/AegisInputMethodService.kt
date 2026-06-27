@@ -37,9 +37,11 @@ import com.aegis.ime.ime.EmojiView
 import com.aegis.ime.ime.ImeHost
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
+import com.aegis.ime.ime.SymbolsView
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.user.ClipboardStore
 import com.aegis.ime.user.CustomSymbolStore
+import com.aegis.ime.user.SymbolUsageStore
 import com.aegis.ime.user.UserModel
 import java.io.File
 
@@ -53,19 +55,26 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var inputView: InputView? = null
     private var emojiView: EmojiView? = null
     private var clipboardView: ClipboardView? = null
+    private var symbolsView: SymbolsView? = null
     private var editPanelView: EditPanelView? = null
     private var customSymbolView: CustomSymbolPanel? = null
     private val customSymbolStore by lazy { CustomSymbolStore(getSharedPreferences("aegis", MODE_PRIVATE)) }
     private var selecting = false
     private var deletedSnapshot: CharSequence? = null
     private val clipboardStore by lazy { ClipboardStore(filesDir).also { it.load() } }
+    private val symbolUsageStore by lazy { SymbolUsageStore(filesDir).also { it.load() } }
+    @Volatile private var secureField = false
+    private val clipboardManager by lazy { getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager }
+    private val clipChangedListener = android.content.ClipboardManager.OnPrimaryClipChangedListener { captureClip() }
 
     override fun onCreate() {
         super.onCreate()
+        runCatching { clipboardManager.addPrimaryClipChangedListener(clipChangedListener) }
         controller = KeyboardController(this, DictEngine(null, null, null))
         controller.onShowEmoji = { showEmojiPanel() }
         controller.onShowClipboard = { showClipboardPanel() }
         controller.onShowEdit = { showEditPanel() }
+        controller.onShowSymbols = { showSymbolsPanel() }
         controller.onShowSettings = { openSettings() }
         controller.onShowCustomSymbols = { showCustomSymbolPanel() }
         controller.onClosePanel = { inputView?.showPanel(null) }
@@ -90,6 +99,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun onStartInput(info: EditorInfo?, restarting: Boolean) {
         super.onStartInput(info, restarting)
+        secureField = info != null && com.aegis.ime.user.ClipboardPolicy.isSensitive(info.inputType)
         if (!userModel.dirty && userDbFile.lastModified() > userDbMtime) {
             runCatching { userModel.reload(userDbFile); userDbMtime = userDbFile.lastModified() }
         }
@@ -227,11 +237,23 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         captureClip()
         val cv = clipboardView ?: ClipboardView(this).also {
             it.historyProvider = { clipboardStore.history() }
-            it.phraseProvider = { clipboardStore.phrases() }
+            it.categoriesProvider = { clipboardStore.categories() }
+            it.phrasesInProvider = { cat -> clipboardStore.phrasesIn(cat) }
             it.onPick = { t -> currentInputConnection?.commitText(t, 1); inputView?.showPanel(null) }
+            it.onCommitBlock = { b -> currentInputConnection?.commitText(b, 1) }
             it.onBack = { inputView?.showPanel(null) }
+            it.onDeleteClips = { list -> clipboardStore.deleteAll(list) }
+            it.onDeletePhrasesFrom = { cat, list -> list.forEach { clipboardStore.deletePhraseFrom(cat, it) } }
+            it.onSaveAsPhrasesTo = { cat, list -> clipboardStore.addPhrasesTo(cat, list) }
+            it.onManage = { openPhraseManager() }
+            it.onClearSystemClipboard = { clearSystemClipboard() }
+            it.onClearHistory = { clipboardStore.clearHistory() }
+            it.historyEnabledProvider = { historyEnabled() }
+            it.onSetHistoryEnabled = { on -> setHistoryEnabled(on) }
             clipboardView = it
         }
+        clipboardStore.reloadPhrases()
+        cv.reset()
         cv.refresh()
         iv.showPanel(cv)
     }
@@ -249,6 +271,19 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         iv.showPanel(panel)
     }
 
+    private fun showSymbolsPanel() {
+        val iv = inputView ?: return
+        val sv = symbolsView ?: SymbolsView(this).also {
+            it.recentProvider = { symbolUsageStore.recent() }
+            it.onSymbol = { s -> symbolUsageStore.record(s); currentInputConnection?.commitText(s, 1) }
+            it.onBackspace = { currentInputConnection?.deleteSurroundingTextInCodePoints(1, 0) }
+            it.onBack = { inputView?.showPanel(null) }
+            symbolsView = it
+        }
+        sv.refresh()
+        iv.showPanel(sv)
+    }
+
     private fun openSettings() {
         runCatching {
             startActivity(
@@ -258,12 +293,31 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
     }
 
-    private fun captureClip() {
+    private fun openPhraseManager() {
         runCatching {
-            val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
-            val clip = cm.primaryClip ?: return
+            startActivity(
+                android.content.Intent(this, com.aegis.ime.ui.PhraseManagerActivity::class.java)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+    }
+
+    private fun captureClip() {
+        if (secureField || !historyEnabled()) return
+        runCatching {
+            val clip = clipboardManager.primaryClip ?: return
             if (clip.itemCount > 0) clipboardStore.record(clip.getItemAt(0).coerceToText(this)?.toString())
         }
+    }
+
+    private fun historyEnabled() = getSharedPreferences("aegis", MODE_PRIVATE).getBoolean("clip_history", true)
+    private fun setHistoryEnabled(on: Boolean) =
+        getSharedPreferences("aegis", MODE_PRIVATE).edit().putBoolean("clip_history", on).apply()
+    private fun clearSystemClipboard() = runCatching { clipboardManager.clearPrimaryClip() }
+
+    override fun onDestroy() {
+        runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
+        super.onDestroy()
     }
 
 

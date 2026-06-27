@@ -104,7 +104,7 @@ class LayoutsTest {
         assertTrue("no left cells leak into the placed cells", cells.none { it.groupId == 1 })
         assertTrue("scroll region sits in the upper band", sc.y >= -1e-4f && sc.y + sc.h <= 0.75f + 1e-4f)
         assertTrue("scroll region within keyboard width", sc.x >= -1e-4f && sc.x + sc.w <= 1f + 1e-4f)
-        assertTrue("pen present below the column", cells.any { it.key.action == KeyAction.SHOW_EDIT })
+        assertTrue("pen present below the column", cells.any { it.key.action == KeyAction.SHOW_SYMBOLS })
     }
 
     @Test fun nine_resting_left_column_is_the_full_punctuation_list() {
@@ -126,9 +126,11 @@ class LayoutsTest {
         assertTrue("custom marks commit directly", sc.items.filter { it.label in listOf("、", "《") }.all { it.direct })
     }
 
-    @Test fun qwerty_has_no_nine_switch_key_and_has_pen() {
+    @Test fun qwerty_has_no_nine_switch_key_and_pen_opens_symbols() {
         val actions = keysOf(qwerty).map { it.action }
-        assertTrue("9-key switch is via the toolbar, not a key", KeyAction.SWITCH_NINE !in actions)
-        assertTrue("pen / text-edit entry present", KeyAction.SHOW_EDIT in actions)
+        assertTrue("9-key switch is via the startup setting, not a key", KeyAction.SWITCH_NINE !in actions)
+        assertTrue("pen / symbols entry present", KeyAction.SHOW_SYMBOLS in actions)
+        val pen = keysOf(qwerty).first { it.action == KeyAction.SHOW_SYMBOLS }
+        assertEquals("✎", pen.label)
     }
 }

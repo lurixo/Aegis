@@ -58,6 +58,7 @@ class KeyboardController(
     var onShowEmoji: () -> Unit = {}
     var onShowClipboard: () -> Unit = {}
     var onShowEdit: () -> Unit = {}
+    var onShowSymbols: () -> Unit = {}
     var onShowSettings: () -> Unit = {}
     var onShowCustomSymbols: () -> Unit = {}
     var onClosePanel: () -> Unit = {}
@@ -119,6 +120,7 @@ class KeyboardController(
             KeyAction.SEGMENT -> handleSegment()
             KeyAction.SHOW_EDIT -> onShowEdit()
             KeyAction.CUSTOM_SYMBOL -> onShowCustomSymbols()
+            KeyAction.SHOW_SYMBOLS -> { flushComposing(); onShowSymbols() }
             KeyAction.TOGGLE_LANG -> {
                 flushComposing()
                 if (lang == Lang.CN) {
@@ -137,19 +139,11 @@ class KeyboardController(
 
     fun onBarFunction(f: BarFunction) {
         when (f) {
-            BarFunction.SWITCH_KBD -> {
-                onClosePanel()
-                val target = if (lang == Lang.EN || layoutId == LayoutId.NINE) LayoutId.ALPHA else LayoutId.NINE
-                switchLayout(target)
-            }
-            BarFunction.NUMPAD -> { onClosePanel(); switchLayout(LayoutId.NUMPAD) }
-            BarFunction.SETTINGS -> { onShowSettings(); return }
-            BarFunction.EMOJI -> { onShowEmoji(); return }
-            BarFunction.EDIT -> { onShowEdit(); return }
-            BarFunction.CLIPBOARD -> { onShowClipboard(); return }
+            BarFunction.BRAND -> onShowSettings()
+            BarFunction.EMOJI -> onShowEmoji()
+            BarFunction.EDIT -> onShowEdit()
+            BarFunction.CLIPBOARD -> onShowClipboard()
         }
-        refreshCandidates()
-        render()
     }
 
     private fun handlePickReading(key: Key) {

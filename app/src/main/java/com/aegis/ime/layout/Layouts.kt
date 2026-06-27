@@ -21,7 +21,7 @@ import com.aegis.ime.layout.KeyAction.CUSTOM_SYMBOL
 import com.aegis.ime.layout.KeyAction.ENTER
 import com.aegis.ime.layout.KeyAction.SHIFT
 import com.aegis.ime.layout.KeyAction.SEGMENT
-import com.aegis.ime.layout.KeyAction.SHOW_EDIT
+import com.aegis.ime.layout.KeyAction.SHOW_SYMBOLS
 import com.aegis.ime.layout.KeyAction.SPACE
 import com.aegis.ime.layout.KeyAction.SWITCH_ALPHA
 import com.aegis.ime.layout.KeyAction.SWITCH_NUMBERS
@@ -65,7 +65,7 @@ object Layouts {
         val comma = if (lang == Lang.CN) "，" else ","
         val period = if (lang == Lang.CN) "。" else "."
         val bottom = listOf(
-            Key("✎", action = SHOW_EDIT, weight = 1.3f),
+            Key("✎", action = SHOW_SYMBOLS, weight = 1.3f),
             Key("123", action = SWITCH_NUMBERS, weight = 1.5f),
             Key(comma, sub = "A", direct = true),
             Key("空格", output = " ", action = SPACE, weight = 3.5f),
@@ -88,7 +88,7 @@ object Layouts {
         val xR = 3.7f * u; val wR = 0.7f * u
         val cells = ArrayList<PlacedKey>()
         val leftColumn = ScrollColumn(left, xL, 0f, wL, 0.75f, cellHFrac = 0.75f / 4f)
-        cells.add(PlacedKey(Key("✎", action = SHOW_EDIT), xL, 0.75f, wL, 0.25f))
+        cells.add(PlacedKey(Key("✎", action = SHOW_SYMBOLS), xL, 0.75f, wL, 0.25f))
         cells.add(PlacedKey(
             if (composing) Key("分词", action = SEGMENT) else Key("@#", action = SWITCH_SYMBOLS),
             x1, 0f, wM, 0.25f,
