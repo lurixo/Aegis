@@ -27,50 +27,88 @@ import android.widget.TextView
 class CandidateGridView(context: Context) : LinearLayout(context) {
 
     var onPick: (Int) -> Unit = {}
+    var onPickReading: (Int) -> Unit = {}
     var onClose: () -> Unit = {}
+    var onBackspace: () -> Unit = {}
+    var onClear: () -> Unit = {}
 
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
-    private val rowsColumn = LinearLayout(context).apply { orientation = VERTICAL }
+
+    private val readingColumn = LinearLayout(context).apply { orientation = VERTICAL }
+    private val gridColumn = LinearLayout(context).apply { orientation = VERTICAL }
     private val measurePaint = Paint().apply {
         textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 18f, resources.displayMetrics)
     }
 
     init {
-        orientation = VERTICAL
+        orientation = HORIZONTAL
         setBackgroundColor(0xFFF7F8FA.toInt())
-        val bar = LinearLayout(context).apply {
+
+        readingColumn.setBackgroundColor(0xFFEFF1F5.toInt())
+        addView(
+            ScrollView(context).apply { addView(readingColumn) },
+            LayoutParams(dp(60), LayoutParams.MATCH_PARENT),
+        )
+        addView(
+            ScrollView(context).apply { addView(gridColumn) },
+            LayoutParams(0, LayoutParams.MATCH_PARENT, 1f),
+        )
+        val right = LinearLayout(context).apply {
+            orientation = VERTICAL
             setBackgroundColor(0xFFE6E9ED.toInt())
-            gravity = Gravity.CENTER_VERTICAL
-            val collapse = TextView(context).apply {
-                text = "⌃ 收起"
-                gravity = Gravity.CENTER
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-                isClickable = true
-                setOnClickListener { onClose() }
-            }
-            addView(collapse, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT).apply { marginStart = dp(12) })
+            addView(funcButton("返回") { onClose() }, funcLp())
+            addView(funcButton("⌫") { onBackspace() }, funcLp())
+            addView(funcButton("重输") { onClear() }, funcLp())
         }
-        addView(bar, LayoutParams(LayoutParams.MATCH_PARENT, dp(40)))
-        addView(ScrollView(context).apply { addView(rowsColumn) }, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+        addView(right, LayoutParams(dp(64), LayoutParams.MATCH_PARENT))
+    }
+
+    private fun funcLp() = LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f)
+
+    private fun funcButton(label: String, onClick: () -> Unit): View = TextView(context).apply {
+        text = label
+        gravity = Gravity.CENTER
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+        setTextColor(0xFF37474F.toInt())
+        isClickable = true
+        setOnClickListener { onClick() }
+    }
+
+    fun setReadings(readings: List<String>) {
+        readingColumn.removeAllViews()
+        for ((i, r) in readings.withIndex()) {
+            readingColumn.addView(
+                TextView(context).apply {
+                    text = r
+                    gravity = Gravity.CENTER
+                    setPadding(0, dp(10), 0, dp(10))
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
+                    setTextColor(0xFF1565C0.toInt())
+                    isClickable = true
+                    setOnClickListener { onPickReading(i) }
+                },
+                LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT),
+            )
+        }
     }
 
     fun setCandidates(candidates: List<String>) {
-        rowsColumn.removeAllViews()
-        val maxRowW = resources.displayMetrics.widthPixels - dp(16)
+        gridColumn.removeAllViews()
+        val maxRowW = resources.displayMetrics.widthPixels - dp(60 + 64 + 16)
         val cellPad = dp(14)
         var row = newRow()
         var rowW = 0
         for ((i, c) in candidates.withIndex()) {
             val cellW = (measurePaint.measureText(c) + cellPad * 2).toInt()
             if (rowW + cellW > maxRowW && row.childCount > 0) {
-                rowsColumn.addView(row)
+                gridColumn.addView(row)
                 row = newRow(); rowW = 0
             }
             row.addView(chip(c, i), LayoutParams(cellW, dp(46)))
             rowW += cellW
         }
-        if (row.childCount > 0) rowsColumn.addView(row)
+        if (row.childCount > 0) gridColumn.addView(row)
     }
 
     private fun newRow(): LinearLayout = LinearLayout(context).apply { orientation = HORIZONTAL }

@@ -161,7 +161,7 @@ class KeyboardControllerTest {
         val c = KeyboardController(FakeHost(), engine)
         c.onKey(act(KeyAction.SWITCH_NINE))
         assertEquals(
-            com.aegis.ime.layout.Layouts.defaultNineLeft().map { it.label },
+            com.aegis.ime.layout.Layouts.ninePunctuation().map { it.label },
             c.nineLeftColumn().map { it.label },
         )
     }
@@ -170,13 +170,54 @@ class KeyboardControllerTest {
         assertEquals(nineColumnFor("23744").map { it.label }, nineColumnFor("23744").map { it.label })
     }
 
-    @Test fun nine_left_column_ni_keeps_real_syllables_at_production_limit() {
+    @Test fun nine_left_column_ni_full_scroll_list_matches_reference() {
         val col = nineColumnFor("64744336488").map { it.label }
         assertTrue("ni present, was $col", "ni" in col)
         assertTrue("mi present, was $col", "mi" in col)
+        assertTrue("first-key letters m/n/o present, was $col", listOf("m", "n", "o").all { it in col })
         assertTrue("no blank keys, was $col", col.none { it.isEmpty() })
         assertTrue("clean a-z only, was $col", col.all { s -> s.all { it in 'a'..'z' } })
-        assertTrue("within the slot cap, was $col", col.size <= 5)
+    }
+
+
+    @Test fun expanded_readings_empty_at_rest_combos_while_composing() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        assertTrue("no combos at rest", c.expandedReadings().isEmpty())
+        "426".forEach { c.onKey(out(it.toString())) }
+        assertTrue("hao among combos while composing, was ${c.expandedReadings()}", "hao" in c.expandedReadings())
+    }
+
+    @Test fun panel_pick_reading_advances_syllables_and_commits_both() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "42633".forEach { c.onKey(out(it.toString())) }
+        c.onPickReadingIndex(c.expandedReadings().indexOf("hao"))
+        c.onPickReadingIndex(c.expandedReadings().indexOf("de"))
+        c.onKey(act(KeyAction.ENTER))
+        assertEquals(listOf("haode"), h.commits)
+    }
+
+    @Test fun panel_backspace_removes_one_unit() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "426".forEach { c.onKey(out(it.toString())) }
+        assertTrue("hao present before backspace", "hao" in c.expandedReadings())
+        c.onPanelBackspace()
+        assertTrue("hao gone after one backspace", "hao" !in c.expandedReadings())
+    }
+
+    @Test fun panel_clear_drops_composing() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "426".forEach { c.onKey(out(it.toString())) }
+        c.onPanelClear()
+        assertTrue("combos gone after 重输", c.expandedReadings().isEmpty())
+        c.onKey(act(KeyAction.ENTER))
+        assertEquals(1, h.enters)
+        assertTrue(h.commits.isEmpty())
     }
 
     @Test fun backspace_up_swipe_clears_pending_pinyin_in_any_layout() {
