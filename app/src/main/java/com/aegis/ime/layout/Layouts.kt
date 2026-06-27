@@ -21,7 +21,7 @@ import com.aegis.ime.layout.KeyAction.CUSTOM_SYMBOL
 import com.aegis.ime.layout.KeyAction.ENTER
 import com.aegis.ime.layout.KeyAction.SHIFT
 import com.aegis.ime.layout.KeyAction.SEGMENT
-import com.aegis.ime.layout.KeyAction.SHOW_EDIT
+import com.aegis.ime.layout.KeyAction.SHOW_SYMBOLS
 import com.aegis.ime.layout.KeyAction.SPACE
 import com.aegis.ime.layout.KeyAction.SWITCH_ALPHA
 import com.aegis.ime.layout.KeyAction.SWITCH_NUMBERS
@@ -76,7 +76,7 @@ object Layouts {
         val comma = if (lang == Lang.CN) "，" else ","
         val period = if (lang == Lang.CN) "。" else "."
         val bottom = listOf(
-            Key("✎", action = SHOW_EDIT, weight = 1.3f),
+            Key("✎", action = SHOW_SYMBOLS, weight = 1.3f), // D: pencil → symbols panel
             Key("123", action = SWITCH_NUMBERS, weight = 1.5f),
             Key(comma, sub = "A", direct = true), // ★D punctuation direct; caps/English badge unchanged
             Key("空格", output = " ", action = SPACE, weight = 3.5f),
@@ -107,7 +107,7 @@ object Layouts {
         val cells = ArrayList<PlacedKey>()
         // A3: scrollable left column over the upper 0.75 band; ~4 rows visible, scroll for the rest.
         val leftColumn = ScrollColumn(left, xL, 0f, wL, 0.75f, cellHFrac = 0.75f / 4f)
-        cells.add(PlacedKey(Key("✎", action = SHOW_EDIT), xL, 0.75f, wL, 0.25f))
+        cells.add(PlacedKey(Key("✎", action = SHOW_SYMBOLS), xL, 0.75f, wL, 0.25f)) // D1: pencil → symbols panel
         // middle 3×3: letters as the main label, T9 digit as the emitted output; "1" position = symbols
         // (idle "@#", more symbols "@!./" while composing).
         // Top-left: while composing it is the 分词/隔音 key (lock a syllable boundary);

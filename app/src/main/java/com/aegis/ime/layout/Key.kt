@@ -36,7 +36,8 @@ enum class KeyAction {
     SWITCH_NUMPAD,   // calculator-style number 9-grid
     TOGGLE_LANG,
     PICK_READING,    // 9-key left column: switch to an explicit pinyin reading ([Key.output]) and re-rank
-    SHOW_EDIT,       // open the text-editing (cursor/selection) panel
+    SHOW_EDIT,       // open the text-editing (cursor/selection) panel (now via the toolbar 文字编辑 entry)
+    SHOW_SYMBOLS,    // D: 铅笔 ✎ key → the categorized symbols panel (SymbolsView)
     SEGMENT,         // 9-key 分词/隔音: lock the active syllable boundary while composing
     CUSTOM_SYMBOL,   // 9-key left punctuation list: the "自定义" entry (per-symbol customization, A3)
 }

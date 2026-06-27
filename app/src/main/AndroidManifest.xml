@@ -24,6 +24,14 @@
             </intent-filter>
         </activity>
 
+        <!-- C5: canned-phrase category management (launched from the IME clipboard panel ⚙). -->
+        <activity
+            android:name=".ui.PhraseManagerActivity"
+            android:exported="false"
+            android:label="@string/phrase_manager_title"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.Aegis" />
+
         <service
             android:name=".AegisInputMethodService"
             android:exported="true"

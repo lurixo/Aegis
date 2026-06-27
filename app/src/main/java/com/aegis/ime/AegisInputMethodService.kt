@@ -37,9 +37,11 @@ import com.aegis.ime.ime.EmojiView
 import com.aegis.ime.ime.ImeHost
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
+import com.aegis.ime.ime.SymbolsView
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.user.ClipboardStore
 import com.aegis.ime.user.CustomSymbolStore
+import com.aegis.ime.user.SymbolUsageStore
 import com.aegis.ime.user.UserModel
 import java.io.File
 
@@ -60,21 +62,33 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var inputView: InputView? = null
     private var emojiView: EmojiView? = null
     private var clipboardView: ClipboardView? = null
+    private var symbolsView: SymbolsView? = null
     private var editPanelView: EditPanelView? = null
     private var customSymbolView: CustomSymbolPanel? = null
     private val customSymbolStore by lazy { CustomSymbolStore(getSharedPreferences("aegis", MODE_PRIVATE)) }
     private var selecting = false
     private var deletedSnapshot: CharSequence? = null // for the backspace up/down restore gesture (#5)
     private val clipboardStore by lazy { ClipboardStore(filesDir).also { it.load() } }
+    private val symbolUsageStore by lazy { SymbolUsageStore(filesDir).also { it.load() } }
+    // C1 privacy: pause clipboard capture while a password / PIN / 2FA field is focused (set per onStartInput).
+    @Volatile private var secureField = false
+    private val clipboardManager by lazy { getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager }
+    // C1: passive clipboard monitoring — record EVERY primary-clip change (incl. passwords/sensitive),
+    // not just on explicit panel-open. On-device only (ClipboardStore is plain-text in filesDir, nothing
+    // leaves the device). Android 10+ only grants clipboard reads to the focused IME, so this fires while
+    // Aegis is the active input method.
+    private val clipChangedListener = android.content.ClipboardManager.OnPrimaryClipChangedListener { captureClip() }
 
     override fun onCreate() {
         super.onCreate()
+        runCatching { clipboardManager.addPrimaryClipChangedListener(clipChangedListener) }
         // Start with an empty engine (ASCII typing works immediately); load the ~70 MB dictionaries
         // and the user model off the main thread and swap the real engine in when ready.
         controller = KeyboardController(this, DictEngine(null, null, null))
         controller.onShowEmoji = { showEmojiPanel() }
         controller.onShowClipboard = { showClipboardPanel() }
         controller.onShowEdit = { showEditPanel() }
+        controller.onShowSymbols = { showSymbolsPanel() }
         controller.onShowSettings = { openSettings() }
         controller.onShowCustomSymbols = { showCustomSymbolPanel() }
         controller.onClosePanel = { inputView?.showPanel(null) }
@@ -102,6 +116,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun onStartInput(info: EditorInfo?, restarting: Boolean) {
         super.onStartInput(info, restarting)
+        // C1 privacy: don't harvest clips while a password/2FA field is focused.
+        secureField = info != null && com.aegis.ime.user.ClipboardPolicy.isSensitive(info.inputType)
         // Pick up an imported user dict (newer file, no unsaved edits) without restarting the IME.
         if (!userModel.dirty && userDbFile.lastModified() > userDbMtime) {
             runCatching { userModel.reload(userDbFile); userDbMtime = userDbFile.lastModified() }
@@ -254,11 +270,23 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         captureClip() // read the current clip only on explicit user intent (avoids spurious access)
         val cv = clipboardView ?: ClipboardView(this).also {
             it.historyProvider = { clipboardStore.history() }
-            it.phraseProvider = { clipboardStore.phrases() }
+            it.categoriesProvider = { clipboardStore.categories() }                       // C5 分类
+            it.phrasesInProvider = { cat -> clipboardStore.phrasesIn(cat) }
             it.onPick = { t -> currentInputConnection?.commitText(t, 1); inputView?.showPanel(null) }
+            it.onCommitBlock = { b -> currentInputConnection?.commitText(b, 1) }           // C4 拆词块上屏(不关面板)
             it.onBack = { inputView?.showPanel(null) }
+            it.onDeleteClips = { list -> clipboardStore.deleteAll(list) }                  // C7 多选删除
+            it.onDeletePhrasesFrom = { cat, list -> list.forEach { clipboardStore.deletePhraseFrom(cat, it) } }
+            it.onSaveAsPhrasesTo = { cat, list -> clipboardStore.addPhrasesTo(cat, list) } // C7 批量添加常用语
+            it.onManage = { openPhraseManager() }                                          // C5 管理 / 新建分类
+            it.onClearSystemClipboard = { clearSystemClipboard() }                         // C2
+            it.onClearHistory = { clipboardStore.clearHistory() }
+            it.historyEnabledProvider = { historyEnabled() }                               // C1 记录开关
+            it.onSetHistoryEnabled = { on -> setHistoryEnabled(on) }
             clipboardView = it
         }
+        clipboardStore.reloadPhrases() // pick up category/phrase edits made in the manager Activity
+        cv.reset() // always open on the 剪贴板 tab in normal (non-select) mode
         cv.refresh()
         iv.showPanel(cv)
     }
@@ -277,6 +305,20 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         iv.showPanel(panel)
     }
 
+    /** D: categorized symbols panel (reached from the keyboard ✎ pencil key). Symbols commit and stay. */
+    private fun showSymbolsPanel() {
+        val iv = inputView ?: return
+        val sv = symbolsView ?: SymbolsView(this).also {
+            it.recentProvider = { symbolUsageStore.recent() }
+            it.onSymbol = { s -> symbolUsageStore.record(s); currentInputConnection?.commitText(s, 1) }
+            it.onBackspace = { currentInputConnection?.deleteSurroundingTextInCodePoints(1, 0) }
+            it.onBack = { inputView?.showPanel(null) }
+            symbolsView = it
+        }
+        sv.refresh()
+        iv.showPanel(sv)
+    }
+
     /** In-keyboard settings entry: open the setup/settings screen. */
     private fun openSettings() {
         runCatching {
@@ -287,12 +329,34 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
     }
 
-    private fun captureClip() {
+    /** C5: open the canned-phrase category manager (text input needs a real Activity window). */
+    private fun openPhraseManager() {
         runCatching {
-            val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
-            val clip = cm.primaryClip ?: return
+            startActivity(
+                android.content.Intent(this, com.aegis.ime.ui.PhraseManagerActivity::class.java)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+    }
+
+    private fun captureClip() {
+        if (secureField || !historyEnabled()) return // C1: skip password fields / when history is off
+        runCatching {
+            val clip = clipboardManager.primaryClip ?: return
             if (clip.itemCount > 0) clipboardStore.record(clip.getItemAt(0).coerceToText(this)?.toString())
         }
+    }
+
+    // C1/C2 clipboard controls (wired to the panel ⚙ menu).
+    private fun historyEnabled() = getSharedPreferences("aegis", MODE_PRIVATE).getBoolean("clip_history", true)
+    private fun setHistoryEnabled(on: Boolean) =
+        getSharedPreferences("aegis", MODE_PRIVATE).edit().putBoolean("clip_history", on).apply()
+    /** C2: clear the SYSTEM clipboard (not the aegis private history). */
+    private fun clearSystemClipboard() = runCatching { clipboardManager.clearPrimaryClip() }
+
+    override fun onDestroy() {
+        runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
+        super.onDestroy()
     }
 
     // --- ImeHost ---

@@ -92,6 +92,7 @@ class KeyboardController(
     var onShowEmoji: () -> Unit = {}
     var onShowClipboard: () -> Unit = {}
     var onShowEdit: () -> Unit = {}
+    var onShowSymbols: () -> Unit = {}
     var onShowSettings: () -> Unit = {}
     var onShowCustomSymbols: () -> Unit = {} // A3 自定义 entry tapped
     var onClosePanel: () -> Unit = {}
@@ -158,6 +159,10 @@ class KeyboardController(
             KeyAction.SEGMENT -> handleSegment()
             KeyAction.SHOW_EDIT -> onShowEdit()
             KeyAction.CUSTOM_SYMBOL -> onShowCustomSymbols() // A3: open the 自定义 punctuation panel
+            // D: 铅笔 ✎ → symbols panel. The pencil sits on the keyboard (reachable mid-composing), so flush
+            // the pending pinyin first — otherwise the panel commits symbols straight to the editor while a
+            // stale buffer lingers and its ⌫ deletes committed text out from under it (parity with switchLayout).
+            KeyAction.SHOW_SYMBOLS -> { flushComposing(); onShowSymbols() }
             KeyAction.TOGGLE_LANG -> {
                 flushComposing()
                 if (lang == Lang.CN) {
@@ -177,23 +182,14 @@ class KeyboardController(
         render()
     }
 
-    /** Candidate-strip toolbar shortcut (issue #4). */
+    /** Candidate-strip toolbar shortcut (C2). Every kept entry opens a panel / screen — no layout switch. */
     fun onBarFunction(f: BarFunction) {
         when (f) {
-            BarFunction.SWITCH_KBD -> {
-                onClosePanel()
-                // EN is 26-key only (issue #10); CN toggles 9-key ↔ 26-key.
-                val target = if (lang == Lang.EN || layoutId == LayoutId.NINE) LayoutId.ALPHA else LayoutId.NINE
-                switchLayout(target)
-            }
-            BarFunction.NUMPAD -> { onClosePanel(); switchLayout(LayoutId.NUMPAD) }
-            BarFunction.SETTINGS -> { onShowSettings(); return }
-            BarFunction.EMOJI -> { onShowEmoji(); return }
-            BarFunction.EDIT -> { onShowEdit(); return }
-            BarFunction.CLIPBOARD -> { onShowClipboard(); return }
+            BarFunction.BRAND -> onShowSettings() // leading "A" brand mark doubles as the settings entry
+            BarFunction.EMOJI -> onShowEmoji()
+            BarFunction.EDIT -> onShowEdit()
+            BarFunction.CLIPBOARD -> onShowClipboard()
         }
-        refreshCandidates()
-        render()
     }
 
     /**
