@@ -16,6 +16,7 @@
 package com.aegis.ime
 
 import android.inputmethodservice.InputMethodService
+import android.inputmethodservice.InputMethodService.Insets
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -136,6 +137,23 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         super.onStartInputView(info, restarting)
         inputView?.showPanel(null)
         controller.reset()
+    }
+
+    /**
+     * the preedit band at the top of the input view is transparent. Report the IME's
+     * content/visible top at the candidate bar (one band-height below the input-view top) so the host app
+     * reclaims that strip and only the floating pinyin tab overlaps it — instead of being pushed up by a
+     * full-width grey bar. The band height is constant, so the host's layout still never jitters.
+     */
+    override fun onComputeInsets(outInsets: Insets) {
+        super.onComputeInsets(outInsets)
+        val v = inputView ?: return
+        val loc = IntArray(2)
+        v.getLocationInWindow(loc)
+        val top = loc[1] + v.barTopInsetPx()
+        outInsets.contentTopInsets = top
+        outInsets.visibleTopInsets = top
+        outInsets.touchableInsets = Insets.TOUCHABLE_INSETS_VISIBLE
     }
 
     override fun onUpdateSelection(

@@ -396,9 +396,12 @@ class KeyboardController(
         for (r in T9Pinyin.firstSyllableOptions(chunk, 4)) {
             keys.add(Key(r, output = r, action = KeyAction.PICK_READING, weight = w))
         }
-        val pads = Layouts.defaultNineLeft()
-        var i = 0
-        while (keys.size < 4) keys.add(pads[i++])
+        // ②: while active pinyin readings are showing, the left column is the pinyin-options
+        // column — it must NOT co-display punctuation (the two are mutually exclusive). Pad the unused
+        // slots with inert blanks; punctuation returns only at rest / once every syllable is locked
+        // (both handled by the early returns above). handlePickReading no-ops on an empty reading.
+        val blank = Key("", output = "", action = KeyAction.PICK_READING, weight = w)
+        while (keys.size < 4) keys.add(blank)
         return keys
     }
 
