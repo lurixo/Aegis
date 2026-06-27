@@ -277,8 +277,18 @@ class KeyboardController(
                     // first syllable fixed to the picked reading (keeps the trailing syllables).
                     Mode.PINYIN -> readingOverride?.let { ro ->
                         engine.candidatesForReading(T9Pinyin.lockFirstReading(raw, ro)?.letters ?: ro)
-                    } ?: engine.candidates(raw, layoutId == LayoutId.NINE)
-                        .let { if (layoutId == LayoutId.ALPHA && raw !in it) it + raw else it }
+                    } ?: run {
+                        val isNine = layoutId == LayoutId.NINE
+                        var c = engine.candidates(raw, isNine)
+                        // ★N: mid-syllable the full digit buffer may not segment yet — fall back to the
+                        // longest decodable syllable prefix so the grid keeps the confirmed words
+                        // (你/你说…) instead of going blank when a half-typed syllable trails.
+                        if (c.isEmpty() && isNine) {
+                            val pfx = T9Pinyin.longestDecodablePrefix(raw)
+                            if (pfx.length in 1 until raw.length) c = engine.candidates(pfx, true)
+                        }
+                        if (layoutId == LayoutId.ALPHA && raw !in c) c + raw else c
+                    }
                     Mode.ENGLISH -> engine.english(raw).let { if (raw !in it) it + raw else it }
                     Mode.DIRECT -> emptyList()
                 }
