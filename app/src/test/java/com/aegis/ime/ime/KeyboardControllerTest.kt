@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.decoder.Cand
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
@@ -69,6 +70,32 @@ class KeyboardControllerTest {
         c.onKey(Key("ni", output = "ni", action = KeyAction.PICK_READING))
         c.onKey(act(KeyAction.ENTER))
         assertEquals(listOf("nide"), h.commits)
+    }
+
+    @Test fun left_column_advances_to_the_second_syllable_then_enter_commits_both() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "42633".forEach { c.onKey(out(it.toString())) }
+        c.onKey(Key("hao", output = "hao", action = KeyAction.PICK_READING))
+        c.onKey(Key("de", output = "de", action = KeyAction.PICK_READING))
+        c.onKey(act(KeyAction.ENTER))
+        assertEquals(listOf("haode"), h.commits)
+    }
+
+    @Test fun picking_a_partial_candidate_commits_it_and_keeps_the_rest() {
+        val h = FakeHost()
+        val partial = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
+        }
+        val c = KeyboardController(h, partial)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        c.onKey(act(KeyAction.ENTER))
+        assertEquals(listOf("你", "hao"), h.commits)
     }
 
     @Test fun direct_punctuation_flushes_pinyin_then_commits_directly() {
