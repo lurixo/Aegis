@@ -43,10 +43,10 @@ class DictEngine(
     override fun candidates(composing: String, t9: Boolean): List<String> =
         candidatesCovered(composing, t9).map { it.word }
 
-    override fun candidatesCovered(composing: String, t9: Boolean): List<Cand> {
+    override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>): List<Cand> {
         if (composing.isEmpty()) return emptyList()
         val d = if (t9) t9Decoder else decoder
-        val out = d?.decodeCovered(composing, MAX_CANDIDATES) ?: emptyList()
+        val out = d?.decodeCovered(composing, MAX_CANDIDATES, cuts) ?: emptyList()
         return if (t9) out.filterNot { c -> c.word.all { it.code < 128 } } else out
     }
 

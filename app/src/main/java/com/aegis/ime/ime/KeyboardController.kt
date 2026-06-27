@@ -43,6 +43,8 @@ class KeyboardController(
     private val lockedReadings = mutableListOf<String>()
     private var activeStart = 0
 
+    private val forcedCuts = sortedSetOf<Int>()
+
     var onShowEmoji: () -> Unit = {}
     var onShowClipboard: () -> Unit = {}
     var onShowEdit: () -> Unit = {}
@@ -67,6 +69,7 @@ class KeyboardController(
         candidates = emptyList()
         lockedReadings.clear()
         activeStart = 0
+        forcedCuts.clear()
         shiftState = ShiftState.OFF
         layoutId = LayoutId.ALPHA
         lastWord = null
@@ -131,9 +134,7 @@ class KeyboardController(
 
     private fun handleSegment() {
         if (composing.isEmpty()) return
-        val top = T9Pinyin.firstSyllableOptions(activeDigits(), 1).firstOrNull() ?: return
-        lockedReadings.add(top)
-        activeStart = (activeStart + T9Pinyin.toT9(top).length).coerceAtMost(composing.length)
+        forcedCuts.add(composing.length)
     }
 
     fun onBackspaceSwipe(up: Boolean): Boolean {
@@ -177,7 +178,9 @@ class KeyboardController(
 
     private fun handleBackspace() {
         if (composing.isNotEmpty()) {
+            if (forcedCuts.remove(composing.length)) return
             composing.setLength(composing.length - 1)
+            forcedCuts.removeIf { it > composing.length }
             lockedReadings.clear()
             activeStart = 0
         } else {
@@ -216,6 +219,8 @@ class KeyboardController(
         lastWord = cand.word
         if (cand.coveredLen in 1 until composing.length) {
             composing.delete(0, cand.coveredLen)
+            val shifted = forcedCuts.filter { it > cand.coveredLen }.map { it - cand.coveredLen }
+            forcedCuts.clear(); forcedCuts.addAll(shifted)
             lockedReadings.clear()
             activeStart = 0
             candidates = emptyList()
@@ -240,8 +245,21 @@ class KeyboardController(
     private fun activeDigits(): String =
         if (activeStart < composing.length) composing.substring(activeStart) else ""
 
+    private fun activeCuts(): List<Int> =
+        forcedCuts.filter { it in (activeStart + 1) until composing.length }.map { it - activeStart }
+
+    private fun chunked(digits: String, cuts: List<Int>): List<String> {
+        if (cuts.isEmpty() || digits.isEmpty()) return listOf(digits)
+        val out = ArrayList<String>(cuts.size + 1)
+        var prev = 0
+        for (c in cuts) if (c in (prev + 1) until digits.length) { out.add(digits.substring(prev, c)); prev = c }
+        out.add(digits.substring(prev))
+        return out
+    }
+
     private fun fullLetters(): String =
-        lockedReadings.joinToString("") + T9Pinyin.preedit(activeDigits()).replace("'", "")
+        lockedReadings.joinToString("") +
+            chunked(activeDigits(), activeCuts()).joinToString("") { T9Pinyin.preedit(it).replace("'", "") }
 
     private fun rawComposingText(): String {
         if (composing.isEmpty()) return ""
@@ -253,6 +271,7 @@ class KeyboardController(
         candidates = emptyList()
         lockedReadings.clear()
         activeStart = 0
+        forcedCuts.clear()
     }
 
     private fun refreshCandidates() {
@@ -264,7 +283,7 @@ class KeyboardController(
                         engine.candidatesForReading(fullLetters()).map { Cand(it, composing.length) }
                     } else {
                         val isNine = layoutId == LayoutId.NINE
-                        var c = engine.candidatesCovered(raw, isNine)
+                        var c = engine.candidatesCovered(raw, isNine, forcedCuts)
                         if (c.isEmpty() && isNine) {
                             val pfx = T9Pinyin.longestDecodablePrefix(raw)
                             if (pfx.length in 1 until raw.length) c = engine.candidatesCovered(pfx, true)
@@ -284,7 +303,7 @@ class KeyboardController(
         if (composing.isEmpty()) return ""
         if (mode() == Mode.PINYIN && layoutId == LayoutId.NINE) {
             val locked = lockedReadings.joinToString("'")
-            val rest = T9Pinyin.preedit(activeDigits())
+            val rest = chunked(activeDigits(), activeCuts()).joinToString("'") { T9Pinyin.preedit(it) }
             return when {
                 locked.isEmpty() -> rest
                 rest.isEmpty() -> locked
@@ -299,8 +318,10 @@ class KeyboardController(
         if (composing.isEmpty()) return Layouts.defaultNineLeft()
         val active = activeDigits()
         if (active.isEmpty()) return Layouts.defaultNineLeft()
+        val firstCut = activeCuts().firstOrNull()
+        val chunk = if (firstCut != null) active.substring(0, firstCut) else active
         val keys = ArrayList<Key>(4)
-        for (r in T9Pinyin.firstSyllableOptions(active, 4)) {
+        for (r in T9Pinyin.firstSyllableOptions(chunk, 4)) {
             keys.add(Key(r, output = r, action = KeyAction.PICK_READING, weight = w))
         }
         val pads = Layouts.defaultNineLeft()

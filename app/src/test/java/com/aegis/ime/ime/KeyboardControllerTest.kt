@@ -87,7 +87,7 @@ class KeyboardControllerTest {
         val h = FakeHost()
         val partial = object : CandidateEngine {
             override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
-            override fun candidatesCovered(composing: String, t9: Boolean): List<Cand> =
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>): List<Cand> =
                 if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
         }
         val c = KeyboardController(h, partial)
@@ -96,6 +96,30 @@ class KeyboardControllerTest {
         c.onPickCandidate(0)
         c.onKey(act(KeyAction.ENTER))
         assertEquals(listOf("你", "hao"), h.commits)
+    }
+
+    @Test fun segment_forces_a_syllable_boundary() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "94".forEach { c.onKey(out(it.toString())) }
+        c.onKey(act(KeyAction.SEGMENT))
+        "26".forEach { c.onKey(out(it.toString())) }
+        c.onKey(act(KeyAction.ENTER))
+        assertEquals(1, h.commits.size)
+        assertTrue("forced 94|26 split should start yi, was ${h.commits[0]}", h.commits[0].startsWith("yi"))
+    }
+
+    @Test fun backspace_undoes_a_forced_cut_before_deleting_a_digit() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "94".forEach { c.onKey(out(it.toString())) }
+        c.onKey(act(KeyAction.SEGMENT))
+        c.onKey(act(KeyAction.BACKSPACE))
+        "26".forEach { c.onKey(out(it.toString())) }
+        c.onKey(act(KeyAction.ENTER))
+        assertTrue("cut gone -> single syllable xi.., was ${h.commits[0]}", h.commits[0].startsWith("xi"))
     }
 
     @Test fun direct_punctuation_flushes_pinyin_then_commits_directly() {
