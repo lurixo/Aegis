@@ -116,6 +116,9 @@ class KeyboardController(
             KeyAction.PICK_READING -> handlePickReading(key)
             KeyAction.SEGMENT -> handleSegment()
             KeyAction.SHOW_EDIT -> onShowEdit()
+            // A3: the 自定义 entry in the punctuation column — per-symbol customization UI is a follow-up;
+            // for now it is an inert entry (kept so the column matches the defined list order).
+            KeyAction.CUSTOM_SYMBOL -> {}
             KeyAction.TOGGLE_LANG -> {
                 flushComposing()
                 lang = if (lang == Lang.CN) Lang.EN else Lang.CN
@@ -393,13 +396,14 @@ class KeyboardController(
      */
     internal fun nineLeftColumn(): List<Key> {
         val w = 0.85f
-        if (composing.isEmpty()) return Layouts.defaultNineLeft()
+        if (composing.isEmpty()) return Layouts.ninePunctuation()
         val active = activeDigits()
-        if (active.isEmpty()) return Layouts.defaultNineLeft() // every syllable locked → resting punctuation
+        if (active.isEmpty()) return Layouts.ninePunctuation() // every syllable locked → resting punctuation
         // ★分词: the active syllable is bounded by the first forced cut in the active region.
         val firstCut = activeCuts().firstOrNull()
         val chunk = if (firstCut != null) active.substring(0, firstCut) else active
-        return T9Pinyin.leftColumnReadings(chunk, NINE_LEFT_SLOTS)
+        // A3: the FULL combination list (the view scrolls through it) — no fixed cap.
+        return T9Pinyin.leftColumnReadings(chunk, NINE_LEFT_MAX)
             .map { Key(it, output = it, action = KeyAction.PICK_READING, weight = w) }
     }
 
@@ -408,11 +412,39 @@ class KeyboardController(
         val layout = if (layoutId == LayoutId.NINE) Layouts.nine(lang, nineLeftColumn(), composing.isNotEmpty())
         else Layouts.forId(layoutId, lang)
         v.showKeyboard(layout, shifted)
-        v.showCandidates(candidates.map { it.word }, preeditText())
+        v.showCandidates(candidates.map { it.word }, preeditText(), expandedReadings())
+    }
+
+    /** A2 expanded screen left column: the active syllable's combinations (9-key composing only; else empty). */
+    internal fun expandedReadings(): List<String> =
+        nineLeftColumn().filter { it.action == KeyAction.PICK_READING }.map { it.label }
+
+    /** A2 expanded screen: pick the combination at [index] in the left column — locks that syllable. */
+    fun onPickReadingIndex(index: Int) {
+        val readings = expandedReadings()
+        if (index !in readings.indices) return
+        handlePickReading(Key(readings[index], output = readings[index], action = KeyAction.PICK_READING))
+        refreshCandidates()
+        render()
+    }
+
+    /** A2 expanded screen 退格: delete one composing unit, then refresh. No-op on an empty buffer so the
+     *  panel button never reaches back into committed editor text. */
+    fun onPanelBackspace() {
+        if (composing.isEmpty()) return
+        handleBackspace()
+        refreshCandidates()
+        render()
+    }
+
+    /** A2 expanded screen 重输: drop the pending pinyin + candidates (closes the screen via empty candidates). */
+    fun onPanelClear() {
+        handleClearComposing()
+        render()
     }
 
     private companion object {
-        /** Max readings shown in the 9-key left peanut (its geometry stacks up to this many cells). */
-        const val NINE_LEFT_SLOTS = 4
+        /** Upper bound on readings fed to the scrollable 9-key left column (A3) — large; the view scrolls. */
+        const val NINE_LEFT_MAX = 24
     }
 }

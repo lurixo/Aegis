@@ -17,6 +17,7 @@ package com.aegis.ime.layout
 
 import com.aegis.ime.layout.KeyAction.BACKSPACE
 import com.aegis.ime.layout.KeyAction.CLEAR_COMPOSING
+import com.aegis.ime.layout.KeyAction.CUSTOM_SYMBOL
 import com.aegis.ime.layout.KeyAction.ENTER
 import com.aegis.ime.layout.KeyAction.SHIFT
 import com.aegis.ime.layout.KeyAction.SEGMENT
@@ -33,16 +34,22 @@ object Layouts {
 
     fun forId(id: LayoutId, lang: Lang): KeyboardLayout = when (id) {
         LayoutId.ALPHA -> qwerty(lang)
-        LayoutId.NINE -> nine(lang, defaultNineLeft())
+        LayoutId.NINE -> nine(lang, ninePunctuation())
         LayoutId.NUMBER -> number()
         LayoutId.SYMBOL -> symbol()
         LayoutId.NUMPAD -> numpad()
     }
 
-    /** Resting 9-key left column: 4 common punctuation marks (no 符 key — symbols via @# / 123). */
-    // ★D: resting-state punctuation commits straight to the editor (never buffers as pinyin).
-    fun defaultNineLeft(): List<Key> = listOf(
+    /**
+     * Resting 9-key left column (A3): the full scrollable punctuation list, top→bottom
+     * ，。？！…：；~.-@ then 自定义 (per-symbol customization). ★D: each commits straight to the editor
+     * (never buffers as pinyin); 自定义 opens the customization entry.
+     */
+    fun ninePunctuation(): List<Key> = listOf(
         Key("，", direct = true), Key("。", direct = true), Key("？", direct = true), Key("！", direct = true),
+        Key("…", direct = true), Key("：", direct = true), Key("；", direct = true), Key("~", direct = true),
+        Key(".", direct = true), Key("-", direct = true), Key("@", direct = true),
+        Key("自定义", action = CUSTOM_SYMBOL),
     )
 
     private fun row(vararg keys: Key) = KeyboardRow(keys.toList())
@@ -87,23 +94,19 @@ object Layouts {
     private fun t9key(letters: String, digit: String) = Key(letters, output = digit)
 
     /**
-     * 9-key T9. Uses explicit fractional cells for the peanut left column
-     * (4 sub-cells over rows 0–2) and the tall green enter (rows 2–3). [left] = the 4 left sub-cells:
-     * punctuation at rest, pinyin-reading options while composing.
+     * 9-key T9. The left column (A3) is a vertically-SCROLLABLE strip over the
+     * upper 0.75 — all pinyin combinations while composing, the punctuation list at rest — with the pen
+     * below it; the tall green enter spans rows 2–3. [left] = the full (possibly long) left-column list;
+     * [KeyboardView] draws/scrolls/hit-tests it via [KeyboardLayout.scrollColumn], NOT as fixed cells.
      */
     fun nine(lang: Lang, left: List<Key>, composing: Boolean = false): KeyboardLayout {
         val u = 1f / 4.4f                 // column unit: widths 0.7 | 1 | 1 | 1 | 0.7
         val xL = 0f; val wL = 0.7f * u
         val x1 = 0.7f * u; val x2 = 1.7f * u; val x3 = 2.7f * u; val wM = 1f * u
         val xR = 3.7f * u; val wR = 0.7f * u
-        val pillH = 0.75f / 4f            // each left sub-cell = a quarter of the upper 0.75 band
         val cells = ArrayList<PlacedKey>()
-        // groupId 1 = the merged "peanut" capsule behind the left sub-cells. Place EXACTLY
-        // [left].size cells (capped at 4) so the column shrinks to the real option count — the renderer
-        // draws no empty placeholder boxes when there are fewer than 4 readings ([KeyboardView] groups any
-        // count). 4 punctuation keys at rest fill the full band; a 2-reading column covers only the top half.
-        val nLeft = left.size.coerceAtMost(4)
-        for (i in 0 until nLeft) cells.add(PlacedKey(left[i], xL, i * pillH, wL, pillH, groupId = 1))
+        // A3: scrollable left column over the upper 0.75 band; ~4 rows visible, scroll for the rest.
+        val leftColumn = ScrollColumn(left, xL, 0f, wL, 0.75f, cellHFrac = 0.75f / 4f)
         cells.add(PlacedKey(Key("✎", action = SHOW_EDIT), xL, 0.75f, wL, 0.25f))
         // middle 3×3: letters as the main label, T9 digit as the emitted output; "1" position = symbols
         // (idle "@#", more symbols "@!./" while composing).
@@ -130,7 +133,7 @@ object Layouts {
         cells.add(PlacedKey(Key("⌫", action = BACKSPACE), xR, 0f, wR, 0.25f))
         cells.add(PlacedKey(Key("重输", action = CLEAR_COMPOSING), xR, 0.25f, wR, 0.25f))
         cells.add(PlacedKey(Key("↵", action = ENTER, accent = true), xR, 0.5f, wR, 0.5f))
-        return KeyboardLayout(LayoutId.NINE, cells = cells, rowCount = 4)
+        return KeyboardLayout(LayoutId.NINE, cells = cells, rowCount = 4, scrollColumn = leftColumn)
     }
 
     private fun number(): KeyboardLayout = KeyboardLayout(
