@@ -324,9 +324,8 @@ class KeyboardController(
         for (r in T9Pinyin.firstSyllableOptions(chunk, 4)) {
             keys.add(Key(r, output = r, action = KeyAction.PICK_READING, weight = w))
         }
-        val pads = Layouts.defaultNineLeft()
-        var i = 0
-        while (keys.size < 4) keys.add(pads[i++])
+        val blank = Key("", output = "", action = KeyAction.PICK_READING, weight = w)
+        while (keys.size < 4) keys.add(blank)
         return keys
     }
 
