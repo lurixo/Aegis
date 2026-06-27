@@ -87,4 +87,24 @@ class ClipboardRecordQueueTest {
         )
         assertFalse("precondition: the write really was still stuck", File(dir, "clipboard.txt").exists())
     }
+
+    @Test fun copying_the_clip_on_top_again_after_its_write_failed_still_writes_it() {
+        val dir = newDir()
+        val s = store(dir)
+        s.record("原有的")
+        s.flushPendingWrites()
+        val blocker = s.tempFileFor(File(dir, "clipboard.txt"))
+        assertTrue("precondition: the history write is blocked", blocker.mkdirs())
+        assertTrue(File(blocker, "occupied").createNewFile())
+        s.record("没写进去的")
+        s.flushPendingWrites()
+        assertEquals("precondition: the write never landed", listOf("原有的"), store(dir).historyText())
+        assertTrue(File(blocker, "occupied").delete())
+        assertTrue(blocker.delete())
+
+        s.record("没写进去的")
+        s.flushPendingWrites()
+
+        assertEquals(listOf("没写进去的", "原有的"), store(dir).historyText())
+    }
 }

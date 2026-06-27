@@ -16,3 +16,5 @@
 package com.aegis.ime.user
 
 fun ClipboardStore.historyText(): List<String> = history().map { it.body().orEmpty() }
+
+fun ClipboardStore.historyKeys(): List<String> = history().map { it.key }

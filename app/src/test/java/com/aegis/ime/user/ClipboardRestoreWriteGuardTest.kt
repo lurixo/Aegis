@@ -17,6 +17,8 @@ package com.aegis.ime.user
 
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
@@ -34,6 +36,8 @@ class ClipboardRestoreWriteGuardTest {
 
     private fun newDir(): File = Files.createTempDirectory("cliprestoreguard").toFile().also { dirs += it }
 
+    private fun store(dir: File) = ClipboardStore(dir).apply { load() }.also { stores += it }
+
     @Test fun recording_a_symbol_during_a_restore_never_overwrites_the_restored_history() {
         val dir = newDir()
         val live = SymbolUsageStore(dir).apply { load(); record("★", "符号") }
@@ -46,5 +50,30 @@ class ClipboardRestoreWriteGuardTest {
         SymbolUsageStore.flushPendingWrites()
 
         assertEquals(listOf("恢"), SymbolUsageStore(dir).apply { load() }.recent())
+    }
+
+    @Test fun a_panel_delete_during_a_restore_says_it_was_not_written() {
+        val dir = newDir()
+        val live = store(dir)
+        live.record("旧一")
+        live.record("旧二")
+        live.flushPendingWrites()
+
+        LiveUserData.restoreInProgress = true
+
+        assertFalse("a delete nobody wrote must not be reported as done", live.deleteAll(listOf(live.historyKeys().first())))
+        assertFalse(live.clearHistory())
+    }
+
+    @Test fun a_panel_delete_outside_a_restore_says_it_was_written() {
+        val dir = newDir()
+        val live = store(dir)
+        live.record("旧一")
+        live.record("旧二")
+        live.flushPendingWrites()
+
+        assertTrue(live.deleteAll(listOf(live.historyKeys().first())))
+        assertTrue(live.clearHistory())
+        assertTrue("a delete with nothing to remove has nothing to report", live.deleteAll(listOf("不存在")))
     }
 }

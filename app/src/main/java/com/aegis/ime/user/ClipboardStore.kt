@@ -17,6 +17,7 @@ package com.aegis.ime.user
 
 import java.io.File
 import java.nio.file.Files
+import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 
@@ -53,6 +54,8 @@ class ClipboardStore(private val dir: File) {
 
     private val tmpTag = TMP_TAGS.incrementAndGet()
 
+    internal fun tempFileFor(dest: File): File = AtomicFileSwap.stagingFor(dest, tmpTag)
+
     private val history = ArrayList<ClipEntry>()
 
     private var writer: Thread? = null
@@ -68,6 +71,24 @@ class ClipboardStore(private val dir: File) {
     @Volatile
     var historyReadable: Boolean = true
         private set
+
+    @Volatile
+    private var clipReportLane: Executor = Executor { it.run() }
+
+    @Volatile
+    private var clipReport: ((Boolean) -> Unit)? = null
+
+    fun reportClipWritesTo(lane: Executor, report: (Boolean) -> Unit) {
+        clipReportLane = lane
+        clipReport = report
+    }
+
+    private fun reportClipWrite(landed: Boolean) {
+        if (clipReport == null) return
+        clipReportLane.execute { clipReport?.invoke(landed) }
+    }
+
+    private fun clipWritesAllowed(): Boolean = historyReadable && !LiveUserData.restoreInProgress
 
     fun load() {
         val reload = Runnable { adoptHistory(readHistory()) }
@@ -128,6 +149,21 @@ class ClipboardStore(private val dir: File) {
     private fun adopt(text: String): ClipEntry =
         ClipEntry.of(text)
 
+    fun deleteAll(texts: Collection<String>): Boolean {
+        if (!clipWritesAllowed()) { reportClipWrite(false); return false }
+        val keys = texts.toSet()
+        if (!synchronized(history) { history.removeAll { it.key in keys } }) return true
+        saveHistoryLater()
+        return true
+    }
+
+    fun clearHistory(): Boolean {
+        if (!clipWritesAllowed()) { reportClipWrite(false); return false }
+        if (!synchronized(history) { history.isNotEmpty().also { history.clear() } }) return true
+        saveHistoryLater()
+        return true
+    }
+
     fun history(): List<ClipEntry> = snapshot()
 
     internal fun latest(): String? = synchronized(history) { history.firstOrNull() }?.body()
@@ -135,6 +171,24 @@ class ClipboardStore(private val dir: File) {
     private fun snapshot(): List<ClipEntry> = synchronized(history) { ArrayList(history) }
 
     private class PendingWrite(val gen: Long, val rows: List<ClipEntry>)
+
+    private fun stampPendingWrite(): PendingWrite =
+        synchronized(history) { PendingWrite(saveGen.incrementAndGet(), ArrayList(history)) }
+
+    private fun saveHistoryLater() {
+        val pending = stampPendingWrite()
+        val queued = runCatching {
+            io.execute {
+                val landed = pending.gen != saveGen.get() ||
+                    runCatching { writeHistory(pending.rows) }.isSuccess.also { historyWriteFailed = !it }
+                reportClipWrite(landed)
+            }
+        }.isSuccess
+        if (!queued) {
+            historyWriteFailed = true
+            reportClipWrite(false)
+        }
+    }
 
     private fun writeHistory(snapshot: List<ClipEntry>) {
         val sb = StringBuilder()
