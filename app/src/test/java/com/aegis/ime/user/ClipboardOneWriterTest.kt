@@ -70,6 +70,27 @@ class ClipboardOneWriterTest {
         }
     }
 
+    @Test(timeout = 120_000) fun a_phrase_write_the_next_one_queued_behind_still_reports_what_reached_the_file() {
+        val dir = newDir()
+        val s = store(dir)
+        val reported = ArrayBlockingQueue<PhraseChange>(8)
+        s.reportPhraseWritesTo({ it.run() }) { reported.add(it) }
+        val gate = occupy(s)
+
+        assertTrue("precondition: the category is taken", s.addCategory("甲"))
+        assertEquals("precondition: the phrase is taken", 1, s.addPhrasesTo("甲", listOf("存进去的")))
+
+        gate.countDown()
+        s.flushPendingWrites()
+
+        assertEquals(
+            "two edits made back to back both reached phrases.txt, so neither may be called a failure",
+            listOf(true, true),
+            listOf(reported.poll(30, TimeUnit.SECONDS)?.saved, reported.poll(30, TimeUnit.SECONDS)?.saved),
+        )
+        assertEquals(listOf("存进去的"), store(dir).phrasesIn("甲"))
+    }
+
     @Test(timeout = 120_000) fun a_clip_delete_the_writer_never_answers_lets_the_caller_go_and_reports_later() {
         val dir = newDir()
         val s = store(dir)

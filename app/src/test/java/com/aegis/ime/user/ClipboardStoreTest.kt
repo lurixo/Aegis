@@ -24,6 +24,8 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.concurrent.CopyOnWriteArrayList
 
 class ClipboardStoreTest {
@@ -150,6 +152,17 @@ class ClipboardStoreTest {
 
         assertFalse("a file the app cannot decode is not a history it could read", s.historyReadable)
         assertTrue("and nothing half decoded may stand in for it", s.historyText().isEmpty())
+    }
+
+    @Test fun a_phrase_file_whose_bytes_went_bad_reads_as_a_phrase_list_nobody_could_read() {
+        val dir = newDir()
+        val saved = "C\t工作\nP\t好好保存的\n".toByteArray(Charsets.UTF_8) + "尾".toByteArray(Charsets.UTF_8).dropLast(1).toByteArray()
+        File(dir, "phrases.txt").writeBytes(saved)
+        val s = ClipboardStore(dir).apply { load() }
+
+        assertFalse("a file cut off part way through a character is not one the app could read", s.phrasesReadable)
+        assertTrue("and nothing half decoded may stand in for it", s.phrases().isEmpty())
+        assertFalse("nor may an edit be reported as done over it", s.addCategory("新组"))
     }
 
     @Test fun a_clip_copied_over_a_history_nobody_could_read_never_stands_in_for_it() {
@@ -334,12 +347,90 @@ class ClipboardStoreTest {
         assertEquals(listOf("new1", "new2", "old"), s.phrasesIn(ClipboardStore.DEFAULT_CATEGORY_ID))
     }
 
+    @Test fun phrase_dedup_is_scoped_to_the_target_category() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("工作"); addCategory("私人") }
+        assertEquals(1, s.addPhrasesTo("工作", listOf("谢谢", "谢谢")))
+        assertEquals(1, s.addPhrasesTo("私人", listOf("谢谢")))
+        assertEquals(listOf("谢谢"), s.phrasesIn("工作"))
+        assertEquals(listOf("谢谢"), s.phrasesIn("私人"))
+    }
+
 
     @Test fun first_run_has_an_empty_default_category() {
         val s = ClipboardStore(newDir()).apply { load() }
         assertEquals(listOf(ClipboardStore.DEFAULT_CATEGORY_ID), s.categories())
         assertTrue("no default phrases are seeded", s.phrasesIn(ClipboardStore.DEFAULT_CATEGORY_ID).isEmpty())
         assertTrue("no phrases at all on first run", s.phrases().isEmpty())
+    }
+
+    @Test fun existing_user_phrases_survive_the_no_seed_change() {
+        val dir = newDir()
+        ClipboardStore(dir).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("已收到")); flushPendingWrites() }
+        val reloaded = ClipboardStore(dir).apply { load() }
+        assertTrue("工作" in reloaded.categories())
+        assertEquals(listOf("已收到"), reloaded.phrasesIn("工作"))
+    }
+
+    @Test fun add_target_and_delete_categories_persist() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply { load() }
+        assertTrue(s.addCategory("工作"))
+        assertFalse("blank rejected", s.addCategory("   "))
+        assertFalse("duplicate rejected", s.addCategory("工作"))
+        assertEquals(3, s.addPhrasesTo("工作", listOf("已收到，马上处理", "请稍等", "已收到，马上处理", "会后回复")))
+        assertEquals(listOf("已收到，马上处理", "请稍等", "会后回复"), s.phrasesIn("工作"))
+        s.flushPendingWrites()
+        val reloaded = ClipboardStore(dir).apply { load() }
+        assertTrue("工作" in reloaded.categories())
+        assertEquals(listOf("已收到，马上处理", "请稍等", "会后回复"), reloaded.phrasesIn("工作"))
+        reloaded.deleteCategory("工作")
+        assertFalse("工作" in reloaded.categories())
+        reloaded.flushPendingWrites()
+        assertTrue("工作" !in ClipboardStore(dir).apply { load() }.categories())
+    }
+
+    @Test fun rename_category_rejects_collision_and_persists() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply { load(); addCategory("A"); addCategory("B") }
+        assertFalse("collision rejected", s.renameCategory("A", "B"))
+        assertTrue(s.renameCategory("A", "甲"))
+        s.flushPendingWrites()
+        assertTrue("甲" in ClipboardStore(dir).apply { load() }.categories())
+    }
+
+    @Test fun the_last_category_is_kept_and_each_delete_outcome_is_told_apart() {
+        val dir = newDir()
+        val file = File(dir, "phrases.txt")
+        val d = ClipboardStore.DEFAULT_CATEGORY_ID
+        val s = ClipboardStore(dir).apply { load() }
+        assertEquals(CategoryRemoval.LAST_CATEGORY, s.deleteCategory(d))
+        s.flushPendingWrites()
+        assertEquals(listOf(d), s.categories())
+        assertFalse("refusing the only category writes nothing", file.exists())
+
+        assertTrue(s.addCategory("工作"))
+        assertEquals(CategoryRemoval.NOT_FOUND, s.deleteCategory("私人"))
+        assertEquals("the default category goes like any other while another remains", CategoryRemoval.REMOVED, s.deleteCategory(d))
+        s.flushPendingWrites()
+        val written = file.readText()
+        val identity = Files.readAttributes(file.toPath(), BasicFileAttributes::class.java).fileKey()
+        assertEquals(CategoryRemoval.LAST_CATEGORY, s.deleteCategory("工作"))
+        s.flushPendingWrites()
+        assertEquals(listOf("工作"), s.categories())
+        assertEquals(written, file.readText())
+        assertEquals(
+            "refusing the last category never rewrites the file",
+            identity,
+            Files.readAttributes(file.toPath(), BasicFileAttributes::class.java).fileKey(),
+        )
+        assertEquals(listOf("工作"), ClipboardStore(dir).apply { load() }.categories())
+
+        LiveUserData.restoreInProgress = true
+        try {
+            assertEquals(CategoryRemoval.WRITE_BLOCKED, s.deleteCategory("工作"))
+        } finally {
+            LiveUserData.restoreInProgress = false
+        }
     }
 
     @Test fun legacy_flat_phrase_file_migrates_into_default_category() {
@@ -357,6 +448,16 @@ class ClipboardStoreTest {
         assertEquals(listOf(ClipboardStore.DEFAULT_CATEGORY_ID, "工作"), s.categories())
         assertEquals(listOf("你好"), s.phrasesIn(ClipboardStore.DEFAULT_CATEGORY_ID))
         assertEquals(listOf("已收到"), s.phrasesIn("工作"))
+    }
+
+    @Test fun new_category_with_pending_clip_lands_the_clip_in_it() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply { load(); addCategory("默认") }
+        val name = "工作".trim()
+        s.addCategory(name); s.addPhrasesTo(name, listOf("hello"))
+        assertEquals(listOf("hello"), s.phrasesIn("工作"))
+        s.flushPendingWrites()
+        assertFalse("未确认不应创建分类", "私人" in ClipboardStore(dir).apply { load() }.categories())
     }
 
     @Test fun an_overwriting_import_takes_back_a_history_nobody_could_read() {
@@ -506,6 +607,27 @@ class ClipboardStoreTest {
         assertTrue("a batch with nothing to write owes the user no failure", change.saved)
     }
 
+    @Test fun a_phrase_edit_over_phrases_nobody_could_read_reports_the_refusal_it_returned() {
+        val dir = newDir()
+        File(dir, "phrases.txt").let {
+            assertTrue(it.mkdirs())
+            File(it, "occupied").writeText("x")
+        }
+        val s = ClipboardStore(dir).apply { load() }
+        assertFalse("precondition: the phrases could not be read", s.phrasesReadable)
+        val reported = CopyOnWriteArrayList<PhraseChange>()
+        s.reportPhraseWritesTo({ it.run() }) { reported.add(it) }
+
+        assertEquals(0, s.addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("一", "二")))
+        assertFalse(s.addCategory("新组"))
+
+        assertEquals(
+            listOf(PhraseEdit.ADD to 2, PhraseEdit.CATEGORY to 1),
+            reported.map { it.edit to it.requested },
+        )
+        assertTrue("a refusal is a write that did not land", reported.none { it.saved })
+    }
+
     @Test fun a_phrase_edit_during_a_restore_is_refused_rather_than_left_in_memory() {
         val dir = newDir()
         val s = ClipboardStore(dir).apply { load(); addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("原有")) }
@@ -560,7 +682,25 @@ class ClipboardStoreTest {
         }
     }
 
+    @Test fun a_phrase_file_that_reads_fine_is_reported_as_readable() {
+        val dir = newDir()
+        ClipboardStore(dir).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("keep")); flushPendingWrites() }
+        assertTrue(ClipboardStore(dir).apply { load() }.phrasesReadable)
+    }
+
     @Test fun a_phrase_file_first_run_is_reported_as_readable() {
         assertTrue(ClipboardStore(newDir()).apply { load() }.phrasesReadable)
+    }
+
+    @Test fun a_phrase_file_that_cannot_be_read_is_reported_as_unreadable() {
+        val dir = newDir()
+        ClipboardStore(dir).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("keep")); flushPendingWrites() }
+        val phrases = File(dir, "phrases.txt")
+        assertTrue("precondition: the phrase file could be closed off", phrases.setReadable(false, false))
+        try {
+            assertFalse(ClipboardStore(dir).apply { load() }.phrasesReadable)
+        } finally {
+            phrases.setReadable(true, true)
+        }
     }
 }

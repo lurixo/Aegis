@@ -115,9 +115,11 @@ class ClipEntry private constructor(
     }
 }
 
-enum class PhraseEdit { ADD }
+enum class PhraseEdit { ADD, TEXT, CATEGORY, LIST }
 
 class PhraseChange(val edit: PhraseEdit, val count: Int, val requested: Int, val saved: Boolean)
+
+enum class CategoryRemoval { REMOVED, LAST_CATEGORY, NOT_FOUND, WRITE_BLOCKED }
 
 class ClipboardStore(private val dir: File) {
 
@@ -427,6 +429,43 @@ class ClipboardStore(private val dir: File) {
     fun phrases(): List<String> =
         synchronized(phraseCats) { phraseCats.flatMap { c -> c.phrases.map { it.text } } }
 
+    fun addCategory(name: String): Boolean {
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.CATEGORY, 1); return false }
+        val after = synchronized(phraseCats) {
+            val n = categoryName(name)
+            if (n.isBlank() || phraseCats.any { it.name == n }) return false
+            phraseCats.add(Category(n))
+            phraseSnapshot()
+        }
+        writePhrases(PhraseEdit.CATEGORY, 1, 1, after)
+        return true
+    }
+
+    fun deleteCategory(name: String): CategoryRemoval {
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.LIST, 1); return CategoryRemoval.WRITE_BLOCKED }
+        val after = synchronized(phraseCats) {
+            if (phraseCats.none { it.name == name }) return CategoryRemoval.NOT_FOUND
+            if (phraseCats.all { it.name == name }) return CategoryRemoval.LAST_CATEGORY
+            phraseCats.removeAll { it.name == name }
+            phraseSnapshot()
+        }
+        writePhrases(PhraseEdit.LIST, 1, 1, after)
+        return CategoryRemoval.REMOVED
+    }
+
+    fun renameCategory(old: String, new: String): Boolean {
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.TEXT, 1); return false }
+        val after = synchronized(phraseCats) {
+            val n = categoryName(new)
+            val c = find(old) ?: return false
+            if (n.isBlank() || (n != old && phraseCats.any { it.name == n })) return false
+            c.name = n
+            phraseSnapshot()
+        }
+        writePhrases(PhraseEdit.TEXT, 1, 1, after)
+        return true
+    }
+
     fun addPhrasesTo(category: String, texts: Collection<String>): Int {
         val requested = texts.size
         val name = sanitizePhraseText(category)
@@ -630,6 +669,8 @@ class ClipboardStore(private val dir: File) {
 
         fun sanitizePhraseText(s: String): String =
             s.filterNot { it != '\n' && it != '\r' && it != '\t' && Character.isISOControl(it) }
+
+        fun categoryName(s: String): String = foldLineBreaks(sanitizePhraseText(s))
 
         fun foldLineBreaks(s: String): String = s.trim { it in LINE_BREAKS }.replace(LINE_BREAK_RUN, " ")
 
