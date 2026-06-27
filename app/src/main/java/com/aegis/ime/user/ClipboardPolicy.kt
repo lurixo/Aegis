@@ -16,6 +16,7 @@
 package com.aegis.ime.user
 
 import android.text.InputType
+import android.view.inputmethod.EditorInfo
 
 /**
  * C1 privacy: decide whether clipboard capture should be paused for the currently-focused field. Password
@@ -36,4 +37,14 @@ object ClipboardPolicy {
             else -> false
         }
     }
+
+    /**
+     * M-3/L-3 privacy: should on-device learning (UserModel.record → plaintext userdb) be skipped for the
+     * focused field? True for password/sensitive fields ([isSensitive]) AND when the field opts out of
+     * personalized learning ([EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING]) — so a password or a
+     * privacy-flagged field's committed words are never learned, stored in plaintext, or replayed later.
+     */
+    fun blocksLearning(inputType: Int, imeOptions: Int): Boolean =
+        isSensitive(inputType) ||
+            (imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0
 }

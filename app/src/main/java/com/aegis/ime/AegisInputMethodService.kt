@@ -72,6 +72,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private val symbolUsageStore by lazy { SymbolUsageStore(filesDir).also { it.load() } }
     // C1 privacy: pause clipboard capture while a password / PIN / 2FA field is focused (set per onStartInput).
     @Volatile private var secureField = false
+    @Volatile private var userDbLoaded = false // M-2: the initial userdb load has completed
     private val clipboardManager by lazy { getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager }
     // C1: passive clipboard monitoring — record EVERY primary-clip change (incl. passwords/sensitive),
     // not just on explicit panel-open. On-device only (ClipboardStore is plain-text in filesDir, nothing
@@ -95,6 +96,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.setCustomSymbols(customSymbolStore.list()) // A3: seed the punctuation column with saved marks
         Thread {
             runCatching { userModel.load(userDbFile); userDbMtime = userDbFile.lastModified() }
+            userDbLoaded = true // M-2: gate onStartInput's reload until the initial load is done
             val dict = loadDict("aegis_dict.bin")
             val t9Dict = loadDict("aegis_t9.bin")
             // Per-rule fuzzy (E4): the enabled rule keys drive query-time variant expansion in the
@@ -118,8 +120,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         super.onStartInput(info, restarting)
         // C1 privacy: don't harvest clips while a password/2FA field is focused.
         secureField = info != null && com.aegis.ime.user.ClipboardPolicy.isSensitive(info.inputType)
-        // Pick up an imported user dict (newer file, no unsaved edits) without restarting the IME.
-        if (!userModel.dirty && userDbFile.lastModified() > userDbMtime) {
+        // M-3/L-3 privacy: never learn committed words in a password / NO_PERSONALIZED_LEARNING field.
+        controller.setLearningBlocked(
+            info != null && com.aegis.ime.user.ClipboardPolicy.blocksLearning(info.inputType, info.imeOptions),
+        )
+        // Pick up an imported user dict (newer file, no unsaved edits) without restarting the IME — but
+        // M-2: not until the initial background load has finished, so reload() can't race load().
+        if (userDbLoaded && !userModel.dirty && userDbFile.lastModified() > userDbMtime) {
             runCatching { userModel.reload(userDbFile); userDbMtime = userDbFile.lastModified() }
         }
     }

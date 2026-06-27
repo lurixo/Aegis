@@ -88,6 +88,9 @@ class KeyboardController(
     /** A3 自定义: the user's custom punctuation marks (injected from prefs by the service). */
     private var customSymbols: List<String> = emptyList()
 
+    /** M-3/L-3: when the focused field is a password / opts out of personalized learning, never learn. */
+    private var learningBlocked = false
+
     /** Extras-panel hooks wired by the IME service (it owns the InputConnection + Context). */
     var onShowEmoji: () -> Unit = {}
     var onShowClipboard: () -> Unit = {}
@@ -116,6 +119,9 @@ class KeyboardController(
         customSymbols = symbols
         render()
     }
+
+    /** M-3/L-3 privacy: when true (password / NO_PERSONALIZED_LEARNING field), commits are NOT learned. */
+    fun setLearningBlocked(blocked: Boolean) { learningBlocked = blocked }
 
     /** B5: choose the CN default keyboard (NINE / ALPHA). Applied on the next [reset]; EN ignores it. */
     fun setCnDefaultLayout(id: LayoutId) { cnDefaultLayout = id }
@@ -331,7 +337,9 @@ class KeyboardController(
      */
     private fun commitCandidate(cand: Cand) {
         host.commitText(cand.word)
-        engine.learn(lastWord, cand.word)
+        // M-3/L-3: never learn a word committed in a password / NO_PERSONALIZED_LEARNING field — it would
+        // be saved to userdb in plaintext and later resurface (via wordBoost) in ordinary fields (肩窥).
+        if (!learningBlocked) engine.learn(lastWord, cand.word)
         lastWord = cand.word
         if (cand.coveredLen in 1 until composing.length) {
             composing.delete(0, cand.coveredLen)
