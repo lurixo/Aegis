@@ -38,6 +38,10 @@ private enum class ShiftState { OFF, ONCE, LOCK }
 /** Input mode derived from language + layout. Only full-pinyin CN buffers; everything else is DIRECT. */
 private enum class Mode { PINYIN, DIRECT }
 
+/** One reversible input step in the 9-key buffer (A9 退格=退回上一步): a typed digit, a left-column
+ *  reading lock, or a forced 分词 cut. Backspace undoes exactly the most recent one. */
+private enum class StepKind { DIGIT, LOCK, CUT }
+
 class KeyboardController(
     private val host: ImeHost,
     private var engine: CandidateEngine,
@@ -62,6 +66,10 @@ class KeyboardController(
     /** 分词/隔音: user-forced syllable boundaries — indices into [composing] where a word may
      *  not span. The decoder, preedit and reading column all honour these. See [handleSegment]. */
     private val forcedCuts = sortedSetOf<Int>()
+
+    /** A9: reverse-order log of input steps in the current buffer so 退格 steps back exactly ONE — a typed
+     *  digit, a reading lock (left-column pick), or a forced cut — never dropping a whole locked syllable. */
+    private val history = ArrayDeque<StepKind>()
 
     /** Extras-panel hooks wired by the IME service (it owns the InputConnection + Context). */
     var onShowEmoji: () -> Unit = {}
@@ -90,6 +98,7 @@ class KeyboardController(
         lockedReadings.clear()
         activeStart = 0
         forcedCuts.clear()
+        history.clear()
         shiftState = ShiftState.OFF
         layoutId = LayoutId.ALPHA
         lastWord = null
@@ -160,6 +169,7 @@ class KeyboardController(
         if (!activeDigits().startsWith(digits)) return // reading must encode the active syllable's prefix
         lockedReadings.add(reading)
         activeStart = (activeStart + digits.length).coerceAtMost(composing.length)
+        history.addLast(StepKind.LOCK) // A9: locking a reading is one undoable step
     }
 
     /**
@@ -169,7 +179,7 @@ class KeyboardController(
      */
     private fun handleSegment() {
         if (composing.isEmpty()) return
-        forcedCuts.add(composing.length)
+        if (forcedCuts.add(composing.length)) history.addLast(StepKind.CUT) // A9: a fresh cut is one step
     }
 
     /**
@@ -208,7 +218,7 @@ class KeyboardController(
             return
         }
         when (mode()) {
-            Mode.PINYIN -> composing.append(key.output) // T9/pinyin buffer (lowercase); locked syllables persist
+            Mode.PINYIN -> { composing.append(key.output); history.addLast(StepKind.DIGIT) } // T9 buffer; one step per digit
             Mode.DIRECT -> {
                 // EN letters / numbers / symbols go straight to the editor (D), with shift applied.
                 host.commitText(applyCase(key.output))
@@ -219,17 +229,36 @@ class KeyboardController(
     }
 
     private fun handleBackspace() {
-        if (composing.isNotEmpty()) {
-            // 分词 first: backspace at a freshly forced boundary undoes the cut, not a digit.
-            if (forcedCuts.remove(composing.length)) return
-            composing.setLength(composing.length - 1)
-            forcedCuts.removeIf { it > composing.length }
-            // ★E: editing the buffer invalidates the locked syllable readings — re-derive from scratch.
-            lockedReadings.clear()
-            activeStart = 0
-        } else {
+        if (composing.isEmpty()) {
             host.deleteBackward()
             lastWord = null
+            return
+        }
+        // A9 退格=退回上一步: undo EXACTLY the most recent input step — a reading lock (left-column pick),
+        // a forced 分词 cut, or a single typed digit. Never wipe a whole locked syllable (the old code
+        // cleared every lock on any digit delete, so backspace dropped an entire 音节组合 — the bug).
+        when (history.removeLastOrNull()) {
+            StepKind.LOCK -> if (lockedReadings.isNotEmpty()) {
+                val r = lockedReadings.removeAt(lockedReadings.lastIndex)
+                activeStart = (activeStart - T9Pinyin.toT9(r).length).coerceAtLeast(0)
+            }
+            StepKind.CUT -> forcedCuts.remove(composing.length)
+            // a typed digit (or an inconsistent empty history) → delete just that one letter
+            StepKind.DIGIT, null -> {
+                composing.setLength(composing.length - 1)
+                forcedCuts.removeIf { it > composing.length }
+                if (activeStart > composing.length) activeStart = composing.length
+            }
+        }
+    }
+
+    /** Rebuild [history] from the current (lock-free) buffer: a DIGIT per digit + a CUT at each boundary.
+     *  Used after a partial commit leaves a fresh remainder so 退格 still steps back correctly. */
+    private fun rebuildHistory() {
+        history.clear()
+        for (i in 1..composing.length) {
+            history.addLast(StepKind.DIGIT)
+            if (i in forcedCuts) history.addLast(StepKind.CUT)
         }
     }
 
@@ -274,6 +303,7 @@ class KeyboardController(
             lockedReadings.clear()
             activeStart = 0
             candidates = emptyList()
+            rebuildHistory() // A9: the remainder is fresh + lock-free → 退格 steps back per remaining digit
         } else {
             clearComposingState()
         }
@@ -332,6 +362,7 @@ class KeyboardController(
         lockedReadings.clear()
         activeStart = 0
         forcedCuts.clear()
+        history.clear()
     }
 
     private fun refreshCandidates() {

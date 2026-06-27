@@ -67,6 +67,9 @@ class KeyboardView(context: Context) : View(context) {
     private var scrollStartY = 0f
     private var scrolling = false
     private val tmpRect = RectF()
+    // A3: start scrolling after only a small drag so the list FOLLOWS the finger (the 24dp backspace-swipe
+    // threshold felt like "滑不动 / 不跟手"); once started it tracks 1:1.
+    private val scrollSlop = 6f * resources.displayMetrics.density
 
     // Long-press key repeat (#8) + backspace swipe (#5).
     private val repeatHandler = Handler(Looper.getMainLooper())
@@ -493,7 +496,7 @@ class KeyboardView(context: Context) : View(context) {
             }
             MotionEvent.ACTION_MOVE -> {
                 val dy = event.y - scrollDownY
-                if (!scrolling && abs(dy) > swipeThreshold) { scrolling = true; scrollPressedIndex = -1 }
+                if (!scrolling && abs(dy) > scrollSlop) { scrolling = true; scrollPressedIndex = -1 }
                 if (scrolling) { scrollY = scrollStartY - dy; clampScroll(); invalidate() }
             }
             MotionEvent.ACTION_UP -> {

@@ -234,6 +234,44 @@ class KeyboardControllerTest {
         assertTrue(h.commits.isEmpty())
     }
 
+    // ---- ★A9 退格 = 退回上一步 (a left-column pick is a step; never drop a whole syllable) ----
+
+    @Test fun backspace_steps_back_a_locked_reading_not_the_whole_syllable() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "426".forEach { c.onKey(out(it.toString())) } // hao
+        c.onKey(Key("hao", output = "hao", action = KeyAction.PICK_READING)) // lock = one step
+        c.onKey(act(KeyAction.BACKSPACE)) // must UNDO THE PICK (426 stays, unlocked) — not delete 426
+        assertTrue("pick undone → hao offered again, was ${c.expandedReadings()}", "hao" in c.expandedReadings())
+        c.onKey(act(KeyAction.BACKSPACE)) // now delete ONE letter (426 → 42)
+        assertTrue("one letter removed → hao gone", "hao" !in c.expandedReadings())
+        assertTrue("…but the 2-digit syllable remains", "ha" in c.expandedReadings())
+    }
+
+    @Test fun backspace_after_two_locks_steps_back_each_pick_then_keeps_digits() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "42633".forEach { c.onKey(out(it.toString())) } // hao de
+        c.onKey(Key("hao", output = "hao", action = KeyAction.PICK_READING))
+        c.onKey(Key("de", output = "de", action = KeyAction.PICK_READING))
+        c.onKey(act(KeyAction.BACKSPACE)) // undo pick de
+        assertTrue("de offered again", "de" in c.expandedReadings())
+        c.onKey(act(KeyAction.BACKSPACE)) // undo pick hao
+        assertTrue("hao offered again", "hao" in c.expandedReadings())
+        c.onKey(act(KeyAction.ENTER)) // all 42633 digits intact → commits haode
+        assertEquals(listOf("haode"), h.commits)
+    }
+
+    @Test fun backspace_without_a_pick_deletes_one_letter_only() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "426".forEach { c.onKey(out(it.toString())) }
+        c.onKey(act(KeyAction.BACKSPACE)) // 426 → 42, never a whole syllable
+        assertTrue("hao gone (one letter removed)", "hao" !in c.expandedReadings())
+        assertTrue("ha still present", "ha" in c.expandedReadings())
+    }
+
     @Test fun backspace_up_swipe_clears_pending_pinyin_in_any_layout() {
         // C: up-swipe on backspace clears the 任务栏 (pending pinyin) and is consumed before the field clear.
         val h = FakeHost()
