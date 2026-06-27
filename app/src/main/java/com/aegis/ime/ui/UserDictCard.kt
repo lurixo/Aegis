@@ -16,6 +16,7 @@
 package com.aegis.ime.ui
 
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -36,7 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.aegis.ime.user.UserModel
+import com.aegis.ime.user.UserDictImport
 import java.io.File
 
 /**
@@ -67,20 +68,23 @@ internal fun UserDictCard() {
     ) { uri -> if (uri != null) pendingImport = uri }
 
     fun applyImport(uri: Uri, merge: Boolean) {
-        runCatching {
+        val ok = runCatching {
             val tmp = File(context.cacheDir, "import_userdb.txt")
+            tmp.delete() // never reuse a stale temp from a prior attempt
             context.contentResolver.openInputStream(uri)?.use { input ->
                 tmp.outputStream().use { input.copyTo(it) }
             }
-            if (merge) {
-                val target = UserModel().apply { if (userDb.exists()) load(userDb) }
-                target.importFrom(tmp, System.currentTimeMillis())
-                target.save(userDb)
-            } else {
-                UserModel().apply { replaceWith(tmp) }.save(userDb)
-            }
-            tmp.delete()
-        }
+            // ④ The pure apply step validates the import and never wipes the live dict on failure
+            // (missing/empty copy, or — for 覆盖 — an import that parses to no entries).
+            UserDictImport.apply(tmp, userDb, merge, System.currentTimeMillis())
+                .also { tmp.delete() }
+        }.getOrDefault(false)
+        Toast.makeText(
+            context,
+            if (ok) (if (merge) "已合并导入学习词库" else "已覆盖导入学习词库")
+            else "导入失败：文件无法读取或无有效词条,词库未改动",
+            Toast.LENGTH_SHORT,
+        ).show()
     }
 
     Card(modifier = Modifier.fillMaxWidth()) {

@@ -18,6 +18,7 @@ package com.aegis.ime.dict
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Streams the optional enhancement model into filesDir/downloaded/ (picked up by the IME next session). */
 object ModelDownload {
@@ -41,17 +42,23 @@ object ModelDownload {
     /** Outcome of [download]: success flag + the server validator (ETag/Last-Modified) of what landed. */
     data class DownloadResult(val ok: Boolean, val validator: String?)
 
+    /** Single-flight guard: a concurrent (e.g. double-click / post-rotation) download must not open a
+     *  second truncating stream on the same .part and interleave-corrupt the file. */
+    private val inFlight = AtomicBoolean(false)
+
     /**
      * Download [url] to [dest] (via a .part temp + atomic rename), reporting (bytesDone, total).
      * Blocking — call off the main thread. The atomic rename onto the single [dest] path means a
      * re-download / 更新 overwrites in place rather than accumulating duplicates. Returns the server
-     * validator so the caller can record it and later detect a newer remote release.
+     * validator so the caller can record it and later detect a newer remote release. A second call
+     * while one is already running returns ok=false immediately (it does not touch the .part).
      */
     fun download(url: String, dest: File, onProgress: (Long, Long) -> Unit): DownloadResult {
-        dest.parentFile?.mkdirs()
-        val tmp = File(dest.parentFile, dest.name + ".part")
+        if (!inFlight.compareAndSet(false, true)) return DownloadResult(false, null)
         var conn: HttpURLConnection? = null
+        val tmp = File(dest.parentFile, dest.name + ".part")
         return try {
+            dest.parentFile?.mkdirs()
             conn = (URL(url).openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = true
                 connectTimeout = 20_000
@@ -80,6 +87,7 @@ object ModelDownload {
             DownloadResult(false, null)
         } finally {
             conn?.disconnect()
+            inFlight.set(false)
         }
     }
 
