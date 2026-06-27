@@ -78,6 +78,21 @@ class PhraseTextSanitizeTest {
         assertTrue("renameCategory sanitizes", s.categories().contains(" renamedcat "))
     }
 
+    @Test fun an_edit_that_collides_with_a_legacy_phrase_through_the_rule_is_refused() {
+        val s = ClipboardStore(newDir()).apply { load() }
+        s.importPhrasesText("C\t甲\nP\ta\u0001b\nP\tother\n", merge = false)
+
+        assertFalse(
+            "the edited text equals a stored phrase once both pass the rule",
+            s.editPhrase("甲", "other", "ab"),
+        )
+        assertEquals(
+            "the refused edit changes nothing",
+            listOf("a\u0001b", "other"),
+            s.phrasesIn("甲"),
+        )
+    }
+
     @Test fun a_raw_category_name_never_splits_the_category_in_two() {
         val raw = "work\u0001temp"
         val cleaned = "worktemp"
@@ -136,5 +151,34 @@ class PhraseTextSanitizeTest {
         val reloaded = ClipboardStore(dir).apply { load() }
         assertEquals(listOf(" line1\r\nline2\t "), reloaded.phrasesIn("cat"))
         assertEquals(" note\twith edges ", reloaded.noteFor("cat", " line1\r\nline2\t "))
+    }
+
+    @Test fun a_name_stored_before_the_rule_existed_still_reaches_its_own_category() {
+        val stored = "work\u0001temp"
+        val held = "a\u0001b"
+        val s = ClipboardStore(newDir()).apply { load() }
+        assertTrue(s.importPhrasesText("C\t" + stored + "\nP\t" + held, merge = false))
+
+        assertEquals("what was already stored is left alone", listOf(stored),
+            s.categories().filterNot { it == ClipboardStore.DEFAULT_CATEGORY_ID })
+        assertEquals("the stored name still reaches its own category", 1, s.addPhrasesTo(stored, listOf("new")))
+        assertEquals("no second, near-identical category appears", 2, s.categories().size)
+        assertEquals("a phrase the category already holds is not added again in cleaned form",
+            0, s.addPhrasesTo(stored, listOf(held)))
+        assertEquals(listOf("new", held), s.phrasesIn(stored))
+    }
+
+    @Test fun every_lookup_path_reaches_a_legacy_category_through_the_rule() {
+        val stored = "work\u0001temp"
+        val s = ClipboardStore(newDir()).apply { load() }
+        assertTrue(s.importPhrasesText("C\t" + stored + "\nP\tkeep\n", merge = false))
+        val cleaned = ClipboardStore.sanitizePhraseText(stored)
+
+        s.setPhraseNote(cleaned, "keep", "note")
+        assertEquals("the note lands on the stored name", "note", s.noteFor(stored, "keep"))
+
+        assertTrue("rename finds the stored name through the rule", s.renameCategory(cleaned, "renamed"))
+        assertTrue("renamed" in s.categories())
+        assertFalse(stored in s.categories())
     }
 }

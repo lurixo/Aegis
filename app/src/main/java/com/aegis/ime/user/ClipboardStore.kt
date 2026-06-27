@@ -115,6 +115,8 @@ class ClipEntry private constructor(
     }
 }
 
+internal class UnreadablePhrasesException : IOException("saved phrases could not be read")
+
 enum class PhraseEdit { ADD, MOVE, TEXT, CATEGORY, LIST }
 
 class PhraseChange(val edit: PhraseEdit, val count: Int, val requested: Int, val saved: Boolean)
@@ -531,6 +533,17 @@ class ClipboardStore(private val dir: File) {
         return true
     }
 
+    fun deletePhrase(text: String) {
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.LIST, 1); return }
+        val after = synchronized(phraseCats) {
+            var changed = false
+            for (c in phraseCats) if (c.phrases.removeAll { it.text == text }) changed = true
+            if (!changed) return
+            phraseSnapshot()
+        }
+        writePhrases(PhraseEdit.LIST, 1, 1, after)
+    }
+
     fun clearPhrasesIn(category: String): Int {
         if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.LIST, 0); return 0 }
         var cleared = 0
@@ -761,6 +774,12 @@ class ClipboardStore(private val dir: File) {
         writeReportLane.execute { writeReport?.invoke(change) }
     }
 
+    private fun savePhrasesOrThrow(text: String) {
+        onWriteLaneNow { atomicWrite(phraseFile, text) }
+    }
+
+    private fun serializePhrases(): String = synchronized(phraseCats) { serialize(phraseCats) }
+
     private fun serialize(categories: List<Category>): String {
         val sb = StringBuilder()
         for (c in categories) {
@@ -771,6 +790,42 @@ class ClipboardStore(private val dir: File) {
             }
         }
         return sb.toString()
+    }
+
+
+    fun exportPhrasesText(): String {
+        if (!phrasesReadable) throw UnreadablePhrasesException()
+        return serializePhrases()
+    }
+
+    fun importPhrasesText(text: String, merge: Boolean): Boolean {
+        val parsed = canonicalCategories(parseCategories(text.lineSequence().toList()))
+        if (parsed.isEmpty()) return false
+        val next = synchronized(phraseCats) {
+            if (merge) {
+                if (!phrasesReadable) throw UnreadablePhrasesException()
+                val out = canonicalCategories(phraseCats)
+                val indexes = HashMap<Category, HashMap<String, Phrase>>()
+                for (pc in parsed) {
+                    val c = out.firstOrNull { it.name == pc.name } ?: Category(pc.name).also { out.add(it) }
+                    val index = indexes.getOrPut(c) { phraseIndex(c) }
+                    for (p in pc.phrases) mergePhraseInto(c, p, index)
+                }
+                out
+            } else {
+                val out = ArrayList(parsed)
+                if (out.none { it.name == DEFAULT_CATEGORY_ID }) out.add(0, Category(DEFAULT_CATEGORY_ID))
+                out
+            }
+        }
+        savePhrasesOrThrow(serialize(next))
+        synchronized(phraseCats) {
+            phraseCats.clear()
+            phraseCats.addAll(next)
+            if (!merge) phrasesReadable = true
+            phraseEdited()
+        }
+        return true
     }
 
     private fun encode(s: String) = s.replace("\\", "\\\\").replace("\n", "\\n").replace("\r", "\\r")

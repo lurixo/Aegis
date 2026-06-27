@@ -80,6 +80,23 @@ class ClipboardRestoreWriteGuardTest {
         assertEquals(listOf(restored), store(dir).historyText())
     }
 
+    @Test fun a_phrase_edit_during_a_restore_never_overwrites_restored_phrases() {
+        val dir = newDir()
+        val live = store(dir)
+        live.addCategory("甲")
+        live.addPhrasesTo("甲", listOf("旧短语"))
+        live.flushPendingWrites()
+
+        LiveUserData.restoreInProgress = true
+        store(dir).importPhrasesText("C\t乙\nP\t恢复短语\n", merge = false)
+        live.addPhrasesTo("甲", listOf("恢复期新增"))
+        live.flushPendingWrites()
+
+        val reloaded = store(dir)
+        assertEquals(listOf("恢复短语"), reloaded.phrasesIn("乙"))
+        assertFalse("甲" in reloaded.categories())
+    }
+
     @Test fun recording_a_clip_during_a_restore_never_overwrites_restored_history() {
         val dir = newDir()
         val live = store(dir)

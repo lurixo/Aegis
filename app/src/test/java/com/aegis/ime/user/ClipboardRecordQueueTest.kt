@@ -19,8 +19,10 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.attribute.BasicFileAttributes
 import java.util.concurrent.CountDownLatch
@@ -205,6 +207,23 @@ class ClipboardRecordQueueTest {
         s.flushPendingWrites()
 
         assertEquals(listOf("待落盘"), store(dir).phrases())
+    }
+
+    @Test fun a_phrase_import_reports_the_failure_it_hit_on_the_writer() {
+        val dir = newDir()
+        val s = store(dir)
+        File(dir, "phrases.txt").let {
+            it.deleteRecursively()
+            assertTrue("precondition: the phrase file path is occupied", it.mkdirs())
+            File(it, "blocker").writeText("x")
+        }
+
+        try {
+            s.importPhrasesText("C\t甲\nP\t进不去\n", merge = false)
+            fail("expected the blocked phrase file to be reported")
+        } catch (e: IOException) {
+            assertTrue("the failure the writer hit must come back whole", e.message.orEmpty().isNotEmpty())
+        }
     }
 
     @Test fun a_stopped_store_still_lands_the_writes_already_queued() {

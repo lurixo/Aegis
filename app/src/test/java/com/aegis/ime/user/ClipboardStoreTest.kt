@@ -688,6 +688,196 @@ class ClipboardStoreTest {
         assertEquals(listOf("b"), s.phrasesIn("乙"))
     }
 
+
+    @Test fun export_import_roundtrip_preserves_categories_phrases_notes() {
+        val src = ClipboardStore(newDir()).apply {
+            load(); addCategory("工作"); addPhrasesTo("工作", listOf("已收到", "稍等")); setPhraseNote("工作", "已收到", "回执")
+            addCategory("私人"); addPhrasesTo("私人", listOf("晚安"))
+        }
+        val text = src.exportPhrasesText()
+        val dst = ClipboardStore(newDir()).apply { load() }
+        assertTrue(dst.importPhrasesText(text, merge = false))
+        assertTrue(dst.categories().containsAll(listOf("工作", "私人")))
+        assertEquals(listOf("已收到", "稍等"), dst.phrasesIn("工作"))
+        assertEquals("回执", dst.noteFor("工作", "已收到"))
+        assertEquals(listOf("晚安"), dst.phrasesIn("私人"))
+    }
+
+    @Test fun export_text_is_stable_and_import_accepts_crlf_files() {
+        val src = ClipboardStore(newDir()).apply {
+            load()
+            addCategory("Work")
+            addPhrasesTo("Work", listOf("line1\nline2", "slash\\value"))
+            setPhraseNote("Work", "line1\nline2", "note\\next")
+        }
+        val text = src.exportPhrasesText()
+        assertTrue("export includes category markers", text.contains("C\tWork\n"))
+        assertTrue("export includes escaped phrase lines", text.contains("P\tline1\\nline2\n"))
+        assertTrue("export includes escaped note lines", text.contains("N\tnote\\\\next\n"))
+
+        val crlf = text.replace("\n", "\r\n")
+        val dst = ClipboardStore(newDir()).apply { load() }
+        assertTrue(dst.importPhrasesText(crlf, merge = false))
+        assertEquals(listOf("line1\nline2", "slash\\value"), dst.phrasesIn("Work"))
+        assertEquals("note\\next", dst.noteFor("Work", "line1\nline2"))
+    }
+
+    @Test fun import_merge_accumulates_and_dedupes() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("已收到")) }
+        val incoming = "C\t工作\nP\t已收到\nP\t稍等\nC\t新组\nP\t你好\n"
+        assertTrue(s.importPhrasesText(incoming, merge = true))
+        assertEquals("dedup 已收到, add 稍等", listOf("已收到", "稍等"), s.phrasesIn("工作"))
+        assertEquals(listOf("你好"), s.phrasesIn("新组"))
+    }
+
+    @Test fun import_merge_collapses_existing_duplicate_category_names() {
+        val dir = newDir()
+        File(dir, "phrases.txt").writeText(
+            "C\t工作\n" +
+                "P\t本机一\n" +
+                "C\t工作\n" +
+                "P\t本机二\n" +
+                "P\t共同\n" +
+                "N\t本机注\n",
+        )
+        val s = ClipboardStore(dir).apply { load() }
+
+        assertTrue(s.importPhrasesText("C\t工作\nP\t备份一\nP\t共同\nN\t备份注\n", merge = true))
+
+        assertEquals(1, s.categories().count { it == "工作" })
+        assertEquals(listOf("本机一", "本机二", "共同", "备份一"), s.phrasesIn("工作"))
+        assertEquals("本机注", s.noteFor("工作", "共同"))
+        s.flushPendingWrites()
+        assertEquals(1, ClipboardStore(dir).apply { load() }.categories().count { it == "工作" })
+    }
+
+    @Test fun import_overwrite_replaces_whole_library() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("旧组"); addPhrasesTo("旧组", listOf("旧")) }
+        assertTrue(s.importPhrasesText("C\t新组\nP\t新\n", merge = false))
+        assertFalse("旧组 replaced away", "旧组" in s.categories())
+        assertEquals(listOf("新"), s.phrasesIn("新组"))
+    }
+
+    @Test fun import_overwrite_merges_duplicate_category_names() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("旧组"); addPhrasesTo("旧组", listOf("旧")) }
+
+        assertTrue(
+            s.importPhrasesText(
+                "C\t工作\n" +
+                    "P\t备份一\n" +
+                    "N\t一注\n" +
+                    "C\t工作\n" +
+                    "P\t备份二\n" +
+                    "P\t备份一\n" +
+                    "N\t不应覆盖\n",
+                merge = false,
+            ),
+        )
+
+        assertEquals(1, s.categories().count { it == "工作" })
+        assertEquals(listOf("备份一", "备份二"), s.phrasesIn("工作"))
+        assertEquals("一注", s.noteFor("工作", "备份一"))
+        assertFalse("旧组" in s.categories())
+    }
+
+    @Test fun import_overwrite_migrates_legacy_default_name_without_adding_a_duplicate_default() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("旧组"); addPhrasesTo("旧组", listOf("旧")) }
+
+        assertTrue(s.importPhrasesText("C\t默认\nP\t你好\n", merge = false))
+
+        assertEquals(1, s.categories().count { it == ClipboardStore.DEFAULT_CATEGORY_ID })
+        assertFalse("默认" in s.categories())
+        assertEquals(listOf("你好"), s.phrasesIn(ClipboardStore.DEFAULT_CATEGORY_ID))
+    }
+
+    @Test fun import_empty_or_unparseable_never_clears() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("keep")) }
+        assertFalse("empty → no change", s.importPhrasesText("", merge = false))
+        assertFalse("blank lines → no change", s.importPhrasesText("\n  \n", merge = false))
+        assertFalse("garbage with no markers → no change", s.importPhrasesText("just some text\nmore", merge = false))
+        assertEquals("library intact after failed overwrite", listOf("keep"), s.phrasesIn("甲"))
+    }
+
+    @Test fun a_phrase_list_nobody_could_read_is_never_written_over() {
+        val dir = newDir()
+        val saved = "C\t工作\nP\t读不出来的常用语\nN\t注\n"
+        val file = File(dir, "phrases.txt").apply { writeText(saved) }
+        assertTrue("precondition: the phrase file cannot be read back", file.setReadable(false, false))
+        val s = ClipboardStore(dir).apply { load() }
+        assertFalse("precondition: the store knows it could not read the phrases", s.phrasesReadable)
+
+        val d = ClipboardStore.DEFAULT_CATEGORY_ID
+        assertFalse("a new category over phrases nobody could read", s.addCategory("新组"))
+        assertEquals("phrases added to a named category", 0, s.addPhrasesTo("工作", listOf("新的")))
+        assertEquals("phrases added to whatever category is first", 0, s.addPhrases(listOf("新的")))
+        assertFalse("a rename", s.renameCategory(d, "改名"))
+        assertFalse("a note", s.setPhraseNote("工作", "读不出来的常用语", "新注"))
+        assertFalse("a delete", s.deletePhrasesFrom("工作", listOf("读不出来的常用语")))
+        assertFalse("an edit", s.editPhrase("工作", "读不出来的常用语", "改了"))
+        assertFalse("a move", s.movePhrase(d, "读不出来的常用语", d))
+        assertEquals("a bulk move", 0, s.movePhrasesTo("工作", listOf("读不出来的常用语"), d))
+        assertEquals("emptying a category", 0, s.clearPhrasesIn("工作"))
+        assertFalse("reordering a phrase", s.reorderPhrase("工作", 0, 1))
+        assertFalse("reordering a category", s.reorderCategory(0, 1))
+        s.deleteCategory(d)
+        s.deletePhrase("读不出来的常用语")
+        s.flushPendingWrites()
+
+        assertEquals("the categories a store shows must not change either", listOf(d), s.categories())
+        assertTrue(file.setReadable(true, false))
+        assertEquals("what could not be read must not be thrown away either", saved, file.readText())
+    }
+
+    @Test fun a_phrase_list_nobody_could_read_is_never_handed_out_as_an_export() {
+        val dir = newDir()
+        val file = File(dir, "phrases.txt").apply { writeText("C\t工作\nP\t读不出来的常用语\n") }
+        assertTrue("precondition: the phrase file cannot be read back", file.setReadable(false, false))
+        val s = ClipboardStore(dir).apply { load() }
+        assertFalse("precondition: the store knows it could not read the phrases", s.phrasesReadable)
+
+        val exported = runCatching { s.exportPhrasesText() }
+
+        assertTrue("an export of phrases nobody could read must not be handed out", exported.isFailure)
+        assertTrue(file.setReadable(true, false))
+    }
+
+    @Test fun merging_into_a_phrase_list_nobody_could_read_is_never_reported_as_merged() {
+        val dir = newDir()
+        val saved = "C\t工作\nP\t读不出来的常用语\n"
+        val file = File(dir, "phrases.txt").apply { writeText(saved) }
+        assertTrue("precondition: the phrase file cannot be read back", file.setReadable(false, false))
+        val s = ClipboardStore(dir).apply { load() }
+        assertFalse("precondition: the store knows it could not read the phrases", s.phrasesReadable)
+
+        val merged = runCatching { s.importPhrasesText("C\t甲\nP\t合并进来的\n", merge = true) }
+        s.flushPendingWrites()
+
+        assertTrue("a merge over phrases nobody could read must not be reported as merged", merged.isFailure)
+        assertTrue(file.setReadable(true, false))
+        assertEquals("and it must not have destroyed them", saved, file.readText())
+    }
+
+    @Test fun an_overwriting_import_takes_back_a_phrase_list_nobody_could_read() {
+        val dir = newDir()
+        val file = File(dir, "phrases.txt").apply { writeText("C\t工作\nP\t读不出来的常用语\n") }
+        assertTrue("precondition: the phrase file cannot be read back", file.setReadable(false, false))
+        val s = ClipboardStore(dir).apply { load() }
+        assertFalse("precondition: the store knows it could not read the phrases", s.phrasesReadable)
+
+        assertTrue(
+            "an import that replaces them outright is what takes them back",
+            s.importPhrasesText("C\t甲\nP\t覆盖进来的\n", merge = false),
+        )
+        s.flushPendingWrites()
+
+        assertTrue("and the store is readable again", s.phrasesReadable)
+        assertEquals(listOf("覆盖进来的"), s.phrasesIn("甲"))
+        assertTrue("an edit works again", s.addCategory("再来一个"))
+        s.flushPendingWrites()
+        assertTrue(file.setReadable(true, false))
+        assertTrue("which reaches the file", file.readText().contains("C\t再来一个\n"))
+    }
+
     @Test fun an_overwriting_import_takes_back_a_history_nobody_could_read() {
         val dir = newDir()
         val index = File(dir, "clipboard.txt").apply { writeText("读不出来的一条\n") }
@@ -730,6 +920,15 @@ class ClipboardStoreTest {
             "读不出来的一条\n",
             index.readText(),
         )
+    }
+
+    @Test fun import_blank_named_category_never_clears() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("keep")) }
+
+        assertFalse(s.importPhrasesText("C\t\nP\tbad\n", merge = false))
+
+        assertEquals(listOf("keep"), s.phrasesIn("甲"))
+        assertFalse("" in s.categories())
     }
 
     @Test fun a_delete_that_could_not_be_written_says_it_was_not_written() {
@@ -940,6 +1139,34 @@ class ClipboardStoreTest {
         }
     }
 
+    @Test fun an_import_that_could_not_be_written_leaves_the_phrases_the_device_had() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply { load(); addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("原有的常用语")) }
+        s.flushPendingWrites()
+        val blocker = s.tempFileFor(File(dir, "phrases.txt"))
+        assertTrue("precondition: the phrase write is blocked", blocker.mkdirs())
+        assertTrue(File(blocker, "occupied").createNewFile())
+
+        val imported = runCatching { s.importPhrasesText("C\t甲\nP\t导入的常用语\n", merge = false) }
+
+        assertTrue("an import that never reached the disk must not come back as one that did", imported.isFailure)
+        assertEquals(
+            "the phrases the keyboard is using must still be the ones the file holds",
+            listOf("原有的常用语"),
+            s.phrases(),
+        )
+        assertEquals(listOf("原有的常用语"), ClipboardStore(dir).apply { load() }.phrases())
+
+        assertTrue(File(blocker, "occupied").delete())
+        assertTrue(blocker.delete())
+        assertEquals(1, s.addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("后来加的")))
+        s.flushPendingWrites()
+
+        val onDisk = ClipboardStore(dir).apply { load() }.phrases()
+        assertTrue("an edit after a refused import must not carry the import to the disk", "原有的常用语" in onDisk)
+        assertFalse("and it must never write out phrases the user was told were not imported", "导入的常用语" in onDisk)
+    }
+
     @Test fun a_phrase_file_that_reads_fine_is_reported_as_readable() {
         val dir = newDir()
         ClipboardStore(dir).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("keep")); flushPendingWrites() }
@@ -960,5 +1187,132 @@ class ClipboardStoreTest {
         } finally {
             phrases.setReadable(true, true)
         }
+    }
+
+    private class RefPhrase(val text: String, var note: String = "")
+    private class RefCategory(var name: String, val phrases: ArrayList<RefPhrase> = ArrayList())
+
+    private fun refDecode(line: String): String? {
+        if (line.isEmpty()) return null
+        val sb = StringBuilder(line.length)
+        var i = 0
+        while (i < line.length) {
+            val c = line[i]
+            if (c == '\\' && i + 1 < line.length) {
+                when (line[i + 1]) {
+                    'n' -> sb.append('\n'); 'r' -> sb.append('\r'); '\\' -> sb.append('\\'); else -> sb.append(line[i + 1])
+                }
+                i += 2
+            } else { sb.append(c); i++ }
+        }
+        return sb.toString()
+    }
+
+    private fun refEncode(s: String) = s.replace("\\", "\\\\").replace("\n", "\\n").replace("\r", "\\r")
+
+    private fun refParse(lines: List<String>): List<RefCategory> {
+        val out = ArrayList<RefCategory>()
+        var cur: RefCategory? = null
+        var last: RefPhrase? = null
+        for (line in lines) when {
+            line.startsWith("C\t") -> { val c = RefCategory(refDecode(line.substring(2)).orEmpty()); out.add(c); cur = c; last = null }
+            line.startsWith("P\t") -> refDecode(line.substring(2))?.let { p -> RefPhrase(p).also { cur?.phrases?.add(it); last = it } }
+            line.startsWith("N\t") -> refDecode(line.substring(2))?.let { n -> last?.note = n }
+        }
+        return out
+    }
+
+    private fun refMergeInto(to: RefCategory, p: RefPhrase) {
+        if (p.text.isBlank()) return
+        val existing = to.phrases.firstOrNull { it.text == p.text }
+        if (existing == null) to.phrases.add(RefPhrase(p.text, p.note))
+        else if (existing.note.isEmpty() && p.note.isNotEmpty()) existing.note = p.note
+    }
+
+    private fun refMergeSameName(categories: List<RefCategory>): ArrayList<RefCategory> {
+        val out = ArrayList<RefCategory>()
+        val byName = LinkedHashMap<String, RefCategory>()
+        for (source in categories) {
+            if (source.name.isBlank()) continue
+            val dest = byName[source.name] ?: RefCategory(source.name).also { byName[source.name] = it; out.add(it) }
+            for (p in source.phrases) refMergeInto(dest, p)
+        }
+        return out
+    }
+
+    private fun refCanonical(categories: List<RefCategory>): ArrayList<RefCategory> {
+        val out = refMergeSameName(categories)
+        if (out.none { it.name == ClipboardStore.DEFAULT_CATEGORY_ID }) {
+            out.firstOrNull { it.name == "默认" }?.let { it.name = ClipboardStore.DEFAULT_CATEGORY_ID }
+        }
+        return refMergeSameName(out)
+    }
+
+    private fun refSerialize(categories: List<RefCategory>): String {
+        val sb = StringBuilder()
+        for (c in categories) {
+            sb.append("C\t").append(refEncode(c.name)).append('\n')
+            for (p in c.phrases) {
+                sb.append("P\t").append(refEncode(p.text)).append('\n')
+                if (p.note.isNotEmpty()) sb.append("N\t").append(refEncode(p.note)).append('\n')
+            }
+        }
+        return sb.toString()
+    }
+
+    private fun bigPhraseLibrary(seed: Int, blocks: List<String>, perBlock: Int): String {
+        val sb = StringBuilder()
+        for ((b, name) in blocks.withIndex()) {
+            sb.append("C\t").append(refEncode(name)).append('\n')
+            for (j in 0 until perBlock) {
+                val text = when {
+                    j % 7 == 0 -> "共享-$name-${j % 91}"
+                    j % 13 == 0 -> "跨分类-${j % 37}"
+                    j % 17 == 0 -> "块内重复-$b"
+                    j % 29 == 0 -> "多行\n常用语\\$seed-$b-$j"
+                    else -> "常用语-$seed-$b-$j"
+                }
+                sb.append("P\t").append(refEncode(text)).append('\n')
+                if ((j + b + seed) % 3 == 0) sb.append("N\t").append(refEncode("注-$seed-$b-$j")).append('\n')
+            }
+        }
+        return sb.toString()
+    }
+
+    @Test fun five_thousand_phrases_in_same_name_categories_load_exactly_as_the_linear_merge_did() {
+        val dir = newDir()
+        val blocks = listOf("工作", "默认", "生活", "工作", "", "购物", "工作", "生活", "默认", "工作")
+        val saved = bigPhraseLibrary(1, blocks, 720)
+        File(dir, "phrases.txt").writeText(saved)
+        val expected = refCanonical(refParse(saved.lines()))
+        assertTrue("precondition: the library holds 5000 phrases", expected.sumOf { it.phrases.size } >= 5_000)
+
+        val s = ClipboardStore(dir).apply { load() }
+
+        assertEquals(expected.map { it.name }, s.categories())
+        for (c in expected) {
+            assertEquals("phrases of ${c.name}", c.phrases.map { it.text }, s.phrasesIn(c.name))
+            for (p in c.phrases) assertEquals("note of ${c.name}/${p.text}", p.note, s.noteFor(c.name, p.text))
+        }
+        assertEquals(refSerialize(expected), s.exportPhrasesText())
+    }
+
+    @Test fun five_thousand_phrases_merged_into_a_big_library_match_the_linear_merge() {
+        val dir = newDir()
+        val local = bigPhraseLibrary(2, listOf("工作", "default", "生活", "工作"), 800)
+        File(dir, "phrases.txt").writeText(local)
+        val incoming = bigPhraseLibrary(2, listOf("生活", "工作", "新组", "default", "工作", "默认"), 1050)
+        val s = ClipboardStore(dir).apply { load() }
+
+        assertTrue(s.importPhrasesText(incoming, merge = true))
+
+        val expected = refCanonical(refParse(local.lines()))
+        for (pc in refCanonical(refParse(incoming.lines()))) {
+            val c = expected.firstOrNull { it.name == pc.name } ?: RefCategory(pc.name).also { expected.add(it) }
+            for (p in pc.phrases) refMergeInto(c, p)
+        }
+        assertEquals(refSerialize(expected), s.exportPhrasesText())
+        s.flushPendingWrites()
+        assertEquals(refSerialize(expected), ClipboardStore(dir).apply { load() }.exportPhrasesText())
     }
 }
