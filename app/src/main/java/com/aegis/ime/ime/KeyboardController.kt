@@ -246,8 +246,15 @@ class KeyboardController(
                 when (mode()) {
                     Mode.PINYIN -> readingOverride?.let { ro ->
                         engine.candidatesForReading(T9Pinyin.lockFirstReading(raw, ro)?.letters ?: ro)
-                    } ?: engine.candidates(raw, layoutId == LayoutId.NINE)
-                        .let { if (layoutId == LayoutId.ALPHA && raw !in it) it + raw else it }
+                    } ?: run {
+                        val isNine = layoutId == LayoutId.NINE
+                        var c = engine.candidates(raw, isNine)
+                        if (c.isEmpty() && isNine) {
+                            val pfx = T9Pinyin.longestDecodablePrefix(raw)
+                            if (pfx.length in 1 until raw.length) c = engine.candidates(pfx, true)
+                        }
+                        if (layoutId == LayoutId.ALPHA && raw !in c) c + raw else c
+                    }
                     Mode.ENGLISH -> engine.english(raw).let { if (raw !in it) it + raw else it }
                     Mode.DIRECT -> emptyList()
                 }
