@@ -24,3 +24,12 @@ class ClipEntry {
             s.length == SIDECAR_HASH_CHARS && s.all { it in '0'..'9' || it in 'a'..'f' }
     }
 }
+
+class ClipboardStore {
+    companion object {
+        fun foldLineBreaks(s: String): String = s.trim { it in LINE_BREAKS }.replace(LINE_BREAK_RUN, " ")
+
+        private const val LINE_BREAKS = "\n\r\u2028\u2029"
+        private val LINE_BREAK_RUN = Regex("[$LINE_BREAKS]+")
+    }
+}
