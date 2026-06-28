@@ -10,16 +10,18 @@ referenced works listed below; those remain under their own licenses.
 `aegis_jianpin.bin` (26-key 简拼 initials) are prebuilt, tone-stripped, re-serialized
 derivatives of the **rime-wanxiang** dictionaries — the full set of 14 tables
 `dicts/{zi, jichu, lianxiang, cuoyin, duoyin, shici, diming, yixue, huaxue, yaopin,
-mingren, yiren, wuzhong, renming}` — bundled in full, every entry with freq ≥ 1 (no
-frequency floor). `aegis_lm.bin` (character bigram) is a context model derived from the
-same source. Built by `tools/` (see `DictBuilder` / `LmBuilder`).
+mingren, yiren, wuzhong, renming}`. The bundled bins are a **seed** built at `--min-freq 400`
+(no per-key cap) to keep the APK small; the complete `--min-freq 1` pack (every entry) is the
+separate downloadable **full** pack that overrides the seed at runtime. `aegis_lm.bin` (character
+bigram) is a context model derived from the same source. Built by `tools/` (see `DictBuilder` / `LmBuilder`).
 
 - Source: https://github.com/amzxyz/rime-wanxiang (branch `wanxiang`)
 - License: **CC BY 4.0** (https://creativecommons.org/licenses/by/4.0/)
 - Attribution: © amzxyz and rime-wanxiang contributors.
 - Changes: tones stripped (ü→v), syllables concatenated into toneless keys, repacked
-  into Aegis's binary dictionary format (no entries dropped for size). No data files
-  are DRM-locked.
+  into Aegis's binary dictionary format. The bundled seed is frequency-filtered for size
+  (`--min-freq 400`); the downloadable full pack keeps every entry (`--min-freq 1`). No
+  data files are DRM-locked.
 
 The upstream "离线大模型" `.gram` and the ~32 GB training corpus are **not**
 bundled here; any future inclusion is gated in `README.md`.

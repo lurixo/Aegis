@@ -63,10 +63,15 @@ class FuzzyVariantsTest {
     }
 
     @Test
-    fun collapseMatchesLegacyNormalize() {
+    fun normalizeIsTheFinalsCanonical() {
+        // normalize is the 平翘舌/前后鼻音 canonical (identical to tools/Pinyin.fuzzyNormalize); the
+        // single-letter 声母 rules are deliberately NOT part of the canonical (they would chain n→l→r).
+        val finals = setOf("zh", "ch", "sh", "ang", "eng", "ing")
         for (s in listOf("zhang", "chengshi", "yingxiong", "nihao", "shangchang")) {
-            assertEquals(Fuzzy.normalize(s), Fuzzy.collapse(s, all))
+            assertEquals(Fuzzy.normalize(s), Fuzzy.collapse(s, finals))
         }
+        assertEquals("zan", Fuzzy.normalize("zhang"))
+        assertEquals("nihao", Fuzzy.normalize("nihao")) // 声母 n is NOT collapsed
     }
 
     @Test
@@ -110,5 +115,29 @@ class FuzzyVariantsTest {
         assertTrue(vs("nan", setOf("n_l", "l_r", "f_h", "k_g")).size <= 64)
         // the four new rule keys are present and independently togglable.
         assertTrue(Fuzzy.RULES.map { it.key }.containsAll(listOf("n_l", "f_h", "l_r", "k_g")))
+    }
+
+    @Test
+    fun allRulesTogether_resolveInitialConfusions_withoutRegressingFinals() {
+        // ★HIGH regression guard (debug.13). With the master switch ON every per-rule toggle defaults to
+        // true (AegisInputMethodService builds `RULES.filter { getBoolean(prefKey, true) }`), so ALL ten
+        // rules fire together. The old collapse-then-expand chained n_l's short 'l' into l_r's long 'l'
+        // (n→l→r), over-collapsing the canonical so the real spellings could never be restored:
+        //   variants("nan", all) came out {lal,lar,nan,ral,rar} — no 南=兰 "lan", no "ran" — and, worse, it
+        //   REGRESSED the previously-working 平翘舌/前后鼻音: variants("zhang", all) lost zang/zhan/zan.
+        // These MEMBERSHIP asserts (not just a size bound) fail on the old chaining code and lock the fix.
+        // (1) the new 声母 confusions all resolve at the 声母首位 even with every rule co-enabled:
+        assertTrue("n↔l↔r at 首位 (南=兰)", vs("nan", all).containsAll(setOf("nan", "lan", "ran")))
+        assertTrue("f↔h: fan→han", vs("fan", all).contains("han"))
+        assertTrue("k↔g: kan→gan", vs("kan", all).contains("gan"))
+        assertTrue("l↔r: lan→ran", vs("lan", all).contains("ran"))
+        // (2) NO regression of the original 6 rules while the 声母 rules are also enabled:
+        assertTrue("平翘舌+前后鼻音 still resolve: zhang⊇{zang,zhan,zan}", vs("zhang", all).containsAll(setOf("zang", "zhan", "zan")))
+        assertTrue("shang→sang", vs("shang", all).contains("sang"))
+        assertTrue("zheng→zeng", vs("zheng", all).contains("zeng"))
+        // the 声母 rules stay at the 首位 only: an interior/final consonant must NOT toggle into garbage.
+        assertFalse("声母 rule must not touch the final -n of nan", vs("nan", all).contains("nal"))
+        // still bounded with everything on (OOM guard intact).
+        assertTrue("bounded", vs("nan", all).size <= 64 && vs("shangchang", all).size <= 64)
     }
 }

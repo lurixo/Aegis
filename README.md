@@ -29,7 +29,7 @@ Requires JDK 17+, Android SDK (platform 36, build-tools 36.0.0).
 
 The bundled dictionaries (`app/src/main/assets/aegis_*.bin`) are the **seed** pack — prebuilt from all
 14 wanxiang tables (`zi jichu lianxiang cuoyin duoyin shici diming yixue huaxue yaopin mingren yiren
-wuzhong renming`) at `--min-freq 300` by the `:tools` module, keeping the APK ~60 MB. The **full** pack
+wuzhong renming`) at `--min-freq 400` by the `:tools` module, keeping the APK ~64 MB. The **full** pack
 (the same 14 tables at `--min-freq 1`, no per-key cap) is built the same way and hosted as a downloadable
 asset; at runtime a downloaded `aegis_*.bin` under `filesDir/downloaded/` overrides the seed
 (`AegisInputMethodService.downloadedOverride`). No per-key cap is applied to any tier (简拼 long tails are
@@ -37,10 +37,10 @@ kept in full).
 
 ```
 ./gradlew :tools:installDist
-# seed (bundled): --min-freq 300 ;  full (download): --min-freq 1
-tools/build/install/tools/bin/tools --out <dict> --min-freq 300 --keytype letter   <14 wanxiang .dict.yaml ...>
-tools/build/install/tools/bin/tools --out <t9>   --min-freq 300 --keytype digit    <14 ...>
-tools/build/install/tools/bin/tools --out <jp>   --min-freq 300 --keytype initials <14 ...>
+# seed (bundled): --min-freq 400 ;  full (download): --min-freq 1
+tools/build/install/tools/bin/tools --out <dict> --min-freq 400 --keytype letter   <14 wanxiang .dict.yaml ...>
+tools/build/install/tools/bin/tools --out <t9>   --min-freq 400 --keytype digit    <14 ...>
+tools/build/install/tools/bin/tools --out <jp>   --min-freq 400 --keytype initials <14 ...>
 tools/build/install/tools/bin/tools lm --out <lm> <14 wanxiang .dict.yaml ...>
 ```
 
