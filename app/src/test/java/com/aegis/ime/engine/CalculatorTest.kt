@@ -86,6 +86,42 @@ class CalculatorTest {
         assertEquals("-1", Calculator.detect("1-2")!!.result) // single dash range still subtracts (accepted)
     }
 
+    @Test fun f3_percent_is_a_postfix_divide_by_100() {
+        assertEquals(0.15, Calculator.evaluate("15%")!!, 1e-9)
+        assertEquals(30.0, Calculator.evaluate("200×15%")!!, 1e-9)   // 200 × 0.15
+        assertEquals(30.0, Calculator.evaluate("200*15%")!!, 1e-9)   // ASCII form
+        assertEquals(0.05, Calculator.evaluate("(2+3)%")!!, 1e-9)    // binds to the parenthesised value
+        assertEquals(-0.05, Calculator.evaluate("-5%")!!, 1e-9)      // unary minus then percent
+    }
+
+    @Test fun f3_detect_fires_on_a_percent_expression_but_not_a_bare_percentage() {
+        val pct = Calculator.detect("200×15%")!!
+        assertEquals("200×15%", pct.expr)
+        assertEquals("30", pct.result)
+        assertEquals("=30 is appended when no '=' was typed", "=30", pct.append)
+        // Conservative: a bare percentage (no binary operator) must NOT pop a result — "50% off" in prose.
+        assertNull("a bare percentage is not a calculation", Calculator.detect("50%"))
+        assertNull("a bare percentage is not a calculation", Calculator.detect("100%"))
+    }
+
+    @Test fun f3_a_trailing_equals_terminates_the_expression_and_appends_the_bare_result() {
+        val m = Calculator.detect("1+1=")!!
+        assertEquals("the '=' is not part of the expression", "1+1", m.expr)
+        assertEquals("2", m.result)
+        assertEquals("only the bare result is appended after a typed '='", "2", m.append)
+        // Idempotent: once "1+1=2" exists, no further calc result is offered (the '=' breaks the trailing run).
+        assertNull("no result lingers after the equation is complete", Calculator.detect("1+1=2"))
+        // A lone value with a trailing '=' is not a calculation.
+        assertNull(Calculator.detect("5="))
+        // Spaces before the '=' are tolerated.
+        assertEquals("80", Calculator.detect("12+34*2 =")!!.result)
+    }
+
+    @Test fun f3_without_a_typed_equals_the_append_keeps_the_equals_prefix() {
+        assertEquals("=2", Calculator.detect("1+1")!!.append)
+        assertEquals("=80", Calculator.detect("12+34*2")!!.append)
+    }
+
     @Test fun the_dash_guard_shape_match_spares_unary_paren_and_decimal_negatives() {
         // The guard targets a precise digit-dash shape, so these non-date negatives still calculate (they
         // were wrongly suppressed by the earlier "all operators are '-'" form, which counted unary minus).

@@ -18,15 +18,19 @@ package com.aegis.ime.engine
 /**
  * U25 计算器: detect a trailing arithmetic expression in the text before the cursor and evaluate it, so
  * the result can be offered as a candidate. Pure + side-effect free. Operators + − × ÷ (and their ASCII
- * forms * /), parentheses, decimals, and a leading unary minus are supported, with normal precedence.
+ * forms * /), parentheses, decimals, a leading unary minus, and a postfix percent (% = ÷100, F3) are
+ * supported, with normal precedence; a single trailing '=' (F3) terminates the expression for evaluation.
  *
  * Deliberately conservative — [detect] only fires on a maximal trailing run of expression characters that
- * (a) actually contains a binary operator and (b) parses, so plain numbers / phone numbers / pinyin never
- * produce a result ("仅识别为算式时才算").
+ * (a) actually contains a binary operator and (b) parses, so plain numbers / phone numbers / pinyin / a
+ * bare percentage ("50%") never produce a result ("仅识别为算式时才算"); '%' computes only inside an
+ * operator-bearing expression like "200×15%".
  */
 object Calculator {
 
-    data class Match(val expr: String, val result: String, val length: Int)
+    /** [append] is exactly the text a pick should add after the expression: "=result" normally, or the bare
+     *  "result" when the user already typed the trailing '=' on the numpad (F3). */
+    data class Match(val expr: String, val result: String, val append: String, val length: Int)
 
     private val OPS = "+-*/×÷"
 
@@ -37,28 +41,38 @@ object Calculator {
     fun detect(textBeforeCursor: CharSequence): Match? {
         val s = textBeforeCursor.toString()
         if (s.isEmpty()) return null
-        // Walk back over expression chars (digits, . , operators, parens, spaces) to the maximal trailing run,
-        // then skip any leading spaces so the run we replace starts exactly at the expression (keeps a
+        // F3: a '=' typed on the numpad (optionally after spaces) terminates the expression — evaluate what
+        // precedes it and append only the bare result, so "1+1=" → "1+1=2" rather than "1+1==2".
+        var end = s.length
+        while (end > 0 && s[end - 1] == ' ') end--
+        val endsWithEquals = end > 0 && s[end - 1] == '='
+        if (endsWithEquals) end--
+        // Walk back over expression chars (digits, . , operators, parens, %, spaces) to the maximal trailing
+        // run, then skip any leading spaces so the run we replace starts exactly at the expression (keeps a
         // preceding space like "price: 12+3" intact).
-        var start = s.length
+        var start = end
         while (start > 0 && isExprChar(s[start - 1])) start--
-        while (start < s.length && s[start] == ' ') start++
-        val expr = s.substring(start)
+        while (start < end && s[start] == ' ') start++
+        val expr = s.substring(start, end)
         if (expr.isBlank()) return null
-        // Must contain a binary operator between operands (a bare "12" or "(5)" is not a calculation).
+        // Must be a real calculation: a binary operator between operands (a bare "12" / "(5)" / "15%" is not).
+        // A postfix '%' (F3) computes only WITHIN such an expression ("200×15%"=30), never on its own — so an
+        // ordinary "50%" / "100%" in prose does not pop a spurious result (keeps the conservative contract).
         if (!hasBinaryOperator(expr)) return null
         // Cheap date/phone/range guard: a run shaped like integer groups joined by 2+ single dashes
         // (2024-01-15, 138-1234-5678, 1-2-3) is far more likely a date/phone/range than a subtraction
-        // chain, so suppress the noise. The shape match is precise — anything with + * / × ÷, parentheses,
+        // chain, so suppress the noise. The shape match is precise — anything with + * / × ÷ %, parentheses,
         // a decimal point, an explicit/leading unary minus, or spaces (1-(-6), -5-3, 1.5-2-3, "1 - 2 - 3")
         // still calculates, and every division is untouched; only a bare digit-dash-digit-dash… run is dropped.
         if (DATE_LIKE.matches(expr)) return null
         val value = evaluate(expr) ?: return null
-        return Match(expr, format(value), s.length - start)
+        val result = format(value)
+        val append = if (endsWithEquals) result else "=$result"
+        return Match(expr, result, append, s.length - start)
     }
 
     private fun isExprChar(c: Char): Boolean =
-        c.isDigit() || c == '.' || c == '(' || c == ')' || c == ' ' || c in OPS
+        c.isDigit() || c == '.' || c == '(' || c == ')' || c == ' ' || c == '%' || c in OPS
 
     /** True if [expr] has an operator acting as a binary op (not just a leading unary minus). */
     private fun hasBinaryOperator(expr: String): Boolean {
@@ -132,7 +146,16 @@ object Calculator {
             val c = peek() ?: throw IllegalStateException("unexpected end")
             if (c == '+') { i++; return parseFactor() }
             if (c == '-') { i++; return -parseFactor() }
-            if (c == '(') {
+            var v = parsePrimary()
+            // F3: postfix percent — "15%" = 0.15, "200×15%" = 200×0.15 = 30; chained "%%" divides again.
+            skipSpace()
+            while (peek() == '%') { i++; v /= 100.0; skipSpace() }
+            return v
+        }
+
+        private fun parsePrimary(): Double {
+            skipSpace()
+            if (peek() == '(') {
                 i++
                 val v = parseExpression()
                 skipSpace()

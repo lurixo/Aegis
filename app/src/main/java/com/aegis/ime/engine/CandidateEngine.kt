@@ -49,8 +49,11 @@ interface CandidateEngine {
      * left-column path (★E). Like [candidatesCovered] but over committed letters rather than the live
      * digit buffer, so locking a reading keeps the full sentence + completions + per-prefix words
      * instead of collapsing to just the best sentence. coveredLen is in LETTERS of [letters].
+     *
+     * F6 (debug.12): [cuts] are the user's forced 分词 boundaries (positions in [letters]) still inside the
+     * active tail, so a locked reading no longer drops them — no decoded word may span a forced boundary.
      */
-    fun candidatesForReadingCovered(letters: String, context: CharSequence = ""): List<Cand> =
+    fun candidatesForReadingCovered(letters: String, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =
         candidatesForReading(letters).map { Cand(it, letters.length) }
 
     /** English completions + corrections for the buffered EN mode. */

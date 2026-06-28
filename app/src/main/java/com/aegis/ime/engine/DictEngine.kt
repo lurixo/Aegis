@@ -63,11 +63,12 @@ class DictEngine(
         return decoder?.decode(letters, MAX_CANDIDATES) ?: emptyList()
     }
 
-    override fun candidatesForReadingCovered(letters: String, context: CharSequence): List<Cand> {
+    override fun candidatesForReadingCovered(letters: String, cuts: Set<Int>, context: CharSequence): List<Cand> {
         if (letters.isEmpty()) return emptyList()
         // The locked left-column path: letters are committed full pinyin (always 26-key alphabet),
         // so the letter [decoder] gives the rich best-sentence + completions + per-prefix words.
-        return decoder?.decodeCovered(letters, MAX_CANDIDATES, context = context) ?: emptyList()
+        // F6: forward the user's forced 分词 boundaries so the decode honours them after a lock too.
+        return decoder?.decodeCovered(letters, MAX_CANDIDATES, cuts, context) ?: emptyList()
     }
 
     override fun english(typed: String): List<String> =
