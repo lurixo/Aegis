@@ -226,6 +226,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onBackspaceSwipe = { up -> if (!controller.onBackspaceSwipe(up)) handleBackspaceSwipe(up) }
             onPanelBackspace = { controller.onPanelBackspace() } // A2 expanded: 退格
             onPanelClear = { controller.onPanelClear() }          // A2 expanded: 重输
+            onExpandClosed = { controller.clearDrill() }          // UI-2: drop the drilled syllable on close
             onCollapse = { requestHideSelf(0) } // idle toolbar ⌄ collapses the keyboard
             onCopyCommit = { t -> commitLargeText(t) } // 复制条 ⑤: 上屏 (到当前字段; E5: chunked for huge clips)
             onCopyBlock = { b -> copyBlockToAegis(b) }                        // 复制条 ③: 写 aegis 剪贴板(不上屏/不写系统)

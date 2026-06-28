@@ -37,6 +37,7 @@ class InputView(context: Context) : LinearLayout(context) {
     var onBackspaceSwipe: (Boolean) -> Unit = {}
     var onPanelBackspace: () -> Unit = {}   // A2 expanded screen: 退格
     var onPanelClear: () -> Unit = {}       // A2 expanded screen: 重输
+    var onExpandClosed: () -> Unit = {}     // UI-2: the expand grid closed → drop any drilled-syllable state
     var onCollapse: () -> Unit = {}
     var onCopyCommit: (String) -> Unit = {} // 复制条 ⑤: 上屏 the copied content
     var onCopyBlock: (String) -> Unit = {}  // 复制条 ③: 拆词 block → aegis clipboard
@@ -51,6 +52,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private val body = LinearLayout(context) // grey-filled body: candidate bar + keyboard / panel
     private var lastCandidates: List<String> = emptyList()
     private var lastReadings: List<String> = emptyList()
+    private var lastSelectedReading = -1 // UI-2: which expand-screen syllable (分词) is drilled, −1 = none
     private var composingNow = false // U21: whether the candidate strip is showing candidates / preedit
     private var currentPanel: View? = null // which panel is showing (B-1: only the A2 grid auto-closes)
     private var palette = ImePalette.STATIC_LIGHT
@@ -198,9 +200,10 @@ class InputView(context: Context) : LinearLayout(context) {
 
     /** [preedit] is the pinyin tab text (separate from candidates, C1); [readings] = the active syllable's
      *  combinations for the expanded screen's left column (A2). */
-    fun showCandidates(candidates: List<String>, preedit: String, readings: List<String>) {
+    fun showCandidates(candidates: List<String>, preedit: String, readings: List<String>, selectedReading: Int = -1) {
         lastCandidates = candidates
         lastReadings = readings
+        lastSelectedReading = selectedReading
         // Content-only: empty text just blanks the row; the row keeps its fixed height so the IME window
         // height is constant and the host's layout never jitters while typing.
         preeditView.setText(preedit)
@@ -216,14 +219,14 @@ class InputView(context: Context) : LinearLayout(context) {
         // visible panel the moment the preedit emptied, so a panel opened then immediately auto-closed.
         if (currentPanel === gridView) {
             if (preedit.isEmpty()) showPanel(null)
-            else { gridView.setCandidates(candidates); gridView.setReadings(readings) }
+            else { gridView.setCandidates(candidates); gridView.setReadings(readings, selectedReading) }
         }
     }
 
     internal fun showExpandedCandidates() {
         if (lastCandidates.isEmpty()) return
         gridView.setCandidates(lastCandidates)
-        gridView.setReadings(lastReadings)
+        gridView.setReadings(lastReadings, lastSelectedReading)
         showPanel(gridView)
     }
 
@@ -240,6 +243,10 @@ class InputView(context: Context) : LinearLayout(context) {
         // fresh (default tab/category/scroll, no lock/overlay). Every close funnels through here — 返回, a
         // commit, the P4 re-tap toggle, and onStartInputView's showPanel(null) — so one hook covers them all.
         (outgoing as? ResettablePanel)?.takeIf { it !== panel }?.resetToDefault()
+        // UI-2: leaving the expand grid drops any drilled-syllable state so the strip returns to the normal
+        // word candidates instead of staying stuck on one syllable's 同音字 (the panel close is not a keystroke,
+        // so nothing else would reset it).
+        if (outgoing === gridView && panel !== gridView) onExpandClosed()
         panelContainer.removeAllViews()
         currentPanel = panel
         // U14: the candidate-bar chevron points up + collapses only while the A2 grid is the open panel.
