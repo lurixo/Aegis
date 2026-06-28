@@ -57,11 +57,20 @@ class ClipImageStore(private val dir: File) {
         return out.absolutePath
     }
 
-    /** Keep at most [MAX_IMAGES] files (oldest deleted); a stale history entry then shows a graceful fallback. */
+    /**
+     * E3: bound the image dir primarily by TOTAL BYTES ([MAX_TOTAL_BYTES]) — with a large file-count backstop
+     * ([MAX_IMAGES]) — deleting oldest first. Bounding by bytes (not a flat count) lets many small images
+     * coexist while a few large ones can't fill storage. A stale history entry then shows a graceful fallback.
+     */
     private fun prune() {
-        val files = runCatching { imageDir().listFiles()?.sortedBy { it.lastModified() } }.getOrNull() ?: return
-        val excess = files.size - MAX_IMAGES
-        if (excess > 0) files.take(excess).forEach { runCatching { it.delete() } }
+        var files = runCatching { imageDir().listFiles()?.sortedBy { it.lastModified() } }.getOrNull() ?: return
+        val excessCount = files.size - MAX_IMAGES
+        if (excessCount > 0) { files.take(excessCount).forEach { runCatching { it.delete() } }; files = files.drop(excessCount) }
+        var total = files.sumOf { it.length() }
+        var i = 0
+        while (total > MAX_TOTAL_BYTES && i < files.size) {
+            total -= files[i].length(); runCatching { files[i].delete() }; i++
+        }
     }
 
     /** Decode a DOWN-SAMPLED thumbnail (longest side ≈ [maxPx]) — never the full bitmap (OOM guard). */
@@ -101,8 +110,9 @@ class ClipImageStore(private val dir: File) {
     }
 
     companion object {
-        const val MAX_BYTES = 8L * 1024 * 1024 // 8 MB single-image cap
-        private const val MAX_IMAGES = 100      // keep at most this many image files on disk
+        const val MAX_BYTES = 32L * 1024 * 1024          // E3: single-image cap 8 → 32 MB (huge ones still toast)
+        const val MAX_TOTAL_BYTES = 512L * 1024 * 1024   // E3: bound the whole image dir by total bytes
+        private const val MAX_IMAGES = 1000              // E3: count backstop only (was the primary 100 cap)
 
         /** image/png etc. inferred from the saved file's extension (for commitContent's ClipDescription). */
         fun mimeOf(path: String): String = when (path.substringAfterLast('.', "").lowercase()) {

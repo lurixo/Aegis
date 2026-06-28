@@ -114,7 +114,9 @@ class CopyBarView(context: Context) : LinearLayout(context) {
     }.apply { setOnClickListener { ctl.tapContent() } } // the whole left block (glyph + 内容) 上屏s
 
     private fun content(s: String): TextView = TextView(context).apply {
-        text = s
+        // E5: bound the displayed preview — a million-char clip would jank the TextView even with maxLines=1.
+        // The tap (ctl.tapContent → onCommit) always 上屏s the FULL clip (ctl.content), never this preview.
+        text = if (s.length > DISPLAY_CAP) s.substring(0, DISPLAY_CAP) else s
         maxLines = 1
         ellipsize = android.text.TextUtils.TruncateAt.END
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
@@ -148,5 +150,8 @@ class CopyBarView(context: Context) : LinearLayout(context) {
 
     private fun lp(w: Int, h: Int, weight: Float = 0f) = LinearLayout.LayoutParams(w, h, weight)
 
-    private companion object { const val WC = LinearLayout.LayoutParams.WRAP_CONTENT }
+    private companion object {
+        const val WC = LinearLayout.LayoutParams.WRAP_CONTENT
+        const val DISPLAY_CAP = 2000 // E5: max chars shown in the copy-bar preview (上屏 stays full)
+    }
 }

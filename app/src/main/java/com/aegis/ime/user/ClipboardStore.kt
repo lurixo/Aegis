@@ -16,6 +16,9 @@
 package com.aegis.ime.user
 
 import java.io.File
+import java.security.MessageDigest
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * On-device clipboard history + canned phrases (issue #7 / C). Plain-text files in
@@ -30,17 +33,41 @@ class ClipboardStore(private val dir: File) {
 
     private val histFile get() = File(dir, "clipboard.txt")
     private val phraseFile get() = File(dir, "phrases.txt")
+    // E5: oversized text entries (e.g. a million-char paste) live in their OWN content-addressed file here, so
+    // clipboard.txt stays a tiny index (a B-marker per big entry) that writes fast — content never truncated.
+    private fun clipsDir() = File(dir, "clips")
 
     private val history = ArrayList<String>()
+
+    // E5: history persistence is async + coalesced, so record()/delete() never block the (main-thread) caller
+    // on a multi-MB writeText/encode. A single IO thread serializes writes; a generation counter drops stale
+    // snapshots so only the latest state is written.
+    private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "aegis-clip-io").apply { isDaemon = true } }
+    private val saveGen = AtomicLong(0)
 
     private class Category(var name: String, val phrases: ArrayList<String> = ArrayList())
     private val phraseCats = ArrayList<Category>()
 
     fun load() {
         history.clear()
-        runCatching { if (histFile.exists()) histFile.readLines().forEach { decode(it)?.let(history::add) } }
+        runCatching { if (histFile.exists()) histFile.readLines().forEach { readEntry(it)?.let(history::add) } }
         loadPhrases()
     }
+
+    /**
+     * E5: parse one clipboard.txt line into its full-text entry. A "B\t<hash>" line whose side file exists is a
+     * big entry (read in full); EVERYTHING ELSE — inline entries (kept BARE, identical to the pre-E5 format) and
+     * legacy lines — is decoded as-is. Inline lines carry NO prefix on purpose, so there is no marker that can
+     * collide with arbitrary clip content; and a "B\t…" line with no backing file falls back to literal text
+     * (a pre-E5 tab-delimited clip that merely starts with "B"+TAB is preserved, never dropped/corrupted).
+     */
+    private fun readEntry(line: String): String? =
+        if (line.startsWith(BIG_LINE)) {
+            File(clipsDir(), line.substring(BIG_LINE.length) + ".txt").takeIf { it.isFile }
+                ?.let { runCatching { it.readText() }.getOrNull() } ?: decode(line)
+        } else {
+            decode(line)
+        }
 
     private fun loadPhrases() {
         phraseCats.clear()
@@ -74,7 +101,7 @@ class ClipboardStore(private val dir: File) {
         history.remove(t)
         history.add(0, t)
         while (history.size > MAX_HISTORY) history.removeAt(history.size - 1)
-        saveHistory()
+        scheduleSave()
     }
 
     /**
@@ -84,9 +111,9 @@ class ClipboardStore(private val dir: File) {
     fun recordImage(path: String) { if (path.isNotEmpty()) record(IMG_PREFIX + path) }
 
     /** C7 多选删除: drop one / many history entries (and persist). No-op for entries not present. */
-    fun delete(text: String) { if (history.remove(text)) saveHistory() }
-    fun deleteAll(texts: Collection<String>) { if (history.removeAll(texts.toSet())) saveHistory() }
-    fun clearHistory() { if (history.isNotEmpty()) { history.clear(); saveHistory() } }
+    fun delete(text: String) { if (history.remove(text)) scheduleSave() }
+    fun deleteAll(texts: Collection<String>) { if (history.removeAll(texts.toSet())) scheduleSave() }
+    fun clearHistory() { if (history.isNotEmpty()) { history.clear(); scheduleSave() } }
 
     fun history(): List<String> = history.toList()
 
@@ -158,7 +185,57 @@ class ClipboardStore(private val dir: File) {
 
     private fun find(name: String): Category? = phraseCats.firstOrNull { it.name == name }
 
-    private fun saveHistory() = runCatching { histFile.writeText(history.joinToString("\n") { encode(it) }) }
+    /**
+     * E5: snapshot the list on the CALLER thread (cheap — copies references) and write it on the IO thread, so
+     * the caller (main thread) never blocks on multi-MB IO. A generation counter writes only the latest
+     * snapshot if several mutations queue up. TRADE-OFF (by design): persistence is now async, so a process
+     * kill in the brief window before the IO thread flushes can lose the most recent entry — acceptable vs the
+     * main-thread jank a synchronous million-char writeText caused, and the window is just the write duration
+     * (no debounce delay).
+     */
+    private fun scheduleSave() {
+        val snapshot = ArrayList(history)
+        val gen = saveGen.incrementAndGet()
+        runCatching { io.execute { if (gen == saveGen.get()) writeHistory(snapshot) } }
+    }
+
+    /** E5: write the history index — big entries (> [BIG_THRESHOLD]) go to a content-addressed side file
+     *  (written once; clipboard.txt keeps only a B-marker) so the main file stays small; small entries stay
+     *  inline (bare, legacy-compatible). Writes are atomic (temp+rename, never a partial file). Then drop any
+     *  side file no longer referenced. Runs on the IO thread. */
+    private fun writeHistory(snapshot: List<String>) = runCatching {
+        val sb = StringBuilder()
+        val referenced = HashSet<String>()
+        for (e in snapshot) {
+            if (e.length > BIG_THRESHOLD && !isImageEntry(e)) {
+                val hash = sha256(e)
+                referenced.add(hash)
+                val f = File(clipsDir().apply { mkdirs() }, "$hash.txt")
+                if (!f.exists()) atomicWrite(f, e) // content-addressed → write once, atomic, never truncate
+                sb.append(BIG_LINE).append(hash).append('\n')
+            } else {
+                sb.append(encode(e)).append('\n') // inline = bare line (no prefix → no collision with content)
+            }
+        }
+        atomicWrite(histFile, sb.toString())
+        // Orphan sweep: a big entry that was deleted/evicted leaves a side file no current entry references.
+        clipsDir().listFiles()?.forEach { f ->
+            if (f.name.endsWith(".txt") && f.name.removeSuffix(".txt") !in referenced) runCatching { f.delete() }
+        }
+    }
+
+    /** Write [text] to [dest] via a temp file + rename so a crash mid-write can never leave a partial file. */
+    private fun atomicWrite(dest: File, text: String) {
+        val tmp = File(dest.parentFile, dest.name + ".tmp")
+        tmp.writeText(text)
+        if (!tmp.renameTo(dest)) { dest.delete(); if (!tmp.renameTo(dest)) tmp.delete() }
+    }
+
+    private fun sha256(s: String): String =
+        MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+
+    /** Test seam: block until every queued async write has finished (IO thread is single-threaded / FIFO). */
+    internal fun awaitWritesForTest() { runCatching { io.submit { }.get() } }
 
     private fun savePhrases() = runCatching {
         val sb = StringBuilder()
@@ -194,6 +271,11 @@ class ClipboardStore(private val dir: File) {
         const val IMG_PREFIX = "img:"
         fun isImageEntry(entry: String): Boolean = entry.startsWith(IMG_PREFIX)
         fun imagePath(entry: String): String = if (isImageEntry(entry)) entry.substring(IMG_PREFIX.length) else entry
+
+        // E5: a big entry is externalised to clips/<sha256>.txt and indexed by a "B\t<sha256>" line; every
+        // other line is a bare inline entry (legacy-compatible). Above this many chars an entry is externalised.
+        private const val BIG_LINE = "B\t"        // a big entry: B\t<sha256>  → content in clips/<sha256>.txt
+        const val BIG_THRESHOLD = 64 * 1024       // chars; above this an entry is stored in its own side file
 
         private const val MAX_HISTORY = 100000 // U9: effectively no 条数上限 (kept large only as a file-bloat backstop)
         private const val DEFAULT_CATEGORY = "默认"
