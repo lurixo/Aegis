@@ -16,6 +16,7 @@
 package com.aegis.ime.ime
 
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
 import android.content.Context
 import android.graphics.drawable.GradientDrawable
@@ -45,14 +46,14 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     private val headerBar = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
     private val backText = TextView(context).apply {
         text = "‹ 自定义标点"
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         setPadding(dp(12), dp(10), dp(12), dp(10))
         isClickable = true
         setTextColor(colors.keyLabel)
     }
     private val pasteText = TextView(context).apply {
         text = "📋 粘贴符号"
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
         setPadding(dp(12), dp(10), dp(12), dp(10))
         isClickable = true
         setTextColor(colors.keyLabel)
@@ -101,7 +102,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     private fun sectionLabel(text: String): View = TextView(context).apply {
         this.text = text
         setTextColor(colors.keyLabelSecondary)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.caption)
         setPadding(dp(12), dp(6), dp(12), dp(4))
         sectionLabels.add(this)
     }

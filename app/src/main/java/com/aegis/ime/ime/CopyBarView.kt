@@ -16,6 +16,7 @@
 package com.aegis.ime.ime
 
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
 import android.content.Context
 import android.graphics.drawable.GradientDrawable
@@ -69,7 +70,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
             val chips = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
             if (ctl.blocks.isEmpty()) chips.addView(TextView(context).apply {
                 text = "无可拆分内容"; setTextColor(palette.keyHint)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f); setPadding(dp(8), 0, dp(8), 0)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label); setPadding(dp(8), 0, dp(8), 0)
             })
             for (b in ctl.blocks) chips.addView(chip(b) { ctl.tapBlock(b) })
             addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, lp(0, WC, 1f))
@@ -81,7 +82,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
     private fun icon(): View = TextView(context).apply {
         text = "📋"
         gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         setOnClickListener { ctl.tapContent() }
     }
 
@@ -89,7 +90,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         text = s
         maxLines = 1
         ellipsize = android.text.TextUtils.TruncateAt.END
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         setTextColor(palette.candidateText)
         setPadding(dp(8), 0, dp(8), 0)
         gravity = Gravity.CENTER_VERTICAL
@@ -99,7 +100,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
     private fun chip(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
         text = label
         gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         setTextColor(palette.candidateText)
         setPadding(dp(12), dp(5), dp(12), dp(5))
         background = GradientDrawable().apply { setColor(palette.chipBg); cornerRadius = ImeShapes.chipRadiusDp * density }
@@ -110,7 +111,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
     private fun pill(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
         text = label
         gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
         setTextColor(palette.icon)
         setPadding(dp(10), 0, dp(10), 0)
         setOnClickListener { onClick() }
