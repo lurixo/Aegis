@@ -22,10 +22,17 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import android.content.ClipDescription
+import android.graphics.Bitmap
+import android.util.LruCache
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.Toast
+import androidx.core.content.FileProvider
+import androidx.core.view.inputmethod.EditorInfoCompat
+import androidx.core.view.inputmethod.InputConnectionCompat
+import androidx.core.view.inputmethod.InputContentInfoCompat
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.Fuzzy
@@ -72,9 +79,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var selecting = false
     private var deletedSnapshot: CharSequence? = null // for the backspace up/down restore gesture (#5)
     private val clipboardStore by lazy { ClipboardStore(filesDir).also { it.load() } }
+    private val clipImageStore by lazy { com.aegis.ime.user.ClipImageStore(filesDir) } // U22 image clipboard
+    private val thumbCache = LruCache<String, Bitmap>(50) // U22: decoded thumbnails (path → bitmap)
     private val symbolUsageStore by lazy { SymbolUsageStore(filesDir).also { it.load() } }
     // C1 privacy: pause clipboard capture while a password / PIN / 2FA field is focused (set per onStartInput).
     @Volatile private var secureField = false
+    // U21: the most-recent captured clip — kept so the 复制条 survives an app switch / IME re-show (restored
+    // in onStartInputView). Cleared when the user leaves the bar (× or 上屏).
+    private var lastCopy: String? = null
     @Volatile private var userDbLoaded = false // M-2: the initial userdb load has completed
     private var imePalette = ImePalette.STATIC_LIGHT // F1: live Monet palette (dark-aware)
 
@@ -191,8 +203,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onPanelBackspace = { controller.onPanelBackspace() } // A2 expanded: 退格
             onPanelClear = { controller.onPanelClear() }          // A2 expanded: 重输
             onCollapse = { requestHideSelf(0) } // idle toolbar ⌄ collapses the keyboard
-            onCopyCommit = { t -> currentInputConnection?.commitText(t, 1) } // 复制条 ⑤: 上屏
+            onCopyCommit = { t -> currentInputConnection?.commitText(t, 1) } // 复制条 ⑤: 上屏 (到当前字段)
             onCopyBlock = { b -> copyBlockToAegis(b) }                        // 复制条 ③: 写 aegis 剪贴板(不上屏/不写系统)
+            onCopyDismiss = { lastCopy = null }                              // U21: ④/⑤ 离开 → 不再恢复该复制条
         }
         inputView = view
         controller.attachView(view)
@@ -204,7 +217,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         inputView?.showPanel(null)
-        inputView?.hideCopyBar() // 复制条: start each field clean — never carry a stale clip across input sessions
+        // U21: restore the most-recent 复制条 across an app switch / IME re-show (reverses the old
+        // "start clean" behaviour). Suppressed in a password/secure field. ⑤ "点内容→上屏" then targets
+        // the current field (acceptable behaviour).
+        val lc = lastCopy
+        if (lc != null && !secureField) inputView?.showCopyBar(lc) else inputView?.hideCopyBar()
         // B5: honour the user's CN default-keyboard choice (9-key unless they picked 26-key); EN stays 26-key.
         val cnLayout = getSharedPreferences("aegis", MODE_PRIVATE).getString("cn_layout", "nine")
         controller.setCnDefaultLayout(if (cnLayout == "alpha") LayoutId.ALPHA else LayoutId.NINE)
@@ -314,14 +331,17 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.categoriesProvider = { clipboardStore.categories() }                       // C5 分类
             it.phrasesInProvider = { cat -> clipboardStore.phrasesIn(cat) }
             it.onPick = { t -> currentInputConnection?.commitText(t, 1); inputView?.showPanel(null) }
+            it.onPickImage = { path -> pasteImage(path) }                                  // U22: 点图片条目 → commitContent
+            it.thumbnailProvider = { path -> thumbCache.get(path) }                        // U22: 缓存命中(同步)
+            it.onLoadThumbnail = { path, cb -> loadThumbnailAsync(path, cb) }              // U22: 未命中后台解码
             it.onCopyBlockToAegis = { b -> copyBlockToAegis(b) }                          // ③ 拆词块写 aegis 剪贴板(不上屏/不写系统)
             it.onBack = { inputView?.showPanel(null) }
-            it.onDeleteClips = { list -> clipboardStore.deleteAll(list) }                  // C7 多选删除
+            it.onDeleteClips = { list -> clipboardStore.deleteAll(list); deleteImageFiles(list) } // C7 多选删除(+图片文件)
             it.onDeletePhrasesFrom = { cat, list -> list.forEach { clipboardStore.deletePhraseFrom(cat, it) } }
             it.onSaveAsPhrasesTo = { cat, list -> clipboardStore.addPhrasesTo(cat, list) } // C7 批量添加常用语
             it.onManage = { openPhraseManager() }                                          // C5 管理 / 新建分类
             it.onClearSystemClipboard = { clearSystemClipboard() }                         // C2
-            it.onClearHistory = { clipboardStore.clearHistory() }
+            it.onClearHistory = { clipboardStore.clearHistory(); clipImageStore.clear(); thumbCache.evictAll() }
             it.historyEnabledProvider = { historyEnabled() }                               // C1 记录开关
             it.onSetHistoryEnabled = { on -> setHistoryEnabled(on) }
             clipboardView = it
@@ -340,26 +360,43 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.current = { customSymbolStore.list() }
             it.onAdd = { s -> customSymbolStore.add(s); controller.setCustomSymbols(customSymbolStore.list()); it.refresh() }
             it.onRemove = { s -> customSymbolStore.remove(s); controller.setCustomSymbols(customSymbolStore.list()); it.refresh() }
+            it.onPaste = { pasteCustomSymbol() } // U13: 粘贴 aegis 没有的符号
             it.onBack = { inputView?.showPanel(null) }
             customSymbolView = it
         }
-        panel.applyPalette(imePalette)
-        panel.refresh()
+        panel.applyPalette(imePalette) // also calls refresh() — no separate refresh needed
         iv.showPanel(panel)
     }
 
-    /** D: categorized symbols panel (reached from the keyboard ✎ pencil key). Symbols commit and stay. */
+    /** U13: add the system clipboard's content as a custom 9-key mark (paste a symbol aegis doesn't ship). */
+    private fun pasteCustomSymbol() {
+        // Read item.text only (no coerceToText → no main-thread ContentResolver read for URI clips).
+        val t = runCatching {
+            clipboardManager.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString()
+        }.getOrNull()?.trim().orEmpty()
+        val msg = when {
+            t.isEmpty() -> "剪贴板为空"
+            t.length > 16 -> "内容过长,未作为符号添加"
+            customSymbolStore.add(t) -> {
+                controller.setCustomSymbols(customSymbolStore.list()); customSymbolView?.refresh(); "已添加：$t"
+            }
+            else -> "已存在或已达上限"
+        }
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    }
+
+    /** D: categorized symbols panel (reached from the keyboard ✎ pencil key). U3: a tap 上屏s + closes the panel. */
     private fun showSymbolsPanel() {
         val iv = inputView ?: return
         val sv = symbolsView ?: SymbolsView(this).also {
             it.recentProvider = { symbolUsageStore.recent() }
-            it.onSymbol = { s -> symbolUsageStore.record(s); currentInputConnection?.commitText(s, 1) }
+            // U3: 点符号 = 上屏 + 自动回到点击前界面(关闭符号面板,回到键盘)。
+            it.onSymbol = { s -> symbolUsageStore.record(s); currentInputConnection?.commitText(s, 1); inputView?.showPanel(null) }
             it.onBackspace = { currentInputConnection?.deleteSurroundingTextInCodePoints(1, 0) }
             it.onBack = { inputView?.showPanel(null) }
             symbolsView = it
         }
-        sv.applyPalette(imePalette)
-        sv.refresh()
+        sv.applyPalette(imePalette) // also re-renders the active category (picks up the latest 常用 MRU)
         iv.showPanel(sv)
     }
 
@@ -387,7 +424,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (secureField || !historyEnabled()) return // C1: skip password fields / when history is off
         runCatching {
             val clip = clipboardManager.primaryClip ?: return
-            if (clip.itemCount > 0) clipboardStore.record(clip.getItemAt(0).coerceToText(this)?.toString())
+            val item = clip.getItemAt(0) ?: return
+            // A2: don't record an image/URI item as a bogus text entry (coerceToText would give "content://…").
+            if (item.uri != null && item.text == null) return
+            clipboardStore.record(item.coerceToText(this)?.toString())
         }
     }
 
@@ -398,13 +438,82 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
      */
     private fun onSystemClipChanged() {
         if (secureField || !historyEnabled()) return
-        val t = runCatching {
-            clipboardManager.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()
-        }.getOrNull()?.trim().orEmpty()
-        if (t.isEmpty()) return
-        clipboardStore.record(t)
-        inputView?.showCopyBar(t)
+        val clip = runCatching { clipboardManager.primaryClip }.getOrNull() ?: return
+        if (clip.itemCount == 0) return
+        val item = clip.getItemAt(0)
+        val declaredImage = clip.description?.hasMimeType("image/*") == true
+        val uri = item.uri
+        if (uri != null) {
+            // U22: a URI clip → resolve type + (if image) save bytes ALL off the main thread (A1: no
+            // main-thread getType/IPC); otherwise fall back to its coerced text. Posts back to the main thread.
+            val seed = System.currentTimeMillis()
+            Thread {
+                val isImage = declaredImage || runCatching { contentResolver.getType(uri)?.startsWith("image/") }.getOrNull() == true
+                val path = if (isImage) clipImageStore.save(contentResolver, uri, seed) else null
+                val text = if (isImage) null else runCatching { item.coerceToText(this)?.toString() }.getOrNull()?.trim()
+                Handler(Looper.getMainLooper()).post {
+                    runCatching { // A3: service may be gone by now
+                        when {
+                            isImage && path != null -> clipboardStore.recordImage(path)
+                            isImage -> toast("图片过大或无法读取,未保存")
+                            !text.isNullOrEmpty() -> recordTextClip(text)
+                        }
+                    }
+                }
+            }.apply { isDaemon = true }.start()
+            return
+        }
+        // Plain text clip (no URI): item.text only, on the main thread.
+        val t = item.text?.toString()?.trim().orEmpty()
+        if (t.isNotEmpty()) recordTextClip(t)
     }
+
+    /** Record a captured text clip + raise the copy-bar (unless composing). Shared by the text + URI paths. */
+    private fun recordTextClip(t: String) {
+        clipboardStore.record(t)
+        lastCopy = t // U21: remember it so it survives an app switch / IME re-show
+        if (inputView?.isComposing() != true) inputView?.showCopyBar(t) // don't clobber live candidates
+    }
+
+    /**
+     * U22: insert a saved clipboard image into the target field via commitContent, granting a temporary
+     * read on our FileProvider URI. Gracefully bails (toast, no crash, no silent fail) when the field can't
+     * accept images — EditorInfoCompat.getContentMimeTypes must advertise a compatible image type.
+     */
+    private fun pasteImage(path: String) {
+        val ic = currentInputConnection
+        val editorInfo = currentInputEditorInfo
+        if (ic == null || editorInfo == null) { toast("插入失败"); return }
+        val file = File(path)
+        if (!file.exists()) { toast("图片已不存在"); return }
+        val mime = com.aegis.ime.user.ClipImageStore.mimeOf(path)
+        val accepts = EditorInfoCompat.getContentMimeTypes(editorInfo)
+        if (accepts.none { ClipDescription.compareMimeTypes(mime, it) }) { toast("当前输入框不支持插入图片"); return }
+        val uri = runCatching { FileProvider.getUriForFile(this, "$packageName.fileprovider", file) }.getOrNull()
+        if (uri == null) { toast("插入失败"); return }
+        val info = InputContentInfoCompat(uri, ClipDescription("clip image", arrayOf(mime)), null)
+        val ok = runCatching {
+            InputConnectionCompat.commitContent(ic, editorInfo, info, InputConnectionCompat.INPUT_CONTENT_GRANT_READ_URI_PERMISSION, null)
+        }.getOrDefault(false)
+        if (ok) inputView?.showPanel(null) else toast("插入失败")
+    }
+
+    /** U22: decode a ~160px thumbnail OFF the main thread, cache it, and deliver it on the main thread. */
+    private fun loadThumbnailAsync(path: String, cb: (Bitmap?) -> Unit) {
+        Thread {
+            val b = clipImageStore.thumbnail(path, 160)?.also { thumbCache.put(path, it) }
+            Handler(Looper.getMainLooper()).post { runCatching { cb(b) } }
+        }.apply { isDaemon = true }.start()
+    }
+
+    /** U22: when image history entries are deleted, drop their backing files + cached thumbnails too. */
+    private fun deleteImageFiles(entries: List<String>) {
+        for (e in entries) if (ClipboardStore.isImageEntry(e)) {
+            val p = ClipboardStore.imagePath(e); clipImageStore.delete(p); thumbCache.remove(p)
+        }
+    }
+
+    private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
     /**
      * ③ 拆词块 → aegis 剪贴板: write the block to [clipboardStore] (NOT the system clipboard, NOT the

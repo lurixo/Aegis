@@ -40,6 +40,7 @@ class InputView(context: Context) : LinearLayout(context) {
     var onCollapse: () -> Unit = {}
     var onCopyCommit: (String) -> Unit = {} // 复制条 ⑤: 上屏 the copied content
     var onCopyBlock: (String) -> Unit = {}  // 复制条 ③: 拆词 block → aegis clipboard
+    var onCopyDismiss: () -> Unit = {}      // U21: 复制条 ④/⑤ left → host forgets the persisted clip
 
     private val preeditView = PreeditView(context)
     private val candidateView = CandidateView(context)
@@ -50,6 +51,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private val body = LinearLayout(context) // grey-filled body: candidate bar + keyboard / panel
     private var lastCandidates: List<String> = emptyList()
     private var lastReadings: List<String> = emptyList()
+    private var composingNow = false // U21: whether the candidate strip is showing candidates / preedit
     private var currentPanel: View? = null // which panel is showing (B-1: only the A2 grid auto-closes)
     private var palette = ImePalette.STATIC_LIGHT
 
@@ -91,7 +93,7 @@ class InputView(context: Context) : LinearLayout(context) {
         // 复制条: content → 上屏; block → aegis clipboard; both ⑤ and ④ leave via onDismiss.
         copyBarView.onCommit = { t -> onCopyCommit(t) }
         copyBarView.onCopyBlock = { b -> onCopyBlock(b) }
-        copyBarView.onDismiss = { hideCopyBar() }
+        copyBarView.onDismiss = { hideCopyBar(); onCopyDismiss() }
         // the preedit + candidate rows are FIXED-HEIGHT and ALWAYS present — only their
         // CONTENT changes, never their visibility — so the IME's total height never changes while typing.
         // (Toggling the preedit GONE/VISIBLE grew/shrank the window on every keystroke that started or
@@ -154,6 +156,9 @@ class InputView(context: Context) : LinearLayout(context) {
 
     val copyBarShown: Boolean get() = copyBarView.visibility == VISIBLE
 
+    /** U21: whether the candidate strip is currently composing (so the host won't clobber it with the copy-bar). */
+    fun isComposing(): Boolean = composingNow
+
     /** [preedit] is the pinyin tab text (separate from candidates, C1); [readings] = the active syllable's
      *  combinations for the expanded screen's left column (A2). */
     fun showCandidates(candidates: List<String>, preedit: String, readings: List<String>) {
@@ -163,8 +168,11 @@ class InputView(context: Context) : LinearLayout(context) {
         // height is constant and the host's layout never jitters while typing.
         preeditView.setText(preedit)
         candidateView.setContent(candidates, preedit)
-        // Composing wins the strip: once the user starts typing, drop the copy-bar so candidates show.
-        if (copyBarShown && (candidates.isNotEmpty() || preedit.isNotEmpty())) hideCopyBar()
+        composingNow = candidates.isNotEmpty() || preedit.isNotEmpty()
+        // Composing wins the strip: once the user starts typing, drop the copy-bar so candidates show — and
+        // forget the persisted clip (U21) so it does NOT resurrect on the next field; only an app-switch
+        // re-show (no typing) keeps it. × / ⑤ already clear it via onCopyDismiss.
+        if (copyBarShown && composingNow) { hideCopyBar(); onCopyDismiss() }
         // B-1/M-1/L-1: ONLY the A2 expanded candidate grid reacts to a render here — it live-refreshes and
         // closes when composing ends. Every OTHER panel (emoji / clipboard / symbols / 自定义 / edit) must
         // SURVIVE the render() that trails each onKey / setCustomSymbols / setEngine; the old code closed ANY

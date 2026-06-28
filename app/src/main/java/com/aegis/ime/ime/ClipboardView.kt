@@ -17,6 +17,7 @@ package com.aegis.ime.ime
 
 import com.aegis.ime.ime.theme.ImePalette
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
@@ -24,11 +25,13 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import com.aegis.ime.ime.ClipboardPanelState.Tab
 import com.aegis.ime.user.ClipSplitter
+import com.aegis.ime.user.ClipboardStore
 
 /**
  * Clipboard-history + canned-phrases panel (C). Green pill tabs over a list of
@@ -42,6 +45,9 @@ import com.aegis.ime.user.ClipSplitter
 class ClipboardView(context: Context) : FrameLayout(context) {
 
     var onPick: (String) -> Unit = {}                 // commit a clip/phrase and close
+    var onPickImage: (String) -> Unit = {}            // U22: tap an image entry → paste image (path arg)
+    var thumbnailProvider: (String) -> Bitmap? = { null } // U22: path → CACHED thumbnail (no decode), or null
+    var onLoadThumbnail: (String, (Bitmap?) -> Unit) -> Unit = { _, cb -> cb(null) } // U22: decode async, call back on UI thread
     var onCopyBlockToAegis: (String) -> Unit = {}     // 拆词块 → 写 aegis 剪贴板(不上屏/不写系统);面板保持打开
     var onBack: () -> Unit = {}
     var historyProvider: () -> List<String> = { emptyList() }
@@ -74,14 +80,13 @@ class ClipboardView(context: Context) : FrameLayout(context) {
     private var BG = palette.panelBg
     private var SUBTEXT = palette.keyLabelSecondary
     private var SEP = palette.separator
-    private var SCRIM = palette.scrim
 
     /** F1: recolour from the Monet palette and rebuild. */
     fun applyPalette(p: ImePalette) {
         palette = p
         GREEN = p.candidateFirst; GREEN_PILL = p.chipBg; RED = p.deletable; RED_PILL = p.chipBg
         GREY_PILL = p.chipBg; TEXT_DARK = p.keyLabel; HINT = p.keyHint; CARD = p.keySurface
-        TRAY = p.railBg; BG = p.panelBg; SUBTEXT = p.keyLabelSecondary; SEP = p.separator; SCRIM = p.scrim
+        TRAY = p.railBg; BG = p.panelBg; SUBTEXT = p.keyLabelSecondary; SEP = p.separator
         main.setBackgroundColor(BG)
         refresh()
     }
@@ -98,8 +103,6 @@ class ClipboardView(context: Context) : FrameLayout(context) {
     private companion object {
         const val MP = ViewGroup.LayoutParams.MATCH_PARENT
         const val WC = ViewGroup.LayoutParams.WRAP_CONTENT
-        const val CLIP_CAP = 1000
-        const val PHRASE_CAP = 10000
     }
 
     private fun ll(w: Int, h: Int, weight: Float = 0f) = LinearLayout.LayoutParams(w, h, weight)
@@ -134,8 +137,7 @@ class ClipboardView(context: Context) : FrameLayout(context) {
             addView(roundBtn("⚙") { showGearMenu() }, ll(dp(36), dp(34)))
         }
         main.addView(topBar, ll(MP, dp(50)))
-        main.addView(countLine(), ll(MP, WC))
-
+        // U9: no 字数/条数上限 line.
         listColumn.removeAllViews()
         val entries = currentEntries()
         if (entries.isEmpty()) listColumn.addView(emptyHint()) else for (e in entries) listColumn.addView(card(e))
@@ -145,6 +147,7 @@ class ClipboardView(context: Context) : FrameLayout(context) {
     }
 
     private fun card(text: String): View {
+        if (ClipboardStore.isImageEntry(text)) return imageCard(text) // U22
         val expanded = st.expanded == text
         val col = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -177,6 +180,53 @@ class ClipboardView(context: Context) : FrameLayout(context) {
         col.addView(header, ll(MP, WC))
         if (expanded) col.addView(actionRow(text))
         return col
+    }
+
+    /** U22: an image history entry — a thumbnail (tap → paste) with long-press → delete. No expand/拆词.
+     *  The thumbnail is shown from cache if present, else decoded ASYNC (B1: never decode on the UI thread). */
+    private fun imageCard(entry: String): View {
+        val path = ClipboardStore.imagePath(entry)
+        val col = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(CARD, 14f)
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            layoutParams = ll(MP, WC).apply { topMargin = dp(8) }
+        }
+        val img = ImageView(context).apply {
+            adjustViewBounds = true
+            maxHeight = dp(140)
+            minimumHeight = dp(48) // placeholder height while loading
+            scaleType = ImageView.ScaleType.FIT_START
+            setOnClickListener { onPickImage(path) }
+            setOnLongClickListener { showImageMenu(entry); true }
+        }
+        col.addView(img, ll(WC, WC))
+        val cached = thumbnailProvider(path)
+        if (cached != null) {
+            img.setImageBitmap(cached)
+        } else {
+            onLoadThumbnail(path) { bmp ->
+                img.post {
+                    if (bmp != null) img.setImageBitmap(bmp)
+                    else { img.visibility = GONE; col.addView(imageFallback(path, entry), ll(MP, WC)) }
+                }
+            }
+        }
+        col.setOnLongClickListener { showImageMenu(entry); true }
+        return col
+    }
+
+    /** Shown when an image can't be decoded (file pruned / gone) — still tappable to attempt paste. */
+    private fun imageFallback(path: String, entry: String): View = hint("［图片］点按粘贴", 15f, TEXT_DARK).apply {
+        setOnClickListener { onPickImage(path) }
+        setOnLongClickListener { showImageMenu(entry); true }
+    }
+
+    /** U22: minimal long-press menu for an image entry (only 删除 applies). */
+    private fun showImageMenu(entry: String) {
+        val card = menuCard()
+        card.addView(menuItem("删除此条内容") { hideOverlay(); deleteOne(entry) })
+        showOverlay(card)
     }
 
     /** Expanded card's bottom action row (C3): +常用语 / 拆词 / 删除. */
@@ -251,7 +301,6 @@ class ClipboardView(context: Context) : FrameLayout(context) {
             }, ll(0, WC, 1f))
         }
         main.addView(topBar, ll(MP, WC))
-        main.addView(countLine(), ll(MP, WC))
 
         listColumn.removeAllViews()
         for (e in all) listColumn.addView(selectRow(e))
@@ -286,7 +335,9 @@ class ClipboardView(context: Context) : FrameLayout(context) {
             setPadding(dp(14), 0, dp(8), 0)
         }, ll(WC, WC))
         addView(TextView(context).apply {
-            this.text = text; maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
+            // U22: image entries show a label (not the raw marker path) in select mode.
+            this.text = if (ClipboardStore.isImageEntry(text)) "［图片］" else text
+            maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f); setTextColor(TEXT_DARK)
             setPadding(0, dp(12), dp(14), dp(12))
         }, ll(0, WC, 1f))
@@ -299,7 +350,9 @@ class ClipboardView(context: Context) : FrameLayout(context) {
 
     private fun showOverlay(content: View, gravity: Int = Gravity.CENTER) {
         overlay.removeAllViews()
-        overlay.setBackgroundColor(SCRIM)
+        // U8: no dim scrim behind the menu (the "暗色长方形") — the bordered card alone
+        // separates it from the panel. The overlay stays clickable to catch outside taps for dismissal.
+        overlay.setBackgroundColor(0x00000000)
         overlay.setOnClickListener { hideOverlay() }
         // Wrap in a ScrollView so a tall menu (many categories) scrolls instead of clipping items off-screen;
         // the ScrollView is clickable so taps on the card area don't bubble to the scrim and dismiss it.
@@ -353,7 +406,8 @@ class ClipboardView(context: Context) : FrameLayout(context) {
     /** C4: split [text] into blocks; tap a block to commit it (panel stays open). */
     private fun showSplit(text: String) {
         val panel = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL; background = rounded(CARD, 16f); setPadding(dp(16), dp(14), dp(16), dp(16))
+            orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(14), dp(16), dp(16))
+            background = GradientDrawable().apply { setColor(CARD); cornerRadius = 16f * density; setStroke(dp(1), SEP) } // U8: bordered, no scrim
         }
         panel.addView(TextView(context).apply {
             this.text = "拆分选词"; setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
@@ -412,19 +466,10 @@ class ClipboardView(context: Context) : FrameLayout(context) {
         setOnClickListener { onClick() }
     }
 
-    private fun countLine(): View = TextView(context).apply {
-        val n = currentEntries().size
-        val cap = if (st.tab == Tab.CLIPBOARD) CLIP_CAP else PHRASE_CAP
-        text = "共$n/${cap}条内容"
-        setTextColor(HINT); setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-        setPadding(dp(16), dp(2), dp(16), dp(6))
-    }
-
     private fun emptyHint(): View = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; setPadding(dp(16), dp(40), dp(16), dp(16))
         if (st.tab == Tab.CLIPBOARD) {
             addView(hint("剪贴板为空", 16f, TEXT_DARK)); addView(hint("您复制/剪切的文本会显示在这里", 14f, HINT))
-            addView(hint("最多记录1000条哦~", 14f, HINT))
         } else {
             addView(hint("该分类暂无常用语", 16f, TEXT_DARK)); addView(hint("点 ＋ 或 ✎ 添加 / 新建分类", 14f, HINT))
         }
@@ -436,7 +481,8 @@ class ClipboardView(context: Context) : FrameLayout(context) {
     }
 
     private fun menuCard(): LinearLayout = LinearLayout(context).apply {
-        orientation = LinearLayout.VERTICAL; background = rounded(CARD, 16f)
+        orientation = LinearLayout.VERTICAL
+        background = GradientDrawable().apply { setColor(CARD); cornerRadius = 16f * density; setStroke(dp(1), SEP) } // U8: bordered, no scrim
     }
 
     private fun menuTitle(s: String): View = TextView(context).apply {

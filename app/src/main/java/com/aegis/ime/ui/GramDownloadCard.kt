@@ -53,10 +53,12 @@ internal fun GramDownloadCard() {
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
     val dest = ModelDownload.destFile(context.filesDir)
     val location = dest.parentFile?.absolutePath ?: dest.absolutePath
-    fun doneLabel() = "已下载（${dest.length() / 1048576} MB），下次切换到 Aegis 生效"
+    // P2: state the enhancement status in plain words — is the 401 MB model actually in use or not?
+    fun doneLabel() = "✅ 已启用：增强语法生效中（已下载 ${dest.length() / 1048576} MB，仅存本机；切换到 Aegis 后加载）"
+    val notDownloadedLabel = "⚠ 增强语法未启用 —— 需下载约 401 MB 模型后才生效"
 
     var present by remember { mutableStateOf(dest.exists() && dest.length() > 1024) }
-    var status by remember { mutableStateOf(if (present) doneLabel() else "未下载") }
+    var status by remember { mutableStateOf(if (present) doneLabel() else notDownloadedLabel) }
     var progress by remember { mutableStateOf(0f) }
     var downloading by remember { mutableStateOf(false) }
     var checking by remember { mutableStateOf(false) }
@@ -149,7 +151,7 @@ internal fun GramDownloadCard() {
                         present = false
                         updateAvailable = false
                         progress = 0f
-                        status = "未下载（重启输入法后释放已加载的内存模型）"
+                        status = "⚠ 增强语法未启用（已删除；重启输入法后释放已加载的内存模型）"
                     },
                 ) { Text("删除") }
             }

@@ -16,6 +16,7 @@
 package com.aegis.ime.ime
 
 import android.content.Context
+import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -29,7 +30,7 @@ import com.aegis.ime.layout.SymbolCatalog
 /**
  * Categorized symbols panel (D, reached from the keyboard ✎ pencil key). A left rail of category tabs
  * (常用 / 中文 / 英文 / 网络 / 数学 / 箭头 / 角标 / 序号 / 音标 / 拼音) drives a scrollable grid; tapping a
- * symbol commits it and keeps the panel open for fast multi-symbol entry. Bottom bar = 返回 + ⌫. The
+ * symbol commits it and returns to the previous interface (U3 — the service closes the panel). Bottom bar = 返回 + ⌫. The
  * "常用" tab is fed live from [recentProvider] (the usage store), the rest from [SymbolCatalog].
  */
 class SymbolsView(context: Context) : LinearLayout(context) {
@@ -122,21 +123,23 @@ class SymbolsView(context: Context) : LinearLayout(context) {
     }
 
     private fun cell(symbol: String): TextView = TextView(context).apply {
+        // U11: each symbol sits in a rounded key-tile (bigger glyph, packed grid) — less sparse than the
+        // old bare weighted cells. U3: a tap commits + closes the panel (the service wires onSymbol).
         text = symbol
         gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 19f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 21f)
         setTextColor(palette.keyLabel)
-        val p = dp(8); setPadding(0, p, 0, p)
+        val pv = dp(10); setPadding(0, pv, 0, pv)
+        minimumHeight = dp(44)
+        background = GradientDrawable().apply { setColor(palette.keySurface); cornerRadius = 8f * density }
         isClickable = true
-        setOnClickListener {
-            onSymbol(symbol)
-            if (selected == 0) showCategory(0) // 常用 tab: re-render so the just-used glyph bumps to the front
-        }
+        setOnClickListener { onSymbol(symbol) }
         layoutParams = GridLayout.LayoutParams().apply {
             width = 0
             height = LayoutParams.WRAP_CONTENT
             columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
             setGravity(Gravity.FILL_HORIZONTAL)
+            val m = dp(3); setMargins(m, m, m, m)
         }
     }
 
