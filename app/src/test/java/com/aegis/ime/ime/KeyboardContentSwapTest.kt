@@ -20,6 +20,8 @@ import android.provider.Settings
 import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
+import com.aegis.ime.layout.Key
+import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.KeyboardLayout
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
@@ -289,6 +291,25 @@ class KeyboardContentSwapTest {
         assertEquals("$label DOWN/MOVE/UP outcomes", gestureOutcomes(expected), outcomes)
         assertTrue("$label the sweep reaches every key", actual.keyBoundsForTest().all { (key, _) -> outcomes.any { it.startsWith("key ${key.action} ${key.label} ") } })
         assertTrue("$label the sweep reaches the reading column", actual.scrollColumnKeysForTest().isEmpty() || outcomes.any { it.startsWith("key ${actual.scrollColumnKeysForTest().first().action} ") })
+    }
+
+    @Test fun nine_reading_column_updates_skip_the_layout_request_but_refresh_hits() {
+        val (host, kv) = hosted(Layouts.nine(Layouts.ninePunctuation(), composing = false))
+        val readings = listOf("ni", "mi", "mo", "ni'", "yi", "zi", "si").map {
+            Key(it, output = it, action = KeyAction.PICK_READING, weight = 0.85f)
+        } + Key("6", action = KeyAction.PICK_DIGIT, weight = 0.85f)
+        val next = Layouts.nine(readings, composing = true)
+
+        kv.setLayout(next, false, false, Lang.CN)
+
+        assertFalse("a reading column update keeps the row count, so no layout pass", kv.isLayoutRequested)
+        assertFalse(host.isLayoutRequested)
+        assertEquals("the update itself still applies", listOf("ni", "mi", "mo", "ni'", "yi", "zi", "si", "6"), kv.scrollColumnKeysForTest().map { it.label })
+        assertSameTouchGeometry("nine", hosted(next).second, kv)
+
+        kv.setLayout(Layouts.nine(readings.drop(3), composing = true), false, false, Lang.CN)
+        assertFalse("a shorter reading column still skips the layout pass", kv.isLayoutRequested)
+        assertSameTouchGeometry("nine shorter", hosted(Layouts.nine(readings.drop(3), composing = true)).second, kv)
     }
 
     @Test fun alpha_face_updates_skip_the_layout_request_but_refresh_hits() {
