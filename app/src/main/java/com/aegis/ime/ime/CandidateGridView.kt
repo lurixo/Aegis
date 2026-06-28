@@ -57,7 +57,7 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
             ScrollView(context).apply { addView(gridColumn) },
             LayoutParams(0, LayoutParams.MATCH_PARENT, 1f),
         )
-        rightColumn.setBackgroundColor(palette.panelSubBg)
+        rightColumn.setBackgroundColor(palette.panelBg)
         rightColumn.addView(funcButton("返回") { onClose() }, funcLp())
         rightColumn.addView(funcButton("⌫") { onBackspace() }, funcLp())
         rightColumn.addView(funcButton("重输") { onClear() }, funcLp())
@@ -68,7 +68,7 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
         palette = p
         setBackgroundColor(p.panelBg)
         readingColumn.setBackgroundColor(p.railBg)
-        rightColumn.setBackgroundColor(p.panelSubBg)
+        rightColumn.setBackgroundColor(p.panelBg)
         for (i in 0 until rightColumn.childCount) (rightColumn.getChildAt(i) as? TextView)?.setTextColor(p.keyLabelSecondary)
         for (i in 0 until readingColumn.childCount) (readingColumn.getChildAt(i) as? TextView)?.setTextColor(p.preeditText)
     }
