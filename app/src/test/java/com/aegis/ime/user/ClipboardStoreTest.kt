@@ -64,6 +64,16 @@ class ClipboardStoreTest {
         assertEquals("imagePath on plain text is identity", "hello", ClipboardStore.imagePath("hello"))
     }
 
+    @Test fun image_markers_are_never_saved_as_phrases() {
+        // M-2: a batch "添加常用语" that includes an image entry must NOT write its marker into phrases.
+        val s = ClipboardStore(newDir()).apply { load() }
+        val img = ClipboardStore.IMG_PREFIX + "/data/x/clipboard_images/1.png"
+        val added = s.addPhrasesTo("默认", listOf("正常短语", img))
+        assertEquals("only the text phrase is added", 1, added)
+        assertTrue("正常短语" in s.phrases())
+        assertFalse("no image marker leaks into phrases", s.phrases().any { ClipboardStore.isImageEntry(it) })
+    }
+
     @Test fun crlf_clip_survives_persist_roundtrip() {
         // readLines() also splits on \r / \r\n, so CRLF text (desktop/web clips) must be escaped too.
         val dir = newDir()

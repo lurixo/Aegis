@@ -46,6 +46,7 @@ class ClipboardView(context: Context) : FrameLayout(context) {
 
     var onPick: (String) -> Unit = {}                 // commit a clip/phrase and close
     var onPickImage: (String) -> Unit = {}            // U22: tap an image entry → paste image (path arg)
+    var isImage: (String) -> Boolean = { false }      // M-1: VALIDATED image check (marker + real file), host-supplied
     var thumbnailProvider: (String) -> Bitmap? = { null } // U22: path → CACHED thumbnail (no decode), or null
     var onLoadThumbnail: (String, (Bitmap?) -> Unit) -> Unit = { _, cb -> cb(null) } // U22: decode async, call back on UI thread
     var onCopyBlockToAegis: (String) -> Unit = {}     // 拆词块 → 写 aegis 剪贴板(不上屏/不写系统);面板保持打开
@@ -147,7 +148,7 @@ class ClipboardView(context: Context) : FrameLayout(context) {
     }
 
     private fun card(text: String): View {
-        if (ClipboardStore.isImageEntry(text)) return imageCard(text) // U22
+        if (isImage(text)) return imageCard(text) // U22 (M-1: only a marker backed by a real file)
         val expanded = st.expanded == text
         val col = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -311,7 +312,8 @@ class ClipboardView(context: Context) : FrameLayout(context) {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(12), dp(8), dp(12), dp(8))
             addView(pillButton("添加常用语", GREEN, GREEN_PILL, hasSel) {
-                chooseCategoryThen { c -> onSaveAsPhrasesTo(c, st.selected.toList()); exitSelect() }
+                // M-2: never save image entries as phrases (their marker/path would become a dead 常用语).
+                chooseCategoryThen { c -> onSaveAsPhrasesTo(c, st.selected.filterNot { ClipboardStore.isImageEntry(it) }); exitSelect() }
             }, ll(0, dp(44), 1f).apply { rightMargin = dp(8) })
             addView(pillButton("删除", RED, RED_PILL, hasSel) {
                 val victims = st.selected.toList()
@@ -336,7 +338,7 @@ class ClipboardView(context: Context) : FrameLayout(context) {
         }, ll(WC, WC))
         addView(TextView(context).apply {
             // U22: image entries show a label (not the raw marker path) in select mode.
-            this.text = if (ClipboardStore.isImageEntry(text)) "［图片］" else text
+            this.text = if (isImage(text)) "［图片］" else text
             maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f); setTextColor(TEXT_DARK)
             setPadding(0, dp(12), dp(14), dp(12))
