@@ -23,6 +23,7 @@ import android.widget.GridLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.layout.SymbolCatalog
 
 /**
@@ -46,48 +47,60 @@ class SymbolsView(context: Context) : LinearLayout(context) {
         listOf(SymbolCatalog.RECENT_TITLE) + SymbolCatalog.categories.map { it.title }
     private var selected = 0
 
+    private var palette = ImePalette.STATIC_LIGHT
     private val rail = LinearLayout(context).apply { orientation = VERTICAL }
+    private val railScroll = ScrollView(context).apply { addView(rail) }
     private val grid = GridLayout(context).apply {
         columnCount = COLUMNS
         val p = dp(4); setPadding(p, p, p, p)
     }
+    private val bottomBarView = bottomBar()
 
     private companion object {
         const val COLUMNS = 7
-        const val ACCENT = 0xFFF5821F.toInt()
     }
 
     init {
         orientation = VERTICAL
-        setBackgroundColor(0xFFF7F8FA.toInt())
+        setBackgroundColor(palette.panelBg)
 
         for ((i, t) in titles.withIndex()) rail.addView(railTab(i, t))
 
         val content = LinearLayout(context).apply {
             orientation = HORIZONTAL
-            addView(
-                ScrollView(context).apply { addView(rail); setBackgroundColor(0xFFEFF1F4.toInt()) },
-                LayoutParams(dp(60), LayoutParams.MATCH_PARENT),
-            )
+            railScroll.setBackgroundColor(palette.railBg)
+            addView(railScroll, LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
             addView(
                 ScrollView(context).apply { addView(grid); isFillViewport = true },
                 LayoutParams(0, LayoutParams.MATCH_PARENT, 1f),
             )
         }
         addView(content, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
-        addView(bottomBar(), LayoutParams(LayoutParams.MATCH_PARENT, dp(46)))
+        addView(bottomBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(46)))
     }
 
     /** Rebuild the rail highlight + grid for the active category — call when the panel becomes visible. */
     fun refresh() = showCategory(selected)
+
+    /** F1: recolour from the Monet palette (active-tab accent now converges to primary). */
+    fun applyPalette(p: ImePalette) {
+        palette = p
+        setBackgroundColor(p.panelBg)
+        railScroll.setBackgroundColor(p.railBg)
+        bottomBarView.setBackgroundColor(p.panelSubBg)
+        (bottomBarView as LinearLayout).let { bar ->
+            for (i in 0 until bar.childCount) (bar.getChildAt(i) as? TextView)?.setTextColor(p.keyLabelSecondary)
+        }
+        showCategory(selected)
+    }
 
     private fun showCategory(index: Int) {
         selected = index
         for (i in 0 until rail.childCount) {
             val tab = rail.getChildAt(i) as TextView
             val on = i == index
-            tab.setTextColor(if (on) ACCENT else 0xFF455A64.toInt())
-            tab.setBackgroundColor(if (on) 0xFFFFFFFF.toInt() else 0x00000000)
+            tab.setTextColor(if (on) palette.candidateFirst else palette.keyLabelSecondary)
+            tab.setBackgroundColor(if (on) palette.keySurface else 0x00000000)
             tab.setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         }
         grid.removeAllViews()
@@ -112,7 +125,7 @@ class SymbolsView(context: Context) : LinearLayout(context) {
         text = symbol
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 19f)
-        setTextColor(0xFF202124.toInt())
+        setTextColor(palette.keyLabel)
         val p = dp(8); setPadding(0, p, 0, p)
         isClickable = true
         setOnClickListener {
@@ -130,7 +143,7 @@ class SymbolsView(context: Context) : LinearLayout(context) {
     private fun emptySpan(): TextView = TextView(context).apply {
         text = "最近使用的符号会显示在这里"
         gravity = Gravity.CENTER
-        setTextColor(0xFF9AA0A6.toInt())
+        setTextColor(palette.keyHint)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
         setPadding(dp(16), dp(40), dp(16), dp(16))
         layoutParams = GridLayout.LayoutParams().apply {
@@ -142,7 +155,7 @@ class SymbolsView(context: Context) : LinearLayout(context) {
 
     private fun bottomBar(): View = LinearLayout(context).apply {
         orientation = HORIZONTAL
-        setBackgroundColor(0xFFE6E9ED.toInt())
+        setBackgroundColor(palette.panelSubBg)
         addView(barButton("返回") { onBack() }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         addView(barButton("⌫") { onBackspace() }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
     }
@@ -151,6 +164,7 @@ class SymbolsView(context: Context) : LinearLayout(context) {
         text = label
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+        setTextColor(palette.keyLabelSecondary)
         isClickable = true
         setOnClickListener { onClick() }
     }
