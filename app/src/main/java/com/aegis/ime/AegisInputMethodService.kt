@@ -325,7 +325,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (iv.isPanelShowing(emojiView)) { iv.showPanel(null); return } // P4(#4): re-tap 表情 入口 = 返回
         val ev = emojiView ?: EmojiView(this).also {
             it.onEmoji = { e -> currentInputConnection?.commitText(e, 1) }
-            it.onBackspace = { currentInputConnection?.deleteSurroundingTextInCodePoints(1, 0) }
+            it.onBackspace = { panelBackspace() } // F2: selection-aware (else eats the char before a selection)
             it.onBack = { inputView?.showPanel(null) }
             emojiView = it
         }
@@ -449,7 +449,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.recentProvider = { symbolUsageStore.recent() }
             // U3/P3: 点符号 = 上屏 + 记入常用;是否回键盘由 SymbolsView 的锁定态决定(锁定则连续输入)。
             it.onSymbol = { s -> symbolUsageStore.record(s); currentInputConnection?.commitText(s, 1) }
-            it.onBackspace = { currentInputConnection?.deleteSurroundingTextInCodePoints(1, 0) }
+            it.onBackspace = { panelBackspace() } // F2: selection-aware (else eats the char before a selection)
             it.onBack = { inputView?.showPanel(null) }
             symbolsView = it
         }
@@ -604,6 +604,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun deleteBackward() {
         currentInputConnection?.deleteSurroundingText(1, 0)
+    }
+
+    // F2: code-point-aware backspace so a multi-code-point emoji deletes whole (used by the panels' ⌫).
+    override fun deleteCodePointBackward() {
+        currentInputConnection?.deleteSurroundingTextInCodePoints(1, 0)
     }
 
     override fun textBeforeCursor(n: Int): CharSequence =
