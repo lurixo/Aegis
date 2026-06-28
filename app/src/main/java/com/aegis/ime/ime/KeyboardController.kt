@@ -16,6 +16,7 @@
 package com.aegis.ime.ime
 
 import com.aegis.ime.decoder.Cand
+import com.aegis.ime.decoder.Syllable
 import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.engine.Calculator
@@ -98,6 +99,14 @@ class KeyboardController(
      *  digit, a reading lock (left-column pick), or a forced cut — never dropping a whole locked syllable. */
     private val history = ArrayDeque<StepKind>()
 
+    /**
+     * UI-2 (debug.13): on the 26-key EXPANDED screen the left column lists the buffer's syllables (分词);
+     * tapping syllable N drills into it — [drillSyllable] holds that index (−1 = not drilled) and the
+     * candidate grid then shows that syllable's COMPLETE 同音单字 set ([CandidateEngine.homophonesForReadingAt],
+     * uncapped). Any buffer change (type / 退格 / commit / 重输) clears it back to the normal candidate grid.
+     */
+    private var drillSyllable = -1
+
     /** A3 自定义: the user's custom punctuation marks (injected from prefs by the service). */
     private var customSymbols: List<String> = emptyList()
 
@@ -173,6 +182,7 @@ class KeyboardController(
         activeStart = 0
         forcedCuts.clear()
         history.clear()
+        drillSyllable = -1 // UI-2: a fresh field starts on the normal grid, not a drilled syllable
         // D1 (debug.12): reset() runs on every onStartInputView (field switch) and config change (rotation),
         // and onFinishInput does NOT flush — so an assembled-but-uncommitted prefix MUST be dropped here, or
         // a partial pick ("就") left pending leaks into the next field (committed there or flushed into the
@@ -190,6 +200,9 @@ class KeyboardController(
     internal fun activeLayoutId(): LayoutId = layoutId
 
     fun onKey(key: Key) {
+        // UI-2: any keyboard action (type / 退格 / switch / commit) leaves a drilled syllable and returns the
+        // grid to the normal candidates — the drill is a transient view of one syllable's 同音字.
+        drillSyllable = -1
         when (key.action) {
             KeyAction.COMMIT -> handleCommit(key)
             KeyAction.BACKSPACE -> handleBackspace()
@@ -275,6 +288,20 @@ class KeyboardController(
         val reading = key.output
         if (reading.isEmpty()) return
         val digits = T9Pinyin.toT9(reading)
+        // UI-1 (debug.13): when the active tail is exhausted (every syllable locked) the left column still
+        // shows the LAST syllable's readings — it must NOT vanish (末组音节依旧保留). A tap there RE-PICKS that
+        // last syllable: re-expose its digits, then lock the new reading. A shorter reading naturally
+        // re-activates the leftover digits; an equal-length one just swaps the reading. The original LOCK
+        // step stays on [history], so 退格 still steps back exactly one syllable.
+        if (activeDigits().isEmpty() && lockedReadings.isNotEmpty()) {
+            val lastDigits = T9Pinyin.toT9(lockedReadings.last())
+            if (!lastDigits.startsWith(digits)) return // only re-pick a reading of the same trailing chunk
+            lockedReadings.removeAt(lockedReadings.lastIndex)
+            activeStart = (activeStart - lastDigits.length).coerceAtLeast(0)
+            lockedReadings.add(reading)
+            activeStart = (activeStart + digits.length).coerceAtMost(composing.length)
+            return
+        }
         if (!activeDigits().startsWith(digits)) return // reading must encode the active syllable's prefix
         lockedReadings.add(reading)
         activeStart = (activeStart + digits.length).coerceAtMost(composing.length)
@@ -311,6 +338,14 @@ class KeyboardController(
 
     fun onPickCandidate(index: Int) {
         if (index !in candidates.indices) return
+        // UI-2: a pick while a syllable is drilled is one of its 同音字 — 逐字 commit it (display was a bare
+        // single char; the leading-syllable defaults are supplied here), not a normal whole-word candidate.
+        if (drillSyllable >= 0) {
+            commitDrilledHomophone(candidates[index].word)
+            refreshCandidates()
+            render()
+            return
+        }
         val cand = candidates[index]
         when {
             // U25/I1: the calculator result is APPENDED after the expression (1+1 → 1+1=2), not a replace.
@@ -375,6 +410,7 @@ class KeyboardController(
     }
 
     private fun handleBackspace() {
+        drillSyllable = -1 // UI-2: a delete (incl. the expand-screen 退格) returns the grid to normal candidates
         if (composing.isEmpty()) {
             // S1(c): an assembled-but-not-yet-committed word prefix lives inside the IME, NOT in the editor.
             // Peel its last confirmed character back here instead of deleting committed editor text the user
@@ -471,6 +507,7 @@ class KeyboardController(
             forcedCuts.clear(); forcedCuts.addAll(shifted)
             lockedReadings.clear()
             activeStart = 0
+            drillSyllable = -1 // UI-2: the remainder re-segments → drop the stale drill, show its candidates
             candidates = emptyList()
             rebuildHistory() // A9: the remainder is fresh + lock-free → 退格 steps back per remaining digit
         } else {
@@ -573,6 +610,7 @@ class KeyboardController(
         forcedCuts.clear()
         history.clear()
         committedPrefix.setLength(0) // S1(c): drop any assembled-but-uncommitted prefix too
+        drillSyllable = -1 // UI-2: clearing the buffer leaves no syllable to drill
     }
 
     private fun refreshCandidates() {
@@ -582,6 +620,11 @@ class KeyboardController(
         predictionCands = emptySet()
         calcCand = null; calcExpr = ""; calcResult = ""
         candidates = when {
+            // UI-2: a syllable is drilled on the 26-key expand screen → show its COMPLETE 同音单字 set
+            // (uncapped) instead of the word grid. The single chars carry the syllable's coverage so picking
+            // one partial-commits exactly that syllable and keeps decoding the rest (left-to-right 逐字).
+            drillSyllable >= 0 && composing.isNotEmpty() && mode() == Mode.PINYIN ->
+                syllableHomophoneCandidates(drillSyllable)
             // While composing pinyin: inject associated emoji/symbols (haode→👌) just after the top word.
             composing.isNotEmpty() && mode() == Mode.PINYIN -> injectAssociations(base)
             // Empty buffer with NO word being assembled: the inline calculator (if the text before the cursor
@@ -678,6 +721,47 @@ class KeyboardController(
         }
     }
 
+    /**
+     * UI-2: the syllables the live 26-key buffer segments into — the 分词 shown in the expand screen's left
+     * column. Uses the letters path ([CandidateEngine.syllablesForReading]); empty on an un-segmentable or
+     * empty buffer. (The 9-key uses the reading-lock column instead, so this is only consulted on ALPHA.)
+     */
+    private fun currentSyllables(): List<Syllable> =
+        if (composing.isEmpty()) emptyList() else engine.syllablesForReading(composing.toString())
+
+    /**
+     * UI-2: the COMPLETE 同音单字 set of the drilled [index]th syllable — each candidate is a SINGLE 同音字 (so
+     * the grid shows 号, not 你号), tagged with the syllable's coverage. The set is whatever
+     * [CandidateEngine.homophonesForReadingAt] returns — NOT re-capped here, so the lossless single-char layer
+     * (he=257 / yi=875…) reaches the grid in full. Picking one routes through [commitDrilledHomophone], which
+     * supplies any leading-syllable defaults at commit time (the display stays a bare single char).
+     */
+    private fun syllableHomophoneCandidates(index: Int): List<Cand> {
+        val syls = currentSyllables()
+        if (index !in syls.indices) return emptyList()
+        val coveredLen = syls[index].end.coerceIn(1, composing.length)
+        return engine.homophonesForReadingAt(composing.toString(), index).map { Cand(it, coveredLen) }
+    }
+
+    /**
+     * UI-2: commit the chosen 同音字 [charWord] of the drilled syllable, 逐字 (left-to-right). Syllables BEFORE
+     * the drilled one (only possible when the user taps a non-leftmost syllable) are committed at their top
+     * 同音字 so the word stays ordered; the chosen char closes the drilled syllable. Reuses [commitCandidate]
+     * so the partial-vs-full / prefix-assembly / 退格 bookkeeping is identical to a normal pick.
+     */
+    private fun commitDrilledHomophone(charWord: String) {
+        if (composing.isEmpty()) { drillSyllable = -1; return } // defensive: no syllable to commit
+        val letters = composing.toString()
+        val syls = currentSyllables()
+        val i = drillSyllable
+        if (i !in syls.indices) { drillSyllable = -1; return }
+        val leading = (0 until i).joinToString("") {
+            engine.homophonesForReadingAt(letters, it).firstOrNull() ?: ""
+        }
+        val coveredLen = syls[i].end.coerceIn(1, composing.length)
+        commitCandidate(Cand(leading + charWord, coveredLen))
+    }
+
     private fun applyCase(s: String): String = if (shifted) s.uppercase() else s
 
     /** Preedit pinyin tab: the assembled confirmed prefix (S1c) at the LEFTMOST, then locked syllable
@@ -715,10 +799,16 @@ class KeyboardController(
         val w = 0.85f
         if (composing.isEmpty()) return Layouts.ninePunctuation(customSymbols)
         val active = activeDigits()
-        // S1(c) (debug.12): once every syllable is locked there is no NEXT syllable to offer readings for —
-        // show an empty column, NOT punctuation. Punctuation only ever appears at rest (the empty-buffer
-        // return above); the "读音变标点" bug after locking is gone.
-        if (active.isEmpty()) return emptyList()
+        // UI-1 (debug.13): once every syllable is locked there is no NEXT syllable — but the column must NOT
+        // vanish (选完最后一组音节后,该组依旧保留). Keep showing the LAST locked syllable's
+        // readings so it stays visible + re-pickable (handlePickReading re-opens it). Never punctuation — that
+        // only appears at rest (the empty-buffer return above); the old "读音变标点" bug stays fixed.
+        if (active.isEmpty()) {
+            if (lockedReadings.isEmpty()) return emptyList()
+            val lastDigits = T9Pinyin.toT9(lockedReadings.last())
+            return T9Pinyin.leftColumnReadings(lastDigits, NINE_LEFT_MAX)
+                .map { Key(it, output = it, action = KeyAction.PICK_READING, weight = w) }
+        }
         // ★分词: the active syllable is bounded by the first forced cut in the active region.
         val firstCut = activeCuts().firstOrNull()
         val chunk = if (firstCut != null) active.substring(0, firstCut) else active
@@ -736,15 +826,26 @@ class KeyboardController(
             else -> Layouts.forId(layoutId, lang)
         }
         v.showKeyboard(layout, shifted, shiftState == ShiftState.LOCK, lang) // I4 locked + I2 numpad merged
-        v.showCandidates(candidates.map { it.word }, preeditText(), expandedReadings())
+        // UI-2: pass the drilled syllable so the expand grid can highlight which 分词 chunk is selected.
+        v.showCandidates(candidates.map { it.word }, preeditText(), expandedReadings(), drillSyllable)
     }
 
     /** I4 test seam: the shift state name (OFF / ONCE / LOCK) driving the key glyph + uppercasing. */
     internal fun shiftStateName(): String = shiftState.name
 
-    /** A2 expanded screen left column: the active syllable's combinations (9-key composing only; else empty). */
-    internal fun expandedReadings(): List<String> =
-        nineLeftColumn().filter { it.action == KeyAction.PICK_READING }.map { it.label }
+    /**
+     * Expand-screen left column. On the 9-key it is the active syllable's reading combinations (tap = lock,
+     * ★E). On the 26-key (UI-2) it is the buffer's 分词 — the segmented syllables — and a tap drills into one
+     * to list its 同音单字 (see [onPickReadingIndex]). Empty when there is nothing to offer.
+     */
+    internal fun expandedReadings(): List<String> = when {
+        layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty() ->
+            currentSyllables().map { it.reading } // UI-2: 26-key syllable column
+        else -> nineLeftColumn().filter { it.action == KeyAction.PICK_READING }.map { it.label }
+    }
+
+    /** UI-2 test seam / render hook: which syllable (if any) is currently drilled in the 26-key expand grid. */
+    internal fun drilledSyllableForTest(): Int = drillSyllable
 
     /** Current candidate words (test seam — locks ★S: no ghost suggestion lingers on an empty buffer). */
     internal fun candidateWords(): List<String> = candidates.map { it.word }
@@ -755,8 +856,20 @@ class KeyboardController(
     /** Test seam: the preedit tab text (prefix + pinyin) shown at the leftmost of the candidate strip. */
     internal fun preeditForTest(): String = preeditText()
 
-    /** A2 expanded screen: pick the combination at [index] in the left column — locks that syllable. */
+    /**
+     * Expand-screen left-column tap at [index]. On the 26-key (UI-2) this DRILLS into that syllable — the
+     * grid switches to its complete 同音单字 set; on the 9-key it LOCKS the reading combination (★E), as before.
+     */
     fun onPickReadingIndex(index: Int) {
+        if (layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty()) {
+            // UI-2: drill into syllable [index] — re-tapping a different syllable re-drills; the buffer is
+            // untouched (no lock/commit) so the user can browse any syllable's homophones freely.
+            if (index !in currentSyllables().indices) return
+            drillSyllable = index
+            refreshCandidates()
+            render()
+            return
+        }
         val readings = expandedReadings()
         if (index !in readings.indices) return
         handlePickReading(Key(readings[index], output = readings[index], action = KeyAction.PICK_READING))
@@ -776,6 +889,15 @@ class KeyboardController(
     /** A2 expanded screen 重输: drop the pending pinyin + candidates (closes the screen via empty candidates). */
     fun onPanelClear() {
         handleClearComposing()
+        render()
+    }
+
+    /** UI-2: the expand grid closed (返回 / chevron) — drop any drilled syllable so the strip shows the normal
+     *  word candidates again. No-op when nothing is drilled (every other panel close is unaffected). */
+    fun clearDrill() {
+        if (drillSyllable < 0) return
+        drillSyllable = -1
+        refreshCandidates()
         render()
     }
 

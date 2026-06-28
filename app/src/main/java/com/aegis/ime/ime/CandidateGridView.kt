@@ -95,17 +95,24 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
         setOnClickListener { onClick() }
     }
 
-    /** LEFT column: the pinyin combinations of the active syllable; tapping [i] re-ranks via [onPickReading]. */
-    fun setReadings(readings: List<String>) {
+    /**
+     * LEFT column: the active syllable's pinyin combinations (9-key, tap = lock) or the buffer's 分词
+     * syllables (26-key UI-2, tap = drill); tapping [i] fires [onPickReading]. [selected] (UI-2) highlights
+     * the drilled syllable so the user can see which chunk's 同音字 the grid is showing; −1 = none.
+     */
+    fun setReadings(readings: List<String>, selected: Int = -1) {
         readingColumn.removeAllViews()
         for ((i, r) in readings.withIndex()) {
+            val on = i == selected
             readingColumn.addView(
                 TextView(context).apply {
                     text = r
                     gravity = Gravity.CENTER
                     setPadding(0, dp(10), 0, dp(10))
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
-                    setTextColor(palette.preeditText)
+                    setTextColor(if (on) palette.candidateFirst else palette.preeditText)
+                    setBackgroundColor(if (on) palette.keySurface else 0x00000000)
+                    setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
                     isClickable = true
                     setOnClickListener { onPickReading(i) }
                 },
