@@ -153,6 +153,11 @@ class KeyboardController(
         activeStart = 0
         forcedCuts.clear()
         history.clear()
+        // D1 (debug.12): reset() runs on every onStartInputView (field switch) and config change (rotation),
+        // and onFinishInput does NOT flush — so an assembled-but-uncommitted prefix MUST be dropped here, or
+        // a partial pick ("就") left pending leaks into the next field (committed there or flushed into the
+        // wrong editor) = silent cross-field data contamination. Drop it (parity with clearComposingState).
+        committedPrefix.setLength(0)
         shiftState = ShiftState.OFF
         // B5: CN opens on the user's default keyboard (9-key unless they chose 26-key); EN is 26-key only.
         cnLayout = cnDefaultLayout
@@ -251,7 +256,12 @@ class KeyboardController(
      * layout. Returns true when consumed; otherwise the service does its field-level clear/restore (#5).
      */
     fun onBackspaceSwipe(up: Boolean): Boolean {
-        if (up && composing.isNotEmpty()) {
+        // D3 (debug.12): a bare assembled prefix (composing already backspaced to empty, committedPrefix
+        // still pending) IS pending input — the up-swipe must 重输 (drop it via clearComposingState) and
+        // consume the gesture. The old `composing.isNotEmpty()`-only guard let it fall through to the
+        // service's field-level clear, which selectAll+commitText("") WIPED THE WHOLE EDITOR FIELD and left
+        // the prefix stranded. Sibling parity with handleSpace / handleEnter / handleCommit(direct).
+        if (up && (composing.isNotEmpty() || committedPrefix.isNotEmpty())) {
             clearComposingState()
             render()
             return true
@@ -299,7 +309,10 @@ class KeyboardController(
     private fun handleCommit(key: Key) {
         // Number row / symbol keys always go straight to the editor, even mid-pinyin (resolve first).
         if (key.direct) {
-            if (composing.isNotEmpty()) flushComposing()
+            // D2 (debug.12): also flush when only an assembled prefix remains (composing already backspaced
+            // away) so the punctuation/number follows the confirmed word ("就。"), never precedes it ("。就")
+            // or gets stranded for reset() to drop.
+            if (composing.isNotEmpty() || committedPrefix.isNotEmpty()) flushComposing()
             host.commitText(applyCase(key.output))
             if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
             lastWord = null

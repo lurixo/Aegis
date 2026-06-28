@@ -148,6 +148,51 @@ class KeyboardControllerTest {
         assertEquals(listOf("你"), h.commits)
     }
 
+    @Test fun field_switch_drops_an_assembled_prefix_no_cross_field_leak() {
+        // D1 (debug.12, blocker): reset() (onStartInputView / rotation) must DROP a pending prefix so it
+        // cannot leak into the next field. Build "你", reset → the prefix is gone and a fresh commit in the
+        // new field never carries it.
+        val h = FakeHost()
+        val partial = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
+        }
+        val c = KeyboardController(h, partial)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)                              // prefix "你" pending, nothing committed
+        assertEquals("你", c.composingPrefix())
+        assertTrue("partial pick committed nothing", h.commits.isEmpty())
+
+        c.reset()                                         // simulate onStartInputView (new field) / rotation
+        assertEquals("the pending prefix is dropped on field switch", "", c.composingPrefix())
+
+        // In the "new field": flush a fresh buffer — the dropped 你 must NOT reappear prepended.
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onKey(act(KeyAction.ENTER))
+        assertEquals("no leaked 你 in the new field", listOf("nihao"), h.commits)
+    }
+
+    @Test fun direct_key_on_a_bare_prefix_flushes_the_word_first_then_the_symbol() {
+        // D2 (debug.12): a punctuation/number (direct) tapped when only the prefix remains must commit the
+        // word THEN the symbol — "你" then "，", never "，你" and never a stranded prefix.
+        val h = FakeHost()
+        val partial = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
+        }
+        val c = KeyboardController(h, partial)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)                              // prefix "你", remainder "426"
+        repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }   // remainder gone, only prefix "你" remains
+        c.onKey(Key("，", output = "，", direct = true))   // idle-column punctuation (direct)
+        assertEquals(listOf("你", "，"), h.commits)
+    }
+
     @Test fun segment_forces_a_syllable_boundary() {
         // 9426 decodes as ONE syllable (xi.., x-initial) by default; a forced cut after "94" makes the
         // first chunk decode on its own as "yi" (rank-2), so the commit starts "yi" not "xi".
@@ -475,5 +520,27 @@ class KeyboardControllerTest {
         assertTrue(h.commits.isEmpty())
         // nothing pending → not consumed, so the service does its field-level clear/restore
         assertEquals(false, c.onBackspaceSwipe(true))
+    }
+
+    @Test fun up_swipe_on_a_bare_assembled_prefix_clears_it_and_consumes_the_gesture() {
+        // D3 (debug.12): an up-swipe with ONLY the prefix pending (remainder backspaced away) must 重输
+        // (drop the prefix) and be CONSUMED — never fall through to the service's whole-field clear, which
+        // would wipe the editor AND strand the prefix.
+        val h = FakeHost()
+        val partial = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
+        }
+        val c = KeyboardController(h, partial)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)                              // prefix "你", remainder "426"
+        repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }   // remainder gone, only prefix "你" remains
+        assertEquals("你", c.composingPrefix())
+        assertTrue("up-swipe must consume the gesture (重输), not fall through to the field wipe", c.onBackspaceSwipe(true))
+        assertEquals("the pending prefix is dropped", "", c.composingPrefix())
+        assertTrue("nothing committed, field untouched", h.commits.isEmpty())
+        assertEquals("never deleted committed editor text", 0, h.deletes)
     }
 }
