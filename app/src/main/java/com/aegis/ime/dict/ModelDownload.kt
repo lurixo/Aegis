@@ -25,6 +25,8 @@ object ModelDownload {
     const val GRAM_URL =
         "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/wanxiang-lts-zh-hans.gram"
 
+    const val REPO_URL = "https://github.com/amzxyz/RIME-LMDG"
+
     const val GRAM_NAME = "wanxiang-lts-zh-hans.gram"
 
     const val VALIDATOR_PREF = "gram_validator"
