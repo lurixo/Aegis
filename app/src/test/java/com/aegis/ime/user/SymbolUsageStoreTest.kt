@@ -43,6 +43,13 @@ class SymbolUsageStoreTest {
         assertEquals(listOf("≈", "÷"), SymbolUsageStore(dir).apply { load() }.recent())
     }
 
+    @Test fun load_dedupes_a_file_with_duplicate_lines() {
+        val dir = newDir()
+        File(dir, "symbol_usage.txt").writeText("★\n→\n★\n→\n☆")
+        val s = SymbolUsageStore(dir).apply { load() }
+        assertEquals(listOf("★", "→", "☆"), s.recent())
+    }
+
     @Test fun caps_history_size() {
         val s = SymbolUsageStore(newDir()).apply { load() }
         for (i in 0 until 50) s.record("s$i")

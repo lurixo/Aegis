@@ -53,10 +53,10 @@ class CustomSymbolStoreTest {
         assertEquals(listOf("、", "%"), s.list())
     }
 
-    @Test fun capped_at_twelve() {
+    @Test fun capped_at_the_max() {
         val s = freshStore()
-        repeat(20) { s.add("x$it") }
-        assertEquals(12, s.list().size)
+        repeat(250) { s.add("x$it") }
+        assertEquals(200, s.list().size)
     }
 
     @Test fun persists_across_instances_on_the_same_prefs() {
