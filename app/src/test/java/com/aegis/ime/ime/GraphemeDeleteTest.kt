@@ -24,6 +24,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -113,5 +114,16 @@ class GraphemeDeleteTest {
         assertEquals(1, GraphemeText.lastClusterLength("好"))
         assertEquals(1, GraphemeText.lastClusterLength("a"))
         assertEquals(0, GraphemeText.lastClusterLength(""))
+    }
+
+    @Test fun both_delete_routes_in_the_service_use_the_cluster_helper() {
+        val svc = File("src/main/java/com/aegis/ime/AegisInputMethodService.kt").readText()
+        assertTrue("deleteBackward must delete a cluster", Regex("""override fun deleteBackward\(\)\s*\{[^}]*deleteLastEditorCluster\(\)""", RegexOption.DOT_MATCHES_ALL).containsMatchIn(svc))
+        assertTrue("deleteGraphemeBackward must delete a cluster", Regex("""override fun deleteGraphemeBackward\(\)\s*\{[^}]*deleteLastEditorCluster\(\)""", RegexOption.DOT_MATCHES_ALL).containsMatchIn(svc))
+        assertTrue("the helper must use GraphemeText.lastClusterLength", svc.contains("GraphemeText.lastClusterLength"))
+        assertFalse("no route may fall back to a raw one-unit delete", svc.contains("deleteSurroundingText(1, 0)"))
+        assertFalse("no route may fall back to a one-code-point delete", svc.contains("deleteSurroundingTextInCodePoints(1, 0)"))
+        val kc = File("src/main/java/com/aegis/ime/ime/KeyboardController.kt").readText()
+        assertTrue("KeyboardController backspace routes to host.deleteBackward", kc.contains("host.deleteBackward()"))
     }
 }

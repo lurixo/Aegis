@@ -717,11 +717,20 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         deleteLastEditorCluster()
     }
 
+    override fun deleteGraphemeBackward() {
+        deleteLastEditorCluster()
+    }
+
     private fun deleteLastEditorCluster() {
         val ic = currentInputConnection ?: return
         val before = ic.getTextBeforeCursor(GraphemeText.WINDOW, 0) ?: ""
         val n = GraphemeText.lastClusterLength(before)
         if (n > 1) ic.deleteSurroundingText(n, 0) else sendKey(KeyEvent.KEYCODE_DEL, false)
+    }
+
+    override fun panelBackspace() {
+        controller.expireCandidateChoiceUndo()
+        if (hasSelection()) deleteSelection() else deleteGraphemeBackward()
     }
 
     private fun reportDecodeWork(nanos: Long) = synchronized(decodeHintLock) {
