@@ -95,15 +95,27 @@ class InputView(context: Context) : LinearLayout(context) {
         body.addView(panelContainer, LayoutParams(LayoutParams.MATCH_PARENT, dp(250)))
         addView(body, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
 
+        applyWindowPadding(lastNavBottomPx, 0, 0)
+
         ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets ->
             val nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
             val cut = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
-            val side = dp(4)
-            val leftPad = maxOf(cut.left, side)
-            body.setPadding(leftPad, 0, maxOf(cut.right, side), nav.bottom + dp(28))
-            preeditView.setLeftInset(leftPad.toFloat())
+            if (nav.bottom > 0) lastNavBottomPx = nav.bottom
+            applyWindowPadding(nav.bottom, cut.left, cut.right)
             WindowInsetsCompat.CONSUMED
         }
+    }
+
+    private fun applyWindowPadding(navBottom: Int, cutLeft: Int, cutRight: Int) {
+        val side = dp(4)
+        val leftPad = maxOf(cutLeft, side)
+        body.setPadding(leftPad, 0, maxOf(cutRight, side), navBottom + dp(28))
+        preeditView.setLeftInset(leftPad.toFloat())
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        ViewCompat.requestApplyInsets(this)
     }
 
     fun barTopInsetPx(): Int = dp(26)
@@ -185,4 +197,14 @@ class InputView(context: Context) : LinearLayout(context) {
     fun isPanelShowing(panel: View?): Boolean = panelShown && panel != null && currentPanel === panel
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+
+    internal fun bodyBottomPaddingPx(): Int = body.paddingBottom
+    internal fun simulateNavInsetForTest(navBottomPx: Int) {
+        lastNavBottomPx = navBottomPx
+        applyWindowPadding(navBottomPx, 0, 0)
+    }
+
+    private companion object {
+        private var lastNavBottomPx = 0
+    }
 }
