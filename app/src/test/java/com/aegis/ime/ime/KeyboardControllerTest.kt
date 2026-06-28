@@ -87,8 +87,10 @@ class KeyboardControllerTest {
         assertEquals(listOf("haode"), h.commits)
     }
 
-    @Test fun picking_a_partial_candidate_commits_it_and_keeps_the_rest() {
-        // ★E: a candidate whose reading covers only part of the buffer commits that part, continues the rest.
+    @Test fun picking_a_partial_candidate_builds_a_prefix_and_defers_the_commit() {
+        // S1(c) (debug.12): a candidate whose reading covers only part of the buffer must NOT dribble into
+        // the editor ("选一个就上屏一个"). It joins the assembled prefix (shown at the strip's leftmost) and
+        // decoding continues; the whole word lands in ONE commit only when it completes (here: ENTER flush).
         val h = FakeHost()
         val partial = object : CandidateEngine {
             override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
@@ -98,9 +100,52 @@ class KeyboardControllerTest {
         val c = KeyboardController(h, partial)
         c.onKey(act(KeyAction.SWITCH_NINE))
         "64426".forEach { c.onKey(out(it.toString())) } // ni(64) hao(426)
-        c.onPickCandidate(0) // pick 你 → commits 你, drops "64", keeps "426"
-        c.onKey(act(KeyAction.ENTER)) // flush the remaining hao as raw pinyin
-        assertEquals(listOf("你", "hao"), h.commits)
+        c.onPickCandidate(0) // pick 你 → builds prefix "你", drops "64", keeps "426" — NOTHING committed yet
+        assertTrue("a partial pick must NOT commit to the editor", h.commits.isEmpty())
+        assertEquals("你 is the assembled prefix", "你", c.composingPrefix())
+        assertEquals("the prefix renders at the strip's leftmost", "你hao", c.preeditForTest())
+        c.onKey(act(KeyAction.ENTER)) // complete + flush → ONE commit
+        assertEquals(listOf("你hao"), h.commits)
+    }
+
+    @Test fun backspace_peels_the_assembled_prefix_before_touching_the_editor() {
+        // S1(c): after a partial pick the confirmed prefix lives in the IME, not the editor — 退格 peels the
+        // remainder digits then the prefix char, never calling deleteBackward on committed text.
+        val h = FakeHost()
+        val partial = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
+        }
+        val c = KeyboardController(h, partial)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) } // ni(64) hao(426)
+        c.onPickCandidate(0) // prefix "你", remainder "426"
+        assertEquals("你", c.composingPrefix())
+        repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }   // peel 426 -> empty
+        assertEquals("prefix intact while the remainder peels", "你", c.composingPrefix())
+        c.onKey(act(KeyAction.BACKSPACE))                 // now peel the prefix char itself
+        assertEquals("prefix peeled away", "", c.composingPrefix())
+        assertEquals("never deleted committed editor text", 0, h.deletes)
+        assertTrue("nothing was ever committed", h.commits.isEmpty())
+    }
+
+    @Test fun space_on_a_bare_assembled_prefix_commits_it_once_without_a_literal_space() {
+        // S1(c): the remainder may be backspaced away leaving only the prefix — space commits that pending
+        // word in ONE commit and is consumed (no stray " " inserted).
+        val h = FakeHost()
+        val partial = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
+        }
+        val c = KeyboardController(h, partial)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)                              // prefix "你", remainder "426"
+        repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }   // remainder gone, only the prefix remains
+        c.onKey(act(KeyAction.SPACE))
+        assertEquals(listOf("你"), h.commits)
     }
 
     @Test fun segment_forces_a_syllable_boundary() {

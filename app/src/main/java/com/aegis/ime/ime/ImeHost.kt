@@ -29,4 +29,11 @@ interface ImeHost {
 
     /** U25/M-3: whether the editor currently has a non-empty selection (so a calc replace must not clobber it). */
     fun hasSelection(): Boolean = false
+
+    /**
+     * S2 (debug.12): delete the current selection ITSELF (replace it with nothing). [deleteBackward] /
+     * deleteSurroundingText is selection-start-relative, so with a selection active it would instead remove
+     * the character BEFORE the selection — silent data loss. commitText("") replaces the selected span.
+     */
+    fun deleteSelection() { commitText("") }
 }
