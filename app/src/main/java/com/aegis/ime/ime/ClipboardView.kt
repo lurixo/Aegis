@@ -93,7 +93,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private companion object {
         const val MP = ViewGroup.LayoutParams.MATCH_PARENT
         const val WC = ViewGroup.LayoutParams.WRAP_CONTENT
+        const val DISPLAY_CAP = 2000
     }
+
+    private fun preview(s: String): CharSequence = if (s.length > DISPLAY_CAP) s.substring(0, DISPLAY_CAP) + "…" else s
 
     private fun ll(w: Int, h: Int, weight: Float = 0f) = LinearLayout.LayoutParams(w, h, weight)
 
@@ -153,7 +156,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         }
         val header = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         val body = TextView(context).apply {
-            this.text = text
+            this.text = preview(text)
             maxLines = if (expanded) 6 else 2
             ellipsize = android.text.TextUtils.TruncateAt.END
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)

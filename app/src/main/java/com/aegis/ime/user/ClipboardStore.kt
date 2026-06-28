@@ -16,22 +16,37 @@
 package com.aegis.ime.user
 
 import java.io.File
+import java.security.MessageDigest
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
 
 class ClipboardStore(private val dir: File) {
 
     private val histFile get() = File(dir, "clipboard.txt")
     private val phraseFile get() = File(dir, "phrases.txt")
+    private fun clipsDir() = File(dir, "clips")
 
     private val history = ArrayList<String>()
+
+    private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "aegis-clip-io").apply { isDaemon = true } }
+    private val saveGen = AtomicLong(0)
 
     private class Category(var name: String, val phrases: ArrayList<String> = ArrayList())
     private val phraseCats = ArrayList<Category>()
 
     fun load() {
         history.clear()
-        runCatching { if (histFile.exists()) histFile.readLines().forEach { decode(it)?.let(history::add) } }
+        runCatching { if (histFile.exists()) histFile.readLines().forEach { readEntry(it)?.let(history::add) } }
         loadPhrases()
     }
+
+    private fun readEntry(line: String): String? =
+        if (line.startsWith(BIG_LINE)) {
+            File(clipsDir(), line.substring(BIG_LINE.length) + ".txt").takeIf { it.isFile }
+                ?.let { runCatching { it.readText() }.getOrNull() } ?: decode(line)
+        } else {
+            decode(line)
+        }
 
     private fun loadPhrases() {
         phraseCats.clear()
@@ -59,14 +74,14 @@ class ClipboardStore(private val dir: File) {
         history.remove(t)
         history.add(0, t)
         while (history.size > MAX_HISTORY) history.removeAt(history.size - 1)
-        saveHistory()
+        scheduleSave()
     }
 
     fun recordImage(path: String) { if (path.isNotEmpty()) record(IMG_PREFIX + path) }
 
-    fun delete(text: String) { if (history.remove(text)) saveHistory() }
-    fun deleteAll(texts: Collection<String>) { if (history.removeAll(texts.toSet())) saveHistory() }
-    fun clearHistory() { if (history.isNotEmpty()) { history.clear(); saveHistory() } }
+    fun delete(text: String) { if (history.remove(text)) scheduleSave() }
+    fun deleteAll(texts: Collection<String>) { if (history.removeAll(texts.toSet())) scheduleSave() }
+    fun clearHistory() { if (history.isNotEmpty()) { history.clear(); scheduleSave() } }
 
     fun history(): List<String> = history.toList()
 
@@ -122,7 +137,42 @@ class ClipboardStore(private val dir: File) {
 
     private fun find(name: String): Category? = phraseCats.firstOrNull { it.name == name }
 
-    private fun saveHistory() = runCatching { histFile.writeText(history.joinToString("\n") { encode(it) }) }
+    private fun scheduleSave() {
+        val snapshot = ArrayList(history)
+        val gen = saveGen.incrementAndGet()
+        runCatching { io.execute { if (gen == saveGen.get()) writeHistory(snapshot) } }
+    }
+
+    private fun writeHistory(snapshot: List<String>) = runCatching {
+        val sb = StringBuilder()
+        val referenced = HashSet<String>()
+        for (e in snapshot) {
+            if (e.length > BIG_THRESHOLD && !isImageEntry(e)) {
+                val hash = sha256(e)
+                referenced.add(hash)
+                val f = File(clipsDir().apply { mkdirs() }, "$hash.txt")
+                if (!f.exists()) atomicWrite(f, e)
+                sb.append(BIG_LINE).append(hash).append('\n')
+            } else {
+                sb.append(encode(e)).append('\n')
+            }
+        }
+        atomicWrite(histFile, sb.toString())
+        clipsDir().listFiles()?.forEach { f ->
+            if (f.name.endsWith(".txt") && f.name.removeSuffix(".txt") !in referenced) runCatching { f.delete() }
+        }
+    }
+
+    private fun atomicWrite(dest: File, text: String) {
+        val tmp = File(dest.parentFile, dest.name + ".tmp")
+        tmp.writeText(text)
+        if (!tmp.renameTo(dest)) { dest.delete(); if (!tmp.renameTo(dest)) tmp.delete() }
+    }
+
+    private fun sha256(s: String): String =
+        MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+
+    internal fun awaitWritesForTest() { runCatching { io.submit { }.get() } }
 
     private fun savePhrases() = runCatching {
         val sb = StringBuilder()
@@ -154,6 +204,9 @@ class ClipboardStore(private val dir: File) {
         const val IMG_PREFIX = "img:"
         fun isImageEntry(entry: String): Boolean = entry.startsWith(IMG_PREFIX)
         fun imagePath(entry: String): String = if (isImageEntry(entry)) entry.substring(IMG_PREFIX.length) else entry
+
+        private const val BIG_LINE = "B\t"
+        const val BIG_THRESHOLD = 64 * 1024
 
         private const val MAX_HISTORY = 100000
         private const val DEFAULT_CATEGORY = "默认"

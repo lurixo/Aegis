@@ -101,7 +101,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
     }.apply { setOnClickListener { ctl.tapContent() } }
 
     private fun content(s: String): TextView = TextView(context).apply {
-        text = s
+        text = if (s.length > DISPLAY_CAP) s.substring(0, DISPLAY_CAP) else s
         maxLines = 1
         ellipsize = android.text.TextUtils.TruncateAt.END
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
@@ -135,5 +135,8 @@ class CopyBarView(context: Context) : LinearLayout(context) {
 
     private fun lp(w: Int, h: Int, weight: Float = 0f) = LinearLayout.LayoutParams(w, h, weight)
 
-    private companion object { const val WC = LinearLayout.LayoutParams.WRAP_CONTENT }
+    private companion object {
+        const val WC = LinearLayout.LayoutParams.WRAP_CONTENT
+        const val DISPLAY_CAP = 2000
+    }
 }
