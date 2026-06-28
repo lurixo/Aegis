@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.ime.theme.ImePalette
 import android.content.Context
 import android.util.TypedValue
 import android.view.Gravity
@@ -32,8 +33,18 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context) {
 
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
+    private var colors = ImePalette.STATIC_LIGHT
     private val addedRows = LinearLayout(context).apply { orientation = VERTICAL }
     private val paletteRows = LinearLayout(context).apply { orientation = VERTICAL }
+    private val headerBar = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+    private val backText = TextView(context).apply {
+        text = "‹ 自定义标点"
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+        setPadding(dp(12), dp(10), dp(12), dp(10))
+        isClickable = true
+        setTextColor(0xFF202124.toInt())
+    }
+    private val sectionLabels = mutableListOf<TextView>()
 
     private val palette = listOf(
         "、", "·", "—", "～", "‘", "’", "“", "”", "（", "）", "《", "》", "【", "】", "「", "」",
@@ -42,33 +53,32 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context) {
 
     init {
         orientation = VERTICAL
-        setBackgroundColor(0xFFF2F4F7.toInt())
-        addView(header())
+        setBackgroundColor(colors.panelBg)
+        backText.setOnClickListener { onBack() }
+        headerBar.setBackgroundColor(colors.panelSubBg)
+        headerBar.addView(backText)
+        addView(headerBar)
         addView(sectionLabel("已添加（点击移除）"))
         addView(ScrollView(context).apply { addView(addedRows) }, LayoutParams(LayoutParams.MATCH_PARENT, dp(56)))
         addView(sectionLabel("点击添加"))
         addView(ScrollView(context).apply { addView(paletteRows) }, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
     }
 
-    private fun header(): View = LinearLayout(context).apply {
-        orientation = HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        setBackgroundColor(0xFFE6E9ED.toInt())
-        val back = TextView(context).apply {
-            text = "‹ 自定义标点"
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            isClickable = true
-            setOnClickListener { onBack() }
-        }
-        addView(back)
+    fun applyPalette(p: ImePalette) {
+        colors = p
+        setBackgroundColor(p.panelBg)
+        headerBar.setBackgroundColor(p.panelSubBg)
+        backText.setTextColor(p.keyLabel)
+        sectionLabels.forEach { it.setTextColor(p.keyLabelSecondary) }
+        refresh()
     }
 
     private fun sectionLabel(text: String): View = TextView(context).apply {
         this.text = text
-        setTextColor(0xFF78909C.toInt())
+        setTextColor(colors.keyLabelSecondary)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
         setPadding(dp(12), dp(6), dp(12), dp(4))
+        sectionLabels.add(this)
     }
 
     fun refresh() {
@@ -99,8 +109,8 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context) {
         text = label
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, if (removable) 15f else 18f)
-        setTextColor(if (removable) 0xFFD32F2F.toInt() else 0xFF202124.toInt())
-        setBackgroundColor(0xFFFFFFFF.toInt())
+        setTextColor(if (removable) colors.deletable else colors.keyLabel)
+        setBackgroundColor(colors.keySurface)
         isClickable = true
         setOnClickListener { onClick() }
     }
