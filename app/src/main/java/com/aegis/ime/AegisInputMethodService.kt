@@ -152,6 +152,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         inputView?.showPanel(null)
+        inputView?.hideCopyBar()
         val cnLayout = getSharedPreferences("aegis", MODE_PRIVATE).getString("cn_layout", "nine")
         controller.setCnDefaultLayout(if (cnLayout == "alpha") LayoutId.ALPHA else LayoutId.NINE)
         controller.reset()

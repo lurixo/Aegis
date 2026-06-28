@@ -46,7 +46,7 @@ class CopyBarController(
 
     fun tapContent() {
         content?.let { commit(it) }
-        clear()
+        close()
     }
 
     fun tapBlock(block: String) {
