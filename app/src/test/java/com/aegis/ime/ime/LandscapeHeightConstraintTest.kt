@@ -16,14 +16,19 @@
 package com.aegis.ime.ime
 
 import android.app.Activity
+import android.content.res.Configuration
 import android.graphics.Rect
 import android.graphics.RectF
+import android.inputmethodservice.InputMethodService
 import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
+import android.widget.FrameLayout
 import androidx.core.graphics.Insets
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import com.aegis.ime.LandscapeImeWindowPolicy
+import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
@@ -39,6 +44,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import java.util.concurrent.TimeUnit
+import kotlin.math.roundToInt
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w853dp-h388dp-land-hdpi")
@@ -47,6 +53,173 @@ class LandscapeHeight388ConstraintTest {
     private val ctx = RuntimeEnvironment.getApplication()
     private val density = ctx.resources.displayMetrics.density
     private fun dp(value: Int) = (value * density).toInt()
+
+    @Test fun nine_nav_cutout_edit_candidate_first_last_and_enter_are_region_bound_and_clickable_at_most_and_exactly() {
+        val config = ctx.resources.configuration
+        assertEquals(Configuration.ORIENTATION_LANDSCAPE, config.orientation)
+        assertEquals("configuration must remain at the h388 qualifier", 853, config.screenWidthDp)
+        assertEquals(388, config.screenHeightDp)
+        assertEquals(1.5f, density, 0f)
+
+        val emitted = mutableListOf<Key>()
+        val picked = mutableListOf<Int>()
+        var confirms = 0
+        val iv = InputView(ctx).apply {
+            showKeyboard(Layouts.nine(Layouts.ninePunctuation(), composing = true), false, false, Lang.CN)
+            showCandidates(listOf("你", "泥", "逆"), "ni", listOf("ni"))
+            showEditBar(true)
+            onKey = emitted::add
+            onPickCandidate = picked::add
+            onEditConfirm = { confirms++ }
+        }
+        ViewCompat.dispatchApplyWindowInsets(
+            iv,
+            WindowInsetsCompat.Builder()
+                .setInsets(WindowInsetsCompat.Type.navigationBars(), Insets.of(58, 0, 17, 24))
+                .setInsets(WindowInsetsCompat.Type.displayCutout(), Insets.of(9, 0, 9, 0))
+                .build(),
+        )
+        val activity = attachToActivity(iv)
+        try {
+            fun assertGeometryAndDispatch(pass: String) {
+                assertEquals("$pass width", 1280, iv.measuredWidth)
+                assertEquals("$pass h388 cap", 582, iv.measuredHeight)
+                assertTrue("$pass must be a right dock", iv.isCompactLandscapeDock())
+                assertEquals(17, iv.bodyRightPaddingPxForTest())
+                assertEquals(24 + iv.dockHeightSpecForTest()!!.bottomExtra, iv.bodyBottomPaddingPx())
+                assertVerticalBounds(iv)
+
+                val abc = requireNotNull(iv.keyboardLabelBoundsForTest("ABC"))
+                val bottom123 = requireNotNull(iv.keyboardLabelBoundsForTest("123"))
+                val enter = requireNotNull(iv.keyboardActionBoundsForTest(KeyAction.ENTER))
+                val confirm = iv.editConfirmBoundsForTest()
+                for ((name, bounds) in listOf("ABC first row" to abc, "123 last row" to bottom123, "NINE Enter" to enter)) {
+                    assertRectInsideSurface(iv, bounds)
+                    assertTrue("$pass $name must retain a positive touch face: $bounds", bounds.width() > 0f && bounds.height() > 0f)
+                    assertRootRectInsideTouchableRegion(iv, name, bounds)
+                }
+                assertPanelRectInsideBody(iv, "edit confirm", confirm)
+                assertRootRectInsideTouchableRegion(iv, "edit confirm", confirm)
+                assertRootRectInsideTouchableRegion(
+                    iv,
+                    "candidate strip",
+                    Rect(iv.toolbarVisualLeftPx(), iv.toolbarVisualTopPx(), iv.toolbarVisualRightPx(), iv.toolbarVisualBottomPx()),
+                )
+
+                val insets = resolveWindowInsets(iv)
+                assertEquals(InputMethodService.Insets.TOUCHABLE_INSETS_REGION, insets.touchableInsets)
+                val region = requireNotNull(insets.touchableRegion)
+                assertEquals(iv.dockTouchableBoundsInWindow(), region)
+                assertTrue("$pass composing preedit must be included", region.contains(iv.preeditSurfaceBoundsInWindow()))
+                assertTrue("$pass body must be included", region.contains(iv.dockSurfaceBoundsInWindow()))
+                assertFalse("$pass adjacent host pixel must pass through", region.contains(region.left - 1, region.top))
+
+                assertTrue("$pass ABC root dispatch", iv.tapKeyboardLabelForTest("ABC"))
+                assertTrue("$pass 123 root dispatch", iv.tapKeyboardLabelForTest("123"))
+                assertTrue("$pass Enter root dispatch", iv.tapKeyboardActionForTest(KeyAction.ENTER))
+                assertTrue("$pass candidate root dispatch", iv.tapFirstCandidateForTest())
+                assertTrue("$pass edit confirm root dispatch", iv.tapEditConfirmForTest())
+                flushPostedClicks()
+            }
+
+            layoutAtMost(iv, 1280, 582)
+            assertGeometryAndDispatch("AT_MOST")
+            layoutExactly(iv, 1280, 582)
+            assertGeometryAndDispatch("EXACTLY")
+
+            assertEquals(
+                listOf(
+                    KeyAction.COMMIT, KeyAction.SWITCH_NUMPAD, KeyAction.ENTER,
+                    KeyAction.COMMIT, KeyAction.SWITCH_NUMPAD, KeyAction.ENTER,
+                ),
+                emitted.map { it.action },
+            )
+            assertEquals(listOf("ABC", "123", "↵", "ABC", "123", "↵"), emitted.map { it.label })
+            assertEquals("T9 ABC must emit digit 2 in both measure modes", listOf("2", "2"), emitted.filter { it.label == "ABC" }.map { it.output })
+            assertEquals(listOf(0, 0), picked)
+            assertEquals(2, confirms)
+        } finally {
+            activity.pause().stop().destroy()
+        }
+    }
+
+    @Test fun nine_stateful_overlays_keep_geometry_across_qualifier_change_and_same_view_detach_reattach() {
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        val host = FrameLayout(controller.get())
+        controller.get().setContentView(host)
+        val emitted = mutableListOf<Key>()
+        var panelBackspaces = 0
+        var picked = 0
+        var confirmed = 0
+        val iv = InputView(controller.get()).apply {
+            showKeyboard(Layouts.nine(Layouts.ninePunctuation(), composing = true), false, false, Lang.CN)
+            showCandidates((1..20).map { "候选$it" }, "nihao", listOf("ni", "hao"))
+            showEditBar(true)
+            onKey = emitted::add
+            onPanelBackspace = { panelBackspaces++ }
+            onPickCandidate = { picked++ }
+            onEditConfirm = { confirmed++ }
+        }
+        host.addView(iv)
+        val systemInsets = WindowInsetsCompat.Builder()
+            .setInsets(WindowInsetsCompat.Type.navigationBars(), Insets.of(58, 0, 17, 24))
+            .setInsets(WindowInsetsCompat.Type.displayCutout(), Insets.of(9, 0, 9, 0))
+            .build()
+        ViewCompat.dispatchApplyWindowInsets(iv, systemInsets)
+        try {
+            layoutAtMost(iv, 1280, 582)
+            iv.showExpandedCandidates()
+            layoutAtMost(iv, 1280, 582)
+            settleUiAnimations()
+            val grid = iv.expandedGridForTest()
+            assertStatefulNinePanel(iv, grid, expectCompact = true)
+
+            RuntimeEnvironment.setQualifiers("w388dp-h853dp-port-hdpi")
+            assertEquals(Configuration.ORIENTATION_PORTRAIT, iv.resources.configuration.orientation)
+            layoutAtMost(iv, dpRound(388), dpRound(853))
+            assertStatefulNinePanel(iv, grid, expectCompact = false)
+
+            RuntimeEnvironment.setQualifiers("w853dp-h388dp-land-hdpi")
+            layoutAtMost(iv, 1280, 582)
+            assertStatefulNinePanel(iv, grid, expectCompact = true)
+
+            host.removeView(iv)
+            assertTrue("geometry surrogate must really detach the input view", iv.parent == null)
+            assertTrue(iv.isComposing())
+            assertTrue(iv.isEditBarShowing())
+            assertTrue(iv.isPanelShowing(grid))
+            host.addView(iv)
+            ViewCompat.dispatchApplyWindowInsets(iv, systemInsets)
+            layoutAtMost(iv, 1280, 582)
+            settleUiAnimations()
+            assertStatefulNinePanel(iv, grid, expectCompact = true)
+
+            val controls = iv.expandedPanelControlBoundsForTest()
+            assertTrue(dispatchRootTap(iv, controls[1], grid.backspaceButtonForTest()))
+            assertTrue(dispatchRootTap(iv, controls[0], grid.returnButtonForTest()))
+            flushPostedClicks()
+            settleUiAnimations()
+            assertEquals(1, panelBackspaces)
+            assertFalse(iv.panelShown)
+
+            layoutAtMost(iv, 1280, 582)
+            assertTrue(iv.tapKeyboardLabelForTest("ABC"))
+            assertTrue(iv.tapKeyboardLabelForTest("123"))
+            assertTrue(iv.tapKeyboardActionForTest(KeyAction.ENTER))
+            assertTrue(iv.tapFirstCandidateForTest())
+            assertTrue(iv.tapEditConfirmForTest())
+            flushPostedClicks()
+            assertEquals(listOf(KeyAction.COMMIT, KeyAction.SWITCH_NUMPAD, KeyAction.ENTER), emitted.map { it.action })
+            assertEquals(1, picked)
+            assertEquals(1, confirmed)
+            val restoredInsets = resolveWindowInsets(iv)
+            assertEquals(InputMethodService.Insets.TOUCHABLE_INSETS_REGION, restoredInsets.touchableInsets)
+            assertTrue(requireNotNull(restoredInsets.touchableRegion).contains(iv.preeditSurfaceBoundsInWindow()))
+        } finally {
+            RuntimeEnvironment.setQualifiers("w853dp-h388dp-land-hdpi")
+            controller.pause().stop().destroy()
+        }
+    }
 
     @Test fun open_panel_remeasures_with_the_hidden_keyboard_and_compressed_actions_stay_touchable() {
         var backspaces = 0
@@ -231,6 +404,100 @@ private fun layoutAtMost(iv: InputView, widthPx: Int, heightPx: Int) {
         View.MeasureSpec.makeMeasureSpec(heightPx, View.MeasureSpec.AT_MOST),
     )
     iv.layout(0, 0, iv.measuredWidth, iv.measuredHeight)
+}
+
+private fun layoutExactly(iv: InputView, widthPx: Int, heightPx: Int) {
+    iv.measure(
+        View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),
+        View.MeasureSpec.makeMeasureSpec(heightPx, View.MeasureSpec.EXACTLY),
+    )
+    iv.layout(0, 0, iv.measuredWidth, iv.measuredHeight)
+}
+
+private fun dpRound(value: Int): Int =
+    (value * RuntimeEnvironment.getApplication().resources.displayMetrics.density).roundToInt()
+
+private fun resolveWindowInsets(iv: InputView) = LandscapeImeWindowPolicy.resolve(
+    compactLandscape = iv.isCompactLandscapeDock(),
+    normalTop = rootLocationInWindow(iv)[1] + iv.barTopInsetPx(),
+    windowBottom = rootLocationInWindow(iv)[1] + iv.height,
+    surfaceBounds = iv.dockTouchableBoundsInWindow(),
+)
+
+private fun rootLocationInWindow(iv: InputView): IntArray = IntArray(2).also(iv::getLocationInWindow)
+
+private fun rootRectInWindow(iv: InputView, rect: Rect): Rect {
+    val location = rootLocationInWindow(iv)
+    return Rect(rect).apply { offset(location[0], location[1]) }
+}
+
+private fun rootRectInWindow(iv: InputView, rect: RectF): Rect =
+    Rect().also(rect::roundOut).let { rootRectInWindow(iv, it) }
+
+private fun assertRootRectInsideTouchableRegion(iv: InputView, name: String, rect: Rect) {
+    val windowRect = rootRectInWindow(iv, rect)
+    val region = requireNotNull(resolveWindowInsets(iv).touchableRegion) {
+        "$name expected a compact touch region"
+    }
+    assertTrue("$name window bounds $windowRect must be non-empty", !windowRect.isEmpty)
+    assertTrue("$name window bounds $windowRect must be inside touch region $region", region.contains(windowRect))
+}
+
+private fun assertRootRectInsideTouchableRegion(iv: InputView, name: String, rect: RectF) {
+    val windowRect = rootRectInWindow(iv, rect)
+    val region = requireNotNull(resolveWindowInsets(iv).touchableRegion) {
+        "$name expected a compact touch region"
+    }
+    assertTrue("$name window bounds $windowRect must be non-empty", !windowRect.isEmpty)
+    assertTrue("$name window bounds $windowRect must be inside touch region $region", region.contains(windowRect))
+}
+
+private fun assertPanelRectInsideBody(iv: InputView, name: String, rect: Rect) {
+    val body = Rect(
+        iv.dockSurfaceLeftPx(),
+        iv.dockSurfaceTopPx(),
+        iv.dockSurfaceRightPx(),
+        iv.dockSurfaceBottomPx(),
+    )
+    assertTrue("$name must be non-empty: $rect", !rect.isEmpty)
+    assertTrue("$name $rect must stay inside body $body", body.contains(rect))
+}
+
+private fun assertStatefulNinePanel(iv: InputView, grid: CandidateGridView, expectCompact: Boolean) {
+    assertTrue("composition must survive the geometry transition", iv.isComposing())
+    assertTrue("edit bar must survive the geometry transition", iv.isEditBarShowing())
+    assertTrue("expanded panel intent must survive the geometry transition", iv.isPanelShowing(grid))
+    assertTrue("active panel must remain visible", iv.panelShown)
+    assertTrue("preedit must retain positive height", iv.preeditVisualBottomPx() > iv.preeditVisualTopPx())
+    assertFalse("candidate strip is covered by the expanded surface", iv.toolbarShownForTest())
+    assertTrue("edit bar must retain positive height", iv.editBarVisualBottomPx() > iv.editBarVisualTopPx())
+    assertTrue("panel must retain positive height", iv.panelHeightPx() > 0)
+    val heightSpec = iv.dockHeightSpecForTest()!!
+    assertEquals("panel slot must cover the keyboard and the toolbar row", heightSpec.keyboardHeight + heightSpec.barHeight, iv.panelHeightPx())
+    assertEquals("visible panel child must fill the current slot", iv.panelHeightPx(), grid.height)
+    assertEquals("opaque body must end at the current root", iv.height, iv.dockSurfaceBottomPx())
+    assertVerticalBounds(iv)
+    assertEquals(expectCompact, iv.isCompactLandscapeDock())
+
+    val insets = resolveWindowInsets(iv)
+    if (expectCompact) {
+        assertEquals(InputMethodService.Insets.TOUCHABLE_INSETS_REGION, insets.touchableInsets)
+        val region = requireNotNull(insets.touchableRegion)
+        assertEquals(iv.dockTouchableBoundsInWindow(), region)
+        assertTrue(region.contains(iv.preeditSurfaceBoundsInWindow()))
+        assertTrue(region.contains(iv.dockSurfaceBoundsInWindow()))
+        assertRootRectInsideTouchableRegion(
+            iv,
+            "active panel",
+            Rect(iv.panelVisualLeftPx(), iv.panelVisualTopPx(), iv.panelVisualRightPx(), iv.panelVisualBottomPx()),
+        )
+        iv.expandedPanelControlBoundsForTest().forEachIndexed { index, bounds ->
+            assertRootRectInsideTouchableRegion(iv, "restored expanded control $index", bounds)
+        }
+    } else {
+        assertEquals(InputMethodService.Insets.TOUCHABLE_INSETS_VISIBLE, insets.touchableInsets)
+        assertTrue("full-width/portrait fallback must not retain a synthetic region", insets.touchableRegion == null)
+    }
 }
 
 private fun attachToActivity(view: View) = Robolectric.buildActivity(Activity::class.java).setup().also {

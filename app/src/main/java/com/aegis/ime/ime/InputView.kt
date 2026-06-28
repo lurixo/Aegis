@@ -723,6 +723,8 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun copyBarForTest(): CopyBarView = copyBarView
     internal fun coveredBarForTest(): View? = coveredBar()
 
+    fun isComposing(): Boolean = composingNow
+
     private fun pickCandidateIfSeen(index: Int) {
         if (candidateTapGuard.accepts(index, SystemClock.uptimeMillis())) onPickCandidate(index)
     }
@@ -1135,12 +1137,23 @@ class InputView(context: Context) : LinearLayout(context) {
             dispatchTapForTest(keyboardVisualLeftPx() + x, keyboardVisualTopPx() + y)
         } ?: false
 
+    internal fun tapFirstCandidateForTest(): Boolean =
+        candidateView.centerOfCandidateForTest(0)?.let { (x, y) ->
+            dispatchTapForTest(toolbarVisualLeftPx() + x, toolbarVisualTopPx() + y)
+        } ?: false
+
     internal fun tapExpandCandidatesForTest(): Boolean {
         val bounds = candidateView.expandControlBoundsForTest()
         return dispatchTapForTest(
             toolbarVisualLeftPx() + bounds.centerX(),
             toolbarVisualTopPx() + bounds.centerY(),
         )
+    }
+
+    internal fun editConfirmBoundsForTest(): Rect = boundsInRoot(editBarView.confirmButtonForTest())
+    internal fun tapEditConfirmForTest(): Boolean {
+        val b = editConfirmBoundsForTest()
+        return dispatchTapForTest(b.exactCenterX(), b.exactCenterY())
     }
 
     internal fun expandedPanelControlBoundsForTest(): List<Rect> = listOf(
