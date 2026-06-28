@@ -69,7 +69,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context) {
         setBackgroundColor(colors.panelBg)
         backText.setOnClickListener { onBack() }
         pasteText.setOnClickListener { onPaste() }
-        headerBar.setBackgroundColor(colors.panelSubBg)
+        headerBar.setBackgroundColor(colors.panelBg) // P6: 返回 row = content background
         headerBar.addView(backText)
         headerBar.addView(View(context), LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
         headerBar.addView(pasteText)
@@ -84,7 +84,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context) {
     fun applyPalette(p: ImePalette) {
         colors = p
         setBackgroundColor(p.panelBg)
-        headerBar.setBackgroundColor(p.panelSubBg)
+        headerBar.setBackgroundColor(p.panelBg) // P6: 返回 row = content background
         backText.setTextColor(p.keyLabel)
         pasteText.setTextColor(p.keyLabel)
         sectionLabels.forEach { it.setTextColor(p.keyLabelSecondary) }
