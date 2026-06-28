@@ -133,7 +133,14 @@ object ModelDownload {
         if (!sha256Of(zip).equals(DICT_SHA256, ignoreCase = true)) { zip.delete(); return false }
         val produced = runCatching { extractDictPack(zip, downloadedDir(filesDir)) }.getOrDefault(emptySet())
         zip.delete()
-        return DICT_PACK_FILES.all { it in produced }
+        val ok = DICT_PACK_FILES.all { it in produced }
+        if (!ok) {
+            DICT_PACK_FILES.forEach {
+                File(downloadedDir(filesDir), it).delete()
+                File(downloadedDir(filesDir), "$it.part").delete()
+            }
+        }
+        return ok
     }
 
     internal fun extractDictPack(zip: File, dir: File): Set<String> {
@@ -143,8 +150,18 @@ object ModelDownload {
             var e = zin.nextEntry
             while (e != null) {
                 if (!e.isDirectory) targetFor(e.name)?.let { target ->
-                    File(dir, target).outputStream().use { out -> zin.copyTo(out) }
-                    produced.add(target)
+                    val finalFile = File(dir, target)
+                    val part = File(dir, "$target.part")
+                    part.delete()
+                    try {
+                        part.outputStream().use { out -> zin.copyTo(out) }
+                        finalFile.delete()
+                        if (!part.renameTo(finalFile)) throw java.io.IOException("rename failed: $target")
+                        produced.add(target)
+                    } catch (t: Throwable) {
+                        part.delete()
+                        throw t
+                    }
                 }
                 zin.closeEntry()
                 e = zin.nextEntry
@@ -174,7 +191,10 @@ object ModelDownload {
 
     fun purgeDict(filesDir: File): Boolean {
         var removed = false
-        DICT_PACK_FILES.forEach { if (File(downloadedDir(filesDir), it).delete()) removed = true }
+        DICT_PACK_FILES.forEach {
+            if (File(downloadedDir(filesDir), it).delete()) removed = true
+            if (File(downloadedDir(filesDir), "$it.part").delete()) removed = true
+        }
         if (dictZipFile(filesDir).delete()) removed = true
         if (dictPartFile(filesDir).delete()) removed = true
         return removed

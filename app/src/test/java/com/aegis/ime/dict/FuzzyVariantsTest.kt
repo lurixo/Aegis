@@ -56,10 +56,13 @@ class FuzzyVariantsTest {
     }
 
     @Test
-    fun collapseMatchesLegacyNormalize() {
+    fun normalizeIsTheFinalsCanonical() {
+        val finals = setOf("zh", "ch", "sh", "ang", "eng", "ing")
         for (s in listOf("zhang", "chengshi", "yingxiong", "nihao", "shangchang")) {
-            assertEquals(Fuzzy.normalize(s), Fuzzy.collapse(s, all))
+            assertEquals(Fuzzy.normalize(s), Fuzzy.collapse(s, finals))
         }
+        assertEquals("zan", Fuzzy.normalize("zhang"))
+        assertEquals("nihao", Fuzzy.normalize("nihao"))
     }
 
     @Test
@@ -96,5 +99,18 @@ class FuzzyVariantsTest {
         assertTrue(vs("kan", setOf("k_g")).contains("kan"))
         assertTrue(vs("nan", setOf("n_l", "l_r", "f_h", "k_g")).size <= 64)
         assertTrue(Fuzzy.RULES.map { it.key }.containsAll(listOf("n_l", "f_h", "l_r", "k_g")))
+    }
+
+    @Test
+    fun allRulesTogether_resolveInitialConfusions_withoutRegressingFinals() {
+        assertTrue("n↔l↔r at 首位 (南=兰)", vs("nan", all).containsAll(setOf("nan", "lan", "ran")))
+        assertTrue("f↔h: fan→han", vs("fan", all).contains("han"))
+        assertTrue("k↔g: kan→gan", vs("kan", all).contains("gan"))
+        assertTrue("l↔r: lan→ran", vs("lan", all).contains("ran"))
+        assertTrue("平翘舌+前后鼻音 still resolve: zhang⊇{zang,zhan,zan}", vs("zhang", all).containsAll(setOf("zang", "zhan", "zan")))
+        assertTrue("shang→sang", vs("shang", all).contains("sang"))
+        assertTrue("zheng→zeng", vs("zheng", all).contains("zeng"))
+        assertFalse("声母 rule must not touch the final -n of nan", vs("nan", all).contains("nal"))
+        assertTrue("bounded", vs("nan", all).size <= 64 && vs("shangchang", all).size <= 64)
     }
 }

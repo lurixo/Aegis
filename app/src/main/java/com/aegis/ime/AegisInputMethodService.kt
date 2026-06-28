@@ -163,15 +163,27 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun downloadedOverride(name: String): File? =
         File(File(filesDir, "downloaded"), name).takeIf { it.exists() && it.length() > 0 }
 
-    private fun loadDict(name: String): BinaryDict? =
-        runCatching { downloadedOverride(name)?.let { BinaryDict.fromFile(it) } ?: BinaryDict.fromAssets(this, name) }
+    private fun loadDict(name: String): BinaryDict? {
+        downloadedOverride(name)?.let { f ->
+            runCatching { BinaryDict.fromFile(f) }
+                .onFailure { Log.e("Aegis", "downloaded dict unreadable, falling back to bundled: $name", it) }
+                .getOrNull()?.let { return it }
+        }
+        return runCatching { BinaryDict.fromAssets(this, name) }
             .onFailure { Log.e("Aegis", "dict load failed: $name", it) }
             .getOrNull()
+    }
 
-    private fun loadLm(name: String): CharBigramLM? =
-        runCatching { downloadedOverride(name)?.let { CharBigramLM.fromFile(it) } ?: CharBigramLM.fromAssets(this, name) }
+    private fun loadLm(name: String): CharBigramLM? {
+        downloadedOverride(name)?.let { f ->
+            runCatching { CharBigramLM.fromFile(f) }
+                .onFailure { Log.e("Aegis", "downloaded lm unreadable, falling back to bundled: $name", it) }
+                .getOrNull()?.let { return it }
+        }
+        return runCatching { CharBigramLM.fromAssets(this, name) }
             .onFailure { Log.e("Aegis", "lm load failed: $name", it) }
             .getOrNull()
+    }
 
     override fun onCreateInputView(): View {
         val view = InputView(this).apply {
