@@ -228,6 +228,58 @@ class KeyboardControllerTest {
         assertEquals(listOf("ni", "，"), h.commits)
     }
 
+    // ---- I4: shift one-shot (single tap) vs caps lock (double tap → SHIFT_LOCK), reset on switch ----
+
+    @Test fun single_shift_tap_is_one_shot_uppercase_then_back_to_lowercase() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.TOGGLE_LANG)) // CN → EN (letters commit directly, case applies)
+        c.onKey(act(KeyAction.SHIFT))       // one-shot
+        assertEquals("ONCE", c.shiftStateName())
+        c.onKey(out("a"))                   // first letter uppercased…
+        c.onKey(out("b"))                   // …then shift is spent, second stays lowercase
+        assertEquals(listOf("A", "b"), h.commits)
+        assertEquals("OFF", c.shiftStateName())
+    }
+
+    @Test fun double_tap_shift_lock_keeps_uppercasing_until_toggled() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.TOGGLE_LANG))   // EN
+        c.onKey(act(KeyAction.SHIFT_LOCK))    // double tap → caps lock
+        assertEquals("LOCK", c.shiftStateName())
+        c.onKey(out("a")); c.onKey(out("b"))  // both uppercase, lock persists
+        assertEquals(listOf("A", "B"), h.commits)
+        assertEquals("LOCK", c.shiftStateName())
+        c.onKey(act(KeyAction.SHIFT))         // a tap clears the lock
+        assertEquals("OFF", c.shiftStateName())
+    }
+
+    @Test fun shift_is_inert_in_cn_full_pinyin_26_key() {
+        // I4: ⇧ sits on the shared 26-key, but shift is meaningless for full-pinyin — tapping it in
+        // CN 全拼26键 must NOT arm (which would stick the keycaps uppercase while the pinyin stays lowercase).
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.SWITCH_ALPHA)) // CN 全拼26键 → mode = PINYIN
+        c.onKey(act(KeyAction.SHIFT))
+        assertEquals("shift stays OFF in CN pinyin", "OFF", c.shiftStateName())
+        c.onKey(act(KeyAction.SHIFT_LOCK))
+        assertEquals("double-tap lock is inert in CN pinyin too", "OFF", c.shiftStateName())
+    }
+
+    @Test fun shift_lock_resets_on_layout_switch_and_on_lang_toggle() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.TOGGLE_LANG)); c.onKey(act(KeyAction.SHIFT_LOCK))
+        assertEquals("LOCK", c.shiftStateName())
+        c.onKey(act(KeyAction.SWITCH_NUMBERS)) // a layout switch clears it
+        assertEquals("OFF", c.shiftStateName())
+        c.onKey(act(KeyAction.SWITCH_ALPHA)); c.onKey(act(KeyAction.SHIFT_LOCK))
+        assertEquals("LOCK", c.shiftStateName())
+        c.onKey(act(KeyAction.TOGGLE_LANG))    // 中英 toggle clears it too
+        assertEquals("OFF", c.shiftStateName())
+    }
+
     @Test fun english_letters_commit_directly_not_buffered() {
         // D: EN letters go straight to the editor (no candidate bar). Toggling to EN also drops off the 9-key.
         val h = FakeHost()

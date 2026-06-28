@@ -49,7 +49,19 @@ class KeyboardViewInteractionTest {
 
     private fun nineView(left: List<Key>, composing: Boolean): KeyboardView {
         val v = KeyboardView(context)
-        v.setLayout(Layouts.nine(Lang.CN, left, composing), false, Lang.CN)
+        v.setLayout(Layouts.nine(Lang.CN, left, composing), false, false, Lang.CN)
+        v.measure(
+            View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+        )
+        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+        return v
+    }
+
+    /** I4: a laid-out 26-key (EN) view — the only layout carrying the shift key. */
+    private fun alphaView(): KeyboardView {
+        val v = KeyboardView(context)
+        v.setLayout(Layouts.forId(com.aegis.ime.layout.LayoutId.ALPHA, Lang.EN), false, false, Lang.EN)
         v.measure(
             View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
@@ -192,5 +204,49 @@ class KeyboardViewInteractionTest {
         assertNull("tapping below the single item picks nothing, never crashes", run {
             picked = null; v.tap(v.cx(), v.regTop() + v.cellH() * 3.5f); picked
         })
+    }
+
+    // ---- I4: shift single-tap (one-shot) vs double-tap (caps lock) + the stateful glyph ----
+
+    private fun KeyboardView.tapAt(x: Float, y: Float, t: Long) {
+        send(MotionEvent.ACTION_DOWN, x, y, t)
+        send(MotionEvent.ACTION_UP, x, y, t + 10)
+    }
+
+    @Test fun a_quick_second_shift_tap_promotes_one_shot_to_caps_lock() {
+        val emitted = mutableListOf<KeyAction>()
+        val v = alphaView().apply { onKey = { emitted.add(it.action) } }
+        val (sx, sy) = v.centerOfActionForTest(KeyAction.SHIFT)!!
+        v.tapAt(sx, sy, 0)    // first tap → one-shot SHIFT
+        v.tapAt(sx, sy, 100)  // within the 300ms double-tap window → SHIFT_LOCK
+        assertEquals(listOf(KeyAction.SHIFT, KeyAction.SHIFT_LOCK), emitted)
+    }
+
+    @Test fun two_slow_shift_taps_stay_one_shot_never_lock() {
+        val emitted = mutableListOf<KeyAction>()
+        val v = alphaView().apply { onKey = { emitted.add(it.action) } }
+        val (sx, sy) = v.centerOfActionForTest(KeyAction.SHIFT)!!
+        v.tapAt(sx, sy, 0)    // SHIFT
+        v.tapAt(sx, sy, 500)  // 490ms later, outside the window → SHIFT again, NOT a lock
+        assertEquals(listOf(KeyAction.SHIFT, KeyAction.SHIFT), emitted)
+    }
+
+    @Test fun nine_key_is_slightly_taller_than_the_base_row_height() {
+        // I3: the 9-key gets a small per-row bump; verify it is taller than the un-bumped 4-row base, but
+        // only modestly ("别过").
+        val v = nineView(Layouts.ninePunctuation(), composing = false)
+        val rows = 4
+        val baseHeight = rows * 52f * density + (rows + 1) * 6f * density // pre-I3 measure
+        val h = v.measuredHeight.toFloat()
+        assertTrue("9-key taller than the un-bumped base ($h vs $baseHeight)", h > baseHeight + 1f)
+        assertTrue("…but only slightly (≤ +40dp total)", h <= baseHeight + 40f * density)
+    }
+
+    @Test fun shift_glyph_state_is_off_once_or_lock() {
+        val alpha = Layouts.forId(com.aegis.ime.layout.LayoutId.ALPHA, Lang.EN)
+        val v = alphaView()
+        v.setLayout(alpha, false, false, Lang.EN); assertEquals("OFF", v.shiftRenderState())
+        v.setLayout(alpha, true, false, Lang.EN); assertEquals("ONCE (hollow arrow)", "ONCE", v.shiftRenderState())
+        v.setLayout(alpha, true, true, Lang.EN); assertEquals("LOCK (solid arrow)", "LOCK", v.shiftRenderState())
     }
 }

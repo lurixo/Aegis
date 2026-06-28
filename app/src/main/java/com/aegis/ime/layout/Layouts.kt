@@ -113,7 +113,9 @@ object Layouts {
         // Top-left: while composing it is the 分词/隔音 key (lock a syllable boundary);
         // idle it stays the symbols shortcut (punctuation otherwise via the left column / 符号 panel).
         cells.add(PlacedKey(
-            if (composing) Key("分词", action = SEGMENT) else Key("@#", action = SWITCH_SYMBOLS),
+            // I6: bold = render at the prominent primary weight of the surrounding letter keys (the 分词 /
+            // @# labels used the small faint secondary style and read as "未加粗").
+            if (composing) Key("分词", action = SEGMENT, bold = true) else Key("@#", action = SWITCH_SYMBOLS, bold = true),
             x1, 0f, wM, 0.25f,
         ))
         cells.add(PlacedKey(t9key("ABC", "2"), x2, 0f, wM, 0.25f))

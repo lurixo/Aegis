@@ -107,6 +107,7 @@ class KeyboardController(
      *  make the replace delete unrelated characters. */
     private var calcCand: Cand? = null
     private var calcExpr = ""
+    private var calcResult = "" // I1: the bare result string ("2"); the candidate shows "=2" and appends "=2"
 
     /** M-3/L-3: when the focused field is a password / opts out of personalized learning, never learn. */
     private var learningBlocked = false
@@ -176,11 +177,15 @@ class KeyboardController(
             KeyAction.CLEAR_COMPOSING -> handleClearComposing()
             KeyAction.SPACE -> handleSpace()
             KeyAction.ENTER -> handleEnter()
-            KeyAction.SHIFT -> shiftState = when (shiftState) {
-                ShiftState.OFF -> ShiftState.ONCE
-                ShiftState.ONCE -> ShiftState.LOCK
-                ShiftState.LOCK -> ShiftState.OFF
+            // I4: single tap = one-shot (OFF→ONCE); tapping again, or while locked, turns it OFF. Shift is
+            // meaningless for full-pinyin (the buffer is always lowercase) and is INERT in CN PINYIN mode —
+            // otherwise the shared 26-key ⇧ would arm and the letter caps would stick, because the PINYIN
+            // commit path never spends the one-shot (only the DIRECT paths do).
+            KeyAction.SHIFT -> if (mode() == Mode.DIRECT) {
+                shiftState = if (shiftState == ShiftState.OFF) ShiftState.ONCE else ShiftState.OFF
             }
+            // I4: double tap (KeyboardView promotes the 2nd quick SHIFT tap) = caps lock; also EN-only.
+            KeyAction.SHIFT_LOCK -> if (mode() == Mode.DIRECT) shiftState = ShiftState.LOCK
             KeyAction.SWITCH_SYMBOLS -> switchLayout(LayoutId.SYMBOL)
             KeyAction.SWITCH_NUMBERS -> switchLayout(LayoutId.NUMBER)
             KeyAction.SWITCH_ALPHA -> switchLayout(LayoutId.ALPHA)
@@ -200,6 +205,7 @@ class KeyboardController(
             KeyAction.SHOW_SYMBOLS -> { flushComposing(); onShowSymbols() }
             KeyAction.TOGGLE_LANG -> {
                 flushComposing()
+                shiftState = ShiftState.OFF // I4: switching 中英 clears caps lock / one-shot
                 if (lang == Lang.CN) {
                     // Leaving CN: remember the CN keyboard (issue #10: EN is 26-key only).
                     cnLayout = layoutId
@@ -273,18 +279,16 @@ class KeyboardController(
         if (index !in candidates.indices) return
         val cand = candidates[index]
         when {
-            // U25: the calculator result replaces the expression text before the cursor (no buffer involved).
+            // U25/I1: the calculator result is APPENDED after the expression (1+1 → 1+1=2), not a replace.
             cand === calcCand -> {
                 // M-3 (data loss): the result was computed from a snapshot of the text before the cursor.
                 // The caret may have moved since with no keystroke (so no refresh ran), leaving this cand
-                // stale. Re-detect against the LIVE text and only delete+replace when the SAME expression
-                // still sits immediately before the caret — using the freshly measured length — otherwise a
-                // blind deleteSurroundingText(len) would erase whatever now precedes the new caret. Also skip
-                // when a selection is active: deleteSurroundingText is selection-start-relative while the
-                // commit replaces the selection, which would silently destroy the selected text.
+                // stale. Re-detect against the LIVE text and only append when the SAME expression still sits
+                // immediately before the caret — otherwise "=result" would land in the wrong place. Also skip
+                // when a selection is active: commitText would replace (destroy) the selected text.
                 val live = Calculator.detect(host.textBeforeCursor(CALC_SCAN_LEN))
-                if (live != null && live.expr == calcExpr && live.result == cand.word && !host.hasSelection()) {
-                    host.replaceBeforeCursor(live.length, live.result)
+                if (live != null && live.expr == calcExpr && live.result == calcResult && !host.hasSelection()) {
+                    host.commitText("=" + live.result) // append "=result" right after the expression
                 }
                 clearComposingState(); lastWord = null
             }
@@ -438,6 +442,7 @@ class KeyboardController(
 
     private fun switchLayout(id: LayoutId) {
         flushComposing()
+        shiftState = ShiftState.OFF // I4: a layout switch clears caps lock / one-shot
         layoutId = id
     }
 
@@ -533,7 +538,7 @@ class KeyboardController(
         val base = baseCandidates()
         // U23/U25 reset; recomputed below so a stale association/calc cand never lingers.
         directCommitCands = emptySet()
-        calcCand = null; calcExpr = ""
+        calcCand = null; calcExpr = ""; calcResult = ""
         candidates = when {
             // While composing pinyin: inject associated emoji/symbols (haode→👌) just after the top word.
             composing.isNotEmpty() && mode() == Mode.PINYIN -> injectAssociations(base)
@@ -557,11 +562,12 @@ class KeyboardController(
         }
     }
 
-    /** U25: if the editor text before the cursor ends in an arithmetic expression, show its result. */
+    /** U25/I1: if the editor text before the cursor ends in an arithmetic expression, offer "=result" — a
+     *  pick APPENDS "=result" after the expression (1+1 → 1+1=2), it does not replace the expression. */
     private fun calcCandidates(): List<Cand> {
         val match = Calculator.detect(host.textBeforeCursor(CALC_SCAN_LEN)) ?: return emptyList()
-        val cand = Cand(match.result, 0)
-        calcCand = cand; calcExpr = match.expr
+        val cand = Cand("=" + match.result, 0)
+        calcCand = cand; calcExpr = match.expr; calcResult = match.result
         return listOf(cand)
     }
 
@@ -652,9 +658,12 @@ class KeyboardController(
         val v = view ?: return
         val layout = if (layoutId == LayoutId.NINE) Layouts.nine(lang, nineLeftColumn(), composing.isNotEmpty())
         else Layouts.forId(layoutId, lang)
-        v.showKeyboard(layout, shifted, lang)
+        v.showKeyboard(layout, shifted, shiftState == ShiftState.LOCK, lang)
         v.showCandidates(candidates.map { it.word }, preeditText(), expandedReadings())
     }
+
+    /** I4 test seam: the shift state name (OFF / ONCE / LOCK) driving the key glyph + uppercasing. */
+    internal fun shiftStateName(): String = shiftState.name
 
     /** A2 expanded screen left column: the active syllable's combinations (9-key composing only; else empty). */
     internal fun expandedReadings(): List<String> =

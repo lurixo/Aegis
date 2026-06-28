@@ -27,7 +27,8 @@ enum class KeyAction {
     BACKSPACE,
     CLEAR_COMPOSING, // 9-key "重输": clear the composing buffer + candidates, leave committed text
     ENTER,
-    SHIFT,
+    SHIFT,           // I4 single tap: one-shot shift (next letter only); tap again to cancel
+    SHIFT_LOCK,      // I4 double tap: caps lock (persistent uppercase until toggled / layout switch / 中英)
     SPACE,
     SWITCH_SYMBOLS,
     SWITCH_NUMBERS,
@@ -51,6 +52,7 @@ enum class KeyAction {
  * @param weight relative width within its row (row-based layouts only).
  * @param direct when true, COMMIT always goes straight to the editor even in pinyin mode (number row, symbols).
  * @param accent draw as the highlighted action key (green enter).
+ * @param bold I6: draw the label in the bold primary style (the 9-key 分词/@# keys, matching the letter keys).
  */
 data class Key(
     val label: String,
@@ -60,6 +62,7 @@ data class Key(
     val weight: Float = 1f,
     val direct: Boolean = false,
     val accent: Boolean = false,
+    val bold: Boolean = false,
 )
 
 data class KeyboardRow(val keys: List<Key>)
