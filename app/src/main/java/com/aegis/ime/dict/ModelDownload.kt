@@ -140,12 +140,12 @@ object ModelDownload {
     // the two cards check + download separately (B5). The asset is a ZIP (98 MB) whose 3 entries are sha256-
     // verified, extracted, and renamed to the 3 .bin the engine loads via downloadedOverride. The generic
     // download / remoteValidator / updateAvailable above are shared verbatim.
-    // PLACEHOLDER URLs: the real release is published (debug.13); the URL gets swapped for the
-    // real release link once it ships (DICT_NAME + DICT_SHA256 already match the produced pack).
+    // The dict pack is published as the v0.1.0-debug.13 release
+    // asset; DICT_NAME + DICT_SHA256 match the produced pack.
 
-    /** PLACEHOLDER — the dict-pack release asset (swapped for the real download URL when the release ships). */
+    /** The dict-pack release asset (debug.13 full 14-table pack), verified against DICT_SHA256. */
     const val DICT_URL =
-        "https://github.com/lurixo/aegis/releases/download/dict-full/aegis_dict_pack_debug13.zip"
+        "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.13/aegis_dict_pack_debug13.zip"
 
     /** PLACEHOLDER — the dict pack's release page, shown as the card's tappable 直达链接 (B4). */
     const val DICT_REPO_URL = "https://github.com/lurixo/aegis/releases"
