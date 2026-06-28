@@ -17,6 +17,7 @@ package com.aegis.ime.engine
 
 import com.aegis.ime.decoder.Cand
 import com.aegis.ime.decoder.PinyinDecoder
+import com.aegis.ime.decoder.Syllable
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.OctagramReader
@@ -36,9 +37,7 @@ class DictEngine(
     fuzzyRules: Set<String> = emptySet(),
     initialsDict: BinaryDict? = null,
     octagram: OctagramReader? = null,
-    enDict: BinaryDict? = null,
 ) : CandidateEngine {
-    private val englishEngine = enDict?.let { EnglishEngine(it) }
     // Fuzzy + 简拼 apply to 26-key only (T9 is already lossy); octagram context serves both.
     private val decoder = pinyinDict?.let {
         PinyinDecoder(it, lm, userModel = userModel, fuzzyRules = fuzzyRules, initialsDict = initialsDict, octagram = octagram)
@@ -71,8 +70,23 @@ class DictEngine(
         return decoder?.decodeCovered(letters, MAX_CANDIDATES, cuts, context) ?: emptyList()
     }
 
-    override fun english(typed: String): List<String> =
-        englishEngine?.suggest(typed, MAX_CANDIDATES) ?: emptyList()
+    // ★单字无损 / per-syllable navigation API (debug.13) — for UI-1 (9-key trailing column) and UI-2
+    // (26-key pinyin column). Single-char homophones come straight from the decoder uncapped.
+    override fun syllables(composing: String, t9: Boolean): List<Syllable> {
+        if (composing.isEmpty()) return emptyList()
+        return (if (t9) t9Decoder else decoder)?.syllables(composing) ?: emptyList()
+    }
+
+    override fun homophonesAt(composing: String, t9: Boolean, index: Int): List<String> {
+        if (composing.isEmpty()) return emptyList()
+        return (if (t9) t9Decoder else decoder)?.homophonesAt(composing, index) ?: emptyList()
+    }
+
+    override fun syllablesForReading(letters: String): List<Syllable> =
+        if (letters.isEmpty()) emptyList() else decoder?.syllables(letters) ?: emptyList()
+
+    override fun homophonesForReadingAt(letters: String, index: Int): List<String> =
+        if (letters.isEmpty()) emptyList() else decoder?.homophonesAt(letters, index) ?: emptyList()
 
     override fun predict(prevWord: String?): List<String> {
         if (prevWord.isNullOrEmpty()) return emptyList()

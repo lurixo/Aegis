@@ -1,13 +1,14 @@
 # wanxiang syllable coverage (advisory)
-distinct syllables in data : 419
+distinct syllables in data : 420
 canonical syllables        : 417
 
-## in DATA but not in canonical list (5) — foreign/erroneous or canonical-list gaps
+## in DATA but not in canonical list (6) — foreign/erroneous or canonical-list gaps
   biang	8
-  cei	2
+  cei	1
   fi	1
   fiao	2
-  tei	38
+  tei	124
+  zhoong	1
 
 ## in canonical list but MISSING from data (3) — possible dict gaps
   hm

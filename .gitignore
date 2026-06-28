@@ -12,3 +12,5 @@
 # all module build dirs
 build/
 # local wanxiang source data + full (uncommitted) artifacts live outside the repo (../wxdata)
+# debug.13: downloadable full dictionary pack (hosted on GitHub release, never bundled)
+/dist/

@@ -16,6 +16,7 @@
 package com.aegis.ime.engine
 
 import com.aegis.ime.decoder.Cand
+import com.aegis.ime.decoder.Syllable
 
 /**
  * Produces candidates for a composing buffer.
@@ -56,8 +57,25 @@ interface CandidateEngine {
     fun candidatesForReadingCovered(letters: String, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =
         candidatesForReading(letters).map { Cand(it, letters.length) }
 
-    /** English completions + corrections for the buffered EN mode. */
-    fun english(typed: String): List<String> = emptyList()
+    /**
+     * ★单字无损 / per-syllable navigation (debug.13). Segment the live buffer into syllables so the UI can
+     * navigate syllable positions (UI-1 9-key trailing column, UI-2 26-key pinyin column). [t9] is true
+     * when [composing] is a digit sequence. Empty when there is no decoder.
+     */
+    fun syllables(composing: String, t9: Boolean): List<Syllable> = emptyList()
+
+    /**
+     * The COMPLETE single-char homophone set for syllable [index] of [composing] — every 同音字 of that
+     * syllable position, frequency-ordered and NOT subject to any top-N / per-length cap. This is the
+     * lossless single-char layer the UI lists for a chosen syllable.
+     */
+    fun homophonesAt(composing: String, t9: Boolean, index: Int): List<String> = emptyList()
+
+    /** Per-syllable split of the locked full-pinyin reading path (9-key ★E): the syllables of [letters]. */
+    fun syllablesForReading(letters: String): List<Syllable> = emptyList()
+
+    /** [homophonesAt] for the locked full-pinyin reading path (letters) — used by the 9-key left column. */
+    fun homophonesForReadingAt(letters: String, index: Int): List<String> = emptyList()
 
     /** Learned next-word predictions to show on an empty buffer after [prevWord]. */
     fun predict(prevWord: String?): List<String> = emptyList()

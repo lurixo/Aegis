@@ -33,8 +33,9 @@ class FuzzyVariantsTest {
 
     @Test
     fun allRulesGiveFullConfusionClass() {
-        // zh↔z and ang↔an together → the four-way class.
-        assertEquals(setOf("zhang", "zang", "zhan", "zan"), vs("zhang", all))
+        // zh↔z and ang↔an together → the four-way class. (Uses the explicit subset, not every rule, so
+        // it stays exact as new rules — e.g. the n↔l 声母 rule, which also toggles "zhang"'s -n — join.)
+        assertEquals(setOf("zhang", "zang", "zhan", "zan"), vs("zhang", setOf("zh", "ang")))
     }
 
     @Test
@@ -92,5 +93,22 @@ class FuzzyVariantsTest {
     @Test
     fun fuzzyDefaultsOff() {
         assertFalse("模糊拼音 must ship OFF by default", Fuzzy.DEFAULT_ON)
+    }
+
+    @Test
+    fun initialConsonantRules_C4() {
+        // Each 声母 rule resolves its intended confusion in BOTH directions, independently.
+        assertTrue("n→l: nan reaches lan", vs("nan", setOf("n_l")).containsAll(setOf("nan", "lan")))
+        assertTrue("l→n: lan reaches nan", vs("lan", setOf("n_l")).containsAll(setOf("lan", "nan")))
+        assertTrue("f↔h: fan↔han", vs("fan", setOf("f_h")).containsAll(setOf("fan", "han")))
+        assertTrue("l↔r: lan↔ran", vs("lan", setOf("l_r")).containsAll(setOf("lan", "ran")))
+        assertTrue("k↔g: kan↔gan", vs("kan", setOf("k_g")).containsAll(setOf("kan", "gan")))
+        // independence: with only n_l, the f/h rule must NOT fire (fan does not reach han).
+        assertFalse("rules independent: n_l alone leaves f/h untouched", vs("fan", setOf("n_l")).contains("han"))
+        // the original spelling always survives and the class stays bounded even for the new rules.
+        assertTrue(vs("kan", setOf("k_g")).contains("kan"))
+        assertTrue(vs("nan", setOf("n_l", "l_r", "f_h", "k_g")).size <= 64)
+        // the four new rule keys are present and independently togglable.
+        assertTrue(Fuzzy.RULES.map { it.key }.containsAll(listOf("n_l", "f_h", "l_r", "k_g")))
     }
 }

@@ -96,6 +96,7 @@ object T9Pinyin {
     private const val LEN_BONUS = 480 // ★T/xuan: per-letter bonus so full syllables (xuan/yuan…) beat 2-letter prefixes
     private const val SYLLABLE_PENALTY = 50.0 // bias toward fewer, longer syllables
     private val maxDigits: Int = SYLLABLES.maxOf { toT9(it).length }
+    private val maxLetters: Int = SYLLABLES.maxOf { it.length }
 
     /** digit group -> syllables encoding to it, e.g. "64" -> [ni, mi, ...]. */
     private val byDigits: Map<String, List<String>> = run {
@@ -128,6 +129,74 @@ object T9Pinyin {
         var i = n
         while (i > 0) { out.add(pick[i]!!); i = back[i] }
         out.reverse()
+        return out
+    }
+
+    /**
+     * Lowest-cost segmentation of a 26-key LETTER pinyin string into known syllables, or null if none
+     * fits exactly. Mirrors [segment] (the 9-key digit splitter) over the SAME [SYLLABLES] set and the
+     * same frequency/length cost, so the two layouts split identically (e.g. "xian"→[xian] not [xi,an]).
+     */
+    fun segmentLetters(letters: String): List<String>? {
+        val n = letters.length
+        if (n == 0 || letters.any { it < 'a' || it > 'z' }) return null
+        val cost = DoubleArray(n + 1) { Double.POSITIVE_INFINITY }
+        val pick = arrayOfNulls<String>(n + 1)
+        val back = IntArray(n + 1) { -1 }
+        cost[0] = 0.0
+        for (i in 1..n) {
+            val lo = maxOf(0, i - maxLetters)
+            for (j in lo until i) {
+                if (cost[j] == Double.POSITIVE_INFINITY) continue
+                val sub = letters.substring(j, i)
+                if (sub !in SYLLABLES) continue
+                val c = cost[j] + rankOf(sub) + SYLLABLE_PENALTY
+                if (c < cost[i]) { cost[i] = c; pick[i] = sub; back[i] = j }
+            }
+        }
+        if (cost[n] == Double.POSITIVE_INFINITY) return null
+        val out = ArrayList<String>()
+        var i = n
+        while (i > 0) { out.add(pick[i]!!); i = back[i] }
+        out.reverse()
+        return out
+    }
+
+    /** Longest leading substring of [letters] that is a known syllable, or "" — the best-effort first
+     *  syllable while the buffer doesn't fully segment yet (user mid-syllable). */
+    fun firstSyllableLetters(letters: String): String {
+        val hi = minOf(letters.length, maxLetters)
+        for (k in hi downTo 1) if (letters.substring(0, k) in SYLLABLES) return letters.substring(0, k)
+        return ""
+    }
+
+    /** Digit-length of the longest leading group that encodes a known syllable, or 0 — the T9 analogue
+     *  of [firstSyllableLetters] for a best-effort partial split. */
+    fun firstSyllableDigitLen(digits: String): Int {
+        val hi = minOf(digits.length, maxDigits)
+        for (k in hi downTo 1) if (byDigits.containsKey(digits.substring(0, k))) return k
+        return 0
+    }
+
+    /** The common reading of a digit group (its top syllable), or "" if the group is unknown. */
+    fun syllableReading(digitGroup: String): String = byDigits[digitGroup]?.firstOrNull() ?: ""
+
+    /** All leading-prefix lengths of [letters] that are themselves known syllables (longest first) — every
+     *  leading syllable the buffer could start with, so the single-char layer can list each one's 同音字
+     *  regardless of how the whole buffer eventually segments (xian → both xian AND xi). */
+    fun leadingSyllableLetterLens(letters: String): List<Int> {
+        val out = ArrayList<Int>()
+        val hi = minOf(letters.length, maxLetters)
+        for (k in hi downTo 1) if (letters.substring(0, k) in SYLLABLES) out.add(k)
+        return out
+    }
+
+    /** T9 analogue of [leadingSyllableLetterLens]: leading-prefix digit lengths that encode a known
+     *  syllable group (longest first). */
+    fun leadingSyllableDigitLens(digits: String): List<Int> {
+        val out = ArrayList<Int>()
+        val hi = minOf(digits.length, maxDigits)
+        for (k in hi downTo 1) if (byDigits.containsKey(digits.substring(0, k))) out.add(k)
         return out
     }
 
