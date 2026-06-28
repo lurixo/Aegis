@@ -367,7 +367,11 @@ class KeyboardController(
                 englishWord.setLength(englishWord.length - 1)
                 return
             }
-            host.deleteBackward()
+            if (host.hasSelection()) {
+                host.deleteSelection()
+            } else {
+                host.deleteBackward()
+            }
             return
         }
         val step = history.removeLastOrNull()

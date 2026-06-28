@@ -3,10 +3,12 @@ package com.aegis.ime.ime
 
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -49,6 +51,7 @@ class Debug12InputCoreTest {
             val end = if (hasSelection()) selStart else cursor
             return sb.substring(maxOf(0, end - n), end)
         }
+        fun select(start: Int, end: Int) { selStart = start; selEnd = end; cursor = end }
         private fun clearSel() { selStart = -1; selEnd = -1 }
     }
 
@@ -58,6 +61,10 @@ class Debug12InputCoreTest {
         val l = File("src/main/assets/aegis_lm.bin")
         if (!p.exists() || !t.exists() || !l.exists()) return null
         return DictEngine(BinaryDict.fromFile(p), BinaryDict.fromFile(t), CharBigramLM.fromFile(l))
+    }
+
+    private val emptyEngine = object : CandidateEngine {
+        override fun candidates(composing: String, t9: Boolean): List<String> = emptyList()
     }
 
     private fun digit(d: Char) = Key(d.toString(), output = d.toString())
@@ -85,5 +92,18 @@ class Debug12InputCoreTest {
         c.onKey(Key("", action = KeyAction.ENTER))
         assertEquals("the whole word lands in one commit, commits=${host.commits}", 1, host.commits.size)
         assertTrue("the single commit begins with the confirmed prefix", host.commits[0].startsWith(firstChar))
+    }
+
+    @Test fun backspace_with_a_selection_deletes_the_selection_not_the_char_before() {
+        val host = Host()
+        val c = KeyboardController(host, emptyEngine)
+        host.sb.append("abcXYZdef")
+        host.select(3, 6)
+
+        c.onKey(Key("", action = KeyAction.BACKSPACE))
+
+        assertTrue("deleteSelection was used, ops=${host.ops}", "deleteSelection" in host.ops)
+        assertFalse("deleteBackward must NOT run with a selection active", "deleteBackward" in host.ops)
+        assertEquals("the selected span is gone, nothing before it touched", "abcdef", host.sb.toString())
     }
 }
