@@ -14,6 +14,7 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import java.io.File
 
@@ -21,6 +22,7 @@ import java.io.File
 @Config(sdk = [34])
 class Debug12InputCoreTest {
 
+    private val ctx = RuntimeEnvironment.getApplication()
     private val digits = "548542698623"
 
     private class Host : ImeHost {
@@ -69,6 +71,40 @@ class Debug12InputCoreTest {
 
     private fun digit(d: Char) = Key(d.toString(), output = d.toString())
     private fun isSingleChar(word: String): Boolean = word.codePointCount(0, word.length) == 1
+
+    private fun leftColumnHasNoPunctuation(c: KeyboardController): Boolean =
+        c.nineLeftColumn().all { it.action == KeyAction.PICK_READING || it.action == KeyAction.PICK_DIGIT }
+
+    @Test fun locking_every_syllable_keeps_the_strip_rich_and_never_commits_nor_shows_punctuation() {
+        val eng = engine(); assumeTrue("dict assets present", eng != null)
+        val host = Host()
+        val iv = InputView(ctx)
+        val c = KeyboardController(host, eng!!)
+        c.attachView(iv)
+        c.switchTextLayoutForTest(nine = true)
+        digits.forEach { c.onKey(digit(it)) }
+
+        val unlocked = iv.shownCandidateCount()
+        assertTrue("strip rich before any lock, was $unlocked", unlocked >= 10)
+        assertTrue("left column shows readings and the pending digit", leftColumnHasNoPunctuation(c))
+
+        for (r in listOf("jiu", "jian", "zuo", "ce")) {
+            val idx = c.expandedReadings().indexOf(r)
+            assertTrue("'$r' offered in the left column, was ${c.expandedReadings()}", idx >= 0)
+            c.onPickReadingIndex(idx)
+            assertTrue(
+                "strip stays rich after locking '$r', was ${iv.shownCandidateCount()}",
+                iv.shownCandidateCount() >= 10,
+            )
+            assertTrue("locking '$r' must not commit, commits=${host.commits}", host.commits.isEmpty())
+            assertTrue("no punctuation in the left column after locking '$r'", leftColumnHasNoPunctuation(c))
+        }
+        assertTrue("left column persists after locking every syllable", c.expandedReadings().isNotEmpty())
+        assertTrue("the persisted column still offers the last syllable 'ce', was ${c.expandedReadings()}", "ce" in c.expandedReadings())
+        assertTrue("the persisted column is never punctuation", leftColumnHasNoPunctuation(c))
+        assertTrue("strip still rich with everything locked, was ${iv.shownCandidateCount()}", iv.shownCandidateCount() >= 10)
+        assertTrue("still nothing committed to the editor", host.commits.isEmpty())
+    }
 
     @Test fun partial_pick_builds_a_prefix_without_committing_then_completes_in_one_commit() {
         val eng = engine(); assumeTrue("dict assets present", eng != null)

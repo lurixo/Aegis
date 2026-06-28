@@ -315,6 +315,17 @@ class KeyboardController(
             history.addLast(StepKind.LOCK)
             return
         }
+        if (activeInput().isEmpty() && lockedReadings.isNotEmpty()) {
+            val lastInput = inputForReading(lockedReadings.last())
+            if (!lastInput.startsWith(input)) return
+            lockedReadings.removeAt(lockedReadings.lastIndex)
+            val oldLength = lockedInputLengths.removeAt(lockedInputLengths.lastIndex)
+            activeStart = (activeStart - oldLength).coerceAtLeast(0)
+            lockedReadings.add(reading)
+            lockedInputLengths.add(input.length)
+            activeStart = (activeStart + input.length).coerceAtMost(composing.length)
+            return
+        }
         val active = activeInput()
         val separatorPrefix = if (layoutId == LayoutId.ALPHA) active.takeWhile { it == '\'' }.length else 0
         if (!active.substring(separatorPrefix).startsWith(input)) return
@@ -1044,7 +1055,12 @@ class KeyboardController(
     internal fun nineLeftColumn(): List<Key> {
         if (composing.isEmpty()) return Layouts.ninePunctuation(customSymbols)
         val start = ninePendingIndex()
-        if (start < 0) return emptyList()
+        if (start < 0) {
+            if (literalIndices.isNotEmpty()) return emptyList()
+            if (lockedReadings.isEmpty()) return emptyList()
+            val lastDigits = T9Pinyin.toT9(lockedReadings.last())
+            return readingKeys(T9Pinyin.leftColumnReadings(lastDigits, NINE_LEFT_MAX))
+        }
         val end = minOf(
             forcedCuts.firstOrNull { it > start } ?: composing.length,
             literalIndices.firstOrNull { it > start } ?: composing.length,
@@ -1057,6 +1073,13 @@ class KeyboardController(
             digit?.let { Key(it.toString(), action = KeyAction.PICK_DIGIT, weight = 0.85f) },
         )
     }
+
+    private fun readingAlternatives(reading: String): List<String> =
+        if (layoutId == LayoutId.NINE) {
+            T9Pinyin.leftColumnReadings(inputForReading(reading), NINE_LEFT_MAX)
+        } else {
+            T9Pinyin.leftColumnLetterReadings(inputForReading(reading), NINE_LEFT_MAX)
+        }
 
     private fun readingKeys(readings: List<String>): List<Key> {
         return readings.map { r ->
@@ -1086,7 +1109,18 @@ class KeyboardController(
 
     internal fun shiftStateName(): String = shiftState.name
 
+    private fun expandedFocusIndex(): Int {
+        val consumed = mode() == Mode.PINYIN && composing.isNotEmpty() &&
+            lockedReadings.isNotEmpty() && activeInput().isEmpty()
+        if (!consumed) return -1
+        val index = lockedReadings.lastIndex
+        if (index !in lockedReadings.indices) return -1
+        return index
+    }
+
     internal fun expandedReadings(): List<String> {
+        val focus = expandedFocusIndex()
+        if (focus >= 0) return readingAlternatives(lockedReadings[focus])
         return expandedReadingsWithoutFocus()
     }
 
@@ -1116,9 +1150,34 @@ class KeyboardController(
         val readings = expandedReadings()
         if (index !in readings.indices) return
         val reading = readings[index]
-        handlePickReading(Key(reading, output = reading, action = KeyAction.PICK_READING))
+        val focus = expandedFocusIndex()
+        when {
+            focus >= 0 && reading != lockedReadings[focus] -> relockReadingAt(focus, reading)
+            else -> {
+                handlePickReading(Key(reading, output = reading, action = KeyAction.PICK_READING))
+            }
+        }
         refreshCandidates()
         render()
+    }
+
+    private fun relockReadingAt(index: Int, reading: String) {
+        if (index !in lockedReadings.indices) return
+        val input = inputForReading(reading)
+        val previous = inputForReading(lockedReadings[index])
+        if (!previous.startsWith(input)) return
+        val leading = (lockedInputLengths[index] - previous.length).coerceAtLeast(0)
+        lockedReadings[index] = reading
+        lockedInputLengths[index] = leading + input.length
+        if (input.length < previous.length) {
+            while (lockedReadings.size > index + 1) {
+                lockedReadings.removeAt(lockedReadings.lastIndex)
+                lockedInputLengths.removeAt(lockedInputLengths.lastIndex)
+            }
+            rebuildHistory()
+            repeat(lockedReadings.size) { history.addLast(StepKind.LOCK) }
+        }
+        activeStart = lockedInputLengths.sum().coerceAtMost(composing.length)
     }
 
     fun onPanelBackspace() {

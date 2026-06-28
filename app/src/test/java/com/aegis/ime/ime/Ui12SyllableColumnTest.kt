@@ -60,6 +60,35 @@ class Ui12SyllableColumnTest {
         return host to c
     }
 
+    @Test fun nine_left_column_persists_the_last_syllable_after_locking_all() {
+        val (_, c) = nineWithBuffer("6443")
+        c.onPickReadingIndex(c.expandedReadings().indexOf("ni"))
+        assertTrue("after locking ni the next syllable 'he' is offered", "he" in c.expandedReadings())
+        c.onPickReadingIndex(c.expandedReadings().indexOf("he"))
+
+        val col = c.expandedReadings()
+        assertEquals("the expanded column keeps every reading of the locked key sequence",
+            T9Pinyin.leftColumnReadings("43", 24), col)
+        assertTrue("including the locked reading itself, was $col", "he" in col)
+        assertTrue("and its same-key alternative 'ge', was $col", "ge" in col)
+        val keys = c.nineLeftColumn().map { it.label }
+        assertTrue("the keyboard column still offers the alternative reading 'ge', was $keys", "ge" in keys)
+        assertEquals("both columns offer the very same readings", keys, col)
+        assertTrue("the persisted column is all readings, never punctuation",
+            c.nineLeftColumn().all { it.action == KeyAction.PICK_READING })
+    }
+
+    @Test fun repicking_the_persisted_last_syllable_swaps_its_reading_without_committing() {
+        val (host, c) = nineWithBuffer("6443")
+        c.onPickReadingIndex(c.expandedReadings().indexOf("ni"))
+        c.onPickReadingIndex(c.expandedReadings().indexOf("he"))
+        assertEquals("ni'he", c.preeditForTest())
+
+        c.onKey(Key("ge", output = "ge", action = KeyAction.PICK_READING))
+        assertEquals("re-pick swaps the last syllable's reading", "ni'ge", c.preeditForTest())
+        assertTrue("re-picking a reading never commits to the editor", host.commits.isEmpty())
+    }
+
     @Test fun backspace_from_the_persisted_column_undoes_locks_not_digits() {
         val (host, c) = nineWithBuffer("6443")
         c.onPickReadingIndex(c.expandedReadings().indexOf("ni"))
