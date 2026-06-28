@@ -77,4 +77,23 @@ class RenderHarness {
             snap(v, (30 * ctx.resources.displayMetrics.density).toInt(), "preedit_$t.png")
         }
     }
+
+    @Test fun candidate_toolbar() {
+        val h = (44 * ctx.resources.displayMetrics.density).toInt()
+        for ((t, pal) in themes) {
+            val v = CandidateView(ctx).apply { applyPalette(pal); setContent(emptyList(), "") } // idle = toolbar
+            snap(v, h, "toolbar_$t.png")
+        }
+    }
+
+    @Test fun candidate_strip() {
+        val h = (44 * ctx.resources.displayMetrics.density).toInt()
+        for ((t, pal) in themes) {
+            val v = CandidateView(ctx).apply {
+                applyPalette(pal)
+                setContent(listOf("你好", "你", "尼", "拟", "泥", "逆"), "ni'hao")
+            }
+            snap(v, h, "strip_$t.png")
+        }
+    }
 }
