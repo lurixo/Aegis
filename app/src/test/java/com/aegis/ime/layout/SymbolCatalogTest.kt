@@ -23,9 +23,17 @@ class SymbolCatalogTest {
 
     @Test fun category_titles_match_the_expected_order() {
         assertEquals(
-            listOf("中文", "英文", "网络", "数学", "箭头", "角标", "序号", "音标", "拼音"),
+            listOf("中文", "英文", "货币", "网络", "数学", "箭头", "角标", "序号", "音标", "拼音"),
             SymbolCatalog.categories.map { it.title },
         )
+    }
+
+    @Test fun currency_category_sits_between_english_and_net_with_common_symbols() {
+        val ids = SymbolCatalog.categories.map { it.id }
+        assertEquals(ids.indexOf("en") + 1, ids.indexOf("currency"))
+        assertEquals(ids.indexOf("currency") + 1, ids.indexOf("net"))
+        val cur = SymbolCatalog.categories.first { it.id == "currency" }.symbols
+        for (c in listOf("$", "¥", "€", "£", "₩", "₹", "₽")) assertTrue("missing $c", c in cur)
     }
 
     @Test fun every_category_is_non_empty_and_has_no_duplicates() {

@@ -62,6 +62,8 @@ class ClipboardStore(private val dir: File) {
         saveHistory()
     }
 
+    fun recordImage(path: String) { if (path.isNotEmpty()) record(IMG_PREFIX + path) }
+
     fun delete(text: String) { if (history.remove(text)) saveHistory() }
     fun deleteAll(texts: Collection<String>) { if (history.removeAll(texts.toSet())) saveHistory() }
     fun clearHistory() { if (history.isNotEmpty()) { history.clear(); saveHistory() } }
@@ -148,10 +150,14 @@ class ClipboardStore(private val dir: File) {
         return sb.toString()
     }
 
-    private companion object {
-        const val MAX_HISTORY = 1000
-        const val DEFAULT_CATEGORY = "默认"
-        val DEFAULT_PHRASES = listOf(
+    companion object {
+        const val IMG_PREFIX = "img:"
+        fun isImageEntry(entry: String): Boolean = entry.startsWith(IMG_PREFIX)
+        fun imagePath(entry: String): String = if (isImageEntry(entry)) entry.substring(IMG_PREFIX.length) else entry
+
+        private const val MAX_HISTORY = 100000
+        private const val DEFAULT_CATEGORY = "默认"
+        private val DEFAULT_PHRASES = listOf(
             "你好", "谢谢", "好的", "收到", "在吗？", "稍等一下", "马上到", "没问题",
             "抱歉，刚看到消息", "哈哈哈", "晚点联系你", "辛苦了",
         )

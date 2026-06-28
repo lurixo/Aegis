@@ -24,7 +24,9 @@ class SymbolUsageStore(private val dir: File) {
 
     fun load() {
         used.clear()
-        runCatching { if (file.exists()) file.readLines().forEach { if (it.isNotEmpty()) used.add(it) } }
+        val seen = HashSet<String>()
+        runCatching { if (file.exists()) file.readLines().forEach { if (it.isNotEmpty() && seen.add(it)) used.add(it) } }
+        while (used.size > MAX) used.removeAt(used.size - 1)
     }
 
     fun record(symbol: String) {

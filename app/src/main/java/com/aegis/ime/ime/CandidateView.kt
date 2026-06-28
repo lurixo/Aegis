@@ -18,6 +18,7 @@ package com.aegis.ime.ime
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.util.TypedValue
 import android.view.MotionEvent
@@ -225,14 +226,19 @@ class CandidateView(context: Context) : View(context) {
         }
     }
 
+    private val brandPath = Path()
     private fun drawBrand(c: Canvas, cx: Float, cy: Float, s: Float) {
-        val apexY = cy - s
-        val blX = cx - s * 0.66f; val brX = cx + s * 0.66f; val baseY = cy + s
-        c.drawLine(cx, apexY, blX, baseY, iconPaint)
-        c.drawLine(cx, apexY, brX, baseY, iconPaint)
-        val t = 0.62f
+        val h = s * 0.78f
+        val apexY = cy - h; val baseY = cy + h
+        val legX = s * 0.6f
+        brandPath.reset()
+        brandPath.moveTo(cx - legX, baseY)
+        brandPath.lineTo(cx, apexY)
+        brandPath.lineTo(cx + legX, baseY)
+        c.drawPath(brandPath, iconPaint)
+        val t = 0.58f
         val ly = apexY + (baseY - apexY) * t
-        c.drawLine(cx + (blX - cx) * t, ly, cx + (brX - cx) * t, ly, iconPaint)
+        c.drawLine(cx - legX * t, ly, cx + legX * t, ly, iconPaint)
     }
 
     private fun drawChevronDown(c: Canvas, cx: Float, cy: Float, s: Float) {

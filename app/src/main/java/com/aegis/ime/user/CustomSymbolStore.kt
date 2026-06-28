@@ -41,6 +41,6 @@ class CustomSymbolStore(private val prefs: SharedPreferences) {
 
     private companion object {
         const val KEY = "custom_symbols"
-        const val MAX = 12
+        const val MAX = 200
     }
 }

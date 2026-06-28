@@ -23,12 +23,14 @@ import android.view.View
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import com.aegis.ime.layout.SymbolCatalog
 
 class CustomSymbolPanel(context: Context) : LinearLayout(context) {
 
     var current: () -> List<String> = { emptyList() }
     var onAdd: (String) -> Unit = {}
     var onRemove: (String) -> Unit = {}
+    var onPaste: () -> Unit = {}
     var onBack: () -> Unit = {}
 
     private val density = resources.displayMetrics.density
@@ -44,19 +46,26 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context) {
         isClickable = true
         setTextColor(0xFF202124.toInt())
     }
+    private val pasteText = TextView(context).apply {
+        text = "📋 粘贴符号"
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        setPadding(dp(12), dp(10), dp(12), dp(10))
+        isClickable = true
+        setTextColor(0xFF202124.toInt())
+    }
     private val sectionLabels = mutableListOf<TextView>()
 
-    private val palette = listOf(
-        "、", "·", "—", "～", "‘", "’", "“", "”", "（", "）", "《", "》", "【", "】", "「", "」",
-        "%", "&", "*", "#", "/", "\\", "|", "+", "=", "<", ">", "^", "￥", "$", "€", "°",
-    )
+    private val palette = SymbolCatalog.categories.flatMap { it.symbols }.distinct()
 
     init {
         orientation = VERTICAL
         setBackgroundColor(colors.panelBg)
         backText.setOnClickListener { onBack() }
+        pasteText.setOnClickListener { onPaste() }
         headerBar.setBackgroundColor(colors.panelSubBg)
         headerBar.addView(backText)
+        headerBar.addView(View(context), LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
+        headerBar.addView(pasteText)
         addView(headerBar)
         addView(sectionLabel("已添加（点击移除）"))
         addView(ScrollView(context).apply { addView(addedRows) }, LayoutParams(LayoutParams.MATCH_PARENT, dp(56)))
@@ -69,6 +78,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context) {
         setBackgroundColor(p.panelBg)
         headerBar.setBackgroundColor(p.panelSubBg)
         backText.setTextColor(p.keyLabel)
+        pasteText.setTextColor(p.keyLabel)
         sectionLabels.forEach { it.setTextColor(p.keyLabelSecondary) }
         refresh()
     }

@@ -39,6 +39,7 @@ class InputView(context: Context) : LinearLayout(context) {
     var onCollapse: () -> Unit = {}
     var onCopyCommit: (String) -> Unit = {}
     var onCopyBlock: (String) -> Unit = {}
+    var onCopyDismiss: () -> Unit = {}
 
     private val preeditView = PreeditView(context)
     private val candidateView = CandidateView(context)
@@ -49,6 +50,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private val body = LinearLayout(context)
     private var lastCandidates: List<String> = emptyList()
     private var lastReadings: List<String> = emptyList()
+    private var composingNow = false
     private var currentPanel: View? = null
     private var palette = ImePalette.STATIC_LIGHT
 
@@ -80,7 +82,7 @@ class InputView(context: Context) : LinearLayout(context) {
         keyboardView.onBackspaceSwipe = { up -> onBackspaceSwipe(up) }
         copyBarView.onCommit = { t -> onCopyCommit(t) }
         copyBarView.onCopyBlock = { b -> onCopyBlock(b) }
-        copyBarView.onDismiss = { hideCopyBar() }
+        copyBarView.onDismiss = { hideCopyBar(); onCopyDismiss() }
         addView(preeditView, LayoutParams(LayoutParams.MATCH_PARENT, barTopInsetPx()))
 
         body.orientation = VERTICAL
@@ -123,12 +125,15 @@ class InputView(context: Context) : LinearLayout(context) {
 
     val copyBarShown: Boolean get() = copyBarView.visibility == VISIBLE
 
+    fun isComposing(): Boolean = composingNow
+
     fun showCandidates(candidates: List<String>, preedit: String, readings: List<String>) {
         lastCandidates = candidates
         lastReadings = readings
         preeditView.setText(preedit)
         candidateView.setContent(candidates, preedit)
-        if (copyBarShown && (candidates.isNotEmpty() || preedit.isNotEmpty())) hideCopyBar()
+        composingNow = candidates.isNotEmpty() || preedit.isNotEmpty()
+        if (copyBarShown && composingNow) { hideCopyBar(); onCopyDismiss() }
         if (currentPanel === gridView) {
             if (preedit.isEmpty()) showPanel(null)
             else { gridView.setCandidates(candidates); gridView.setReadings(readings) }

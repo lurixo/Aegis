@@ -50,6 +50,19 @@ class ClipboardStoreTest {
         assertEquals("line1\nline2", reloaded.history().first())
     }
 
+    @Test fun image_entries_ride_history_and_stay_distinguishable() {
+        val s = ClipboardStore(newDir()).apply { load() }
+        s.record("hello")
+        s.recordImage("/data/x/clipboard_images/1.png")
+        val h = s.history()
+        assertEquals(2, h.size)
+        assertTrue("newest is the image", ClipboardStore.isImageEntry(h[0]))
+        assertEquals("/data/x/clipboard_images/1.png", ClipboardStore.imagePath(h[0]))
+        assertFalse("text entry is not an image", ClipboardStore.isImageEntry(h[1]))
+        assertEquals("hello", h[1])
+        assertEquals("imagePath on plain text is identity", "hello", ClipboardStore.imagePath("hello"))
+    }
+
     @Test fun crlf_clip_survives_persist_roundtrip() {
         val dir = newDir()
         ClipboardStore(dir).apply { load(); record("line1\r\nline2") }
