@@ -25,6 +25,7 @@ object ImeType {
     const val body = 16f
     const val candidate = 18f
     const val title = 19f
+    const val display = 22f
 
     fun popupInsetPx(metrics: DisplayMetrics): Int =
         (2 * TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, body, metrics)).roundToInt()

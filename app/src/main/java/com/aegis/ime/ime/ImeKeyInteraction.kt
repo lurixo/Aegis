@@ -15,6 +15,10 @@
 
 package com.aegis.ime.ime
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
+import android.content.Context
 import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.Paint
@@ -24,10 +28,298 @@ import android.graphics.drawable.Drawable
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
+import android.widget.LinearLayout
+import android.widget.ScrollView
 import com.aegis.ime.ime.theme.ImeShapes
+import kotlin.math.abs
 
 interface KeyHapticsAware {
     var hapticEnabled: Boolean
+}
+
+internal class ImePanelViewport(context: Context) : ScrollView(context) {
+    init {
+        isVerticalScrollBarEnabled = false
+    }
+}
+
+internal class ImePanelPager(context: Context, private val current: View, private val peek: View) : FrameLayout(context) {
+    private val flingVelocity = PanelPageGesture.FLING_VELOCITY_DP * resources.displayMetrics.density
+    private val gesture = PanelPageGesture(ViewConfiguration.get(context).scaledTouchSlop.toFloat(), flingVelocity)
+    private val velocity = FlingScroller(context)
+    private var pointerId = MotionEvent.INVALID_POINTER_ID
+    private var dragging = false
+    private var offset = 0f
+    private var peekPage = -1
+    private var settle: ValueAnimator? = null
+
+    var pageCount: () -> Int = { 1 }
+    var selectedPage: () -> Int = { 0 }
+    var canPage: () -> Boolean = { true }
+    var onBindPeek: (Int) -> Unit = {}
+    var onOffset: (Float) -> Unit = {}
+    var onPageSelected: (Int) -> Unit = {}
+
+    init {
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
+        addView(current, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        addView(peek, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        peek.visibility = View.GONE
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                settle?.end()
+                begin(ev)
+            }
+            MotionEvent.ACTION_MOVE -> if (drag(ev)) return true
+            MotionEvent.ACTION_POINTER_DOWN -> if (dragging) return true
+            MotionEvent.ACTION_POINTER_UP -> if (pointerUp(ev)) return true
+            MotionEvent.ACTION_UP -> if (dragging) {
+                release(ev)
+                return true
+            } else {
+                gesture.cancel()
+            }
+            MotionEvent.ACTION_CANCEL -> if (dragging) {
+                gesture.cancel()
+                dragging = false
+                settleTo(0, fling = false)
+                return true
+            } else {
+                gesture.cancel()
+            }
+        }
+        return super.dispatchTouchEvent(ev)
+    }
+
+    fun abort() {
+        settle?.let {
+            settle = null
+            it.cancel()
+        }
+        gesture.cancel()
+        dragging = false
+        pointerId = MotionEvent.INVALID_POINTER_ID
+        rest()
+    }
+
+    private fun begin(ev: MotionEvent) {
+        dragging = false
+        peekPage = -1
+        pointerId = ev.getPointerId(0)
+        val page = selectedPage()
+        val count = pageCount()
+        if (count > 1 && canPage()) {
+            gesture.begin(ev.x, ev.y, width.toFloat(), hasPrevious = page > 0, hasNext = page < count - 1)
+        } else {
+            gesture.cancel()
+        }
+        velocity.forceFinish()
+        velocity.addSample(ev.eventTime, ev.x)
+    }
+
+    private fun drag(ev: MotionEvent): Boolean {
+        val index = ev.findPointerIndex(pointerId)
+        if (index < 0) return dragging
+        val x = ev.getX(index)
+        velocity.addSample(ev.eventTime, x)
+        if (!dragging) {
+            if (!canPage()) {
+                gesture.cancel()
+                return false
+            }
+            if (!gesture.move(x, ev.getY(index))) return false
+            dragging = true
+            val cancel = MotionEvent.obtain(ev)
+            cancel.action = MotionEvent.ACTION_CANCEL
+            super.dispatchTouchEvent(cancel)
+            cancel.recycle()
+            parent?.requestDisallowInterceptTouchEvent(true)
+        } else {
+            gesture.move(x, ev.getY(index))
+        }
+        show(gesture.offset)
+        return true
+    }
+
+    private fun pointerUp(ev: MotionEvent): Boolean {
+        if (ev.getPointerId(ev.actionIndex) != pointerId) return dragging
+        if (!dragging) {
+            gesture.cancel()
+            pointerId = MotionEvent.INVALID_POINTER_ID
+            return false
+        }
+        val next = if (ev.actionIndex == 0) 1 else 0
+        pointerId = ev.getPointerId(next)
+        gesture.rebase(ev.getX(next))
+        velocity.forceFinish()
+        velocity.addSample(ev.eventTime, ev.getX(next))
+        return true
+    }
+
+    private fun release(ev: MotionEvent) {
+        val index = ev.findPointerIndex(pointerId)
+        if (index >= 0) {
+            velocity.addSample(ev.eventTime, ev.getX(index))
+            gesture.move(ev.getX(index), ev.getY(index))
+            show(gesture.offset)
+        }
+        val speed = velocity.velocity()
+        val step = gesture.release(speed)
+        dragging = false
+        pointerId = MotionEvent.INVALID_POINTER_ID
+        settleTo(step, fling = abs(speed) >= flingVelocity)
+    }
+
+    private fun settleTo(step: Int, fling: Boolean) {
+        val target = -step * width.toFloat()
+        if (!isAttachedToWindow || !Motion.enabled() || offset == target) {
+            land(step)
+            return
+        }
+        settle = ValueAnimator.ofFloat(offset, target).apply {
+            duration = Motion.PAGE_SETTLE
+            interpolator = if (fling) Motion.STANDARD_DECEL else Motion.STANDARD
+            addUpdateListener { show(it.animatedValue as Float) }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    if (settle !== animation) return
+                    land(step)
+                }
+            })
+            start()
+        }
+    }
+
+    private fun land(step: Int) {
+        settle = null
+        val page = selectedPage() + step
+        if (step != 0 && page in 0 until pageCount()) onPageSelected(page)
+        rest()
+    }
+
+    private fun rest() {
+        offset = 0f
+        current.translationX = 0f
+        peek.translationX = 0f
+        peek.visibility = View.GONE
+        onOffset(0f)
+    }
+
+    private fun show(value: Float) {
+        offset = value
+        current.translationX = value
+        val side = if (value < 0f) 1 else if (value > 0f) -1 else 0
+        val page = selectedPage() + side
+        if (side != 0 && page in 0 until pageCount()) {
+            if (peekPage != page) {
+                peekPage = page
+                onBindPeek(page)
+            }
+            peek.translationX = value + side * width
+            peek.visibility = View.VISIBLE
+        } else if (peek.visibility == View.VISIBLE) {
+            peek.visibility = View.INVISIBLE
+        }
+        onOffset(if (width > 0) -value / width else 0f)
+    }
+
+    override fun onDetachedFromWindow() {
+        abort()
+        super.onDetachedFromWindow()
+    }
+
+    internal fun offsetForTest(): Float = offset
+    internal fun draggingForTest(): Boolean = dragging
+    internal fun settlingForTest(): Boolean = settle != null
+}
+
+internal class ImePanelCategoryRail(context: Context, density: Float) : LinearLayout(context) {
+    private val underlineHeight = 4f * density
+    private val underlinePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val underline = RectF()
+
+    init {
+        orientation = HORIZONTAL
+    }
+
+    var underlineColor: Int
+        get() = underlinePaint.color
+        set(value) {
+            underlinePaint.color = value
+            invalidate()
+        }
+
+    var selectedIndex = 0
+        set(value) {
+            field = value
+            invalidate()
+        }
+
+    var pageOffset = 0f
+        set(value) {
+            if (field == value) return
+            field = value
+            invalidate()
+        }
+
+    override fun dispatchDraw(canvas: Canvas) {
+        val child = getChildAt(selectedIndex)
+        if (child != null && child.visibility == View.VISIBLE) canvas.drawRect(underlineUnder(child), underlinePaint)
+        super.dispatchDraw(canvas)
+    }
+
+    internal fun underlineBoundsForTest(): RectF? = getChildAt(selectedIndex)?.let { RectF(underlineUnder(it)) }
+
+    private fun underlineUnder(child: View): RectF {
+        var left = child.left.toFloat()
+        var right = child.right.toFloat()
+        val toward = when {
+            pageOffset > 0f -> getChildAt(selectedIndex + 1)
+            pageOffset < 0f -> getChildAt(selectedIndex - 1)
+            else -> null
+        }
+        if (toward != null && toward.visibility == View.VISIBLE) {
+            val progress = abs(pageOffset).coerceAtMost(1f)
+            left += (toward.left - left) * progress
+            right += (toward.right - right) * progress
+        }
+        underline.set(left, height - underlineHeight, right, height.toFloat())
+        return underline
+    }
+}
+
+internal class ImePanelCategoryBar(context: Context, density: Float) : HorizontalScrollView(context) {
+    private val rulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = ImeShapes.gridLinePx(density) }
+
+    init {
+        isHorizontalScrollBarEnabled = false
+    }
+
+    fun reveal(index: Int) {
+        val content = getChildAt(0) as? ViewGroup ?: return
+        val child = content.getChildAt(index) ?: return
+        val span = width - paddingLeft - paddingRight
+        if (span <= 0) return
+        val target = when {
+            child.left < scrollX -> child.left
+            child.right > scrollX + span -> child.right - span
+            else -> return
+        }.coerceIn(0, (content.width - span).coerceAtLeast(0))
+        if (target == scrollX) return
+        if (isAttachedToWindow && Motion.enabled()) smoothScrollTo(target, 0) else scrollTo(target, 0)
+    }
+
+    override fun dispatchDraw(canvas: Canvas) {
+        super.dispatchDraw(canvas)
+        val y = rulePaint.strokeWidth / 2f
+        canvas.drawLine(scrollX.toFloat(), y, (scrollX + width).toFloat(), y, rulePaint)
+    }
 }
 
 internal data class ImePanelSurfaceMetrics(
@@ -40,9 +332,29 @@ internal data class ImePanelSurfaceMetrics(
 ) {
     companion object {
         const val FACE_HEIGHT_DP = 45
+        const val FACE_INSET_DP = 3
+        const val GRID_SIDE_PADDING_DP = 4
+        const val TOP_FACE_OFFSET_DP = 8
+        const val MINIMUM_GRID_CELL_WIDTH_DP = 48
         const val ACTION_ICON_TO_TEXT = 1.05f
 
         fun actionIconPx(textSp: Float, density: Float): Float = textSp * density * ACTION_ICON_TO_TEXT
+
+        fun resolve(density: Float, scaledDensity: Float = density): ImePanelSurfaceMetrics {
+            fun dp(value: Int): Int = (value * density).toInt()
+            val faceInsetPx = dp(FACE_INSET_DP)
+            val glyphLinePx = (com.aegis.ime.ime.theme.ImeType.display * scaledDensity * 1.25f).toInt()
+            val faceHeightPx = maxOf(dp(FACE_HEIGHT_DP), glyphLinePx)
+            val topFaceOffsetPx = dp(TOP_FACE_OFFSET_DP)
+            return ImePanelSurfaceMetrics(
+                faceHeightPx = faceHeightPx,
+                faceInsetPx = faceInsetPx,
+                gridCellHeightPx = faceHeightPx + faceInsetPx * 2,
+                gridSidePaddingPx = dp(GRID_SIDE_PADDING_DP),
+                gridTopPaddingPx = (topFaceOffsetPx - faceInsetPx).coerceAtLeast(0),
+                minimumGridCellWidthPx = dp(MINIMUM_GRID_CELL_WIDTH_DP),
+            )
+        }
     }
 }
 
