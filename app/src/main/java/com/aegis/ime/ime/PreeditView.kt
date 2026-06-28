@@ -24,7 +24,7 @@ import android.view.View
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 
-class PreeditView(context: Context) : View(context) {
+open class PreeditView(context: Context) : View(context) {
 
     private var text: String = ""
     private val density = resources.displayMetrics.density

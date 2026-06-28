@@ -35,7 +35,11 @@ object Motion {
 
     fun fadeIn(view: View, duration: Long = SHORT4) {
         view.animate().cancel()
-        if (!view.isAttachedToWindow || !enabled(view.context)) { view.alpha = 1f; return }
+        if (!view.isAttachedToWindow || !enabled(view.context)) {
+            view.alpha = 1f
+            view.invalidate()
+            return
+        }
         view.alpha = 0f
         view.animate().alpha(1f).setDuration(duration).setInterpolator(EMPHASIZED_DECEL).start()
     }

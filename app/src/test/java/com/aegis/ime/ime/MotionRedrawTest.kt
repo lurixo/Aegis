@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Copyright (C) 2026 lurixo
+//
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 3.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+// PARTICULAR PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
+
+package com.aegis.ime.ime
+
+import android.provider.Settings
+import android.view.View
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
+class MotionRedrawTest {
+
+    private val ctx = RuntimeEnvironment.getApplication()
+
+    private class CountingView(c: android.content.Context) : View(c) {
+        var invalidations = 0
+        override fun invalidate() { invalidations++; super.invalidate() }
+    }
+
+    private fun disableSystemAnimations() {
+        Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
+    }
+
+    @Test fun fadeIn_with_animations_off_invalidates_even_when_alpha_is_already_one() {
+        disableSystemAnimations()
+        val v = CountingView(ctx).apply { alpha = 1f }
+        v.invalidations = 0
+        Motion.fadeIn(v)
+        assertEquals("animations off -> jump straight to fully shown", 1f, v.alpha, 0f)
+        assertTrue(
+            "reduced-motion fadeIn must invalidate so freshly-set content repaints (setAlpha(1f) is a no-op)",
+            v.invalidations >= 1,
+        )
+    }
+
+    @Test fun fadeIn_when_detached_invalidates() {
+        val v = CountingView(ctx).apply { alpha = 1f }
+        v.invalidations = 0
+        Motion.fadeIn(v)
+        assertEquals(1f, v.alpha, 0f)
+        assertTrue("detached fadeIn must still invalidate", v.invalidations >= 1)
+    }
+
+    @Test fun preedit_first_setText_under_reduced_motion_schedules_a_repaint() {
+        disableSystemAnimations()
+        val invalidated = booleanArrayOf(false)
+        val pv = object : PreeditView(ctx) {
+            override fun invalidate() { invalidated[0] = true; super.invalidate() }
+        }
+        invalidated[0] = false
+        pv.setText("n")
+        assertEquals("preedit jumps to shown under reduced motion", 1f, pv.alpha, 0f)
+        assertTrue("first pinyin key must repaint the preedit even with animations off", invalidated[0])
+    }
+}
