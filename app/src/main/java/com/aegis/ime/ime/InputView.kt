@@ -22,6 +22,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyboardLayout
 import com.aegis.ime.layout.Lang
@@ -49,6 +50,19 @@ class InputView(context: Context) : LinearLayout(context) {
     private var lastCandidates: List<String> = emptyList()
     private var lastReadings: List<String> = emptyList()
     private var currentPanel: View? = null
+    private var palette = ImePalette.STATIC_LIGHT
+
+    fun applyPalette(p: ImePalette) {
+        palette = p
+        body.setBackgroundColor(p.keyboardBg)
+        preeditView.applyPalette(p)
+        candidateView.applyPalette(p)
+        copyBarView.applyPalette(p)
+        keyboardView.applyPalette(p)
+        gridView.applyPalette(p)
+    }
+
+    fun palette(): ImePalette = palette
 
     init {
         orientation = VERTICAL
@@ -69,7 +83,7 @@ class InputView(context: Context) : LinearLayout(context) {
         addView(preeditView, LayoutParams(LayoutParams.MATCH_PARENT, barTopInsetPx()))
 
         body.orientation = VERTICAL
-        body.setBackgroundColor(0xFFE2E6EA.toInt())
+        body.setBackgroundColor(palette.keyboardBg)
         body.addView(candidateView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
         copyBarView.visibility = GONE
         body.addView(copyBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))

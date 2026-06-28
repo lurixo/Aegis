@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.ime.theme.ImePalette
 import android.content.Context
 import android.util.TypedValue
 import android.view.Gravity
@@ -31,13 +32,28 @@ class EditPanelView(context: Context) : LinearLayout(context) {
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
 
+    private var palette = ImePalette.STATIC_LIGHT
     private val copyBtn: TextView
     private val cutBtn: TextView
     private val selectBtn: TextView
 
+    fun applyPalette(p: ImePalette) {
+        palette = p
+        setBackgroundColor(p.panelBg)
+        recolor(this)
+        setHasSelection(copyBtn.isEnabled)
+    }
+
+    private fun recolor(v: View) {
+        when (v) {
+            is TextView -> v.setTextColor(palette.keyLabel)
+            is android.view.ViewGroup -> for (i in 0 until v.childCount) recolor(v.getChildAt(i))
+        }
+    }
+
     init {
         orientation = VERTICAL
-        setBackgroundColor(0xFFF2F4F6.toInt())
+        setBackgroundColor(palette.panelBg)
 
         addView(
             btn("‹  文字编辑", EditAction.BACK, big = false).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), 0, 0, 0) },
@@ -74,7 +90,7 @@ class EditPanelView(context: Context) : LinearLayout(context) {
     fun setHasSelection(has: Boolean) {
         for (b in listOf(copyBtn, cutBtn)) {
             b.isEnabled = has
-            b.setTextColor(if (has) 0xFF202124.toInt() else 0xFFB0BEC5.toInt())
+            b.setTextColor(if (has) palette.keyLabel else palette.disabled)
         }
     }
 
@@ -98,7 +114,7 @@ class EditPanelView(context: Context) : LinearLayout(context) {
         text = label
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, if (big) 17f else 16f)
-        setTextColor(0xFF202124.toInt())
+        setTextColor(palette.keyLabel)
         isClickable = true
         setOnClickListener { onAction(action) }
     }

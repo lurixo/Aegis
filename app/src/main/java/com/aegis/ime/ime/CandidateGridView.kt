@@ -23,6 +23,7 @@ import android.view.View
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import com.aegis.ime.ime.theme.ImePalette
 
 class CandidateGridView(context: Context) : LinearLayout(context) {
 
@@ -35,17 +36,19 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
 
+    private var palette = ImePalette.STATIC_LIGHT
     private val readingColumn = LinearLayout(context).apply { orientation = VERTICAL }
     private val gridColumn = LinearLayout(context).apply { orientation = VERTICAL }
+    private val rightColumn = LinearLayout(context).apply { orientation = VERTICAL }
     private val measurePaint = Paint().apply {
         textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 18f, resources.displayMetrics)
     }
 
     init {
         orientation = HORIZONTAL
-        setBackgroundColor(0xFFF7F8FA.toInt())
+        setBackgroundColor(palette.panelBg)
 
-        readingColumn.setBackgroundColor(0xFFEFF1F5.toInt())
+        readingColumn.setBackgroundColor(palette.railBg)
         addView(
             ScrollView(context).apply { addView(readingColumn) },
             LayoutParams(dp(60), LayoutParams.MATCH_PARENT),
@@ -54,14 +57,20 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
             ScrollView(context).apply { addView(gridColumn) },
             LayoutParams(0, LayoutParams.MATCH_PARENT, 1f),
         )
-        val right = LinearLayout(context).apply {
-            orientation = VERTICAL
-            setBackgroundColor(0xFFE6E9ED.toInt())
-            addView(funcButton("返回") { onClose() }, funcLp())
-            addView(funcButton("⌫") { onBackspace() }, funcLp())
-            addView(funcButton("重输") { onClear() }, funcLp())
-        }
-        addView(right, LayoutParams(dp(64), LayoutParams.MATCH_PARENT))
+        rightColumn.setBackgroundColor(palette.panelSubBg)
+        rightColumn.addView(funcButton("返回") { onClose() }, funcLp())
+        rightColumn.addView(funcButton("⌫") { onBackspace() }, funcLp())
+        rightColumn.addView(funcButton("重输") { onClear() }, funcLp())
+        addView(rightColumn, LayoutParams(dp(64), LayoutParams.MATCH_PARENT))
+    }
+
+    fun applyPalette(p: ImePalette) {
+        palette = p
+        setBackgroundColor(p.panelBg)
+        readingColumn.setBackgroundColor(p.railBg)
+        rightColumn.setBackgroundColor(p.panelSubBg)
+        for (i in 0 until rightColumn.childCount) (rightColumn.getChildAt(i) as? TextView)?.setTextColor(p.keyLabelSecondary)
+        for (i in 0 until readingColumn.childCount) (readingColumn.getChildAt(i) as? TextView)?.setTextColor(p.preeditText)
     }
 
     private fun funcLp() = LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f)
@@ -70,7 +79,7 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
         text = label
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-        setTextColor(0xFF37474F.toInt())
+        setTextColor(palette.keyLabelSecondary)
         isClickable = true
         setOnClickListener { onClick() }
     }
@@ -84,7 +93,7 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
                     gravity = Gravity.CENTER
                     setPadding(0, dp(10), 0, dp(10))
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
-                    setTextColor(0xFF1565C0.toInt())
+                    setTextColor(palette.preeditText)
                     isClickable = true
                     setOnClickListener { onPickReading(i) }
                 },
@@ -117,7 +126,7 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
         this.text = text
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
-        setTextColor(0xFF202124.toInt())
+        setTextColor(palette.candidateText)
         isClickable = true
         setOnClickListener { onPick(index) }
     }
