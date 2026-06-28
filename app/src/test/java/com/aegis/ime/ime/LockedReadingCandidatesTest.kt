@@ -90,6 +90,22 @@ class LockedReadingCandidatesTest {
         assertEquals(listOf("你", "de"), host.commits)
     }
 
+    @Test fun the_left_column_keeps_offering_the_next_syllable_after_a_lock() {
+        val (_, c) = attached()
+        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        "42633".forEach { c.onKey(out(it.toString())) }
+        assertTrue("hao offered before any lock", "hao" in c.expandedReadings())
+
+        c.onKey(pick("hao"))
+
+        assertTrue("after the lock the candidate grid is still rich", c.candidateWords().size >= 3)
+        assertTrue(
+            "after the lock the left column still offers the next syllable, was ${c.expandedReadings()}",
+            c.expandedReadings().isNotEmpty(),
+        )
+        assertTrue("specifically 'de' is offered for syllable 2", "de" in c.expandedReadings())
+    }
+
     @Test fun picking_the_full_sentence_after_locking_commits_everything() {
         val host = RecordingHost()
         val (_, c) = attached(host)
