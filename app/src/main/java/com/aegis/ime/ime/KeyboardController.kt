@@ -18,6 +18,7 @@ package com.aegis.ime.ime
 import com.aegis.ime.decoder.Cand
 import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.engine.CandidateEngine
+import com.aegis.ime.engine.InputAssociations
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.Lang
@@ -83,6 +84,7 @@ class KeyboardController(
 
     private val englishWord = StringBuilder()
 
+    private var directCommitCands: Set<Cand> = emptySet()
     private var compositeCands: Set<Cand> = emptySet()
     private var literalCands: Set<Cand> = emptySet()
     private var predictionCands: Set<Cand> = emptySet()
@@ -160,6 +162,7 @@ class KeyboardController(
         composing.setLength(0)
         literalIndices.clear()
         candidates = emptyList()
+        directCommitCands = emptySet()
         compositeCands = emptySet()
         literalCands = emptySet()
         lockedReadings.clear()
@@ -324,6 +327,11 @@ class KeyboardController(
         if (index !in candidates.indices) return
         val cand = candidates[index]
         when {
+            cand in directCommitCands -> {
+                if (committedPrefix.isNotEmpty()) host.commitText(committedPrefix.toString())
+                host.commitSymbol(cand.word)
+                clearComposingState(); lastWord = null
+            }
             cand in compositeCands -> commitCompositeCandidate(cand)
             cand in literalCands -> commitLiteralCandidate(cand)
             cand in englishCands -> {
@@ -451,6 +459,11 @@ class KeyboardController(
         when {
             pick != null && pick in compositeCands -> commitCompositeCandidate(pick)
             pick != null && pick in literalCands -> commitLiteralCandidate(pick)
+            pick != null && pick in directCommitCands -> {
+                if (committedPrefix.isNotEmpty()) host.commitText(committedPrefix.toString())
+                host.commitSymbol(pick.word)
+                clearComposingState(); lastWord = null
+            }
             pick != null -> {
                 commitCandidate(pick)
             }
@@ -650,6 +663,7 @@ class KeyboardController(
         val raw: String,
         val literalIndices: Set<Int>,
         val readingLocks: List<ReadingLock>,
+        val rawComposing: String,
         val composingLen: Int,
         val lockedNonEmpty: Boolean,
         val full: String,
@@ -668,6 +682,7 @@ class KeyboardController(
 
     private class DecodeResult(
         val candidates: List<Cand>,
+        val directCommitCands: Set<Cand>,
         val compositeCands: Set<Cand>,
         val literalCands: Set<Cand>,
         val predictionCands: Set<Cand>,
@@ -704,6 +719,7 @@ class KeyboardController(
             raw = composing.toString(),
             literalIndices = literalIndices.toSet(),
             readingLocks = readingLocks(),
+            rawComposing = rawComposingText(),
             composingLen = composing.length,
             lockedNonEmpty = locked,
             full = full,
@@ -723,6 +739,7 @@ class KeyboardController(
 
     private fun applyDecodeResult(r: DecodeResult) {
         candidates = r.candidates
+        directCommitCands = r.directCommitCands
         compositeCands = r.compositeCands
         literalCands = r.literalCands
         predictionCands = r.predictionCands
@@ -730,6 +747,7 @@ class KeyboardController(
     }
 
     private fun computeDecode(req: DecodeRequest): DecodeResult {
+        var directCommit: Set<Cand> = emptySet()
         var composite: Set<Cand> = emptySet()
         var literal: Set<Cand> = emptySet()
         var prediction: Set<Cand> = emptySet()
@@ -741,6 +759,16 @@ class KeyboardController(
                 composite = mixed.composite
                 literal = mixed.literal
                 mixed.candidates
+            }
+            !req.composingEmpty && req.mode == Mode.PINYIN -> {
+                val glyphs = InputAssociations.lookup(req.rawComposing)
+                if (glyphs.isEmpty()) {
+                    base
+                } else {
+                    val extra = glyphs.map { Cand(it, req.composingLen) }
+                    directCommit = extra.toSet()
+                    if (base.isEmpty()) extra else listOf(base.first()) + extra + base.drop(1)
+                }
             }
             req.composingEmpty && req.committedPrefixEmpty && req.englishTyped.isNotEmpty() -> {
                 val words = listOf(Cand(req.englishTyped, 0)) +
@@ -761,7 +789,7 @@ class KeyboardController(
             }
             else -> base
         }
-        return DecodeResult(out, composite, literal, prediction, english)
+        return DecodeResult(out, directCommit, composite, literal, prediction, english)
     }
 
     private class MixedCandidates(

@@ -21,6 +21,7 @@ internal object EmojiAssociations {
 
     class Row(val emoji: String, val names: String, val keys: String) {
         val keyList: List<String> get() = keys.split(' ')
+        val primaryKey: String get() = keys.substringBefore(' ')
     }
 
     fun rows(): List<Row> = allRows

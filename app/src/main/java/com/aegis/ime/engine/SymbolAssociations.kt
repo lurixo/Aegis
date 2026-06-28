@@ -20,6 +20,7 @@ internal object SymbolAssociations {
     class Row(val name: String, val keys: String, vararg glyphs: String) {
         val glyphList: List<String> = glyphs.toList()
         val keyList: List<String> get() = keys.split(' ')
+        val primaryKey: String get() = keys.substringBefore(' ')
     }
 
     fun rows(): List<Row> =
