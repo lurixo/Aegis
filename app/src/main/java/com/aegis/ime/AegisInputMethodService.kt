@@ -44,7 +44,9 @@ import com.aegis.ime.ime.GraphemeText
 import com.aegis.ime.ime.ImeHost
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
+import com.aegis.ime.ime.LayoutPanelView
 import com.aegis.ime.ime.ParallelLoad
+import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.layout.SymbolCatalog
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.LiveUserDictHost
@@ -88,6 +90,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     internal var appLocaleTags: (Context) -> String? = { appLocaleTag(it) }
 
+    private var layoutPanelView: LayoutPanelView? = null
     private var selStart = -1
     private var selEnd = -1
 
@@ -115,6 +118,18 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     @Volatile private var userStoresLoaded = false
     @Volatile private var engineSig = ""
     @Volatile private var engineReloading = false
+    private var imePalette = ImePalette.STATIC_LIGHT
+
+    private fun computePalette(): ImePalette {
+        val dark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        return ImePalette.from(this, dark)
+    }
+
+    private fun applyPaletteEverywhere() {
+        imePalette = computePalette()
+        inputView?.applyPalette(imePalette)
+        layoutPanelView?.applyPalette(imePalette)
+    }
 
     private fun imeUiContext(): Context {
         val tags = appLocaleTags(this)
@@ -247,6 +262,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             this, DictEngine(null, null, null, userLexicon = userLexicon), decodeLane,
             emailDomains = com.aegis.ime.ime.EmailDomains(getSharedPreferences("aegis", MODE_PRIVATE)),
         )
+        controller.onShowLayout = { showLayoutPanel() }
         controller.userLearning = userLearning
         Thread {
             val (_, engine) = ParallelLoad.both({
@@ -448,6 +464,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         inputView = view
         controller.attachView(view)
+        imePalette = computePalette()
+        view.applyPalette(imePalette)
         val fbPrefs = getSharedPreferences("aegis", MODE_PRIVATE)
         view.setKeyHaptics(SettingsHotApply.keyHaptics(fbPrefs))
         view.setKeyHapticStyle(SettingsHotApply.keyHapticStyle(fbPrefs))
@@ -497,6 +515,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             controller.reset(preserveLayout)
             resetControllerOnNextInputView = false
         }
+        applyPaletteEverywhere()
     }
 
     override fun onComputeInsets(outInsets: Insets) {
@@ -531,6 +550,27 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (::controller.isInitialized) controller.onEditorContextChanged()
     }
 
+    private fun showLayoutPanel() {
+        val iv = inputView ?: return
+        if (iv.isPanelShowing(layoutPanelView)) { iv.showPanel(null); return }
+        presentLayoutPanel()
+    }
+
+    private fun presentLayoutPanel() {
+        val iv = inputView ?: return
+        val lp = layoutPanelView ?: LayoutPanelView(imeUiContext()).also {
+            it.onPick = { choice ->
+                controller.applyLayoutChoice(choice)
+                inputView?.showPanel(null)
+            }
+            it.onBack = { inputView?.showPanel(null) }
+            layoutPanelView = it
+        }
+        lp.applyPalette(imePalette)
+        lp.setActiveChoice(controller.currentLayoutChoice())
+        iv.showPanel(lp)
+    }
+
     private fun sendKey(code: Int, shift: Boolean) =
         sendKeyWithMeta(code, if (shift) KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON else 0)
 
@@ -550,6 +590,15 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             resetControllerOnNextInputView = false
             personalizationBlocked = false
         }
+    }
+
+    override fun onWindowHidden() {
+        super.onWindowHidden()
+        clearEditorTransientState(resetController = false)
+        layoutSessionPackage = null
+        if (::controller.isInitialized) controller.restoreBaseKeyboard()
+        if (LiveUserData.restoreInProgress) return
+        liveUserDictHost.scheduleSave()
     }
 
     override fun onDestroy() {

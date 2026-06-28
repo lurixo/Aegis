@@ -341,6 +341,15 @@ class AegisInputMethodServiceLifecycleTest {
     private fun selectionEnd(connection: RecordingInputConnection): Int =
         Selection.getSelectionEnd(requireNotNull(connection.editable))
 
+    private fun hideShowThroughRealServiceCallbacks(f: Fixture) {
+        val sameView = f.view
+        f.service.onFinishInputView(false)
+        f.service.onWindowHidden()
+
+        f.service.onStartInputView(f.info, false)
+        assertTrue("hide/show keeps the framework view", sameView === f.view)
+    }
+
     @Test fun starting_the_keyboard_with_no_dictionary_starts_no_download() {
         val f = fixture()
 
@@ -352,6 +361,41 @@ class AegisInputMethodServiceLifecycleTest {
         assertFalse("the keyboard must not start the dictionary download on its own", DictDownloadWork.snapshot(f.service).downloading)
         assertFalse(ModelDownload.dictZipFile(f.service.filesDir).exists())
         assertFalse(ModelDownload.dictPartFile(f.service.filesDir).exists())
+    }
+
+    @Test fun window_hidden_restores_nine_twenty_six_and_english_base_keyboards() {
+        val prefs = RuntimeEnvironment.getApplication().getSharedPreferences("aegis", 0)
+        val hadLayout = prefs.contains("cn_layout")
+        val previousLayout = prefs.getString("cn_layout", "nine")
+        try {
+            prefs.edit().putString("cn_layout", "nine").commit()
+            fixture().also { f ->
+                f.controller.onKey(Key("", action = KeyAction.SWITCH_NUMPAD))
+                hideShowThroughRealServiceCallbacks(f)
+                assertEquals(LayoutId.NINE, f.controller.activeLayoutId())
+            }
+
+            prefs.edit().putString("cn_layout", "alpha").commit()
+            fixture().also { f ->
+                f.controller.onKey(Key("", action = KeyAction.SWITCH_NUMPAD))
+                hideShowThroughRealServiceCallbacks(f)
+                assertEquals(LayoutId.ALPHA, f.controller.activeLayoutId())
+            }
+
+            prefs.edit().putString("cn_layout", "nine").commit()
+            fixture().also { f ->
+                f.controller.onKey(Key("", action = KeyAction.TOGGLE_LANG))
+                f.controller.onKey(Key("", action = KeyAction.SWITCH_NUMPAD))
+                hideShowThroughRealServiceCallbacks(f)
+                assertEquals(LayoutId.ALPHA, f.controller.activeLayoutId())
+                f.controller.onKey(Key("a", output = "a"))
+                assertEquals("", f.controller.preeditForTest())
+            }
+        } finally {
+            val edit = prefs.edit()
+            if (hadLayout) edit.putString("cn_layout", previousLayout) else edit.remove("cn_layout")
+            edit.commit()
+        }
     }
 
     @Test fun a_new_app_session_starts_in_the_configured_default_language() {

@@ -16,8 +16,11 @@
 package com.aegis.ime.ime
 
 import android.graphics.Color
+import android.graphics.Rect
+import android.inputmethodservice.InputMethodService
 import android.view.MotionEvent
 import android.view.View
+import com.aegis.ime.LandscapeImeWindowPolicy
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.ime.theme.ImePalette
@@ -26,6 +29,7 @@ import com.aegis.ime.layout.Layouts
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -240,5 +244,59 @@ class PreeditEditingViewTest {
         assertEquals("PREEDIT_EDIT", iv.backTargetKindForTest())
         assertTrue(iv.closeTopOverlay())
         assertEquals(1, done)
+    }
+
+    @Test fun portrait_insets_expose_only_the_tab_above_the_body() {
+        forEachLayout { nine, raw ->
+            val iv = input(nine)
+            iv.showCandidates(listOf("你好"), "ni'hao", listOf("ni"), preeditModel = model(raw, 5))
+            layout(iv)
+            val window = Rect(0, 0, iv.width, iv.height)
+            val tab = requireNotNull(iv.preeditTabBoundsInWindow())
+            val normalTop = iv.barTopInsetPx()
+            val spec = LandscapeImeWindowPolicy.resolve(
+                compactLandscape = iv.isCompactLandscapeDock(),
+                normalTop = normalTop,
+                windowBottom = iv.height,
+                surfaceBounds = iv.dockTouchableBoundsInWindow(),
+                windowBounds = window,
+                preeditTab = tab,
+            )
+            assertEquals(normalTop, spec.contentTop)
+            assertEquals(normalTop, spec.visibleTop)
+            assertEquals(InputMethodService.Insets.TOUCHABLE_INSETS_REGION, spec.touchableInsets)
+            assertEquals(Rect(0, normalTop, iv.width, iv.height), spec.touchableRegion)
+            assertEquals(tab, spec.touchableExtra)
+            assertTrue("raw=$raw the tab lives above the body", tab.top < normalTop)
+            assertTrue(tab.bottom <= normalTop)
+        }
+    }
+
+    @Test fun portrait_without_a_tab_keeps_the_visible_insets_contract() {
+        val spec = LandscapeImeWindowPolicy.resolve(
+            compactLandscape = false,
+            normalTop = 404,
+            windowBottom = 891,
+            surfaceBounds = Rect(0, 378, 411, 891),
+            windowBounds = Rect(0, 0, 411, 891),
+            preeditTab = null,
+        )
+        assertEquals(InputMethodService.Insets.TOUCHABLE_INSETS_VISIBLE, spec.touchableInsets)
+        assertNull(spec.touchableRegion)
+        assertNull(spec.touchableExtra)
+    }
+
+    @Test fun compact_landscape_ignores_the_tab_because_the_row_is_already_touchable() {
+        val surface = Rect(698, 93, 1280, 582)
+        val spec = LandscapeImeWindowPolicy.resolve(
+            compactLandscape = true,
+            normalTop = 132,
+            windowBottom = 582,
+            surfaceBounds = surface,
+            windowBounds = Rect(0, 0, 1280, 582),
+            preeditTab = Rect(720, 95, 800, 130),
+        )
+        assertEquals(surface, spec.touchableRegion)
+        assertNull(spec.touchableExtra)
     }
 }
