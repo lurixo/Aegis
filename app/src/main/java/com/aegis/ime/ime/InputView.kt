@@ -282,6 +282,8 @@ class InputView(context: Context) : LinearLayout(context) {
         lastNavBottomPx = navBottomPx
         applyWindowPadding(navBottomPx, 0, 0)
     }
+    /** F4: read the process-wide cache so a test can prove the real listener's >0 guard kept a transient 0 out. */
+    internal fun cachedNavBottomForTest(): Int = lastNavBottomPx
 
     private companion object {
         // S3: the last real navbar bottom inset, kept process-wide (survives the input-view re-inflation on a

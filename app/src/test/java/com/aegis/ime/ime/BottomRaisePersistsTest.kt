@@ -15,6 +15,9 @@
 
 package com.aegis.ime.ime
 
+import androidx.core.graphics.Insets
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -58,4 +61,25 @@ class BottomRaisePersistsTest {
         assertEquals("raise grows by exactly the cached navbar bottom", 120, seeded - zero)
         assertTrue("a rebuilt view always carries the constant raise baseline (never bare 0)", zero > 0)
     }
+
+    @Test fun the_real_listener_guard_keeps_a_transient_zero_from_poisoning_the_cache() {
+        // F4: exercise the REAL window-insets listener (dispatchApplyWindowInsets), not the simulate seam, so
+        // the load-bearing `if (nav.bottom > 0)` guard is actually covered.
+        val view = InputView(ctx)
+        ViewCompat.dispatchApplyWindowInsets(view, navInsets(120)) // a normal navbar inset → listener caches it
+        assertEquals("the real listener cached the >0 navbar inset", 120, view.cachedNavBottomForTest())
+        assertEquals("and applied the raise", 120, view.bodyBottomPaddingPx() - dp(28))
+
+        // A transient 0 (window teardown / a momentarily-immersive host): the guard must NOT overwrite the
+        // cache, so a later rebuild still seeds 120 instead of dropping the keyboard onto the nav bar.
+        ViewCompat.dispatchApplyWindowInsets(view, navInsets(0))
+        assertEquals("the >0 guard blocked the transient 0 from poisoning the cache", 120, view.cachedNavBottomForTest())
+    }
+
+    private fun navInsets(bottom: Int): WindowInsetsCompat =
+        WindowInsetsCompat.Builder()
+            .setInsets(WindowInsetsCompat.Type.navigationBars(), Insets.of(0, 0, 0, bottom))
+            .build()
+
+    private fun dp(v: Int): Int = (v * ctx.resources.displayMetrics.density).toInt()
 }
