@@ -30,7 +30,11 @@ class SymbolUsageStore(private val dir: File) {
 
     fun load() {
         used.clear()
-        runCatching { if (file.exists()) file.readLines().forEach { if (it.isNotEmpty()) used.add(it) } }
+        // U2: de-dup on load too — a pre-existing file with duplicate lines (from any older bug) is cleaned
+        // so 常用 never shows the same symbol twice. record() already de-dups; this guards the read path.
+        val seen = HashSet<String>()
+        runCatching { if (file.exists()) file.readLines().forEach { if (it.isNotEmpty() && seen.add(it)) used.add(it) } }
+        while (used.size > MAX) used.removeAt(used.size - 1) // honour the cap even for a hand-edited file
     }
 
     /** Move [symbol] to the front (dedup, cap, persist). No-op for blank symbols. */

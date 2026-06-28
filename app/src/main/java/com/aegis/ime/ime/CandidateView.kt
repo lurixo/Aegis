@@ -18,6 +18,7 @@ package com.aegis.ime.ime
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.util.TypedValue
 import android.view.MotionEvent
@@ -250,17 +251,23 @@ class CandidateView(context: Context) : View(context) {
     }
 
     /**
-     * Leading brand mark: the Aegis "A" drawn as a linear outline (three strokes via [iconPaint]) so it
-     * sits flush with the other line icons. DEVIATION: the brand glyph is our "A" (not an "S").
+     * Leading brand mark: the Aegis "A" (U4). Drawn as ONE round-joined path so the apex reads as a clean
+     * peak (not two crossed lines), and SIZED to the same ~1.5s height as the other toolbar icons (the old
+     * 2s height made it visibly larger). DEVIATION: the brand glyph is our "A" (not an "S").
      */
+    private val brandPath = Path()
     private fun drawBrand(c: Canvas, cx: Float, cy: Float, s: Float) {
-        val apexY = cy - s
-        val blX = cx - s * 0.66f; val brX = cx + s * 0.66f; val baseY = cy + s
-        c.drawLine(cx, apexY, blX, baseY, iconPaint) // left leg
-        c.drawLine(cx, apexY, brX, baseY, iconPaint) // right leg
-        val t = 0.62f                                // crossbar ~62% down between the legs
+        val h = s * 0.78f                 // match emoji/edit/clipboard height (~1.5s tall), not 2s
+        val apexY = cy - h; val baseY = cy + h
+        val legX = s * 0.6f
+        brandPath.reset()
+        brandPath.moveTo(cx - legX, baseY)
+        brandPath.lineTo(cx, apexY)       // up to the rounded-join apex
+        brandPath.lineTo(cx + legX, baseY)
+        c.drawPath(brandPath, iconPaint)
+        val t = 0.58f                     // crossbar a little below the middle
         val ly = apexY + (baseY - apexY) * t
-        c.drawLine(cx + (blX - cx) * t, ly, cx + (brX - cx) * t, ly, iconPaint)
+        c.drawLine(cx - legX * t, ly, cx + legX * t, ly, iconPaint)
     }
 
     private fun drawChevronDown(c: Canvas, cx: Float, cy: Float, s: Float) {

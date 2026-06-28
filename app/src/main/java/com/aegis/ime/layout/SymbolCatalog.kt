@@ -36,6 +36,8 @@ object SymbolCatalog {
             "<", ">", "/", "\\", "|", "@", "#", "$", "%", "^", "&", "*", "-", "_", "+", "=", "~",
             "…", "•", "·", "—", "°", "§",
         )),
+        // U24: 货币 — between 英文 and 网络.
+        Category("currency", "货币", tokens("$ ¥ € £ ₩ ₹ ₽ ₺ ฿ ₫ ₴ ₦ ¢ ₱ ₪ ₸ ₮ ₭ ₲ ₡ ₵ ₿ ﷼ ₠ ₣ ₤ ₥ 元 円 圆")),
         // 网络 = URL-building helpers (NOT kaomoji/decoration).
         Category("net", "网络", listOf(
             ".", "/", "@", "-", "_", "http://", "https://", "www.", ".com", ".cn", ".net", ".org",
