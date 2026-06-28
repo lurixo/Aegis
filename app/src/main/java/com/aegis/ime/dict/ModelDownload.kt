@@ -18,7 +18,7 @@ package com.aegis.ime.dict
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.ConcurrentHashMap
 
 /** Streams the optional enhancement model into filesDir/downloaded/ (picked up by the IME next session). */
 object ModelDownload {
@@ -45,9 +45,11 @@ object ModelDownload {
     /** Outcome of [download]: success flag + the server validator (ETag/Last-Modified) of what landed. */
     data class DownloadResult(val ok: Boolean, val validator: String?)
 
-    /** Single-flight guard: a concurrent (e.g. double-click / post-rotation) download must not open a
-     *  second truncating stream on the same .part and interleave-corrupt the file. */
-    private val inFlight = AtomicBoolean(false)
+    /** Single-flight guard, keyed PER destination: a concurrent (e.g. double-click / post-rotation) download
+     *  must not open a second truncating stream on the SAME .part and interleave-corrupt the file. B2:
+     *  keyed by dest (not a single global flag) so the model (.gram) and the dict pack — different files —
+     *  can download independently (B5), while each file is still protected against its own double-start. */
+    private val inFlight = ConcurrentHashMap.newKeySet<String>()
 
     /**
      * Download [url] to [dest] (via a .part temp + atomic rename), reporting (bytesDone, total).
@@ -57,7 +59,8 @@ object ModelDownload {
      * while one is already running returns ok=false immediately (it does not touch the .part).
      */
     fun download(url: String, dest: File, onProgress: (Long, Long) -> Unit): DownloadResult {
-        if (!inFlight.compareAndSet(false, true)) return DownloadResult(false, null)
+        val key = dest.absolutePath
+        if (!inFlight.add(key)) return DownloadResult(false, null) // this dest is already downloading
         var conn: HttpURLConnection? = null
         val tmp = File(dest.parentFile, dest.name + ".part")
         return try {
@@ -90,7 +93,7 @@ object ModelDownload {
             DownloadResult(false, null)
         } finally {
             conn?.disconnect()
-            inFlight.set(false)
+            inFlight.remove(key)
         }
     }
 
@@ -128,6 +131,38 @@ object ModelDownload {
     fun purge(filesDir: File): Boolean {
         val a = destFile(filesDir).delete()
         val b = partFile(filesDir).delete()
+        return a || b
+    }
+
+    // --- B2 (debug.13): the optional FULL dictionary pack (14 tables, freq≥1) ----------------------------
+    // A second downloadable asset, INDEPENDENT of the .gram model: its own URL / file / recorded validator,
+    // so the two cards check + download separately (B5). The generic download / remoteValidator /
+    // updateAvailable above are shared verbatim — only these constants + file helpers are dict-specific.
+    // PLACEHOLDER URLs: the real release is published (debug.13); the constants get swapped
+    // for the real pack once it ships. The pack lands in the same downloaded/ dir as the model.
+
+    /** PLACEHOLDER — the full dictionary pack release asset (swapped for the real URL when the pack ships). */
+    const val DICT_URL =
+        "https://github.com/lurixo/aegis/releases/download/dict-full/aegis-dict-full.zip"
+
+    /** PLACEHOLDER — the dict pack's release page, shown as the card's tappable 直达链接 (B4). */
+    const val DICT_REPO_URL = "https://github.com/lurixo/aegis/releases"
+
+    const val DICT_NAME = "aegis-dict-full.zip"
+
+    /** SharedPreferences key (prefs "aegis") storing the downloaded dict pack's remote validator. */
+    const val DICT_VALIDATOR_PREF = "dict_validator"
+
+    fun dictDestFile(filesDir: File): File = File(File(filesDir, "downloaded"), DICT_NAME)
+
+    fun dictPartFile(filesDir: File): File = File(File(filesDir, "downloaded"), "$DICT_NAME.part")
+
+    fun isDictDownloaded(filesDir: File): Boolean = dictDestFile(filesDir).let { it.exists() && it.length() > 1024 }
+
+    /** Thorough delete of the dict pack + any interrupted .part leftover. Idempotent. */
+    fun purgeDict(filesDir: File): Boolean {
+        val a = dictDestFile(filesDir).delete()
+        val b = dictPartFile(filesDir).delete()
         return a || b
     }
 }
