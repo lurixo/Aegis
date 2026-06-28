@@ -390,17 +390,18 @@ class KeyboardController(
     private fun baseCandidates(): List<Cand> {
         if (composing.isEmpty()) return emptyList()
         val raw = composing.toString()
+        val context = host.textBeforeCursor(CTX_SCAN_LEN)
         return when (mode()) {
             Mode.PINYIN -> if (lockedReadings.isNotEmpty()) {
                 val bounds = readingLetterToDigit()
-                engine.candidatesForReadingCovered(fullLetters())
+                engine.candidatesForReadingCovered(fullLetters(), context)
                     .map { Cand(it.word, bounds[it.coveredLen] ?: composing.length) }
             } else {
                 val isNine = layoutId == LayoutId.NINE
-                var c = engine.candidatesCovered(raw, isNine, forcedCuts)
+                var c = engine.candidatesCovered(raw, isNine, forcedCuts, context)
                 if (c.isEmpty() && isNine) {
                     val pfx = T9Pinyin.longestDecodablePrefix(raw)
-                    if (pfx.length in 1 until raw.length) c = engine.candidatesCovered(pfx, true)
+                    if (pfx.length in 1 until raw.length) c = engine.candidatesCovered(pfx, true, context = context)
                 }
                 if (layoutId == LayoutId.ALPHA && c.none { it.word == raw }) c + Cand(raw, raw.length) else c
             }
@@ -471,5 +472,6 @@ class KeyboardController(
     private companion object {
         const val NINE_LEFT_MAX = 24
         const val CALC_SCAN_LEN = 32
+        const val CTX_SCAN_LEN = 16
     }
 }

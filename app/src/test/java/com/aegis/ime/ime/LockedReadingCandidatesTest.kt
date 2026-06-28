@@ -43,10 +43,10 @@ class LockedReadingCandidatesTest {
     private val rich = object : CandidateEngine {
         override fun candidates(composing: String, t9: Boolean) =
             candidatesCovered(composing, t9).map { it.word }
-        override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>): List<Cand> =
+        override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
             if (composing.isEmpty()) emptyList()
             else listOf(Cand("你", 2), Cand("你的", composing.length), Cand("拟", 2))
-        override fun candidatesForReadingCovered(letters: String): List<Cand> =
+        override fun candidatesForReadingCovered(letters: String, context: CharSequence): List<Cand> =
             listOf(Cand("你的", letters.length), Cand("你", 2), Cand("拟", 2), Cand("泥", 2))
     }
 

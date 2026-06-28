@@ -43,10 +43,10 @@ class DictEngine(
     override fun candidates(composing: String, t9: Boolean): List<String> =
         candidatesCovered(composing, t9).map { it.word }
 
-    override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>): List<Cand> {
+    override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> {
         if (composing.isEmpty()) return emptyList()
         val d = if (t9) t9Decoder else decoder
-        val out = d?.decodeCovered(composing, MAX_CANDIDATES, cuts) ?: emptyList()
+        val out = d?.decodeCovered(composing, MAX_CANDIDATES, cuts, context) ?: emptyList()
         return if (t9) out.filterNot { c -> c.word.all { it.code < 128 } } else out
     }
 
@@ -55,9 +55,9 @@ class DictEngine(
         return decoder?.decode(letters, MAX_CANDIDATES) ?: emptyList()
     }
 
-    override fun candidatesForReadingCovered(letters: String): List<Cand> {
+    override fun candidatesForReadingCovered(letters: String, context: CharSequence): List<Cand> {
         if (letters.isEmpty()) return emptyList()
-        return decoder?.decodeCovered(letters, MAX_CANDIDATES) ?: emptyList()
+        return decoder?.decodeCovered(letters, MAX_CANDIDATES, context = context) ?: emptyList()
     }
 
     override fun english(typed: String): List<String> =

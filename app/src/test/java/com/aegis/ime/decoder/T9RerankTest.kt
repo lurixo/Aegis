@@ -58,4 +58,27 @@ class T9RerankTest {
         assertEquals("谢谢", list.first())
         assertTrue("谢谢 now ranks before 这些", list.indexOf("谢谢") < list.indexOf("这些"))
     }
+
+    @Test
+    fun contextDisambiguatesSameCode_theFix() {
+        val d = decoder()
+        assertEquals("各个", d.decodeCovered("4343", 30).firstOrNull()?.word)
+        assertEquals("哥哥", d.decodeCovered("4343", 30, context = "大").firstOrNull()?.word)
+    }
+
+    @Test
+    fun emptyContextIsIdentity() {
+        val d = decoder()
+        val none = d.decodeCovered("4343", 30).map { it.word }
+        val empty = d.decodeCovered("4343", 30, context = "").map { it.word }
+        val punct = d.decodeCovered("4343", 30, context = "你好。").map { it.word }
+        assertEquals(none, empty)
+        assertEquals(none, punct)
+        assertEquals("各个", none.first())
+    }
+
+    @Test
+    fun contextDoesNotOverflipWhenFreqWordIsCorrect() {
+        assertEquals("这些", decoder().decodeCovered("943943", 30, context = "我喜欢").firstOrNull()?.word)
+    }
 }

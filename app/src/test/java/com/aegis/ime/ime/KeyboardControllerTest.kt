@@ -88,7 +88,7 @@ class KeyboardControllerTest {
         val h = FakeHost()
         val partial = object : CandidateEngine {
             override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
-            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>): List<Cand> =
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
                 if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
         }
         val c = KeyboardController(h, partial)
@@ -242,7 +242,7 @@ class KeyboardControllerTest {
     @Test fun no_ghost_suggestion_after_commit() {
         val full = object : CandidateEngine {
             override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
-            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>) =
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence) =
                 if (composing.isEmpty()) emptyList() else listOf(Cand("你好", composing.length))
         }
         val c = KeyboardController(FakeHost(), full)
@@ -255,7 +255,7 @@ class KeyboardControllerTest {
 
     private fun learnSpyEngine(learned: MutableList<String>) = object : CandidateEngine {
         override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
-        override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>) =
+        override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence) =
             if (composing.isEmpty()) emptyList() else listOf(Cand("密码", composing.length))
         override fun learn(prevWord: String?, word: String) { learned.add(word) }
     }
