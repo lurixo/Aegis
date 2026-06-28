@@ -499,6 +499,9 @@ class KeyboardController(
     private fun baseCandidates(): List<Cand> {
         if (composing.isEmpty()) return emptyList()
         val raw = composing.toString()
+        // ③ context-aware decoding: the committed text before the cursor conditions the first decoded
+        // word so cross-word context disambiguates same-code input (非常 + 943943 → 谢谢, not 这些).
+        val context = host.textBeforeCursor(CTX_SCAN_LEN)
         return when (mode()) {
             Mode.PINYIN -> if (lockedReadings.isNotEmpty()) {
                 // ★E / U1: syllable(s) locked via the left column. Use the RICH covered decode
@@ -508,17 +511,17 @@ class KeyboardController(
                 // LETTERS of fullLetters(); remap it to DIGITS of the live buffer so picking a
                 // prefix word still partial-commits correctly (★E), full coverage → whole buffer.
                 val bounds = readingLetterToDigit()
-                engine.candidatesForReadingCovered(fullLetters())
+                engine.candidatesForReadingCovered(fullLetters(), context)
                     .map { Cand(it.word, bounds[it.coveredLen] ?: composing.length) }
             } else {
                 val isNine = layoutId == LayoutId.NINE
-                var c = engine.candidatesCovered(raw, isNine, forcedCuts)
+                var c = engine.candidatesCovered(raw, isNine, forcedCuts, context)
                 // ★N: mid-syllable the full digit buffer may not segment yet — fall back to the
                 // longest decodable syllable prefix so the grid keeps the confirmed words
                 // (你/你说…) instead of going blank when a half-typed syllable trails.
                 if (c.isEmpty() && isNine) {
                     val pfx = T9Pinyin.longestDecodablePrefix(raw)
-                    if (pfx.length in 1 until raw.length) c = engine.candidatesCovered(pfx, true)
+                    if (pfx.length in 1 until raw.length) c = engine.candidatesCovered(pfx, true, context = context)
                 }
                 if (layoutId == LayoutId.ALPHA && c.none { it.word == raw }) c + Cand(raw, raw.length) else c
             }
@@ -613,5 +616,7 @@ class KeyboardController(
         const val NINE_LEFT_MAX = 24
         /** U25: how many chars before the cursor to scan for a trailing arithmetic expression. */
         const val CALC_SCAN_LEN = 32
+        /** ③ how many committed chars before the cursor to feed the decoder as same-code context. */
+        const val CTX_SCAN_LEN = 16
     }
 }

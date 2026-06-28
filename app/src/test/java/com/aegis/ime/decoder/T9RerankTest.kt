@@ -69,4 +69,33 @@ class T9RerankTest {
         assertEquals("谢谢", list.first())
         assertTrue("谢谢 now ranks before 这些", list.indexOf("谢谢") < list.indexOf("这些"))
     }
+
+    @Test
+    fun contextDisambiguatesSameCode_theFix() {
+        // ③ THE FIX: 4343 = 各个/哥哥 (各个 slightly more frequent). With no context 各个 leads; with the
+        // committed preceding text 大, the cross-word char-bigram lifts 哥哥 (大哥哥) — for ANY input, no
+        // prior learning and no octagram needed. This is the universal same-code disambiguation.
+        val d = decoder()
+        assertEquals("各个", d.decodeCovered("4343", 30).firstOrNull()?.word)
+        assertEquals("哥哥", d.decodeCovered("4343", 30, context = "大").firstOrNull()?.word)
+    }
+
+    @Test
+    fun emptyContextIsIdentity() {
+        // The context plumbing must be a strict no-op when there is no preceding Han text → zero
+        // regression for a fresh buffer / start of field.
+        val d = decoder()
+        val none = d.decodeCovered("4343", 30).map { it.word }
+        val empty = d.decodeCovered("4343", 30, context = "").map { it.word }
+        val punct = d.decodeCovered("4343", 30, context = "你好。").map { it.word } // 。 breaks context
+        assertEquals(none, empty)
+        assertEquals(none, punct)
+        assertEquals("各个", none.first())
+    }
+
+    @Test
+    fun contextDoesNotOverflipWhenFreqWordIsCorrect() {
+        // 我喜欢这些: the high-frequency 这些 stays #1 — context must not wrongly force a same-code word.
+        assertEquals("这些", decoder().decodeCovered("943943", 30, context = "我喜欢").firstOrNull()?.word)
+    }
 }

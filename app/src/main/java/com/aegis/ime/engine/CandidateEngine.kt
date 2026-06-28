@@ -38,7 +38,7 @@ interface CandidateEngine {
      * then leading single chars (★G), so picking one can partially commit and continue (★E). Defaults
      * to assuming each candidate covers the whole buffer.
      */
-    fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int> = emptySet()): List<Cand> =
+    fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =
         candidates(composing, t9).map { Cand(it, composing.length) }
 
     /** Candidates for an explicit full-pinyin reading (letters) — used by the 9-key reading column. */
@@ -50,7 +50,7 @@ interface CandidateEngine {
      * digit buffer, so locking a reading keeps the full sentence + completions + per-prefix words
      * instead of collapsing to just the best sentence. coveredLen is in LETTERS of [letters].
      */
-    fun candidatesForReadingCovered(letters: String): List<Cand> =
+    fun candidatesForReadingCovered(letters: String, context: CharSequence = ""): List<Cand> =
         candidatesForReading(letters).map { Cand(it, letters.length) }
 
     /** English completions + corrections for the buffered EN mode. */

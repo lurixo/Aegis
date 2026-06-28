@@ -46,6 +46,7 @@ class PinyinDecoder(
     private val initialsDict: BinaryDict? = null,
     private val octagram: com.aegis.ime.dict.OctagramReader? = null,
     private val octagramWeight: Double = DEFAULT_OCTAGRAM_WEIGHT,
+    private val contextWeight: Double = DEFAULT_CONTEXT_WEIGHT,
 ) {
     private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
     private val edgeN = if (lm != null || fuzzyRules.isNotEmpty() || initialsDict != null) EDGE_N else 1
@@ -82,25 +83,54 @@ class PinyinDecoder(
 
     /**
      * Model score for a whole-input candidate word, used to rerank the candidate **list** (★top-N):
-     * global unigram + learned user boost + optional octagram word weight. Previously only
-     * bestSentence (slot #1) saw the model; the rest of the list was raw frequency, so user learning
-     * and the downloaded octagram never reordered the visible tail. This brings them to the whole list.
+     * global unigram + learned user boost + optional octagram word weight, plus — when the preceding
+     * committed text is supplied — the cross-boundary char-bigram P(word₀ | ctxLastChar) and octagram
+     * collocation(ctxWord + word). The context terms vanish when there is no preceding Han context, so
+     * a fresh buffer behaves exactly as before. This is the ③ context-aware same-code disambiguation.
      */
-    private fun wordModelScore(word: String, freq: Int): Double =
+    private fun wordModelScore(word: String, freq: Int, ctxCp: Int, ctxWord: String): Double =
         (ln(freq.toDouble()) - lnTotal) +
             (userModel?.wordBoost(word) ?: 0.0) +
-            (octagram?.let { octagramWeight * (it.rawScore(word) ?: 0.0) } ?: 0.0)
+            (octagram?.let { octagramWeight * (it.rawScore(word) ?: 0.0) } ?: 0.0) +
+            (if (lm != null && ctxCp != BOS) contextWeight * lm.logCond(ctxCp, word.codePointAt(0)) else 0.0) +
+            (if (octagram != null && ctxWord.isNotEmpty()) octagramWeight * (octagram.rawScore(ctxWord + word) ?: 0.0) else 0.0)
 
     /** Whole-input dict words (exact key = input) ordered by [wordModelScore] — model, not raw freq. */
-    private fun rerankedWholeInput(input: String): List<String> =
-        dict.exact(input).sortedByDescending { wordModelScore(it.word, it.freq) }.map { it.word }
+    private fun rerankedWholeInput(input: String, ctxCp: Int, ctxWord: String): List<String> =
+        dict.exact(input).sortedByDescending { wordModelScore(it.word, it.freq, ctxCp, ctxWord) }.map { it.word }
 
-    /** Candidates for [input]: best sentence first, then word-by-word dictionary options. */
-    fun decode(input: String, limit: Int): List<String> {
+    /**
+     * Parse the editor text before the cursor into (last Han code point, trailing Han run) for
+     * conditioning the first decoded word. A non-Han char immediately before the cursor (space,
+     * punctuation, latin, digit) breaks the context → (BOS, "") = no conditioning. The Han run is
+     * capped at [CTX_WORD_MAX] chars as the octagram previous-word proxy.
+     */
+    private fun parseContext(context: CharSequence): Pair<Int, String> {
+        val s = context.toString()
+        if (s.isEmpty()) return BOS to ""
+        val lastCp = s.codePointBefore(s.length)
+        if (!isHan(lastCp)) return BOS to ""
+        var start = s.length
+        var chars = 0
+        while (start > 0 && chars < CTX_WORD_MAX) {
+            val cp = s.codePointBefore(start)
+            if (!isHan(cp)) break
+            start -= Character.charCount(cp)
+            chars++
+        }
+        return lastCp to s.substring(start)
+    }
+
+    private fun isHan(cp: Int): Boolean = cp in 0x3400..0x9FFF || cp in 0xF900..0xFAFF
+
+    /** Candidates for [input]: best sentence first, then word-by-word dictionary options. [context] is
+     *  the committed text before the cursor, conditioning the first word (③ context-aware). */
+    fun decode(input: String, limit: Int, context: CharSequence = ""): List<String> {
         if (input.isEmpty()) return emptyList()
+        val (ctxCp, ctxWord) = parseContext(context)
         val out = LinkedHashSet<String>()
-        bestSentence(input)?.let { out.add(it) }
-        out.addAll(rerankedWholeInput(input)) // ★top-N rerank: model-ordered before raw-freq query
+        bestSentence(input, ctxCp = ctxCp, ctxWord = ctxWord)?.let { out.add(it) }
+        out.addAll(rerankedWholeInput(input, ctxCp, ctxWord)) // ★top-N rerank, context-conditioned
         out.addAll(dict.query(input, limit))
         if (out.size < limit && fuzzyRules.isNotEmpty()) {
             for (variant in Fuzzy.variants(input, fuzzyRules)) {
@@ -120,8 +150,9 @@ class PinyinDecoder(
      * leading input units that word consumes, so picking it can partially commit and continue the rest.
      * [decode] is intentionally left unchanged so the accuracy eval path is unaffected.
      */
-    fun decodeCovered(input: String, limit: Int, cuts: Set<Int> = emptySet()): List<Cand> {
+    fun decodeCovered(input: String, limit: Int, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> {
         if (input.isEmpty()) return emptyList()
+        val (ctxCp, ctxWord) = parseContext(context)
         val cover = LinkedHashMap<String, Int>()
         // Reserve part of the budget for leading single-chars/short words so full-input completions
         // (which can alone fill `limit`) never starve the ★G mixed grid.
@@ -132,9 +163,9 @@ class PinyinDecoder(
         fun addCompletions(words: List<String>) {
             for (w in words) { if (cover.size >= completionCap) return; cover.putIfAbsent(w, input.length) }
         }
-        bestSentence(input, cuts)?.let { cover[it] = input.length }
+        bestSentence(input, cuts, ctxCp, ctxWord)?.let { cover[it] = input.length }
         if (firstCut == null) {
-            addCompletions(rerankedWholeInput(input)) // ★top-N rerank before raw-freq predictions
+            addCompletions(rerankedWholeInput(input, ctxCp, ctxWord)) // ★top-N rerank, context-conditioned
             addCompletions(dict.query(input, completionCap))
             if (fuzzyRules.isNotEmpty()) {
                 for (variant in Fuzzy.variants(input, fuzzyRules)) {
@@ -161,10 +192,12 @@ class PinyinDecoder(
 
     private class Cell(val score: Double, val prevPos: Int, val prevChar: Int, val word: String)
 
-    private fun bestSentence(input: String, cuts: Set<Int> = emptySet()): String? {
+    private fun bestSentence(input: String, cuts: Set<Int> = emptySet(), ctxCp: Int = BOS, ctxWord: String = ""): String? {
         val n = input.length
         val dp = Array(n + 1) { HashMap<Int, Cell>() }
-        dp[0][BOS] = Cell(0.0, -1, BOS, "")
+        // Seed the lattice with the preceding context (③): the first decoded word then pays the real
+        // boundary bigram P(word₀ | ctxCp) and octagram(ctxWord + word₀). Empty context → BOS = no-op.
+        dp[0][ctxCp] = Cell(0.0, -1, ctxCp, ctxWord)
 
         for (q in 1..n) {
             for (p in 0 until q) {
@@ -180,8 +213,11 @@ class PinyinDecoder(
                     val firstCp = w.codePointAt(0)
                     val lastCp = w.codePointBefore(w.length)
                     for ((prevChar, cell) in from) {
+                        // ③ the boundary out of the seeded context cell (prevPos < 0) is the committed
+                        // preceding text → weight it by contextWeight; internal word boundaries keep λ.
+                        val bw = if (cell.prevPos < 0 && prevChar != BOS) contextWeight else lambda
                         val bi = if (lm == null || prevChar == BOS) 0.0
-                        else lambda * lm.logCond(prevChar, firstCp)
+                        else bw * lm.logCond(prevChar, firstCp)
                         // Optional top-tier context: wanxiang octagram collocation prevWord+curWord.
                         val og = if (octagram != null && cell.word.isNotEmpty())
                             octagramWeight * (octagram.rawScore(cell.word + w) ?: 0.0) else 0.0
@@ -223,5 +259,8 @@ class PinyinDecoder(
         const val INITIALS_PENALTY = 5.0  // 简拼 is the most ambiguous → lowest preference
         const val DEFAULT_OCTAGRAM_WEIGHT = 0.3 // scales the large positive octagram log-weights
         const val PREFIX_PER_LEN = 8  // max leading single-chars/short-words pulled per prefix length (★G)
+        const val CTX_WORD_MAX = 4    // trailing Han chars of context used as the octagram prev-word proxy
+        const val DEFAULT_CONTEXT_WEIGHT = 2.0 // ③ weight of the committed-context boundary bigram (vs λ for
+        // internal word boundaries); context is reliable preceding text, so it outvotes raw frequency more
     }
 }

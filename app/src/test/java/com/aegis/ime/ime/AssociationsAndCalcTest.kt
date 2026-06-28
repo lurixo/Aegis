@@ -44,7 +44,7 @@ class AssociationsAndCalcTest {
     /** Returns one base candidate "好的" for any pinyin, and records learns. */
     private fun spyEngine(learned: MutableList<String>) = object : CandidateEngine {
         override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
-        override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>) =
+        override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence) =
             if (composing.isEmpty()) emptyList() else listOf(Cand("好的", composing.length))
         override fun learn(prevWord: String?, word: String) { learned.add(word) }
     }
