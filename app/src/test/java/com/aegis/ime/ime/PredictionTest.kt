@@ -21,6 +21,7 @@ import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.user.UserLearning
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -43,7 +44,13 @@ class PredictionTest {
             if (prevWord == "你好") listOf("世界", "啊") else emptyList()
     }
 
+    private fun alwaysPredictEngine() = object : CandidateEngine {
+        override fun candidates(composing: String, t9: Boolean) = emptyList<String>()
+        override fun predict(prevWord: String?): List<String> = listOf("预测")
+    }
+
     private fun out(s: String) = Key(s, output = s)
+    private fun digit(s: String) = Key(s, output = s, direct = true)
 
     private fun commitNiHao(c: KeyboardController) {
         "nihao".forEach { c.onKey(out(it.toString())) }
@@ -157,5 +164,13 @@ class PredictionTest {
         assertEquals("Backspace deletes one committed editor character", "你", h.text)
         assertEquals("full editor commits must not restore preedit", "", c.preeditForTest())
         assertTrue("stale predictions must not return after normal Backspace", c.candidateWords().isEmpty())
+    }
+
+    @Test fun calculator_takes_priority_over_prediction() {
+        val h = EditorHost()
+        val c = KeyboardController(h, alwaysPredictEngine())
+        "2+2".forEach { c.onKey(digit(it.toString())) }
+        assertEquals("the calculator result wins the empty-buffer slot", listOf("=4"), c.candidateWords())
+        assertFalse("the prediction must not appear while an expression is present", "预测" in c.candidateWords())
     }
 }

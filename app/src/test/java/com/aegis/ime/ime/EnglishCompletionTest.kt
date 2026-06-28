@@ -368,6 +368,21 @@ class EnglishCompletionTest {
     }
 
     @Test
+    fun a_composing_word_outranks_the_calculator() {
+        val h = object : FakeHost() {
+            override fun textBeforeCursor(n: Int): CharSequence = "1+2"
+        }
+        val c = english(h)
+        assertEquals(listOf("=3"), c.candidateWords())
+        type(c, "or")
+        assertEquals(listOf("or", "orange", "order", "organ", "ordinary"), c.candidateWords())
+        c.onKey(act(KeyAction.BACKSPACE))
+        c.onKey(act(KeyAction.BACKSPACE))
+        assertEquals("", c.englishWordForTest())
+        assertEquals(listOf("=3"), c.candidateWords())
+    }
+
+    @Test
     fun picking_a_word_leaves_no_stale_predictions_behind() {
         val h = FakeHost()
         val c = english(h)
