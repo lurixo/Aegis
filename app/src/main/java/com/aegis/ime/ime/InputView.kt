@@ -112,21 +112,49 @@ class InputView(context: Context) : LinearLayout(context) {
         body.addView(panelContainer, LayoutParams(LayoutParams.MATCH_PARENT, dp(250)))
         addView(body, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
 
+        // S3: deterministic baseline BEFORE any insets dispatch. A dark/light switch makes the IME framework
+        // re-inflate this view (new `body`, bottom padding 0) and the platform does not reliably re-dispatch
+        // the unchanged navbar inset to the rebuilt tree — so the bottom raise was lost intermittently. Seed
+        // the raise from the process-wide cache of the last navbar bottom, so a rebuilt view is never at 0
+        // once any inset has been seen. Harmless when the cache is still 0 (gesture nav / first cold show):
+        // the +28dp raise is applied either way, and the listener below refines it on the next real dispatch.
+        applyWindowPadding(lastNavBottomPx, 0, 0)
+
         // targetSdk 36 forces the IME window edge-to-edge. Consume the insets on [body] (NOT the
         // transparent band): raise the bottom above the nav/home bar (#2) and keep only a small side
         // margin (#1) so the grey fill still covers the keyboard gutters without painting the top band.
         ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets ->
             val nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
             val cut = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
-            val side = dp(4)
-            // B4: lift the whole keyboard a little higher off the gesture/home bar (was dp(16) — too tight).
-            val leftPad = maxOf(cut.left, side)
-            body.setPadding(leftPad, 0, maxOf(cut.right, side), nav.bottom + dp(28))
-            // U12: the preedit band is outside `body`, so feed it the same left inset to keep the pinyin
-            // left-aligned with the first candidate (which is inset by body's left padding).
-            preeditView.setLeftInset(leftPad.toFloat())
+            // S3: cache the live navbar inset so the next rebuild can restore it. Only cache a real (>0)
+            // value: a transient 0 (window teardown / a briefly-immersive host) must not poison the baseline
+            // a future rebuild seeds — keeping the last real height biases any residual frame to a harmless
+            // over-raise (a small gap) rather than the bug's under-raise (keyboard glued to the nav bar).
+            // onAttachedToWindow's requestApplyInsets corrects either way on the next real dispatch.
+            if (nav.bottom > 0) lastNavBottomPx = nav.bottom
+            applyWindowPadding(nav.bottom, cut.left, cut.right)
             WindowInsetsCompat.CONSUMED
         }
+    }
+
+    /**
+     * Apply the edge-to-edge padding to [body]: raise the bottom above the nav/home bar ([navBottom] + 28dp,
+     * B4) and keep a small side margin clear of any display cutout (#1). [preeditView] sits outside `body`,
+     * so it gets the same left inset to keep the pinyin left-aligned with the first candidate (U12). Shared
+     * by the insets listener and the S3 cached baseline so both produce identical geometry.
+     */
+    private fun applyWindowPadding(navBottom: Int, cutLeft: Int, cutRight: Int) {
+        val side = dp(4)
+        val leftPad = maxOf(cutLeft, side)
+        body.setPadding(leftPad, 0, maxOf(cutRight, side), navBottom + dp(28))
+        preeditView.setLeftInset(leftPad.toFloat())
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        // S3: force a fresh insets dispatch on (re)attach so the raise is recomputed after a theme-switch
+        // rebuild, instead of relying on the platform to spontaneously re-dispatch the unchanged navbar inset.
+        ViewCompat.requestApplyInsets(this)
     }
 
     /**
@@ -246,4 +274,21 @@ class InputView(context: Context) : LinearLayout(context) {
     fun isPanelShowing(panel: View?): Boolean = panelShown && panel != null && currentPanel === panel
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+
+    // S3 test seams.
+    internal fun bodyBottomPaddingPx(): Int = body.paddingBottom
+    /** Mimic an insets dispatch the way the listener does: cache the navbar bottom + apply the padding. */
+    internal fun simulateNavInsetForTest(navBottomPx: Int) {
+        lastNavBottomPx = navBottomPx
+        applyWindowPadding(navBottomPx, 0, 0)
+    }
+
+    private companion object {
+        // S3: the last real navbar bottom inset, kept process-wide (survives the input-view re-inflation on a
+        // theme switch) so a rebuilt InputView can restore the bottom raise immediately in its init, instead
+        // of waiting for a window-insets re-dispatch the platform may skip for an unchanged inset value. A
+        // single value can't model two displays with different nav bars at once (last writer wins), but each
+        // view corrects to its own inset on its first real dispatch, so any cross-display skew is ~one frame.
+        private var lastNavBottomPx = 0
+    }
 }
