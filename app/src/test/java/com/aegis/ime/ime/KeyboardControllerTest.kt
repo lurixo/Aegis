@@ -138,6 +138,45 @@ class KeyboardControllerTest {
         assertEquals(listOf("你"), h.commits)
     }
 
+    @Test fun field_switch_drops_an_assembled_prefix_no_cross_field_leak() {
+        val h = FakeHost()
+        val partial = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
+        }
+        val c = KeyboardController(h, partial)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        assertEquals("你", c.composingPrefix())
+        assertTrue("partial pick committed nothing", h.commits.isEmpty())
+
+        c.reset()
+        assertEquals("the pending prefix is dropped on field switch", "", c.composingPrefix())
+
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onKey(act(KeyAction.ENTER))
+        assertEquals("no leaked 你 in the new field", listOf("nihao"), h.commits)
+    }
+
+    @Test fun direct_key_on_a_bare_prefix_flushes_the_word_first_then_the_symbol() {
+        val h = FakeHost()
+        val partial = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
+        }
+        val c = KeyboardController(h, partial)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }
+        c.onKey(Key("，", output = "，", direct = true))
+        assertEquals(listOf("你", "，"), h.commits)
+    }
+
     @Test fun segment_forces_a_syllable_boundary() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
@@ -441,5 +480,24 @@ class KeyboardControllerTest {
         assertEquals(1, h.enters)
         assertTrue(h.commits.isEmpty())
         assertEquals(false, c.onBackspaceSwipe(true))
+    }
+
+    @Test fun up_swipe_on_a_bare_assembled_prefix_clears_it_and_consumes_the_gesture() {
+        val h = FakeHost()
+        val partial = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
+        }
+        val c = KeyboardController(h, partial)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }
+        assertEquals("你", c.composingPrefix())
+        assertTrue("up-swipe must consume the gesture (重输), not fall through to the field wipe", c.onBackspaceSwipe(true))
+        assertEquals("the pending prefix is dropped", "", c.composingPrefix())
+        assertTrue("nothing committed, field untouched", h.commits.isEmpty())
+        assertEquals("never deleted committed editor text", 0, h.deletes)
     }
 }

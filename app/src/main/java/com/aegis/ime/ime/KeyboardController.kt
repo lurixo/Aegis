@@ -102,6 +102,7 @@ class KeyboardController(
         activeStart = 0
         forcedCuts.clear()
         history.clear()
+        committedPrefix.setLength(0)
         shiftState = ShiftState.OFF
         cnLayout = cnDefaultLayout
         layoutId = if (lang == Lang.CN) cnDefaultLayout else LayoutId.ALPHA
@@ -175,7 +176,7 @@ class KeyboardController(
     }
 
     fun onBackspaceSwipe(up: Boolean): Boolean {
-        if (up && composing.isNotEmpty()) {
+        if (up && (composing.isNotEmpty() || committedPrefix.isNotEmpty())) {
             clearComposingState()
             render()
             return true
@@ -211,7 +212,7 @@ class KeyboardController(
 
     private fun handleCommit(key: Key) {
         if (key.direct) {
-            if (composing.isNotEmpty()) flushComposing()
+            if (composing.isNotEmpty() || committedPrefix.isNotEmpty()) flushComposing()
             host.commitText(applyCase(key.output))
             if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
             lastWord = null
