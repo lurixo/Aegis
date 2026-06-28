@@ -87,6 +87,28 @@ class LandscapeOverlayBoundsTest {
 
     }
 
+    @Test fun side_and_bottom_insets_remain_inside_the_right_surface() {
+        val iv = InputView(ctx)
+        val insets = WindowInsetsCompat.Builder()
+            .setInsets(WindowInsetsCompat.Type.navigationBars(), Insets.of(58, 0, 17, 24))
+            .setInsets(WindowInsetsCompat.Type.displayCutout(), Insets.of(9, 0, 9, 0))
+            .build()
+        ViewCompat.dispatchApplyWindowInsets(iv, insets)
+        layout(iv, 1280)
+
+        assertEquals("screen-left cutout is wholly outside the right dock", dp(4), iv.bodyLeftPaddingPxForTest())
+        assertEquals(17, iv.bodyRightPaddingPxForTest())
+        assertEquals("surface bounds remain physically right-docked", 1280, iv.dockSurfaceRightPx())
+        assertEquals("left content keeps only its normal local padding", iv.dockSurfaceLeftPx() + dp(4), iv.keyboardVisualLeftPx())
+        assertEquals("right controls avoid a side navigation/cutout inset", 1280 - 17, iv.keyboardVisualRightPx())
+        assertEquals(
+            "real h388 cap preserves nav and only the height-budgeted residual raise",
+            24 + iv.dockHeightSpecForTest()!!.bottomExtra,
+            iv.bodyBottomPaddingPx(),
+        )
+        assertEquals("the shorter four-row keyboard honours the full 28dp raise", 24 + dp(28), iv.bodyBottomPaddingPx())
+    }
+
     @Test fun narrow_full_width_landscape_still_honours_the_left_safe_inset() {
         val iv = InputView(ctx)
         layout(iv, 320)

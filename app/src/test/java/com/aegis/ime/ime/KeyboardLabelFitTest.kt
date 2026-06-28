@@ -26,6 +26,7 @@ import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
 import com.aegis.ime.ui.LetterCase
+import kotlin.math.roundToInt
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -203,6 +204,12 @@ class KeyboardLabelFitTest {
     @Test
     fun chineseKeyLabelsFitTheirKeysAcrossPortraitWidths() = auditPortraitWidths("+zh-rCN", ::chineseViews)
 
+    @Test
+    fun englishKeyLabelsFitTheirKeysAcrossLandscapeDocks() = auditLandscapeDocks("+en", ::englishViews)
+
+    @Test
+    fun chineseKeyLabelsFitTheirKeysAcrossLandscapeDocks() = auditLandscapeDocks("+zh-rCN", ::chineseViews)
+
     private fun auditPortraitWidths(locale: String, views: () -> List<Pair<String, KeyboardView>>) {
         val fails = ArrayList<String>()
         for (q in listOf(
@@ -217,6 +224,44 @@ class KeyboardLabelFitTest {
             val widthPx = ctx.resources.displayMetrics.widthPixels
             for ((state, view) in views()) {
                 fails += audit("$q $state", laidOut(view, widthPx, null))
+            }
+        }
+        assertTrue("label overflow/collision: ${fails.joinToString("\n")}", fails.isEmpty())
+    }
+
+    private fun auditLandscapeDocks(locale: String, views: () -> List<Pair<String, KeyboardView>>) {
+        val fails = ArrayList<String>()
+        for (q in listOf(
+            "w640dp-h291dp-land-hdpi",
+            "w720dp-h360dp-land-xhdpi",
+            "w853dp-h388dp-land-hdpi",
+            "w320dp-h200dp-land-mdpi",
+        )) {
+            RuntimeEnvironment.setQualifiers(q)
+            RuntimeEnvironment.setQualifiers(locale)
+            val density = ctx.resources.displayMetrics.density
+            val configuration = ctx.resources.configuration
+            val surface = LandscapeDockSizing.resolveWidth(
+                landscape = true,
+                slotWidth = ctx.resources.displayMetrics.widthPixels,
+                preferredSurfaceWidth = (minOf(configuration.screenWidthDp, configuration.screenHeightDp) * density).roundToInt(),
+                density = density,
+                leftSystemInset = 0,
+                rightSystemInset = 0,
+            ).surfaceWidth
+            val widthPx = surface - 2 * (4f * density).roundToInt()
+            for ((state, view) in views()) {
+                val rows = view.rowCountForSizing()
+                val spec = LandscapeDockSizing.resolveHeight(
+                    availableHeight = ctx.resources.displayMetrics.heightPixels,
+                    density = density,
+                    rowCount = rows,
+                    preferredKeyboardHeight = LandscapeDockSizing.preferredKeyboardHeight(rows, density),
+                    fractionalRows = view.usesFractionalCellsForSizing(),
+                    editBarVisible = false,
+                    navBottom = 0,
+                )
+                fails += audit("$q $state", laidOut(view, widthPx, spec.keyboardHeight))
             }
         }
         assertTrue("label overflow/collision: ${fails.joinToString("\n")}", fails.isEmpty())

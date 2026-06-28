@@ -269,6 +269,7 @@ class KeyboardView(context: Context) : View(context) {
     internal fun layoutAppliesForTest(): Int = layoutApplies
 
     internal fun rowCountForSizing(): Int = layout.rowCount
+    internal fun usesFractionalCellsForSizing(): Boolean = usesFractionalCells(layout)
 
     private fun usesFractionalCells(l: KeyboardLayout): Boolean = l.cells != null && l.id != LayoutId.ALPHA
 

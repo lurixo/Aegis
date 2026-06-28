@@ -814,6 +814,9 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     internal fun firstVisibleCandidateRowForTest(): Int = table.firstVisiblePosition
     internal fun firstVisibleCandidateTopForTest(): Int? = table.getChildAt(0)?.top
     internal fun readingScrollYForTest(): Int = readingScroll.scrollY
+    internal fun gridCanScrollForwardForTest(): Boolean =
+        table.canScrollVertically(1) || rowStarts.size * rowHeightPx > table.height
+    internal fun readingCanScrollForwardForTest(): Boolean = readingScroll.canScrollVertically(1)
     internal fun scrollForTest(gridY: Int, readingY: Int = 0) {
         val stride = candidateRowStride()
         val bounded = gridY.coerceAtLeast(0)

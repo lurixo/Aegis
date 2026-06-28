@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import kotlin.math.floor
 import kotlin.math.roundToInt
 
 internal object LandscapeDockSizing {
@@ -33,6 +34,8 @@ internal object LandscapeDockSizing {
         val bottomExtra: Int,
         val navBottom: Int,
         val rootHeight: Int,
+        val constrained: Boolean,
+        val emergency: Boolean,
     )
 
     fun resolveWidth(
@@ -62,6 +65,82 @@ internal object LandscapeDockSizing {
         } else {
             WidthSpec(width, floating = false, effectiveLeftGutter = 0, requiredSurfaceWidth = requiredSurface)
         }
+    }
+
+    fun resolveHeight(
+        availableHeight: Int,
+        density: Float,
+        rowCount: Int,
+        preferredKeyboardHeight: Int,
+        fractionalRows: Boolean,
+        editBarVisible: Boolean,
+        navBottom: Int,
+        preeditEditing: Boolean = false,
+    ): HeightSpec {
+        val cap = availableHeight.coerceAtLeast(0)
+        val rows = rowCount.coerceAtLeast(1)
+        val nav = navBottom.coerceIn(0, cap)
+        val preferredPreedit = dp(if (preeditEditing) PREEDIT_EDIT_DP else PREEDIT_DP, density)
+        val preferredBar = dp(BAR_DP, density)
+        val barCount = if (editBarVisible) 2 else 1
+        val preferredExtra = dp(BOTTOM_EXTRA_DP, density)
+        val minimumFace = dp(if (rows <= 4) MIN_NINE_FACE_DP else MIN_ALPHA_FACE_DP, density)
+        val minimumGap = dp(MIN_VERTICAL_GAP_DP, density)
+        val minimumKeyboard = if (fractionalRows) {
+
+            rows * minimumFace + rows * 2 * minimumGap
+        } else {
+            rows * minimumFace + (rows + 1) * minimumGap
+        }
+        val preferredKeyboard = preferredKeyboardHeight.coerceAtLeast(minimumKeyboard)
+        val preferredRoot = nav + preferredPreedit + barCount * preferredBar + preferredKeyboard + preferredExtra
+
+        if (cap >= preferredRoot) {
+            return HeightSpec(
+                preferredPreedit,
+                preferredBar,
+                preferredKeyboard,
+                preferredExtra,
+                nav,
+                preferredRoot,
+                constrained = false,
+                emergency = false,
+            )
+        }
+
+        val chrome = preferredPreedit + barCount * preferredBar
+        val afterChrome = cap - nav - chrome
+        if (afterChrome >= 0) {
+            val keyboard = minOf(preferredKeyboard, afterChrome).coerceAtLeast(0)
+            val extra = minOf(preferredExtra, (afterChrome - keyboard).coerceAtLeast(0))
+            return HeightSpec(
+                preferredPreedit,
+                preferredBar,
+                keyboard,
+                extra,
+                nav,
+                nav + chrome + keyboard + extra,
+                constrained = true,
+                emergency = keyboard < minimumKeyboard,
+            )
+        }
+
+        val flexible = (cap - nav).coerceAtLeast(0)
+        val weightTotal = chrome + minimumKeyboard
+        val scale = if (weightTotal > 0) flexible.toFloat() / weightTotal else 0f
+        val preedit = floor(preferredPreedit * scale).toInt().coerceAtLeast(0)
+        val bar = floor(preferredBar * scale).toInt().coerceAtLeast(0)
+        val keyboard = (flexible - preedit - barCount * bar).coerceAtLeast(0)
+        return HeightSpec(
+            preedit,
+            bar,
+            keyboard,
+            bottomExtra = 0,
+            navBottom = nav,
+            rootHeight = nav + preedit + barCount * bar + keyboard,
+            constrained = true,
+            emergency = true,
+        )
     }
 
     fun preferredKeyboardHeight(rowCount: Int, density: Float): Int {
@@ -109,6 +188,10 @@ internal object LandscapeDockSizing {
     private const val ALPHA_BOTTOM_WEIGHT = 11.6f
     private const val MIN_HOST_GUTTER_DP = 48
 
+    private const val PREEDIT_DP = 26
+    private const val PREEDIT_EDIT_DP = 44
+    private const val BAR_DP = 44
+    private const val BOTTOM_EXTRA_DP = 28
     private const val PREFERRED_FACE_DP = 52
     private const val NINE_FACE_EXTRA_DP = 2
     private const val MIN_ALPHA_FACE_DP = 28

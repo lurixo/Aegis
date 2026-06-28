@@ -35,6 +35,7 @@ import kotlin.math.roundToInt
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.layout.Key
+import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.KeyboardLayout
 import com.aegis.ime.layout.Lang
 
@@ -193,9 +194,36 @@ class InputView(context: Context) : LinearLayout(context) {
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         latestMeasuredSlotWidthPx = MeasureSpec.getSize(widthMeasureSpec).coerceAtLeast(0)
+        val heightMode = MeasureSpec.getMode(heightMeasureSpec)
+        val constrainedLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+            heightMode != MeasureSpec.UNSPECIFIED
         val rows = keyboardView.rowCountForSizing()
         val preferredKeyboard = LandscapeDockSizing.preferredKeyboardHeight(rows, resources.displayMetrics.density)
-        val spec = unconstrainedHeightSpec(preferredKeyboard, extraBarVisible())
+        var spec = if (constrainedLandscape) {
+            LandscapeDockSizing.resolveHeight(
+                availableHeight = MeasureSpec.getSize(heightMeasureSpec),
+                density = resources.displayMetrics.density,
+                rowCount = rows,
+                preferredKeyboardHeight = preferredKeyboard,
+                fractionalRows = keyboardView.usesFractionalCellsForSizing(),
+                editBarVisible = extraBarVisible(),
+                navBottom = windowNavBottomPx,
+            )
+        } else {
+            unconstrainedHeightSpec(preferredKeyboard, extraBarVisible())
+        }
+        editBarView.setFieldLineBudget(if (constrainedLandscape) 1 else EditBarView.MAX_FIELD_LINES)
+        if (constrainedLandscape && heightMode == MeasureSpec.EXACTLY) {
+            val exactHeight = MeasureSpec.getSize(heightMeasureSpec).coerceAtLeast(0)
+            val surplus = (exactHeight - spec.rootHeight).coerceAtLeast(0)
+            if (surplus > 0) {
+
+                spec = spec.copy(
+                    bottomExtra = spec.bottomExtra + surplus,
+                    rootHeight = exactHeight,
+                )
+            }
+        }
         applyHeightSpec(spec)
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
     }
@@ -227,6 +255,8 @@ class InputView(context: Context) : LinearLayout(context) {
             bottomExtra = bottomExtra,
             navBottom = windowNavBottomPx,
             rootHeight = rootHeight,
+            constrained = false,
+            emergency = false,
         ).also { cachedUnconstrainedHeightSpec = it }
     }
 
@@ -235,6 +265,10 @@ class InputView(context: Context) : LinearLayout(context) {
         measuredBottomExtraPx = spec.bottomExtra
         setHeight(preeditSlot, spec.preeditHeight)
         editBarView.minimumHeight = spec.barHeight
+        editBarView.layoutParams?.let { lp ->
+            val want = if (spec.emergency) spec.barHeight else android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            if (lp.height != want) lp.height = want
+        }
         setHeight(candidateView, spec.barHeight)
         setHeight(keyboardView, spec.keyboardHeight)
         setPanelHeight(panelHeightFor(spec.keyboardHeight))
@@ -470,6 +504,8 @@ class InputView(context: Context) : LinearLayout(context) {
         if (lp.height != px) { lp.height = px; panelContainer.layoutParams = lp }
     }
 
+    internal fun panelHeightPx(): Int = panelContainer.layoutParams.height
+
     internal fun keyboardHeightPx(): Int = keyboardView.height
 
     internal fun keyboardVisualWidthPx(): Int = keyboardView.width
@@ -484,14 +520,33 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun panelVisualRightPx(): Int = panelVisualLeftPx() + panelContainer.width
     internal fun preeditVisualLeftPx(): Int = preeditSlot.left + preeditView.left
     internal fun preeditVisualRightPx(): Int = preeditVisualLeftPx() + preeditView.width
+    internal fun preeditVisualTopPx(): Int = preeditSlot.top + preeditView.top
+    internal fun preeditVisualBottomPx(): Int = preeditVisualTopPx() + preeditView.height
     internal fun toolbarVisualTopPx(): Int = bodySlot.top + body.top + candidateView.top
+    internal fun toolbarVisualBottomPx(): Int = toolbarVisualTopPx() + candidateView.height
+    internal fun editBarVisualTopPx(): Int = bodySlot.top + body.top + editBarView.top
+    internal fun editBarVisualBottomPx(): Int = editBarVisualTopPx() + editBarView.height
     internal fun keyboardVisualTopPx(): Int = bodySlot.top + body.top + keyboardView.top
+    internal fun keyboardVisualBottomPx(): Int = keyboardVisualTopPx() + keyboardView.height
     internal fun panelVisualTopPx(): Int = bodySlot.top + body.top + panelContainer.top
+    internal fun panelVisualBottomPx(): Int = panelVisualTopPx() + panelContainer.height
     internal fun dockSurfaceWidthPx(): Int = body.width
     internal fun dockSurfaceLeftPx(): Int = bodySlot.left + body.left
     internal fun dockSurfaceRightPx(): Int = dockSurfaceLeftPx() + body.width
     internal fun dockSurfaceTopPx(): Int = bodySlot.top + body.top
     internal fun dockSurfaceBottomPx(): Int = dockSurfaceTopPx() + body.height
+    internal fun dockHeightSpecForTest(): LandscapeDockSizing.HeightSpec? = lastDockHeightSpec
+    internal fun keyboardMinimumKeyWidthPxForTest(): Float = keyboardView.minimumKeyWidthForTest()
+
+    internal fun keyboardActionBoundsForTest(action: KeyAction): RectF? =
+        keyboardView.boundsOfActionForTest(action)?.let { local ->
+            RectF(
+                keyboardVisualLeftPx() + local.left,
+                keyboardVisualTopPx() + local.top,
+                keyboardVisualLeftPx() + local.right,
+                keyboardVisualTopPx() + local.bottom,
+            )
+        }
 
     internal fun keyboardLabelBoundsForTest(label: String): RectF? =
         keyboardView.boundsOfLabelForTest(label)?.let { local ->
@@ -503,6 +558,16 @@ class InputView(context: Context) : LinearLayout(context) {
             )
         }
 
+    internal fun tapKeyboardActionForTest(action: KeyAction): Boolean =
+        keyboardView.centerOfActionForTest(action)?.let { (x, y) ->
+            dispatchTapForTest(keyboardVisualLeftPx() + x, keyboardVisualTopPx() + y)
+        } ?: false
+
+    internal fun tapKeyboardLabelForTest(label: String): Boolean =
+        keyboardView.centerOfLabelForTest(label)?.let { (x, y) ->
+            dispatchTapForTest(keyboardVisualLeftPx() + x, keyboardVisualTopPx() + y)
+        } ?: false
+
     internal fun tapExpandCandidatesForTest(): Boolean {
         val bounds = candidateView.expandControlBoundsForTest()
         return dispatchTapForTest(
@@ -511,7 +576,31 @@ class InputView(context: Context) : LinearLayout(context) {
         )
     }
 
+    internal fun expandedPanelControlBoundsForTest(): List<Rect> = listOf(
+        gridView.returnButtonForTest(),
+        gridView.backspaceButtonForTest(),
+        gridView.clearButtonForTest(),
+        gridView.singlesButtonForTest(),
+    ).map(::boundsInRoot)
+
     internal fun expandedGridForTest(): CandidateGridView = gridView
+
+    private fun boundsInRoot(descendant: View): Rect {
+        var x = 0
+        var y = 0
+        var current: View? = descendant
+        while (current != null && current !== this) {
+            x += current.left + current.translationX.roundToInt()
+            y += current.top + current.translationY.roundToInt()
+            val parentView = current.parent as? View
+            if (parentView != null) {
+                x -= parentView.scrollX
+                y -= parentView.scrollY
+            }
+            current = parentView
+        }
+        return Rect(x, y, x + descendant.width, y + descendant.height)
+    }
 
     private fun dispatchTapForTest(x: Float, y: Float): Boolean {
         val down = MotionEvent.obtain(0L, 0L, MotionEvent.ACTION_DOWN, x, y, 0)
