@@ -71,8 +71,8 @@ class InputView(context: Context) : LinearLayout(context) {
         gridView.onClear = { onPanelClear() }
         keyboardView.onKey = { key -> onKey(key) }
         keyboardView.onBackspaceSwipe = { up -> onBackspaceSwipe(up) }
-        // 复制条: content → 上屏 (then leave); block → aegis clipboard; × → leave.
-        copyBarView.onCommit = { t -> onCopyCommit(t); hideCopyBar() }
+        // 复制条: content → 上屏; block → aegis clipboard; both ⑤ and ④ leave via onDismiss.
+        copyBarView.onCommit = { t -> onCopyCommit(t) }
         copyBarView.onCopyBlock = { b -> onCopyBlock(b) }
         copyBarView.onDismiss = { hideCopyBar() }
         // the preedit + candidate rows are FIXED-HEIGHT and ALWAYS present — only their

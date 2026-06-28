@@ -54,10 +54,10 @@ class CopyBarController(
         if (splitMode) { splitMode = false; blocks = emptyList() } else { blocks = ClipSplitter.blocks(c); splitMode = true }
     }
 
-    /** ⑤ tap the content → 上屏 the whole entry, then leave the copy-bar. */
+    /** ⑤ tap the content → 上屏 the whole entry, then leave the copy-bar (symmetric with [close]). */
     fun tapContent() {
         content?.let { commit(it) }
-        clear()
+        close()
     }
 
     /** ③ tap a 拆词 block → copy it to the aegis clipboard. The bar STAYS open (pick several). */
