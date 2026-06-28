@@ -129,6 +129,9 @@ class CandidateView(context: Context) : View(context) {
         invalidate()
     }
 
+    /** Number of candidates currently rendered in the strip (test hook, U1 regression guard). */
+    internal fun itemCount(): Int = items.size
+
     private fun layoutCells() {
         hitCount = items.size
         var x = 0f // ★U: start flush-left so the first candidate sits ~one padding (14dp) from the edge,

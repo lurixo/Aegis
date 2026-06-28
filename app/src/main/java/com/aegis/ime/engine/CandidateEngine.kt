@@ -44,6 +44,15 @@ interface CandidateEngine {
     /** Candidates for an explicit full-pinyin reading (letters) — used by the 9-key reading column. */
     fun candidatesForReading(letters: String): List<String> = emptyList()
 
+    /**
+     * Rich, coverage-tagged candidates for an explicit full-pinyin reading (letters) — the locked
+     * left-column path (★E). Like [candidatesCovered] but over committed letters rather than the live
+     * digit buffer, so locking a reading keeps the full sentence + completions + per-prefix words
+     * instead of collapsing to just the best sentence. coveredLen is in LETTERS of [letters].
+     */
+    fun candidatesForReadingCovered(letters: String): List<Cand> =
+        candidatesForReading(letters).map { Cand(it, letters.length) }
+
     /** English completions + corrections for the buffered EN mode. */
     fun english(typed: String): List<String> = emptyList()
 
