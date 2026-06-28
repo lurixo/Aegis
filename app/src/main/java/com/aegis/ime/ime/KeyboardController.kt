@@ -396,6 +396,36 @@ class KeyboardController(
         lockedReadings.joinToString("") +
             chunked(activeDigits(), activeCuts()).joinToString("") { T9Pinyin.preedit(it).replace("'", "") }
 
+    /**
+     * ★E/U1 coverage bridge: candidates from [CandidateEngine.candidatesForReadingCovered] tag their
+     * coverage in LETTERS of [fullLetters], but partial-commit ([commitCandidate]) consumes DIGITS of
+     * [composing]. Walk the locked readings then the active syllables, recording each syllable boundary
+     * as (cumulative letters → cumulative digits). A coverage not on a boundary (or the full length)
+     * falls back to the whole buffer in [refreshCandidates], i.e. a safe full commit. Each syllable's
+     * digit width is `toT9(syllable).length`, which reconstructs the originating digits exactly (the
+     * DIGIT_INITIAL fallbacks round-trip too), so the active widths sum back to the live digit tail.
+     */
+    private fun readingLetterToDigit(): Map<Int, Int> {
+        val map = HashMap<Int, Int>()
+        var letters = 0
+        var digits = 0
+        for (r in lockedReadings) {
+            letters += r.length
+            digits += T9Pinyin.toT9(r).length
+            map[letters] = digits
+        }
+        for (chunk in chunked(activeDigits(), activeCuts())) {
+            for (syl in T9Pinyin.preedit(chunk).split("'")) {
+                if (syl.isEmpty()) continue
+                letters += syl.length
+                digits = (digits + T9Pinyin.toT9(syl).length).coerceAtMost(composing.length)
+                map[letters] = digits
+            }
+        }
+        map[letters] = composing.length // full coverage is exact regardless of per-syllable rounding
+        return map
+    }
+
     /** The raw text the composing buffer represents (letters on 26-key, decoded pinyin on 9-key). */
     private fun rawComposingText(): String {
         if (composing.isEmpty()) return ""
@@ -417,8 +447,15 @@ class KeyboardController(
                 val raw = composing.toString()
                 when (mode()) {
                     Mode.PINYIN -> if (lockedReadings.isNotEmpty()) {
-                        // ★E: syllable(s) locked via the left column — decode the combined full pinyin.
-                        engine.candidatesForReading(fullLetters()).map { Cand(it, composing.length) }
+                        // ★E / U1: syllable(s) locked via the left column. Use the RICH covered decode
+                        // (best sentence + completions + per-prefix words) over the combined full pinyin
+                        // — NOT the narrow best-sentence-only decode(), which collapsed the grid to a
+                        // single candidate the moment a reading was locked. coveredLen comes back in
+                        // LETTERS of fullLetters(); remap it to DIGITS of the live buffer so picking a
+                        // prefix word still partial-commits correctly (★E), full coverage → whole buffer.
+                        val bounds = readingLetterToDigit()
+                        engine.candidatesForReadingCovered(fullLetters())
+                            .map { Cand(it.word, bounds[it.coveredLen] ?: composing.length) }
                     } else {
                         val isNine = layoutId == LayoutId.NINE
                         var c = engine.candidatesCovered(raw, isNine, forcedCuts)

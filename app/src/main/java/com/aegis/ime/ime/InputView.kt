@@ -177,6 +177,9 @@ class InputView(context: Context) : LinearLayout(context) {
         showPanel(gridView)
     }
 
+    /** Candidates actually rendered in the strip right now (test hook, U1 regression guard). */
+    internal fun shownCandidateCount(): Int = candidateView.itemCount()
+
     /** Swap the keyboard area for an extras panel (emoji / clipboard); null restores the keyboard. */
     fun showPanel(panel: View?) {
         panelContainer.removeAllViews()
