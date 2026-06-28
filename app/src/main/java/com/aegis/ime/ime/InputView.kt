@@ -198,6 +198,11 @@ class InputView(context: Context) : LinearLayout(context) {
             panelContainer.visibility = GONE
             keyboardView.visibility = VISIBLE
         } else {
+            // U19: occupy EXACTLY the keyboard's current footprint so opening a panel never grows or shrinks
+            // the IME window. The old fixed 250dp expanded the short 9-key (panel taller) and shrank the tall
+            // 26-key (panel shorter) — "九键向上扩展 / 26键向下缩放". Matching the live keyboard height keeps it
+            // constant on every layout; panels scroll internally if their content needs more room.
+            setPanelHeight(keyboardView.height.takeIf { it > 0 } ?: dp(250))
             (panel.parent as? ViewGroup)?.removeView(panel)
             panelContainer.addView(
                 panel,
@@ -207,6 +212,18 @@ class InputView(context: Context) : LinearLayout(context) {
             keyboardView.visibility = GONE
         }
     }
+
+    /** U19: pin the panel slot to [px] (the keyboard footprint) so the IME height stays put on panel open. */
+    private fun setPanelHeight(px: Int) {
+        val lp = panelContainer.layoutParams
+        if (lp.height != px) { lp.height = px; panelContainer.layoutParams = lp }
+    }
+
+    /** U19 test seam: the panel slot's current fixed height (px). */
+    internal fun panelHeightPx(): Int = panelContainer.layoutParams.height
+
+    /** U19 test seam: the live keyboard height (px) the panel must match. */
+    internal fun keyboardHeightPx(): Int = keyboardView.height
 
     val panelShown: Boolean get() = panelContainer.visibility == VISIBLE
 
