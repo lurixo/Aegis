@@ -24,6 +24,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.layout.EmojiCatalog
 
 /**
@@ -110,7 +111,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     private fun railTab(index: Int, title: String): TextView = TextView(context).apply {
         text = title
         gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
         setPadding(0, dp(13), 0, dp(13))
         isClickable = true
         setOnClickListener { showCategory(index) }
@@ -119,7 +120,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     private fun emojiCell(emoji: String): TextView = TextView(context).apply {
         text = emoji
         gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.display)
         val p = dp(8)
         setPadding(0, p, 0, p)
         isClickable = true
@@ -142,7 +143,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     private fun barButton(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
         text = label
         gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         setTextColor(palette.keyLabelSecondary)
         isClickable = true
         setOnClickListener { onClick() }

@@ -16,6 +16,7 @@
 package com.aegis.ime.ime
 
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
 import android.content.Context
 import android.graphics.Bitmap
@@ -178,7 +179,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             this.text = text
             maxLines = if (expanded) 6 else 2
             ellipsize = android.text.TextUtils.TruncateAt.END
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setTextColor(TEXT_DARK)
             setPadding(dp(14), dp(12), dp(8), dp(12))
             setOnClickListener { onPick(text) }
@@ -190,7 +191,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             this.text = if (expanded) "⌃" else "⌄"
             gravity = Gravity.CENTER
             setTextColor(HINT)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setOnClickListener { st.toggleExpand(text); refresh() }
             setOnLongClickListener { showLongPressMenu(text); true }
         }
@@ -260,7 +261,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun action(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
         this.text = label
         gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
         setTextColor(SUBTEXT)
         setPadding(dp(8), dp(6), dp(8), dp(6))
         setOnClickListener { onClick() }
@@ -281,7 +282,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun catChip(name: String, on: Boolean): View = TextView(context).apply {
         text = name
         gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
         setPadding(dp(14), dp(6), dp(14), dp(6))
         background = if (on) rounded(GREY_PILL, ImeShapes.chipRadiusDp) else null // selected chip = grey pill, others plain
         setTextColor(if (on) TEXT_DARK else SUBTEXT)
@@ -305,17 +306,17 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             addView(TextView(context).apply {
                 text = if (allSel) "● 全选" else "○ 全选"
                 setTextColor(if (allSel) GREEN else SUBTEXT)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 setOnClickListener { st.selectAll(all); refresh() }
             }, ll(0, WC, 1f))
             addView(TextView(context).apply {
                 text = "编辑剪贴板"; gravity = Gravity.CENTER
-                setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 setTypeface(null, android.graphics.Typeface.BOLD)
             }, ll(0, WC, 1f))
             addView(TextView(context).apply {
                 text = "取消"; gravity = Gravity.END
-                setTextColor(SUBTEXT); setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                setTextColor(SUBTEXT); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 setOnClickListener { exitSelect() }
             }, ll(0, WC, 1f))
         }
@@ -351,14 +352,14 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         addView(TextView(context).apply {
             this.text = if (on) "●" else "○"
             setTextColor(if (on) GREEN else HINT)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
             setPadding(dp(14), 0, dp(8), 0)
         }, ll(WC, WC))
         addView(TextView(context).apply {
             // U22: image entries show a label (not the raw marker path) in select mode.
             this.text = if (isImage(text)) "［图片］" else text
             maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f); setTextColor(TEXT_DARK)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(TEXT_DARK)
             setPadding(0, dp(12), dp(14), dp(12))
         }, ll(0, WC, 1f))
         setOnClickListener { st.toggleSelect(text); refresh() }
@@ -430,19 +431,19 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             background = GradientDrawable().apply { setColor(CARD); cornerRadius = ImeShapes.cardRadiusDp * density; setStroke(dp(1), SEP) } // U8: bordered, no scrim
         }
         panel.addView(TextView(context).apply {
-            this.text = "拆分选词"; setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            this.text = "拆分选词"; setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setTypeface(null, android.graphics.Typeface.BOLD)
         })
         panel.addView(TextView(context).apply {
             this.text = text; maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
-            setTextColor(HINT); setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f); setPadding(0, dp(4), 0, dp(10))
+            setTextColor(HINT); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label); setPadding(0, dp(4), 0, dp(10))
         })
         val chips = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
         val blocks = ClipSplitter.blocks(text)
         if (blocks.isEmpty()) chips.addView(TextView(context).apply { this.text = "无可拆分内容"; setTextColor(HINT) })
         for (b in blocks) chips.addView(TextView(context).apply {
             this.text = b
-            setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setPadding(dp(12), dp(8), dp(12), dp(8))
             background = rounded(GREY_PILL, ImeShapes.chipRadiusDp)
             setOnClickListener { onCopyBlockToAegis(b) } // 拆词块写 aegis 剪贴板,面板保持打开
@@ -479,7 +480,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun pill(label: String, on: Boolean, onClick: () -> Unit): TextView = TextView(context).apply {
         text = label; gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         background = if (on) rounded(GREEN_PILL, ImeShapes.chipRadiusDp) else null
         setTextColor(if (on) GREEN else SUBTEXT)
         setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
@@ -507,12 +508,12 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun menuTitle(s: String): View = TextView(context).apply {
         text = s; gravity = Gravity.CENTER; setTextColor(HINT)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f); setPadding(dp(20), dp(12), dp(20), dp(4))
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label); setPadding(dp(20), dp(12), dp(20), dp(4))
     }
 
     private fun menuItem(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
         text = label; gravity = Gravity.CENTER_VERTICAL or Gravity.START // left-aligned menu items
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f); setTextColor(TEXT_DARK)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(TEXT_DARK)
         setPadding(dp(24), dp(16), dp(24), dp(16))
         setOnClickListener { onClick() }
     }
@@ -525,7 +526,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun pillButton(label: String, fg: Int, bg: Int, enabled: Boolean, onClick: () -> Unit): TextView =
         TextView(context).apply {
             text = label; gravity = Gravity.CENTER
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             background = rounded(if (enabled) bg else GREY_PILL, ImeShapes.chipRadiusDp)
             setTextColor(if (enabled) fg else HINT)
             isClickable = enabled
@@ -534,7 +535,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun roundBtn(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
         text = label; gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f); setTextColor(SUBTEXT)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(SUBTEXT)
         background = rounded(GREY_PILL, ImeShapes.chipRadiusDp) // light circular chip with the ☰/＋/⚙ glyphs
         setOnClickListener { onClick() }
     }

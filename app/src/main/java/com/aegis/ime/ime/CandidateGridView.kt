@@ -24,6 +24,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeType
 
 /**
  * Expanded selection screen (A2). Three columns:
@@ -47,7 +48,7 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
     private val gridColumn = LinearLayout(context).apply { orientation = VERTICAL }
     private val rightColumn = LinearLayout(context).apply { orientation = VERTICAL }
     private val measurePaint = Paint().apply {
-        textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 18f, resources.displayMetrics)
+        textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, ImeType.title, resources.displayMetrics)
     }
 
     init {
@@ -88,7 +89,7 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
     private fun funcButton(label: String, onClick: () -> Unit): View = TextView(context).apply {
         text = label
         gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         setTextColor(palette.keyLabelSecondary)
         isClickable = true
         setOnClickListener { onClick() }
@@ -103,7 +104,7 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
                     text = r
                     gravity = Gravity.CENTER
                     setPadding(0, dp(10), 0, dp(10))
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
                     setTextColor(palette.preeditText)
                     isClickable = true
                     setOnClickListener { onPickReading(i) }
@@ -138,7 +139,7 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
     private fun chip(text: String, index: Int): View = TextView(context).apply {
         this.text = text
         gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
         setTextColor(palette.candidateText)
         isClickable = true
         setOnClickListener { onPick(index) }
