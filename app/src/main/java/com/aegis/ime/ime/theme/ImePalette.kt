@@ -56,6 +56,7 @@ data class ImePalette(
     val deletable: Int,             // removable-item accent (custom-symbol ✕)
     val disabled: Int,
     val scrim: Int,
+    val shadow: Int,                // drop-shadow colour (incl. alpha) for the 2 elevated surfaces
 ) {
     companion object {
         /** Current hand-tuned LIGHT values (the baseline palette) — the zero-visual-change baseline. */
@@ -83,6 +84,7 @@ data class ImePalette(
             deletable = 0xFFD32F2F.toInt(),
             disabled = 0xFFB0BEC5.toInt(),
             scrim = 0x66000000,
+            shadow = 0x22000000, // U-polish: the value the capsule/preedit shadow was hardcoded to (light identical)
         )
 
         /** A safety DARK fallback for no-Monet devices (Monet's real dark scheme is used when present). */
@@ -110,6 +112,7 @@ data class ImePalette(
             deletable = 0xFFFFB4AB.toInt(),
             disabled = 0xFF5A5E62.toInt(),
             scrim = 0x99000000.toInt(),
+            shadow = 0x40000000, // U-polish: a touch stronger on dark so the elevated surface still reads as lifted
         )
 
         /**
@@ -143,6 +146,7 @@ data class ImePalette(
                 deletable = cs.error.toArgb(),
                 disabled = cs.outline.toArgb(),
                 scrim = withAlpha(cs.scrim.toArgb(), 0x66),
+                shadow = withAlpha(cs.scrim.toArgb(), if (dark) 0x40 else 0x22),
             )
         }.getOrElse { if (dark) STATIC_DARK else STATIC_LIGHT }
 

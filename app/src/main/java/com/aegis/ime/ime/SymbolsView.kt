@@ -26,6 +26,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.layout.SymbolCatalog
 
 /**
@@ -198,7 +199,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
         setTextColor(palette.keyLabel)
-        background = GradientDrawable().apply { setColor(palette.keySurface); cornerRadius = 8f * density }
+        background = GradientDrawable().apply { setColor(palette.keySurface); cornerRadius = ImeShapes.keyRadiusDp * density }
         val ph = dp(14); setPadding(ph, dp(8), ph, dp(8))
         isClickable = true
         setOnClickListener { onSymbol(symbol); if (!locked) onBack() }
@@ -232,7 +233,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     private fun cell(symbol: String, badge: String?): View {
         val tile = FrameLayout(context).apply {
             minimumHeight = dp(44)
-            background = GradientDrawable().apply { setColor(palette.keySurface); cornerRadius = 8f * density }
+            background = GradientDrawable().apply { setColor(palette.keySurface); cornerRadius = ImeShapes.keyRadiusDp * density }
             isClickable = true
             setOnClickListener { onSymbol(symbol); if (!locked) onBack() }
             layoutParams = GridLayout.LayoutParams().apply {
