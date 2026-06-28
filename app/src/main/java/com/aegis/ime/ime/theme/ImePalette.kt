@@ -34,10 +34,8 @@ import androidx.compose.ui.graphics.toArgb
  */
 data class ImePalette(
     val keyboardBg: Int,            // keyboard / panel floor
-    val keySurfaceTop: Int,         // key gradient top
-    val keySurfaceBottom: Int,      // key gradient bottom
-    val keySurfacePressedTop: Int,
-    val keySurfacePressedBottom: Int,
+    val keySurface: Int,            // flat key fill (F2: MD3 tonal, no gradient)
+    val keySurfacePressed: Int,     // pressed key fill
     val keyLabel: Int,              // primary glyph
     val keyLabelSecondary: Int,     // special / small glyph
     val keyHint: Int,               // sub / super-script
@@ -63,10 +61,8 @@ data class ImePalette(
         /** Current hand-tuned LIGHT values (the baseline palette) — the zero-visual-change baseline. */
         val STATIC_LIGHT = ImePalette(
             keyboardBg = 0xFFE6E9EF.toInt(),
-            keySurfaceTop = 0xFFFFFFFF.toInt(),
-            keySurfaceBottom = 0xFFECEFF3.toInt(),
-            keySurfacePressedTop = 0xFFDCE0E6.toInt(),
-            keySurfacePressedBottom = 0xFFE9ECF1.toInt(),
+            keySurface = 0xFFFFFFFF.toInt(),
+            keySurfacePressed = 0xFFDCE0E6.toInt(),
             keyLabel = 0xFF202124.toInt(),
             keyLabelSecondary = 0xFF37474F.toInt(),
             keyHint = 0xFF90A4AE.toInt(),
@@ -92,10 +88,8 @@ data class ImePalette(
         /** A safety DARK fallback for no-Monet devices (Monet's real dark scheme is used when present). */
         val STATIC_DARK = ImePalette(
             keyboardBg = 0xFF1A1C1E.toInt(),
-            keySurfaceTop = 0xFF2C3034.toInt(),
-            keySurfaceBottom = 0xFF24282C.toInt(),
-            keySurfacePressedTop = 0xFF34383C.toInt(),
-            keySurfacePressedBottom = 0xFF2A2E32.toInt(),
+            keySurface = 0xFF2C3034.toInt(),
+            keySurfacePressed = 0xFF3A3F44.toInt(),
             keyLabel = 0xFFE3E2E6.toInt(),
             keyLabelSecondary = 0xFFC2C7CE.toInt(),
             keyHint = 0xFF8D9199.toInt(),
@@ -127,10 +121,8 @@ data class ImePalette(
             val cs: ColorScheme = if (dark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
             ImePalette(
                 keyboardBg = cs.surfaceContainer.toArgb(),
-                keySurfaceTop = cs.surfaceBright.toArgb(),
-                keySurfaceBottom = cs.surfaceContainerHighest.toArgb(),
-                keySurfacePressedTop = cs.surfaceContainerHigh.toArgb(),
-                keySurfacePressedBottom = cs.surfaceContainerHighest.toArgb(),
+                keySurface = cs.surfaceBright.toArgb(),
+                keySurfacePressed = cs.surfaceContainerHigh.toArgb(),
                 keyLabel = cs.onSurface.toArgb(),
                 keyLabelSecondary = cs.onSurfaceVariant.toArgb(),
                 keyHint = cs.outline.toArgb(),

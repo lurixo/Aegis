@@ -23,8 +23,8 @@ package com.aegis.ime.ime.theme
  * milestone tunes [keyRadiusDp] toward 12 and retires the oval enter / figure-8 left column.
  */
 object ImeShapes {
-    /** Ordinary key corner (current 13dp; F2 target ~12dp; bounds 8–16dp). */
-    const val keyRadiusDp = 13f
+    /** Ordinary key corner — MD3 medium (≤16dp, never pill). */
+    const val keyRadiusDp = 12f
 
     /** Candidate / panel card corner (MD3 large). */
     const val cardRadiusDp = 16f
