@@ -69,6 +69,7 @@ class CopyBarControllerTest {
         c.tapContent()
         assertEquals(listOf("整条内容"), commits)
         assertTrue("content tap does not write the aegis clipboard", aegisCopies.isEmpty())
+        assertEquals("⑤ leaves the copy-bar (symmetric with ×)", 1, dismissed)
         assertFalse("bar is gone after 上屏", c.active)
     }
 

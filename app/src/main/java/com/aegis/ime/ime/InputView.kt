@@ -63,7 +63,7 @@ class InputView(context: Context) : LinearLayout(context) {
         gridView.onClear = { onPanelClear() }
         keyboardView.onKey = { key -> onKey(key) }
         keyboardView.onBackspaceSwipe = { up -> onBackspaceSwipe(up) }
-        copyBarView.onCommit = { t -> onCopyCommit(t); hideCopyBar() }
+        copyBarView.onCommit = { t -> onCopyCommit(t) }
         copyBarView.onCopyBlock = { b -> onCopyBlock(b) }
         copyBarView.onDismiss = { hideCopyBar() }
         addView(preeditView, LayoutParams(LayoutParams.MATCH_PARENT, barTopInsetPx()))

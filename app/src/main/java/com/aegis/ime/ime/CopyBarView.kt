@@ -57,7 +57,10 @@ class CopyBarView(context: Context) : LinearLayout(context) {
             addView(pill("拆") { ctl.toggleSplit(); render() }, lp(WC, WC))
         } else {
             val chips = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-            if (ctl.blocks.isEmpty()) chips.addView(content("无可拆分内容"))
+            if (ctl.blocks.isEmpty()) chips.addView(TextView(context).apply {
+                text = "无可拆分内容"; setTextColor(0xFF9AA0A6.toInt())
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f); setPadding(dp(8), 0, dp(8), 0)
+            })
             for (b in ctl.blocks) chips.addView(chip(b) { ctl.tapBlock(b) })
             addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, lp(0, WC, 1f))
             addView(pill("收") { ctl.toggleSplit(); render() }, lp(WC, WC))
@@ -69,6 +72,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         text = "📋"
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+        setOnClickListener { ctl.tapContent() }
     }
 
     private fun content(s: String): TextView = TextView(context).apply {
