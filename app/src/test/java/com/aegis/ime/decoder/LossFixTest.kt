@@ -106,6 +106,55 @@ class LossFixTest {
         )
     }
 
+    @Test fun firstSyllableHomophonesCompleteWhenAlone() {
+        assumeTrue("dict asset present", FullDictTestAssets.available(dictFile))
+        val dict = BinaryDict.fromFile(dictFile)
+        val he = dictSingles(dict, "he")
+        assumeTrue("dict present with he homophones", he.size >= 8)
+        val got = allSingles(letterDecoder().decodeCovered("he", 30))
+        assertTrue("he alone must list EVERY 同音字 the dict holds", got.containsAll(he))
+        assertTrue("和 present", "和" in got)
+    }
+
+    @Test fun firstSyllableHomophonesStayCompleteInLongerBuffer() {
+        assumeTrue("dict asset present", FullDictTestAssets.available(dictFile))
+        val dict = BinaryDict.fromFile(dictFile)
+        val he = dictSingles(dict, "he")
+        assumeTrue("dict present with he homophones", he.size >= 8)
+        val got = allSingles(letterDecoder().decodeCovered("heshui", 30))
+        assertTrue("every he 同音字 must stay reachable in a longer buffer (no cap)", got.containsAll(he))
+    }
+
+    @Test fun firstSyllableHomophonesCompleteInThreeSyllableBuffer() {
+        assumeTrue("dict asset present", FullDictTestAssets.available(dictFile))
+        val dict = BinaryDict.fromFile(dictFile)
+        val gan = dictSingles(dict, "gan")
+        assumeTrue("dict present with gan homophones", gan.size >= 8)
+        val got = allSingles(letterDecoder().decodeCovered("ganxienin", 30))
+        assertTrue("gan-position 单字 complete in a 3-syllable buffer", got.containsAll(gan))
+        assertTrue("感 present", "感" in got); assertTrue("赶 present", "赶" in got)
+    }
+
+
+    @Test fun everySyllablePositionExposesAllHomophones() {
+        assumeTrue("dict asset present", FullDictTestAssets.available(dictFile))
+        val dict = BinaryDict.fromFile(dictFile)
+        val d = letterDecoder()
+        assertEquals("syllable 0 = he → the dict's full he set", dictSingles(dict, "he"), d.homophonesAt("heshui", 0).toSet())
+        assertEquals("syllable 1 = shui → the dict's full shui set", dictSingles(dict, "shui"), d.homophonesAt("heshui", 1).toSet())
+        assertTrue("水 reachable at the 2nd syllable (the structurally-missing case)", "水" in d.homophonesAt("heshui", 1))
+
+        val input = "ganxieninxuanzejiayichanpin"
+        val syls = d.syllables(input)
+        assertEquals(9, syls.size)
+        assertEquals("gan", syls.first().reading)
+        assertEquals("pin", syls.last().reading)
+        assertEquals("first syllable gan → full set", dictSingles(dict, "gan"), d.homophonesAt(input, 0).toSet())
+        assertEquals("last syllable pin → full set", dictSingles(dict, "pin"), d.homophonesAt(input, syls.size - 1).toSet())
+        assertTrue("品 reachable at the LAST syllable position", "品" in d.homophonesAt(input, syls.size - 1))
+        assertTrue("out-of-range index → empty, no crash", d.homophonesAt(input, 99).isEmpty())
+    }
+
 
     @Test fun letterSegmenterSplitsCorrectly() {
         val d = letterDecoder()

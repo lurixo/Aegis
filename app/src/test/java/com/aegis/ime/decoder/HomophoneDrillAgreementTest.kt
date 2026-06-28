@@ -21,6 +21,7 @@ import com.aegis.ime.dict.TghGrading
 import java.io.File
 import kotlin.math.exp
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 
@@ -31,9 +32,11 @@ class HomophoneDrillAgreementTest {
     private val lmFile = File("src/main/assets/aegis_lm.bin")
 
     private val dict: BinaryDict by lazy { BinaryDict.fromFile(dictFile) }
+    private val t9Dict: BinaryDict by lazy { BinaryDict.fromFile(t9File) }
     private val model: CharBigramLM by lazy { CharBigramLM.fromFile(lmFile) }
     private val grading: TghGrading = TghGrading.bundled
     private val letter: PinyinDecoder by lazy { PinyinDecoder(dict, model) }
+    private val t9: PinyinDecoder by lazy { PinyinDecoder(t9Dict, model, aliasDict = dict) }
 
     private fun isSingle(word: String) = word.codePointCount(0, word.length) == 1
 
@@ -96,8 +99,85 @@ class HomophoneDrillAgreementTest {
 
     private fun letterExpectation(key: String) = expectation(dict, key)
 
+    private fun t9Expectation(key: String) = expectation(t9Dict, key)
+
+    @Suppress("UNCHECKED_CAST")
+    private fun runtimeSyllables(): List<String> {
+        val f = T9Pinyin::class.java.getDeclaredField("SYLLABLES")
+        f.isAccessible = true
+        val syls = (f.get(T9Pinyin) as Set<String>).toList().sorted()
+        assertTrue("runtime SYLLABLES ~415 (drift guard): ${syls.size}", syls.size in 400..430)
+        return syls
+    }
+
     private fun assumeAssets() =
         assumeTrue("full dict assets present", dictFile.exists() && t9File.exists() && lmFile.exists())
+
+    @Test fun drillMatchesTheWholeSyllableKeyOnBothDictionaries() {
+        assumeAssets()
+        val mismatches = ArrayList<String>()
+        for (s in runtimeSyllables()) {
+            val expected26 = letterExpectation(s)
+            if (letter.homophonesAt(s, 0) != expected26) mismatches.add("26-key $s")
+            val digits = T9Pinyin.toT9(s)
+            val expected9 = t9Expectation(digits)
+            if (t9.homophonesAt(digits, 0) != expected9) mismatches.add("9-key $s($digits)")
+        }
+        assertEquals("drill must match the independently ranked syllable key: $mismatches", emptyList<String>(), mismatches)
+    }
+
+    @Test fun drillHonoursLockedCutsOnBothLayouts() {
+        assumeAssets()
+        val mismatches = ArrayList<String>()
+        for (s in runtimeSyllables()) {
+            val letters = s + "hao"
+            val letterCuts = setOf(s.length)
+            if (letter.homophonesAt(letters, 0, letterCuts) != letterExpectation(s)) {
+                mismatches.add("26-key $letters span0")
+            }
+            if (letter.homophonesAt(letters, 1, letterCuts) != letterExpectation("hao")) {
+                mismatches.add("26-key $letters span1")
+            }
+            val d0 = T9Pinyin.toT9(s)
+            val digits = d0 + T9Pinyin.toT9("hao")
+            val digitCuts = setOf(d0.length)
+            if (t9.homophonesAt(digits, 0, digitCuts) != t9Expectation(d0)) {
+                mismatches.add("9-key $digits span0")
+            }
+            if (t9.homophonesAt(digits, 1, digitCuts) != t9Expectation(T9Pinyin.toT9("hao"))) {
+                mismatches.add("9-key $digits span1")
+            }
+        }
+        assertEquals("drill must return the locked segment's homophones: ${mismatches.take(8)}", emptyList<String>(), mismatches)
+    }
+
+    @Test fun drillSpansAgreeWithTheAtomicDecodeOnEverySyllableKey() {
+        assumeAssets()
+        val mismatches = ArrayList<String>()
+        for (s in runtimeSyllables()) {
+            val digits = T9Pinyin.toT9(s)
+            for ((decoder, input, tag) in listOf(
+                Triple(letter, s, "26-key"),
+                Triple(t9, digits, "9-key"),
+            )) {
+                val spans = decoder.syllables(input)
+                if (spans.size != 1 || spans[0].start != 0 || spans[0].end != input.length) {
+                    mismatches.add("$tag $input spans=$spans")
+                    continue
+                }
+                val drill = decoder.homophonesAt(input, 0).toSet()
+                val emitted = decoder.decodeCoveredAtomic(input, 30)
+                val emittedSingles = emitted
+                    .filter { it.word.codePointCount(0, it.word.length) == 1 && it.coveredLen == input.length }
+                    .map { it.word }
+                    .toSet()
+                if (emittedSingles != drill) {
+                    mismatches.add("$tag $input decode/drill differ: ${(drill - emittedSingles).take(4)} / ${(emittedSingles - drill).take(4)}")
+                }
+            }
+        }
+        assertEquals("atomic decode and drill must share one segmentation: ${mismatches.take(8)}", emptyList<String>(), mismatches)
+    }
 
     @Test fun cutAwareDrillReachesSpansTheFreeSegmentationMerges() {
         assumeAssets()
