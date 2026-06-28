@@ -52,8 +52,37 @@ class RenderHarness {
         bmp.eraseColor(Color.MAGENTA)
         view.draw(Canvas(bmp))
         FileOutputStream(File(outDir, name)).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        val px = IntArray(wPx); bmp.getPixels(px, 0, wPx, 0, hPx / 2, wPx, 1)
-        assertTrue("$name rendered nothing (still magenta)", px.any { it != Color.MAGENTA })
+        assertMeaningful(bmp, name)
+    }
+
+    private fun assertMeaningful(bmp: Bitmap, name: String) {
+        val w = bmp.width; val h = bmp.height; val total = w * h
+        val px = IntArray(total)
+        bmp.getPixels(px, 0, w, 0, 0, w, h)
+        val hist = HashMap<Int, Int>()
+        var sentinel = 0
+        for (p in px) { if (p == Color.MAGENTA) sentinel++ else hist[p] = (hist[p] ?: 0) + 1 }
+        val painted = total - sentinel
+        val fill = hist.values.maxOrNull() ?: 0
+        val content = painted - fill
+        assertTrue(
+            "$name: rendered essentially nothing (still the magenta sentinel) — onDraw painted no surface",
+            painted > total / 50,
+        )
+        assertTrue(
+            "$name: a flat fill with nothing drawn on it (glyphs/chips/icons missing)",
+            content > total / 500,
+        )
+        assertTrue(
+            "$name: too few distinct colours — looks like flat fills with no anti-aliased content (text/icons)",
+            hist.size >= 64,
+        )
+    }
+
+    private fun View.hasTextLeaf(s: String): Boolean {
+        val out = ArrayList<View>()
+        findViewsWithText(out, s, View.FIND_VIEWS_WITH_TEXT)
+        return out.isNotEmpty()
     }
 
     private val themes = listOf("light" to ImePalette.STATIC_LIGHT, "dark" to ImePalette.STATIC_DARK)
@@ -94,6 +123,20 @@ class RenderHarness {
         }
     }
 
+    @Test fun candidate_grid() {
+        val h = (300 * ctx.resources.displayMetrics.density).toInt()
+        for ((t, pal) in themes) {
+            val v = CandidateGridView(ctx).apply {
+                applyPalette(pal)
+                setReadings(listOf("ni", "ní", "nǐ", "nì"))
+                setCandidates(listOf("你", "你好", "尼", "拟", "泥", "逆", "妮", "倪", "腻", "匿", "昵", "旎"))
+            }
+            assertTrue("grid_$t: middle candidate grid did not populate", v.hasTextLeaf("你好"))
+            assertTrue("grid_$t: left reading column did not populate", v.hasTextLeaf("nǐ"))
+            snap(v, h, "grid_$t.png")
+        }
+    }
+
     @Test fun panel_fade_midpoint() {
         val pal = ImePalette.STATIC_LIGHT
         val h = (560 * ctx.resources.displayMetrics.density).toInt()
@@ -112,6 +155,8 @@ class RenderHarness {
         v.draw(c)
         c.restore()
         FileOutputStream(File(outDir, "panel_fade_mid.png")).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        val mid = IntArray(wPx); bmp.getPixels(mid, 0, wPx, 0, h / 2, wPx, 1)
+        assertTrue("panel_fade_mid drew nothing over the keyboard floor", mid.any { it != pal.keyboardBg })
     }
 
     @Test fun copy_bar() {
