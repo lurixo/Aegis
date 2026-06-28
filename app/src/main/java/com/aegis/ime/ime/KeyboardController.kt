@@ -18,6 +18,8 @@ package com.aegis.ime.ime
 import com.aegis.ime.decoder.Cand
 import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.engine.CandidateEngine
+import com.aegis.ime.engine.Calculator
+import com.aegis.ime.engine.InputAssociations
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.Lang
@@ -87,6 +89,12 @@ class KeyboardController(
 
     /** A3 自定义: the user's custom punctuation marks (injected from prefs by the service). */
     private var customSymbols: List<String> = emptyList()
+
+    /** U23: associated emoji/symbol candidates in the current list — committed directly (no pinyin learn). */
+    private var directCommitCands: Set<Cand> = emptySet()
+    /** U25: the inline-calculator candidate (if any) + how many editor chars before the cursor it replaces. */
+    private var calcCand: Cand? = null
+    private var calcExprLen = 0
 
     /** M-3/L-3: when the focused field is a password / opts out of personalized learning, never learn. */
     private var learningBlocked = false
@@ -241,7 +249,20 @@ class KeyboardController(
 
     fun onPickCandidate(index: Int) {
         if (index !in candidates.indices) return
-        commitCandidate(candidates[index])
+        val cand = candidates[index]
+        when {
+            // U25: the calculator result replaces the expression text before the cursor (no buffer involved).
+            cand === calcCand -> {
+                host.replaceBeforeCursor(calcExprLen, cand.word)
+                clearComposingState(); lastWord = null
+            }
+            // U23: an associated emoji/symbol commits directly and is NOT learned as a pinyin word.
+            cand in directCommitCands -> {
+                host.commitText(cand.word)
+                clearComposingState(); lastWord = null
+            }
+            else -> commitCandidate(cand)
+        }
         refreshCandidates()
         render()
     }
@@ -442,40 +463,67 @@ class KeyboardController(
     }
 
     private fun refreshCandidates() {
+        val base = baseCandidates()
+        // U23/U25 reset; recomputed below so a stale association/calc cand never lingers.
+        directCommitCands = emptySet()
+        calcCand = null; calcExprLen = 0
         candidates = when {
-            composing.isNotEmpty() -> {
-                val raw = composing.toString()
-                when (mode()) {
-                    Mode.PINYIN -> if (lockedReadings.isNotEmpty()) {
-                        // ★E / U1: syllable(s) locked via the left column. Use the RICH covered decode
-                        // (best sentence + completions + per-prefix words) over the combined full pinyin
-                        // — NOT the narrow best-sentence-only decode(), which collapsed the grid to a
-                        // single candidate the moment a reading was locked. coveredLen comes back in
-                        // LETTERS of fullLetters(); remap it to DIGITS of the live buffer so picking a
-                        // prefix word still partial-commits correctly (★E), full coverage → whole buffer.
-                        val bounds = readingLetterToDigit()
-                        engine.candidatesForReadingCovered(fullLetters())
-                            .map { Cand(it.word, bounds[it.coveredLen] ?: composing.length) }
-                    } else {
-                        val isNine = layoutId == LayoutId.NINE
-                        var c = engine.candidatesCovered(raw, isNine, forcedCuts)
-                        // ★N: mid-syllable the full digit buffer may not segment yet — fall back to the
-                        // longest decodable syllable prefix so the grid keeps the confirmed words
-                        // (你/你说…) instead of going blank when a half-typed syllable trails.
-                        if (c.isEmpty() && isNine) {
-                            val pfx = T9Pinyin.longestDecodablePrefix(raw)
-                            if (pfx.length in 1 until raw.length) c = engine.candidatesCovered(pfx, true)
-                        }
-                        if (layoutId == LayoutId.ALPHA && c.none { it.word == raw }) c + Cand(raw, raw.length) else c
-                    }
-                    Mode.DIRECT -> emptyList()
+            // While composing pinyin: inject associated emoji/symbols (haode→👌) just after the top word.
+            composing.isNotEmpty() && mode() == Mode.PINYIN -> injectAssociations(base)
+            // Empty buffer: offer an inline calculator result if the text before the cursor is an expression.
+            composing.isEmpty() -> calcCandidates()
+            else -> base
+        }
+    }
+
+    /** U23: splice the pinyin-associated emoji/symbols in after the best candidate, capped, no displacement. */
+    private fun injectAssociations(base: List<Cand>): List<Cand> {
+        val glyphs = InputAssociations.lookup(rawComposingText())
+        if (glyphs.isEmpty()) return base
+        val extra = glyphs.map { Cand(it, composing.length) }
+        directCommitCands = extra.toSet()
+        return when {
+            base.isEmpty() -> extra
+            else -> listOf(base.first()) + extra + base.drop(1)
+        }
+    }
+
+    /** U25: if the editor text before the cursor ends in an arithmetic expression, show its result. */
+    private fun calcCandidates(): List<Cand> {
+        val match = Calculator.detect(host.textBeforeCursor(CALC_SCAN_LEN)) ?: return emptyList()
+        val cand = Cand(match.result, 0)
+        calcCand = cand; calcExprLen = match.length
+        return listOf(cand)
+    }
+
+    private fun baseCandidates(): List<Cand> {
+        if (composing.isEmpty()) return emptyList()
+        val raw = composing.toString()
+        return when (mode()) {
+            Mode.PINYIN -> if (lockedReadings.isNotEmpty()) {
+                // ★E / U1: syllable(s) locked via the left column. Use the RICH covered decode
+                // (best sentence + completions + per-prefix words) over the combined full pinyin
+                // — NOT the narrow best-sentence-only decode(), which collapsed the grid to a
+                // single candidate the moment a reading was locked. coveredLen comes back in
+                // LETTERS of fullLetters(); remap it to DIGITS of the live buffer so picking a
+                // prefix word still partial-commits correctly (★E), full coverage → whole buffer.
+                val bounds = readingLetterToDigit()
+                engine.candidatesForReadingCovered(fullLetters())
+                    .map { Cand(it.word, bounds[it.coveredLen] ?: composing.length) }
+            } else {
+                val isNine = layoutId == LayoutId.NINE
+                var c = engine.candidatesCovered(raw, isNine, forcedCuts)
+                // ★N: mid-syllable the full digit buffer may not segment yet — fall back to the
+                // longest decodable syllable prefix so the grid keeps the confirmed words
+                // (你/你说…) instead of going blank when a half-typed syllable trails.
+                if (c.isEmpty() && isNine) {
+                    val pfx = T9Pinyin.longestDecodablePrefix(raw)
+                    if (pfx.length in 1 until raw.length) c = engine.candidatesCovered(pfx, true)
                 }
+                if (layoutId == LayoutId.ALPHA && c.none { it.word == raw }) c + Cand(raw, raw.length) else c
             }
-            // ★S: no next-word prediction. An empty buffer shows the toolbar, never a "ghost"
-            // suggestion (the old predict(lastWord) display was un-dismissable by 重输 because clear
-            // left lastWord set). Frequency learning (engine.learn / UserModel) is intentionally kept;
-            // only the auto-display of successors is removed.
-            else -> emptyList()
+            // ★S: no next-word prediction (handled by the empty-buffer calculator path in refreshCandidates).
+            Mode.DIRECT -> emptyList()
         }
     }
 
@@ -563,5 +611,7 @@ class KeyboardController(
     private companion object {
         /** Upper bound on readings fed to the scrollable 9-key left column (A3) — large; the view scrolls. */
         const val NINE_LEFT_MAX = 24
+        /** U25: how many chars before the cursor to scan for a trailing arithmetic expression. */
+        const val CALC_SCAN_LEN = 32
     }
 }
