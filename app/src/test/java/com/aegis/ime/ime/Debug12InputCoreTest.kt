@@ -98,7 +98,9 @@ class Debug12InputCoreTest {
             assertTrue("locking '$r' must not commit, commits=${host.commits}", host.commits.isEmpty())
             assertTrue("no punctuation in the left column after locking '$r'", leftColumnHasNoPunctuation(c))
         }
-        assertTrue("left column empty once all syllables are locked", c.expandedReadings().isEmpty())
+        assertTrue("left column persists after locking every syllable", c.expandedReadings().isNotEmpty())
+        assertTrue("the persisted column still offers the last syllable 'ce', was ${c.expandedReadings()}", "ce" in c.expandedReadings())
+        assertTrue("the persisted column is never punctuation", leftColumnHasNoPunctuation(c))
         assertTrue("strip still rich with everything locked, was ${iv.shownCandidateCount()}", iv.shownCandidateCount() >= 10)
         assertTrue("still nothing committed to the editor", host.commits.isEmpty())
     }

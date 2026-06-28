@@ -194,6 +194,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onBackspaceSwipe = { up -> if (!controller.onBackspaceSwipe(up)) handleBackspaceSwipe(up) }
             onPanelBackspace = { controller.onPanelBackspace() }
             onPanelClear = { controller.onPanelClear() }
+            onExpandClosed = { controller.clearDrill() }
             onCollapse = { requestHideSelf(0) }
             onCopyCommit = { t -> commitLargeText(t) }
             onCopyBlock = { b -> copyBlockToAegis(b) }
