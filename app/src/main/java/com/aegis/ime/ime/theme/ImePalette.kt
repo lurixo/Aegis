@@ -23,10 +23,8 @@ import androidx.compose.ui.graphics.toArgb
 
 data class ImePalette(
     val keyboardBg: Int,
-    val keySurfaceTop: Int,
-    val keySurfaceBottom: Int,
-    val keySurfacePressedTop: Int,
-    val keySurfacePressedBottom: Int,
+    val keySurface: Int,
+    val keySurfacePressed: Int,
     val keyLabel: Int,
     val keyLabelSecondary: Int,
     val keyHint: Int,
@@ -51,10 +49,8 @@ data class ImePalette(
     companion object {
         val STATIC_LIGHT = ImePalette(
             keyboardBg = 0xFFE6E9EF.toInt(),
-            keySurfaceTop = 0xFFFFFFFF.toInt(),
-            keySurfaceBottom = 0xFFECEFF3.toInt(),
-            keySurfacePressedTop = 0xFFDCE0E6.toInt(),
-            keySurfacePressedBottom = 0xFFE9ECF1.toInt(),
+            keySurface = 0xFFFFFFFF.toInt(),
+            keySurfacePressed = 0xFFDCE0E6.toInt(),
             keyLabel = 0xFF202124.toInt(),
             keyLabelSecondary = 0xFF37474F.toInt(),
             keyHint = 0xFF90A4AE.toInt(),
@@ -79,10 +75,8 @@ data class ImePalette(
 
         val STATIC_DARK = ImePalette(
             keyboardBg = 0xFF1A1C1E.toInt(),
-            keySurfaceTop = 0xFF2C3034.toInt(),
-            keySurfaceBottom = 0xFF24282C.toInt(),
-            keySurfacePressedTop = 0xFF34383C.toInt(),
-            keySurfacePressedBottom = 0xFF2A2E32.toInt(),
+            keySurface = 0xFF2C3034.toInt(),
+            keySurfacePressed = 0xFF3A3F44.toInt(),
             keyLabel = 0xFFE3E2E6.toInt(),
             keyLabelSecondary = 0xFFC2C7CE.toInt(),
             keyHint = 0xFF8D9199.toInt(),
@@ -109,10 +103,8 @@ data class ImePalette(
             val cs: ColorScheme = if (dark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
             ImePalette(
                 keyboardBg = cs.surfaceContainer.toArgb(),
-                keySurfaceTop = cs.surfaceBright.toArgb(),
-                keySurfaceBottom = cs.surfaceContainerHighest.toArgb(),
-                keySurfacePressedTop = cs.surfaceContainerHigh.toArgb(),
-                keySurfacePressedBottom = cs.surfaceContainerHighest.toArgb(),
+                keySurface = cs.surfaceBright.toArgb(),
+                keySurfacePressed = cs.surfaceContainerHigh.toArgb(),
                 keyLabel = cs.onSurface.toArgb(),
                 keyLabelSecondary = cs.onSurfaceVariant.toArgb(),
                 keyHint = cs.outline.toArgb(),

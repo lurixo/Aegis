@@ -17,12 +17,8 @@ package com.aegis.ime.ime
 
 import android.content.Context
 import android.graphics.Canvas
-import android.graphics.LinearGradient
-import android.graphics.Matrix
 import android.graphics.Paint
-import android.graphics.Path
 import android.graphics.RectF
-import android.graphics.Shader
 import android.os.Handler
 import android.os.Looper
 import android.util.TypedValue
@@ -37,6 +33,8 @@ import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.ScrollColumn
+import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
 
 class KeyboardView(context: Context) : View(context) {
 
@@ -92,7 +90,9 @@ class KeyboardView(context: Context) : View(context) {
     private val density = resources.displayMetrics.density
     private val rowHeight = 52f * density
     private val gap = 6f * density
-    private val radius = 13f * density
+    private val keyRadius = ImeShapes.keyRadiusDp * density
+
+    private var palette = ImePalette.STATIC_LIGHT
 
     init {
         setLayerType(LAYER_TYPE_SOFTWARE, null)
@@ -101,59 +101,39 @@ class KeyboardView(context: Context) : View(context) {
     private fun sp(value: Float) =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, resources.displayMetrics)
 
-    private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF202124.toInt()
-        textAlign = Paint.Align.CENTER
-        textSize = sp(20f)
-        setShadowLayer(1.2f * density, 0f, 1f * density, 0x33000000)
-    }
-    private val specialLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF37474F.toInt()
-        textAlign = Paint.Align.CENTER
-        textSize = sp(15f)
-        setShadowLayer(1.2f * density, 0f, 1f * density, 0x33000000)
-    }
-    private val accentLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFFFFFFF.toInt()
-        textAlign = Paint.Align.CENTER
-        textSize = sp(20f)
-        setShadowLayer(1.2f * density, 0f, 1f * density, 0x55000000)
-    }
-    private val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF90A4AE.toInt()
-        textAlign = Paint.Align.RIGHT
-        textSize = sp(10f)
-    }
-    private val langActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF37474F.toInt()
-        textAlign = Paint.Align.CENTER
-        textSize = sp(17f)
-        setShadowLayer(1.2f * density, 0f, 1f * density, 0x33000000)
-    }
-    private val langSmallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF90A4AE.toInt()
-        textAlign = Paint.Align.RIGHT
-        textSize = sp(11f)
+    private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(20f) }
+    private val specialLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabelSecondary; textAlign = Paint.Align.CENTER; textSize = sp(15f) }
+    private val accentLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.accentLabel; textAlign = Paint.Align.CENTER; textSize = sp(20f) }
+    private val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyHint; textAlign = Paint.Align.RIGHT; textSize = sp(10f) }
+    private val langActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabelSecondary; textAlign = Paint.Align.CENTER; textSize = sp(17f) }
+    private val langSmallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyHint; textAlign = Paint.Align.RIGHT; textSize = sp(11f) }
+
+    private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySurface }
+    private val keyOutlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = density; color = palette.separator }
+    private val sepLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.separator; strokeWidth = density }
+    private val pressHighlight = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withAlpha(palette.keyLabel, 0x22) }
+    private val scrollTrackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.railBg }
+    private val scrollbarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withAlpha(palette.icon, 0x55) }
+    private val scrollLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(17f) }
+
+    fun applyPalette(p: ImePalette) {
+        palette = p
+        labelPaint.color = p.keyLabel
+        specialLabelPaint.color = p.keyLabelSecondary
+        accentLabelPaint.color = p.accentLabel
+        subPaint.color = p.keyHint
+        langActivePaint.color = p.keyLabelSecondary
+        langSmallPaint.color = p.keyHint
+        keyOutlinePaint.color = p.separator
+        sepLinePaint.color = p.separator
+        pressHighlight.color = withAlpha(p.keyLabel, 0x22)
+        scrollTrackPaint.color = p.railBg
+        scrollbarPaint.color = withAlpha(p.icon, 0x55)
+        scrollLabelPaint.color = p.keyLabel
+        invalidate()
     }
 
-    private val baseColor = 0xFFE6E9EF.toInt()
-    private val gradPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val gradMatrix = Matrix()
-    private val keyGradient =
-        LinearGradient(0f, 0f, 0f, rowHeight, 0xFFFFFFFF.toInt(), 0xFFECEFF3.toInt(), Shader.TileMode.CLAMP)
-    private val accentGradient =
-        LinearGradient(0f, 0f, 0f, rowHeight, 0xFF7CC47F.toInt(), 0xFF57A35B.toInt(), Shader.TileMode.CLAMP)
-    private val pressedGradient =
-        LinearGradient(0f, 0f, 0f, rowHeight, 0xFFDCE0E6.toInt(), 0xFFE9ECF1.toInt(), Shader.TileMode.CLAMP)
-    private val sepLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFD2D7DE.toInt(); strokeWidth = density }
-    private val pressHighlight = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x18000000 }
-    private val scrollTrackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFEFF1F5.toInt() }
-    private val scrollbarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x553A4A5A }
-    private val scrollLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF202124.toInt()
-        textAlign = Paint.Align.CENTER
-        textSize = sp(17f)
-    }
+    private fun withAlpha(argb: Int, alpha: Int): Int = (argb and 0x00FFFFFF) or (alpha shl 24)
 
     private data class Placed(val rect: RectF, val key: Key, val groupId: Int = 0)
 
@@ -235,7 +215,7 @@ class KeyboardView(context: Context) : View(context) {
     private fun drawScrollColumn(canvas: Canvas) {
         val sc = scrollColumn ?: return
         if (scrollRegion.isEmpty || scrollCellH <= 0f || sc.items.isEmpty()) return
-        canvas.drawRoundRect(scrollRegion, radius, radius, scrollTrackPaint)
+        canvas.drawRoundRect(scrollRegion, keyRadius, keyRadius, scrollTrackPaint)
         canvas.save()
         canvas.clipRect(scrollRegion)
         val paint = scrollLabelPaint
@@ -245,7 +225,7 @@ class KeyboardView(context: Context) : View(context) {
             if (bottom < scrollRegion.top || top > scrollRegion.bottom) continue
             if (i == scrollPressedIndex) {
                 tmpRect.set(scrollRegion.left, top, scrollRegion.right, bottom)
-                canvas.drawRoundRect(tmpRect, radius * 0.6f, radius * 0.6f, pressHighlight)
+                canvas.drawRoundRect(tmpRect, keyRadius * 0.6f, keyRadius * 0.6f, pressHighlight)
             }
             canvas.drawText(displayLabel(key), scrollRegion.centerX(), (top + bottom) / 2f - (paint.descent() + paint.ascent()) / 2, paint)
             if (i < sc.items.size - 1 && bottom < scrollRegion.bottom) {
@@ -265,113 +245,27 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     override fun onDraw(canvas: Canvas) {
-        canvas.drawColor(baseColor)
+        canvas.drawColor(palette.keyboardBg)
         if (placed.isEmpty()) relayout()
 
-        val drawnGroups = HashSet<Int>()
         for (p in placed) {
-            if (p.groupId > 0 && drawnGroups.add(p.groupId)) {
-                val cells = placed.filter { it.groupId == p.groupId }.sortedBy { it.rect.top }
-                drawNeumorphicShape(canvas, buildPeanut(cells))
-                val l = cells.first().rect.left + 10 * density
-                val r = cells.first().rect.right - 10 * density
-                for (i in 1 until cells.size) {
-                    val yMid = (cells[i - 1].rect.bottom + cells[i].rect.top) / 2f
-                    canvas.drawLine(l, yMid, r, yMid, sepLinePaint)
-                }
-            }
-        }
-
-        for (p in placed) {
-            if (p.groupId == 0) {
-                drawNeumorphicKey(canvas, p.rect, p.key.accent, p.key == pressed)
-            } else if (p.key == pressed) {
-                canvas.drawRoundRect(p.rect, radius * 0.7f, radius * 0.7f, pressHighlight)
-            }
+            drawKey(canvas, p.rect, p.key.accent, p.key == pressed)
             drawLabel(canvas, p)
         }
 
         drawScrollColumn(canvas)
     }
 
-    private val tmpBounds = RectF()
-
-    private fun applyGradient(grad: LinearGradient, top: Float, h: Float) {
-        gradMatrix.setScale(1f, h / rowHeight)
-        gradMatrix.postTranslate(0f, top)
-        grad.setLocalMatrix(gradMatrix)
-        gradPaint.shader = grad
-    }
-
-    private fun drawNeumorphicKey(canvas: Canvas, rect: RectF, accent: Boolean, pressed: Boolean) {
-        if (accent) { drawAccentKey(canvas, rect, pressed); return }
-        if (!pressed) {
-            val o = 3f * density
-            val blur = 7f * density
-            gradPaint.shader = null
-            gradPaint.color = 0xFFFFFFFF.toInt()
-            gradPaint.setShadowLayer(blur, o, o, 0x33586173)
-            canvas.drawRoundRect(rect, radius, radius, gradPaint)
-            gradPaint.setShadowLayer(blur, -o, -o, 0xCCFFFFFF.toInt())
-            canvas.drawRoundRect(rect, radius, radius, gradPaint)
-            gradPaint.clearShadowLayer()
+    private fun drawKey(canvas: Canvas, rect: RectF, accent: Boolean, pressed: Boolean) {
+        if (accent) {
+            fillPaint.color = palette.accentBottom
+            canvas.drawRoundRect(rect, keyRadius, keyRadius, fillPaint)
+            if (pressed) canvas.drawRoundRect(rect, keyRadius, keyRadius, pressHighlight)
+            return
         }
-        applyGradient(if (pressed) pressedGradient else keyGradient, rect.top, rect.height())
-        canvas.drawRoundRect(rect, radius, radius, gradPaint)
-        gradPaint.shader = null
-    }
-
-    private fun drawAccentKey(canvas: Canvas, rect: RectF, pressed: Boolean) {
-        val tall = rect.height() > rect.width() * 1.1f
-        val rad = rect.height() / 2f
-        fun shape(p: Paint) { if (tall) canvas.drawOval(rect, p) else canvas.drawRoundRect(rect, rad, rad, p) }
-        if (!pressed) {
-            val glow = if (tall) 0x9943A047.toInt() else 0xCC43A047.toInt()
-            val glowBlur = if (tall) 13f * density else 15f * density
-            gradPaint.shader = null
-            gradPaint.color = 0xFF66BB6A.toInt()
-            gradPaint.setShadowLayer(glowBlur, 0f, 3f * density, glow)
-            shape(gradPaint)
-            gradPaint.clearShadowLayer()
-        }
-        applyGradient(accentGradient, rect.top, rect.height())
-        shape(gradPaint)
-        gradPaint.shader = null
-        if (pressed) { gradPaint.color = 0x18000000; shape(gradPaint) }
-    }
-
-    private fun drawNeumorphicShape(canvas: Canvas, path: Path) {
-        val o = 3f * density
-        val blur = 7f * density
-        gradPaint.shader = null
-        gradPaint.color = 0xFFFFFFFF.toInt()
-        gradPaint.setShadowLayer(blur, o, o, 0x33586173)
-        canvas.drawPath(path, gradPaint)
-        gradPaint.setShadowLayer(blur, -o, -o, 0xCCFFFFFF.toInt())
-        canvas.drawPath(path, gradPaint)
-        gradPaint.clearShadowLayer()
-        path.computeBounds(tmpBounds, true)
-        applyGradient(keyGradient, tmpBounds.top, tmpBounds.height())
-        canvas.drawPath(path, gradPaint)
-        gradPaint.shader = null
-    }
-
-    private fun buildPeanut(cells: List<Placed>): Path {
-        val extra = 7f * density
-        val left = cells.first().rect.left
-        val right = cells.first().rect.right
-        val top = cells.first().rect.top
-        val bottom = cells.last().rect.bottom
-        val peanut = Path()
-        for (c in cells) {
-            val oval = Path().apply {
-                addOval(left, c.rect.top - gap - extra, right, c.rect.bottom + gap + extra, Path.Direction.CW)
-            }
-            if (peanut.isEmpty) peanut.set(oval) else peanut.op(oval, Path.Op.UNION)
-        }
-        val envelope = Path().apply { addRoundRect(left, top, right, bottom, radius, radius, Path.Direction.CW) }
-        peanut.op(envelope, Path.Op.INTERSECT)
-        return peanut
+        fillPaint.color = if (pressed) palette.keySurfacePressed else palette.keySurface
+        canvas.drawRoundRect(rect, keyRadius, keyRadius, fillPaint)
+        canvas.drawRoundRect(rect, keyRadius, keyRadius, keyOutlinePaint)
     }
 
     private fun drawLabel(canvas: Canvas, p: Placed) {

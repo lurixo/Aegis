@@ -21,6 +21,8 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.util.TypedValue
 import android.view.View
+import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
 
 class PreeditView(context: Context) : View(context) {
 
@@ -31,13 +33,22 @@ class PreeditView(context: Context) : View(context) {
 
     init { setLayerType(LAYER_TYPE_SOFTWARE, null) }
 
+    private var palette = ImePalette.STATIC_LIGHT
+
     private val tabPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFFFFFFF.toInt()
+        color = palette.keySurface
         setShadowLayer(5f * density, 0f, 2f * density, 0x22000000)
     }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF1565C0.toInt()
+        color = palette.preeditText
         textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 16f, resources.displayMetrics)
+    }
+
+    fun applyPalette(p: ImePalette) {
+        palette = p
+        tabPaint.color = p.keySurface
+        textPaint.color = p.preeditText
+        invalidate()
     }
 
     fun setText(s: String) {
@@ -49,7 +60,7 @@ class PreeditView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         if (text.isEmpty()) return
         val w = textPaint.measureText(text) + pad * 2
-        val r = 6f * density
+        val r = ImeShapes.cardRadiusDp * density / 2f
         tab.set(pad, 0f, pad + w, height.toFloat() + r)
         canvas.drawRoundRect(tab, r, r, tabPaint)
         val baseline = height / 2f - (textPaint.descent() + textPaint.ascent()) / 2
