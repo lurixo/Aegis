@@ -176,6 +176,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         inputView?.showPanel(null)
+        inputView?.hideCopyBar() // 复制条: start each field clean — never carry a stale clip across input sessions
         // B5: honour the user's CN default-keyboard choice (9-key unless they picked 26-key); EN stays 26-key.
         val cnLayout = getSharedPreferences("aegis", MODE_PRIVATE).getString("cn_layout", "nine")
         controller.setCnDefaultLayout(if (cnLayout == "alpha") LayoutId.ALPHA else LayoutId.NINE)
