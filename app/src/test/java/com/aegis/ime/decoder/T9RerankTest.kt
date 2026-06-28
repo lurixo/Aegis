@@ -35,6 +35,13 @@ class T9RerankTest {
     }
 
     @Test
+    fun bareSameCodeIsFrequencyOrdered() {
+        val list = decoder().decodeCovered("943943", 30).map { it.word }
+        assertEquals("这些", list.first())
+        assertTrue("谢谢 is present, just outranked by frequency", list.contains("谢谢"))
+    }
+
+    @Test
     fun listTailConsumesLearning_theFix() {
         val before = decoder().decodeCovered("943943", 30).map { it.word }
         val user = UserModel().apply { repeat(40) { record(null, "写者", 1) } }
@@ -50,5 +57,28 @@ class T9RerankTest {
         val list = decoder(user).decodeCovered("943943", 30).map { it.word }
         assertEquals("谢谢", list.first())
         assertTrue("谢谢 now ranks before 这些", list.indexOf("谢谢") < list.indexOf("这些"))
+    }
+
+    @Test
+    fun contextDisambiguatesSameCode_theFix() {
+        val d = decoder()
+        assertTrue(d.decodeCovered("4343", 30).firstOrNull()?.word != "哥哥")
+        assertEquals("哥哥", d.decodeCovered("4343", 30, context = "大").firstOrNull()?.word)
+    }
+
+    @Test
+    fun emptyContextIsIdentity() {
+        val d = decoder()
+        val none = d.decodeCovered("4343", 30).map { it.word }
+        val empty = d.decodeCovered("4343", 30, context = "").map { it.word }
+        val punct = d.decodeCovered("4343", 30, context = "你好。").map { it.word }
+        assertEquals(none, empty)
+        assertEquals(none, punct)
+        assertTrue(none.isNotEmpty())
+    }
+
+    @Test
+    fun contextDoesNotOverflipWhenFreqWordIsCorrect() {
+        assertEquals("这些", decoder().decodeCovered("943943", 30, context = "我喜欢").firstOrNull()?.word)
     }
 }
