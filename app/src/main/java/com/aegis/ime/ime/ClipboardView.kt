@@ -20,6 +20,11 @@ import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.ColorFilter
+import android.graphics.Paint
+import android.graphics.PixelFormat
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
@@ -139,6 +144,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     internal fun phraseCatForTest(): String = phraseCat
     internal fun forcePhrasesStateForTest(cat: String) { st.switchTab(ClipboardPanelState.Tab.PHRASE); phraseCat = cat }
     internal fun enterSelectForTest(selected: List<String> = emptyList()) { st.enterSelect(); st.selected.addAll(selected); refresh() }
+    // debug.14 item2 seams: step 1 (tap the button → show confirm, must NOT clear), step 2 (确认 → clear).
+    internal fun requestClearSystemForTest() = confirmClearSystem()
+    internal fun confirmClearSystemForTest() = doClearSystem()
+    internal fun cancelClearSystemForTest() = hideOverlay() // 取消 path: dismiss, clear nothing
+    internal fun isOverlayShownForTest(): Boolean = overlay.visibility == VISIBLE
 
     fun refresh() {
         main.removeAllViews()
@@ -158,6 +168,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             addView(View(context), ll(0, dp(1), 1f))
             // the 常用语 tab adds a ＋; 多选 (☰) lives on BOTH tabs, then ⚙.
             if (st.tab == Tab.PHRASE) addView(roundBtn("＋") { onManage() }, ll(dp(40), dp(44)))
+            // debug.14 item2: 清空系统剪贴板 button, immediately LEFT of the 编辑剪贴板 (☰) entry. Tapping it asks
+            // for confirmation first (防误触); it clears the SYSTEM clipboard, never the aegis history.
+            addView(iconBtn(ClearClipDrawable(density).apply { tint(SUBTEXT) }) { confirmClearSystem() }, ll(dp(40), dp(44)))
             addView(roundBtn("☰") { enterSelect() }, ll(dp(40), dp(44)))
             addView(roundBtn("⚙") { showGearMenu() }, ll(dp(36), dp(44)))
         }
@@ -408,7 +421,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     /** ⚙ menu: clear system clipboard / clear history / toggle recording / manage phrases. */
     private fun showGearMenu() {
         val card = menuCard()
-        card.addView(menuItem("清空系统剪贴板") { hideOverlay(); onClearSystemClipboard() })
+        // debug.14 item2: route the gear entry through the SAME confirm step as the top-bar button so there is
+        // no unconfirmed path to clearing the system clipboard.
+        card.addView(menuItem("清空系统剪贴板") { confirmClearSystem() })
         card.addView(menuDivider())
         card.addView(menuItem("清空剪贴板历史") { hideOverlay(); onClearHistory(); refresh() })
         card.addView(menuDivider())
@@ -418,6 +433,25 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         card.addView(menuItem("常用语管理") { hideOverlay(); onManage() })
         showOverlay(card)
     }
+
+    /**
+     * debug.14 item2: two-step confirm before clearing the SYSTEM clipboard (防误触). Shows a centered card —
+     * 确认清空 (destructive red) actually fires [onClearSystemClipboard]; 取消 just dismisses. Nothing is cleared
+     * until 确认 is tapped. Reused by both the top-bar button and the ⚙ menu so there is one confirmed path.
+     */
+    private fun confirmClearSystem() {
+        val card = menuCard()
+        card.addView(menuTitle("清空系统剪贴板?"))
+        card.addView(hint("将清除系统剪贴板的当前内容,不影响剪贴板历史。", 13f, HINT).apply { setPadding(dp(20), 0, dp(20), dp(8)) })
+        card.addView(menuDivider())
+        card.addView(menuItem("确认清空") { doClearSystem() }.also { it.setTextColor(RED) })
+        card.addView(menuDivider())
+        card.addView(menuItem("取消") { hideOverlay() })
+        showOverlay(card)
+    }
+
+    /** The confirmed system-clipboard clear (step 2). Dismisses the confirm card, then clears via the host. */
+    private fun doClearSystem() { hideOverlay(); onClearSystemClipboard() }
 
     /** C5: pick the target category for an add, or jump to the manager to create one. */
     private fun chooseCategoryThen(action: (String) -> Unit) {
@@ -549,5 +583,37 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun rounded(color: Int, radiusDp: Float) = GradientDrawable().apply {
         setColor(color); cornerRadius = radiusDp * density
+    }
+
+    /** debug.14 item2: an icon-only top-bar button (same grey chip as [roundBtn]) drawing [icon] centred — used
+     *  for the self-drawn 清空系统剪贴板 glyph so it stays monochrome/theme-tinted (no colour-emoji regression). */
+    private fun iconBtn(icon: Drawable, onClick: () -> Unit): ImageView = ImageView(context).apply {
+        background = rounded(GREY_PILL, ImeShapes.chipRadiusDp)
+        scaleType = ImageView.ScaleType.CENTER
+        setImageDrawable(icon)
+        isClickable = true
+        setOnClickListener { onClick() }
+    }
+
+    /** debug.14 item2: palette-tinted clipboard-with-✕ [Drawable] for the 清空系统剪贴板 button (Glyphs.drawClipboardClear),
+     *  so it matches the copy bar's self-drawn clipboard glyph and the rest of the monochrome icon row. */
+    private class ClearClipDrawable(private val density: Float) : Drawable() {
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1.8f * density
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+        fun tint(color: Int) { paint.color = color; invalidateSelf() }
+        override fun draw(canvas: Canvas) {
+            val b = bounds
+            Glyphs.drawClipboardClear(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) * 0.40f)
+        }
+        override fun getIntrinsicWidth() = (18 * density).toInt()
+        override fun getIntrinsicHeight() = (18 * density).toInt()
+        override fun setAlpha(alpha: Int) {}
+        override fun setColorFilter(colorFilter: ColorFilter?) {}
+        @Deprecated("Deprecated in Java")
+        override fun getOpacity() = PixelFormat.TRANSLUCENT
     }
 }

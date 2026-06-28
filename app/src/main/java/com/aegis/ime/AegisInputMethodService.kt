@@ -615,8 +615,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun historyEnabled() = getSharedPreferences("aegis", MODE_PRIVATE).getBoolean("clip_history", true)
     private fun setHistoryEnabled(on: Boolean) =
         getSharedPreferences("aegis", MODE_PRIVATE).edit().putBoolean("clip_history", on).apply()
-    /** C2: clear the SYSTEM clipboard (not the aegis private history). */
-    private fun clearSystemClipboard() = runCatching { clipboardManager.clearPrimaryClip() }
+    /** C2 / debug.14 item2: clear the SYSTEM clipboard (not the aegis private history); the panel asks for
+     *  confirmation first. Light feedback on success so the user knows it happened. */
+    private fun clearSystemClipboard() {
+        runCatching { clipboardManager.clearPrimaryClip() }
+            .onSuccess { Toast.makeText(this, "已清空系统剪贴板", Toast.LENGTH_SHORT).show() }
+            .onFailure { Log.e("Aegis", "clearPrimaryClip failed", it) }
+    }
 
     override fun onDestroy() {
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
