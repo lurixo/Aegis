@@ -26,6 +26,7 @@ import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
+import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.layout.Layouts
@@ -327,6 +328,21 @@ class CandidateBarChevronTest {
         assertEquals(0, picks)
     }
 
+
+    private fun attached(): InputView {
+        val iv = InputView(ctx)
+        val host = object : ImeHost {
+            override fun commitText(text: CharSequence) {}
+            override fun deleteBackward() {}
+            override fun performEnter() {}
+        }
+        val engine = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean): List<String> = emptyList()
+        }
+        KeyboardController(host, engine).attachView(iv)
+        return iv
+    }
+
     private fun activityInput(): Pair<FrameLayout, InputView> {
         val activity = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
         val root = FrameLayout(activity)
@@ -347,6 +363,17 @@ class CandidateBarChevronTest {
             View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY),
         )
         root.layout(0, 0, width, height)
+    }
+
+    @Test fun inputview_flips_chevron_when_the_grid_opens_and_closes() {
+        val iv = attached()
+        iv.showCandidates(listOf("你好", "你"), "ni'hao", listOf("ni"))
+        assertEquals("⌄", iv.barChevronGlyph())
+        iv.showExpandedCandidates()
+        assertTrue(iv.panelShown)
+        assertEquals("grid open → chevron flips up", "⌃", iv.barChevronGlyph())
+        iv.showPanel(null)
+        assertEquals("grid closed → chevron back to down", "⌄", iv.barChevronGlyph())
     }
 
     @Test fun expanded_grid_covers_the_toolbar_row_and_keeps_a_reachable_collapse_chevron() {

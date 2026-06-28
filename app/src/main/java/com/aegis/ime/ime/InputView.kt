@@ -873,6 +873,8 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun expandedReadingTextColorForTest(index: Int): Int? =
         gridView.readingTextColorForTest(index)
 
+    internal fun barChevronGlyph(): String = candidateView.chevronGlyph()
+
     internal fun toolbarShownForTest(): Boolean = candidateView.visibility == VISIBLE
 
     fun showPanel(panel: View?) = showPanel(panel, animateReveal = true)
