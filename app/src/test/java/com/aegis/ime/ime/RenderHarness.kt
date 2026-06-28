@@ -100,6 +100,27 @@ class RenderHarness {
         }
     }
 
+    /** U-anim: the panel-open fade is alpha-only; render the ~40% midpoint over the keyboard floor to show it. */
+    @Test fun panel_fade_midpoint() {
+        val pal = ImePalette.STATIC_LIGHT
+        val h = (560 * ctx.resources.displayMetrics.density).toInt()
+        val v = SymbolsView(ctx).apply {
+            recentProvider = { listOf("，", "。", "@") }; applyPalette(pal); openCategoryForTest(0)
+        }
+        v.measure(
+            View.MeasureSpec.makeMeasureSpec(wPx, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY),
+        )
+        v.layout(0, 0, wPx, h)
+        val bmp = Bitmap.createBitmap(wPx, h, Bitmap.Config.ARGB_8888)
+        bmp.eraseColor(pal.keyboardBg) // the keyboard floor the panel fades in over
+        val c = Canvas(bmp)
+        c.saveLayerAlpha(0f, 0f, wPx.toFloat(), h.toFloat(), 102) // 0.4 * 255 — the fade midpoint
+        v.draw(c)
+        c.restore()
+        FileOutputStream(File(outDir, "panel_fade_mid.png")).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    }
+
     @Test fun keyboard_alpha() {
         val h = (230 * ctx.resources.displayMetrics.density).toInt()
         for ((t, pal) in themes) {

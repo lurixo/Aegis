@@ -157,6 +157,15 @@ class InputView(context: Context) : LinearLayout(context) {
         ViewCompat.requestApplyInsets(this)
     }
 
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        // U-anim: cancel any in-flight fade + reset alpha so a theme-switch rebuild (S3) never inherits a
+        // half-faded keyboard / panel / preedit.
+        Motion.reset(keyboardView)
+        Motion.reset(preeditView)
+        currentPanel?.let { Motion.reset(it) }
+    }
+
     /**
      * Height of the transparent preedit band above the candidate bar. The IME service
      * reports its content/visible top this far below the input-view top, so the host app keeps this strip
@@ -226,10 +235,11 @@ class InputView(context: Context) : LinearLayout(context) {
 
     /** Swap the keyboard area for an extras panel (emoji / clipboard); null restores the keyboard. */
     fun showPanel(panel: View?) {
+        val outgoing = currentPanel
         // P7 (#19): the panel we're leaving returns to its default state, so the next open always starts
         // fresh (default tab/category/scroll, no lock/overlay). Every close funnels through here — 返回, a
         // commit, the P4 re-tap toggle, and onStartInputView's showPanel(null) — so one hook covers them all.
-        (currentPanel as? ResettablePanel)?.takeIf { it !== panel }?.resetToDefault()
+        (outgoing as? ResettablePanel)?.takeIf { it !== panel }?.resetToDefault()
         panelContainer.removeAllViews()
         currentPanel = panel
         // U14: the candidate-bar chevron points up + collapses only while the A2 grid is the open panel.
@@ -237,6 +247,9 @@ class InputView(context: Context) : LinearLayout(context) {
         if (panel == null) {
             panelContainer.visibility = GONE
             keyboardView.visibility = VISIBLE
+            // U-anim: fade the keyboard back in ONLY when swapping FROM a panel — not on a plain field focus
+            // (onStartInputView shows it with no outgoing panel). Alpha only: never the height / window.
+            if (outgoing != null) Motion.fadeIn(keyboardView)
         } else {
             // U19: occupy EXACTLY the keyboard's current footprint so opening a panel never grows or shrinks
             // the IME window. The old fixed 250dp expanded the short 9-key (panel taller) and shrank the tall
@@ -250,6 +263,7 @@ class InputView(context: Context) : LinearLayout(context) {
             )
             panelContainer.visibility = VISIBLE
             keyboardView.visibility = GONE
+            Motion.fadeIn(panel) // U-anim: MD3 fade-through (incoming half). Alpha only — the slot height is pinned above.
         }
     }
 
