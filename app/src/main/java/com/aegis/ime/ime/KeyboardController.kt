@@ -201,7 +201,7 @@ class KeyboardController(
             cand === calcCand -> {
                 val live = Calculator.detect(host.textBeforeCursor(CALC_SCAN_LEN))
                 if (live != null && live.expr == calcExpr && live.result == calcResult && !host.hasSelection()) {
-                    host.commitText("=" + live.result)
+                    host.commitText(live.append)
                 }
                 clearComposingState(); lastWord = null
             }
@@ -411,7 +411,7 @@ class KeyboardController(
 
     private fun calcCandidates(): List<Cand> {
         val match = Calculator.detect(host.textBeforeCursor(CALC_SCAN_LEN)) ?: return emptyList()
-        val cand = Cand("=" + match.result, 0)
+        val cand = Cand(match.append, 0)
         calcCand = cand; calcExpr = match.expr; calcResult = match.result
         return listOf(cand)
     }
@@ -423,8 +423,9 @@ class KeyboardController(
         return when (mode()) {
             Mode.PINYIN -> if (lockedReadings.isNotEmpty()) {
                 val bounds = readingLetterToDigit()
-                engine.candidatesForReadingCovered(fullLetters(), context)
-                    .map { Cand(it.word, bounds[it.coveredLen] ?: composing.length) }
+                val readingCuts = forcedCuts.filter { it in (activeStart + 1) until composing.length }.toSet()
+                engine.candidatesForReadingCovered(fullLetters(), readingCuts, context)
+                    .map { Cand(it.word, bounds[it.coveredLen] ?: it.coveredLen.coerceAtMost(composing.length)) }
             } else {
                 val isNine = layoutId == LayoutId.NINE
                 var c = engine.candidatesCovered(raw, isNine, forcedCuts, context)

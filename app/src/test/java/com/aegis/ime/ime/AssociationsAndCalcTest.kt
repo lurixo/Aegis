@@ -139,6 +139,25 @@ class AssociationsAndCalcTest {
         assertEquals("the result is appended after the live expression", "5*2=10", h.text)
     }
 
+    @Test fun f3_typing_a_trailing_equals_completes_the_equation_in_place() {
+        val h = EditorHost()
+        val c = KeyboardController(h, emptyEngine)
+        "1+1=".forEach { c.onKey(digit(it.toString())) }
+        assertEquals("the bare result is offered after the typed '='", listOf("2"), c.candidateWords())
+        c.onPickCandidate(0)
+        assertEquals("1+1=2", h.text)
+        assertTrue("no candidate lingers once the equation is complete", c.candidateWords().isEmpty())
+    }
+
+    @Test fun f3_a_percentage_expression_computes_and_appends() {
+        val h = EditorHost()
+        val c = KeyboardController(h, emptyEngine)
+        "200×15%".forEach { c.onKey(digit(it.toString())) }
+        assertEquals(listOf("=30"), c.candidateWords())
+        c.onPickCandidate(0)
+        assertEquals("200×15%=30", h.text)
+    }
+
     @Test fun u25_m3_picking_with_an_active_selection_skips_the_replace() {
         val h = EditorHost()
         val c = KeyboardController(h, emptyEngine)

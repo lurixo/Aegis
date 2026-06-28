@@ -55,9 +55,9 @@ class DictEngine(
         return decoder?.decode(letters, MAX_CANDIDATES) ?: emptyList()
     }
 
-    override fun candidatesForReadingCovered(letters: String, context: CharSequence): List<Cand> {
+    override fun candidatesForReadingCovered(letters: String, cuts: Set<Int>, context: CharSequence): List<Cand> {
         if (letters.isEmpty()) return emptyList()
-        return decoder?.decodeCovered(letters, MAX_CANDIDATES, context = context) ?: emptyList()
+        return decoder?.decodeCovered(letters, MAX_CANDIDATES, cuts, context) ?: emptyList()
     }
 
     override fun english(typed: String): List<String> =

@@ -17,7 +17,7 @@ package com.aegis.ime.engine
 
 object Calculator {
 
-    data class Match(val expr: String, val result: String, val length: Int)
+    data class Match(val expr: String, val result: String, val append: String, val length: Int)
 
     private val OPS = "+-*/×÷"
 
@@ -26,19 +26,25 @@ object Calculator {
     fun detect(textBeforeCursor: CharSequence): Match? {
         val s = textBeforeCursor.toString()
         if (s.isEmpty()) return null
-        var start = s.length
+        var end = s.length
+        while (end > 0 && s[end - 1] == ' ') end--
+        val endsWithEquals = end > 0 && s[end - 1] == '='
+        if (endsWithEquals) end--
+        var start = end
         while (start > 0 && isExprChar(s[start - 1])) start--
-        while (start < s.length && s[start] == ' ') start++
-        val expr = s.substring(start)
+        while (start < end && s[start] == ' ') start++
+        val expr = s.substring(start, end)
         if (expr.isBlank()) return null
         if (!hasBinaryOperator(expr)) return null
         if (DATE_LIKE.matches(expr)) return null
         val value = evaluate(expr) ?: return null
-        return Match(expr, format(value), s.length - start)
+        val result = format(value)
+        val append = if (endsWithEquals) result else "=$result"
+        return Match(expr, result, append, s.length - start)
     }
 
     private fun isExprChar(c: Char): Boolean =
-        c.isDigit() || c == '.' || c == '(' || c == ')' || c == ' ' || c in OPS
+        c.isDigit() || c == '.' || c == '(' || c == ')' || c == ' ' || c == '%' || c in OPS
 
     private fun hasBinaryOperator(expr: String): Boolean {
         for (i in expr.indices) {
@@ -107,7 +113,15 @@ object Calculator {
             val c = peek() ?: throw IllegalStateException("unexpected end")
             if (c == '+') { i++; return parseFactor() }
             if (c == '-') { i++; return -parseFactor() }
-            if (c == '(') {
+            var v = parsePrimary()
+            skipSpace()
+            while (peek() == '%') { i++; v /= 100.0; skipSpace() }
+            return v
+        }
+
+        private fun parsePrimary(): Double {
+            skipSpace()
+            if (peek() == '(') {
                 i++
                 val v = parseExpression()
                 skipSpace()
