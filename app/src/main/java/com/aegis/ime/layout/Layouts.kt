@@ -78,7 +78,7 @@ object Layouts {
         val bottom = listOf(
             Key("✎", action = SHOW_SYMBOLS, weight = 1.3f), // D: pencil → symbols panel
             Key("123", action = SWITCH_NUMBERS, weight = 1.5f),
-            Key(comma, sub = "A", direct = true), // ★D punctuation direct; caps/English badge unchanged
+            Key(comma, direct = true), // ★D punctuation direct (U6: dropped the vestigial "A" swipe-up badge)
             Key("空格", output = " ", action = SPACE, weight = 3.5f),
             Key(period, direct = true), // ★D: punctuation commits directly
             Key("中英", action = TOGGLE_LANG, weight = 1.5f),
