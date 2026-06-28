@@ -144,6 +144,19 @@ class TranslateBarSessionTest {
         assertFalse(panelInput(s.service).active)
     }
 
+    @Test fun a_bar_hidden_behind_the_service_releases_typing_instead_of_swallowing_it() {
+        val s = started()
+        open(s)
+        assertTrue(panelInput(s.service).active)
+
+        s.view.showTranslateBar(false)
+        assertFalse(s.view.isTranslateBarShowing())
+        type(s.service, "lost")
+        assertFalse("typing into a hidden field must drop the routing", panelInput(s.service).active)
+        assertEquals("", s.view.translateText())
+        assertFalse(s.service.transientStateForTest().editActive)
+    }
+
     @Test fun switching_editors_keeps_the_bar_open_with_an_empty_field() {
         val s = started()
         open(s)

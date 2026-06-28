@@ -1001,6 +1001,8 @@ class InputView(context: Context) : LinearLayout(context) {
         panelContainer.visibility = VISIBLE
     }
 
+    internal fun isExpandedCandidatePanel(panel: View): Boolean = panel === gridView
+
     internal fun clearEditorTransientUiImmediately() {
         hideToast()
         copyBarView.finishSplitSelection()

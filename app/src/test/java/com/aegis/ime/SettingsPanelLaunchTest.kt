@@ -106,6 +106,14 @@ class SettingsPanelLaunchTest {
         return panel!!
     }
 
+    @Test fun the_brand_icon_opens_the_settings_panel_without_leaving_the_editor() {
+        val s = start()
+        launchedInOrder()
+        openPanel(s)
+        assertEquals("SETTINGS", s.service.transientStateForTest().panel)
+        assertTrue("opening the panel launches nothing", launchedInOrder().isEmpty())
+    }
+
     @Test fun the_aegis_card_opens_only_the_settings_home_in_a_fresh_task() {
         val s = start()
         val panel = openPanel(s)

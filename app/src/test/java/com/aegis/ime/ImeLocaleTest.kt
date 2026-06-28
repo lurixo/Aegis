@@ -21,6 +21,7 @@ import com.aegis.ime.ime.InputView
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.ime.KeyboardController
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotSame
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -52,5 +53,17 @@ class ImeLocaleTest {
         val service = service("zh-CN")
         val view = service.onCreateInputView() as InputView
         assertEquals("空格", view.context.getString(R.string.kbd_space))
+    }
+
+    @Test fun a_locale_change_rebuilds_the_keyboard_on_the_next_show() {
+        val service = service("zh-CN")
+        val first = service.onCreateInputView() as InputView
+        service.onStartInputView(EditorInfo(), false)
+        service.appLocaleTags = { null }
+        service.onStartInputView(EditorInfo(), false)
+        val field = service.javaClass.getDeclaredField("inputView").apply { isAccessible = true }
+        val current = field.get(service) as InputView
+        assertNotSame(first, current)
+        assertEquals("Space", current.context.getString(R.string.kbd_space))
     }
 }

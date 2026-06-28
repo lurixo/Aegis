@@ -129,6 +129,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         logError = { Log.w("Aegis", "translate failed", it) },
     )
     private var translateClient = TranslateClient()
+    @Volatile private var panelTextSnapshot: String? = null
     private val userModel = UserModel()
     private val userLearning = UserLearning()
     private val userDbFile by lazy { File(filesDir, "userdb.txt") }
@@ -308,15 +309,35 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
     }
 
+    private enum class RestorablePanel {
+        EXPANDED_CANDIDATES, EDIT, LAYOUT, SETTINGS, EMOJI, CLIPBOARD, SYMBOLS, CUSTOM_SYMBOLS, CUSTOM_OPERATORS,
+    }
+
+    internal data class TransientStateSnapshot(
+        val inputActive: Boolean,
+        val targetPackage: String?,
+        val composition: String,
+        val editActive: Boolean,
+        val editText: String,
+        val editPurpose: String?,
+        val panel: String?,
+        val panelDetail: String?,
+    )
+
     private var currentEditorTarget: EditorTarget? = null
     private var layoutSessionPackage: String? = null
     private var inputSessionActive = false
     private var resetControllerOnNextInputView = false
+    private var restorablePanel: RestorablePanel? = null
 
+    private var panelCacheDensityDpi = 0
+    private var panelCacheFontScale = 0f
+    private var panelCacheLocales = ""
     private var clipboardRecreationState: ClipboardView.RecreationState? = null
     private var restoreClipboardWithoutCapture = false
     private var splitSelectionInputConnection: InputConnection? = null
     private var frameworkWillFinishInput = false
+    private var panelInputTitle = ""
     private var translateOpen = false
     private var translateEngaged = true
     private var translateInputConnection: InputConnection? = null
@@ -364,6 +385,42 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun uiString(res: Int): String = imeUiContext().getString(res)
 
     private fun uiString(res: Int, vararg args: Any): String = imeUiContext().getString(res, *args)
+
+    private fun syncUiLocale() {
+        if (inputView == null) return
+        if (appLocaleTags(this) == uiLocaleTags) return
+        uiLocaleContext = null
+        invalidateDensityBoundPanelCaches(panelCacheDensityDpi)
+        panelCacheLocales = imeUiContext().resources.configuration.locales.toLanguageTags()
+        val replacement = onCreateInputView() as InputView
+        if (window != null) setInputView(replacement)
+        replacement.post { if (inputView === replacement) syncBackCallback() }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+
+        unregisterBackCallback()
+        val previousInputView = inputView
+        val nextDensityDpi = newConfig.densityDpi.takeIf { it > 0 } ?: resources.displayMetrics.densityDpi
+        val nextFontScale = newConfig.fontScale.takeIf { it > 0f } ?: resources.configuration.fontScale
+        val nextLocales = appLocaleTags(this) ?: newConfig.locales.toLanguageTags()
+        val densityChanged = panelCacheDensityDpi > 0 &&
+            (panelCacheDensityDpi != nextDensityDpi ||
+                panelCacheFontScale != nextFontScale ||
+                panelCacheLocales != nextLocales)
+        if (densityChanged) invalidateDensityBoundPanelCaches(nextDensityDpi)
+        else panelCacheDensityDpi = nextDensityDpi
+        panelCacheFontScale = nextFontScale
+        panelCacheLocales = nextLocales
+        super.onConfigurationChanged(newConfig)
+        applyPaletteEverywhere()
+
+        if (densityChanged && previousInputView != null && inputView === previousInputView) {
+            val replacement = onCreateInputView() as InputView
+            setInputView(replacement)
+            replacement.post { if (inputView === replacement) syncBackCallback() }
+        }
+    }
 
     override fun onEvaluateFullscreenMode(): Boolean = false
 
@@ -611,6 +668,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         cutCompletionNotice = null
         dropChunkedRead()
         dropRestoreStream()
+        restorablePanel = null
         clipboardRecreationState = null
         stopSelecting()
         if (resetController && ::controller.isInitialized) controller.reset(preserveLayout)
@@ -730,6 +788,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     override fun onCreateInputView(): View {
 
         unregisterBackCallback()
+        if (panelCacheDensityDpi == 0) panelCacheDensityDpi = resources.displayMetrics.densityDpi
+        if (panelCacheFontScale == 0f) panelCacheFontScale = resources.configuration.fontScale
+        if (panelCacheLocales.isEmpty()) panelCacheLocales = imeUiContext().resources.configuration.locales.toLanguageTags()
         val view = InputView(imeUiContext()).apply {
             onKey = { key -> controller.onKey(key) }
             onPickCandidate = { index -> controller.onPickCandidate(index) }
@@ -764,7 +825,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onPreeditEditDone = { controller.onPreeditEditDone() }
         }
         inputView = view
+        view.onPanelChanged = { panel ->
+            if (inputView === view) {
+                restorablePanel = classifyPanel(view, panel)
+            }
+        }
         view.onEditTextChanged = { txt ->
+            panelTextSnapshot = txt
             refreshUndoAvailability()
             refreshPanelEmailContext(view)
         }
@@ -809,6 +876,37 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
     }
 
+    private fun classifyPanel(view: InputView, panel: View?): RestorablePanel? = when {
+        panel == null -> null
+        view.isExpandedCandidatePanel(panel) -> RestorablePanel.EXPANDED_CANDIDATES
+        panel === editPanelView -> RestorablePanel.EDIT
+        panel === layoutPanelView -> RestorablePanel.LAYOUT
+        panel === settingsPanelView -> RestorablePanel.SETTINGS
+        panel === emojiView -> RestorablePanel.EMOJI
+        panel === clipboardView -> RestorablePanel.CLIPBOARD
+        panel === symbolsView -> RestorablePanel.SYMBOLS
+        panel === customSymbolView -> RestorablePanel.CUSTOM_SYMBOLS
+        panel === customOperatorView -> RestorablePanel.CUSTOM_OPERATORS
+        else -> null
+    }
+
+    private fun invalidateDensityBoundPanelCaches(nextDensityDpi: Int) {
+        clipboardRecreationState = if (restorablePanel == RestorablePanel.CLIPBOARD) {
+            clipboardView?.recreationState()
+        } else {
+            null
+        }
+        emojiView = null
+        clipboardView = null
+        symbolsView = null
+        editPanelView = null
+        layoutPanelView = null
+        settingsPanelView = null
+        customSymbolView = null
+        customOperatorView = null
+        panelCacheDensityDpi = nextDensityDpi
+    }
+
     private fun restoreClipboardPanel() {
         restoreClipboardWithoutCapture = true
         try {
@@ -820,10 +918,55 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun restoreTransientUi(candidateView: InputView? = inputView) {
         val view = candidateView ?: return
+        when (restorablePanel) {
+            RestorablePanel.EXPANDED_CANDIDATES -> view.showExpandedCandidates()
+            RestorablePanel.EDIT -> restorePanel(view, editPanelView) { showEditPanel() }
+            RestorablePanel.LAYOUT -> if (!view.isPanelShowing(layoutPanelView)) presentLayoutPanel()
+            RestorablePanel.SETTINGS -> if (!view.isPanelShowing(settingsPanelView)) presentSettingsPanel()
+            RestorablePanel.EMOJI -> restorePanel(view, emojiView) { showEmojiPanel() }
+            RestorablePanel.CLIPBOARD -> if (!view.isPanelShowing(clipboardView)) restoreClipboardPanel()
+            RestorablePanel.SYMBOLS -> restorePanel(view, symbolsView) { showSymbolsPanel() }
+            RestorablePanel.CUSTOM_SYMBOLS -> restorePanel(view, customSymbolView) { showCustomSymbolPanel() }
+            RestorablePanel.CUSTOM_OPERATORS -> restorePanel(view, customOperatorView) { showCustomOperatorPanel() }
+            null -> Unit
+        }
+        if (inputPurpose != null) {
+            view.setEditTitle(panelInputTitle)
+            view.setEditText(panelTextSnapshot.orEmpty())
+            view.showEditBar(true)
+            panelInput.begin(view.editEditable(), namesCategory()) { view.isEditBarShowing() }
+        }
         if (translateOpen) bindTranslateInput(view)
     }
 
+    private fun restorePanel(view: InputView, panel: View?, show: () -> Unit) {
+        if (view.isPanelShowing(panel)) return
+        if (panel != null) view.showPanel(panel) else show()
+    }
+
+    internal fun transientStateForTest(): TransientStateSnapshot {
+        val composition = if (::controller.isInitialized) controller.preeditForTest() else ""
+        val panel = restorablePanel?.name
+        val panelDetail = when (restorablePanel) {
+            RestorablePanel.CLIPBOARD -> if (clipboardView?.isClipboardTabForTest() == true) "HISTORY" else "PHRASES"
+            RestorablePanel.EXPANDED_CANDIDATES -> "CANDIDATES"
+            null -> null
+            else -> "DEFAULT"
+        }
+        return TransientStateSnapshot(
+            inputActive = inputSessionActive,
+            targetPackage = currentEditorTarget?.packageName,
+            composition = composition,
+            editActive = panelInput.active,
+            editText = panelInput.text(),
+            editPurpose = inputPurpose?.name,
+            panel = panel,
+            panelDetail = panelDetail,
+        )
+    }
+
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
+        syncUiLocale()
         super.onStartInputView(info, restarting)
         val viewTarget = editorTarget(info)
         val viewBlocksPersonalization = info != null && com.aegis.ime.user.ClipboardPolicy.blocksLearning(info.imeOptions)
@@ -860,7 +1003,18 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             controller.reset(preserveLayout)
             resetControllerOnNextInputView = false
         }
+
+        val lc = lastCopy
+        if (inputView?.isComposing() == true) {
+            inputView?.hideCopyBar()
+        } else if (com.aegis.ime.user.ClipboardPolicy.shouldRestoreCopyBar(lc)) {
+            if (restorablePanel == RestorablePanel.EDIT) inputView?.stageCopyBar(lc!!)
+            else inputView?.showCopyBar(lc!!)
+        } else {
+            inputView?.hideCopyBar()
+        }
         applyPaletteEverywhere()
+        if (targetMatches && canRestoreCurrentSession()) restoreTransientUi()
     }
 
     private fun buildBackCallback(): OnBackInvokedCallback = OnBackInvokedCallback { closeTopOverlayOnBack() }
@@ -1932,6 +2086,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         inlineOriginCategoryAdmin = origin?.categoryAdmin == true
         iv.showPanel(null)
         val shown = if (namesCategory()) com.aegis.ime.user.ClipboardStore.foldLineBreaks(initial) else initial
+        panelInputTitle = title
+        panelTextSnapshot = shown
         iv.setEditTitle(title)
         iv.setEditText(shown)
         iv.showEditBar(true)
@@ -1996,6 +2152,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val returningClipboard = clipboardView
         if (::controller.isInitialized) controller.onPanelClear()
         panelInput.end()
+        panelTextSnapshot = null
+        panelInputTitle = ""
         inputPurpose = null; inputCat = ""; inputOld = ""; pendingPhraseAdds = emptyList(); pendingMoveFrom = ""; pendingMoveTexts = emptyList()
         if (returningView == null) return
         returningView.dismissEditBarForPanelReturn()
@@ -2016,6 +2174,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun abortInlineInput(hideBar: Boolean = true) {
         if (!panelInput.active && inputPurpose == null) return
         panelInput.end()
+        panelTextSnapshot = null
+        panelInputTitle = ""
         if (hideBar) inputView?.showEditBar(false)
         inputPurpose = null; inputCat = ""; inputOld = ""; pendingPhraseAdds = emptyList(); pendingMoveFrom = ""; pendingMoveTexts = emptyList()
         bindTranslateInput()

@@ -16,9 +16,12 @@
 package com.aegis.ime
 
 import com.aegis.ime.user.historyText
+import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.res.Configuration
 import android.os.Looper
+import android.provider.Settings
 import android.text.InputType
 import android.text.Selection
 import android.view.KeyEvent
@@ -33,8 +36,10 @@ import android.widget.FrameLayout
 import com.aegis.ime.dict.ModelDownload
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.ime.BackspaceGesture
+import com.aegis.ime.ime.BarFunction
 import com.aegis.ime.ime.CandidateGridView
 import com.aegis.ime.ime.ClipboardView
+import com.aegis.ime.ime.CustomSymbolPanel
 import com.aegis.ime.ime.DecodeLane
 import com.aegis.ime.ime.EditAction
 import com.aegis.ime.ime.EditPanelView
@@ -44,8 +49,10 @@ import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.ime.KeyboardView
 import com.aegis.ime.ime.KeyHapticsAware
 import com.aegis.ime.ime.LargeCommit
+import com.aegis.ime.ime.LayoutPanelView
 import com.aegis.ime.ime.Motion
 import com.aegis.ime.ime.SelectionMath
+import com.aegis.ime.ime.SettingsPanelView
 import com.aegis.ime.ime.SymbolsView
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
@@ -56,6 +63,7 @@ import com.aegis.ime.ui.DictDownloadWork
 import com.aegis.ime.user.ClipboardStore
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -186,6 +194,15 @@ class AegisInputMethodServiceLifecycleTest {
         }
     }
 
+    private enum class StateKind { COMPOSITION, INLINE_EDIT, PHRASES_PANEL }
+
+    private data class SeededState(
+        val kind: StateKind,
+        val snapshot: AegisInputMethodService.TransientStateSnapshot,
+        val clipboard: ClipboardView? = null,
+        val phraseCategory: String? = null,
+    )
+
     private fun editor(
         packageName: String = "com.example.editor",
         fieldId: Int = 101,
@@ -300,6 +317,31 @@ class AegisInputMethodServiceLifecycleTest {
             get(service)
         }
 
+    private fun setCachedPanel(service: AegisInputMethodService, fieldName: String, value: Any) {
+        service.javaClass.getDeclaredField(fieldName).run {
+            isAccessible = true
+            set(service, value)
+        }
+    }
+
+    private fun capturedDensity(panel: Any): Float = panel.javaClass.getDeclaredField("density").run {
+        isAccessible = true
+        getFloat(panel)
+    }
+
+    private fun capturedInputDensity(view: InputView): Float = view.javaClass.getDeclaredField("keyboardView").run {
+        isAccessible = true
+        capturedDensity(requireNotNull(get(view)))
+    }
+
+    private fun installFrameworkInputFrame(f: Fixture): FrameLayout {
+        val frame = FrameLayout(f.service).apply { addView(f.view) }
+        val framework = requireNotNull(f.service.javaClass.superclass)
+        framework.getDeclaredField("mInputFrame").apply { isAccessible = true; set(f.service, frame) }
+        framework.getDeclaredField("mInputView").apply { isAccessible = true; set(f.service, f.view) }
+        return frame
+    }
+
     private fun installInputConnection(service: AegisInputMethodService, connection: RecordingInputConnection) {
         val framework = requireNotNull(service.javaClass.superclass)
         for (fieldName in listOf("mInputConnection", "mStartedInputConnection")) {
@@ -392,6 +434,13 @@ class AegisInputMethodServiceLifecycleTest {
         return cachedPanel(service, "editPanelView") as EditPanelView
     }
 
+    private fun toggleTranslateBar(service: AegisInputMethodService) {
+        service.javaClass.getDeclaredMethod("toggleTranslateBar").apply {
+            isAccessible = true
+            invoke(service)
+        }
+    }
+
     private fun layoutInput(view: InputView) {
         val width = view.resources.displayMetrics.widthPixels
         view.measure(
@@ -407,6 +456,24 @@ class AegisInputMethodServiceLifecycleTest {
             isAccessible = true
             get(service) as ClipboardView
         }
+    }
+
+    @Test fun translate_toolbar_entry_toggles_the_translate_bar_instead_of_a_panel() {
+        val f = fixture()
+        f.controller.onShowTranslate = { toggleTranslateBar(f.service) }
+
+        f.controller.onBarFunction(BarFunction.TRANSLATE)
+
+        assertTrue(f.view.isTranslateBarShowing())
+        assertTrue(f.service.translateBarOpenForTest())
+        assertEquals(null, f.service.transientStateForTest().panel)
+        assertTrue("typing now lands in the translate field", f.service.transientStateForTest().editActive)
+
+        f.controller.onBarFunction(BarFunction.TRANSLATE)
+
+        assertFalse(f.view.isTranslateBarShowing())
+        assertFalse(f.service.translateBarOpenForTest())
+        assertFalse(f.service.transientStateForTest().editActive)
     }
 
     @Test fun split_selection_composes_into_one_region_and_finishes_when_the_popup_closes() {
@@ -1360,6 +1427,81 @@ class AegisInputMethodServiceLifecycleTest {
         assertFalse(f.view.toolbarShownForTest())
     }
 
+    private fun seed(f: Fixture, kind: StateKind): SeededState = when (kind) {
+        StateKind.COMPOSITION -> {
+
+            f.view.onKey(Key("6", output = "6"))
+            f.view.onKey(Key("4", output = "4"))
+            val state = f.service.transientStateForTest()
+            assertTrue("composition must be concrete", state.composition.isNotEmpty())
+            assertTrue(f.view.isComposing())
+            SeededState(kind, state)
+        }
+        StateKind.INLINE_EDIT -> {
+            val cv = clipboard(f.service)
+            cv.onAddCategory()
+            f.service.commitText("lifecycle-draft")
+            val state = f.service.transientStateForTest()
+            assertTrue(state.editActive)
+            assertEquals("lifecycle-draft", state.editText)
+            assertEquals("ADD_CATEGORY", state.editPurpose)
+            assertTrue(f.view.isEditBarShowing())
+            SeededState(kind, state, cv)
+        }
+        StateKind.PHRASES_PANEL -> {
+            val cv = clipboard(f.service)
+            cv.switchTabForTest(false)
+            cv.onAddCategory()
+            f.service.commitText("lifecycle-category")
+            f.view.onEditConfirm()
+            val state = f.service.transientStateForTest()
+            assertEquals("CLIPBOARD", state.panel)
+            assertEquals("PHRASES", state.panelDetail)
+            assertFalse(cv.isClipboardTabForTest())
+            assertEquals("lifecycle-category", cv.phraseCatForTest())
+            assertTrue(f.view.isPanelShowing(cv))
+            SeededState(kind, state, cv, cv.phraseCatForTest())
+        }
+    }
+
+    private fun assertPreserved(f: Fixture, seeded: SeededState) {
+        val now = f.service.transientStateForTest()
+        when (seeded.kind) {
+            StateKind.COMPOSITION -> {
+                assertEquals(seeded.snapshot.composition, now.composition)
+                assertTrue(f.view.isComposing())
+            }
+            StateKind.INLINE_EDIT -> {
+                assertTrue(now.editActive)
+                assertEquals(seeded.snapshot.editText, now.editText)
+                assertEquals(seeded.snapshot.editPurpose, now.editPurpose)
+                assertTrue(f.view.isEditBarShowing())
+                assertFalse(f.view.panelShown)
+            }
+            StateKind.PHRASES_PANEL -> {
+                val cv = requireNotNull(seeded.clipboard)
+                assertEquals("CLIPBOARD", now.panel)
+                assertEquals("PHRASES", now.panelDetail)
+                assertFalse(cv.isClipboardTabForTest())
+                assertEquals(seeded.phraseCategory, cv.phraseCatForTest())
+                assertTrue(f.view.isPanelShowing(cv))
+            }
+        }
+    }
+
+    private fun rotateThroughRealServiceCallbacks(f: Fixture, seeded: SeededState) {
+        val oldView = f.view
+        f.service.onConfigurationChanged(
+            Configuration(f.service.resources.configuration).apply { orientation = Configuration.ORIENTATION_PORTRAIT },
+        )
+
+        f.service.onStartInput(editor(), true)
+        f.view = f.service.onCreateInputView() as InputView
+        f.service.onStartInputView(editor(), false)
+        assertNotSame("configuration must exercise replacement, not detach/reattach", oldView, f.view)
+        assertPreserved(f, seeded)
+    }
+
     private fun hideShowThroughRealServiceCallbacks(f: Fixture) {
         val sameView = f.view
         f.service.onFinishInputView(false)
@@ -1382,6 +1524,121 @@ class AegisInputMethodServiceLifecycleTest {
         assertFalse(ModelDownload.dictPartFile(f.service.filesDir).exists())
     }
 
+    @Test fun composition_survives_same_editor_restart_real_rotation_and_real_hide_show() {
+        val f = fixture()
+        val seeded = seed(f, StateKind.COMPOSITION)
+
+        f.service.onStartInput(editor(), true)
+        f.service.onStartInputView(editor(), true)
+        assertPreserved(f, seeded)
+        rotateThroughRealServiceCallbacks(f, seeded)
+        hideShowThroughRealServiceCallbacks(f)
+        assertPreserved(f, seeded)
+
+        f.view.onKey(Key("6", output = "6"))
+        assertTrue("restored controller remains live", f.service.transientStateForTest().composition.isNotEmpty())
+    }
+
+    @Test fun inline_edit_buffer_and_purpose_survive_real_rotation_but_clear_after_real_hide_show() {
+        val f = fixture()
+        val seeded = seed(f, StateKind.INLINE_EDIT)
+
+        rotateThroughRealServiceCallbacks(f, seeded)
+        f.view.onKey(Key("6", output = "6"))
+        assertTrue(f.service.transientStateForTest().composition.isNotEmpty())
+        hideShowThroughRealServiceCallbacks(f)
+
+        assertCleared(f, seeded, "inline edit window hide")
+        assertTrue(f.service.transientStateForTest().inputActive)
+        assertEquals(f.info.packageName, f.service.transientStateForTest().targetPackage)
+    }
+
+    @Test fun inline_cancel_and_confirm_attach_only_the_final_phrase_panel_state() {
+        for (purpose in listOf("CATEGORY", "RENAME", "ADD_PHRASE", "PHRASE", "NOTE")) {
+            for (confirm in listOf(false, true)) {
+                val f = fixture()
+                Settings.Global.putFloat(f.service.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+                val activity = Robolectric.buildActivity(Activity::class.java).setup()
+                try {
+                    val host = FrameLayout(activity.get())
+                    activity.get().setContentView(host)
+                    host.addView(f.view)
+                    f.view.measure(
+                        View.MeasureSpec.makeMeasureSpec(1280, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(582, View.MeasureSpec.AT_MOST),
+                    )
+                    f.view.layout(0, 0, f.view.measuredWidth, f.view.measuredHeight)
+                    val cv = clipboard(f.service)
+                    cv.switchTabForTest(false)
+                    when (purpose) {
+                        "CATEGORY" -> cv.onAddCategory()
+                        "RENAME" -> cv.onRenameCategory("默认")
+                        "ADD_PHRASE" -> cv.onAddPhrase("默认")
+                        "PHRASE" -> cv.onEditPhrase("默认", "原文")
+                        else -> cv.onEditNote("默认", "原文")
+                    }
+                    shadowOf(Looper.getMainLooper()).idleFor(200, TimeUnit.MILLISECONDS)
+                    f.view.onKey(Key("6", output = "6"))
+                    assertTrue(f.controller.preeditForTest().isNotEmpty())
+                    f.service.commitText("final-state-$purpose-$confirm")
+                    var overlayChanges = 0
+                    f.view.onOverlayChanged = { overlayChanges++ }
+                    if (confirm) f.view.onEditConfirm() else f.view.onEditCancel()
+
+                    val state = f.service.transientStateForTest()
+                    assertFalse(state.editActive)
+                    assertEquals("", state.composition)
+                    assertFalse(f.view.isEditBarShowing())
+                    assertEquals("CLIPBOARD", state.panel)
+                    assertEquals("PHRASES", state.panelDetail)
+                    assertFalse(cv.isClipboardTabForTest())
+                    assertTrue(f.view.isPanelShowing(cv))
+                    assertEquals(1, overlayChanges)
+                    shadowOf(Looper.getMainLooper()).idleFor(200, TimeUnit.MILLISECONDS)
+                    assertFalse(f.view.isEditBarShowing())
+                    assertTrue(f.view.isPanelShowing(cv))
+                } finally {
+                    activity.pause().stop().destroy()
+                }
+            }
+        }
+    }
+
+    @Test fun density_change_during_inline_edit_recreates_the_final_phrase_panel() {
+        val f = fixture()
+        val oldClipboard = clipboard(f.service)
+        oldClipboard.switchTabForTest(false)
+        oldClipboard.onEditNote("默认", "原文")
+        f.service.commitText("density-draft")
+        val frameworkInputFrame = installFrameworkInputFrame(f)
+
+        try {
+            RuntimeEnvironment.setQualifiers("w320dp-h200dp-land-mdpi")
+            f.service.onConfigurationChanged(
+                Configuration(f.service.resources.configuration).apply {
+                    densityDpi = 160
+                    orientation = Configuration.ORIENTATION_LANDSCAPE
+                },
+            )
+            f.view = cachedPanel(f.service, "inputView") as InputView
+            assertTrue(frameworkInputFrame.getChildAt(0) === f.view)
+            assertNull(cachedPanel(f.service, "clipboardView"))
+            assertTrue(f.service.transientStateForTest().editActive)
+
+            f.view.onEditCancel()
+
+            val rebuiltClipboard = cachedPanel(f.service, "clipboardView") as ClipboardView
+            assertFalse(f.view.isEditBarShowing())
+            assertNotSame(oldClipboard, rebuiltClipboard)
+            assertEquals(1f, capturedDensity(rebuiltClipboard), 0.001f)
+            assertFalse(rebuiltClipboard.isClipboardTabForTest())
+            assertTrue(f.view.isPanelShowing(rebuiltClipboard))
+            assertEquals("PHRASES", f.service.transientStateForTest().panelDetail)
+        } finally {
+            RuntimeEnvironment.setQualifiers("w853dp-h388dp-land-hdpi")
+        }
+    }
+
     @Test fun inline_exit_drops_a_decode_result_already_queued_for_main_delivery() {
         val worker = ArrayDeque<Runnable>()
         val main = ArrayDeque<Runnable>()
@@ -1402,6 +1659,35 @@ class AegisInputMethodServiceLifecycleTest {
         assertEquals("", f.controller.preeditForTest())
         assertTrue(f.controller.candidateWords().isEmpty())
         assertTrue(f.view.isPanelShowing(cv))
+    }
+
+    @Test fun phrases_panel_survives_real_rotation_but_category_move_clears_after_real_hide_show() {
+        val f = fixture()
+        val seeded = seed(f, StateKind.PHRASES_PANEL)
+        val cv = requireNotNull(seeded.clipboard)
+
+        rotateThroughRealServiceCallbacks(f, seeded)
+        cv.enterCategorySortModeForTest()
+        assertTrue(cv.isCategorySortModeForTest())
+        hideShowThroughRealServiceCallbacks(f)
+
+        assertCleared(f, seeded, "phrases panel window hide")
+        assertFalse(cv.isCategorySortModeForTest())
+        assertTrue(f.service.transientStateForTest().inputActive)
+    }
+
+    @Test fun window_hidden_preserves_last_copy_and_restores_the_copy_bar() {
+        val f = fixture()
+        val copied = "copied-lifecycle-content"
+        setCachedPanel(f.service, "lastCopy", copied)
+        f.view.showCopyBar(copied)
+        assertTrue(f.view.copyBarShown)
+
+        hideShowThroughRealServiceCallbacks(f)
+
+        assertEquals(copied, cachedPanel(f.service, "lastCopy"))
+        assertTrue(f.view.copyBarShown)
+        assertTrue(f.service.transientStateForTest().inputActive)
     }
 
     @Test fun window_hidden_restores_nine_twenty_six_and_english_base_keyboards() {
@@ -1481,6 +1767,152 @@ class AegisInputMethodServiceLifecycleTest {
         }
     }
 
+    @Test fun density_change_rebuilds_every_cached_panel_and_restores_phrases_category_semantically() {
+        val f = fixture()
+        val seeded = seed(f, StateKind.PHRASES_PANEL)
+        val oldClipboard = requireNotNull(seeded.clipboard)
+        val stalePanels = mapOf(
+            "emojiView" to EmojiView(f.service),
+            "symbolsView" to SymbolsView(f.service),
+            "editPanelView" to EditPanelView(f.service),
+            "layoutPanelView" to LayoutPanelView(f.service),
+            "settingsPanelView" to SettingsPanelView(f.service),
+            "customSymbolView" to CustomSymbolPanel(f.service),
+            "customOperatorView" to CustomSymbolPanel(f.service),
+        )
+        stalePanels.forEach { (name, panel) -> setCachedPanel(f.service, name, panel) }
+        assertEquals(1.5f, capturedDensity(oldClipboard), 0.001f)
+        assertEquals(1.5f, capturedInputDensity(f.view), 0.001f)
+        val frameworkInputFrame = installFrameworkInputFrame(f)
+
+        try {
+            RuntimeEnvironment.setQualifiers("w320dp-h200dp-land-mdpi")
+            val mdpi = Configuration(f.service.resources.configuration).apply {
+                densityDpi = 160
+                orientation = Configuration.ORIENTATION_LANDSCAPE
+            }
+
+            val oldDensityView = f.view
+            f.service.onConfigurationChanged(mdpi)
+            f.view = cachedPanel(f.service, "inputView") as InputView
+            assertNotSame(oldDensityView, f.view)
+            assertTrue(frameworkInputFrame.getChildAt(0) === f.view)
+            assertEquals(1f, capturedInputDensity(f.view), 0.001f)
+
+            val rebuiltClipboard = cachedPanel(f.service, "clipboardView") as ClipboardView
+            assertNotSame(oldClipboard, rebuiltClipboard)
+            assertEquals(1f, capturedDensity(rebuiltClipboard), 0.001f)
+            assertFalse(rebuiltClipboard.isClipboardTabForTest())
+            assertEquals(seeded.phraseCategory, rebuiltClipboard.phraseCatForTest())
+            assertTrue(f.view.isPanelShowing(rebuiltClipboard))
+            stalePanels.forEach { (name, _) ->
+                assertNull("$name must not retain an old-density instance", cachedPanel(f.service, name))
+            }
+
+            f.service.onStartInput(editor(), true)
+            val oldView = f.view
+            f.view = f.service.onCreateInputView() as InputView
+            f.service.onStartInputView(editor(), false)
+            assertNotSame(oldView, f.view)
+            assertTrue(f.view.isPanelShowing(rebuiltClipboard))
+            assertFalse(rebuiltClipboard.isClipboardTabForTest())
+            assertEquals(seeded.phraseCategory, rebuiltClipboard.phraseCatForTest())
+        } finally {
+            RuntimeEnvironment.setQualifiers("w853dp-h388dp-land-hdpi")
+        }
+    }
+
+    @Test fun a_same_editor_restart_keeps_the_layout_panel_open() {
+        val f = fixture()
+        f.service.javaClass.getDeclaredMethod("showLayoutPanel").apply { isAccessible = true }.invoke(f.service)
+        val panel = requireNotNull(cachedPanel(f.service, "layoutPanelView")) as LayoutPanelView
+        assertTrue(f.view.isPanelShowing(panel))
+        assertEquals("LAYOUT", f.service.transientStateForTest().panel)
+
+        f.service.onStartInput(f.info, true)
+        f.service.onStartInputView(f.info, true)
+
+        assertTrue(
+            "restore while the layout panel is showing must keep it open",
+            f.view.isPanelShowing(panel),
+        )
+    }
+
+    @Test fun a_same_editor_restart_keeps_the_settings_panel_open() {
+        val f = fixture()
+        f.service.javaClass.getDeclaredMethod("showSettingsPanel").apply { isAccessible = true }.invoke(f.service)
+        val panel = requireNotNull(cachedPanel(f.service, "settingsPanelView")) as SettingsPanelView
+        assertTrue(f.view.isPanelShowing(panel))
+        assertEquals("SETTINGS", f.service.transientStateForTest().panel)
+
+        f.service.onStartInput(f.info, true)
+        f.service.onStartInputView(f.info, true)
+
+        assertTrue(
+            "restore while the settings panel is showing must keep it open",
+            f.view.isPanelShowing(panel),
+        )
+    }
+
+    @Test fun anonymous_editor_restart_preserves_but_new_session_clears_synchronously() {
+        fun anonymous() = editor(fieldId = View.NO_ID, fieldName = null)
+
+        val f = fixture(anonymous())
+        val seeded = seed(f, StateKind.COMPOSITION)
+        val oldView = f.view
+
+        f.service.onStartInput(anonymous(), true)
+        f.view = f.service.onCreateInputView() as InputView
+        f.service.onStartInputView(anonymous(), false)
+        assertNotSame(oldView, f.view)
+        assertPreserved(f, seeded)
+
+        f.service.onStartInput(anonymous(), false)
+        assertCleared(f, seeded, "anonymous restarting=false")
+    }
+
+    @Test fun a_password_field_restart_preserves_exactly_what_an_ordinary_field_restart_preserves() {
+        val password = editor(
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD,
+        )
+        for (kind in StateKind.entries) {
+            fixture(password).also { f ->
+                val seeded = seed(f, kind)
+                f.service.onStartInput(password, true)
+                f.service.onStartInputView(password, true)
+                assertPreserved(f, seeded)
+            }
+        }
+    }
+
+    private fun assertCleared(f: Fixture, seeded: SeededState, boundary: String) {
+        val state = f.service.transientStateForTest()
+        assertEquals("$boundary: composition", "", state.composition)
+        assertFalse("$boundary: edit active", state.editActive)
+        assertEquals("$boundary: edit text", "", state.editText)
+        assertNull("$boundary: edit purpose", state.editPurpose)
+        assertNull("$boundary: panel", state.panel)
+        assertNull("$boundary: panel detail", state.panelDetail)
+        assertFalse("$boundary: view composition", f.view.isComposing())
+        assertFalse("$boundary: edit bar", f.view.isEditBarShowing())
+        assertFalse("$boundary: panel view", f.view.panelShown)
+        seeded.clipboard?.let {
+            assertTrue("$boundary: closed Clipboard panel resets to its safe default tab", it.isClipboardTabForTest())
+            assertEquals("$boundary: selected phrase category", "", it.phraseCatForTest())
+        }
+    }
+
+    @Test fun a_same_identified_editor_start_without_the_restart_flag_keeps_transient_state() {
+        for (kind in StateKind.entries) {
+            fixture().also { f ->
+                val seeded = seed(f, kind)
+                f.service.onStartInput(editor(), false)
+                f.service.onStartInputView(editor(), false)
+                assertPreserved(f, seeded)
+            }
+        }
+    }
+
     @Test fun a_same_editor_start_keeps_the_emoji_clear_confirmation_up() {
         val f = fixture()
         f.service.javaClass.getDeclaredMethod("showEmojiPanel").apply { isAccessible = true }.invoke(f.service)
@@ -1497,6 +1929,83 @@ class AegisInputMethodServiceLifecycleTest {
         f.service.onStartInputView(f.info, false)
         assertTrue(f.view.isPanelShowing(panel))
         assertEquals("a stable same-editor start without the restart flag keeps it too", View.VISIBLE, panel.clearDialogForTest().visibility)
+    }
+
+    @Test fun new_different_other_kind_unknown_and_finishing_targets_clear_every_state_class() {
+        for (kind in StateKind.entries) {
+            fixture().also { f ->
+                val seeded = seed(f, kind)
+                val differentField = editor(fieldId = 202)
+                f.service.onStartInput(differentField, true)
+                f.service.onStartInputView(differentField, true)
+                assertCleared(f, seeded, "$kind different field")
+            }
+            fixture().also { f ->
+                val seeded = seed(f, kind)
+                val differentApp = editor(packageName = "com.other.editor")
+                f.service.onStartInput(differentApp, true)
+                f.service.onStartInputView(differentApp, true)
+                assertCleared(f, seeded, "$kind different app")
+            }
+            fixture().also { f ->
+                val seeded = seed(f, kind)
+                val password = editor(
+                    inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD,
+                )
+                f.service.onStartInput(password, true)
+                f.service.onStartInputView(password, true)
+                assertCleared(f, seeded, "$kind other input kind")
+            }
+            fixture().also { f ->
+                val seeded = seed(f, kind)
+                f.service.onStartInput(null, true)
+                f.service.onStartInputView(null, true)
+                assertCleared(f, seeded, "$kind unknown target")
+            }
+            fixture().also { f ->
+                val seeded = seed(f, kind)
+                f.service.onFinishInputView(true)
+                f.service.onFinishInput()
+                assertCleared(f, seeded, "$kind finishing teardown")
+                assertFalse(f.service.transientStateForTest().inputActive)
+            }
+        }
+    }
+
+    @Test fun hard_target_boundary_scrubs_attached_panel_and_edit_bar_synchronously() {
+        val f = fixture()
+        val activity = Robolectric.buildActivity(Activity::class.java).setup()
+        val host = FrameLayout(activity.get())
+        activity.get().setContentView(host)
+        host.addView(f.view)
+        f.view.measure(
+            View.MeasureSpec.makeMeasureSpec(1280, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(582, View.MeasureSpec.AT_MOST),
+        )
+        f.view.layout(0, 0, f.view.measuredWidth, f.view.measuredHeight)
+        assertTrue("regression must exercise the attached/animated path", f.view.isAttachedToWindow)
+
+        val panelState = seed(f, StateKind.PHRASES_PANEL)
+        val cv = requireNotNull(panelState.clipboard)
+        assertTrue(f.view.isPanelShowing(cv))
+        f.service.onStartInput(editor(packageName = "com.other.editor"), false)
+        assertFalse("old panel must be gone in the same callback frame", f.view.panelShown)
+        assertNull("old panel must not remain touchable in the new target", cv.parent)
+        assertFalse(f.view.hasOverlay())
+
+        f.service.onStartInput(editor(), false)
+        f.service.onStartInputView(editor(), false)
+        seed(f, StateKind.INLINE_EDIT)
+        assertTrue(f.view.isEditBarShowing())
+        f.service.onStartInput(
+            editor(inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD),
+            true,
+        )
+        assertFalse("old edit text must be hidden in the same callback frame", f.view.isEditBarShowing())
+        assertFalse(f.view.hasOverlay())
+        assertEquals("", f.service.transientStateForTest().editText)
+
+        activity.pause().stop().destroy()
     }
 
     @Test fun symbol_panel_and_candidate_pairs_follow_the_current_paragraph_on_both_layouts() {
