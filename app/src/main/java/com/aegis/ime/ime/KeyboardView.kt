@@ -52,7 +52,12 @@ class KeyboardView(context: Context) : View(context) {
 
     private var layout: KeyboardLayout = Layouts.forId(LayoutId.ALPHA, Lang.CN)
     private var shifted = false
+    private var shiftLocked = false // I4: caps-lock (persistent) vs one-shot — drives the solid-arrow glyph
     private var lang = Lang.CN
+
+    // I4: a second tap on the shift key within the double-tap window promotes one-shot → caps lock.
+    private var lastShiftTapTime = 0L
+    private val doubleTapMs = ViewConfiguration.getDoubleTapTimeout().toLong()
 
     private val placed = ArrayList<Placed>()
     private var pressed: Key? = null
@@ -114,6 +119,9 @@ class KeyboardView(context: Context) : View(context) {
 
     private val density = resources.displayMetrics.density
     private val rowHeight = 52f * density
+    // I3: the 9-key felt a touch short — give only its rows a small extra height (the 26-key/number pages
+    // keep the base rowHeight). Per-row so the fractional 9-key cells grow proportionally.
+    private val nineRowExtra = 7f * density
     private val gap = 6f * density
     private val keyRadius = ImeShapes.keyRadiusDp * density // F2: rounded-rect keys (≤16dp, never pill)
 
@@ -131,6 +139,10 @@ class KeyboardView(context: Context) : View(context) {
     // F2: flat MD3 text — no neumorphic emboss shadow.
     private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(20f) }
     private val specialLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabelSecondary; textAlign = Paint.Align.CENTER; textSize = sp(15f) }
+    // I6: bold primary label for the 9-key 分词 / @# keys so they read as prominently as the letter keys.
+    private val boldLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(18f); typeface = android.graphics.Typeface.DEFAULT_BOLD }
+    // I4: the shift glyph when one-shot/locked — accent colour makes the active state obvious on a normal key.
+    private val shiftActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.accentBottom; textAlign = Paint.Align.CENTER; textSize = sp(20f) }
     private val accentLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.accentLabel; textAlign = Paint.Align.CENTER; textSize = sp(20f) }
     private val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyHint; textAlign = Paint.Align.RIGHT; textSize = sp(10f) }
     // B3 中英字号: active language large & centred, inactive one small in the bottom-right corner.
@@ -152,6 +164,8 @@ class KeyboardView(context: Context) : View(context) {
         palette = p
         labelPaint.color = p.keyLabel
         specialLabelPaint.color = p.keyLabelSecondary
+        boldLabelPaint.color = p.keyLabel
+        shiftActivePaint.color = p.accentBottom
         accentLabelPaint.color = p.accentLabel
         subPaint.color = p.keyHint
         langActivePaint.color = p.keyLabelSecondary
@@ -169,12 +183,13 @@ class KeyboardView(context: Context) : View(context) {
 
     private data class Placed(val rect: RectF, val key: Key, val groupId: Int = 0)
 
-    fun setLayout(newLayout: KeyboardLayout, isShifted: Boolean, language: Lang) {
+    fun setLayout(newLayout: KeyboardLayout, isShifted: Boolean, isLocked: Boolean, language: Lang) {
         // A3: reset the left column to the top whenever its CONTENT changes (new syllable / rest↔compose),
         // but keep the scroll offset on a pure re-render of the same list.
         val sameColumn = newLayout.scrollColumn?.items?.map { it.label } == layout.scrollColumn?.items?.map { it.label }
         layout = newLayout
         shifted = isShifted
+        shiftLocked = isLocked // I4: drives the solid (locked) vs hollow (one-shot/off) shift glyph
         lang = language
         scrollColumn = newLayout.scrollColumn
         if (!sameColumn) scrollY = 0f
@@ -189,7 +204,9 @@ class KeyboardView(context: Context) : View(context) {
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
         val rows = layout.rowCount
-        val height = (rows * rowHeight + (rows + 1) * gap).toInt()
+        // I3: only the 9-key gets the small per-row bump; its fractional cells scale with the taller height.
+        val rh = if (layout.id == LayoutId.NINE) rowHeight + nineRowExtra else rowHeight
+        val height = (rows * rh + (rows + 1) * gap).toInt()
         setMeasuredDimension(width, height)
     }
 
@@ -328,11 +345,13 @@ class KeyboardView(context: Context) : View(context) {
 
     private fun drawLabel(canvas: Canvas, p: Placed) {
         if (p.key.action == KeyAction.TOGGLE_LANG) { drawLangToggle(canvas, p.rect); return }
+        if (p.key.action == KeyAction.SHIFT) { drawShift(canvas, p.rect); return } // I4: stateful arrow glyph
         val cx = p.rect.centerX()
         val cy = p.rect.centerY()
         val display = displayLabel(p.key)
         val paint = when {
             p.key.accent -> accentLabelPaint
+            p.key.bold -> boldLabelPaint // I6: 分词 / @# at the prominent primary weight
             display.length > 1 && p.key.action != KeyAction.COMMIT -> specialLabelPaint
             else -> labelPaint
         }
@@ -353,6 +372,30 @@ class KeyboardView(context: Context) : View(context) {
         val baseline = rect.centerY() - (langActivePaint.descent() + langActivePaint.ascent()) / 2
         canvas.drawText(active, rect.centerX(), baseline, langActivePaint)
         canvas.drawText(small, rect.right - 5 * density, rect.bottom - 6 * density, langSmallPaint)
+    }
+
+    /**
+     * I4 shift key, three visually distinct states:
+     *  OFF  → hollow up-arrow ⇧ in the normal label colour;
+     *  ONCE → hollow up-arrow ⇧ in the accent colour (temporarily armed — "临时态");
+     *  LOCK → SOLID up-arrow ⬆ in the accent colour (caps lock — the "实心箭头").
+     */
+    private fun drawShift(canvas: Canvas, rect: RectF) {
+        // U+2B06 is emoji-presentation-capable; the U+FE0E text selector forces a flat glyph so it keeps the
+        // accent colour (a color-emoji ⬆ would ignore shiftActivePaint) and reads as the "实心箭头".
+        val glyph = if (shiftLocked) "⬆︎" else "⇧"
+        val paint = if (shifted) shiftActivePaint else labelPaint
+        canvas.drawText(glyph, rect.centerX(), rect.centerY() - (paint.descent() + paint.ascent()) / 2, paint)
+    }
+
+    /** I4 test seam: the shift key's current visual state (OFF / ONCE / LOCK). */
+    internal fun shiftRenderState(): String = if (shiftLocked) "LOCK" else if (shifted) "ONCE" else "OFF"
+
+    /** Test seam: the on-screen centre of the first key with [action] (for robust tap targeting). */
+    internal fun centerOfActionForTest(action: KeyAction): Pair<Float, Float>? {
+        if (placed.isEmpty()) relayout()
+        val p = placed.firstOrNull { it.key.action == action } ?: return null
+        return p.rect.centerX() to p.rect.centerY()
     }
 
     private fun displayLabel(key: Key): String {
@@ -436,7 +479,7 @@ class KeyboardView(context: Context) : View(context) {
                         else onKey(dk)
                     }
                     !repeating ->
-                        currentTarget(event.x, event.y)?.let { performClick(); onKey(it) }
+                        currentTarget(event.x, event.y)?.let { performClick(); emitKey(it, event.eventTime) }
                 }
                 downKey = null
                 downPlaced = null
@@ -556,6 +599,26 @@ class KeyboardView(context: Context) : View(context) {
         val dx = x - downX
         val dy = y - downY
         return if (dx * dx + dy * dy <= t * t) dp.key else placedAt(x, y)?.key ?: dp.key
+    }
+
+    /**
+     * I4: emit a tapped key, promoting a quick second tap on the SHIFT key to caps lock. The first tap
+     * fires SHIFT (→ one-shot); a second SHIFT tap within the double-tap window fires SHIFT_LOCK (→ lock).
+     * Any other key, or a slow tap, resets the window. Timing comes from the MotionEvent so it is testable.
+     */
+    private fun emitKey(key: Key, eventTime: Long) {
+        if (key.action == KeyAction.SHIFT) {
+            if (lastShiftTapTime != 0L && eventTime - lastShiftTapTime <= doubleTapMs) {
+                lastShiftTapTime = 0L // consume — a third quick tap starts a fresh window, not another lock
+                onKey(Key(key.label, action = KeyAction.SHIFT_LOCK))
+            } else {
+                lastShiftTapTime = eventTime
+                onKey(key)
+            }
+            return
+        }
+        lastShiftTapTime = 0L // any non-shift tap breaks a pending double-tap
+        onKey(key)
     }
 
     override fun performClick(): Boolean {
