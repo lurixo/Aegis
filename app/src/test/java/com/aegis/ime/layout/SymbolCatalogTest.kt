@@ -59,6 +59,13 @@ class SymbolCatalogTest {
         for (c in listOf("$", "¥", "€", "£", "₩", "₹", "₽")) assertTrue("missing $c", c in cur)
     }
 
+    @Test fun net_drops_domain_suffixes_but_keeps_url_completions() {
+        // P5: 域名后缀 (.com/.cn/.net/.org) removed; URL completions stay (SymbolsView renders them as chips).
+        val net = SymbolCatalog.categories.first { it.id == "net" }.symbols
+        for (suffix in listOf(".com", ".cn", ".net", ".org")) assertTrue("$suffix should be removed", suffix !in net)
+        for (c in listOf("http://", "https://", "www.", "://")) assertTrue("missing completion $c", c in net)
+    }
+
     @Test fun every_category_is_non_empty_and_has_no_duplicates() {
         for (c in SymbolCatalog.categories) {
             assertTrue("${c.title} must not be empty", c.symbols.isNotEmpty())

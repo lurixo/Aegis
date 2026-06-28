@@ -58,7 +58,16 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         columnCount = COLUMNS
         val p = dp(4); setPadding(p, p, p, p)
     }
-    private val gridScroll = ScrollView(context).apply { addView(grid); isFillViewport = true }
+    // P5: a 网址补全 chip bar above the glyph grid, holding multi-char completions (shown only on tabs that
+    // have any — 网络, and 常用 if a completion was used; GONE elsewhere). The grid is nested with it in
+    // gridHolder so the single GONE↔VISIBLE swap keeps every all-glyph category pixel-identical.
+    private val netBar = LinearLayout(context).apply { orientation = VERTICAL; visibility = View.GONE }
+    private val gridHolder = LinearLayout(context).apply {
+        orientation = VERTICAL
+        addView(netBar, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        addView(grid, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+    }
+    private val gridScroll = ScrollView(context).apply { addView(gridHolder); isFillViewport = true }
     private val backBtn = barButton("返回") { onBack() }
     private val lockBtn = barButton("锁定") { toggleLock() }       // P3
     private val backspaceBtn = barButton("⌫") { onBackspace() }
@@ -125,10 +134,80 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
             tab.setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         }
         grid.removeAllViews()
+        netBar.removeAllViews()
         val symbols = symbolsFor(index)
-        if (symbols.isEmpty()) { grid.addView(emptySpan()); return }
-        // P2: only the 常用 tab (index 0) shows an origin badge; the category tabs are already labelled.
-        for (s in symbols) grid.addView(cell(s, badge = if (index == 0) badgeFor(s) else null))
+        if (symbols.isEmpty()) { netBar.visibility = View.GONE; grid.addView(emptySpan()); return }
+        // P5: multi-char entries (URL completions like http:// https:// www. ://) render as content-sized
+        // chips in the 网址补全 bar so they NEVER truncate in the single-glyph grid. This fires on the 网络
+        // tab and also catches any such completion surfaced in 常用 (recents). Single glyphs keep the
+        // unchanged grid path, so every all-glyph category (中文/英文/数学/…) stays pixel-identical.
+        val completions = symbols.filter { it.length > 1 }
+        val glyphs = symbols.filter { it.length == 1 }
+        if (completions.isEmpty()) {
+            netBar.visibility = View.GONE
+        } else {
+            netBar.visibility = View.VISIBLE
+            // header only on the 网络 tab (gate on id, not a hardcoded index, so it survives reordering)
+            if (index != 0 && SymbolCatalog.categories.getOrNull(index - 1)?.id == "net") netBar.addView(netHeader("网址补全"))
+            addCompletionChips(completions)
+        }
+        // P2: only the 常用 tab (index 0) shows an origin badge on its glyph cells.
+        for (s in glyphs) grid.addView(cell(s, badge = if (index == 0) badgeFor(s) else null))
+    }
+
+    /** P5: lay the multi-char completions out as full, single-line chips, wrapping to a new row instead of
+     *  truncating. Reuses [cell]'s tap contract (P3 lock aware) via [netChip]. */
+    private fun addCompletionChips(completions: List<String>) {
+        val maxRowW = resources.displayMetrics.widthPixels - dp(60) - dp(16) // minus the left rail + row padding
+        val gap = dp(8)
+        var row = netRow()
+        var rowW = 0
+        for (c in completions) {
+            val chip = netChip(c)
+            val w = measureW(chip) + gap
+            if (rowW + w > maxRowW && row.childCount > 0) { netBar.addView(row); row = netRow(); rowW = 0 }
+            row.addView(
+                // WRAP height + minHeight (like cell()) so the chip grows at large font scale instead of clipping
+                chip,
+                LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { marginEnd = gap; topMargin = dp(4) },
+            )
+            rowW += w
+        }
+        if (row.childCount > 0) netBar.addView(row)
+    }
+
+    private fun netHeader(text: String): TextView = TextView(context).apply {
+        this.text = text
+        setTextColor(palette.keyLabelSecondary)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+        setPadding(dp(8), dp(6), dp(8), dp(4))
+    }
+
+    private fun netRow(): LinearLayout = LinearLayout(context).apply {
+        orientation = HORIZONTAL
+        setPadding(dp(4), 0, dp(4), 0)
+    }
+
+    /** A 网址补全 chip: reuses the glyph tile's visual language (keySurface + 8dp corners) but hugs its text,
+     *  single-line with ellipsize off, so a long completion can never wrap mid-token or clip. */
+    private fun netChip(symbol: String): View = TextView(context).apply {
+        text = symbol
+        maxLines = 1
+        ellipsize = null
+        minimumHeight = dp(44)
+        gravity = Gravity.CENTER
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+        setTextColor(palette.keyLabel)
+        background = GradientDrawable().apply { setColor(palette.keySurface); cornerRadius = 8f * density }
+        val ph = dp(14); setPadding(ph, dp(8), ph, dp(8))
+        isClickable = true
+        setOnClickListener { onSymbol(symbol); if (!locked) onBack() }
+    }
+
+    private fun measureW(v: View): Int {
+        val unspec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        v.measure(unspec, unspec)
+        return v.measuredWidth
     }
 
     private fun symbolsFor(index: Int): List<String> =
@@ -207,6 +286,20 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun openCategoryForTest(index: Int) = showCategory(index)
     internal fun toggleLockForTest() = toggleLock()
     internal fun gridScrollYForTest(): Int = gridScroll.scrollY
+
+    // P5 net-layout test seams.
+    internal fun netBarVisibleForTest(): Boolean = netBar.visibility == View.VISIBLE
+    internal fun gridCellCountForTest(): Int = grid.childCount
+    internal fun netChipTextsForTest(): List<String> {
+        val out = ArrayList<String>()
+        for (i in 0 until netBar.childCount) {
+            val child = netBar.getChildAt(i)
+            if (child is LinearLayout) { // a chip row; the header is a bare TextView, skipped
+                for (j in 0 until child.childCount) (child.getChildAt(j) as? TextView)?.let { out.add(it.text.toString()) }
+            }
+        }
+        return out
+    }
 
     /** P3: the lock key shows its on/off state (filled 🔒 + accent when locked, 🔓 + muted when not). */
     private fun updateLockFace() {

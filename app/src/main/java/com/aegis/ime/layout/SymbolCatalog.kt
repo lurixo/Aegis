@@ -39,10 +39,11 @@ object SymbolCatalog {
         )),
         // U24: 货币 — between 英文 and 网络.
         Category("currency", "货币", tokens("$ ¥ € £ ₩ ₹ ₽ ₺ ฿ ₫ ₴ ₦ ¢ ₱ ₪ ₸ ₮ ₭ ₲ ₡ ₵ ₿ ﷼ ₠ ₣ ₤ ₥ 元 円 圆")),
-        // 网络 = URL-building helpers (NOT kaomoji/decoration).
+        // 网络 = URL-building helpers (NOT kaomoji/decoration). debug.12 P5: domain
+        // suffixes (.com/.cn/.net/.org) removed; the multi-char completions (http:// https:// www. ://) are
+        // rendered as full-width chips by SymbolsView so they no longer truncate in the single-glyph grid.
         Category("net", "网络", listOf(
-            ".", "/", "@", "-", "_", "http://", "https://", "www.", ".com", ".cn", ".net", ".org",
-            "://", ":", "#", "?", "&", "=", "%",
+            ".", "/", "@", "-", "_", "http://", "https://", "www.", "://", ":", "#", "?", "&", "=", "%",
         )),
         Category("math", "数学", tokens("+ − × ÷ = ≠ ≈ ≡ ± ∓ ≤ ≥ ∞ √ ∛ ∑ ∏ ∫ ∮ ∂ ∇ ∆ ％ ‰ ∝ ∠ ⊥ ∥ ° ′ ″ π θ φ λ μ Σ Ω ½ ⅓ ¼ ¾ ⅔ ∈ ∉ ⊂ ⊃ ⊆ ⊇ ∪ ∩ ∅ ∀ ∃")),
         Category("arrow", "箭头", tokens("← → ↑ ↓ ↔ ↕ ↖ ↗ ↘ ↙ ⇐ ⇒ ⇑ ⇓ ⇔ ⇕ ↩ ↪ ↺ ↻ ➜ ➤ ➔ ⟶ ⟵ » « ‹ › ⬅ ➡ ⬆ ⬇ ⤴ ⤵")),
