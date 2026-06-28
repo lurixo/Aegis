@@ -25,4 +25,6 @@ interface ImeHost {
     fun replaceBeforeCursor(length: Int, text: CharSequence) {}
 
     fun hasSelection(): Boolean = false
+
+    fun deleteSelection() { commitText("") }
 }

@@ -84,7 +84,7 @@ class KeyboardControllerTest {
         assertEquals(listOf("haode"), h.commits)
     }
 
-    @Test fun picking_a_partial_candidate_commits_it_and_keeps_the_rest() {
+    @Test fun picking_a_partial_candidate_builds_a_prefix_and_defers_the_commit() {
         val h = FakeHost()
         val partial = object : CandidateEngine {
             override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
@@ -95,8 +95,47 @@ class KeyboardControllerTest {
         c.onKey(act(KeyAction.SWITCH_NINE))
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onPickCandidate(0)
+        assertTrue("a partial pick must NOT commit to the editor", h.commits.isEmpty())
+        assertEquals("你 is the assembled prefix", "你", c.composingPrefix())
+        assertEquals("the prefix renders at the strip's leftmost", "你hao", c.preeditForTest())
         c.onKey(act(KeyAction.ENTER))
-        assertEquals(listOf("你", "hao"), h.commits)
+        assertEquals(listOf("你hao"), h.commits)
+    }
+
+    @Test fun backspace_peels_the_assembled_prefix_before_touching_the_editor() {
+        val h = FakeHost()
+        val partial = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
+        }
+        val c = KeyboardController(h, partial)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        assertEquals("你", c.composingPrefix())
+        repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }
+        assertEquals("prefix intact while the remainder peels", "你", c.composingPrefix())
+        c.onKey(act(KeyAction.BACKSPACE))
+        assertEquals("prefix peeled away", "", c.composingPrefix())
+        assertEquals("never deleted committed editor text", 0, h.deletes)
+        assertTrue("nothing was ever committed", h.commits.isEmpty())
+    }
+
+    @Test fun space_on_a_bare_assembled_prefix_commits_it_once_without_a_literal_space() {
+        val h = FakeHost()
+        val partial = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
+        }
+        val c = KeyboardController(h, partial)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }
+        c.onKey(act(KeyAction.SPACE))
+        assertEquals(listOf("你"), h.commits)
     }
 
     @Test fun segment_forces_a_syllable_boundary() {

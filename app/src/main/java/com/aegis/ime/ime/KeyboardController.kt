@@ -48,6 +48,8 @@ class KeyboardController(
     private var candidates: List<Cand> = emptyList()
     private var lastWord: String? = null
 
+    private val committedPrefix = StringBuilder()
+
     private val lockedReadings = mutableListOf<String>()
     private var activeStart = 0
 
@@ -193,7 +195,7 @@ class KeyboardController(
                 clearComposingState(); lastWord = null
             }
             cand in directCommitCands -> {
-                host.commitText(cand.word)
+                host.commitText(committedPrefix.toString() + cand.word)
                 clearComposingState(); lastWord = null
             }
             else -> commitCandidate(cand)
@@ -227,7 +229,12 @@ class KeyboardController(
 
     private fun handleBackspace() {
         if (composing.isEmpty()) {
-            host.deleteBackward()
+            if (committedPrefix.isNotEmpty()) {
+                committedPrefix.setLength(committedPrefix.length - 1)
+                if (committedPrefix.isEmpty()) lastWord = null
+                return
+            }
+            if (host.hasSelection()) host.deleteSelection() else host.deleteBackward()
             lastWord = null
             return
         }
@@ -259,17 +266,18 @@ class KeyboardController(
 
     private fun handleSpace() {
         if (composing.isEmpty()) {
+            if (committedPrefix.isNotEmpty()) { flushComposing(); return }
             host.commitText(" ")
             lastWord = null
             return
         }
         val pick = candidates.firstOrNull()
         if (pick != null) commitCandidate(pick)
-        else { host.commitText(rawComposingText()); clearComposingState() }
+        else { host.commitText(committedPrefix.toString() + rawComposingText()); clearComposingState() }
     }
 
     private fun handleEnter() {
-        if (composing.isNotEmpty()) {
+        if (composing.isNotEmpty() || committedPrefix.isNotEmpty()) {
             flushComposing()
         } else {
             host.performEnter()
@@ -278,10 +286,10 @@ class KeyboardController(
     }
 
     private fun commitCandidate(cand: Cand) {
-        host.commitText(cand.word)
         if (!learningBlocked) engine.learn(lastWord, cand.word)
         lastWord = cand.word
         if (cand.coveredLen in 1 until composing.length) {
+            committedPrefix.append(cand.word)
             composing.delete(0, cand.coveredLen)
             val shifted = forcedCuts.filter { it > cand.coveredLen }.map { it - cand.coveredLen }
             forcedCuts.clear(); forcedCuts.addAll(shifted)
@@ -290,6 +298,7 @@ class KeyboardController(
             candidates = emptyList()
             rebuildHistory()
         } else {
+            host.commitText(committedPrefix.toString() + cand.word)
             clearComposingState()
         }
     }
@@ -300,8 +309,12 @@ class KeyboardController(
     }
 
     private fun flushComposing() {
+        val prefix = committedPrefix.toString()
         if (composing.isNotEmpty()) {
-            host.commitText(rawComposingText())
+            host.commitText(prefix + rawComposingText())
+            clearComposingState()
+        } else if (prefix.isNotEmpty()) {
+            host.commitText(prefix)
             clearComposingState()
         }
         lastWord = null
@@ -359,6 +372,7 @@ class KeyboardController(
         activeStart = 0
         forcedCuts.clear()
         history.clear()
+        committedPrefix.setLength(0)
     }
 
     private fun refreshCandidates() {
@@ -367,7 +381,7 @@ class KeyboardController(
         calcCand = null; calcExpr = ""
         candidates = when {
             composing.isNotEmpty() && mode() == Mode.PINYIN -> injectAssociations(base)
-            composing.isEmpty() -> calcCandidates()
+            composing.isEmpty() && committedPrefix.isEmpty() -> calcCandidates()
             else -> base
         }
     }
@@ -415,24 +429,25 @@ class KeyboardController(
     private fun applyCase(s: String): String = if (shifted) s.uppercase() else s
 
     private fun preeditText(): String {
-        if (composing.isEmpty()) return ""
-        if (mode() == Mode.PINYIN && layoutId == LayoutId.NINE) {
+        val prefix = committedPrefix.toString()
+        if (composing.isEmpty()) return prefix
+        val tail = if (mode() == Mode.PINYIN && layoutId == LayoutId.NINE) {
             val locked = lockedReadings.joinToString("'")
             val rest = T9Pinyin.preedit(activeDigits(), activeCuts().toSet())
-            return when {
+            when {
                 locked.isEmpty() -> rest
                 rest.isEmpty() -> locked
                 else -> "$locked'$rest"
             }
-        }
-        return composing.toString()
+        } else composing.toString()
+        return prefix + tail
     }
 
     internal fun nineLeftColumn(): List<Key> {
         val w = 0.85f
         if (composing.isEmpty()) return Layouts.ninePunctuation(customSymbols)
         val active = activeDigits()
-        if (active.isEmpty()) return Layouts.ninePunctuation(customSymbols)
+        if (active.isEmpty()) return emptyList()
         val firstCut = activeCuts().firstOrNull()
         val chunk = if (firstCut != null) active.substring(0, firstCut) else active
         return T9Pinyin.leftColumnReadings(chunk, NINE_LEFT_MAX)
@@ -451,6 +466,10 @@ class KeyboardController(
         nineLeftColumn().filter { it.action == KeyAction.PICK_READING }.map { it.label }
 
     internal fun candidateWords(): List<String> = candidates.map { it.word }
+
+    internal fun composingPrefix(): String = committedPrefix.toString()
+
+    internal fun preeditForTest(): String = preeditText()
 
     fun onPickReadingIndex(index: Int) {
         val readings = expandedReadings()
