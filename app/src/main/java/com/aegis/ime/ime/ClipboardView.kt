@@ -125,7 +125,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val topBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), dp(6), dp(8), dp(6))
+            setPadding(dp(8), dp(3), dp(8), dp(3))
             addView(roundBtn("‹") { onBack() }, ll(dp(34), dp(44)))
             addView(View(context), ll(0, dp(1), 1f))
             addView(pillTray(), ll(WC, dp(36)))
