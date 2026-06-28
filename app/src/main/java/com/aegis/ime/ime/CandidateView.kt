@@ -179,7 +179,7 @@ class CandidateView(context: Context) : View(context) {
         val capT = capMarginV
         val capB = height - capMarginV
         val rad = (capB - capT) / 2f
-        capsulePaint.setShadowLayer(6f * density, 0f, 2f * density, 0x22000000)
+        capsulePaint.setShadowLayer(6f * density, 0f, 2f * density, palette.shadow)
         canvas.drawRoundRect(capL, capT, capR, capB, rad, rad, capsulePaint)
         capsulePaint.clearShadowLayer()
 

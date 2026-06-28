@@ -39,7 +39,7 @@ class PreeditView(context: Context) : View(context) {
 
     private val tabPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = palette.keySurface
-        setShadowLayer(5f * density, 0f, 2f * density, 0x22000000)
+        setShadowLayer(5f * density, 0f, 2f * density, palette.shadow)
     }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = palette.preeditText
@@ -49,6 +49,7 @@ class PreeditView(context: Context) : View(context) {
     fun applyPalette(p: ImePalette) {
         palette = p
         tabPaint.color = p.keySurface
+        tabPaint.setShadowLayer(5f * density, 0f, 2f * density, p.shadow)
         textPaint.color = p.preeditText
         invalidate()
     }
@@ -69,7 +70,7 @@ class PreeditView(context: Context) : View(context) {
         if (text.isEmpty()) return
         val textX = leftInset + candPad
         val w = textPaint.measureText(text) + pad * 2
-        val r = ImeShapes.cardRadiusDp * density / 2f
+        val r = ImeShapes.keyRadiusDp * density
         tab.set(textX - pad, 0f, textX - pad + w, height.toFloat() + r)
         canvas.drawRoundRect(tab, r, r, tabPaint)
         val baseline = height / 2f - (textPaint.descent() + textPaint.ascent()) / 2
