@@ -73,8 +73,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private var palette = ImePalette.STATIC_LIGHT
     private var GREEN = palette.candidateFirst
     private var GREEN_PILL = palette.chipBg
-    private var RED = palette.deletable
-    private var RED_PILL = palette.chipBg
+    private var RED = palette.onErrorContainer    // U-polish: 删除 text on its destructive container
+    private var RED_PILL = palette.errorContainer // U-polish: 删除 reads red (MD3 destructive), not a grey chip
     private var GREY_PILL = palette.chipBg
     private var TEXT_DARK = palette.keyLabel
     private var HINT = palette.keyHint
@@ -87,7 +87,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     /** F1: recolour from the Monet palette and rebuild. */
     fun applyPalette(p: ImePalette) {
         palette = p
-        GREEN = p.candidateFirst; GREEN_PILL = p.chipBg; RED = p.deletable; RED_PILL = p.chipBg
+        GREEN = p.candidateFirst; GREEN_PILL = p.chipBg; RED = p.onErrorContainer; RED_PILL = p.errorContainer
         GREY_PILL = p.chipBg; TEXT_DARK = p.keyLabel; HINT = p.keyHint; CARD = p.keySurface
         TRAY = p.railBg; BG = p.panelBg; SUBTEXT = p.keyLabelSecondary; SEP = p.separator
         main.setBackgroundColor(BG)
@@ -134,6 +134,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     internal fun isClipboardTabForTest(): Boolean = st.tab == ClipboardPanelState.Tab.CLIPBOARD
     internal fun phraseCatForTest(): String = phraseCat
     internal fun forcePhrasesStateForTest(cat: String) { st.switchTab(ClipboardPanelState.Tab.PHRASE); phraseCat = cat }
+    internal fun enterSelectForTest(selected: List<String> = emptyList()) { st.enterSelect(); st.selected.addAll(selected); refresh() }
 
     fun refresh() {
         main.removeAllViews()
@@ -147,14 +148,14 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8), dp(6), dp(8), dp(6))
-            addView(roundBtn("‹") { onBack() }, ll(dp(34), dp(34)))
+            addView(roundBtn("‹") { onBack() }, ll(dp(34), dp(44)))
             addView(View(context), ll(0, dp(1), 1f))
             addView(pillTray(), ll(WC, dp(36)))
             addView(View(context), ll(0, dp(1), 1f))
             // the 常用语 tab adds a ＋; 多选 (☰) lives on BOTH tabs, then ⚙.
-            if (st.tab == Tab.PHRASE) addView(roundBtn("＋") { onManage() }, ll(dp(40), dp(34)))
-            addView(roundBtn("☰") { enterSelect() }, ll(dp(40), dp(34)))
-            addView(roundBtn("⚙") { showGearMenu() }, ll(dp(36), dp(34)))
+            if (st.tab == Tab.PHRASE) addView(roundBtn("＋") { onManage() }, ll(dp(40), dp(44)))
+            addView(roundBtn("☰") { enterSelect() }, ll(dp(40), dp(44)))
+            addView(roundBtn("⚙") { showGearMenu() }, ll(dp(36), dp(44)))
         }
         main.addView(topBar, ll(MP, dp(50)))
         // U9: no 字数/条数上限 line.
@@ -276,7 +277,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val cur = currentCategory()
         for (name in categoriesProvider()) chips.addView(catChip(name, name == cur))
         addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, ll(0, WC, 1f))
-        addView(roundBtn("✎") { onManage() }, ll(dp(40), dp(34))) // ✎ 管理
+        addView(roundBtn("✎") { onManage() }, ll(dp(40), dp(44))) // ✎ 管理
     }
 
     private fun catChip(name: String, on: Boolean): View = TextView(context).apply {

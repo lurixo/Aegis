@@ -121,6 +121,26 @@ class RenderHarness {
         FileOutputStream(File(outDir, "panel_fade_mid.png")).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
+    @Test fun copy_bar() {
+        val h = (44 * ctx.resources.displayMetrics.density).toInt()
+        for ((t, pal) in themes) {
+            val v = CopyBarView(ctx).apply { applyPalette(pal); show("这是一段被复制的内容") }
+            snap(v, h, "copybar_$t.png")
+        }
+    }
+
+    @Test fun clipboard_select_delete() {
+        val h = (300 * ctx.resources.displayMetrics.density).toInt()
+        for ((t, pal) in themes) {
+            val v = ClipboardView(ctx).apply {
+                historyProvider = { listOf("hello world", "复制的一段文字") }
+                applyPalette(pal)
+                enterSelectForTest(listOf("hello world")) // selection present -> 删除 enabled (destructive red)
+            }
+            snap(v, h, "clip_select_$t.png")
+        }
+    }
+
     @Test fun keyboard_alpha() {
         val h = (230 * ctx.resources.displayMetrics.density).toInt()
         for ((t, pal) in themes) {

@@ -39,10 +39,8 @@ data class ImePalette(
     val keyLabel: Int,              // primary glyph
     val keyLabelSecondary: Int,     // special / small glyph
     val keyHint: Int,               // sub / super-script
-    val accentTop: Int,             // enter / primary key gradient top
-    val accentBottom: Int,          // enter gradient bottom
+    val accentBottom: Int,          // accent / enter key fill
     val accentLabel: Int,           // on-accent text
-    val accentGlow: Int,            // enter halo (ARGB incl. alpha)
     val candidateFirst: Int,        // top-candidate highlight
     val candidateText: Int,
     val preeditText: Int,           // pinyin tab
@@ -54,6 +52,8 @@ data class ImePalette(
     val chipText: Int,
     val icon: Int,                  // toolbar / panel line icons
     val deletable: Int,             // removable-item accent (custom-symbol ✕)
+    val errorContainer: Int,        // destructive-action container (删除)
+    val onErrorContainer: Int,      // text on the destructive container
     val disabled: Int,
     val scrim: Int,
     val shadow: Int,                // drop-shadow colour (incl. alpha) for the 2 elevated surfaces
@@ -67,10 +67,8 @@ data class ImePalette(
             keyLabel = 0xFF202124.toInt(),
             keyLabelSecondary = 0xFF37474F.toInt(),
             keyHint = 0xFF90A4AE.toInt(),
-            accentTop = 0xFF7CC47F.toInt(),
             accentBottom = 0xFF57A35B.toInt(),
             accentLabel = 0xFFFFFFFF.toInt(),
-            accentGlow = 0x9943A047.toInt(),
             candidateFirst = 0xFF2E7D32.toInt(),
             candidateText = 0xFF202124.toInt(),
             preeditText = 0xFF1565C0.toInt(),
@@ -82,6 +80,8 @@ data class ImePalette(
             chipText = 0xFF202124.toInt(),
             icon = 0xFF455A64.toInt(),
             deletable = 0xFFD32F2F.toInt(),
+            errorContainer = 0xFFF9DEDC.toInt(),
+            onErrorContainer = 0xFF410E0B.toInt(),
             disabled = 0xFFB0BEC5.toInt(),
             scrim = 0x66000000,
             shadow = 0x22000000, // U-polish: the value the capsule/preedit shadow was hardcoded to (light identical)
@@ -95,10 +95,8 @@ data class ImePalette(
             keyLabel = 0xFFE3E2E6.toInt(),
             keyLabelSecondary = 0xFFC2C7CE.toInt(),
             keyHint = 0xFF8D9199.toInt(),
-            accentTop = 0xFF6FB374.toInt(),
             accentBottom = 0xFF4E9152.toInt(),
             accentLabel = 0xFF06250A.toInt(),
-            accentGlow = 0x9943A047.toInt(),
             candidateFirst = 0xFF8BD08F.toInt(),
             candidateText = 0xFFE3E2E6.toInt(),
             preeditText = 0xFF9FC9FF.toInt(),
@@ -110,6 +108,8 @@ data class ImePalette(
             chipText = 0xFFE3E2E6.toInt(),
             icon = 0xFFB0B6BE.toInt(),
             deletable = 0xFFFFB4AB.toInt(),
+            errorContainer = 0xFF8C1D18.toInt(),
+            onErrorContainer = 0xFFF9DEDC.toInt(),
             disabled = 0xFF5A5E62.toInt(),
             scrim = 0x99000000.toInt(),
             shadow = 0x40000000, // U-polish: a touch stronger on dark so the elevated surface still reads as lifted
@@ -129,10 +129,8 @@ data class ImePalette(
                 keyLabel = cs.onSurface.toArgb(),
                 keyLabelSecondary = cs.onSurfaceVariant.toArgb(),
                 keyHint = cs.outline.toArgb(),
-                accentTop = cs.primary.toArgb(),
                 accentBottom = cs.primary.toArgb(),
                 accentLabel = cs.onPrimary.toArgb(),
-                accentGlow = withAlpha(cs.primary.toArgb(), 0x99),
                 candidateFirst = cs.primary.toArgb(),
                 candidateText = cs.onSurface.toArgb(),
                 preeditText = cs.primary.toArgb(),
@@ -144,6 +142,8 @@ data class ImePalette(
                 chipText = cs.onSecondaryContainer.toArgb(),
                 icon = cs.onSurfaceVariant.toArgb(),
                 deletable = cs.error.toArgb(),
+                errorContainer = cs.errorContainer.toArgb(),
+                onErrorContainer = cs.onErrorContainer.toArgb(),
                 disabled = cs.outline.toArgb(),
                 scrim = withAlpha(cs.scrim.toArgb(), 0x66),
                 shadow = withAlpha(cs.scrim.toArgb(), if (dark) 0x40 else 0x22),

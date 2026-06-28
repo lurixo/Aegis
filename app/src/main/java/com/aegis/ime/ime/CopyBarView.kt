@@ -20,6 +20,7 @@ import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
 import android.content.Context
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.InsetDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -54,14 +55,21 @@ class CopyBarView(context: Context) : LinearLayout(context) {
     init {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        setBackgroundColor(palette.keyboardBg)
-        setPadding(dp(10), 0, dp(6), 0)
+        background = capsuleBg() // U-polish: floating capsule like the idle toolbar (was a flat keyboardBg row)
+        setPadding(dp(14), 0, dp(14), 0)
     }
+
+    /** U-polish: the copy bar now matches the idle toolbar's floating capsule — a rounded keySurface inset
+     *  from the row edges (over the keyboardBg floor) — so capturing a clip no longer flips flat<->floating. */
+    private fun capsuleBg() = InsetDrawable(
+        GradientDrawable().apply { setColor(palette.keySurface); cornerRadius = ImeShapes.chipRadiusDp * density },
+        dp(8), dp(5), dp(8), dp(5),
+    )
 
     /** F1: recolour from the Monet palette (content rebuilt via render). */
     fun applyPalette(p: ImePalette) {
         palette = p
-        setBackgroundColor(p.keyboardBg)
+        background = capsuleBg()
         render()
     }
 
@@ -110,7 +118,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         text = label
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
-        setTextColor(palette.candidateText)
+        setTextColor(palette.chipText) // U-polish: onSecondaryContainer pairs with the chipBg container
         setPadding(dp(12), dp(5), dp(12), dp(5))
         background = GradientDrawable().apply { setColor(palette.chipBg); cornerRadius = ImeShapes.chipRadiusDp * density }
         setOnClickListener { onClick() }
