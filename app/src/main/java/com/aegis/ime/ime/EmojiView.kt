@@ -54,7 +54,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
 
     init {
         orientation = VERTICAL
-        setBackgroundColor(palette.panelBg)
+        setBackgroundColor(palette.keyboardBg) // P-A: panel floor == the strip/keyboard floor (no top seam)
 
         for ((i, c) in EmojiCatalog.categories.withIndex()) rail.addView(railTab(i, c.title))
 
@@ -72,9 +72,9 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     /** F1: recolour from the Monet palette. */
     fun applyPalette(p: ImePalette) {
         palette = p
-        setBackgroundColor(p.panelBg)
+        setBackgroundColor(p.keyboardBg) // P-A: see init
         railScroll.setBackgroundColor(p.railBg)
-        bottomBarView.setBackgroundColor(p.panelBg) // P6: 返回 bar = content background (was panelSubBg)
+        bottomBarView.setBackgroundColor(p.keyboardBg) // P-A: 返回 bar = the unified floor
         (bottomBarView as LinearLayout).let { bar ->
             for (i in 0 until bar.childCount) (bar.getChildAt(i) as? TextView)?.setTextColor(p.keyLabelSecondary)
         }
@@ -135,7 +135,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
 
     private fun bottomBar(): View = LinearLayout(context).apply {
         orientation = HORIZONTAL
-        setBackgroundColor(palette.panelBg) // P6: same as the content background (was panelSubBg)
+        setBackgroundColor(palette.keyboardBg) // P-A: same as the unified floor
         addView(barButton("返回") { onBack() }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         addView(barButton("⌫") { onBackspace() }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
     }

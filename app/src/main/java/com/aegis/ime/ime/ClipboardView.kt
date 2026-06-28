@@ -80,7 +80,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private var HINT = palette.keyHint
     private var CARD = palette.keySurface
     private var TRAY = palette.railBg
-    private var BG = palette.panelBg
+    private var BG = palette.keyboardBg // P-A: panel floor == the strip/keyboard floor (no top seam)
     private var SUBTEXT = palette.keyLabelSecondary
     private var SEP = palette.separator
 
@@ -89,7 +89,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         palette = p
         GREEN = p.candidateFirst; GREEN_PILL = p.chipBg; RED = p.onErrorContainer; RED_PILL = p.errorContainer
         GREY_PILL = p.chipBg; TEXT_DARK = p.keyLabel; HINT = p.keyHint; CARD = p.keySurface
-        TRAY = p.railBg; BG = p.panelBg; SUBTEXT = p.keyLabelSecondary; SEP = p.separator
+        TRAY = p.railBg; BG = p.keyboardBg; SUBTEXT = p.keyLabelSecondary; SEP = p.separator // P-A: BG = unified floor
         main.setBackgroundColor(BG)
         refresh()
     }

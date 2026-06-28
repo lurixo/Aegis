@@ -33,7 +33,7 @@ import androidx.compose.ui.graphics.toArgb
  * is switched to dynamic.
  */
 data class ImePalette(
-    val keyboardBg: Int,            // keyboard / panel floor
+    val keyboardBg: Int,            // keyboard / candidate-strip / panel floor (debug.13 P-A: the single floor)
     val keySurface: Int,            // flat key fill (F2: MD3 tonal, no gradient)
     val keySurfacePressed: Int,     // pressed key fill
     val keyLabel: Int,              // primary glyph
@@ -46,7 +46,6 @@ data class ImePalette(
     val preeditText: Int,           // pinyin tab
     val separator: Int,
     val railBg: Int,                // scroll track / side rail
-    val panelBg: Int,               // panel floor
     val chipBg: Int,
     val chipText: Int,
     val icon: Int,                  // toolbar / panel line icons
@@ -73,7 +72,6 @@ data class ImePalette(
             preeditText = 0xFF1565C0.toInt(),
             separator = 0xFFD2D7DE.toInt(),
             railBg = 0xFFEFF1F5.toInt(),
-            panelBg = 0xFFF7F8FA.toInt(),
             chipBg = 0xFFE2E5E9.toInt(),
             chipText = 0xFF202124.toInt(),
             icon = 0xFF455A64.toInt(),
@@ -100,7 +98,6 @@ data class ImePalette(
             preeditText = 0xFF9FC9FF.toInt(),
             separator = 0xFF3A3E42.toInt(),
             railBg = 0xFF222629.toInt(),
-            panelBg = 0xFF1A1C1E.toInt(),
             chipBg = 0xFF2C3034.toInt(),
             chipText = 0xFFE3E2E6.toInt(),
             icon = 0xFFB0B6BE.toInt(),
@@ -133,7 +130,6 @@ data class ImePalette(
                 preeditText = cs.primary.toArgb(),
                 separator = cs.outlineVariant.toArgb(),
                 railBg = cs.surfaceContainerLow.toArgb(),
-                panelBg = cs.surfaceContainerLow.toArgb(),
                 chipBg = cs.secondaryContainer.toArgb(),
                 chipText = cs.onSecondaryContainer.toArgb(),
                 icon = cs.onSurfaceVariant.toArgb(),

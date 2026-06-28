@@ -53,7 +53,7 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
 
     init {
         orientation = HORIZONTAL
-        setBackgroundColor(palette.panelBg)
+        setBackgroundColor(palette.keyboardBg) // P-A: panel floor == the strip/keyboard floor (no top seam)
 
         // LEFT — pinyin-combination selector (scroll).
         readingColumn.setBackgroundColor(palette.railBg)
@@ -67,7 +67,7 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
             LayoutParams(0, LayoutParams.MATCH_PARENT, 1f),
         )
         // RIGHT — function column: 返回 / 退格 / 重输.
-        rightColumn.setBackgroundColor(palette.panelBg) // U-polish: 返回-column matches every other panel (was panelSubBg, last P6 holdout)
+        rightColumn.setBackgroundColor(palette.keyboardBg) // P-A: 返回-column on the unified floor (was panelBg)
         rightColumn.addView(funcButton("返回") { onClose() }, funcLp())
         rightColumn.addView(funcButton("⌫") { onBackspace() }, funcLp())
         rightColumn.addView(funcButton("重输") { onClear() }, funcLp())
@@ -77,9 +77,9 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
     /** F1: recolour the panel from the Monet palette (content recolours on the next setReadings/setCandidates). */
     fun applyPalette(p: ImePalette) {
         palette = p
-        setBackgroundColor(p.panelBg)
+        setBackgroundColor(p.keyboardBg) // P-A: see init
         readingColumn.setBackgroundColor(p.railBg)
-        rightColumn.setBackgroundColor(p.panelBg) // U-polish: see init
+        rightColumn.setBackgroundColor(p.keyboardBg) // P-A: see init
         for (i in 0 until rightColumn.childCount) (rightColumn.getChildAt(i) as? TextView)?.setTextColor(p.keyLabelSecondary)
         for (i in 0 until readingColumn.childCount) (readingColumn.getChildAt(i) as? TextView)?.setTextColor(p.preeditText)
     }
