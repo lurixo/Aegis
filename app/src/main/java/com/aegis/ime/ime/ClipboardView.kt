@@ -41,7 +41,7 @@ import com.aegis.ime.user.ClipSplitter
 class ClipboardView(context: Context) : FrameLayout(context) {
 
     var onPick: (String) -> Unit = {}                 // commit a clip/phrase and close
-    var onCommitBlock: (String) -> Unit = {}          // 拆词: commit a block, keep the panel open
+    var onCopyBlockToAegis: (String) -> Unit = {}     // 拆词块 → 写 aegis 剪贴板(不上屏/不写系统);面板保持打开
     var onBack: () -> Unit = {}
     var historyProvider: () -> List<String> = { emptyList() }
     var categoriesProvider: () -> List<String> = { emptyList() }
@@ -353,7 +353,7 @@ class ClipboardView(context: Context) : FrameLayout(context) {
             setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             setPadding(dp(12), dp(8), dp(12), dp(8))
             background = rounded(GREY_PILL, 999f)
-            setOnClickListener { onCommitBlock(b) } // commit, keep open for picking more blocks
+            setOnClickListener { onCopyBlockToAegis(b) } // 拆词块写 aegis 剪贴板,面板保持打开
             layoutParams = ll(WC, WC).apply { rightMargin = dp(8) }
         })
         panel.addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) })

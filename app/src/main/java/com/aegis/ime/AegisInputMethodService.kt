@@ -24,6 +24,7 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.widget.Toast
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.Fuzzy
@@ -166,7 +167,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onPanelClear = { controller.onPanelClear() }          // A2 expanded: 重输
             onCollapse = { requestHideSelf(0) } // idle toolbar ⌄ collapses the keyboard
             onCopyCommit = { t -> currentInputConnection?.commitText(t, 1) } // 复制条 ⑤: 上屏
-            onCopyBlock = { b -> clipboardStore.record(b) }                   // 复制条 ③: 写 aegis 剪贴板(不上屏/不写系统)
+            onCopyBlock = { b -> copyBlockToAegis(b) }                        // 复制条 ③: 写 aegis 剪贴板(不上屏/不写系统)
         }
         inputView = view
         controller.attachView(view)
@@ -283,7 +284,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.categoriesProvider = { clipboardStore.categories() }                       // C5 分类
             it.phrasesInProvider = { cat -> clipboardStore.phrasesIn(cat) }
             it.onPick = { t -> currentInputConnection?.commitText(t, 1); inputView?.showPanel(null) }
-            it.onCommitBlock = { b -> clipboardStore.record(b) }                          // ③ 拆词块写 aegis 剪贴板(不上屏/不写系统)
+            it.onCopyBlockToAegis = { b -> copyBlockToAegis(b) }                          // ③ 拆词块写 aegis 剪贴板(不上屏/不写系统)
             it.onBack = { inputView?.showPanel(null) }
             it.onDeleteClips = { list -> clipboardStore.deleteAll(list) }                  // C7 多选删除
             it.onDeletePhrasesFrom = { cat, list -> list.forEach { clipboardStore.deletePhraseFrom(cat, it) } }
@@ -370,6 +371,16 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (t.isEmpty()) return
         clipboardStore.record(t)
         inputView?.showCopyBar(t)
+    }
+
+    /**
+     * ③ 拆词块 → aegis 剪贴板: write the block to [clipboardStore] (NOT the system clipboard, NOT the
+     * editor) and confirm with a light toast so the tap doesn't feel like a no-op. Shared by the copy-bar
+     * and the clipboard panel's 拆词 chips.
+     */
+    private fun copyBlockToAegis(block: String) {
+        clipboardStore.record(block)
+        Toast.makeText(this, "已存入剪贴板", Toast.LENGTH_SHORT).show()
     }
 
     // C1/C2 clipboard controls (wired to the panel ⚙ menu).
