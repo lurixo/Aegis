@@ -85,7 +85,63 @@ class RenderHarness {
         return out.isNotEmpty()
     }
 
+    private val density = ctx.resources.displayMetrics.density
+    private fun exactly(px: Int) = View.MeasureSpec.makeMeasureSpec(px, View.MeasureSpec.EXACTLY)
+
+    private fun stitchStripAndPanel(panel: View, panelHpx: Int, name: String, pal: ImePalette) {
+        val stripH = (44 * density).toInt()
+        val strip = CandidateView(ctx).apply { applyPalette(pal); setContent(emptyList(), "") }
+        strip.measure(exactly(wPx), exactly(stripH)); strip.layout(0, 0, wPx, stripH)
+        panel.measure(exactly(wPx), exactly(panelHpx)); panel.layout(0, 0, wPx, panelHpx)
+        val totalH = stripH + panelHpx
+        val bmp = Bitmap.createBitmap(wPx, totalH, Bitmap.Config.ARGB_8888)
+        bmp.eraseColor(Color.MAGENTA)
+        val c = Canvas(bmp)
+        strip.draw(c)
+        c.save(); c.translate(0f, stripH.toFloat()); panel.draw(c); c.restore()
+        FileOutputStream(File(outDir, name)).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        val stripFloor = bmp.getPixel((2 * density).toInt(), (2 * density).toInt())
+        assertTrue("$name: strip floor is not keyboardBg", stripFloor == pal.keyboardBg)
+        var panelSharesFloor = false
+        val row = IntArray(wPx)
+        var y = stripH + (8 * density).toInt()
+        val step = (8 * density).toInt()
+        while (y < totalH && !panelSharesFloor) {
+            bmp.getPixels(row, 0, wPx, 0, y, wPx, 1)
+            if (row.any { it == stripFloor }) panelSharesFloor = true
+            y += step
+        }
+        assertTrue("$name: panel body floor differs from the strip floor (a seam)", panelSharesFloor)
+    }
+
     private val themes = listOf("light" to ImePalette.STATIC_LIGHT, "dark" to ImePalette.STATIC_DARK)
+
+    @Test fun seam_strip_over_symbols() {
+        for ((t, pal) in themes) {
+            val panel = SymbolsView(ctx).apply {
+                recentProvider = { listOf("，", "。", "@") }; applyPalette(pal); openCategoryForTest(1)
+            }
+            stitchStripAndPanel(panel, (300 * density).toInt(), "seam_symbols_$t.png", pal)
+        }
+    }
+
+    @Test fun seam_strip_over_clipboard() {
+        for ((t, pal) in themes) {
+            val panel = ClipboardView(ctx).apply {
+                historyProvider = { listOf("第一条复制内容", "second clip on the board") }; applyPalette(pal)
+            }
+            stitchStripAndPanel(panel, (300 * density).toInt(), "seam_clipboard_$t.png", pal)
+        }
+    }
+
+    @Test fun symbols_locked() {
+        for ((t, pal) in themes) {
+            val v = SymbolsView(ctx).apply {
+                recentProvider = { listOf("，", "。") }; applyPalette(pal); openCategoryForTest(0); toggleLockForTest()
+            }
+            snap(v, (300 * density).toInt(), "symbols_locked_$t.png")
+        }
+    }
 
     @Test fun symbols_panel() {
         for ((t, pal) in themes) {

@@ -16,6 +16,11 @@
 package com.aegis.ime.ime
 
 import android.content.Context
+import android.graphics.Canvas
+import android.graphics.ColorFilter
+import android.graphics.Paint
+import android.graphics.PixelFormat
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
@@ -61,6 +66,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     private val gridScroll = ScrollView(context).apply { addView(gridHolder); isFillViewport = true }
     private val backBtn = barButton("返回") { onBack() }
     private val lockBtn = barButton("锁定") { toggleLock() }
+    private val lockGlyph = LockDrawable(density)
     private val backspaceBtn = barButton("⌫") { onBackspace() }
     private val bottomBarView = bottomBar()
 
@@ -70,7 +76,9 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
 
     init {
         orientation = VERTICAL
-        setBackgroundColor(palette.panelBg)
+        setBackgroundColor(palette.keyboardBg)
+        lockBtn.setCompoundDrawablesWithIntrinsicBounds(lockGlyph, null, null, null)
+        lockBtn.compoundDrawablePadding = dp(4)
 
         for ((i, t) in titles.withIndex()) rail.addView(railTab(i, t))
 
@@ -98,9 +106,9 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
 
     fun applyPalette(p: ImePalette) {
         palette = p
-        setBackgroundColor(p.panelBg)
+        setBackgroundColor(p.keyboardBg)
         railScroll.setBackgroundColor(p.railBg)
-        bottomBarView.setBackgroundColor(p.panelBg)
+        bottomBarView.setBackgroundColor(p.keyboardBg)
         (bottomBarView as LinearLayout).let { bar ->
             for (i in 0 until bar.childCount) (bar.getChildAt(i) as? TextView)?.setTextColor(p.keyLabelSecondary)
         }
@@ -268,14 +276,17 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     }
 
     private fun updateLockFace() {
-        lockBtn.text = if (locked) "🔒锁定" else "🔓锁定"
-        lockBtn.setTextColor(if (locked) palette.candidateFirst else palette.keyLabelSecondary)
+        val tint = if (locked) palette.candidateFirst else palette.keyLabelSecondary
+        lockGlyph.closed = locked
+        lockGlyph.tint(tint)
+        lockBtn.text = "锁定"
+        lockBtn.setTextColor(tint)
         lockBtn.setTypeface(null, if (locked) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
     }
 
     private fun bottomBar(): View = LinearLayout(context).apply {
         orientation = HORIZONTAL
-        setBackgroundColor(palette.panelBg)
+        setBackgroundColor(palette.keyboardBg)
         addView(backBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         addView(lockBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         addView(backspaceBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
@@ -288,5 +299,26 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         setTextColor(palette.keyLabelSecondary)
         isClickable = true
         setOnClickListener { onClick() }
+    }
+
+    private class LockDrawable(private val density: Float) : Drawable() {
+        var closed = false
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1.8f * density
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+        fun tint(color: Int) { paint.color = color; invalidateSelf() }
+        override fun draw(canvas: Canvas) {
+            val b = bounds
+            Glyphs.drawLock(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) * 0.40f, closed)
+        }
+        override fun getIntrinsicWidth() = (18 * density).toInt()
+        override fun getIntrinsicHeight() = (18 * density).toInt()
+        override fun setAlpha(alpha: Int) {}
+        override fun setColorFilter(colorFilter: ColorFilter?) {}
+        @Deprecated("Deprecated in Java")
+        override fun getOpacity() = PixelFormat.TRANSLUCENT
     }
 }

@@ -49,7 +49,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
 
     init {
         orientation = VERTICAL
-        setBackgroundColor(palette.panelBg)
+        setBackgroundColor(palette.keyboardBg)
 
         for ((i, c) in EmojiCatalog.categories.withIndex()) rail.addView(railTab(i, c.title))
 
@@ -66,9 +66,9 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
 
     fun applyPalette(p: ImePalette) {
         palette = p
-        setBackgroundColor(p.panelBg)
+        setBackgroundColor(p.keyboardBg)
         railScroll.setBackgroundColor(p.railBg)
-        bottomBarView.setBackgroundColor(p.panelBg)
+        bottomBarView.setBackgroundColor(p.keyboardBg)
         (bottomBarView as LinearLayout).let { bar ->
             for (i in 0 until bar.childCount) (bar.getChildAt(i) as? TextView)?.setTextColor(p.keyLabelSecondary)
         }
@@ -124,7 +124,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
 
     private fun bottomBar(): View = LinearLayout(context).apply {
         orientation = HORIZONTAL
-        setBackgroundColor(palette.panelBg)
+        setBackgroundColor(palette.keyboardBg)
         addView(barButton("返回") { onBack() }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         addView(barButton("⌫") { onBackspace() }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
     }

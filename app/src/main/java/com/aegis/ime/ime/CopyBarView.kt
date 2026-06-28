@@ -19,6 +19,8 @@ import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
 import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.InsetDrawable
 import android.util.TypedValue
@@ -86,12 +88,17 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         addView(pill("×") { ctl.close() }, lp(dp(34), WC))
     }
 
-    private fun icon(): View = TextView(context).apply {
-        text = "📋"
-        gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
-        setOnClickListener { ctl.tapContent() }
-    }
+    private fun icon(): View = object : View(context) {
+        private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1.8f * density
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+            color = palette.icon
+        }
+        override fun onDraw(canvas: Canvas) =
+            Glyphs.drawClipboard(canvas, p, width / 2f, height / 2f, 9f * density)
+    }.apply { setOnClickListener { ctl.tapContent() } }
 
     private fun content(s: String): TextView = TextView(context).apply {
         text = s

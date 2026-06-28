@@ -215,13 +215,7 @@ class CandidateView(context: Context) : View(context) {
                 c.drawLine(cx - s * 0.5f, cy - s * 0.75f, cx + s * 0.5f, cy - s * 0.75f, iconPaint)
                 c.drawLine(cx - s * 0.5f, cy + s * 0.75f, cx + s * 0.5f, cy + s * 0.75f, iconPaint)
             }
-            BarFunction.CLIPBOARD -> {
-                val w = s * 0.58f; val h = s * 0.78f
-                c.drawRoundRect(cx - w, cy - h + s * 0.18f, cx + w, cy + h, s * 0.22f, s * 0.22f, iconPaint)
-                c.drawRoundRect(cx - s * 0.26f, cy - h - s * 0.02f, cx + s * 0.26f, cy - h + s * 0.28f, s * 0.17f, s * 0.17f, iconPaint)
-                c.drawLine(cx - w * 0.5f, cy - h * 0.1f, cx + w * 0.5f, cy - h * 0.1f, iconPaint)
-                c.drawLine(cx - w * 0.5f, cy + h * 0.3f, cx + w * 0.5f, cy + h * 0.3f, iconPaint)
-            }
+            BarFunction.CLIPBOARD -> Glyphs.drawClipboard(c, iconPaint, cx, cy, s)
         }
     }
 
