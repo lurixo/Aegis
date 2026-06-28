@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.ime.theme.ImePalette
 import android.content.Context
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
@@ -58,6 +59,33 @@ class ClipboardView(context: Context) : FrameLayout(context) {
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
 
+    // F1: Monet palette + the panel's colour roles (default = static light = previous look); applyPalette
+    // recomputes them and rebuilds. Declared before [main] et al. since those field initializers use them.
+    private var palette = ImePalette.STATIC_LIGHT
+    private var GREEN = palette.candidateFirst
+    private var GREEN_PILL = palette.chipBg
+    private var RED = palette.deletable
+    private var RED_PILL = palette.chipBg
+    private var GREY_PILL = palette.chipBg
+    private var TEXT_DARK = palette.keyLabel
+    private var HINT = palette.keyHint
+    private var CARD = palette.keySurface
+    private var TRAY = palette.railBg
+    private var BG = palette.panelBg
+    private var SUBTEXT = palette.keyLabelSecondary
+    private var SEP = palette.separator
+    private var SCRIM = palette.scrim
+
+    /** F1: recolour from the Monet palette and rebuild. */
+    fun applyPalette(p: ImePalette) {
+        palette = p
+        GREEN = p.candidateFirst; GREEN_PILL = p.chipBg; RED = p.deletable; RED_PILL = p.chipBg
+        GREY_PILL = p.chipBg; TEXT_DARK = p.keyLabel; HINT = p.keyHint; CARD = p.keySurface
+        TRAY = p.railBg; BG = p.panelBg; SUBTEXT = p.keyLabelSecondary; SEP = p.separator; SCRIM = p.scrim
+        main.setBackgroundColor(BG)
+        refresh()
+    }
+
     private val st = ClipboardPanelState()
     private var phraseCat = "" // selected 常用语 category (category picker, not part of the core state machine)
 
@@ -70,16 +98,6 @@ class ClipboardView(context: Context) : FrameLayout(context) {
     private companion object {
         const val MP = ViewGroup.LayoutParams.MATCH_PARENT
         const val WC = ViewGroup.LayoutParams.WRAP_CONTENT
-        const val GREEN = 0xFF4C9A55.toInt()
-        const val GREEN_PILL = 0xFFD4E8D6.toInt()
-        const val RED = 0xFFD9534F.toInt()
-        const val RED_PILL = 0xFFF1D3D2.toInt()
-        const val GREY_PILL = 0xFFE2E5E9.toInt()
-        const val TEXT_DARK = 0xFF202124.toInt()
-        const val HINT = 0xFF9AA0A6.toInt()
-        const val CARD = 0xFFE9ECF0.toInt()
-        const val TRAY = 0xFFEDEFF2.toInt()
-        const val BG = 0xFFF4F5F7.toInt()
         const val CLIP_CAP = 1000
         const val PHRASE_CAP = 10000
     }
@@ -174,7 +192,7 @@ class ClipboardView(context: Context) : FrameLayout(context) {
         this.text = label
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-        setTextColor(0xFF455A64.toInt())
+        setTextColor(SUBTEXT)
         setPadding(dp(8), dp(6), dp(8), dp(6))
         setOnClickListener { onClick() }
     }
@@ -197,7 +215,7 @@ class ClipboardView(context: Context) : FrameLayout(context) {
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
         setPadding(dp(14), dp(6), dp(14), dp(6))
         background = if (on) rounded(GREY_PILL, 999f) else null // selected chip = grey pill, others plain
-        setTextColor(if (on) TEXT_DARK else 0xFF566066.toInt())
+        setTextColor(if (on) TEXT_DARK else SUBTEXT)
         setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         setOnClickListener { phraseCat = name; refresh() }
         layoutParams = ll(WC, WC).apply { rightMargin = dp(8) }
@@ -217,7 +235,7 @@ class ClipboardView(context: Context) : FrameLayout(context) {
             val allSel = st.isAllSelected(all)
             addView(TextView(context).apply {
                 text = if (allSel) "● 全选" else "○ 全选"
-                setTextColor(if (allSel) GREEN else 0xFF566066.toInt())
+                setTextColor(if (allSel) GREEN else SUBTEXT)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
                 setOnClickListener { st.selectAll(all); refresh() }
             }, ll(0, WC, 1f))
@@ -228,7 +246,7 @@ class ClipboardView(context: Context) : FrameLayout(context) {
             }, ll(0, WC, 1f))
             addView(TextView(context).apply {
                 text = "取消"; gravity = Gravity.END
-                setTextColor(0xFF566066.toInt()); setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                setTextColor(SUBTEXT); setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
                 setOnClickListener { exitSelect() }
             }, ll(0, WC, 1f))
         }
@@ -281,7 +299,7 @@ class ClipboardView(context: Context) : FrameLayout(context) {
 
     private fun showOverlay(content: View, gravity: Int = Gravity.CENTER) {
         overlay.removeAllViews()
-        overlay.setBackgroundColor(0x66000000)
+        overlay.setBackgroundColor(SCRIM)
         overlay.setOnClickListener { hideOverlay() }
         // Wrap in a ScrollView so a tall menu (many categories) scrolls instead of clipping items off-screen;
         // the ScrollView is clickable so taps on the card area don't bubble to the scrim and dismiss it.
@@ -335,7 +353,7 @@ class ClipboardView(context: Context) : FrameLayout(context) {
     /** C4: split [text] into blocks; tap a block to commit it (panel stays open). */
     private fun showSplit(text: String) {
         val panel = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL; background = rounded(0xFFFFFFFF.toInt(), 16f); setPadding(dp(16), dp(14), dp(16), dp(16))
+            orientation = LinearLayout.VERTICAL; background = rounded(CARD, 16f); setPadding(dp(16), dp(14), dp(16), dp(16))
         }
         panel.addView(TextView(context).apply {
             this.text = "拆分选词"; setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
@@ -389,7 +407,7 @@ class ClipboardView(context: Context) : FrameLayout(context) {
         text = label; gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
         background = if (on) rounded(GREEN_PILL, 999f) else null
-        setTextColor(if (on) GREEN else 0xFF606368.toInt())
+        setTextColor(if (on) GREEN else SUBTEXT)
         setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         setOnClickListener { onClick() }
     }
@@ -418,7 +436,7 @@ class ClipboardView(context: Context) : FrameLayout(context) {
     }
 
     private fun menuCard(): LinearLayout = LinearLayout(context).apply {
-        orientation = LinearLayout.VERTICAL; background = rounded(0xFFFFFFFF.toInt(), 16f)
+        orientation = LinearLayout.VERTICAL; background = rounded(CARD, 16f)
     }
 
     private fun menuTitle(s: String): View = TextView(context).apply {
@@ -434,7 +452,7 @@ class ClipboardView(context: Context) : FrameLayout(context) {
     }
 
     private fun menuDivider(): View = View(context).apply {
-        setBackgroundColor(0xFFEAECEF.toInt())
+        setBackgroundColor(SEP)
         layoutParams = LinearLayout.LayoutParams(MP, maxOf(1, dp(1)))
     }
 
@@ -450,7 +468,7 @@ class ClipboardView(context: Context) : FrameLayout(context) {
 
     private fun roundBtn(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
         text = label; gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f); setTextColor(0xFF455A64.toInt())
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f); setTextColor(SUBTEXT)
         background = rounded(GREY_PILL, 999f) // light circular chip with the ☰/＋/⚙ glyphs
         setOnClickListener { onClick() }
     }
