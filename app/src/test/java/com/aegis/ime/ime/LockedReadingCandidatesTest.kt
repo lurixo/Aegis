@@ -75,7 +75,7 @@ class LockedReadingCandidatesTest {
         assertTrue("the full-pinyin sentence is among the kept candidates", "你的" in c.candidateWords())
     }
 
-    @Test fun a_prefix_word_picked_after_locking_still_partial_commits() {
+    @Test fun a_prefix_word_picked_after_locking_builds_a_prefix_not_a_per_syllable_commit() {
         val host = RecordingHost()
         val (_, c) = attached(host)
         c.onKey(Key("", action = KeyAction.SWITCH_NINE))
@@ -85,9 +85,11 @@ class LockedReadingCandidatesTest {
         val niIndex = c.candidateWords().indexOf("你")
         assertTrue("你 present as a partial candidate", niIndex >= 0)
         c.onPickCandidate(niIndex)
+        assertTrue("a partial pick must not commit to the editor", host.commits.isEmpty())
+        assertEquals("你", c.composingPrefix())
         c.onKey(Key("", action = KeyAction.ENTER))
 
-        assertEquals(listOf("你", "de"), host.commits)
+        assertEquals(listOf("你de"), host.commits)
     }
 
     @Test fun the_left_column_keeps_offering_the_next_syllable_after_a_lock() {
