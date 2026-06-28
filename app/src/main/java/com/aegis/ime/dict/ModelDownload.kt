@@ -18,6 +18,7 @@ package com.aegis.ime.dict
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 
 object ModelDownload {
@@ -108,23 +109,74 @@ object ModelDownload {
 
 
     const val DICT_URL =
-        "https://github.com/lurixo/aegis/releases/download/dict-full/aegis-dict-full.zip"
+        "https://github.com/lurixo/aegis/releases/download/dict-full/aegis_dict_pack_debug13.zip"
 
     const val DICT_REPO_URL = "https://github.com/lurixo/aegis/releases"
 
-    const val DICT_NAME = "aegis-dict-full.zip"
+    const val DICT_NAME = "aegis_dict_pack_debug13.zip"
+    const val DICT_SHA256 = "d048435631623513a9d6a6ccb877a6ba06fb15a293ade72bb101d1e0d4feaa60"
+
+    val DICT_PACK_FILES = listOf("aegis_dict.bin", "aegis_t9.bin", "aegis_jianpin.bin")
 
     const val DICT_VALIDATOR_PREF = "dict_validator"
 
-    fun dictDestFile(filesDir: File): File = File(File(filesDir, "downloaded"), DICT_NAME)
+    private fun downloadedDir(filesDir: File) = File(filesDir, "downloaded")
+    fun dictZipFile(filesDir: File): File = File(downloadedDir(filesDir), DICT_NAME)
+    fun dictPartFile(filesDir: File): File = File(downloadedDir(filesDir), "$DICT_NAME.part")
 
-    fun dictPartFile(filesDir: File): File = File(File(filesDir, "downloaded"), "$DICT_NAME.part")
+    fun isDictDownloaded(filesDir: File): Boolean =
+        DICT_PACK_FILES.all { File(downloadedDir(filesDir), it).let { f -> f.exists() && f.length() > 1024 } }
 
-    fun isDictDownloaded(filesDir: File): Boolean = dictDestFile(filesDir).let { it.exists() && it.length() > 1024 }
+    fun installDictPack(filesDir: File): Boolean {
+        val zip = dictZipFile(filesDir)
+        if (!zip.exists()) return false
+        if (!sha256Of(zip).equals(DICT_SHA256, ignoreCase = true)) { zip.delete(); return false }
+        val produced = runCatching { extractDictPack(zip, downloadedDir(filesDir)) }.getOrDefault(emptySet())
+        zip.delete()
+        return DICT_PACK_FILES.all { it in produced }
+    }
+
+    internal fun extractDictPack(zip: File, dir: File): Set<String> {
+        dir.mkdirs()
+        val produced = HashSet<String>()
+        java.util.zip.ZipInputStream(zip.inputStream().buffered()).use { zin ->
+            var e = zin.nextEntry
+            while (e != null) {
+                if (!e.isDirectory) targetFor(e.name)?.let { target ->
+                    File(dir, target).outputStream().use { out -> zin.copyTo(out) }
+                    produced.add(target)
+                }
+                zin.closeEntry()
+                e = zin.nextEntry
+            }
+        }
+        return produced
+    }
+
+    private fun targetFor(entryName: String): String? {
+        val n = entryName.substringAfterLast('/').substringAfterLast('\\').lowercase()
+        return when {
+            "jianpin" in n -> "aegis_jianpin.bin"
+            "t9" in n -> "aegis_t9.bin"
+            "dict" in n -> "aegis_dict.bin"
+            else -> null
+        }
+    }
+
+    fun sha256Of(file: File): String {
+        val md = MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { ins ->
+            val buf = ByteArray(1 shl 16)
+            while (true) { val n = ins.read(buf); if (n < 0) break; md.update(buf, 0, n) }
+        }
+        return md.digest().joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+    }
 
     fun purgeDict(filesDir: File): Boolean {
-        val a = dictDestFile(filesDir).delete()
-        val b = dictPartFile(filesDir).delete()
-        return a || b
+        var removed = false
+        DICT_PACK_FILES.forEach { if (File(downloadedDir(filesDir), it).delete()) removed = true }
+        if (dictZipFile(filesDir).delete()) removed = true
+        if (dictPartFile(filesDir).delete()) removed = true
+        return removed
     }
 }

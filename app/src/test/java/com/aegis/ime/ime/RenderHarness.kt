@@ -143,6 +143,16 @@ class RenderHarness {
         }
     }
 
+    @Test fun emoji_panel() {
+        for ((t, pal) in themes) {
+            val v = EmojiView(ctx).apply {
+                recentProvider = { listOf("😀", "👍", "❤️") }
+                applyPalette(pal); openCategoryForTest(1)
+            }
+            snap(v, (560 * density).toInt(), "emoji_$t.png")
+        }
+    }
+
     @Test fun symbols_panel() {
         for ((t, pal) in themes) {
             val v = SymbolsView(ctx).apply {
