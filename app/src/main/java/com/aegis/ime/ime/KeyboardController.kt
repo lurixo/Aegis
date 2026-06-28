@@ -306,6 +306,27 @@ class KeyboardController(
         lockedReadings.joinToString("") +
             chunked(activeDigits(), activeCuts()).joinToString("") { T9Pinyin.preedit(it).replace("'", "") }
 
+    private fun readingLetterToDigit(): Map<Int, Int> {
+        val map = HashMap<Int, Int>()
+        var letters = 0
+        var digits = 0
+        for (r in lockedReadings) {
+            letters += r.length
+            digits += T9Pinyin.toT9(r).length
+            map[letters] = digits
+        }
+        for (chunk in chunked(activeDigits(), activeCuts())) {
+            for (syl in T9Pinyin.preedit(chunk).split("'")) {
+                if (syl.isEmpty()) continue
+                letters += syl.length
+                digits = (digits + T9Pinyin.toT9(syl).length).coerceAtMost(composing.length)
+                map[letters] = digits
+            }
+        }
+        map[letters] = composing.length
+        return map
+    }
+
     private fun rawComposingText(): String {
         if (composing.isEmpty()) return ""
         return if (layoutId == LayoutId.NINE && lang == Lang.CN) fullLetters() else composing.toString()
@@ -326,7 +347,9 @@ class KeyboardController(
                 val raw = composing.toString()
                 when (mode()) {
                     Mode.PINYIN -> if (lockedReadings.isNotEmpty()) {
-                        engine.candidatesForReading(fullLetters()).map { Cand(it, composing.length) }
+                        val bounds = readingLetterToDigit()
+                        engine.candidatesForReadingCovered(fullLetters())
+                            .map { Cand(it.word, bounds[it.coveredLen] ?: composing.length) }
                     } else {
                         val isNine = layoutId == LayoutId.NINE
                         var c = engine.candidatesCovered(raw, isNine, forcedCuts)

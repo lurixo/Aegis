@@ -55,6 +55,11 @@ class DictEngine(
         return decoder?.decode(letters, MAX_CANDIDATES) ?: emptyList()
     }
 
+    override fun candidatesForReadingCovered(letters: String): List<Cand> {
+        if (letters.isEmpty()) return emptyList()
+        return decoder?.decodeCovered(letters, MAX_CANDIDATES) ?: emptyList()
+    }
+
     override fun english(typed: String): List<String> =
         englishEngine?.suggest(typed, MAX_CANDIDATES) ?: emptyList()
 

@@ -25,6 +25,9 @@ interface CandidateEngine {
 
     fun candidatesForReading(letters: String): List<String> = emptyList()
 
+    fun candidatesForReadingCovered(letters: String): List<Cand> =
+        candidatesForReading(letters).map { Cand(it, letters.length) }
+
     fun english(typed: String): List<String> = emptyList()
 
     fun predict(prevWord: String?): List<String> = emptyList()
