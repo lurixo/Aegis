@@ -15,6 +15,7 @@
 
 package com.aegis.ime
 
+import android.content.res.Configuration
 import android.inputmethodservice.InputMethodService
 import android.inputmethodservice.InputMethodService.Insets
 import android.os.Handler
@@ -38,6 +39,7 @@ import com.aegis.ime.ime.EmojiView
 import com.aegis.ime.ime.ImeHost
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
+import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.SymbolsView
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.user.ClipboardStore
@@ -66,6 +68,27 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private val symbolUsageStore by lazy { SymbolUsageStore(filesDir).also { it.load() } }
     @Volatile private var secureField = false
     @Volatile private var userDbLoaded = false
+    private var imePalette = ImePalette.STATIC_LIGHT
+
+    private fun computePalette(): ImePalette {
+        val dark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        return ImePalette.from(this, dark)
+    }
+
+    private fun applyPaletteEverywhere() {
+        imePalette = computePalette()
+        inputView?.applyPalette(imePalette)
+        emojiView?.applyPalette(imePalette)
+        clipboardView?.applyPalette(imePalette)
+        symbolsView?.applyPalette(imePalette)
+        editPanelView?.applyPalette(imePalette)
+        customSymbolView?.applyPalette(imePalette)
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyPaletteEverywhere()
+    }
     private val clipboardManager by lazy { getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager }
     private val clipChangedListener = android.content.ClipboardManager.OnPrimaryClipChangedListener { onSystemClipChanged() }
 
@@ -147,6 +170,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         inputView = view
         controller.attachView(view)
+        imePalette = computePalette()
+        view.applyPalette(imePalette)
         return view
     }
 
@@ -157,6 +182,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val cnLayout = getSharedPreferences("aegis", MODE_PRIVATE).getString("cn_layout", "nine")
         controller.setCnDefaultLayout(if (cnLayout == "alpha") LayoutId.ALPHA else LayoutId.NINE)
         controller.reset()
+        applyPaletteEverywhere()
     }
 
     override fun onComputeInsets(outInsets: Insets) {
@@ -185,6 +211,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onAction = { a -> handleEdit(a) }
             editPanelView = it
         }
+        ep.applyPalette(imePalette)
         ep.setSelecting(false)
         ep.setHasSelection(!currentInputConnection?.getSelectedText(0).isNullOrEmpty())
         iv.showPanel(ep)
@@ -238,6 +265,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onBack = { inputView?.showPanel(null) }
             emojiView = it
         }
+        ev.applyPalette(imePalette)
         iv.showPanel(ev)
     }
 
@@ -261,6 +289,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onSetHistoryEnabled = { on -> setHistoryEnabled(on) }
             clipboardView = it
         }
+        cv.applyPalette(imePalette)
         clipboardStore.reloadPhrases()
         cv.reset()
         cv.refresh()
@@ -276,6 +305,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onBack = { inputView?.showPanel(null) }
             customSymbolView = it
         }
+        panel.applyPalette(imePalette)
         panel.refresh()
         iv.showPanel(panel)
     }
@@ -289,6 +319,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onBack = { inputView?.showPanel(null) }
             symbolsView = it
         }
+        sv.applyPalette(imePalette)
         sv.refresh()
         iv.showPanel(sv)
     }
