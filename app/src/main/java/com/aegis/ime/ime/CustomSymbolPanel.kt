@@ -16,7 +16,9 @@
 package com.aegis.ime.ime
 
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
 import android.content.Context
+import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -51,14 +53,14 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
         setPadding(dp(12), dp(10), dp(12), dp(10))
         isClickable = true
-        setTextColor(0xFF202124.toInt())
+        setTextColor(colors.keyLabel)
     }
     private val pasteText = TextView(context).apply {
         text = "📋 粘贴符号"
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
         setPadding(dp(12), dp(10), dp(12), dp(10))
         isClickable = true
-        setTextColor(0xFF202124.toInt())
+        setTextColor(colors.keyLabel)
     }
     private val sectionLabels = mutableListOf<TextView>()
 
@@ -147,7 +149,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, if (removable) 15f else 18f)
         setTextColor(if (removable) colors.deletable else colors.keyLabel)
-        setBackgroundColor(colors.keySurface)
+        background = GradientDrawable().apply { setColor(this@CustomSymbolPanel.colors.keySurface); cornerRadius = ImeShapes.keyRadiusDp * density } // U-polish: round like every other tile
         isClickable = true
         setOnClickListener { onClick() }
     }

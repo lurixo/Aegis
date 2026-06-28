@@ -16,6 +16,7 @@
 package com.aegis.ime.ime
 
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
 import android.content.Context
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
@@ -110,7 +111,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
         setTextColor(palette.candidateText)
         setPadding(dp(12), dp(5), dp(12), dp(5))
-        background = GradientDrawable().apply { setColor(palette.chipBg); cornerRadius = 999f * density }
+        background = GradientDrawable().apply { setColor(palette.chipBg); cornerRadius = ImeShapes.chipRadiusDp * density }
         setOnClickListener { onClick() }
         layoutParams = LinearLayout.LayoutParams(WC, WC).apply { rightMargin = dp(6) }
     }

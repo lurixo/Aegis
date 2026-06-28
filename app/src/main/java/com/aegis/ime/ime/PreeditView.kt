@@ -48,7 +48,7 @@ class PreeditView(context: Context) : View(context) {
 
     private val tabPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = palette.keySurface
-        setShadowLayer(5f * density, 0f, 2f * density, 0x22000000) // soft card lift
+        setShadowLayer(5f * density, 0f, 2f * density, palette.shadow) // U-polish: shadow via token (theme-aware)
     }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = palette.preeditText
@@ -59,6 +59,7 @@ class PreeditView(context: Context) : View(context) {
     fun applyPalette(p: ImePalette) {
         palette = p
         tabPaint.color = p.keySurface
+        tabPaint.setShadowLayer(5f * density, 0f, 2f * density, p.shadow) // U-polish: refresh shadow for the new theme
         textPaint.color = p.preeditText
         invalidate()
     }
@@ -82,7 +83,7 @@ class PreeditView(context: Context) : View(context) {
         // the rounded tab hugs it with the usual `pad` inset on each side.
         val textX = leftInset + candPad
         val w = textPaint.measureText(text) + pad * 2
-        val r = ImeShapes.cardRadiusDp * density / 2f // tab corner (small)
+        val r = ImeShapes.keyRadiusDp * density // U-polish: tab corner = key token (was cardRadiusDp/2 magic)
         tab.set(textX - pad, 0f, textX - pad + w, height.toFloat() + r)
         canvas.drawRoundRect(tab, r, r, tabPaint)
         val baseline = height / 2f - (textPaint.descent() + textPaint.ascent()) / 2
