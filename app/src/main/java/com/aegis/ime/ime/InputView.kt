@@ -152,6 +152,7 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun barChevronGlyph(): String = candidateView.chevronGlyph()
 
     fun showPanel(panel: View?) {
+        (currentPanel as? ResettablePanel)?.takeIf { it !== panel }?.resetToDefault()
         panelContainer.removeAllViews()
         currentPanel = panel
         candidateView.setExpanded(panel === gridView)
@@ -180,6 +181,8 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun keyboardHeightPx(): Int = keyboardView.height
 
     val panelShown: Boolean get() = panelContainer.visibility == VISIBLE
+
+    fun isPanelShowing(panel: View?): Boolean = panelShown && panel != null && currentPanel === panel
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 }

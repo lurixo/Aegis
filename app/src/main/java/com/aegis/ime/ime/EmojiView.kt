@@ -26,7 +26,7 @@ import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.layout.EmojiCatalog
 
-class EmojiView(context: Context) : LinearLayout(context) {
+class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
 
     var onEmoji: (String) -> Unit = {}
     var onBackspace: () -> Unit = {}
@@ -43,6 +43,7 @@ class EmojiView(context: Context) : LinearLayout(context) {
         columnCount = COLUMNS
         val p = dp(4); setPadding(p, p, p, p)
     }
+    private val gridScroll = ScrollView(context).apply { addView(grid); isFillViewport = true }
     private val bottomBarView = bottomBar()
 
     init {
@@ -55,10 +56,7 @@ class EmojiView(context: Context) : LinearLayout(context) {
             orientation = HORIZONTAL
             railScroll.setBackgroundColor(palette.railBg)
             addView(railScroll, LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
-            addView(
-                ScrollView(context).apply { addView(grid); isFillViewport = true },
-                LayoutParams(0, LayoutParams.MATCH_PARENT, 1f),
-            )
+            addView(gridScroll, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         }
         addView(content, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         addView(bottomBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(46)))
@@ -75,6 +73,15 @@ class EmojiView(context: Context) : LinearLayout(context) {
         }
         showCategory(selected)
     }
+
+    override fun resetToDefault() {
+        showCategory(0)
+        gridScroll.scrollTo(0, 0)
+        railScroll.scrollTo(0, 0)
+    }
+
+    internal fun selectedCategoryForTest(): Int = selected
+    internal fun openCategoryForTest(index: Int) = showCategory(index)
 
     private fun showCategory(index: Int) {
         selected = index
