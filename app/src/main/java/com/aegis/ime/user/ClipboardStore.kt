@@ -100,7 +100,7 @@ class ClipboardStore(private val dir: File) {
         var added = 0
         for (raw in texts) {
             val t = raw.trim()
-            if (t.isEmpty() || c.phrases.contains(t)) continue
+            if (t.isEmpty() || isImageEntry(t) || c.phrases.contains(t)) continue
             c.phrases.add(t); added++
         }
         if (added > 0) savePhrases()

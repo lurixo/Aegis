@@ -289,6 +289,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.categoriesProvider = { clipboardStore.categories() }
             it.phrasesInProvider = { cat -> clipboardStore.phrasesIn(cat) }
             it.onPick = { t -> currentInputConnection?.commitText(t, 1); inputView?.showPanel(null) }
+            it.isImage = { e -> ClipboardStore.isImageEntry(e) && clipImageStore.isStoredImage(ClipboardStore.imagePath(e)) }
             it.onPickImage = { path -> pasteImage(path) }
             it.thumbnailProvider = { path -> thumbCache.get(path) }
             it.onLoadThumbnail = { path, cb -> loadThumbnailAsync(path, cb) }
@@ -328,7 +329,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun pasteCustomSymbol() {
         val t = runCatching {
             clipboardManager.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString()
-        }.getOrNull()?.trim().orEmpty()
+        }.getOrNull()?.filterNot { it.isISOControl() }?.trim().orEmpty()
         val msg = when {
             t.isEmpty() -> "剪贴板为空"
             t.length > 16 -> "内容过长,未作为符号添加"

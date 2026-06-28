@@ -23,7 +23,7 @@ class CustomSymbolStore(private val prefs: SharedPreferences) {
         prefs.getString(KEY, "").orEmpty().split("\n").filter { it.isNotEmpty() }
 
     fun add(symbol: String): Boolean {
-        val s = symbol.trim()
+        val s = symbol.filterNot { it.isISOControl() }.trim()
         val cur = list()
         if (s.isEmpty() || s in cur || cur.size >= MAX) return false
         save(cur + s)
