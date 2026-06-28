@@ -93,9 +93,11 @@ class LockedReadingCandidatesTest {
         assertTrue("the full-pinyin sentence is among the kept candidates", "你的" in c.candidateWords())
     }
 
-    @Test fun a_prefix_word_picked_after_locking_still_partial_commits() {
-        // The coverage bridge (letters→digits): picking 你 (covers only the first syllable's 2 digits)
-        // must commit 你 and KEEP the rest ("de"), not swallow or drop the whole buffer.
+    @Test fun a_prefix_word_picked_after_locking_builds_a_prefix_not_a_per_syllable_commit() {
+        // S1(c) (debug.12): the coverage bridge still maps letters→digits so 你 covers only the first
+        // syllable — but picking it must NOT commit per syllable. It builds the assembled prefix and keeps
+        // "de" composing; the whole word reaches the editor in ONE commit at the flush ("你de"), never
+        // "你" then "de" dribbled separately.
         val host = RecordingHost()
         val (_, c) = attached(host)
         c.onKey(Key("", action = KeyAction.SWITCH_NINE))
@@ -104,10 +106,12 @@ class LockedReadingCandidatesTest {
 
         val niIndex = c.candidateWords().indexOf("你")
         assertTrue("你 present as a partial candidate", niIndex >= 0)
-        c.onPickCandidate(niIndex)                     // commit 你, expect "de" to remain composing
+        c.onPickCandidate(niIndex)                     // build prefix 你, keep "de" composing — NOT committed
+        assertTrue("a partial pick must not commit to the editor", host.commits.isEmpty())
+        assertEquals("你", c.composingPrefix())
         c.onKey(Key("", action = KeyAction.ENTER))     // flush remainder
 
-        assertEquals(listOf("你", "de"), host.commits)
+        assertEquals(listOf("你de"), host.commits)
     }
 
     @Test fun the_left_column_keeps_offering_the_next_syllable_after_a_lock() {

@@ -71,6 +71,16 @@ class KeyboardController(
     private var lastWord: String? = null
 
     /**
+     * S1(c) (debug.12): the CONFIRMED prefix of the multi-syllable word currently being assembled. A
+     * partial candidate pick (its reading covers only part of the buffer) appends its word here and keeps
+     * decoding the remainder — it does NOT reach the editor. The prefix is rendered at the LEFTMOST of the
+     * candidate strip (the preedit tab) while the rest is still being chosen; the whole word lands in the
+     * editor in ONE [ImeHost.commitText] only when it completes (full pick / flush / space). This replaces
+     * the old "选一个就上屏一个" behaviour that dribbled 就/见/左… into the app one syllable at a time.
+     */
+    private val committedPrefix = StringBuilder()
+
+    /**
      * 9-key per-syllable selection (★E): [lockedReadings] are the syllable readings the user has picked
      * from the left column (letter form, e.g. ["hao"]); [activeStart] is where the still-unconfirmed
      * digits begin in [composing]. The left column shows the readings of the active (next) syllable, so
@@ -268,9 +278,10 @@ class KeyboardController(
                 }
                 clearComposingState(); lastWord = null
             }
-            // U23: an associated emoji/symbol commits directly and is NOT learned as a pinyin word.
+            // U23: an associated emoji/symbol commits directly and is NOT learned as a pinyin word. S1(c):
+            // flush any assembled prefix ahead of it so the emoji follows the confirmed word, not replaces it.
             cand in directCommitCands -> {
-                host.commitText(cand.word)
+                host.commitText(committedPrefix.toString() + cand.word)
                 clearComposingState(); lastWord = null
             }
             else -> commitCandidate(cand)
@@ -307,7 +318,17 @@ class KeyboardController(
 
     private fun handleBackspace() {
         if (composing.isEmpty()) {
-            host.deleteBackward()
+            // S1(c): an assembled-but-not-yet-committed word prefix lives inside the IME, NOT in the editor.
+            // Peel its last confirmed character back here instead of deleting committed editor text the user
+            // can still see — only once the prefix is empty does 退格 reach the field.
+            if (committedPrefix.isNotEmpty()) {
+                committedPrefix.setLength(committedPrefix.length - 1)
+                if (committedPrefix.isEmpty()) lastWord = null
+                return
+            }
+            // S2 (debug.12): with an active selection, deleteSurroundingText(1,0) is selection-START-relative
+            // and removes the char BEFORE the selection (silent data loss). Delete the SELECTION itself.
+            if (host.hasSelection()) host.deleteSelection() else host.deleteBackward()
             lastWord = null
             return
         }
@@ -346,17 +367,22 @@ class KeyboardController(
 
     private fun handleSpace() {
         if (composing.isEmpty()) {
+            // S1(c): a word may be assembled in the prefix with the remainder already backspaced away —
+            // space commits that pending word (consuming the space), it does NOT insert a literal space.
+            if (committedPrefix.isNotEmpty()) { flushComposing(); return }
             host.commitText(" ")
             lastWord = null
             return
         }
         val pick = candidates.firstOrNull()
         if (pick != null) commitCandidate(pick)
-        else { host.commitText(rawComposingText()); clearComposingState() }
+        else { host.commitText(committedPrefix.toString() + rawComposingText()); clearComposingState() }
     }
 
     private fun handleEnter() {
-        if (composing.isNotEmpty()) {
+        // S1(c): an assembled prefix (composing already emptied) is still pending — Enter commits it and is
+        // consumed, rather than firing a newline/editor-action and stranding the buffered word.
+        if (composing.isNotEmpty() || committedPrefix.isNotEmpty()) {
             flushComposing()
         } else {
             host.performEnter()
@@ -369,12 +395,18 @@ class KeyboardController(
      * (its reading is a prefix of the input), commit that part and keep composing the remaining digits.
      */
     private fun commitCandidate(cand: Cand) {
-        host.commitText(cand.word)
         // M-3/L-3: never learn a word committed in a password / NO_PERSONALIZED_LEARNING field — it would
         // be saved to userdb in plaintext and later resurface (via wordBoost) in ordinary fields (肩窥).
+        // Each picked chunk is still learned as a bigram so 就→见→左侧 adaptation survives (the deferral
+        // below changes only WHEN text reaches the editor, never what is learned).
         if (!learningBlocked) engine.learn(lastWord, cand.word)
         lastWord = cand.word
         if (cand.coveredLen in 1 until composing.length) {
+            // S1(c): a PARTIAL pick confirms cand.word as the next chunk of the word being assembled but does
+            // NOT reach the editor yet — accumulate it in [committedPrefix] (shown at the strip's leftmost)
+            // and keep decoding the remainder. The old code commitText()'d every pick, dribbling one
+            // syllable at a time into the app (the "选一个就上屏一个" bug).
+            committedPrefix.append(cand.word)
             composing.delete(0, cand.coveredLen)
             // ★E×分词: drop consumed cuts, shift the rest left by the consumed length.
             val shifted = forcedCuts.filter { it > cand.coveredLen }.map { it - cand.coveredLen }
@@ -384,6 +416,9 @@ class KeyboardController(
             candidates = emptyList()
             rebuildHistory() // A9: the remainder is fresh + lock-free → 退格 steps back per remaining digit
         } else {
+            // The pick completes the word: send the assembled prefix + this final chunk to the editor in ONE
+            // commit (整词完成才上屏), then reset.
+            host.commitText(committedPrefix.toString() + cand.word)
             clearComposingState()
         }
     }
@@ -398,8 +433,14 @@ class KeyboardController(
      * the decoded pinyin (no separators) on the 9-key. Drives both layout switches and Enter (#9).
      */
     private fun flushComposing() {
+        // S1(c): a forced flush (layout switch / Enter / 中英) must still land the confirmed prefix + the
+        // raw remainder as ONE commit, never lose the prefix and never dribble.
+        val prefix = committedPrefix.toString()
         if (composing.isNotEmpty()) {
-            host.commitText(rawComposingText())
+            host.commitText(prefix + rawComposingText())
+            clearComposingState()
+        } else if (prefix.isNotEmpty()) {
+            host.commitText(prefix)
             clearComposingState()
         }
         lastWord = null
@@ -472,6 +513,7 @@ class KeyboardController(
         activeStart = 0
         forcedCuts.clear()
         history.clear()
+        committedPrefix.setLength(0) // S1(c): drop any assembled-but-uncommitted prefix too
     }
 
     private fun refreshCandidates() {
@@ -482,8 +524,10 @@ class KeyboardController(
         candidates = when {
             // While composing pinyin: inject associated emoji/symbols (haode→👌) just after the top word.
             composing.isNotEmpty() && mode() == Mode.PINYIN -> injectAssociations(base)
-            // Empty buffer: offer an inline calculator result if the text before the cursor is an expression.
-            composing.isEmpty() -> calcCandidates()
+            // Empty buffer with NO word being assembled: offer an inline calculator result if the text before
+            // the cursor is an expression. S1(c): suppress it while a confirmed prefix is still building (the
+            // strip shows the prefix in the preedit tab; a calc cand would bypass + lose it).
+            composing.isEmpty() && committedPrefix.isEmpty() -> calcCandidates()
             else -> base
         }
     }
@@ -544,20 +588,24 @@ class KeyboardController(
 
     private fun applyCase(s: String): String = if (shifted) s.uppercase() else s
 
-    /** Preedit pinyin tab: locked syllable readings + decoded active tail (9-key), else typed letters. */
+    /** Preedit pinyin tab: the assembled confirmed prefix (S1c) at the LEFTMOST, then locked syllable
+     *  readings + the decoded active tail (9-key), else typed letters. */
     private fun preeditText(): String {
-        if (composing.isEmpty()) return ""
-        if (mode() == Mode.PINYIN && layoutId == LayoutId.NINE) {
+        // S1(c): the confirmed-but-uncommitted word prefix renders first (leftmost) — "就jianzuoce" building
+        // up — so multi-syllable phrases assemble in the strip instead of dribbling into the editor.
+        val prefix = committedPrefix.toString()
+        if (composing.isEmpty()) return prefix
+        val tail = if (mode() == Mode.PINYIN && layoutId == LayoutId.NINE) {
             val locked = lockedReadings.joinToString("'")
             // ★分词: render the active tail with its forced boundaries as 隔音符 ' (incl. a trailing one).
             val rest = T9Pinyin.preedit(activeDigits(), activeCuts().toSet())
-            return when {
+            when {
                 locked.isEmpty() -> rest
                 rest.isEmpty() -> locked
                 else -> "$locked'$rest"
             }
-        }
-        return composing.toString()
+        } else composing.toString()
+        return prefix + tail
     }
 
     /**
@@ -575,7 +623,10 @@ class KeyboardController(
         val w = 0.85f
         if (composing.isEmpty()) return Layouts.ninePunctuation(customSymbols)
         val active = activeDigits()
-        if (active.isEmpty()) return Layouts.ninePunctuation(customSymbols) // all syllables locked → punctuation
+        // S1(c) (debug.12): once every syllable is locked there is no NEXT syllable to offer readings for —
+        // show an empty column, NOT punctuation. Punctuation only ever appears at rest (the empty-buffer
+        // return above); the "读音变标点" bug after locking is gone.
+        if (active.isEmpty()) return emptyList()
         // ★分词: the active syllable is bounded by the first forced cut in the active region.
         val firstCut = activeCuts().firstOrNull()
         val chunk = if (firstCut != null) active.substring(0, firstCut) else active
@@ -598,6 +649,12 @@ class KeyboardController(
 
     /** Current candidate words (test seam — locks ★S: no ghost suggestion lingers on an empty buffer). */
     internal fun candidateWords(): List<String> = candidates.map { it.word }
+
+    /** S1(c) test seam: the confirmed-but-not-yet-committed word prefix assembled from partial picks. */
+    internal fun composingPrefix(): String = committedPrefix.toString()
+
+    /** Test seam: the preedit tab text (prefix + pinyin) shown at the leftmost of the candidate strip. */
+    internal fun preeditForTest(): String = preeditText()
 
     /** A2 expanded screen: pick the combination at [index] in the left column — locks that syllable. */
     fun onPickReadingIndex(index: Int) {

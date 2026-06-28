@@ -563,6 +563,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun hasSelection(): Boolean = !currentInputConnection?.getSelectedText(0).isNullOrEmpty()
 
+    override fun deleteSelection() {
+        // S2: commitText("") over a live selection replaces (deletes) exactly the selected span — unlike
+        // deleteSurroundingText(1,0), which is selection-start-relative and would eat the char before it.
+        currentInputConnection?.commitText("", 1)
+    }
+
     override fun performEnter() {
         // #7: editor-action fields (search/send/go/done) fire the action; everything else gets a real
         // ENTER key event so multi-line fields actually get a newline (sendDefaultEditorAction did neither).
