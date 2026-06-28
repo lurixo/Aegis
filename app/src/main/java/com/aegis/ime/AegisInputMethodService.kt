@@ -15,6 +15,7 @@
 
 package com.aegis.ime
 
+import android.content.res.Configuration
 import android.inputmethodservice.InputMethodService
 import android.inputmethodservice.InputMethodService.Insets
 import android.os.Handler
@@ -38,6 +39,7 @@ import com.aegis.ime.ime.EmojiView
 import com.aegis.ime.ime.ImeHost
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
+import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.SymbolsView
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.user.ClipboardStore
@@ -74,6 +76,29 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     // C1 privacy: pause clipboard capture while a password / PIN / 2FA field is focused (set per onStartInput).
     @Volatile private var secureField = false
     @Volatile private var userDbLoaded = false // M-2: the initial userdb load has completed
+    private var imePalette = ImePalette.STATIC_LIGHT // F1: live Monet palette (dark-aware)
+
+    /** F1: the current Monet palette for this process config (dark = system night mode). */
+    private fun computePalette(): ImePalette {
+        val dark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        return ImePalette.from(this, dark)
+    }
+
+    /** F1: recompute + fan the palette out to the input view and every cached panel (theme change). */
+    private fun applyPaletteEverywhere() {
+        imePalette = computePalette()
+        inputView?.applyPalette(imePalette)
+        emojiView?.applyPalette(imePalette)
+        clipboardView?.applyPalette(imePalette)
+        symbolsView?.applyPalette(imePalette)
+        editPanelView?.applyPalette(imePalette)
+        customSymbolView?.applyPalette(imePalette)
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyPaletteEverywhere() // F1: follow a light/dark (or accent) change live, no stale colours
+    }
     private val clipboardManager by lazy { getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager }
     // C1: passive clipboard monitoring — record EVERY primary-clip change (incl. passwords/sensitive),
     // not just on explicit panel-open. On-device only (ClipboardStore is plain-text in filesDir, nothing
@@ -171,6 +196,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         inputView = view
         controller.attachView(view)
+        imePalette = computePalette()
+        view.applyPalette(imePalette) // F1: dynamic Monet colours (dark-aware) come alive here
         return view
     }
 
@@ -182,6 +209,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val cnLayout = getSharedPreferences("aegis", MODE_PRIVATE).getString("cn_layout", "nine")
         controller.setCnDefaultLayout(if (cnLayout == "alpha") LayoutId.ALPHA else LayoutId.NINE)
         controller.reset()
+        applyPaletteEverywhere() // F1: pick up a theme change that happened between input sessions
     }
 
     /**
@@ -217,6 +245,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onAction = { a -> handleEdit(a) }
             editPanelView = it
         }
+        ep.applyPalette(imePalette)
         ep.setSelecting(false)
         ep.setHasSelection(!currentInputConnection?.getSelectedText(0).isNullOrEmpty())
         iv.showPanel(ep)
@@ -272,6 +301,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onBack = { inputView?.showPanel(null) }
             emojiView = it
         }
+        ev.applyPalette(imePalette)
         iv.showPanel(ev)
     }
 
@@ -296,6 +326,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onSetHistoryEnabled = { on -> setHistoryEnabled(on) }
             clipboardView = it
         }
+        cv.applyPalette(imePalette)
         clipboardStore.reloadPhrases() // pick up category/phrase edits made in the manager Activity
         cv.reset() // always open on the 剪贴板 tab in normal (non-select) mode
         cv.refresh()
@@ -312,6 +343,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onBack = { inputView?.showPanel(null) }
             customSymbolView = it
         }
+        panel.applyPalette(imePalette)
         panel.refresh()
         iv.showPanel(panel)
     }
@@ -326,6 +358,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onBack = { inputView?.showPanel(null) }
             symbolsView = it
         }
+        sv.applyPalette(imePalette)
         sv.refresh()
         iv.showPanel(sv)
     }
