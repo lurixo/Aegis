@@ -58,6 +58,13 @@ class PartialCommitLockTest {
         return c
     }
 
+    private fun alphaController(): KeyboardController {
+        val c = KeyboardController(Host(), realEngine())
+        c.setCnDefaultLayout(LayoutId.ALPHA)
+        c.reset()
+        return c
+    }
+
     private fun lock(c: KeyboardController, reading: String) {
         val idx = c.expandedReadings().indexOf(reading)
         assertTrue("9-key column should offer '$reading' (got ${c.expandedReadings()})", idx >= 0)
@@ -79,5 +86,25 @@ class PartialCommitLockTest {
         assertEquals("有", c.composingPrefix())
         assertEquals("remaining stays the locked gai'lv'chu'xian (not hai'lu'chu'xiao)",
             "有gai'lv'chu'xian", c.preeditForTest())
+    }
+
+    @Test
+    fun drillPartialCommit_26key_keepsTheRemainingLetterSegmentation() {
+        assertTrue("26-key dict + LM assets present",
+            File(assets + "aegis_dict.bin").exists() && File(assets + "aegis_lm.bin").exists())
+        val c = alphaController()
+        "yougailvchuxian".forEach { c.onKey(Key(it.toString(), output = it.toString())) }
+        assertEquals("you", c.expandedReadings().first())
+        c.onPickReadingIndex(0)
+        c.onPickReadingIndex(c.expandedReadings().indexOf("you"))
+        assertEquals("drilled into syllable 0", 0, c.drilledSyllableForTest())
+
+        val yi = c.candidateWords().indexOf("有")
+        assertTrue("有 offered as a 同音字 of the drilled syllable", yi >= 0)
+        c.onPickCandidate(yi)
+
+        assertEquals("有", c.composingPrefix())
+        assertEquals("有gai'lv'chu'xian", c.preeditForTest())
+        assertEquals("remaining segmentation preserved", "gai", c.expandedReadings().first())
     }
 }

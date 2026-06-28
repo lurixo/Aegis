@@ -1039,4 +1039,23 @@ class KeyboardControllerTest {
         c.onKey(act(KeyAction.BACKSPACE))
         assertEquals("xi", c.preeditForTest())
     }
+
+    @Test fun alpha_xian_readings_are_selected_progressively_without_exposing_the_tail_early() {
+        val c = KeyboardController(FakeHost(), engine)
+        "xian".forEach { c.onKey(out(it.toString())) }
+
+        val first = c.expandedReadings()
+        assertEquals("xian", first.first())
+        assertTrue("xi must be available as the leading xi|an path, was $first", "xi" in first)
+        assertTrue("an must stay hidden until xi is locked, was $first", "an" !in first)
+
+        c.onPickReadingIndex(first.indexOf("xi"))
+
+        assertEquals("xi'an", c.preeditForTest())
+        val second = c.expandedReadings()
+        assertEquals("xi", second.first())
+        assertTrue("an becomes available only at the next layer, was $second", "an" in second)
+        c.onPickReadingIndex(0)
+        assertEquals(0, c.drilledSyllableForTest())
+    }
 }

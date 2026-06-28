@@ -16,6 +16,7 @@
 package com.aegis.ime.ime
 
 import com.aegis.ime.decoder.Cand
+import com.aegis.ime.decoder.Syllable
 import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.engine.InputAssociations
@@ -82,6 +83,10 @@ class KeyboardController(
     private val forcedCuts = sortedSetOf<Int>()
 
     private val history = ArrayDeque<StepKind>()
+
+    private var drillSyllable = -1
+
+    private val drillChoices = HashMap<Int, String>()
 
     private var customSymbols: List<String> = emptyList()
 
@@ -198,6 +203,8 @@ class KeyboardController(
         activeStart = 0
         forcedCuts.clear()
         history.clear()
+        drillSyllable = -1
+        drillChoices.clear()
         committedPrefix.setLength(0)
         shiftState = ShiftState.OFF
         forgetEnglishWord()
@@ -219,12 +226,18 @@ class KeyboardController(
     internal fun activeLayoutId(): LayoutId = layoutId
 
     internal fun switchTextLayoutForTest(nine: Boolean) {
+        drillSyllable = -1
+        drillChoices.clear()
         switchLayout(if (nine) LayoutId.NINE else LayoutId.ALPHA)
         refreshCandidates()
         render()
     }
 
     fun onKey(key: Key) {
+        if (key.action != KeyAction.BACKSPACE) {
+            drillSyllable = -1
+            drillChoices.clear()
+        }
         when (key.action) {
             KeyAction.COMMIT -> handleCommit(key)
             KeyAction.BACKSPACE -> handleBackspace()
@@ -419,6 +432,12 @@ class KeyboardController(
 
     fun onPickCandidate(index: Int) {
         if (index !in candidates.indices) return
+        if (drillSyllable >= 0) {
+            pickDrilledHomophone(candidates[index].word)
+            refreshCandidates()
+            render()
+            return
+        }
         val cand = candidates[index]
         when {
             cand in directCommitCands -> {
@@ -485,6 +504,8 @@ class KeyboardController(
     }
 
     private fun handleBackspace() {
+        drillSyllable = -1
+        drillChoices.clear()
         if (composing.isEmpty()) {
             if (committedPrefix.isNotEmpty()) {
                 val removeCount = Character.charCount(committedPrefix.codePointBefore(committedPrefix.length))
@@ -619,6 +640,7 @@ class KeyboardController(
             lockedInputLengths.clear()
             activeStart = 0
         }
+        drillSyllable = -1
         rebuildHistory()
         repeat(lockedReadings.size) { history.addLast(StepKind.LOCK) }
     }
@@ -741,6 +763,8 @@ class KeyboardController(
         forcedCuts.clear()
         history.clear()
         committedPrefix.setLength(0)
+        drillSyllable = -1
+        drillChoices.clear()
     }
 
     private fun refreshCandidates() {
@@ -754,6 +778,7 @@ class KeyboardController(
         val composingEmpty: Boolean,
         val committedPrefixEmpty: Boolean,
         val mode: Mode,
+        val drillSyllable: Int,
         val raw: String,
         val literalIndices: Set<Int>,
         val readingLocks: List<ReadingLock>,
@@ -810,6 +835,7 @@ class KeyboardController(
             composingEmpty = composing.isEmpty(),
             committedPrefixEmpty = committedPrefix.isEmpty(),
             mode = mode(),
+            drillSyllable = drillSyllable,
             raw = composing.toString(),
             literalIndices = literalIndices.toSet(),
             readingLocks = readingLocks(),
@@ -848,6 +874,7 @@ class KeyboardController(
         var english: Set<Cand> = emptySet()
         val base = computeBase(req)
         val out = when {
+            req.drillSyllable >= 0 && !req.composingEmpty && req.mode == Mode.PINYIN -> computeDrill(req)
             !req.composingEmpty && req.mode == Mode.PINYIN && req.literalIndices.isNotEmpty() -> {
                 val mixed = computeMixed(req)
                 composite = mixed.composite
@@ -992,6 +1019,66 @@ class KeyboardController(
         }
     }
 
+    private fun computeDrill(req: DecodeRequest): List<Cand> {
+        val reading = if (req.lockedNonEmpty) req.full else req.raw
+        val syls = req.engine.syllablesForReading(reading, req.readingCuts)
+        if (req.drillSyllable !in syls.indices) return emptyList()
+        val readingEnd = syls[req.drillSyllable].end
+        val coveredLen = if (req.lockedNonEmpty) req.bounds[readingEnd] ?: readingEnd else readingEnd
+        return req.engine.homophonesForReadingAt(reading, req.drillSyllable, req.readingCuts)
+            .map { Cand(it, coveredLen.coerceIn(1, req.composingLen)) }
+    }
+
+    private fun currentSyllables(): List<Syllable> {
+        if (composing.isEmpty()) return emptyList()
+        val req = buildDecodeRequest()
+        if (req.literalIndices.isNotEmpty()) {
+            val first = mixedParts(req.raw, req.literalIndices).firstOrNull() ?: return emptyList()
+            if (first.literal) return emptyList()
+            return req.engine.syllablesForReading(req.raw.substring(first.start, first.end), emptySet())
+        }
+        val reading = if (req.lockedNonEmpty) req.full else req.raw
+        return req.engine.syllablesForReading(reading, req.readingCuts)
+    }
+
+    private fun pickDrilledHomophone(charWord: String) {
+        if (composing.isEmpty()) { drillSyllable = -1; drillChoices.clear(); return }
+        val syls = currentSyllables()
+        if (drillSyllable !in syls.indices) { drillSyllable = -1; return }
+        drillChoices[drillSyllable] = charWord
+        if (drillChoices.containsKey(0)) {
+            commitChosenLeftPrefix()
+        } else {
+            drillSyllable = syls.indices.firstOrNull { !drillChoices.containsKey(it) } ?: -1
+        }
+    }
+
+    private fun commitChosenLeftPrefix() {
+        val req = buildDecodeRequest()
+        val reading = if (req.lockedNonEmpty) req.full else req.raw
+        val syls = req.engine.syllablesForReading(reading, req.readingCuts)
+        var k = 0
+        while (drillChoices.containsKey(k) && k < syls.size) k++
+        if (k == 0) return
+        val word = (0 until k).joinToString("") { drillChoices[it] ?: "" }
+        val readingEnd = syls[k - 1].end
+        val coveredLen = (
+            if (req.lockedNonEmpty) req.bounds[readingEnd] ?: readingEnd else readingEnd
+        ).coerceIn(1, composing.length)
+        val carried = HashMap<Int, String>()
+        for ((idx, ch) in drillChoices) if (idx >= k) carried[idx - k] = ch
+        drillSyllable = -1
+        commitCandidate(Cand(word, coveredLen))
+        drillChoices.clear()
+        drillChoices.putAll(carried)
+        if (drillChoices.isNotEmpty() && composing.isNotEmpty()) {
+            val remainingSyllables = currentSyllables()
+            drillSyllable = remainingSyllables.indices.firstOrNull {
+                !drillChoices.containsKey(it)
+            } ?: -1
+        }
+    }
+
     private fun applyCase(s: String): String = if (shifted) s.uppercase() else s
 
     private fun preeditText(): String {
@@ -1067,7 +1154,8 @@ class KeyboardController(
         )
         val chunk = composing.substring(start, end)
         val readings = T9Pinyin.leftColumnReadings(chunk, NINE_LEFT_MAX)
-        val visible = readings
+        val last = lockedReadings.lastOrNull()?.takeIf { it.all { c -> c in 'a'..'z' } }
+        val visible = if (last == null) readings else listOf(last) + readings
         val digit = composing[start].takeIf { layoutId == LayoutId.NINE && it in '2'..'9' }
         return readingKeys(visible) + listOfNotNull(
             digit?.let { Key(it.toString(), action = KeyAction.PICK_DIGIT, weight = 0.85f) },
@@ -1110,11 +1198,17 @@ class KeyboardController(
     internal fun shiftStateName(): String = shiftState.name
 
     private fun expandedFocusIndex(): Int {
+        val drilled = drillChoices.isNotEmpty() && drillSyllable >= 0
         val consumed = mode() == Mode.PINYIN && composing.isNotEmpty() &&
             lockedReadings.isNotEmpty() && activeInput().isEmpty()
-        if (!consumed) return -1
-        val index = lockedReadings.lastIndex
+        if (!drilled && !consumed) return -1
+        val index = if (drillSyllable >= 0) drillSyllable else lockedReadings.lastIndex
         if (index !in lockedReadings.indices) return -1
+        if (drillSyllable >= 0 &&
+            currentSyllables().getOrNull(drillSyllable)?.reading != lockedReadings[index]
+        ) {
+            return -1
+        }
         return index
     }
 
@@ -1126,6 +1220,11 @@ class KeyboardController(
 
     private fun expandedReadingsWithoutFocus(): List<String> = when {
         literalIndices.isNotEmpty() -> emptyList()
+        drillChoices.isNotEmpty() && drillSyllable >= 0 ->
+            currentSyllables().getOrNull(drillSyllable)?.reading?.let(::listOf) ?: emptyList()
+        mode() == Mode.PINYIN && composing.isNotEmpty() &&
+            lockedReadings.isNotEmpty() && activeInput().isEmpty() ->
+            listOf(currentSyllables().getOrNull(drillSyllable)?.reading ?: lockedReadings.last())
         layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty() -> {
             val active = activeInput()
             val separatorPrefix = active.takeWhile { it == '\'' }.length
@@ -1135,10 +1234,16 @@ class KeyboardController(
             val chunkEnd = listOfNotNull(forcedEnd, separatorEnd).minOrNull() ?: body.length
             val chunk = body.substring(0, chunkEnd.coerceIn(0, body.length))
             val next = T9Pinyin.leftColumnLetterReadings(chunk, NINE_LEFT_MAX)
-            next
+            when {
+                lockedReadings.isEmpty() -> next
+                next.isEmpty() -> listOf(lockedReadings.last())
+                else -> listOf(lockedReadings.last()) + next
+            }
         }
         else -> nineLeftColumn().filter { it.action == KeyAction.PICK_READING }.map { it.label }
     }
+
+    internal fun drilledSyllableForTest(): Int = drillSyllable
 
     internal fun candidateWords(): List<String> = candidates.map { it.word }
 
@@ -1150,10 +1255,23 @@ class KeyboardController(
         val readings = expandedReadings()
         if (index !in readings.indices) return
         val reading = readings[index]
+        if (drillSyllable >= 0 && reading == currentSyllables().getOrNull(drillSyllable)?.reading) return
         val focus = expandedFocusIndex()
+        val recentLockedReading = lockedReadings.lastOrNull()
+        val lockedIndex = recentLockedReading?.let(readings::indexOf) ?: -1
         when {
             focus >= 0 && reading != lockedReadings[focus] -> relockReadingAt(focus, reading)
+            mode() == Mode.PINYIN && composing.isNotEmpty() &&
+                index == lockedIndex && recentLockedReading == reading -> {
+                drillSyllable = if (activeInput().isEmpty()) {
+                    lockedReadings.indices.firstOrNull { !drillChoices.containsKey(it) } ?: lockedReadings.lastIndex
+                } else {
+                    lockedReadings.lastIndex
+                }
+            }
             else -> {
+                drillSyllable = -1
+                drillChoices.clear()
                 handlePickReading(Key(reading, output = reading, action = KeyAction.PICK_READING))
             }
         }
@@ -1174,6 +1292,8 @@ class KeyboardController(
                 lockedReadings.removeAt(lockedReadings.lastIndex)
                 lockedInputLengths.removeAt(lockedInputLengths.lastIndex)
             }
+            drillSyllable = -1
+            drillChoices.clear()
             rebuildHistory()
             repeat(lockedReadings.size) { history.addLast(StepKind.LOCK) }
         }
@@ -1189,6 +1309,14 @@ class KeyboardController(
 
     fun onPanelClear() {
         handleClearComposing()
+        render()
+    }
+
+    fun clearDrill() {
+        if (drillSyllable < 0 && drillChoices.isEmpty()) return
+        drillSyllable = -1
+        drillChoices.clear()
+        refreshCandidates()
         render()
     }
 

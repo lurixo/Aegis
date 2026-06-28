@@ -20,18 +20,23 @@ import com.aegis.ime.decoder.PinyinDecoder
 import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.engine.DictEngine
+import com.aegis.ime.layout.Key
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class DrillHomophoneLayerTest {
 
+    private val ctx = RuntimeEnvironment.getApplication()
     private val assets = FullDictTestAssets.directory
 
     private val dictFile = File(assets, FullDictTestAssets.DICT)
@@ -41,13 +46,128 @@ class DrillHomophoneLayerTest {
 
     private val dict: BinaryDict by lazy { BinaryDict.fromFile(dictFile) }
 
+    private class Host : ImeHost {
+        override fun commitText(text: CharSequence) {}
+        override fun deleteBackward() {}
+        override fun performEnter() {}
+    }
+
     private fun assumeAssets() =
         assumeTrue("full dictionary assets present", FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
+
+    private fun engine() = DictEngine(
+        BinaryDict.fromFile(dictFile),
+        BinaryDict.fromFile(t9File),
+        CharBigramLM.fromFile(lmFile),
+        initialsDict = BinaryDict.fromFile(jianpinFile),
+    )
+
+    private fun controller() =
+        KeyboardController(Host(), engine()).apply { attachView(InputView(ctx)) }
+
+    private fun drilled(nine: Boolean, reading: String): List<String> {
+        val c = controller()
+        c.switchTextLayoutForTest(nine)
+        val typed = if (nine) T9Pinyin.toT9(reading) else reading
+        typed.forEach { c.onKey(Key(it.toString(), output = it.toString())) }
+        val index = c.expandedReadings().indexOf(reading)
+        assertTrue("$reading must be lockable on ${if (nine) "9-key" else "26-key"}, was ${c.expandedReadings()}", index >= 0)
+        c.onPickReadingIndex(index)
+        c.onPickReadingIndex(c.expandedReadings().indexOf(reading))
+        assertTrue("${if (nine) "9-key" else "26-key"} $reading must open the drill grid", c.drilledSyllableForTest() >= 0)
+        return c.candidateWords()
+    }
+
+    private fun bothKeyboards(reading: String): List<Pair<String, List<String>>> {
+        val nine = drilled(nine = true, reading)
+        val alpha = drilled(nine = false, reading)
+        assertEquals("both keyboards must drill the same $reading grid", alpha, nine)
+        return listOf("9-key" to nine, "26-key" to alpha)
+    }
+
+    private fun rank(grid: List<String>, word: String): Int {
+        val at = grid.indexOf(word)
+        assertTrue("$word must stay reachable in the drill grid", at >= 0)
+        return at
+    }
 
     private fun codePoint(word: String) = word.codePointAt(0)
 
     private fun isCoreIdeograph(word: String) =
         word.codePointCount(0, word.length) == 1 && codePoint(word) in 0x4E00..0x9FFF
+
+    private fun frequencies(key: String): Map<String, Int> =
+        dict.exact(key).filter { it.word.codePointCount(0, it.word.length) == 1 }
+            .associate { it.word to it.freq }
+
+    private val commonAnchors = mapOf(
+        "xie" to listOf("写", "些", "谢", "卸", "叶"),
+        "pi" to listOf("皮", "批", "匹", "坏"),
+        "bang" to listOf("帮", "棒", "蚌"),
+    )
+
+    private val nonSimplifiedForms = listOf("脇", "缷", "冩", "擕", "爕")
+
+    @Test fun everyHomophoneStaysReachableOnBothKeyboards() {
+        assumeAssets()
+        val decoder = PinyinDecoder(BinaryDict.fromFile(dictFile), CharBigramLM.fromFile(lmFile))
+        for (reading in commonAnchors.keys) {
+            val supplied = decoder.homophoneFreqs(reading).map { it.first }
+            for ((layout, grid) in bothKeyboards(reading)) {
+                assertEquals("$layout $reading drill must not drop a character", supplied.size, grid.size)
+                assertEquals("$layout $reading drill must reorder, never filter", supplied.toSet(), grid.toSet())
+            }
+        }
+    }
+
+    @Test fun extensionAreaFormsNeverPrecedeCommonSimplifiedCharacters() {
+        assumeAssets()
+        for ((reading, anchors) in commonAnchors) {
+            val freq = frequencies(reading)
+            for ((layout, grid) in bothKeyboards(reading)) {
+                val lastAnchor = anchors.maxOf { rank(grid, it) }
+                val early = grid.take(lastAnchor).filter { !isCoreIdeograph(it) && (freq[it] ?: 0) > 1 }
+                assertEquals(
+                    "$layout $reading drill puts extension-area forms among the common simplified run: $early",
+                    emptyList<String>(),
+                    early,
+                )
+            }
+        }
+    }
+
+    @Test fun nonSimplifiedFormsNeverPrecedeCommonSimplifiedCharacters() {
+        assumeAssets()
+        for ((layout, grid) in bothKeyboards("xie")) {
+            val lastAnchor = commonAnchors.getValue("xie").maxOf { rank(grid, it) }
+            for (variant in nonSimplifiedForms) {
+                assertTrue(
+                    "$layout xie drill must rank $variant after every common simplified form",
+                    rank(grid, variant) > lastAnchor,
+                )
+            }
+        }
+    }
+
+    @Test fun theInjectionWallStaysBehindEveryAttestedCharacter() {
+        assumeAssets()
+        for (reading in commonAnchors.keys) {
+            val freq = frequencies(reading)
+            for ((layout, grid) in bothKeyboards(reading)) {
+                val firstWall = grid.indexOfFirst { (freq[it] ?: 0) in 1..1 }
+                if (firstWall < 0) continue
+                val strays = grid.drop(firstWall).filter { (freq[it] ?: 0) > 1 }
+                assertEquals(
+                    "$layout $reading drill mixes attested characters into the injected wall: $strays",
+                    emptyList<String>(),
+                    strays,
+                )
+                for (anchor in commonAnchors.getValue(reading)) {
+                    assertTrue("$layout $reading drill must keep $anchor ahead of the wall", rank(grid, anchor) < firstWall)
+                }
+            }
+        }
+    }
 
     @Test fun commonCharactersOutrankExtensionAreaFormsOnEverySyllableKey() {
         assumeAssets()

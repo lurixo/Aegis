@@ -185,4 +185,54 @@ class ExhaustiveDecodeUiAuditExtTest {
         )
         assertTrue("E1-B sequential-lock TRUE violations: ${fails.take(8)}", fails.isEmpty())
     }
+
+    @Test fun e23b_drillPartialCommitRedrill_subsetPairs() {
+        assumeTrue(assetsPresent())
+        val cases = classA1.flatMap { a -> listOf("hao" to a, "ni" to a, a to "hao", a to "ni") } + ("deng" to "deng")
+        val fails = ArrayList<String>()
+        for ((s1, s2) in cases.distinct()) {
+            val c = controller()
+            c.switchTextLayoutForTest(nine = false)
+            type(c, s1 + s2)
+            val firstReadings = c.expandedReadings()
+            val expectedFirstReadings = T9Pinyin.leftColumnLetterReadings(s1 + s2, 24)
+            if (firstReadings != expectedFirstReadings || s1 !in firstReadings) {
+                fails.add("$s1+$s2\tlabel-S1\texpected=$expectedFirstReadings actual=$firstReadings"); continue
+            }
+            c.onPickReadingIndex(firstReadings.indexOf(s1))
+            c.onPickReadingIndex(c.expandedReadings().indexOf(s1))
+            val o1 = dictSingles(s1) + allowed(s1)
+            val grid1 = c.candidateWords()
+            val leak1 = grid1.filter { it !in o1 }
+            if (leak1.isNotEmpty()) fails.add("$s1+$s2\tdrill1-leak\t${leak1.take(6)}")
+            val idx = grid1.indexOfFirst { it in dictSingles(s1) }
+            if (idx < 0) { fails.add("$s1+$s2\tdrill1-empty\tno S1 char to pick"); continue }
+            c.onPickCandidate(idx)
+            val secondReadings = c.expandedReadings()
+            val expectedSecondReadings = T9Pinyin.leftColumnLetterReadings(s2, 24)
+            if (secondReadings != expectedSecondReadings || s2 !in secondReadings) {
+                fails.add(
+                    "$s1+$s2\tlabel-S2\texpected=$expectedSecondReadings actual=$secondReadings " +
+                        "prefix='${c.composingPrefix()}'"
+                )
+                continue
+            }
+            c.onPickReadingIndex(secondReadings.indexOf(s2))
+            c.onPickReadingIndex(c.expandedReadings().indexOf(s2))
+            val o2 = dictSingles(s2) + allowed(s2)
+            val grid2 = c.candidateWords()
+            val leak2 = grid2.filter { it !in o2 }
+            if (leak2.isNotEmpty()) fails.add("$s1+$s2\tdrill2-leak\t${leak2.take(6)}")
+            if (dictSingles(s2).isNotEmpty() && grid2.none { it in dictSingles(s2) }) {
+                fails.add("$s1+$s2\tdrill2-empty\tno S2 chars after partial commit")
+            }
+        }
+        File(outDir(), "ext_e23b.tsv").writeText(
+            "# $runStamp\npair\tissue\tdetail\n" + fails.joinToString("\n") + if (fails.isNotEmpty()) "\n" else ""
+        )
+        File(outDir(), "ext_e23b_summary.txt").writeText(
+            "# $runStamp\nE2/E3-B — 26-key drill + partial commit + re-drill (controller)\ncases covered: ${cases.distinct().size}\nviolations: ${fails.size}\n"
+        )
+        assertTrue("E2/E3-B drill/partial-commit violations: ${fails.take(8)}", fails.isEmpty())
+    }
 }
