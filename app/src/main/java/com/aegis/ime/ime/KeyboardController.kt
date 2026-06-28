@@ -100,6 +100,9 @@ class KeyboardController(
     /** A3 自定义: the user's custom punctuation marks (injected from prefs by the service). */
     private var customSymbols: List<String> = emptyList()
 
+    /** I2: the user's custom numpad operators (injected from prefs), appended to the operator scroll column. */
+    private var customOperators: List<String> = emptyList()
+
     /** U23: associated emoji/symbol candidates in the current list — committed directly (no pinyin learn). */
     private var directCommitCands: Set<Cand> = emptySet()
     /** U25: the inline-calculator candidate (if any) + the expression it was computed from. The expression
@@ -119,6 +122,7 @@ class KeyboardController(
     var onShowSymbols: () -> Unit = {}
     var onShowSettings: () -> Unit = {}
     var onShowCustomSymbols: () -> Unit = {} // A3 自定义 entry tapped
+    var onShowCustomOperators: () -> Unit = {} // I2 numpad operator 自定义 entry tapped
     var onClosePanel: () -> Unit = {}
 
     private var view: InputView? = null
@@ -138,6 +142,12 @@ class KeyboardController(
     /** A3 自定义: set the user's custom punctuation marks (from prefs) and re-render the column. */
     fun setCustomSymbols(symbols: List<String>) {
         customSymbols = symbols
+        render()
+    }
+
+    /** I2: set the user's custom numpad operators (from prefs) and re-render the operator column. */
+    fun setCustomOperators(operators: List<String>) {
+        customOperators = operators
         render()
     }
 
@@ -199,6 +209,7 @@ class KeyboardController(
             KeyAction.SEGMENT -> handleSegment()
             KeyAction.SHOW_EDIT -> onShowEdit()
             KeyAction.CUSTOM_SYMBOL -> onShowCustomSymbols() // A3: open the 自定义 punctuation panel
+            KeyAction.CUSTOM_OPERATOR -> onShowCustomOperators() // I2: open the 自定义 operator panel
             // D: 铅笔 ✎ → symbols panel. The pencil sits on the keyboard (reachable mid-composing), so flush
             // the pending pinyin first — otherwise the panel commits symbols straight to the editor while a
             // stale buffer lingers and its ⌫ deletes committed text out from under it (parity with switchLayout).
@@ -656,9 +667,13 @@ class KeyboardController(
 
     private fun render() {
         val v = view ?: return
-        val layout = if (layoutId == LayoutId.NINE) Layouts.nine(lang, nineLeftColumn(), composing.isNotEmpty())
-        else Layouts.forId(layoutId, lang)
-        v.showKeyboard(layout, shifted, shiftState == ShiftState.LOCK, lang)
+        val layout = when (layoutId) {
+            LayoutId.NINE -> Layouts.nine(lang, nineLeftColumn(), composing.isNotEmpty())
+            // I2: the numpad's left column is the (default + user-custom) operator scroll strip.
+            LayoutId.NUMPAD -> Layouts.numpad(Layouts.numpadOperators(customOperators))
+            else -> Layouts.forId(layoutId, lang)
+        }
+        v.showKeyboard(layout, shifted, shiftState == ShiftState.LOCK, lang) // I4 locked + I2 numpad merged
         v.showCandidates(candidates.map { it.word }, preeditText(), expandedReadings())
     }
 

@@ -17,6 +17,7 @@ package com.aegis.ime.layout
 
 import com.aegis.ime.layout.KeyAction.BACKSPACE
 import com.aegis.ime.layout.KeyAction.CLEAR_COMPOSING
+import com.aegis.ime.layout.KeyAction.CUSTOM_OPERATOR
 import com.aegis.ime.layout.KeyAction.CUSTOM_SYMBOL
 import com.aegis.ime.layout.KeyAction.ENTER
 import com.aegis.ime.layout.KeyAction.SHIFT
@@ -161,22 +162,38 @@ object Layouts {
         ),
     )
 
-    /** Calculator-style number 9-grid for fast digit entry (issue #6). */
-    private fun numpad(): KeyboardLayout = KeyboardLayout(
-        LayoutId.NUMPAD,
-        listOf(
-            row(Key("%"), Key("1"), Key("2"), Key("3"), Key("⌫", action = BACKSPACE)),
-            row(Key("+"), Key("4"), Key("5"), Key("6"), Key(".")),
-            row(Key("-"), Key("7"), Key("8"), Key("9"), Key("@")),
-            row(
-                Key("*"),
-                Key("返回", action = SWITCH_TEXT), // H-1: back to the user's text keyboard (9-key by default)
-                Key("0"),
-                Key("空格", output = " ", action = SPACE),
-                Key("↵", action = ENTER, accent = true),
-            ),
-        ),
-    )
+    /**
+     * I2: the numpad's left scroll column — the default math operators, then the user's [custom] operators,
+     * then the 自定义 entry that adds more. Each operator commits straight to the editor (so the inline
+     * calculator can then evaluate the expression). Mirrors [ninePunctuation] for the pinyin column.
+     */
+    /** The built-in default operators (exposed so the 自定义 panel can keep them out of its add list). */
+    val defaultNumpadOperators: List<String> = listOf("+", "-", "×", "÷", "=", "(", ")", "%", ".")
+
+    fun numpadOperators(custom: List<String> = emptyList()): List<Key> =
+        // distinct() so a custom operator equal to a built-in default doesn't render twice in the column.
+        (defaultNumpadOperators + custom).distinct().map { Key(it, direct = true) } +
+            Key("自定义", action = CUSTOM_OPERATOR)
+
+    /**
+     * Calculator-style number 9-grid (issue #6). I2: the left column is a vertically
+     * SCROLLABLE operator strip ([operators], same mechanism as the 9-key left column) instead of the old
+     * fixed +/−/×/% column; the digit/function grid fills the other four columns. [rowCount] = 4 so it
+     * shares the 4-row page height (no resize when switching 9-key ⇄ 123).
+     */
+    fun numpad(operators: List<Key> = numpadOperators()): KeyboardLayout {
+        val u = 1f / 5f
+        val opCol = ScrollColumn(operators, 0f, 0f, u, 1f, cellHFrac = 0.25f) // 4 visible, scroll for the rest
+        val cells = ArrayList<PlacedKey>()
+        fun cell(key: Key, col: Int, row: Int) = cells.add(PlacedKey(key, col * u, row * 0.25f, u, 0.25f))
+        cell(Key("1"), 1, 0); cell(Key("2"), 2, 0); cell(Key("3"), 3, 0); cell(Key("⌫", action = BACKSPACE), 4, 0)
+        cell(Key("4"), 1, 1); cell(Key("5"), 2, 1); cell(Key("6"), 3, 1); cell(Key("."), 4, 1)
+        cell(Key("7"), 1, 2); cell(Key("8"), 2, 2); cell(Key("9"), 3, 2); cell(Key("@"), 4, 2)
+        // H-1: 返回 goes back to the user's text keyboard (9-key by default).
+        cell(Key("返回", action = SWITCH_TEXT), 1, 3); cell(Key("0"), 2, 3)
+        cell(Key("空格", output = " ", action = SPACE), 3, 3); cell(Key("↵", action = ENTER, accent = true), 4, 3)
+        return KeyboardLayout(LayoutId.NUMPAD, cells = cells, rowCount = 4, scrollColumn = opCol)
+    }
 
     private fun symbol(): KeyboardLayout = KeyboardLayout(
         LayoutId.SYMBOL,

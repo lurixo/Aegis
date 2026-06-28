@@ -134,6 +134,37 @@ class LayoutsTest {
         assertTrue("custom marks commit directly", sc.items.filter { it.label in listOf("、", "《") }.all { it.direct })
     }
 
+    // ---- I2: numpad operator scroll column (+ user-custom operators) ----
+
+    @Test fun numpad_operators_are_defaults_then_custom_then_自定义() {
+        val ops = Layouts.numpadOperators(listOf("√", "^"))
+        val labels = ops.map { it.label }
+        assertTrue("default math operators present",
+            listOf("+", "-", "×", "÷", "=", "(", ")", "%", ".").all { it in labels })
+        assertTrue("custom operators appended after the defaults", listOf("√", "^").all { it in labels })
+        assertEquals("自定义 is the last entry", "自定义", labels.last())
+        assertEquals("自定义 opens the operator panel", KeyAction.CUSTOM_OPERATOR, ops.last().action)
+        assertTrue("every operator commits directly", ops.dropLast(1).all { it.direct })
+    }
+
+    @Test fun numpad_operators_dedupe_a_custom_equal_to_a_default() {
+        val ops = Layouts.numpadOperators(listOf("+", "√")).map { it.label }
+        assertEquals("a custom operator equal to a built-in default is not duplicated", 1, ops.count { it == "+" })
+        assertTrue("a genuinely new custom operator is still added", "√" in ops)
+    }
+
+    @Test fun numpad_left_column_is_a_scrollable_operator_strip() {
+        val ops = Layouts.numpadOperators()
+        val np = Layouts.numpad(ops)
+        assertEquals("operators populate the scroll column", ops.map { it.label }, np.scrollColumn!!.items.map { it.label })
+        assertEquals("numpad is 4 rows so it shares the short-page height (no 9-key⇄123 resize)", 4, np.rowCount)
+        val grid = np.cells!!.map { it.key.label }
+        assertTrue("the digit grid is intact", (0..9).all { it.toString() in grid })
+        assertTrue("backspace + enter present", "⌫" in grid && "↵" in grid)
+        // The operator column occupies the leftmost fifth; the grid fills the rest.
+        assertTrue("operator column is the leftmost strip", np.scrollColumn!!.x <= 1e-4f)
+    }
+
     @Test fun qwerty_has_no_nine_switch_key_and_pen_opens_symbols() {
         val actions = keysOf(qwerty).map { it.action }
         assertTrue("9-key switch is via the startup setting, not a key", KeyAction.SWITCH_NINE !in actions)

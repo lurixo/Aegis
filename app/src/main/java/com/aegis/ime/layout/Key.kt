@@ -42,6 +42,7 @@ enum class KeyAction {
     SHOW_SYMBOLS,    // D: 铅笔 ✎ key → the categorized symbols panel (SymbolsView)
     SEGMENT,         // 9-key 分词/隔音: lock the active syllable boundary while composing
     CUSTOM_SYMBOL,   // 9-key left punctuation list: the "自定义" entry (per-symbol customization, A3)
+    CUSTOM_OPERATOR, // I2 numpad operator column: the "自定义" entry (add custom operators)
 }
 
 /**

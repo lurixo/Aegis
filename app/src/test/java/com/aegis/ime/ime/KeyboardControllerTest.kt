@@ -330,6 +330,24 @@ class KeyboardControllerTest {
         assertTrue("自定义 tap opens the custom-symbol panel", opened)
     }
 
+    // ---- I2: numpad operator column ----
+
+    @Test fun numpad_operator_自定义_entry_opens_the_operator_panel() {
+        var opened = false
+        val c = KeyboardController(FakeHost(), engine).apply { onShowCustomOperators = { opened = true } }
+        c.onKey(act(KeyAction.SWITCH_NUMPAD))
+        c.onKey(Key("自定义", action = KeyAction.CUSTOM_OPERATOR))
+        assertTrue("自定义 tap opens the custom-operator panel", opened)
+    }
+
+    @Test fun numpad_operator_commits_directly_to_the_editor() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.SWITCH_NUMPAD))
+        c.onKey(Key("×", direct = true)) // an operator tapped in the scroll column
+        assertEquals(listOf("×"), h.commits)
+    }
+
     @Test fun set_custom_symbols_surfaces_them_in_the_idle_column_before_自定义() {
         val c = KeyboardController(FakeHost(), engine)
         c.onKey(act(KeyAction.SWITCH_NINE))
