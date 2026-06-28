@@ -49,9 +49,14 @@ class ClipImageStore(private val dir: File) {
     }
 
     private fun prune() {
-        val files = runCatching { imageDir().listFiles()?.sortedBy { it.lastModified() } }.getOrNull() ?: return
-        val excess = files.size - MAX_IMAGES
-        if (excess > 0) files.take(excess).forEach { runCatching { it.delete() } }
+        var files = runCatching { imageDir().listFiles()?.sortedBy { it.lastModified() } }.getOrNull() ?: return
+        val excessCount = files.size - MAX_IMAGES
+        if (excessCount > 0) { files.take(excessCount).forEach { runCatching { it.delete() } }; files = files.drop(excessCount) }
+        var total = files.sumOf { it.length() }
+        var i = 0
+        while (total > MAX_TOTAL_BYTES && i < files.size) {
+            total -= files[i].length(); runCatching { files[i].delete() }; i++
+        }
     }
 
     fun thumbnail(path: String, maxPx: Int): Bitmap? = runCatching {
@@ -83,8 +88,9 @@ class ClipImageStore(private val dir: File) {
     }
 
     companion object {
-        const val MAX_BYTES = 8L * 1024 * 1024
-        private const val MAX_IMAGES = 100
+        const val MAX_BYTES = 32L * 1024 * 1024
+        const val MAX_TOTAL_BYTES = 512L * 1024 * 1024
+        private const val MAX_IMAGES = 1000
 
         fun mimeOf(path: String): String = when (path.substringAfterLast('.', "").lowercase()) {
             "jpg", "jpeg" -> "image/jpeg"

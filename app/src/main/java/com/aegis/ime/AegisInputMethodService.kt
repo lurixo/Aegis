@@ -183,7 +183,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onPanelBackspace = { controller.onPanelBackspace() }
             onPanelClear = { controller.onPanelClear() }
             onCollapse = { requestHideSelf(0) }
-            onCopyCommit = { t -> currentInputConnection?.commitText(t, 1) }
+            onCopyCommit = { t -> commitLargeText(t) }
             onCopyBlock = { b -> copyBlockToAegis(b) }
             onCopyDismiss = { lastCopy = null }
         }
@@ -304,7 +304,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.historyProvider = { clipboardStore.history() }
             it.categoriesProvider = { clipboardStore.categories() }
             it.phrasesInProvider = { cat -> clipboardStore.phrasesIn(cat) }
-            it.onPick = { t -> currentInputConnection?.commitText(t, 1); inputView?.showPanel(null) }
+            it.onPick = { t -> commitLargeText(t); inputView?.showPanel(null) }
             it.isImage = { e -> ClipboardStore.isImageEntry(e) && clipImageStore.isStoredImage(ClipboardStore.imagePath(e)) }
             it.onPickImage = { path -> pasteImage(path) }
             it.thumbnailProvider = { path -> thumbCache.get(path) }
@@ -519,6 +519,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun commitText(text: CharSequence) {
         currentInputConnection?.commitText(text, 1)
+    }
+
+    private fun commitLargeText(text: CharSequence) {
+        val ic = currentInputConnection ?: return
+        ic.beginBatchEdit()
+        com.aegis.ime.ime.LargeCommit.commit(text) { ic.commitText(it, 1) }
+        ic.endBatchEdit()
     }
 
     override fun deleteBackward() {
