@@ -36,4 +36,7 @@ object ClipboardPolicy {
     fun blocksLearning(inputType: Int, imeOptions: Int): Boolean =
         isSensitive(inputType) ||
             (imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0
+
+    @Suppress("UNUSED_PARAMETER")
+    fun shouldRestoreCopyBar(lastCopy: String?, secureField: Boolean): Boolean = lastCopy != null
 }

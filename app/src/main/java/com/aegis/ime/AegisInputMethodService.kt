@@ -198,7 +198,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         super.onStartInputView(info, restarting)
         inputView?.showPanel(null)
         val lc = lastCopy
-        if (lc != null && !secureField) inputView?.showCopyBar(lc) else inputView?.hideCopyBar()
+        if (com.aegis.ime.user.ClipboardPolicy.shouldRestoreCopyBar(lc, secureField)) {
+            inputView?.showCopyBar(lc!!)
+        } else {
+            inputView?.hideCopyBar()
+        }
         val cnLayout = getSharedPreferences("aegis", MODE_PRIVATE).getString("cn_layout", "nine")
         controller.setCnDefaultLayout(if (cnLayout == "alpha") LayoutId.ALPHA else LayoutId.NINE)
         controller.reset()
