@@ -48,7 +48,7 @@ fun main(rawArgs: Array<String>) {
     val inputs = args.positionals.map { File(it) }
     require(inputs.isNotEmpty()) { "no input dict files given" }
     val minFreq = args.optional("--min-freq")?.toInt() ?: 0
-    val keyType = args.optional("--keytype") ?: "letter" // letter (26-key) | digit (T9) | fuzzy | initials
+    val keyType = args.optional("--keytype") ?: "letter" // letter (26-key) | digit (T9) | initials
     val maxPerKey = args.optional("--max-per-key")?.toInt() ?: Int.MAX_VALUE
     val syllablesOut = args.optional("--syllables")?.let { File(it) }
     val coverageOut = args.optional("--coverage")?.let { File(it) }
@@ -120,7 +120,6 @@ private fun parseDict(
         val letterKey = syllables.joinToString("")
         val key = when (keyType) {
             "digit" -> Pinyin.toT9(letterKey)
-            "fuzzy" -> Pinyin.fuzzyNormalize(letterKey)
             "initials" -> syllables.joinToString("") { it.substring(0, 1) }
             else -> letterKey
         }
