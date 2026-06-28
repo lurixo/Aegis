@@ -24,6 +24,8 @@ import android.os.Looper
 import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
+import android.widget.OverScroller
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import com.aegis.ime.layout.Key
@@ -69,6 +71,17 @@ class KeyboardView(context: Context) : View(context) {
     // A3: start scrolling after only a small drag so the list FOLLOWS the finger (the 24dp backspace-swipe
     // threshold felt like "滑不动 / 不跟手"); once started it tracks 1:1.
     private val scrollSlop = 6f * resources.displayMetrics.density
+    // U7/U17 fling: a quick flick must carry the list to the bottom in ONE gesture (the old drag-only scroll
+    // was bounded by finger travel within the short ~4-cell region, so one gesture could not reach the bottom). Momentum
+    // via OverScroller; velocity self-computed from the last two MOVE samples so it's deterministic + testable
+    // (Robolectric's VelocityTracker shadow reports nothing).
+    private val scroller = OverScroller(context)
+    private val minFlingVel = ViewConfiguration.get(context).scaledMinimumFlingVelocity.toFloat()
+    private val maxFlingVel = ViewConfiguration.get(context).scaledMaximumFlingVelocity.toFloat()
+    private var moveY1 = 0f; private var moveT1 = 0L // most recent MOVE sample
+    private var moveY2 = 0f; private var moveT2 = 0L // the one before it
+    private var moveSamples = 0
+    private var flingStopArmed = false // this DOWN halted a running fling → its UP must NOT pick (no mis-touch)
 
     // Long-press key repeat (#8) + backspace swipe (#5).
     private val repeatHandler = Handler(Looper.getMainLooper())
@@ -225,10 +238,23 @@ class KeyboardView(context: Context) : View(context) {
         }
     }
 
+    /** Farthest the list can scroll (0 when it fits) — the fling's lower clamp = "the bottom". */
+    private fun maxScroll(): Float {
+        val sc = scrollColumn ?: return 0f
+        return maxOf(0f, sc.items.size * scrollCellH - scrollRegion.height())
+    }
+
     private fun clampScroll() {
-        val sc = scrollColumn ?: return
-        val maxScroll = maxOf(0f, sc.items.size * scrollCellH - scrollRegion.height())
-        scrollY = scrollY.coerceIn(0f, maxScroll)
+        scrollY = scrollY.coerceIn(0f, maxScroll())
+    }
+
+    /** Drive the momentum fling each frame; View.draw() calls this automatically. */
+    override fun computeScroll() {
+        if (scroller.computeScrollOffset()) {
+            scrollY = scroller.currY.toFloat()
+            clampScroll()
+            postInvalidateOnAnimation()
+        }
     }
 
     /** Index of the scroll-column item under [y] (accounting for the scroll offset), or -1. */
@@ -434,30 +460,61 @@ class KeyboardView(context: Context) : View(context) {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 inScrollDown = true; scrolling = false
+                // U7/U17: a touch landing on a moving list STOPS the fling and that tap must not select
+                // anything (so flicking then tapping to halt never mis-commits a combo/punctuation).
+                flingStopArmed = !scroller.isFinished
+                if (flingStopArmed) scroller.forceFinished(true)
+                moveSamples = 0
                 scrollDownY = event.y; scrollStartY = scrollY
-                scrollPressedIndex = scrollIndexAt(event.y)
+                scrollPressedIndex = if (flingStopArmed) -1 else scrollIndexAt(event.y)
                 invalidate()
             }
             MotionEvent.ACTION_MOVE -> {
+                moveY2 = moveY1; moveT2 = moveT1
+                moveY1 = event.y; moveT1 = event.eventTime
+                moveSamples++
                 val dy = event.y - scrollDownY
                 if (!scrolling && abs(dy) > scrollSlop) { scrolling = true; scrollPressedIndex = -1 }
                 if (scrolling) { scrollY = scrollStartY - dy; clampScroll(); invalidate() }
             }
             MotionEvent.ACTION_UP -> {
                 val col = scrollColumn
-                if (!scrolling && col != null) {
+                if (scrolling) {
+                    // Hand off the finger's velocity to a momentum fling so one flick can reach the bottom.
+                    val vy = flingVelocity()
+                    if (col != null && abs(vy) > minFlingVel && maxScroll() > 0f) {
+                        // scrollY grows as the finger moves UP (dy<0), so fling velocity in scroll-space = -vy.
+                        scroller.fling(0, scrollY.toInt(), 0, (-vy).toInt(), 0, 0, 0, maxScroll().toInt())
+                        postInvalidateOnAnimation()
+                    }
+                } else if (col != null && !flingStopArmed) {
                     val idx = scrollIndexAt(event.y)
                     if (idx >= 0 && idx == scrollPressedIndex) { performClick(); onKey(col.items[idx]) }
                 }
-                scrollPressedIndex = -1; inScrollDown = false; scrolling = false
+                scrollPressedIndex = -1; inScrollDown = false; scrolling = false; flingStopArmed = false
                 invalidate()
             }
             MotionEvent.ACTION_CANCEL -> {
-                scrollPressedIndex = -1; inScrollDown = false; scrolling = false
+                scrollPressedIndex = -1; inScrollDown = false; scrolling = false; flingStopArmed = false
                 invalidate()
             }
         }
         return true
+    }
+
+    // U7/U17 test seams (Robolectric drives MotionEvents; the OverScroller computes its final target
+    // synchronously in fling(), so "reaches the bottom in one gesture" is checkable without a frame clock).
+    internal fun scrollOffsetForTest(): Float = scrollY
+    internal fun maxScrollForTest(): Float = maxScroll()
+    internal fun isFlingingForTest(): Boolean = !scroller.isFinished
+    internal fun flingFinalForTest(): Float = scroller.finalY.toFloat()
+
+    /** Finger velocity (px/s, screen-Y) from the last two MOVE samples; 0 unless there are ≥2. */
+    private fun flingVelocity(): Float {
+        if (moveSamples < 2) return 0f
+        val dt = (moveT1 - moveT2).toFloat()
+        if (dt <= 0f) return 0f
+        return ((moveY1 - moveY2) / dt * 1000f).coerceIn(-maxFlingVel, maxFlingVel)
     }
 
     /**
