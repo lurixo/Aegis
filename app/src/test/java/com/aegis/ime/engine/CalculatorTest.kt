@@ -70,4 +70,28 @@ class CalculatorTest {
         assertEquals("3", Calculator.detect("1.5+1.5")!!.result)
         assertEquals("2.5", Calculator.detect("5/2")!!.result)
     }
+
+    @Test fun dates_phones_and_multi_dash_ranges_are_not_calculations() {
+        // Low-risk noise guard: a run whose only operators are 2+ '-' is treated as a date/phone/range.
+        assertNull("ISO date", Calculator.detect("2024-01-15"))
+        assertNull("phone number", Calculator.detect("138-1234-5678"))
+        assertNull("date embedded in text", Calculator.detect("会议 2024-01-15"))
+    }
+
+    @Test fun the_dash_guard_never_touches_division_or_normal_calculations() {
+        // Division and every non-'-'-only expression must keep working; a single '-' still subtracts.
+        assertEquals("2.5", Calculator.detect("10/4")!!.result)
+        assertEquals("2", Calculator.detect("5-3")!!.result)
+        assertEquals("80", Calculator.detect("12+34*2")!!.result)
+        assertEquals("-1", Calculator.detect("1-2")!!.result) // single dash range still subtracts (accepted)
+    }
+
+    @Test fun the_dash_guard_shape_match_spares_unary_paren_and_decimal_negatives() {
+        // The guard targets a precise digit-dash shape, so these non-date negatives still calculate (they
+        // were wrongly suppressed by the earlier "all operators are '-'" form, which counted unary minus).
+        assertEquals("7", Calculator.detect("1-(-6)")!!.result)   // parenthesised negative
+        assertEquals("-8", Calculator.detect("-5-3")!!.result)    // leading unary minus
+        assertEquals("8", Calculator.detect("5--3")!!.result)     // minus of a negative
+        assertEquals("-3.5", Calculator.detect("1.5-2-3")!!.result) // decimal breaks the integer shape
+    }
 }

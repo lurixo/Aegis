@@ -26,4 +26,7 @@ interface ImeHost {
 
     /** U25: delete [length] chars before the cursor and commit [text] in their place (replace an expression). */
     fun replaceBeforeCursor(length: Int, text: CharSequence) {}
+
+    /** U25/M-3: whether the editor currently has a non-empty selection (so a calc replace must not clobber it). */
+    fun hasSelection(): Boolean = false
 }

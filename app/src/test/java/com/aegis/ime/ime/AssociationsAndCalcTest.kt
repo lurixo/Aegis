@@ -26,18 +26,27 @@ import org.junit.Test
 /** U23 (emoji/symbol associations) + U25 (inline calculator): both inject special candidates. */
 class AssociationsAndCalcTest {
 
-    /** A FakeHost that models the editor so the calculator can read/replace text before the cursor. */
+    /** A FakeHost modelling the editor WITH a caret, so a manual cursor move (M-3) can be simulated:
+     *  edits act at [cursor], and textBeforeCursor / replaceBeforeCursor are caret-relative like a real IC. */
     private class EditorHost : ImeHost {
         val sb = StringBuilder()
+        var cursor = 0
+        var selectionActive = false // M-3: simulate a non-empty selection made with no keystroke
         val learned = mutableListOf<String>()
-        override fun commitText(text: CharSequence) { sb.append(text) }
-        override fun deleteBackward() { if (sb.isNotEmpty()) sb.deleteCharAt(sb.length - 1) }
+        override fun hasSelection(): Boolean = selectionActive
+        override fun commitText(text: CharSequence) { sb.insert(cursor, text); cursor += text.length }
+        override fun deleteBackward() { if (cursor > 0) { sb.deleteCharAt(cursor - 1); cursor-- } }
         override fun performEnter() {}
-        override fun textBeforeCursor(n: Int): CharSequence = sb.takeLast(n)
+        override fun textBeforeCursor(n: Int): CharSequence = sb.substring(maxOf(0, cursor - n), cursor)
         override fun replaceBeforeCursor(length: Int, text: CharSequence) {
-            repeat(length) { if (sb.isNotEmpty()) sb.deleteCharAt(sb.length - 1) }
-            sb.append(text)
+            val from = maxOf(0, cursor - length)
+            sb.delete(from, cursor); cursor = from
+            sb.insert(cursor, text); cursor += text.length
         }
+        /** Pre-fill the editor with [s], caret at the end (as if the user had typed it). */
+        fun preset(s: String) { sb.setLength(0); sb.append(s); cursor = s.length }
+        /** Simulate a manual caret move to [pos] with no keystroke (the M-3 trigger). */
+        fun moveCursorTo(pos: Int) { cursor = pos }
         val text get() = sb.toString()
     }
 
@@ -110,10 +119,50 @@ class AssociationsAndCalcTest {
 
     @Test fun u25_does_not_fire_while_composing_pinyin() {
         val h = EditorHost()
-        h.sb.append("2+2") // editor already holds an expression
+        h.preset("2+2") // editor already holds an expression
         val c = KeyboardController(h, spyEngine(h.learned))
         "ni".forEach { c.onKey(out(it.toString())) } // now composing pinyin
         assertFalse("the calc result must not appear while a pinyin buffer is active", "4" in c.candidateWords())
         assertEquals("好的", c.candidateWords().first())
+    }
+
+    @Test fun u25_m3_moving_the_caret_before_picking_does_not_delete_unrelated_text() {
+        // M-3 (data loss): type an expression so its result is offered, then move the caret elsewhere with
+        // NO keystroke (so the stale candidate lingers), then tap it. The blind old replace deleted
+        // calcExprLen chars before the NEW caret ("买了3个5*2" → "买105*2"); the fix re-validates against
+        // the live text, finds the expression is no longer there, and leaves every character intact.
+        val h = EditorHost()
+        val c = KeyboardController(h, emptyEngine)
+        "买了3个5*2".forEach { c.onKey(digit(it.toString())) } // editor = 买了3个5*2, caret at end
+        assertEquals("trailing 5*2 is offered as 10", listOf("10"), c.candidateWords())
+
+        h.moveCursorTo(4) // caret now sits after "个" (before "5"), no keystroke → candidate is stale
+
+        c.onPickCandidate(c.candidateWords().indexOf("10"))
+        assertEquals("no unrelated characters were deleted", "买了3个5*2", h.text)
+    }
+
+    @Test fun u25_m3_picking_a_still_valid_result_after_an_unrelated_edit_still_replaces() {
+        // The guard must not over-fire: if the SAME expression still sits before the caret at pick time,
+        // the replace proceeds normally (regression guard for the happy path).
+        val h = EditorHost()
+        val c = KeyboardController(h, emptyEngine)
+        "5*2".forEach { c.onKey(digit(it.toString())) }
+        assertEquals(listOf("10"), c.candidateWords())
+        c.onPickCandidate(0)
+        assertEquals("the live expression is replaced by its result", "10", h.text)
+    }
+
+    @Test fun u25_m3_picking_with_an_active_selection_skips_the_replace() {
+        // Same M-3 family: the expression still precedes the caret, but a selection is
+        // active. deleteSurroundingText is selection-start-relative while commitText replaces the selection,
+        // so a blind replace would delete the expression AND destroy the selected text. The guard skips it.
+        val h = EditorHost()
+        val c = KeyboardController(h, emptyEngine)
+        "5*2".forEach { c.onKey(digit(it.toString())) }
+        assertEquals(listOf("10"), c.candidateWords())
+        h.selectionActive = true // user selected unrelated text with no keystroke → stale calc cand
+        c.onPickCandidate(c.candidateWords().indexOf("10"))
+        assertEquals("with a selection active the calc replace is skipped (no data loss)", "5*2", h.text)
     }
 }

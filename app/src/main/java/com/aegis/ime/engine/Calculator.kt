@@ -30,6 +30,9 @@ object Calculator {
 
     private val OPS = "+-*/×÷"
 
+    /** Integer groups joined by 2+ single dashes — a date / phone / range shape, not a calculation. */
+    private val DATE_LIKE = Regex("""\d+(-\d+){2,}""")
+
     /** Find a calculable expression ending exactly at the end of [textBeforeCursor]; null when there is none. */
     fun detect(textBeforeCursor: CharSequence): Match? {
         val s = textBeforeCursor.toString()
@@ -44,6 +47,12 @@ object Calculator {
         if (expr.isBlank()) return null
         // Must contain a binary operator between operands (a bare "12" or "(5)" is not a calculation).
         if (!hasBinaryOperator(expr)) return null
+        // Cheap date/phone/range guard: a run shaped like integer groups joined by 2+ single dashes
+        // (2024-01-15, 138-1234-5678, 1-2-3) is far more likely a date/phone/range than a subtraction
+        // chain, so suppress the noise. The shape match is precise — anything with + * / × ÷, parentheses,
+        // a decimal point, an explicit/leading unary minus, or spaces (1-(-6), -5-3, 1.5-2-3, "1 - 2 - 3")
+        // still calculates, and every division is untouched; only a bare digit-dash-digit-dash… run is dropped.
+        if (DATE_LIKE.matches(expr)) return null
         val value = evaluate(expr) ?: return null
         return Match(expr, format(value), s.length - start)
     }
