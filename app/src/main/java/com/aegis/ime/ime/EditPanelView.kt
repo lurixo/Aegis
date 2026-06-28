@@ -39,7 +39,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
 
     fun applyPalette(p: ImePalette) {
         palette = p
-        setBackgroundColor(p.panelBg)
+        setBackgroundColor(p.keyboardBg)
         recolor(this)
         setHasSelection(copyBtn.isEnabled)
     }
@@ -53,7 +53,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
 
     init {
         orientation = VERTICAL
-        setBackgroundColor(palette.panelBg)
+        setBackgroundColor(palette.keyboardBg)
 
         addView(
             btn("‹  文字编辑", EditAction.BACK, big = false).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), 0, 0, 0) },

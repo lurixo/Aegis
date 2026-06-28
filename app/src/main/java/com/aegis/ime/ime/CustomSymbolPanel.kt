@@ -70,10 +70,10 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
 
     init {
         orientation = VERTICAL
-        setBackgroundColor(colors.panelBg)
+        setBackgroundColor(colors.keyboardBg)
         backText.setOnClickListener { onBack() }
         pasteText.setOnClickListener { onPaste() }
-        headerBar.setBackgroundColor(colors.panelBg)
+        headerBar.setBackgroundColor(colors.keyboardBg)
         headerBar.addView(backText)
         headerBar.addView(View(context), LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
         headerBar.addView(pasteText)
@@ -91,8 +91,8 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
 
     fun applyPalette(p: ImePalette) {
         colors = p
-        setBackgroundColor(p.panelBg)
-        headerBar.setBackgroundColor(p.panelBg)
+        setBackgroundColor(p.keyboardBg)
+        headerBar.setBackgroundColor(p.keyboardBg)
         backText.setTextColor(p.keyLabel)
         pasteText.setTextColor(p.keyLabel)
         sectionLabels.forEach { it.setTextColor(p.keyLabelSecondary) }
