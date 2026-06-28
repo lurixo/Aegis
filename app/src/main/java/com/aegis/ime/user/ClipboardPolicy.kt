@@ -47,4 +47,17 @@ object ClipboardPolicy {
     fun blocksLearning(inputType: Int, imeOptions: Int): Boolean =
         isSensitive(inputType) ||
             (imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0
+
+    /**
+     * 复制条 display: should the most-recently-captured 复制条 be RESTORED when a field (re)starts?
+     * iff there is a pending clip — DECOUPLED from [isSensitive]/secureField on purpose. Showing a clip that
+     * was captured ELSEWHERE is a paste convenience available in EVERY field type, including terminal /
+     * username fields that report `textVisiblePassword` (Termius, Termux, JuiceSSH…) and even real password
+     * fields; only the × button hides it. [secureField] is taken (and deliberately ignored) to keep this the
+     * single, testable home of the decision and to document that secure status must NOT gate DISPLAY — it
+     * still gates CAPTURE of new clips (onSystemClipChanged / captureClip), which is the real privacy line.
+     * Returning true ⇒ [lastCopy] is non-null (the call site may dereference it safely).
+     */
+    @Suppress("UNUSED_PARAMETER")
+    fun shouldRestoreCopyBar(lastCopy: String?, secureField: Boolean): Boolean = lastCopy != null
 }
