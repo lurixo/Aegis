@@ -103,7 +103,6 @@ private fun parseDict(
         val letterKey = syllables.joinToString("")
         val key = when (keyType) {
             "digit" -> Pinyin.toT9(letterKey)
-            "fuzzy" -> Pinyin.fuzzyNormalize(letterKey)
             "initials" -> syllables.joinToString("") { it.substring(0, 1) }
             else -> letterKey
         }
