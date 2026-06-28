@@ -22,9 +22,11 @@ import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.Layouts
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -83,6 +85,52 @@ class KeyboardViewInteractionTest {
         assertNotNull(picked)
         assertNotEquals("after scrolling, the top row is no longer the first punctuation", "，", picked?.label)
         assertEquals("！", picked?.label)
+    }
+
+    private fun longComboView(): KeyboardView {
+        val combos = (1..24).map { Key("p$it", output = "p$it", action = KeyAction.PICK_READING) }
+        return nineView(combos, composing = true)
+    }
+
+    private fun KeyboardView.fastFlickUp() {
+        val x = cx()
+        send(MotionEvent.ACTION_DOWN, x, regTop() + cellH() * 3.5f, 0)
+        send(MotionEvent.ACTION_MOVE, x, regTop() + cellH() * 2.0f, 8)
+        send(MotionEvent.ACTION_MOVE, x, regTop() + cellH() * 0.5f, 16)
+        send(MotionEvent.ACTION_UP, x, regTop() + cellH() * 0.5f, 16)
+    }
+
+    @Test fun a_fast_flick_flings_to_the_bottom_in_one_gesture() {
+        val v = longComboView()
+        assertTrue("the list overflows so there is somewhere to scroll", v.maxScrollForTest() > 0f)
+        v.fastFlickUp()
+        assertTrue("a fast flick starts a momentum fling", v.isFlingingForTest())
+        assertEquals(
+            "the fling reaches the bottom in ONE gesture",
+            v.maxScrollForTest(), v.flingFinalForTest(), 1f,
+        )
+    }
+
+    @Test fun tapping_during_a_fling_stops_it_without_picking() {
+        val v = longComboView()
+        var picked: Key? = null
+        v.onKey = { picked = it }
+        v.fastFlickUp()
+        assertTrue("precondition: a fling is running", v.isFlingingForTest())
+        v.tap(v.cx(), v.colCellY(0))
+        assertFalse("the tap halts the fling", v.isFlingingForTest())
+        assertNull("halting a fling must not select an item", picked)
+    }
+
+    @Test fun a_drag_that_pauses_before_release_does_not_fling() {
+        val v = longComboView()
+        val x = v.cx()
+        v.send(MotionEvent.ACTION_DOWN, x, v.regTop() + v.cellH() * 3.5f, 0)
+        v.send(MotionEvent.ACTION_MOVE, x, v.regTop() + v.cellH() * 2.5f, 200)
+        v.send(MotionEvent.ACTION_MOVE, x, v.regTop() + v.cellH() * 2.5f, 500)
+        v.send(MotionEvent.ACTION_UP, x, v.regTop() + v.cellH() * 2.5f, 500)
+        assertFalse("a paused-before-release drag must not fling", v.isFlingingForTest())
+        assertTrue("but it did scroll while dragging", v.scrollOffsetForTest() > 0f)
     }
 
     @Test fun tap_letter_key_outside_scroll_column_still_works() {
