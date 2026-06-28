@@ -18,7 +18,7 @@ package com.aegis.ime.dict
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.ConcurrentHashMap
 
 object ModelDownload {
 
@@ -39,10 +39,11 @@ object ModelDownload {
 
     data class DownloadResult(val ok: Boolean, val validator: String?)
 
-    private val inFlight = AtomicBoolean(false)
+    private val inFlight = ConcurrentHashMap.newKeySet<String>()
 
     fun download(url: String, dest: File, onProgress: (Long, Long) -> Unit): DownloadResult {
-        if (!inFlight.compareAndSet(false, true)) return DownloadResult(false, null)
+        val key = dest.absolutePath
+        if (!inFlight.add(key)) return DownloadResult(false, null)
         var conn: HttpURLConnection? = null
         val tmp = File(dest.parentFile, dest.name + ".part")
         return try {
@@ -75,7 +76,7 @@ object ModelDownload {
             DownloadResult(false, null)
         } finally {
             conn?.disconnect()
-            inFlight.set(false)
+            inFlight.remove(key)
         }
     }
 
@@ -102,6 +103,28 @@ object ModelDownload {
     fun purge(filesDir: File): Boolean {
         val a = destFile(filesDir).delete()
         val b = partFile(filesDir).delete()
+        return a || b
+    }
+
+
+    const val DICT_URL =
+        "https://github.com/lurixo/aegis/releases/download/dict-full/aegis-dict-full.zip"
+
+    const val DICT_REPO_URL = "https://github.com/lurixo/aegis/releases"
+
+    const val DICT_NAME = "aegis-dict-full.zip"
+
+    const val DICT_VALIDATOR_PREF = "dict_validator"
+
+    fun dictDestFile(filesDir: File): File = File(File(filesDir, "downloaded"), DICT_NAME)
+
+    fun dictPartFile(filesDir: File): File = File(File(filesDir, "downloaded"), "$DICT_NAME.part")
+
+    fun isDictDownloaded(filesDir: File): Boolean = dictDestFile(filesDir).let { it.exists() && it.length() > 1024 }
+
+    fun purgeDict(filesDir: File): Boolean {
+        val a = dictDestFile(filesDir).delete()
+        val b = dictPartFile(filesDir).delete()
         return a || b
     }
 }

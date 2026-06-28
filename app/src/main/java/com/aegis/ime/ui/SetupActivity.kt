@@ -37,6 +37,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.edit
 import com.aegis.ime.ui.theme.AegisTheme
 
 class SetupActivity : ComponentActivity() {
@@ -67,7 +69,9 @@ class SetupActivity : ComponentActivity() {
 @Composable
 private fun SetupScreen() {
     val context = LocalContext.current
+    val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
     var typed by remember { mutableStateOf("") }
+    var showDownloadHint by remember { mutableStateOf(!prefs.getBoolean("dl_hint_dismissed", false)) }
 
     Column(
         modifier = Modifier
@@ -84,8 +88,32 @@ private fun SetupScreen() {
             style = MaterialTheme.typography.bodyMedium,
         )
 
+        if (showDownloadHint) {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text("首次使用", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "下方可选下载【增强模型】与【全量词库】(都不是必须的)。内置种子词库与基础语法已能离线打字," +
+                            "想要更准/更全时再下载即可。",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    TextButton(
+                        onClick = {
+                            showDownloadHint = false
+                            prefs.edit { putBoolean("dl_hint_dismissed", true) }
+                        },
+                    ) { Text("知道了") }
+                }
+            }
+        }
+
         GramDownloadCard()
+        DictDownloadCard()
         FuzzySettingsCard()
+        AssociationToggleCard()
         LayoutChoiceCard()
 
         Card(modifier = Modifier.fillMaxWidth()) {
