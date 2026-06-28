@@ -1,0 +1,89 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Copyright (C) 2026 lurixo
+//
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 3.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+// PARTICULAR PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
+
+package com.aegis.ime.ime
+
+import android.provider.Settings
+import android.view.View
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
+
+/**
+ * FIX-1 regression: [Motion.fadeIn]'s immediate branch (animations off OR view detached) must invalidate(),
+ * not merely set alpha = 1f. A persistently-visible static view (the preedit tab — fixed height, never GONE,
+ * resting at alpha 1f) hits View's `mAlpha == alpha` no-op guard when alpha is re-set to 1f, so NO repaint is
+ * scheduled. The bug: with system animations off (ANIMATOR_DURATION_SCALE == 0 — accessibility
+ * "remove animations" / developer options) the first pinyin key stored PreeditView.text but never repainted,
+ * so the pinyin tab stayed blank until the second key. These assert the fixed line schedules a repaint.
+ *
+ * Mutation check: drop the `view.invalidate()` from Motion.fadeIn's early return and every test here asserts
+ * 0 invalidations -> RED.
+ */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
+class MotionRedrawTest {
+
+    private val ctx = RuntimeEnvironment.getApplication()
+
+    /** A View that records how many times invalidate() was scheduled on it. */
+    private class CountingView(c: android.content.Context) : View(c) {
+        var invalidations = 0
+        override fun invalidate() { invalidations++; super.invalidate() }
+    }
+
+    private fun disableSystemAnimations() {
+        Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
+    }
+
+    @Test fun fadeIn_with_animations_off_invalidates_even_when_alpha_is_already_one() {
+        disableSystemAnimations()
+        val v = CountingView(ctx).apply { alpha = 1f } // resting state of the always-visible preedit tab
+        v.invalidations = 0                            // ignore any construction-time invalidations
+        Motion.fadeIn(v)
+        assertEquals("animations off -> jump straight to fully shown", 1f, v.alpha, 0f)
+        assertTrue(
+            "reduced-motion fadeIn must invalidate so freshly-set content repaints (setAlpha(1f) is a no-op)",
+            v.invalidations >= 1,
+        )
+    }
+
+    @Test fun fadeIn_when_detached_invalidates() {
+        // A freshly-built view is not attached to a window; this shares the SAME early return as animations-off.
+        val v = CountingView(ctx).apply { alpha = 1f }
+        v.invalidations = 0
+        Motion.fadeIn(v)
+        assertEquals(1f, v.alpha, 0f)
+        assertTrue("detached fadeIn must still invalidate", v.invalidations >= 1)
+    }
+
+    @Test fun preedit_first_setText_under_reduced_motion_schedules_a_repaint() {
+        // End-to-end through the real regression path: PreeditView.setText("" -> text) routes the FIRST
+        // appearance through Motion.fadeIn. Under reduced motion the tab must still be scheduled to paint.
+        disableSystemAnimations()
+        val invalidated = booleanArrayOf(false)
+        val pv = object : PreeditView(ctx) {
+            override fun invalidate() { invalidated[0] = true; super.invalidate() }
+        }
+        invalidated[0] = false
+        pv.setText("n") // empty -> "n": the appearing path
+        assertEquals("preedit jumps to shown under reduced motion", 1f, pv.alpha, 0f)
+        assertTrue("first pinyin key must repaint the preedit even with animations off", invalidated[0])
+    }
+}

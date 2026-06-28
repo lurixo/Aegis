@@ -29,7 +29,7 @@ import com.aegis.ime.ime.theme.ImeShapes
  * in-progress pinyin (e.g. "ni'de"), sitting above the candidate row — NOT inline among candidates.
  * Hidden by the parent when there is nothing composing.
  */
-class PreeditView(context: Context) : View(context) {
+open class PreeditView(context: Context) : View(context) { // open: MotionRedrawTest overrides invalidate() to pin the reduced-motion repaint
 
     private var text: String = ""
     private val density = resources.displayMetrics.density
