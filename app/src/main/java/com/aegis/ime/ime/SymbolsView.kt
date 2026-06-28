@@ -20,6 +20,7 @@ import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.widget.FrameLayout
 import android.widget.GridLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -29,9 +30,10 @@ import com.aegis.ime.layout.SymbolCatalog
 
 /**
  * Categorized symbols panel (D, reached from the keyboard ✎ pencil key). A left rail of category tabs
- * (常用 / 中文 / 英文 / 网络 / 数学 / 箭头 / 角标 / 序号 / 音标 / 拼音) drives a scrollable grid; tapping a
- * symbol commits it and returns to the previous interface (U3 — the service closes the panel). Bottom bar = 返回 + ⌫. The
- * "常用" tab is fed live from [recentProvider] (the usage store), the rest from [SymbolCatalog].
+ * (常用 / 中文 / 英文 / 货币 / 网络 / 数学 / 箭头 / 角标 / 序号 / 音标 / 拼音) drives a scrollable grid.
+ * Tapping a symbol commits it; by default it then returns to the keyboard (U3), unless 锁定 (P3) is on, in
+ * which case the panel stays for continuous symbol entry. 常用 cells carry an origin badge (P2: 中/英/…).
+ * Bottom bar = 返回 · 锁定 · ⌫. The "常用" tab is fed live from [recentProvider]; the rest from [SymbolCatalog].
  */
 class SymbolsView(context: Context) : LinearLayout(context) {
 
@@ -47,6 +49,7 @@ class SymbolsView(context: Context) : LinearLayout(context) {
     private val titles: List<String> =
         listOf(SymbolCatalog.RECENT_TITLE) + SymbolCatalog.categories.map { it.title }
     private var selected = 0
+    private var locked = false // P3: when on, tapping a symbol does NOT close the panel
 
     private var palette = ImePalette.STATIC_LIGHT
     private val rail = LinearLayout(context).apply { orientation = VERTICAL }
@@ -55,6 +58,9 @@ class SymbolsView(context: Context) : LinearLayout(context) {
         columnCount = COLUMNS
         val p = dp(4); setPadding(p, p, p, p)
     }
+    private val backBtn = barButton("返回") { onBack() }
+    private val lockBtn = barButton("锁定") { toggleLock() }       // P3
+    private val backspaceBtn = barButton("⌫") { onBackspace() }
     private val bottomBarView = bottomBar()
 
     private companion object {
@@ -78,20 +84,25 @@ class SymbolsView(context: Context) : LinearLayout(context) {
         }
         addView(content, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         addView(bottomBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(46)))
+        updateLockFace()
     }
 
     /** Rebuild the rail highlight + grid for the active category — call when the panel becomes visible. */
     fun refresh() = showCategory(selected)
+
+    /** P3: clear the lock — call when (re)opening the panel so it always starts unlocked. */
+    fun resetLock() { locked = false; updateLockFace() }
 
     /** F1: recolour from the Monet palette (active-tab accent now converges to primary). */
     fun applyPalette(p: ImePalette) {
         palette = p
         setBackgroundColor(p.panelBg)
         railScroll.setBackgroundColor(p.railBg)
-        bottomBarView.setBackgroundColor(p.panelSubBg)
+        bottomBarView.setBackgroundColor(p.panelBg) // P6: 返回 bar = content background (was panelSubBg)
         (bottomBarView as LinearLayout).let { bar ->
             for (i in 0 until bar.childCount) (bar.getChildAt(i) as? TextView)?.setTextColor(p.keyLabelSecondary)
         }
+        updateLockFace() // restore the lock-state colour after the bulk recolour
         showCategory(selected)
     }
 
@@ -107,11 +118,15 @@ class SymbolsView(context: Context) : LinearLayout(context) {
         grid.removeAllViews()
         val symbols = symbolsFor(index)
         if (symbols.isEmpty()) { grid.addView(emptySpan()); return }
-        for (s in symbols) grid.addView(cell(s))
+        // P2: only the 常用 tab (index 0) shows an origin badge; the category tabs are already labelled.
+        for (s in symbols) grid.addView(cell(s, badge = if (index == 0) badgeFor(s) else null))
     }
 
     private fun symbolsFor(index: Int): List<String> =
         if (index == 0) recentProvider() else SymbolCatalog.categories[index - 1].symbols
+
+    /** P2: short origin badge for a 常用 symbol (中文→"中", 英文→"英", …); null if it's not in any category. */
+    private fun badgeFor(symbol: String): String? = SymbolCatalog.categoryTitleOf(symbol)?.take(1)
 
     private fun railTab(index: Int, title: String): TextView = TextView(context).apply {
         text = title
@@ -122,25 +137,44 @@ class SymbolsView(context: Context) : LinearLayout(context) {
         setOnClickListener { showCategory(index) }
     }
 
-    private fun cell(symbol: String): TextView = TextView(context).apply {
-        // U11: each symbol sits in a rounded key-tile (bigger glyph, packed grid) — less sparse than the
-        // old bare weighted cells. U3: a tap commits + closes the panel (the service wires onSymbol).
-        text = symbol
-        gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 21f)
-        setTextColor(palette.keyLabel)
-        val pv = dp(10); setPadding(0, pv, 0, pv)
-        minimumHeight = dp(44)
-        background = GradientDrawable().apply { setColor(palette.keySurface); cornerRadius = 8f * density }
-        isClickable = true
-        setOnClickListener { onSymbol(symbol) }
-        layoutParams = GridLayout.LayoutParams().apply {
-            width = 0
-            height = LayoutParams.WRAP_CONTENT
-            columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
-            setGravity(Gravity.FILL_HORIZONTAL)
-            val m = dp(3); setMargins(m, m, m, m)
+    /**
+     * One symbol key-tile (U11). [badge] (P2) draws a small origin tag at the bottom-right for 常用 cells.
+     * U3/P3: a tap commits the symbol and — unless 锁定 is on — closes the panel back to the keyboard.
+     */
+    private fun cell(symbol: String, badge: String?): View {
+        val tile = FrameLayout(context).apply {
+            minimumHeight = dp(44)
+            background = GradientDrawable().apply { setColor(palette.keySurface); cornerRadius = 8f * density }
+            isClickable = true
+            setOnClickListener { onSymbol(symbol); if (!locked) onBack() }
+            layoutParams = GridLayout.LayoutParams().apply {
+                width = 0
+                height = LayoutParams.WRAP_CONTENT
+                columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
+                setGravity(Gravity.FILL_HORIZONTAL)
+                val m = dp(3); setMargins(m, m, m, m)
+            }
         }
+        tile.addView(
+            TextView(context).apply {
+                text = symbol
+                gravity = Gravity.CENTER
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 21f)
+                setTextColor(palette.keyLabel)
+                val pv = dp(10); setPadding(0, pv, 0, pv)
+            },
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER),
+        )
+        if (badge != null) tile.addView(
+            TextView(context).apply {
+                text = badge
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 9f)
+                setTextColor(palette.keyLabelSecondary)
+                setPadding(0, 0, dp(4), dp(2))
+            },
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END),
+        )
+        return tile
     }
 
     private fun emptySpan(): TextView = TextView(context).apply {
@@ -156,11 +190,21 @@ class SymbolsView(context: Context) : LinearLayout(context) {
         }
     }
 
+    private fun toggleLock() { locked = !locked; updateLockFace() }
+
+    /** P3: the lock key shows its on/off state (filled 🔒 + accent when locked, 🔓 + muted when not). */
+    private fun updateLockFace() {
+        lockBtn.text = if (locked) "🔒锁定" else "🔓锁定"
+        lockBtn.setTextColor(if (locked) palette.candidateFirst else palette.keyLabelSecondary)
+        lockBtn.setTypeface(null, if (locked) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+    }
+
     private fun bottomBar(): View = LinearLayout(context).apply {
         orientation = HORIZONTAL
-        setBackgroundColor(palette.panelSubBg)
-        addView(barButton("返回") { onBack() }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        addView(barButton("⌫") { onBackspace() }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        setBackgroundColor(palette.panelBg) // P6: same as the content background
+        addView(backBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        addView(lockBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f)) // P3: 锁定 between 返回 and ⌫
+        addView(backspaceBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
     }
 
     private fun barButton(label: String, onClick: () -> Unit): TextView = TextView(context).apply {

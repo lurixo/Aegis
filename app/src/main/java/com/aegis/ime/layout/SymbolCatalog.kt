@@ -30,9 +30,10 @@ object SymbolCatalog {
     const val RECENT_TITLE = "常用"
 
     val categories: List<Category> = listOf(
-        Category("zh", "中文", tokens("。 ， 、 ； ： ？ ！ “ ” ‘ ’ （ ） 《 》 〈 〉 「 」 『 』 【 】 〔 〕 〖 〗 … — ～ · ※ ° ‖ ￥ 〃 ＿ ﹏ ﹋")),
+        // P1(#5): comma before period in both 中文 and 英文.
+        Category("zh", "中文", tokens("， 。 、 ； ： ？ ！ “ ” ‘ ’ （ ） 《 》 〈 〉 「 」 『 』 【 】 〔 〕 〖 〗 … — ～ · ※ ° ‖ ￥ 〃 ＿ ﹏ ﹋")),
         Category("en", "英文", listOf(
-            ".", ",", ";", ":", "?", "!", "'", "\"", "`", "(", ")", "[", "]", "{", "}",
+            ",", ".", ";", ":", "?", "!", "'", "\"", "`", "(", ")", "[", "]", "{", "}",
             "<", ">", "/", "\\", "|", "@", "#", "$", "%", "^", "&", "*", "-", "_", "+", "=", "~",
             "…", "•", "·", "—", "°", "§",
         )),
@@ -51,6 +52,18 @@ object SymbolCatalog {
         // 拼音: every base vowel ā ō ē ī ū ǖ across all four tones (拼音 āōēīūǖ 全声调).
         Category("pinyin", "拼音", tokens("a ā á ǎ à o ō ó ǒ ò e ē é ě è ê i ī í ǐ ì u ū ú ǔ ù ü ǖ ǘ ǚ ǜ n ń ň ǹ ḿ")),
     )
+
+    /**
+     * P2(#6): the category a symbol belongs to (its FIRST listing in [categories] order) — used for the
+     * 常用 origin badge (中文→"中", 英文→"英", …). null when the symbol isn't in any static category.
+     */
+    fun categoryTitleOf(symbol: String): String? = symbolToCategory[symbol]
+
+    private val symbolToCategory: Map<String, String> by lazy {
+        val m = LinkedHashMap<String, String>()
+        for (c in categories) for (s in c.symbols) m.putIfAbsent(s, c.title)
+        m
+    }
 
     private fun tokens(s: String): List<String> = s.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
 }

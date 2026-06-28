@@ -30,6 +30,26 @@ class SymbolCatalogTest {
         )
     }
 
+    @Test fun comma_comes_before_period_in_chinese_and_english() {
+        // P1(#5): both punctuation lists lead with the comma, then the period.
+        val zh = SymbolCatalog.categories.first { it.id == "zh" }.symbols
+        assertEquals("，", zh[0]); assertEquals("。", zh[1])
+        val en = SymbolCatalog.categories.first { it.id == "en" }.symbols
+        assertEquals(",", en[0]); assertEquals(".", en[1])
+    }
+
+    @Test fun category_title_lookup_drives_the_common_origin_badge() {
+        // P2(#6): 常用 symbols get an origin badge via reverse lookup (first-listed category wins).
+        assertEquals("中文", SymbolCatalog.categoryTitleOf("，"))
+        assertEquals("英文", SymbolCatalog.categoryTitleOf(","))   // ascii comma is an English mark
+        assertEquals("货币", SymbolCatalog.categoryTitleOf("¥"))
+        assertEquals("数学", SymbolCatalog.categoryTitleOf("±"))
+        assertEquals(null, SymbolCatalog.categoryTitleOf("😀")) // 😀 not in any static category
+        // the badge is the title's first char (中 / 英 …)
+        assertEquals("中", SymbolCatalog.categoryTitleOf("，")?.take(1))
+        assertEquals("英", SymbolCatalog.categoryTitleOf(",")?.take(1))
+    }
+
     @Test fun currency_category_sits_between_english_and_net_with_common_symbols() {
         // U24: 货币 between 英文 and 网络.
         val ids = SymbolCatalog.categories.map { it.id }

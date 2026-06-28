@@ -393,12 +393,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val iv = inputView ?: return
         val sv = symbolsView ?: SymbolsView(this).also {
             it.recentProvider = { symbolUsageStore.recent() }
-            // U3: 点符号 = 上屏 + 自动回到点击前界面(关闭符号面板,回到键盘)。
-            it.onSymbol = { s -> symbolUsageStore.record(s); currentInputConnection?.commitText(s, 1); inputView?.showPanel(null) }
+            // U3/P3: 点符号 = 上屏 + 记入常用;是否回键盘由 SymbolsView 的锁定态决定(锁定则连续输入)。
+            it.onSymbol = { s -> symbolUsageStore.record(s); currentInputConnection?.commitText(s, 1) }
             it.onBackspace = { currentInputConnection?.deleteSurroundingTextInCodePoints(1, 0) }
             it.onBack = { inputView?.showPanel(null) }
             symbolsView = it
         }
+        sv.resetLock() // P3: always (re)open unlocked
         sv.applyPalette(imePalette) // also re-renders the active category (picks up the latest 常用 MRU)
         iv.showPanel(sv)
     }
