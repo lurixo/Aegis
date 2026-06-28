@@ -384,6 +384,17 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         currentInputConnection?.deleteSurroundingText(1, 0)
     }
 
+    override fun textBeforeCursor(n: Int): CharSequence =
+        currentInputConnection?.getTextBeforeCursor(n, 0) ?: ""
+
+    override fun replaceBeforeCursor(length: Int, text: CharSequence) {
+        val ic = currentInputConnection ?: return
+        ic.beginBatchEdit()
+        ic.deleteSurroundingText(length, 0)
+        ic.commitText(text, 1)
+        ic.endBatchEdit()
+    }
+
     override fun performEnter() {
         val ic = currentInputConnection ?: return
         val info = currentInputEditorInfo

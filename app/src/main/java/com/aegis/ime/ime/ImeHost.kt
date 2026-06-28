@@ -19,4 +19,8 @@ interface ImeHost {
     fun commitText(text: CharSequence)
     fun deleteBackward()
     fun performEnter()
+
+    fun textBeforeCursor(n: Int): CharSequence = ""
+
+    fun replaceBeforeCursor(length: Int, text: CharSequence) {}
 }
