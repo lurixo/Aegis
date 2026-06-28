@@ -485,6 +485,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         ic.endBatchEdit()
     }
 
+    override fun hasSelection(): Boolean = !currentInputConnection?.getSelectedText(0).isNullOrEmpty()
+
     override fun performEnter() {
         val ic = currentInputConnection ?: return
         val info = currentInputEditorInfo

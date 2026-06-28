@@ -27,15 +27,21 @@ class AssociationsAndCalcTest {
 
     private class EditorHost : ImeHost {
         val sb = StringBuilder()
+        var cursor = 0
+        var selectionActive = false
         val learned = mutableListOf<String>()
-        override fun commitText(text: CharSequence) { sb.append(text) }
-        override fun deleteBackward() { if (sb.isNotEmpty()) sb.deleteCharAt(sb.length - 1) }
+        override fun hasSelection(): Boolean = selectionActive
+        override fun commitText(text: CharSequence) { sb.insert(cursor, text); cursor += text.length }
+        override fun deleteBackward() { if (cursor > 0) { sb.deleteCharAt(cursor - 1); cursor-- } }
         override fun performEnter() {}
-        override fun textBeforeCursor(n: Int): CharSequence = sb.takeLast(n)
+        override fun textBeforeCursor(n: Int): CharSequence = sb.substring(maxOf(0, cursor - n), cursor)
         override fun replaceBeforeCursor(length: Int, text: CharSequence) {
-            repeat(length) { if (sb.isNotEmpty()) sb.deleteCharAt(sb.length - 1) }
-            sb.append(text)
+            val from = maxOf(0, cursor - length)
+            sb.delete(from, cursor); cursor = from
+            sb.insert(cursor, text); cursor += text.length
         }
+        fun preset(s: String) { sb.setLength(0); sb.append(s); cursor = s.length }
+        fun moveCursorTo(pos: Int) { cursor = pos }
         val text get() = sb.toString()
     }
 
@@ -105,10 +111,41 @@ class AssociationsAndCalcTest {
 
     @Test fun u25_does_not_fire_while_composing_pinyin() {
         val h = EditorHost()
-        h.sb.append("2+2")
+        h.preset("2+2")
         val c = KeyboardController(h, spyEngine(h.learned))
         "ni".forEach { c.onKey(out(it.toString())) }
         assertFalse("the calc result must not appear while a pinyin buffer is active", "4" in c.candidateWords())
         assertEquals("好的", c.candidateWords().first())
+    }
+
+    @Test fun u25_m3_moving_the_caret_before_picking_does_not_delete_unrelated_text() {
+        val h = EditorHost()
+        val c = KeyboardController(h, emptyEngine)
+        "买了3个5*2".forEach { c.onKey(digit(it.toString())) }
+        assertEquals("trailing 5*2 is offered as 10", listOf("10"), c.candidateWords())
+
+        h.moveCursorTo(4)
+
+        c.onPickCandidate(c.candidateWords().indexOf("10"))
+        assertEquals("no unrelated characters were deleted", "买了3个5*2", h.text)
+    }
+
+    @Test fun u25_m3_picking_a_still_valid_result_after_an_unrelated_edit_still_replaces() {
+        val h = EditorHost()
+        val c = KeyboardController(h, emptyEngine)
+        "5*2".forEach { c.onKey(digit(it.toString())) }
+        assertEquals(listOf("10"), c.candidateWords())
+        c.onPickCandidate(0)
+        assertEquals("the live expression is replaced by its result", "10", h.text)
+    }
+
+    @Test fun u25_m3_picking_with_an_active_selection_skips_the_replace() {
+        val h = EditorHost()
+        val c = KeyboardController(h, emptyEngine)
+        "5*2".forEach { c.onKey(digit(it.toString())) }
+        assertEquals(listOf("10"), c.candidateWords())
+        h.selectionActive = true
+        c.onPickCandidate(c.candidateWords().indexOf("10"))
+        assertEquals("with a selection active the calc replace is skipped (no data loss)", "5*2", h.text)
     }
 }
