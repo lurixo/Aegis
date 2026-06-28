@@ -366,6 +366,7 @@ class KeyboardView(context: Context) : View(context) {
             p.key.accent -> accentLabelPaint
             p.key.bold -> boldLabelPaint // I6: 分词 / @# at the prominent primary weight
             display.length > 1 && p.key.action != KeyAction.COMMIT -> specialLabelPaint
+            p.key.action == KeyAction.SHOW_SYMBOLS -> specialLabelPaint // U-polish: ✎ matches the 123/中英 function keys (was primary)
             else -> labelPaint
         }
         canvas.drawText(display, cx, cy - (paint.descent() + paint.ascent()) / 2, paint)
@@ -415,6 +416,9 @@ class KeyboardView(context: Context) : View(context) {
         if (shifted && key.action == KeyAction.COMMIT && key.label.length == 1 && key.label[0] in 'a'..'z') {
             return key.label.uppercase()
         }
+        // U-polish: force a flat (text-presentation) ✎ with U+FE0E so it takes the label colour instead of
+        // rendering as a colour emoji that ignores the paint (same trick as the shift ⬆︎ glyph).
+        if (key.label == "✎") return "✎︎"
         return key.label
     }
 
