@@ -31,7 +31,7 @@ import com.aegis.ime.layout.EmojiCatalog
  * tappable emoji over a bottom bar with a back-to-keyboard button and a code-point-aware backspace.
  * Curated common set from [EmojiCatalog] — no network.
  */
-class EmojiView(context: Context) : LinearLayout(context) {
+class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
 
     var onEmoji: (String) -> Unit = {}
     var onBackspace: () -> Unit = {}
@@ -48,6 +48,7 @@ class EmojiView(context: Context) : LinearLayout(context) {
         columnCount = COLUMNS
         val p = dp(4); setPadding(p, p, p, p)
     }
+    private val gridScroll = ScrollView(context).apply { addView(grid); isFillViewport = true }
     private val bottomBarView = bottomBar()
 
     init {
@@ -60,10 +61,7 @@ class EmojiView(context: Context) : LinearLayout(context) {
             orientation = HORIZONTAL
             railScroll.setBackgroundColor(palette.railBg)
             addView(railScroll, LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
-            addView(
-                ScrollView(context).apply { addView(grid); isFillViewport = true },
-                LayoutParams(0, LayoutParams.MATCH_PARENT, 1f),
-            )
+            addView(gridScroll, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         }
         addView(content, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         addView(bottomBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(46)))
@@ -81,6 +79,20 @@ class EmojiView(context: Context) : LinearLayout(context) {
         }
         showCategory(selected)
     }
+
+    /**
+     * P7 (#19): on dismissal, fall back to the first category (黄脸) scrolled to the top, so reopening the
+     * emoji panel never resumes on the last category / scroll position.
+     */
+    override fun resetToDefault() {
+        showCategory(0)
+        gridScroll.scrollTo(0, 0)
+        railScroll.scrollTo(0, 0)
+    }
+
+    // P7 test seams.
+    internal fun selectedCategoryForTest(): Int = selected
+    internal fun openCategoryForTest(index: Int) = showCategory(index)
 
     private fun showCategory(index: Int) {
         selected = index

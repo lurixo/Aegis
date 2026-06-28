@@ -42,7 +42,7 @@ import com.aegis.ime.user.ClipboardStore
  * the ⚙ menu clears the system clipboard / history and toggles recording (C1/C2). The tab/select/expand
  * state lives in the pure [ClipboardPanelState] (unit-tested).
  */
-class ClipboardView(context: Context) : FrameLayout(context) {
+class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     var onPick: (String) -> Unit = {}                 // commit a clip/phrase and close
     var onPickImage: (String) -> Unit = {}            // U22: tap an image entry → paste image (path arg)
@@ -115,6 +115,23 @@ class ClipboardView(context: Context) : FrameLayout(context) {
 
     /** Open fresh: clipboard tab, normal mode, nothing expanded/overlaid. */
     fun reset() { st.reset(); hideOverlay() }
+
+    /**
+     * P7 (#19): on dismissal, return to the default view — clipboard tab, normal mode, no expanded card /
+     * overlay, the 常用语 category picker cleared, and the list scrolled to the top — so reopening the panel
+     * never resumes on the last tab / category / scroll position. Extends [reset] (which the state-machine
+     * test covers) with the picker + scroll state that lives on the view.
+     */
+    override fun resetToDefault() {
+        reset()
+        phraseCat = ""
+        listScroll.scrollTo(0, 0)
+    }
+
+    // P7 test seams.
+    internal fun isClipboardTabForTest(): Boolean = st.tab == ClipboardPanelState.Tab.CLIPBOARD
+    internal fun phraseCatForTest(): String = phraseCat
+    internal fun forcePhrasesStateForTest(cat: String) { st.switchTab(ClipboardPanelState.Tab.PHRASE); phraseCat = cat }
 
     fun refresh() {
         main.removeAllViews()
