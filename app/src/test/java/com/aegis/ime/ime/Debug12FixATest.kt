@@ -121,4 +121,64 @@ class Debug12FixATest {
         withCut.onKey(pick("ni"))
         assertFalse("with a forced cut a word spanning it is suppressed", "好的" in withCut.candidateWords())
     }
+
+    // ---------------- F7 ----------------
+
+    /** Records the (prevWord, word) pairs the controller learns, to assert bigram context is preserved. */
+    private class LearnSpyEngine : CandidateEngine {
+        val learns = mutableListOf<Pair<String?, String>>()
+        override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+        override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+            if (composing.isEmpty()) emptyList() else listOf(Cand("好", composing.length))
+        override fun learn(prevWord: String?, word: String) { learns.add(prevWord to word) }
+    }
+
+    @Test fun f7_toolbar_entries_defensively_flush_a_pending_buffer_before_opening() {
+        // Defensive controller contract (F7): IF a toolbar entry is invoked with a pending buffer it must land
+        // it BEFORE opening the panel. NOTE: today's candidate bar exposes these icons ONLY while idle
+        // (CandidateView draws + hit-tests them only when there are no candidates AND no preedit), so this
+        // state is not reachable through the live UI — the test drives the controller method directly to lock
+        // the guard, keeping the entries consistent with the ✎ SHOW_SYMBOLS key.
+        for (f in BarFunction.entries) {
+            val host = RecordingHost()
+            val c = KeyboardController(host, ProbeEngine())
+            var commitsWhenOpened: List<String>? = null
+            val recordOpen = { commitsWhenOpened = host.commits.toList() }
+            c.onShowEmoji = recordOpen
+            c.onShowClipboard = recordOpen
+            c.onShowEdit = recordOpen
+            c.onShowSettings = recordOpen
+
+            c.onKey(nine())
+            "42633".forEach { c.onKey(digit(it)) }   // a live 9-key pinyin buffer (hao de)
+            assertEquals("precondition: buffer is live for $f", false, c.preeditForTest().isEmpty())
+
+            c.onBarFunction(f)
+
+            assertTrue("$f committed the in-progress buffer, commits=${host.commits}", host.commits.isNotEmpty())
+            assertEquals("$f flushed BEFORE opening its panel", host.commits, commitsWhenOpened)
+            assertEquals("no dangling preedit after $f", "", c.preeditForTest())
+            assertEquals("no dangling assembled prefix after $f", "", c.composingPrefix())
+        }
+    }
+
+    @Test fun f7_an_idle_toolbar_tap_does_not_disturb_bigram_context() {
+        // The reachable path: tapping a toolbar entry while the strip is idle (no buffer) must NOT flush, so it
+        // must NOT clear the learned predecessor (lastWord). An unconditional flush would learn (null, word2)
+        // instead of (word1, word2) on the next commit — this locks the guard against that regression.
+        val eng = LearnSpyEngine()
+        val c = KeyboardController(RecordingHost(), eng) // default ALPHA + CN = pinyin buffer
+        "hao".forEach { c.onKey(Key(it.toString(), output = it.toString())) }
+        c.onPickCandidate(c.candidateWords().indexOf("好")) // commit 好 → learn(null,好); lastWord=好
+        assertTrue("precondition: nothing pending after the commit", c.preeditForTest().isEmpty())
+
+        c.onBarFunction(BarFunction.EMOJI)                 // idle tap → must be a no-op for the buffer/lastWord
+
+        "hao".forEach { c.onKey(Key(it.toString(), output = it.toString())) }
+        c.onPickCandidate(c.candidateWords().indexOf("好")) // commit 好 again → must learn(好,好), not (null,好)
+        assertEquals(
+            "an idle toolbar tap preserves the bigram predecessor",
+            listOf<Pair<String?, String>>(null to "好", "好" to "好"), eng.learns,
+        )
+    }
 }

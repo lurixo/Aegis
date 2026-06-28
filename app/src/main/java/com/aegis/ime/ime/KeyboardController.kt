@@ -236,6 +236,20 @@ class KeyboardController(
 
     /** Candidate-strip toolbar shortcut (C2). Every kept entry opens a panel / screen — no layout switch. */
     fun onBarFunction(f: BarFunction) {
+        // F7 (debug.12): defensively land any in-progress pinyin before opening a panel/screen, so an entry can
+        // never open over a live buffer (the assembled word would otherwise be left dangling for the panel to
+        // commit at the wrong caret / lose on reset / delete around — S1). GUARDED like handleCommit(direct) /
+        // handleEnter so it only fires when a buffer is actually pending — never clearing lastWord or touching
+        // the strip on the idle path. NOTE: today the candidate-bar function icons are drawn + hit-tested ONLY
+        // while the strip is idle (CandidateView shows them only when there are no candidates AND no preedit),
+        // so this guard is not reachable through the current UI — it is belt-and-suspenders keeping these
+        // entries consistent with the ✎ SHOW_SYMBOLS key (the one panel entry reachable mid-composing, which
+        // already flushes) should a future bar ever expose them while composing.
+        if (composing.isNotEmpty() || committedPrefix.isNotEmpty()) {
+            flushComposing()
+            refreshCandidates()
+            render()
+        }
         when (f) {
             BarFunction.BRAND -> onShowSettings() // leading "A" brand mark doubles as the settings entry
             BarFunction.EMOJI -> onShowEmoji()
