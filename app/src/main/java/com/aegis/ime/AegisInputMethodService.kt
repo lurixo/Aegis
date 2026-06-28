@@ -257,6 +257,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     /** Text-editing panel (#4): maps the D-pad / selection / clipboard actions onto the editor. */
     private fun showEditPanel() {
         val iv = inputView ?: return
+        if (iv.isPanelShowing(editPanelView)) { iv.showPanel(null); return } // P4(#4): re-tap 文字编辑 入口 = 返回
         selecting = false
         val ep = editPanelView ?: EditPanelView(this).also {
             it.onAction = { a -> handleEdit(a) }
@@ -312,12 +313,16 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     /** Show the emoji panel in place of the keyboard; emoji commit straight to the editor. */
     private fun showEmojiPanel() {
         val iv = inputView ?: return
+        if (iv.isPanelShowing(emojiView)) { iv.showPanel(null); return } // P4(#4): re-tap 表情 入口 = 返回
         val ev = emojiView ?: EmojiView(this).also {
             it.onEmoji = { e -> currentInputConnection?.commitText(e, 1) }
             it.onBackspace = { currentInputConnection?.deleteSurroundingTextInCodePoints(1, 0) }
             it.onBack = { inputView?.showPanel(null) }
             emojiView = it
         }
+        ev.resetToDefault() // P7(#19): open on the first category. Belt-and-suspenders to the exit-reset:
+                            // panels are service-scoped, so an input-view recreate leaves the dismissed
+                            // singleton with no outgoing InputView to reset — resetting here covers that.
         ev.applyPalette(imePalette)
         iv.showPanel(ev)
     }
@@ -325,6 +330,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     /** Show the clipboard / canned-phrases panel; tapping an entry commits it. */
     private fun showClipboardPanel() {
         val iv = inputView ?: return
+        if (iv.isPanelShowing(clipboardView)) { iv.showPanel(null); return } // P4(#4): re-tap 剪贴板 入口 = 返回
         captureClip() // read the current clip only on explicit user intent (avoids spurious access)
         val cv = clipboardView ?: ClipboardView(this).also {
             it.historyProvider = { clipboardStore.history() }
@@ -348,9 +354,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onSetHistoryEnabled = { on -> setHistoryEnabled(on) }
             clipboardView = it
         }
+        cv.resetToDefault() // P7(#19): always open on the 剪贴板 tab, normal mode (also recreation-proof — see
+                            // showEmojiPanel). Reset BEFORE applyPalette so its refresh() builds the clean state.
         cv.applyPalette(imePalette)
         clipboardStore.reloadPhrases() // pick up category/phrase edits made in the manager Activity
-        cv.reset() // always open on the 剪贴板 tab in normal (non-select) mode
         cv.refresh()
         iv.showPanel(cv)
     }
@@ -366,6 +373,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onBack = { inputView?.showPanel(null) }
             customSymbolView = it
         }
+        panel.resetToDefault() // P7(#19): open scrolled to the top (also recreation-proof — see showEmojiPanel)
         panel.applyPalette(imePalette) // also calls refresh() — no separate refresh needed
         iv.showPanel(panel)
     }
@@ -391,6 +399,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     /** D: categorized symbols panel (reached from the keyboard ✎ pencil key). U3: a tap 上屏s + closes the panel. */
     private fun showSymbolsPanel() {
         val iv = inputView ?: return
+        if (iv.isPanelShowing(symbolsView)) { iv.showPanel(null); return } // P4(#4): re-tap 符号 入口 = 返回
         val sv = symbolsView ?: SymbolsView(this).also {
             it.recentProvider = { symbolUsageStore.recent() }
             // U3/P3: 点符号 = 上屏 + 记入常用;是否回键盘由 SymbolsView 的锁定态决定(锁定则连续输入)。
@@ -399,7 +408,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onBack = { inputView?.showPanel(null) }
             symbolsView = it
         }
-        sv.resetLock() // P3: always (re)open unlocked
+        sv.resetToDefault() // P3/P7(#19): always (re)open unlocked on the 常用 tab (also recreation-proof — see
+                            // showEmojiPanel). Reset BEFORE applyPalette so it re-renders the default 常用 grid.
         sv.applyPalette(imePalette) // also re-renders the active category (picks up the latest 常用 MRU)
         iv.showPanel(sv)
     }

@@ -30,7 +30,7 @@ import com.aegis.ime.layout.SymbolCatalog
  * Tap a palette symbol to ADD it to the column; tap an added symbol (✕) to REMOVE it. The host wires
  * [onAdd]/[onRemove] to the persistent store and [current] to read it back; [onBack] closes the panel.
  */
-class CustomSymbolPanel(context: Context) : LinearLayout(context) {
+class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePanel {
 
     var current: () -> List<String> = { emptyList() }
     var onAdd: (String) -> Unit = {}
@@ -43,6 +43,8 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context) {
     private var colors = ImePalette.STATIC_LIGHT
     private val addedRows = LinearLayout(context).apply { orientation = VERTICAL }
     private val paletteRows = LinearLayout(context).apply { orientation = VERTICAL }
+    private val addedScroll = ScrollView(context).apply { addView(addedRows) }
+    private val paletteScroll = ScrollView(context).apply { addView(paletteRows) }
     private val headerBar = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
     private val backText = TextView(context).apply {
         text = "‹ 自定义标点"
@@ -75,9 +77,16 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context) {
         headerBar.addView(pasteText)
         addView(headerBar)
         addView(sectionLabel("已添加（点击移除）"))
-        addView(ScrollView(context).apply { addView(addedRows) }, LayoutParams(LayoutParams.MATCH_PARENT, dp(56)))
+        addView(addedScroll, LayoutParams(LayoutParams.MATCH_PARENT, dp(56)))
         addView(sectionLabel("点击添加"))
-        addView(ScrollView(context).apply { addView(paletteRows) }, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+        addView(paletteScroll, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+    }
+
+    /** P7 (#19): on dismissal, scroll both columns back to the top so reopening starts at the first marks
+     *  rather than the user's last scroll position. (Added/palette contents are data, refreshed on open.) */
+    override fun resetToDefault() {
+        addedScroll.scrollTo(0, 0)
+        paletteScroll.scrollTo(0, 0)
     }
 
     /** F1: recolour from the Monet palette (chips re-coloured by the following refresh()). */

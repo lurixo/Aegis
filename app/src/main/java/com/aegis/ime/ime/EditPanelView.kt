@@ -31,7 +31,7 @@ enum class EditAction { UP, DOWN, LEFT, RIGHT, START_SELECT, DELETE, COPY, CUT, 
  * a right column 删除/复制/剪切 (复制/剪切 disabled without a selection), and a bottom row 行首/全选/行尾/粘贴.
  * Pure UI — the service maps [EditAction]s onto the InputConnection.
  */
-class EditPanelView(context: Context) : LinearLayout(context) {
+class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
 
     var onAction: (EditAction) -> Unit = {}
 
@@ -108,6 +108,13 @@ class EditPanelView(context: Context) : LinearLayout(context) {
     fun setSelecting(selecting: Boolean) {
         selectBtn.text = if (selecting) "结束选择" else "开始选择"
     }
+
+    /** P7 (#19): on dismissal, drop selection mode so the panel reopens showing "开始选择". The D-pad panel
+     *  holds no tab/scroll state; the host re-syncs its own `selecting` flag when it next opens the panel. */
+    override fun resetToDefault() = setSelecting(false)
+
+    // P7 test seam.
+    internal fun selectingLabelForTest(): CharSequence = selectBtn.text
 
     private fun rowLp() = LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f)
 

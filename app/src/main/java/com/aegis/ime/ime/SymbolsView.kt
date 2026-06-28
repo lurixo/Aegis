@@ -35,7 +35,7 @@ import com.aegis.ime.layout.SymbolCatalog
  * which case the panel stays for continuous symbol entry. 常用 cells carry an origin badge (P2: 中/英/…).
  * Bottom bar = 返回 · 锁定 · ⌫. The "常用" tab is fed live from [recentProvider]; the rest from [SymbolCatalog].
  */
-class SymbolsView(context: Context) : LinearLayout(context) {
+class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
 
     var onSymbol: (String) -> Unit = {}
     var onBackspace: () -> Unit = {}
@@ -58,6 +58,7 @@ class SymbolsView(context: Context) : LinearLayout(context) {
         columnCount = COLUMNS
         val p = dp(4); setPadding(p, p, p, p)
     }
+    private val gridScroll = ScrollView(context).apply { addView(grid); isFillViewport = true }
     private val backBtn = barButton("返回") { onBack() }
     private val lockBtn = barButton("锁定") { toggleLock() }       // P3
     private val backspaceBtn = barButton("⌫") { onBackspace() }
@@ -77,10 +78,7 @@ class SymbolsView(context: Context) : LinearLayout(context) {
             orientation = HORIZONTAL
             railScroll.setBackgroundColor(palette.railBg)
             addView(railScroll, LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
-            addView(
-                ScrollView(context).apply { addView(grid); isFillViewport = true },
-                LayoutParams(0, LayoutParams.MATCH_PARENT, 1f),
-            )
+            addView(gridScroll, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         }
         addView(content, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         addView(bottomBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(46)))
@@ -92,6 +90,17 @@ class SymbolsView(context: Context) : LinearLayout(context) {
 
     /** P3: clear the lock — call when (re)opening the panel so it always starts unlocked. */
     fun resetLock() { locked = false; updateLockFace() }
+
+    /**
+     * P7 (#19): on dismissal, fall back to defaults — the 常用 tab, the lock cleared (P3), and both scrolls
+     * at the top — so reopening never lands on the last category / scroll position.
+     */
+    override fun resetToDefault() {
+        resetLock()
+        showCategory(0)
+        gridScroll.scrollTo(0, 0)
+        railScroll.scrollTo(0, 0)
+    }
 
     /** F1: recolour from the Monet palette (active-tab accent now converges to primary). */
     fun applyPalette(p: ImePalette) {
@@ -191,6 +200,13 @@ class SymbolsView(context: Context) : LinearLayout(context) {
     }
 
     private fun toggleLock() { locked = !locked; updateLockFace() }
+
+    // P7 test seams (read state / drive it to a non-default position before asserting the reset).
+    internal fun selectedCategoryForTest(): Int = selected
+    internal fun lockedForTest(): Boolean = locked
+    internal fun openCategoryForTest(index: Int) = showCategory(index)
+    internal fun toggleLockForTest() = toggleLock()
+    internal fun gridScrollYForTest(): Int = gridScroll.scrollY
 
     /** P3: the lock key shows its on/off state (filled 🔒 + accent when locked, 🔓 + muted when not). */
     private fun updateLockFace() {

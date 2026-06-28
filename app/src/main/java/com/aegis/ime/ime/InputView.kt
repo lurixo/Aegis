@@ -198,6 +198,10 @@ class InputView(context: Context) : LinearLayout(context) {
 
     /** Swap the keyboard area for an extras panel (emoji / clipboard); null restores the keyboard. */
     fun showPanel(panel: View?) {
+        // P7 (#19): the panel we're leaving returns to its default state, so the next open always starts
+        // fresh (default tab/category/scroll, no lock/overlay). Every close funnels through here — 返回, a
+        // commit, the P4 re-tap toggle, and onStartInputView's showPanel(null) — so one hook covers them all.
+        (currentPanel as? ResettablePanel)?.takeIf { it !== panel }?.resetToDefault()
         panelContainer.removeAllViews()
         currentPanel = panel
         // U14: the candidate-bar chevron points up + collapses only while the A2 grid is the open panel.
@@ -234,6 +238,12 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun keyboardHeightPx(): Int = keyboardView.height
 
     val panelShown: Boolean get() = panelContainer.visibility == VISIBLE
+
+    /**
+     * P4 (#4): is [panel] the one currently on screen? An entry-icon handler uses this to TOGGLE — re-tapping
+     * the icon that opened a panel closes it (back to the keyboard) instead of rebuilding the same panel.
+     */
+    fun isPanelShowing(panel: View?): Boolean = panelShown && panel != null && currentPanel === panel
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 }
