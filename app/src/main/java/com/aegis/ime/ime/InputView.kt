@@ -139,6 +139,8 @@ class InputView(context: Context) : LinearLayout(context) {
         showPanel(gridView)
     }
 
+    internal fun shownCandidateCount(): Int = candidateView.itemCount()
+
     fun showPanel(panel: View?) {
         panelContainer.removeAllViews()
         currentPanel = panel

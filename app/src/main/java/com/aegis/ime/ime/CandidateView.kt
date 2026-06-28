@@ -116,6 +116,8 @@ class CandidateView(context: Context) : View(context) {
         invalidate()
     }
 
+    internal fun itemCount(): Int = items.size
+
     private fun layoutCells() {
         hitCount = items.size
         var x = 0f
