@@ -438,6 +438,17 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         currentInputConnection?.deleteSurroundingText(1, 0)
     }
 
+    override fun textBeforeCursor(n: Int): CharSequence =
+        currentInputConnection?.getTextBeforeCursor(n, 0) ?: ""
+
+    override fun replaceBeforeCursor(length: Int, text: CharSequence) {
+        val ic = currentInputConnection ?: return
+        ic.beginBatchEdit()
+        ic.deleteSurroundingText(length, 0)
+        ic.commitText(text, 1)
+        ic.endBatchEdit()
+    }
+
     override fun performEnter() {
         // #7: editor-action fields (search/send/go/done) fire the action; everything else gets a real
         // ENTER key event so multi-line fields actually get a newline (sendDefaultEditorAction did neither).
