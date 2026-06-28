@@ -57,6 +57,7 @@ object ModelDownload {
     data class ModelSnapshot(val validator: String?, val sha256: String, val sizeBytes: Long)
 
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
+    private val installingDicts = ConcurrentHashMap.newKeySet<String>()
     private val dictionaryRecoveryLock = ReentrantLock()
 
     fun download(
@@ -444,6 +445,10 @@ object ModelDownload {
 
     const val EN_NAME = "aegis_english.bin"
 
+    const val EN_PACK_ENTRY = "aegis_en_full.bin"
+
+    private val LEGACY_ROUTED_SUBSTRINGS = listOf("dict", "t9", "jianpin")
+
     val DICT_BIN_FILES = listOf("aegis_dict.bin", "aegis_t9.bin", "aegis_jianpin.bin")
 
     val DICT_PACK_FILES = DICT_BIN_FILES + LM_NAME
@@ -451,6 +456,11 @@ object ModelDownload {
     val DICT_OPTIONAL_FILES = listOf(EN_NAME)
 
     val DICT_MANAGED_FILES = DICT_PACK_FILES + DICT_OPTIONAL_FILES
+
+    internal fun routesOnlyToItself(name: String): Boolean {
+        val n = name.substringAfterLast('/').substringAfterLast('\\').lowercase(Locale.ROOT)
+        return n != LM_NAME && LEGACY_ROUTED_SUBSTRINGS.none { it in n }
+    }
 
     fun installedDictionaryBytes(filesDir: File): Long =
         DICT_MANAGED_FILES.sumOf { File(downloadedDir(filesDir), it).length() }
@@ -480,8 +490,22 @@ object ModelDownload {
     private fun downloadedDir(filesDir: File) = File(filesDir, "downloaded")
     fun dictZipFile(filesDir: File): File = File(downloadedDir(filesDir), DICT_NAME)
     fun dictPartFile(filesDir: File): File = File(downloadedDir(filesDir), "$DICT_NAME.part")
+    private fun dictStagingDir(filesDir: File) = File(downloadedDir(filesDir), "dict-install")
+    private fun dictBackupFile(filesDir: File, name: String) = File(downloadedDir(filesDir), "$name.backup")
     private fun dictInstalledShaFile(filesDir: File) = File(downloadedDir(filesDir), DICT_INSTALLED_SHA_NAME)
     private fun dictPendingShaFile(filesDir: File) = File(downloadedDir(filesDir), DICT_PENDING_SHA_NAME)
+
+    private val BUNDLED_DICT_CACHE_NAMES = DICT_PACK_FILES + listOf("aegis_en.bin", "aegis_fuzzy.bin")
+
+    init {
+        require(routesOnlyToItself(EN_PACK_ENTRY)) {
+            "$EN_PACK_ENTRY would overwrite a Chinese table on older releases"
+        }
+        require(routesOnlyToItself(EN_NAME)) {
+            "$EN_NAME would overwrite a Chinese table on older releases"
+        }
+        require(EN_NAME !in BUNDLED_DICT_CACHE_NAMES) { "$EN_NAME is deleted as a bundled-era leftover" }
+    }
 
     fun isDictDownloaded(filesDir: File): Boolean =
         DICT_BIN_FILES.all { File(downloadedDir(filesDir), it).let { f -> f.exists() && f.length() > 1024 } }
@@ -524,6 +548,80 @@ object ModelDownload {
         dictZipFile(filesDir).exists() &&
             pendingDictionarySha(filesDir) == null &&
             (!isDictDownloaded(filesDir) || installedDictionaryFileSha(filesDir) == null)
+
+    internal fun clearPendingDictionarySha(filesDir: File) {
+        dictPendingShaFile(filesDir).delete()
+    }
+
+    fun installDictPack(
+        filesDir: File,
+        expectedSha256: String,
+        persistMetadata: () -> Boolean = { true },
+    ): Boolean = dictionaryRecoveryLock.withLock {
+        installDictPackLocked(filesDir, expectedSha256, persistMetadata)
+    }
+
+    private fun installDictPackLocked(
+        filesDir: File,
+        expectedSha256: String,
+        persistMetadata: () -> Boolean,
+    ): Boolean {
+        val installKey = filesDir.absolutePath
+        if (!installingDicts.add(installKey)) return false
+        val zip = dictZipFile(filesDir)
+        val staging = dictStagingDir(filesDir)
+        return try {
+            if (!zip.exists()) return false
+            val normalizedSha = normalizeSha256(expectedSha256) ?: return false
+            if (!sha256Of(zip).equals(normalizedSha, ignoreCase = true)) return false
+            staging.deleteRecursively()
+            val produced = runCatching { extractDictPack(zip, staging) }.getOrDefault(emptySet())
+            val complete = DICT_BIN_FILES.all { name ->
+                name in produced && File(staging, name).let { it.exists() && it.length() > 1024 }
+            }
+            if (!complete) return false
+            syncWrite(File(staging, DICT_INSTALLED_SHA_NAME), normalizedSha)
+
+            val backedUp = ArrayList<String>()
+            val installed = ArrayList<String>()
+            try {
+                val transactionFiles =
+                    DICT_MANAGED_FILES.filter { File(staging, it).exists() } + DICT_INSTALLED_SHA_NAME
+                transactionFiles.forEach { name ->
+                    val live = File(downloadedDir(filesDir), name)
+                    val backup = dictBackupFile(filesDir, name)
+                    if (backup.exists()) throw IOException("dictionary recovery pending")
+                    if (live.exists()) {
+                        moveReplacing(live, backup)
+                        backedUp += name
+                    }
+                }
+                transactionFiles.forEach { name ->
+                    moveReplacing(File(staging, name), File(downloadedDir(filesDir), name))
+                    installed += name
+                }
+                if (!persistMetadata()) throw IOException("metadata commit failed")
+            } catch (t: Throwable) {
+                installed.forEach { File(downloadedDir(filesDir), it).delete() }
+                backedUp.asReversed().forEach { name ->
+                    val backup = dictBackupFile(filesDir, name)
+                    if (backup.exists()) runCatching {
+                        moveReplacing(backup, File(downloadedDir(filesDir), name))
+                    }
+                }
+                return false
+            }
+            backedUp.forEach { dictBackupFile(filesDir, it).delete() }
+            DICT_OPTIONAL_FILES.filterNot { it in installed }
+                .forEach { File(downloadedDir(filesDir), it).delete() }
+            true
+        } finally {
+            zip.delete()
+            clearPendingDictionarySha(filesDir)
+            staging.deleteRecursively()
+            installingDicts.remove(installKey)
+        }
+    }
 
     internal fun resolveDictionaryDownloadAsset(fetch: () -> String): Result<DictionaryAsset> =
         runCatching { dictionaryAssetFromUpdateJson(fetch()) }
@@ -611,6 +709,47 @@ object ModelDownload {
             conn.inputStream.bufferedReader().use { it.readText() }
         } finally {
             conn?.disconnect()
+        }
+    }
+
+    internal fun extractDictPack(zip: File, dir: File): Set<String> {
+        dir.mkdirs()
+        val produced = HashSet<String>()
+        java.util.zip.ZipInputStream(zip.inputStream().buffered()).use { zin ->
+            var e = zin.nextEntry
+            while (e != null) {
+                if (!e.isDirectory) targetFor(e.name)?.let { target ->
+                    val finalFile = File(dir, target)
+                    val part = File(dir, "$target.part")
+                    part.delete()
+                    try {
+                        FileOutputStream(part).use { out ->
+                            zin.copyTo(out)
+                            out.fd.sync()
+                        }
+                        moveReplacing(part, finalFile)
+                        produced.add(target)
+                    } catch (t: Throwable) {
+                        part.delete()
+                        throw t
+                    }
+                }
+                zin.closeEntry()
+                e = zin.nextEntry
+            }
+        }
+        return produced
+    }
+
+    private fun targetFor(entryName: String): String? {
+        val n = entryName.substringAfterLast('/').substringAfterLast('\\').lowercase()
+        return when {
+            n == LM_NAME -> LM_NAME
+            n == EN_PACK_ENTRY -> EN_NAME
+            "jianpin" in n -> "aegis_jianpin.bin"
+            "t9" in n -> "aegis_t9.bin"
+            "dict" in n -> "aegis_dict.bin"
+            else -> null
         }
     }
 

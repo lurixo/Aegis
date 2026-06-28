@@ -328,6 +328,84 @@ class ModelDownloadTest {
     }
 
     @Test
+    fun incompleteDictionaryUpdatePreservesTheInstalledPack() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        val old = ModelDownload.DICT_PACK_FILES.associateWith { name ->
+            ByteArray(2_048) { name.length.toByte() }.also { File(downloaded, name).writeBytes(it) }
+        }
+        val zip = ModelDownload.dictZipFile(base)
+        writeZip(
+            zip,
+            mapOf(
+                "aegis_dict.bin" to ByteArray(3_000) { 1 },
+                "aegis_t9.bin" to ByteArray(3_000) { 2 },
+            ),
+        )
+        val sha = ModelDownload.sha256Of(zip)
+
+        assertFalse(ModelDownload.installDictPack(base, sha))
+        old.forEach { (name, bytes) -> assertArrayEquals(bytes, File(downloaded, name).readBytes()) }
+        assertFalse(zip.exists())
+        assertFalse(File(downloaded, "dict-install").exists())
+        ModelDownload.DICT_PACK_FILES.forEach { assertFalse(File(downloaded, "$it.part").exists()) }
+        base.deleteRecursively()
+    }
+
+    @Test
+    fun aPackWithoutTheLanguageModelInstallsAndKeepsTheInstalledOne() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        val model = ByteArray(3_000) { 9 }
+        File(downloaded, ModelDownload.LM_NAME).writeBytes(model)
+        val replacements = ModelDownload.DICT_BIN_FILES.mapIndexed { index, name ->
+            name to ByteArray(3_000) { (index + 1).toByte() }
+        }.toMap()
+        val zip = ModelDownload.dictZipFile(base)
+        writeZip(zip, replacements)
+
+        assertTrue(ModelDownload.installDictPack(base, ModelDownload.sha256Of(zip)))
+
+        replacements.forEach { (name, bytes) -> assertArrayEquals(bytes, File(downloaded, name).readBytes()) }
+        assertArrayEquals(
+            "a pack that omits the model must not drop the installed one",
+            model,
+            File(downloaded, ModelDownload.LM_NAME).readBytes(),
+        )
+        assertTrue(ModelDownload.isDictDownloaded(base))
+        base.deleteRecursively()
+    }
+
+    @Test
+    fun completeDictionaryUpdateReplacesThePackAndCleansTransactions() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        ModelDownload.DICT_PACK_FILES.forEach { name ->
+            File(downloaded, name).writeBytes(ByteArray(2_048) { 9 })
+        }
+        val replacements = mapOf(
+            "aegis_dict.bin" to ByteArray(3_000) { 1 },
+            "aegis_t9.bin" to ByteArray(3_000) { 2 },
+            "aegis_jianpin.bin" to ByteArray(3_000) { 3 },
+            "aegis_lm.bin" to ByteArray(3_000) { 4 },
+        )
+        val zip = ModelDownload.dictZipFile(base)
+        writeZip(zip, replacements)
+        val sha = ModelDownload.sha256Of(zip)
+
+        assertTrue(ModelDownload.installDictPack(base, sha))
+        replacements.forEach { (name, bytes) -> assertArrayEquals(bytes, File(downloaded, name).readBytes()) }
+        assertEquals(sha, ModelDownload.installedDictionaryFileSha(base))
+        assertFalse(zip.exists())
+        assertFalse(File(downloaded, "dict-install").exists())
+        ModelDownload.DICT_PACK_FILES.forEach {
+            assertFalse(File(downloaded, "$it.part").exists())
+            assertFalse(File(downloaded, "$it.backup").exists())
+        }
+        base.deleteRecursively()
+    }
+
+    @Test
     fun aPendingMarkerThatCannotBeWrittenKeepsItsCause() {
         val base = tempFilesDir()
         val downloaded = File(base, "downloaded").apply { mkdirs() }
@@ -342,6 +420,37 @@ class ModelDownloadTest {
             (outcome as ModelDownload.PendingMarker.NotWritten).error is IOException,
         )
         assertFalse(ModelDownload.unmarkedDictionaryRecoveryRequired(base))
+
+        base.deleteRecursively()
+    }
+
+    @Test
+    fun dictionaryMetadataFailureRestoresTheInstalledPack() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        val oldSha = "c".repeat(64)
+        val old = ModelDownload.DICT_PACK_FILES.associateWith { name ->
+            ByteArray(2_048) { name.length.toByte() }.also { File(downloaded, name).writeBytes(it) }
+        }
+        File(downloaded, ModelDownload.DICT_INSTALLED_SHA_NAME).writeText(oldSha)
+        val replacements = mapOf(
+            "aegis_dict.bin" to ByteArray(3_000) { 1 },
+            "aegis_t9.bin" to ByteArray(3_000) { 2 },
+            "aegis_jianpin.bin" to ByteArray(3_000) { 3 },
+            "aegis_lm.bin" to ByteArray(3_000) { 4 },
+        )
+        val zip = ModelDownload.dictZipFile(base)
+        writeZip(zip, replacements)
+
+        assertFalse(ModelDownload.installDictPack(base, ModelDownload.sha256Of(zip)) { false })
+
+        old.forEach { (name, bytes) ->
+            assertArrayEquals(bytes, File(downloaded, name).readBytes())
+            assertFalse(File(downloaded, "$name.backup").exists())
+        }
+        assertEquals(oldSha, ModelDownload.installedDictionaryFileSha(base))
+        assertFalse(zip.exists())
+        assertFalse(File(downloaded, "dict-install").exists())
 
         base.deleteRecursively()
     }
@@ -669,6 +778,25 @@ class ModelDownloadTest {
             server.stop(0)
             base.deleteRecursively()
         }
+    }
+
+    @Test
+    fun installRefusesAPackThatIsNotTheOneItWasPromised() {
+        val base = tempFilesDir()
+        val zip = ModelDownload.dictZipFile(base)
+        writeZip(
+            zip,
+            ModelDownload.DICT_PACK_FILES.mapIndexed { index, name ->
+                name to ByteArray(3_000) { (index + 1).toByte() }
+            }.toMap(),
+        )
+
+        assertFalse(ModelDownload.installDictPack(base, "f".repeat(64)))
+        assertFalse(ModelDownload.isDictDownloaded(base))
+        ModelDownload.DICT_PACK_FILES.forEach { name ->
+            assertFalse(File(File(base, "downloaded"), name).exists())
+        }
+        base.deleteRecursively()
     }
 
     @Test
