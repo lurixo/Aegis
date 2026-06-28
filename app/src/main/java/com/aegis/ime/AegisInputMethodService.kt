@@ -561,6 +561,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         ic.endBatchEdit()
     }
 
+    override fun hasSelection(): Boolean = !currentInputConnection?.getSelectedText(0).isNullOrEmpty()
+
     override fun performEnter() {
         // #7: editor-action fields (search/send/go/done) fire the action; everything else gets a real
         // ENTER key event so multi-line fields actually get a newline (sendDefaultEditorAction did neither).

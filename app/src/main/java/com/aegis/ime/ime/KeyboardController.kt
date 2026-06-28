@@ -92,9 +92,11 @@ class KeyboardController(
 
     /** U23: associated emoji/symbol candidates in the current list — committed directly (no pinyin learn). */
     private var directCommitCands: Set<Cand> = emptySet()
-    /** U25: the inline-calculator candidate (if any) + how many editor chars before the cursor it replaces. */
+    /** U25: the inline-calculator candidate (if any) + the expression it was computed from. The expression
+     *  is re-validated against the LIVE text-before-cursor at pick time (M-3) so a moved cursor can never
+     *  make the replace delete unrelated characters. */
     private var calcCand: Cand? = null
-    private var calcExprLen = 0
+    private var calcExpr = ""
 
     /** M-3/L-3: when the focused field is a password / opts out of personalized learning, never learn. */
     private var learningBlocked = false
@@ -253,7 +255,17 @@ class KeyboardController(
         when {
             // U25: the calculator result replaces the expression text before the cursor (no buffer involved).
             cand === calcCand -> {
-                host.replaceBeforeCursor(calcExprLen, cand.word)
+                // M-3 (data loss): the result was computed from a snapshot of the text before the cursor.
+                // The caret may have moved since with no keystroke (so no refresh ran), leaving this cand
+                // stale. Re-detect against the LIVE text and only delete+replace when the SAME expression
+                // still sits immediately before the caret — using the freshly measured length — otherwise a
+                // blind deleteSurroundingText(len) would erase whatever now precedes the new caret. Also skip
+                // when a selection is active: deleteSurroundingText is selection-start-relative while the
+                // commit replaces the selection, which would silently destroy the selected text.
+                val live = Calculator.detect(host.textBeforeCursor(CALC_SCAN_LEN))
+                if (live != null && live.expr == calcExpr && live.result == cand.word && !host.hasSelection()) {
+                    host.replaceBeforeCursor(live.length, live.result)
+                }
                 clearComposingState(); lastWord = null
             }
             // U23: an associated emoji/symbol commits directly and is NOT learned as a pinyin word.
@@ -466,7 +478,7 @@ class KeyboardController(
         val base = baseCandidates()
         // U23/U25 reset; recomputed below so a stale association/calc cand never lingers.
         directCommitCands = emptySet()
-        calcCand = null; calcExprLen = 0
+        calcCand = null; calcExpr = ""
         candidates = when {
             // While composing pinyin: inject associated emoji/symbols (haode→👌) just after the top word.
             composing.isNotEmpty() && mode() == Mode.PINYIN -> injectAssociations(base)
@@ -492,7 +504,7 @@ class KeyboardController(
     private fun calcCandidates(): List<Cand> {
         val match = Calculator.detect(host.textBeforeCursor(CALC_SCAN_LEN)) ?: return emptyList()
         val cand = Cand(match.result, 0)
-        calcCand = cand; calcExprLen = match.length
+        calcCand = cand; calcExpr = match.expr
         return listOf(cand)
     }
 
