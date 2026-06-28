@@ -25,7 +25,7 @@ import android.widget.TextView
 
 enum class EditAction { UP, DOWN, LEFT, RIGHT, START_SELECT, DELETE, COPY, CUT, SELECT_ALL, HOME, END, PASTE, BACK }
 
-class EditPanelView(context: Context) : LinearLayout(context) {
+class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
 
     var onAction: (EditAction) -> Unit = {}
 
@@ -97,6 +97,10 @@ class EditPanelView(context: Context) : LinearLayout(context) {
     fun setSelecting(selecting: Boolean) {
         selectBtn.text = if (selecting) "结束选择" else "开始选择"
     }
+
+    override fun resetToDefault() = setSelecting(false)
+
+    internal fun selectingLabelForTest(): CharSequence = selectBtn.text
 
     private fun rowLp() = LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f)
 

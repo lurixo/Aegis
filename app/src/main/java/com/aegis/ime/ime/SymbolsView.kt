@@ -28,7 +28,7 @@ import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.layout.SymbolCatalog
 
-class SymbolsView(context: Context) : LinearLayout(context) {
+class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
 
     var onSymbol: (String) -> Unit = {}
     var onBackspace: () -> Unit = {}
@@ -50,6 +50,7 @@ class SymbolsView(context: Context) : LinearLayout(context) {
         columnCount = COLUMNS
         val p = dp(4); setPadding(p, p, p, p)
     }
+    private val gridScroll = ScrollView(context).apply { addView(grid); isFillViewport = true }
     private val backBtn = barButton("返回") { onBack() }
     private val lockBtn = barButton("锁定") { toggleLock() }
     private val backspaceBtn = barButton("⌫") { onBackspace() }
@@ -69,10 +70,7 @@ class SymbolsView(context: Context) : LinearLayout(context) {
             orientation = HORIZONTAL
             railScroll.setBackgroundColor(palette.railBg)
             addView(railScroll, LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
-            addView(
-                ScrollView(context).apply { addView(grid); isFillViewport = true },
-                LayoutParams(0, LayoutParams.MATCH_PARENT, 1f),
-            )
+            addView(gridScroll, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         }
         addView(content, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         addView(bottomBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(46)))
@@ -82,6 +80,13 @@ class SymbolsView(context: Context) : LinearLayout(context) {
     fun refresh() = showCategory(selected)
 
     fun resetLock() { locked = false; updateLockFace() }
+
+    override fun resetToDefault() {
+        resetLock()
+        showCategory(0)
+        gridScroll.scrollTo(0, 0)
+        railScroll.scrollTo(0, 0)
+    }
 
     fun applyPalette(p: ImePalette) {
         palette = p
@@ -174,6 +179,12 @@ class SymbolsView(context: Context) : LinearLayout(context) {
     }
 
     private fun toggleLock() { locked = !locked; updateLockFace() }
+
+    internal fun selectedCategoryForTest(): Int = selected
+    internal fun lockedForTest(): Boolean = locked
+    internal fun openCategoryForTest(index: Int) = showCategory(index)
+    internal fun toggleLockForTest() = toggleLock()
+    internal fun gridScrollYForTest(): Int = gridScroll.scrollY
 
     private fun updateLockFace() {
         lockBtn.text = if (locked) "🔒锁定" else "🔓锁定"

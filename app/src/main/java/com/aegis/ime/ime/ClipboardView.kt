@@ -33,7 +33,7 @@ import com.aegis.ime.ime.ClipboardPanelState.Tab
 import com.aegis.ime.user.ClipSplitter
 import com.aegis.ime.user.ClipboardStore
 
-class ClipboardView(context: Context) : FrameLayout(context) {
+class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     var onPick: (String) -> Unit = {}
     var onPickImage: (String) -> Unit = {}
@@ -101,6 +101,16 @@ class ClipboardView(context: Context) : FrameLayout(context) {
     }
 
     fun reset() { st.reset(); hideOverlay() }
+
+    override fun resetToDefault() {
+        reset()
+        phraseCat = ""
+        listScroll.scrollTo(0, 0)
+    }
+
+    internal fun isClipboardTabForTest(): Boolean = st.tab == ClipboardPanelState.Tab.CLIPBOARD
+    internal fun phraseCatForTest(): String = phraseCat
+    internal fun forcePhrasesStateForTest(cat: String) { st.switchTab(ClipboardPanelState.Tab.PHRASE); phraseCat = cat }
 
     fun refresh() {
         main.removeAllViews()

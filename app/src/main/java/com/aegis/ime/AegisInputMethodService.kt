@@ -218,6 +218,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun showEditPanel() {
         val iv = inputView ?: return
+        if (iv.isPanelShowing(editPanelView)) { iv.showPanel(null); return }
         selecting = false
         val ep = editPanelView ?: EditPanelView(this).also {
             it.onAction = { a -> handleEdit(a) }
@@ -271,18 +272,21 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun showEmojiPanel() {
         val iv = inputView ?: return
+        if (iv.isPanelShowing(emojiView)) { iv.showPanel(null); return }
         val ev = emojiView ?: EmojiView(this).also {
             it.onEmoji = { e -> currentInputConnection?.commitText(e, 1) }
             it.onBackspace = { currentInputConnection?.deleteSurroundingTextInCodePoints(1, 0) }
             it.onBack = { inputView?.showPanel(null) }
             emojiView = it
         }
+        ev.resetToDefault()
         ev.applyPalette(imePalette)
         iv.showPanel(ev)
     }
 
     private fun showClipboardPanel() {
         val iv = inputView ?: return
+        if (iv.isPanelShowing(clipboardView)) { iv.showPanel(null); return }
         captureClip()
         val cv = clipboardView ?: ClipboardView(this).also {
             it.historyProvider = { clipboardStore.history() }
@@ -305,9 +309,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onSetHistoryEnabled = { on -> setHistoryEnabled(on) }
             clipboardView = it
         }
+        cv.resetToDefault()
         cv.applyPalette(imePalette)
         clipboardStore.reloadPhrases()
-        cv.reset()
         cv.refresh()
         iv.showPanel(cv)
     }
@@ -322,6 +326,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onBack = { inputView?.showPanel(null) }
             customSymbolView = it
         }
+        panel.resetToDefault()
         panel.applyPalette(imePalette)
         iv.showPanel(panel)
     }
@@ -343,6 +348,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun showSymbolsPanel() {
         val iv = inputView ?: return
+        if (iv.isPanelShowing(symbolsView)) { iv.showPanel(null); return }
         val sv = symbolsView ?: SymbolsView(this).also {
             it.recentProvider = { symbolUsageStore.recent() }
             it.onSymbol = { s -> symbolUsageStore.record(s); currentInputConnection?.commitText(s, 1) }
@@ -350,7 +356,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onBack = { inputView?.showPanel(null) }
             symbolsView = it
         }
-        sv.resetLock()
+        sv.resetToDefault()
         sv.applyPalette(imePalette)
         iv.showPanel(sv)
     }

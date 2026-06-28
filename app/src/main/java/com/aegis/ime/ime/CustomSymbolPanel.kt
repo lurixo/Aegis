@@ -25,7 +25,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import com.aegis.ime.layout.SymbolCatalog
 
-class CustomSymbolPanel(context: Context) : LinearLayout(context) {
+class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePanel {
 
     var current: () -> List<String> = { emptyList() }
     var onAdd: (String) -> Unit = {}
@@ -38,6 +38,8 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context) {
     private var colors = ImePalette.STATIC_LIGHT
     private val addedRows = LinearLayout(context).apply { orientation = VERTICAL }
     private val paletteRows = LinearLayout(context).apply { orientation = VERTICAL }
+    private val addedScroll = ScrollView(context).apply { addView(addedRows) }
+    private val paletteScroll = ScrollView(context).apply { addView(paletteRows) }
     private val headerBar = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
     private val backText = TextView(context).apply {
         text = "‹ 自定义标点"
@@ -68,9 +70,14 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context) {
         headerBar.addView(pasteText)
         addView(headerBar)
         addView(sectionLabel("已添加（点击移除）"))
-        addView(ScrollView(context).apply { addView(addedRows) }, LayoutParams(LayoutParams.MATCH_PARENT, dp(56)))
+        addView(addedScroll, LayoutParams(LayoutParams.MATCH_PARENT, dp(56)))
         addView(sectionLabel("点击添加"))
-        addView(ScrollView(context).apply { addView(paletteRows) }, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+        addView(paletteScroll, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+    }
+
+    override fun resetToDefault() {
+        addedScroll.scrollTo(0, 0)
+        paletteScroll.scrollTo(0, 0)
     }
 
     fun applyPalette(p: ImePalette) {
