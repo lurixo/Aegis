@@ -66,7 +66,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     @Volatile private var secureField = false
     @Volatile private var userDbLoaded = false
     private val clipboardManager by lazy { getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager }
-    private val clipChangedListener = android.content.ClipboardManager.OnPrimaryClipChangedListener { captureClip() }
+    private val clipChangedListener = android.content.ClipboardManager.OnPrimaryClipChangedListener { onSystemClipChanged() }
 
     override fun onCreate() {
         super.onCreate()
@@ -141,6 +141,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onPanelBackspace = { controller.onPanelBackspace() }
             onPanelClear = { controller.onPanelClear() }
             onCollapse = { requestHideSelf(0) }
+            onCopyCommit = { t -> currentInputConnection?.commitText(t, 1) }
+            onCopyBlock = { b -> clipboardStore.record(b) }
         }
         inputView = view
         controller.attachView(view)
@@ -245,7 +247,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.categoriesProvider = { clipboardStore.categories() }
             it.phrasesInProvider = { cat -> clipboardStore.phrasesIn(cat) }
             it.onPick = { t -> currentInputConnection?.commitText(t, 1); inputView?.showPanel(null) }
-            it.onCommitBlock = { b -> currentInputConnection?.commitText(b, 1) }
+            it.onCommitBlock = { b -> clipboardStore.record(b) }
             it.onBack = { inputView?.showPanel(null) }
             it.onDeleteClips = { list -> clipboardStore.deleteAll(list) }
             it.onDeletePhrasesFrom = { cat, list -> list.forEach { clipboardStore.deletePhraseFrom(cat, it) } }
@@ -313,6 +315,16 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             val clip = clipboardManager.primaryClip ?: return
             if (clip.itemCount > 0) clipboardStore.record(clip.getItemAt(0).coerceToText(this)?.toString())
         }
+    }
+
+    private fun onSystemClipChanged() {
+        if (secureField || !historyEnabled()) return
+        val t = runCatching {
+            clipboardManager.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()
+        }.getOrNull()?.trim().orEmpty()
+        if (t.isEmpty()) return
+        clipboardStore.record(t)
+        inputView?.showCopyBar(t)
     }
 
     private fun historyEnabled() = getSharedPreferences("aegis", MODE_PRIVATE).getBoolean("clip_history", true)

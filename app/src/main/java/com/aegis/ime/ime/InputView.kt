@@ -36,9 +36,12 @@ class InputView(context: Context) : LinearLayout(context) {
     var onPanelBackspace: () -> Unit = {}
     var onPanelClear: () -> Unit = {}
     var onCollapse: () -> Unit = {}
+    var onCopyCommit: (String) -> Unit = {}
+    var onCopyBlock: (String) -> Unit = {}
 
     private val preeditView = PreeditView(context)
     private val candidateView = CandidateView(context)
+    private val copyBarView = CopyBarView(context)
     private val keyboardView = KeyboardView(context)
     private val panelContainer = FrameLayout(context)
     private val gridView = CandidateGridView(context)
@@ -60,11 +63,16 @@ class InputView(context: Context) : LinearLayout(context) {
         gridView.onClear = { onPanelClear() }
         keyboardView.onKey = { key -> onKey(key) }
         keyboardView.onBackspaceSwipe = { up -> onBackspaceSwipe(up) }
+        copyBarView.onCommit = { t -> onCopyCommit(t); hideCopyBar() }
+        copyBarView.onCopyBlock = { b -> onCopyBlock(b) }
+        copyBarView.onDismiss = { hideCopyBar() }
         addView(preeditView, LayoutParams(LayoutParams.MATCH_PARENT, barTopInsetPx()))
 
         body.orientation = VERTICAL
         body.setBackgroundColor(0xFFE2E6EA.toInt())
         body.addView(candidateView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
+        copyBarView.visibility = GONE
+        body.addView(copyBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
         body.addView(keyboardView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         panelContainer.visibility = GONE
         body.addView(panelContainer, LayoutParams(LayoutParams.MATCH_PARENT, dp(250)))
@@ -85,11 +93,25 @@ class InputView(context: Context) : LinearLayout(context) {
         keyboardView.setLayout(layout, shifted, lang)
     }
 
+    fun showCopyBar(text: String) {
+        copyBarView.show(text)
+        copyBarView.visibility = VISIBLE
+        candidateView.visibility = GONE
+    }
+
+    fun hideCopyBar() {
+        copyBarView.visibility = GONE
+        candidateView.visibility = VISIBLE
+    }
+
+    val copyBarShown: Boolean get() = copyBarView.visibility == VISIBLE
+
     fun showCandidates(candidates: List<String>, preedit: String, readings: List<String>) {
         lastCandidates = candidates
         lastReadings = readings
         preeditView.setText(preedit)
         candidateView.setContent(candidates, preedit)
+        if (copyBarShown && (candidates.isNotEmpty() || preedit.isNotEmpty())) hideCopyBar()
         if (currentPanel === gridView) {
             if (preedit.isEmpty()) showPanel(null)
             else { gridView.setCandidates(candidates); gridView.setReadings(readings) }
