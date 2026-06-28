@@ -163,6 +163,20 @@ class RenderHarness {
         }
     }
 
+    @Test fun expand_syllable_column() {
+        for ((t, pal) in themes) {
+            val v = CandidateGridView(ctx).apply {
+                applyPalette(pal)
+                setReadings(listOf("ni", "hao"), 0)
+                setCandidates(
+                    listOf("你", "拟", "尼", "泥", "逆", "妮", "倪", "腻", "匿", "昵",
+                        "溺", "睨", "坭", "祢", "旎", "铌", "鲵", "猊", "蜺", "霓"),
+                )
+            }
+            snap(v, (300 * density).toInt(), "expand_syllable_$t.png")
+        }
+    }
+
     @Test fun preedit_band() {
         for ((t, pal) in themes) {
             val v = PreeditView(ctx).apply { applyPalette(pal); setText("ni'hao") }

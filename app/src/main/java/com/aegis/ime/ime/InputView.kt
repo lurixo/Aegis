@@ -36,6 +36,7 @@ class InputView(context: Context) : LinearLayout(context) {
     var onBackspaceSwipe: (Boolean) -> Unit = {}
     var onPanelBackspace: () -> Unit = {}
     var onPanelClear: () -> Unit = {}
+    var onExpandClosed: () -> Unit = {}
     var onCollapse: () -> Unit = {}
     var onCopyCommit: (String) -> Unit = {}
     var onCopyBlock: (String) -> Unit = {}
@@ -50,6 +51,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private val body = LinearLayout(context)
     private var lastCandidates: List<String> = emptyList()
     private var lastReadings: List<String> = emptyList()
+    private var lastSelectedReading = -1
     private var composingNow = false
     private var currentPanel: View? = null
     private var palette = ImePalette.STATIC_LIGHT
@@ -146,23 +148,24 @@ class InputView(context: Context) : LinearLayout(context) {
 
     fun isComposing(): Boolean = composingNow
 
-    fun showCandidates(candidates: List<String>, preedit: String, readings: List<String>) {
+    fun showCandidates(candidates: List<String>, preedit: String, readings: List<String>, selectedReading: Int = -1) {
         lastCandidates = candidates
         lastReadings = readings
+        lastSelectedReading = selectedReading
         preeditView.setText(preedit)
         candidateView.setContent(candidates, preedit)
         composingNow = candidates.isNotEmpty() || preedit.isNotEmpty()
         if (copyBarShown && composingNow) { hideCopyBar(); onCopyDismiss() }
         if (currentPanel === gridView) {
             if (preedit.isEmpty()) showPanel(null)
-            else { gridView.setCandidates(candidates); gridView.setReadings(readings) }
+            else { gridView.setCandidates(candidates); gridView.setReadings(readings, selectedReading) }
         }
     }
 
     internal fun showExpandedCandidates() {
         if (lastCandidates.isEmpty()) return
         gridView.setCandidates(lastCandidates)
-        gridView.setReadings(lastReadings)
+        gridView.setReadings(lastReadings, lastSelectedReading)
         showPanel(gridView)
     }
 
@@ -173,6 +176,7 @@ class InputView(context: Context) : LinearLayout(context) {
     fun showPanel(panel: View?) {
         val outgoing = currentPanel
         (outgoing as? ResettablePanel)?.takeIf { it !== panel }?.resetToDefault()
+        if (outgoing === gridView && panel !== gridView) onExpandClosed()
         panelContainer.removeAllViews()
         currentPanel = panel
         candidateView.setExpanded(panel === gridView)

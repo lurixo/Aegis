@@ -85,16 +85,19 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
         setOnClickListener { onClick() }
     }
 
-    fun setReadings(readings: List<String>) {
+    fun setReadings(readings: List<String>, selected: Int = -1) {
         readingColumn.removeAllViews()
         for ((i, r) in readings.withIndex()) {
+            val on = i == selected
             readingColumn.addView(
                 TextView(context).apply {
                     text = r
                     gravity = Gravity.CENTER
                     setPadding(0, dp(10), 0, dp(10))
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
-                    setTextColor(palette.preeditText)
+                    setTextColor(if (on) palette.candidateFirst else palette.preeditText)
+                    setBackgroundColor(if (on) palette.keySurface else 0x00000000)
+                    setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
                     isClickable = true
                     setOnClickListener { onPickReading(i) }
                 },
