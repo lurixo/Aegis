@@ -23,4 +23,6 @@ interface ImeHost {
     fun textBeforeCursor(n: Int): CharSequence = ""
 
     fun replaceBeforeCursor(length: Int, text: CharSequence) {}
+
+    fun hasSelection(): Boolean = false
 }

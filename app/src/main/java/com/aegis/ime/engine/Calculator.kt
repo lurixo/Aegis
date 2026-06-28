@@ -21,6 +21,8 @@ object Calculator {
 
     private val OPS = "+-*/×÷"
 
+    private val DATE_LIKE = Regex("""\d+(-\d+){2,}""")
+
     fun detect(textBeforeCursor: CharSequence): Match? {
         val s = textBeforeCursor.toString()
         if (s.isEmpty()) return null
@@ -30,6 +32,7 @@ object Calculator {
         val expr = s.substring(start)
         if (expr.isBlank()) return null
         if (!hasBinaryOperator(expr)) return null
+        if (DATE_LIKE.matches(expr)) return null
         val value = evaluate(expr) ?: return null
         return Match(expr, format(value), s.length - start)
     }

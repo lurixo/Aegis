@@ -59,7 +59,7 @@ class KeyboardController(
 
     private var directCommitCands: Set<Cand> = emptySet()
     private var calcCand: Cand? = null
-    private var calcExprLen = 0
+    private var calcExpr = ""
 
     private var learningBlocked = false
 
@@ -186,7 +186,10 @@ class KeyboardController(
         val cand = candidates[index]
         when {
             cand === calcCand -> {
-                host.replaceBeforeCursor(calcExprLen, cand.word)
+                val live = Calculator.detect(host.textBeforeCursor(CALC_SCAN_LEN))
+                if (live != null && live.expr == calcExpr && live.result == cand.word && !host.hasSelection()) {
+                    host.replaceBeforeCursor(live.length, live.result)
+                }
                 clearComposingState(); lastWord = null
             }
             cand in directCommitCands -> {
@@ -361,7 +364,7 @@ class KeyboardController(
     private fun refreshCandidates() {
         val base = baseCandidates()
         directCommitCands = emptySet()
-        calcCand = null; calcExprLen = 0
+        calcCand = null; calcExpr = ""
         candidates = when {
             composing.isNotEmpty() && mode() == Mode.PINYIN -> injectAssociations(base)
             composing.isEmpty() -> calcCandidates()
@@ -383,7 +386,7 @@ class KeyboardController(
     private fun calcCandidates(): List<Cand> {
         val match = Calculator.detect(host.textBeforeCursor(CALC_SCAN_LEN)) ?: return emptyList()
         val cand = Cand(match.result, 0)
-        calcCand = cand; calcExprLen = match.length
+        calcCand = cand; calcExpr = match.expr
         return listOf(cand)
     }
 
