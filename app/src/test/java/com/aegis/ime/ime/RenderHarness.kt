@@ -105,7 +105,77 @@ class RenderHarness {
         return out.isNotEmpty()
     }
 
+    private val density = ctx.resources.displayMetrics.density
+    private fun exactly(px: Int) = View.MeasureSpec.makeMeasureSpec(px, View.MeasureSpec.EXACTLY)
+
+    /**
+     * debug.13 P-A: stitch the idle candidate strip (its own floor) directly ABOVE [panel] into ONE bitmap, so
+     * the strip↔panel-body background boundary — the horizontal colour seam — is visible end to end.
+     * After the fix both share keyboardBg, so the boundary must be invisible (asserted: the pixel rows just
+     * above and just below the seam line are the same colour).
+     */
+    private fun stitchStripAndPanel(panel: View, panelHpx: Int, name: String, pal: ImePalette) {
+        val stripH = (44 * density).toInt()
+        val strip = CandidateView(ctx).apply { applyPalette(pal); setContent(emptyList(), "") } // idle toolbar
+        strip.measure(exactly(wPx), exactly(stripH)); strip.layout(0, 0, wPx, stripH)
+        panel.measure(exactly(wPx), exactly(panelHpx)); panel.layout(0, 0, wPx, panelHpx)
+        val totalH = stripH + panelHpx
+        val bmp = Bitmap.createBitmap(wPx, totalH, Bitmap.Config.ARGB_8888)
+        bmp.eraseColor(Color.MAGENTA)
+        val c = Canvas(bmp)
+        strip.draw(c)
+        c.save(); c.translate(0f, stripH.toFloat()); panel.draw(c); c.restore()
+        FileOutputStream(File(outDir, name)).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        // No seam: the strip's floor (its top-left gutter — the capsule is inset, so this is the bare floor) and
+        // the PANEL BODY's floor must be the SAME colour. Rather than a fragile single pixel (a panel's left
+        // edge is the railBg tray, not the body floor), scan the panel rows for the strip-floor colour: if the
+        // body shares the floor it appears; if it reverted to a distinct panelBg it would not. (In the dark
+        // static palette keyboardBg==panelBg, so there this is trivially satisfied — the light case is the
+        // load-bearing seam guard, matching where it actually appeared on screen.)
+        val stripFloor = bmp.getPixel((2 * density).toInt(), (2 * density).toInt())
+        assertTrue("$name: strip floor is not keyboardBg", stripFloor == pal.keyboardBg)
+        var panelSharesFloor = false
+        val row = IntArray(wPx)
+        var y = stripH + (8 * density).toInt()
+        val step = (8 * density).toInt()
+        while (y < totalH && !panelSharesFloor) {
+            bmp.getPixels(row, 0, wPx, 0, y, wPx, 1)
+            if (row.any { it == stripFloor }) panelSharesFloor = true
+            y += step
+        }
+        assertTrue("$name: panel body floor differs from the strip floor (a seam)", panelSharesFloor)
+    }
+
     private val themes = listOf("light" to ImePalette.STATIC_LIGHT, "dark" to ImePalette.STATIC_DARK)
+
+    /** P-A: the strip+panel seam check, on two structurally different panels (symbols grid, clipboard cards). */
+    @Test fun seam_strip_over_symbols() {
+        for ((t, pal) in themes) {
+            val panel = SymbolsView(ctx).apply {
+                recentProvider = { listOf("，", "。", "@") }; applyPalette(pal); openCategoryForTest(1) // 中文 glyph grid
+            }
+            stitchStripAndPanel(panel, (300 * density).toInt(), "seam_symbols_$t.png", pal)
+        }
+    }
+
+    @Test fun seam_strip_over_clipboard() {
+        for ((t, pal) in themes) {
+            val panel = ClipboardView(ctx).apply {
+                historyProvider = { listOf("第一条复制内容", "second clip on the board") }; applyPalette(pal)
+            }
+            stitchStripAndPanel(panel, (300 * density).toInt(), "seam_clipboard_$t.png", pal)
+        }
+    }
+
+    /** P-C: the symbols panel with 锁定 engaged — the self-drawn padlock should read closed + accent-tinted. */
+    @Test fun symbols_locked() {
+        for ((t, pal) in themes) {
+            val v = SymbolsView(ctx).apply {
+                recentProvider = { listOf("，", "。") }; applyPalette(pal); openCategoryForTest(0); toggleLockForTest()
+            }
+            snap(v, (300 * density).toInt(), "symbols_locked_$t.png")
+        }
+    }
 
     @Test fun symbols_panel() {
         for ((t, pal) in themes) {

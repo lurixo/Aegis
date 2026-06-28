@@ -79,10 +79,10 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
 
     init {
         orientation = VERTICAL
-        setBackgroundColor(colors.panelBg)
+        setBackgroundColor(colors.keyboardBg) // P-A: panel floor == the strip/keyboard floor (no top seam)
         backText.setOnClickListener { onBack() }
         pasteText.setOnClickListener { onPaste() }
-        headerBar.setBackgroundColor(colors.panelBg) // P6: 返回 row = content background
+        headerBar.setBackgroundColor(colors.keyboardBg) // P-A: 返回 row on the unified floor
         headerBar.addView(backText)
         headerBar.addView(View(context), LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
         headerBar.addView(pasteText)
@@ -103,8 +103,8 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     /** F1: recolour from the Monet palette (chips re-coloured by the following refresh()). */
     fun applyPalette(p: ImePalette) {
         colors = p
-        setBackgroundColor(p.panelBg)
-        headerBar.setBackgroundColor(p.panelBg) // P6: 返回 row = content background
+        setBackgroundColor(p.keyboardBg) // P-A: see init
+        headerBar.setBackgroundColor(p.keyboardBg) // P-A: 返回 row on the unified floor
         backText.setTextColor(p.keyLabel)
         pasteText.setTextColor(p.keyLabel)
         sectionLabels.forEach { it.setTextColor(p.keyLabelSecondary) }

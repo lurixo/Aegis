@@ -46,7 +46,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
     /** F1: recolour from the Monet palette (every button text → onSurface; disabled copy/cut stays muted). */
     fun applyPalette(p: ImePalette) {
         palette = p
-        setBackgroundColor(p.panelBg)
+        setBackgroundColor(p.keyboardBg) // P-A: see init
         recolor(this)
         setHasSelection(copyBtn.isEnabled)
     }
@@ -60,7 +60,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
 
     init {
         orientation = VERTICAL
-        setBackgroundColor(palette.panelBg)
+        setBackgroundColor(palette.keyboardBg) // P-A: panel floor == the strip/keyboard floor (no top seam)
 
         // Title bar
         addView(
