@@ -66,7 +66,7 @@ object Layouts {
         val comma = if (lang == Lang.CN) "，" else ","
         val period = if (lang == Lang.CN) "。" else "."
         val bottom = listOf(
-            Key("✎", action = SHOW_SYMBOLS, weight = 1.3f),
+            Key("✎", action = SHOW_SYMBOLS, weight = 1.5f),
             Key("123", action = SWITCH_NUMBERS, weight = 1.5f),
             Key(comma, direct = true),
             Key("空格", output = " ", action = SPACE, weight = 3.5f),
