@@ -46,7 +46,11 @@ class KeyboardView(context: Context) : View(context) {
 
     private var layout: KeyboardLayout = Layouts.forId(LayoutId.ALPHA, Lang.CN)
     private var shifted = false
+    private var shiftLocked = false
     private var lang = Lang.CN
+
+    private var lastShiftTapTime = 0L
+    private val doubleTapMs = ViewConfiguration.getDoubleTapTimeout().toLong()
 
     private val placed = ArrayList<Placed>()
     private var pressed: Key? = null
@@ -98,6 +102,7 @@ class KeyboardView(context: Context) : View(context) {
 
     private val density = resources.displayMetrics.density
     private val rowHeight = 52f * density
+    private val nineRowExtra = 7f * density
     private val gap = 6f * density
     private val keyRadius = ImeShapes.keyRadiusDp * density
 
@@ -112,6 +117,8 @@ class KeyboardView(context: Context) : View(context) {
 
     private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(20f) }
     private val specialLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabelSecondary; textAlign = Paint.Align.CENTER; textSize = sp(15f) }
+    private val boldLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(18f); typeface = android.graphics.Typeface.DEFAULT_BOLD }
+    private val shiftActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.accentBottom; textAlign = Paint.Align.CENTER; textSize = sp(20f) }
     private val accentLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.accentLabel; textAlign = Paint.Align.CENTER; textSize = sp(20f) }
     private val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyHint; textAlign = Paint.Align.RIGHT; textSize = sp(10f) }
     private val langActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabelSecondary; textAlign = Paint.Align.CENTER; textSize = sp(17f) }
@@ -129,6 +136,8 @@ class KeyboardView(context: Context) : View(context) {
         palette = p
         labelPaint.color = p.keyLabel
         specialLabelPaint.color = p.keyLabelSecondary
+        boldLabelPaint.color = p.keyLabel
+        shiftActivePaint.color = p.accentBottom
         accentLabelPaint.color = p.accentLabel
         subPaint.color = p.keyHint
         langActivePaint.color = p.keyLabelSecondary
@@ -146,10 +155,11 @@ class KeyboardView(context: Context) : View(context) {
 
     private data class Placed(val rect: RectF, val key: Key, val groupId: Int = 0)
 
-    fun setLayout(newLayout: KeyboardLayout, isShifted: Boolean, language: Lang) {
+    fun setLayout(newLayout: KeyboardLayout, isShifted: Boolean, isLocked: Boolean, language: Lang) {
         val sameColumn = newLayout.scrollColumn?.items?.map { it.label } == layout.scrollColumn?.items?.map { it.label }
         layout = newLayout
         shifted = isShifted
+        shiftLocked = isLocked
         lang = language
         scrollColumn = newLayout.scrollColumn
         if (!sameColumn) scrollY = 0f
@@ -161,7 +171,8 @@ class KeyboardView(context: Context) : View(context) {
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
         val rows = layout.rowCount
-        val height = (rows * rowHeight + (rows + 1) * gap).toInt()
+        val rh = if (layout.id == LayoutId.NINE) rowHeight + nineRowExtra else rowHeight
+        val height = (rows * rh + (rows + 1) * gap).toInt()
         setMeasuredDimension(width, height)
     }
 
@@ -290,11 +301,13 @@ class KeyboardView(context: Context) : View(context) {
 
     private fun drawLabel(canvas: Canvas, p: Placed) {
         if (p.key.action == KeyAction.TOGGLE_LANG) { drawLangToggle(canvas, p.rect); return }
+        if (p.key.action == KeyAction.SHIFT) { drawShift(canvas, p.rect); return }
         val cx = p.rect.centerX()
         val cy = p.rect.centerY()
         val display = displayLabel(p.key)
         val paint = when {
             p.key.accent -> accentLabelPaint
+            p.key.bold -> boldLabelPaint
             display.length > 1 && p.key.action != KeyAction.COMMIT -> specialLabelPaint
             else -> labelPaint
         }
@@ -310,6 +323,20 @@ class KeyboardView(context: Context) : View(context) {
         val baseline = rect.centerY() - (langActivePaint.descent() + langActivePaint.ascent()) / 2
         canvas.drawText(active, rect.centerX(), baseline, langActivePaint)
         canvas.drawText(small, rect.right - 5 * density, rect.bottom - 6 * density, langSmallPaint)
+    }
+
+    private fun drawShift(canvas: Canvas, rect: RectF) {
+        val glyph = if (shiftLocked) "⬆︎" else "⇧"
+        val paint = if (shifted) shiftActivePaint else labelPaint
+        canvas.drawText(glyph, rect.centerX(), rect.centerY() - (paint.descent() + paint.ascent()) / 2, paint)
+    }
+
+    internal fun shiftRenderState(): String = if (shiftLocked) "LOCK" else if (shifted) "ONCE" else "OFF"
+
+    internal fun centerOfActionForTest(action: KeyAction): Pair<Float, Float>? {
+        if (placed.isEmpty()) relayout()
+        val p = placed.firstOrNull { it.key.action == action } ?: return null
+        return p.rect.centerX() to p.rect.centerY()
     }
 
     private fun displayLabel(key: Key): String {
@@ -383,7 +410,7 @@ class KeyboardView(context: Context) : View(context) {
                         else onKey(dk)
                     }
                     !repeating ->
-                        currentTarget(event.x, event.y)?.let { performClick(); onKey(it) }
+                        currentTarget(event.x, event.y)?.let { performClick(); emitKey(it, event.eventTime) }
                 }
                 downKey = null
                 downPlaced = null
@@ -481,6 +508,21 @@ class KeyboardView(context: Context) : View(context) {
         val dx = x - downX
         val dy = y - downY
         return if (dx * dx + dy * dy <= t * t) dp.key else placedAt(x, y)?.key ?: dp.key
+    }
+
+    private fun emitKey(key: Key, eventTime: Long) {
+        if (key.action == KeyAction.SHIFT) {
+            if (lastShiftTapTime != 0L && eventTime - lastShiftTapTime <= doubleTapMs) {
+                lastShiftTapTime = 0L
+                onKey(Key(key.label, action = KeyAction.SHIFT_LOCK))
+            } else {
+                lastShiftTapTime = eventTime
+                onKey(key)
+            }
+            return
+        }
+        lastShiftTapTime = 0L
+        onKey(key)
     }
 
     override fun performClick(): Boolean {

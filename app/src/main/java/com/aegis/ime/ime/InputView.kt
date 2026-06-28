@@ -120,8 +120,8 @@ class InputView(context: Context) : LinearLayout(context) {
 
     fun barTopInsetPx(): Int = dp(26)
 
-    fun showKeyboard(layout: KeyboardLayout, shifted: Boolean, lang: Lang) {
-        keyboardView.setLayout(layout, shifted, lang)
+    fun showKeyboard(layout: KeyboardLayout, shifted: Boolean, locked: Boolean, lang: Lang) {
+        keyboardView.setLayout(layout, shifted, locked, lang)
     }
 
     fun showCopyBar(text: String) {

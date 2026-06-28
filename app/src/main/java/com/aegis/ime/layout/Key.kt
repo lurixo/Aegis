@@ -25,6 +25,7 @@ enum class KeyAction {
     CLEAR_COMPOSING,
     ENTER,
     SHIFT,
+    SHIFT_LOCK,
     SPACE,
     SWITCH_SYMBOLS,
     SWITCH_NUMBERS,
@@ -48,6 +49,7 @@ data class Key(
     val weight: Float = 1f,
     val direct: Boolean = false,
     val accent: Boolean = false,
+    val bold: Boolean = false,
 )
 
 data class KeyboardRow(val keys: List<Key>)

@@ -62,6 +62,7 @@ class KeyboardController(
     private var directCommitCands: Set<Cand> = emptySet()
     private var calcCand: Cand? = null
     private var calcExpr = ""
+    private var calcResult = ""
 
     private var learningBlocked = false
 
@@ -119,11 +120,10 @@ class KeyboardController(
             KeyAction.CLEAR_COMPOSING -> handleClearComposing()
             KeyAction.SPACE -> handleSpace()
             KeyAction.ENTER -> handleEnter()
-            KeyAction.SHIFT -> shiftState = when (shiftState) {
-                ShiftState.OFF -> ShiftState.ONCE
-                ShiftState.ONCE -> ShiftState.LOCK
-                ShiftState.LOCK -> ShiftState.OFF
+            KeyAction.SHIFT -> if (mode() == Mode.DIRECT) {
+                shiftState = if (shiftState == ShiftState.OFF) ShiftState.ONCE else ShiftState.OFF
             }
+            KeyAction.SHIFT_LOCK -> if (mode() == Mode.DIRECT) shiftState = ShiftState.LOCK
             KeyAction.SWITCH_SYMBOLS -> switchLayout(LayoutId.SYMBOL)
             KeyAction.SWITCH_NUMBERS -> switchLayout(LayoutId.NUMBER)
             KeyAction.SWITCH_ALPHA -> switchLayout(LayoutId.ALPHA)
@@ -137,6 +137,7 @@ class KeyboardController(
             KeyAction.SHOW_SYMBOLS -> { flushComposing(); onShowSymbols() }
             KeyAction.TOGGLE_LANG -> {
                 flushComposing()
+                shiftState = ShiftState.OFF
                 if (lang == Lang.CN) {
                     cnLayout = layoutId
                     lang = Lang.EN
@@ -190,8 +191,8 @@ class KeyboardController(
         when {
             cand === calcCand -> {
                 val live = Calculator.detect(host.textBeforeCursor(CALC_SCAN_LEN))
-                if (live != null && live.expr == calcExpr && live.result == cand.word && !host.hasSelection()) {
-                    host.replaceBeforeCursor(live.length, live.result)
+                if (live != null && live.expr == calcExpr && live.result == calcResult && !host.hasSelection()) {
+                    host.commitText("=" + live.result)
                 }
                 clearComposingState(); lastWord = null
             }
@@ -306,6 +307,7 @@ class KeyboardController(
 
     private fun switchLayout(id: LayoutId) {
         flushComposing()
+        shiftState = ShiftState.OFF
         layoutId = id
     }
 
@@ -379,7 +381,7 @@ class KeyboardController(
     private fun refreshCandidates() {
         val base = baseCandidates()
         directCommitCands = emptySet()
-        calcCand = null; calcExpr = ""
+        calcCand = null; calcExpr = ""; calcResult = ""
         candidates = when {
             composing.isNotEmpty() && mode() == Mode.PINYIN -> injectAssociations(base)
             composing.isEmpty() && committedPrefix.isEmpty() -> calcCandidates()
@@ -400,8 +402,8 @@ class KeyboardController(
 
     private fun calcCandidates(): List<Cand> {
         val match = Calculator.detect(host.textBeforeCursor(CALC_SCAN_LEN)) ?: return emptyList()
-        val cand = Cand(match.result, 0)
-        calcCand = cand; calcExpr = match.expr
+        val cand = Cand("=" + match.result, 0)
+        calcCand = cand; calcExpr = match.expr; calcResult = match.result
         return listOf(cand)
     }
 
@@ -459,9 +461,11 @@ class KeyboardController(
         val v = view ?: return
         val layout = if (layoutId == LayoutId.NINE) Layouts.nine(lang, nineLeftColumn(), composing.isNotEmpty())
         else Layouts.forId(layoutId, lang)
-        v.showKeyboard(layout, shifted, lang)
+        v.showKeyboard(layout, shifted, shiftState == ShiftState.LOCK, lang)
         v.showCandidates(candidates.map { it.word }, preeditText(), expandedReadings())
     }
+
+    internal fun shiftStateName(): String = shiftState.name
 
     internal fun expandedReadings(): List<String> =
         nineLeftColumn().filter { it.action == KeyAction.PICK_READING }.map { it.label }
