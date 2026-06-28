@@ -80,11 +80,27 @@ class PinyinDecoder(
         return out
     }
 
+    /**
+     * Model score for a whole-input candidate word, used to rerank the candidate **list** (★top-N):
+     * global unigram + learned user boost + optional octagram word weight. Previously only
+     * bestSentence (slot #1) saw the model; the rest of the list was raw frequency, so user learning
+     * and the downloaded octagram never reordered the visible tail. This brings them to the whole list.
+     */
+    private fun wordModelScore(word: String, freq: Int): Double =
+        (ln(freq.toDouble()) - lnTotal) +
+            (userModel?.wordBoost(word) ?: 0.0) +
+            (octagram?.let { octagramWeight * (it.rawScore(word) ?: 0.0) } ?: 0.0)
+
+    /** Whole-input dict words (exact key = input) ordered by [wordModelScore] — model, not raw freq. */
+    private fun rerankedWholeInput(input: String): List<String> =
+        dict.exact(input).sortedByDescending { wordModelScore(it.word, it.freq) }.map { it.word }
+
     /** Candidates for [input]: best sentence first, then word-by-word dictionary options. */
     fun decode(input: String, limit: Int): List<String> {
         if (input.isEmpty()) return emptyList()
         val out = LinkedHashSet<String>()
         bestSentence(input)?.let { out.add(it) }
+        out.addAll(rerankedWholeInput(input)) // ★top-N rerank: model-ordered before raw-freq query
         out.addAll(dict.query(input, limit))
         if (out.size < limit && fuzzyRules.isNotEmpty()) {
             for (variant in Fuzzy.variants(input, fuzzyRules)) {
@@ -118,6 +134,7 @@ class PinyinDecoder(
         }
         bestSentence(input, cuts)?.let { cover[it] = input.length }
         if (firstCut == null) {
+            addCompletions(rerankedWholeInput(input)) // ★top-N rerank before raw-freq predictions
             addCompletions(dict.query(input, completionCap))
             if (fuzzyRules.isNotEmpty()) {
                 for (variant in Fuzzy.variants(input, fuzzyRules)) {
