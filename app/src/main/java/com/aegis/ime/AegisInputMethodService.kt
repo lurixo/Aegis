@@ -159,8 +159,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             // Optional top-tier context model, only if the user downloaded it.
             val octagram = runCatching { OctagramReader.fromDownloads(this, "wanxiang-lts-zh-hans.gram") }
                 .onFailure { Log.e("Aegis", "octagram load failed", it) }.getOrNull()
-            val enDict = loadDict("aegis_en.bin")
-            val engine = DictEngine(dict, t9Dict, lm, userModel, fuzzyRules, initialsDict, octagram, enDict)
+            val engine = DictEngine(dict, t9Dict, lm, userModel, fuzzyRules, initialsDict, octagram)
             Handler(Looper.getMainLooper()).post { controller.setEngine(engine) }
         }.apply { name = "aegis-dict-load"; isDaemon = true }.start()
     }
@@ -241,8 +240,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             inputView?.hideCopyBar()
         }
         // B5: honour the user's CN default-keyboard choice (9-key unless they picked 26-key); EN stays 26-key.
-        val cnLayout = getSharedPreferences("aegis", MODE_PRIVATE).getString("cn_layout", "nine")
+        val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
+        val cnLayout = prefs.getString("cn_layout", "nine")
         controller.setCnDefaultLayout(if (cnLayout == "alpha") LayoutId.ALPHA else LayoutId.NINE)
+        // D2: 联想开关 — show learned next-word predictions only when the toggle is on (default on).
+        controller.setAssociationsEnabled(prefs.getBoolean("pref_associations_on", true))
         controller.reset()
         applyPaletteEverywhere() // F1: pick up a theme change that happened between input sessions
     }

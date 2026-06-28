@@ -58,6 +58,10 @@ internal fun FuzzySettingsCard() {
         "ang" to ("ang → an" to "前后鼻音：刚=干、唱=灿"),
         "eng" to ("eng → en" to "前后鼻音：冷=（len）"),
         "ing" to ("ing → in" to "前后鼻音：心=星、林=灵"),
+        "n_l" to ("n ↔ l" to "声母混淆：南=兰、你=李"),
+        "f_h" to ("f ↔ h" to "声母混淆：饭=换、福=湖"),
+        "l_r" to ("l ↔ r" to "声母混淆：蓝=然、路=入"),
+        "k_g" to ("k ↔ g" to "声母混淆：看=干、开=该"),
     )
 
     var master by remember { mutableStateOf(prefs.getBoolean("fuzzy", Fuzzy.DEFAULT_ON)) }

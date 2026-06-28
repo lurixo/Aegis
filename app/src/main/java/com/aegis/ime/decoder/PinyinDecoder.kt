@@ -25,6 +25,12 @@ import kotlin.math.ln
  *  per-syllable partial commit and the ★G mixed long-word/short-word/single-char grid. */
 data class Cand(val word: String, val coveredLen: Int)
 
+/** A segmented syllable of the input: its [reading] (pinyin letters, for display) and the half-open
+ *  input-unit span [[start], [end]) it consumes — letters on the 26-key decoder, digits on the T9
+ *  decoder. Exposed (with [PinyinDecoder.homophonesAt]) so the UI can navigate syllable positions and
+ *  list every 同音字 of each (UI-1 9-key trailing column / UI-2 26-key pinyin column). */
+data class Syllable(val reading: String, val start: Int, val end: Int)
+
 /**
  * Word-lattice Viterbi decoder for full-pinyin input (26-key letters or T9 digits — the dict
  * key space differs, the algorithm doesn't).
@@ -176,17 +182,99 @@ class PinyinDecoder(
             }
             initialsDict?.let { addCompletions(it.query(input, completionCap)) }
         }
-        // Prefix words straight from the main dict (freq-ordered), independent of the lattice edge cap,
-        // so the leading single chars (你 米 迷 泥 …) surface even without an LM (★G); capped at the cut.
+        // Multi-char prefix WORDS straight from the main dict (freq-ordered), independent of the lattice
+        // edge cap, so leading short words (你说 你们 …) surface even without an LM (★G); capped at the cut.
+        // Leading single chars are intentionally NOT emitted here — they are served by the lossless layer
+        // below, so the PREFIX_PER_LEN cap can never truncate a syllable's 同音字 (the debug.13 loss bug).
         for (q in (firstCut ?: input.length) downTo 1) {
             if (cover.size >= limit) break
             var added = 0
             for (wf in dict.exact(input.substring(0, q))) {
+                if (wf.word.length == 1) continue // ★单字: lossless layer below, never capped here
                 if (cover.putIfAbsent(wf.word, q) == null && ++added >= PREFIX_PER_LEN) break
             }
         }
-        val out = ArrayList<Cand>(minOf(cover.size, limit))
+        val out = ArrayList<Cand>(minOf(cover.size, limit) + 20)
         for ((w, len) in cover) { out.add(Cand(w, len)); if (out.size >= limit) break }
+        // ★单字无损层 (debug.13): append the COMPLETE homophone set of EVERY leading syllable the buffer
+        // could start with (longest first), on a budget SEPARATE from the word/phrase candidates above. So
+        // no number of word candidates can crowd a 同音字 out, no per-length cap can trim it, and a homophone
+        // is reachable regardless of how the whole buffer segments — xian surfaces 现… (xian) AND 西… (xi),
+        // fangan surfaces 方… (fang) AND 反… (fan). 2nd+ syllables are served per-position by
+        // [syllables]/[homophonesAt] for the navigable UI (UI-1/UI-2).
+        val span = firstCut ?: input.length
+        val head = input.substring(0, span)
+        val lens = if (input[0] in '2'..'9') T9Pinyin.leadingSyllableDigitLens(head)
+        else T9Pinyin.leadingSyllableLetterLens(head)
+        if (lens.isNotEmpty()) {
+            val seen = HashSet<String>(out.size * 2)
+            for (c in out) seen.add(c.word)
+            for (k in lens) for (w in homophonesOf(input.substring(0, k))) {
+                if (seen.add(w)) out.add(Cand(w, k))
+            }
+        }
+        return out
+    }
+
+    /**
+     * Segment [input] into its syllables (best-cost split; letters on the 26-key decoder, digits on the
+     * T9 decoder). Best-effort: if the tail doesn't fully segment yet (user mid-syllable) the already
+     * complete leading syllables are still returned. Exposed for per-syllable UI navigation (UI-1/UI-2).
+     */
+    fun syllables(input: String): List<Syllable> {
+        if (input.isEmpty()) return emptyList()
+        // The dict keyspace mirrors the input: a T9 buffer is digits 2-9, a 26-key buffer is a-z, with
+        // no overlap — so the input itself tells us which segmenter (and which exact-key space) applies.
+        return if (input[0] in '2'..'9') t9Syllables(input) else letterSyllables(input)
+    }
+
+    /**
+     * The COMPLETE single-char homophone set of syllable [index] of [input], frequency-ordered and
+     * UNCAPPED — the ★单字无损 layer for per-syllable UI navigation. Empty when [index] is out of range or
+     * the syllable is unknown. On the T9 decoder the key is the syllable's digit group, so the set spans
+     * every reading of that group (T9 is inherently ambiguous).
+     */
+    fun homophonesAt(input: String, index: Int): List<String> {
+        val syls = syllables(input)
+        if (index !in syls.indices) return emptyList()
+        val s = syls[index]
+        return homophonesOf(input.substring(s.start, s.end))
+    }
+
+    /** Every single-char entry for an exact syllable key, frequency-ordered, uncapped. */
+    private fun homophonesOf(key: String): List<String> {
+        val out = ArrayList<String>()
+        for (wf in dict.exact(key)) if (wf.word.length == 1) out.add(wf.word)
+        return out
+    }
+
+    private fun letterSyllables(input: String): List<Syllable> {
+        val out = ArrayList<Syllable>()
+        var pos = 0
+        T9Pinyin.segmentLetters(input)?.let { segs ->
+            for (s in segs) { out.add(Syllable(s, pos, pos + s.length)); pos += s.length }
+            return out
+        }
+        while (pos < input.length) {
+            val syl = T9Pinyin.firstSyllableLetters(input.substring(pos))
+            if (syl.isEmpty()) break
+            out.add(Syllable(syl, pos, pos + syl.length)); pos += syl.length
+        }
+        return out
+    }
+
+    private fun t9Syllables(input: String): List<Syllable> {
+        val out = ArrayList<Syllable>()
+        var pos = 0
+        T9Pinyin.segment(input)?.let { segs ->
+            for (s in segs) { val d = T9Pinyin.toT9(s).length; out.add(Syllable(s, pos, pos + d)); pos += d }
+            return out
+        }
+        while (pos < input.length) {
+            val d = T9Pinyin.firstSyllableDigitLen(input.substring(pos))
+            if (d == 0) break
+            out.add(Syllable(T9Pinyin.syllableReading(input.substring(pos, pos + d)), pos, pos + d)); pos += d
+        }
         return out
     }
 
@@ -253,12 +341,12 @@ class PinyinDecoder(
 
     private companion object {
         const val BOS = -1            // sentence-start sentinel (real code points are >= 0)
-        const val EDGE_N = 8          // candidate words considered per lattice edge when an LM is present
+        const val EDGE_N = 20         // candidate words considered per lattice edge when an LM is present (C3)
         const val DEFAULT_LAMBDA = 1.0
         const val FUZZY_PENALTY = 3.0     // log-domain cost so exact matches outrank fuzzy ones
         const val INITIALS_PENALTY = 5.0  // 简拼 is the most ambiguous → lowest preference
         const val DEFAULT_OCTAGRAM_WEIGHT = 0.3 // scales the large positive octagram log-weights
-        const val PREFIX_PER_LEN = 8  // max leading single-chars/short-words pulled per prefix length (★G)
+        const val PREFIX_PER_LEN = 16 // max multi-char short words pulled per prefix length (★G; singles are lossless, separate) (C3)
         const val CTX_WORD_MAX = 4    // trailing Han chars of context used as the octagram prev-word proxy
         const val DEFAULT_CONTEXT_WEIGHT = 2.0 // ③ weight of the committed-context boundary bigram (vs λ for
         // internal word boundaries); context is reliable preceding text, so it outvotes raw frequency more

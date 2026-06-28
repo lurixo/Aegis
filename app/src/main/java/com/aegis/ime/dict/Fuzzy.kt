@@ -28,7 +28,14 @@ object Fuzzy {
     /** A confusion rule: the long spelling (e.g. "zh"/"ang") collapses to the short one ("z"/"an"). */
     data class Rule(val key: String, val long: String, val short: String)
 
-    /** The supported rules — 平翘舌 zh/ch/sh↔z/c/s and 前后鼻音 ang/eng/ing↔an/en/in. */
+    /**
+     * The supported rules — 平翘舌 zh/ch/sh↔z/c/s, 前后鼻音 ang/eng/ing↔an/en/in, and the声母 confusions
+     * n↔l, f↔h, l↔r, k↔g (C4). The single-letter 声母 rules act on every occurrence (the query-time
+     * variant machinery has no syllable boundaries), so a final -n/-ng or an h inside zh/ch/sh may also
+     * toggle — those extra spellings are simply non-syllables that miss in the exact dict, while the
+     * intended initial confusions (nan↔lan, fan↔han, lan↔ran, kan↔gan) all resolve. Each rule keeps its
+     * own independent toggle; master + per-rule still ship OFF by default ([DEFAULT_ON]).
+     */
     val RULES: List<Rule> = listOf(
         Rule("zh", "zh", "z"),
         Rule("ch", "ch", "c"),
@@ -36,6 +43,10 @@ object Fuzzy {
         Rule("ang", "ang", "an"),
         Rule("eng", "eng", "en"),
         Rule("ing", "ing", "in"),
+        Rule("n_l", "n", "l"),
+        Rule("f_h", "f", "h"),
+        Rule("l_r", "l", "r"),
+        Rule("k_g", "k", "g"),
     )
 
     private val ALL_KEYS: Set<String> = RULES.mapTo(LinkedHashSet()) { it.key }

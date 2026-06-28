@@ -31,8 +31,9 @@ import com.aegis.ime.layout.Layouts
  * turns key taps into editor operations ([ImeHost]) and re-renders the [InputView].
  *
  * In CN + (ALPHA|NINE) letters/digits accumulate in [composing] and feed [engine]; on an empty
- * buffer the bar shows learned next-word predictions for [lastWord]. Committing a CN candidate
- * teaches the engine ([CandidateEngine.learn]) so user-preferred words rise over time.
+ * buffer the bar shows the inline calculator (for an arithmetic expression) else learned next-word
+ * predictions for [lastWord] (C5, gated by the 联想 toggle). Committing a CN candidate teaches the
+ * engine ([CandidateEngine.learn]) so user-preferred words rise over time.
  */
 /** Shift key state: off, one-shot (next letter only), or caps-lock. */
 private enum class ShiftState { OFF, ONCE, LOCK }
@@ -105,6 +106,8 @@ class KeyboardController(
 
     /** U23: associated emoji/symbol candidates in the current list — committed directly (no pinyin learn). */
     private var directCommitCands: Set<Cand> = emptySet()
+    /** C5: next-word prediction candidates on an empty buffer — picking one commits it and chains [lastWord]. */
+    private var predictionCands: Set<Cand> = emptySet()
     /** U25: the inline-calculator candidate (if any) + the expression it was computed from. The expression
      *  is re-validated against the LIVE text-before-cursor at pick time (M-3) so a moved cursor can never
      *  make the replace delete unrelated characters. */
@@ -114,6 +117,9 @@ class KeyboardController(
 
     /** M-3/L-3: when the focused field is a password / opts out of personalized learning, never learn. */
     private var learningBlocked = false
+
+    /** D2: 联想 toggle (pref_associations_on, default on). When off, next-word predictions are not shown. */
+    private var associationsEnabled = true
 
     /** Extras-panel hooks wired by the IME service (it owns the InputConnection + Context). */
     var onShowEmoji: () -> Unit = {}
@@ -156,6 +162,9 @@ class KeyboardController(
 
     /** B5: choose the CN default keyboard (NINE / ALPHA). Applied on the next [reset]; EN ignores it. */
     fun setCnDefaultLayout(id: LayoutId) { cnDefaultLayout = id }
+
+    /** D2: 联想开关 — the IME service pushes pref_associations_on; off hides next-word predictions. */
+    fun setAssociationsEnabled(on: Boolean) { associationsEnabled = on }
 
     fun reset() {
         composing.setLength(0)
@@ -322,6 +331,13 @@ class KeyboardController(
             cand in directCommitCands -> {
                 host.commitText(committedPrefix.toString() + cand.word)
                 clearComposingState(); lastWord = null
+            }
+            // C5: a next-word prediction commits directly and becomes the new [lastWord] so predictions
+            // chain (你好 → 世界 → …); it is reinforced as a bigram after the previous word, like a normal pick.
+            cand in predictionCands -> {
+                host.commitText(cand.word)
+                if (!learningBlocked) engine.learn(lastWord, cand.word)
+                lastWord = cand.word
             }
             else -> commitCandidate(cand)
         }
@@ -561,18 +577,33 @@ class KeyboardController(
 
     private fun refreshCandidates() {
         val base = baseCandidates()
-        // U23/U25 reset; recomputed below so a stale association/calc cand never lingers.
+        // U23/U25/C5 reset; recomputed below so a stale association/calc/prediction cand never lingers.
         directCommitCands = emptySet()
+        predictionCands = emptySet()
         calcCand = null; calcExpr = ""; calcResult = ""
         candidates = when {
             // While composing pinyin: inject associated emoji/symbols (haode→👌) just after the top word.
             composing.isNotEmpty() && mode() == Mode.PINYIN -> injectAssociations(base)
-            // Empty buffer with NO word being assembled: offer an inline calculator result if the text before
-            // the cursor is an expression. S1(c): suppress it while a confirmed prefix is still building (the
-            // strip shows the prefix in the preedit tab; a calc cand would bypass + lose it).
-            composing.isEmpty() && committedPrefix.isEmpty() -> calcCandidates()
+            // Empty buffer with NO word being assembled: the inline calculator (if the text before the cursor
+            // is an expression) else learned next-word predictions (C5/D2). S1(c): suppress while a confirmed
+            // prefix is still building (the strip shows it in the preedit tab; these would bypass + lose it).
+            composing.isEmpty() && committedPrefix.isEmpty() -> emptyBufferCandidates()
             else -> base
         }
+    }
+
+    /**
+     * C5/D2: empty-buffer candidates — the calculator takes priority (an arithmetic expression before the
+     * cursor offers "=result"); otherwise, when the 联想 toggle is on and the field allows personalization,
+     * learned next-word predictions for [lastWord]. Predictions cover 0 input units (committed directly).
+     */
+    private fun emptyBufferCandidates(): List<Cand> {
+        val calc = calcCandidates()
+        if (calc.isNotEmpty()) return calc
+        if (!associationsEnabled || learningBlocked) return emptyList()
+        val preds = engine.predict(lastWord).map { Cand(it, 0) }
+        predictionCands = preds.toSet()
+        return preds
     }
 
     /** U23: splice the pinyin-associated emoji/symbols in after the best candidate, capped, no displacement. */
@@ -641,7 +672,8 @@ class KeyboardController(
                 }
                 if (layoutId == LayoutId.ALPHA && c.none { it.word == raw }) c + Cand(raw, raw.length) else c
             }
-            // ★S: no next-word prediction (handled by the empty-buffer calculator path in refreshCandidates).
+            // ★S: DIRECT mode has no composing buffer; the empty-buffer candidates (calculator + next-word
+            // prediction) are produced by [emptyBufferCandidates] in refreshCandidates, not here.
             Mode.DIRECT -> emptyList()
         }
     }
