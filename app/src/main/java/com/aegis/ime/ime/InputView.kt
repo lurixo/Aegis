@@ -154,6 +154,7 @@ class InputView(context: Context) : LinearLayout(context) {
             panelContainer.visibility = GONE
             keyboardView.visibility = VISIBLE
         } else {
+            setPanelHeight(keyboardView.height.takeIf { it > 0 } ?: dp(250))
             (panel.parent as? ViewGroup)?.removeView(panel)
             panelContainer.addView(
                 panel,
@@ -163,6 +164,15 @@ class InputView(context: Context) : LinearLayout(context) {
             keyboardView.visibility = GONE
         }
     }
+
+    private fun setPanelHeight(px: Int) {
+        val lp = panelContainer.layoutParams
+        if (lp.height != px) { lp.height = px; panelContainer.layoutParams = lp }
+    }
+
+    internal fun panelHeightPx(): Int = panelContainer.layoutParams.height
+
+    internal fun keyboardHeightPx(): Int = keyboardView.height
 
     val panelShown: Boolean get() = panelContainer.visibility == VISIBLE
 
