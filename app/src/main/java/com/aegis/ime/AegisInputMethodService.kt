@@ -80,6 +80,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private val clipImageStore by lazy { com.aegis.ime.user.ClipImageStore(filesDir) }
     private val thumbCache = LruCache<String, Bitmap>(50)
     private val symbolUsageStore by lazy { SymbolUsageStore(filesDir).also { it.load() } }
+    private val emojiUsageStore by lazy { SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).also { it.load() } }
     @Volatile private var secureField = false
     private var lastCopy: String? = null
     @Volatile private var userDbLoaded = false
@@ -286,7 +287,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val iv = inputView ?: return
         if (iv.isPanelShowing(emojiView)) { iv.showPanel(null); return }
         val ev = emojiView ?: EmojiView(this).also {
-            it.onEmoji = { e -> currentInputConnection?.commitText(e, 1) }
+            it.recentProvider = { emojiUsageStore.recent() }
+            it.onEmoji = { e -> emojiUsageStore.record(e); currentInputConnection?.commitText(e, 1) }
             it.onBackspace = { panelBackspace() }
             it.onBack = { inputView?.showPanel(null) }
             emojiView = it
