@@ -180,13 +180,26 @@ object ModelDownload {
         if (!sha256Of(zip).equals(DICT_SHA256, ignoreCase = true)) { zip.delete(); return false }
         val produced = runCatching { extractDictPack(zip, downloadedDir(filesDir)) }.getOrDefault(emptySet())
         zip.delete() // the unpacked .bin are what the engine loads; the zip is not needed afterwards
-        return DICT_PACK_FILES.all { it in produced }
+        val ok = DICT_PACK_FILES.all { it in produced }
+        if (!ok) {
+            // Partial / failed extract: never leave a half-written or mixed dict set the engine would load
+            // (e.g. a fresh aegis_dict.bin beside a truncated aegis_t9.bin). Remove every downloaded .bin
+            // (+ any stray .part) so the IME falls back uniformly to the bundled seed; re-download is allowed.
+            DICT_PACK_FILES.forEach {
+                File(downloadedDir(filesDir), it).delete()
+                File(downloadedDir(filesDir), "$it.part").delete()
+            }
+        }
+        return ok
     }
 
     /**
      * Extract [zip]'s entries into [dir], mapping each to one of [DICT_PACK_FILES] by filename keyword (so the
      * pack's entries are renamed to the names the engine loads). Output paths are ALWAYS a fixed target name
-     * under [dir], so a malicious entry path ("../…") can never escape. Returns the set of target names written.
+     * under [dir], so a malicious entry path ("../…") can never escape. Each entry is written to a `<target>.part`
+     * temp and atomically renamed onto the live target only after the full copy succeeds — so an interrupted or
+     * disk-full extract never leaves a TRUNCATED .bin at the name the engine consumes (the live target keeps its
+     * previous content, or stays absent). Returns the set of target names fully written.
      */
     internal fun extractDictPack(zip: File, dir: File): Set<String> {
         dir.mkdirs()
@@ -195,8 +208,18 @@ object ModelDownload {
             var e = zin.nextEntry
             while (e != null) {
                 if (!e.isDirectory) targetFor(e.name)?.let { target ->
-                    File(dir, target).outputStream().use { out -> zin.copyTo(out) }
-                    produced.add(target)
+                    val finalFile = File(dir, target)
+                    val part = File(dir, "$target.part")
+                    part.delete()
+                    try {
+                        part.outputStream().use { out -> zin.copyTo(out) }
+                        finalFile.delete()
+                        if (!part.renameTo(finalFile)) throw java.io.IOException("rename failed: $target")
+                        produced.add(target)
+                    } catch (t: Throwable) {
+                        part.delete() // leave no truncated temp behind; propagate so installDictPack cleans up
+                        throw t
+                    }
                 }
                 zin.closeEntry()
                 e = zin.nextEntry
@@ -225,10 +248,13 @@ object ModelDownload {
         return md.digest().joinToString("") { "%02x".format(it.toInt() and 0xFF) }
     }
 
-    /** Thorough delete of the dict pack: the 3 extracted .bin + any leftover zip / .part. Idempotent. */
+    /** Thorough delete of the dict pack: the 3 extracted .bin (+ any per-file .part) + leftover zip / .part. Idempotent. */
     fun purgeDict(filesDir: File): Boolean {
         var removed = false
-        DICT_PACK_FILES.forEach { if (File(downloadedDir(filesDir), it).delete()) removed = true }
+        DICT_PACK_FILES.forEach {
+            if (File(downloadedDir(filesDir), it).delete()) removed = true
+            if (File(downloadedDir(filesDir), "$it.part").delete()) removed = true
+        }
         if (dictZipFile(filesDir).delete()) removed = true
         if (dictPartFile(filesDir).delete()) removed = true
         return removed
