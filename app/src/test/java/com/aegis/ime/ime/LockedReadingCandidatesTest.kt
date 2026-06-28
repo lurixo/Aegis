@@ -110,6 +110,26 @@ class LockedReadingCandidatesTest {
         assertEquals(listOf("你", "de"), host.commits)
     }
 
+    @Test fun the_left_column_keeps_offering_the_next_syllable_after_a_lock() {
+        // U5 (same region as U1): picking a left-column reading must keep BOTH the middle candidate grid
+        // AND the left column populated — the NEXT syllable's combinations must still come out, so the
+        // user can keep selecting ("至少要能出来"). leftColumnReadings is real (no engine), so this also
+        // proves the column is never empty while an active syllable remains.
+        val (_, c) = attached()
+        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        "42633".forEach { c.onKey(out(it.toString())) } // hao(426) de(33)
+        assertTrue("hao offered before any lock", "hao" in c.expandedReadings())
+
+        c.onKey(pick("hao")) // lock syllable 1
+
+        assertTrue("after the lock the candidate grid is still rich", c.candidateWords().size >= 3)
+        assertTrue(
+            "after the lock the left column still offers the next syllable, was ${c.expandedReadings()}",
+            c.expandedReadings().isNotEmpty(),
+        )
+        assertTrue("specifically 'de' is offered for syllable 2", "de" in c.expandedReadings())
+    }
+
     @Test fun picking_the_full_sentence_after_locking_commits_everything() {
         val host = RecordingHost()
         val (_, c) = attached(host)
