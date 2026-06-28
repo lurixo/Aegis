@@ -136,8 +136,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             val lm = loadLm("aegis_lm.bin")
             val octagram = runCatching { OctagramReader.fromDownloads(this, "wanxiang-lts-zh-hans.gram") }
                 .onFailure { Log.e("Aegis", "octagram load failed", it) }.getOrNull()
-            val enDict = loadDict("aegis_en.bin")
-            val engine = DictEngine(dict, t9Dict, lm, userModel, fuzzyRules, initialsDict, octagram, enDict)
+            val engine = DictEngine(dict, t9Dict, lm, userModel, fuzzyRules, initialsDict, octagram)
             Handler(Looper.getMainLooper()).post { controller.setEngine(engine) }
         }.apply { name = "aegis-dict-load"; isDaemon = true }.start()
     }
@@ -204,8 +203,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         } else {
             inputView?.hideCopyBar()
         }
-        val cnLayout = getSharedPreferences("aegis", MODE_PRIVATE).getString("cn_layout", "nine")
+        val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
+        val cnLayout = prefs.getString("cn_layout", "nine")
         controller.setCnDefaultLayout(if (cnLayout == "alpha") LayoutId.ALPHA else LayoutId.NINE)
+        controller.setAssociationsEnabled(prefs.getBoolean("pref_associations_on", true))
         controller.reset()
         applyPaletteEverywhere()
     }

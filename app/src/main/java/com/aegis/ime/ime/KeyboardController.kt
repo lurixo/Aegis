@@ -62,11 +62,14 @@ class KeyboardController(
     private var customOperators: List<String> = emptyList()
 
     private var directCommitCands: Set<Cand> = emptySet()
+    private var predictionCands: Set<Cand> = emptySet()
     private var calcCand: Cand? = null
     private var calcExpr = ""
     private var calcResult = ""
 
     private var learningBlocked = false
+
+    private var associationsEnabled = true
 
     var onShowEmoji: () -> Unit = {}
     var onShowClipboard: () -> Unit = {}
@@ -103,6 +106,8 @@ class KeyboardController(
     fun setLearningBlocked(blocked: Boolean) { learningBlocked = blocked }
 
     fun setCnDefaultLayout(id: LayoutId) { cnDefaultLayout = id }
+
+    fun setAssociationsEnabled(on: Boolean) { associationsEnabled = on }
 
     fun reset() {
         composing.setLength(0)
@@ -213,6 +218,11 @@ class KeyboardController(
             cand in directCommitCands -> {
                 host.commitText(committedPrefix.toString() + cand.word)
                 clearComposingState(); lastWord = null
+            }
+            cand in predictionCands -> {
+                host.commitText(cand.word)
+                if (!learningBlocked) engine.learn(lastWord, cand.word)
+                lastWord = cand.word
             }
             else -> commitCandidate(cand)
         }
@@ -395,12 +405,22 @@ class KeyboardController(
     private fun refreshCandidates() {
         val base = baseCandidates()
         directCommitCands = emptySet()
+        predictionCands = emptySet()
         calcCand = null; calcExpr = ""; calcResult = ""
         candidates = when {
             composing.isNotEmpty() && mode() == Mode.PINYIN -> injectAssociations(base)
-            composing.isEmpty() && committedPrefix.isEmpty() -> calcCandidates()
+            composing.isEmpty() && committedPrefix.isEmpty() -> emptyBufferCandidates()
             else -> base
         }
+    }
+
+    private fun emptyBufferCandidates(): List<Cand> {
+        val calc = calcCandidates()
+        if (calc.isNotEmpty()) return calc
+        if (!associationsEnabled || learningBlocked) return emptyList()
+        val preds = engine.predict(lastWord).map { Cand(it, 0) }
+        predictionCands = preds.toSet()
+        return preds
     }
 
     private fun injectAssociations(base: List<Cand>): List<Cand> {

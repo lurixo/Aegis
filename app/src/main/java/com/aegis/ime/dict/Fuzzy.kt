@@ -26,6 +26,10 @@ object Fuzzy {
         Rule("ang", "ang", "an"),
         Rule("eng", "eng", "en"),
         Rule("ing", "ing", "in"),
+        Rule("n_l", "n", "l"),
+        Rule("f_h", "f", "h"),
+        Rule("l_r", "l", "r"),
+        Rule("k_g", "k", "g"),
     )
 
     private val ALL_KEYS: Set<String> = RULES.mapTo(LinkedHashSet()) { it.key }

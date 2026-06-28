@@ -81,6 +81,7 @@ object T9Pinyin {
     private const val LEN_BONUS = 480
     private const val SYLLABLE_PENALTY = 50.0
     private val maxDigits: Int = SYLLABLES.maxOf { toT9(it).length }
+    private val maxLetters: Int = SYLLABLES.maxOf { it.length }
 
     private val byDigits: Map<String, List<String>> = run {
         val m = HashMap<String, MutableList<String>>()
@@ -111,6 +112,59 @@ object T9Pinyin {
         var i = n
         while (i > 0) { out.add(pick[i]!!); i = back[i] }
         out.reverse()
+        return out
+    }
+
+    fun segmentLetters(letters: String): List<String>? {
+        val n = letters.length
+        if (n == 0 || letters.any { it < 'a' || it > 'z' }) return null
+        val cost = DoubleArray(n + 1) { Double.POSITIVE_INFINITY }
+        val pick = arrayOfNulls<String>(n + 1)
+        val back = IntArray(n + 1) { -1 }
+        cost[0] = 0.0
+        for (i in 1..n) {
+            val lo = maxOf(0, i - maxLetters)
+            for (j in lo until i) {
+                if (cost[j] == Double.POSITIVE_INFINITY) continue
+                val sub = letters.substring(j, i)
+                if (sub !in SYLLABLES) continue
+                val c = cost[j] + rankOf(sub) + SYLLABLE_PENALTY
+                if (c < cost[i]) { cost[i] = c; pick[i] = sub; back[i] = j }
+            }
+        }
+        if (cost[n] == Double.POSITIVE_INFINITY) return null
+        val out = ArrayList<String>()
+        var i = n
+        while (i > 0) { out.add(pick[i]!!); i = back[i] }
+        out.reverse()
+        return out
+    }
+
+    fun firstSyllableLetters(letters: String): String {
+        val hi = minOf(letters.length, maxLetters)
+        for (k in hi downTo 1) if (letters.substring(0, k) in SYLLABLES) return letters.substring(0, k)
+        return ""
+    }
+
+    fun firstSyllableDigitLen(digits: String): Int {
+        val hi = minOf(digits.length, maxDigits)
+        for (k in hi downTo 1) if (byDigits.containsKey(digits.substring(0, k))) return k
+        return 0
+    }
+
+    fun syllableReading(digitGroup: String): String = byDigits[digitGroup]?.firstOrNull() ?: ""
+
+    fun leadingSyllableLetterLens(letters: String): List<Int> {
+        val out = ArrayList<Int>()
+        val hi = minOf(letters.length, maxLetters)
+        for (k in hi downTo 1) if (letters.substring(0, k) in SYLLABLES) out.add(k)
+        return out
+    }
+
+    fun leadingSyllableDigitLens(digits: String): List<Int> {
+        val out = ArrayList<Int>()
+        val hi = minOf(digits.length, maxDigits)
+        for (k in hi downTo 1) if (byDigits.containsKey(digits.substring(0, k))) out.add(k)
         return out
     }
 

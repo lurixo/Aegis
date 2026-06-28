@@ -1,11 +1,12 @@
-distinct syllables in data : 419
+distinct syllables in data : 420
 canonical syllables        : 417
 
   biang	8
-  cei	2
+  cei	1
   fi	1
   fiao	2
-  tei	38
+  tei	124
+  zhoong	1
 
   hm
   hng

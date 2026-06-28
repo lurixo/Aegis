@@ -16,6 +16,7 @@
 package com.aegis.ime.engine
 
 import com.aegis.ime.decoder.Cand
+import com.aegis.ime.decoder.Syllable
 
 interface CandidateEngine {
     fun candidates(composing: String, t9: Boolean): List<String>
@@ -28,7 +29,13 @@ interface CandidateEngine {
     fun candidatesForReadingCovered(letters: String, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =
         candidatesForReading(letters).map { Cand(it, letters.length) }
 
-    fun english(typed: String): List<String> = emptyList()
+    fun syllables(composing: String, t9: Boolean): List<Syllable> = emptyList()
+
+    fun homophonesAt(composing: String, t9: Boolean, index: Int): List<String> = emptyList()
+
+    fun syllablesForReading(letters: String): List<Syllable> = emptyList()
+
+    fun homophonesForReadingAt(letters: String, index: Int): List<String> = emptyList()
 
     fun predict(prevWord: String?): List<String> = emptyList()
 
