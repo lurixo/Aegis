@@ -82,6 +82,7 @@ class CandidateView(context: Context) : View(context) {
     private val firstPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = palette.candidateFirst
         textSize = sp(18f)
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
     }
     private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = palette.icon
@@ -93,11 +94,6 @@ class CandidateView(context: Context) : View(context) {
     private val capsulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySurface }
     private val sepPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.separator }
     private val expandBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.railBg }
-    private val chevronPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = palette.icon
-        textAlign = Paint.Align.CENTER
-        textSize = sp(18f)
-    }
 
     fun applyPalette(p: ImePalette) {
         palette = p
@@ -107,7 +103,6 @@ class CandidateView(context: Context) : View(context) {
         capsulePaint.color = p.keySurface
         sepPaint.color = p.separator
         expandBgPaint.color = p.railBg
-        chevronPaint.color = p.icon
         invalidate()
     }
 
@@ -133,7 +128,7 @@ class CandidateView(context: Context) : View(context) {
         hitCount = items.size
         var x = 0f
         for ((i, item) in items.withIndex()) {
-            val cellW = textPaint.measureText(item) + padding * 2
+            val cellW = (if (i == 0) firstPaint else textPaint).measureText(item) + padding * 2
             hitRect(i).set(x, 0f, x + cellW, 0f)
             x += cellW
         }
@@ -169,8 +164,9 @@ class CandidateView(context: Context) : View(context) {
         canvas.restore()
 
         canvas.drawRect(visibleW, 0f, width.toFloat(), height.toFloat(), expandBgPaint)
-        canvas.drawRect(visibleW, height * 0.2f, visibleW + density, height * 0.8f, sepPaint)
-        canvas.drawText(if (expanded) "⌃" else "⌄", visibleW + expandW / 2f, baseline, chevronPaint)
+        canvas.drawRect(visibleW, height * 0.25f, visibleW + density, height * 0.75f, sepPaint)
+        val chCx = visibleW + expandW / 2f; val chCy = height / 2f; val chS = 9f * density
+        if (expanded) drawChevronUp(canvas, chCx, chCy, chS) else drawChevronDown(canvas, chCx, chCy, chS)
     }
 
     private fun drawFunctions(canvas: Canvas, baseline: Float) {
@@ -184,9 +180,11 @@ class CandidateView(context: Context) : View(context) {
         capsulePaint.clearShadowLayer()
 
         val cy = (capT + capB) / 2f
-        val collapseW = 34f * density
-        val areaL = capL + 10f * density
-        val areaR = capR - collapseW
+        val edgePad = 10f * density
+        val collapseW = expandW
+        val areaL = capL + edgePad
+        val collapseL = capR - edgePad - collapseW
+        val areaR = collapseL
         val slot = (areaR - areaL) / functions.size
         val s = 9f * density
         for ((i, f) in functions.withIndex()) {
@@ -194,32 +192,33 @@ class CandidateView(context: Context) : View(context) {
             funcRects[i].set(areaL + slot * i, capT, areaL + slot * (i + 1), capB)
             drawIcon(canvas, f, cx, cy, s)
         }
-        collapseRect.set(areaR, capT, capR, capB)
-        canvas.drawRect(areaR, cy - s * 0.8f, areaR + density, cy + s * 0.8f, sepPaint)
-        drawChevronDown(canvas, capR - collapseW / 2f, cy, s)
+        collapseRect.set(collapseL, capT, capR - edgePad, capB)
+        val sepH = (capB - capT) * 0.25f
+        canvas.drawRect(collapseL, cy - sepH, collapseL + density, cy + sepH, sepPaint)
+        drawChevronDown(canvas, collapseL + collapseW / 2f, cy, s)
     }
 
     private fun drawIcon(c: Canvas, f: BarFunction, cx: Float, cy: Float, s: Float) {
         when (f) {
             BarFunction.BRAND -> drawBrand(c, cx, cy, s)
             BarFunction.EMOJI -> {
-                c.drawCircle(cx, cy, s * 0.7f, iconPaint)
-                val eye = 1.4f * density
+                c.drawCircle(cx, cy, s * 0.6f, iconPaint)
+                val eye = s * 0.16f
                 iconPaint.style = Paint.Style.FILL
-                c.drawCircle(cx - s * 0.28f, cy - s * 0.15f, eye, iconPaint)
-                c.drawCircle(cx + s * 0.28f, cy - s * 0.15f, eye, iconPaint)
+                c.drawCircle(cx - s * 0.24f, cy - s * 0.13f, eye, iconPaint)
+                c.drawCircle(cx + s * 0.24f, cy - s * 0.13f, eye, iconPaint)
                 iconPaint.style = Paint.Style.STROKE
-                c.drawArc(cx - s * 0.4f, cy - s * 0.1f, cx + s * 0.4f, cy + s * 0.35f, 20f, 140f, false, iconPaint)
+                c.drawArc(cx - s * 0.34f, cy - s * 0.08f, cx + s * 0.34f, cy + s * 0.3f, 20f, 140f, false, iconPaint)
             }
             BarFunction.EDIT -> {
                 c.drawLine(cx, cy - s * 0.75f, cx, cy + s * 0.75f, iconPaint)
-                c.drawLine(cx - s * 0.32f, cy - s * 0.75f, cx + s * 0.32f, cy - s * 0.75f, iconPaint)
-                c.drawLine(cx - s * 0.32f, cy + s * 0.75f, cx + s * 0.32f, cy + s * 0.75f, iconPaint)
+                c.drawLine(cx - s * 0.5f, cy - s * 0.75f, cx + s * 0.5f, cy - s * 0.75f, iconPaint)
+                c.drawLine(cx - s * 0.5f, cy + s * 0.75f, cx + s * 0.5f, cy + s * 0.75f, iconPaint)
             }
             BarFunction.CLIPBOARD -> {
-                val w = s * 0.55f; val h = s * 0.78f
-                c.drawRoundRect(cx - w, cy - h + s * 0.18f, cx + w, cy + h, 2f * density, 2f * density, iconPaint)
-                c.drawRoundRect(cx - s * 0.26f, cy - h - s * 0.02f, cx + s * 0.26f, cy - h + s * 0.28f, 1.5f * density, 1.5f * density, iconPaint)
+                val w = s * 0.58f; val h = s * 0.78f
+                c.drawRoundRect(cx - w, cy - h + s * 0.18f, cx + w, cy + h, s * 0.22f, s * 0.22f, iconPaint)
+                c.drawRoundRect(cx - s * 0.26f, cy - h - s * 0.02f, cx + s * 0.26f, cy - h + s * 0.28f, s * 0.17f, s * 0.17f, iconPaint)
                 c.drawLine(cx - w * 0.5f, cy - h * 0.1f, cx + w * 0.5f, cy - h * 0.1f, iconPaint)
                 c.drawLine(cx - w * 0.5f, cy + h * 0.3f, cx + w * 0.5f, cy + h * 0.3f, iconPaint)
             }
@@ -244,6 +243,11 @@ class CandidateView(context: Context) : View(context) {
     private fun drawChevronDown(c: Canvas, cx: Float, cy: Float, s: Float) {
         c.drawLine(cx - s * 0.5f, cy - s * 0.2f, cx, cy + s * 0.28f, iconPaint)
         c.drawLine(cx, cy + s * 0.28f, cx + s * 0.5f, cy - s * 0.2f, iconPaint)
+    }
+
+    private fun drawChevronUp(c: Canvas, cx: Float, cy: Float, s: Float) {
+        c.drawLine(cx - s * 0.5f, cy + s * 0.2f, cx, cy - s * 0.28f, iconPaint)
+        c.drawLine(cx, cy - s * 0.28f, cx + s * 0.5f, cy + s * 0.2f, iconPaint)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
