@@ -36,9 +36,11 @@ class CandidateView(context: Context) : View(context) {
     var onFunction: (BarFunction) -> Unit = {}
     var onExpand: () -> Unit = {}
     var onCollapse: () -> Unit = {}
+    var onCollapseExpanded: () -> Unit = {}
 
     private var items: List<String> = emptyList()
     private var composing: String = ""
+    private var expanded = false
     private val hitRects = ArrayList<RectF>()
     private var hitCount = 0
     private var contentWidth = 0f
@@ -118,6 +120,14 @@ class CandidateView(context: Context) : View(context) {
 
     internal fun itemCount(): Int = items.size
 
+    fun setExpanded(value: Boolean) {
+        if (value == expanded) return
+        expanded = value
+        invalidate()
+    }
+
+    internal fun chevronGlyph(): String = if (expanded) "⌃" else "⌄"
+
     private fun layoutCells() {
         hitCount = items.size
         var x = 0f
@@ -159,7 +169,7 @@ class CandidateView(context: Context) : View(context) {
 
         canvas.drawRect(visibleW, 0f, width.toFloat(), height.toFloat(), expandBgPaint)
         canvas.drawRect(visibleW, height * 0.2f, visibleW + density, height * 0.8f, sepPaint)
-        canvas.drawText("⌄", visibleW + expandW / 2f, baseline, chevronPaint)
+        canvas.drawText(if (expanded) "⌃" else "⌄", visibleW + expandW / 2f, baseline, chevronPaint)
     }
 
     private fun drawFunctions(canvas: Canvas, baseline: Float) {
@@ -256,7 +266,7 @@ class CandidateView(context: Context) : View(context) {
                     return true
                 }
                 if (items.isNotEmpty() && event.x >= width - expandW) {
-                    performClick(); onExpand(); return true
+                    performClick(); if (expanded) onCollapseExpanded() else onExpand(); return true
                 }
                 val cx = event.x + scrollX
                 for (i in 0 until hitCount) {
