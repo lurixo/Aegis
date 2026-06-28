@@ -44,6 +44,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import com.aegis.ime.dict.ModelDownload
+import java.io.File
 
 /**
  * B2 (debug.13) — 全量词库包下载管理. Mirrors [GramDownloadCard] (the model card) but targets the FULL
@@ -59,10 +60,13 @@ import com.aegis.ime.dict.ModelDownload
 internal fun DictDownloadCard() {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
-    val dest = ModelDownload.dictDestFile(context.filesDir)
-    val location = dest.parentFile?.absolutePath ?: dest.absolutePath
-    fun doneLabel() = "✅ 已下载：全量词库包（${dest.length() / 1048576} MB，仅存本机；切换到 Aegis 后加载更全词库）"
-    val notDownloadedLabel = "⚠ 全量词库未下载 —— 可选下载约 243 MB（内置高频种子词库已可离线使用）"
+    val zip = ModelDownload.dictZipFile(context.filesDir)
+    val location = zip.parentFile?.absolutePath ?: zip.absolutePath
+    fun doneLabel(): String {
+        val mb = ModelDownload.DICT_PACK_FILES.sumOf { File(context.filesDir, "downloaded/$it").length() } / 1048576
+        return "✅ 已下载并启用：全量词库（约 $mb MB，仅存本机；切换/重启 Aegis 后加载更全词库）"
+    }
+    val notDownloadedLabel = "⚠ 全量词库未下载 —— 可选下载约 98 MB 压缩包（解压约 243 MB；内置高频种子词库已可离线使用）"
 
     var present by remember { mutableStateOf(ModelDownload.isDictDownloaded(context.filesDir)) }
     var status by remember { mutableStateOf(if (present) doneLabel() else notDownloadedLabel) }
@@ -97,21 +101,26 @@ internal fun DictDownloadCard() {
         status = "下载中…"
         var lastPct = -1
         Thread {
-            val result = ModelDownload.download(ModelDownload.DICT_URL, dest) { done, total ->
+            val result = ModelDownload.download(ModelDownload.DICT_URL, zip) { done, total ->
                 if (total > 0) {
                     val pct = (done * 100 / total).toInt()
                     if (pct != lastPct) { lastPct = pct; handler.post { progress = pct / 100f } }
                 }
             }
+            // Verify sha256 + extract the 3 .bin (off the main thread). A mismatch/corruption is rejected here.
+            if (result.ok) handler.post { status = "校验并解压…" }
+            val installed = result.ok && ModelDownload.installDictPack(context.filesDir)
             handler.post {
                 downloading = false
                 present = ModelDownload.isDictDownloaded(context.filesDir)
-                if (result.ok) {
-                    prefs.edit { putString(ModelDownload.DICT_VALIDATOR_PREF, result.validator) }
-                    updateAvailable = false
-                    status = doneLabel()
-                } else {
-                    status = "下载失败"
+                when {
+                    installed -> {
+                        prefs.edit { putString(ModelDownload.DICT_VALIDATOR_PREF, result.validator) }
+                        updateAvailable = false
+                        status = doneLabel()
+                    }
+                    !result.ok -> status = "下载失败"
+                    else -> status = "校验或解压失败（文件可能损坏,请重试）"
                 }
             }
         }.apply { isDaemon = true }.start()
