@@ -20,6 +20,7 @@ import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.widget.FrameLayout
 import android.widget.GridLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -40,6 +41,7 @@ class SymbolsView(context: Context) : LinearLayout(context) {
     private val titles: List<String> =
         listOf(SymbolCatalog.RECENT_TITLE) + SymbolCatalog.categories.map { it.title }
     private var selected = 0
+    private var locked = false
 
     private var palette = ImePalette.STATIC_LIGHT
     private val rail = LinearLayout(context).apply { orientation = VERTICAL }
@@ -48,6 +50,9 @@ class SymbolsView(context: Context) : LinearLayout(context) {
         columnCount = COLUMNS
         val p = dp(4); setPadding(p, p, p, p)
     }
+    private val backBtn = barButton("返回") { onBack() }
+    private val lockBtn = barButton("锁定") { toggleLock() }
+    private val backspaceBtn = barButton("⌫") { onBackspace() }
     private val bottomBarView = bottomBar()
 
     private companion object {
@@ -71,18 +76,22 @@ class SymbolsView(context: Context) : LinearLayout(context) {
         }
         addView(content, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         addView(bottomBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(46)))
+        updateLockFace()
     }
 
     fun refresh() = showCategory(selected)
+
+    fun resetLock() { locked = false; updateLockFace() }
 
     fun applyPalette(p: ImePalette) {
         palette = p
         setBackgroundColor(p.panelBg)
         railScroll.setBackgroundColor(p.railBg)
-        bottomBarView.setBackgroundColor(p.panelSubBg)
+        bottomBarView.setBackgroundColor(p.panelBg)
         (bottomBarView as LinearLayout).let { bar ->
             for (i in 0 until bar.childCount) (bar.getChildAt(i) as? TextView)?.setTextColor(p.keyLabelSecondary)
         }
+        updateLockFace()
         showCategory(selected)
     }
 
@@ -98,11 +107,13 @@ class SymbolsView(context: Context) : LinearLayout(context) {
         grid.removeAllViews()
         val symbols = symbolsFor(index)
         if (symbols.isEmpty()) { grid.addView(emptySpan()); return }
-        for (s in symbols) grid.addView(cell(s))
+        for (s in symbols) grid.addView(cell(s, badge = if (index == 0) badgeFor(s) else null))
     }
 
     private fun symbolsFor(index: Int): List<String> =
         if (index == 0) recentProvider() else SymbolCatalog.categories[index - 1].symbols
+
+    private fun badgeFor(symbol: String): String? = SymbolCatalog.categoryTitleOf(symbol)?.take(1)
 
     private fun railTab(index: Int, title: String): TextView = TextView(context).apply {
         text = title
@@ -113,23 +124,40 @@ class SymbolsView(context: Context) : LinearLayout(context) {
         setOnClickListener { showCategory(index) }
     }
 
-    private fun cell(symbol: String): TextView = TextView(context).apply {
-        text = symbol
-        gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 21f)
-        setTextColor(palette.keyLabel)
-        val pv = dp(10); setPadding(0, pv, 0, pv)
-        minimumHeight = dp(44)
-        background = GradientDrawable().apply { setColor(palette.keySurface); cornerRadius = 8f * density }
-        isClickable = true
-        setOnClickListener { onSymbol(symbol) }
-        layoutParams = GridLayout.LayoutParams().apply {
-            width = 0
-            height = LayoutParams.WRAP_CONTENT
-            columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
-            setGravity(Gravity.FILL_HORIZONTAL)
-            val m = dp(3); setMargins(m, m, m, m)
+    private fun cell(symbol: String, badge: String?): View {
+        val tile = FrameLayout(context).apply {
+            minimumHeight = dp(44)
+            background = GradientDrawable().apply { setColor(palette.keySurface); cornerRadius = 8f * density }
+            isClickable = true
+            setOnClickListener { onSymbol(symbol); if (!locked) onBack() }
+            layoutParams = GridLayout.LayoutParams().apply {
+                width = 0
+                height = LayoutParams.WRAP_CONTENT
+                columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
+                setGravity(Gravity.FILL_HORIZONTAL)
+                val m = dp(3); setMargins(m, m, m, m)
+            }
         }
+        tile.addView(
+            TextView(context).apply {
+                text = symbol
+                gravity = Gravity.CENTER
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 21f)
+                setTextColor(palette.keyLabel)
+                val pv = dp(10); setPadding(0, pv, 0, pv)
+            },
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER),
+        )
+        if (badge != null) tile.addView(
+            TextView(context).apply {
+                text = badge
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 9f)
+                setTextColor(palette.keyLabelSecondary)
+                setPadding(0, 0, dp(4), dp(2))
+            },
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END),
+        )
+        return tile
     }
 
     private fun emptySpan(): TextView = TextView(context).apply {
@@ -145,11 +173,20 @@ class SymbolsView(context: Context) : LinearLayout(context) {
         }
     }
 
+    private fun toggleLock() { locked = !locked; updateLockFace() }
+
+    private fun updateLockFace() {
+        lockBtn.text = if (locked) "🔒锁定" else "🔓锁定"
+        lockBtn.setTextColor(if (locked) palette.candidateFirst else palette.keyLabelSecondary)
+        lockBtn.setTypeface(null, if (locked) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+    }
+
     private fun bottomBar(): View = LinearLayout(context).apply {
         orientation = HORIZONTAL
-        setBackgroundColor(palette.panelSubBg)
-        addView(barButton("返回") { onBack() }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        addView(barButton("⌫") { onBackspace() }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        setBackgroundColor(palette.panelBg)
+        addView(backBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        addView(lockBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        addView(backspaceBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
     }
 
     private fun barButton(label: String, onClick: () -> Unit): TextView = TextView(context).apply {

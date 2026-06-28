@@ -28,6 +28,23 @@ class SymbolCatalogTest {
         )
     }
 
+    @Test fun comma_comes_before_period_in_chinese_and_english() {
+        val zh = SymbolCatalog.categories.first { it.id == "zh" }.symbols
+        assertEquals("，", zh[0]); assertEquals("。", zh[1])
+        val en = SymbolCatalog.categories.first { it.id == "en" }.symbols
+        assertEquals(",", en[0]); assertEquals(".", en[1])
+    }
+
+    @Test fun category_title_lookup_drives_the_common_origin_badge() {
+        assertEquals("中文", SymbolCatalog.categoryTitleOf("，"))
+        assertEquals("英文", SymbolCatalog.categoryTitleOf(","))
+        assertEquals("货币", SymbolCatalog.categoryTitleOf("¥"))
+        assertEquals("数学", SymbolCatalog.categoryTitleOf("±"))
+        assertEquals(null, SymbolCatalog.categoryTitleOf("😀"))
+        assertEquals("中", SymbolCatalog.categoryTitleOf("，")?.take(1))
+        assertEquals("英", SymbolCatalog.categoryTitleOf(",")?.take(1))
+    }
+
     @Test fun currency_category_sits_between_english_and_net_with_common_symbols() {
         val ids = SymbolCatalog.categories.map { it.id }
         assertEquals(ids.indexOf("en") + 1, ids.indexOf("currency"))
