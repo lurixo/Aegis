@@ -16,6 +16,7 @@
 package com.aegis.ime.ime
 
 import android.view.animation.Interpolator
+import com.aegis.ime.ui.theme.SettingsMotion
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -70,5 +71,18 @@ class MotionSpecTest {
     @Test fun every_ime_easing_is_monotonic_and_bounded_no_overshoot_or_bounce() {
         assertNoOvershootOrBounce("STANDARD", Motion.STANDARD)
         assertNoOvershootOrBounce("STANDARD_DECEL", Motion.STANDARD_DECEL)
+    }
+
+    @Test fun every_settings_easing_is_monotonic_and_bounded_no_overshoot_or_bounce() {
+        assertNoOvershootOrBounce("Settings.EmphasizedDecelerate", Interpolator { SettingsMotion.EmphasizedDecelerate.transform(it) })
+        assertNoOvershootOrBounce("Settings.EmphasizedAccelerate", Interpolator { SettingsMotion.EmphasizedAccelerate.transform(it) })
+    }
+
+
+    @Test fun settings_durations_keep_their_literal_values() {
+        assertEquals(200, SettingsMotion.DURATION_NAV)
+        assertEquals(150, SettingsMotion.DURATION_FADE_IN)
+        assertEquals(100, SettingsMotion.DURATION_FADE_OUT)
+        assertEquals(200, SettingsMotion.DURATION_STATE)
     }
 }

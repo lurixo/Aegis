@@ -33,6 +33,7 @@ import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
+import com.aegis.ime.ui.theme.SettingsMotion
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -516,5 +517,13 @@ class Md3MotionSystemTest {
         } finally {
             controller.pause().stop().destroy()
         }
+    }
+
+
+    @Test fun settings_motion_durations_stay_on_their_own_literals() {
+        assertEquals(200, SettingsMotion.DURATION_NAV)
+        assertEquals(150, SettingsMotion.DURATION_FADE_IN)
+        assertEquals(100, SettingsMotion.DURATION_FADE_OUT)
+        assertEquals(200, SettingsMotion.DURATION_STATE)
     }
 }

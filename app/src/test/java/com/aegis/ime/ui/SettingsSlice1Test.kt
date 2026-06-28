@@ -16,6 +16,8 @@
 package com.aegis.ime.ui
 
 import androidx.core.content.edit
+import com.aegis.ime.dict.ModelDownload
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -29,6 +31,25 @@ import org.robolectric.annotation.Config
 class SettingsSlice1Test {
 
     private val ctx = RuntimeEnvironment.getApplication()
+
+    @Test fun resource_update_sources_are_not_app_update_wiring() {
+        assertEquals(
+            "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/${ModelDownload.GRAM_NAME}",
+            ModelDownload.GRAM_URL,
+        )
+        assertEquals("https://github.com/amzxyz/RIME-LMDG", ModelDownload.REPO_URL)
+        assertEquals("dict-latest", ModelDownload.DICT_LATEST_TAG)
+        assertEquals(
+            "https://github.com/lurixo/Aegis/releases/download/dict-latest/aegis-dictionary-update.json",
+            ModelDownload.DICT_UPDATE_URL,
+        )
+        assertEquals("https://github.com/amzxyz/rime-wanxiang", ModelDownload.DICT_REPO_URL)
+        assertFalse("model updates must not point at the Aegis app repo", ModelDownload.REPO_URL.contains("lurixo/Aegis"))
+        assertFalse("dictionary source link must not point at the Aegis app repo", ModelDownload.DICT_REPO_URL.contains("lurixo/Aegis"))
+        assertFalse("resource downloads must not be APK self-update assets", ModelDownload.GRAM_URL.endsWith(".apk"))
+        assertFalse("resource discovery must not be an APK endpoint", ModelDownload.DICT_UPDATE_URL.endsWith(".apk"))
+    }
+
 
     @Test fun independent_association_preferences_keep_legacy_defaults_until_explicitly_changed() {
         val prefs = ctx.getSharedPreferences("aegis", android.content.Context.MODE_PRIVATE)
