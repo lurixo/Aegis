@@ -20,4 +20,10 @@ interface ImeHost {
     fun commitText(text: CharSequence)
     fun deleteBackward()
     fun performEnter()
+
+    /** U25: up to [n] characters of editor text immediately before the cursor (for inline calculation). */
+    fun textBeforeCursor(n: Int): CharSequence = ""
+
+    /** U25: delete [length] chars before the cursor and commit [text] in their place (replace an expression). */
+    fun replaceBeforeCursor(length: Int, text: CharSequence) {}
 }
