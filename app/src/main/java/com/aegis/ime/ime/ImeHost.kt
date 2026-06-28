@@ -27,4 +27,10 @@ interface ImeHost {
     fun hasSelection(): Boolean = false
 
     fun deleteSelection() { commitText("") }
+
+    fun deleteCodePointBackward() { deleteBackward() }
+
+    fun panelBackspace() {
+        if (hasSelection()) deleteSelection() else deleteCodePointBackward()
+    }
 }

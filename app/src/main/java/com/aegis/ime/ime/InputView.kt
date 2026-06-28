@@ -203,6 +203,7 @@ class InputView(context: Context) : LinearLayout(context) {
         lastNavBottomPx = navBottomPx
         applyWindowPadding(navBottomPx, 0, 0)
     }
+    internal fun cachedNavBottomForTest(): Int = lastNavBottomPx
 
     private companion object {
         private var lastNavBottomPx = 0
