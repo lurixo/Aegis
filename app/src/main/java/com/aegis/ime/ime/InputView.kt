@@ -78,6 +78,7 @@ class InputView(context: Context) : LinearLayout(context) {
         candidateView.onFunction = { f -> onFunction(f) }
         candidateView.onExpand = { showExpandedCandidates() }
         candidateView.onCollapse = { onCollapse() }
+        candidateView.onCollapseExpanded = { showPanel(null) } // U14: flipped chevron closes the A2 grid
         // A2 expanded screen: don't force-close on pick — showCandidates() refreshes the grid if composing
         // continues (partial / per-syllable commit) and closes it once the buffer empties.
         gridView.onPick = { index -> onPickCandidate(index) }
@@ -117,7 +118,11 @@ class InputView(context: Context) : LinearLayout(context) {
             val cut = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
             val side = dp(4)
             // B4: lift the whole keyboard a little higher off the gesture/home bar (was dp(16) — too tight).
-            body.setPadding(maxOf(cut.left, side), 0, maxOf(cut.right, side), nav.bottom + dp(28))
+            val leftPad = maxOf(cut.left, side)
+            body.setPadding(leftPad, 0, maxOf(cut.right, side), nav.bottom + dp(28))
+            // U12: the preedit band is outside `body`, so feed it the same left inset to keep the pinyin
+            // left-aligned with the first candidate (which is inset by body's left padding).
+            preeditView.setLeftInset(leftPad.toFloat())
             WindowInsetsCompat.CONSUMED
         }
     }
@@ -180,10 +185,15 @@ class InputView(context: Context) : LinearLayout(context) {
     /** Candidates actually rendered in the strip right now (test hook, U1 regression guard). */
     internal fun shownCandidateCount(): Int = candidateView.itemCount()
 
+    /** U14 test seam: the candidate-bar chevron glyph (⌃ while the A2 grid is open, else ⌄). */
+    internal fun barChevronGlyph(): String = candidateView.chevronGlyph()
+
     /** Swap the keyboard area for an extras panel (emoji / clipboard); null restores the keyboard. */
     fun showPanel(panel: View?) {
         panelContainer.removeAllViews()
         currentPanel = panel
+        // U14: the candidate-bar chevron points up + collapses only while the A2 grid is the open panel.
+        candidateView.setExpanded(panel === gridView)
         if (panel == null) {
             panelContainer.visibility = GONE
             keyboardView.visibility = VISIBLE

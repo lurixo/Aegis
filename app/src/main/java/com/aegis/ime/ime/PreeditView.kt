@@ -34,6 +34,11 @@ class PreeditView(context: Context) : View(context) {
     private var text: String = ""
     private val density = resources.displayMetrics.density
     private val pad = 12f * density
+    // U12: the preedit pinyin must left-align with the first candidate. The candidate strip lives inside
+    // `body` (left padding = [leftInset]) and draws its first word 14dp in; this band is outside `body`,
+    // so we mirror that same origin (leftInset + candPad) instead of a fixed offset that drifted right.
+    private val candPad = 14f * density // == CandidateView.padding
+    private var leftInset = 0f
     private val tab = RectF()
 
     init { setLayerType(LAYER_TYPE_SOFTWARE, null) } // for the soft shadow below
@@ -64,13 +69,23 @@ class PreeditView(context: Context) : View(context) {
         invalidate()
     }
 
+    /** U12: match the candidate strip's left inset (= `body` left padding) so the pinyin aligns with it. */
+    fun setLeftInset(px: Float) {
+        if (px == leftInset) return
+        leftInset = px
+        invalidate()
+    }
+
     override fun onDraw(canvas: Canvas) {
         if (text.isEmpty()) return
+        // U12: the pinyin's first glyph sits exactly where the first candidate does (leftInset + candPad);
+        // the rounded tab hugs it with the usual `pad` inset on each side.
+        val textX = leftInset + candPad
         val w = textPaint.measureText(text) + pad * 2
         val r = ImeShapes.cardRadiusDp * density / 2f // tab corner (small)
-        tab.set(pad, 0f, pad + w, height.toFloat() + r)
+        tab.set(textX - pad, 0f, textX - pad + w, height.toFloat() + r)
         canvas.drawRoundRect(tab, r, r, tabPaint)
         val baseline = height / 2f - (textPaint.descent() + textPaint.ascent()) / 2
-        canvas.drawText(text, pad * 2, baseline, textPaint)
+        canvas.drawText(text, textX, baseline, textPaint)
     }
 }
