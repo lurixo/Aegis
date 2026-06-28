@@ -39,6 +39,7 @@ enum class KeyAction {
     SHOW_SYMBOLS,
     SEGMENT,
     CUSTOM_SYMBOL,
+    CUSTOM_OPERATOR,
 }
 
 data class Key(

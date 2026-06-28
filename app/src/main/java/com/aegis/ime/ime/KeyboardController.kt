@@ -59,6 +59,8 @@ class KeyboardController(
 
     private var customSymbols: List<String> = emptyList()
 
+    private var customOperators: List<String> = emptyList()
+
     private var directCommitCands: Set<Cand> = emptySet()
     private var calcCand: Cand? = null
     private var calcExpr = ""
@@ -72,6 +74,7 @@ class KeyboardController(
     var onShowSymbols: () -> Unit = {}
     var onShowSettings: () -> Unit = {}
     var onShowCustomSymbols: () -> Unit = {}
+    var onShowCustomOperators: () -> Unit = {}
     var onClosePanel: () -> Unit = {}
 
     private var view: InputView? = null
@@ -89,6 +92,11 @@ class KeyboardController(
 
     fun setCustomSymbols(symbols: List<String>) {
         customSymbols = symbols
+        render()
+    }
+
+    fun setCustomOperators(operators: List<String>) {
+        customOperators = operators
         render()
     }
 
@@ -134,6 +142,7 @@ class KeyboardController(
             KeyAction.SEGMENT -> handleSegment()
             KeyAction.SHOW_EDIT -> onShowEdit()
             KeyAction.CUSTOM_SYMBOL -> onShowCustomSymbols()
+            KeyAction.CUSTOM_OPERATOR -> onShowCustomOperators()
             KeyAction.SHOW_SYMBOLS -> { flushComposing(); onShowSymbols() }
             KeyAction.TOGGLE_LANG -> {
                 flushComposing()
@@ -459,8 +468,11 @@ class KeyboardController(
 
     private fun render() {
         val v = view ?: return
-        val layout = if (layoutId == LayoutId.NINE) Layouts.nine(lang, nineLeftColumn(), composing.isNotEmpty())
-        else Layouts.forId(layoutId, lang)
+        val layout = when (layoutId) {
+            LayoutId.NINE -> Layouts.nine(lang, nineLeftColumn(), composing.isNotEmpty())
+            LayoutId.NUMPAD -> Layouts.numpad(Layouts.numpadOperators(customOperators))
+            else -> Layouts.forId(layoutId, lang)
+        }
         v.showKeyboard(layout, shifted, shiftState == ShiftState.LOCK, lang)
         v.showCandidates(candidates.map { it.word }, preeditText(), expandedReadings())
     }

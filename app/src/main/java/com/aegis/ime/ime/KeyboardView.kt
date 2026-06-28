@@ -62,16 +62,17 @@ class KeyboardView(context: Context) : View(context) {
     private var scrollPressedIndex = -1
     private var inScrollDown = false
     private var scrollDownY = 0f
-    private var scrollStartY = 0f
+    private var scrollLastY = 0f
     private var scrolling = false
     private val tmpRect = RectF()
     private val scrollSlop = 6f * resources.displayMetrics.density
     private val scroller = OverScroller(context)
     private val minFlingVel = ViewConfiguration.get(context).scaledMinimumFlingVelocity.toFloat()
     private val maxFlingVel = ViewConfiguration.get(context).scaledMaximumFlingVelocity.toFloat()
-    private var moveY1 = 0f; private var moveT1 = 0L
-    private var moveY2 = 0f; private var moveT2 = 0L
-    private var moveSamples = 0
+    private val sampleT = LongArray(VELOCITY_SAMPLES)
+    private val sampleY = FloatArray(VELOCITY_SAMPLES)
+    private var sampleHead = 0
+    private var sampleCount = 0
     private var flingStopArmed = false
 
     private val repeatHandler = Handler(Looper.getMainLooper())
@@ -102,7 +103,7 @@ class KeyboardView(context: Context) : View(context) {
 
     private val density = resources.displayMetrics.density
     private val rowHeight = 52f * density
-    private val nineRowExtra = 7f * density
+    private val shortPageRowExtra = 7f * density
     private val gap = 6f * density
     private val keyRadius = ImeShapes.keyRadiusDp * density
 
@@ -171,7 +172,7 @@ class KeyboardView(context: Context) : View(context) {
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
         val rows = layout.rowCount
-        val rh = if (layout.id == LayoutId.NINE) rowHeight + nineRowExtra else rowHeight
+        val rh = if (rows == 4) rowHeight + shortPageRowExtra else rowHeight
         val height = (rows * rh + (rows + 1) * gap).toInt()
         setMeasuredDimension(width, height)
     }
@@ -205,6 +206,7 @@ class KeyboardView(context: Context) : View(context) {
             }
             return
         }
+        val rh = (h - (layout.rowCount + 1) * gap) / layout.rowCount
         var top = gap
         for (rowItem in layout.rows) {
             val totalWeight = rowItem.keys.sumOf { it.weight.toDouble() }.toFloat()
@@ -212,10 +214,10 @@ class KeyboardView(context: Context) : View(context) {
             var left = gap
             for (key in rowItem.keys) {
                 val keyW = usable * (key.weight / totalWeight)
-                placed.add(Placed(RectF(left, top, left + keyW, top + rowHeight), key))
+                placed.add(Placed(RectF(left, top, left + keyW, top + rh), key))
                 left += keyW + gap
             }
-            top += rowHeight + gap
+            top += rh + gap
         }
     }
 
@@ -432,18 +434,19 @@ class KeyboardView(context: Context) : View(context) {
                 inScrollDown = true; scrolling = false
                 flingStopArmed = !scroller.isFinished
                 if (flingStopArmed) scroller.forceFinished(true)
-                moveSamples = 0
-                scrollDownY = event.y; scrollStartY = scrollY
+                sampleCount = 0; sampleHead = 0
+                scrollDownY = event.y; scrollLastY = event.y
                 scrollPressedIndex = if (flingStopArmed) -1 else scrollIndexAt(event.y)
                 invalidate()
             }
             MotionEvent.ACTION_MOVE -> {
-                moveY2 = moveY1; moveT2 = moveT1
-                moveY1 = event.y; moveT1 = event.eventTime
-                moveSamples++
-                val dy = event.y - scrollDownY
-                if (!scrolling && abs(dy) > scrollSlop) { scrolling = true; scrollPressedIndex = -1 }
-                if (scrolling) { scrollY = scrollStartY - dy; clampScroll(); invalidate() }
+                addVelocitySample(event.eventTime, event.y)
+                if (!scrolling && abs(event.y - scrollDownY) > scrollSlop) { scrolling = true; scrollPressedIndex = -1 }
+                if (scrolling) {
+                    scrollY += scrollLastY - event.y
+                    clampScroll(); invalidate()
+                }
+                scrollLastY = event.y
             }
             MotionEvent.ACTION_UP -> {
                 val col = scrollColumn
@@ -473,12 +476,28 @@ class KeyboardView(context: Context) : View(context) {
     internal fun isFlingingForTest(): Boolean = !scroller.isFinished
     internal fun flingFinalForTest(): Float = scroller.finalY.toFloat()
 
-    private fun flingVelocity(): Float {
-        if (moveSamples < 2) return 0f
-        val dt = (moveT1 - moveT2).toFloat()
-        if (dt <= 0f) return 0f
-        return ((moveY1 - moveY2) / dt * 1000f).coerceIn(-maxFlingVel, maxFlingVel)
+    private fun addVelocitySample(t: Long, y: Float) {
+        sampleT[sampleHead] = t; sampleY[sampleHead] = y
+        sampleHead = (sampleHead + 1) % VELOCITY_SAMPLES
+        if (sampleCount < VELOCITY_SAMPLES) sampleCount++
     }
+
+    private fun flingVelocity(): Float {
+        if (sampleCount < 2) return 0f
+        val newest = (sampleHead - 1 + VELOCITY_SAMPLES) % VELOCITY_SAMPLES
+        val tNew = sampleT[newest]; val yNew = sampleY[newest]
+        var ref = newest
+        for (k in 1 until sampleCount) {
+            val idx = (newest - k + VELOCITY_SAMPLES) % VELOCITY_SAMPLES
+            ref = idx
+            if (tNew - sampleT[idx] >= VELOCITY_WINDOW_MS) break
+        }
+        val dt = (tNew - sampleT[ref]).toFloat()
+        if (dt <= 0f) return 0f
+        return ((yNew - sampleY[ref]) / dt * 1000f).coerceIn(-maxFlingVel, maxFlingVel)
+    }
+
+    internal fun flingVelocityForTest(): Float = flingVelocity()
 
     private fun placedAt(x: Float, y: Float): Placed? {
         var nearest: Placed? = null
@@ -533,5 +552,7 @@ class KeyboardView(context: Context) : View(context) {
     private companion object {
         const val REPEAT_DELAY_MS = 400L
         const val REPEAT_INTERVAL_MS = 55L
+        const val VELOCITY_SAMPLES = 12
+        const val VELOCITY_WINDOW_MS = 100L
     }
 }
