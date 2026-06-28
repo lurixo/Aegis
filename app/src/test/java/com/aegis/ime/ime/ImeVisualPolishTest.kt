@@ -15,16 +15,23 @@
 
 package com.aegis.ime.ime
 
+import android.graphics.drawable.RippleDrawable
+import android.view.View
+import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class ImeVisualPolishTest {
+
+    private val ctx = RuntimeEnvironment.getApplication()
 
     @Test fun shared_aegis_surface_radii_keep_the_taskbar_capsule() {
         assertEquals(10f, ImeShapes.keyRadiusDp, 0f)
@@ -33,5 +40,11 @@ class ImeVisualPolishTest {
         assertEquals(8f, ImeShapes.inputRadiusDp, 0f)
         assertEquals(8f, ImeShapes.chipRadiusDp, 0f)
         assertEquals(999f, ImeShapes.toolbarPillRadiusDp, 0f)
+    }
+
+    @Test fun tap_feedback_helper_installs_a_rounded_ripple_foreground() {
+        val v = View(ctx)
+        Motion.applyTapFeedback(v, ImePalette.STATIC_LIGHT.keyLabel)
+        assertTrue("clickable helper uses RippleDrawable feedback", v.foreground is RippleDrawable)
     }
 }
