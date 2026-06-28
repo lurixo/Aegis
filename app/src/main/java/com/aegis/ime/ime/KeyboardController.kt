@@ -299,7 +299,7 @@ class KeyboardController(
                 // when a selection is active: commitText would replace (destroy) the selected text.
                 val live = Calculator.detect(host.textBeforeCursor(CALC_SCAN_LEN))
                 if (live != null && live.expr == calcExpr && live.result == calcResult && !host.hasSelection()) {
-                    host.commitText("=" + live.result) // append "=result" right after the expression
+                    host.commitText(live.append) // F3/I1: "=result", or bare "result" when '=' was already typed
                 }
                 clearComposingState(); lastWord = null
             }
@@ -577,7 +577,9 @@ class KeyboardController(
      *  pick APPENDS "=result" after the expression (1+1 → 1+1=2), it does not replace the expression. */
     private fun calcCandidates(): List<Cand> {
         val match = Calculator.detect(host.textBeforeCursor(CALC_SCAN_LEN)) ?: return emptyList()
-        val cand = Cand("=" + match.result, 0)
+        // F3/I1: the candidate shows exactly what a pick appends — "=2" normally, or just "2" when the user
+        // already typed the trailing '=' on the numpad ("1+1=" → "1+1=2", never "1+1==2").
+        val cand = Cand(match.append, 0)
         calcCand = cand; calcExpr = match.expr; calcResult = match.result
         return listOf(cand)
     }
@@ -597,8 +599,22 @@ class KeyboardController(
                 // LETTERS of fullLetters(); remap it to DIGITS of the live buffer so picking a
                 // prefix word still partial-commits correctly (★E), full coverage → whole buffer.
                 val bounds = readingLetterToDigit()
-                engine.candidatesForReadingCovered(fullLetters(), context)
-                    .map { Cand(it.word, bounds[it.coveredLen] ?: composing.length) }
+                // F6 (debug.12): forward the user's 分词 boundaries that fall inside the still-active tail so
+                // the locked-path decode honours them too. The unlocked path always passed forcedCuts to the
+                // decoder; this path dropped them, letting a decoded word span a boundary the user explicitly
+                // forced (the cut "disappeared" the moment a reading was locked). T9 maps each letter to
+                // exactly one digit, so |fullLetters| == |composing| and a forcedCut's digit index IS its
+                // letter offset in fullLetters — interior active cuts pass straight through, no translation.
+                val readingCuts = forcedCuts.filter { it in (activeStart + 1) until composing.length }.toSet()
+                engine.candidatesForReadingCovered(fullLetters(), readingCuts, context)
+                    // F1 (debug.12, DATA LOSS): coveredLen is in LETTERS of fullLetters; remap it to DIGITS of
+                    // the live buffer. A coverage NOT on a syllable boundary (e.g. a 2-letter word while the
+                    // locked syllable is 3 letters) is absent from [bounds]; the old `?: composing.length`
+                    // fallback then mislabelled it as FULL coverage, so commitCandidate took the "whole word
+                    // done" branch — committing the partial word AND clearing the rest of the buffer, so the
+                    // still-typed tail silently vanished. Letters↔digits is 1:1, so fall back to the coverage
+                    // length itself (clamped): an off-boundary pick now partial-commits exactly what it covers.
+                    .map { Cand(it.word, bounds[it.coveredLen] ?: it.coveredLen.coerceAtMost(composing.length)) }
             } else {
                 val isNine = layoutId == LayoutId.NINE
                 var c = engine.candidatesCovered(raw, isNine, forcedCuts, context)

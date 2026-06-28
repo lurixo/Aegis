@@ -3,6 +3,7 @@ package com.aegis.ime.ime
 
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
@@ -79,6 +80,12 @@ class Debug12InputCoreTest {
         return DictEngine(BinaryDict.fromFile(p), BinaryDict.fromFile(t), CharBigramLM.fromFile(l))
     }
 
+    /** F5: an engine that returns nothing — for the dict-independent S2 selection-backspace test so it need
+     *  not be gated on optional dict assets (the controller ctor just requires a non-null engine). */
+    private val emptyEngine = object : CandidateEngine {
+        override fun candidates(composing: String, t9: Boolean): List<String> = emptyList()
+    }
+
     private fun digit(d: Char) = Key(d.toString(), output = d.toString())
 
     /** No left-column key may ever be punctuation while composing (the "读音变标点" bug). Empty is fine
@@ -147,9 +154,11 @@ class Debug12InputCoreTest {
     }
 
     @Test fun backspace_with_a_selection_deletes_the_selection_not_the_char_before() {
-        val eng = engine(); assumeTrue("dict assets present", eng != null)
+        // F5 (debug.12): S2 is engine-independent (it never touches the dictionary), so it must NOT be gated
+        // on optional dict assets — the old assumeTrue silently SKIPPED this data-loss regression on clean
+        // checkouts / CI. Drive it with an empty engine so it ALWAYS runs.
         val host = Host()
-        val c = KeyboardController(host, eng!!)
+        val c = KeyboardController(host, emptyEngine)
         host.sb.append("abcXYZdef")
         host.select(3, 6) // "XYZ" selected, nothing composing in the IME
 
