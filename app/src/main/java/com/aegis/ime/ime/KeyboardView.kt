@@ -24,6 +24,8 @@ import android.os.Looper
 import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
+import android.widget.OverScroller
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import com.aegis.ime.layout.Key
@@ -60,6 +62,13 @@ class KeyboardView(context: Context) : View(context) {
     private var scrolling = false
     private val tmpRect = RectF()
     private val scrollSlop = 6f * resources.displayMetrics.density
+    private val scroller = OverScroller(context)
+    private val minFlingVel = ViewConfiguration.get(context).scaledMinimumFlingVelocity.toFloat()
+    private val maxFlingVel = ViewConfiguration.get(context).scaledMaximumFlingVelocity.toFloat()
+    private var moveY1 = 0f; private var moveT1 = 0L
+    private var moveY2 = 0f; private var moveT2 = 0L
+    private var moveSamples = 0
+    private var flingStopArmed = false
 
     private val repeatHandler = Handler(Looper.getMainLooper())
     private var downKey: Key? = null
@@ -199,10 +208,21 @@ class KeyboardView(context: Context) : View(context) {
         }
     }
 
+    private fun maxScroll(): Float {
+        val sc = scrollColumn ?: return 0f
+        return maxOf(0f, sc.items.size * scrollCellH - scrollRegion.height())
+    }
+
     private fun clampScroll() {
-        val sc = scrollColumn ?: return
-        val maxScroll = maxOf(0f, sc.items.size * scrollCellH - scrollRegion.height())
-        scrollY = scrollY.coerceIn(0f, maxScroll)
+        scrollY = scrollY.coerceIn(0f, maxScroll())
+    }
+
+    override fun computeScroll() {
+        if (scroller.computeScrollOffset()) {
+            scrollY = scroller.currY.toFloat()
+            clampScroll()
+            postInvalidateOnAnimation()
+        }
     }
 
     private fun scrollIndexAt(y: Float): Int {
@@ -383,30 +403,54 @@ class KeyboardView(context: Context) : View(context) {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 inScrollDown = true; scrolling = false
+                flingStopArmed = !scroller.isFinished
+                if (flingStopArmed) scroller.forceFinished(true)
+                moveSamples = 0
                 scrollDownY = event.y; scrollStartY = scrollY
-                scrollPressedIndex = scrollIndexAt(event.y)
+                scrollPressedIndex = if (flingStopArmed) -1 else scrollIndexAt(event.y)
                 invalidate()
             }
             MotionEvent.ACTION_MOVE -> {
+                moveY2 = moveY1; moveT2 = moveT1
+                moveY1 = event.y; moveT1 = event.eventTime
+                moveSamples++
                 val dy = event.y - scrollDownY
                 if (!scrolling && abs(dy) > scrollSlop) { scrolling = true; scrollPressedIndex = -1 }
                 if (scrolling) { scrollY = scrollStartY - dy; clampScroll(); invalidate() }
             }
             MotionEvent.ACTION_UP -> {
                 val col = scrollColumn
-                if (!scrolling && col != null) {
+                if (scrolling) {
+                    val vy = flingVelocity()
+                    if (col != null && abs(vy) > minFlingVel && maxScroll() > 0f) {
+                        scroller.fling(0, scrollY.toInt(), 0, (-vy).toInt(), 0, 0, 0, maxScroll().toInt())
+                        postInvalidateOnAnimation()
+                    }
+                } else if (col != null && !flingStopArmed) {
                     val idx = scrollIndexAt(event.y)
                     if (idx >= 0 && idx == scrollPressedIndex) { performClick(); onKey(col.items[idx]) }
                 }
-                scrollPressedIndex = -1; inScrollDown = false; scrolling = false
+                scrollPressedIndex = -1; inScrollDown = false; scrolling = false; flingStopArmed = false
                 invalidate()
             }
             MotionEvent.ACTION_CANCEL -> {
-                scrollPressedIndex = -1; inScrollDown = false; scrolling = false
+                scrollPressedIndex = -1; inScrollDown = false; scrolling = false; flingStopArmed = false
                 invalidate()
             }
         }
         return true
+    }
+
+    internal fun scrollOffsetForTest(): Float = scrollY
+    internal fun maxScrollForTest(): Float = maxScroll()
+    internal fun isFlingingForTest(): Boolean = !scroller.isFinished
+    internal fun flingFinalForTest(): Float = scroller.finalY.toFloat()
+
+    private fun flingVelocity(): Float {
+        if (moveSamples < 2) return 0f
+        val dt = (moveT1 - moveT2).toFloat()
+        if (dt <= 0f) return 0f
+        return ((moveY1 - moveY2) / dt * 1000f).coerceIn(-maxFlingVel, maxFlingVel)
     }
 
     private fun placedAt(x: Float, y: Float): Placed? {
