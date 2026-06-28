@@ -109,7 +109,7 @@ object ModelDownload {
 
 
     const val DICT_URL =
-        "https://github.com/lurixo/aegis/releases/download/dict-full/aegis_dict_pack_debug13.zip"
+        "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.13/aegis_dict_pack_debug13.zip"
 
     const val DICT_REPO_URL = "https://github.com/lurixo/aegis/releases"
 
