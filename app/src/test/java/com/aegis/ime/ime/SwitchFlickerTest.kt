@@ -24,6 +24,7 @@ import android.widget.FrameLayout
 import com.aegis.ime.ime.theme.ImePalette
 import java.time.Duration
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -46,6 +47,73 @@ class SwitchFlickerTest {
         val floor = iv.panelFloorColorForTest()
         assertEquals("the panel slot must be painted the keyboard-floor colour", light.keyboardBg, floor)
         assertEquals("…and it must be fully opaque so an alpha-0 panel never reveals the window", 0xFF, Color.alpha(floor!!))
+    }
+
+    @Test fun composing_dismisses_the_copy_bar_once_and_synchronously() {
+        Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val input = InputView(activity)
+            var dismissals = 0
+            input.onCopyDismiss = { dismissals++ }
+            input.showCopyBar("copied")
+            val host = FrameLayout(activity)
+            host.addView(input)
+            activity.setContentView(host)
+            assertTrue(input.copyBarShown)
+
+            input.showCandidates(listOf("你"), "ni", listOf("ni"))
+
+            assertEquals(1, dismissals)
+            assertFalse("the dismissal lands in the same call", input.copyBarShown)
+            input.showCandidates(listOf("你好", "你"), "nihao", listOf("ni"))
+            assertEquals("composing updates never re-dismiss", 1, dismissals)
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun repeated_field_switch_copy_bar_hides_are_no_ops_and_never_dip_the_candidate_bar() {
+        Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val input = attached(activity, InputView(activity).apply { applyPalette(light) })
+            layoutInput(input)
+            val candidates = descendant<CandidateView>(input)
+            val bar = descendant<CopyBarView>(input)
+            assertEquals(View.VISIBLE, candidates.visibility)
+
+            repeat(3) {
+                input.hideCopyBar()
+                assertEquals("a field switch with no copy bar leaves the candidate bar alone", View.VISIBLE, candidates.visibility)
+                assertEquals("the candidate bar never leaves full opacity", 1f, candidates.alpha, 0f)
+                assertFalse("an already-settled hide starts no animation", Motion.coverActiveForTest(candidates))
+            }
+
+            input.showCopyBar("copied")
+            assertEquals("the slot is never empty mid-swap", View.VISIBLE, bar.visibility)
+            assertEquals(View.GONE, candidates.visibility)
+            flushMotion()
+            layoutInput(input)
+
+            input.hideCopyBar()
+            assertEquals("the candidate bar returns in the same call", View.VISIBLE, candidates.visibility)
+            assertEquals(1f, candidates.alpha, 0f)
+            repeat(3) {
+                input.hideCopyBar()
+                assertEquals("repeated field-switch hides never dip the candidate bar", 1f, candidates.alpha, 0f)
+                assertEquals(View.VISIBLE, candidates.visibility)
+            }
+            flushMotion()
+            assertFalse(Motion.coverActiveForTest(candidates))
+            assertEquals(1f, candidates.alpha, 0f)
+            assertEquals(View.VISIBLE, candidates.visibility)
+            assertEquals(View.GONE, bar.visibility)
+        } finally {
+            controller.pause().stop().destroy()
+        }
     }
 
     @Test fun repeated_editor_restores_keep_the_settled_edit_bar_opaque() {

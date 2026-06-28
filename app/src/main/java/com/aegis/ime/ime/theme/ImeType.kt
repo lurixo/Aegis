@@ -21,8 +21,10 @@ import kotlin.math.roundToInt
 
 object ImeType {
     const val caption = 12f
+    const val label = 14f
     const val body = 16f
     const val candidate = 18f
+    const val title = 19f
 
     fun popupInsetPx(metrics: DisplayMetrics): Int =
         (2 * TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, body, metrics)).roundToInt()

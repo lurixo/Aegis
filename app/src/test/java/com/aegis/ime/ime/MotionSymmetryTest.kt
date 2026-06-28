@@ -141,6 +141,14 @@ class MotionSymmetryTest {
         assertFalse("panel close reaches GONE (the leaving panel's exit runs then the keyboard returns)", iv.panelShown)
     }
 
+    @Test fun copy_bar_swap_in_and_out_reaches_the_end_state() {
+        val iv = inputView()
+        iv.showCopyBar("hello")
+        assertTrue("copy bar swaps in", iv.copyBarShown)
+        iv.hideCopyBar()
+        assertFalse("copy bar swaps back out to the candidate strip", iv.copyBarShown)
+    }
+
     @Test fun panel_to_panel_switch_reaches_the_incoming_end_state() {
         val iv = inputView()
         val a = View(ctx)

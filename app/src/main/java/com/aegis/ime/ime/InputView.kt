@@ -52,6 +52,10 @@ class InputView(context: Context) : LinearLayout(context) {
     var onPanelClear: () -> Unit = {}
     var onExpandClosed: () -> Unit = {}
     var onCollapse: () -> Unit = {}
+    var onCopyCommit: (String) -> Unit = {}
+    var onCopySelectionChanged: (String) -> Unit = {}
+    var onCopySelectionFinished: () -> Unit = {}
+    var onCopyDismiss: () -> Unit = {}
     var onEditConfirm: () -> Unit = {}
     var onEditTextChanged: (String) -> Unit = {}
     var onEditSelectionChanged: (Boolean) -> Unit = {}
@@ -71,6 +75,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private val preeditView = PreeditView(context)
     private val preeditSlot = CompactDock(context) { resolveDockWidth(it) }.apply { addDockedView(preeditView) }
     private val candidateView = CandidateView(context)
+    private val copyBarView = CopyBarView(context)
     private val editBarView = EditBarView(context)
     private val translateBarView = TranslateBarView(context)
     private val keyboardView = KeyboardView(context)
@@ -85,11 +90,13 @@ class InputView(context: Context) : LinearLayout(context) {
     private var lastReadings: List<String> = emptyList()
     private var lastSelectedReading = -1
     private var pendingGridBind: Any? = null
+    private var composingNow = false
     private var preeditEditingNow = false
     private var currentPanel: View? = null
     private var keyHaptics = false
     internal val keyHapticsEnabled: Boolean get() = keyHaptics
     private val keySoundPlayer = KeySoundPlayer(context)
+    private var copyBarActive = false
     private var editBarActive = false
     private var translateBarActive = false
     private var palette = ImePalette.STATIC_LIGHT
@@ -107,6 +114,7 @@ class InputView(context: Context) : LinearLayout(context) {
         panelContainer.setBackgroundColor(p.keyboardBg)
         preeditView.applyPalette(p)
         candidateView.applyPalette(p)
+        copyBarView.applyPalette(p)
         keyboardView.applyPalette(p)
         gridView.applyPalette(p)
         editBarView.applyPalette(p)
@@ -188,6 +196,10 @@ class InputView(context: Context) : LinearLayout(context) {
         keyboardView.onKey = { key -> onKey(key) }
         keyboardView.onBackspaceSwipe = { up -> onBackspaceSwipe(up) }
         keyboardView.bindPreviewHost(this) { -keyboardVisualTopPx().toFloat() }
+        copyBarView.onCommit = { t -> onCopyCommit(t) }
+        copyBarView.onSelectionChanged = { text -> onCopySelectionChanged(text) }
+        copyBarView.onSelectionFinished = { onCopySelectionFinished() }
+        copyBarView.onDismiss = { hideCopyBar(); onCopyDismiss() }
         editBarView.onConfirm = { onEditConfirm() }
         editBarView.onCancel = { onEditCancel() }
         editBarView.onTextChanged = { text -> onEditTextChanged(text) }
@@ -210,6 +222,8 @@ class InputView(context: Context) : LinearLayout(context) {
         translateBarView.visibility = GONE
         body.addView(translateBarView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         body.addView(candidateView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
+        copyBarView.visibility = GONE
+        body.addView(copyBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
         body.addView(keyboardView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         panelContainer.visibility = GONE
         panelContainer.setBackgroundColor(palette.keyboardBg)
@@ -346,6 +360,7 @@ class InputView(context: Context) : LinearLayout(context) {
             if (lp.height != want) lp.height = want
         }
         setHeight(candidateView, spec.barHeight)
+        setHeight(copyBarView, spec.barHeight)
         setHeight(keyboardView, spec.keyboardHeight)
         setPanelHeight(panelHeightFor(spec.keyboardHeight))
         (currentPanel as? CoversToolbar)?.setCoveredBarHeight(coveredBarHeightPx())
@@ -393,6 +408,7 @@ class InputView(context: Context) : LinearLayout(context) {
         Motion.reset(keyboardView)
         Motion.reset(preeditView)
         Motion.reset(candidateView)
+        Motion.reset(copyBarView)
         Motion.reset(editBarView)
         currentPanel?.let { Motion.reset(it) }
     }
@@ -425,6 +441,38 @@ class InputView(context: Context) : LinearLayout(context) {
     fun setKeyPreviewNine(on: Boolean) { keyboardView.previewNineEnabled = on }
     fun setKeyPreviewAlpha(on: Boolean) { keyboardView.previewAlphaEnabled = on }
 
+    fun showCopyBar(text: String) {
+        if (currentPanel is CoversToolbar) {
+            stageCopyBar(text)
+            return
+        }
+        copyBarActive = true
+        copyBarView.show(text)
+        Motion.coverSwap(copyBarView, candidateView, palette.keyboardBg)
+        onOverlayChanged()
+    }
+
+    fun stageCopyBar(text: String) {
+        copyBarActive = true
+        copyBarView.show(text)
+        Motion.reset(copyBarView)
+        copyBarView.visibility = GONE
+        onOverlayChanged()
+    }
+
+    fun hideCopyBar() {
+        copyBarView.finishSplitSelection()
+        if (!copyBarActive && copyBarView.visibility != VISIBLE) {
+            onOverlayChanged()
+            return
+        }
+        copyBarActive = false
+        Motion.coverSwap(candidateView, copyBarView, palette.keyboardBg)
+        onOverlayChanged()
+    }
+
+    val copyBarShown: Boolean get() = copyBarView.visibility == VISIBLE
+
     private fun pickCandidateIfSeen(index: Int) {
         if (candidateTapGuard.accepts(index, SystemClock.uptimeMillis())) onPickCandidate(index)
     }
@@ -454,6 +502,8 @@ class InputView(context: Context) : LinearLayout(context) {
         }
         candidateView.setContent(candidates, preedit)
 
+        composingNow = candidates.isNotEmpty() || preedit.isNotEmpty()
+        if (copyBarActive && composingNow) { hideCopyBar(); onCopyDismiss() }
         if (currentPanel === gridView) {
             if (preedit.isEmpty()) showPanel(null)
             else if (pendingGridBind == null) bindExpandedCandidates(animateContentChange = true)
@@ -558,6 +608,7 @@ class InputView(context: Context) : LinearLayout(context) {
             attachPanel(panel)
             if (coversBar) {
                 candidateView.visibility = GONE
+                copyBarView.visibility = GONE
             }
             keyboardView.visibility = GONE
             panel.visibility = VISIBLE
@@ -569,6 +620,7 @@ class InputView(context: Context) : LinearLayout(context) {
     }
 
     private fun coveredBar(): View? = when {
+        copyBarView.visibility == VISIBLE -> copyBarView
         candidateView.visibility == VISIBLE -> candidateView
         else -> null
     }
@@ -590,7 +642,14 @@ class InputView(context: Context) : LinearLayout(context) {
     }
 
     private fun restoreCoveredBar() {
-        candidateView.visibility = VISIBLE
+        if (copyBarActive) {
+            Motion.reset(candidateView)
+            candidateView.visibility = GONE
+            Motion.reset(copyBarView)
+            copyBarView.visibility = VISIBLE
+        } else {
+            candidateView.visibility = VISIBLE
+        }
     }
 
     private fun attachPanel(panel: View) {
@@ -604,6 +663,7 @@ class InputView(context: Context) : LinearLayout(context) {
     }
 
     internal fun clearEditorTransientUiImmediately() {
+        copyBarView.finishSplitSelection()
         val outgoing = currentPanel
         (outgoing as? ResettablePanel)?.resetToDefault()
         if (outgoing === gridView) onExpandClosed()
@@ -637,14 +697,17 @@ class InputView(context: Context) : LinearLayout(context) {
 
     fun hasOverlay(): Boolean = when {
         translateBarView.isModeDialogShowing() -> true
+        copyBarActive && copyBarShown -> false
         else -> currentPanel != null || editBarActive || preeditEditingNow
     }
 
     private fun topOverlay(): Pair<BackKind, View?> {
         return when {
             translateBarView.isModeDialogShowing() -> BackKind.TRANSLATE_DIALOG to null
+            copyBarActive && copyBarShown -> BackKind.NONE to null
             editBarActive -> BackKind.EDIT_BAR to editBarView
             currentPanel != null -> BackKind.PANEL to currentPanel
+            copyBarActive -> BackKind.NONE to null
             preeditEditingNow -> BackKind.PREEDIT_EDIT to preeditView
             else -> BackKind.NONE to null
         }
@@ -699,7 +762,10 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun dockSurfaceRightPx(): Int = dockSurfaceLeftPx() + body.width
     internal fun dockSurfaceTopPx(): Int = bodySlot.top + body.top
     internal fun dockSurfaceBottomPx(): Int = dockSurfaceTopPx() + body.height
+    internal fun surfaceClipsTopCornersForTest(): Boolean = body.clipToOutline
     internal fun surfaceTopRadiusPxForTest(): Float = body.topRadiusPx()
+    internal fun surfaceTopOutlineForTest(): Outline = Outline().also { body.outlineProvider?.getOutline(body, it) }
+    internal fun surfaceContainerHeightForTest(): Int = body.height
     internal fun dockHeightSpecForTest(): LandscapeDockSizing.HeightSpec? = lastDockHeightSpec
     internal fun keyboardMinimumKeyWidthPxForTest(): Float = keyboardView.minimumKeyWidthForTest()
 

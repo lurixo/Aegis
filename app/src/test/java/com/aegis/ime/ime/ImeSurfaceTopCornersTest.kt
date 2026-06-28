@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import android.graphics.Rect
 import android.view.View
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
@@ -34,6 +35,7 @@ import org.robolectric.annotation.Config
 class ImeSurfaceTopCornersTest {
 
     private val ctx = RuntimeEnvironment.getApplication()
+    private val density = ctx.resources.displayMetrics.density
 
     private fun layout(iv: InputView) {
         iv.measure(
@@ -41,6 +43,42 @@ class ImeSurfaceTopCornersTest {
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
         )
         iv.layout(0, 0, iv.measuredWidth, iv.measuredHeight)
+    }
+
+    private fun assertTopRounded(iv: InputView, state: String) {
+        val expected = ImeShapes.surfaceTopRadiusDp * density
+        assertTrue("$state: the surface must clip its top corners", iv.surfaceClipsTopCornersForTest())
+        assertEquals("$state: surface corner radius", expected, iv.surfaceTopRadiusPxForTest(), 0.01f)
+
+        val outline = iv.surfaceTopOutlineForTest()
+        assertEquals("$state: outline is a round rect at the surface radius", expected, outline.radius, 0.5f)
+        val rect = Rect()
+        assertTrue("$state: outline exposes its round rect", outline.getRect(rect))
+        assertEquals("$state: rounding starts at the very top of the surface", 0, rect.top)
+        assertEquals("$state: rounding spans the full surface width", iv.dockSurfaceWidthPx(), rect.width())
+        assertTrue(
+            "$state: bottom corners stay square — the outline runs past the surface bottom",
+            rect.bottom > iv.surfaceContainerHeightForTest(),
+        )
+    }
+
+    @Test fun surface_top_corners_rounded_at_container_level_in_every_bar_state() {
+        val iv = InputView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        layout(iv)
+        assertTopRounded(iv, "idle pill")
+
+        iv.showCandidates(listOf("你好", "你", "尼", "拟"), "ni'hao", emptyList())
+        layout(iv)
+        assertTopRounded(iv, "candidates")
+
+        iv.showCopyBar("这是一段被复制的内容")
+        layout(iv)
+        assertTopRounded(iv, "copy bar")
+
+        iv.hideCopyBar()
+        iv.showEditBar(true)
+        layout(iv)
+        assertTopRounded(iv, "edit bar")
     }
 
     @Test fun the_preedit_tab_starts_where_the_top_corners_end() = assertPreeditTabClearsTheCorners()
