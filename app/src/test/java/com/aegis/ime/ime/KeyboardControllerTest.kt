@@ -210,6 +210,55 @@ class KeyboardControllerTest {
         assertEquals(listOf("ni", "，"), h.commits)
     }
 
+
+    @Test fun single_shift_tap_is_one_shot_uppercase_then_back_to_lowercase() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        c.onKey(act(KeyAction.SHIFT))
+        assertEquals("ONCE", c.shiftStateName())
+        c.onKey(out("a"))
+        c.onKey(out("b"))
+        assertEquals(listOf("A", "b"), h.commits)
+        assertEquals("OFF", c.shiftStateName())
+    }
+
+    @Test fun double_tap_shift_lock_keeps_uppercasing_until_toggled() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        c.onKey(act(KeyAction.SHIFT_LOCK))
+        assertEquals("LOCK", c.shiftStateName())
+        c.onKey(out("a")); c.onKey(out("b"))
+        assertEquals(listOf("A", "B"), h.commits)
+        assertEquals("LOCK", c.shiftStateName())
+        c.onKey(act(KeyAction.SHIFT))
+        assertEquals("OFF", c.shiftStateName())
+    }
+
+    @Test fun shift_is_inert_in_cn_full_pinyin_26_key() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        c.onKey(act(KeyAction.SHIFT))
+        assertEquals("shift stays OFF in CN pinyin", "OFF", c.shiftStateName())
+        c.onKey(act(KeyAction.SHIFT_LOCK))
+        assertEquals("double-tap lock is inert in CN pinyin too", "OFF", c.shiftStateName())
+    }
+
+    @Test fun shift_lock_resets_on_layout_switch_and_on_lang_toggle() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.TOGGLE_LANG)); c.onKey(act(KeyAction.SHIFT_LOCK))
+        assertEquals("LOCK", c.shiftStateName())
+        c.onKey(act(KeyAction.SWITCH_NUMBERS))
+        assertEquals("OFF", c.shiftStateName())
+        c.onKey(act(KeyAction.SWITCH_ALPHA)); c.onKey(act(KeyAction.SHIFT_LOCK))
+        assertEquals("LOCK", c.shiftStateName())
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        assertEquals("OFF", c.shiftStateName())
+    }
+
     @Test fun english_letters_commit_directly_not_buffered() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)

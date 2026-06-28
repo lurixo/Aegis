@@ -90,15 +90,15 @@ class AssociationsAndCalcTest {
         val h = EditorHost()
         val c = KeyboardController(h, emptyEngine)
         "12+34*2".forEach { c.onKey(digit(it.toString())) }
-        assertEquals("the calculator offers 80", listOf("80"), c.candidateWords())
+        assertEquals("the calculator offers =80", listOf("=80"), c.candidateWords())
     }
 
-    @Test fun u25_picking_the_result_replaces_the_expression() {
+    @Test fun u25_picking_the_result_appends_it_after_the_expression() {
         val h = EditorHost()
         val c = KeyboardController(h, emptyEngine)
         "12+34*2".forEach { c.onKey(digit(it.toString())) }
         c.onPickCandidate(0)
-        assertEquals("the expression is replaced by its result", "80", h.text)
+        assertEquals("=80 is appended, the expression is kept", "12+34*2=80", h.text)
         assertTrue("no candidate lingers after committing the result", c.candidateWords().isEmpty())
     }
 
@@ -122,30 +122,30 @@ class AssociationsAndCalcTest {
         val h = EditorHost()
         val c = KeyboardController(h, emptyEngine)
         "买了3个5*2".forEach { c.onKey(digit(it.toString())) }
-        assertEquals("trailing 5*2 is offered as 10", listOf("10"), c.candidateWords())
+        assertEquals("trailing 5*2 is offered as =10", listOf("=10"), c.candidateWords())
 
         h.moveCursorTo(4)
 
-        c.onPickCandidate(c.candidateWords().indexOf("10"))
-        assertEquals("no unrelated characters were deleted", "买了3个5*2", h.text)
+        c.onPickCandidate(c.candidateWords().indexOf("=10"))
+        assertEquals("nothing is appended at the stale caret; text intact", "买了3个5*2", h.text)
     }
 
     @Test fun u25_m3_picking_a_still_valid_result_after_an_unrelated_edit_still_replaces() {
         val h = EditorHost()
         val c = KeyboardController(h, emptyEngine)
         "5*2".forEach { c.onKey(digit(it.toString())) }
-        assertEquals(listOf("10"), c.candidateWords())
+        assertEquals(listOf("=10"), c.candidateWords())
         c.onPickCandidate(0)
-        assertEquals("the live expression is replaced by its result", "10", h.text)
+        assertEquals("the result is appended after the live expression", "5*2=10", h.text)
     }
 
     @Test fun u25_m3_picking_with_an_active_selection_skips_the_replace() {
         val h = EditorHost()
         val c = KeyboardController(h, emptyEngine)
         "5*2".forEach { c.onKey(digit(it.toString())) }
-        assertEquals(listOf("10"), c.candidateWords())
+        assertEquals(listOf("=10"), c.candidateWords())
         h.selectionActive = true
-        c.onPickCandidate(c.candidateWords().indexOf("10"))
-        assertEquals("with a selection active the calc replace is skipped (no data loss)", "5*2", h.text)
+        c.onPickCandidate(c.candidateWords().indexOf("=10"))
+        assertEquals("with a selection active the calc append is skipped (no data loss)", "5*2", h.text)
     }
 }
