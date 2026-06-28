@@ -114,6 +114,80 @@ class T9RerankEvalTest {
         File("build/t9_report.txt").apply { parentFile.mkdirs(); writeText(sb.toString()) }
     }
 
+    // FLIP cases: context should lift the contextually-correct same-code word over the higher-freq one.
+    private val flipSet = listOf(
+        Triple("非常", "xiexie", "谢谢"), Triple("不用", "xiexie", "谢谢"),
+        Triple("真的", "xiexie", "谢谢"), Triple("说声", "xiexie", "谢谢"),
+        Triple("两个", "gege", "哥哥"), Triple("我", "gege", "哥哥"),
+        Triple("我们", "yiqi", "一起"), Triple("有意思", "yiqi", "一起"),
+    )
+    // CONTROL cases: the high-freq word is the right answer here; a too-strong context must NOT flip it.
+    private val controlSet = listOf(
+        Triple("我喜欢", "xiexie", "这些"), Triple("看看", "xiexie", "这些"),
+        Triple("买", "xiexie", "这些"), Triple("送你", "xiexie", "这些"),
+    )
+
+    @Test
+    fun reportContextDisambiguation() {
+        assumeTrue("assets present", t9File.exists() && lmFile.exists())
+        val t9 = BinaryDict.fromFile(t9File)
+        val lm = CharBigramLM.fromFile(lmFile)
+        val oct = if (gramFile.exists()) OctagramReader.fromFile(gramFile) else null
+
+        val sb = StringBuilder("③ context-aware T9 — contextWeight sweep (octagram=${oct != null})\n")
+        sb.append("flip set=${flipSet.size} (context-correct word), control set=${controlSet.size} (freq word correct)\n\n")
+        // ③前 baseline (no context at all)
+        val plain = PinyinDecoder(t9, lm, octagram = oct)
+        val flipBefore = flipSet.count { (_, py, e) -> plain.decodeCovered(toT9(py), 30).firstOrNull()?.word == e }
+        sb.append("③前(无上下文): flip ${flipBefore}/${flipSet.size}\n")
+        sb.append(String.format("%-6s %-18s %-18s%n", "ctxW", "flip(↑good)", "control(keep good)"))
+        for (w in listOf(1.0, 2.0, 3.0, 4.0)) {
+            val d = PinyinDecoder(t9, lm, octagram = oct, contextWeight = w)
+            val f = flipSet.count { (c, py, e) -> d.decodeCovered(toT9(py), 30, context = c).firstOrNull()?.word == e }
+            val k = controlSet.count { (c, py, e) -> d.decodeCovered(toT9(py), 30, context = c).firstOrNull()?.word == e }
+            sb.append(String.format("%-6.1f %-18s %-18s%n", w,
+                "${f}/${flipSet.size} (${"%.0f".format(100.0 * f / flipSet.size)}%)",
+                "${k}/${controlSet.size} (${"%.0f".format(100.0 * k / controlSet.size)}%)"))
+        }
+        // per-case detail at the shipped default
+        sb.append("\n--- detail @ contextWeight=2.0 ---\n")
+        val dd = PinyinDecoder(t9, lm, octagram = oct, contextWeight = 2.0)
+        for ((c, py, e) in flipSet + controlSet) {
+            val code = toT9(py)
+            val before = plain.decodeCovered(code, 30).firstOrNull()?.word
+            val after = dd.decodeCovered(code, 30, context = c).firstOrNull()?.word
+            sb.append("  「$c」+$code 前:$before 后:$after (exp $e)${if (after == e && before != e) " ✦flip" else if (after != e) " ✗" else ""}\n")
+        }
+        println(sb)
+        File("build/t9_context_report.txt").apply { parentFile.mkdirs(); writeText(sb.toString()) }
+    }
+
+    @Test
+    fun probeContextCharBigramOnly() {
+        assumeTrue("assets present", t9File.exists() && lmFile.exists())
+        val t9 = BinaryDict.fromFile(t9File)
+        val lm = CharBigramLM.fromFile(lmFile)
+        val d = PinyinDecoder(t9, lm) // NO octagram — char-bigram-only (the default user)
+        val cases = listOf(
+            "大" to ("gege" to "哥哥"), "我" to ("gege" to "哥哥"), "两个" to ("gege" to "哥哥"),
+            "表" to ("gege" to "哥哥"), "亲" to ("gege" to "哥哥"),
+            "非常" to ("xiexie" to "谢谢"), "不用" to ("xiexie" to "谢谢"), "说" to ("xiexie" to "谢谢"),
+            "一" to ("qishi" to "其实"), "看" to ("dianshi" to "电视"), "我们" to ("yiqi" to "一起"),
+        )
+        val sb = StringBuilder("char-bigram-only context (no octagram) — does it flip #1?\n")
+        var flips = 0
+        for ((ctx, pe) in cases) {
+            val (py, exp) = pe; val code = toT9(py)
+            val before = d.decodeCovered(code, 30).firstOrNull()?.word
+            val after = d.decodeCovered(code, 30, context = ctx).firstOrNull()?.word
+            if (after == exp && before != exp) flips++
+            sb.append("  「$ctx」+$code 前:$before 后:$after (want $exp)${if (after == exp && before != exp) " ✦" else ""}\n")
+        }
+        sb.append("char-bigram-only flips: $flips/${cases.size}\n")
+        println(sb)
+        File("build/t9_context_nooct.txt").apply { parentFile.mkdirs(); writeText(sb.toString()) }
+    }
+
     @Test
     fun probeOctagramWordScores() {
         assumeTrue("t9 + octagram present", t9File.exists() && gramFile.exists())
