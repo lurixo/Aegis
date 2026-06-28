@@ -16,7 +16,7 @@
 package com.aegis.ime.ime.theme
 
 object ImeShapes {
-    const val keyRadiusDp = 13f
+    const val keyRadiusDp = 12f
 
     const val cardRadiusDp = 16f
 
