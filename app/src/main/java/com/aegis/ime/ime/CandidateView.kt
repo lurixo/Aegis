@@ -47,9 +47,13 @@ class CandidateView(context: Context) : View(context) {
     var onFunction: (BarFunction) -> Unit = {}
     var onExpand: () -> Unit = {}
     var onCollapse: () -> Unit = {}
+    var onCollapseExpanded: () -> Unit = {} // U14: collapse the A2 grid via the (now flipped) right chevron
 
     private var items: List<String> = emptyList()
     private var composing: String = ""
+    // U14: true while the A2 expanded grid is open — flips the right chevron (⌄→⌃) and makes tapping it
+    // collapse the grid instead of (re)expanding it.
+    private var expanded = false
     private val hitRects = ArrayList<RectF>() // content-space cell rects (reused pool)
     private var hitCount = 0
     private var contentWidth = 0f
@@ -132,6 +136,16 @@ class CandidateView(context: Context) : View(context) {
     /** Number of candidates currently rendered in the strip (test hook, U1 regression guard). */
     internal fun itemCount(): Int = items.size
 
+    /** U14: tell the strip whether the A2 expanded grid is open, so the chevron flips + toggles collapse. */
+    fun setExpanded(value: Boolean) {
+        if (value == expanded) return
+        expanded = value
+        invalidate()
+    }
+
+    /** U14 test seam: the chevron currently drawn at the right edge (⌃ when expanded, else ⌄). */
+    internal fun chevronGlyph(): String = if (expanded) "⌃" else "⌄"
+
     private fun layoutCells() {
         hitCount = items.size
         var x = 0f // ★U: start flush-left so the first candidate sits ~one padding (14dp) from the edge,
@@ -173,10 +187,10 @@ class CandidateView(context: Context) : View(context) {
         }
         canvas.restore()
 
-        // Fixed expand affordance at the right edge.
+        // Fixed expand/collapse affordance at the right edge (U14: ⌄ to expand, ⌃ once expanded).
         canvas.drawRect(visibleW, 0f, width.toFloat(), height.toFloat(), expandBgPaint)
         canvas.drawRect(visibleW, height * 0.2f, visibleW + density, height * 0.8f, sepPaint)
-        canvas.drawText("⌄", visibleW + expandW / 2f, baseline, chevronPaint)
+        canvas.drawText(if (expanded) "⌃" else "⌄", visibleW + expandW / 2f, baseline, chevronPaint)
     }
 
     /** Floating rounded-capsule toolbar with self-drawn linear icons. */
@@ -280,7 +294,7 @@ class CandidateView(context: Context) : View(context) {
                     return true
                 }
                 if (items.isNotEmpty() && event.x >= width - expandW) {
-                    performClick(); onExpand(); return true
+                    performClick(); if (expanded) onCollapseExpanded() else onExpand(); return true
                 }
                 val cx = event.x + scrollX // screen → content coordinate
                 for (i in 0 until hitCount) {
