@@ -26,6 +26,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.layout.SymbolCatalog
 
@@ -153,7 +154,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     private fun netHeader(text: String): TextView = TextView(context).apply {
         this.text = text
         setTextColor(palette.keyLabelSecondary)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.caption)
         setPadding(dp(8), dp(6), dp(8), dp(4))
     }
 
@@ -168,7 +169,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         ellipsize = null
         minimumHeight = dp(44)
         gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
         setTextColor(palette.keyLabel)
         background = GradientDrawable().apply { setColor(palette.keySurface); cornerRadius = ImeShapes.keyRadiusDp * density }
         val ph = dp(14); setPadding(ph, dp(8), ph, dp(8))
@@ -190,7 +191,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     private fun railTab(index: Int, title: String): TextView = TextView(context).apply {
         text = title
         gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
         setPadding(0, dp(13), 0, dp(13))
         isClickable = true
         setOnClickListener { showCategory(index) }
@@ -214,7 +215,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
             TextView(context).apply {
                 text = symbol
                 gravity = Gravity.CENTER
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 21f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.display)
                 setTextColor(palette.keyLabel)
                 val pv = dp(10); setPadding(0, pv, 0, pv)
             },
@@ -223,7 +224,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         if (badge != null) tile.addView(
             TextView(context).apply {
                 text = badge
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 9f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.caption)
                 setTextColor(palette.keyLabelSecondary)
                 setPadding(0, 0, dp(4), dp(2))
             },
@@ -236,7 +237,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         text = "最近使用的符号会显示在这里"
         gravity = Gravity.CENTER
         setTextColor(palette.keyHint)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
         setPadding(dp(16), dp(40), dp(16), dp(16))
         layoutParams = GridLayout.LayoutParams().apply {
             width = 0
@@ -283,7 +284,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     private fun barButton(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
         text = label
         gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         setTextColor(palette.keyLabelSecondary)
         isClickable = true
         setOnClickListener { onClick() }
