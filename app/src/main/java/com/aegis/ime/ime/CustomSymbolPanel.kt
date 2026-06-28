@@ -134,7 +134,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     private fun chip(label: String, removable: Boolean, onClick: () -> Unit): View = TextView(context).apply {
         text = label
         gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, if (removable) 15f else 18f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, if (removable) ImeType.body else ImeType.title)
         setTextColor(if (removable) colors.deletable else colors.keyLabel)
         background = GradientDrawable().apply { setColor(this@CustomSymbolPanel.colors.keySurface); cornerRadius = ImeShapes.keyRadiusDp * density }
         isClickable = true

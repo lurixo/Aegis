@@ -122,6 +122,17 @@ class RenderHarness {
         }
     }
 
+    @Test fun clipboard_normal() {
+        val h = (300 * ctx.resources.displayMetrics.density).toInt()
+        for ((t, pal) in themes) {
+            val v = ClipboardView(ctx).apply {
+                historyProvider = { listOf("第一条复制内容", "second clip on the board", "三") }
+                applyPalette(pal)
+            }
+            snap(v, h, "clip_normal_$t.png")
+        }
+    }
+
     @Test fun clipboard_select_delete() {
         val h = (300 * ctx.resources.displayMetrics.density).toInt()
         for ((t, pal) in themes) {
