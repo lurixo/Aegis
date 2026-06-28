@@ -63,6 +63,11 @@ class ClipImageStore(private val dir: File) {
         BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })
     }.getOrNull()
 
+    fun isStoredImage(path: String): Boolean = runCatching {
+        val f = File(path).canonicalFile
+        f.isFile && f.parentFile?.canonicalFile == imageDir().canonicalFile
+    }.getOrDefault(false)
+
     fun delete(path: String) { runCatching { File(path).delete() } }
 
     fun clear() { runCatching { imageDir().listFiles()?.forEach { it.delete() } } }

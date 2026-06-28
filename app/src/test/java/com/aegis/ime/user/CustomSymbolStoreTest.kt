@@ -53,6 +53,12 @@ class CustomSymbolStoreTest {
         assertEquals(listOf("、", "%"), s.list())
     }
 
+    @Test fun pasted_internal_newline_does_not_split_into_multiple_marks() {
+        val s = freshStore()
+        assertTrue(s.add("→\n←"))
+        assertEquals(listOf("→←"), s.list())
+    }
+
     @Test fun capped_at_the_max() {
         val s = freshStore()
         repeat(250) { s.add("x$it") }

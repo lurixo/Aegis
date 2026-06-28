@@ -37,6 +37,7 @@ class ClipboardView(context: Context) : FrameLayout(context) {
 
     var onPick: (String) -> Unit = {}
     var onPickImage: (String) -> Unit = {}
+    var isImage: (String) -> Boolean = { false }
     var thumbnailProvider: (String) -> Bitmap? = { null }
     var onLoadThumbnail: (String, (Bitmap?) -> Unit) -> Unit = { _, cb -> cb(null) }
     var onCopyBlockToAegis: (String) -> Unit = {}
@@ -130,7 +131,7 @@ class ClipboardView(context: Context) : FrameLayout(context) {
     }
 
     private fun card(text: String): View {
-        if (ClipboardStore.isImageEntry(text)) return imageCard(text)
+        if (isImage(text)) return imageCard(text)
         val expanded = st.expanded == text
         val col = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -286,7 +287,7 @@ class ClipboardView(context: Context) : FrameLayout(context) {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(12), dp(8), dp(12), dp(8))
             addView(pillButton("添加常用语", GREEN, GREEN_PILL, hasSel) {
-                chooseCategoryThen { c -> onSaveAsPhrasesTo(c, st.selected.toList()); exitSelect() }
+                chooseCategoryThen { c -> onSaveAsPhrasesTo(c, st.selected.filterNot { ClipboardStore.isImageEntry(it) }); exitSelect() }
             }, ll(0, dp(44), 1f).apply { rightMargin = dp(8) })
             addView(pillButton("删除", RED, RED_PILL, hasSel) {
                 val victims = st.selected.toList()
@@ -310,7 +311,7 @@ class ClipboardView(context: Context) : FrameLayout(context) {
             setPadding(dp(14), 0, dp(8), 0)
         }, ll(WC, WC))
         addView(TextView(context).apply {
-            this.text = if (ClipboardStore.isImageEntry(text)) "［图片］" else text
+            this.text = if (isImage(text)) "［图片］" else text
             maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f); setTextColor(TEXT_DARK)
             setPadding(0, dp(12), dp(14), dp(12))
