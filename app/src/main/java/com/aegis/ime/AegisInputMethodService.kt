@@ -227,10 +227,17 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         super.onStartInputView(info, restarting)
         inputView?.showPanel(null)
         // U21: restore the most-recent 复制条 across an app switch / IME re-show (reverses the old
-        // "start clean" behaviour). Suppressed in a password/secure field. ⑤ "点内容→上屏" then targets
-        // the current field (acceptable behaviour).
+        // "start clean" behaviour). VISIBILITY is decoupled from secureField — an already-captured
+        // clip is restored in EVERY field type, incl. terminal / visible-password fields like Termius that
+        // report textVisiblePassword (which previously hid it); only × dismisses it. secureField still gates
+        // CAPTURE of new clips below (onSystemClipChanged / captureClip), the real privacy boundary. ⑤
+        // "点内容→上屏" targets the current field (acceptable behaviour). The !! is safe: true ⇒ lc != null.
         val lc = lastCopy
-        if (lc != null && !secureField) inputView?.showCopyBar(lc) else inputView?.hideCopyBar()
+        if (com.aegis.ime.user.ClipboardPolicy.shouldRestoreCopyBar(lc, secureField)) {
+            inputView?.showCopyBar(lc!!)
+        } else {
+            inputView?.hideCopyBar()
+        }
         // B5: honour the user's CN default-keyboard choice (9-key unless they picked 26-key); EN stays 26-key.
         val cnLayout = getSharedPreferences("aegis", MODE_PRIVATE).getString("cn_layout", "nine")
         controller.setCnDefaultLayout(if (cnLayout == "alpha") LayoutId.ALPHA else LayoutId.NINE)

@@ -57,4 +57,27 @@ class ClipboardPolicyTest {
         assertFalse(ClipboardPolicy.blocksLearning(InputType.TYPE_CLASS_TEXT, 0))
         assertFalse(ClipboardPolicy.blocksLearning(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS, EditorInfo.IME_ACTION_DONE))
     }
+
+    // ---- copy-bar DISPLAY is decoupled from secure status (the Termius textVisiblePassword bug) ----
+
+    @Test fun copy_bar_restored_for_any_secure_status_when_a_clip_is_pending() {
+        // THE REGRESSION: a textVisiblePassword / password field (secureField == true) must NOT hide a clip
+        // captured elsewhere. Mutation guard: revert shouldRestoreCopyBar to `lastCopy != null && !secureField`
+        // (the old onStartInputView :233 condition) and the secureField == true case flips to false -> RED.
+        assertTrue(ClipboardPolicy.shouldRestoreCopyBar("copied text", secureField = true))
+        assertTrue(ClipboardPolicy.shouldRestoreCopyBar("copied text", secureField = false))
+    }
+
+    @Test fun copy_bar_not_restored_when_no_clip_pending() {
+        // No pending clip -> nothing to restore, in either field kind (also pins the call-site `!!` contract).
+        assertFalse(ClipboardPolicy.shouldRestoreCopyBar(null, secureField = false))
+        assertFalse(ClipboardPolicy.shouldRestoreCopyBar(null, secureField = true))
+    }
+
+    @Test fun capture_still_gated_a_visible_password_field_is_still_sensitive() {
+        // DISPLAY is decoupled, CAPTURE is not: the terminal field stays "sensitive" so onSystemClipChanged /
+        // captureClip (which early-return on secureField) still never harvest what's typed into it.
+        assertTrue(ClipboardPolicy.isSensitive(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD))
+        assertTrue(ClipboardPolicy.isSensitive(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD))
+    }
 }
