@@ -118,6 +118,13 @@ class InputView(context: Context) : LinearLayout(context) {
         ViewCompat.requestApplyInsets(this)
     }
 
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        Motion.reset(keyboardView)
+        Motion.reset(preeditView)
+        currentPanel?.let { Motion.reset(it) }
+    }
+
     fun barTopInsetPx(): Int = dp(26)
 
     fun showKeyboard(layout: KeyboardLayout, shifted: Boolean, locked: Boolean, lang: Lang) {
@@ -164,13 +171,15 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun barChevronGlyph(): String = candidateView.chevronGlyph()
 
     fun showPanel(panel: View?) {
-        (currentPanel as? ResettablePanel)?.takeIf { it !== panel }?.resetToDefault()
+        val outgoing = currentPanel
+        (outgoing as? ResettablePanel)?.takeIf { it !== panel }?.resetToDefault()
         panelContainer.removeAllViews()
         currentPanel = panel
         candidateView.setExpanded(panel === gridView)
         if (panel == null) {
             panelContainer.visibility = GONE
             keyboardView.visibility = VISIBLE
+            if (outgoing != null) Motion.fadeIn(keyboardView)
         } else {
             setPanelHeight(keyboardView.height.takeIf { it > 0 } ?: dp(250))
             (panel.parent as? ViewGroup)?.removeView(panel)
@@ -180,6 +189,7 @@ class InputView(context: Context) : LinearLayout(context) {
             )
             panelContainer.visibility = VISIBLE
             keyboardView.visibility = GONE
+            Motion.fadeIn(panel)
         }
     }
 
