@@ -173,4 +173,15 @@ class LayoutsTest {
         val pen = keysOf(qwerty).first { it.action == KeyAction.SHOW_SYMBOLS }
         assertEquals("✎", pen.label)
     }
+
+    @Test fun qwerty_pen_width_matches_the_adjacent_function_keys() {
+        // U-polish (pen-width): the 26-key bottom-row ✎ (symbols) must be as wide as the neighbouring 123 /
+        // 中英 function keys — "左下符号键视觉一致", not narrower than the rest of the function band.
+        val bottom = qwerty.rows.last().keys
+        val pen = bottom.first { it.action == KeyAction.SHOW_SYMBOLS }
+        val num = bottom.first { it.action == KeyAction.SWITCH_NUMBERS }
+        val lang = bottom.first { it.action == KeyAction.TOGGLE_LANG }
+        assertEquals("pen width == 123 width", num.weight, pen.weight, 1e-4f)
+        assertEquals("pen width == 中英 width", lang.weight, pen.weight, 1e-4f)
+    }
 }
