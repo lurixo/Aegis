@@ -70,6 +70,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
     fun applyPalette(p: ImePalette) {
         palette = p
         background = capsuleBg()
+        setPadding(dp(14), 0, dp(14), 0) // re-apply: setBackground(InsetDrawable) would otherwise reset padding to the insets
         render()
     }
 
