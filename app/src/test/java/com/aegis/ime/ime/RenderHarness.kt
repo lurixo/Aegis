@@ -57,9 +57,52 @@ class RenderHarness {
         bmp.eraseColor(Color.MAGENTA) // so an unrendered (blank) view is obvious
         view.draw(Canvas(bmp))
         FileOutputStream(File(outDir, name)).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        // sanity: SOME pixel must differ from the magenta fill (proves NATIVE actually rasterised)
-        val px = IntArray(wPx); bmp.getPixels(px, 0, wPx, 0, hPx / 2, wPx, 1)
-        assertTrue("$name rendered nothing (still magenta)", px.any { it != Color.MAGENTA })
+        assertMeaningful(bmp, name)
+    }
+
+    /**
+     * A meaningful "this render is not broken" gate (replaces the old single-row != magenta check, a
+     * false-positive shape that passed on an almost-blank view — the debug.11 trap). MAGENTA is the sentinel
+     * for "the view painted nothing here". Over the WHOLE bitmap we require:
+     *   (1) the view painted a surface over a real chunk of its bounds  -> catches an all-blank render;
+     *   (2) it drew content ON that surface beyond the single dominant fill -> catches a flat one-colour fill;
+     *   (3) that content is anti-aliased glyph/icon material (many distinct colours), not merely a SECOND flat
+     *       region -> so a "two flat fills, no text/icons" render also goes RED.
+     * Deliberately NOT a per-pixel golden (too brittle). NOTE it proves "a surface with real drawn content was
+     * rasterised"; it does NOT by itself prove every sub-column of a multi-region panel populated (a second
+     * flat background region clears (2) on its own) — the container snaps that care (candidate_grid) assert
+     * their population STRUCTURALLY as well (findViewsWithText below).
+     */
+    private fun assertMeaningful(bmp: Bitmap, name: String) {
+        val w = bmp.width; val h = bmp.height; val total = w * h
+        val px = IntArray(total)
+        bmp.getPixels(px, 0, w, 0, 0, w, h)
+        val hist = HashMap<Int, Int>()
+        var sentinel = 0
+        for (p in px) { if (p == Color.MAGENTA) sentinel++ else hist[p] = (hist[p] ?: 0) + 1 }
+        val painted = total - sentinel           // pixels the view actually drew over the sentinel
+        val fill = hist.values.maxOrNull() ?: 0  // dominant painted colour = the surface fill
+        val content = painted - fill             // everything drawn ON the dominant fill = glyphs / chips / icons
+        assertTrue(
+            "$name: rendered essentially nothing (still the magenta sentinel) — onDraw painted no surface",
+            painted > total / 50, // > 2% of the view actually painted
+        )
+        assertTrue(
+            "$name: a flat fill with nothing drawn on it (glyphs/chips/icons missing)",
+            content > total / 500, // > 0.2% non-(dominant-fill) content
+        )
+        assertTrue(
+            "$name: too few distinct colours — looks like flat fills with no anti-aliased content (text/icons)",
+            hist.size >= 64, // real glyph/icon AA always yields hundreds of colours; flat regions ~one each
+        )
+    }
+
+    /** Structural check: the view tree actually built a (TextView) leaf whose text contains [s]. Used to prove
+     *  a populated column rendered its items, which the pixel gate alone cannot (a flat sibling region passes it). */
+    private fun View.hasTextLeaf(s: String): Boolean {
+        val out = ArrayList<View>()
+        findViewsWithText(out, s, View.FIND_VIEWS_WITH_TEXT)
+        return out.isNotEmpty()
     }
 
     private val themes = listOf("light" to ImePalette.STATIC_LIGHT, "dark" to ImePalette.STATIC_DARK)
@@ -100,6 +143,24 @@ class RenderHarness {
         }
     }
 
+    /** S1 expanded selection grid (A2): left readings + middle candidate grid + right 返回/⌫/重输 column.
+     *  This is the rich grid the polish touched (right-column bg) but had no render case — now eyeball-able. */
+    @Test fun candidate_grid() {
+        val h = (300 * ctx.resources.displayMetrics.density).toInt()
+        for ((t, pal) in themes) {
+            val v = CandidateGridView(ctx).apply {
+                applyPalette(pal)
+                setReadings(listOf("ni", "ní", "nǐ", "nì"))
+                setCandidates(listOf("你", "你好", "尼", "拟", "泥", "逆", "妮", "倪", "腻", "匿", "昵", "旎"))
+            }
+            // Structurally prove BOTH the middle candidate grid and the left reading column populated — the
+            // pixel gate can't (their flat sibling backgrounds satisfy it on their own).
+            assertTrue("grid_$t: middle candidate grid did not populate", v.hasTextLeaf("你好"))
+            assertTrue("grid_$t: left reading column did not populate", v.hasTextLeaf("nǐ"))
+            snap(v, h, "grid_$t.png")
+        }
+    }
+
     /** U-anim: the panel-open fade is alpha-only; render the ~40% midpoint over the keyboard floor to show it. */
     @Test fun panel_fade_midpoint() {
         val pal = ImePalette.STATIC_LIGHT
@@ -119,6 +180,9 @@ class RenderHarness {
         v.draw(c)
         c.restore()
         FileOutputStream(File(outDir, "panel_fade_mid.png")).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        // even at 40% alpha the panel must have drawn OVER the keyboard floor (the fade is visible, not vanished).
+        val mid = IntArray(wPx); bmp.getPixels(mid, 0, wPx, 0, h / 2, wPx, 1)
+        assertTrue("panel_fade_mid drew nothing over the keyboard floor", mid.any { it != pal.keyboardBg })
     }
 
     @Test fun copy_bar() {
