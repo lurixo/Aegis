@@ -345,11 +345,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val iv = inputView ?: return
         val sv = symbolsView ?: SymbolsView(this).also {
             it.recentProvider = { symbolUsageStore.recent() }
-            it.onSymbol = { s -> symbolUsageStore.record(s); currentInputConnection?.commitText(s, 1); inputView?.showPanel(null) }
+            it.onSymbol = { s -> symbolUsageStore.record(s); currentInputConnection?.commitText(s, 1) }
             it.onBackspace = { currentInputConnection?.deleteSurroundingTextInCodePoints(1, 0) }
             it.onBack = { inputView?.showPanel(null) }
             symbolsView = it
         }
+        sv.resetLock()
         sv.applyPalette(imePalette)
         iv.showPanel(sv)
     }

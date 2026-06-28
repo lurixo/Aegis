@@ -69,7 +69,7 @@ class EmojiView(context: Context) : LinearLayout(context) {
         palette = p
         setBackgroundColor(p.panelBg)
         railScroll.setBackgroundColor(p.railBg)
-        bottomBarView.setBackgroundColor(p.panelSubBg)
+        bottomBarView.setBackgroundColor(p.panelBg)
         (bottomBarView as LinearLayout).let { bar ->
             for (i in 0 until bar.childCount) (bar.getChildAt(i) as? TextView)?.setTextColor(p.keyLabelSecondary)
         }
@@ -116,7 +116,7 @@ class EmojiView(context: Context) : LinearLayout(context) {
 
     private fun bottomBar(): View = LinearLayout(context).apply {
         orientation = HORIZONTAL
-        setBackgroundColor(palette.panelSubBg)
+        setBackgroundColor(palette.panelBg)
         addView(barButton("返回") { onBack() }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         addView(barButton("⌫") { onBackspace() }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
     }

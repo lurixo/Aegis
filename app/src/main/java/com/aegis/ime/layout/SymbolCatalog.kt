@@ -23,9 +23,9 @@ object SymbolCatalog {
     const val RECENT_TITLE = "常用"
 
     val categories: List<Category> = listOf(
-        Category("zh", "中文", tokens("。 ， 、 ； ： ？ ！ “ ” ‘ ’ （ ） 《 》 〈 〉 「 」 『 』 【 】 〔 〕 〖 〗 … — ～ · ※ ° ‖ ￥ 〃 ＿ ﹏ ﹋")),
+        Category("zh", "中文", tokens("， 。 、 ； ： ？ ！ “ ” ‘ ’ （ ） 《 》 〈 〉 「 」 『 』 【 】 〔 〕 〖 〗 … — ～ · ※ ° ‖ ￥ 〃 ＿ ﹏ ﹋")),
         Category("en", "英文", listOf(
-            ".", ",", ";", ":", "?", "!", "'", "\"", "`", "(", ")", "[", "]", "{", "}",
+            ",", ".", ";", ":", "?", "!", "'", "\"", "`", "(", ")", "[", "]", "{", "}",
             "<", ">", "/", "\\", "|", "@", "#", "$", "%", "^", "&", "*", "-", "_", "+", "=", "~",
             "…", "•", "·", "—", "°", "§",
         )),
@@ -41,6 +41,14 @@ object SymbolCatalog {
         Category("ipa", "音标", tokens("i ɪ e ɛ æ ə ɜ ʌ ɑ ɒ ɔ o ʊ u y ø θ ð ʃ ʒ ŋ ʤ ʧ ç x ɣ ʔ ɹ ɫ ɲ ˈ ˌ ː ˑ")),
         Category("pinyin", "拼音", tokens("a ā á ǎ à o ō ó ǒ ò e ē é ě è ê i ī í ǐ ì u ū ú ǔ ù ü ǖ ǘ ǚ ǜ n ń ň ǹ ḿ")),
     )
+
+    fun categoryTitleOf(symbol: String): String? = symbolToCategory[symbol]
+
+    private val symbolToCategory: Map<String, String> by lazy {
+        val m = LinkedHashMap<String, String>()
+        for (c in categories) for (s in c.symbols) m.putIfAbsent(s, c.title)
+        m
+    }
 
     private fun tokens(s: String): List<String> = s.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
 }
