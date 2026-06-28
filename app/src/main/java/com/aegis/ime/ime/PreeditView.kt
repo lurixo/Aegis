@@ -66,8 +66,12 @@ class PreeditView(context: Context) : View(context) {
 
     fun setText(s: String) {
         if (s == text) return
+        // U-anim: fade the pinyin tab in only on its FIRST appearance (empty -> text); a plain content change
+        // mid-composition just repaints, so there's no per-keystroke flicker. Alpha only — the band height is
+        // fixed, so this never resizes the IME.
+        val appearing = text.isEmpty() && s.isNotEmpty()
         text = s
-        invalidate()
+        if (appearing) Motion.fadeIn(this, Motion.SHORT4) else invalidate()
     }
 
     /** U12: match the candidate strip's left inset (= `body` left padding) so the pinyin aligns with it. */
