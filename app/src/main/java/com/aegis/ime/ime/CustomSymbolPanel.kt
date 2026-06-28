@@ -57,7 +57,13 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     }
     private val sectionLabels = mutableListOf<TextView>()
 
-    private val palette = SymbolCatalog.categories.flatMap { it.symbols }.distinct()
+    var backTitle: String = "‹ 自定义标点"
+        set(v) { field = v; backText.text = v }
+    var pasteLabel: String = "📋 粘贴符号"
+        set(v) { field = v; pasteText.text = v }
+
+    var addPalette: List<String> = SymbolCatalog.categories.flatMap { it.symbols }.distinct()
+        set(v) { field = v; refresh() }
 
     init {
         orientation = VERTICAL
@@ -101,7 +107,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     fun refresh() {
         val added = current()
         fillFlow(addedRows, added) { sym -> chip("$sym ✕", removable = true) { onRemove(sym) } }
-        fillFlow(paletteRows, palette.filter { it !in added }) { sym -> chip(sym, removable = false) { onAdd(sym) } }
+        fillFlow(paletteRows, addPalette.filter { it !in added }) { sym -> chip(sym, removable = false) { onAdd(sym) } }
     }
 
     private fun fillFlow(container: LinearLayout, items: List<String>, make: (String) -> View) {

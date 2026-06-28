@@ -224,4 +224,108 @@ class KeyboardViewInteractionTest {
         v.setLayout(alpha, true, false, Lang.EN); assertEquals("ONCE (hollow arrow)", "ONCE", v.shiftRenderState())
         v.setLayout(alpha, true, true, Lang.EN); assertEquals("LOCK (solid arrow)", "LOCK", v.shiftRenderState())
     }
+
+
+    @Test fun dragging_scrolls_exactly_one_to_one_with_the_finger() {
+        val v = longComboView()
+        assertTrue("the list overflows so 1:1 has room", v.maxScrollForTest() > 120f)
+        val x = v.cx()
+        val y0 = v.regTop() + v.cellH() * 3.5f
+        v.send(MotionEvent.ACTION_DOWN, x, y0, 0)
+        v.send(MotionEvent.ACTION_MOVE, x, y0 - 80f, 16)
+        assertEquals("content moved exactly 80px (1:1)", 80f, v.scrollOffsetForTest(), 0.5f)
+        v.send(MotionEvent.ACTION_MOVE, x, y0 - 30f, 32)
+        assertEquals("still 1:1 after reversing direction", 30f, v.scrollOffsetForTest(), 0.5f)
+        v.send(MotionEvent.ACTION_UP, x, y0 - 30f, 48)
+    }
+
+    @Test fun windowed_velocity_matches_a_steady_flick_speed() {
+        val v = longComboView()
+        val x = v.cx()
+        v.send(MotionEvent.ACTION_DOWN, x, 180f, 0)
+        v.send(MotionEvent.ACTION_MOVE, x, 164f, 16)
+        v.send(MotionEvent.ACTION_MOVE, x, 148f, 32)
+        v.send(MotionEvent.ACTION_MOVE, x, 132f, 48)
+        v.send(MotionEvent.ACTION_MOVE, x, 116f, 64)
+        v.send(MotionEvent.ACTION_MOVE, x, 100f, 80)
+        assertEquals("release velocity ≈ the steady flick speed", -1000f, v.flingVelocityForTest(), 80f)
+    }
+
+    @Test fun a_flick_that_eases_off_at_the_very_end_still_flings() {
+        val v = longComboView()
+        val x = v.cx()
+        fun y(c: Float) = v.regTop() + v.cellH() * c
+        v.send(MotionEvent.ACTION_DOWN, x, y(3.8f), 0)
+        v.send(MotionEvent.ACTION_MOVE, x, y(3.0f), 16)
+        v.send(MotionEvent.ACTION_MOVE, x, y(2.0f), 32)
+        v.send(MotionEvent.ACTION_MOVE, x, y(1.0f), 48)
+        v.send(MotionEvent.ACTION_MOVE, x, y(1.0f), 80)
+        v.send(MotionEvent.ACTION_UP, x, y(1.0f), 80)
+        assertTrue("a real flick with a soft finish still hands off to a fling", v.isFlingingForTest())
+    }
+
+    @Test fun reversing_after_overscroll_tracks_the_finger_immediately() {
+        val v = longComboView()
+        val max = v.maxScrollForTest()
+        assertTrue("the list overflows", max > 0f)
+        val x = v.cx()
+        val y0 = v.regTop() + v.cellH() * 3.5f
+        v.send(MotionEvent.ACTION_DOWN, x, y0, 0)
+        v.send(MotionEvent.ACTION_MOVE, x, y0 - (max + 200f), 16)
+        assertEquals("pinned at the bottom", max, v.scrollOffsetForTest(), 0.5f)
+        v.send(MotionEvent.ACTION_MOVE, x, y0 - (max + 200f) + 30f, 32)
+        assertEquals("reverse tracks the finger 1:1, no absorbed overshoot", max - 30f, v.scrollOffsetForTest(), 0.5f)
+        v.send(MotionEvent.ACTION_UP, x, y0 - (max + 200f) + 30f, 48)
+    }
+
+
+    private fun numpadView(): KeyboardView {
+        val v = KeyboardView(context)
+        v.setLayout(Layouts.numpad(Layouts.numpadOperators()), false, false, Lang.CN)
+        v.measure(
+            View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+        )
+        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+        return v
+    }
+
+    private fun KeyboardView.opCx() = 0.1f * width
+    private fun KeyboardView.opCellH() = (height - 2 * gap) / 4f
+    private fun KeyboardView.opCellY(i: Int) = gap + opCellH() * (i + 0.5f)
+
+    @Test fun all_four_row_pages_share_one_height_so_switching_never_resizes() {
+        fun measuredH(layout: com.aegis.ime.layout.KeyboardLayout): Int {
+            val v = KeyboardView(context)
+            v.setLayout(layout, false, false, Lang.CN)
+            v.measure(
+                View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+            )
+            return v.measuredHeight
+        }
+        val nineH = measuredH(Layouts.nine(Lang.CN, Layouts.ninePunctuation()))
+        assertEquals("numpad matches the 9-key (no 9-key⇄123 resize)", nineH, measuredH(Layouts.numpad()))
+        assertEquals("number page matches", nineH, measuredH(Layouts.forId(com.aegis.ime.layout.LayoutId.NUMBER, Lang.CN)))
+        assertEquals("symbol page matches", nineH, measuredH(Layouts.forId(com.aegis.ime.layout.LayoutId.SYMBOL, Lang.CN)))
+        assertTrue("the 5-row 26-key keeps the base height and stays taller",
+            measuredH(Layouts.forId(com.aegis.ime.layout.LayoutId.ALPHA, Lang.CN)) > nineH)
+    }
+
+    @Test fun tapping_an_operator_in_the_numpad_column_commits_it() {
+        var picked: Key? = null
+        val v = numpadView().apply { onKey = { picked = it } }
+        v.tap(v.opCx(), v.opCellY(0))
+        assertEquals("+", picked?.label)
+    }
+
+    @Test fun the_numpad_operator_column_scrolls_one_to_one_too() {
+        val v = numpadView()
+        assertTrue("9 operators over 4 visible → it overflows", v.maxScrollForTest() > 40f)
+        val x = v.opCx(); val y0 = v.opCellY(3)
+        v.send(MotionEvent.ACTION_DOWN, x, y0, 0)
+        v.send(MotionEvent.ACTION_MOVE, x, y0 - 40f, 16)
+        assertEquals("the operator strip tracks the finger 1:1", 40f, v.scrollOffsetForTest(), 0.5f)
+        v.send(MotionEvent.ACTION_UP, x, y0 - 40f, 32)
+    }
 }

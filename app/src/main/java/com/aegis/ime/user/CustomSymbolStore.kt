@@ -17,10 +17,13 @@ package com.aegis.ime.user
 
 import android.content.SharedPreferences
 
-class CustomSymbolStore(private val prefs: SharedPreferences) {
+class CustomSymbolStore(
+    private val prefs: SharedPreferences,
+    private val key: String = "custom_symbols",
+) {
 
     fun list(): List<String> =
-        prefs.getString(KEY, "").orEmpty().split("\n").filter { it.isNotEmpty() }
+        prefs.getString(key, "").orEmpty().split("\n").filter { it.isNotEmpty() }
 
     fun add(symbol: String): Boolean {
         val s = symbol.filterNot { it.isISOControl() }.trim()
@@ -36,11 +39,10 @@ class CustomSymbolStore(private val prefs: SharedPreferences) {
     }
 
     private fun save(items: List<String>) {
-        prefs.edit().putString(KEY, items.joinToString("\n")).apply()
+        prefs.edit().putString(key, items.joinToString("\n")).apply()
     }
 
     private companion object {
-        const val KEY = "custom_symbols"
         const val MAX = 200
     }
 }

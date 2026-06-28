@@ -69,6 +69,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var editPanelView: EditPanelView? = null
     private var customSymbolView: CustomSymbolPanel? = null
     private val customSymbolStore by lazy { CustomSymbolStore(getSharedPreferences("aegis", MODE_PRIVATE)) }
+    private var customOperatorView: CustomSymbolPanel? = null
+    private val customOperatorStore by lazy { CustomSymbolStore(getSharedPreferences("aegis", MODE_PRIVATE), "custom_operators") }
+    private val OPERATOR_PALETTE = listOf(
+        "*", "/", "±", "√", "^", "<", ">", "≤", "≥", "≠", "≈", "∑", "∏", "∫", "π", "∞", "°", "|", "{", "}", "[", "]", "!",
+    )
     private var selecting = false
     private var deletedSnapshot: CharSequence? = null
     private val clipboardStore by lazy { ClipboardStore(filesDir).also { it.load() } }
@@ -93,6 +98,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         symbolsView?.applyPalette(imePalette)
         editPanelView?.applyPalette(imePalette)
         customSymbolView?.applyPalette(imePalette)
+        customOperatorView?.applyPalette(imePalette)
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -112,8 +118,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.onShowSymbols = { showSymbolsPanel() }
         controller.onShowSettings = { openSettings() }
         controller.onShowCustomSymbols = { showCustomSymbolPanel() }
+        controller.onShowCustomOperators = { showCustomOperatorPanel() }
         controller.onClosePanel = { inputView?.showPanel(null) }
         controller.setCustomSymbols(customSymbolStore.list())
+        controller.setCustomOperators(customOperatorStore.list())
         Thread {
             runCatching { userModel.load(userDbFile); userDbMtime = userDbFile.lastModified() }
             userDbLoaded = true
@@ -329,6 +337,38 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         panel.resetToDefault()
         panel.applyPalette(imePalette)
         iv.showPanel(panel)
+    }
+
+    private fun showCustomOperatorPanel() {
+        val iv = inputView ?: return
+        val panel = customOperatorView ?: CustomSymbolPanel(this).also {
+            it.backTitle = "‹ 自定义运算符"
+            it.pasteLabel = "📋 粘贴运算符"
+            it.addPalette = OPERATOR_PALETTE
+            it.current = { customOperatorStore.list() }
+            it.onAdd = { s -> customOperatorStore.add(s); controller.setCustomOperators(customOperatorStore.list()); it.refresh() }
+            it.onRemove = { s -> customOperatorStore.remove(s); controller.setCustomOperators(customOperatorStore.list()); it.refresh() }
+            it.onPaste = { pasteCustomOperator() }
+            it.onBack = { inputView?.showPanel(null) }
+            customOperatorView = it
+        }
+        panel.applyPalette(imePalette)
+        iv.showPanel(panel)
+    }
+
+    private fun pasteCustomOperator() {
+        val t = runCatching {
+            clipboardManager.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString()
+        }.getOrNull()?.filterNot { it.isISOControl() }?.trim().orEmpty()
+        val msg = when {
+            t.isEmpty() -> "剪贴板为空"
+            t.length > 16 -> "内容过长,未作为运算符添加"
+            customOperatorStore.add(t) -> {
+                controller.setCustomOperators(customOperatorStore.list()); customOperatorView?.refresh(); "已添加：$t"
+            }
+            else -> "已存在或已达上限"
+        }
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
     }
 
     private fun pasteCustomSymbol() {
