@@ -103,6 +103,19 @@ class SeparatorLossTest {
         assertTrue("好 reachable", "好" in d.homophonesAt(input, 1))
     }
 
+
+    @Test fun commonCharsOutrankRareOnesInTheSingleCharLayer() {
+        val d = decoder()
+        for (input in listOf("chaici", "chai'ci")) {
+            val s = singles(d.decodeCovered(input, 30))
+            val chai = s.filter { it in dictSingles("chai") }
+            assertTrue("[$input] 拆 present", "拆" in chai)
+            assertTrue("[$input] 拆 before 钗", chai.indexOf("拆") < chai.indexOf("钗"))
+            assertTrue("[$input] 钗 before 豺", chai.indexOf("钗") < chai.indexOf("豺"))
+            assertTrue("[$input] 拆 in the visible head (top 8)", "拆" in s.take(8))
+        }
+    }
+
     @Test fun pickingTheLeadingCharConsumesThroughTheSeparator() {
         val d = decoder()
         val chaiCand = d.decodeCovered("chai'ci", 30).firstOrNull { it.word == "拆" }

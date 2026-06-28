@@ -17,6 +17,7 @@ package com.aegis.ime.decoder
 
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -54,6 +55,22 @@ class CandidateTailInvariantTest {
 
     private fun isSingleChar(word: String) = word.codePointCount(0, word.length) == 1
 
+    private fun rarity(board: Keyboard, input: String, cands: List<Cand>): List<Boolean> {
+        val cache = HashMap<Int, Map<String, Double>>()
+        return cands.map { cand ->
+            if (!isSingleChar(cand.word)) {
+                false
+            } else {
+                val covered = cand.coveredLen.coerceIn(1, input.length)
+                val freqs = cache.getOrPut(covered) {
+                    board.decoder.homophoneFreqs(input.substring(0, covered)).toMap()
+                }
+                val freq = freqs[cand.word]
+                freq != null && board.decoder.homophoneLayer(cand.word, freq) >= PinyinDecoder.LAYER_RARE
+            }
+        }
+    }
+
     private class Run(val label: String, val board: Keyboard, val input: String, val cands: List<Cand>) {
         val words = cands.map { it.word }
     }
@@ -70,6 +87,34 @@ class CandidateTailInvariantTest {
         )
     }
 
+    private fun anchorRuns(): List<Run> {
+        val out = ArrayList<Run>()
+        for (board in boards) {
+            for ((first, second) in SPLIT_ANCHORS) {
+                for (context in CONTEXTS) out.addAll(runsFor(board, first, second, context))
+            }
+            for (context in CONTEXTS) {
+                val input = board.keys("xie")
+                out.add(
+                    Run("${board.name} xie ctx=$context typed straight", board, input,
+                        board.decoder.decodeCovered(input, LIMIT, emptySet(), context)),
+                )
+                out.add(
+                    Run("${board.name} xie ctx=$context locked", board, input,
+                        board.decoder.decodeCoveredAtomic(input, LIMIT, emptySet(), context)),
+                )
+            }
+            for (reading in PREFIX_EXPOSURE) {
+                val input = board.keys(reading)
+                out.add(
+                    Run("${board.name} $reading typed straight", board, input,
+                        board.decoder.decodeCovered(input, LIMIT)),
+                )
+            }
+        }
+        return out
+    }
+
     private fun exposedEntries(board: Keyboard, input: String, words: Collection<String>): List<String> {
         val out = ArrayList<String>()
         for (word in words) {
@@ -78,6 +123,29 @@ class CandidateTailInvariantTest {
             }
         }
         return out
+    }
+
+    @Test fun rareCharactersFormTheClosingRunOnBothKeyboards() {
+        assumeTrue(assetsPresent())
+        var checked = 0
+        val runs = anchorRuns()
+        for (run in runs) {
+            val rare = rarity(run.board, run.input, run.cands)
+            val firstRare = rare.indexOfFirst { it }
+            if (firstRare < 0) continue
+            checked++
+            val lastWord = run.cands.indexOfLast { !isSingleChar(it.word) }
+            assertTrue(
+                "${run.label}: a multi-character candidate follows the rare run at $lastWord, rare starts at $firstRare",
+                lastWord < firstRare,
+            )
+            assertTrue(
+                "${run.label}: the rare run must close the list, broken at " +
+                    "${rare.drop(firstRare).indexOfFirst { !it } + firstRare}",
+                rare.drop(firstRare).all { it },
+            )
+        }
+        assertEquals("every anchor run must carry a rare closing run", runs.size, checked)
     }
 
     @Test fun frequentEntriesKeepTheirSlotUnderLongerInputsOnBothKeyboards() {
@@ -159,6 +227,12 @@ class CandidateTailInvariantTest {
 
     private companion object {
         const val LIMIT = 30
+
+        val CONTEXTS = listOf("", "他说")
+
+        val SPLIT_ANCHORS = listOf("kuai" to "le", "pi" to "liang", "xie" to "zhe")
+
+        val PREFIX_EXPOSURE = listOf("silianxi", "qijiaren")
 
         val ZERO_LOSS_READINGS = listOf(
             "kuaile", "piliang", "xiezhe", "silianxi", "qijiaren", "lidan", "limin", "lilian",

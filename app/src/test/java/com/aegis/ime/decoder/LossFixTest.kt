@@ -152,6 +152,18 @@ class LossFixTest {
     }
 
 
+    @Test fun wordLayerQualityUnchanged() {
+        val d = letterDecoder()
+        assertEquals("best sentence still leads", "你好", d.decodeCovered("nihao", 30).firstOrNull()?.word)
+        assertTrue("multi-char prefix word 喝水 still surfaces (★G word layer intact)",
+            d.decodeCovered("heshui", 30).any { it.word == "喝水" })
+        val cands = d.decodeCovered("heshui", 30)
+        val firstSingleIdx = cands.indexOfFirst { isSingleChar(it.word) }
+        val heShuiWordIdx = cands.indexOfFirst { it.word == "喝水" }
+        assertTrue("word candidates precede the appended 单字 layer", heShuiWordIdx in 0 until firstSingleIdx)
+    }
+
+
     @Test fun t9PathAlsoLossless() {
         assumeTrue("t9 asset present", FullDictTestAssets.available(t9File))
         val t9 = BinaryDict.fromFile(t9File)
@@ -199,6 +211,37 @@ class LossFixTest {
             "$w precedes the appended 单字 layer (at ${shown.indexOf(w)}, singles start at $firstSingleIdx)",
             shown.indexOf(w) in 0 until firstSingleIdx,
         )
+    }
+
+    private fun assertWordLayerPrecedesTheSingleCharLayer(source: BinaryDict, d: PinyinDecoder, key: String) {
+        val limit = 30
+        val words = source.exact(key).filterNot { isSingleChar(it.word) }.map { it.word }.toSet()
+        val singles = dictSingles(source, key)
+        assumeTrue("full dict present", words.isNotEmpty() && singles.size > 8)
+        val (cands, remainderStart) = d.decodeCoveredLayered(key, limit)
+        val shown = cands.map { it.word }
+        val missing = words - shown.toSet()
+        assertTrue("every word the dict holds for '$key' is reachable; missing $missing", missing.isEmpty())
+        for (w in words) assertTrue(
+            "$w precedes the appended 单字 layer (at ${shown.indexOf(w)}, the layer starts at $remainderStart)",
+            shown.indexOf(w) in 0 until remainderStart,
+        )
+        val ahead = shown.take(shown.indexOfLast { it in words }).filterNot { it in words }
+        assertTrue(
+            "only the completion budget may precede the word layer, not the ${singles.size} 单字 of '$key': " +
+                "${ahead.size} candidates ahead of the last word, ${ahead.count { it in singles }} of them 单字",
+            ahead.size <= PinyinDecoder.completionCap(limit),
+        )
+    }
+
+    @Test fun t9WordLayerPrecedesTheSingleCharLayer_mutationGuard() {
+        assumeTrue("t9 asset present", FullDictTestAssets.available(t9File))
+        assertWordLayerPrecedesTheSingleCharLayer(BinaryDict.fromFile(t9File), t9Decoder(), "2264")
+    }
+
+    @Test fun letterWordLayerPrecedesTheSingleCharLayer_mutationGuard() {
+        assumeTrue("dict asset present", FullDictTestAssets.available(dictFile))
+        assertWordLayerPrecedesTheSingleCharLayer(BinaryDict.fromFile(dictFile), letterDecoder(), "xian")
     }
 
     @Test fun robustOnEmptyAndNonPinyin() {
