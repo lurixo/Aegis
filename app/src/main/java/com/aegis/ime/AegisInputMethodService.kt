@@ -76,6 +76,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var editPanelView: EditPanelView? = null
     private var customSymbolView: CustomSymbolPanel? = null
     private val customSymbolStore by lazy { CustomSymbolStore(getSharedPreferences("aegis", MODE_PRIVATE)) }
+    private var customOperatorView: CustomSymbolPanel? = null // I2: numpad operator customization (own panel)
+    private val customOperatorStore by lazy { CustomSymbolStore(getSharedPreferences("aegis", MODE_PRIVATE), "custom_operators") }
+    // I2: add-suggestions for the operator 自定义 panel — math operators NOT in the built-in defaults.
+    private val OPERATOR_PALETTE = listOf(
+        "*", "/", "±", "√", "^", "<", ">", "≤", "≥", "≠", "≈", "∑", "∏", "∫", "π", "∞", "°", "|", "{", "}", "[", "]", "!",
+    )
     private var selecting = false
     private var deletedSnapshot: CharSequence? = null // for the backspace up/down restore gesture (#5)
     private val clipboardStore by lazy { ClipboardStore(filesDir).also { it.load() } }
@@ -105,6 +111,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         symbolsView?.applyPalette(imePalette)
         editPanelView?.applyPalette(imePalette)
         customSymbolView?.applyPalette(imePalette)
+        customOperatorView?.applyPalette(imePalette)
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -130,8 +137,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.onShowSymbols = { showSymbolsPanel() }
         controller.onShowSettings = { openSettings() }
         controller.onShowCustomSymbols = { showCustomSymbolPanel() }
+        controller.onShowCustomOperators = { showCustomOperatorPanel() } // I2
         controller.onClosePanel = { inputView?.showPanel(null) }
         controller.setCustomSymbols(customSymbolStore.list()) // A3: seed the punctuation column with saved marks
+        controller.setCustomOperators(customOperatorStore.list()) // I2: seed the numpad operator column
         Thread {
             runCatching { userModel.load(userDbFile); userDbMtime = userDbFile.lastModified() }
             userDbLoaded = true // M-2: gate onStartInput's reload until the initial load is done
@@ -376,6 +385,42 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         panel.resetToDefault() // P7(#19): open scrolled to the top (also recreation-proof — see showEmojiPanel)
         panel.applyPalette(imePalette) // also calls refresh() — no separate refresh needed
         iv.showPanel(panel)
+    }
+
+    /** I2 自定义: edit the user's custom numpad operators; changes persist + refresh the operator column live. */
+    private fun showCustomOperatorPanel() {
+        val iv = inputView ?: return
+        val panel = customOperatorView ?: CustomSymbolPanel(this).also {
+            it.backTitle = "‹ 自定义运算符"
+            it.pasteLabel = "📋 粘贴运算符"
+            // Operator add-palette: common math operators, excluding the built-in defaults (so a tap can't
+            // create a duplicate) and free of the punctuation/URL tokens the default catalogue carries.
+            it.addPalette = OPERATOR_PALETTE
+            it.current = { customOperatorStore.list() }
+            it.onAdd = { s -> customOperatorStore.add(s); controller.setCustomOperators(customOperatorStore.list()); it.refresh() }
+            it.onRemove = { s -> customOperatorStore.remove(s); controller.setCustomOperators(customOperatorStore.list()); it.refresh() }
+            it.onPaste = { pasteCustomOperator() }
+            it.onBack = { inputView?.showPanel(null) }
+            customOperatorView = it
+        }
+        panel.applyPalette(imePalette)
+        iv.showPanel(panel)
+    }
+
+    /** I2: add the system clipboard's content as a custom numpad operator. */
+    private fun pasteCustomOperator() {
+        val t = runCatching {
+            clipboardManager.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString()
+        }.getOrNull()?.filterNot { it.isISOControl() }?.trim().orEmpty()
+        val msg = when {
+            t.isEmpty() -> "剪贴板为空"
+            t.length > 16 -> "内容过长,未作为运算符添加"
+            customOperatorStore.add(t) -> {
+                controller.setCustomOperators(customOperatorStore.list()); customOperatorView?.refresh(); "已添加：$t"
+            }
+            else -> "已存在或已达上限"
+        }
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
     }
 
     /** U13: add the system clipboard's content as a custom 9-key mark (paste a symbol aegis doesn't ship). */

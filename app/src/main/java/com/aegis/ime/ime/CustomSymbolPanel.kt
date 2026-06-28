@@ -62,9 +62,17 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     }
     private val sectionLabels = mutableListOf<TextView>()
 
-    /** U13: the full symbol set (every [SymbolCatalog] category, de-duplicated) so the user can promote ANY
-     *  symbol into their column — plus the 粘贴 button for marks aegis doesn't ship. */
-    private val palette = SymbolCatalog.categories.flatMap { it.symbols }.distinct()
+    /** Header title — defaults to the A3 punctuation panel; the I2 operator panel overrides it ("‹ 自定义运算符"). */
+    var backTitle: String = "‹ 自定义标点"
+        set(v) { field = v; backText.text = v }
+    /** Paste-button label — overridden by the operator panel ("📋 粘贴运算符"). */
+    var pasteLabel: String = "📋 粘贴符号"
+        set(v) { field = v; pasteText.text = v }
+
+    /** The add-suggestion palette: defaults to the full [SymbolCatalog] (punctuation); the operator panel
+     *  supplies an operator-only set so it never offers URL/ordinal tokens or the built-in defaults. */
+    var addPalette: List<String> = SymbolCatalog.categories.flatMap { it.symbols }.distinct()
+        set(v) { field = v; refresh() }
 
     init {
         orientation = VERTICAL
@@ -113,7 +121,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         val added = current()
         fillFlow(addedRows, added) { sym -> chip("$sym ✕", removable = true) { onRemove(sym) } }
         // Palette excludes already-added marks so each can be added once.
-        fillFlow(paletteRows, palette.filter { it !in added }) { sym -> chip(sym, removable = false) { onAdd(sym) } }
+        fillFlow(paletteRows, addPalette.filter { it !in added }) { sym -> chip(sym, removable = false) { onAdd(sym) } }
     }
 
     private fun fillFlow(container: LinearLayout, items: List<String>, make: (String) -> View) {

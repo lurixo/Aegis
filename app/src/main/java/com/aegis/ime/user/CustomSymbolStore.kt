@@ -22,10 +22,14 @@ import android.content.SharedPreferences
  * persisted in [SharedPreferences]. Surfaced in the punctuation column between the fixed marks and the
  * 自定义 entry; edited one symbol at a time via the 自定义 panel ("逐符可定义").
  */
-class CustomSymbolStore(private val prefs: SharedPreferences) {
+class CustomSymbolStore(
+    private val prefs: SharedPreferences,
+    /** Pref key — defaults to the A3 punctuation list; the I2 numpad operator column uses its own key. */
+    private val key: String = "custom_symbols",
+) {
 
     fun list(): List<String> =
-        prefs.getString(KEY, "").orEmpty().split("\n").filter { it.isNotEmpty() }
+        prefs.getString(key, "").orEmpty().split("\n").filter { it.isNotEmpty() }
 
     /**
      * Add one symbol (U13: control chars incl. internal \n\r are STRIPPED — not just trimmed — so a pasted
@@ -45,11 +49,10 @@ class CustomSymbolStore(private val prefs: SharedPreferences) {
     }
 
     private fun save(items: List<String>) {
-        prefs.edit().putString(KEY, items.joinToString("\n")).apply()
+        prefs.edit().putString(key, items.joinToString("\n")).apply()
     }
 
     private companion object {
-        const val KEY = "custom_symbols"
         const val MAX = 200 // U13: let the user add essentially any number of custom symbols
     }
 }
