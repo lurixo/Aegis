@@ -24,6 +24,7 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.widget.Toast
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.Fuzzy
@@ -142,7 +143,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onPanelClear = { controller.onPanelClear() }
             onCollapse = { requestHideSelf(0) }
             onCopyCommit = { t -> currentInputConnection?.commitText(t, 1) }
-            onCopyBlock = { b -> clipboardStore.record(b) }
+            onCopyBlock = { b -> copyBlockToAegis(b) }
         }
         inputView = view
         controller.attachView(view)
@@ -248,7 +249,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.categoriesProvider = { clipboardStore.categories() }
             it.phrasesInProvider = { cat -> clipboardStore.phrasesIn(cat) }
             it.onPick = { t -> currentInputConnection?.commitText(t, 1); inputView?.showPanel(null) }
-            it.onCommitBlock = { b -> clipboardStore.record(b) }
+            it.onCopyBlockToAegis = { b -> copyBlockToAegis(b) }
             it.onBack = { inputView?.showPanel(null) }
             it.onDeleteClips = { list -> clipboardStore.deleteAll(list) }
             it.onDeletePhrasesFrom = { cat, list -> list.forEach { clipboardStore.deletePhraseFrom(cat, it) } }
@@ -326,6 +327,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (t.isEmpty()) return
         clipboardStore.record(t)
         inputView?.showCopyBar(t)
+    }
+
+    private fun copyBlockToAegis(block: String) {
+        clipboardStore.record(block)
+        Toast.makeText(this, "已存入剪贴板", Toast.LENGTH_SHORT).show()
     }
 
     private fun historyEnabled() = getSharedPreferences("aegis", MODE_PRIVATE).getBoolean("clip_history", true)
