@@ -50,8 +50,16 @@ object Motion {
     fun fadeIn(view: View, duration: Long = SHORT4) {
         view.animate().cancel()
         // Skip when detached (no frame loop to drive it — also keeps unit tests at the resting alpha) or when
-        // the user disabled system animations.
-        if (!view.isAttachedToWindow || !enabled(view.context)) { view.alpha = 1f; return }
+        // the user disabled system animations: jump straight to the shown state. We MUST invalidate() as well,
+        // not just set alpha: the caller has changed content (e.g. PreeditView.setText) and a persistently-
+        // visible view may already be resting at alpha 1f, so setAlpha(1f) hits View's `mAlpha == alpha` no-op
+        // guard and schedules no repaint — without this the new content would stay unpainted until the next
+        // change (the reduced-motion preedit-blank regression). invalidate() is one-shot, not a frame loop.
+        if (!view.isAttachedToWindow || !enabled(view.context)) {
+            view.alpha = 1f
+            view.invalidate()
+            return
+        }
         view.alpha = 0f
         view.animate().alpha(1f).setDuration(duration).setInterpolator(EMPHASIZED_DECEL).start()
     }
