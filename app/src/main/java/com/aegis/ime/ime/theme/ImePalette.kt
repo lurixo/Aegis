@@ -47,7 +47,6 @@ data class ImePalette(
     val separator: Int,
     val railBg: Int,                // scroll track / side rail
     val panelBg: Int,               // panel floor
-    val panelSubBg: Int,            // panel sub-area
     val chipBg: Int,
     val chipText: Int,
     val icon: Int,                  // toolbar / panel line icons
@@ -75,7 +74,6 @@ data class ImePalette(
             separator = 0xFFD2D7DE.toInt(),
             railBg = 0xFFEFF1F5.toInt(),
             panelBg = 0xFFF7F8FA.toInt(),
-            panelSubBg = 0xFFEFF1F4.toInt(),
             chipBg = 0xFFE2E5E9.toInt(),
             chipText = 0xFF202124.toInt(),
             icon = 0xFF455A64.toInt(),
@@ -103,7 +101,6 @@ data class ImePalette(
             separator = 0xFF3A3E42.toInt(),
             railBg = 0xFF222629.toInt(),
             panelBg = 0xFF1A1C1E.toInt(),
-            panelSubBg = 0xFF222629.toInt(),
             chipBg = 0xFF2C3034.toInt(),
             chipText = 0xFFE3E2E6.toInt(),
             icon = 0xFFB0B6BE.toInt(),
@@ -137,7 +134,6 @@ data class ImePalette(
                 separator = cs.outlineVariant.toArgb(),
                 railBg = cs.surfaceContainerLow.toArgb(),
                 panelBg = cs.surfaceContainerLow.toArgb(),
-                panelSubBg = cs.surfaceContainer.toArgb(),
                 chipBg = cs.secondaryContainer.toArgb(),
                 chipText = cs.onSecondaryContainer.toArgb(),
                 icon = cs.onSurfaceVariant.toArgb(),
