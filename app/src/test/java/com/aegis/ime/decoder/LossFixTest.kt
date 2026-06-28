@@ -17,6 +17,7 @@ package com.aegis.ime.decoder
 
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -106,6 +107,21 @@ class LossFixTest {
     }
 
 
+    @Test fun letterSegmenterSplitsCorrectly() {
+        val d = letterDecoder()
+        assertEquals(listOf("he", "shui"), d.syllables("heshui").map { it.reading })
+        assertEquals(listOf("ni", "hao"), d.syllables("nihao").map { it.reading })
+        assertEquals("must not split into xi'an", listOf("xian"), d.syllables("xian").map { it.reading })
+        val long = d.syllables("ganxieninxuanzejiayichanpin").map { it.reading }
+        assertEquals(9, long.size)
+        assertEquals("gan", long.first()); assertEquals("pin", long.last())
+        assertTrue(long.containsAll(listOf("xie", "nin", "xuan", "ze", "jia", "yi", "chan")))
+        val syl = d.syllables("heshui")
+        assertEquals(0, syl[0].start); assertEquals(2, syl[0].end)
+        assertEquals(2, syl[1].start); assertEquals(6, syl[1].end)
+    }
+
+
     @Test fun ambiguousLeadingSyllablesAllReachable() {
         assumeTrue("dict asset present", FullDictTestAssets.available(dictFile))
         val dict = BinaryDict.fromFile(dictFile)
@@ -133,6 +149,20 @@ class LossFixTest {
         val got = allSingles(letterDecoder().decodeCovered("heshui", 30))
         assertTrue("must exceed the old PREFIX_PER_LEN=8 cap (mutation guard)", got.count { it in he } > 8)
         assertTrue("must contain the dict's ENTIRE he set — a re-imposed cap fails here", got.containsAll(he))
+    }
+
+
+    @Test fun t9PathAlsoLossless() {
+        assumeTrue("t9 asset present", FullDictTestAssets.available(t9File))
+        val t9 = BinaryDict.fromFile(t9File)
+        val d = t9Decoder()
+        val digits = "437484"
+        val group43 = dictSingles(t9, "43")
+        val got = allSingles(d.decodeCovered(digits, 30))
+        assertTrue("和 present on the T9 single-char layer", "和" in got)
+        assertTrue("T9 first-syllable 单字 uncapped (>8)", got.count { it in group43 } > 8)
+        assertTrue("the WHOLE 43-group homophone set is reachable on T9", got.containsAll(group43))
+        assertEquals("homophonesAt = the dict's full 43-group set", group43, d.homophonesAt(digits, 0).toSet())
     }
 
 
