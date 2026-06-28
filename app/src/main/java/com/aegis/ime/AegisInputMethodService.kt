@@ -88,6 +88,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private val clipImageStore by lazy { com.aegis.ime.user.ClipImageStore(filesDir) } // U22 image clipboard
     private val thumbCache = LruCache<String, Bitmap>(50) // U22: decoded thumbnails (path → bitmap)
     private val symbolUsageStore by lazy { SymbolUsageStore(filesDir).also { it.load() } }
+    // E2: emoji MRU ("最近") — its OWN usage file (filesDir/emoji/) so it never mixes with the 符号 常用 list.
+    private val emojiUsageStore by lazy { SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).also { it.load() } }
     // C1 privacy: pause clipboard capture while a password / PIN / 2FA field is focused (set per onStartInput).
     @Volatile private var secureField = false
     // U21: the most-recent captured clip — kept so the 复制条 survives an app switch / IME re-show (restored
@@ -331,7 +333,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val iv = inputView ?: return
         if (iv.isPanelShowing(emojiView)) { iv.showPanel(null); return } // P4(#4): re-tap 表情 入口 = 返回
         val ev = emojiView ?: EmojiView(this).also {
-            it.onEmoji = { e -> currentInputConnection?.commitText(e, 1) }
+            it.recentProvider = { emojiUsageStore.recent() } // E2: 最近 (MRU) tab
+            it.onEmoji = { e -> emojiUsageStore.record(e); currentInputConnection?.commitText(e, 1) } // E2: record usage
             it.onBackspace = { panelBackspace() } // F2: selection-aware (else eats the char before a selection)
             it.onBack = { inputView?.showPanel(null) }
             emojiView = it

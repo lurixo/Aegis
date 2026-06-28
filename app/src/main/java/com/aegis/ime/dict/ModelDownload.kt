@@ -18,6 +18,7 @@ package com.aegis.ime.dict
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 
 /** Streams the optional enhancement model into filesDir/downloaded/ (picked up by the IME next session). */
@@ -135,34 +136,101 @@ object ModelDownload {
     }
 
     // --- B2 (debug.13): the optional FULL dictionary pack (14 tables, freq≥1) ----------------------------
-    // A second downloadable asset, INDEPENDENT of the .gram model: its own URL / file / recorded validator,
-    // so the two cards check + download separately (B5). The generic download / remoteValidator /
-    // updateAvailable above are shared verbatim — only these constants + file helpers are dict-specific.
-    // PLACEHOLDER URLs: the real release is published (debug.13); the constants get swapped
-    // for the real pack once it ships. The pack lands in the same downloaded/ dir as the model.
+    // A second downloadable asset, INDEPENDENT of the .gram model: its own URL / zip / recorded validator, so
+    // the two cards check + download separately (B5). The asset is a ZIP (98 MB) whose 3 entries are sha256-
+    // verified, extracted, and renamed to the 3 .bin the engine loads via downloadedOverride. The generic
+    // download / remoteValidator / updateAvailable above are shared verbatim.
+    // PLACEHOLDER URLs: the real release is published (debug.13); the URL gets swapped for the
+    // real release link once it ships (DICT_NAME + DICT_SHA256 already match the produced pack).
 
-    /** PLACEHOLDER — the full dictionary pack release asset (swapped for the real URL when the pack ships). */
+    /** PLACEHOLDER — the dict-pack release asset (swapped for the real download URL when the release ships). */
     const val DICT_URL =
-        "https://github.com/lurixo/aegis/releases/download/dict-full/aegis-dict-full.zip"
+        "https://github.com/lurixo/aegis/releases/download/dict-full/aegis_dict_pack_debug13.zip"
 
     /** PLACEHOLDER — the dict pack's release page, shown as the card's tappable 直达链接 (B4). */
     const val DICT_REPO_URL = "https://github.com/lurixo/aegis/releases"
 
-    const val DICT_NAME = "aegis-dict-full.zip"
+    /** The downloaded zip's filename + its expected sha256 (the debug.13 dict pack). */
+    const val DICT_NAME = "aegis_dict_pack_debug13.zip"
+    const val DICT_SHA256 = "d048435631623513a9d6a6ccb877a6ba06fb15a293ade72bb101d1e0d4feaa60"
+
+    /** The 3 files the pack carries → the names the engine picks up via downloadedOverride. */
+    val DICT_PACK_FILES = listOf("aegis_dict.bin", "aegis_t9.bin", "aegis_jianpin.bin")
 
     /** SharedPreferences key (prefs "aegis") storing the downloaded dict pack's remote validator. */
     const val DICT_VALIDATOR_PREF = "dict_validator"
 
-    fun dictDestFile(filesDir: File): File = File(File(filesDir, "downloaded"), DICT_NAME)
+    private fun downloadedDir(filesDir: File) = File(filesDir, "downloaded")
+    fun dictZipFile(filesDir: File): File = File(downloadedDir(filesDir), DICT_NAME)
+    fun dictPartFile(filesDir: File): File = File(downloadedDir(filesDir), "$DICT_NAME.part")
 
-    fun dictPartFile(filesDir: File): File = File(File(filesDir, "downloaded"), "$DICT_NAME.part")
+    /** "Downloaded" = all 3 extracted .bin are present (the zip itself is deleted after a successful install). */
+    fun isDictDownloaded(filesDir: File): Boolean =
+        DICT_PACK_FILES.all { File(downloadedDir(filesDir), it).let { f -> f.exists() && f.length() > 1024 } }
 
-    fun isDictDownloaded(filesDir: File): Boolean = dictDestFile(filesDir).let { it.exists() && it.length() > 1024 }
+    /**
+     * Verify the downloaded zip against [DICT_SHA256] and extract its 3 entries into downloaded/ renamed to
+     * [DICT_PACK_FILES]; the (98 MB) zip is deleted afterwards. Returns true only when all 3 landed. A sha256
+     * mismatch (corruption / tamper) is REJECTED — the zip is deleted, nothing extracted. Blocking — call off
+     * the main thread.
+     */
+    fun installDictPack(filesDir: File): Boolean {
+        val zip = dictZipFile(filesDir)
+        if (!zip.exists()) return false
+        if (!sha256Of(zip).equals(DICT_SHA256, ignoreCase = true)) { zip.delete(); return false }
+        val produced = runCatching { extractDictPack(zip, downloadedDir(filesDir)) }.getOrDefault(emptySet())
+        zip.delete() // the unpacked .bin are what the engine loads; the zip is not needed afterwards
+        return DICT_PACK_FILES.all { it in produced }
+    }
 
-    /** Thorough delete of the dict pack + any interrupted .part leftover. Idempotent. */
+    /**
+     * Extract [zip]'s entries into [dir], mapping each to one of [DICT_PACK_FILES] by filename keyword (so the
+     * pack's entries are renamed to the names the engine loads). Output paths are ALWAYS a fixed target name
+     * under [dir], so a malicious entry path ("../…") can never escape. Returns the set of target names written.
+     */
+    internal fun extractDictPack(zip: File, dir: File): Set<String> {
+        dir.mkdirs()
+        val produced = HashSet<String>()
+        java.util.zip.ZipInputStream(zip.inputStream().buffered()).use { zin ->
+            var e = zin.nextEntry
+            while (e != null) {
+                if (!e.isDirectory) targetFor(e.name)?.let { target ->
+                    File(dir, target).outputStream().use { out -> zin.copyTo(out) }
+                    produced.add(target)
+                }
+                zin.closeEntry()
+                e = zin.nextEntry
+            }
+        }
+        return produced
+    }
+
+    /** Map a zip entry to its target .bin by keyword (jianpin/t9 checked before dict, since dict is the default). */
+    private fun targetFor(entryName: String): String? {
+        val n = entryName.substringAfterLast('/').substringAfterLast('\\').lowercase()
+        return when {
+            "jianpin" in n -> "aegis_jianpin.bin"
+            "t9" in n -> "aegis_t9.bin"
+            "dict" in n -> "aegis_dict.bin"
+            else -> null
+        }
+    }
+
+    fun sha256Of(file: File): String {
+        val md = MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { ins ->
+            val buf = ByteArray(1 shl 16)
+            while (true) { val n = ins.read(buf); if (n < 0) break; md.update(buf, 0, n) }
+        }
+        return md.digest().joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+    }
+
+    /** Thorough delete of the dict pack: the 3 extracted .bin + any leftover zip / .part. Idempotent. */
     fun purgeDict(filesDir: File): Boolean {
-        val a = dictDestFile(filesDir).delete()
-        val b = dictPartFile(filesDir).delete()
-        return a || b
+        var removed = false
+        DICT_PACK_FILES.forEach { if (File(downloadedDir(filesDir), it).delete()) removed = true }
+        if (dictZipFile(filesDir).delete()) removed = true
+        if (dictPartFile(filesDir).delete()) removed = true
+        return removed
     }
 }

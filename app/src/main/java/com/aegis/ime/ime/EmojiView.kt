@@ -37,6 +37,11 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     var onEmoji: (String) -> Unit = {}
     var onBackspace: () -> Unit = {}
     var onBack: () -> Unit = {}
+    /** E2: live "最近" (MRU) feed — most-recently-used emoji, newest first (mirrors 符号 panel's 常用). */
+    var recentProvider: () -> List<String> = { emptyList() }
+
+    // E2: the "最近" (MRU) tab is prepended; the rest are the catalogue categories.
+    private val titles: List<String> = listOf(EmojiCatalog.RECENT_TITLE) + EmojiCatalog.categories.map { it.title }
 
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
@@ -56,7 +61,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         orientation = VERTICAL
         setBackgroundColor(palette.keyboardBg) // P-A: panel floor == the strip/keyboard floor (no top seam)
 
-        for ((i, c) in EmojiCatalog.categories.withIndex()) rail.addView(railTab(i, c.title))
+        for ((i, t) in titles.withIndex()) rail.addView(railTab(i, t))
 
         val content = LinearLayout(context).apply {
             orientation = HORIZONTAL
@@ -82,8 +87,8 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     }
 
     /**
-     * P7 (#19): on dismissal, fall back to the first category (黄脸) scrolled to the top, so reopening the
-     * emoji panel never resumes on the last category / scroll position.
+     * P7 (#19): on dismissal, fall back to the 最近 (MRU) tab at index 0, scrolled to the top, so reopening the
+     * emoji panel never resumes on the last category / scroll position (mirrors the 符号 panel opening on 常用).
      */
     override fun resetToDefault() {
         showCategory(0)
@@ -105,7 +110,23 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
             tab.setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         }
         grid.removeAllViews()
-        for (e in EmojiCatalog.categories[index].emoji) grid.addView(emojiCell(e))
+        // E2: index 0 = the live 最近 (MRU) feed; the rest are catalogue categories (shifted by one).
+        val emoji = if (index == 0) recentProvider() else EmojiCatalog.categories[index - 1].emoji
+        if (emoji.isEmpty()) grid.addView(emptyHint()) else for (e in emoji) grid.addView(emojiCell(e))
+    }
+
+    /** E2: shown on an empty 最近 tab (no emoji used yet) — mirrors the 符号 panel's empty 常用 hint. */
+    private fun emptyHint(): TextView = TextView(context).apply {
+        text = "最近使用的表情会显示在这里"
+        gravity = Gravity.CENTER
+        setTextColor(palette.keyHint)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
+        setPadding(dp(16), dp(40), dp(16), dp(16))
+        layoutParams = GridLayout.LayoutParams().apply {
+            width = 0
+            columnSpec = GridLayout.spec(0, COLUMNS, 1f)
+            setGravity(Gravity.FILL_HORIZONTAL)
+        }
     }
 
     private fun railTab(index: Int, title: String): TextView = TextView(context).apply {

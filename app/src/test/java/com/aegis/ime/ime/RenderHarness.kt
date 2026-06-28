@@ -177,6 +177,18 @@ class RenderHarness {
         }
     }
 
+    /** E2: the emoji panel — verifies the rail (最近 MRU + the new categories) + grid layout. NOTE: Robolectric's
+     *  JVM font has no colour-emoji glyphs, so the cells render as tofu boxes here; the device shows real emoji. */
+    @Test fun emoji_panel() {
+        for ((t, pal) in themes) {
+            val v = EmojiView(ctx).apply {
+                recentProvider = { listOf("😀", "👍", "❤️") }
+                applyPalette(pal); openCategoryForTest(1) // index 0 = 最近(MRU); 1 = 黄脸
+            }
+            snap(v, (560 * density).toInt(), "emoji_$t.png")
+        }
+    }
+
     @Test fun symbols_panel() {
         for ((t, pal) in themes) {
             val v = SymbolsView(ctx).apply {
