@@ -20,6 +20,7 @@ import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
 import android.content.Context
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.InsetDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -47,13 +48,18 @@ class CopyBarView(context: Context) : LinearLayout(context) {
     init {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        setBackgroundColor(palette.keyboardBg)
-        setPadding(dp(10), 0, dp(6), 0)
+        background = capsuleBg()
+        setPadding(dp(14), 0, dp(14), 0)
     }
+
+    private fun capsuleBg() = InsetDrawable(
+        GradientDrawable().apply { setColor(palette.keySurface); cornerRadius = ImeShapes.chipRadiusDp * density },
+        dp(8), dp(5), dp(8), dp(5),
+    )
 
     fun applyPalette(p: ImePalette) {
         palette = p
-        setBackgroundColor(p.keyboardBg)
+        background = capsuleBg()
         render()
     }
 
@@ -101,7 +107,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         text = label
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
-        setTextColor(palette.candidateText)
+        setTextColor(palette.chipText)
         setPadding(dp(12), dp(5), dp(12), dp(5))
         background = GradientDrawable().apply { setColor(palette.chipBg); cornerRadius = ImeShapes.chipRadiusDp * density }
         setOnClickListener { onClick() }
