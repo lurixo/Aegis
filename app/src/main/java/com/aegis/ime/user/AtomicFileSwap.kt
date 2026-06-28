@@ -16,6 +16,7 @@
 package com.aegis.ime.user
 
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 
@@ -29,6 +30,19 @@ internal object AtomicFileSwap {
             FileOutputStream(staged).use { out ->
                 out.write(text.toByteArray())
                 out.fd.sync()
+            }
+        }
+        replace(staged, dest)
+    }
+
+    fun copy(source: File, dest: File, tag: Long) {
+        val staged = stagingFor(dest, tag)
+        stage(staged, dest) {
+            FileInputStream(source).use { input ->
+                FileOutputStream(staged).use { out ->
+                    input.copyTo(out)
+                    out.fd.sync()
+                }
             }
         }
         replace(staged, dest)
