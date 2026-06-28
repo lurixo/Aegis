@@ -23,6 +23,8 @@ import kotlin.math.ln
 
 data class Cand(val word: String, val coveredLen: Int)
 
+data class Syllable(val reading: String, val start: Int, val end: Int)
+
 class PinyinDecoder(
     private val dict: BinaryDict,
     private val lm: CharBigramLM? = null,
@@ -136,11 +138,71 @@ class PinyinDecoder(
             if (cover.size >= limit) break
             var added = 0
             for (wf in dict.exact(input.substring(0, q))) {
+                if (wf.word.length == 1) continue
                 if (cover.putIfAbsent(wf.word, q) == null && ++added >= PREFIX_PER_LEN) break
             }
         }
-        val out = ArrayList<Cand>(minOf(cover.size, limit))
+        val out = ArrayList<Cand>(minOf(cover.size, limit) + 20)
         for ((w, len) in cover) { out.add(Cand(w, len)); if (out.size >= limit) break }
+        val span = firstCut ?: input.length
+        val head = input.substring(0, span)
+        val lens = if (input[0] in '2'..'9') T9Pinyin.leadingSyllableDigitLens(head)
+        else T9Pinyin.leadingSyllableLetterLens(head)
+        if (lens.isNotEmpty()) {
+            val seen = HashSet<String>(out.size * 2)
+            for (c in out) seen.add(c.word)
+            for (k in lens) for (w in homophonesOf(input.substring(0, k))) {
+                if (seen.add(w)) out.add(Cand(w, k))
+            }
+        }
+        return out
+    }
+
+    fun syllables(input: String): List<Syllable> {
+        if (input.isEmpty()) return emptyList()
+        return if (input[0] in '2'..'9') t9Syllables(input) else letterSyllables(input)
+    }
+
+    fun homophonesAt(input: String, index: Int): List<String> {
+        val syls = syllables(input)
+        if (index !in syls.indices) return emptyList()
+        val s = syls[index]
+        return homophonesOf(input.substring(s.start, s.end))
+    }
+
+    private fun homophonesOf(key: String): List<String> {
+        val out = ArrayList<String>()
+        for (wf in dict.exact(key)) if (wf.word.length == 1) out.add(wf.word)
+        return out
+    }
+
+    private fun letterSyllables(input: String): List<Syllable> {
+        val out = ArrayList<Syllable>()
+        var pos = 0
+        T9Pinyin.segmentLetters(input)?.let { segs ->
+            for (s in segs) { out.add(Syllable(s, pos, pos + s.length)); pos += s.length }
+            return out
+        }
+        while (pos < input.length) {
+            val syl = T9Pinyin.firstSyllableLetters(input.substring(pos))
+            if (syl.isEmpty()) break
+            out.add(Syllable(syl, pos, pos + syl.length)); pos += syl.length
+        }
+        return out
+    }
+
+    private fun t9Syllables(input: String): List<Syllable> {
+        val out = ArrayList<Syllable>()
+        var pos = 0
+        T9Pinyin.segment(input)?.let { segs ->
+            for (s in segs) { val d = T9Pinyin.toT9(s).length; out.add(Syllable(s, pos, pos + d)); pos += d }
+            return out
+        }
+        while (pos < input.length) {
+            val d = T9Pinyin.firstSyllableDigitLen(input.substring(pos))
+            if (d == 0) break
+            out.add(Syllable(T9Pinyin.syllableReading(input.substring(pos, pos + d)), pos, pos + d)); pos += d
+        }
         return out
     }
 
@@ -202,12 +264,12 @@ class PinyinDecoder(
 
     private companion object {
         const val BOS = -1
-        const val EDGE_N = 8
+        const val EDGE_N = 20
         const val DEFAULT_LAMBDA = 1.0
         const val FUZZY_PENALTY = 3.0
         const val INITIALS_PENALTY = 5.0
         const val DEFAULT_OCTAGRAM_WEIGHT = 0.3
-        const val PREFIX_PER_LEN = 8
+        const val PREFIX_PER_LEN = 16
         const val CTX_WORD_MAX = 4
         const val DEFAULT_CONTEXT_WEIGHT = 2.0
     }

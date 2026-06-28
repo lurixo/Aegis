@@ -10,3 +10,4 @@
 *.ap_
 *.aab
 build/
+/dist/
