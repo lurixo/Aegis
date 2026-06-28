@@ -66,7 +66,7 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
             LayoutParams(0, LayoutParams.MATCH_PARENT, 1f),
         )
         // RIGHT — function column: 返回 / 退格 / 重输.
-        rightColumn.setBackgroundColor(palette.panelSubBg)
+        rightColumn.setBackgroundColor(palette.panelBg) // U-polish: 返回-column matches every other panel (was panelSubBg, last P6 holdout)
         rightColumn.addView(funcButton("返回") { onClose() }, funcLp())
         rightColumn.addView(funcButton("⌫") { onBackspace() }, funcLp())
         rightColumn.addView(funcButton("重输") { onClear() }, funcLp())
@@ -78,7 +78,7 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
         palette = p
         setBackgroundColor(p.panelBg)
         readingColumn.setBackgroundColor(p.railBg)
-        rightColumn.setBackgroundColor(p.panelSubBg)
+        rightColumn.setBackgroundColor(p.panelBg) // U-polish: see init
         for (i in 0 until rightColumn.childCount) (rightColumn.getChildAt(i) as? TextView)?.setTextColor(p.keyLabelSecondary)
         for (i in 0 until readingColumn.childCount) (readingColumn.getChildAt(i) as? TextView)?.setTextColor(p.preeditText)
     }

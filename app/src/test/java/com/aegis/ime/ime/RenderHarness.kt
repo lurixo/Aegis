@@ -20,6 +20,9 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.view.View
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.layout.Lang
+import com.aegis.ime.layout.LayoutId
+import com.aegis.ime.layout.Layouts
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -94,6 +97,17 @@ class RenderHarness {
                 setContent(listOf("你好", "你", "尼", "拟", "泥", "逆"), "ni'hao")
             }
             snap(v, h, "strip_$t.png")
+        }
+    }
+
+    @Test fun keyboard_alpha() {
+        val h = (230 * ctx.resources.displayMetrics.density).toInt()
+        for ((t, pal) in themes) {
+            val v = KeyboardView(ctx).apply {
+                applyPalette(pal)
+                setLayout(Layouts.forId(LayoutId.ALPHA, Lang.CN), false, false, Lang.CN)
+            }
+            snap(v, h, "keyboard_$t.png")
         }
     }
 }
