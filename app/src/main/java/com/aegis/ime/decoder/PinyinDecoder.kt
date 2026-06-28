@@ -32,6 +32,7 @@ class PinyinDecoder(
     private val initialsDict: BinaryDict? = null,
     private val octagram: com.aegis.ime.dict.OctagramReader? = null,
     private val octagramWeight: Double = DEFAULT_OCTAGRAM_WEIGHT,
+    private val contextWeight: Double = DEFAULT_CONTEXT_WEIGHT,
 ) {
     private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
     private val edgeN = if (lm != null || fuzzyRules.isNotEmpty() || initialsDict != null) EDGE_N else 1
@@ -63,19 +64,40 @@ class PinyinDecoder(
         return out
     }
 
-    private fun wordModelScore(word: String, freq: Int): Double =
+    private fun wordModelScore(word: String, freq: Int, ctxCp: Int, ctxWord: String): Double =
         (ln(freq.toDouble()) - lnTotal) +
             (userModel?.wordBoost(word) ?: 0.0) +
-            (octagram?.let { octagramWeight * (it.rawScore(word) ?: 0.0) } ?: 0.0)
+            (octagram?.let { octagramWeight * (it.rawScore(word) ?: 0.0) } ?: 0.0) +
+            (if (lm != null && ctxCp != BOS) contextWeight * lm.logCond(ctxCp, word.codePointAt(0)) else 0.0) +
+            (if (octagram != null && ctxWord.isNotEmpty()) octagramWeight * (octagram.rawScore(ctxWord + word) ?: 0.0) else 0.0)
 
-    private fun rerankedWholeInput(input: String): List<String> =
-        dict.exact(input).sortedByDescending { wordModelScore(it.word, it.freq) }.map { it.word }
+    private fun rerankedWholeInput(input: String, ctxCp: Int, ctxWord: String): List<String> =
+        dict.exact(input).sortedByDescending { wordModelScore(it.word, it.freq, ctxCp, ctxWord) }.map { it.word }
 
-    fun decode(input: String, limit: Int): List<String> {
+    private fun parseContext(context: CharSequence): Pair<Int, String> {
+        val s = context.toString()
+        if (s.isEmpty()) return BOS to ""
+        val lastCp = s.codePointBefore(s.length)
+        if (!isHan(lastCp)) return BOS to ""
+        var start = s.length
+        var chars = 0
+        while (start > 0 && chars < CTX_WORD_MAX) {
+            val cp = s.codePointBefore(start)
+            if (!isHan(cp)) break
+            start -= Character.charCount(cp)
+            chars++
+        }
+        return lastCp to s.substring(start)
+    }
+
+    private fun isHan(cp: Int): Boolean = cp in 0x3400..0x9FFF || cp in 0xF900..0xFAFF
+
+    fun decode(input: String, limit: Int, context: CharSequence = ""): List<String> {
         if (input.isEmpty()) return emptyList()
+        val (ctxCp, ctxWord) = parseContext(context)
         val out = LinkedHashSet<String>()
-        bestSentence(input)?.let { out.add(it) }
-        out.addAll(rerankedWholeInput(input))
+        bestSentence(input, ctxCp = ctxCp, ctxWord = ctxWord)?.let { out.add(it) }
+        out.addAll(rerankedWholeInput(input, ctxCp, ctxWord))
         out.addAll(dict.query(input, limit))
         if (out.size < limit && fuzzyRules.isNotEmpty()) {
             for (variant in Fuzzy.variants(input, fuzzyRules)) {
@@ -88,17 +110,18 @@ class PinyinDecoder(
         return if (out.size <= limit) out.toList() else out.toList().subList(0, limit)
     }
 
-    fun decodeCovered(input: String, limit: Int, cuts: Set<Int> = emptySet()): List<Cand> {
+    fun decodeCovered(input: String, limit: Int, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> {
         if (input.isEmpty()) return emptyList()
+        val (ctxCp, ctxWord) = parseContext(context)
         val cover = LinkedHashMap<String, Int>()
         val completionCap = maxOf(1, limit * 2 / 3)
         val firstCut = cuts.filter { it in 1 until input.length }.minOrNull()
         fun addCompletions(words: List<String>) {
             for (w in words) { if (cover.size >= completionCap) return; cover.putIfAbsent(w, input.length) }
         }
-        bestSentence(input, cuts)?.let { cover[it] = input.length }
+        bestSentence(input, cuts, ctxCp, ctxWord)?.let { cover[it] = input.length }
         if (firstCut == null) {
-            addCompletions(rerankedWholeInput(input))
+            addCompletions(rerankedWholeInput(input, ctxCp, ctxWord))
             addCompletions(dict.query(input, completionCap))
             if (fuzzyRules.isNotEmpty()) {
                 for (variant in Fuzzy.variants(input, fuzzyRules)) {
@@ -123,10 +146,10 @@ class PinyinDecoder(
 
     private class Cell(val score: Double, val prevPos: Int, val prevChar: Int, val word: String)
 
-    private fun bestSentence(input: String, cuts: Set<Int> = emptySet()): String? {
+    private fun bestSentence(input: String, cuts: Set<Int> = emptySet(), ctxCp: Int = BOS, ctxWord: String = ""): String? {
         val n = input.length
         val dp = Array(n + 1) { HashMap<Int, Cell>() }
-        dp[0][BOS] = Cell(0.0, -1, BOS, "")
+        dp[0][ctxCp] = Cell(0.0, -1, ctxCp, ctxWord)
 
         for (q in 1..n) {
             for (p in 0 until q) {
@@ -142,8 +165,9 @@ class PinyinDecoder(
                     val firstCp = w.codePointAt(0)
                     val lastCp = w.codePointBefore(w.length)
                     for ((prevChar, cell) in from) {
+                        val bw = if (cell.prevPos < 0 && prevChar != BOS) contextWeight else lambda
                         val bi = if (lm == null || prevChar == BOS) 0.0
-                        else lambda * lm.logCond(prevChar, firstCp)
+                        else bw * lm.logCond(prevChar, firstCp)
                         val og = if (octagram != null && cell.word.isNotEmpty())
                             octagramWeight * (octagram.rawScore(cell.word + w) ?: 0.0) else 0.0
                         val score = cell.score + uni + bi + boost - e.penalty + og
@@ -184,5 +208,7 @@ class PinyinDecoder(
         const val INITIALS_PENALTY = 5.0
         const val DEFAULT_OCTAGRAM_WEIGHT = 0.3
         const val PREFIX_PER_LEN = 8
+        const val CTX_WORD_MAX = 4
+        const val DEFAULT_CONTEXT_WEIGHT = 2.0
     }
 }

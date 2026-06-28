@@ -20,12 +20,12 @@ import com.aegis.ime.decoder.Cand
 interface CandidateEngine {
     fun candidates(composing: String, t9: Boolean): List<String>
 
-    fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int> = emptySet()): List<Cand> =
+    fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =
         candidates(composing, t9).map { Cand(it, composing.length) }
 
     fun candidatesForReading(letters: String): List<String> = emptyList()
 
-    fun candidatesForReadingCovered(letters: String): List<Cand> =
+    fun candidatesForReadingCovered(letters: String, context: CharSequence = ""): List<Cand> =
         candidatesForReading(letters).map { Cand(it, letters.length) }
 
     fun english(typed: String): List<String> = emptyList()
