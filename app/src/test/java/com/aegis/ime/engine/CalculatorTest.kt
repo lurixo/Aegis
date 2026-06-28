@@ -83,6 +83,38 @@ class CalculatorTest {
         assertEquals("-1", Calculator.detect("1-2")!!.result)
     }
 
+    @Test fun f3_percent_is_a_postfix_divide_by_100() {
+        assertEquals(0.15, Calculator.evaluate("15%")!!, 1e-9)
+        assertEquals(30.0, Calculator.evaluate("200×15%")!!, 1e-9)
+        assertEquals(30.0, Calculator.evaluate("200*15%")!!, 1e-9)
+        assertEquals(0.05, Calculator.evaluate("(2+3)%")!!, 1e-9)
+        assertEquals(-0.05, Calculator.evaluate("-5%")!!, 1e-9)
+    }
+
+    @Test fun f3_detect_fires_on_a_percent_expression_but_not_a_bare_percentage() {
+        val pct = Calculator.detect("200×15%")!!
+        assertEquals("200×15%", pct.expr)
+        assertEquals("30", pct.result)
+        assertEquals("=30 is appended when no '=' was typed", "=30", pct.append)
+        assertNull("a bare percentage is not a calculation", Calculator.detect("50%"))
+        assertNull("a bare percentage is not a calculation", Calculator.detect("100%"))
+    }
+
+    @Test fun f3_a_trailing_equals_terminates_the_expression_and_appends_the_bare_result() {
+        val m = Calculator.detect("1+1=")!!
+        assertEquals("the '=' is not part of the expression", "1+1", m.expr)
+        assertEquals("2", m.result)
+        assertEquals("only the bare result is appended after a typed '='", "2", m.append)
+        assertNull("no result lingers after the equation is complete", Calculator.detect("1+1=2"))
+        assertNull(Calculator.detect("5="))
+        assertEquals("80", Calculator.detect("12+34*2 =")!!.result)
+    }
+
+    @Test fun f3_without_a_typed_equals_the_append_keeps_the_equals_prefix() {
+        assertEquals("=2", Calculator.detect("1+1")!!.append)
+        assertEquals("=80", Calculator.detect("12+34*2")!!.append)
+    }
+
     @Test fun the_dash_guard_shape_match_spares_unary_paren_and_decimal_negatives() {
         assertEquals("7", Calculator.detect("1-(-6)")!!.result)
         assertEquals("-8", Calculator.detect("-5-3")!!.result)

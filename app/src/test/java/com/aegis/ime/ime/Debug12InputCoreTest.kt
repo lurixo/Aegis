@@ -3,6 +3,7 @@ package com.aegis.ime.ime
 
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
@@ -64,6 +65,10 @@ class Debug12InputCoreTest {
         return DictEngine(BinaryDict.fromFile(p), BinaryDict.fromFile(t), CharBigramLM.fromFile(l))
     }
 
+    private val emptyEngine = object : CandidateEngine {
+        override fun candidates(composing: String, t9: Boolean): List<String> = emptyList()
+    }
+
     private fun digit(d: Char) = Key(d.toString(), output = d.toString())
 
     private fun leftColumnHasNoPunctuation(c: KeyboardController): Boolean =
@@ -123,9 +128,8 @@ class Debug12InputCoreTest {
     }
 
     @Test fun backspace_with_a_selection_deletes_the_selection_not_the_char_before() {
-        val eng = engine(); assumeTrue("dict assets present", eng != null)
         val host = Host()
-        val c = KeyboardController(host, eng!!)
+        val c = KeyboardController(host, emptyEngine)
         host.sb.append("abcXYZdef")
         host.select(3, 6)
 
