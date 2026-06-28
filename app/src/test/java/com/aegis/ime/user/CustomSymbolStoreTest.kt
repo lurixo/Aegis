@@ -53,6 +53,13 @@ class CustomSymbolStoreTest {
         assertEquals(listOf("、", "%"), s.list())
     }
 
+    @Test fun pasted_internal_newline_does_not_split_into_multiple_marks() {
+        // U13: a multi-line paste like "→\n←" must become ONE sanitized mark, not two column entries.
+        val s = freshStore()
+        assertTrue(s.add("→\n←"))
+        assertEquals(listOf("→←"), s.list())
+    }
+
     @Test fun capped_at_the_max() {
         // U13: cap raised so the user can add essentially any number of custom symbols (was 12).
         val s = freshStore()

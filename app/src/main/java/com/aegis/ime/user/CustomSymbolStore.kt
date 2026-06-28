@@ -27,9 +27,12 @@ class CustomSymbolStore(private val prefs: SharedPreferences) {
     fun list(): List<String> =
         prefs.getString(KEY, "").orEmpty().split("\n").filter { it.isNotEmpty() }
 
-    /** Add one symbol (trimmed of whitespace/newlines, no duplicates, capped at [MAX]); true if added. */
+    /**
+     * Add one symbol (U13: control chars incl. internal \n\r are STRIPPED — not just trimmed — so a pasted
+     * multi-line value can't split into several column marks; then trimmed, de-duplicated, capped at [MAX]).
+     */
     fun add(symbol: String): Boolean {
-        val s = symbol.trim()
+        val s = symbol.filterNot { it.isISOControl() }.trim()
         val cur = list()
         if (s.isEmpty() || s in cur || cur.size >= MAX) return false
         save(cur + s)

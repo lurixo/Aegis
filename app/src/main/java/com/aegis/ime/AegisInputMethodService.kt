@@ -331,6 +331,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.categoriesProvider = { clipboardStore.categories() }                       // C5 分类
             it.phrasesInProvider = { cat -> clipboardStore.phrasesIn(cat) }
             it.onPick = { t -> currentInputConnection?.commitText(t, 1); inputView?.showPanel(null) }
+            // M-1: an entry is an image only if the marker is backed by a real file under clipboard_images.
+            it.isImage = { e -> ClipboardStore.isImageEntry(e) && clipImageStore.isStoredImage(ClipboardStore.imagePath(e)) }
             it.onPickImage = { path -> pasteImage(path) }                                  // U22: 点图片条目 → commitContent
             it.thumbnailProvider = { path -> thumbCache.get(path) }                        // U22: 缓存命中(同步)
             it.onLoadThumbnail = { path, cb -> loadThumbnailAsync(path, cb) }              // U22: 未命中后台解码
@@ -371,9 +373,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     /** U13: add the system clipboard's content as a custom 9-key mark (paste a symbol aegis doesn't ship). */
     private fun pasteCustomSymbol() {
         // Read item.text only (no coerceToText → no main-thread ContentResolver read for URI clips).
+        // U13: strip control chars (incl. internal \n\r) so a multi-line paste can't split into several marks.
         val t = runCatching {
             clipboardManager.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString()
-        }.getOrNull()?.trim().orEmpty()
+        }.getOrNull()?.filterNot { it.isISOControl() }?.trim().orEmpty()
         val msg = when {
             t.isEmpty() -> "剪贴板为空"
             t.length > 16 -> "内容过长,未作为符号添加"

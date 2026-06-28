@@ -74,6 +74,16 @@ class ClipImageStore(private val dir: File) {
         BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })
     }.getOrNull()
 
+    /**
+     * M-1: an entry is a REAL image only if its path is an existing file directly inside our
+     * clipboard_images dir — so a text clip that merely starts with the image marker (or a marker whose
+     * file was pruned) is NOT rendered/pasted as an image. canonicalFile also guards path traversal.
+     */
+    fun isStoredImage(path: String): Boolean = runCatching {
+        val f = File(path).canonicalFile
+        f.isFile && f.parentFile?.canonicalFile == imageDir().canonicalFile
+    }.getOrDefault(false)
+
     fun delete(path: String) { runCatching { File(path).delete() } }
 
     /** Wipe every saved image (used when the whole history is cleared). */
