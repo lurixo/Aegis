@@ -15,13 +15,14 @@
 
 package com.aegis.ime.ui
 
-enum class LetterCase { AUTO, UPPER, LOWER }
-
-internal const val PREF_LETTER_CASE = "pref_letter_case"
-internal const val LETTER_CASE_DEFAULT = "auto"
-
-fun letterCaseOf(value: String?): LetterCase = when (value) {
-    "upper" -> LetterCase.UPPER
-    "lower" -> LetterCase.LOWER
-    else -> LetterCase.AUTO
-}
+internal const val PREF_KEY_SOUND = "pref_key_sound"
+internal const val PREF_KEY_SOUND_VOLUME = "pref_key_sound_volume"
+internal const val PREF_KEY_HAPTICS = "pref_key_haptics"
+internal const val PREF_KEY_HAPTIC_STYLE = "pref_key_haptic_style"
+internal const val PREF_KEY_HAPTIC_STRENGTH = "pref_key_haptic_strength"
+internal const val KEY_HAPTICS_DEFAULT = false
+internal const val PREF_KEY_PREVIEW_MASTER = "pref_key_preview_master"
+internal const val PREF_KEY_PREVIEW_NINE = "pref_key_preview_nine"
+internal const val PREF_KEY_PREVIEW_ALPHA = "pref_key_preview_alpha"
+internal const val KEY_PREVIEW_MASTER_DEFAULT = false
+internal const val KEY_PREVIEW_SUB_DEFAULT = true

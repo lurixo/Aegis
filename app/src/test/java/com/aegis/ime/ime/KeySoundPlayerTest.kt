@@ -26,9 +26,13 @@ import android.view.HapticFeedbackConstants
 import android.provider.Settings
 import android.view.View
 import android.view.MotionEvent
+import com.aegis.ime.SettingsHotApply
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
+import com.aegis.ime.ui.PREF_KEY_SOUND
+import com.aegis.ime.ui.PREF_KEY_HAPTICS
+import com.aegis.ime.ui.PREF_KEY_HAPTIC_STYLE
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -200,6 +204,17 @@ class KeySoundPlayerTest {
         assertTrue(requested.isEmpty())
     }
 
+    @Test fun sound_choice_hot_applies_and_invalid_values_default_to_off() {
+        val prefs = context.getSharedPreferences("aegis", 0)
+        val applied = mutableListOf<KeySound>()
+        val listener = SettingsHotApply({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, { applied.add(it) })
+        prefs.edit().putString(PREF_KEY_SOUND, "brown").commit()
+        listener.onSharedPreferenceChanged(prefs, PREF_KEY_SOUND)
+        assertEquals(listOf(KeySound.BROWN), applied)
+        prefs.edit().putInt(PREF_KEY_SOUND, 1).commit()
+        assertEquals(KeySound.OFF, SettingsHotApply.keySound(prefs))
+    }
+
     @Test fun system_style_fallback_matches_a_keyboard_click_and_obeys_legacy_system_settings() {
         val vibrator = context.getSystemService(Vibrator::class.java)
         val shadow = shadowOf(vibrator)
@@ -238,6 +253,30 @@ class KeySoundPlayerTest {
             view.performImeKeyHaptic(true, style = KeyHaptic.SYSTEM)
             assertFalse(shadow.isVibrating)
             Settings.System.putInt(context.contentResolver, key, 1)
+        }
+    }
+
+    @Test fun vibration_style_hot_applies_without_changing_the_existing_enable_switch() {
+        val prefs = context.getSharedPreferences("aegis", 0)
+        val applied = mutableListOf<KeyHaptic>()
+        val listener = SettingsHotApply({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, onKeyHapticStyle = { applied.add(it) })
+        prefs.edit().putBoolean(PREF_KEY_HAPTICS, true).commit()
+        assertEquals(KeyHaptic.CRISP, SettingsHotApply.keyHapticStyle(prefs))
+        for (style in KeyHaptic.entries) {
+            prefs.edit().putString(PREF_KEY_HAPTIC_STYLE, style.value).commit()
+            listener.onSharedPreferenceChanged(prefs, PREF_KEY_HAPTIC_STYLE)
+            assertEquals(style, applied.last())
+            assertTrue(SettingsHotApply.keyHaptics(prefs))
+        }
+        prefs.edit().putBoolean(PREF_KEY_HAPTICS, false).commit()
+        assertEquals(KeyHaptic.DOUBLE, SettingsHotApply.keyHapticStyle(prefs))
+        assertFalse(SettingsHotApply.keyHaptics(prefs))
+        for (invalid in listOf("unknown", 1)) {
+            val editor = prefs.edit()
+            if (invalid is String) editor.putString(PREF_KEY_HAPTIC_STYLE, invalid)
+            else editor.putInt(PREF_KEY_HAPTIC_STYLE, invalid as Int)
+            editor.commit()
+            assertEquals(KeyHaptic.CRISP, SettingsHotApply.keyHapticStyle(prefs))
         }
     }
 
@@ -387,6 +426,30 @@ class KeySoundPlayerTest {
         assertTrue("Hammer has a sustained full-amplitude body", pulseData().any { it.first >= 60L && it.second == 1f })
         view.previewImeKeyHaptic(KeyHaptic.DOUBLE, 100f)
         assertTrue("Double tap has a discernible gap", pulseData().any { it.first >= 50L && it.second == 0f })
+    }
+
+    @Test fun strength_preserves_fractional_values_migrates_integers_and_hot_applies() {
+        val prefs = context.getSharedPreferences("aegis", 0)
+        val applied = mutableListOf<Float>()
+        val listener = SettingsHotApply({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, onKeyHapticStrength = { applied.add(it) })
+        val key = com.aegis.ime.ui.PREF_KEY_HAPTIC_STRENGTH
+        assertEquals(80f, SettingsHotApply.keyHapticStrength(prefs), 0f)
+        prefs.edit().putBoolean(PREF_KEY_HAPTICS, true).putString(PREF_KEY_HAPTIC_STYLE, "double").commit()
+        prefs.edit().putInt(key, 95).commit()
+        assertEquals("Existing preferences survive the storage change", 95f, SettingsHotApply.keyHapticStrength(prefs), 0f)
+        for ((stored, expected) in listOf(-1f to 0f, 0f to 0f, 25.375f to 25.375f, 80.125f to 80.125f,
+            100f to 100f, 999f to 100f, Float.NaN to 80f, Float.POSITIVE_INFINITY to 80f)) {
+            prefs.edit().putFloat(key, stored).commit()
+            listener.onSharedPreferenceChanged(prefs, key)
+            assertEquals(expected, applied.last(), 0f)
+        }
+        prefs.edit().putString(key, "invalid").commit()
+        assertEquals(80f, SettingsHotApply.keyHapticStrength(prefs), 0f)
+        prefs.edit().remove(key).commit()
+        listener.onSharedPreferenceChanged(prefs, key)
+        assertEquals(80f, applied.last(), 0f)
+        assertEquals(KeyHaptic.DOUBLE, SettingsHotApply.keyHapticStyle(prefs))
+        assertTrue(SettingsHotApply.keyHaptics(prefs))
     }
 
     @Test fun zero_strength_stops_preview_and_silences_custom_keys_without_platform_fallback() {

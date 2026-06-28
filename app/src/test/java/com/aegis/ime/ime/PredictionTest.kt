@@ -19,6 +19,7 @@ import com.aegis.ime.decoder.Cand
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
+import com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON
 import com.aegis.ime.user.UserLearning
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -119,6 +120,16 @@ class PredictionTest {
 
         assertEquals("Backspace is a normal editor delete after a prediction pick", "echoech", h.text)
         assertEquals("stale candidate undo must not restore the previous preedit", "", c.preeditForTest())
+    }
+
+    @Test fun associations_ship_off_by_default() {
+        assertFalse("联想 must ship OFF by default (debug.17)", ASSOCIATIONS_DEFAULT_ON)
+        val h = EditorHost()
+        val c = KeyboardController(h, niHaoEngine())
+        c.setCnAssociationsEnabled(ASSOCIATIONS_DEFAULT_ON)
+        commitNiHao(c)
+        assertEquals("你好 still committed", "你好", h.text)
+        assertTrue("default-off → no 联想 predictions on the empty buffer", c.candidateWords().isEmpty())
     }
 
     @Test fun association_toggle_off_hides_predictions() {

@@ -290,6 +290,12 @@ class KeyboardController(
         beforeCursor = null
     }
 
+    fun onUserLexiconChanged() {
+        if (englishWord.isEmpty() && emailContext == null) return
+        refreshCandidates()
+        render()
+    }
+
     private fun currentEmailContext(): String? =
         if (!emailAssociationsEnabled || learningBlocked || host.hasSelection()) null
         else EmailDomains.context(host.textBeforeCursor(EMAIL_SCAN_LEN))

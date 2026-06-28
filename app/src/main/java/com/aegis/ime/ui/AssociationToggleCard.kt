@@ -15,13 +15,10 @@
 
 package com.aegis.ime.ui
 
-enum class LetterCase { AUTO, UPPER, LOWER }
+internal const val PREF_ASSOCIATIONS_ON = "pref_associations_on"
+internal const val PREF_ASSOCIATIONS_MASTER_ON = "pref_associations_master_on"
+internal const val PREF_CN_ASSOCIATIONS_ON = "pref_cn_associations_on"
+internal const val PREF_EN_ASSOCIATIONS_ON = "pref_en_associations_on"
+internal const val PREF_EMAIL_ASSOCIATIONS_ON = "pref_email_associations_on"
 
-internal const val PREF_LETTER_CASE = "pref_letter_case"
-internal const val LETTER_CASE_DEFAULT = "auto"
-
-fun letterCaseOf(value: String?): LetterCase = when (value) {
-    "upper" -> LetterCase.UPPER
-    "lower" -> LetterCase.LOWER
-    else -> LetterCase.AUTO
-}
+internal const val ASSOCIATIONS_DEFAULT_ON = false

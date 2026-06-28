@@ -17,12 +17,84 @@ package com.aegis.ime
 
 import android.content.SharedPreferences
 import com.aegis.ime.dict.Fuzzy
+import com.aegis.ime.dict.ModelDownload
+import com.aegis.ime.layout.Lang
+import com.aegis.ime.layout.LayoutId
 
-internal class SettingsHotApply {
+internal class SettingsHotApply(
+    private val onCnLayout: (LayoutId) -> Unit,
+    private val onDefaultLang: (Lang) -> Unit,
+    private val onCnAssociations: (Boolean) -> Unit,
+    private val onAutoLearn: (Boolean) -> Unit,
+    private val onFuzzyRules: (Set<String>) -> Unit,
+    private val onEngineAssetsChanged: () -> Unit,
+    private val onKeyHaptics: (Boolean) -> Unit,
+    private val onKeyPreviewNine: (Boolean) -> Unit,
+    private val onKeyPreviewAlpha: (Boolean) -> Unit,
+    private val onLetterCase: (com.aegis.ime.ui.LetterCase) -> Unit,
+    private val onKeySound: (com.aegis.ime.ime.KeySound) -> Unit = {},
+    private val onKeyHapticStyle: (com.aegis.ime.ime.KeyHaptic) -> Unit = {},
+    private val onKeyHapticStrength: (Float) -> Unit = {},
+    private val onKeySoundVolume: (Float) -> Unit = {},
+    private val onEnAssociations: (Boolean) -> Unit = {},
+    private val onEmailAssociations: (Boolean) -> Unit = {},
+) : SharedPreferences.OnSharedPreferenceChangeListener {
+
+    override fun onSharedPreferenceChanged(prefs: SharedPreferences, key: String?) {
+        when {
+            key == null -> {}
+            key == CN_LAYOUT_PREF -> onCnLayout(cnLayout(prefs))
+            key == com.aegis.ime.ui.PREF_DEFAULT_LANG -> onDefaultLang(defaultLang(prefs))
+            key == com.aegis.ime.ui.PREF_ASSOCIATIONS_MASTER_ON -> {
+                onCnAssociations(cnAssociationsOn(prefs))
+                onEnAssociations(enAssociationsOn(prefs))
+                onEmailAssociations(emailAssociationsOn(prefs))
+            }
+            key == com.aegis.ime.ui.PREF_CN_ASSOCIATIONS_ON -> onCnAssociations(cnAssociationsOn(prefs))
+            key == com.aegis.ime.ui.PREF_EN_ASSOCIATIONS_ON -> onEnAssociations(enAssociationsOn(prefs))
+            key == com.aegis.ime.ui.PREF_EMAIL_ASSOCIATIONS_ON -> onEmailAssociations(emailAssociationsOn(prefs))
+            key == com.aegis.ime.ui.PREF_ASSOCIATIONS_ON -> {
+                if (!prefs.contains(com.aegis.ime.ui.PREF_CN_ASSOCIATIONS_ON)) onCnAssociations(cnAssociationsOn(prefs))
+                if (!prefs.contains(com.aegis.ime.ui.PREF_EN_ASSOCIATIONS_ON)) onEnAssociations(enAssociationsOn(prefs))
+                if (!prefs.contains(com.aegis.ime.ui.PREF_EMAIL_ASSOCIATIONS_ON)) onEmailAssociations(emailAssociationsOn(prefs))
+            }
+            key == com.aegis.ime.ui.PREF_AUTO_LEARN_ON -> onAutoLearn(autoLearnOn(prefs))
+            key == FUZZY_MASTER_PREF || key in FUZZY_RULE_PREF_KEYS -> onFuzzyRules(fuzzyRules(prefs))
+            key == com.aegis.ime.ui.PREF_KEY_SOUND -> onKeySound(keySound(prefs))
+            key == com.aegis.ime.ui.PREF_KEY_SOUND_VOLUME -> onKeySoundVolume(keySoundVolume(prefs))
+            key == com.aegis.ime.ui.PREF_KEY_HAPTICS -> onKeyHaptics(keyHaptics(prefs))
+            key == com.aegis.ime.ui.PREF_KEY_HAPTIC_STYLE -> onKeyHapticStyle(keyHapticStyle(prefs))
+            key == com.aegis.ime.ui.PREF_KEY_HAPTIC_STRENGTH -> onKeyHapticStrength(keyHapticStrength(prefs))
+            key == com.aegis.ime.ui.PREF_KEY_PREVIEW_MASTER -> {
+                onKeyPreviewNine(keyPreviewNine(prefs))
+                onKeyPreviewAlpha(keyPreviewAlpha(prefs))
+            }
+            key == com.aegis.ime.ui.PREF_KEY_PREVIEW_NINE -> onKeyPreviewNine(keyPreviewNine(prefs))
+            key == com.aegis.ime.ui.PREF_KEY_PREVIEW_ALPHA -> onKeyPreviewAlpha(keyPreviewAlpha(prefs))
+            key == com.aegis.ime.ui.PREF_LETTER_CASE -> onLetterCase(letterCase(prefs))
+            key in ENGINE_ASSET_PREF_KEYS -> onEngineAssetsChanged()
+        }
+    }
+
     companion object {
+        const val CN_LAYOUT_PREF = "cn_layout"
         const val FUZZY_MASTER_PREF = "fuzzy"
 
+        val FUZZY_RULE_PREF_KEYS: Set<String> = Fuzzy.RULES.mapTo(LinkedHashSet()) { Fuzzy.prefKey(it.key) }
+
         const val ENGINE_PACK_TOUCH_PREF = "engine_pack_touch"
+
+        val ENGINE_ASSET_PREF_KEYS: Set<String> = setOf(
+            ModelDownload.VALIDATOR_PREF,
+            ModelDownload.GRAM_SHA256_PREF,
+            ModelDownload.GRAM_SIZE_PREF,
+            ModelDownload.DICT_VALIDATOR_PREF,
+            ModelDownload.DICT_SHA256_PREF,
+            ENGINE_PACK_TOUCH_PREF,
+        )
+
+        private fun SharedPreferences.text(key: String, def: String): String =
+            runCatching { getString(key, def) }.getOrNull() ?: def
 
         private fun SharedPreferences.flag(key: String, def: Boolean): Boolean =
             runCatching { getBoolean(key, def) }.getOrDefault(def)
@@ -33,6 +105,81 @@ internal class SettingsHotApply {
         fun noteEnginePackChanged(prefs: SharedPreferences) {
             prefs.edit().putLong(ENGINE_PACK_TOUCH_PREF, prefs.count(ENGINE_PACK_TOUCH_PREF, 0L) + 1L).apply()
         }
+
+        fun cnLayout(prefs: SharedPreferences): LayoutId =
+            if (prefs.text(CN_LAYOUT_PREF, "nine") == "alpha") LayoutId.ALPHA else LayoutId.NINE
+
+        fun defaultLang(prefs: SharedPreferences): Lang =
+            com.aegis.ime.ui.defaultLangOf(
+                prefs.text(com.aegis.ime.ui.PREF_DEFAULT_LANG, com.aegis.ime.ui.DEFAULT_LANG_DEFAULT),
+            )
+
+        private fun associationOn(prefs: SharedPreferences, key: String): Boolean =
+            prefs.flag(
+                if (prefs.contains(key)) key else com.aegis.ime.ui.PREF_ASSOCIATIONS_ON,
+                com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON,
+            )
+
+        fun rawCnAssociationsOn(prefs: SharedPreferences): Boolean =
+            associationOn(prefs, com.aegis.ime.ui.PREF_CN_ASSOCIATIONS_ON)
+
+        fun rawEnAssociationsOn(prefs: SharedPreferences): Boolean =
+            associationOn(prefs, com.aegis.ime.ui.PREF_EN_ASSOCIATIONS_ON)
+
+        fun rawEmailAssociationsOn(prefs: SharedPreferences): Boolean =
+            associationOn(prefs, com.aegis.ime.ui.PREF_EMAIL_ASSOCIATIONS_ON)
+
+        fun associationsMasterOn(prefs: SharedPreferences): Boolean =
+            if (prefs.contains(com.aegis.ime.ui.PREF_ASSOCIATIONS_MASTER_ON)) {
+                prefs.flag(com.aegis.ime.ui.PREF_ASSOCIATIONS_MASTER_ON, com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON)
+            } else {
+                rawCnAssociationsOn(prefs) || rawEnAssociationsOn(prefs) || rawEmailAssociationsOn(prefs)
+            }
+
+        fun cnAssociationsOn(prefs: SharedPreferences): Boolean =
+            associationsMasterOn(prefs) && rawCnAssociationsOn(prefs)
+
+        fun enAssociationsOn(prefs: SharedPreferences): Boolean =
+            associationsMasterOn(prefs) && rawEnAssociationsOn(prefs)
+
+        fun emailAssociationsOn(prefs: SharedPreferences): Boolean =
+            associationsMasterOn(prefs) && rawEmailAssociationsOn(prefs)
+
+        fun autoLearnOn(prefs: SharedPreferences): Boolean =
+            prefs.flag(com.aegis.ime.ui.PREF_AUTO_LEARN_ON, com.aegis.ime.ui.AUTO_LEARN_DEFAULT_ON)
+
+        fun keySound(prefs: SharedPreferences): com.aegis.ime.ime.KeySound =
+            com.aegis.ime.ime.KeySound.of(prefs.text(com.aegis.ime.ui.PREF_KEY_SOUND, "off"))
+
+        fun keySoundVolume(prefs: SharedPreferences): Float = com.aegis.ime.ime.keySoundVolume(
+            (prefs.all[com.aegis.ime.ui.PREF_KEY_SOUND_VOLUME] as? Number)?.toFloat()
+                ?: com.aegis.ime.ime.KEY_SOUND_VOLUME_DEFAULT,
+        )
+
+        fun keyHaptics(prefs: SharedPreferences): Boolean =
+            prefs.flag(com.aegis.ime.ui.PREF_KEY_HAPTICS, com.aegis.ime.ui.KEY_HAPTICS_DEFAULT)
+
+        fun keyHapticStyle(prefs: SharedPreferences): com.aegis.ime.ime.KeyHaptic =
+            com.aegis.ime.ime.KeyHaptic.of(prefs.text(com.aegis.ime.ui.PREF_KEY_HAPTIC_STYLE, "crisp"))
+
+        fun keyHapticStrength(prefs: SharedPreferences): Float = com.aegis.ime.ime.keyHapticStrength(
+            (prefs.all[com.aegis.ime.ui.PREF_KEY_HAPTIC_STRENGTH] as? Number)?.toFloat()
+                ?: com.aegis.ime.ime.KEY_HAPTIC_STRENGTH_DEFAULT,
+        )
+
+        fun keyPreviewMaster(prefs: SharedPreferences): Boolean =
+            prefs.flag(com.aegis.ime.ui.PREF_KEY_PREVIEW_MASTER, com.aegis.ime.ui.KEY_PREVIEW_MASTER_DEFAULT)
+
+        fun keyPreviewNine(prefs: SharedPreferences): Boolean =
+            keyPreviewMaster(prefs) &&
+                prefs.flag(com.aegis.ime.ui.PREF_KEY_PREVIEW_NINE, com.aegis.ime.ui.KEY_PREVIEW_SUB_DEFAULT)
+
+        fun keyPreviewAlpha(prefs: SharedPreferences): Boolean =
+            keyPreviewMaster(prefs) &&
+                prefs.flag(com.aegis.ime.ui.PREF_KEY_PREVIEW_ALPHA, com.aegis.ime.ui.KEY_PREVIEW_SUB_DEFAULT)
+
+        fun letterCase(prefs: SharedPreferences): com.aegis.ime.ui.LetterCase =
+            com.aegis.ime.ui.letterCaseOf(prefs.text(com.aegis.ime.ui.PREF_LETTER_CASE, com.aegis.ime.ui.LETTER_CASE_DEFAULT))
 
         fun fuzzyRules(prefs: SharedPreferences): Set<String> =
             Fuzzy.activeRules(prefs.flag(FUZZY_MASTER_PREF, Fuzzy.DEFAULT_ON)) {

@@ -15,13 +15,6 @@
 
 package com.aegis.ime.ui
 
-enum class LetterCase { AUTO, UPPER, LOWER }
+internal const val PREF_AUTO_LEARN_ON = "pref_auto_learn_on"
 
-internal const val PREF_LETTER_CASE = "pref_letter_case"
-internal const val LETTER_CASE_DEFAULT = "auto"
-
-fun letterCaseOf(value: String?): LetterCase = when (value) {
-    "upper" -> LetterCase.UPPER
-    "lower" -> LetterCase.LOWER
-    else -> LetterCase.AUTO
-}
+internal const val AUTO_LEARN_DEFAULT_ON = true

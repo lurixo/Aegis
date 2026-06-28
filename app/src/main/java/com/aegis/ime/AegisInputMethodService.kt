@@ -134,6 +134,54 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun onEvaluateFullscreenMode(): Boolean = false
 
+    private val settingsHotApply = SettingsHotApply(
+        onCnLayout = { id ->
+            Handler(Looper.getMainLooper()).post {
+                if (::controller.isInitialized) controller.setCnDefaultLayout(id)
+            }
+        },
+        onDefaultLang = { l ->
+            Handler(Looper.getMainLooper()).post {
+                if (::controller.isInitialized) controller.setDefaultLang(l)
+            }
+        },
+        onCnAssociations = { on ->
+            Handler(Looper.getMainLooper()).post {
+                if (::controller.isInitialized) controller.setCnAssociationsEnabled(on)
+            }
+        },
+        onEnAssociations = { on ->
+            Handler(Looper.getMainLooper()).post {
+                if (::controller.isInitialized) controller.setEnAssociationsEnabled(on)
+            }
+        },
+        onEmailAssociations = { on ->
+            Handler(Looper.getMainLooper()).post {
+                if (::controller.isInitialized) controller.setEmailAssociationsEnabled(on)
+            }
+        },
+        onAutoLearn = { on ->
+            userLearning.enabled = on
+            userModel.autoLearnEnabled = on
+        },
+        onFuzzyRules = { rules ->
+            Handler(Looper.getMainLooper()).post {
+                if (::controller.isInitialized) controller.setFuzzyRules(rules)
+            }
+        },
+        onEngineAssetsChanged = {
+            Handler(Looper.getMainLooper()).post { maybeReloadEngine() }
+        },
+        onKeySound = { sound -> mainHandler.post { inputView?.setKeySound(sound) } },
+        onKeySoundVolume = { volume -> mainHandler.post { inputView?.setKeySoundVolume(volume) } },
+        onKeyHaptics = { on -> mainHandler.post { inputView?.setKeyHaptics(on) } },
+        onKeyHapticStyle = { style -> mainHandler.post { inputView?.setKeyHapticStyle(style) } },
+        onKeyHapticStrength = { strength -> mainHandler.post { inputView?.setKeyHapticStrength(strength) } },
+        onKeyPreviewNine = { on -> mainHandler.post { inputView?.setKeyPreviewNine(on) } },
+        onKeyPreviewAlpha = { on -> mainHandler.post { inputView?.setKeyPreviewAlpha(on) } },
+        onLetterCase = { mode -> mainHandler.post { inputView?.setLetterCase(mode) } },
+    )
+
     private val liveUserDictHost by lazy {
         LiveUserDictHost(
             userModel,
@@ -153,12 +201,26 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private val userLexicon by lazy {
         com.aegis.ime.user.UserLexicon(getSharedPreferences("aegis", MODE_PRIVATE))
     }
+    private val userLexiconListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == null || key == com.aegis.ime.user.UserLexicon.PREF_ENGLISH_WORDS ||
+            key == com.aegis.ime.user.UserLexicon.PREF_EMAIL_DOMAINS ||
+            key == com.aegis.ime.user.UserLexicon.PREF_DISABLED_EMAIL_DOMAINS ||
+            key.startsWith(com.aegis.ime.user.UserLexicon.EMAIL_COUNT_PREFIX)) {
+            mainHandler.post { if (::controller.isInitialized) controller.onUserLexiconChanged() }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
         runCatching {
             RestoreJournal.finishAnyInterrupted(filesDir, getSharedPreferences("aegis", MODE_PRIVATE))
         }.onFailure { Log.e("Aegis", "interrupted restore rollback failed", it) }
+        runCatching {
+            getSharedPreferences("aegis", MODE_PRIVATE)
+                .registerOnSharedPreferenceChangeListener(settingsHotApply)
+            getSharedPreferences("aegis", MODE_PRIVATE)
+                .registerOnSharedPreferenceChangeListener(userLexiconListener)
+        }
         val reloadUserLexicons = {
             val adoptRestoredStores = {
                 runCatching {
@@ -386,6 +448,15 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         inputView = view
         controller.attachView(view)
+        val fbPrefs = getSharedPreferences("aegis", MODE_PRIVATE)
+        view.setKeyHaptics(SettingsHotApply.keyHaptics(fbPrefs))
+        view.setKeyHapticStyle(SettingsHotApply.keyHapticStyle(fbPrefs))
+        view.setKeyHapticStrength(SettingsHotApply.keyHapticStrength(fbPrefs))
+        view.setKeySoundVolume(SettingsHotApply.keySoundVolume(fbPrefs))
+        view.setKeySound(SettingsHotApply.keySound(fbPrefs))
+        view.setKeyPreviewNine(SettingsHotApply.keyPreviewNine(fbPrefs))
+        view.setKeyPreviewAlpha(SettingsHotApply.keyPreviewAlpha(fbPrefs))
+        view.setLetterCase(SettingsHotApply.letterCase(fbPrefs))
 
         return view
     }
@@ -405,6 +476,23 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             personalizationBlocked = viewBlocksPersonalization
             resetControllerOnNextInputView = true
         }
+        val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
+        controller.setCnDefaultLayout(SettingsHotApply.cnLayout(prefs))
+        controller.setDefaultLang(SettingsHotApply.defaultLang(prefs))
+        controller.setCnAssociationsEnabled(SettingsHotApply.cnAssociationsOn(prefs))
+        controller.setEnAssociationsEnabled(SettingsHotApply.enAssociationsOn(prefs))
+        controller.setEmailAssociationsEnabled(SettingsHotApply.emailAssociationsOn(prefs))
+        userLearning.enabled = SettingsHotApply.autoLearnOn(prefs)
+        userModel.autoLearnEnabled = SettingsHotApply.autoLearnOn(prefs)
+        controller.setFuzzyRules(currentFuzzyRules())
+        inputView?.setKeyHaptics(SettingsHotApply.keyHaptics(prefs))
+        inputView?.setKeyHapticStyle(SettingsHotApply.keyHapticStyle(prefs))
+        inputView?.setKeyHapticStrength(SettingsHotApply.keyHapticStrength(prefs))
+        inputView?.setKeySoundVolume(SettingsHotApply.keySoundVolume(prefs))
+        inputView?.setKeySound(SettingsHotApply.keySound(prefs))
+        inputView?.setKeyPreviewNine(SettingsHotApply.keyPreviewNine(prefs))
+        inputView?.setKeyPreviewAlpha(SettingsHotApply.keyPreviewAlpha(prefs))
+        inputView?.setLetterCase(SettingsHotApply.letterCase(prefs))
         if (resetControllerOnNextInputView) {
             controller.reset(preserveLayout)
             resetControllerOnNextInputView = false
@@ -481,6 +569,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         runCatching { liveUserDictHost.flush() }
         liveUserDictHost.stopSaving()
         LiveUserData.onLexiconsRestored = null
+        runCatching {
+            getSharedPreferences("aegis", MODE_PRIVATE)
+                .unregisterOnSharedPreferenceChangeListener(settingsHotApply)
+            getSharedPreferences("aegis", MODE_PRIVATE)
+                .unregisterOnSharedPreferenceChangeListener(userLexiconListener)
+        }
         super.onDestroy()
     }
 

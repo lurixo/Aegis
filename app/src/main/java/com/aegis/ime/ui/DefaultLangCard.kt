@@ -15,13 +15,9 @@
 
 package com.aegis.ime.ui
 
-enum class LetterCase { AUTO, UPPER, LOWER }
+import com.aegis.ime.layout.Lang
 
-internal const val PREF_LETTER_CASE = "pref_letter_case"
-internal const val LETTER_CASE_DEFAULT = "auto"
+internal const val PREF_DEFAULT_LANG = "pref_default_lang"
+internal const val DEFAULT_LANG_DEFAULT = "cn"
 
-fun letterCaseOf(value: String?): LetterCase = when (value) {
-    "upper" -> LetterCase.UPPER
-    "lower" -> LetterCase.LOWER
-    else -> LetterCase.AUTO
-}
+fun defaultLangOf(value: String?): Lang = if (value == "en") Lang.EN else Lang.CN

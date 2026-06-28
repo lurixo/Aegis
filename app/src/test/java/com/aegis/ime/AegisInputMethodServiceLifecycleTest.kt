@@ -34,6 +34,8 @@ import com.aegis.ime.ime.EditPanelView
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.layout.Key
+import com.aegis.ime.layout.KeyAction
+import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.ui.DictDownloadWork
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -42,6 +44,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import java.util.concurrent.TimeUnit
 
@@ -178,6 +181,28 @@ class AegisInputMethodServiceLifecycleTest {
     private fun userModelOf(service: AegisInputMethodService) =
         service.javaClass.getDeclaredField("userModel").apply { isAccessible = true }
             .get(service) as com.aegis.ime.user.UserModel
+
+    @Test fun the_automatic_learning_switch_reaches_the_user_dictionary_on_both_paths() {
+        val prefs = RuntimeEnvironment.getApplication()
+            .getSharedPreferences("aegis", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(com.aegis.ime.ui.PREF_AUTO_LEARN_ON, false).commit()
+
+        val f = fixture()
+        val model = userModelOf(f.service)
+        assertFalse("starting an input session must carry the switch to the user dictionary", model.autoLearnEnabled)
+        model.recordWord("ninen", "你呢嗯", 1L, incrementCount = true)
+        assertTrue("and nothing may be recorded while it is off", model.isEmpty())
+
+        prefs.edit().putBoolean(com.aegis.ime.ui.PREF_AUTO_LEARN_ON, true).commit()
+        val hot = f.service.javaClass.getDeclaredField("settingsHotApply").apply { isAccessible = true }
+            .get(f.service) as android.content.SharedPreferences.OnSharedPreferenceChangeListener
+        hot.onSharedPreferenceChanged(prefs, com.aegis.ime.ui.PREF_AUTO_LEARN_ON)
+
+        assertTrue("turning it back on must reach the user dictionary too", model.autoLearnEnabled)
+        model.recordWord("ninen", "你呢嗯", 1L, incrementCount = true)
+        assertFalse("and recording resumes", model.isEmpty())
+        prefs.edit().remove(com.aegis.ime.ui.PREF_AUTO_LEARN_ON).commit()
+    }
 
     @Test fun saving_learned_data_must_not_swallow_a_user_dictionary_changed_outside() {
         val f = fixture()
@@ -327,6 +352,48 @@ class AegisInputMethodServiceLifecycleTest {
         assertFalse("the keyboard must not start the dictionary download on its own", DictDownloadWork.snapshot(f.service).downloading)
         assertFalse(ModelDownload.dictZipFile(f.service.filesDir).exists())
         assertFalse(ModelDownload.dictPartFile(f.service.filesDir).exists())
+    }
+
+    @Test fun a_new_app_session_starts_in_the_configured_default_language() {
+        val prefs = RuntimeEnvironment.getApplication().getSharedPreferences("aegis", 0)
+        val hadLang = prefs.contains("pref_default_lang")
+        val previousLang = prefs.getString("pref_default_lang", "cn")
+        try {
+            prefs.edit().putString("pref_default_lang", "en").commit()
+            fixture().also { f ->
+                assertEquals("the EN default opens the English 26-key", LayoutId.ALPHA, f.controller.activeLayoutId())
+                f.controller.onKey(Key("a", output = "a"))
+                assertEquals("", f.controller.preeditForTest())
+
+                f.controller.onKey(Key("", action = KeyAction.TOGGLE_LANG))
+                assertEquals(LayoutId.NINE, f.controller.activeLayoutId())
+                val sameAppField = editor(fieldId = 202)
+                f.service.onStartInput(sameAppField, true)
+                f.service.onStartInputView(sameAppField, true)
+                assertEquals("same-package continuity keeps the manual Chinese", LayoutId.NINE, f.controller.activeLayoutId())
+
+                val differentApp = editor(packageName = "com.other.editor")
+                f.service.onStartInput(differentApp, true)
+                f.service.onStartInputView(differentApp, true)
+                assertEquals("a different app starts back on the EN default", LayoutId.ALPHA, f.controller.activeLayoutId())
+                f.controller.onKey(Key("a", output = "a"))
+                assertEquals("", f.controller.preeditForTest())
+            }
+
+            prefs.edit().putString("pref_default_lang", "cn").commit()
+            fixture().also { f ->
+                f.controller.onKey(Key("", action = KeyAction.TOGGLE_LANG))
+                assertEquals(LayoutId.ALPHA, f.controller.activeLayoutId())
+                val differentApp = editor(packageName = "com.other.editor")
+                f.service.onStartInput(differentApp, true)
+                f.service.onStartInputView(differentApp, true)
+                assertEquals("the CN default overrides the remembered EN in a new app", LayoutId.NINE, f.controller.activeLayoutId())
+            }
+        } finally {
+            val edit = prefs.edit()
+            if (hadLang) edit.putString("pref_default_lang", previousLang) else edit.remove("pref_default_lang")
+            edit.commit()
+        }
     }
 
     @Test fun symbol_panel_and_candidate_pairs_follow_the_current_paragraph_on_both_layouts() {
