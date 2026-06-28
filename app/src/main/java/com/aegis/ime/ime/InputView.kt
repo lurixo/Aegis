@@ -37,9 +37,12 @@ class InputView(context: Context) : LinearLayout(context) {
     var onPanelBackspace: () -> Unit = {}   // A2 expanded screen: 退格
     var onPanelClear: () -> Unit = {}       // A2 expanded screen: 重输
     var onCollapse: () -> Unit = {}
+    var onCopyCommit: (String) -> Unit = {} // 复制条 ⑤: 上屏 the copied content
+    var onCopyBlock: (String) -> Unit = {}  // 复制条 ③: 拆词 block → aegis clipboard
 
     private val preeditView = PreeditView(context)
     private val candidateView = CandidateView(context)
+    private val copyBarView = CopyBarView(context) // 复制条: shares the candidate-strip row
     private val keyboardView = KeyboardView(context)
     private val panelContainer = FrameLayout(context)
     private val gridView = CandidateGridView(context)
@@ -68,6 +71,10 @@ class InputView(context: Context) : LinearLayout(context) {
         gridView.onClear = { onPanelClear() }
         keyboardView.onKey = { key -> onKey(key) }
         keyboardView.onBackspaceSwipe = { up -> onBackspaceSwipe(up) }
+        // 复制条: content → 上屏 (then leave); block → aegis clipboard; × → leave.
+        copyBarView.onCommit = { t -> onCopyCommit(t); hideCopyBar() }
+        copyBarView.onCopyBlock = { b -> onCopyBlock(b) }
+        copyBarView.onDismiss = { hideCopyBar() }
         // the preedit + candidate rows are FIXED-HEIGHT and ALWAYS present — only their
         // CONTENT changes, never their visibility — so the IME's total height never changes while typing.
         // (Toggling the preedit GONE/VISIBLE grew/shrank the window on every keystroke that started or
@@ -79,6 +86,8 @@ class InputView(context: Context) : LinearLayout(context) {
         body.orientation = VERTICAL
         body.setBackgroundColor(0xFFE2E6EA.toInt())
         body.addView(candidateView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
+        copyBarView.visibility = GONE // 复制条 occupies the same 44dp row as the candidate strip when shown
+        body.addView(copyBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
         body.addView(keyboardView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         panelContainer.visibility = GONE
         body.addView(panelContainer, LayoutParams(LayoutParams.MATCH_PARENT, dp(250)))
@@ -109,6 +118,21 @@ class InputView(context: Context) : LinearLayout(context) {
         keyboardView.setLayout(layout, shifted, lang)
     }
 
+    /** 复制条: show the captured clip on the taskbar row (replacing the normal toolbar). */
+    fun showCopyBar(text: String) {
+        copyBarView.show(text)
+        copyBarView.visibility = VISIBLE
+        candidateView.visibility = GONE
+    }
+
+    /** Leave the copy-bar state → restore the normal candidate strip / toolbar. */
+    fun hideCopyBar() {
+        copyBarView.visibility = GONE
+        candidateView.visibility = VISIBLE
+    }
+
+    val copyBarShown: Boolean get() = copyBarView.visibility == VISIBLE
+
     /** [preedit] is the pinyin tab text (separate from candidates, C1); [readings] = the active syllable's
      *  combinations for the expanded screen's left column (A2). */
     fun showCandidates(candidates: List<String>, preedit: String, readings: List<String>) {
@@ -118,6 +142,8 @@ class InputView(context: Context) : LinearLayout(context) {
         // height is constant and the host's layout never jitters while typing.
         preeditView.setText(preedit)
         candidateView.setContent(candidates, preedit)
+        // Composing wins the strip: once the user starts typing, drop the copy-bar so candidates show.
+        if (copyBarShown && (candidates.isNotEmpty() || preedit.isNotEmpty())) hideCopyBar()
         // B-1/M-1/L-1: ONLY the A2 expanded candidate grid reacts to a render here — it live-refreshes and
         // closes when composing ends. Every OTHER panel (emoji / clipboard / symbols / 自定义 / edit) must
         // SURVIVE the render() that trails each onKey / setCustomSymbols / setEngine; the old code closed ANY

@@ -78,7 +78,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     // not just on explicit panel-open. On-device only (ClipboardStore is plain-text in filesDir, nothing
     // leaves the device). Android 10+ only grants clipboard reads to the focused IME, so this fires while
     // Aegis is the active input method.
-    private val clipChangedListener = android.content.ClipboardManager.OnPrimaryClipChangedListener { captureClip() }
+    private val clipChangedListener = android.content.ClipboardManager.OnPrimaryClipChangedListener { onSystemClipChanged() }
 
     override fun onCreate() {
         super.onCreate()
@@ -165,6 +165,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onPanelBackspace = { controller.onPanelBackspace() } // A2 expanded: 退格
             onPanelClear = { controller.onPanelClear() }          // A2 expanded: 重输
             onCollapse = { requestHideSelf(0) } // idle toolbar ⌄ collapses the keyboard
+            onCopyCommit = { t -> currentInputConnection?.commitText(t, 1) } // 复制条 ⑤: 上屏
+            onCopyBlock = { b -> clipboardStore.record(b) }                   // 复制条 ③: 写 aegis 剪贴板(不上屏/不写系统)
         }
         inputView = view
         controller.attachView(view)
@@ -280,7 +282,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.categoriesProvider = { clipboardStore.categories() }                       // C5 分类
             it.phrasesInProvider = { cat -> clipboardStore.phrasesIn(cat) }
             it.onPick = { t -> currentInputConnection?.commitText(t, 1); inputView?.showPanel(null) }
-            it.onCommitBlock = { b -> currentInputConnection?.commitText(b, 1) }           // C4 拆词块上屏(不关面板)
+            it.onCommitBlock = { b -> clipboardStore.record(b) }                          // ③ 拆词块写 aegis 剪贴板(不上屏/不写系统)
             it.onBack = { inputView?.showPanel(null) }
             it.onDeleteClips = { list -> clipboardStore.deleteAll(list) }                  // C7 多选删除
             it.onDeletePhrasesFrom = { cat, list -> list.forEach { clipboardStore.deletePhraseFrom(cat, it) } }
@@ -352,6 +354,21 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             val clip = clipboardManager.primaryClip ?: return
             if (clip.itemCount > 0) clipboardStore.record(clip.getItemAt(0).coerceToText(this)?.toString())
         }
+    }
+
+    /**
+     * 复制条: a system clipboard change while Aegis is active → record it AND raise the
+     * taskbar copy-bar with that content (① 复制后). Same C1 privacy gate as [captureClip]. Fires on the
+     * main thread (listener registered without a handler), so touching [inputView] here is safe.
+     */
+    private fun onSystemClipChanged() {
+        if (secureField || !historyEnabled()) return
+        val t = runCatching {
+            clipboardManager.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()
+        }.getOrNull()?.trim().orEmpty()
+        if (t.isEmpty()) return
+        clipboardStore.record(t)
+        inputView?.showCopyBar(t)
     }
 
     // C1/C2 clipboard controls (wired to the panel ⚙ menu).
