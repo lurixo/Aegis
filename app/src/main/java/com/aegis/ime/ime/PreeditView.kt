@@ -21,6 +21,8 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.util.TypedValue
 import android.view.View
+import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
 
 /**
  * The pinyin preedit tab (C1): a small white rounded tab at the top-left showing the
@@ -36,13 +38,24 @@ class PreeditView(context: Context) : View(context) {
 
     init { setLayerType(LAYER_TYPE_SOFTWARE, null) } // for the soft shadow below
 
+    // F1: Monet palette (default = static light); the IME service pushes the live one.
+    private var palette = ImePalette.STATIC_LIGHT
+
     private val tabPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFFFFFFF.toInt()
-        setShadowLayer(5f * density, 0f, 2f * density, 0x22000000) // soft neumorphic lift
+        color = palette.keySurface
+        setShadowLayer(5f * density, 0f, 2f * density, 0x22000000) // soft card lift
     }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF1565C0.toInt()
+        color = palette.preeditText
         textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 16f, resources.displayMetrics)
+    }
+
+    /** F1: push a new Monet palette and repaint. */
+    fun applyPalette(p: ImePalette) {
+        palette = p
+        tabPaint.color = p.keySurface
+        textPaint.color = p.preeditText
+        invalidate()
     }
 
     fun setText(s: String) {
@@ -54,7 +67,7 @@ class PreeditView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         if (text.isEmpty()) return
         val w = textPaint.measureText(text) + pad * 2
-        val r = 6f * density
+        val r = ImeShapes.cardRadiusDp * density / 2f // tab corner (small)
         tab.set(pad, 0f, pad + w, height.toFloat() + r)
         canvas.drawRoundRect(tab, r, r, tabPaint)
         val baseline = height / 2f - (textPaint.descent() + textPaint.ascent()) / 2

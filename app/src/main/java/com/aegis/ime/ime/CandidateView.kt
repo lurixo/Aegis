@@ -23,6 +23,7 @@ import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import com.aegis.ime.ime.theme.ImePalette
 import kotlin.math.abs
 
 /**
@@ -80,28 +81,44 @@ class CandidateView(context: Context) : View(context) {
     private fun sp(value: Float) =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, resources.displayMetrics)
 
+    // F1: Monet palette (default = static light = previous look); the IME service pushes the live one.
+    private var palette = ImePalette.STATIC_LIGHT
+
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF202124.toInt()
+        color = palette.candidateText
         textSize = sp(18f)
     }
     private val firstPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF2E7D32.toInt() // green highlight for the top candidate (C2)
+        color = palette.candidateFirst // highlight for the top candidate (C2)
         textSize = sp(18f)
     }
     private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF455A64.toInt()
+        color = palette.icon
         style = Paint.Style.STROKE
         strokeWidth = 1.8f * density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
-    private val capsulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
-    private val sepPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFD5DADF.toInt() }
-    private val expandBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFE9ECF1.toInt() }
+    private val capsulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySurface }
+    private val sepPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.separator }
+    private val expandBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.railBg }
     private val chevronPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF607D8B.toInt()
+        color = palette.icon
         textAlign = Paint.Align.CENTER
         textSize = sp(18f)
+    }
+
+    /** F1: push a new Monet palette and repaint. */
+    fun applyPalette(p: ImePalette) {
+        palette = p
+        textPaint.color = p.candidateText
+        firstPaint.color = p.candidateFirst
+        iconPaint.color = p.icon
+        capsulePaint.color = p.keySurface
+        sepPaint.color = p.separator
+        expandBgPaint.color = p.railBg
+        chevronPaint.color = p.icon
+        invalidate()
     }
 
     fun setContent(candidates: List<String>, composingText: String) {
@@ -127,7 +144,7 @@ class CandidateView(context: Context) : View(context) {
     private fun maxScroll(): Float = maxOf(0f, contentWidth - (width - expandW))
 
     override fun onDraw(canvas: Canvas) {
-        canvas.drawColor(0xFFE9ECF1.toInt())
+        canvas.drawColor(palette.keyboardBg)
         val baseline = height / 2f - (textPaint.descent() + textPaint.ascent()) / 2
 
         if (items.isEmpty()) {
