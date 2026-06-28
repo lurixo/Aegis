@@ -70,6 +70,7 @@ class InputView(context: Context) : LinearLayout(context) {
         candidateView.onFunction = { f -> onFunction(f) }
         candidateView.onExpand = { showExpandedCandidates() }
         candidateView.onCollapse = { onCollapse() }
+        candidateView.onCollapseExpanded = { showPanel(null) }
         gridView.onPick = { index -> onPickCandidate(index) }
         gridView.onPickReading = { index -> onPickReading(index) }
         gridView.onClose = { showPanel(null) }
@@ -96,7 +97,9 @@ class InputView(context: Context) : LinearLayout(context) {
             val nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
             val cut = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
             val side = dp(4)
-            body.setPadding(maxOf(cut.left, side), 0, maxOf(cut.right, side), nav.bottom + dp(28))
+            val leftPad = maxOf(cut.left, side)
+            body.setPadding(leftPad, 0, maxOf(cut.right, side), nav.bottom + dp(28))
+            preeditView.setLeftInset(leftPad.toFloat())
             WindowInsetsCompat.CONSUMED
         }
     }
@@ -141,9 +144,12 @@ class InputView(context: Context) : LinearLayout(context) {
 
     internal fun shownCandidateCount(): Int = candidateView.itemCount()
 
+    internal fun barChevronGlyph(): String = candidateView.chevronGlyph()
+
     fun showPanel(panel: View?) {
         panelContainer.removeAllViews()
         currentPanel = panel
+        candidateView.setExpanded(panel === gridView)
         if (panel == null) {
             panelContainer.visibility = GONE
             keyboardView.visibility = VISIBLE

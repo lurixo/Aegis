@@ -29,6 +29,8 @@ class PreeditView(context: Context) : View(context) {
     private var text: String = ""
     private val density = resources.displayMetrics.density
     private val pad = 12f * density
+    private val candPad = 14f * density
+    private var leftInset = 0f
     private val tab = RectF()
 
     init { setLayerType(LAYER_TYPE_SOFTWARE, null) }
@@ -57,13 +59,20 @@ class PreeditView(context: Context) : View(context) {
         invalidate()
     }
 
+    fun setLeftInset(px: Float) {
+        if (px == leftInset) return
+        leftInset = px
+        invalidate()
+    }
+
     override fun onDraw(canvas: Canvas) {
         if (text.isEmpty()) return
+        val textX = leftInset + candPad
         val w = textPaint.measureText(text) + pad * 2
         val r = ImeShapes.cardRadiusDp * density / 2f
-        tab.set(pad, 0f, pad + w, height.toFloat() + r)
+        tab.set(textX - pad, 0f, textX - pad + w, height.toFloat() + r)
         canvas.drawRoundRect(tab, r, r, tabPaint)
         val baseline = height / 2f - (textPaint.descent() + textPaint.ascent()) / 2
-        canvas.drawText(text, pad * 2, baseline, textPaint)
+        canvas.drawText(text, textX, baseline, textPaint)
     }
 }
