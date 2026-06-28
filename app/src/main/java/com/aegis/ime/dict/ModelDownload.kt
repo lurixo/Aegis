@@ -27,6 +27,9 @@ object ModelDownload {
     const val GRAM_URL =
         "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/wanxiang-lts-zh-hans.gram"
 
+    /** Upstream source repository for the grammar model (shown as a tappable link on the model card). */
+    const val REPO_URL = "https://github.com/amzxyz/RIME-LMDG"
+
     const val GRAM_NAME = "wanxiang-lts-zh-hans.gram"
 
     /** SharedPreferences key (prefs "aegis") storing the downloaded file's remote validator. */
