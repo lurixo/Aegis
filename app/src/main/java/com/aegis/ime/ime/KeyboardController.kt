@@ -162,6 +162,11 @@ class KeyboardController(
     }
 
     fun onBarFunction(f: BarFunction) {
+        if (composing.isNotEmpty() || committedPrefix.isNotEmpty()) {
+            flushComposing()
+            refreshCandidates()
+            render()
+        }
         when (f) {
             BarFunction.BRAND -> onShowSettings()
             BarFunction.EMOJI -> onShowEmoji()
