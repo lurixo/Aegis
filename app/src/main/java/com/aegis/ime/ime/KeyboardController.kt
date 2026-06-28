@@ -18,6 +18,8 @@ package com.aegis.ime.ime
 import com.aegis.ime.decoder.Cand
 import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.engine.CandidateEngine
+import com.aegis.ime.engine.Calculator
+import com.aegis.ime.engine.InputAssociations
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.Lang
@@ -54,6 +56,10 @@ class KeyboardController(
     private val history = ArrayDeque<StepKind>()
 
     private var customSymbols: List<String> = emptyList()
+
+    private var directCommitCands: Set<Cand> = emptySet()
+    private var calcCand: Cand? = null
+    private var calcExprLen = 0
 
     private var learningBlocked = false
 
@@ -177,7 +183,18 @@ class KeyboardController(
 
     fun onPickCandidate(index: Int) {
         if (index !in candidates.indices) return
-        commitCandidate(candidates[index])
+        val cand = candidates[index]
+        when {
+            cand === calcCand -> {
+                host.replaceBeforeCursor(calcExprLen, cand.word)
+                clearComposingState(); lastWord = null
+            }
+            cand in directCommitCands -> {
+                host.commitText(cand.word)
+                clearComposingState(); lastWord = null
+            }
+            else -> commitCandidate(cand)
+        }
         refreshCandidates()
         render()
     }
@@ -342,27 +359,52 @@ class KeyboardController(
     }
 
     private fun refreshCandidates() {
+        val base = baseCandidates()
+        directCommitCands = emptySet()
+        calcCand = null; calcExprLen = 0
         candidates = when {
-            composing.isNotEmpty() -> {
-                val raw = composing.toString()
-                when (mode()) {
-                    Mode.PINYIN -> if (lockedReadings.isNotEmpty()) {
-                        val bounds = readingLetterToDigit()
-                        engine.candidatesForReadingCovered(fullLetters())
-                            .map { Cand(it.word, bounds[it.coveredLen] ?: composing.length) }
-                    } else {
-                        val isNine = layoutId == LayoutId.NINE
-                        var c = engine.candidatesCovered(raw, isNine, forcedCuts)
-                        if (c.isEmpty() && isNine) {
-                            val pfx = T9Pinyin.longestDecodablePrefix(raw)
-                            if (pfx.length in 1 until raw.length) c = engine.candidatesCovered(pfx, true)
-                        }
-                        if (layoutId == LayoutId.ALPHA && c.none { it.word == raw }) c + Cand(raw, raw.length) else c
-                    }
-                    Mode.DIRECT -> emptyList()
+            composing.isNotEmpty() && mode() == Mode.PINYIN -> injectAssociations(base)
+            composing.isEmpty() -> calcCandidates()
+            else -> base
+        }
+    }
+
+    private fun injectAssociations(base: List<Cand>): List<Cand> {
+        val glyphs = InputAssociations.lookup(rawComposingText())
+        if (glyphs.isEmpty()) return base
+        val extra = glyphs.map { Cand(it, composing.length) }
+        directCommitCands = extra.toSet()
+        return when {
+            base.isEmpty() -> extra
+            else -> listOf(base.first()) + extra + base.drop(1)
+        }
+    }
+
+    private fun calcCandidates(): List<Cand> {
+        val match = Calculator.detect(host.textBeforeCursor(CALC_SCAN_LEN)) ?: return emptyList()
+        val cand = Cand(match.result, 0)
+        calcCand = cand; calcExprLen = match.length
+        return listOf(cand)
+    }
+
+    private fun baseCandidates(): List<Cand> {
+        if (composing.isEmpty()) return emptyList()
+        val raw = composing.toString()
+        return when (mode()) {
+            Mode.PINYIN -> if (lockedReadings.isNotEmpty()) {
+                val bounds = readingLetterToDigit()
+                engine.candidatesForReadingCovered(fullLetters())
+                    .map { Cand(it.word, bounds[it.coveredLen] ?: composing.length) }
+            } else {
+                val isNine = layoutId == LayoutId.NINE
+                var c = engine.candidatesCovered(raw, isNine, forcedCuts)
+                if (c.isEmpty() && isNine) {
+                    val pfx = T9Pinyin.longestDecodablePrefix(raw)
+                    if (pfx.length in 1 until raw.length) c = engine.candidatesCovered(pfx, true)
                 }
+                if (layoutId == LayoutId.ALPHA && c.none { it.word == raw }) c + Cand(raw, raw.length) else c
             }
-            else -> emptyList()
+            Mode.DIRECT -> emptyList()
         }
     }
 
@@ -428,5 +470,6 @@ class KeyboardController(
 
     private companion object {
         const val NINE_LEFT_MAX = 24
+        const val CALC_SCAN_LEN = 32
     }
 }
