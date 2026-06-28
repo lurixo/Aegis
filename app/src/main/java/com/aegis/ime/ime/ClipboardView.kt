@@ -106,7 +106,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private companion object {
         const val MP = ViewGroup.LayoutParams.MATCH_PARENT
         const val WC = ViewGroup.LayoutParams.WRAP_CONTENT
+        const val DISPLAY_CAP = 2000 // E5: max chars shown in a card preview (storage/上屏 stay full)
     }
+
+    /** E5: a bounded preview of [s] for display only (full text is kept for tap/save). */
+    private fun preview(s: String): CharSequence = if (s.length > DISPLAY_CAP) s.substring(0, DISPLAY_CAP) + "…" else s
 
     private fun ll(w: Int, h: Int, weight: Float = 0f) = LinearLayout.LayoutParams(w, h, weight)
 
@@ -177,7 +181,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         }
         val header = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         val body = TextView(context).apply {
-            this.text = text
+            // E5: show only a bounded PREVIEW — a million-char entry would make the TextView measure/layout the
+            // whole string and jank. Storage + 上屏 (onPick) always use the full `text`, never the preview.
+            this.text = preview(text)
             maxLines = if (expanded) 6 else 2
             ellipsize = android.text.TextUtils.TruncateAt.END
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)

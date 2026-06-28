@@ -212,7 +212,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onPanelBackspace = { controller.onPanelBackspace() } // A2 expanded: 退格
             onPanelClear = { controller.onPanelClear() }          // A2 expanded: 重输
             onCollapse = { requestHideSelf(0) } // idle toolbar ⌄ collapses the keyboard
-            onCopyCommit = { t -> currentInputConnection?.commitText(t, 1) } // 复制条 ⑤: 上屏 (到当前字段)
+            onCopyCommit = { t -> commitLargeText(t) } // 复制条 ⑤: 上屏 (到当前字段; E5: chunked for huge clips)
             onCopyBlock = { b -> copyBlockToAegis(b) }                        // 复制条 ③: 写 aegis 剪贴板(不上屏/不写系统)
             onCopyDismiss = { lastCopy = null }                              // U21: ④/⑤ 离开 → 不再恢复该复制条
         }
@@ -352,7 +352,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.historyProvider = { clipboardStore.history() }
             it.categoriesProvider = { clipboardStore.categories() }                       // C5 分类
             it.phrasesInProvider = { cat -> clipboardStore.phrasesIn(cat) }
-            it.onPick = { t -> currentInputConnection?.commitText(t, 1); inputView?.showPanel(null) }
+            it.onPick = { t -> commitLargeText(t); inputView?.showPanel(null) } // E5: chunked for huge clips
             // M-1: an entry is an image only if the marker is backed by a real file under clipboard_images.
             it.isImage = { e -> ClipboardStore.isImageEntry(e) && clipImageStore.isStoredImage(ClipboardStore.imagePath(e)) }
             it.onPickImage = { path -> pasteImage(path) }                                  // U22: 点图片条目 → commitContent
@@ -607,6 +607,18 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun commitText(text: CharSequence) {
         currentInputConnection?.commitText(text, 1)
+    }
+
+    /**
+     * E5: commit a clipboard entry that may be huge (million-char paste) in binder-safe chunks — a single
+     * commitText over ~1 MB throws TransactionTooLargeException. Used by the 复制条 ⑤ and a 剪贴板 entry tap.
+     * (A third-party editor may still refuse an oversized paste of its own accord — that's outside the IME.)
+     */
+    private fun commitLargeText(text: CharSequence) {
+        val ic = currentInputConnection ?: return
+        ic.beginBatchEdit()
+        com.aegis.ime.ime.LargeCommit.commit(text) { ic.commitText(it, 1) }
+        ic.endBatchEdit()
     }
 
     override fun deleteBackward() {

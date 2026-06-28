@@ -45,7 +45,7 @@ class ClipboardStoreTest {
 
     @Test fun multiline_clip_survives_persist_roundtrip() {
         val dir = newDir()
-        ClipboardStore(dir).apply { load(); record("line1\nline2") }
+        ClipboardStore(dir).apply { load(); record("line1\nline2"); awaitWritesForTest() } // E5: persistence is async
         val reloaded = ClipboardStore(dir).apply { load() }
         assertEquals("line1\nline2", reloaded.history().first())
     }
@@ -77,7 +77,7 @@ class ClipboardStoreTest {
     @Test fun crlf_clip_survives_persist_roundtrip() {
         // readLines() also splits on \r / \r\n, so CRLF text (desktop/web clips) must be escaped too.
         val dir = newDir()
-        ClipboardStore(dir).apply { load(); record("line1\r\nline2") }
+        ClipboardStore(dir).apply { load(); record("line1\r\nline2"); awaitWritesForTest() } // E5: persistence is async
         val reloaded = ClipboardStore(dir).apply { load() }
         assertEquals("line1\r\nline2", reloaded.history().first())
     }
@@ -88,11 +88,66 @@ class ClipboardStoreTest {
         s.record("a"); s.record("b"); s.record("c") // history = [c, b, a]
         s.deleteAll(listOf("a", "c"))
         assertEquals(listOf("b"), s.history())
+        s.awaitWritesForTest() // E5: persistence is async
         // persisted: a fresh store sees the same survivor
         assertEquals(listOf("b"), ClipboardStore(dir).apply { load() }.history())
         s.clearHistory()
         assertTrue(s.history().isEmpty())
+        s.awaitWritesForTest()
         assertTrue(ClipboardStore(dir).apply { load() }.history().isEmpty())
+    }
+
+    // ---- E5: million-char clip must round-trip losslessly without main-thread heavy IO ----
+
+    @Test fun million_char_clip_round_trips_without_truncation_and_externalizes() {
+        val dir = newDir()
+        val big = "字".repeat(1_000_000) // 1,000,000 chars
+        val s = ClipboardStore(dir).apply { load(); record(big) }
+        // record() returns immediately (async persist); the in-memory entry is the FULL text, untruncated.
+        assertEquals(1_000_000, s.history().first().length)
+        s.awaitWritesForTest()
+        // clipboard.txt stays SMALL — the big entry is a one-line B-marker, NOT a million chars inline.
+        val index = File(dir, "clipboard.txt").readText()
+        assertTrue("index is a small B-marker, not the content", index.startsWith("B\t") && index.length < 200)
+        // the full content lives in a content-addressed side file, untruncated.
+        val sideFiles = File(dir, "clips").listFiles().orEmpty()
+        assertTrue("side file holds the full 1M content", sideFiles.any { it.readText().length == 1_000_000 })
+        // reload from disk → identical, no truncation.
+        val reloaded = ClipboardStore(dir).apply { load() }
+        assertEquals("reloaded length", 1_000_000, reloaded.history().first().length)
+        assertEquals("reloaded content identical", big, reloaded.history().first())
+    }
+
+    @Test fun small_entries_stay_inline_and_big_ones_externalize() {
+        val dir = newDir()
+        val small = "x".repeat(ClipboardStore.BIG_THRESHOLD)           // == threshold → inline
+        val big = "y".repeat(ClipboardStore.BIG_THRESHOLD + 1)         // just over → externalized
+        val s = ClipboardStore(dir).apply { load(); record(small); record(big); awaitWritesForTest() }
+        val lines = File(dir, "clipboard.txt").readLines()
+        assertEquals(2, lines.size)
+        assertTrue("newest (big) is a B-marker", lines[0].startsWith("B\t"))
+        assertFalse("small stays inline (bare, not a B-marker)", lines[1].startsWith("B\t"))
+        // both survive a reload intact (dedup/order preserved)
+        val reloaded = ClipboardStore(dir).apply { load() }
+        assertEquals(listOf(big, small), reloaded.history())
+    }
+
+    @Test fun legacy_bare_history_and_tab_delimited_clips_survive_upgrade() {
+        // Pre-E5 clipboard.txt = bare encoded lines, no markers, no clips/ dir. Tab-delimited clips that merely
+        // start with the new "B\t" marker prefix must be preserved verbatim (no drop, no prefix-stripping).
+        val dir = newDir()
+        File(dir, "clipboard.txt").writeText("B\tcol2\tcol3\nT\tnot a marker\nplain clip")
+        val s = ClipboardStore(dir).apply { load() }
+        assertEquals(listOf("B\tcol2\tcol3", "T\tnot a marker", "plain clip"), s.history())
+    }
+
+    @Test fun deleting_a_big_entry_sweeps_its_side_file() {
+        val dir = newDir()
+        val big = "z".repeat(ClipboardStore.BIG_THRESHOLD + 100)
+        val s = ClipboardStore(dir).apply { load(); record(big); awaitWritesForTest() }
+        assertTrue("side file written", File(dir, "clips").listFiles().orEmpty().isNotEmpty())
+        s.clearHistory(); s.awaitWritesForTest()
+        assertTrue("orphan side file swept", File(dir, "clips").listFiles().orEmpty().isEmpty())
     }
 
     @Test fun batch_add_phrases_dedupes_trims_and_persists() {
