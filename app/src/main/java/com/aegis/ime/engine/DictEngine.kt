@@ -97,6 +97,11 @@ class DictEngine(
         userModel?.record(prevWord, word, System.currentTimeMillis())
     }
 
+    // E4 hot-toggle (debug.16): forward to the 26-key decoder only; T9 is already lossy and never used fuzzy.
+    override fun setFuzzyRules(rules: Set<String>) {
+        decoder?.setFuzzyRules(rules)
+    }
+
     private companion object {
         const val MAX_CANDIDATES = 30
         const val MAX_PREDICTIONS = 8

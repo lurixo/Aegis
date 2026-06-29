@@ -188,6 +188,16 @@ object ModelDownload {
         DICT_PACK_FILES.all { File(downloadedDir(filesDir), it).let { f -> f.exists() && f.length() > 1024 } }
 
     /**
+     * debug.16 (engine hot-reload guard): is a dict-pack or gram download/install currently in flight? The
+     * engine hot-reload must NOT read `downloaded/` mid-install, or it could build from a partially-extracted
+     * (mixed old/new) .bin set. The dict zip is deleted only AFTER all 3 .bin are atomically renamed
+     * ([installDictPack] line order), so the zip's presence (or its `.part`) brackets the ENTIRE verify+extract
+     * window airtight; the gram's single-file rename is already atomic, but its `.part` is included for symmetry.
+     */
+    fun installInProgress(filesDir: File): Boolean =
+        dictZipFile(filesDir).exists() || dictPartFile(filesDir).exists() || partFile(filesDir).exists()
+
+    /**
      * Verify the downloaded zip against [DICT_SHA256] and extract its 3 entries into downloaded/ renamed to
      * [DICT_PACK_FILES]; the (98 MB) zip is deleted afterwards. Returns true only when all 3 landed. A sha256
      * mismatch (corruption / tamper) is REJECTED — the zip is deleted, nothing extracted. Blocking — call off
