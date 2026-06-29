@@ -19,6 +19,7 @@ import com.aegis.ime.decoder.Cand
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
+import com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -79,6 +80,18 @@ class PredictionTest {
         assertEquals("the prediction is committed after 你好", "你好世界", h.text)
         // lastWord is now 世界; niHaoEngine predicts nothing after it → empty bar (chained, then dry).
         assertTrue("no prediction after 世界", c.candidateWords().isEmpty())
+    }
+
+    @Test fun associations_ship_off_by_default() {
+        // debug.17: 联想 now ships OFF. A new install / never-toggled user (pref unset → ASSOCIATIONS_DEFAULT_ON)
+        // is what the IME pushes in onStartInputView, and must see NO next-word predictions until they opt in.
+        assertFalse("联想 must ship OFF by default (debug.17)", ASSOCIATIONS_DEFAULT_ON)
+        val h = EditorHost()
+        val c = KeyboardController(h, niHaoEngine())
+        c.setAssociationsEnabled(ASSOCIATIONS_DEFAULT_ON) // the value the IME pushes for a never-toggled user
+        commitNiHao(c)
+        assertEquals("你好 still committed", "你好", h.text)
+        assertTrue("default-off → no 联想 predictions on the empty buffer", c.candidateWords().isEmpty())
     }
 
     @Test fun association_toggle_off_hides_predictions() {

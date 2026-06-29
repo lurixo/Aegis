@@ -127,7 +127,9 @@ class KeyboardController(
     /** M-3/L-3: when the focused field is a password / opts out of personalized learning, never learn. */
     private var learningBlocked = false
 
-    /** D2: 联想 toggle (pref_associations_on, default on). When off, next-word predictions are not shown. */
+    /** D2: 联想 toggle. The IME pushes the user's pref_associations_on choice on every onStartInputView
+     *  (default OFF since debug.17); this initial true is only the pre-push fallback and is overridden before
+     *  any input. When off, next-word predictions are not shown. */
     private var associationsEnabled = true
 
     /** E4 hot-toggle (debug.16): last fuzzy rule set the service pushed (null until first push). Re-applied on
