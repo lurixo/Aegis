@@ -52,29 +52,31 @@ tools/build/install/tools/bin/tools lm --out <lm> <14 wanxiang .dict.yaml ...>
 - `app/.../user` — `UserModel` (offline learning, file-persisted).
 - `tools/` — host dict/LM builders (`DictBuilder`, `LmBuilder`) + eval verifier.
 
-Design notes: see `README.md`.
+## Licensing & Acknowledgments / 许可与致谢
 
-## Licensing
+Aegis's own code is **GPL-3.0** (see `LICENSE`). Aegis ships a **self-built decoder**
+(clean-room Kotlin) and is an **independent project, not affiliated with the RIME project** — it
+links no librime / native code. It stands on open data from the **万象 (wanxiang)** project by
+**amzxyz**, with our deepest thanks. The third-party attribution / ShareAlike obligations below
+are not waived by Aegis's own license.
 
-Code: **GPL-3.0**. Bundled dictionary data derives from **rime-wanxiang** (CC BY 4.0) — see
-`THIRD_PARTY_NOTICES.md`. The optional 401 MB wanxiang `.gram` octagram (top-tier context) is **not**
-bundled; it is a future opt-in download.
+**rime-wanxiang (万象) dictionaries** — © amzxyz and rime-wanxiang contributors, **CC BY 4.0**
+(https://github.com/amzxyz/rime-wanxiang , branch `wanxiang`). The bundled
+`assets/aegis_{dict,t9,jianpin}.bin` and `aegis_lm.bin` are derivatives of the full 14 tables
+(字 基础 联想 错音 多音 诗词 地名 医学 化学 药品 名人 异体 物种 人名). **Changes:** tones stripped
+(ü→v), syllables concatenated into toneless keys, repacked into Aegis's binary format; the bundled
+seed is frequency-filtered (`--min-freq 400`) for size, the downloadable full pack keeps every entry
+(`--min-freq 1`).
 
-## Acknowledgments / 致谢
+**wanxiang octagram model** (`wanxiang-lts-zh-hans.gram`, ~401 MB) — © amzxyz, **CC BY 4.0**
+(https://github.com/amzxyz/RIME-LMDG). The optional top-tier context model behind next-word /
+whole-sentence ranking; fetched only on explicit opt-in, **not** bundled in the APK.
+`OctagramReader` (Kotlin, GPL-3.0) is original Aegis code; its on-disk format was clean-room
+reverse-engineered from **librime-octagram** (GPL-3.0) + **darts-clone** — no upstream source copied.
 
-Aegis ships a **self-built decoder** (clean-room Kotlin) but stands on the open data of the
-**万象 (wanxiang)** project by **amzxyz** — our deepest thanks:
-
-- **rime-wanxiang (万象) dictionaries** — the 14 tables (字 基础 联想 错音 多音 诗词 地名 医学 化学
-  药品 名人 异体 物种 人名) behind every candidate. CC BY 4.0 ·
-  https://github.com/amzxyz/rime-wanxiang
-- **wanxiang octagram language model** (`wanxiang-lts-zh-hans.gram`) — the optional top-tier
-  context model powering next-word / whole-sentence ranking. CC BY 4.0 ·
-  https://github.com/amzxyz/RIME-LMDG
-
-Aegis is an independent project and is **not affiliated with the RIME project**; it links no
-librime / native code. Only the `.gram` on-disk format was clean-room-derived from
-librime-octagram + darts-clone. Full attribution in `THIRD_PARTY_NOTICES.md`.
+**Other:** AndroidX / Jetpack Compose / Material 3 / Kotlin stdlib — Apache-2.0; JUnit — EPL (test
+scope only, not distributed). Algorithm references (not vendored): AOSP PinyinIME (Apache-2.0),
+darts-clone (BSD-2-Clause).
 
 ## Status
 
