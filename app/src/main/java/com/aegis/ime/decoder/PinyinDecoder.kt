@@ -140,23 +140,71 @@ class PinyinDecoder(
 
     private fun isHan(cp: Int): Boolean = cp in 0x3400..0x9FFF || cp in 0xF900..0xFAFF
 
+    /**
+     * debug.17 隔音符 normalisation. A [SEP] ' in the buffer is a user-forced syllable boundary, never a key
+     * character — but the dict keyspace is pure a-z/2-9, so a stray ' silently broke segmentation, dict lookup
+     * AND the lattice (the post-' tail was dropped → 丢字). [normalizeSeparators] strips every ' to a clean
+     * buffer and records:
+     *  - [Norm.cuts]: clean-index forced boundaries (one per interior ');
+     *  - [Norm.origLen]: clean-coverage-length → ORIGINAL coverage length, eating a trailing ' so a partial
+     *    commit consumes the separator (the remaining buffer is a clean syllable, never "'ci");
+     *  - [Norm.cleanIndexOfOrig]: original-index → clean-index, to remap any caller-supplied 分词 cuts.
+     * Returns null when there is no ' at all — callers then take the original (zero-overhead) path unchanged.
+     */
+    private class Norm(val clean: String, val cuts: Set<Int>, val origLen: IntArray, private val cleanLenAtOrig: IntArray) {
+        fun cleanIndexOfOrig(o: Int): Int? = cleanLenAtOrig.getOrNull(o)
+    }
+
+    private fun normalizeSeparators(input: String): Norm? {
+        if (input.indexOf(SEP) < 0) return null
+        val clean = StringBuilder(input.length)
+        val cuts = HashSet<Int>()
+        val origLen = IntArray(input.length + 1) // [cleanLen] -> original index (incl. an eaten trailing ')
+        val cleanLenAtOrig = IntArray(input.length + 1)
+        var ci = 0
+        var oi = 0
+        while (oi < input.length) {
+            cleanLenAtOrig[oi] = ci
+            if (input[oi] == SEP) {
+                oi++
+                if (ci in 1 until input.length) cuts.add(ci) // interior boundary only (drop leading/trailing/doubled)
+                origLen[ci] = oi                              // coverage of `ci` clean chars also eats this '
+            } else {
+                clean.append(input[oi]); oi++; ci++
+                origLen[ci] = oi
+            }
+        }
+        cleanLenAtOrig[input.length] = ci
+        // Keep only INTERIOR boundaries (a trailing ' lands a candidate cut at ci == clean.length): callers all
+        // re-filter, but a clean Norm.cuts is safe for any future direct user — no spurious 0/length boundary.
+        val interiorCuts = cuts.filterTo(HashSet()) { it in 1 until ci }
+        return Norm(clean.toString(), interiorCuts, origLen.copyOf(ci + 1), cleanLenAtOrig)
+    }
+
     /** Candidates for [input]: best sentence first, then word-by-word dictionary options. [context] is
      *  the committed text before the cursor, conditioning the first word (③ context-aware). */
     fun decode(input: String, limit: Int, context: CharSequence = ""): List<String> {
         if (input.isEmpty()) return emptyList()
+        // debug.17: a 隔音符 ' is a hard syllable boundary, never a buffer character — strip it to pure pinyin
+        // and turn its position into a forced cut, so the lattice / dict see valid keys. Without this the whole
+        // post-' tail was silently dropped (decode("chai'ci") returned []). No separator → unchanged fast path.
+        val norm = normalizeSeparators(input)
+        val clean = norm?.clean ?: input
+        if (clean.isEmpty()) return emptyList()
+        val cuts = norm?.cuts ?: emptySet()
         val (ctxCp, ctxWord) = parseContext(context)
         val out = LinkedHashSet<String>()
-        bestSentence(input, ctxCp = ctxCp, ctxWord = ctxWord)?.let { out.add(it) }
-        out.addAll(rerankedWholeInput(input, ctxCp, ctxWord)) // ★top-N rerank, context-conditioned
-        out.addAll(dict.query(input, limit))
+        bestSentence(clean, cuts, ctxCp = ctxCp, ctxWord = ctxWord)?.let { out.add(it) }
+        out.addAll(rerankedWholeInput(clean, ctxCp, ctxWord)) // ★top-N rerank, context-conditioned
+        out.addAll(dict.query(clean, limit))
         if (out.size < limit && fuzzyRules.isNotEmpty()) {
-            for (variant in Fuzzy.variants(input, fuzzyRules)) {
-                if (variant == input) continue
+            for (variant in Fuzzy.variants(clean, fuzzyRules)) {
+                if (variant == clean) continue
                 out.addAll(dict.query(variant, limit))
                 if (out.size >= limit) break
             }
         }
-        if (out.size < limit) initialsDict?.let { out.addAll(it.query(input, limit)) }
+        if (out.size < limit) initialsDict?.let { out.addAll(it.query(clean, limit)) }
         return if (out.size <= limit) out.toList() else out.toList().subList(0, limit)
     }
 
@@ -169,6 +217,17 @@ class PinyinDecoder(
      */
     fun decodeCovered(input: String, limit: Int, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> {
         if (input.isEmpty()) return emptyList()
+        // debug.17: ' = hard syllable boundary → strip to pure pinyin + forced cut, then remap each candidate's
+        // coverage back to the original ' -inclusive index (so a partial commit eats the separator too, leaving
+        // a clean tail). No separator → the original clean path runs verbatim (zero behaviour change).
+        val norm = normalizeSeparators(input) ?: return decodeCoveredClean(input, limit, cuts, context)
+        if (norm.clean.isEmpty()) return emptyList()
+        val passedClean = cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
+        return decodeCoveredClean(norm.clean, limit, norm.cuts + passedClean, context)
+            .map { Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length }) }
+    }
+
+    private fun decodeCoveredClean(input: String, limit: Int, cuts: Set<Int>, context: CharSequence): List<Cand> {
         val (ctxCp, ctxWord) = parseContext(context)
         val cover = LinkedHashMap<String, Int>()
         // Reserve part of the budget for leading single-chars/short words so full-input completions
@@ -234,9 +293,34 @@ class PinyinDecoder(
      */
     fun syllables(input: String): List<Syllable> {
         if (input.isEmpty()) return emptyList()
-        // The dict keyspace mirrors the input: a T9 buffer is digits 2-9, a 26-key buffer is a-z, with
-        // no overlap — so the input itself tells us which segmenter (and which exact-key space) applies.
-        return if (input[0] in '2'..'9') t9Syllables(input) else letterSyllables(input)
+        // debug.17: a 隔音符 ' was breaking segmentation outright (syllables("chai'ci") returned only [chai],
+        // dropping "ci"). Strip separators, segment the clean buffer, then remap each span back to the original
+        // ' -inclusive index — the syllable END eats a trailing separator so its coverage is contiguous.
+        normalizeSeparators(input)?.let { n ->
+            if (n.clean.isEmpty()) return emptyList()
+            return syllablesCleanCut(n.clean, n.cuts).map { Syllable(it.reading, n.origLen[it.start], n.origLen[it.end]) }
+        }
+        return syllablesClean(input)
+    }
+
+    // The dict keyspace mirrors the input: a T9 buffer is digits 2-9, a 26-key buffer is a-z, with no overlap —
+    // so the input itself tells us which segmenter (and which exact-key space) applies.
+    private fun syllablesClean(input: String): List<Syllable> =
+        if (input[0] in '2'..'9') t9Syllables(input) else letterSyllables(input)
+
+    /** Segment a separator-free buffer while HONOURING forced boundaries: each ' -delimited chunk is segmented
+     *  independently (so xi|an survives even though "xian" would greedily be one syllable), spans on clean indices. */
+    private fun syllablesCleanCut(clean: String, cuts: Set<Int>): List<Syllable> {
+        val interior = cuts.filter { it in 1 until clean.length }.sorted()
+        if (interior.isEmpty()) return syllablesClean(clean)
+        val out = ArrayList<Syllable>()
+        val bounds = listOf(0) + interior + listOf(clean.length)
+        for (b in 0 until bounds.size - 1) {
+            val lo = bounds[b]; val hi = bounds[b + 1]
+            if (lo >= hi) continue
+            for (s in syllablesClean(clean.substring(lo, hi))) out.add(Syllable(s.reading, lo + s.start, lo + s.end))
+        }
+        return out
     }
 
     /**
@@ -246,10 +330,15 @@ class PinyinDecoder(
      * every reading of that group (T9 is inherently ambiguous).
      */
     fun homophonesAt(input: String, index: Int): List<String> {
-        val syls = syllables(input)
+        // debug.17: resolve the syllable on the separator-stripped buffer so the reading key is a real pinyin
+        // syllable (never a "chai'" with a stray '), keeping the post-' positions fully navigable.
+        val norm = normalizeSeparators(input)
+        val clean = norm?.clean ?: input
+        if (clean.isEmpty()) return emptyList()
+        val syls = syllablesCleanCut(clean, norm?.cuts ?: emptySet())
         if (index !in syls.indices) return emptyList()
         val s = syls[index]
-        return homophonesOf(input.substring(s.start, s.end))
+        return homophonesOf(clean.substring(s.start, s.end))
     }
 
     /** Every single-char entry for an exact syllable key, frequency-ordered, uncapped. */
@@ -351,6 +440,7 @@ class PinyinDecoder(
     }
 
     private companion object {
+        const val SEP = '\''          // 隔音符: a user-forced hard syllable boundary in the buffer (debug.17)
         const val BOS = -1            // sentence-start sentinel (real code points are >= 0)
         const val EDGE_N = 20         // candidate words considered per lattice edge when an LM is present (C3)
         const val DEFAULT_LAMBDA = 1.0
