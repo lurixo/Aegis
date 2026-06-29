@@ -21,6 +21,16 @@ object EngineAssets {
 
     val ASSET_NAMES: List<String> = ModelDownload.DICT_MANAGED_FILES + ModelDownload.GRAM_NAME
 
+    fun downloadedOverride(downloadedDir: File, name: String, minBytes: Long = 1L): File? =
+        if (
+            name in ModelDownload.DICT_MANAGED_FILES &&
+            downloadedDir.parentFile?.let { ModelDownload.unmarkedDictionaryRecoveryRequired(it) } == true
+        ) {
+            null
+        } else {
+            File(downloadedDir, name).takeIf { it.exists() && it.length() >= minBytes }
+        }
+
     fun signature(downloadedDir: File): String =
         ASSET_NAMES.joinToString(";") { name ->
             val f = File(downloadedDir, name)

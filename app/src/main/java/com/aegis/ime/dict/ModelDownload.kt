@@ -667,6 +667,9 @@ object ModelDownload {
             filesDir.absolutePath in recoveringDicts
     }
 
+    internal fun <T> withDictionaryGeneration(block: () -> T): T =
+        dictionaryRecoveryLock.withLock(block)
+
     fun installDictPack(
         filesDir: File,
         expectedSha256: String,

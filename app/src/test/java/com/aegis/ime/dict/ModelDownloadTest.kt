@@ -27,6 +27,7 @@ import java.security.MessageDigest
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.random.Random
@@ -483,6 +484,43 @@ class ModelDownloadTest {
     }
 
     @Test
+    fun aGenerationWithoutTheLanguageModelStaysInstalledAndTakesItOnTheNextUpdate() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        ModelDownload.DICT_BIN_FILES.forEach { name ->
+            File(downloaded, name).writeBytes(ByteArray(2_048) { 7 })
+        }
+        File(downloaded, ModelDownload.DICT_INSTALLED_SHA_NAME).writeText("a".repeat(64))
+
+        assertTrue("the three tables are a complete generation", ModelDownload.isDictDownloaded(base))
+        ModelDownload.reconcileInterruptedDownloads(base)
+
+        assertTrue("reconciliation must not discard it", ModelDownload.isDictDownloaded(base))
+        ModelDownload.DICT_BIN_FILES.forEach { assertTrue(File(downloaded, it).exists()) }
+        assertNull(EngineAssets.downloadedOverride(downloaded, ModelDownload.LM_NAME))
+        assertFalse(
+            "a generation without the model is not a complete pack",
+            ModelDownload.isDictPackComplete(base),
+        )
+
+        val model = ByteArray(3_000) { 4 }
+        val replacements = ModelDownload.DICT_BIN_FILES.mapIndexed { index, name ->
+            name to ByteArray(3_000) { (index + 1).toByte() }
+        }.toMap() + (ModelDownload.LM_NAME to model)
+        val zip = ModelDownload.dictZipFile(base)
+        writeZip(zip, replacements)
+
+        assertTrue(ModelDownload.installDictPack(base, ModelDownload.sha256Of(zip)))
+        replacements.forEach { (name, bytes) -> assertArrayEquals(bytes, File(downloaded, name).readBytes()) }
+        assertEquals(
+            File(downloaded, ModelDownload.LM_NAME).absolutePath,
+            EngineAssets.downloadedOverride(downloaded, ModelDownload.LM_NAME)?.absolutePath,
+        )
+        assertTrue(ModelDownload.isDictPackComplete(base))
+        base.deleteRecursively()
+    }
+
+    @Test
     fun aPackWithoutTheLanguageModelInstallsAndKeepsTheInstalledOne() {
         val base = tempFilesDir()
         val downloaded = File(base, "downloaded").apply { mkdirs() }
@@ -697,6 +735,38 @@ class ModelDownloadTest {
     }
 
     @Test
+    fun failedUnmarkedArchiveCleanupRetainsMarkerAndBlocksActivationUntilRetry() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        ModelDownload.DICT_PACK_FILES.forEachIndexed { index, name ->
+            File(downloaded, name).writeBytes(ByteArray(2_048) { (index + 1).toByte() })
+        }
+        val zip = ModelDownload.dictZipFile(base).apply { writeBytes(ByteArray(4_000)) }
+        val sidecar = File(downloaded, ModelDownload.DICT_INSTALLED_SHA_NAME).apply { mkdirs() }
+        val residue = File(sidecar, "residue").apply { writeText("x") }
+        assertTrue(ModelDownload.isDictDownloaded(base))
+        ModelDownload.DICT_PACK_FILES.forEach { name ->
+            assertNull(EngineAssets.downloadedOverride(downloaded, name))
+        }
+
+        ModelDownload.recoverInterruptedDictionaryInstall(base)
+
+        ModelDownload.DICT_PACK_FILES.forEach { name -> assertFalse(File(downloaded, name).exists()) }
+        assertTrue(sidecar.exists())
+        assertTrue(zip.exists())
+        ModelDownload.reconcileInterruptedDownloads(base)
+        assertTrue(zip.exists())
+
+        assertTrue(residue.delete())
+        ModelDownload.recoverInterruptedDictionaryInstall(base)
+
+        assertFalse(sidecar.exists())
+        assertFalse(zip.exists())
+        assertFalse(ModelDownload.isDictDownloaded(base))
+        base.deleteRecursively()
+    }
+
+    @Test
     fun unmarkedArchiveDoesNotReplaceASidecarGeneration() {
         val base = tempFilesDir()
         val downloaded = File(base, "downloaded").apply { mkdirs() }
@@ -777,7 +847,61 @@ class ModelDownloadTest {
         assertEquals(oldSha, ModelDownload.installedDictionaryFileSha(base))
         assertFalse(zip.exists())
         assertFalse(File(downloaded, "dict-install").exists())
+        base.deleteRecursively()
+    }
 
+    @Test
+    fun dictionaryGenerationReadWaitsForTransactionRollback() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        val old = ModelDownload.DICT_PACK_FILES.associateWith { name ->
+            ByteArray(2_048) { name.length.toByte() }.also { File(downloaded, name).writeBytes(it) }
+        }
+        File(downloaded, ModelDownload.DICT_INSTALLED_SHA_NAME).writeText("c".repeat(64))
+        val replacements = mapOf(
+            "aegis_dict.bin" to ByteArray(3_000) { 1 },
+            "aegis_t9.bin" to ByteArray(3_000) { 2 },
+            "aegis_jianpin.bin" to ByteArray(3_000) { 3 },
+            "aegis_lm.bin" to ByteArray(3_000) { 4 },
+        )
+        val zip = ModelDownload.dictZipFile(base)
+        writeZip(zip, replacements)
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val readerDone = CountDownLatch(1)
+        val snapshot = AtomicReference<Pair<String, List<ByteArray>>>()
+        var installed = true
+        val installer = Thread {
+            installed = ModelDownload.installDictPack(base, ModelDownload.sha256Of(zip)) {
+                entered.countDown()
+                release.await(2, TimeUnit.SECONDS)
+                false
+            }
+        }
+        installer.start()
+        assertTrue(entered.await(2, TimeUnit.SECONDS))
+
+        val reader = Thread {
+            snapshot.set(
+                ModelDownload.withDictionaryGeneration {
+                    EngineAssets.signature(downloaded) to
+                        ModelDownload.DICT_PACK_FILES.map { File(downloaded, it).readBytes() }
+                },
+            )
+            readerDone.countDown()
+        }
+        reader.start()
+        assertFalse(readerDone.await(200, TimeUnit.MILLISECONDS))
+
+        release.countDown()
+        installer.join(2_000)
+        assertFalse(installed)
+        assertTrue(readerDone.await(2, TimeUnit.SECONDS))
+        reader.join(2_000)
+        assertEquals(EngineAssets.signature(downloaded), snapshot.get().first)
+        ModelDownload.DICT_PACK_FILES.forEachIndexed { index, name ->
+            assertArrayEquals(old.getValue(name), snapshot.get().second[index])
+        }
         base.deleteRecursively()
     }
 
