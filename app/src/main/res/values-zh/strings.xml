@@ -218,6 +218,7 @@
     <string name="phrase_transfer_toast_export_store_unreadable">导出失败：本机常用语读不出来</string>
     <string name="phrase_transfer_toast_export_write_failed">导出失败：文件写不进去</string>
     <string name="phrase_transfer_toast_export_empty">导出失败：没有可导出的内容</string>
+    <string name="phrase_transfer_toast_import_read_failed">导入失败：文件无法读取</string>
     <string name="phrase_transfer_toast_import_merged">已合并导入常用语</string>
     <string name="phrase_transfer_toast_import_overwritten">已覆盖导入常用语</string>
     <string name="phrase_transfer_toast_import_invalid">导入失败：无有效内容</string>

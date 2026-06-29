@@ -57,6 +57,16 @@
             android:theme="@style/Theme.Aegis"
             android:windowSoftInputMode="adjustResize" />
 
+        <activity
+            android:name=".ui.PhraseTransferActivity"
+            android:autoRemoveFromRecents="true"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:finishOnTaskLaunch="true"
+            android:noHistory="false"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Aegis.Transparent" />
+
         <provider
             android:name=".user.ClipboardImageProvider"
             android:authorities="${applicationId}.clipboard.images"

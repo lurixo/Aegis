@@ -212,6 +212,16 @@ class PhraseTransferIoTest {
         }
     }
 
+    @Test fun a_phrase_import_writes_through_the_store_that_owns_the_file() {
+        val src = File("src/main/java/com/aegis/ime/ui/PhraseTransferActivity.kt").readText()
+        assertTrue(src.contains("LiveUserData.withClipboardStore(filesDir)"))
+        assertEquals(
+            "the import must not build its own store over the same file",
+            src.windowed("withClipboardStore(filesDir)".length) { it == "withClipboardStore(filesDir)" }.count { it },
+            src.windowed("ClipboardStore(filesDir)".length) { it == "ClipboardStore(filesDir)" }.count { it },
+        )
+    }
+
     private class FailingOutputStream : OutputStream() {
         override fun write(b: Int) {
             throw IOException("write failed")

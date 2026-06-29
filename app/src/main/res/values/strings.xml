@@ -220,6 +220,7 @@
     <string name="phrase_transfer_toast_export_store_unreadable">Export failed: the saved phrases could not be read</string>
     <string name="phrase_transfer_toast_export_write_failed">Export failed: the file could not be written</string>
     <string name="phrase_transfer_toast_export_empty">Export failed: there was nothing to export</string>
+    <string name="phrase_transfer_toast_import_read_failed">Import failed: file cannot be read</string>
     <string name="phrase_transfer_toast_import_merged">Phrases imported and merged</string>
     <string name="phrase_transfer_toast_import_overwritten">Phrases imported and overwritten</string>
     <string name="phrase_transfer_toast_import_invalid">Import failed: no valid content</string>

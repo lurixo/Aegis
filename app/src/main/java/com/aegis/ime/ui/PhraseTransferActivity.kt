@@ -15,8 +15,102 @@
 
 package com.aegis.ime.ui
 
+import android.app.Activity.OVERRIDE_TRANSITION_CLOSE
+import android.app.Activity.OVERRIDE_TRANSITION_OPEN
+import android.content.Context
+import android.content.Intent
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import com.aegis.ime.R
+import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.UnreadablePhrasesException
+import java.util.concurrent.Executor
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+
+class PhraseTransferActivity : ComponentActivity() {
+
+    private val mainLane = Executor { r -> Handler(Looper.getMainLooper()).post(r) }
+
+    private val importWorker: ExecutorService = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "aegis-phrase-import").apply { isDaemon = true }
+    }
+
+    private val exportLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+        if (uri != null) {
+            val outcome = PhraseTransferIo.exportPhrases(filesDir) { contentResolver.openOutputStream(uri, "wt") }
+            toast(phraseExportMessage(outcome))
+        }
+        finish()
+    }
+
+    private val importLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) { finish(); return@registerForActivityResult }
+        val text = runCatching { contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() } }.getOrNull()
+        if (text == null) {
+            toast(R.string.phrase_transfer_toast_import_read_failed)
+            finish()
+        } else {
+            applyImport(text, merge = intent.getBooleanExtra(EXTRA_IMPORT_MERGE, true))
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        suppressBridgeTransitions()
+        if (intent.getBooleanExtra(EXTRA_EXPORT, false)) exportLauncher.launch("aegis-phrases.txt")
+        else importLauncher.launch(arrayOf("text/plain"))
+    }
+
+    override fun finish() {
+        super.finish()
+        suppressBridgeTransitions()
+    }
+
+    private fun applyImport(text: String, merge: Boolean) {
+        importWorker.execute {
+            val outcome = runCatching {
+                LiveUserData.withClipboardStore(filesDir) { it.importPhrasesText(text, merge) }
+            }
+            mainLane.execute {
+                toast(phraseImportMessage(outcome, merge))
+                finish()
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        runCatching { importWorker.shutdown() }
+        super.onDestroy()
+    }
+
+    private fun toast(resId: Int) = Toast.makeText(this, resId, Toast.LENGTH_SHORT).show()
+
+    private fun suppressBridgeTransitions() {
+        overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, 0, 0)
+        overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0)
+    }
+
+    companion object {
+        const val EXTRA_EXPORT = "export"
+        const val EXTRA_IMPORT_MERGE = "import_merge"
+
+        internal val LAUNCH_FLAGS: Int =
+            Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or
+                Intent.FLAG_ACTIVITY_NO_ANIMATION
+
+        internal fun launchIntent(context: Context, export: Boolean, merge: Boolean): Intent =
+            Intent(context, PhraseTransferActivity::class.java)
+                .putExtra(EXTRA_EXPORT, export)
+                .putExtra(EXTRA_IMPORT_MERGE, merge)
+                .addFlags(LAUNCH_FLAGS)
+    }
+}
 
 internal fun phraseExportMessage(outcome: Result<Boolean>): Int = when {
     outcome.exceptionOrNull() is UnreadablePhrasesException ->
