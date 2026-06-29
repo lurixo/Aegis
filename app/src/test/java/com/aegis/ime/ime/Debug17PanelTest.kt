@@ -45,6 +45,7 @@ class Debug17PanelTest {
     private val pal = ImePalette.STATIC_LIGHT
 
     private fun overlayOf(v: ClipboardView): View = (v as ViewGroup).getChildAt(1)
+    private fun mainOf(v: ClipboardView): View = (v as ViewGroup).getChildAt(0)
     private fun textViews(root: View): List<TextView> {
         val out = ArrayList<TextView>()
         fun walk(x: View) { if (x is TextView) out.add(x); if (x is ViewGroup) for (i in 0 until x.childCount) walk(x.getChildAt(i)) }
@@ -200,6 +201,76 @@ class Debug17PanelTest {
     }
 
     // ---------- ⑦ 拆词 overlay: neutral default → tap highlight + copy; 全部复制 ----------
+
+    // ---------- debug.17 追加: 移动选择器里也能 新建 / 删除分类 ----------
+
+    /** Click the 🗑 in the move-chooser row for [name] (a sibling of the name within the same row). */
+    private fun deleteTargetInChooser(v: ClipboardView, name: String) {
+        fun groups(x: View): Sequence<ViewGroup> = sequence {
+            if (x is ViewGroup) { yield(x); for (i in 0 until x.childCount) yieldAll(groups(x.getChildAt(i))) }
+        }
+        val row = groups(overlayOf(v)).firstOrNull { g ->
+            val tvs = (0 until g.childCount).map { g.getChildAt(it) }.filterIsInstance<TextView>()
+            tvs.any { it.text?.toString() == name } && tvs.any { it.text?.toString() == "🗑" }
+        } ?: error("no chooser row for $name")
+        (0 until row.childCount).map { row.getChildAt(it) }.filterIsInstance<TextView>()
+            .first { it.text?.toString() == "🗑" }.performClick()
+    }
+
+    private fun moveChooserView(cats: MutableList<String>): ClipboardView = ClipboardView(ctx).apply {
+        categoriesProvider = { cats }
+        phrasesInProvider = { _ -> listOf("你好") }
+        onDeleteCategory = { cats.remove(it) }
+        applyPalette(pal); forcePhrasesStateForTest("默认"); refresh()
+        showMoveChooserForTest("默认")
+    }
+
+    @Test fun move_chooser_delete_category_reuses_onDeleteCategory_and_refreshes() {
+        val cats = mutableListOf("默认", "工作", "私人")
+        val deleted = ArrayList<String>()
+        val v = ClipboardView(ctx).apply {
+            categoriesProvider = { cats }; phrasesInProvider = { _ -> listOf("你好") }
+            onDeleteCategory = { deleted.add(it); cats.remove(it) }
+            applyPalette(pal); forcePhrasesStateForTest("默认"); refresh(); showMoveChooserForTest("默认")
+        }
+        assertTrue("工作 + 私人 listed", "工作" in labels(overlayOf(v)) && "私人" in labels(overlayOf(v)))
+        deleteTargetInChooser(v, "工作")
+        assertEquals("delete reuses onDeleteCategory", listOf("工作"), deleted)
+        val ls = labels(overlayOf(v))
+        assertFalse("工作 gone after refresh", "工作" in ls)
+        assertTrue("私人 still there", "私人" in ls)
+        assertFalse("panel categoryBar chip also refreshed (no stale 工作 chip)", "工作" in labels(mainOf(v)))
+    }
+
+    @Test fun move_chooser_trash_does_not_trigger_a_move() {
+        val cats = mutableListOf("默认", "工作")
+        var moved: Triple<String, String, String>? = null
+        val v = moveChooserView(cats)
+        v.onMovePhrase = { f, t, to -> moved = Triple(f, t, to) }
+        // re-open so the row closures capture the new onMovePhrase
+        v.showMoveChooserForTest("默认")
+        deleteTargetInChooser(v, "工作")
+        assertNull("🗑 must delete only, never move", moved)
+    }
+
+    @Test fun move_chooser_name_tap_still_moves() {
+        var moved: Triple<String, String, String>? = null
+        val v = ClipboardView(ctx).apply {
+            categoriesProvider = { listOf("默认", "工作") }; phrasesInProvider = { _ -> listOf("你好") }
+            onMovePhrase = { f, t, to -> moved = Triple(f, t, to) }
+            applyPalette(pal); forcePhrasesStateForTest("默认"); refresh(); showMoveChooserForTest("默认")
+        }
+        assertTrue("tap the target name", click(overlayOf(v), "工作"))
+        assertEquals("name tap still moves (unchanged)", Triple("默认", "", "工作"), moved)
+    }
+
+    @Test fun move_chooser_offers_new_category_alongside_targets() {
+        val v = phraseView()
+        v.expandForTest("你好"); assertTrue(click(v, "→ 移动"))
+        val ls = labels(overlayOf(v))
+        assertTrue("target 工作 present", "工作" in ls)
+        assertTrue("＋ 新建分类… available in the non-empty chooser too", "＋ 新建分类…" in ls)
+    }
 
     @Test fun split_blocks_start_neutral() {
         val v = clipView()

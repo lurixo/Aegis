@@ -749,10 +749,36 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             card.addView(menuItem("＋ 新建分类…") { hideOverlay(); after(); onAddCategoryThenMove(current, moveTexts) }) // carry the move
         } else {
             card.addView(menuTitle("移动到分类"))
-            for (c in targets) { card.addView(menuDivider()); card.addView(menuItem(c) { hideOverlay(); action(c) }) }
+            // debug.17 追加: each target row = [tap = move into it] + [🗑 = delete that category]. The 🗑 reuses the
+            // SAME delete semantics as the long-press chip menu (onDeleteCategory + phraseCat/swipe reset) and then
+            // re-opens the chooser with the refreshed list. `current` (the move SOURCE) is excluded from targets, so
+            // it can never be deleted here.
+            for (c in targets) { card.addView(menuDivider()); card.addView(moveTargetRow(c, current, moveTexts, after, action)) }
+            card.addView(menuDivider())
+            card.addView(menuItem("＋ 新建分类…") { hideOverlay(); after(); onAddCategoryThenMove(current, moveTexts) }) // 新建 always available, same carry
         }
         showOverlay(card)
     }
+
+    /** A target row in the move chooser: tapping the name moves into it (original behaviour, unchanged); the
+     *  trailing 🗑 deletes that category — same semantics as [showCategoryMenu]'s delete — then re-opens the
+     *  chooser so the refreshed list is shown (the move only ever fires from a name tap, never from 🗑). */
+    private fun moveTargetRow(name: String, current: String, moveTexts: List<String>, after: () -> Unit, action: (String) -> Unit): View =
+        LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(menuItem(name) { hideOverlay(); action(name) }, ll(0, WC, 1f))
+            addView(TextView(context).apply {
+                text = "🗑"; gravity = Gravity.CENTER
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(RED)
+                setPadding(dp(8), dp(12), dp(16), dp(12))
+                setOnClickListener {
+                    onDeleteCategory(name); if (phraseCat == name) phraseCat = ""; swipeRevealed = null
+                    refresh() // update the panel (categoryBar chips) immediately, exactly like the chip-menu delete
+                    chooseMoveCategoryThen(current, moveTexts, after, action) // then re-open the chooser with the refreshed list
+                }
+            }, ll(WC, MP))
+        }
 
     /** C6: long-press → centered menu 删除此条内容 / 添加常用语 / 拆分选词. */
     private fun showLongPressMenu(text: String) {
