@@ -122,24 +122,8 @@ private fun SetupScreen() {
         FuzzySettingsCard()
         AssociationToggleCard() // D1 联想开关 (UI + pref; KeyboardController D2 reads it)
         LayoutChoiceCard()
-
-        // U18: 常用语管理 入口 — open the phrase-category manager (add/rename/delete categories + phrases).
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text("常用语管理", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "管理剪贴板面板里的常用语：新建/重命名/删除分类,增删短语。",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Button(
-                    onClick = { context.startActivity(Intent(context, PhraseManagerActivity::class.java)) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("打开常用语管理") }
-            }
-        }
+        // debug.16 Option A: the separate 常用语管理 Activity is gone — categories/phrases are now managed
+        // fully inline in the clipboard panel's 常用语 tab (＋ / ✎ / 长按 chip / 长按卡拖动 / 展开卡 编辑·移动·删除).
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(

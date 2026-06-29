@@ -37,17 +37,6 @@ object Glyphs {
         c.drawLine(cx - w * 0.5f, cy + h * 0.3f, cx + w * 0.5f, cy + h * 0.3f, paint)                       // line 2
     }
 
-    /** 剪贴板 board + clip with an ✕ across its face — the "清空系统剪贴板" button (debug.14 item2). Same board as
-     *  [drawClipboard] (so it reads as a clipboard) but its content lines are replaced by an ✕ = "clear". */
-    fun drawClipboardClear(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
-        val w = s * 0.58f; val h = s * 0.78f
-        c.drawRoundRect(cx - w, cy - h + s * 0.18f, cx + w, cy + h, s * 0.22f, s * 0.22f, paint)            // board
-        c.drawRoundRect(cx - s * 0.26f, cy - h - s * 0.02f, cx + s * 0.26f, cy - h + s * 0.28f, s * 0.17f, s * 0.17f, paint) // clip
-        val x = s * 0.24f; val yc = cy + s * 0.14f
-        c.drawLine(cx - x, yc - x, cx + x, yc + x, paint)                                                   // ✕ stroke 1
-        c.drawLine(cx - x, yc + x, cx + x, yc - x, paint)                                                   // ✕ stroke 2
-    }
-
     /** Padlock for the symbols panel's 锁定 key (debug.13 P-C): a rounded body with a shackle on top. [closed]
      *  draws the shackle seated on the body (locked); open lifts it and detaches the right leg (unlocked). */
     fun drawLock(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, closed: Boolean) {
