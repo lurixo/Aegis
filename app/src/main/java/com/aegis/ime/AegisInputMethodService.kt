@@ -22,7 +22,6 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
-import android.content.ClipData
 import android.content.ClipDescription
 import android.graphics.Bitmap
 import android.util.LruCache
@@ -85,6 +84,16 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     )
     private var selecting = false
     private var deletedSnapshot: CharSequence? = null // for the backspace up/down restore gesture (#5)
+    // debug.16 Option A: inline text-input. While [panelInput] is active the keyboard's output is redirected into
+    // its buffer (not the target app); on 确定 the buffered text runs the pending [inputPurpose] action.
+    private val panelInput = com.aegis.ime.ime.PanelTextInput()
+    private enum class InputPurpose { EDIT_PHRASE, ADD_CATEGORY, RENAME_CATEGORY }
+    private var inputPurpose: InputPurpose? = null
+    private var inputCat = "" // EDIT_PHRASE: owning category; RENAME_CATEGORY: (unused)
+    private var inputOld = "" // EDIT_PHRASE: the phrase being edited; RENAME_CATEGORY: the old category name
+    private var pendingPhraseAdds: List<String> = emptyList() // ADD_CATEGORY via 剪贴板「添加常用语→新建分类」: clips to add once the category exists
+    private var pendingMoveFrom = "" // ADD_CATEGORY via「移动到分类→新建分类」: source category of the carried move
+    private var pendingMoveTexts: List<String> = emptyList() //  ...and the items to move into the new category
     private val clipboardStore by lazy { ClipboardStore(filesDir).also { it.load() } }
     private val clipImageStore by lazy { com.aegis.ime.user.ClipImageStore(filesDir) } // U22 image clipboard
     private val thumbCache = LruCache<String, Bitmap>(50) // U22: decoded thumbnails (path → bitmap)
@@ -186,6 +195,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun onFinishInput() {
         super.onFinishInput()
+        abortInlineInput() // debug.16 red line: tear down any in-progress inline edit when the session ends
         if (userModel.dirty) runCatching {
             userModel.save(userDbFile)
             userDbMtime = userDbFile.lastModified()
@@ -228,7 +238,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onFunction = { f -> controller.onBarFunction(f) }
             // C: up-swipe clears the pending pinyin (重输) in any layout first; only if there's nothing
             // composing does it fall back to the editor-field clear/restore (#5).
-            onBackspaceSwipe = { up -> if (!controller.onBackspaceSwipe(up)) handleBackspaceSwipe(up) }
+            onBackspaceSwipe = { up ->
+                if (!controller.onBackspaceSwipe(up)) {
+                    if (panelInput.active) { if (up) panelInput.begin("") } // inline edit: up-swipe = 重输 the BUFFER, never the app
+                    else handleBackspaceSwipe(up)
+                }
+            }
             onPanelBackspace = { controller.onPanelBackspace() } // A2 expanded: 退格
             onPanelClear = { controller.onPanelClear() }          // A2 expanded: 重输
             onExpandClosed = { controller.clearDrill() }          // UI-2: drop the drilled syllable on close
@@ -236,8 +251,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onCopyCommit = { t -> commitLargeText(t) } // 复制条 ⑤: 上屏 (到当前字段; E5: chunked for huge clips)
             onCopyBlock = { b -> copyBlockToAegis(b) }                        // 复制条 ③: 写 aegis 剪贴板(不上屏/不写系统)
             onCopyDismiss = { lastCopy = null }                              // U21: ④/⑤ 离开 → 不再恢复该复制条
+            onEditConfirm = { confirmInlineInput() }                         // debug.16: inline edit 确定
+            onEditCancel = { cancelInlineInput() }                           // debug.16: inline edit 取消
         }
         inputView = view
+        panelInput.onChange = { txt -> view.setEditText(txt) }               // debug.16: mirror buffer → edit bar
         controller.attachView(view)
         imePalette = computePalette()
         view.applyPalette(imePalette) // F1: dynamic Monet colours (dark-aware) come alive here
@@ -246,6 +264,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        abortInlineInput() // debug.16 red line: a new input session must never inherit an active capture buffer
         inputView?.showPanel(null)
         // U21: restore the most-recent 复制条 across an app switch / IME re-show (reverses the old
         // "start clean" behaviour). VISIBILITY is decoupled from secureField — an already-captured
@@ -310,6 +329,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun handleEdit(action: EditAction) {
+        // debug.16: during an inline 常用语/分类 edit the buffer is the document — the text-edit panel must never
+        // mutate the target app underneath. (BACK still closes the panel.)
+        if (panelInput.active && action != EditAction.BACK) return
         when (action) {
             EditAction.UP -> sendKey(KeyEvent.KEYCODE_DPAD_UP, selecting)
             EditAction.DOWN -> sendKey(KeyEvent.KEYCODE_DPAD_DOWN, selecting)
@@ -328,6 +350,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun sendKey(code: Int, shift: Boolean) {
+        if (panelInput.active) return // debug.16: never send key events to the target app while inline-editing
         val ic = currentInputConnection ?: return
         val meta = if (shift) KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON else 0
         val now = SystemClock.uptimeMillis()
@@ -337,6 +360,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     /** #5: swipe up on backspace clears the whole field (snapshotted); swipe down restores it. */
     private fun handleBackspaceSwipe(up: Boolean) {
+        if (panelInput.active) return // debug.16: the swipe-clear must NOT wipe the target field during inline edit
         val ic = currentInputConnection ?: return
         if (up) {
             val all = ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)?.text
@@ -356,7 +380,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (iv.isPanelShowing(emojiView)) { iv.showPanel(null); return } // P4(#4): re-tap 表情 入口 = 返回
         val ev = emojiView ?: EmojiView(this).also {
             it.recentProvider = { emojiUsageStore.recent() } // E2: 最近 (MRU) tab
-            it.onEmoji = { e -> emojiUsageStore.record(e); currentInputConnection?.commitText(e, 1) } // E2: record usage
+            it.onEmoji = { e -> emojiUsageStore.record(e); commitText(e) } // E2: record usage (debug.16: via gated commitText)
             it.onBackspace = { panelBackspace() } // F2: selection-aware (else eats the char before a selection)
             it.onBack = { inputView?.showPanel(null) }
             emojiView = it
@@ -388,8 +412,15 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onDeleteClips = { list -> clipboardStore.deleteAll(list); deleteImageFiles(list) } // C7 多选删除(+图片文件)
             it.onDeletePhrasesFrom = { cat, list -> list.forEach { clipboardStore.deletePhraseFrom(cat, it) } }
             it.onSaveAsPhrasesTo = { cat, list -> clipboardStore.addPhrasesTo(cat, list) } // C7 批量添加常用语
-            it.onManage = { openPhraseManager() }                                          // C5 管理 / 新建分类
-            it.onClearSystemClipboard = { clearSystemClipboard() }                         // C2
+            it.onEditPhrase = { cat, text -> beginInlineEdit(cat, text) }                  // debug.16 Option A: 编辑 → inline buffer
+            it.onMovePhrase = { from, text, to -> clipboardStore.movePhrase(from, text, to) } // debug.16: 移动常用语分类
+            it.onMovePhrasesTo = { from, list, to -> clipboardStore.movePhrasesTo(from, list, to) } // debug.16: 批量移动
+            it.onReorderPhrase = { cat, fromIdx, toIdx -> clipboardStore.reorderPhrase(cat, fromIdx, toIdx) } // debug.16: 拖动重排
+            it.onAddCategory = { beginInlineAddCategory() }                               // debug.16: ＋分类 → inline buffer
+            it.onAddCategoryThenAdd = { texts -> beginInlineAddCategory(texts) }          // debug.16: 剪贴板 添加常用语→新建分类 (carry clips)
+            it.onAddCategoryThenMove = { from, texts -> beginInlineAddCategory(pendingMove = from to texts) } // debug.16: 移动到分类→新建分类 (carry move)
+            it.onRenameCategory = { old -> beginInlineRenameCategory(old) }               // debug.16: 分类改名 → inline buffer
+            it.onDeleteCategory = { name -> clipboardStore.deleteCategory(name) }         // debug.16: 删除分类 (no typing)
             it.onClearHistory = { clipboardStore.clearHistory(); clipImageStore.clear(); thumbCache.evictAll() }
             it.historyEnabledProvider = { historyEnabled() }                               // C1 记录开关
             it.onSetHistoryEnabled = { on -> setHistoryEnabled(on) }
@@ -480,7 +511,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val sv = symbolsView ?: SymbolsView(this).also {
             it.recentProvider = { symbolUsageStore.recent() }
             // U3/P3: 点符号 = 上屏 + 记入常用;是否回键盘由 SymbolsView 的锁定态决定(锁定则连续输入)。
-            it.onSymbol = { s -> symbolUsageStore.record(s); currentInputConnection?.commitText(s, 1) }
+            it.onSymbol = { s -> symbolUsageStore.record(s); commitText(s) } // debug.16: via gated commitText
             it.onBackspace = { panelBackspace() } // F2: selection-aware (else eats the char before a selection)
             it.onBack = { inputView?.showPanel(null) }
             symbolsView = it
@@ -501,14 +532,79 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
     }
 
-    /** C5: open the canned-phrase category manager (text input needs a real Activity window). */
-    private fun openPhraseManager() {
-        runCatching {
-            startActivity(
-                android.content.Intent(this, com.aegis.ime.ui.PhraseManagerActivity::class.java)
-                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
-            )
+    // --- debug.16 Option A: inline text input (edit a 常用语 / add+rename a category) ---
+
+    private fun beginInlineEdit(category: String, phrase: String) {
+        inputPurpose = InputPurpose.EDIT_PHRASE; inputCat = category; inputOld = phrase
+        startInlineInput("编辑常用语", phrase)
+    }
+
+    private fun beginInlineAddCategory(
+        pendingAdds: List<String> = emptyList(),
+        pendingMove: Pair<String, List<String>>? = null,
+    ) {
+        inputPurpose = InputPurpose.ADD_CATEGORY; inputCat = ""; inputOld = ""
+        pendingPhraseAdds = pendingAdds                    // 添加常用语→新建分类: clip(s) to add once created
+        pendingMoveFrom = pendingMove?.first ?: ""         // 移动到分类→新建分类: carry the move through the create
+        pendingMoveTexts = pendingMove?.second ?: emptyList()
+        startInlineInput("新建分类", "")
+    }
+
+    private fun beginInlineRenameCategory(old: String) {
+        inputPurpose = InputPurpose.RENAME_CATEGORY; inputCat = ""; inputOld = old
+        startInlineInput("重命名分类", old)
+    }
+
+    /** Close the clipboard panel (so the keyboard shows), redirect keyboard output into the buffer, raise the bar. */
+    private fun startInlineInput(title: String, initial: String) {
+        val iv = inputView ?: return
+        iv.showPanel(null)
+        panelInput.begin(initial)
+        iv.setEditTitle(title)
+        iv.setEditText(initial)
+        iv.showEditBar(true)
+    }
+
+    private fun confirmInlineInput() {
+        val text = panelInput.text()
+        when (inputPurpose) {
+            InputPurpose.EDIT_PHRASE -> clipboardStore.editPhrase(inputCat, inputOld, text)
+            InputPurpose.ADD_CATEGORY -> {
+                val name = text.trim()
+                if (name.isNotEmpty()) {
+                    clipboardStore.addCategory(name) // creates it (no-op if it already exists)
+                    // 剪贴板「添加常用语→新建分类」: the carried clip(s) now land in the just-created category.
+                    if (pendingPhraseAdds.isNotEmpty()) clipboardStore.addPhrasesTo(name, pendingPhraseAdds)
+                    // 剪贴板「移动到分类→新建分类」: move the carried item(s) into the just-created category.
+                    if (pendingMoveTexts.isNotEmpty()) clipboardStore.movePhrasesTo(pendingMoveFrom, pendingMoveTexts, name)
+                    inputCat = name // reopen the 常用语 tab on the new category
+                }
+            }
+            InputPurpose.RENAME_CATEGORY -> { val n = text.trim(); if (clipboardStore.renameCategory(inputOld, n)) inputCat = n }
+            null -> {}
         }
+        endInlineInput()
+    }
+
+    private fun cancelInlineInput() = endInlineInput()
+
+    /** Stop the redirect (keyboard output returns to the target app), hide the bar, reopen the 常用语 panel. */
+    private fun endInlineInput() {
+        val reopenCat = inputCat // EDIT_PHRASE/ADD/RENAME: the category to land back on
+        panelInput.end()
+        inputView?.showEditBar(false)
+        inputPurpose = null; inputCat = ""; inputOld = ""; pendingPhraseAdds = emptyList(); pendingMoveFrom = ""; pendingMoveTexts = emptyList()
+        showClipboardPanel()                       // reopen + reloadPhrases + refresh (lands on the 剪贴板 tab)
+        clipboardView?.showPhraseTab(reopenCat)    // ...then switch to the 常用语 tab the user was editing on
+    }
+
+    /** Tear down an in-progress inline edit WITHOUT reopening any panel — for IME teardown / a new input
+     *  session, so an interrupted edit can never leave keystrokes redirected away from the target app. */
+    private fun abortInlineInput() {
+        if (!panelInput.active && inputPurpose == null) return
+        panelInput.end()
+        inputView?.showEditBar(false)
+        inputPurpose = null; inputCat = ""; inputOld = ""; pendingPhraseAdds = emptyList(); pendingMoveFrom = ""; pendingMoveTexts = emptyList()
     }
 
     private fun captureClip() {
@@ -582,6 +678,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
      * clipboard so the user can long-press → paste (works wherever system paste does). Never crashes.
      */
     private fun pasteImage(path: String) {
+        if (panelInput.active) return // debug.16: an image can't go into the text buffer — ignore during inline edit
         val file = File(path)
         if (!file.exists()) { toast("图片已不存在"); return }
         val mime = com.aegis.ime.user.ClipImageStore.mimeOf(path)
@@ -647,33 +744,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun historyEnabled() = getSharedPreferences("aegis", MODE_PRIVATE).getBoolean("clip_history", true)
     private fun setHistoryEnabled(on: Boolean) =
         getSharedPreferences("aegis", MODE_PRIVATE).edit().putBoolean("clip_history", on).apply()
-    /**
-     * C2 / debug.14 item2 / debug.15 fix: clear the SYSTEM clipboard (not the aegis private history); the panel
-     * confirms first. clearPrimaryClip() alone is SILENTLY a no-op on some OEMs (Samsung — Bitwarden #2356), so:
-     * (1) OVERWRITE the clip with empty content via setPrimaryClip (works wherever an IME may write — BUG3 already
-     * does), wiping any sensitive content even where clearPrimaryClip fails; (2) clearPrimaryClip() to drop the
-     * empty entry on systems that support it; (3) READ BACK and toast the TRUTH — never claim success if content
-     * still remains. The empty setPrimaryClip fires onSystemClipChanged, but record() no-ops on blank and the
-     * copy-bar only shows non-empty text, so nothing pollutes the history; the BUG3-1 read gate is untouched.
-     */
-    private fun clearSystemClipboard() {
-        runCatching { clipboardManager.setPrimaryClip(ClipData.newPlainText("", "")) }
-            .onFailure { Log.e("Aegis", "setPrimaryClip(empty) failed", it) }
-        runCatching { clipboardManager.clearPrimaryClip() }
-            .onFailure { Log.e("Aegis", "clearPrimaryClip failed", it) }
-        val after = runCatching { clipboardManager.primaryClip }.getOrNull()
-        val hasClip = after != null && after.itemCount > 0
-        val item = after?.takeIf { it.itemCount > 0 }?.getItemAt(0)
-        // Common path: the empty overwrite is plain text "" — read item.text directly (no ContentResolver IO).
-        // Only a rare lingering URI clip needs coerceToText; wrap it so the one-shot main-thread read can't crash.
-        val text = item?.text?.toString() ?: runCatching { item?.coerceToText(this)?.toString() }.getOrNull()
-        when (com.aegis.ime.user.ClipboardPolicy.clearResult(hasClip, text)) {
-            com.aegis.ime.user.ClipboardPolicy.ClearResult.CLEARED ->
-                toast("已清空系统剪贴板")
-            com.aegis.ime.user.ClipboardPolicy.ClearResult.CONTENT_REMAINS ->
-                toast("系统限制：已尽力清空（本设备可能无法完全移除系统剪贴板内容）")
-        }
-    }
+    // debug.16: 清空系统剪贴板 removed — clearPrimaryClip is silently ignored by some OEM clipboards
+    // (Samsung/Vivo), so the action couldn't be made reliable; only 清空剪贴板历史 (aegis history) remains.
 
     override fun onDestroy() {
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
@@ -682,7 +754,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     // --- ImeHost ---
 
+    // debug.16 Option A: every ImeHost output checks [panelInput] FIRST. While inline-editing it consumes the
+    // output into the buffer and returns; otherwise (the normal case) it falls through to the editor UNCHANGED.
     override fun commitText(text: CharSequence) {
+        if (panelInput.commit(text)) return
         currentInputConnection?.commitText(text, 1)
     }
 
@@ -692,6 +767,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
      * (A third-party editor may still refuse an oversized paste of its own accord — that's outside the IME.)
      */
     private fun commitLargeText(text: CharSequence) {
+        if (panelInput.commit(text)) return // debug.16: a clip tapped during inline edit goes into the buffer, not the app
         val ic = currentInputConnection ?: return
         ic.beginBatchEdit()
         com.aegis.ime.ime.LargeCommit.commit(text) { ic.commitText(it, 1) }
@@ -699,18 +775,21 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     override fun deleteBackward() {
+        if (panelInput.backspace()) return
         currentInputConnection?.deleteSurroundingText(1, 0)
     }
 
     // F2: code-point-aware backspace so a multi-code-point emoji deletes whole (used by the panels' ⌫).
     override fun deleteCodePointBackward() {
+        if (panelInput.backspace()) return
         currentInputConnection?.deleteSurroundingTextInCodePoints(1, 0)
     }
 
     override fun textBeforeCursor(n: Int): CharSequence =
-        currentInputConnection?.getTextBeforeCursor(n, 0) ?: ""
+        panelInput.textBefore(n) ?: currentInputConnection?.getTextBeforeCursor(n, 0) ?: ""
 
     override fun replaceBeforeCursor(length: Int, text: CharSequence) {
+        if (panelInput.replaceBefore(length, text)) return
         val ic = currentInputConnection ?: return
         ic.beginBatchEdit()
         ic.deleteSurroundingText(length, 0)
@@ -718,15 +797,18 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         ic.endBatchEdit()
     }
 
-    override fun hasSelection(): Boolean = !currentInputConnection?.getSelectedText(0).isNullOrEmpty()
+    override fun hasSelection(): Boolean =
+        if (panelInput.active) false else !currentInputConnection?.getSelectedText(0).isNullOrEmpty()
 
     override fun deleteSelection() {
         // S2: commitText("") over a live selection replaces (deletes) exactly the selected span — unlike
         // deleteSurroundingText(1,0), which is selection-start-relative and would eat the char before it.
+        if (panelInput.backspace()) return
         currentInputConnection?.commitText("", 1)
     }
 
     override fun performEnter() {
+        if (panelInput.active) return // inline-editing: a single-line buffer ignores ENTER (no newline leak)
         // #7: editor-action fields (search/send/go/done) fire the action; everything else gets a real
         // ENTER key event so multi-line fields actually get a newline (sendDefaultEditorAction did neither).
         val ic = currentInputConnection ?: return

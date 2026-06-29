@@ -20,16 +20,16 @@ import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.ColorFilter
-import android.graphics.Paint
-import android.graphics.PixelFormat
-import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.os.Handler
+import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
+import kotlin.math.abs
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
@@ -64,8 +64,15 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     var onDeleteClips: (List<String>) -> Unit = {}
     var onDeletePhrasesFrom: (String, List<String>) -> Unit = { _, _ -> }
     var onSaveAsPhrasesTo: (String, List<String>) -> Unit = { _, _ -> }
-    var onManage: () -> Unit = {}                      // open the phrase-manager Activity (naming needs it)
-    var onClearSystemClipboard: () -> Unit = {}        // C2
+    var onEditPhrase: (String, String) -> Unit = { _, _ -> }            // debug.16 Option A: (category, phrase) → inline edit
+    var onMovePhrase: (String, String, String) -> Unit = { _, _, _ -> } // debug.16: (fromCategory, phrase, toCategory)
+    var onMovePhrasesTo: (String, List<String>, String) -> Unit = { _, _, _ -> } // debug.16: batch move (from, phrases, to)
+    var onReorderPhrase: (String, Int, Int) -> Unit = { _, _, _ -> }    // debug.16: drag-reorder (category, fromIndex, toIndex)
+    var onAddCategory: () -> Unit = {}                 // debug.16 Option A: ＋分类 → inline text input
+    var onAddCategoryThenAdd: (List<String>) -> Unit = {} // debug.16: 新建分类 carrying clip(s) to add once created
+    var onAddCategoryThenMove: (String, List<String>) -> Unit = { _, _ -> } // debug.16: 新建分类 carrying a move (from, texts)
+    var onRenameCategory: (String) -> Unit = {}        // debug.16 Option A: 分类改名 → inline text input
+    var onDeleteCategory: (String) -> Unit = {}        // debug.16: 删除分类 (no typing)
     var onClearHistory: () -> Unit = {}
     var historyEnabledProvider: () -> Boolean = { true }
     var onSetHistoryEnabled: (Boolean) -> Unit = {}
@@ -101,6 +108,23 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private val st = ClipboardPanelState()
     private var phraseCat = "" // selected 常用语 category (category picker, not part of the core state machine)
+
+    /** debug.16: after an inline edit, reopen on the 常用语 tab (optionally at [category]) instead of the
+     *  reset-default 剪贴板 tab, so the user stays where they were editing. */
+    fun showPhraseTab(category: String) {
+        st.switchTab(ClipboardPanelState.Tab.PHRASE)
+        if (category.isNotEmpty() && category in categoriesProvider()) phraseCat = category
+        refresh()
+    }
+
+    // debug.16: drag-to-reorder a 常用语 (long-press an un-expanded phrase card → drag up/down → drop persists).
+    // dragFrom = the index the drag started at; dragCurrent = the index it would land at right now. The store is
+    // reordered once on drop via onReorderPhrase(cat, dragFrom, dragCurrent). dragView is the lifted card.
+    private var dragFrom = -1
+    private var dragCurrent = -1
+    private var dragView: View? = null
+    private val dragHandler = Handler(Looper.getMainLooper())
+    private val isDragging get() = dragFrom >= 0
 
     private val main = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(BG) }
     private val overlay = FrameLayout(context).apply { visibility = GONE }
@@ -144,11 +168,13 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     internal fun phraseCatForTest(): String = phraseCat
     internal fun forcePhrasesStateForTest(cat: String) { st.switchTab(ClipboardPanelState.Tab.PHRASE); phraseCat = cat }
     internal fun enterSelectForTest(selected: List<String> = emptyList()) { st.enterSelect(); st.selected.addAll(selected); refresh() }
-    // debug.14 item2 seams: step 1 (tap the button → show confirm, must NOT clear), step 2 (确认 → clear).
-    internal fun requestClearSystemForTest() = confirmClearSystem()
-    internal fun confirmClearSystemForTest() = doClearSystem()
-    internal fun cancelClearSystemForTest() = hideOverlay() // 取消 path: dismiss, clear nothing
-    internal fun isOverlayShownForTest(): Boolean = overlay.visibility == VISIBLE
+    // debug.16 test seams: the move-target chooser + the drag-reorder state machine (touch plumbing is exercised separately).
+    internal fun showMoveChooserForTest(current: String) { chooseMoveCategoryThen(current, emptyList()) { target -> onMovePhrase(current, "", target) } }
+    internal fun dragStartForTest(index: Int) { startDrag(index) }
+    internal fun dragMoveToForTest(index: Int) { moveDragTo(index) }
+    internal fun dragDropForTest() { endDrag() }
+    internal fun isDraggingForTest(): Boolean = isDragging
+    internal fun expandForTest(text: String) { if (st.expanded != text) st.toggleExpand(text); refresh() }
 
     fun refresh() {
         main.removeAllViews()
@@ -162,31 +188,32 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8), dp(3), dp(8), dp(3)) // U-polish: 3dp so the 44dp buttons fit the 50dp bar (no clip)
-            addView(roundBtn("‹") { onBack() }, ll(dp(34), dp(44)))
+            // item7: every top icon is the SAME size/shape as the ‹ back icon, and the action icons are evenly
+            // spaced (a gap between them) instead of crammed.
+            fun iconLp(spaced: Boolean = false) = ll(dp(36), dp(44)).apply { if (spaced) marginStart = dp(6) }
+            addView(roundBtn("‹") { onBack() }, iconLp())
             addView(View(context), ll(0, dp(1), 1f))
             addView(pillTray(), ll(WC, dp(36)))
             addView(View(context), ll(0, dp(1), 1f))
             // the 常用语 tab adds a ＋; 多选 (☰) lives on BOTH tabs, then ⚙.
-            if (st.tab == Tab.PHRASE) addView(roundBtn("＋") { onManage() }, ll(dp(40), dp(44)))
-            // debug.14 item2: 清空系统剪贴板 button, immediately LEFT of the 编辑剪贴板 (☰) entry. Tapping it asks
-            // for confirmation first (防误触); it clears the SYSTEM clipboard, never the aegis history.
-            addView(iconBtn(ClearClipDrawable(density).apply { tint(SUBTEXT) }) { confirmClearSystem() }, ll(dp(40), dp(44)))
-            addView(roundBtn("☰") { enterSelect() }, ll(dp(40), dp(44)))
-            addView(roundBtn("⚙") { showGearMenu() }, ll(dp(36), dp(44)))
+            if (st.tab == Tab.PHRASE) addView(roundBtn("＋") { onAddCategory() }, iconLp(true))
+            addView(roundBtn("☰") { enterSelect() }, iconLp(true))
+            addView(roundBtn("⚙") { showGearMenu() }, iconLp(true))
         }
         main.addView(topBar, ll(MP, dp(50)))
         // U9: no 字数/条数上限 line.
         listColumn.removeAllViews()
         val entries = currentEntries()
-        if (entries.isEmpty()) listColumn.addView(emptyHint()) else for (e in entries) listColumn.addView(card(e))
+        if (entries.isEmpty()) listColumn.addView(emptyHint()) else for ((i, e) in entries.withIndex()) listColumn.addView(card(e, i))
         main.addView(listScroll, ll(MP, 0, 1f))
 
         if (st.tab == Tab.PHRASE) main.addView(categoryBar(), ll(MP, dp(44)))
     }
 
-    private fun card(text: String): View {
+    private fun card(text: String, index: Int): View {
         if (isImage(text)) return imageCard(text) // U22 (M-1: only a marker backed by a real file)
         val expanded = st.expanded == text
+        val phrase = st.tab == Tab.PHRASE
         val col = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(CARD, ImeShapes.cardRadiusDp)
@@ -203,9 +230,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setTextColor(TEXT_DARK)
             setPadding(dp(14), dp(12), dp(8), dp(12))
             setOnClickListener { onPick(text) }
-            // C6: long-press must live on the views that consume the touch (a clickable child blocks the
-            // parent's long-press detector), else hold-release would just paste+close via the click above.
-            setOnLongClickListener { showLongPressMenu(text); true }
+            // 剪贴板 history: long-press = the C6 menu. 常用语 (debug.16): long-press an UN-expanded card = drag to
+            // reorder (wired below); its 编辑/移动/删除 moved to the expanded action row.
+            if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
         }
         val chevron = TextView(context).apply {
             this.text = if (expanded) "⌃" else "⌄"
@@ -213,12 +240,13 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setTextColor(HINT)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setOnClickListener { st.toggleExpand(text); refresh() }
-            setOnLongClickListener { showLongPressMenu(text); true }
+            if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
         }
         header.addView(body, ll(0, WC, 1f))
         header.addView(chevron, ll(dp(40), MP))
         col.addView(header, ll(MP, WC))
-        if (expanded) col.addView(actionRow(text))
+        if (expanded) col.addView(if (phrase) phraseActionRow(text) else actionRow(text))
+        else if (phrase) attachDragHandle(body, col, index) // long-press drag only on a COLLAPSED 常用语 card
         return col
     }
 
@@ -269,13 +297,106 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         showOverlay(card)
     }
 
-    /** Expanded card's bottom action row (C3): +常用语 / 拆词 / 删除. */
+    /** Expanded 剪贴板 history card's bottom action row (C3): +常用语 / 拆词 / 删除. */
     private fun actionRow(text: String): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         setPadding(dp(8), 0, dp(8), dp(10))
-        addView(action("＋ 常用语") { chooseCategoryThen { c -> onSaveAsPhrasesTo(c, listOf(text)) } }, ll(0, WC, 1f))
+        addView(action("＋ 常用语") { chooseCategoryThen(listOf(text)) }, ll(0, WC, 1f))
         addView(action("拆 拆词") { showSplit(text) }, ll(0, WC, 1f))
         addView(action("🗑 删除") { deleteOne(text) }, ll(0, WC, 1f))
+    }
+
+    /** debug.16: expanded 常用语 card action row = 编辑 / 移动 / 删除 (＋常用语 is meaningless for an existing
+     *  phrase; 拆词 isn't wanted here). 编辑 = inline text input (Option A); 移动 picks a target category
+     *  in-panel; 删除 reuses deletePhraseFrom. */
+    private fun phraseActionRow(text: String): View = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        setPadding(dp(8), 0, dp(8), dp(10))
+        val cat = currentCategory()
+        addView(action("✎ 编辑") { onEditPhrase(cat, text) }, ll(0, WC, 1f))
+        addView(action("→ 移动") { chooseMoveCategoryThen(cat, listOf(text)) { target -> onMovePhrase(cat, text, target); refresh() } }, ll(0, WC, 1f))
+        addView(action("🗑 删除") { deleteOne(text) }, ll(0, WC, 1f))
+    }
+
+    // ---------- debug.16: drag-to-reorder a 常用语 card ----------
+
+    /** Long-press a collapsed 常用语 card → lift it → drag up/down → drop persists the new order. The card's
+     *  own onClick (上屏) still fires for a plain tap; a pre-long-press move is treated as a scroll. */
+    private fun attachDragHandle(touchTarget: View, card: View, index: Int) {
+        val slop = ViewConfiguration.get(context).scaledTouchSlop
+        var downY = 0f
+        val longPress = Runnable { startDrag(index); card.parent?.requestDisallowInterceptTouchEvent(true) }
+        touchTarget.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downY = e.rawY
+                    dragHandler.postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
+                    false // not consumed yet → a plain tap still reaches onClick
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (!isDragging) {
+                        if (abs(e.rawY - downY) > slop) dragHandler.removeCallbacks(longPress) // moved first = scroll, not drag
+                        false
+                    } else {
+                        card.translationY = e.rawY - downY
+                        indexAtRawY(e.rawY)?.let { moveDragTo(it) }
+                        true
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    dragHandler.removeCallbacks(longPress)
+                    if (isDragging) { endDrag(); true } else false
+                }
+                else -> false
+            }
+        }
+    }
+
+    /** Which list row currently sits under [rawY] (screen coords), or null if over none. The dragged card is
+     *  EXCLUDED: it's translated to follow the finger so its bounds always contain [rawY] — counting it would
+     *  pin the result to [dragFrom] and a downward drag could never reach a lower target. */
+    private fun indexAtRawY(rawY: Float): Int? {
+        val n = listColumn.childCount
+        if (n == 0) return null
+        val tops = IntArray(n); val heights = IntArray(n); val loc = IntArray(2)
+        for (i in 0 until n) {
+            val child = listColumn.getChildAt(i)
+            child.getLocationOnScreen(loc)
+            tops[i] = loc[1]; heights[i] = child.height
+        }
+        return rowAt(tops, heights, dragFrom, rawY.toInt())
+    }
+
+    /** Pure coordinate→row mapping (unit-tested): the first row whose [tops]/[heights] span contains [y],
+     *  skipping the dragged row [skip] (whose translated bounds would otherwise always match). */
+    internal fun rowAt(tops: IntArray, heights: IntArray, skip: Int, y: Int): Int? {
+        for (i in tops.indices) {
+            if (i == skip) continue
+            if (y >= tops[i] && y <= tops[i] + heights[i]) return i
+        }
+        return null
+    }
+
+    private fun startDrag(index: Int) {
+        dragFrom = index; dragCurrent = index
+        dragView = listColumn.getChildAt(index)?.also { it.translationZ = dp(8).toFloat(); it.alpha = 0.92f }
+    }
+
+    private fun moveDragTo(index: Int) { if (index in 0 until currentEntries().size) dragCurrent = index }
+
+    private fun endDrag() {
+        val from = dragFrom; val to = dragCurrent
+        dragView?.let { it.translationZ = 0f; it.alpha = 1f; it.translationY = 0f }
+        dragFrom = -1; dragCurrent = -1; dragView = null
+        if (from >= 0 && to >= 0 && from != to) { onReorderPhrase(currentCategory(), from, to); refresh() }
+        else refresh() // reset the lifted card even on a no-op drop
+    }
+
+    override fun onDetachedFromWindow() {
+        // Drop any pending long-press → drag so a panel close mid-press can't fire startDrag on a stale card.
+        dragHandler.removeCallbacksAndMessages(null)
+        dragFrom = -1; dragCurrent = -1; dragView = null
+        super.onDetachedFromWindow()
     }
 
     private fun action(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
@@ -296,7 +417,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val cur = currentCategory()
         for (name in categoriesProvider()) chips.addView(catChip(name, name == cur))
         addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, ll(0, WC, 1f))
-        addView(roundBtn("✎") { onManage() }, ll(dp(40), dp(44))) // ✎ 管理
+        addView(roundBtn("✎") { onAddCategory() }, ll(dp(36), dp(44))) // ✎ 内联新建分类 (debug.16)
     }
 
     private fun catChip(name: String, on: Boolean): View = TextView(context).apply {
@@ -308,7 +429,17 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         setTextColor(if (on) TEXT_DARK else SUBTEXT)
         setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         setOnClickListener { phraseCat = name; refresh() }
+        setOnLongClickListener { showCategoryMenu(name); true } // debug.16: 长按 chip → 改名 / 删除 (inline)
         layoutParams = ll(WC, WC).apply { rightMargin = dp(8) }
+    }
+
+    /** debug.16: long-press a category chip → inline 改名 (text input) / 删除. */
+    private fun showCategoryMenu(name: String) {
+        val card = menuCard()
+        card.addView(menuItem("重命名「$name」") { hideOverlay(); onRenameCategory(name) })
+        card.addView(menuDivider())
+        card.addView(menuItem("删除「$name」") { hideOverlay(); onDeleteCategory(name); if (phraseCat == name) phraseCat = ""; refresh() })
+        showOverlay(card)
     }
 
     // ---------- select mode (编辑剪贴板) ----------
@@ -330,7 +461,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 setOnClickListener { st.selectAll(all); refresh() }
             }, ll(0, WC, 1f))
             addView(TextView(context).apply {
-                text = "编辑剪贴板"; gravity = Gravity.CENTER
+                text = if (st.tab == Tab.PHRASE) "编辑常用语" else "编辑剪贴板" // debug.16: tab-aware select-mode title
+                gravity = Gravity.CENTER
                 setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 setTypeface(null, android.graphics.Typeface.BOLD)
             }, ll(0, WC, 1f))
@@ -350,10 +482,18 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val bottom = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(12), dp(8), dp(12), dp(8))
-            addView(pillButton("添加常用语", GREEN, GREEN_PILL, hasSel) {
-                // M-2: never save image entries as phrases (their marker/path would become a dead 常用语).
-                chooseCategoryThen { c -> onSaveAsPhrasesTo(c, st.selected.filterNot { ClipboardStore.isImageEntry(it) }); exitSelect() }
-            }, ll(0, dp(44), 1f).apply { rightMargin = dp(8) })
+            if (st.tab == Tab.PHRASE) {
+                // debug.16: 常用语 batch action = 移动到分类 (＋常用语 makes no sense for items already phrases).
+                addView(pillButton("移动到分类", GREEN, GREEN_PILL, hasSel) {
+                    val from = currentCategory(); val victims = st.selected.toList()
+                    chooseMoveCategoryThen(from, victims, after = { exitSelect() }) { target -> onMovePhrasesTo(from, victims, target); exitSelect() }
+                }, ll(0, dp(44), 1f).apply { rightMargin = dp(8) })
+            } else {
+                addView(pillButton("添加常用语", GREEN, GREEN_PILL, hasSel) {
+                    // M-2: never save image entries as phrases (their marker/path would become a dead 常用语).
+                    chooseCategoryThen(st.selected.filterNot { ClipboardStore.isImageEntry(it) }) { exitSelect() }
+                }, ll(0, dp(44), 1f).apply { rightMargin = dp(8) })
+            }
             addView(pillButton("删除", RED, RED_PILL, hasSel) {
                 val victims = st.selected.toList()
                 if (st.tab == Tab.CLIPBOARD) onDeleteClips(victims) else onDeletePhrasesFrom(currentCategory(), victims)
@@ -407,61 +547,58 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         }
     }
 
+    /** debug.16: pick a DIFFERENT existing category to move [moveTexts] into (the current category is excluded —
+     *  moving in place is a no-op), OR — when no other category exists — create a NEW one carrying the move
+     *  through the inline create (mirrors chooseCategoryThen's add-carry). [after] is cleanup (e.g. exitSelect)
+     *  on the new-category branch; the existing-target branch runs [action]. */
+    private fun chooseMoveCategoryThen(current: String, moveTexts: List<String>, after: () -> Unit = {}, action: (String) -> Unit) {
+        val targets = categoriesProvider().filter { it != current }
+        val card = menuCard()
+        if (targets.isEmpty()) {
+            card.addView(menuTitle("没有其它分类"))
+            card.addView(menuDivider())
+            card.addView(menuItem("＋ 新建分类…") { hideOverlay(); after(); onAddCategoryThenMove(current, moveTexts) }) // carry the move
+        } else {
+            card.addView(menuTitle("移动到分类"))
+            for (c in targets) { card.addView(menuDivider()); card.addView(menuItem(c) { hideOverlay(); action(c) }) }
+        }
+        showOverlay(card)
+    }
+
     /** C6: long-press → centered menu 删除此条内容 / 添加常用语 / 拆分选词. */
     private fun showLongPressMenu(text: String) {
         val card = menuCard()
         card.addView(menuItem("删除此条内容") { hideOverlay(); deleteOne(text) })
         card.addView(menuDivider())
-        card.addView(menuItem("添加常用语") { hideOverlay(); chooseCategoryThen { c -> onSaveAsPhrasesTo(c, listOf(text)) } })
+        card.addView(menuItem("添加常用语") { hideOverlay(); chooseCategoryThen(listOf(text)) })
         card.addView(menuDivider())
         card.addView(menuItem("拆分选词") { hideOverlay(); showSplit(text) })
         showOverlay(card)
     }
 
-    /** ⚙ menu: clear system clipboard / clear history / toggle recording / manage phrases. */
+    /** ⚙ menu: clear history / toggle recording / manage phrases. (debug.16: 清空系统剪贴板 removed — OEM
+     *  clipboards, e.g. Samsung/Vivo, silently ignore clearPrimaryClip, so the action was unreliable.) */
     private fun showGearMenu() {
         val card = menuCard()
-        // debug.14 item2: route the gear entry through the SAME confirm step as the top-bar button so there is
-        // no unconfirmed path to clearing the system clipboard.
-        card.addView(menuItem("清空系统剪贴板") { confirmClearSystem() })
-        card.addView(menuDivider())
         card.addView(menuItem("清空剪贴板历史") { hideOverlay(); onClearHistory(); refresh() })
         card.addView(menuDivider())
         val on = historyEnabledProvider()
         card.addView(menuItem(if (on) "剪贴板记录:开" else "剪贴板记录:关") { hideOverlay(); onSetHistoryEnabled(!on) })
-        card.addView(menuDivider())
-        card.addView(menuItem("常用语管理") { hideOverlay(); onManage() })
+        // debug.16: 常用语管理 entry removed — category add/rename/delete is now inline (＋ / ✎ / 长按 chip).
         showOverlay(card)
     }
 
-    /**
-     * debug.14 item2: two-step confirm before clearing the SYSTEM clipboard (防误触). Shows a centered card —
-     * 确认清空 (destructive red) actually fires [onClearSystemClipboard]; 取消 just dismisses. Nothing is cleared
-     * until 确认 is tapped. Reused by both the top-bar button and the ⚙ menu so there is one confirmed path.
-     */
-    private fun confirmClearSystem() {
-        val card = menuCard()
-        card.addView(menuTitle("清空系统剪贴板?"))
-        card.addView(hint("将清除系统剪贴板的当前内容,不影响剪贴板历史。", 13f, HINT).apply { setPadding(dp(20), 0, dp(20), dp(8)) })
-        card.addView(menuDivider())
-        card.addView(menuItem("确认清空") { doClearSystem() }.also { it.setTextColor(RED) })
-        card.addView(menuDivider())
-        card.addView(menuItem("取消") { hideOverlay() })
-        showOverlay(card)
-    }
-
-    /** The confirmed system-clipboard clear (step 2). Dismisses the confirm card, then clears via the host. */
-    private fun doClearSystem() { hideOverlay(); onClearSystemClipboard() }
-
-    /** C5: pick the target category for an add, or jump to the manager to create one. */
-    private fun chooseCategoryThen(action: (String) -> Unit) {
+    /** C5: pick a target category to ADD [pending] phrases into, or create a NEW one — carrying [pending]
+     *  THROUGH the inline create (debug.16 fix) so the clip still lands in the just-created category. [after]
+     *  runs cleanup (e.g. exitSelect) on either branch. */
+    private fun chooseCategoryThen(pending: List<String>, after: () -> Unit = {}) {
         val cats = categoriesProvider()
-        if (cats.isEmpty()) { onManage(); return }
+        if (cats.isEmpty()) { after(); onAddCategoryThenAdd(pending); return } // no categories yet → create one carrying the clip
         val card = menuCard()
         card.addView(menuTitle("选择分类"))
-        for (c in cats) { card.addView(menuDivider()); card.addView(menuItem(c) { hideOverlay(); action(c); refresh() }) }
+        for (c in cats) { card.addView(menuDivider()); card.addView(menuItem(c) { hideOverlay(); onSaveAsPhrasesTo(c, pending); after(); refresh() }) }
         card.addView(menuDivider())
-        card.addView(menuItem("＋ 新建分类…") { hideOverlay(); onManage() })
+        card.addView(menuItem("＋ 新建分类…") { hideOverlay(); after(); onAddCategoryThenAdd(pending) }) // carry the clip(s)
         showOverlay(card)
     }
 
@@ -583,37 +720,5 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun rounded(color: Int, radiusDp: Float) = GradientDrawable().apply {
         setColor(color); cornerRadius = radiusDp * density
-    }
-
-    /** debug.14 item2: an icon-only top-bar button (same grey chip as [roundBtn]) drawing [icon] centred — used
-     *  for the self-drawn 清空系统剪贴板 glyph so it stays monochrome/theme-tinted (no colour-emoji regression). */
-    private fun iconBtn(icon: Drawable, onClick: () -> Unit): ImageView = ImageView(context).apply {
-        background = rounded(GREY_PILL, ImeShapes.chipRadiusDp)
-        scaleType = ImageView.ScaleType.CENTER
-        setImageDrawable(icon)
-        isClickable = true
-        setOnClickListener { onClick() }
-    }
-
-    /** debug.14 item2: palette-tinted clipboard-with-✕ [Drawable] for the 清空系统剪贴板 button (Glyphs.drawClipboardClear),
-     *  so it matches the copy bar's self-drawn clipboard glyph and the rest of the monochrome icon row. */
-    private class ClearClipDrawable(private val density: Float) : Drawable() {
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = 1.8f * density
-            strokeCap = Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND
-        }
-        fun tint(color: Int) { paint.color = color; invalidateSelf() }
-        override fun draw(canvas: Canvas) {
-            val b = bounds
-            Glyphs.drawClipboardClear(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) * 0.40f)
-        }
-        override fun getIntrinsicWidth() = (18 * density).toInt()
-        override fun getIntrinsicHeight() = (18 * density).toInt()
-        override fun setAlpha(alpha: Int) {}
-        override fun setColorFilter(colorFilter: ColorFilter?) {}
-        @Deprecated("Deprecated in Java")
-        override fun getOpacity() = PixelFormat.TRANSLUCENT
     }
 }

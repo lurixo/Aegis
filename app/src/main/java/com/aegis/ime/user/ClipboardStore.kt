@@ -183,6 +183,76 @@ class ClipboardStore(private val dir: File) {
         if (changed) savePhrases()
     }
 
+    /**
+     * debug.16: edit a saved phrase's text IN PLACE within [category] (order preserved). [newText] is
+     * sanitized (ISO control chars stripped, then trimmed). Returns false — leaving the store unchanged —
+     * if [category] or [oldText] is missing, the sanitized text is empty, or it would duplicate a DIFFERENT
+     * existing phrase in the same category. On success persists and returns true. Replacing a phrase with its
+     * own (sanitized) value is a permitted no-op that still returns true.
+     */
+    fun editPhrase(category: String, oldText: String, newText: String): Boolean {
+        val c = find(category) ?: return false
+        val idx = c.phrases.indexOf(oldText)
+        if (idx < 0) return false
+        val n = newText.filterNot { Character.isISOControl(it) }.trim()
+        if (n.isEmpty()) return false
+        if (c.phrases.withIndex().any { (j, p) -> j != idx && p == n }) return false // collides with another item
+        c.phrases[idx] = n
+        savePhrases()
+        return true
+    }
+
+    /**
+     * debug.16: move [text] from [fromCategory] to [toCategory] (dedup at the target). [toCategory] must
+     * already exist (returns false otherwise — never auto-creates on a move). Moving to the same category is
+     * a no-op that returns true. Returns false if [text] is not actually in [fromCategory] (nothing to move —
+     * so a missing phrase can never be phantom-created at the target). On a real move the phrase is removed
+     * from the source and appended to the target only if absent there, then persisted.
+     */
+    fun movePhrase(fromCategory: String, text: String, toCategory: String): Boolean {
+        val to = find(toCategory) ?: return false
+        val from = find(fromCategory) ?: return false
+        if (from === to) return true // same category → nothing to move (don't reorder)
+        if (!from.phrases.remove(text)) return false // not in source → nothing to move (no phantom at target)
+        if (!to.phrases.contains(text)) to.phrases.add(text)
+        savePhrases()
+        return true
+    }
+
+    /**
+     * debug.16: batch-move [texts] from [fromCategory] to [toCategory] (C7 多选 移动到分类). Same rules as
+     * [movePhrase] per item — [toCategory] must exist, only phrases actually in the source move, dedup at the
+     * target. No-op (returns 0) for an unknown/identical pair. Returns how many actually moved; persists once.
+     */
+    fun movePhrasesTo(fromCategory: String, texts: Collection<String>, toCategory: String): Int {
+        val to = find(toCategory) ?: return 0
+        val from = find(fromCategory) ?: return 0
+        if (from === to) return 0
+        var moved = 0
+        for (t in texts) {
+            if (from.phrases.remove(t)) {
+                if (!to.phrases.contains(t)) to.phrases.add(t)
+                moved++
+            }
+        }
+        if (moved > 0) savePhrases()
+        return moved
+    }
+
+    /**
+     * debug.16: reorder a phrase within [category] — move the item at [fromIndex] to [toIndex] (drag-to-sort),
+     * shifting the rest. Returns false (no change) for an unknown category, out-of-range indices, or a no-op
+     * move. Persists the new order (savePhrases writes in list order, loadPhrases reads it back in order).
+     */
+    fun reorderPhrase(category: String, fromIndex: Int, toIndex: Int): Boolean {
+        val c = find(category) ?: return false
+        val n = c.phrases.size
+        if (fromIndex !in 0 until n || toIndex !in 0 until n || fromIndex == toIndex) return false
+        c.phrases.add(toIndex, c.phrases.removeAt(fromIndex))
+        savePhrases()
+        return true
+    }
+
     private fun find(name: String): Category? = phraseCats.firstOrNull { it.name == name }
 
     /**

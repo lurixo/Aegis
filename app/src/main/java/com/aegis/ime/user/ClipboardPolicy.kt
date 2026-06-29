@@ -57,19 +57,6 @@ object ClipboardPolicy {
     fun shouldReadSystemClip(selfWritePending: Boolean, secureField: Boolean, historyEnabled: Boolean): Boolean =
         selfWritePending || (!secureField && historyEnabled)
 
-    /** debug.15: the verified outcome of a 清空系统剪贴板 attempt — read back from the live clipboard so the
-     *  toast tells the TRUTH (clearPrimaryClip is silently a no-op on some OEMs, e.g. Samsung — Bitwarden #2356). */
-    enum class ClearResult { CLEARED, CONTENT_REMAINS }
-
-    /**
-     * debug.15: did the clear actually empty the system clipboard? Judged on the AFTER state: no clip, or a clip
-     * whose (coerced) text is blank, counts as CLEARED; any remaining non-blank content is CONTENT_REMAINS (the
-     * OEM blocked removal) — so the caller must NOT report success. [text] is the coerced text of the post-clear
-     * primary clip (null when there is none).
-     */
-    fun clearResult(hasClip: Boolean, text: CharSequence?): ClearResult =
-        if (!hasClip || text.isNullOrBlank()) ClearResult.CLEARED else ClearResult.CONTENT_REMAINS
-
     /**
      * 复制条 display: should the most-recently-captured 复制条 be RESTORED when a field (re)starts?
      * iff there is a pending clip — DECOUPLED from [isSensitive]/secureField on purpose. Showing a clip that
