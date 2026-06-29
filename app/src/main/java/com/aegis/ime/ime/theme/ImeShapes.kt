@@ -26,12 +26,17 @@ object ImeShapes {
     /** Ordinary key corner — MD3 medium (≤16dp, never pill). */
     const val keyRadiusDp = 12f
 
-    /** Candidate / panel card corner (MD3 large). */
-    const val cardRadiusDp = 16f
+    /** Candidate / panel card corner. debug.17 E3: tightened 16→11 ("圆角不宜过大"). */
+    const val cardRadiusDp = 11f
 
     /** debug.17: inline text-input field (常用语 / 新建分类) — a MEDIUM rounded RECTANGLE, never a stadium pill. */
     const val inputRadiusDp = 12f
 
-    /** True pills: toggle chips / tags only — never keys. */
-    const val chipRadiusDp = 999f
+    /** Chips / tags — debug.17 E3: a rounded RECTANGLE now (999→10), no longer a stadium pill, so the surface
+     *  reads as one consistent MD3 family. The ONE exception is the idle candidate toolbar ([toolbarPillRadiusDp]). */
+    const val chipRadiusDp = 10f
+
+    /** debug.17 E3: the idle candidate-strip TOOLBAR keeps its floating capsule (stadium pill) — the one surface
+     *  that stays a pill while every other chip/capsule tightens to a rounded rectangle. */
+    const val toolbarPillRadiusDp = 999f
 }

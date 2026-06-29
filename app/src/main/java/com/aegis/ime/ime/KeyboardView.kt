@@ -77,22 +77,9 @@ class KeyboardView(context: Context) : View(context) {
     // A3: start scrolling after only a small drag so the list FOLLOWS the finger (the 24dp backspace-swipe
     // threshold felt like "滑不动 / 不跟手"); once started it tracks 1:1.
     private val scrollSlop = 6f * resources.displayMetrics.density
-    // U7/U17 fling: a quick flick must carry the list to the bottom in ONE gesture (the old drag-only scroll
-    // was bounded by finger travel within the short ~4-cell region, so one gesture could not reach the bottom). Momentum
-    // via OverScroller; velocity self-computed from the last two MOVE samples so it's deterministic + testable
-    // (Robolectric's VelocityTracker shadow reports nothing).
-    private val scroller = OverScroller(context)
-    private val minFlingVel = ViewConfiguration.get(context).scaledMinimumFlingVelocity.toFloat()
-    private val maxFlingVel = ViewConfiguration.get(context).scaledMaximumFlingVelocity.toFloat()
-    // I5: fling velocity is estimated over a short TIME WINDOW of recent MOVE samples (like VelocityTracker),
-    // NOT just the last two points — two points are dominated by the finger's final micro-motion, so a
-    // decelerating lift gave ~0 (no fling → "要滑很长才到底") and a jittery last sample gave a huge spike
-    // (overshoot → "滑一点点就到底"). A ring buffer + window makes the momentum match the actual flick speed.
-    private val sampleT = LongArray(VELOCITY_SAMPLES)
-    private val sampleY = FloatArray(VELOCITY_SAMPLES)
-    private var sampleHead = 0 // next write slot (ring)
-    private var sampleCount = 0
-    private var flingStopArmed = false // this DOWN halted a running fling → its UP must NOT pick (no mis-touch)
+    // U7/U17/I5 fling: a quick flick must carry the A3 reading column to the bottom in ONE gesture. The momentum
+    // + windowed-velocity logic now lives in the SHARED [FlingScroller] (debug.17 #66) — reused by CandidateView.
+    private val fling = FlingScroller(context)
 
     // Long-press key repeat (#8) + backspace swipe (#5).
     private val repeatHandler = Handler(Looper.getMainLooper())
@@ -127,8 +114,9 @@ class KeyboardView(context: Context) : View(context) {
     private val rowHeight = 52f * density
     // I3/numpad-align: the 4-row pages (9-key + numpad/number/symbol) get a small per-row bump so they share
     // ONE height and switching between them (e.g. 9-key ⇄ 123) never resizes the IME; the 5-row 26-key keeps
-    // the base. (Supersedes the nine-only I3 bump — same +7dp on the 9-key, now generalized.)
-    private val shortPageRowExtra = 7f * density
+    // the base. debug.17 C (F3): trimmed 7→2dp/row so the 9-key (and its 4-row siblings) sit ~20dp lower overall
+    // — they read less tall/chunky — while still sharing one height (no resize on a 9-key⇄123 switch).
+    private val shortPageRowExtra = 2f * density
     private val gap = 6f * density
     private val keyRadius = ImeShapes.keyRadiusDp * density // F2: rounded-rect keys (≤16dp, never pill)
 
@@ -165,6 +153,8 @@ class KeyboardView(context: Context) : View(context) {
     private val scrollTrackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.railBg }
     private val scrollbarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withAlpha(palette.icon, 0x55) }
     private val scrollLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(17f) }
+    // debug.17: STROKE paint for the self-drawn key glyphs (⌫ / ⇧ / ✎) — colour is set per draw (state-aware).
+    private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2f * density; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
 
     /** F1: push a new (Monet, dark-aware) palette; re-colours every Paint and repaints. */
     fun applyPalette(p: ImePalette) {
@@ -280,8 +270,8 @@ class KeyboardView(context: Context) : View(context) {
 
     /** Drive the momentum fling each frame; View.draw() calls this automatically. */
     override fun computeScroll() {
-        if (scroller.computeScrollOffset()) {
-            scrollY = scroller.currY.toFloat()
+        fling.computeOffset()?.let {
+            scrollY = it
             clampScroll()
             postInvalidateOnAnimation()
         }
@@ -371,6 +361,9 @@ class KeyboardView(context: Context) : View(context) {
     private fun drawLabel(canvas: Canvas, p: Placed) {
         if (p.key.action == KeyAction.TOGGLE_LANG) { drawLangToggle(canvas, p.rect); return }
         if (p.key.action == KeyAction.SHIFT) { drawShift(canvas, p.rect); return } // I4: stateful arrow glyph
+        // debug.17: ⌫ and 符号入口 ✎ are self-drawn Glyphs (no font character impersonating an icon, no FE0E hack).
+        if (p.key.action == KeyAction.BACKSPACE) { drawKeyGlyph(canvas, p.rect, palette.keyLabel) { c, pt, x, y, s -> Glyphs.drawBackspace(c, pt, x, y, s) }; return }
+        if (p.key.action == KeyAction.SHOW_SYMBOLS) { drawKeyGlyph(canvas, p.rect, palette.keyLabelSecondary) { c, pt, x, y, s -> Glyphs.drawPencil(c, pt, x, y, s) }; return }
         val cx = p.rect.centerX()
         val cy = p.rect.centerY()
         val display = displayLabel(p.key)
@@ -407,11 +400,18 @@ class KeyboardView(context: Context) : View(context) {
      *  LOCK → SOLID up-arrow ⬆ in the accent colour (caps lock — the "实心箭头").
      */
     private fun drawShift(canvas: Canvas, rect: RectF) {
-        // U+2B06 is emoji-presentation-capable; the U+FE0E text selector forces a flat glyph so it keeps the
-        // accent colour (a color-emoji ⬆ would ignore shiftActivePaint) and reads as the "实心箭头".
-        val glyph = if (shiftLocked) "⬆︎" else "⇧"
-        val paint = if (shifted) shiftActivePaint else labelPaint
-        canvas.drawText(glyph, rect.centerX(), rect.centerY() - (paint.descent() + paint.ascent()) / 2, paint)
+        // debug.17: self-drawn Glyphs.drawShift (no font ⇧/⬆ char). OFF/ONCE = hollow arrow (accent when armed);
+        // LOCK = the same arrow with a caps-lock underline bar — all in the same monochrome-stroke language.
+        drawKeyGlyph(canvas, rect, if (shifted) palette.accentBottom else palette.keyLabel) { c, pt, x, y, s ->
+            Glyphs.drawShift(c, pt, x, y, s, locked = shiftLocked)
+        }
+    }
+
+    /** debug.17: paint a self-drawn [Glyphs] key icon centred in [rect] at a consistent box (the iconPaint owns
+     *  stroke width/cap; colour set per call). s = ~0.24 of the key's short side. */
+    private inline fun drawKeyGlyph(canvas: Canvas, rect: RectF, color: Int, draw: (Canvas, Paint, Float, Float, Float) -> Unit) {
+        iconPaint.color = color
+        draw(canvas, iconPaint, rect.centerX(), rect.centerY(), minOf(rect.width(), rect.height()) * 0.24f)
     }
 
     /** I4 test seam: the shift key's current visual state (OFF / ONCE / LOCK). */
@@ -428,10 +428,7 @@ class KeyboardView(context: Context) : View(context) {
         if (shifted && key.action == KeyAction.COMMIT && key.label.length == 1 && key.label[0] in 'a'..'z') {
             return key.label.uppercase()
         }
-        // U-polish: force a flat (text-presentation) ✎ with U+FE0E so it takes the label colour instead of
-        // rendering as a colour emoji that ignores the paint (same trick as the shift ⬆︎ glyph).
-        if (key.label == "✎") return "✎︎"
-        return key.label
+        return key.label // debug.17: ✎ / ⌫ no longer drawn as text — drawLabel renders them via Glyphs
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -532,18 +529,15 @@ class KeyboardView(context: Context) : View(context) {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 inScrollDown = true; scrolling = false
-                // U7/U17: a touch landing on a moving list STOPS the fling and that tap must not select
-                // anything (so flicking then tapping to halt never mis-commits a combo/punctuation).
-                flingStopArmed = !scroller.isFinished
-                if (flingStopArmed) scroller.forceFinished(true)
-                sampleCount = 0; sampleHead = 0 // velocity is measured from MOVE samples only (a single fast
-                // MOVE off the DOWN point is not a flick — needs ≥2 MOVEs, as before)
+                // U7/U17: a touch landing on a moving list STOPS the fling (FlingScroller.onDown) and that tap
+                // must not select anything (so flicking then tapping to halt never mis-commits a combo).
+                fling.onDown()
                 scrollDownY = event.y; scrollLastY = event.y
-                scrollPressedIndex = if (flingStopArmed) -1 else scrollIndexAt(event.y)
+                scrollPressedIndex = if (fling.stopArmed) -1 else scrollIndexAt(event.y)
                 invalidate()
             }
             MotionEvent.ACTION_MOVE -> {
-                addVelocitySample(event.eventTime, event.y)
+                fling.addSample(event.eventTime, event.y)
                 if (!scrolling && abs(event.y - scrollDownY) > scrollSlop) { scrolling = true; scrollPressedIndex = -1 }
                 if (scrolling) {
                     // 1:1 drag via INCREMENTAL deltas: content moves exactly as far as the finger, and a
@@ -558,21 +552,16 @@ class KeyboardView(context: Context) : View(context) {
                 val col = scrollColumn
                 if (scrolling) {
                     // Hand off the finger's velocity to a momentum fling so one flick can reach the bottom.
-                    val vy = flingVelocity()
-                    if (col != null && abs(vy) > minFlingVel && maxScroll() > 0f) {
-                        // scrollY grows as the finger moves UP (dy<0), so fling velocity in scroll-space = -vy.
-                        scroller.fling(0, scrollY.toInt(), 0, (-vy).toInt(), 0, 0, 0, maxScroll().toInt())
-                        postInvalidateOnAnimation()
-                    }
-                } else if (col != null && !flingStopArmed) {
+                    if (col != null && fling.fling(scrollY, maxScroll())) postInvalidateOnAnimation()
+                } else if (col != null && !fling.stopArmed) {
                     val idx = scrollIndexAt(event.y)
                     if (idx >= 0 && idx == scrollPressedIndex) { performClick(); onKey(col.items[idx]) }
                 }
-                scrollPressedIndex = -1; inScrollDown = false; scrolling = false; flingStopArmed = false
+                scrollPressedIndex = -1; inScrollDown = false; scrolling = false
                 invalidate()
             }
             MotionEvent.ACTION_CANCEL -> {
-                scrollPressedIndex = -1; inScrollDown = false; scrolling = false; flingStopArmed = false
+                scrollPressedIndex = -1; inScrollDown = false; scrolling = false
                 invalidate()
             }
         }
@@ -583,39 +572,11 @@ class KeyboardView(context: Context) : View(context) {
     // synchronously in fling(), so "reaches the bottom in one gesture" is checkable without a frame clock).
     internal fun scrollOffsetForTest(): Float = scrollY
     internal fun maxScrollForTest(): Float = maxScroll()
-    internal fun isFlingingForTest(): Boolean = !scroller.isFinished
-    internal fun flingFinalForTest(): Float = scroller.finalY.toFloat()
+    internal fun isFlingingForTest(): Boolean = !fling.isFinished
+    internal fun flingFinalForTest(): Float = fling.finalOffset()
 
-    /** I5: record one (time, y) touch sample into the ring buffer used for the windowed fling velocity. */
-    private fun addVelocitySample(t: Long, y: Float) {
-        sampleT[sampleHead] = t; sampleY[sampleHead] = y
-        sampleHead = (sampleHead + 1) % VELOCITY_SAMPLES
-        if (sampleCount < VELOCITY_SAMPLES) sampleCount++
-    }
-
-    /**
-     * I5: finger velocity (px/s, screen-Y) measured over the last [VELOCITY_WINDOW_MS] of samples — the
-     * displacement from the newest sample back to the oldest one still inside the window, divided by their
-     * time span. This averages out the final-sample jitter that made the old two-point estimate swing
-     * between "no fling" and "overshoot", so the momentum reflects the real flick speed. 0 with <2 samples.
-     */
-    private fun flingVelocity(): Float {
-        if (sampleCount < 2) return 0f
-        val newest = (sampleHead - 1 + VELOCITY_SAMPLES) % VELOCITY_SAMPLES
-        val tNew = sampleT[newest]; val yNew = sampleY[newest]
-        var ref = newest
-        for (k in 1 until sampleCount) {
-            val idx = (newest - k + VELOCITY_SAMPLES) % VELOCITY_SAMPLES
-            ref = idx
-            if (tNew - sampleT[idx] >= VELOCITY_WINDOW_MS) break // far enough back: spans the window
-        }
-        val dt = (tNew - sampleT[ref]).toFloat()
-        if (dt <= 0f) return 0f
-        return ((yNew - sampleY[ref]) / dt * 1000f).coerceIn(-maxFlingVel, maxFlingVel)
-    }
-
-    /** I5 test seam: the windowed fling velocity the next UP would use (px/s, screen-Y). */
-    internal fun flingVelocityForTest(): Float = flingVelocity()
+    /** I5 test seam: the windowed fling velocity the next UP would use (px/s, screen-Y) — via [FlingScroller]. */
+    internal fun flingVelocityForTest(): Float = fling.velocity()
 
     /**
      * ★V follow-finger hit-test: exact containment first, else snap to the NEAREST key (by clamped
@@ -686,8 +647,85 @@ class KeyboardView(context: Context) : View(context) {
     private companion object {
         const val REPEAT_DELAY_MS = 400L    // hold this long before auto-repeat starts
         const val REPEAT_INTERVAL_MS = 55L  // then fire this often
-        // I5 windowed fling velocity: keep up to N samples, measure speed over the last ~window ms.
-        const val VELOCITY_SAMPLES = 12
-        const val VELOCITY_WINDOW_MS = 100L
+    }
+}
+
+/**
+ * debug.17 #66: a reusable 1-D momentum scroller shared by every SELF-DRAWN scroll surface (the keyboard's A3
+ * reading column — vertical — and the candidate strip — horizontal). The caller owns the offset and tracks the
+ * finger 1:1; a flick hands off to an [OverScroller] fling whose velocity is SELF-COMPUTED over a short time
+ * window of recent samples — deterministic + unit-testable (Robolectric's VelocityTracker shadow reports
+ * nothing) and robust to the final-sample jitter that swung a 2-point estimate between "no fling" and
+ * "overshoot". A DOWN landing on a moving list STOPS the fling and arms [stopArmed] so that tap is not a pick.
+ */
+class FlingScroller(context: Context) {
+    private val scroller = OverScroller(context)
+    private val minVel = ViewConfiguration.get(context).scaledMinimumFlingVelocity.toFloat()
+    private val maxVel = ViewConfiguration.get(context).scaledMaximumFlingVelocity.toFloat()
+    private val sampleT = LongArray(SAMPLES)
+    private val samplePos = FloatArray(SAMPLES)
+    private var head = 0
+    private var count = 0
+
+    /** True when the most recent [onDown] halted a running fling — the caller must NOT treat that tap as a pick. */
+    var stopArmed = false
+        private set
+
+    /** DOWN: stop any running fling (arming [stopArmed]) and reset the velocity window. */
+    fun onDown() {
+        stopArmed = !scroller.isFinished
+        if (stopArmed) scroller.forceFinished(true)
+        count = 0; head = 0
+    }
+
+    /** MOVE: record one (eventTime, finger-position) sample for the windowed velocity. */
+    fun addSample(t: Long, pos: Float) {
+        sampleT[head] = t; samplePos[head] = pos
+        head = (head + 1) % SAMPLES
+        if (count < SAMPLES) count++
+    }
+
+    /**
+     * Finger velocity (px/s) from the newest sample back to the oldest one still inside the last [WINDOW_MS],
+     * divided by their time span — averaging out final-sample jitter. 0 with < 2 samples.
+     */
+    fun velocity(): Float {
+        if (count < 2) return 0f
+        val newest = (head - 1 + SAMPLES) % SAMPLES
+        val tNew = sampleT[newest]; val pNew = samplePos[newest]
+        var ref = newest
+        for (k in 1 until count) {
+            val idx = (newest - k + SAMPLES) % SAMPLES
+            ref = idx
+            if (tNew - sampleT[idx] >= WINDOW_MS) break
+        }
+        val dt = (tNew - sampleT[ref]).toFloat()
+        if (dt <= 0f) return 0f
+        return ((pNew - samplePos[ref]) / dt * 1000f).coerceIn(-maxVel, maxVel)
+    }
+
+    /**
+     * UP: if the windowed velocity clears the min-fling threshold and there is room ([max] > 0), start a
+     * momentum fling from [start] over [0, max]. The offset grows as the finger moves toward smaller positions,
+     * so the scroll-space velocity is the NEGATIVE of the finger velocity. Returns true if a fling started.
+     */
+    fun fling(start: Float, max: Float): Boolean {
+        val v = velocity()
+        if (kotlin.math.abs(v) <= minVel || max <= 0f) return false
+        scroller.fling(0, start.toInt(), 0, (-v).toInt(), 0, 0, 0, max.toInt())
+        return true
+    }
+
+    /** Per-frame (call from View.computeScroll): the new offset while the fling animates, else null. */
+    fun computeOffset(): Float? = if (scroller.computeScrollOffset()) scroller.currY.toFloat() else null
+
+    val isFinished: Boolean get() = scroller.isFinished
+
+    /** Test seam: where a running fling will finally settle (px). */
+    fun finalOffset(): Float = scroller.finalY.toFloat()
+
+    private companion object {
+        const val SAMPLES = 12      // I5: ring-buffer size
+        const val WINDOW_MS = 100L  // I5: velocity is measured over the last ~100ms of samples
     }
 }

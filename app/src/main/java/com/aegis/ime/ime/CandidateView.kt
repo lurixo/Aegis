@@ -18,13 +18,13 @@ package com.aegis.ime.ime
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.Path
 import android.graphics.RectF
 import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
 import kotlin.math.abs
 
 /**
@@ -32,9 +32,7 @@ import kotlin.math.abs
  * the bar keeps ONLY: A (brand/settings) · 表情 · 文字编辑 · 剪贴板·常用语 — plus the collapse ⌄ (separate).
  * The leftover ⌨ (9↔26 switch → the keyboard's startup setting) and 123 (numpad, still on the keyboards) are gone.
  */
-enum class BarFunction(val glyph: String) {
-    BRAND("A"), EMOJI("☺"), EDIT("✎"), CLIPBOARD("📋")
-}
+enum class BarFunction { BRAND, EMOJI, EDIT, CLIPBOARD } // debug.17: glyphs are self-drawn (Glyphs.*), no char field
 
 /**
  * Candidate row above the keyboard. While composing it shows candidates — horizontally scrollable
@@ -69,6 +67,9 @@ class CandidateView(context: Context) : View(context) {
     private var downX = 0f
     private var downScroll = 0f
     private var dragging = false
+    // debug.17 #66: the candidate strip's horizontal scroll now flings (was pure drag) via the SHARED helper —
+    // a quick flick coasts instead of stopping dead at the finger lift.
+    private val fling = FlingScroller(context)
 
     init { setLayerType(LAYER_TYPE_SOFTWARE, null) } // soft shadow for the floating toolbar capsule
 
@@ -142,6 +143,12 @@ class CandidateView(context: Context) : View(context) {
     /** U14 test seam: the chevron currently drawn at the right edge (⌃ when expanded, else ⌄). */
     internal fun chevronGlyph(): String = if (expanded) "⌃" else "⌄"
 
+    // debug.17 #66 fling test seams.
+    internal fun scrollXForTest(): Float = scrollX
+    internal fun maxScrollForTest(): Float = maxScroll()
+    internal fun isFlingingForTest(): Boolean = !fling.isFinished
+    internal fun flingVelocityForTest(): Float = fling.velocity()
+
     private fun layoutCells() {
         hitCount = items.size
         var x = 0f // ★U: start flush-left so the first candidate sits ~one padding (14dp) from the edge,
@@ -198,7 +205,9 @@ class CandidateView(context: Context) : View(context) {
         val capR = width - capMarginH
         val capT = capMarginV
         val capB = height - capMarginV
-        val rad = (capB - capT) / 2f
+        // debug.17 E3: the toolbar keeps its stadium pill via [toolbarPillRadiusDp] (clamped to half-height),
+        // while every other chip/capsule tightened to a rounded rectangle (chipRadiusDp 999→10).
+        val rad = minOf((capB - capT) / 2f, ImeShapes.toolbarPillRadiusDp * density)
         capsulePaint.setShadowLayer(6f * density, 0f, 2f * density, palette.shadow) // U-polish: shadow via token (theme-aware)
         canvas.drawRoundRect(capL, capT, capR, capB, rad, rad, capsulePaint)
         capsulePaint.clearShadowLayer()
@@ -223,46 +232,15 @@ class CandidateView(context: Context) : View(context) {
         drawChevronDown(canvas, collapseL + collapseW / 2f, cy, s)
     }
 
-    /** Dispatch to a self-drawn linear icon for each toolbar function (no font assets). */
+    /** Dispatch to a self-drawn [Glyphs] icon for each toolbar function (debug.17: all share the Glyphs family
+     *  at the SAME ~1.5s box as the clipboard — the emoji was ~20% small inline, the brand/I-beam were local). */
     private fun drawIcon(c: Canvas, f: BarFunction, cx: Float, cy: Float, s: Float) {
         when (f) {
-            BarFunction.BRAND -> drawBrand(c, cx, cy, s) // leading brand mark → settings
-            BarFunction.EMOJI -> { // smiley — U-polish: circle 0.7s->0.6s so its optical box matches the others
-                c.drawCircle(cx, cy, s * 0.6f, iconPaint)
-                val eye = s * 0.16f // U-polish: relative to s (was abs 1.4dp) so it tracks the icon size
-                iconPaint.style = Paint.Style.FILL
-                c.drawCircle(cx - s * 0.24f, cy - s * 0.13f, eye, iconPaint)
-                c.drawCircle(cx + s * 0.24f, cy - s * 0.13f, eye, iconPaint)
-                iconPaint.style = Paint.Style.STROKE
-                c.drawArc(cx - s * 0.34f, cy - s * 0.08f, cx + s * 0.34f, cy + s * 0.3f, 20f, 140f, false, iconPaint)
-            }
-            BarFunction.EDIT -> { // text I-beam cursor ⟨I⟩ — U-polish: serifs 0.32s->0.5s so it isn't a thin sliver
-                c.drawLine(cx, cy - s * 0.75f, cx, cy + s * 0.75f, iconPaint)
-                c.drawLine(cx - s * 0.5f, cy - s * 0.75f, cx + s * 0.5f, cy - s * 0.75f, iconPaint)
-                c.drawLine(cx - s * 0.5f, cy + s * 0.75f, cx + s * 0.5f, cy + s * 0.75f, iconPaint)
-            }
-            BarFunction.CLIPBOARD -> Glyphs.drawClipboard(c, iconPaint, cx, cy, s) // 剪贴板·常用语 (debug.13: shared glyph)
+            BarFunction.BRAND -> Glyphs.drawBrandA(c, iconPaint, cx, cy, s)     // leading brand mark → settings
+            BarFunction.EMOJI -> Glyphs.drawEmoji(c, iconPaint, cx, cy, s)      // 表情
+            BarFunction.EDIT -> Glyphs.drawEditCaret(c, iconPaint, cx, cy, s)   // 文字编辑 (text I-beam)
+            BarFunction.CLIPBOARD -> Glyphs.drawClipboard(c, iconPaint, cx, cy, s) // 剪贴板·常用语
         }
-    }
-
-    /**
-     * Leading brand mark: the Aegis "A" (U4). Drawn as ONE round-joined path so the apex reads as a clean
-     * peak (not two crossed lines), and SIZED to the same ~1.5s height as the other toolbar icons (the old
-     * 2s height made it visibly larger). DEVIATION: the brand glyph is our "A" (not an "S").
-     */
-    private val brandPath = Path()
-    private fun drawBrand(c: Canvas, cx: Float, cy: Float, s: Float) {
-        val h = s * 0.78f                 // match emoji/edit/clipboard height (~1.5s tall), not 2s
-        val apexY = cy - h; val baseY = cy + h
-        val legX = s * 0.6f
-        brandPath.reset()
-        brandPath.moveTo(cx - legX, baseY)
-        brandPath.lineTo(cx, apexY)       // up to the rounded-join apex
-        brandPath.lineTo(cx + legX, baseY)
-        c.drawPath(brandPath, iconPaint)
-        val t = 0.58f                     // crossbar a little below the middle
-        val ly = apexY + (baseY - apexY) * t
-        c.drawLine(cx - legX * t, ly, cx + legX * t, ly, iconPaint)
     }
 
     private fun drawChevronDown(c: Canvas, cx: Float, cy: Float, s: Float) {
@@ -275,15 +253,22 @@ class CandidateView(context: Context) : View(context) {
         c.drawLine(cx, cy - s * 0.28f, cx + s * 0.5f, cy + s * 0.2f, iconPaint)
     }
 
+    /** debug.17 #66: drive the horizontal momentum fling each frame (View.draw calls this automatically). */
+    override fun computeScroll() {
+        fling.computeOffset()?.let { scrollX = it.coerceIn(0f, maxScroll()); postInvalidateOnAnimation() }
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downX = event.x
                 downScroll = scrollX
                 dragging = false
+                fling.onDown() // stop any running fling; a tap that halts it must not also pick a candidate
             }
             MotionEvent.ACTION_MOVE -> {
                 if (!showingFunctions && items.isNotEmpty()) {
+                    fling.addSample(event.eventTime, event.x)
                     val dx = event.x - downX
                     if (!dragging && abs(dx) > touchSlop) dragging = true
                     if (dragging) {
@@ -293,7 +278,8 @@ class CandidateView(context: Context) : View(context) {
                 }
             }
             MotionEvent.ACTION_UP -> {
-                if (dragging) { dragging = false; return true }
+                if (dragging) { dragging = false; if (fling.fling(scrollX, maxScroll())) postInvalidateOnAnimation(); return true }
+                if (fling.stopArmed) return true // this tap only stopped a running fling — never a pick
                 if (showingFunctions) {
                     if (collapseRect.contains(event.x, event.y)) { performClick(); onCollapse(); return true }
                     funcRects.indexOfFirst { it.contains(event.x, event.y) }
