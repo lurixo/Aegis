@@ -16,7 +16,11 @@
 package com.aegis.ime.ime
 
 import android.content.Context
+import android.graphics.Canvas
+import android.graphics.ColorFilter
 import android.graphics.Paint
+import android.graphics.PixelFormat
+import android.graphics.drawable.Drawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -47,6 +51,9 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
     private val readingColumn = LinearLayout(context).apply { orientation = VERTICAL }
     private val gridColumn = LinearLayout(context).apply { orientation = VERTICAL }
     private val rightColumn = LinearLayout(context).apply { orientation = VERTICAL }
+    // debug.17 A2: the right column's ⌫ is a self-drawn [Glyphs.drawBackspace] icon (same GlyphDrawable wrapper
+    // as the keyboard / 符号 / 表情 ⌫: 22dp box, 2dp ROUND stroke), not a font character. 返回/重输 stay text.
+    private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
     private val measurePaint = Paint().apply {
         textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, ImeType.title, resources.displayMetrics)
     }
@@ -69,7 +76,16 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
         // RIGHT — function column: 返回 / 退格 / 重输.
         rightColumn.setBackgroundColor(palette.keyboardBg) // P-A: 返回-column on the unified floor (was panelBg)
         rightColumn.addView(funcButton("返回") { onClose() }, funcLp())
-        rightColumn.addView(funcButton("⌫") { onBackspace() }, funcLp())
+        // debug.17 A2: ⌫ → self-drawn glyph. TOP compound slot (not LEFT) so it centres horizontally in the
+        // narrow column like the D-pad's icon-only arrowBtn — LEFT/RIGHT slots pin to the padding edge and
+        // gravity can't recentre them, which would leave it left of the centred 返回/重输.
+        rightColumn.addView(
+            funcButton("") { onBackspace() }.apply {
+                setCompoundDrawablesWithIntrinsicBounds(null, backspaceGlyph, null, null)
+                backspaceGlyph.tint(palette.keyLabelSecondary)
+            },
+            funcLp(),
+        )
         rightColumn.addView(funcButton("重输") { onClear() }, funcLp())
         addView(rightColumn, LayoutParams(dp(64), LayoutParams.MATCH_PARENT))
     }
@@ -81,12 +97,13 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
         readingColumn.setBackgroundColor(p.railBg)
         rightColumn.setBackgroundColor(p.keyboardBg) // P-A: see init
         for (i in 0 until rightColumn.childCount) (rightColumn.getChildAt(i) as? TextView)?.setTextColor(p.keyLabelSecondary)
+        backspaceGlyph.tint(p.keyLabelSecondary) // debug.17 A2: keep the self-drawn ⌫ in step with the column
         for (i in 0 until readingColumn.childCount) (readingColumn.getChildAt(i) as? TextView)?.setTextColor(p.preeditText)
     }
 
     private fun funcLp() = LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f)
 
-    private fun funcButton(label: String, onClick: () -> Unit): View = TextView(context).apply {
+    private fun funcButton(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
         text = label
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
@@ -150,5 +167,28 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
         setTextColor(palette.candidateText)
         isClickable = true
         setOnClickListener { onPick(index) }
+    }
+
+    /** debug.17 A2: a palette-tinted [Drawable] drawing one self-drawn [Glyphs] icon (the right column's ⌫), so
+     *  it stops using a font character and matches the keyboard / 符号 / 表情 ⌫ (same 22dp box, 2dp ROUND stroke). */
+    private class IconDrawable(
+        private val density: Float,
+        private val sFactor: Float,
+        private val render: (Canvas, Paint, Float, Float, Float) -> Unit,
+    ) : Drawable() {
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeWidth = 2f * density; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+        }
+        fun tint(color: Int) { paint.color = color; invalidateSelf() }
+        override fun draw(canvas: Canvas) {
+            val b = bounds
+            render(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) * sFactor)
+        }
+        override fun getIntrinsicWidth() = (22 * density).toInt()
+        override fun getIntrinsicHeight() = (22 * density).toInt()
+        override fun setAlpha(alpha: Int) {}
+        override fun setColorFilter(colorFilter: ColorFilter?) {}
+        @Deprecated("Deprecated in Java")
+        override fun getOpacity() = PixelFormat.TRANSLUCENT
     }
 }
