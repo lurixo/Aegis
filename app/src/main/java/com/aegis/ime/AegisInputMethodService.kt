@@ -83,6 +83,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private val emojiUsageStore by lazy { SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).also { it.load() } }
     @Volatile private var secureField = false
     private var lastCopy: String? = null
+    @Volatile private var selfClipUri: android.net.Uri? = null
     @Volatile private var userDbLoaded = false
     private var imePalette = ImePalette.STATIC_LIGHT
 
@@ -450,12 +451,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun onSystemClipChanged() {
-        if (secureField || !historyEnabled()) return
         val clip = runCatching { clipboardManager.primaryClip }.getOrNull() ?: return
         if (clip.itemCount == 0) return
         val item = clip.getItemAt(0)
-        val declaredImage = clip.description?.hasMimeType("image/*") == true
         val uri = item.uri
+        if (com.aegis.ime.user.ClipImageStore.isSelfWrite(uri, selfClipUri)) { selfClipUri = null; return }
+        if (secureField || !historyEnabled()) return
+        val declaredImage = clip.description?.hasMimeType("image/*") == true
         if (uri != null) {
             val seed = System.currentTimeMillis()
             Thread {
@@ -485,21 +487,31 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun pasteImage(path: String) {
-        val ic = currentInputConnection
-        val editorInfo = currentInputEditorInfo
-        if (ic == null || editorInfo == null) { toast("插入失败"); return }
         val file = File(path)
         if (!file.exists()) { toast("图片已不存在"); return }
         val mime = com.aegis.ime.user.ClipImageStore.mimeOf(path)
-        val accepts = EditorInfoCompat.getContentMimeTypes(editorInfo)
-        if (accepts.none { ClipDescription.compareMimeTypes(mime, it) }) { toast("当前输入框不支持插入图片"); return }
         val uri = runCatching { FileProvider.getUriForFile(this, "$packageName.fileprovider", file) }.getOrNull()
         if (uri == null) { toast("插入失败"); return }
-        val info = InputContentInfoCompat(uri, ClipDescription("clip image", arrayOf(mime)), null)
-        val ok = runCatching {
-            InputConnectionCompat.commitContent(ic, editorInfo, info, InputConnectionCompat.INPUT_CONTENT_GRANT_READ_URI_PERMISSION, null)
-        }.getOrDefault(false)
-        if (ok) inputView?.showPanel(null) else toast("插入失败")
+
+        val ic = currentInputConnection
+        val editorInfo = currentInputEditorInfo
+        val committed = if (ic != null && editorInfo != null) {
+            val accepts = EditorInfoCompat.getContentMimeTypes(editorInfo)
+            com.aegis.ime.user.ClipImageStore.deliverImage(accepts, mime) {
+                val info = InputContentInfoCompat(uri, ClipDescription("clip image", arrayOf(mime)), null)
+                runCatching {
+                    InputConnectionCompat.commitContent(ic, editorInfo, info, InputConnectionCompat.INPUT_CONTENT_GRANT_READ_URI_PERMISSION, null)
+                }.getOrDefault(false)
+            }
+        } else false
+        if (committed) { inputView?.showPanel(null); return }
+
+        selfClipUri = uri
+        val copied = runCatching {
+            clipboardManager.setPrimaryClip(com.aegis.ime.user.ClipImageStore.imageClip(contentResolver, uri))
+        }.isSuccess
+        toast(if (copied) "图片已复制,请在输入框长按粘贴" else "插入失败")
+        inputView?.showPanel(null)
     }
 
     private fun loadThumbnailAsync(path: String, cb: (Bitmap?) -> Unit) {
@@ -525,7 +537,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun historyEnabled() = getSharedPreferences("aegis", MODE_PRIVATE).getBoolean("clip_history", true)
     private fun setHistoryEnabled(on: Boolean) =
         getSharedPreferences("aegis", MODE_PRIVATE).edit().putBoolean("clip_history", on).apply()
-    private fun clearSystemClipboard() = runCatching { clipboardManager.clearPrimaryClip() }
+    private fun clearSystemClipboard() {
+        runCatching { clipboardManager.clearPrimaryClip() }
+            .onSuccess { Toast.makeText(this, "已清空系统剪贴板", Toast.LENGTH_SHORT).show() }
+            .onFailure { Log.e("Aegis", "clearPrimaryClip failed", it) }
+    }
 
     override fun onDestroy() {
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
