@@ -325,7 +325,6 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         var closed = false
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = 1.8f * density
             strokeCap = Paint.Cap.ROUND
             strokeJoin = Paint.Join.ROUND
         }

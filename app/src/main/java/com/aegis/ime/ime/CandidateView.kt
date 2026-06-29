@@ -108,6 +108,7 @@ class CandidateView(context: Context) : View(context) {
     fun setContent(candidates: List<String>, composingText: String) {
         items = candidates
         composing = composingText
+        fling.forceFinish()
         scrollX = 0f
         layoutCells()
         invalidate()
