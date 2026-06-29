@@ -16,6 +16,11 @@
 package com.aegis.ime.ime
 
 import android.content.Context
+import android.graphics.Canvas
+import android.graphics.ColorFilter
+import android.graphics.Paint
+import android.graphics.PixelFormat
+import android.graphics.drawable.Drawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -55,11 +60,24 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         val p = dp(4); setPadding(p, p, p, p)
     }
     private val gridScroll = ScrollView(context).apply { addView(grid); isFillViewport = true }
+    // debug.17: 锁定 key (parity with the 符号 panel) — when locked, tapping an emoji does NOT close the panel,
+    // so several can be inserted in a row. Pixel-identical bar to SymbolsView (返回·锁定·⌫ + self-drawn icons).
+    private var locked = false
+    private val backBtn = barButton("返回") { onBack() }
+    private val lockBtn = barButton("锁定") { toggleLock() }
+    private val lockGlyph = LockDrawable(density)
+    private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
+    private val backspaceBtn = barButton("") { onBackspace() }
     private val bottomBarView = bottomBar()
 
     init {
         orientation = VERTICAL
         setBackgroundColor(palette.keyboardBg) // P-A: panel floor == the strip/keyboard floor (no top seam)
+        lockBtn.setCompoundDrawablesWithIntrinsicBounds(lockGlyph, null, null, null)
+        lockBtn.compoundDrawablePadding = dp(4)
+        backspaceBtn.setCompoundDrawablesWithIntrinsicBounds(backspaceGlyph, null, null, null)
+        backspaceGlyph.tint(palette.keyLabelSecondary)
+        updateLockFace()
 
         for ((i, t) in titles.withIndex()) rail.addView(railTab(i, t))
 
@@ -83,6 +101,8 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         (bottomBarView as LinearLayout).let { bar ->
             for (i in 0 until bar.childCount) (bar.getChildAt(i) as? TextView)?.setTextColor(p.keyLabelSecondary)
         }
+        backspaceGlyph.tint(p.keyLabelSecondary)
+        updateLockFace()
         showCategory(selected)
     }
 
@@ -91,14 +111,30 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
      * emoji panel never resumes on the last category / scroll position (mirrors the 符号 panel opening on 常用).
      */
     override fun resetToDefault() {
+        resetLock() // debug.17: open unlocked, like the 符号 panel
         showCategory(0)
         gridScroll.scrollTo(0, 0)
         railScroll.scrollTo(0, 0)
     }
 
+    /** debug.17: clear the lock — call when (re)opening so the panel always starts unlocked (parity with 符号). */
+    fun resetLock() { locked = false; updateLockFace() }
+
+    private fun toggleLock() { locked = !locked; updateLockFace() }
+
+    private fun updateLockFace() {
+        val tint = if (locked) palette.candidateFirst else palette.keyLabelSecondary
+        lockGlyph.closed = locked
+        lockGlyph.tint(tint)
+        lockBtn.setTextColor(tint)
+        lockBtn.setTypeface(null, if (locked) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+    }
+
     // P7 test seams.
     internal fun selectedCategoryForTest(): Int = selected
     internal fun openCategoryForTest(index: Int) = showCategory(index)
+    internal fun lockedForTest(): Boolean = locked
+    internal fun toggleLockForTest() = toggleLock()
 
     private fun showCategory(index: Int) {
         selected = index
@@ -145,7 +181,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         val p = dp(8)
         setPadding(0, p, 0, p)
         isClickable = true
-        setOnClickListener { onEmoji(emoji) }
+        setOnClickListener { onEmoji(emoji); if (!locked) onBack() } // debug.17: locked → stay open for multi-insert
         layoutParams = GridLayout.LayoutParams().apply {
             width = 0
             height = LayoutParams.WRAP_CONTENT
@@ -157,8 +193,12 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     private fun bottomBar(): View = LinearLayout(context).apply {
         orientation = HORIZONTAL
         setBackgroundColor(palette.keyboardBg) // P-A: same as the unified floor
-        addView(barButton("返回") { onBack() }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        addView(barButton("⌫") { onBackspace() }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        // debug.17: pixel-identical to the 符号 panel bar — 返回 hugs LEFT, 锁定(+lock) centres, ⌫ hugs RIGHT.
+        backBtn.gravity = Gravity.START or Gravity.CENTER_VERTICAL; backBtn.setPadding(dp(20), 0, 0, 0)
+        backspaceBtn.gravity = Gravity.END or Gravity.CENTER_VERTICAL; backspaceBtn.setPadding(0, 0, dp(20), 0)
+        addView(backBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        addView(lockBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        addView(backspaceBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
     }
 
     private fun barButton(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
@@ -168,6 +208,44 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         setTextColor(palette.keyLabelSecondary)
         isClickable = true
         setOnClickListener { onClick() }
+    }
+
+    // debug.17: 照搬 SymbolsView — pixel-identical self-drawn lock + ⌫ drawables (shared Glyphs.drawLock/drawBackspace).
+    private class LockDrawable(private val density: Float) : Drawable() {
+        var closed = false
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeWidth = 2f * density; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+        }
+        fun tint(color: Int) { paint.color = color; invalidateSelf() }
+        override fun draw(canvas: Canvas) {
+            val b = bounds
+            Glyphs.drawLock(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) * 0.52f, closed)
+        }
+        override fun getIntrinsicWidth() = (22 * density).toInt()
+        override fun getIntrinsicHeight() = (22 * density).toInt()
+        override fun setAlpha(alpha: Int) {}
+        override fun setColorFilter(colorFilter: ColorFilter?) {}
+        @Deprecated("Deprecated in Java") override fun getOpacity() = PixelFormat.TRANSLUCENT
+    }
+
+    private class IconDrawable(
+        private val density: Float,
+        private val sFactor: Float,
+        private val render: (Canvas, Paint, Float, Float, Float) -> Unit,
+    ) : Drawable() {
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeWidth = 2f * density; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+        }
+        fun tint(color: Int) { paint.color = color; invalidateSelf() }
+        override fun draw(canvas: Canvas) {
+            val b = bounds
+            render(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) * sFactor)
+        }
+        override fun getIntrinsicWidth() = (22 * density).toInt()
+        override fun getIntrinsicHeight() = (22 * density).toInt()
+        override fun setAlpha(alpha: Int) {}
+        override fun setColorFilter(colorFilter: ColorFilter?) {}
+        @Deprecated("Deprecated in Java") override fun getOpacity() = PixelFormat.TRANSLUCENT
     }
 
     private companion object {
