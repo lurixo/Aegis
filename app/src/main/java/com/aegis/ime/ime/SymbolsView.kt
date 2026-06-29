@@ -38,7 +38,7 @@ import com.aegis.ime.layout.SymbolCatalog
 
 /**
  * Categorized symbols panel (D, reached from the keyboard ✎ pencil key). A left rail of category tabs
- * (常用 / 中文 / 英文 / 货币 / 网络 / 数学 / 箭头 / 角标 / 序号 / 音标 / 拼音) drives a scrollable grid.
+ * (常用 / 中文 / 英文 / 货币 / 网络 / 数学 / 希腊 / 箭头 / 角标 / 序号 / 音标 / 拼音) drives a scrollable grid.
  * Tapping a symbol commits it; by default it then returns to the keyboard (U3), unless 锁定 (P3) is on, in
  * which case the panel stays for continuous symbol entry. 常用 cells carry an origin badge (P2: 中/英/…).
  * Bottom bar = 返回 · 锁定 · ⌫. The "常用" tab is fed live from [recentProvider]; the rest from [SymbolCatalog].
@@ -382,7 +382,6 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         var closed = false
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = 1.8f * density
             strokeCap = Paint.Cap.ROUND
             strokeJoin = Paint.Join.ROUND
         }
@@ -392,7 +391,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
             // debug.17: lock 放大 (sFactor 0.40→0.52, box 18→22dp, stroke 2dp) so its height ≈ the bar's text height.
             Glyphs.drawLock(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) * 0.52f, closed)
         }
-        init { paint.strokeWidth = 2f * density }
+        init { paint.strokeWidth = 2f * density } // the bar's stroke weight (matches EmojiView's lock)
         override fun getIntrinsicWidth() = (22 * density).toInt()
         override fun getIntrinsicHeight() = (22 * density).toInt()
         override fun setAlpha(alpha: Int) {}

@@ -300,6 +300,24 @@ class KeyboardViewInteractionTest {
         assertTrue("a real flick with a soft finish still hands off to a fling", v.isFlingingForTest())
     }
 
+    @Test fun new_column_content_cancels_a_running_fling_and_renders_from_zero() {
+        // debug.17 FIX-1: flick the reading column into a fling, then swap in NEW column content (the
+        // user typed → candidates changed). The content-change reset must KILL the fling so the new column
+        // renders from the top — otherwise the next computeScroll frame restores the stale fling offset over the
+        // freshly-reset 0 and the new list opens scrolled (could hide the top reading).
+        val v = longComboView()
+        v.fastFlickUp()
+        assertTrue("precondition: a fling is running", v.isFlingingForTest())
+        assertTrue("precondition: it scrolled away from the top", v.scrollOffsetForTest() > 0f)
+
+        val other = (1..24).map { Key("q$it", output = "q$it", action = KeyAction.PICK_READING) }
+        v.setLayout(Layouts.nine(Lang.CN, other, composing = true), false, false, Lang.CN) // different labels → reset
+        assertFalse("the content-change reset cancels the fling", v.isFlingingForTest())
+        assertEquals("the offset is reset to 0", 0f, v.scrollOffsetForTest(), 0f)
+        v.computeScroll() // simulate the next frame
+        assertEquals("the next frame does NOT restore the stale fling offset", 0f, v.scrollOffsetForTest(), 0f)
+    }
+
     @Test fun reversing_after_overscroll_tracks_the_finger_immediately() {
         // I5 真做对: dragging PAST the bottom clamp must not bank an overshoot — reversing moves the content
         // right away (no dead zone). Incremental-delta drag makes this hold; the old absolute map failed it.

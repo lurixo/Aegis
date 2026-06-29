@@ -125,6 +125,7 @@ class CandidateView(context: Context) : View(context) {
     fun setContent(candidates: List<String>, composingText: String) {
         items = candidates
         composing = composingText
+        fling.forceFinish() // debug.17 fix: kill any running fling so new content renders from offset 0, not the stale offset
         scrollX = 0f
         layoutCells()
         invalidate()

@@ -189,7 +189,9 @@ class KeyboardView(context: Context) : View(context) {
         shiftLocked = isLocked // I4: drives the solid (locked) vs hollow (one-shot/off) shift glyph
         lang = language
         scrollColumn = newLayout.scrollColumn
-        if (!sameColumn) scrollY = 0f
+        // debug.17 fix: on a content change, kill any running fling BEFORE resetting the offset, so the next
+        // computeScroll frame renders the new column from 0 instead of restoring the stale fling offset.
+        if (!sameColumn) { fling.forceFinish(); scrollY = 0f }
         // All four layouts have the same row count, so swapping between them leaves the measured
         // height unchanged and onSizeChanged never fires — relay out here so the new keys (and their
         // hit rects) take effect immediately instead of redrawing the stale layout.
@@ -203,7 +205,7 @@ class KeyboardView(context: Context) : View(context) {
         val rows = layout.rowCount
         // All 4-row keyboards (9-key, numpad, number, symbol) share one taller height; the 5-row 26-key
         // keeps the base. So 9-key⇄123 and any text⇄number/symbol switch never resizes the IME window.
-        // (NINE is rowCount==4, so it still gets the same +7dp as the nine-only I3 — superset.)
+        // (NINE is rowCount==4, so it still gets the same +2dp/row short-page bump as the nine-only I3 — superset.)
         val rh = if (rows == 4) rowHeight + shortPageRowExtra else rowHeight
         val height = (rows * rh + (rows + 1) * gap).toInt()
         setMeasuredDimension(width, height)
@@ -371,7 +373,6 @@ class KeyboardView(context: Context) : View(context) {
             p.key.accent -> accentLabelPaint
             p.key.bold -> boldLabelPaint // I6: 分词 / @# at the prominent primary weight
             display.length > 1 && p.key.action != KeyAction.COMMIT -> specialLabelPaint
-            p.key.action == KeyAction.SHOW_SYMBOLS -> specialLabelPaint // U-polish: ✎ matches the 123/中英 function keys (was primary)
             else -> labelPaint
         }
         canvas.drawText(display, cx, cy - (paint.descent() + paint.ascent()) / 2, paint)
@@ -675,6 +676,18 @@ class FlingScroller(context: Context) {
     fun onDown() {
         stopArmed = !scroller.isFinished
         if (stopArmed) scroller.forceFinished(true)
+        count = 0; head = 0
+    }
+
+    /**
+     * Cancel any running fling and clear all state (idempotent). Call when the caller resets its scroll offset
+     * out from under the scroller — e.g. new content rendered at offset 0 — so the next [computeOffset] frame
+     * does NOT restore the stale fling offset over the reset. Unlike [onDown] this is NOT a tap, so it clears
+     * [stopArmed] rather than arming it.
+     */
+    fun forceFinish() {
+        scroller.forceFinished(true)
+        stopArmed = false
         count = 0; head = 0
     }
 
