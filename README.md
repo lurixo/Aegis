@@ -60,6 +60,22 @@ Code: **GPL-3.0**. Bundled dictionary data derives from **rime-wanxiang** (CC BY
 `THIRD_PARTY_NOTICES.md`. The optional 401 MB wanxiang `.gram` octagram (top-tier context) is **not**
 bundled; it is a future opt-in download.
 
+## Acknowledgments / 致谢
+
+Aegis ships a **self-built decoder** (clean-room Kotlin) but stands on the open data of the
+**万象 (wanxiang)** project by **amzxyz** — our deepest thanks:
+
+- **rime-wanxiang (万象) dictionaries** — the 14 tables (字 基础 联想 错音 多音 诗词 地名 医学 化学
+  药品 名人 异体 物种 人名) behind every candidate. CC BY 4.0 ·
+  https://github.com/amzxyz/rime-wanxiang
+- **wanxiang octagram language model** (`wanxiang-lts-zh-hans.gram`) — the optional top-tier
+  context model powering next-word / whole-sentence ranking. CC BY 4.0 ·
+  https://github.com/amzxyz/RIME-LMDG
+
+Aegis is an independent project and is **not affiliated with the RIME project**; it links no
+librime / native code. Only the `.gram` on-disk format was clean-room-derived from
+librime-octagram + darts-clone. Full attribution in `THIRD_PARTY_NOTICES.md`.
+
 ## Status
 
 P1–P8 complete (skeleton → data → decoder → T9 → n-gram → coverage → learning → fuzzy/简拼/mixed),
