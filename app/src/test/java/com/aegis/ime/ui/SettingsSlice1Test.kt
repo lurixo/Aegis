@@ -20,6 +20,7 @@ import com.aegis.ime.dict.ModelDownload
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -46,6 +47,13 @@ class SettingsSlice1Test {
             ModelDownload.destFile(ctx.filesDir).absolutePath,
         )
         assertEquals(ModelDownload.destFile(ctx.filesDir).parentFile, ModelDownload.dictZipFile(ctx.filesDir).parentFile)
+    }
+
+
+    @Test fun dict_repo_link_points_at_the_upstream_wanxiang_repo() {
+        assertEquals("https://github.com/amzxyz/rime-wanxiang", ModelDownload.DICT_REPO_URL)
+        assertNotEquals(ModelDownload.DICT_URL, ModelDownload.DICT_REPO_URL)
+        assertNotEquals(ModelDownload.REPO_URL, ModelDownload.DICT_REPO_URL)
     }
 
 
@@ -96,6 +104,19 @@ class SettingsSlice1Test {
         assertFalse("identical → suppress", ModelDownload.updateAvailable("etag-1", "etag-1"))
         assertTrue("differ → offer", ModelDownload.updateAvailable("etag-1", "etag-2"))
         assertTrue("remote unknown → fall back to offer", ModelDownload.updateAvailable("etag-1", null))
+    }
+
+
+    @Test fun update_check_distinguishes_offline_uptodate_and_update() {
+        assertEquals(ModelDownload.UpdateCheck.OFFLINE, ModelDownload.updateAction(true, "etag-1", null))
+        assertEquals(ModelDownload.UpdateCheck.UP_TO_DATE, ModelDownload.updateAction(true, "etag-1", "etag-1"))
+        assertEquals(ModelDownload.UpdateCheck.UPDATE, ModelDownload.updateAction(true, "etag-1", "etag-2"))
+        assertEquals("never recorded but remote present → update", ModelDownload.UpdateCheck.UPDATE, ModelDownload.updateAction(true, null, "etag-1"))
+    }
+
+    @Test fun a_check_resolving_after_delete_is_discarded_and_never_redownloads() {
+        assertNull("deleted mid-check → discard", ModelDownload.updateAction(false, null, "etag-2"))
+        assertNull("deleted mid-check, differing validators → still discard", ModelDownload.updateAction(false, "etag-1", "etag-2"))
     }
 
 

@@ -52,7 +52,7 @@ class SettingsRenderTest {
     private val wPx = ctx.resources.displayMetrics.widthPixels
     private val outDir = File("build/render").apply { mkdirs() }
 
-    private fun snapCompose(name: String, dark: Boolean, content: @Composable () -> Unit) {
+    private fun snapCompose(name: String, dark: Boolean, hDp: Int = 1180, content: @Composable () -> Unit) {
         val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup()
         val activity: Activity = controller.get()
         val compose = ComposeView(activity).apply {
@@ -61,7 +61,7 @@ class SettingsRenderTest {
         activity.setContentView(compose)
         shadowOf(Looper.getMainLooper()).idle()
 
-        val hPx = (1180 * ctx.resources.displayMetrics.density).toInt()
+        val hPx = (hDp * ctx.resources.displayMetrics.density).toInt()
         compose.measure(
             View.MeasureSpec.makeMeasureSpec(wPx, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(hPx, View.MeasureSpec.EXACTLY),
@@ -84,6 +84,18 @@ class SettingsRenderTest {
                 GramDownloadCard()
                 DictDownloadCard()
                 AssociationToggleCard()
+            }
+        }
+    }
+
+    @Test fun download_card_update_states() {
+        for (dark in listOf(false, true)) {
+            val t = if (dark) "dark" else "light"
+            snapCompose("dlcard_states_$t.png", dark, hDp = 1600) {
+                DictDownloadCard(DownloadCardPreview(present = true))
+                GramDownloadCard(DownloadCardPreview(present = true, checking = true))
+                DictDownloadCard(DownloadCardPreview(present = true, status = "已是最新，无更新（全量词库已是最新版本）"))
+                GramDownloadCard(DownloadCardPreview(present = true, status = "无法检查更新（网络不可用）"))
             }
         }
     }

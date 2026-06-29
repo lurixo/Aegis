@@ -451,6 +451,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun onSystemClipChanged() {
+        if (!com.aegis.ime.user.ClipboardPolicy.shouldReadSystemClip(selfClipUri != null, secureField, historyEnabled())) return
         val clip = runCatching { clipboardManager.primaryClip }.getOrNull() ?: return
         if (clip.itemCount == 0) return
         val item = clip.getItemAt(0)
