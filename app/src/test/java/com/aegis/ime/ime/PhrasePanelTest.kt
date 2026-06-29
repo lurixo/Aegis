@@ -183,12 +183,15 @@ class PhrasePanelTest {
     }
 
     // ---- debug.16 Option A: inline category management triggers ----
+    // (debug.17 re-routed these: top ＋ → 添加常用语; categoryBar ✎ → 二级菜单 whose 添加分类 → onAddCategory.
+    //  Full coverage is in Debug17PanelTest; this guards that 新建分类 is still reachable from the ✎ menu.)
 
-    @Test fun top_add_and_categorybar_edit_buttons_trigger_onAddCategory() {
+    @Test fun categorybar_pencil_menu_add_category_still_triggers_onAddCategory() {
         var adds = 0
         val v = phraseView().apply { onAddCategory = { adds++ } }
-        assertTrue("top-bar ＋", click(v, "＋")); assertEquals(1, adds)
-        assertTrue("categoryBar ✎", click(v, "✎")); assertEquals(2, adds)
+        assertFalse("top-bar ＋ no longer creates a category", click(v, "＋") && adds > 0)
+        assertTrue("categoryBar ✎", click(v, "✎"))
+        assertTrue("✎ menu has 添加分类", click(overlayOf(v), "添加分类")); assertEquals(1, adds)
     }
 
     @Test fun category_chip_long_press_offers_inline_rename_and_delete() {
