@@ -87,7 +87,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var selMoving = -1
     private var deletedSnapshot: CharSequence? = null
     private val panelInput = com.aegis.ime.ime.PanelTextInput()
-    private enum class InputPurpose { EDIT_PHRASE, ADD_CATEGORY, RENAME_CATEGORY }
+    private enum class InputPurpose { EDIT_PHRASE, ADD_PHRASE, ADD_CATEGORY, RENAME_CATEGORY }
     private var inputPurpose: InputPurpose? = null
     private var inputCat = ""
     private var inputOld = ""
@@ -425,6 +425,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onMovePhrase = { from, text, to -> clipboardStore.movePhrase(from, text, to) }
             it.onMovePhrasesTo = { from, list, to -> clipboardStore.movePhrasesTo(from, list, to) }
             it.onReorderPhrase = { cat, fromIdx, toIdx -> clipboardStore.reorderPhrase(cat, fromIdx, toIdx) }
+            it.onAddPhrase = { cat -> beginInlineAddPhrase(cat) }
             it.onAddCategory = { beginInlineAddCategory() }
             it.onAddCategoryThenAdd = { texts -> beginInlineAddCategory(texts) }
             it.onAddCategoryThenMove = { from, texts -> beginInlineAddCategory(pendingMove = from to texts) }
@@ -502,6 +503,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         startInlineInput("编辑常用语", phrase)
     }
 
+    private fun beginInlineAddPhrase(category: String) {
+        inputPurpose = InputPurpose.ADD_PHRASE; inputCat = category; inputOld = ""
+        startInlineInput("添加常用语", "")
+    }
+
     private fun beginInlineAddCategory(
         pendingAdds: List<String> = emptyList(),
         pendingMove: Pair<String, List<String>>? = null,
@@ -531,6 +537,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val text = panelInput.text()
         when (inputPurpose) {
             InputPurpose.EDIT_PHRASE -> clipboardStore.editPhrase(inputCat, inputOld, text)
+            InputPurpose.ADD_PHRASE -> { val t = text.trim(); if (t.isNotEmpty()) clipboardStore.addPhrasesTo(inputCat, listOf(t)) }
             InputPurpose.ADD_CATEGORY -> {
                 val name = text.trim()
                 if (name.isNotEmpty()) {
