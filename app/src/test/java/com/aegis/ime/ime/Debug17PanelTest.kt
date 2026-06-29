@@ -60,6 +60,18 @@ class Debug17PanelTest {
     private fun chip(root: View, label: String): TextView? =
         textViews(root).firstOrNull { it.text?.toString() == label && it.hasOnClickListeners() }
     private fun bgColor(v: View): Int? = (v.background as? GradientDrawable)?.color?.defaultColor
+    // icon收尾: top/categoryBar/move-chooser icon buttons are self-drawn Views with NO text — locate them by their
+    // contentDescription instead.
+    private fun allViews(root: View): List<View> {
+        val out = ArrayList<View>()
+        fun walk(x: View) { out.add(x); if (x is ViewGroup) for (i in 0 until x.childCount) walk(x.getChildAt(i)) }
+        walk(root); return out
+    }
+    private fun descs(root: View): List<String> = allViews(root).mapNotNull { it.contentDescription?.toString() }
+    private fun clickDesc(root: View, desc: String): Boolean {
+        val v = allViews(root).firstOrNull { it.contentDescription?.toString() == desc && it.hasOnClickListeners() } ?: return false
+        v.performClick(); return true
+    }
 
     private fun phraseView(phrases: List<String> = listOf("你好", "在吗", "稍等")): ClipboardView = ClipboardView(ctx).apply {
         categoriesProvider = { listOf("默认", "工作") }
@@ -77,7 +89,7 @@ class Debug17PanelTest {
         var addPhraseCat: String? = null
         var addCategoryFired = false
         val v = phraseView().apply { onAddPhrase = { addPhraseCat = it }; onAddCategory = { addCategoryFired = true } }
-        assertTrue("top ＋ present on 常用语 tab", click(v, "＋"))
+        assertTrue("top ＋ present on 常用语 tab", clickDesc(v, "添加常用语"))
         assertEquals("＋ adds a phrase to the CURRENT category", "默认", addPhraseCat)
         assertFalse("＋ no longer creates a category", addCategoryFired)
     }
@@ -86,7 +98,7 @@ class Debug17PanelTest {
 
     @Test fun categorybar_pencil_opens_manage_menu() {
         val v = phraseView()
-        assertTrue(click(v, "✎"))
+        assertTrue(clickDesc(v, "管理常用语"))
         val ls = labels(overlayOf(v))
         assertTrue("menu has 移动", "移动" in ls)
         assertTrue("menu has 添加分类", "添加分类" in ls)
@@ -94,7 +106,7 @@ class Debug17PanelTest {
 
     @Test fun manage_menu_move_enters_sort_mode() {
         val v = phraseView()
-        click(v, "✎"); assertTrue(click(overlayOf(v), "移动"))
+        clickDesc(v, "管理常用语"); assertTrue(click(overlayOf(v), "移动"))
         assertTrue("移动 → 排序模式", v.isSortModeForTest())
         val ls = labels(v)
         assertTrue("sort header", "拖动排序" in ls); assertTrue("done button", "完成" in ls)
@@ -103,7 +115,7 @@ class Debug17PanelTest {
     @Test fun manage_menu_add_category_triggers_inline_create() {
         var addCategoryFired = false
         val v = phraseView().apply { onAddCategory = { addCategoryFired = true } }
-        click(v, "✎"); assertTrue(click(overlayOf(v), "添加分类"))
+        clickDesc(v, "管理常用语"); assertTrue(click(overlayOf(v), "添加分类"))
         assertTrue("添加分类 → inline 新建分类", addCategoryFired)
     }
 
@@ -131,16 +143,16 @@ class Debug17PanelTest {
         assertTrue("添加常用语 action", ls.any { it.contains("常用语") })
         assertTrue("拆词 action", ls.any { it.contains("拆词") })
         assertTrue("删除 action", ls.any { it.contains("删除") })
-        assertTrue("NOT expanded (chevron still ⌄)", "⌄" in ls)
-        assertFalse("not the expanded chevron", "⌃" in ls)
+        assertTrue("NOT expanded (chevron shows 展开)", "展开" in descs(v))
+        assertFalse("not the expanded chevron", "收起" in descs(v))
     }
 
     @Test fun clipboard_chevron_expand_still_works_and_clears_a_swipe() {
         val v = clipView()
         v.revealSwipeForTest("hello"); assertEquals("hello", v.swipeRevealedForTest())
-        assertTrue("chevron present", click(v, "⌄"))
+        assertTrue("chevron present", clickDesc(v, "展开"))
         assertNull("⌄展开 supersedes the swipe reveal", v.swipeRevealedForTest())
-        assertTrue("now expanded", "⌃" in labels(v))
+        assertTrue("now expanded", "收起" in descs(v))
     }
 
     @Test fun clipboard_longpress_menu_unchanged() {
@@ -157,8 +169,8 @@ class Debug17PanelTest {
         val v = phraseView()
         v.revealSwipeForTest("在吗")
         val ls = labels(v)
-        assertTrue("✎ 编辑", "✎ 编辑" in ls); assertTrue("↑ 置顶", "↑ 置顶" in ls); assertTrue("🗑 删除", "🗑 删除" in ls)
-        assertFalse("swipe row is NOT the expand row (no 移动)", "→ 移动" in ls)
+        assertTrue("编辑", "编辑" in ls); assertTrue("置顶", "置顶" in ls); assertTrue("删除", "删除" in ls)
+        assertFalse("swipe row is NOT the expand row (no 移动)", "移动" in ls)
     }
 
     @Test fun category_switch_clears_a_stale_swipe_reveal() {
@@ -188,7 +200,7 @@ class Debug17PanelTest {
         var reorder: Triple<String, Int, Int>? = null
         val v = phraseView().apply { onReorderPhrase = { c, f, t -> reorder = Triple(c, f, t) } }
         v.revealSwipeForTest("稍等") // index 2
-        assertTrue(click(v, "↑ 置顶"))
+        assertTrue(click(v, "置顶"))
         assertEquals("置顶 = reorder to index 0", Triple("默认", 2, 0), reorder)
     }
 
@@ -196,8 +208,8 @@ class Debug17PanelTest {
         // zero regression: ⌄展开 keeps 编辑/移动/删除 (NOT the swipe row's 置顶).
         val v = phraseView().apply { expandForTest("你好") }
         val ls = labels(v)
-        assertTrue("→ 移动" in ls); assertTrue("✎ 编辑" in ls); assertTrue("🗑 删除" in ls)
-        assertFalse("expand row has no 置顶", "↑ 置顶" in ls)
+        assertTrue("移动" in ls); assertTrue("编辑" in ls); assertTrue("删除" in ls)
+        assertFalse("expand row has no 置顶", "置顶" in ls)
     }
 
     // ---------- ⑦ 拆词 overlay: neutral default → tap highlight + copy; 全部复制 ----------
@@ -210,11 +222,10 @@ class Debug17PanelTest {
             if (x is ViewGroup) { yield(x); for (i in 0 until x.childCount) yieldAll(groups(x.getChildAt(i))) }
         }
         val row = groups(overlayOf(v)).firstOrNull { g ->
-            val tvs = (0 until g.childCount).map { g.getChildAt(it) }.filterIsInstance<TextView>()
-            tvs.any { it.text?.toString() == name } && tvs.any { it.text?.toString() == "🗑" }
+            val kids = (0 until g.childCount).map { g.getChildAt(it) }
+            kids.any { it is TextView && it.text?.toString() == name } && kids.any { it.contentDescription?.toString() == "删除分类" }
         } ?: error("no chooser row for $name")
-        (0 until row.childCount).map { row.getChildAt(it) }.filterIsInstance<TextView>()
-            .first { it.text?.toString() == "🗑" }.performClick()
+        (0 until row.childCount).map { row.getChildAt(it) }.first { it.contentDescription?.toString() == "删除分类" }.performClick()
     }
 
     private fun moveChooserView(cats: MutableList<String>): ClipboardView = ClipboardView(ctx).apply {
@@ -266,7 +277,7 @@ class Debug17PanelTest {
 
     @Test fun move_chooser_offers_new_category_alongside_targets() {
         val v = phraseView()
-        v.expandForTest("你好"); assertTrue(click(v, "→ 移动"))
+        v.expandForTest("你好"); assertTrue(click(v, "移动"))
         val ls = labels(overlayOf(v))
         assertTrue("target 工作 present", "工作" in ls)
         assertTrue("＋ 新建分类… available in the non-empty chooser too", "＋ 新建分类…" in ls)
@@ -334,8 +345,8 @@ class Debug17PanelTest {
     @Test fun expanded_phrase_card_has_a_note_action() {
         var note: Pair<String, String>? = null
         val v = phraseView().apply { onEditNote = { c, t -> note = c to t }; expandForTest("你好") }
-        assertTrue("✐ 备注" in labels(v))
-        assertTrue(click(v, "✐ 备注"))
+        assertTrue("备注" in labels(v))
+        assertTrue(click(v, "备注"))
         assertEquals("默认" to "你好", note)
     }
 
@@ -353,8 +364,8 @@ class Debug17PanelTest {
     @Test fun phrase_tab_last_top_icon_clears_current_category_with_confirm() {
         var cleared: String? = null
         val v = phraseView().apply { onClearCategory = { cleared = it } }
-        assertTrue("phrase tab top bar carries the clear-category icon", "🗑" in labels(mainOf(v)))
-        assertFalse("⚙ gear is NOT on the phrase tab", "⚙" in labels(mainOf(v)))
+        assertTrue("phrase tab top bar carries the clear-category icon", "清空分类" in descs(mainOf(v)))
+        assertFalse("⚙ gear is NOT on the phrase tab", "设置" in descs(mainOf(v)))
         v.confirmClearForTest()
         val ls = labels(overlayOf(v))
         assertTrue("confirm overlay (二次确认)", "清空" in ls && "取消" in ls)
@@ -363,7 +374,7 @@ class Debug17PanelTest {
     }
 
     @Test fun clipboard_tab_keeps_the_gear_menu() {
-        assertTrue("⚙ gear stays on the 剪贴板 tab", "⚙" in labels(mainOf(clipView())))
+        assertTrue("⚙ gear stays on the 剪贴板 tab", "设置" in descs(mainOf(clipView())))
     }
 
     @Test fun expanding_a_card_wraps_its_body_in_a_scrollview() {

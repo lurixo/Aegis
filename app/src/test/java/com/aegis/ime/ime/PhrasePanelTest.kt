@@ -54,6 +54,22 @@ class PhrasePanelTest {
         val tv = textViews(root).firstOrNull { it.text?.toString() == label && it.hasOnClickListeners() } ?: return false
         tv.performClick(); return true
     }
+    // icon收尾: self-drawn icon buttons have NO text — locate by contentDescription.
+    private fun allViews(root: View): List<View> {
+        val out = ArrayList<View>()
+        fun walk(x: View) { out.add(x); if (x is ViewGroup) for (i in 0 until x.childCount) walk(x.getChildAt(i)) }
+        walk(root); return out
+    }
+    private fun clickDesc(root: View, desc: String): Boolean {
+        val v = allViews(root).firstOrNull { it.contentDescription?.toString() == desc && it.hasOnClickListeners() } ?: return false
+        v.performClick(); return true
+    }
+    /** Click an action-row cell [label]: an icon+label TextView (has a leading compound drawable), so it is not
+     *  confused with the same-named tab pill (icon收尾 made the action's label "常用语" collide with the 常用语 tab). */
+    private fun clickAction(root: View, label: String): Boolean {
+        val tv = textViews(root).firstOrNull { it.text?.toString() == label && it.hasOnClickListeners() && it.compoundDrawables.any { d -> d != null } } ?: return false
+        tv.performClick(); return true
+    }
 
     private fun phraseView(): ClipboardView = ClipboardView(ctx).apply {
         categoriesProvider = { listOf("默认", "工作", "私人") }
@@ -67,7 +83,7 @@ class PhrasePanelTest {
     @Test fun expanded_phrase_card_action_row_is_edit_move_delete() {
         val v = phraseView().apply { expandForTest("你好") }
         val ls = labels(v)
-        assertTrue("✎ 编辑" in ls); assertTrue("→ 移动" in ls); assertTrue("🗑 删除" in ls)
+        assertTrue("编辑" in ls); assertTrue("移动" in ls); assertTrue("删除" in ls)
         assertFalse("＋常用语 makes no sense for a phrase", ls.any { it.contains("常用语") && it.contains("＋") })
         assertFalse("no 拆词 on a phrase", ls.any { it.contains("拆词") })
     }
@@ -83,14 +99,14 @@ class PhrasePanelTest {
     @Test fun edit_action_invokes_onEditPhrase() {
         var got: Pair<String, String>? = null
         val v = phraseView().apply { onEditPhrase = { c, t -> got = c to t }; expandForTest("你好") }
-        assertTrue(click(v, "✎ 编辑"))
+        assertTrue(click(v, "编辑"))
         assertEquals("默认" to "你好", got)
     }
 
     @Test fun move_action_opens_chooser_excluding_current_then_invokes_onMovePhrase() {
         var move: Triple<String, String, String>? = null
         val v = phraseView().apply { onMovePhrase = { f, t, to -> move = Triple(f, t, to) }; expandForTest("你好") }
-        assertTrue(click(v, "→ 移动"))
+        assertTrue(click(v, "移动"))
         val chooser = labels(overlayOf(v))
         assertTrue("工作" in chooser); assertTrue("私人" in chooser)
         assertFalse("current category excluded", "默认" in chooser)
@@ -101,7 +117,7 @@ class PhrasePanelTest {
     @Test fun delete_action_invokes_onDeletePhrasesFrom() {
         var del: Pair<String, List<String>>? = null
         val v = phraseView().apply { onDeletePhrasesFrom = { c, l -> del = c to l }; expandForTest("你好") }
-        assertTrue(click(v, "🗑 删除"))
+        assertTrue(click(v, "删除"))
         assertEquals("默认" to listOf("你好"), del)
     }
 
@@ -189,8 +205,8 @@ class PhrasePanelTest {
     @Test fun categorybar_pencil_menu_add_category_still_triggers_onAddCategory() {
         var adds = 0
         val v = phraseView().apply { onAddCategory = { adds++ } }
-        assertFalse("top-bar ＋ no longer creates a category", click(v, "＋") && adds > 0)
-        assertTrue("categoryBar ✎", click(v, "✎"))
+        clickDesc(v, "添加常用语"); assertEquals("top-bar ＋ no longer creates a category", 0, adds)
+        assertTrue("categoryBar ✎", clickDesc(v, "管理常用语"))
         assertTrue("✎ menu has 添加分类", click(overlayOf(v), "添加分类")); assertEquals(1, adds)
     }
 
@@ -210,18 +226,11 @@ class PhrasePanelTest {
 
     @Test fun top_bar_icons_are_uniform_size() {
         val v = phraseView()
-        // ＋/☰ are text chips; debug.17 E2: the phrase-tab last icon is 🗑 (清空当前分类), not ⚙. 返回 is a DRAWN
-        // View (Glyphs.drawBack). All ride the same icon slot.
-        val textIcons = listOf("＋", "☰", "🗑").map { lbl ->
-            textViews(v).first { it.text?.toString() == lbl && it.hasOnClickListeners() }
-        }
-        val slotW = textIcons.first().layoutParams.width
-        val slotH = textIcons.first().layoutParams.height
-        val all = ArrayList<View>()
-        fun walk(x: View) { all.add(x); if (x is ViewGroup) for (i in 0 until x.childCount) walk(x.getChildAt(i)) }
-        walk(v)
-        val back = all.first { it !is TextView && it.hasOnClickListeners() && it.layoutParams?.width == slotW && it.layoutParams?.height == slotH }
-        val icons = textIcons + back
+        // icon收尾: all top icons are self-drawn Views (no text), located by contentDescription, in one icon slot
+        // (返回 / ＋添加常用语 / ☰多选 / 🗑清空分类 on the 常用语 tab).
+        val wanted = setOf("返回", "添加常用语", "多选", "清空分类")
+        val icons = allViews(v).filter { it.contentDescription?.toString() in wanted && it.hasOnClickListeners() }
+        assertEquals("all 4 phrase-tab top icons present", 4, icons.size)
         assertTrue("返回 is no longer a '‹' text glyph", textViews(v).none { it.text?.toString() == "‹" })
         assertEquals("all top icons share one width (item7)", 1, icons.map { it.layoutParams.width }.toSet().size)
         assertEquals("all top icons share one height (item7)", 1, icons.map { it.layoutParams.height }.toSet().size)
@@ -239,7 +248,7 @@ class PhrasePanelTest {
         var carried: List<String>? = null
         val v = clipboardView(listOf("hello"), listOf("默认")).apply { onAddCategoryThenAdd = { carried = it } }
         v.expandForTest("hello")
-        assertTrue(click(v, "＋ 常用语"))                 // open the category chooser
+        assertTrue(clickAction(v, "常用语"))           // open the category chooser
         assertTrue(click(overlayOf(v), "＋ 新建分类…"))   // pick 新建分类
         assertEquals("the clip rides the inline new-category flow", listOf("hello"), carried)
     }
@@ -248,7 +257,7 @@ class PhrasePanelTest {
         var carried: List<String>? = null
         val v = clipboardView(listOf("hello"), emptyList()).apply { onAddCategoryThenAdd = { carried = it } }
         v.expandForTest("hello")
-        assertTrue(click(v, "＋ 常用语")) // no categories → straight into create-carrying-clip
+        assertTrue(clickAction(v, "常用语")) // no categories → straight into create-carrying-clip
         assertEquals(listOf("hello"), carried)
     }
 
@@ -256,7 +265,7 @@ class PhrasePanelTest {
         var saved: Pair<String, List<String>>? = null
         val v = clipboardView(listOf("hello"), listOf("默认")).apply { onSaveAsPhrasesTo = { c, l -> saved = c to l } }
         v.expandForTest("hello")
-        assertTrue(click(v, "＋ 常用语"))
+        assertTrue(clickAction(v, "常用语"))
         assertTrue(click(overlayOf(v), "默认"))           // existing-category path unchanged
         assertEquals("默认" to listOf("hello"), saved)
     }
@@ -274,7 +283,7 @@ class PhrasePanelTest {
         var carried: Pair<String, List<String>>? = null
         val v = singleCatPhraseView().apply { onAddCategoryThenMove = { from, texts -> carried = from to texts } }
         v.expandForTest("你好")
-        assertTrue(click(v, "→ 移动"))
+        assertTrue(click(v, "移动"))
         assertTrue("no other category → offers 新建", "没有其它分类" in labels(overlayOf(v)))
         assertTrue(click(overlayOf(v), "＋ 新建分类…"))
         assertEquals("默认" to listOf("你好"), carried) // the move rides the inline new-category flow
@@ -285,7 +294,7 @@ class PhrasePanelTest {
         var moved: Triple<String, String, String>? = null
         val v = phraseView().apply { onMovePhrase = { f, t, to -> moved = Triple(f, t, to) } }
         v.expandForTest("你好")
-        assertTrue(click(v, "→ 移动"))
+        assertTrue(click(v, "移动"))
         assertTrue(click(overlayOf(v), "工作"))
         assertEquals(Triple("默认", "你好", "工作"), moved)
     }
