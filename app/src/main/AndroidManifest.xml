@@ -17,7 +17,8 @@
             android:name=".ui.SetupActivity"
             android:exported="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|uiMode|density|navigation|locale|layoutDirection|fontScale"
-            android:theme="@style/Theme.Aegis">
+            android:theme="@style/Theme.Aegis"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
