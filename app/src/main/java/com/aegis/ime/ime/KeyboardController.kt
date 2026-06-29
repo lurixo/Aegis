@@ -461,10 +461,25 @@ class KeyboardController(
         val shiftedCuts = forcedCuts.filter { it > consumed }.map { it - consumed }
         forcedCuts.clear()
         forcedCuts.addAll(shiftedCuts)
-        lockedReadings.clear()
-        lockedInputLengths.clear()
-        activeStart = 0
+        var consumedInput = 0
+        var dropLocks = 0
+        while (dropLocks < lockedReadings.size && consumedInput < consumed) {
+            consumedInput += lockedInputLengths[dropLocks]
+            dropLocks++
+        }
+        if (lockedReadings.isNotEmpty() && consumedInput == consumed) {
+            repeat(dropLocks) {
+                lockedReadings.removeAt(0)
+                lockedInputLengths.removeAt(0)
+            }
+            activeStart = (activeStart - consumed).coerceAtLeast(0)
+        } else {
+            lockedReadings.clear()
+            lockedInputLengths.clear()
+            activeStart = 0
+        }
         rebuildHistory()
+        repeat(lockedReadings.size) { history.addLast(StepKind.LOCK) }
     }
 
     private fun commitCandidate(cand: Cand) {
