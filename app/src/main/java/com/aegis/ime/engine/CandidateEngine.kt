@@ -82,4 +82,7 @@ interface CandidateEngine {
 
     /** Record that the user committed [word] after [prevWord] (for adaptation). */
     fun learn(prevWord: String?, word: String) {}
+
+    /** E4 hot-toggle (debug.16): update the active fuzzy rule set at query time (no rebuild). Default no-op. */
+    fun setFuzzyRules(rules: Set<String>) {}
 }

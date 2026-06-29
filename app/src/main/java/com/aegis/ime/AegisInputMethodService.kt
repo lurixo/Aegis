@@ -173,12 +173,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val sig = EngineAssets.signature(File(filesDir, "downloaded"))
         val dict = loadDict("aegis_dict.bin")
         val t9Dict = loadDict("aegis_t9.bin")
-        // Per-rule fuzzy (E4): the enabled rule keys drive query-time variant expansion in the
-        // decoder, so no separate fuzzy index is loaded. Master "fuzzy" off → no rules.
-        val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
-        val fuzzyRules = if (!prefs.getBoolean("fuzzy", Fuzzy.DEFAULT_ON)) emptySet()
-            else Fuzzy.RULES.filter { prefs.getBoolean(Fuzzy.prefKey(it.key), true) }
-                .mapTo(LinkedHashSet()) { it.key }
+        // Per-rule fuzzy (E4): the enabled rule keys drive query-time variant expansion in the decoder, so no
+        // separate fuzzy index is loaded. Shared with onStartInputView's hot-toggle via currentFuzzyRules().
+        val fuzzyRules = currentFuzzyRules()
         val initialsDict = loadDict("aegis_jianpin.bin")
         val lm = loadLm("aegis_lm.bin")
         // Optional top-tier context model, only if the user downloaded it.
@@ -187,6 +184,17 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val engine = DictEngine(dict, t9Dict, lm, userModel, fuzzyRules, initialsDict, octagram)
         engineSig = sig // commit only on success; the pre-load snapshot keeps the invariant sig ≤ loaded data
         return engine
+    }
+
+    /**
+     * debug.16 (fuzzy hot-toggle): the fuzzy rule-key set selected by the current prefs (master "fuzzy" +
+     * each per-rule "fuzzy_<rule>"). Shared by [buildEngine] (so a rebuilt engine carries the current rules)
+     * and onStartInputView's hot push, so flipping a 模糊音 toggle takes effect on the next field focus without
+     * a cold start or an engine rebuild. The pure selection lives in [Fuzzy.activeRules] (unit-tested).
+     */
+    private fun currentFuzzyRules(): Set<String> {
+        val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
+        return Fuzzy.activeRules(prefs.getBoolean("fuzzy", Fuzzy.DEFAULT_ON)) { prefs.getBoolean(Fuzzy.prefKey(it), true) }
     }
 
     /**
@@ -321,6 +329,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.setCnDefaultLayout(if (cnLayout == "alpha") LayoutId.ALPHA else LayoutId.NINE)
         // D2: 联想开关 — show learned next-word predictions only when the toggle is on (default on).
         controller.setAssociationsEnabled(prefs.getBoolean("pref_associations_on", true))
+        // debug.16: 模糊音 hot-toggle — re-read the fuzzy prefs each focus and push them to the live engine
+        // (query-time variant expansion, no rebuild), so a 模糊音 change takes effect on 切走再回来 without a
+        // cold start. The engine hot-reload path (#49) carries the same rules via buildEngine → currentFuzzyRules.
+        controller.setFuzzyRules(currentFuzzyRules())
         controller.reset()
         applyPaletteEverywhere() // F1: pick up a theme change that happened between input sessions
     }

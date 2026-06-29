@@ -43,6 +43,30 @@ class KeyboardControllerTest {
     private fun act(a: KeyAction) = Key("", action = a)
     private fun out(s: String) = Key(s, output = s)
 
+    /** E4 hot-toggle (debug.16): a fake engine that records the fuzzy rule set pushed to it. */
+    private class FuzzyRecordingEngine : CandidateEngine {
+        var rules: Set<String>? = null
+        override fun candidates(composing: String, t9: Boolean): List<String> = emptyList()
+        override fun setFuzzyRules(rules: Set<String>) { this.rules = rules }
+    }
+
+    @Test fun setEngine_reapplies_last_pushed_fuzzy_rules_across_a_hot_reload_swap() {
+        // The lost-update guard: fuzzy rules live inside the engine, so a hot-reload swap must NOT revert them.
+        val c = KeyboardController(FakeHost(), FuzzyRecordingEngine())
+        c.setFuzzyRules(setOf("zh")) // service pushes the user's 模糊音 choice (mirrors onStartInputView)
+        val swapped = FuzzyRecordingEngine() // a freshly hot-reloaded engine that carries no rules of its own
+        c.setEngine(swapped)
+        assertEquals("engine swap must preserve the live fuzzy rules", setOf("zh"), swapped.rules)
+    }
+
+    @Test fun setEngine_does_not_force_fuzzy_rules_before_the_service_has_pushed_any() {
+        // Before any push, a swap must keep the new engine's OWN build-time rules (don't stomp with a default).
+        val c = KeyboardController(FakeHost(), engine)
+        val swapped = FuzzyRecordingEngine()
+        c.setEngine(swapped)
+        assertEquals("no push yet → swap must not override build-time rules", null, swapped.rules)
+    }
+
     @Test fun nine_enter_commits_raw_pinyin_not_digits() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
