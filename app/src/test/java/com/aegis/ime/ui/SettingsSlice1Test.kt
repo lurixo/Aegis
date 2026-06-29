@@ -55,6 +55,15 @@ class SettingsSlice1Test {
         assertEquals(ModelDownload.destFile(ctx.filesDir).parentFile, ModelDownload.dictZipFile(ctx.filesDir).parentFile)
     }
 
+    // ---- debug.14 Bug1: the dict 来源链接 is the UPSTREAM repo, symmetric with the model card ----
+
+    @Test fun dict_repo_link_points_at_the_upstream_wanxiang_repo() {
+        assertEquals("https://github.com/amzxyz/rime-wanxiang", ModelDownload.DICT_REPO_URL)
+        // not the release-asset download URL, and not the model repo
+        assertNotEquals(ModelDownload.DICT_URL, ModelDownload.DICT_REPO_URL)
+        assertNotEquals(ModelDownload.REPO_URL, ModelDownload.DICT_REPO_URL)
+    }
+
     // ---- B2 (slice-3): the dict pack is a ZIP → sha256-verify → unzip 3 .bin → rename ----
 
     /** Build a zip with the 3 pack entries (named to exercise the keyword→target mapping). */
