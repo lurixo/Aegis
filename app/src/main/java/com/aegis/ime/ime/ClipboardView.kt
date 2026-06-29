@@ -38,7 +38,6 @@ import android.widget.ScrollView
 import android.widget.TextView
 import com.aegis.ime.ime.ClipboardPanelState.Tab
 import com.aegis.ime.user.ClipSplitter
-import com.aegis.ime.user.ClipboardStore
 
 class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
