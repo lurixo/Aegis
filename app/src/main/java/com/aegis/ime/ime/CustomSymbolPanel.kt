@@ -38,7 +38,6 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     var current: () -> List<String> = { emptyList() }
     var onAdd: (String) -> Unit = {}
     var onRemove: (String) -> Unit = {}
-    var onPaste: () -> Unit = {} // U13: add a symbol from the system clipboard (one aegis doesn't ship)
     var onBack: () -> Unit = {}
 
     private val density = resources.displayMetrics.density
@@ -56,24 +55,14 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         isClickable = true
         setTextColor(colors.keyLabel)
     }
-    private val pasteText = TextView(context).apply {
-        text = "📋 粘贴符号"
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
-        setPadding(dp(12), dp(10), dp(12), dp(10))
-        isClickable = true
-        setTextColor(colors.keyLabel)
-    }
     private val sectionLabels = mutableListOf<TextView>()
 
     /** Header title — defaults to the A3 punctuation panel; the I2 operator panel overrides it ("‹ 自定义运算符"). */
     var backTitle: String = "‹ 自定义标点"
         set(v) { field = v; backText.text = v }
-    /** Paste-button label — overridden by the operator panel ("📋 粘贴运算符"). */
-    var pasteLabel: String = "📋 粘贴符号"
-        set(v) { field = v; pasteText.text = v }
 
-    /** The add-suggestion palette: defaults to the full [SymbolCatalog] (punctuation); the operator panel
-     *  supplies an operator-only set so it never offers URL/ordinal tokens or the built-in defaults. */
+    /** The add-suggestion palette: the pinyin panel supplies SymbolCatalog 中文, the numpad panel SymbolCatalog
+     *  数学 (debug.16 items1/2) — a tap adds straight from the symbol keyboard's set (no clipboard paste). */
     var addPalette: List<String> = SymbolCatalog.categories.flatMap { it.symbols }.distinct()
         set(v) { field = v; refresh() }
 
@@ -81,11 +70,9 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         orientation = VERTICAL
         setBackgroundColor(colors.keyboardBg) // P-A: panel floor == the strip/keyboard floor (no top seam)
         backText.setOnClickListener { onBack() }
-        pasteText.setOnClickListener { onPaste() }
         headerBar.setBackgroundColor(colors.keyboardBg) // P-A: 返回 row on the unified floor
         headerBar.addView(backText)
         headerBar.addView(View(context), LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
-        headerBar.addView(pasteText)
         addView(headerBar)
         addView(sectionLabel("已添加（点击移除）"))
         addView(addedScroll, LayoutParams(LayoutParams.MATCH_PARENT, dp(56)))
@@ -106,7 +93,6 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         setBackgroundColor(p.keyboardBg) // P-A: see init
         headerBar.setBackgroundColor(p.keyboardBg) // P-A: 返回 row on the unified floor
         backText.setTextColor(p.keyLabel)
-        pasteText.setTextColor(p.keyLabel)
         sectionLabels.forEach { it.setTextColor(p.keyLabelSecondary) }
         refresh()
     }

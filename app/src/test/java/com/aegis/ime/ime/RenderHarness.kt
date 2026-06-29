@@ -20,6 +20,8 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.view.View
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.layout.Key
+import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
@@ -196,6 +198,18 @@ class RenderHarness {
                 applyPalette(pal); openCategoryForTest(0)
             }
             snap(v, (560 * ctx.resources.displayMetrics.density).toInt(), "symbols_$t.png")
+        }
+    }
+
+    /** debug.16: the 中文 tab — the 破折号 —— and 省略号 …… render as ordinary insertable chips above the glyph
+     *  grid (no 网址补全 header — that bar is scoped to 网络). Light AND dark. */
+    @Test fun symbols_chinese_marks() {
+        for ((t, pal) in themes) {
+            val v = SymbolsView(ctx).apply {
+                applyPalette(pal); openCategoryForTest(1) // 中文
+            }
+            assertTrue("中文 chips include —— / ……", v.netChipTextsForTest().containsAll(listOf("——", "……")))
+            snap(v, (560 * density).toInt(), "symbols_chinese_$t.png")
         }
     }
 
@@ -412,6 +426,34 @@ class RenderHarness {
                 setLayout(Layouts.forId(LayoutId.ALPHA, Lang.CN), false, false, Lang.CN)
             }
             snap(v, h, "keyboard_$t.png")
+        }
+    }
+
+    /** debug.16 item5: the 9-key WHILE COMPOSING, left read-out column carrying the longest syllables
+     *  (zhuang/shuang/chuang) — they must render in full, not clipped to the column edge. Light AND dark. */
+    @Test fun keyboard_nine_readout() {
+        val h = (230 * density).toInt()
+        val readout = listOf("zhuang", "shuang", "chuang", "zhu", "yi", "zhua", "nü")
+            .map { Key(it, output = it, action = KeyAction.PICK_READING) }
+        for ((t, pal) in themes) {
+            val v = KeyboardView(ctx).apply {
+                applyPalette(pal)
+                setLayout(Layouts.nine(Lang.CN, readout, composing = true), false, false, Lang.CN)
+            }
+            snap(v, h, "keyboard_nine_$t.png")
+        }
+    }
+
+    /** debug.16 items6-8: the 数字键盘 numpad, aligned to the 9-key pinyin metrics — left operator column the
+     *  same width, digit cells the same size, NO @, the green ↵ tall across rows 2-3. Eyeball vs keyboard_nine. */
+    @Test fun keyboard_numpad() {
+        val h = (230 * density).toInt()
+        for ((t, pal) in themes) {
+            val v = KeyboardView(ctx).apply {
+                applyPalette(pal)
+                setLayout(Layouts.numpad(), false, false, Lang.CN)
+            }
+            snap(v, h, "keyboard_numpad_$t.png")
         }
     }
 }

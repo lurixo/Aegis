@@ -302,7 +302,10 @@ class KeyboardView(context: Context) : View(context) {
         canvas.drawRoundRect(scrollRegion, keyRadius, keyRadius, scrollTrackPaint)
         canvas.save()
         canvas.clipRect(scrollRegion)
-        val paint = scrollLabelPaint // uniform size for every row (reference look)
+        val paint = scrollLabelPaint // reference size; an over-wide label shrinks to fit (debug.16 item5)
+        val baseTextSize = paint.textSize
+        val avail = scrollRegion.width() - 12f * density // padding each side so the glyph never touches the edge
+        val minTextSize = 11f * density
         for ((i, key) in sc.items.withIndex()) {
             val top = scrollRegion.top - scrollY + i * scrollCellH
             val bottom = top + scrollCellH
@@ -311,11 +314,20 @@ class KeyboardView(context: Context) : View(context) {
                 tmpRect.set(scrollRegion.left, top, scrollRegion.right, bottom)
                 canvas.drawRoundRect(tmpRect, keyRadius * 0.6f, keyRadius * 0.6f, pressHighlight)
             }
-            canvas.drawText(displayLabel(key), scrollRegion.centerX(), (top + bottom) / 2f - (paint.descent() + paint.ascent()) / 2, paint)
+            // debug.16 item5: the left column is narrow; keep the reference size unless a label is wider than the
+            // column (e.g. a 6-letter syllable zhuang/shuang/chuang) — then shrink it (clamped) so it shows in
+            // full instead of being clipped to the column edge. The widened column (Layouts.NINE_LEFT_U) means
+            // this normally never triggers; it is the belt-and-suspenders guard for large font scales.
+            val label = displayLabel(key)
+            paint.textSize = baseTextSize
+            val w = paint.measureText(label)
+            if (w > avail && avail > 0f) paint.textSize = (baseTextSize * avail / w).coerceAtLeast(minTextSize)
+            canvas.drawText(label, scrollRegion.centerX(), (top + bottom) / 2f - (paint.descent() + paint.ascent()) / 2, paint)
             if (i < sc.items.size - 1 && bottom < scrollRegion.bottom) {
                 canvas.drawLine(scrollRegion.left + 6 * density, bottom, scrollRegion.right - 6 * density, bottom, sepLinePaint)
             }
         }
+        paint.textSize = baseTextSize // restore (the paint is shared across draws)
         canvas.restore()
         // Slim scrollbar thumb when the list overflows the region.
         val contentH = sc.items.size * scrollCellH
