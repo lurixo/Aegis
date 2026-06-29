@@ -135,15 +135,19 @@ class SettingsSlice1Test {
         assertNull("deleted mid-check, differing validators → still discard", ModelDownload.updateAction(false, "etag-1", "etag-2"))
     }
 
-    // ---- D1: 联想 toggle pref — default ON, persists ----
+    // ---- D1/debug.17: 联想 toggle pref — default OFF, persists an explicit choice ----
 
-    @Test fun associations_pref_defaults_on_and_round_trips() {
+    @Test fun associations_pref_defaults_off_and_round_trips() {
         val prefs = ctx.getSharedPreferences("aegis", android.content.Context.MODE_PRIVATE)
+        // debug.17: a never-toggled user resolves to OFF via the production default constant.
+        assertFalse("联想 default constant is OFF", ASSOCIATIONS_DEFAULT_ON)
         prefs.edit { remove(PREF_ASSOCIATIONS_ON) }
-        assertTrue("default ON when unset", prefs.getBoolean(PREF_ASSOCIATIONS_ON, true))
-        prefs.edit { putBoolean(PREF_ASSOCIATIONS_ON, false) }
-        assertFalse("persists OFF", prefs.getBoolean(PREF_ASSOCIATIONS_ON, true))
+        assertFalse("default OFF when unset", prefs.getBoolean(PREF_ASSOCIATIONS_ON, ASSOCIATIONS_DEFAULT_ON))
+        // an explicit choice still wins over the default, in both directions.
         prefs.edit { putBoolean(PREF_ASSOCIATIONS_ON, true) }
-        assertTrue("persists ON", prefs.getBoolean(PREF_ASSOCIATIONS_ON, true))
+        assertTrue("explicit ON persists over the OFF default", prefs.getBoolean(PREF_ASSOCIATIONS_ON, ASSOCIATIONS_DEFAULT_ON))
+        prefs.edit { putBoolean(PREF_ASSOCIATIONS_ON, false) }
+        // probe with a TRUE default so this distinguishes a stored false from the framework default.
+        assertFalse("explicit OFF persists (wins even over a true default)", prefs.getBoolean(PREF_ASSOCIATIONS_ON, true))
     }
 }

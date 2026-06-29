@@ -39,19 +39,27 @@ import androidx.core.content.edit
 /**
  * Cross-session contract (debug.13 D1): the "联想" (next-word prediction) on/off flag, in prefs "aegis".
  * KeyboardController (D2) reads the SAME key to gate showing predictions — this card only
- * exposes the toggle and persists it. Default ON.
+ * exposes the toggle and persists it. Default OFF since debug.17 (see [ASSOCIATIONS_DEFAULT_ON]).
  */
 internal const val PREF_ASSOCIATIONS_ON = "pref_associations_on"
 
 /**
+ * debug.17: 联想 now ships OFF — a new install, or any user who never flipped the toggle, gets no next-word
+ * predictions. This is the single source of truth for that default: both this card and the IME service read
+ * [PREF_ASSOCIATIONS_ON] with this default, so a user's explicit choice is still honoured (the stored pref
+ * always wins). Flipped to false from the original debug.13 default of true.
+ */
+internal const val ASSOCIATIONS_DEFAULT_ON = false
+
+/**
  * D1 (debug.13) — the 联想 settings toggle. UI + pref only; the read-side effect (KeyboardController showing
- * next-word predictions) is wired (D2) against [PREF_ASSOCIATIONS_ON]. Default on.
+ * next-word predictions) is wired (D2) against [PREF_ASSOCIATIONS_ON]. Default off (debug.17).
  */
 @Composable
 internal fun AssociationToggleCard() {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
-    var on by remember { mutableStateOf(prefs.getBoolean(PREF_ASSOCIATIONS_ON, true)) }
+    var on by remember { mutableStateOf(prefs.getBoolean(PREF_ASSOCIATIONS_ON, ASSOCIATIONS_DEFAULT_ON)) }
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -65,7 +73,7 @@ internal fun AssociationToggleCard() {
             ) {
                 Text("联想", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "打字时在候选栏显示下一词预测/联想。默认开,可关。",
+                    "打字时在候选栏显示下一词预测/联想。默认关,可开。",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
