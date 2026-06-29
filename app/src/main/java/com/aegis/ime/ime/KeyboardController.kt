@@ -491,8 +491,14 @@ class KeyboardController(
         return when (mode()) {
             Mode.PINYIN -> if (lockedReadings.isNotEmpty()) {
                 val bounds = readingLetterToDigit()
-                val readingCuts = forcedCuts.filter { it in (activeStart + 1) until composing.length }.toSet()
-                engine.candidatesForReadingCovered(fullLetters(), readingCuts, context)
+                val full = fullLetters()
+                val lockCuts = if (activeDigits().isEmpty()) {
+                    val cuts = ArrayList<Int>(lockedReadings.size); var acc = 0
+                    for (r in lockedReadings) { acc += r.length; if (acc < full.length) cuts.add(acc) }
+                    cuts
+                } else emptyList()
+                val readingCuts = (forcedCuts.filter { it in (activeStart + 1) until composing.length } + lockCuts).toSet()
+                engine.candidatesForReadingCovered(full, readingCuts, context)
                     .map { Cand(it.word, bounds[it.coveredLen] ?: it.coveredLen.coerceAtMost(composing.length)) }
             } else {
                 val isNine = layoutId == LayoutId.NINE

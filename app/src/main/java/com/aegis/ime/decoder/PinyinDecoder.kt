@@ -99,26 +99,66 @@ class PinyinDecoder(
 
     private fun isHan(cp: Int): Boolean = cp in 0x3400..0x9FFF || cp in 0xF900..0xFAFF
 
+    private class Norm(val clean: String, val cuts: Set<Int>, val origLen: IntArray, private val cleanLenAtOrig: IntArray) {
+        fun cleanIndexOfOrig(o: Int): Int? = cleanLenAtOrig.getOrNull(o)
+    }
+
+    private fun normalizeSeparators(input: String): Norm? {
+        if (input.indexOf(SEP) < 0) return null
+        val clean = StringBuilder(input.length)
+        val cuts = HashSet<Int>()
+        val origLen = IntArray(input.length + 1)
+        val cleanLenAtOrig = IntArray(input.length + 1)
+        var ci = 0
+        var oi = 0
+        while (oi < input.length) {
+            cleanLenAtOrig[oi] = ci
+            if (input[oi] == SEP) {
+                oi++
+                if (ci in 1 until input.length) cuts.add(ci)
+                origLen[ci] = oi
+            } else {
+                clean.append(input[oi]); oi++; ci++
+                origLen[ci] = oi
+            }
+        }
+        cleanLenAtOrig[input.length] = ci
+        val interiorCuts = cuts.filterTo(HashSet()) { it in 1 until ci }
+        return Norm(clean.toString(), interiorCuts, origLen.copyOf(ci + 1), cleanLenAtOrig)
+    }
+
     fun decode(input: String, limit: Int, context: CharSequence = ""): List<String> {
         if (input.isEmpty()) return emptyList()
+        val norm = normalizeSeparators(input)
+        val clean = norm?.clean ?: input
+        if (clean.isEmpty()) return emptyList()
+        val cuts = norm?.cuts ?: emptySet()
         val (ctxCp, ctxWord) = parseContext(context)
         val out = LinkedHashSet<String>()
-        bestSentence(input, ctxCp = ctxCp, ctxWord = ctxWord)?.let { out.add(it) }
-        out.addAll(rerankedWholeInput(input, ctxCp, ctxWord))
-        out.addAll(dict.query(input, limit))
+        bestSentence(clean, cuts, ctxCp = ctxCp, ctxWord = ctxWord)?.let { out.add(it) }
+        out.addAll(rerankedWholeInput(clean, ctxCp, ctxWord))
+        out.addAll(dict.query(clean, limit))
         if (out.size < limit && fuzzyRules.isNotEmpty()) {
-            for (variant in Fuzzy.variants(input, fuzzyRules)) {
-                if (variant == input) continue
+            for (variant in Fuzzy.variants(clean, fuzzyRules)) {
+                if (variant == clean) continue
                 out.addAll(dict.query(variant, limit))
                 if (out.size >= limit) break
             }
         }
-        if (out.size < limit) initialsDict?.let { out.addAll(it.query(input, limit)) }
+        if (out.size < limit) initialsDict?.let { out.addAll(it.query(clean, limit)) }
         return if (out.size <= limit) out.toList() else out.toList().subList(0, limit)
     }
 
     fun decodeCovered(input: String, limit: Int, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> {
         if (input.isEmpty()) return emptyList()
+        val norm = normalizeSeparators(input) ?: return decodeCoveredClean(input, limit, cuts, context)
+        if (norm.clean.isEmpty()) return emptyList()
+        val passedClean = cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
+        return decodeCoveredClean(norm.clean, limit, norm.cuts + passedClean, context)
+            .map { Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length }) }
+    }
+
+    private fun decodeCoveredClean(input: String, limit: Int, cuts: Set<Int>, context: CharSequence): List<Cand> {
         val (ctxCp, ctxWord) = parseContext(context)
         val cover = LinkedHashMap<String, Int>()
         val completionCap = maxOf(1, limit * 2 / 3)
@@ -165,14 +205,37 @@ class PinyinDecoder(
 
     fun syllables(input: String): List<Syllable> {
         if (input.isEmpty()) return emptyList()
-        return if (input[0] in '2'..'9') t9Syllables(input) else letterSyllables(input)
+        normalizeSeparators(input)?.let { n ->
+            if (n.clean.isEmpty()) return emptyList()
+            return syllablesCleanCut(n.clean, n.cuts).map { Syllable(it.reading, n.origLen[it.start], n.origLen[it.end]) }
+        }
+        return syllablesClean(input)
+    }
+
+    private fun syllablesClean(input: String): List<Syllable> =
+        if (input[0] in '2'..'9') t9Syllables(input) else letterSyllables(input)
+
+    private fun syllablesCleanCut(clean: String, cuts: Set<Int>): List<Syllable> {
+        val interior = cuts.filter { it in 1 until clean.length }.sorted()
+        if (interior.isEmpty()) return syllablesClean(clean)
+        val out = ArrayList<Syllable>()
+        val bounds = listOf(0) + interior + listOf(clean.length)
+        for (b in 0 until bounds.size - 1) {
+            val lo = bounds[b]; val hi = bounds[b + 1]
+            if (lo >= hi) continue
+            for (s in syllablesClean(clean.substring(lo, hi))) out.add(Syllable(s.reading, lo + s.start, lo + s.end))
+        }
+        return out
     }
 
     fun homophonesAt(input: String, index: Int): List<String> {
-        val syls = syllables(input)
+        val norm = normalizeSeparators(input)
+        val clean = norm?.clean ?: input
+        if (clean.isEmpty()) return emptyList()
+        val syls = syllablesCleanCut(clean, norm?.cuts ?: emptySet())
         if (index !in syls.indices) return emptyList()
         val s = syls[index]
-        return homophonesOf(input.substring(s.start, s.end))
+        return homophonesOf(clean.substring(s.start, s.end))
     }
 
     private fun homophonesOf(key: String): List<String> {
@@ -268,6 +331,7 @@ class PinyinDecoder(
     }
 
     private companion object {
+        const val SEP = '\''
         const val BOS = -1
         const val EDGE_N = 20
         const val DEFAULT_LAMBDA = 1.0
