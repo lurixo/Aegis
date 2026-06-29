@@ -204,16 +204,48 @@ class RenderHarness {
         }
     }
 
-    /** debug.17 A: the 中文 tab — the 破折号 —— and 省略号 …… render as ORDINARY EQUAL-WIDTH GRID CELLS (text
-     *  auto-shrinks to fit), in their natural position — no wide chip tile, no chip bar. Light AND dark. */
+    /** debug.17: the 中文 tab now carries ONLY single-cell marks — the single 短横 — / 三点 … ride the grid and
+     *  the wide 双破折号 —— / 双省略号 …… were dropped, so there is no multi-char tile or chip bar. Light AND dark. */
     @Test fun symbols_chinese_marks() {
         for ((t, pal) in themes) {
             val v = SymbolsView(ctx).apply {
                 applyPalette(pal); openCategoryForTest(1) // 中文
             }
-            assertTrue("中文 grid cells include —— / ……", v.gridCellTextsForTest().containsAll(listOf("——", "……")))
-            assertFalse("中文 has no wide chip bar (marks ride the grid)", v.chipBarVisibleForTest())
+            val cells = v.gridCellTextsForTest()
+            assertTrue("中文 single — / … are grid cells", cells.containsAll(listOf("—", "…")))
+            assertFalse("中文 dropped the wide —— / ……", cells.any { it == "——" || it == "……" })
+            assertFalse("中文 has no chip bar (single-cell marks ride the grid)", v.chipBarVisibleForTest())
             snap(v, (560 * density).toInt(), "symbols_chinese_$t.png")
+        }
+    }
+
+    /** debug.17 items 1+2: the 数学 tab gains trig functions (multi-char cells that auto-shrink to the equal-width
+     *  grid, NOT wide tiles) and measurement units (℃ ㎏ …). Eyeball that the multi-char cells don't break the
+     *  7-column grid. Light AND dark. */
+    @Test fun symbols_math() {
+        val mathIndex = SymbolCatalog.categories.indexOfFirst { it.id == "math" } + 1
+        for ((t, pal) in themes) {
+            val v = SymbolsView(ctx).apply { applyPalette(pal); openCategoryForTest(mathIndex) }
+            val cells = v.gridCellTextsForTest()
+            assertTrue("$t: trig functions are grid cells", cells.containsAll(listOf("sin", "arcsin", "tanh")))
+            assertTrue("$t: units are grid cells", cells.containsAll(listOf("℃", "㎏", "㎡")))
+            assertFalse("$t: 数学 multi-char cells ride the grid, no chip bar", v.chipBarVisibleForTest())
+            // tall enough to show the LAST rows (trig + units) so the multi-char auto-shrink cells are eyeball-able.
+            snap(v, (880 * density).toInt(), "symbols_math_$t.png")
+        }
+    }
+
+    /** debug.17 item 3: the new 希腊 tab (between 数学 and 箭头) — full lowercase α…ω + uppercase Α…Ω, every cell a
+     *  single glyph so the grid stays uniform. Eyeball the full set lays out without breaking. Light AND dark. */
+    @Test fun symbols_greek() {
+        val greekIndex = SymbolCatalog.categories.indexOfFirst { it.id == "greek" } + 1
+        for ((t, pal) in themes) {
+            val v = SymbolsView(ctx).apply { applyPalette(pal); openCategoryForTest(greekIndex) }
+            val cells = v.gridCellTextsForTest()
+            assertTrue("$t: lowercase α…ω present", cells.containsAll(listOf("α", "π", "ς", "ω")))
+            assertTrue("$t: uppercase Α…Ω present", cells.containsAll(listOf("Α", "Σ", "Ω")))
+            assertFalse("$t: 希腊 is all single glyphs, no chip bar", v.chipBarVisibleForTest())
+            snap(v, (560 * density).toInt(), "symbols_greek_$t.png")
         }
     }
 
