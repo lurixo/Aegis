@@ -25,6 +25,7 @@ import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -201,14 +202,15 @@ class RenderHarness {
         }
     }
 
-    /** debug.16: the 中文 tab — the 破折号 —— and 省略号 …… render as ordinary insertable chips above the glyph
-     *  grid (no 网址补全 header — that bar is scoped to 网络). Light AND dark. */
+    /** debug.17 A: the 中文 tab — the 破折号 —— and 省略号 …… render as ORDINARY EQUAL-WIDTH GRID CELLS (text
+     *  auto-shrinks to fit), in their natural position — no wide chip tile, no chip bar. Light AND dark. */
     @Test fun symbols_chinese_marks() {
         for ((t, pal) in themes) {
             val v = SymbolsView(ctx).apply {
                 applyPalette(pal); openCategoryForTest(1) // 中文
             }
-            assertTrue("中文 chips include —— / ……", v.netChipTextsForTest().containsAll(listOf("——", "……")))
+            assertTrue("中文 grid cells include —— / ……", v.gridCellTextsForTest().containsAll(listOf("——", "……")))
+            assertFalse("中文 has no wide chip bar (marks ride the grid)", v.chipBarVisibleForTest())
             snap(v, (560 * density).toInt(), "symbols_chinese_$t.png")
         }
     }
@@ -413,9 +415,31 @@ class RenderHarness {
         for ((t, pal) in themes) {
             val idle = EditPanelView(ctx).apply { applyPalette(pal); setHasSelection(false) }
             snap(idle, h, "edit_panel_$t.png")
+            assertActionGroupRightShifted(idle, h, pal, "edit_panel_$t") // debug.17 B
             val active = EditPanelView(ctx).apply { applyPalette(pal); setSelecting(true); setHasSelection(true) }
             snap(active, h, "edit_panel_selecting_$t.png")
         }
+    }
+
+    /**
+     * debug.17 B: the action column (删除/复制/剪切/粘贴) must be RIGHT-shifted so its right margin mirrors the
+     * left content's left margin. Scan the rows BELOW the title bar (so "‹ 文字编辑" doesn't skew it) for the
+     * leftmost and rightmost painted (non-keyboardBg) columns; assert the two margins are within ~5% of each other.
+     */
+    private fun assertActionGroupRightShifted(view: View, hPx: Int, pal: ImePalette, name: String) {
+        view.measure(exactly(wPx), exactly(hPx)); view.layout(0, 0, wPx, hPx)
+        val bmp = Bitmap.createBitmap(wPx, hPx, Bitmap.Config.ARGB_8888)
+        view.draw(Canvas(bmp))
+        val bg = pal.keyboardBg
+        val y0 = (46 * density).toInt() // below the 40dp title bar
+        fun colPainted(x: Int): Boolean { for (y in y0 until hPx) if (bmp.getPixel(x, y) != bg) return true; return false }
+        var left = 0; while (left < wPx && !colPainted(left)) left++
+        var right = wPx - 1; while (right > 0 && !colPainted(right)) right--
+        val leftMargin = left; val rightMargin = wPx - 1 - right
+        assertTrue(
+            "$name: action group not symmetric — leftMargin=$leftMargin rightMargin=$rightMargin (want ≈ equal)",
+            kotlin.math.abs(leftMargin - rightMargin) <= wPx / 20,
+        )
     }
 
     @Test fun keyboard_alpha() {
