@@ -70,6 +70,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     var onReorderPhrase: (String, Int, Int) -> Unit = { _, _, _ -> }    // debug.16: drag-reorder (category, fromIndex, toIndex)
     var onAddCategory: () -> Unit = {}                 // debug.16 Option A: ＋分类 → inline text input
     var onAddCategoryThenAdd: (List<String>) -> Unit = {} // debug.16: 新建分类 carrying clip(s) to add once created
+    var onAddCategoryThenMove: (String, List<String>) -> Unit = { _, _ -> } // debug.16: 新建分类 carrying a move (from, texts)
     var onRenameCategory: (String) -> Unit = {}        // debug.16 Option A: 分类改名 → inline text input
     var onDeleteCategory: (String) -> Unit = {}        // debug.16: 删除分类 (no typing)
     var onClearHistory: () -> Unit = {}
@@ -168,7 +169,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     internal fun forcePhrasesStateForTest(cat: String) { st.switchTab(ClipboardPanelState.Tab.PHRASE); phraseCat = cat }
     internal fun enterSelectForTest(selected: List<String> = emptyList()) { st.enterSelect(); st.selected.addAll(selected); refresh() }
     // debug.16 test seams: the move-target chooser + the drag-reorder state machine (touch plumbing is exercised separately).
-    internal fun showMoveChooserForTest(current: String) { chooseMoveCategoryThen(current) { target -> onMovePhrase(current, "", target) } }
+    internal fun showMoveChooserForTest(current: String) { chooseMoveCategoryThen(current, emptyList()) { target -> onMovePhrase(current, "", target) } }
     internal fun dragStartForTest(index: Int) { startDrag(index) }
     internal fun dragMoveToForTest(index: Int) { moveDragTo(index) }
     internal fun dragDropForTest() { endDrag() }
@@ -313,7 +314,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         setPadding(dp(8), 0, dp(8), dp(10))
         val cat = currentCategory()
         addView(action("✎ 编辑") { onEditPhrase(cat, text) }, ll(0, WC, 1f))
-        addView(action("→ 移动") { chooseMoveCategoryThen(cat) { target -> onMovePhrase(cat, text, target); refresh() } }, ll(0, WC, 1f))
+        addView(action("→ 移动") { chooseMoveCategoryThen(cat, listOf(text)) { target -> onMovePhrase(cat, text, target); refresh() } }, ll(0, WC, 1f))
         addView(action("🗑 删除") { deleteOne(text) }, ll(0, WC, 1f))
     }
 
@@ -485,7 +486,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 // debug.16: 常用语 batch action = 移动到分类 (＋常用语 makes no sense for items already phrases).
                 addView(pillButton("移动到分类", GREEN, GREEN_PILL, hasSel) {
                     val from = currentCategory(); val victims = st.selected.toList()
-                    chooseMoveCategoryThen(from) { target -> onMovePhrasesTo(from, victims, target); exitSelect() }
+                    chooseMoveCategoryThen(from, victims, after = { exitSelect() }) { target -> onMovePhrasesTo(from, victims, target); exitSelect() }
                 }, ll(0, dp(44), 1f).apply { rightMargin = dp(8) })
             } else {
                 addView(pillButton("添加常用语", GREEN, GREEN_PILL, hasSel) {
@@ -546,15 +547,17 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         }
     }
 
-    /** debug.16: pick a DIFFERENT existing category to move a phrase into (the current category is excluded —
-     *  moving in place is a no-op — and there is no 新建 here: a move target must already exist). */
-    private fun chooseMoveCategoryThen(current: String, action: (String) -> Unit) {
+    /** debug.16: pick a DIFFERENT existing category to move [moveTexts] into (the current category is excluded —
+     *  moving in place is a no-op), OR — when no other category exists — create a NEW one carrying the move
+     *  through the inline create (mirrors chooseCategoryThen's add-carry). [after] is cleanup (e.g. exitSelect)
+     *  on the new-category branch; the existing-target branch runs [action]. */
+    private fun chooseMoveCategoryThen(current: String, moveTexts: List<String>, after: () -> Unit = {}, action: (String) -> Unit) {
         val targets = categoriesProvider().filter { it != current }
         val card = menuCard()
         if (targets.isEmpty()) {
             card.addView(menuTitle("没有其它分类"))
             card.addView(menuDivider())
-            card.addView(menuItem("＋ 新建分类…") { hideOverlay(); onAddCategory() })
+            card.addView(menuItem("＋ 新建分类…") { hideOverlay(); after(); onAddCategoryThenMove(current, moveTexts) }) // carry the move
         } else {
             card.addView(menuTitle("移动到分类"))
             for (c in targets) { card.addView(menuDivider()); card.addView(menuItem(c) { hideOverlay(); action(c) }) }

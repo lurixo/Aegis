@@ -249,4 +249,33 @@ class PhrasePanelTest {
         assertTrue(click(overlayOf(v), "默认"))           // existing-category path unchanged
         assertEquals("默认" to listOf("hello"), saved)
     }
+
+    // ---- debug.16 symmetric fix: 移动到分类 → 新建分类 must carry the move (only reachable with no other category) ----
+
+    /** A 常用语-tab view with a SINGLE category, so the move chooser has no other target → offers 新建分类. */
+    private fun singleCatPhraseView(): ClipboardView = ClipboardView(ctx).apply {
+        categoriesProvider = { listOf("默认") }
+        phrasesInProvider = { c -> if (c == "默认") listOf("你好", "在吗") else emptyList() }
+        applyPalette(pal); forcePhrasesStateForTest("默认"); refresh()
+    }
+
+    @Test fun move_to_new_category_carries_the_move() {
+        var carried: Pair<String, List<String>>? = null
+        val v = singleCatPhraseView().apply { onAddCategoryThenMove = { from, texts -> carried = from to texts } }
+        v.expandForTest("你好")
+        assertTrue(click(v, "→ 移动"))
+        assertTrue("no other category → offers 新建", "没有其它分类" in labels(overlayOf(v)))
+        assertTrue(click(overlayOf(v), "＋ 新建分类…"))
+        assertEquals("默认" to listOf("你好"), carried) // the move rides the inline new-category flow
+    }
+
+    @Test fun move_to_existing_category_still_works() {
+        // regression guard: with another category present, the move chooser still uses the direct path.
+        var moved: Triple<String, String, String>? = null
+        val v = phraseView().apply { onMovePhrase = { f, t, to -> moved = Triple(f, t, to) } }
+        v.expandForTest("你好")
+        assertTrue(click(v, "→ 移动"))
+        assertTrue(click(overlayOf(v), "工作"))
+        assertEquals(Triple("默认", "你好", "工作"), moved)
+    }
 }
