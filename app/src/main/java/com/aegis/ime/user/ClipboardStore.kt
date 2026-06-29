@@ -496,6 +496,34 @@ class ClipboardStore(private val dir: File) {
     fun addPhrases(texts: Collection<String>): Int =
         addPhrasesTo(synchronized(phraseCats) { phraseCats.firstOrNull()?.name ?: DEFAULT_CATEGORY_ID }, texts)
 
+    fun deletePhraseFrom(category: String, text: String): Boolean = deletePhrasesFrom(category, listOf(text))
+
+    fun deletePhrasesFrom(category: String, texts: Collection<String>): Boolean {
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.LIST, texts.size); return false }
+        val victims = texts.toSet()
+        val after = synchronized(phraseCats) {
+            val c = find(category) ?: return true
+            if (!c.phrases.removeAll { it.text in victims }) return true
+            phraseSnapshot()
+        }
+        writePhrases(PhraseEdit.LIST, victims.size, texts.size, after)
+        return true
+    }
+
+    fun clearPhrasesIn(category: String): Int {
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.LIST, 0); return 0 }
+        var cleared = 0
+        val after = synchronized(phraseCats) {
+            val c = find(category) ?: return 0
+            if (c.phrases.isEmpty()) return 0
+            cleared = c.phrases.size
+            c.phrases.clear()
+            phraseSnapshot()
+        }
+        writePhrases(PhraseEdit.LIST, cleared, cleared, after)
+        return cleared
+    }
+
     fun editPhrase(category: String, oldText: String, newText: String): Boolean {
         if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.TEXT, 1); return false }
         val after = synchronized(phraseCats) {

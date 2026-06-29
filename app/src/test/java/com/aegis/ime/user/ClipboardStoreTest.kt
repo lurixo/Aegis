@@ -519,6 +519,29 @@ class ClipboardStoreTest {
         assertEquals(listOf(ClipboardStore.DEFAULT_CATEGORY_ID, "甲", "乙"), s.categories())
     }
 
+
+    @Test fun clearPhrasesIn_empties_but_keeps_category() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("a", "b", "c")) }
+        assertEquals(3, s.clearPhrasesIn("甲"))
+        assertTrue(s.phrasesIn("甲").isEmpty())
+        assertTrue("category still exists", "甲" in s.categories())
+        assertEquals("already empty → 0", 0, s.clearPhrasesIn("甲"))
+        assertEquals("unknown → 0", 0, s.clearPhrasesIn("无"))
+    }
+
+    @Test fun clearPhrasesIn_only_empties_the_named_category() {
+        val s = ClipboardStore(newDir()).apply {
+            load()
+            addCategory("甲")
+            addCategory("乙")
+            addPhrasesTo("甲", listOf("a"))
+            addPhrasesTo("乙", listOf("b"))
+        }
+        assertEquals(1, s.clearPhrasesIn("甲"))
+        assertTrue(s.phrasesIn("甲").isEmpty())
+        assertEquals(listOf("b"), s.phrasesIn("乙"))
+    }
+
     @Test fun an_overwriting_import_takes_back_a_history_nobody_could_read() {
         val dir = newDir()
         val index = File(dir, "clipboard.txt").apply { writeText("读不出来的一条\n") }
@@ -621,6 +644,36 @@ class ClipboardStoreTest {
         assertEquals("a delete owes the panel exactly one answer", 1, reported.size)
         assertTrue("a delete the file took must come back as one that did", reported.single())
         assertEquals(listOf("留下的"), ClipboardStore(dir).apply { load() }.historyText())
+    }
+
+    @Test fun a_phrase_delete_that_could_not_be_written_says_it_was_not_written() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply {
+            load()
+            addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("留下的", "要删的常用语"))
+        }
+        s.flushPendingWrites()
+        val blocker = s.tempFileFor(File(dir, "phrases.txt"))
+        assertTrue("precondition: the phrase write is blocked", blocker.mkdirs())
+        assertTrue(File(blocker, "occupied").createNewFile())
+        val reported = CopyOnWriteArrayList<PhraseChange>()
+        s.reportPhraseWritesTo({ it.run() }) { reported.add(it) }
+
+        assertTrue(
+            "the store takes the delete before it knows what the file will do with it",
+            s.deletePhraseFrom(ClipboardStore.DEFAULT_CATEGORY_ID, "要删的常用语"),
+        )
+        s.flushPendingWrites()
+
+        assertEquals("a delete owes the panel exactly one answer", 1, reported.size)
+        assertFalse(
+            "a phrase delete that never reached the file must not come back as one that did",
+            reported.single().saved,
+        )
+        assertEquals(
+            listOf("留下的", "要删的常用语"),
+            ClipboardStore(dir).apply { load() }.phrases().sorted(),
+        )
     }
 
     @Test fun a_phrase_write_nobody_is_listening_for_still_reaches_the_file() {

@@ -70,6 +70,44 @@ class ClipboardOneWriterTest {
         }
     }
 
+    @Test(timeout = 120_000) fun a_deletion_the_writer_never_answers_lets_the_caller_go_and_reports_later() {
+        val dir = newDir()
+        val s = store(dir)
+        assertEquals(
+            "precondition: the phrase is there to delete",
+            1,
+            s.addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("要删的一条")),
+        )
+        s.flushPendingWrites()
+        val blocker = s.tempFileFor(File(dir, "phrases.txt"))
+        assertTrue("precondition: the write can never reach the disk", blocker.mkdirs())
+        assertTrue(File(blocker, "occupied").createNewFile())
+        val reported = ArrayBlockingQueue<PhraseChange>(8)
+        s.reportPhraseWritesTo({ it.run() }) { reported.add(it) }
+        val gate = occupy(s)
+
+        val startedAt = System.nanoTime()
+        val taken = s.deletePhrasesFrom(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("要删的一条"))
+        val waitedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
+
+        assertTrue("the store must take a deletion it has not written yet", taken)
+        assertTrue(
+            "the caller waited ${waitedMillis}ms: a deletion the user made from the panel runs on the" +
+                " drawing thread, so it must not wait for the write at all",
+            waitedMillis < 2_000,
+        )
+        assertNull(
+            "nothing may be reported while the write is still stuck behind the occupied writer",
+            reported.poll(2, TimeUnit.SECONDS),
+        )
+
+        gate.countDown()
+
+        val change = reported.poll(30, TimeUnit.SECONDS)
+        assertNotNull("the write the caller walked away from must still report back", change)
+        assertFalse("a write that never reached the file must not be reported as one that landed", change!!.saved)
+    }
+
     @Test(timeout = 120_000) fun a_phrase_write_the_next_one_queued_behind_still_reports_what_reached_the_file() {
         val dir = newDir()
         val s = store(dir)
