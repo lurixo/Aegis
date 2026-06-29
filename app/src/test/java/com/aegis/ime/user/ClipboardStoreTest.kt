@@ -298,4 +298,45 @@ class ClipboardStoreTest {
         assertTrue(s.movePhrase("甲", "x", "甲"))
         assertEquals(listOf("x", "y"), s.phrasesIn("甲")) // order preserved, no reorder
     }
+
+    @Test fun move_phrases_to_batch_moves_present_items_dedupes_and_counts() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply {
+            load(); addCategory("甲"); addCategory("乙")
+            addPhrasesTo("甲", listOf("a", "b", "c")); addPhrasesTo("乙", listOf("b")) // "b" already in target
+        }
+        // move a, b, ghost: a moves, b is removed from source but not duplicated in target, ghost absent → skipped
+        assertEquals(2, s.movePhrasesTo("甲", listOf("a", "b", "ghost"), "乙"))
+        assertEquals(listOf("c"), s.phrasesIn("甲"))
+        assertEquals(listOf("b", "a"), s.phrasesIn("乙"))
+        val reloaded = ClipboardStore(dir).apply { load() }
+        assertEquals(listOf("c"), reloaded.phrasesIn("甲"))
+        assertEquals(listOf("b", "a"), reloaded.phrasesIn("乙"))
+    }
+
+    @Test fun move_phrases_to_rejects_unknown_or_same_target() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("a")) }
+        assertEquals(0, s.movePhrasesTo("甲", listOf("a"), "丙")) // target missing
+        assertEquals(0, s.movePhrasesTo("甲", listOf("a"), "甲")) // same category
+        assertEquals(listOf("a"), s.phrasesIn("甲")) // unchanged
+    }
+
+    @Test fun reorder_phrase_moves_item_and_persists() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("a", "b", "c", "d")) }
+        assertTrue(s.reorderPhrase("甲", 0, 2)) // a → index 2
+        assertEquals(listOf("b", "c", "a", "d"), s.phrasesIn("甲"))
+        assertTrue(s.reorderPhrase("甲", 3, 0)) // d → front
+        assertEquals(listOf("d", "b", "c", "a"), s.phrasesIn("甲"))
+        assertEquals(listOf("d", "b", "c", "a"), ClipboardStore(dir).apply { load() }.phrasesIn("甲")) // persisted
+    }
+
+    @Test fun reorder_phrase_rejects_bad_indices_and_noops() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("a", "b")) }
+        assertFalse(s.reorderPhrase("甲", 0, 0))   // no-op
+        assertFalse(s.reorderPhrase("甲", -1, 1))  // out of range
+        assertFalse(s.reorderPhrase("甲", 0, 5))   // out of range
+        assertFalse(s.reorderPhrase("无", 0, 1))   // unknown category
+        assertEquals(listOf("a", "b"), s.phrasesIn("甲"))
+    }
 }

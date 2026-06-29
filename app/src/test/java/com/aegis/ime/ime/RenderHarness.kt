@@ -314,22 +314,38 @@ class RenderHarness {
         }
     }
 
-    @Test fun phrase_menu() {
-        // debug.16: long-press a saved phrase on the 常用语 tab → 编辑 / 移动到分类 / 删除 (distinct from the
-        // 剪贴板 history menu). Rendered with the overlay menu open, light + dark.
+    @Test fun phrase_expanded_actions() {
+        // debug.16: an expanded 常用语 card's action row = 编辑 / 移动 / 删除. Rendered light + dark.
         val h = (320 * density).toInt()
         for ((t, pal) in themes) {
             val v = ClipboardView(ctx).apply {
                 categoriesProvider = { listOf("默认", "工作") }
                 phrasesInProvider = { c -> if (c == "工作") listOf("已收到") else listOf("你好", "在吗") }
                 applyPalette(pal)
-                forcePhrasesStateForTest("默认"); refresh()
-                showCardMenuForTest("你好")
+                forcePhrasesStateForTest("默认"); refresh(); expandForTest("你好")
             }
-            snap(v, h, "phrase_menu_$t.png")
-            assertTrue("$t: phrase menu missing 编辑", v.hasTextLeaf("编辑"))
-            assertTrue("$t: phrase menu missing 移动到分类", v.hasTextLeaf("移动到分类"))
-            assertTrue("$t: phrase menu missing 删除", v.hasTextLeaf("删除"))
+            snap(v, h, "phrase_actions_$t.png")
+            assertTrue("$t: missing 编辑", v.hasTextLeaf("✎ 编辑"))
+            assertTrue("$t: missing 移动", v.hasTextLeaf("→ 移动"))
+            assertTrue("$t: missing 删除", v.hasTextLeaf("🗑 删除"))
+        }
+    }
+
+    @Test fun phrase_select_mode() {
+        // debug.16: select mode on the 常用语 tab → title 编辑常用语, batch 移动到分类 / 删除.
+        val h = (320 * density).toInt()
+        for ((t, pal) in themes) {
+            val v = ClipboardView(ctx).apply {
+                categoriesProvider = { listOf("默认", "工作") }
+                phrasesInProvider = { _ -> listOf("你好", "在吗", "稍等") }
+                applyPalette(pal)
+                forcePhrasesStateForTest("默认"); refresh()
+                enterSelectForTest(listOf("你好"))
+            }
+            snap(v, h, "phrase_select_$t.png")
+            assertTrue("$t: missing title 编辑常用语", v.hasTextLeaf("编辑常用语"))
+            assertTrue("$t: missing 移动到分类", v.hasTextLeaf("移动到分类"))
+            assertTrue("$t: missing 删除", v.hasTextLeaf("删除"))
         }
     }
 
