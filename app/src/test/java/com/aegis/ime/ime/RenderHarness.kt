@@ -314,6 +314,42 @@ class RenderHarness {
         }
     }
 
+    @Test fun phrase_menu() {
+        // debug.16: long-press a saved phrase on the 常用语 tab → 编辑 / 移动到分类 / 删除 (distinct from the
+        // 剪贴板 history menu). Rendered with the overlay menu open, light + dark.
+        val h = (320 * density).toInt()
+        for ((t, pal) in themes) {
+            val v = ClipboardView(ctx).apply {
+                categoriesProvider = { listOf("默认", "工作") }
+                phrasesInProvider = { c -> if (c == "工作") listOf("已收到") else listOf("你好", "在吗") }
+                applyPalette(pal)
+                forcePhrasesStateForTest("默认"); refresh()
+                showCardMenuForTest("你好")
+            }
+            snap(v, h, "phrase_menu_$t.png")
+            assertTrue("$t: phrase menu missing 编辑", v.hasTextLeaf("编辑"))
+            assertTrue("$t: phrase menu missing 移动到分类", v.hasTextLeaf("移动到分类"))
+            assertTrue("$t: phrase menu missing 删除", v.hasTextLeaf("删除"))
+        }
+    }
+
+    @Test fun phrase_move_chooser() {
+        // debug.16: the move-to-category chooser lists OTHER existing categories (current excluded).
+        val h = (320 * density).toInt()
+        for ((t, pal) in themes) {
+            val v = ClipboardView(ctx).apply {
+                categoriesProvider = { listOf("默认", "工作", "私人") }
+                phrasesInProvider = { _ -> listOf("你好") }
+                applyPalette(pal)
+                forcePhrasesStateForTest("默认"); refresh()
+                showMoveChooserForTest("默认")
+            }
+            snap(v, h, "phrase_move_$t.png")
+            assertTrue("$t: move chooser missing target 工作", v.hasTextLeaf("工作"))
+            assertTrue("$t: move chooser missing target 私人", v.hasTextLeaf("私人"))
+        }
+    }
+
     @Test fun keyboard_alpha() {
         val h = (230 * ctx.resources.displayMetrics.density).toInt()
         for ((t, pal) in themes) {

@@ -387,6 +387,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onDeleteClips = { list -> clipboardStore.deleteAll(list); deleteImageFiles(list) } // C7 多选删除(+图片文件)
             it.onDeletePhrasesFrom = { cat, list -> list.forEach { clipboardStore.deletePhraseFrom(cat, it) } }
             it.onSaveAsPhrasesTo = { cat, list -> clipboardStore.addPhrasesTo(cat, list) } // C7 批量添加常用语
+            it.onEditPhrase = { cat, text -> openPhraseManager(cat, text) }                // debug.16: 编辑常用语 → manager
+            it.onMovePhrase = { from, text, to -> clipboardStore.movePhrase(from, text, to) } // debug.16: 移动常用语分类
             it.onManage = { openPhraseManager() }                                          // C5 管理 / 新建分类
             it.onClearHistory = { clipboardStore.clearHistory(); clipImageStore.clear(); thumbCache.evictAll() }
             it.historyEnabledProvider = { historyEnabled() }                               // C1 记录开关
@@ -499,12 +501,18 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
     }
 
-    /** C5: open the canned-phrase category manager (text input needs a real Activity window). */
-    private fun openPhraseManager() {
+    /** C5: open the canned-phrase category manager (text input needs a real Activity window). debug.16: when
+     *  [category]/[phrase] are given (常用语 长按 编辑), open focused on that category with the phrase's inline
+     *  editor pre-opened. */
+    private fun openPhraseManager(category: String? = null, phrase: String? = null) {
         runCatching {
             startActivity(
                 android.content.Intent(this, com.aegis.ime.ui.PhraseManagerActivity::class.java)
-                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    .apply {
+                        category?.let { putExtra(com.aegis.ime.ui.PhraseManagerActivity.EXTRA_CATEGORY, it) }
+                        phrase?.let { putExtra(com.aegis.ime.ui.PhraseManagerActivity.EXTRA_PHRASE, it) }
+                    },
             )
         }
     }

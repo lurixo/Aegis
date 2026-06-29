@@ -59,6 +59,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     var onDeleteClips: (List<String>) -> Unit = {}
     var onDeletePhrasesFrom: (String, List<String>) -> Unit = { _, _ -> }
     var onSaveAsPhrasesTo: (String, List<String>) -> Unit = { _, _ -> }
+    var onEditPhrase: (String, String) -> Unit = { _, _ -> }            // debug.16: (category, phrase) → edit in manager
+    var onMovePhrase: (String, String, String) -> Unit = { _, _, _ -> } // debug.16: (fromCategory, phrase, toCategory)
     var onManage: () -> Unit = {}                      // open the phrase-manager Activity (naming needs it)
     var onClearHistory: () -> Unit = {}
     var historyEnabledProvider: () -> Boolean = { true }
@@ -138,6 +140,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     internal fun phraseCatForTest(): String = phraseCat
     internal fun forcePhrasesStateForTest(cat: String) { st.switchTab(ClipboardPanelState.Tab.PHRASE); phraseCat = cat }
     internal fun enterSelectForTest(selected: List<String> = emptyList()) { st.enterSelect(); st.selected.addAll(selected); refresh() }
+    // debug.16 test seams: open the 常用语 long-press menu / the move-target chooser as a real long-press would.
+    internal fun showCardMenuForTest(text: String) { showCardMenu(text) }
+    internal fun showMoveChooserForTest(current: String) { chooseMoveCategoryThen(current) { target -> onMovePhrase(current, "", target) } }
 
     fun refresh() {
         main.removeAllViews()
@@ -191,7 +196,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setOnClickListener { onPick(text) }
             // C6: long-press must live on the views that consume the touch (a clickable child blocks the
             // parent's long-press detector), else hold-release would just paste+close via the click above.
-            setOnLongClickListener { showLongPressMenu(text); true }
+            setOnLongClickListener { showCardMenu(text); true }
         }
         val chevron = TextView(context).apply {
             this.text = if (expanded) "⌃" else "⌄"
@@ -199,7 +204,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setTextColor(HINT)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setOnClickListener { st.toggleExpand(text); refresh() }
-            setOnLongClickListener { showLongPressMenu(text); true }
+            setOnLongClickListener { showCardMenu(text); true }
         }
         header.addView(body, ll(0, WC, 1f))
         header.addView(chevron, ll(dp(40), MP))
@@ -391,6 +396,41 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             val maxH = (overlay.height * 0.82f).toInt()
             if (maxH in 1 until scroll.height) { lp.height = maxH; scroll.layoutParams = lp }
         }
+    }
+
+    /** Long-press on a card routes to the tab's own menu: the 常用语 tab edits/moves/deletes a saved phrase
+     *  (debug.16); the 剪贴板 tab keeps the history menu (删除此条内容 / 添加常用语 / 拆分选词). */
+    private fun showCardMenu(text: String) {
+        if (st.tab == Tab.PHRASE) showPhraseMenu(text) else showLongPressMenu(text)
+    }
+
+    /** debug.16 (常用语 tab): long-press a saved phrase → 编辑 / 移动到分类 / 删除. Edit needs real typing so it
+     *  hands off to the manager Activity (focused on this phrase); move/delete act in-panel. */
+    private fun showPhraseMenu(text: String) {
+        val cat = currentCategory()
+        val card = menuCard()
+        card.addView(menuItem("编辑") { hideOverlay(); onEditPhrase(cat, text) })
+        card.addView(menuDivider())
+        card.addView(menuItem("移动到分类") { hideOverlay(); chooseMoveCategoryThen(cat) { target -> onMovePhrase(cat, text, target); refresh() } })
+        card.addView(menuDivider())
+        card.addView(menuItem("删除") { hideOverlay(); deleteOne(text) })
+        showOverlay(card)
+    }
+
+    /** debug.16: pick a DIFFERENT existing category to move a phrase into (the current category is excluded —
+     *  moving in place is a no-op — and there is no 新建 here: a move target must already exist). */
+    private fun chooseMoveCategoryThen(current: String, action: (String) -> Unit) {
+        val targets = categoriesProvider().filter { it != current }
+        val card = menuCard()
+        if (targets.isEmpty()) {
+            card.addView(menuTitle("没有其它分类"))
+            card.addView(menuDivider())
+            card.addView(menuItem("＋ 新建分类…") { hideOverlay(); onManage() })
+        } else {
+            card.addView(menuTitle("移动到分类"))
+            for (c in targets) { card.addView(menuDivider()); card.addView(menuItem(c) { hideOverlay(); action(c) }) }
+        }
+        showOverlay(card)
     }
 
     /** C6: long-press → centered menu 删除此条内容 / 添加常用语 / 拆分选词. */
