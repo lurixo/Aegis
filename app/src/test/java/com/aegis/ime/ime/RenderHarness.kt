@@ -20,6 +20,8 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.view.View
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.layout.Key
+import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
@@ -160,6 +162,16 @@ class RenderHarness {
                 applyPalette(pal); openCategoryForTest(0)
             }
             snap(v, (560 * ctx.resources.displayMetrics.density).toInt(), "symbols_$t.png")
+        }
+    }
+
+    @Test fun symbols_chinese_marks() {
+        for ((t, pal) in themes) {
+            val v = SymbolsView(ctx).apply {
+                applyPalette(pal); openCategoryForTest(1)
+            }
+            assertTrue("中文 chips include —— / ……", v.netChipTextsForTest().containsAll(listOf("——", "……")))
+            snap(v, (560 * density).toInt(), "symbols_chinese_$t.png")
         }
     }
 
@@ -360,6 +372,30 @@ class RenderHarness {
                 setLayout(Layouts.forId(LayoutId.ALPHA, Lang.CN), false, false, Lang.CN)
             }
             snap(v, h, "keyboard_$t.png")
+        }
+    }
+
+    @Test fun keyboard_nine_readout() {
+        val h = (230 * density).toInt()
+        val readout = listOf("zhuang", "shuang", "chuang", "zhu", "yi", "zhua", "nü")
+            .map { Key(it, output = it, action = KeyAction.PICK_READING) }
+        for ((t, pal) in themes) {
+            val v = KeyboardView(ctx).apply {
+                applyPalette(pal)
+                setLayout(Layouts.nine(Lang.CN, readout, composing = true), false, false, Lang.CN)
+            }
+            snap(v, h, "keyboard_nine_$t.png")
+        }
+    }
+
+    @Test fun keyboard_numpad() {
+        val h = (230 * density).toInt()
+        for ((t, pal) in themes) {
+            val v = KeyboardView(ctx).apply {
+                applyPalette(pal)
+                setLayout(Layouts.numpad(), false, false, Lang.CN)
+            }
+            snap(v, h, "keyboard_numpad_$t.png")
         }
     }
 }

@@ -33,7 +33,6 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     var current: () -> List<String> = { emptyList() }
     var onAdd: (String) -> Unit = {}
     var onRemove: (String) -> Unit = {}
-    var onPaste: () -> Unit = {}
     var onBack: () -> Unit = {}
 
     private val density = resources.displayMetrics.density
@@ -51,19 +50,10 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         isClickable = true
         setTextColor(colors.keyLabel)
     }
-    private val pasteText = TextView(context).apply {
-        text = "📋 粘贴符号"
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
-        setPadding(dp(12), dp(10), dp(12), dp(10))
-        isClickable = true
-        setTextColor(colors.keyLabel)
-    }
     private val sectionLabels = mutableListOf<TextView>()
 
     var backTitle: String = "‹ 自定义标点"
         set(v) { field = v; backText.text = v }
-    var pasteLabel: String = "📋 粘贴符号"
-        set(v) { field = v; pasteText.text = v }
 
     var addPalette: List<String> = SymbolCatalog.categories.flatMap { it.symbols }.distinct()
         set(v) { field = v; refresh() }
@@ -72,11 +62,9 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         orientation = VERTICAL
         setBackgroundColor(colors.keyboardBg)
         backText.setOnClickListener { onBack() }
-        pasteText.setOnClickListener { onPaste() }
         headerBar.setBackgroundColor(colors.keyboardBg)
         headerBar.addView(backText)
         headerBar.addView(View(context), LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
-        headerBar.addView(pasteText)
         addView(headerBar)
         addView(sectionLabel("已添加（点击移除）"))
         addView(addedScroll, LayoutParams(LayoutParams.MATCH_PARENT, dp(56)))
@@ -94,7 +82,6 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         setBackgroundColor(p.keyboardBg)
         headerBar.setBackgroundColor(p.keyboardBg)
         backText.setTextColor(p.keyLabel)
-        pasteText.setTextColor(p.keyLabel)
         sectionLabels.forEach { it.setTextColor(p.keyLabelSecondary) }
         refresh()
     }

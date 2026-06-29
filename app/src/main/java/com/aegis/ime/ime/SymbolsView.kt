@@ -49,6 +49,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         listOf(SymbolCatalog.RECENT_TITLE) + SymbolCatalog.categories.map { it.title }
     private var selected = 0
     private var locked = false
+    private var showingUrlCompletions = false
 
     private var palette = ImePalette.STATIC_LIGHT
     private val rail = LinearLayout(context).apply { orientation = VERTICAL }
@@ -131,11 +132,13 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         if (symbols.isEmpty()) { netBar.visibility = View.GONE; grid.addView(emptySpan()); return }
         val completions = symbols.filter { it.length > 1 }
         val glyphs = symbols.filter { it.length == 1 }
+        val isNet = index != 0 && SymbolCatalog.categories.getOrNull(index - 1)?.id == "net"
+        showingUrlCompletions = completions.isNotEmpty() && (isNet || completions.any { isUrlLike(it) })
         if (completions.isEmpty()) {
             netBar.visibility = View.GONE
         } else {
             netBar.visibility = View.VISIBLE
-            if (index != 0 && SymbolCatalog.categories.getOrNull(index - 1)?.id == "net") netBar.addView(netHeader("网址补全"))
+            if (isNet) netBar.addView(netHeader("网址补全"))
             addCompletionChips(completions)
         }
         for (s in glyphs) grid.addView(cell(s, badge = if (index == 0) badgeFor(s) else null))
@@ -190,6 +193,8 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         v.measure(unspec, unspec)
         return v.measuredWidth
     }
+
+    private fun isUrlLike(s: String): Boolean = s.any { it == '/' || it == ':' || it == '.' }
 
     private fun symbolsFor(index: Int): List<String> =
         if (index == 0) recentProvider() else SymbolCatalog.categories[index - 1].symbols
@@ -262,7 +267,8 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun toggleLockForTest() = toggleLock()
     internal fun gridScrollYForTest(): Int = gridScroll.scrollY
 
-    internal fun netBarVisibleForTest(): Boolean = netBar.visibility == View.VISIBLE
+    internal fun netBarVisibleForTest(): Boolean = showingUrlCompletions
+    internal fun chipBarVisibleForTest(): Boolean = netBar.visibility == View.VISIBLE
     internal fun gridCellCountForTest(): Int = grid.childCount
     internal fun netChipTextsForTest(): List<String> {
         val out = ArrayList<String>()

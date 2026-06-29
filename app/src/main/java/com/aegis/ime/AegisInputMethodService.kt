@@ -52,6 +52,8 @@ import com.aegis.ime.ime.SelectionMath
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.SymbolsView
 import com.aegis.ime.layout.LayoutId
+import com.aegis.ime.layout.Layouts
+import com.aegis.ime.layout.SymbolCatalog
 import com.aegis.ime.user.ClipboardStore
 import com.aegis.ime.user.CustomSymbolStore
 import com.aegis.ime.user.SymbolUsageStore
@@ -74,9 +76,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private val customSymbolStore by lazy { CustomSymbolStore(getSharedPreferences("aegis", MODE_PRIVATE)) }
     private var customOperatorView: CustomSymbolPanel? = null
     private val customOperatorStore by lazy { CustomSymbolStore(getSharedPreferences("aegis", MODE_PRIVATE), "custom_operators") }
-    private val OPERATOR_PALETTE = listOf(
-        "*", "/", "±", "√", "^", "<", ">", "≤", "≥", "≠", "≈", "∑", "∏", "∫", "π", "∞", "°", "|", "{", "}", "[", "]", "!",
-    )
+    private val zhSymbolPalette: List<String> by lazy {
+        SymbolCatalog.categories.first { it.id == "zh" }.symbols.filter { it !in Layouts.nineFixedPunctuation }
+    }
+    private val mathOperatorPalette: List<String> by lazy {
+        SymbolCatalog.categories.first { it.id == "math" }.symbols.filter { it !in Layouts.defaultNumpadOperators }
+    }
     private var selecting = false
     private var selAnchor = -1
     private var selMoving = -1
@@ -440,10 +445,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun showCustomSymbolPanel() {
         val iv = inputView ?: return
         val panel = customSymbolView ?: CustomSymbolPanel(this).also {
+            it.addPalette = zhSymbolPalette
             it.current = { customSymbolStore.list() }
             it.onAdd = { s -> customSymbolStore.add(s); controller.setCustomSymbols(customSymbolStore.list()); it.refresh() }
             it.onRemove = { s -> customSymbolStore.remove(s); controller.setCustomSymbols(customSymbolStore.list()); it.refresh() }
-            it.onPaste = { pasteCustomSymbol() }
             it.onBack = { inputView?.showPanel(null) }
             customSymbolView = it
         }
@@ -456,47 +461,15 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val iv = inputView ?: return
         val panel = customOperatorView ?: CustomSymbolPanel(this).also {
             it.backTitle = "‹ 自定义运算符"
-            it.pasteLabel = "📋 粘贴运算符"
-            it.addPalette = OPERATOR_PALETTE
+            it.addPalette = mathOperatorPalette
             it.current = { customOperatorStore.list() }
             it.onAdd = { s -> customOperatorStore.add(s); controller.setCustomOperators(customOperatorStore.list()); it.refresh() }
             it.onRemove = { s -> customOperatorStore.remove(s); controller.setCustomOperators(customOperatorStore.list()); it.refresh() }
-            it.onPaste = { pasteCustomOperator() }
             it.onBack = { inputView?.showPanel(null) }
             customOperatorView = it
         }
         panel.applyPalette(imePalette)
         iv.showPanel(panel)
-    }
-
-    private fun pasteCustomOperator() {
-        val t = runCatching {
-            clipboardManager.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString()
-        }.getOrNull()?.filterNot { it.isISOControl() }?.trim().orEmpty()
-        val msg = when {
-            t.isEmpty() -> "剪贴板为空"
-            t.length > 16 -> "内容过长,未作为运算符添加"
-            customOperatorStore.add(t) -> {
-                controller.setCustomOperators(customOperatorStore.list()); customOperatorView?.refresh(); "已添加：$t"
-            }
-            else -> "已存在或已达上限"
-        }
-        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
-    }
-
-    private fun pasteCustomSymbol() {
-        val t = runCatching {
-            clipboardManager.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString()
-        }.getOrNull()?.filterNot { it.isISOControl() }?.trim().orEmpty()
-        val msg = when {
-            t.isEmpty() -> "剪贴板为空"
-            t.length > 16 -> "内容过长,未作为符号添加"
-            customSymbolStore.add(t) -> {
-                controller.setCustomSymbols(customSymbolStore.list()); customSymbolView?.refresh(); "已添加：$t"
-            }
-            else -> "已存在或已达上限"
-        }
-        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
     }
 
     private fun showSymbolsPanel() {

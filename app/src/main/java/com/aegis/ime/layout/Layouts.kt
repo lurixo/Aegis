@@ -40,12 +40,16 @@ object Layouts {
         LayoutId.NUMPAD -> numpad()
     }
 
+    private const val NINE_LEFT_U = 1.0f
+    private const val NINE_MAIN_U = 1.0f
+    private const val NINE_RIGHT_U = 0.7f
+    private const val NINE_TOTAL_U = NINE_LEFT_U + 3f * NINE_MAIN_U + NINE_RIGHT_U
+
+    val nineFixedPunctuation: List<String> = listOf("，", "。", "？", "！", "…", "：", "；", "~", ".", "-", "@")
+
     fun ninePunctuation(custom: List<String> = emptyList()): List<Key> =
-        listOf(
-            Key("，", direct = true), Key("。", direct = true), Key("？", direct = true), Key("！", direct = true),
-            Key("…", direct = true), Key("：", direct = true), Key("；", direct = true), Key("~", direct = true),
-            Key(".", direct = true), Key("-", direct = true), Key("@", direct = true),
-        ) + custom.map { Key(it, direct = true) } + Key("自定义", action = CUSTOM_SYMBOL)
+        nineFixedPunctuation.map { Key(it, direct = true) } +
+            custom.map { Key(it, direct = true) } + Key("自定义", action = CUSTOM_SYMBOL)
 
     private fun row(vararg keys: Key) = KeyboardRow(keys.toList())
 
@@ -83,10 +87,10 @@ object Layouts {
     private fun t9key(letters: String, digit: String) = Key(letters, output = digit)
 
     fun nine(lang: Lang, left: List<Key>, composing: Boolean = false): KeyboardLayout {
-        val u = 1f / 4.4f
-        val xL = 0f; val wL = 0.7f * u
-        val x1 = 0.7f * u; val x2 = 1.7f * u; val x3 = 2.7f * u; val wM = 1f * u
-        val xR = 3.7f * u; val wR = 0.7f * u
+        val u = 1f / NINE_TOTAL_U
+        val xL = 0f; val wL = NINE_LEFT_U * u
+        val x1 = NINE_LEFT_U * u; val x2 = (NINE_LEFT_U + 1f) * u; val x3 = (NINE_LEFT_U + 2f) * u; val wM = NINE_MAIN_U * u
+        val xR = (NINE_LEFT_U + 3f) * u; val wR = NINE_RIGHT_U * u
         val cells = ArrayList<PlacedKey>()
         val leftColumn = ScrollColumn(left, xL, 0f, wL, 0.75f, cellHFrac = 0.75f / 4f)
         cells.add(PlacedKey(Key("✎", action = SHOW_SYMBOLS), xL, 0.75f, wL, 0.25f))
@@ -103,8 +107,8 @@ object Layouts {
         cells.add(PlacedKey(t9key("TUV", "8"), x2, 0.5f, wM, 0.25f))
         cells.add(PlacedKey(t9key("WXYZ", "9"), x3, 0.5f, wM, 0.25f))
         cells.add(PlacedKey(Key("123", action = SWITCH_NUMPAD), x1, 0.75f, 0.8f * u, 0.25f))
-        cells.add(PlacedKey(Key("空格", output = " ", action = SPACE), 1.5f * u, 0.75f, 1.4f * u, 0.25f))
-        cells.add(PlacedKey(Key("中英", action = TOGGLE_LANG), 2.9f * u, 0.75f, 0.8f * u, 0.25f))
+        cells.add(PlacedKey(Key("空格", output = " ", action = SPACE), x1 + 0.8f * u, 0.75f, 1.4f * u, 0.25f))
+        cells.add(PlacedKey(Key("中英", action = TOGGLE_LANG), x1 + 2.2f * u, 0.75f, 0.8f * u, 0.25f))
         cells.add(PlacedKey(Key("⌫", action = BACKSPACE), xR, 0f, wR, 0.25f))
         cells.add(PlacedKey(Key("重输", action = CLEAR_COMPOSING), xR, 0.25f, wR, 0.25f))
         cells.add(PlacedKey(Key("↵", action = ENTER, accent = true), xR, 0.5f, wR, 0.5f))
@@ -141,15 +145,22 @@ object Layouts {
             Key("自定义", action = CUSTOM_OPERATOR)
 
     fun numpad(operators: List<Key> = numpadOperators()): KeyboardLayout {
-        val u = 1f / 5f
-        val opCol = ScrollColumn(operators, 0f, 0f, u, 1f, cellHFrac = 0.25f)
+        val u = 1f / NINE_TOTAL_U
+        val wL = NINE_LEFT_U * u
+        val x1 = NINE_LEFT_U * u; val x2 = (NINE_LEFT_U + 1f) * u; val x3 = (NINE_LEFT_U + 2f) * u; val wM = NINE_MAIN_U * u
+        val xR = (NINE_LEFT_U + 3f) * u; val wR = NINE_RIGHT_U * u
+        val opCol = ScrollColumn(operators, 0f, 0f, wL, 1f, cellHFrac = 0.25f)
         val cells = ArrayList<PlacedKey>()
-        fun cell(key: Key, col: Int, row: Int) = cells.add(PlacedKey(key, col * u, row * 0.25f, u, 0.25f))
-        cell(Key("1"), 1, 0); cell(Key("2"), 2, 0); cell(Key("3"), 3, 0); cell(Key("⌫", action = BACKSPACE), 4, 0)
-        cell(Key("4"), 1, 1); cell(Key("5"), 2, 1); cell(Key("6"), 3, 1); cell(Key("."), 4, 1)
-        cell(Key("7"), 1, 2); cell(Key("8"), 2, 2); cell(Key("9"), 3, 2); cell(Key("@"), 4, 2)
-        cell(Key("返回", action = SWITCH_TEXT), 1, 3); cell(Key("0"), 2, 3)
-        cell(Key("空格", output = " ", action = SPACE), 3, 3); cell(Key("↵", action = ENTER, accent = true), 4, 3)
+        fun digit(label: String, x: Float, row: Float) = cells.add(PlacedKey(Key(label), x, row, wM, 0.25f))
+        digit("1", x1, 0f); digit("2", x2, 0f); digit("3", x3, 0f)
+        digit("4", x1, 0.25f); digit("5", x2, 0.25f); digit("6", x3, 0.25f)
+        digit("7", x1, 0.5f); digit("8", x2, 0.5f); digit("9", x3, 0.5f)
+        cells.add(PlacedKey(Key("⌫", action = BACKSPACE), xR, 0f, wR, 0.25f))
+        cells.add(PlacedKey(Key("."), xR, 0.25f, wR, 0.25f))
+        cells.add(PlacedKey(Key("↵", action = ENTER, accent = true), xR, 0.5f, wR, 0.5f))
+        cells.add(PlacedKey(Key("返回", action = SWITCH_TEXT), x1, 0.75f, wM, 0.25f))
+        cells.add(PlacedKey(Key("0"), x2, 0.75f, wM, 0.25f))
+        cells.add(PlacedKey(Key("空格", output = " ", action = SPACE), x3, 0.75f, wM, 0.25f))
         return KeyboardLayout(LayoutId.NUMPAD, cells = cells, rowCount = 4, scrollColumn = opCol)
     }
 
