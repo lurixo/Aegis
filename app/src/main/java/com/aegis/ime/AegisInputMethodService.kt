@@ -22,6 +22,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import android.content.ClipData
 import android.content.ClipDescription
 import android.graphics.Bitmap
 import android.util.LruCache
@@ -539,9 +540,20 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun setHistoryEnabled(on: Boolean) =
         getSharedPreferences("aegis", MODE_PRIVATE).edit().putBoolean("clip_history", on).apply()
     private fun clearSystemClipboard() {
+        runCatching { clipboardManager.setPrimaryClip(ClipData.newPlainText("", "")) }
+            .onFailure { Log.e("Aegis", "setPrimaryClip(empty) failed", it) }
         runCatching { clipboardManager.clearPrimaryClip() }
-            .onSuccess { Toast.makeText(this, "已清空系统剪贴板", Toast.LENGTH_SHORT).show() }
             .onFailure { Log.e("Aegis", "clearPrimaryClip failed", it) }
+        val after = runCatching { clipboardManager.primaryClip }.getOrNull()
+        val hasClip = after != null && after.itemCount > 0
+        val item = after?.takeIf { it.itemCount > 0 }?.getItemAt(0)
+        val text = item?.text?.toString() ?: runCatching { item?.coerceToText(this)?.toString() }.getOrNull()
+        when (com.aegis.ime.user.ClipboardPolicy.clearResult(hasClip, text)) {
+            com.aegis.ime.user.ClipboardPolicy.ClearResult.CLEARED ->
+                toast("已清空系统剪贴板")
+            com.aegis.ime.user.ClipboardPolicy.ClearResult.CONTENT_REMAINS ->
+                toast("系统限制：已尽力清空（本设备可能无法完全移除系统剪贴板内容）")
+        }
     }
 
     override fun onDestroy() {

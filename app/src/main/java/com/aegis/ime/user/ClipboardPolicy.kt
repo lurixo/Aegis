@@ -40,6 +40,11 @@ object ClipboardPolicy {
     fun shouldReadSystemClip(selfWritePending: Boolean, secureField: Boolean, historyEnabled: Boolean): Boolean =
         selfWritePending || (!secureField && historyEnabled)
 
+    enum class ClearResult { CLEARED, CONTENT_REMAINS }
+
+    fun clearResult(hasClip: Boolean, text: CharSequence?): ClearResult =
+        if (!hasClip || text.isNullOrBlank()) ClearResult.CLEARED else ClearResult.CONTENT_REMAINS
+
     @Suppress("UNUSED_PARAMETER")
     fun shouldRestoreCopyBar(lastCopy: String?, secureField: Boolean): Boolean = lastCopy != null
 }
