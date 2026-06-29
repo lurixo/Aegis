@@ -188,14 +188,14 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8), dp(3), dp(8), dp(3))
             fun iconLp(spaced: Boolean = false) = ll(dp(36), dp(44)).apply { if (spaced) marginStart = dp(6) }
-            addView(backBtn { onBack() }, iconLp())
+            addView(glyphChipBtn(desc = "返回", onClick = { onBack() }) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }, iconLp())
             addView(View(context), ll(0, dp(1), 1f))
             addView(pillTray(), ll(WC, dp(36)))
             addView(View(context), ll(0, dp(1), 1f))
-            if (st.tab == Tab.PHRASE) addView(roundBtn("＋") { onAddPhrase(currentCategory()) }, iconLp(true))
-            addView(roundBtn("☰") { enterSelect() }, iconLp(true))
-            if (st.tab == Tab.PHRASE) addView(roundBtn("🗑") { confirmClearCurrentCategory() }, iconLp(true))
-            else addView(roundBtn("⚙") { showGearMenu() }, iconLp(true))
+            if (st.tab == Tab.PHRASE) addView(glyphChipBtn(desc = "添加常用语", onClick = { onAddPhrase(currentCategory()) }) { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }, iconLp(true))
+            addView(glyphChipBtn(desc = "多选", onClick = { enterSelect() }) { c, p, x, y, s -> Glyphs.drawList(c, p, x, y, s) }, iconLp(true))
+            if (st.tab == Tab.PHRASE) addView(glyphChipBtn(desc = "清空分类", tint = RED, onClick = { confirmClearCurrentCategory() }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }, iconLp(true))
+            else addView(glyphChipBtn(desc = "设置", onClick = { showGearMenu() }) { c, p, x, y, s -> Glyphs.drawGear(c, p, x, y, s) }, iconLp(true))
         }
         main.addView(topBar, ll(MP, dp(50)))
         listColumn.removeAllViews()
@@ -241,11 +241,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setOnClickListener { if (swipeRevealed == text) hideSwipe() else onPick(text) }
             if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
         }
-        val chevron = TextView(context).apply {
-            this.text = if (expanded) "⌃" else "⌄"
-            gravity = Gravity.CENTER
-            setTextColor(HINT)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+        val chevron = glyphView(HINT, 7) { c, p, x, y, s -> Glyphs.drawChevron(c, p, x, y, s, down = !expanded) }.apply {
+            contentDescription = if (expanded) "收起" else "展开"
             setOnClickListener { swipeRevealed = null; st.toggleExpand(text); refresh() }
             if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
         }
@@ -307,28 +304,28 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun actionRow(text: String): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         setPadding(dp(8), 0, dp(8), dp(10))
-        addView(action("＋ 常用语") { chooseCategoryThen(listOf(text)) }, ll(0, WC, 1f))
-        addView(action("拆 拆词") { showSplit(text) }, ll(0, WC, 1f))
-        addView(action("🗑 删除") { deleteOne(text) }, ll(0, WC, 1f))
+        addView(glyphAction("常用语", render = { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }) { chooseCategoryThen(listOf(text)) }, ll(0, WC, 1f))
+        addView(glyphAction("拆词", render = { c, p, x, y, s -> Glyphs.drawCut(c, p, x, y, s) }) { showSplit(text) }, ll(0, WC, 1f))
+        addView(glyphAction("删除", render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { deleteOne(text) }, ll(0, WC, 1f))
     }
 
     private fun phraseActionRow(text: String): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         setPadding(dp(8), 0, dp(8), dp(10))
         val cat = currentCategory()
-        addView(action("✎ 编辑") { onEditPhrase(cat, text) }, ll(0, WC, 1f))
-        addView(action("✐ 备注") { onEditNote(cat, text) }, ll(0, WC, 1f))
-        addView(action("→ 移动") { chooseMoveCategoryThen(cat, listOf(text)) { target -> onMovePhrase(cat, text, target); refresh() } }, ll(0, WC, 1f))
-        addView(action("🗑 删除") { deleteOne(text) }, ll(0, WC, 1f))
+        addView(glyphAction("编辑", render = { c, p, x, y, s -> Glyphs.drawEditCaret(c, p, x, y, s) }) { onEditPhrase(cat, text) }, ll(0, WC, 1f))
+        addView(glyphAction("备注", render = { c, p, x, y, s -> Glyphs.drawTag(c, p, x, y, s) }) { onEditNote(cat, text) }, ll(0, WC, 1f))
+        addView(glyphAction("移动", render = { c, p, x, y, s -> Glyphs.drawArrow(c, p, x, y, s, Glyphs.Arrow.RIGHT) }) { chooseMoveCategoryThen(cat, listOf(text)) { target -> onMovePhrase(cat, text, target); refresh() } }, ll(0, WC, 1f))
+        addView(glyphAction("删除", render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { deleteOne(text) }, ll(0, WC, 1f))
     }
 
     private fun phraseSwipeRow(text: String, index: Int): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         setPadding(dp(8), 0, dp(8), dp(10))
         val cat = currentCategory()
-        addView(action("✎ 编辑") { onEditPhrase(cat, text) }, ll(0, WC, 1f))
-        addView(action("↑ 置顶") { onReorderPhrase(cat, index, 0); swipeRevealed = null; refresh() }, ll(0, WC, 1f))
-        addView(action("🗑 删除") { deleteOne(text) }, ll(0, WC, 1f))
+        addView(glyphAction("编辑", render = { c, p, x, y, s -> Glyphs.drawEditCaret(c, p, x, y, s) }) { onEditPhrase(cat, text) }, ll(0, WC, 1f))
+        addView(glyphAction("置顶", render = { c, p, x, y, s -> Glyphs.drawArrow(c, p, x, y, s, Glyphs.Arrow.UP) }) { onReorderPhrase(cat, index, 0); swipeRevealed = null; refresh() }, ll(0, WC, 1f))
+        addView(glyphAction("删除", render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { deleteOne(text) }, ll(0, WC, 1f))
     }
 
 
@@ -495,10 +492,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(TEXT_DARK)
             setPadding(dp(14), dp(12), dp(8), dp(12))
         }, ll(0, WC, 1f))
-        val handle = TextView(context).apply {
-            this.text = "≡"; gravity = Gravity.CENTER; setTextColor(HINT)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
-        }
+        val handle = glyphView(HINT, 9) { c, p, x, y, s -> Glyphs.drawList(c, p, x, y, s) }
         col.addView(handle, ll(dp(44), MP))
         attachSortDrag(handle, col, index)
         return col
@@ -518,15 +512,6 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         }
     }
 
-    private fun action(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
-        this.text = label
-        gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
-        setTextColor(SUBTEXT)
-        setPadding(dp(8), dp(6), dp(8), dp(6))
-        setOnClickListener { onClick() }
-    }
-
     private fun categoryBar(): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
@@ -536,7 +521,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val cur = currentCategory()
         for (name in categoriesProvider()) chips.addView(catChip(name, name == cur))
         addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, ll(0, WC, 1f))
-        addView(roundBtn("✎") { showPhraseManageMenu() }, ll(dp(36), dp(44)))
+        addView(glyphChipBtn(desc = "管理常用语", onClick = { showPhraseManageMenu() }) { c, p, x, y, s -> Glyphs.drawPencil(c, p, x, y, s) }, ll(dp(36), dp(44)))
     }
 
     private fun showPhraseManageMenu() {
@@ -596,9 +581,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setPadding(dp(12), dp(8), dp(12), dp(8))
             val allSel = st.isAllSelected(all)
             addView(TextView(context).apply {
-                text = if (allSel) "● 全选" else "○ 全选"
+                text = "全选"
                 setTextColor(if (allSel) GREEN else SUBTEXT)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+                setCompoundDrawablesWithIntrinsicBounds(glyphIcon(if (allSel) GREEN else SUBTEXT, 22) { c, p, x, y, s -> Glyphs.drawRadio(c, p, x, y, s, allSel) }, null, null, null)
+                compoundDrawablePadding = dp(6)
                 setOnClickListener { st.selectAll(all); refresh() }
             }, ll(0, WC, 1f))
             addView(TextView(context).apply {
@@ -648,12 +635,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         background = rounded(CARD, ImeShapes.cardRadiusDp)
         layoutParams = ll(MP, WC).apply { topMargin = dp(8) }
         val on = text in st.selected
-        addView(TextView(context).apply {
-            this.text = if (on) "●" else "○"
-            setTextColor(if (on) GREEN else HINT)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
-            setPadding(dp(14), 0, dp(8), 0)
-        }, ll(WC, WC))
+        addView(glyphView(if (on) GREEN else HINT, 8) { c, p, x, y, s -> Glyphs.drawRadio(c, p, x, y, s, on) }, ll(dp(40), MP))
         addView(TextView(context).apply {
             this.text = if (isImage(text)) "［图片］" else if (st.tab == Tab.PHRASE) phraseDisplayText(text) else text
             maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
@@ -701,16 +683,17 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             addView(menuItem(name) { hideOverlay(); action(name) }, ll(0, WC, 1f))
-            addView(TextView(context).apply {
-                text = "🗑"; gravity = Gravity.CENTER
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(RED)
-                setPadding(dp(8), dp(12), dp(16), dp(12))
-                setOnClickListener {
-                    onDeleteCategory(name); if (phraseCat == name) phraseCat = ""; swipeRevealed = null
-                    refresh()
-                    chooseMoveCategoryThen(current, moveTexts, after, action)
-                }
-            }, ll(WC, MP))
+            addView(
+                glyphView(RED, 9) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }.apply {
+                    contentDescription = "删除分类"
+                    setOnClickListener {
+                        onDeleteCategory(name); if (phraseCat == name) phraseCat = ""; swipeRevealed = null
+                        refresh()
+                        chooseMoveCategoryThen(current, moveTexts, after, action)
+                    }
+                },
+                ll(dp(52), dp(48)),
+            )
         }
 
     private fun showLongPressMenu(text: String) {
@@ -875,25 +858,46 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             if (enabled) setOnClickListener { onClick() }
         }
 
-    private fun backBtn(onClick: () -> Unit): View {
-        val v = object : View(context) {
-            private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
-                strokeWidth = 2f * density; color = SUBTEXT
-            }
-            override fun onDraw(c: Canvas) { Glyphs.drawBack(c, p, width / 2f, height / 2f, dp(10).toFloat()) }
-        }
-        v.background = rounded(GREY_PILL, ImeShapes.chipRadiusDp)
-        v.setOnClickListener { onClick() }
-        return v
+    private fun glyphPaint(tint: Int) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+        strokeWidth = 2f * density; color = tint
     }
 
-    private fun roundBtn(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
-        text = label; gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(SUBTEXT)
-        background = rounded(GREY_PILL, ImeShapes.chipRadiusDp)
-        setOnClickListener { onClick() }
+    private fun glyphView(tint: Int, sDp: Int, render: (Canvas, Paint, Float, Float, Float) -> Unit): View =
+        object : View(context) {
+            private val p = glyphPaint(tint)
+            override fun onDraw(c: Canvas) { render(c, p, width / 2f, height / 2f, dp(sDp).toFloat()) }
+        }
+
+    private fun glyphIcon(tint: Int, boxDp: Int, render: (Canvas, Paint, Float, Float, Float) -> Unit): android.graphics.drawable.Drawable {
+        val box = dp(boxDp); val p = glyphPaint(tint)
+        return object : android.graphics.drawable.Drawable() {
+            override fun draw(canvas: Canvas) { val b = bounds; render(canvas, p, b.exactCenterX(), b.exactCenterY(), box * 0.42f) }
+            override fun getIntrinsicWidth() = box
+            override fun getIntrinsicHeight() = box
+            override fun setAlpha(a: Int) {}
+            override fun setColorFilter(cf: android.graphics.ColorFilter?) {}
+            @Deprecated("deprecated in Drawable", ReplaceWith("android.graphics.PixelFormat.TRANSLUCENT"))
+            override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
+        }
     }
+
+    private fun glyphChipBtn(desc: String, tint: Int = SUBTEXT, onClick: () -> Unit, render: (Canvas, Paint, Float, Float, Float) -> Unit): View =
+        glyphView(tint, 10, render).apply {
+            background = rounded(GREY_PILL, ImeShapes.chipRadiusDp)
+            contentDescription = desc
+            setOnClickListener { onClick() }
+        }
+
+    private fun glyphAction(label: String, tint: Int = SUBTEXT, render: (Canvas, Paint, Float, Float, Float) -> Unit, onClick: () -> Unit): TextView =
+        TextView(context).apply {
+            text = label; gravity = Gravity.CENTER
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label); setTextColor(SUBTEXT)
+            setPadding(dp(4), dp(6), dp(4), dp(6))
+            setCompoundDrawablesWithIntrinsicBounds(glyphIcon(tint, 20, render), null, null, null)
+            compoundDrawablePadding = dp(4)
+            setOnClickListener { onClick() }
+        }
 
     private fun rounded(color: Int, radiusDp: Float) = GradientDrawable().apply {
         setColor(color); cornerRadius = radiusDp * density
