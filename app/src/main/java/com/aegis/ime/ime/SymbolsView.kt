@@ -156,7 +156,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         val symbols = symbolsFor(index)
         if (symbols.isEmpty()) { netBar.visibility = View.GONE; grid.addView(emptySpan()); return }
         // P5 + debug.16: multi-char entries render as content-sized chips so they NEVER truncate in the single-
-        // glyph grid. The 网址补全 treatment (the header) is scoped to the 网络 tab (and url-like recents in 常用);
+        // glyph grid. The 网址补全 chip treatment is scoped to the 网络 tab (and url-like recents in 常用);
         // OTHER multi-char marks — the standard Chinese 破折号 —— / 省略号 …… in 中文 — are ordinary insertable
         // chips, committed straight to the editor on tap, NOT advertised as URL completions. Single glyphs keep
         // the unchanged grid path, so every all-glyph category stays pixel-identical.
@@ -172,7 +172,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         showingUrlCompletions = urlCompletions.isNotEmpty()
         if (showingUrlCompletions) {
             netBar.visibility = View.VISIBLE
-            if (isNet) netBar.addView(netHeader("网址补全")) // header only on the 网络 tab
+            // debug.17 A2: the "网址补全" caption header was dropped — the completion chips speak for themselves.
             addCompletionChips(urlCompletions)
         } else {
             netBar.visibility = View.GONE
@@ -200,13 +200,6 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
             rowW += w
         }
         if (row.childCount > 0) netBar.addView(row)
-    }
-
-    private fun netHeader(text: String): TextView = TextView(context).apply {
-        this.text = text
-        setTextColor(palette.keyLabelSecondary)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.caption)
-        setPadding(dp(8), dp(6), dp(8), dp(4))
     }
 
     private fun netRow(): LinearLayout = LinearLayout(context).apply {
@@ -344,7 +337,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         val out = ArrayList<String>()
         for (i in 0 until netBar.childCount) {
             val child = netBar.getChildAt(i)
-            if (child is LinearLayout) { // a chip row; the header is a bare TextView, skipped
+            if (child is LinearLayout) { // a chip row (netBar now holds only chip rows — no caption header)
                 for (j in 0 until child.childCount) (child.getChildAt(j) as? TextView)?.let { out.add(it.text.toString()) }
             }
         }

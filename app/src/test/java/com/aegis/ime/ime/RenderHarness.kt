@@ -26,6 +26,7 @@ import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
+import com.aegis.ime.layout.SymbolCatalog
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -213,6 +214,18 @@ class RenderHarness {
             assertTrue("中文 grid cells include —— / ……", v.gridCellTextsForTest().containsAll(listOf("——", "……")))
             assertFalse("中文 has no wide chip bar (marks ride the grid)", v.chipBarVisibleForTest())
             snap(v, (560 * density).toInt(), "symbols_chinese_$t.png")
+        }
+    }
+
+    /** debug.17 A2: the 网络 tab — its URL completions still chip in full, but the old "网址补全" caption header
+     *  above them is gone (the chips speak for themselves). Light AND dark. */
+    @Test fun symbols_net() {
+        val netIndex = SymbolCatalog.categories.indexOfFirst { it.id == "net" } + 1
+        for ((t, pal) in themes) {
+            val v = SymbolsView(ctx).apply { applyPalette(pal); openCategoryForTest(netIndex) }
+            assertTrue("$t: a url completion still chips on 网络", v.hasTextLeaf("https://"))
+            assertFalse("$t: the 网址补全 caption header is gone", v.hasTextLeaf("网址补全"))
+            snap(v, (560 * density).toInt(), "symbols_net_$t.png")
         }
     }
 
