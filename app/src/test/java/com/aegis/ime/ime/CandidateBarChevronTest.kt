@@ -105,4 +105,27 @@ class CandidateBarChevronTest {
         iv.showPanel(null) // collapse
         assertEquals("grid closed → chevron back to down", "⌄", iv.barChevronGlyph())
     }
+
+    // --- debug.17 #66: the candidate strip's horizontal scroll now flings (shared FlingScroller) ---
+
+    @Test fun a_horizontal_flick_hands_off_to_a_fling() {
+        val v = CandidateView(ctx)
+        v.setContent(List(40) { "候选$it" }, "ni") // many candidates → the strip overflows
+        v.measure(
+            View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec((44 * density).toInt(), View.MeasureSpec.EXACTLY),
+        )
+        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+        assertTrue("the candidate list overflows so there is room to fling", v.maxScrollForTest() > 0f)
+        val y = v.height / 2f
+        var t = 0L
+        fun send(action: Int, x: Float) { v.dispatchTouchEvent(MotionEvent.obtain(0, t, action, x, y, 0)); t += 16 }
+        // a steady leftward flick (x: 300→220 over ~80ms ≈ -1000 px/s) in the candidate area (left of the chevron)
+        send(MotionEvent.ACTION_DOWN, 300f)
+        send(MotionEvent.ACTION_MOVE, 284f); send(MotionEvent.ACTION_MOVE, 268f); send(MotionEvent.ACTION_MOVE, 252f)
+        send(MotionEvent.ACTION_MOVE, 236f); send(MotionEvent.ACTION_MOVE, 220f)
+        v.dispatchTouchEvent(MotionEvent.obtain(0, t, MotionEvent.ACTION_UP, 220f, y, 0))
+        assertTrue("a flick on the candidate strip starts a horizontal fling", v.isFlingingForTest())
+        assertTrue("the windowed velocity reflects the leftward flick", v.flingVelocityForTest() < -300f)
+    }
 }
