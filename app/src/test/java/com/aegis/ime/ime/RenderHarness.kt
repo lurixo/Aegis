@@ -173,9 +173,35 @@ class RenderHarness {
             val v = SymbolsView(ctx).apply {
                 applyPalette(pal); openCategoryForTest(1)
             }
-            assertTrue("中文 grid cells include —— / ……", v.gridCellTextsForTest().containsAll(listOf("——", "……")))
-            assertFalse("中文 has no wide chip bar (marks ride the grid)", v.chipBarVisibleForTest())
+            val cells = v.gridCellTextsForTest()
+            assertTrue("中文 single — / … are grid cells", cells.containsAll(listOf("—", "…")))
+            assertFalse("中文 dropped the wide —— / ……", cells.any { it == "——" || it == "……" })
+            assertFalse("中文 has no chip bar (single-cell marks ride the grid)", v.chipBarVisibleForTest())
             snap(v, (560 * density).toInt(), "symbols_chinese_$t.png")
+        }
+    }
+
+    @Test fun symbols_math() {
+        val mathIndex = SymbolCatalog.categories.indexOfFirst { it.id == "math" } + 1
+        for ((t, pal) in themes) {
+            val v = SymbolsView(ctx).apply { applyPalette(pal); openCategoryForTest(mathIndex) }
+            val cells = v.gridCellTextsForTest()
+            assertTrue("$t: trig functions are grid cells", cells.containsAll(listOf("sin", "arcsin", "tanh")))
+            assertTrue("$t: units are grid cells", cells.containsAll(listOf("℃", "㎏", "㎡")))
+            assertFalse("$t: 数学 multi-char cells ride the grid, no chip bar", v.chipBarVisibleForTest())
+            snap(v, (880 * density).toInt(), "symbols_math_$t.png")
+        }
+    }
+
+    @Test fun symbols_greek() {
+        val greekIndex = SymbolCatalog.categories.indexOfFirst { it.id == "greek" } + 1
+        for ((t, pal) in themes) {
+            val v = SymbolsView(ctx).apply { applyPalette(pal); openCategoryForTest(greekIndex) }
+            val cells = v.gridCellTextsForTest()
+            assertTrue("$t: lowercase α…ω present", cells.containsAll(listOf("α", "π", "ς", "ω")))
+            assertTrue("$t: uppercase Α…Ω present", cells.containsAll(listOf("Α", "Σ", "Ω")))
+            assertFalse("$t: 希腊 is all single glyphs, no chip bar", v.chipBarVisibleForTest())
+            snap(v, (560 * density).toInt(), "symbols_greek_$t.png")
         }
     }
 
