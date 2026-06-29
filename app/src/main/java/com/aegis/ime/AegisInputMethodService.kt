@@ -95,6 +95,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     // U21: the most-recent captured clip — kept so the 复制条 survives an app switch / IME re-show (restored
     // in onStartInputView). Cleared when the user leaves the bar (× or 上屏).
     private var lastCopy: String? = null
+    // BUG3: the URI of an image WE just placed on the system clipboard (the commitContent fallback). Our own
+    // OnPrimaryClipChangedListener would otherwise re-capture it into a DUPLICATE aegis history entry — skip
+    // exactly that one self-write. (The image already lives in aegis; it's the entry the user tapped.)
+    @Volatile private var selfClipUri: android.net.Uri? = null
     @Volatile private var userDbLoaded = false // M-2: the initial userdb load has completed
     private var imePalette = ImePalette.STATIC_LIGHT // F1: live Monet palette (dark-aware)
 
@@ -523,12 +527,15 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
      * main thread (listener registered without a handler), so touching [inputView] here is safe.
      */
     private fun onSystemClipChanged() {
-        if (secureField || !historyEnabled()) return
         val clip = runCatching { clipboardManager.primaryClip }.getOrNull() ?: return
         if (clip.itemCount == 0) return
         val item = clip.getItemAt(0)
-        val declaredImage = clip.description?.hasMimeType("image/*") == true
         val uri = item.uri
+        // BUG3: consume our own image fallback write BEFORE the capture gate, so the guard is reset even when
+        // capture is paused (secure field / history off) and can never go stale to suppress a later clip.
+        if (com.aegis.ime.user.ClipImageStore.isSelfWrite(uri, selfClipUri)) { selfClipUri = null; return }
+        if (secureField || !historyEnabled()) return
+        val declaredImage = clip.description?.hasMimeType("image/*") == true
         if (uri != null) {
             // U22: a URI clip → resolve type + (if image) save bytes ALL off the main thread (A1: no
             // main-thread getType/IPC); otherwise fall back to its coerced text. Posts back to the main thread.
@@ -562,26 +569,45 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     /**
-     * U22: insert a saved clipboard image into the target field via commitContent, granting a temporary
-     * read on our FileProvider URI. Gracefully bails (toast, no crash, no silent fail) when the field can't
-     * accept images — EditorInfoCompat.getContentMimeTypes must advertise a compatible image type.
+     * U22 / BUG3: deliver a saved clipboard image to the target field. PREFERRED path = commitContent (rich
+     * content) when the field advertises a compatible image type via EditorInfoCompat.getContentMimeTypes,
+     * granting a temporary read on our FileProvider URI. FALLBACK (BUG3) = when the field does NOT support
+     * commitContent (no advertised image type) or the commit fails, the image is placed on the SYSTEM
+     * clipboard so the user can long-press → paste (works wherever system paste does). Never crashes.
      */
     private fun pasteImage(path: String) {
-        val ic = currentInputConnection
-        val editorInfo = currentInputEditorInfo
-        if (ic == null || editorInfo == null) { toast("插入失败"); return }
         val file = File(path)
         if (!file.exists()) { toast("图片已不存在"); return }
         val mime = com.aegis.ime.user.ClipImageStore.mimeOf(path)
-        val accepts = EditorInfoCompat.getContentMimeTypes(editorInfo)
-        if (accepts.none { ClipDescription.compareMimeTypes(mime, it) }) { toast("当前输入框不支持插入图片"); return }
         val uri = runCatching { FileProvider.getUriForFile(this, "$packageName.fileprovider", file) }.getOrNull()
         if (uri == null) { toast("插入失败"); return }
-        val info = InputContentInfoCompat(uri, ClipDescription("clip image", arrayOf(mime)), null)
-        val ok = runCatching {
-            InputConnectionCompat.commitContent(ic, editorInfo, info, InputConnectionCompat.INPUT_CONTENT_GRANT_READ_URI_PERMISSION, null)
-        }.getOrDefault(false)
-        if (ok) inputView?.showPanel(null) else toast("插入失败")
+
+        // 1) Preferred: rich-content commitContent into a field that advertises image support (BUG3 ①②③④ —
+        // verified correct). deliverImage only runs the commit when the field accepts it, so a field that does
+        // NOT advertise contentMimeTypes (subcase A) skips straight to the fallback below; a commit that
+        // returns false (subcase B) does too.
+        val ic = currentInputConnection
+        val editorInfo = currentInputEditorInfo
+        val committed = if (ic != null && editorInfo != null) {
+            val accepts = EditorInfoCompat.getContentMimeTypes(editorInfo)
+            com.aegis.ime.user.ClipImageStore.deliverImage(accepts, mime) {
+                val info = InputContentInfoCompat(uri, ClipDescription("clip image", arrayOf(mime)), null)
+                runCatching {
+                    InputConnectionCompat.commitContent(ic, editorInfo, info, InputConnectionCompat.INPUT_CONTENT_GRANT_READ_URI_PERMISSION, null)
+                }.getOrDefault(false)
+            }
+        } else false
+        if (committed) { inputView?.showPanel(null); return } // inserted directly — silent, no toast
+
+        // 2) BUG3 fallback: the field doesn't support commitContent (or it failed) — put the image on the
+        // SYSTEM clipboard so the user can long-press → paste (which works wherever system paste does). The
+        // ClipboardService grants read on our FileProvider URI to the pasting app.
+        selfClipUri = uri // BUG3: mark this write so our own clip listener doesn't re-record it
+        val copied = runCatching {
+            clipboardManager.setPrimaryClip(com.aegis.ime.user.ClipImageStore.imageClip(contentResolver, uri))
+        }.isSuccess
+        toast(if (copied) "图片已复制,请在输入框长按粘贴" else "插入失败")
+        inputView?.showPanel(null)
     }
 
     /** U22: decode a ~160px thumbnail OFF the main thread, cache it, and deliver it on the main thread. */
@@ -615,8 +641,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun historyEnabled() = getSharedPreferences("aegis", MODE_PRIVATE).getBoolean("clip_history", true)
     private fun setHistoryEnabled(on: Boolean) =
         getSharedPreferences("aegis", MODE_PRIVATE).edit().putBoolean("clip_history", on).apply()
-    /** C2: clear the SYSTEM clipboard (not the aegis private history). */
-    private fun clearSystemClipboard() = runCatching { clipboardManager.clearPrimaryClip() }
+    /** C2 / debug.14 item2: clear the SYSTEM clipboard (not the aegis private history); the panel asks for
+     *  confirmation first. Light feedback on success so the user knows it happened. */
+    private fun clearSystemClipboard() {
+        runCatching { clipboardManager.clearPrimaryClip() }
+            .onSuccess { Toast.makeText(this, "已清空系统剪贴板", Toast.LENGTH_SHORT).show() }
+            .onFailure { Log.e("Aegis", "clearPrimaryClip failed", it) }
+    }
 
     override fun onDestroy() {
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }

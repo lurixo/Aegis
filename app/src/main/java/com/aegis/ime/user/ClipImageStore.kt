@@ -15,6 +15,8 @@
 
 package com.aegis.ime.user
 
+import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ContentResolver
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -122,5 +124,32 @@ class ClipImageStore(private val dir: File) {
             "bmp" -> "image/bmp"
             else -> "image/png"
         }
+
+        /**
+         * BUG3: whether a field that advertises [accepts] (EditorInfo.contentMimeTypes) can take an image of
+         * [mime] via commitContent. Empty/absent advertisement → not supported (the field accepts paste but not
+         * the rich-content API) → the caller falls back to the system clipboard. [accepts] entries may be
+         * wildcard patterns, so [mime] (the concrete type) is passed FIRST to compareMimeTypes.
+         */
+        fun imageAccepted(accepts: Array<String>, mime: String): Boolean =
+            accepts.any { ClipDescription.compareMimeTypes(mime, it) }
+
+        /**
+         * BUG3: the delivery decision for an image. commitContent is used only when the field accepts it AND
+         * the commit succeeds; otherwise the caller must fall back to the system clipboard (so a field that
+         * only supports paste still gets the image). Returns true = committed; false = fall back. [commit] is
+         * not even invoked when the field doesn't advertise image support (subcase A).
+         */
+        inline fun deliverImage(accepts: Array<String>, mime: String, commit: () -> Boolean): Boolean =
+            imageAccepted(accepts, mime) && commit()
+
+        /** BUG3: whether an incoming clipboard [clipUri] is the image WE just placed on the system clipboard
+         *  ([selfWrite]) — so the clip listener skips re-recording it as a duplicate. Null-safe. */
+        fun isSelfWrite(clipUri: Uri?, selfWrite: Uri?): Boolean = clipUri != null && clipUri == selfWrite
+
+        /** BUG3: a system-clipboard [ClipData] carrying the image at [uri] (a content:// FileProvider URI).
+         *  ClipData.newUri records the URI; the ClipboardService grants read to the pasting app at paste time
+         *  (our FileProvider has grantUriPermissions=true), so "long-press → paste" can read the image. */
+        fun imageClip(resolver: ContentResolver, uri: Uri): ClipData = ClipData.newUri(resolver, "clip image", uri)
     }
 }

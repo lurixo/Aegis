@@ -314,6 +314,20 @@ class RenderHarness {
         }
     }
 
+    /** debug.14 item2: the self-drawn 清空系统剪贴板 button sits in the top bar (left of ☰); tapping it pops a
+     *  two-step confirm card. Render the panel WITH the confirm overlay up, light AND dark. */
+    @Test fun clipboard_clear_system_confirm() {
+        val h = (300 * density).toInt()
+        for ((t, pal) in themes) {
+            val v = ClipboardView(ctx).apply {
+                historyProvider = { listOf("第一条复制内容", "second clip on the board") }
+                applyPalette(pal)
+                requestClearSystemForTest() // show the confirm card over the panel
+            }
+            snap(v, h, "clip_clear_confirm_$t.png")
+        }
+    }
+
     @Test fun keyboard_alpha() {
         val h = (230 * ctx.resources.displayMetrics.density).toInt()
         for ((t, pal) in themes) {
