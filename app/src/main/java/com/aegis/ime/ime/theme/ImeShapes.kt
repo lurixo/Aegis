@@ -29,6 +29,9 @@ object ImeShapes {
     /** Candidate / panel card corner (MD3 large). */
     const val cardRadiusDp = 16f
 
+    /** debug.17: inline text-input field (常用语 / 新建分类) — a MEDIUM rounded RECTANGLE, never a stadium pill. */
+    const val inputRadiusDp = 12f
+
     /** True pills: toggle chips / tags only — never keys. */
     const val chipRadiusDp = 999f
 }
