@@ -145,6 +145,7 @@ class ClipboardStore(private val dir: File) {
     private class Category(var name: String, val phrases: ArrayList<Phrase> = ArrayList())
     private val phraseCats = ArrayList<Category>()
     private var phraseRevision = 0L
+    private var phraseIndexes: HashMap<Category, HashMap<String, Phrase>>? = null
 
     private class LoadedPhrases(val categories: ArrayList<Category>, val readable: Boolean)
     private class PhraseWrite(val text: String, val revision: Long)
@@ -267,6 +268,7 @@ class ClipboardStore(private val dir: File) {
 
     private fun phraseEdited() {
         phraseRevision++
+        phraseIndexes = null
     }
 
     private fun phraseSnapshot(): PhraseWrite {
@@ -428,6 +430,25 @@ class ClipboardStore(private val dir: File) {
 
     fun phrases(): List<String> =
         synchronized(phraseCats) { phraseCats.flatMap { c -> c.phrases.map { it.text } } }
+
+    fun noteFor(category: String, text: String): String =
+        synchronized(phraseCats) {
+            val c = find(category) ?: return ""
+            val indexes = phraseIndexes ?: HashMap<Category, HashMap<String, Phrase>>().also { phraseIndexes = it }
+            indexes.getOrPut(c) { phraseIndex(c) }[text]?.note.orEmpty()
+        }
+
+    fun setPhraseNote(category: String, text: String, note: String): Boolean {
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.TEXT, 1); return false }
+        val after = synchronized(phraseCats) {
+            val p = findPhrase(find(category), text) ?: return false
+            val n = sanitizePhraseText(note)
+            p.note = if (n.isBlank()) "" else n
+            phraseSnapshot()
+        }
+        writePhrases(PhraseEdit.TEXT, 1, 1, after)
+        return true
+    }
 
     fun addCategory(name: String): Boolean {
         if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.CATEGORY, 1); return false }
@@ -614,6 +635,9 @@ class ClipboardStore(private val dir: File) {
         phraseCats.firstOrNull { it.name == name }
             ?: sanitizePhraseText(name).let { n -> phraseCats.firstOrNull { sanitizePhraseText(it.name) == n } }
     private fun findPhrase(c: Category?, text: String): Phrase? = c?.phrases?.firstOrNull { it.text == text }
+
+    private fun phraseIndex(c: Category): HashMap<String, Phrase> =
+        HashMap<String, Phrase>(c.phrases.size * 2).also { index -> for (p in c.phrases) index.putIfAbsent(p.text, p) }
 
     private class PendingWrite(val gen: Long, val rows: List<ClipEntry>)
 

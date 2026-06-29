@@ -614,6 +614,58 @@ class ClipboardStoreTest {
     }
 
 
+    @Test fun note_persists_and_phrasesIn_still_returns_original_text() {
+        val dir = newDir()
+        ClipboardStore(dir).apply {
+            load(); addCategory("甲"); addPhrasesTo("甲", listOf("你好世界"))
+            assertTrue(setPhraseNote("甲", "你好世界", "招呼"))
+            flushPendingWrites()
+        }
+        val r = ClipboardStore(dir).apply { load() }
+        assertEquals("note persists across reload", "招呼", r.noteFor("甲", "你好世界"))
+        assertEquals("phrasesIn returns the ORIGINAL text, not the note", listOf("你好世界"), r.phrasesIn("甲"))
+    }
+
+    @Test fun setPhraseNote_blank_clears_and_edit_keeps_note() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("orig")) }
+        s.setPhraseNote("甲", "orig", "别名")
+        assertTrue("editPhrase keeps the note attached", s.editPhrase("甲", "orig", "orig2"))
+        assertEquals("别名", s.noteFor("甲", "orig2"))
+        assertTrue(s.setPhraseNote("甲", "orig2", "  "))
+        assertEquals("", s.noteFor("甲", "orig2"))
+        assertFalse("unknown phrase → false", s.setPhraseNote("甲", "missing", "x"))
+    }
+
+    @Test fun movePhrase_carries_the_note() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addCategory("乙"); addPhrasesTo("甲", listOf("p")) }
+        s.setPhraseNote("甲", "p", "标签")
+        assertTrue(s.movePhrase("甲", "p", "乙"))
+        assertEquals("标签", s.noteFor("乙", "p"))
+    }
+
+    @Test fun move_into_category_with_same_text_carries_note_no_silent_loss() {
+        val s = ClipboardStore(newDir()).apply {
+            load(); addCategory("工作"); addCategory("私人")
+            addPhrasesTo("工作", listOf("谢谢")); addPhrasesTo("私人", listOf("谢谢"))
+            setPhraseNote("工作", "谢谢", "thx")
+        }
+        assertTrue(s.movePhrase("工作", "谢谢", "私人"))
+        assertTrue("removed from source", s.phrasesIn("工作").isEmpty())
+        assertEquals("deduped at target", listOf("谢谢"), s.phrasesIn("私人"))
+        assertEquals("note carried onto the kept target item (not lost)", "thx", s.noteFor("私人", "谢谢"))
+    }
+
+    @Test fun batch_move_collision_carries_note() {
+        val s = ClipboardStore(newDir()).apply {
+            load(); addCategory("甲"); addCategory("乙")
+            addPhrasesTo("甲", listOf("x")); addPhrasesTo("乙", listOf("x"))
+            setPhraseNote("甲", "x", "n")
+        }
+        assertEquals(1, s.movePhrasesTo("甲", listOf("x"), "乙"))
+        assertEquals("n", s.noteFor("乙", "x"))
+    }
+
+
     @Test fun clearPhrasesIn_empties_but_keeps_category() {
         val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("a", "b", "c")) }
         assertEquals(3, s.clearPhrasesIn("甲"))

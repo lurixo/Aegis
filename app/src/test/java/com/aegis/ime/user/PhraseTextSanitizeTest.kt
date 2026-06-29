@@ -56,6 +56,28 @@ class PhraseTextSanitizeTest {
         assertTrue("no stored name keeps a line break", s.categories().none { name -> name.any { it in "\n\r  " } })
     }
 
+    @Test fun every_phrase_write_path_applies_the_same_rule() {
+        val raw = " head\ttab\u0000body "
+        val cleaned = " head\ttabbody "
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply { load() }
+
+        s.addCategory(raw)
+        assertTrue("addCategory sanitizes", s.categories().contains(cleaned))
+
+        s.addPhrasesTo(cleaned, listOf(raw))
+        assertEquals("addPhrasesTo sanitizes", listOf(cleaned), s.phrasesIn(cleaned))
+
+        s.setPhraseNote(cleaned, cleaned, raw)
+        assertEquals("setPhraseNote sanitizes", cleaned, s.noteFor(cleaned, cleaned))
+
+        s.editPhrase(cleaned, cleaned, " edited\u0000text ")
+        assertEquals("editPhrase sanitizes", listOf(" editedtext "), s.phrasesIn(cleaned))
+
+        s.renameCategory(cleaned, " renamed\u0000cat ")
+        assertTrue("renameCategory sanitizes", s.categories().contains(" renamedcat "))
+    }
+
     @Test fun a_raw_category_name_never_splits_the_category_in_two() {
         val raw = "work\u0001temp"
         val cleaned = "worktemp"
@@ -75,6 +97,20 @@ class PhraseTextSanitizeTest {
         assertEquals("a blank name never conjures a category", before, s.categories())
     }
 
+    @Test fun multiline_phrase_and_note_survive_persist_roundtrip() {
+        val dir = newDir()
+        ClipboardStore(dir).apply {
+            load()
+            addCategory("cat")
+            addPhrasesTo("cat", listOf("line1\nline2"))
+            setPhraseNote("cat", "line1\nline2", "note1\nnote2")
+            flushPendingWrites()
+        }
+        val reloaded = ClipboardStore(dir).apply { load() }
+        assertEquals(listOf("line1\nline2"), reloaded.phrasesIn("cat"))
+        assertEquals("note1\nnote2", reloaded.noteFor("cat", "line1\nline2"))
+    }
+
     @Test fun multiline_category_name_survives_persist_roundtrip() {
         val dir = newDir()
         ClipboardStore(dir).apply {
@@ -86,5 +122,19 @@ class PhraseTextSanitizeTest {
         val reloaded = ClipboardStore(dir).apply { load() }
         assertTrue(reloaded.categories().contains("work\ntemp"))
         assertEquals(listOf("x"), reloaded.phrasesIn("work\ntemp"))
+    }
+
+    @Test fun phrase_edge_whitespace_and_crlf_survive_persist_roundtrip() {
+        val dir = newDir()
+        ClipboardStore(dir).apply {
+            load()
+            addCategory("cat")
+            addPhrasesTo("cat", listOf(" line1\r\nline2\t "))
+            setPhraseNote("cat", " line1\r\nline2\t ", " note\twith edges ")
+            flushPendingWrites()
+        }
+        val reloaded = ClipboardStore(dir).apply { load() }
+        assertEquals(listOf(" line1\r\nline2\t "), reloaded.phrasesIn("cat"))
+        assertEquals(" note\twith edges ", reloaded.noteFor("cat", " line1\r\nline2\t "))
     }
 }
