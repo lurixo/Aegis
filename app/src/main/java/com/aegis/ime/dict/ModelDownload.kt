@@ -136,6 +136,9 @@ object ModelDownload {
     fun isDictDownloaded(filesDir: File): Boolean =
         DICT_PACK_FILES.all { File(downloadedDir(filesDir), it).let { f -> f.exists() && f.length() > 1024 } }
 
+    fun installInProgress(filesDir: File): Boolean =
+        dictZipFile(filesDir).exists() || dictPartFile(filesDir).exists() || partFile(filesDir).exists()
+
     fun installDictPack(filesDir: File): Boolean {
         val zip = dictZipFile(filesDir)
         if (!zip.exists()) return false

@@ -40,6 +40,10 @@ object Fuzzy {
 
     const val DEFAULT_ON: Boolean = false
 
+    fun activeRules(masterOn: Boolean, enabled: (String) -> Boolean): Set<String> =
+        if (!masterOn) emptySet()
+        else RULES.filter { enabled(it.key) }.mapTo(LinkedHashSet()) { it.key }
+
     private const val MAX_VARIANTS = 64
     private const val TOGGLE_BITS = 6
     private const val MAX_FUZZY_LEN = 40

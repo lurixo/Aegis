@@ -30,14 +30,19 @@ class PinyinDecoder(
     private val lm: CharBigramLM? = null,
     private val lambda: Double = DEFAULT_LAMBDA,
     private val userModel: UserModel? = null,
-    private val fuzzyRules: Set<String> = emptySet(),
+    private var fuzzyRules: Set<String> = emptySet(),
     private val initialsDict: BinaryDict? = null,
     private val octagram: com.aegis.ime.dict.OctagramReader? = null,
     private val octagramWeight: Double = DEFAULT_OCTAGRAM_WEIGHT,
     private val contextWeight: Double = DEFAULT_CONTEXT_WEIGHT,
 ) {
     private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
-    private val edgeN = if (lm != null || fuzzyRules.isNotEmpty() || initialsDict != null) EDGE_N else 1
+    private var edgeN = if (lm != null || fuzzyRules.isNotEmpty() || initialsDict != null) EDGE_N else 1
+
+    fun setFuzzyRules(rules: Set<String>) {
+        fuzzyRules = rules
+        edgeN = if (lm != null || rules.isNotEmpty() || initialsDict != null) EDGE_N else 1
+    }
 
     private class Edge(val word: String, val freq: Int, val penalty: Double)
 

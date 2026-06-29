@@ -74,6 +74,8 @@ class KeyboardController(
 
     private var associationsEnabled = true
 
+    private var pushedFuzzyRules: Set<String>? = null
+
     var onShowEmoji: () -> Unit = {}
     var onShowClipboard: () -> Unit = {}
     var onShowEdit: () -> Unit = {}
@@ -92,6 +94,7 @@ class KeyboardController(
 
     fun setEngine(newEngine: CandidateEngine) {
         engine = newEngine
+        pushedFuzzyRules?.let { newEngine.setFuzzyRules(it) }
         refreshCandidates()
         render()
     }
@@ -111,6 +114,11 @@ class KeyboardController(
     fun setCnDefaultLayout(id: LayoutId) { cnDefaultLayout = id }
 
     fun setAssociationsEnabled(on: Boolean) { associationsEnabled = on }
+
+    fun setFuzzyRules(rules: Set<String>) {
+        pushedFuzzyRules = rules
+        engine.setFuzzyRules(rules)
+    }
 
     fun reset() {
         composing.setLength(0)

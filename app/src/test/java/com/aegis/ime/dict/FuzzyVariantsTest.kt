@@ -89,6 +89,14 @@ class FuzzyVariantsTest {
     }
 
     @Test
+    fun activeRulesSelectsByMasterAndPerRuleToggles() {
+        assertEquals(emptySet<String>(), Fuzzy.activeRules(masterOn = false) { true })
+        assertEquals(all, Fuzzy.activeRules(masterOn = true) { true })
+        assertEquals(emptySet<String>(), Fuzzy.activeRules(masterOn = true) { false })
+        assertEquals(setOf("zh"), Fuzzy.activeRules(masterOn = true) { it == "zh" })
+    }
+
+    @Test
     fun initialConsonantRules_C4() {
         assertTrue("n→l: nan reaches lan", vs("nan", setOf("n_l")).containsAll(setOf("nan", "lan")))
         assertTrue("l→n: lan reaches nan", vs("lan", setOf("n_l")).containsAll(setOf("lan", "nan")))

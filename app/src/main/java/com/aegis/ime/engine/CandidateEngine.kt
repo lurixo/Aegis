@@ -40,4 +40,6 @@ interface CandidateEngine {
     fun predict(prevWord: String?): List<String> = emptyList()
 
     fun learn(prevWord: String?, word: String) {}
+
+    fun setFuzzyRules(rules: Set<String>) {}
 }
