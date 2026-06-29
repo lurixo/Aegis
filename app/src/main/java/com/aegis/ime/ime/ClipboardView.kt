@@ -38,7 +38,6 @@ import android.widget.ScrollView
 import android.widget.TextView
 import com.aegis.ime.ime.ClipboardPanelState.Tab
 import com.aegis.ime.user.ClipSplitter
-import com.aegis.ime.user.ClipboardStore
 
 /**
  * Clipboard-history + canned-phrases panel (C). Green pill tabs over a list of
