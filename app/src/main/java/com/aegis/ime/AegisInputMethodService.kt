@@ -728,8 +728,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         // BUG3-1: restore the debug.13 short-circuit — don't even read the system clipboard when capture is
         // paused (history off). debug.17: secureField is passed as FALSE here (policy change) so
         // secure/password-field copies ARE captured; only history-off short-circuits the getPrimaryClip IPC.
-        // (U22 image clipboard removed → there is no longer a self-write to consume.)
-        if (!com.aegis.ime.user.ClipboardPolicy.shouldReadSystemClip(false, false, historyEnabled())) return
+        if (!com.aegis.ime.user.ClipboardPolicy.shouldReadSystemClip(false, historyEnabled())) return
         val clip = runCatching { clipboardManager.primaryClip }.getOrNull() ?: return
         if (clip.itemCount == 0) return
         val item = clip.getItemAt(0)
