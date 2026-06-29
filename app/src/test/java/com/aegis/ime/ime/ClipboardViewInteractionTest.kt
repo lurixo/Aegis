@@ -24,10 +24,12 @@ import com.aegis.ime.user.clipEntries
 import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.os.Looper
+import android.provider.Settings
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
@@ -96,6 +98,32 @@ class ClipboardViewInteractionTest {
         )
     }
 
+    private fun leftSwipe(target: View, dx: Float) {
+        send(target, MotionEvent.ACTION_DOWN, 320f, 12f, 0)
+        send(target, MotionEvent.ACTION_MOVE, 320f - dx, 12f, 16)
+        send(target, MotionEvent.ACTION_UP, 320f - dx, 12f, 32)
+    }
+
+    private fun centerInRoot(root: View, target: View): Pair<Float, Float> {
+        var x = target.width / 2f
+        var y = target.height / 2f
+        var current = target
+        while (current !== root) {
+            val parent = current.parent as View
+            x += current.left + current.translationX - parent.scrollX
+            y += current.top + current.translationY - parent.scrollY
+            current = parent
+        }
+        return x to y
+    }
+
+    private fun rootSwipe(root: View, target: View, dx: Float) {
+        val (x, y) = centerInRoot(root, target)
+        send(root, MotionEvent.ACTION_DOWN, x, y, 0)
+        send(root, MotionEvent.ACTION_MOVE, x + dx, y, 16)
+        send(root, MotionEvent.ACTION_UP, x + dx, y, 32)
+    }
+
     private fun rootTap(root: View, target: View) {
         val bounds = boundsInRoot(root as ViewGroup, target)
         send(root, MotionEvent.ACTION_DOWN, bounds.exactCenterX(), bounds.exactCenterY(), 0)
@@ -141,6 +169,37 @@ class ClipboardViewInteractionTest {
     }
     private fun rippleMask(view: View): GradientDrawable =
         ((view.foreground as RippleDrawable).findDrawableByLayerId(android.R.id.mask) as GradientDrawable)
+    private fun assertBoxedSymbol(drawable: android.graphics.drawable.Drawable) {
+        val bitmap = Bitmap.createBitmap(drawable.intrinsicWidth, drawable.intrinsicHeight, Bitmap.Config.ARGB_8888)
+        drawable.setBounds(0, 0, drawable.intrinsicWidth, drawable.intrinsicHeight)
+        drawable.draw(Canvas(bitmap))
+        val middleX = bitmap.width / 2
+        val middleY = bitmap.height / 2
+        assertTrue(Color.alpha(bitmap.getPixel(middleX, 0)) > 0)
+        assertTrue(Color.alpha(bitmap.getPixel(middleX, bitmap.height - 1)) > 0)
+        assertTrue(Color.alpha(bitmap.getPixel(0, middleY)) > 0)
+        assertTrue(Color.alpha(bitmap.getPixel(bitmap.width - 1, middleY)) > 0)
+    }
+    private fun assertBoxedSymbol(view: View) {
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        view.draw(Canvas(bitmap))
+        val box = dp(15)
+        val left = (view.width - box) / 2
+        val top = (view.height - box) / 2
+        val centerX = view.width / 2
+        val centerY = view.height / 2
+        assertTrue(bitmap.getPixel(centerX, top) != pal.keySurface)
+        assertTrue(bitmap.getPixel(centerX, top + box - 1) != pal.keySurface)
+        assertTrue(bitmap.getPixel(left, centerY) != pal.keySurface)
+        assertTrue(bitmap.getPixel(left + box - 1, centerY) != pal.keySurface)
+    }
+    private fun headerOf(v: ClipboardView, text: String): View = bodyOf(v, text).parent as View
+
+    private fun swipeActions(v: ClipboardView, text: String): List<View> {
+        val scroller = (headerOf(v, text).parent as ViewGroup).getChildAt(0) as ViewGroup
+        val strip = scroller.getChildAt(0) as ViewGroup
+        return (0 until strip.childCount).map(strip::getChildAt)
+    }
 
     private fun flushMotion() = shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
 
@@ -175,6 +234,34 @@ class ClipboardViewInteractionTest {
             requireNotNull(owner.immediateActionFeedbackLevelForTest(action)),
             0f,
         )
+    }
+
+    private fun assertSwipeActionStrip(v: ClipboardView, text: String, descriptions: List<String>): List<View> {
+        val actions = swipeActions(v, text)
+        val size = dp(48)
+        val gap = dp(4)
+        val strip = actions.first().parent as View
+        assertEquals(descriptions, actions.map { it.contentDescription?.toString() })
+        assertTrue(actions.all { it !is TextView && it.hasOnClickListeners() })
+        assertTrue(actions.all { it.width == size && it.height == size })
+        assertTrue(actions.all { v.isImmediateActionForTest(it) })
+        assertTrue(actions.all { it.background === v.immediateActionDrawableForTest(it) })
+        assertTrue(actions.all { it.foreground == null })
+        assertEquals(descriptions.size * (size + gap), strip.width)
+        assertEquals(gap, actions.first().left)
+        assertEquals(strip.width, actions.last().right)
+        actions.zipWithNext().forEach { (left, right) ->
+            assertEquals(gap, right.left - left.right)
+            assertTrue(left.right <= right.left)
+        }
+        val header = bodyOf(v, text).parent as View
+        val scroller = strip.parent as View
+        val frame = scroller.parent as View
+        val stripLeft = scroller.left + strip.left - scroller.scrollX
+        assertEquals(-strip.width.toFloat(), header.translationX, 0f)
+        assertEquals(gap.toFloat(), stripLeft + actions.first().left - (header.right + header.translationX), 0f)
+        assertEquals(frame.width, stripLeft + strip.width)
+        return actions
     }
 
     @Test fun the_header_icon_faces_and_touch_areas_end_at_the_shared_edge_inset() {
@@ -286,6 +373,85 @@ class ClipboardViewInteractionTest {
         applyPalette(pal); forcePhrasesStateForTest("默认"); refresh()
     }
 
+
+    @Test fun left_swipe_on_a_clipboard_card_reveals_actions_and_never_commits() {
+        var picked: String? = null
+        val v = clipView(listOf("第一条", "第二条")).apply { onPick = { picked = it } }
+        layout(v)
+        leftSwipe(bodyOf(v, "第一条"), dx = 200f)
+        assertEquals("the card's action row is revealed", "第一条", v.swipeRevealedForTest())
+        assertNull("a left swipe must NOT 上屏", picked)
+    }
+
+    @Test fun a_SHORT_left_swipe_on_a_clipboard_card_snaps_back_and_never_commits() {
+        var picked: String? = null
+        val v = clipView(listOf("第一条", "第二条")).apply { onPick = { picked = it } }
+        layout(v)
+        leftSwipe(bodyOf(v, "第一条"), dx = 22f)
+        flushMotion()
+        assertNull("a sub-midpoint left swipe settles back closed", v.swipeRevealedForTest())
+        assertEquals(0f, headerOf(v, "第一条").translationX, 0f)
+        assertNull("a short left swipe must NOT 上屏", picked)
+    }
+
+    @Test fun left_swipe_on_a_phrase_card_reveals_actions_and_never_commits() {
+        var picked: String? = null
+        val v = phraseView(listOf("你好", "在吗")).apply { onPick = { picked = it } }
+        layout(v)
+        leftSwipe(bodyOf(v, "你好"), dx = 200f)
+        assertEquals("你好", v.swipeRevealedForTest())
+        assertNull(picked)
+    }
+
+    @Test fun a_SHORT_left_swipe_on_a_phrase_card_snaps_back_and_never_commits() {
+        var picked: String? = null
+        val v = phraseView(listOf("你好", "在吗")).apply { onPick = { picked = it } }
+        layout(v)
+        leftSwipe(bodyOf(v, "你好"), dx = 22f)
+        flushMotion()
+        assertNull(v.swipeRevealedForTest())
+        assertEquals(0f, headerOf(v, "你好").translationX, 0f)
+        assertNull(picked)
+    }
+
+    @Test fun a_swipe_clears_the_clipboard_card_press_highlight() {
+        val v = clipView(listOf("第一条", "第二条"))
+        layout(v)
+        val body = bodyOf(v, "第一条")
+        send(body, MotionEvent.ACTION_DOWN, 320f, 12f, 0)
+        body.isPressed = true
+        send(body, MotionEvent.ACTION_MOVE, 120f, 12f, 16)
+        assertFalse("the swipe clears the pressed state as soon as it is recognized", body.isPressed)
+        send(body, MotionEvent.ACTION_UP, 120f, 12f, 32)
+        assertFalse("the item never stays stuck darkened after the swipe", body.isPressed)
+        assertEquals("and the swipe still reveals", "第一条", v.swipeRevealedForTest())
+    }
+
+    @Test fun a_swipe_clears_the_phrase_card_press_highlight() {
+        val v = phraseView(listOf("你好", "在吗"))
+        layout(v)
+        val body = bodyOf(v, "你好")
+        send(body, MotionEvent.ACTION_DOWN, 320f, 12f, 0)
+        body.isPressed = true
+        send(body, MotionEvent.ACTION_MOVE, 120f, 12f, 16)
+        assertFalse("the phrase swipe clears the pressed state on recognition", body.isPressed)
+        send(body, MotionEvent.ACTION_UP, 120f, 12f, 32)
+        assertFalse("the phrase item never stays stuck darkened after the swipe", body.isPressed)
+        assertEquals("你好", v.swipeRevealedForTest())
+    }
+
+    @Test fun a_plain_tap_does_not_reveal_and_still_commits() {
+        var picked: String? = null
+        val v = clipView(listOf("第一条")).apply { onPick = { picked = it } }
+        layout(v)
+        val body = bodyOf(v, "第一条")
+        send(body, MotionEvent.ACTION_DOWN, 40f, 12f, 0)
+        send(body, MotionEvent.ACTION_UP, 40f, 12f, 8)
+        assertNull("a tap reveals nothing (the swipe handler did not consume it)", v.swipeRevealedForTest())
+        assertTrue("the tap reaches the card's onClick", body.performClick())
+        assertEquals("…which 上屏s the clip", "第一条", picked)
+    }
+
     @Test fun a_tap_commits_the_clip_body_verbatim_including_edge_whitespace() {
         var picked: String? = null
         val text = " \u7b2c\u4e00\u6761\t\u6362\n\u884c "
@@ -293,6 +459,152 @@ class ClipboardViewInteractionTest {
         layout(v)
         assertTrue(bodyOf(v, text).performClick())
         assertEquals(text, picked)
+    }
+
+    @Test fun a_clearly_vertical_drag_scrolls_and_neither_reveals_nor_commits() {
+        var picked: String? = null
+        val v = clipView(listOf("第一条", "第二条")).apply { onPick = { picked = it } }
+        layout(v)
+        val body = bodyOf(v, "第一条")
+        send(body, MotionEvent.ACTION_DOWN, 40f, 12f, 0)
+        send(body, MotionEvent.ACTION_MOVE, 40f, 212f, 16)
+        send(body, MotionEvent.ACTION_UP, 40f, 212f, 32)
+        assertNull("a vertical drag does not reveal", v.swipeRevealedForTest())
+        assertNull("a vertical drag does not 上屏", picked)
+    }
+
+    @Test fun closed_row_swipe_tracks_the_finger_and_clamps_to_the_strip_width() {
+        val v = clipView(listOf("第一条", "第二条"))
+        layout(v)
+        val body = bodyOf(v, "第一条")
+        val header = headerOf(v, "第一条")
+        send(body, MotionEvent.ACTION_DOWN, 320f, 12f, 0)
+        send(body, MotionEvent.ACTION_MOVE, 260f, 12f, 16)
+        assertEquals(-60f, header.translationX, 0f)
+        send(body, MotionEvent.ACTION_MOVE, 100f, 12f, 32)
+        assertEquals(-dp(208).toFloat(), header.translationX, 0f)
+        send(body, MotionEvent.ACTION_MOVE, 400f, 12f, 48)
+        assertEquals(0f, header.translationX, 0f)
+        send(body, MotionEvent.ACTION_UP, 400f, 12f, 64)
+        flushMotion()
+        assertEquals(0f, header.translationX, 0f)
+        assertNull(v.swipeRevealedForTest())
+    }
+
+    @Test fun release_past_half_settles_revealed_with_translation_animation() {
+        Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        val v = clipView(listOf("第一条", "第二条"))
+        val activity = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            activity.get().setContentView(v)
+            layout(v)
+            val body = bodyOf(v, "第一条")
+            val header = headerOf(v, "第一条")
+            send(body, MotionEvent.ACTION_DOWN, 320f, 12f, 0)
+            send(body, MotionEvent.ACTION_MOVE, 190f, 12f, 16)
+            send(body, MotionEvent.ACTION_UP, 190f, 12f, 32)
+            assertEquals("bookkeeping updates on release", "第一条", v.swipeRevealedForTest())
+            assertEquals("the settle starts from the drag position", -130f, header.translationX, 0f)
+            flushMotion()
+            assertEquals(-dp(208).toFloat(), header.translationX, 0f)
+            assertEquals(1f, header.alpha, 0f)
+            assertTrue("the settled row is not rebuilt", header === headerOf(v, "第一条"))
+            v.refresh()
+            layout(v)
+            assertEquals("a later rebuild pins the identical position", -dp(208).toFloat(), headerOf(v, "第一条").translationX, 0f)
+        } finally {
+            activity.pause().stop().destroy()
+        }
+    }
+
+    @Test fun release_short_of_half_settles_closed() {
+        val v = clipView(listOf("第一条", "第二条"))
+        layout(v)
+        val body = bodyOf(v, "第一条")
+        val header = headerOf(v, "第一条")
+        send(body, MotionEvent.ACTION_DOWN, 320f, 12f, 0)
+        send(body, MotionEvent.ACTION_MOVE, 250f, 12f, 16)
+        send(body, MotionEvent.ACTION_UP, 250f, 12f, 32)
+        flushMotion()
+        assertEquals(0f, header.translationX, 0f)
+        assertNull(v.swipeRevealedForTest())
+    }
+
+    @Test fun revealed_row_rightward_drag_tracks_and_settles_closed() {
+        val v = clipView(listOf("第一条", "第二条"))
+        layout(v)
+        val body = bodyOf(v, "第一条")
+        val header = headerOf(v, "第一条")
+        leftSwipe(body, dx = 200f)
+        flushMotion()
+        assertEquals("第一条", v.swipeRevealedForTest())
+        assertEquals(-dp(208).toFloat(), header.translationX, 0f)
+        send(body, MotionEvent.ACTION_DOWN, 100f, 12f, 0)
+        send(body, MotionEvent.ACTION_MOVE, 180f, 12f, 16)
+        assertEquals(-dp(208) + 80f, header.translationX, 0f)
+        send(body, MotionEvent.ACTION_MOVE, 220f, 12f, 32)
+        send(body, MotionEvent.ACTION_UP, 220f, 12f, 48)
+        flushMotion()
+        assertEquals(0f, header.translationX, 0f)
+        assertNull(v.swipeRevealedForTest())
+        assertTrue("the closed row is not rebuilt", body === bodyOf(v, "第一条"))
+    }
+
+    @Test fun vertical_drag_never_translates_the_header() {
+        val v = clipView(listOf("第一条", "第二条"))
+        layout(v)
+        val body = bodyOf(v, "第一条")
+        val header = headerOf(v, "第一条")
+        send(body, MotionEvent.ACTION_DOWN, 320f, 12f, 0)
+        send(body, MotionEvent.ACTION_MOVE, 320f, 112f, 16)
+        assertEquals(0f, header.translationX, 0f)
+        send(body, MotionEvent.ACTION_MOVE, 300f, 312f, 32)
+        assertEquals(0f, header.translationX, 0f)
+        send(body, MotionEvent.ACTION_UP, 300f, 312f, 48)
+        flushMotion()
+        assertEquals(0f, header.translationX, 0f)
+        assertNull(v.swipeRevealedForTest())
+    }
+
+    @Test fun covered_strip_actions_stay_untappable_until_the_row_is_revealed() {
+        var picked: String? = null
+        val adds = ArrayList<List<String>>()
+        val v = clipView(listOf("第一条")).apply {
+            onPick = { picked = it }
+            onAddCategoryThenAdd = { adds += it }
+        }
+        val activity = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            activity.get().setContentView(v)
+            layout(v)
+            val plus = allViews(v).single { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_add_phrase) }
+            rootTap(v, plus)
+            assertEquals("a tap over the covered strip lands on the row body", "第一条", picked)
+            assertTrue(adds.isEmpty())
+            picked = null
+            rootSwipe(v, bodyOf(v, "第一条"), -200f)
+            flushMotion()
+            assertEquals("第一条", v.swipeRevealedForTest())
+            rootTap(v, plus)
+            assertEquals(listOf(listOf("第一条")), adds)
+            assertNull(picked)
+        } finally {
+            activity.pause().stop().destroy()
+        }
+    }
+
+    @Test fun revealing_a_second_row_closes_the_previously_revealed_row() {
+        val v = clipView(listOf("第一条", "第二条"))
+        layout(v)
+        leftSwipe(bodyOf(v, "第一条"), dx = 200f)
+        flushMotion()
+        assertEquals("第一条", v.swipeRevealedForTest())
+        leftSwipe(bodyOf(v, "第二条"), dx = 200f)
+        flushMotion()
+        assertEquals("第二条", v.swipeRevealedForTest())
+        layout(v)
+        assertEquals(0f, headerOf(v, "第一条").translationX, 0f)
+        assertEquals(-dp(208).toFloat(), headerOf(v, "第二条").translationX, 0f)
     }
 
     @Test fun refresh_renders_new_history_items_without_reopening_panel() {
@@ -422,6 +734,149 @@ class ClipboardViewInteractionTest {
         }
     }
 
+    @Test fun clipboard_swipe_reveals_four_icon_actions_while_dropdown_reveals_labeled_actions() {
+        val v = clipView(listOf("第一条", "第二条"))
+        layout(v)
+        rootSwipe(v, bodyOf(v, "第一条"), -200f)
+        layout(v)
+        val swipeActions = assertSwipeActionStrip(
+            v,
+            "第一条",
+            listOf(
+                ctx.getString(com.aegis.ime.R.string.clip_add_phrase),
+                ctx.getString(com.aegis.ime.R.string.clip_edit),
+                ctx.getString(com.aegis.ime.R.string.clip_split_word),
+                ctx.getString(com.aegis.ime.R.string.clip_delete),
+            ),
+        )
+        assertEquals("第一条", v.swipeRevealedForTest())
+        assertTrue(actionButtons(v).isEmpty())
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_expand) in allViews(v).mapNotNull { it.contentDescription?.toString() })
+
+        rootSwipe(v, swipeActions.last(), 200f)
+        assertNull(v.swipeRevealedForTest())
+        assertTrue(clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_expand)))
+        layout(v)
+        assertNull(v.swipeRevealedForTest())
+        assertEquals(0f, (bodyOf(v, "第一条").parent as View).translationX, 0f)
+        assertEquals(
+            listOf(
+                ctx.getString(com.aegis.ime.R.string.clip_phrases),
+                ctx.getString(com.aegis.ime.R.string.clip_edit),
+                ctx.getString(com.aegis.ime.R.string.clip_split_word),
+                ctx.getString(com.aegis.ime.R.string.clip_delete),
+            ),
+            actionButtons(v).map { it.text.toString() },
+        )
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_collapse) in allViews(v).mapNotNull { it.contentDescription?.toString() })
+    }
+
+    @Test fun narrow_phrase_swipe_keeps_four_actions_reachable_and_dropdown_actions_distinct() {
+        for (width in listOf(320, 360)) {
+            val v = phraseView(listOf("你好", "在吗"))
+            layout(v, width)
+            rootSwipe(v, bodyOf(v, "你好"), -200f)
+            layout(v, width)
+            assertEquals("你好", v.swipeRevealedForTest())
+            val swipeActions = assertSwipeActionStrip(
+                v,
+                "你好",
+                listOf(
+                    ctx.getString(com.aegis.ime.R.string.clip_edit),
+                    ctx.getString(com.aegis.ime.R.string.clip_note),
+                    ctx.getString(com.aegis.ime.R.string.clip_move),
+                    ctx.getString(com.aegis.ime.R.string.clip_delete),
+                ),
+            )
+            swipeActions.forEach { action ->
+                val (actionX, _) = centerInRoot(v, action)
+                assertTrue(actionX - action.width / 2f >= 0f)
+                assertTrue(actionX + action.width / 2f <= v.width)
+            }
+            assertTrue(actionButtons(v).isEmpty())
+            rootSwipe(v, swipeActions.last(), 200f)
+            assertNull(v.swipeRevealedForTest())
+            layout(v, width)
+            val expand = allViews(v).first { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_expand) }
+            assertTrue(expand.performClick())
+            assertNull(v.swipeRevealedForTest())
+            layout(v, width)
+            assertEquals(
+                listOf(
+                    ctx.getString(com.aegis.ime.R.string.clip_edit),
+                    ctx.getString(com.aegis.ime.R.string.clip_note),
+                    ctx.getString(com.aegis.ime.R.string.clip_move),
+                    ctx.getString(com.aegis.ime.R.string.clip_delete),
+                ),
+                actionButtons(v).map { it.text.toString() },
+            )
+        }
+    }
+
+    @Test
+    @Config(sdk = [34], qualifiers = "zh")
+    fun clipboard_swipe_split_reuses_the_expanded_boxed_split_character() {
+        val v = clipView(listOf("第一条"))
+        v.revealSwipeForTest("第一条")
+        layout(v)
+        val swipeSplit = allViews(v).single {
+            it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_split_word)
+        }
+        val asset = requireNotNull(swipeSplit.tag)
+        assertEquals("拆", asset)
+        assertBoxedSymbol(swipeSplit)
+        v.hideSwipeForTest()
+        v.expandForTest("第一条")
+        layout(v)
+        val expandedSplit = actionButtons(v).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_split_word) }
+        assertTrue(asset === expandedSplit.tag)
+        assertTrue(expandedSplit.contentDescription?.toString()?.startsWith("拆 ") == true)
+        assertBoxedSymbol(requireNotNull(expandedSplit.compoundDrawables[0]))
+    }
+
+    @Test fun clipboard_swipe_plus_keeps_its_geometry_hit_region_and_action() {
+        val pending = ArrayList<List<String>>()
+        val view = clipView(listOf("第一条")).apply { onAddCategoryThenAdd = { pending += it } }
+        view.revealSwipeForTest("第一条")
+        layout(view)
+        val plus = allViews(view).single {
+            it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_add_phrase)
+        }
+        draw(plus)
+        val hit = Rect()
+        plus.getHitRect(hit)
+        assertEquals(dp(48), plus.width)
+        assertEquals(dp(48), plus.height)
+        assertEquals(Rect(plus.left, plus.top, plus.right, plus.bottom), hit)
+        assertTrue(view.isImmediateActionForTest(plus))
+        assertTrue(plus.background === view.immediateActionDrawableForTest(plus))
+        assertNull(plus.foreground)
+        assertNull(plus.tag)
+        assertTrue(plus.performClick())
+        assertEquals(listOf(listOf("第一条")), pending)
+    }
+
+    @Test
+    @Config(sdk = [34], qualifiers = "zh")
+    fun phrase_swipe_move_reuses_the_expanded_boxed_move_character() {
+        val v = phraseView(listOf("你好"))
+        v.revealSwipeForTest("你好")
+        layout(v)
+        val swipeMove = allViews(v).single {
+            it !is TextView && it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_move)
+        }
+        val asset = requireNotNull(swipeMove.tag)
+        assertEquals("移", asset)
+        assertBoxedSymbol(swipeMove)
+        v.hideSwipeForTest()
+        v.expandForTest("你好")
+        layout(v)
+        val expandedMove = actionButtons(v).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_move) }
+        assertTrue(asset === expandedMove.tag)
+        assertTrue(expandedMove.contentDescription?.toString()?.startsWith("移 ") == true)
+        assertBoxedSymbol(requireNotNull(expandedMove.compoundDrawables[0]))
+    }
+
     @Test fun tabs_and_categories_dispatch_only_inside_their_own_targets() {
         val clipboard = ctx.getString(com.aegis.ime.R.string.clip_clipboard)
         val phrases = ctx.getString(com.aegis.ime.R.string.clip_phrases)
@@ -519,6 +974,20 @@ class ClipboardViewInteractionTest {
         }
     }
 
+    @Test fun the_clipboard_edit_action_hands_back_the_row_key_alone() {
+        val long = "很长的一条内容".repeat(40)
+        val v = clipView(listOf(long))
+        val seen = ArrayList<String>()
+        v.onEditClip = { key -> seen.add(key) }
+        layout(v)
+        rootSwipe(v, bodyOf(v, long), -300f)
+        layout(v)
+        val actions = swipeActions(v, long)
+        val edit = actions.single { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_edit) }
+        edit.performClick()
+        assertEquals("the row key alone identifies what to edit", listOf(long), seen)
+    }
+
     @Test fun the_dropdown_edit_action_hands_back_the_row_key_alone() {
         val v = clipView(listOf("第一条"))
         val seen = ArrayList<String>()
@@ -529,6 +998,43 @@ class ClipboardViewInteractionTest {
         val edit = actionButtons(v).single { it.text.toString() == ctx.getString(com.aegis.ime.R.string.clip_edit) }
         edit.performClick()
         assertEquals(listOf("第一条"), seen)
+    }
+
+    @Test fun rtl_swipe_strips_keep_physical_action_order_and_right_edge_anchor() {
+        val cases = listOf(
+            Triple(
+                clipView(listOf("第一条")),
+                "第一条",
+                listOf(
+                    ctx.getString(com.aegis.ime.R.string.clip_add_phrase),
+                    ctx.getString(com.aegis.ime.R.string.clip_edit),
+                    ctx.getString(com.aegis.ime.R.string.clip_split_word),
+                    ctx.getString(com.aegis.ime.R.string.clip_delete),
+                ),
+            ),
+            Triple(
+                phraseView(listOf("你好")),
+                "你好",
+                listOf(
+                    ctx.getString(com.aegis.ime.R.string.clip_edit),
+                    ctx.getString(com.aegis.ime.R.string.clip_note),
+                    ctx.getString(com.aegis.ime.R.string.clip_move),
+                    ctx.getString(com.aegis.ime.R.string.clip_delete),
+                ),
+            ),
+        )
+        for ((view, text, expected) in cases) {
+            view.layoutDirection = View.LAYOUT_DIRECTION_RTL
+            view.revealSwipeForTest(text)
+            layout(view)
+            val actions = assertSwipeActionStrip(view, text, expected)
+            val strip = actions.first().parent as View
+            val scroller = strip.parent as View
+            val frame = scroller.parent as View
+            assertEquals(expected, actions.sortedBy { it.left }.map { it.contentDescription?.toString() })
+            assertEquals(frame.width, scroller.right)
+            assertEquals(scroller.width, strip.right)
+        }
     }
 
     @Test fun rtl_dropdown_action_rows_keep_physical_order_and_left_alignment() {
@@ -704,6 +1210,54 @@ class ClipboardViewInteractionTest {
         send(backdrop, MotionEvent.ACTION_DOWN, insideX, insideY, 96)
         send(backdrop, MotionEvent.ACTION_UP, insideX, insideY, 112)
         assertTrue("touches inside the popup never dismiss through the backdrop", v.overlayVisibleForTest())
+    }
+
+    @Test fun confirmed_bulk_clear_resets_item_actions_before_same_text_returns() {
+        val expand = ctx.getString(com.aegis.ime.R.string.clip_expand)
+        val collapse = ctx.getString(com.aegis.ime.R.string.clip_collapse)
+        val clear = ctx.getString(com.aegis.ime.R.string.clip_clear)
+
+        fun arm(v: ClipboardView, expanded: Boolean) {
+            if (expanded) {
+                v.expandForTest("x")
+                assertTrue(collapse in allViews(v).mapNotNull { it.contentDescription?.toString() })
+            } else {
+                v.revealSwipeForTest("x")
+                assertEquals("x", v.swipeRevealedForTest())
+            }
+        }
+
+        fun assertNeutral(v: ClipboardView) {
+            val descriptions = allViews(v).mapNotNull { it.contentDescription?.toString() }
+            assertNull(v.swipeRevealedForTest())
+            assertTrue(expand in descriptions)
+            assertFalse(collapse in descriptions)
+            assertTrue(actionButtons(v).isEmpty())
+        }
+
+        for (expanded in listOf(false, true)) {
+            val history = mutableListOf("x")
+            val clip = clipView(history).apply { onClearHistory = { history.clear(); true } }
+            arm(clip, expanded)
+            clip.confirmClearHistoryForTest()
+            assertTrue(clickText(overlayOf(clip), clear))
+            assertTrue(history.isEmpty())
+            history.add("x")
+            clip.refresh()
+            assertTrue("x" in labels(mainOf(clip)))
+            assertNeutral(clip)
+
+            val phrases = mutableListOf("x")
+            val phrase = phraseView(phrases).apply { onClearCategory = { phrases.clear() } }
+            arm(phrase, expanded)
+            phrase.confirmClearForTest()
+            assertTrue(clickText(overlayOf(phrase), clear))
+            assertTrue(phrases.isEmpty())
+            phrases.add("x")
+            phrase.refresh()
+            assertTrue("x" in labels(mainOf(phrase)))
+            assertNeutral(phrase)
+        }
     }
 
     @Test fun a_full_rebuild_re_applies_scroll_once_the_deferred_rows_land() {

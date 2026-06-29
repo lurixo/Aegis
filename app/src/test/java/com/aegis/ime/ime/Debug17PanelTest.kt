@@ -24,6 +24,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.ScrollView
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
@@ -84,6 +85,28 @@ class Debug17PanelTest {
         v.performClick(); return true
     }
     private fun dp(value: Int): Int = (value * ctx.resources.displayMetrics.density).toInt()
+    private fun swipeActions(v: ClipboardView, text: String): List<View> {
+        val body = textViews(v).first { it.text?.toString() == text }
+        val scroller = ((body.parent as View).parent as ViewGroup).getChildAt(0) as ViewGroup
+        val strip = scroller.getChildAt(0) as ViewGroup
+        return (0 until strip.childCount).map(strip::getChildAt)
+    }
+
+    private fun assertSwipeStrip(v: ClipboardView, text: String, descriptions: List<String>) {
+        layout(v)
+        val actions = swipeActions(v, text)
+        val strip = actions.first().parent as View
+        assertEquals(descriptions, actions.map { it.contentDescription?.toString() })
+        assertTrue(actions.all { it !is TextView && it.hasOnClickListeners() })
+        assertTrue(actions.all { it.width == dp(48) && it.height == dp(48) })
+        assertTrue(actions.all { it.background is ImeKeySurface })
+        assertEquals(descriptions.size * (dp(48) + dp(4)), strip.width)
+        assertEquals(dp(4), actions.first().left)
+        assertEquals(strip.width, actions.last().right)
+        actions.zipWithNext().forEach { (left, right) -> assertEquals(dp(4), right.left - left.right) }
+        val body = textViews(v).first { it.text?.toString() == text }
+        assertEquals(-strip.width.toFloat(), (body.parent as View).translationX, 0f)
+    }
 
     private fun assertActionPopup(v: ClipboardView, expectedItems: List<String>): List<TextView> {
         layout(v)
@@ -160,6 +183,68 @@ class Debug17PanelTest {
         assertEquals("工作", deleted)
     }
 
+
+    @Test fun clipboard_left_swipe_reveals_add_edit_split_delete_icon_strip() {
+        val v = clipView()
+        v.revealSwipeForTest("hello")
+        assertEquals("hello", v.swipeRevealedForTest())
+        assertSwipeStrip(
+            v,
+            "hello",
+            listOf(
+                ctx.getString(com.aegis.ime.R.string.clip_add_phrase),
+                ctx.getString(com.aegis.ime.R.string.clip_edit),
+                ctx.getString(com.aegis.ime.R.string.clip_split_word),
+                ctx.getString(com.aegis.ime.R.string.clip_delete),
+            ),
+        )
+        assertTrue(actionButtons(v).isEmpty())
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_expand) in descs(v))
+        assertFalse(ctx.getString(com.aegis.ime.R.string.clip_collapse) in descs(v))
+    }
+
+    @Test fun a_narrow_card_scrolls_the_swipe_strip_to_reach_every_action() {
+        val v = clipView()
+        v.revealSwipeForTest("hello")
+        layout(v, width = dp(160))
+        val actions = swipeActions(v, "hello")
+        val strip = actions.first().parent as View
+        val scroller = strip.parent as HorizontalScrollView
+        assertEquals("the strip keeps every action at full size", 4 * (dp(48) + dp(4)), strip.width)
+        assertTrue("the scroller is capped to the card, not the strip", scroller.width < strip.width)
+        assertFalse("the platform scrollbar stays off", scroller.isHorizontalScrollBarEnabled)
+        val range = strip.width - scroller.width
+        scroller.scrollTo(range, 0)
+        assertEquals("the far edge of the strip lands inside the viewport", strip.width, scroller.scrollX + scroller.width)
+        assertEquals(ctx.getString(com.aegis.ime.R.string.clip_delete), actions.last().contentDescription?.toString())
+
+        val wide = clipView()
+        wide.revealSwipeForTest("hello")
+        layout(wide)
+        val wideStrip = swipeActions(wide, "hello").first().parent as View
+        assertEquals("a wide card shows the whole strip with nothing to scroll", wideStrip.width, (wideStrip.parent as View).width)
+    }
+
+    @Test fun clipboard_arrow_expansion_replaces_swipe_with_labeled_actions() {
+        val v = clipView()
+        v.revealSwipeForTest("hello")
+        assertEquals("hello", v.swipeRevealedForTest())
+        assertTrue(clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_expand)))
+        assertNull(v.swipeRevealedForTest())
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_collapse) in descs(v))
+        assertEquals(
+            listOf(
+                ctx.getString(com.aegis.ime.R.string.clip_phrases),
+                ctx.getString(com.aegis.ime.R.string.clip_edit),
+                ctx.getString(com.aegis.ime.R.string.clip_split_word),
+                ctx.getString(com.aegis.ime.R.string.clip_delete),
+            ),
+            actionButtons(v).map { it.text.toString() },
+        )
+        assertTrue(clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_collapse)))
+        assertTrue(actionButtons(v).isEmpty())
+    }
+
     @Test fun clipboard_longpress_menu_unchanged() {
         val v = clipView()
         val body = textViews(v).first { it.text?.toString() == "hello" }
@@ -215,6 +300,65 @@ class Debug17PanelTest {
         assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete)))
         assertEquals(listOf(listOf("hello")), deleted)
         assertFalse(v.isSelectModeForTest())
+    }
+
+
+    @Test fun phrase_left_swipe_reveals_edit_note_move_delete_icon_strip() {
+        val v = phraseView()
+        v.revealSwipeForTest("在吗")
+        assertSwipeStrip(
+            v,
+            "在吗",
+            listOf(
+                ctx.getString(com.aegis.ime.R.string.clip_edit),
+                ctx.getString(com.aegis.ime.R.string.clip_note),
+                ctx.getString(com.aegis.ime.R.string.clip_move),
+                ctx.getString(com.aegis.ime.R.string.clip_delete),
+            ),
+        )
+        assertTrue(actionButtons(v).isEmpty())
+        assertFalse(labels(v).any { it == "置顶" || it == "Pin to top" })
+    }
+
+    @Test fun category_switch_clears_a_stale_swipe_reveal() {
+        val v = phraseView()
+        v.revealSwipeForTest("在吗"); assertEquals("在吗", v.swipeRevealedForTest())
+        assertTrue("switch to 工作 chip", click(v, "工作"))
+        assertNull("a category switch drops the stale reveal", v.swipeRevealedForTest())
+    }
+
+    @Test fun a_decided_horizontal_gesture_never_commits() {
+        val picked = ArrayList<String>()
+        val v = clipView().apply { onPick = { picked.add(it) } }
+        v.settleSwipeForTest(-3f, "hello"); assertEquals("any leftward swipe reveals", "hello", v.swipeRevealedForTest())
+        v.hideSwipeForTest()
+        v.settleSwipeForTest(0f, "hello")
+        assertTrue("a decided horizontal gesture never 上屏s", picked.isEmpty())
+        assertNull("a non-leftward drift does not reveal", v.swipeRevealedForTest())
+    }
+
+    @Test fun clear_left_swipe_reveals_clear_right_swipe_hides() {
+        val v = clipView()
+        v.settleSwipeForTest(-100f, "hello"); assertEquals("clear left → reveal", "hello", v.swipeRevealedForTest())
+        v.settleSwipeForTest(100f, "hello"); assertNull("clear right → hide", v.swipeRevealedForTest())
+    }
+
+    @Test fun phrase_arrow_and_swipe_render_distinct_action_content() {
+        val v = phraseView().apply { expandForTest("你好") }
+        val arrowActions = actionButtons(v).map { it.text.toString() }
+        v.revealSwipeForTest("你好")
+        assertEquals(listOf(ctx.getString(com.aegis.ime.R.string.clip_edit), ctx.getString(com.aegis.ime.R.string.clip_note), ctx.getString(com.aegis.ime.R.string.clip_move), ctx.getString(com.aegis.ime.R.string.clip_delete)), arrowActions)
+        assertTrue(actionButtons(v).isEmpty())
+        assertSwipeStrip(
+            v,
+            "你好",
+            listOf(
+                ctx.getString(com.aegis.ime.R.string.clip_edit),
+                ctx.getString(com.aegis.ime.R.string.clip_note),
+                ctx.getString(com.aegis.ime.R.string.clip_move),
+                ctx.getString(com.aegis.ime.R.string.clip_delete),
+            ),
+        )
     }
 
     @Test fun phrase_item_delete_cancels_and_confirms_without_early_mutation() {

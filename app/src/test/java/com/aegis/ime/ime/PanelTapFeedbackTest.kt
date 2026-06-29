@@ -92,6 +92,26 @@ class PanelTapFeedbackTest {
         assertEquals("move and cancel do not replay", before + 1, sounds(root))
     }
 
+    @Test fun clipboard_tabs_categories_body_and_existing_actions_play_once_on_both_layouts() {
+        for (id in listOf(LayoutId.NINE, LayoutId.ALPHA)) {
+            val root = root(id)
+            val panel = ClipboardView(ctx).apply {
+                categoriesProvider = { listOf("first", "second") }
+                phrasesInProvider = { listOf("phrase") }
+            }
+            root.showPanelImmediately(panel)
+            layout(root)
+            panel.refresh()
+            layout(panel)
+            assertPress(root, text(panel, ctx.getString(R.string.clip_phrases)))
+            text(panel, ctx.getString(R.string.clip_phrases)).performClick()
+            layout(panel)
+            assertPress(root, text(panel, "second"))
+            assertPress(root, text(panel, "phrase"))
+            assertPress(root, text(panel, ctx.getString(R.string.clip_clipboard)))
+        }
+    }
+
     @Test fun bar_actions_custom_symbols_and_popup_choices_use_the_same_current_feedback() {
         val root = root()
         val edit = EditBarView(ctx); root.addView(edit); layout(edit)

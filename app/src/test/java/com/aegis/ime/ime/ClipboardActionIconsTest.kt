@@ -78,10 +78,19 @@ class ClipboardActionIconsTest {
                 .compoundDrawables[0],
         )
 
+    private fun swipeButton(v: ClipboardView, desc: String): View =
+        allViews(v).first { it !is TextView && it.contentDescription?.toString() == desc && it.hasOnClickListeners() }
+
     private fun renderIcon(icon: Drawable): Bitmap {
         val bmp = Bitmap.createBitmap(icon.intrinsicWidth, icon.intrinsicHeight, Bitmap.Config.ARGB_8888)
         icon.setBounds(0, 0, icon.intrinsicWidth, icon.intrinsicHeight)
         icon.draw(Canvas(bmp))
+        return bmp
+    }
+
+    private fun renderView(v: View): Bitmap {
+        val bmp = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
+        v.draw(Canvas(bmp))
         return bmp
     }
 
@@ -138,6 +147,29 @@ class ClipboardActionIconsTest {
         }
     }
 
+    @Test fun swipe_strip_char_icons_render_a_15dp_box_centered_in_the_button() {
+        val clip = clipView(listOf("第一条")).apply { revealSwipeForTest("第一条") }
+        layout(clip)
+        val phrase = phraseView(listOf("你好")).apply { revealSwipeForTest("你好") }
+        layout(phrase)
+        val cases = listOf(
+            clip to ctx.getString(com.aegis.ime.R.string.clip_split_word),
+            phrase to ctx.getString(com.aegis.ime.R.string.clip_move),
+        )
+        for ((view, desc) in cases) {
+            val button = swipeButton(view, desc)
+            assertEquals(dp(48), button.width)
+            val box = dp(15)
+            val left = (button.width - box) / 2
+            val top = (button.height - box) / 2
+            val ink = requireNotNull(inkBox(renderView(button), 0, 0, button.width, button.height))
+            assertEquals("$desc ink left", left, ink[0])
+            assertEquals("$desc ink top", top, ink[1])
+            assertEquals("$desc ink right", left + box - 1, ink[2])
+            assertEquals("$desc ink bottom", top + box - 1, ink[3])
+        }
+    }
+
     @Test fun inline_char_glyph_is_ink_centered_in_its_box() {
         val phrase = phraseView(listOf("你好")).apply { expandForTest("你好") }
         layout(phrase)
@@ -159,6 +191,30 @@ class ClipboardActionIconsTest {
         assertEquals(size / 2f, (glyph[1] + glyph[3] + 1) / 2f, 1.5f)
     }
 
+    @Test fun swipe_strip_char_glyph_is_ink_centered_in_its_box() {
+        val clip = clipView(listOf("第一条")).apply { revealSwipeForTest("第一条") }
+        layout(clip)
+        val button = swipeButton(clip, ctx.getString(com.aegis.ime.R.string.clip_split_word))
+        val canvas = TextRecordingCanvas(Bitmap.createBitmap(button.width, button.height, Bitmap.Config.ARGB_8888))
+        button.draw(canvas)
+        val box = dp(15)
+        val left = (button.width - box) / 2
+        val top = (button.height - box) / 2
+        val boxCx = left + box / 2f
+        val boxCy = top + box / 2f
+        val ink = inkRectOf("拆")
+        assertEquals(1, canvas.texts.size)
+        val (text, align, anchor) = canvas.texts[0]
+        assertEquals("拆", text)
+        assertEquals(Paint.Align.LEFT, align)
+        assertEquals(boxCx - ink.exactCenterX(), anchor.first, 0.01f)
+        assertEquals(boxCy - ink.exactCenterY(), anchor.second, 0.01f)
+        val inset = dp(2)
+        val glyph = requireNotNull(inkBox(renderView(button), left + inset, top + inset, left + box - inset, top + box - inset))
+        assertEquals(boxCx, (glyph[0] + glyph[2] + 1) / 2f, 1.5f)
+        assertEquals(boxCy, (glyph[1] + glyph[3] + 1) / 2f, 1.5f)
+    }
+
     @Test fun edit_square_glyph_ink_matches_the_designed_geometry() {
         val s = 50f
         val cx = 100f
@@ -177,5 +233,44 @@ class ClipboardActionIconsTest {
         assertEquals(cy + 0.8f * s + half, ink[3].toFloat(), 2f)
         assertTrue(inkBox(bmp, (cx + 0.25f * s).toInt(), (cy - s).toInt(), (cx + s).toInt(), (cy - 0.25f * s).toInt()) != null)
         assertNull(inkBox(bmp, (cx - 0.2f * s).toInt(), (cy + 0.05f * s).toInt(), (cx + 0.05f * s).toInt(), (cy + 0.3f * s).toInt()))
+    }
+
+    @Test fun edit_action_sites_render_the_edit_square_glyph() {
+        val phrase = phraseView(listOf("你好")).apply { expandForTest("你好") }
+        layout(phrase)
+        val icon = actionIcon(phrase, ctx.getString(com.aegis.ime.R.string.clip_edit))
+        val bmp = renderIcon(icon)
+        val cx = icon.intrinsicWidth / 2f
+        val cy = icon.intrinsicHeight / 2f
+        val s = icon.intrinsicWidth * 0.42f
+        assertTrue(inkBox(bmp, 0, 0, icon.intrinsicWidth, icon.intrinsicHeight) != null)
+        assertTrue(inkBox(bmp, (cx + 0.3f * s).toInt(), (cy - s).toInt(), (cx + s).toInt(), (cy - 0.3f * s).toInt()) != null)
+        val swiped = phraseView(listOf("你好")).apply { revealSwipeForTest("你好") }
+        layout(swiped)
+        val button = swipeButton(swiped, ctx.getString(com.aegis.ime.R.string.clip_edit))
+        val viewBmp = renderView(button)
+        val bx = button.width / 2f
+        val by = button.height / 2f
+        val bs = dp(9).toFloat()
+        assertTrue(inkBox(viewBmp, (bx + 0.3f * bs).toInt(), (by - 1.1f * bs).toInt(), (bx + bs).toInt(), (by - 0.3f * bs).toInt()) != null)
+    }
+
+    @Test
+    @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
+    fun english_locale_swaps_the_char_icons_for_glyphs() {
+        val clip = clipView(listOf("first")).apply { revealSwipeForTest("first") }
+        layout(clip)
+        val split = swipeButton(clip, ctx.getString(com.aegis.ime.R.string.clip_split_word))
+        val splitCanvas = TextRecordingCanvas(Bitmap.createBitmap(split.width, split.height, Bitmap.Config.ARGB_8888))
+        split.draw(splitCanvas)
+        assertTrue("no char glyph is drawn for the split action", splitCanvas.texts.isEmpty())
+        assertTrue(inkBox(renderView(split), 0, 0, split.width, split.height) != null)
+        val phrase = phraseView(listOf("hello")).apply { revealSwipeForTest("hello") }
+        layout(phrase)
+        val move = swipeButton(phrase, ctx.getString(com.aegis.ime.R.string.clip_move))
+        val moveCanvas = TextRecordingCanvas(Bitmap.createBitmap(move.width, move.height, Bitmap.Config.ARGB_8888))
+        move.draw(moveCanvas)
+        assertTrue("no char glyph is drawn for the move action", moveCanvas.texts.isEmpty())
+        assertTrue(inkBox(renderView(move), 0, 0, move.width, move.height) != null)
     }
 }
