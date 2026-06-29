@@ -147,8 +147,9 @@ object ModelDownload {
     const val DICT_URL =
         "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.13/aegis_dict_pack_debug13.zip"
 
-    /** PLACEHOLDER — the dict pack's release page, shown as the card's tappable 直达链接 (B4). */
-    const val DICT_REPO_URL = "https://github.com/lurixo/aegis/releases"
+    /** The UPSTREAM dictionary source repo, shown as the card's tappable 来源链接 — symmetric with the model
+     *  card's [REPO_URL] (amzxyz/RIME-LMDG). Not a release asset / not our own repo (debug.14 Bug1). */
+    const val DICT_REPO_URL = "https://github.com/amzxyz/rime-wanxiang"
 
     /** The downloaded zip's filename + its expected sha256 (the debug.13 dict pack). */
     const val DICT_NAME = "aegis_dict_pack_debug13.zip"

@@ -93,4 +93,19 @@ class SettingsRenderTest {
             }
         }
     }
+
+    /**
+     * debug.14 Bug2: the explicit 检测更新 experience in the 已下载 state — the button (present+idle), the visible
+     * "正在检查更新…" step, and the 无更新 result. Seeded via [DownloadCardPreview] so no network HEAD fires.
+     */
+    @Test fun download_card_update_states() {
+        for (dark in listOf(false, true)) {
+            val t = if (dark) "dark" else "light"
+            snapCompose("dlcard_states_$t.png", dark) {
+                DictDownloadCard(DownloadCardPreview(present = true))                       // 检测更新 button visible/enabled
+                GramDownloadCard(DownloadCardPreview(present = true, checking = true))      // 正在检查更新… process state
+                DictDownloadCard(DownloadCardPreview(present = true, status = "已是最新，无更新（全量词库已是最新版本）")) // 结果态
+            }
+        }
+    }
 }

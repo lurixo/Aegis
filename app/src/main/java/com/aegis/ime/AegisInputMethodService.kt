@@ -527,6 +527,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
      * main thread (listener registered without a handler), so touching [inputView] here is safe.
      */
     private fun onSystemClipChanged() {
+        // BUG3-1: restore the debug.13 short-circuit — don't even read the system clipboard when capture is
+        // paused (secure field / history off) AND there's no pending self-write to consume. (BUG3 had moved the
+        // gate below the read to consume the self-write guard; this keeps the guard consumable while avoiding
+        // the getPrimaryClip IPC in password fields / history-off when nothing is pending.)
+        if (!com.aegis.ime.user.ClipboardPolicy.shouldReadSystemClip(selfClipUri != null, secureField, historyEnabled())) return
         val clip = runCatching { clipboardManager.primaryClip }.getOrNull() ?: return
         if (clip.itemCount == 0) return
         val item = clip.getItemAt(0)
