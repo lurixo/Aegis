@@ -38,11 +38,13 @@ import androidx.core.content.edit
 
 internal const val PREF_ASSOCIATIONS_ON = "pref_associations_on"
 
+internal const val ASSOCIATIONS_DEFAULT_ON = false
+
 @Composable
 internal fun AssociationToggleCard() {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
-    var on by remember { mutableStateOf(prefs.getBoolean(PREF_ASSOCIATIONS_ON, true)) }
+    var on by remember { mutableStateOf(prefs.getBoolean(PREF_ASSOCIATIONS_ON, ASSOCIATIONS_DEFAULT_ON)) }
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -56,7 +58,7 @@ internal fun AssociationToggleCard() {
             ) {
                 Text("联想", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "打字时在候选栏显示下一词预测/联想。默认开,可关。",
+                    "打字时在候选栏显示下一词预测/联想。默认关,可开。",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
