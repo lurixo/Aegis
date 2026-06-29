@@ -303,4 +303,72 @@ class Debug17PanelTest {
         assertEquals("all blocks marked", setOf("你好", "abc"), v.splitSelectedForTest())
         assertEquals("all blocks highlighted", pal.chipBg, bgColor(chip(overlayOf(v), "你好")!!))
     }
+
+    // ---------- debug.17: note display + 备注, import/export submenu, E2 clear-category, F1 scroll ----------
+
+    private fun scrollViews(root: View): List<android.widget.ScrollView> {
+        val out = ArrayList<android.widget.ScrollView>()
+        fun walk(x: View) { if (x is android.widget.ScrollView) out.add(x); if (x is ViewGroup) for (i in 0 until x.childCount) walk(x.getChildAt(i)) }
+        walk(root); return out
+    }
+
+    @Test fun phrase_note_is_displayed_but_pick_commits_the_original() {
+        val picked = ArrayList<String>()
+        val v = ClipboardView(ctx).apply {
+            categoriesProvider = { listOf("默认") }
+            phrasesInProvider = { _ -> listOf("longoriginal") }
+            phraseNoteProvider = { _, t -> if (t == "longoriginal") "别名" else "" }
+            onPick = { picked.add(it) }
+            applyPalette(pal); forcePhrasesStateForTest("默认"); refresh()
+        }
+        assertTrue("list shows the NOTE", "别名" in labels(v))
+        assertFalse("list does NOT show the original text", "longoriginal" in labels(v))
+        textViews(v).first { it.text?.toString() == "别名" }.performClick()
+        assertEquals("tapping the note commits the ORIGINAL text", listOf("longoriginal"), picked)
+    }
+
+    @Test fun phrase_without_note_shows_original_text() {
+        assertTrue("你好" in labels(phraseView())) // default provider → no note → original
+    }
+
+    @Test fun expanded_phrase_card_has_a_note_action() {
+        var note: Pair<String, String>? = null
+        val v = phraseView().apply { onEditNote = { c, t -> note = c to t }; expandForTest("你好") }
+        assertTrue("✐ 备注" in labels(v))
+        assertTrue(click(v, "✐ 备注"))
+        assertEquals("默认" to "你好", note)
+    }
+
+    @Test fun manage_menu_offers_import_and_export() {
+        var imp = 0; var exp = 0
+        val v = phraseView().apply { onImportPhrases = { imp++ }; onExportPhrases = { exp++ } }
+        v.showPhraseManageMenuForTest()
+        val ls = labels(overlayOf(v))
+        assertTrue("导入常用语" in ls); assertTrue("导出常用语" in ls)
+        assertTrue(click(overlayOf(v), "导入常用语")); assertEquals(1, imp)
+        v.showPhraseManageMenuForTest()
+        assertTrue(click(overlayOf(v), "导出常用语")); assertEquals(1, exp)
+    }
+
+    @Test fun phrase_tab_last_top_icon_clears_current_category_with_confirm() {
+        var cleared: String? = null
+        val v = phraseView().apply { onClearCategory = { cleared = it } }
+        assertTrue("phrase tab top bar carries the clear-category icon", "🗑" in labels(mainOf(v)))
+        assertFalse("⚙ gear is NOT on the phrase tab", "⚙" in labels(mainOf(v)))
+        v.confirmClearForTest()
+        val ls = labels(overlayOf(v))
+        assertTrue("confirm overlay (二次确认)", "清空" in ls && "取消" in ls)
+        assertNull("nothing cleared until confirmed", cleared)
+        assertTrue(click(overlayOf(v), "清空")); assertEquals("clears the CURRENT category", "默认", cleared)
+    }
+
+    @Test fun clipboard_tab_keeps_the_gear_menu() {
+        assertTrue("⚙ gear stays on the 剪贴板 tab", "⚙" in labels(mainOf(clipView())))
+    }
+
+    @Test fun expanding_a_card_wraps_its_body_in_a_scrollview() {
+        val baseline = scrollViews(clipView(listOf("a long clip"))).size // the list ScrollView only
+        val expanded = clipView(listOf("a long clip")).apply { expandForTest("a long clip") }
+        assertTrue("F1: an expanded card adds a bounded ScrollView around its body", scrollViews(expanded).size > baseline)
+    }
 }
