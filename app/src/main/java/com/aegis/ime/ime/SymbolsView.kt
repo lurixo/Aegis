@@ -59,7 +59,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     private var selected = 0
     private var locked = false // P3: when on, tapping a symbol does NOT close the panel
     // debug.16: whether the chip bar is currently a 网址补全 (URL-completion) bar — true on the 网络 tab and for
-    // url-like recents in 常用. Ordinary multi-char marks (中文 破折号 —— / 省略号 ……) also chip, but are NOT this.
+    // url-like recents in 常用. Non-url multi-char tokens (e.g. 数学 三角函数 sin/arcsin) ride the GRID, not this.
     private var showingUrlCompletions = false
 
     private var palette = ImePalette.STATIC_LIGHT
@@ -155,18 +155,18 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         netBar.removeAllViews()
         val symbols = symbolsFor(index)
         if (symbols.isEmpty()) { netBar.visibility = View.GONE; grid.addView(emptySpan()); return }
-        // P5 + debug.16: multi-char entries render as content-sized chips so they NEVER truncate in the single-
+        // P5 + debug.16: only URL completions render as content-sized chips so they NEVER truncate in the single-
         // glyph grid. The 网址补全 chip treatment is scoped to the 网络 tab (and url-like recents in 常用);
-        // OTHER multi-char marks — the standard Chinese 破折号 —— / 省略号 …… in 中文 — are ordinary insertable
-        // chips, committed straight to the editor on tap, NOT advertised as URL completions. Single glyphs keep
-        // the unchanged grid path, so every all-glyph category stays pixel-identical.
+        // OTHER multi-char tokens — e.g. 数学 三角函数 (sin/arcsin/…) — are ordinary insertable cells committed
+        // straight to the editor on tap, NOT advertised as URL completions. Single glyphs keep the unchanged grid
+        // path, so every all-glyph category stays pixel-identical.
         val isNet = index != 0 && SymbolCatalog.categories.getOrNull(index - 1)?.id == "net"
         val completions = symbols.filter { it.length > 1 }
         // debug.17 A: ONLY genuine URL completions ride the content-sized chip bar — and ONLY the url-like ones,
-        // even on a tab that also holds an ordinary multi-char mark. Everything else (single glyphs AND ordinary
-        // multi-char marks like 中文 破折号 —— / 省略号 ……) rides the 7-column grid as an equal-width cell (text
-        // auto-shrinks to fit), in natural catalogue order — so a —— never becomes a wide tile that breaks the
-        // grid, NOT EVEN when 常用 mixes it with a url completion (an edge case).
+        // even on a tab that also holds a non-url multi-char token. Everything else (single glyphs AND non-url
+        // multi-char tokens like 数学 三角函数 sin/arcsin) rides the 7-column grid as an equal-width cell (text
+        // auto-shrinks to fit), in natural catalogue order — so arcsin never becomes a wide tile that breaks the
+        // grid, NOT EVEN when 常用 mixes a multi-char mark with a url completion (an edge case).
         val urlCompletions = if (completions.isNotEmpty() && (isNet || completions.any { isUrlLike(it) }))
             completions.filter { isUrlLike(it) } else emptyList()
         showingUrlCompletions = urlCompletions.isNotEmpty()
@@ -230,7 +230,8 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     }
 
     /** debug.16: a multi-char token that is a URL fragment (http:// https:// www. :// …) — gets the 网址补全
-     *  treatment. Ordinary marks like —— / …… contain none of / : . so they chip without that label. */
+     *  treatment. Non-url multi-char tokens like 数学 三角函数 (sin/arcsin) contain none of / : . so they ride the
+     *  grid as ordinary cells, not the url chip bar. */
     private fun isUrlLike(s: String): Boolean = s.any { it == '/' || it == ':' || it == '.' }
 
     private fun symbolsFor(index: Int): List<String> =
@@ -272,8 +273,8 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
                 gravity = Gravity.CENTER
                 maxLines = 1
                 if (symbol.length > 1) {
-                    // debug.17 A: a multi-char mark (—— / ……) auto-shrinks to fit the equal-width cell, so it
-                    // never truncates and never needs a wide tile that breaks the grid.
+                    // debug.17 A: a multi-char token (e.g. 数学 三角函数 arcsin) auto-shrinks to fit the equal-width
+                    // cell, so it never truncates and never needs a wide tile that breaks the grid.
                     TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(this, 9, ImeType.display.toInt(), 1, TypedValue.COMPLEX_UNIT_SP)
                 } else {
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.display)
@@ -317,13 +318,13 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun toggleLockForTest() = toggleLock()
     internal fun gridScrollYForTest(): Int = gridScroll.scrollY
 
-    // P5 net-layout test seams. "net bar" = the 网址补全 (URL-completion) bar specifically — debug.16: an
-    // ordinary multi-char chip (中文 —— / ……) makes the chip bar VISIBLE but is NOT a 网址补全 bar.
+    // P5 net-layout test seams. "net bar" = the 网址补全 (URL-completion) chip bar. Non-url multi-char tokens
+    // (e.g. 数学 三角函数 sin/arcsin) ride the GRID instead, leaving this bar hidden.
     internal fun netBarVisibleForTest(): Boolean = showingUrlCompletions
-    /** Whether the chip bar is showing at all (url completions OR ordinary multi-char marks). */
+    /** Whether the chip (net) bar is showing at all — currently only URL completions ever populate it. */
     internal fun chipBarVisibleForTest(): Boolean = netBar.visibility == View.VISIBLE
     internal fun gridCellCountForTest(): Int = grid.childCount
-    /** debug.17 A: the symbol text of each grid cell (the first TextView in each tile) — incl. multi-char —— / ……. */
+    /** debug.17 A: the symbol text of each grid cell (the first TextView in each tile) — incl. multi-char cells like 数学 arcsin. */
     internal fun gridCellTextsForTest(): List<String> {
         val out = ArrayList<String>()
         for (i in 0 until grid.childCount) {

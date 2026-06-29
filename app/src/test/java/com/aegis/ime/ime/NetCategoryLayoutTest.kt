@@ -93,8 +93,8 @@ class NetCategoryLayoutTest {
         assertTrue("中文 grid populated", sv.gridCellCountForTest() > 0)
     }
 
-    // ---- debug.17 A: 中文 破折号 —— / 省略号 …… render as ORDINARY EQUAL-WIDTH GRID CELLS (in their natural
-    //      position), NOT wide chips that break the 7-column grid, and never a 网址补全 url bar ----
+    // ---- debug.17: 中文 carries ONLY single-cell marks — the single 短横 — / 三点 … ride the 7-column grid;
+    //      the wide 双破折号 —— / 双省略号 …… were dropped, so there is no multi-char tile and never a url bar ----
 
     private fun textLeaves(v: View): List<TextView> = when (v) {
         is TextView -> listOf(v)
@@ -111,17 +111,17 @@ class NetCategoryLayoutTest {
         return v != null
     }
 
-    @Test fun chinese_double_dash_and_ellipsis_are_ordinary_grid_cells_not_a_chip_bar() {
+    @Test fun chinese_marks_are_single_cell_grid_cells_with_no_chip_bar() {
         val sv = SymbolsView(ctx)
         sv.applyPalette(light)
         sv.openCategoryForTest(1) // 中文
-        // debug.17 A: the multi-char marks ride the GRID as equal-width cells (text auto-shrinks to fit), in
-        // their natural catalogue position — NOT a wide chip tile, NOT a chip bar.
+        // debug.17: 中文 carries ONLY single-cell marks — the single — / … ride the grid; the wide —— / …… were
+        // dropped, so there is no multi-char tile and no chip bar at all.
         val cells = sv.gridCellTextsForTest()
-        assertTrue("中文 破折号 —— is a grid cell", "——" in cells)
-        assertTrue("中文 省略号 …… is a grid cell", "……" in cells)
-        assertTrue("single — / … still present as grid cells", "—" in cells && "…" in cells)
-        assertFalse("NO chip bar on 中文 (the marks ride the grid now)", sv.chipBarVisibleForTest())
+        assertTrue("single — / … are grid cells", "—" in cells && "…" in cells)
+        assertFalse("双破折号 —— dropped", "——" in cells)
+        assertFalse("双省略号 …… dropped", "……" in cells)
+        assertFalse("NO chip bar on 中文 (only single-cell marks)", sv.chipBarVisibleForTest())
         assertFalse("中文 is not a 网址补全 url bar", sv.netBarVisibleForTest())
     }
 
@@ -131,11 +131,11 @@ class NetCategoryLayoutTest {
         sv.onSymbol = { committed = it }
         sv.applyPalette(light)
         sv.openCategoryForTest(1) // 中文
-        assertTrue("—— cell present + clickable", clickByText(sv, "——"))
-        assertEquals("clicking the —— cell inserts the double em-dash", "——", committed)
+        assertTrue("— cell present + clickable", clickByText(sv, "—"))
+        assertEquals("clicking the — cell inserts the single em-dash", "—", committed)
         committed = null
-        assertTrue("…… cell present + clickable", clickByText(sv, "……"))
-        assertEquals("clicking the …… cell inserts the double ellipsis", "……", committed)
+        assertTrue("… cell present + clickable", clickByText(sv, "…"))
+        assertEquals("clicking the … cell inserts the single ellipsis", "…", committed)
     }
 
     @Test fun common_tab_mixing_a_url_and_a_chinese_mark_chips_only_the_url() {
