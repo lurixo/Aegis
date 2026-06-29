@@ -59,31 +59,49 @@ class PhraseManagerActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // debug.16: the clipboard panel's 常用语 long-press 编辑 launches this Activity focused on the phrase's
+        // category (and its inline editor pre-opened), since text input only works in an Activity, not the IME panel.
+        val focusCategory = intent.getStringExtra(EXTRA_CATEGORY)
+        val focusPhrase = intent.getStringExtra(EXTRA_PHRASE)
         val store = ClipboardStore(filesDir).apply { load() }
         setContent {
             AegisTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    PhraseManagerScreen(store)
+                    PhraseManagerScreen(store, focusCategory, focusPhrase)
                 }
             }
         }
     }
+
+    companion object {
+        const val EXTRA_CATEGORY = "aegis.phrase.category"
+        const val EXTRA_PHRASE = "aegis.phrase.text"
+    }
 }
 
 @Composable
-private fun PhraseManagerScreen(store: ClipboardStore) {
-    var cats by remember { mutableStateOf(store.categories()) }
-    var sel by remember { mutableStateOf(cats.firstOrNull().orEmpty()) }
-    var phrases by remember { mutableStateOf(store.phrasesIn(sel)) }
+internal fun PhraseManagerScreen(store: ClipboardStore, focusCategory: String? = null, focusPhrase: String? = null) {
+    val initialCats = store.categories()
+    val initialSel = focusCategory?.takeIf { it in initialCats } ?: initialCats.firstOrNull().orEmpty()
+    var cats by remember { mutableStateOf(initialCats) }
+    var sel by remember { mutableStateOf(initialSel) }
+    var phrases by remember { mutableStateOf(store.phrasesIn(initialSel)) }
     var newCat by remember { mutableStateOf("") }
     var renameCat by remember { mutableStateOf("") }
     var newPhrase by remember { mutableStateOf("") }
+    // debug.16: inline phrase edit. `editing` = the phrase whose inline field is open ("" = none); `editText`
+    // is its draft. Pre-opened on the phrase the panel asked to edit (focusPhrase) when it exists in the category.
+    var editing by remember { mutableStateOf(focusPhrase?.takeIf { it in store.phrasesIn(initialSel) }.orEmpty()) }
+    var editText by remember { mutableStateOf(editing) }
+    var editError by remember { mutableStateOf(false) } // editPhrase rejected the draft (duplicate)
 
     fun refresh() {
         cats = store.categories()
         if (sel !in cats) sel = cats.firstOrNull().orEmpty()
         phrases = store.phrasesIn(sel)
     }
+
+    fun selectCategory(c: String) { sel = c; phrases = store.phrasesIn(c); editing = ""; editText = ""; editError = false }
 
     Column(
         modifier = Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -113,7 +131,7 @@ private fun PhraseManagerScreen(store: ClipboardStore) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 cats.forEach { c ->
-                    val pick = { sel = c; phrases = store.phrasesIn(c) }
+                    val pick = { selectCategory(c) }
                     if (c == sel) Button(onClick = pick) { Text(c) } else OutlinedButton(onClick = pick) { Text(c) }
                 }
             }
@@ -157,12 +175,35 @@ private fun PhraseManagerScreen(store: ClipboardStore) {
 
             phrases.forEach { p ->
                 Card(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(start = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(p, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        TextButton(onClick = { store.deletePhraseFrom(sel, p); refresh() }) { Text("删除") }
+                    if (editing == p) {
+                        // debug.16: inline edit — replace the phrase's text in place via store.editPhrase.
+                        Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = editText,
+                                onValueChange = { editText = it; editError = false },
+                                label = { Text("编辑常用语") },
+                                singleLine = true,
+                                isError = editError,
+                                supportingText = if (editError) ({ Text("该分类已有相同常用语，未保存") }) else null,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                                TextButton(onClick = { editing = ""; editText = ""; editError = false }) { Text("取消") }
+                                Button(
+                                    onClick = { if (store.editPhrase(sel, p, editText)) { editing = ""; editText = ""; editError = false; refresh() } else editError = true },
+                                    enabled = editText.isNotBlank(),
+                                ) { Text("保存") }
+                            }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(start = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(p, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            TextButton(onClick = { editing = p; editText = p; editError = false }) { Text("编辑") }
+                            TextButton(onClick = { store.deletePhraseFrom(sel, p); refresh() }) { Text("删除") }
+                        }
                     }
                 }
             }

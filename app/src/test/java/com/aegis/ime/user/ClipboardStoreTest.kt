@@ -217,4 +217,85 @@ class ClipboardStoreTest {
         assertEquals(listOf("默认"), s.categories())
         assertEquals(listOf("你好", "谢谢", "多行\n短语"), s.phrasesIn("默认"))
     }
+
+    // --- debug.16: edit / move a saved phrase ---
+
+    @Test fun edit_phrase_replaces_in_place_preserving_order_and_persists() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("一", "二", "三")) }
+        assertTrue(s.editPhrase("工作", "二", "  贰  ")) // surrounding space sanitized
+        assertEquals(listOf("一", "贰", "三"), s.phrasesIn("工作")) // in place, order kept, sanitized
+        val reloaded = ClipboardStore(dir).apply { load() }
+        assertEquals(listOf("一", "贰", "三"), reloaded.phrasesIn("工作")) // persisted
+    }
+
+    @Test fun edit_phrase_strips_iso_control_chars() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("一")) }
+        assertTrue(s.editPhrase("工作", "一", "a\tb\nc")) // tab/newline are ISO controls → stripped
+        assertEquals(listOf("abc"), s.phrasesIn("工作"))
+    }
+
+    @Test fun edit_phrase_rejects_empty_or_control_only_and_leaves_store_unchanged() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("一", "二")) }
+        assertFalse("blank after trim rejected", s.editPhrase("工作", "二", "   "))
+        assertFalse("control-only rejected", s.editPhrase("工作", "二", " \t\n"))
+        assertEquals(listOf("一", "二"), s.phrasesIn("工作")) // untouched
+    }
+
+    @Test fun edit_phrase_rejects_duplicate_of_another_item_but_allows_self() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("一", "二")) }
+        assertFalse("would collide with existing 一", s.editPhrase("工作", "二", "一"))
+        assertEquals(listOf("一", "二"), s.phrasesIn("工作"))
+        assertTrue("replacing with its own value is allowed", s.editPhrase("工作", "二", "二"))
+        assertEquals(listOf("一", "二"), s.phrasesIn("工作"))
+    }
+
+    @Test fun edit_phrase_rejects_unknown_category_or_phrase() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("一")) }
+        assertFalse(s.editPhrase("不存在", "一", "二"))
+        assertFalse(s.editPhrase("工作", "缺失", "二"))
+    }
+
+    @Test fun move_phrase_across_categories_dedupes_and_persists() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply {
+            load(); addCategory("甲"); addCategory("乙")
+            addPhrasesTo("甲", listOf("x", "y")); addPhrasesTo("乙", listOf("z"))
+        }
+        assertTrue(s.movePhrase("甲", "x", "乙"))
+        assertEquals(listOf("y"), s.phrasesIn("甲"))        // removed from source
+        assertEquals(listOf("z", "x"), s.phrasesIn("乙"))   // appended to target
+        val reloaded = ClipboardStore(dir).apply { load() }
+        assertEquals(listOf("y"), reloaded.phrasesIn("甲"))
+        assertEquals(listOf("z", "x"), reloaded.phrasesIn("乙"))
+    }
+
+    @Test fun move_phrase_target_must_exist() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("x")) }
+        assertFalse("never auto-create on move", s.movePhrase("甲", "x", "丙"))
+        assertEquals(listOf("x"), s.phrasesIn("甲")) // unchanged
+        assertFalse("丙 not created", "丙" in s.categories())
+    }
+
+    @Test fun move_phrase_dedupes_when_already_in_target() {
+        val s = ClipboardStore(newDir()).apply {
+            load(); addCategory("甲"); addCategory("乙")
+            addPhrasesTo("甲", listOf("x")); addPhrasesTo("乙", listOf("x"))
+        }
+        assertTrue(s.movePhrase("甲", "x", "乙"))
+        assertTrue("removed from source", s.phrasesIn("甲").isEmpty())
+        assertEquals(listOf("x"), s.phrasesIn("乙")) // not duplicated
+    }
+
+    @Test fun move_phrase_absent_in_source_is_rejected_no_phantom_at_target() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addCategory("乙"); addPhrasesTo("乙", listOf("z")) }
+        assertFalse("nothing to move → reject", s.movePhrase("甲", "ghost", "乙"))
+        assertEquals(listOf("z"), s.phrasesIn("乙")) // target unchanged (no phantom "ghost")
+    }
+
+    @Test fun move_phrase_to_same_category_is_a_noop() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("x", "y")) }
+        assertTrue(s.movePhrase("甲", "x", "甲"))
+        assertEquals(listOf("x", "y"), s.phrasesIn("甲")) // order preserved, no reorder
+    }
 }

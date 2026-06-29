@@ -183,6 +183,42 @@ class ClipboardStore(private val dir: File) {
         if (changed) savePhrases()
     }
 
+    /**
+     * debug.16: edit a saved phrase's text IN PLACE within [category] (order preserved). [newText] is
+     * sanitized (ISO control chars stripped, then trimmed). Returns false — leaving the store unchanged —
+     * if [category] or [oldText] is missing, the sanitized text is empty, or it would duplicate a DIFFERENT
+     * existing phrase in the same category. On success persists and returns true. Replacing a phrase with its
+     * own (sanitized) value is a permitted no-op that still returns true.
+     */
+    fun editPhrase(category: String, oldText: String, newText: String): Boolean {
+        val c = find(category) ?: return false
+        val idx = c.phrases.indexOf(oldText)
+        if (idx < 0) return false
+        val n = newText.filterNot { Character.isISOControl(it) }.trim()
+        if (n.isEmpty()) return false
+        if (c.phrases.withIndex().any { (j, p) -> j != idx && p == n }) return false // collides with another item
+        c.phrases[idx] = n
+        savePhrases()
+        return true
+    }
+
+    /**
+     * debug.16: move [text] from [fromCategory] to [toCategory] (dedup at the target). [toCategory] must
+     * already exist (returns false otherwise — never auto-creates on a move). Moving to the same category is
+     * a no-op that returns true. Returns false if [text] is not actually in [fromCategory] (nothing to move —
+     * so a missing phrase can never be phantom-created at the target). On a real move the phrase is removed
+     * from the source and appended to the target only if absent there, then persisted.
+     */
+    fun movePhrase(fromCategory: String, text: String, toCategory: String): Boolean {
+        val to = find(toCategory) ?: return false
+        val from = find(fromCategory) ?: return false
+        if (from === to) return true // same category → nothing to move (don't reorder)
+        if (!from.phrases.remove(text)) return false // not in source → nothing to move (no phantom at target)
+        if (!to.phrases.contains(text)) to.phrases.add(text)
+        savePhrases()
+        return true
+    }
+
     private fun find(name: String): Category? = phraseCats.firstOrNull { it.name == name }
 
     /**
