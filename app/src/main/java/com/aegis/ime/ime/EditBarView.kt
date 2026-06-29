@@ -51,7 +51,7 @@ class EditBarView(context: Context) : LinearLayout(context) {
         maxLines = 1
         ellipsize = android.text.TextUtils.TruncateAt.START // keep the end + caret in view as it grows
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
-        setPadding(dp(10), dp(6), dp(10), dp(6))
+        setPadding(dp(12), dp(6), dp(12), dp(6))
     }
     private val cancel = btn("取消")
     private val confirm = btn("确定")
@@ -60,7 +60,9 @@ class EditBarView(context: Context) : LinearLayout(context) {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         addView(title, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        addView(field, LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+        // debug.17: the field is a fixed-height rounded RECTANGLE centred in the (taller) bar → equal top/bottom
+        // margins inside its row (the bar's gravity is CENTER_VERTICAL), not a full-height stadium pill.
+        addView(field, LayoutParams(0, dp(36), 1f))
         addView(cancel, LayoutParams(dp(64), ViewGroup.LayoutParams.MATCH_PARENT))
         addView(confirm, LayoutParams(dp(64), ViewGroup.LayoutParams.MATCH_PARENT))
         cancel.setOnClickListener { onCancel() }
@@ -78,7 +80,7 @@ class EditBarView(context: Context) : LinearLayout(context) {
         setBackgroundColor(p.keyboardBg)
         title.setTextColor(p.keyHint)
         field.setTextColor(p.keyLabel)
-        field.background = GradientDrawable().apply { setColor(p.keySurface); cornerRadius = ImeShapes.chipRadiusDp * density }
+        field.background = GradientDrawable().apply { setColor(p.keySurface); cornerRadius = ImeShapes.inputRadiusDp * density } // debug.17: 圆角矩形, not a pill
         cancel.setTextColor(p.keyLabelSecondary)
         confirm.setTextColor(p.candidateFirst)
     }
