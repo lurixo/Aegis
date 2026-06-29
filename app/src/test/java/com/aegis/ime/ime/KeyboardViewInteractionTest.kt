@@ -242,12 +242,13 @@ class KeyboardViewInteractionTest {
     @Test fun windowed_velocity_matches_a_steady_flick_speed() {
         val v = longComboView()
         val x = v.cx()
-        v.send(MotionEvent.ACTION_DOWN, x, 180f, 0)
-        v.send(MotionEvent.ACTION_MOVE, x, 164f, 16)
-        v.send(MotionEvent.ACTION_MOVE, x, 148f, 32)
-        v.send(MotionEvent.ACTION_MOVE, x, 132f, 48)
-        v.send(MotionEvent.ACTION_MOVE, x, 116f, 64)
-        v.send(MotionEvent.ACTION_MOVE, x, 100f, 80)
+        val y0 = v.regTop() + 100f
+        v.send(MotionEvent.ACTION_DOWN, x, y0, 0)
+        v.send(MotionEvent.ACTION_MOVE, x, y0 - 16f, 16)
+        v.send(MotionEvent.ACTION_MOVE, x, y0 - 32f, 32)
+        v.send(MotionEvent.ACTION_MOVE, x, y0 - 48f, 48)
+        v.send(MotionEvent.ACTION_MOVE, x, y0 - 64f, 64)
+        v.send(MotionEvent.ACTION_MOVE, x, y0 - 80f, 80)
         assertEquals("release velocity ≈ the steady flick speed", -1000f, v.flingVelocityForTest(), 80f)
     }
 
