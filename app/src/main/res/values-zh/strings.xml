@@ -227,18 +227,35 @@
 
     <string name="settings_backup_title">数据备份</string>
     <string name="settings_backup_desc">将全部数据导出或导入为加密文件</string>
+    <string name="backup_intro">将用户词库、自动学习、常用语、剪贴板历史、符号历史、表情历史和全部设置备份为一个加密文件；可重新下载的词库与模型不含在内</string>
+    <string name="backup_password_warning">请妥善保管密码，没有密码无法恢复备份</string>
+    <string name="backup_export_button">导出备份</string>
+    <string name="backup_set_password_hint">设置用于加密此备份的密码</string>
     <string name="backup_password_label">密码</string>
+    <string name="backup_password_confirm_label">确认密码</string>
     <string name="backup_password_show">显示</string>
     <string name="backup_password_hide">隐藏</string>
     <string name="backup_password_empty">请输入密码</string>
     <string name="backup_password_too_short">至少 6 个字符</string>
     <string name="backup_password_mismatch">两次密码不一致</string>
+    <string name="backup_working">处理中…</string>
+    <string name="backup_done">完成</string>
+    <string name="backup_cancel">取消</string>
     <string name="backup_export_ok">已导出备份</string>
+    <string name="backup_export_failed">导出失败</string>
+    <string name="backup_export_interrupted">导出中断，未写出备份</string>
     <string name="backup_import_ok_overwrite">已恢复备份</string>
     <string name="backup_import_ok_merge">已合并备份</string>
     <string name="backup_error_io">无法读取或写入文件</string>
+    <string name="backup_export_ok_partial">已导出备份，以下内容读不出来：</string>
     <string name="restore_gate_rollback_failed">恢复没做完，撤销失败，点这里</string>
     <string name="restore_gate_rollback_impossible">恢复没做完，无法撤销，点这里</string>
+    <string name="backup_item_dictionary">用户词库</string>
+    <string name="backup_item_learning">自动学习</string>
+    <string name="backup_item_phrases">常用语</string>
+    <string name="backup_item_clipboard">剪贴板历史</string>
+    <string name="backup_item_symbols">符号历史</string>
+    <string name="backup_item_emoji">表情历史</string>
 
     <string name="settings_about_licenses_title">开源许可</string>
     <string name="settings_about_licenses_desc">第三方组件及其许可</string>

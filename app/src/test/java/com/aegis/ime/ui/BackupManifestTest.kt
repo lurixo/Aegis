@@ -24,6 +24,14 @@ import javax.xml.parsers.DocumentBuilderFactory
 
 class BackupManifestTest {
 
+    @Test fun backupActivity_is_a_private_standard_settings_page() {
+        val activity = activityNamed(".ui.BackupActivity")
+        assertEquals("false", activity.androidAttr("exported"))
+        assertEquals("@style/Theme.Aegis", activity.androidAttr("theme"))
+        assertEquals("@string/settings_backup_title", activity.androidAttr("label"))
+        assertEquals("adjustResize", activity.androidAttr("windowSoftInputMode"))
+    }
+
     @Test fun default_password_auth_declares_biometric_permission() {
         val manifest = parseXml("src/main/AndroidManifest.xml")
         val permissions = manifest.getElementsByTagName("uses-permission")
@@ -33,6 +41,16 @@ class BackupManifestTest {
             found = found || permission.androidAttr("name") == "android.permission.USE_BIOMETRIC"
         }
         assertEquals(true, found)
+    }
+
+    private fun activityNamed(name: String): Element {
+        val manifest = parseXml("src/main/AndroidManifest.xml")
+        val activities = manifest.getElementsByTagName("activity")
+        for (i in 0 until activities.length) {
+            val activity = activities.item(i) as Element
+            if (activity.androidAttr("name") == name) return activity
+        }
+        error("$name is missing from AndroidManifest.xml")
     }
 
     private fun parseXml(path: String): Document =
