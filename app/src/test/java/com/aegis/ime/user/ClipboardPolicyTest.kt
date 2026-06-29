@@ -17,7 +17,6 @@ package com.aegis.ime.user
 
 import android.text.InputType
 import android.view.inputmethod.EditorInfo
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -46,18 +45,6 @@ class ClipboardPolicyTest {
         assertTrue("history off but self-write pending → read", ClipboardPolicy.shouldReadSystemClip(true, false, false))
         // ungated → read normally.
         assertTrue("normal field, history on → read", ClipboardPolicy.shouldReadSystemClip(false, false, true))
-    }
-
-    // ---- debug.15: clearSystemClipboard must tell the truth (clearPrimaryClip is a no-op on some OEMs) ----
-
-    @Test fun clear_result_reports_success_only_when_the_clipboard_is_actually_empty() {
-        // truly cleared: no clip at all, or a clip whose text is empty/blank (our empty overwrite).
-        assertEquals(ClipboardPolicy.ClearResult.CLEARED, ClipboardPolicy.clearResult(false, null))
-        assertEquals(ClipboardPolicy.ClearResult.CLEARED, ClipboardPolicy.clearResult(true, ""))
-        assertEquals(ClipboardPolicy.ClearResult.CLEARED, ClipboardPolicy.clearResult(true, "   "))
-        assertEquals("no clip wins even if a stale text is passed", ClipboardPolicy.ClearResult.CLEARED, ClipboardPolicy.clearResult(false, "x"))
-        // OEM blocked removal: real content remains → must NOT report success.
-        assertEquals(ClipboardPolicy.ClearResult.CONTENT_REMAINS, ClipboardPolicy.clearResult(true, "secret-token"))
     }
 
     @Test fun ordinary_fields_are_not_sensitive() {

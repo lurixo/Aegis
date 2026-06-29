@@ -22,7 +22,6 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
-import android.content.ClipData
 import android.content.ClipDescription
 import android.graphics.Bitmap
 import android.util.LruCache
@@ -389,7 +388,6 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onDeletePhrasesFrom = { cat, list -> list.forEach { clipboardStore.deletePhraseFrom(cat, it) } }
             it.onSaveAsPhrasesTo = { cat, list -> clipboardStore.addPhrasesTo(cat, list) } // C7 批量添加常用语
             it.onManage = { openPhraseManager() }                                          // C5 管理 / 新建分类
-            it.onClearSystemClipboard = { clearSystemClipboard() }                         // C2
             it.onClearHistory = { clipboardStore.clearHistory(); clipImageStore.clear(); thumbCache.evictAll() }
             it.historyEnabledProvider = { historyEnabled() }                               // C1 记录开关
             it.onSetHistoryEnabled = { on -> setHistoryEnabled(on) }
@@ -647,33 +645,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun historyEnabled() = getSharedPreferences("aegis", MODE_PRIVATE).getBoolean("clip_history", true)
     private fun setHistoryEnabled(on: Boolean) =
         getSharedPreferences("aegis", MODE_PRIVATE).edit().putBoolean("clip_history", on).apply()
-    /**
-     * C2 / debug.14 item2 / debug.15 fix: clear the SYSTEM clipboard (not the aegis private history); the panel
-     * confirms first. clearPrimaryClip() alone is SILENTLY a no-op on some OEMs (Samsung — Bitwarden #2356), so:
-     * (1) OVERWRITE the clip with empty content via setPrimaryClip (works wherever an IME may write — BUG3 already
-     * does), wiping any sensitive content even where clearPrimaryClip fails; (2) clearPrimaryClip() to drop the
-     * empty entry on systems that support it; (3) READ BACK and toast the TRUTH — never claim success if content
-     * still remains. The empty setPrimaryClip fires onSystemClipChanged, but record() no-ops on blank and the
-     * copy-bar only shows non-empty text, so nothing pollutes the history; the BUG3-1 read gate is untouched.
-     */
-    private fun clearSystemClipboard() {
-        runCatching { clipboardManager.setPrimaryClip(ClipData.newPlainText("", "")) }
-            .onFailure { Log.e("Aegis", "setPrimaryClip(empty) failed", it) }
-        runCatching { clipboardManager.clearPrimaryClip() }
-            .onFailure { Log.e("Aegis", "clearPrimaryClip failed", it) }
-        val after = runCatching { clipboardManager.primaryClip }.getOrNull()
-        val hasClip = after != null && after.itemCount > 0
-        val item = after?.takeIf { it.itemCount > 0 }?.getItemAt(0)
-        // Common path: the empty overwrite is plain text "" — read item.text directly (no ContentResolver IO).
-        // Only a rare lingering URI clip needs coerceToText; wrap it so the one-shot main-thread read can't crash.
-        val text = item?.text?.toString() ?: runCatching { item?.coerceToText(this)?.toString() }.getOrNull()
-        when (com.aegis.ime.user.ClipboardPolicy.clearResult(hasClip, text)) {
-            com.aegis.ime.user.ClipboardPolicy.ClearResult.CLEARED ->
-                toast("已清空系统剪贴板")
-            com.aegis.ime.user.ClipboardPolicy.ClearResult.CONTENT_REMAINS ->
-                toast("系统限制：已尽力清空（本设备可能无法完全移除系统剪贴板内容）")
-        }
-    }
+    // debug.16: 清空系统剪贴板 removed — clearPrimaryClip is silently ignored by some OEM clipboards
+    // (Samsung/Vivo), so the action couldn't be made reliable; only 清空剪贴板历史 (aegis history) remains.
 
     override fun onDestroy() {
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
