@@ -308,6 +308,7 @@ class KeyboardController(
     }
 
     private fun handleClearComposing() {
+        lastWord = null
         clearComposingState()
     }
 
@@ -340,11 +341,20 @@ class KeyboardController(
             composing.delete(0, cand.coveredLen)
             val shifted = forcedCuts.filter { it > cand.coveredLen }.map { it - cand.coveredLen }
             forcedCuts.clear(); forcedCuts.addAll(shifted)
-            lockedReadings.clear()
-            activeStart = 0
+            var consumedDigits = 0; var dropLocks = 0
+            while (dropLocks < lockedReadings.size && consumedDigits < cand.coveredLen) {
+                consumedDigits += T9Pinyin.toT9(lockedReadings[dropLocks]).length; dropLocks++
+            }
+            if (lockedReadings.isNotEmpty() && consumedDigits == cand.coveredLen) {
+                repeat(dropLocks) { lockedReadings.removeAt(0) }
+                activeStart = (activeStart - cand.coveredLen).coerceAtLeast(0)
+            } else {
+                lockedReadings.clear(); activeStart = 0
+            }
             drillSyllable = -1
             candidates = emptyList()
             rebuildHistory()
+            repeat(lockedReadings.size) { history.addLast(StepKind.LOCK) }
         } else {
             host.commitText(committedPrefix.toString() + cand.word)
             clearComposingState()
