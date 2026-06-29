@@ -41,10 +41,13 @@ class InputView(context: Context) : LinearLayout(context) {
     var onCopyCommit: (String) -> Unit = {}
     var onCopyBlock: (String) -> Unit = {}
     var onCopyDismiss: () -> Unit = {}
+    var onEditConfirm: () -> Unit = {}
+    var onEditCancel: () -> Unit = {}
 
     private val preeditView = PreeditView(context)
     private val candidateView = CandidateView(context)
     private val copyBarView = CopyBarView(context)
+    private val editBarView = EditBarView(context)
     private val keyboardView = KeyboardView(context)
     private val panelContainer = FrameLayout(context)
     private val gridView = CandidateGridView(context)
@@ -64,9 +67,15 @@ class InputView(context: Context) : LinearLayout(context) {
         copyBarView.applyPalette(p)
         keyboardView.applyPalette(p)
         gridView.applyPalette(p)
+        editBarView.applyPalette(p)
     }
 
     fun palette(): ImePalette = palette
+
+    fun showEditBar(active: Boolean) { editBarView.visibility = if (active) VISIBLE else GONE }
+    fun isEditBarShowing(): Boolean = editBarView.visibility == VISIBLE
+    fun setEditTitle(t: String) { editBarView.setTitle(t) }
+    fun setEditText(t: String) { editBarView.setText(t) }
 
     init {
         orientation = VERTICAL
@@ -85,10 +94,14 @@ class InputView(context: Context) : LinearLayout(context) {
         copyBarView.onCommit = { t -> onCopyCommit(t) }
         copyBarView.onCopyBlock = { b -> onCopyBlock(b) }
         copyBarView.onDismiss = { hideCopyBar(); onCopyDismiss() }
+        editBarView.onConfirm = { onEditConfirm() }
+        editBarView.onCancel = { onEditCancel() }
         addView(preeditView, LayoutParams(LayoutParams.MATCH_PARENT, barTopInsetPx()))
 
         body.orientation = VERTICAL
         body.setBackgroundColor(palette.keyboardBg)
+        editBarView.visibility = GONE
+        body.addView(editBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
         body.addView(candidateView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
         copyBarView.visibility = GONE
         body.addView(copyBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))

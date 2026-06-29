@@ -135,6 +135,52 @@ class ClipboardStore(private val dir: File) {
         if (changed) savePhrases()
     }
 
+    fun editPhrase(category: String, oldText: String, newText: String): Boolean {
+        val c = find(category) ?: return false
+        val idx = c.phrases.indexOf(oldText)
+        if (idx < 0) return false
+        val n = newText.filterNot { Character.isISOControl(it) }.trim()
+        if (n.isEmpty()) return false
+        if (c.phrases.withIndex().any { (j, p) -> j != idx && p == n }) return false
+        c.phrases[idx] = n
+        savePhrases()
+        return true
+    }
+
+    fun movePhrase(fromCategory: String, text: String, toCategory: String): Boolean {
+        val to = find(toCategory) ?: return false
+        val from = find(fromCategory) ?: return false
+        if (from === to) return true
+        if (!from.phrases.remove(text)) return false
+        if (!to.phrases.contains(text)) to.phrases.add(text)
+        savePhrases()
+        return true
+    }
+
+    fun movePhrasesTo(fromCategory: String, texts: Collection<String>, toCategory: String): Int {
+        val to = find(toCategory) ?: return 0
+        val from = find(fromCategory) ?: return 0
+        if (from === to) return 0
+        var moved = 0
+        for (t in texts) {
+            if (from.phrases.remove(t)) {
+                if (!to.phrases.contains(t)) to.phrases.add(t)
+                moved++
+            }
+        }
+        if (moved > 0) savePhrases()
+        return moved
+    }
+
+    fun reorderPhrase(category: String, fromIndex: Int, toIndex: Int): Boolean {
+        val c = find(category) ?: return false
+        val n = c.phrases.size
+        if (fromIndex !in 0 until n || toIndex !in 0 until n || fromIndex == toIndex) return false
+        c.phrases.add(toIndex, c.phrases.removeAt(fromIndex))
+        savePhrases()
+        return true
+    }
+
     private fun find(name: String): Category? = phraseCats.firstOrNull { it.name == name }
 
     private fun scheduleSave() {
