@@ -20,6 +20,7 @@ import com.aegis.ime.dict.ModelDownload
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -115,6 +116,23 @@ class SettingsSlice1Test {
         assertFalse("identical → suppress", ModelDownload.updateAvailable("etag-1", "etag-1"))
         assertTrue("differ → offer", ModelDownload.updateAvailable("etag-1", "etag-2"))
         assertTrue("remote unknown → fall back to offer", ModelDownload.updateAvailable("etag-1", null))
+    }
+
+    // ---- debug.14 Bug2: explicit-check three-state (F2 offline) + delete-race guard (F1) ----
+
+    @Test fun update_check_distinguishes_offline_uptodate_and_update() {
+        // F2: offline (remote null) is its OWN outcome — NOT a phantom update that would start a doomed download.
+        assertEquals(ModelDownload.UpdateCheck.OFFLINE, ModelDownload.updateAction(true, "etag-1", null))
+        assertEquals(ModelDownload.UpdateCheck.UP_TO_DATE, ModelDownload.updateAction(true, "etag-1", "etag-1"))
+        assertEquals(ModelDownload.UpdateCheck.UPDATE, ModelDownload.updateAction(true, "etag-1", "etag-2"))
+        assertEquals("never recorded but remote present → update", ModelDownload.UpdateCheck.UPDATE, ModelDownload.updateAction(true, null, "etag-1"))
+    }
+
+    @Test fun a_check_resolving_after_delete_is_discarded_and_never_redownloads() {
+        // F1: present=false (user tapped 删除 during the in-flight HEAD) → null = no-op, even when remote≠local
+        // (which would otherwise have started a re-download of the just-deleted pack).
+        assertNull("deleted mid-check → discard", ModelDownload.updateAction(false, null, "etag-2"))
+        assertNull("deleted mid-check, differing validators → still discard", ModelDownload.updateAction(false, "etag-1", "etag-2"))
     }
 
     // ---- D1: 联想 toggle pref — default ON, persists ----
