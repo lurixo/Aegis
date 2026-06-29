@@ -253,9 +253,18 @@ class ClipboardStore(private val dir: File) {
         if (from === to) return true // same category → nothing to move (don't reorder)
         val p = findPhrase(from, text) ?: return false // not in source → nothing to move (no phantom at target)
         from.phrases.remove(p)
-        if (to.phrases.none { it.text == text }) to.phrases.add(p) // dedup by text; the note rides with the phrase
+        carryInto(to, p) // dedup by text; the note rides with the phrase (filling a missing note on a collision)
         savePhrases()
         return true
+    }
+
+    /** Add moved phrase [p] into [to], or — if [to] already has the same text — keep the existing item but carry
+     *  [p]'s note onto it when the existing one has none (so a move never silently drops the note; mirrors the
+     *  merge-import rule). */
+    private fun carryInto(to: Category, p: Phrase) {
+        val existing = findPhrase(to, p.text)
+        if (existing == null) to.phrases.add(p)
+        else if (existing.note.isEmpty() && p.note.isNotEmpty()) existing.note = p.note
     }
 
     /**
@@ -271,7 +280,7 @@ class ClipboardStore(private val dir: File) {
         for (t in texts) {
             val p = findPhrase(from, t) ?: continue
             from.phrases.remove(p)
-            if (to.phrases.none { it.text == t }) to.phrases.add(p)
+            carryInto(to, p) // dedup by text; carry the note onto a colliding target item (no silent note loss)
             moved++
         }
         if (moved > 0) savePhrases()
