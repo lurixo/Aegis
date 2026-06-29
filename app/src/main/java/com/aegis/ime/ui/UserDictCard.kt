@@ -94,7 +94,8 @@ internal fun UserDictCard() {
         ) {
             Text("学习词库", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Aegis 会离线学习你常用的词与下一个词；数据只存本机。导入会在下次切换到 Aegis 时生效。",
+                "Aegis 会离线学习你常用的词与下一个词，存为【学习词库】(只存本机)。这与你下载的【主词库】(拼音大词库)是" +
+                    "两份独立的库 —— 这里的导入/覆盖只动学习词库,绝不影响主词库。导入会在下次切换到 Aegis 时生效。",
                 style = MaterialTheme.typography.bodySmall,
             )
             Text(
@@ -118,7 +119,11 @@ internal fun UserDictCard() {
             onDismissRequest = { pendingImport = null },
             title = { Text("导入学习词库") },
             text = {
-                Text("「合并」把导入内容累加到现有词库（去重、词频相加，保留历史）；「覆盖」用导入文件整库替换现有词库。")
+                Text(
+                    "这里导入/导出的是【学习词库】(userdb.txt — 本机学习到的词与词频),不是你下载的【主词库】(拼音大词库)。" +
+                        "「合并」把导入内容累加到现有学习词库（去重、词频相加，保留历史）;「覆盖」用导入文件整体替换" +
+                        "【学习词库】(不影响已下载的主词库)。",
+                )
             },
             confirmButton = {
                 TextButton(onClick = { applyImport(uri, merge = true); pendingImport = null }) {
