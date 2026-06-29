@@ -342,6 +342,15 @@ class ClipboardStoreTest {
         assertFalse("未确认不应创建分类", "私人" in ClipboardStore(dir).apply { load() }.categories())
     }
 
+    @Test fun new_category_with_pending_move_lands_item_in_it() {
+        // Mirrors confirmInlineInput's ADD_CATEGORY-with-pending-move step (移动到分类→新建分类→确认).
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("默认"); addPhrasesTo("默认", listOf("你好", "在吗")) }
+        val name = "工作".trim()
+        s.addCategory(name); s.movePhrasesTo("默认", listOf("你好"), name) // create then land the carried move
+        assertEquals(listOf("在吗"), s.phrasesIn("默认")) // removed from source
+        assertEquals(listOf("你好"), s.phrasesIn("工作")) // moved into the new category
+    }
+
     @Test fun reorder_phrase_rejects_bad_indices_and_noops() {
         val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("a", "b")) }
         assertFalse(s.reorderPhrase("甲", 0, 0))   // no-op
