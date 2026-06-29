@@ -23,12 +23,15 @@ import android.view.inputmethod.InputMethodManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -76,8 +79,10 @@ private fun SetupScreen() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .safeDrawingPadding()
-            .verticalScroll(rememberScrollState())
+            .settingsScrollInsets(
+                scrollState = rememberScrollState(),
+                insets = WindowInsets.safeDrawing,
+            )
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -152,3 +157,10 @@ private fun SetupScreen() {
         UserDictCard()
     }
 }
+
+internal fun Modifier.settingsScrollInsets(
+    scrollState: ScrollState,
+    insets: WindowInsets,
+): Modifier = this
+    .windowInsetsPadding(insets)
+    .verticalScroll(scrollState)
