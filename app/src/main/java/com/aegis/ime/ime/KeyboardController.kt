@@ -130,6 +130,10 @@ class KeyboardController(
     /** D2: 联想 toggle (pref_associations_on, default on). When off, next-word predictions are not shown. */
     private var associationsEnabled = true
 
+    /** E4 hot-toggle (debug.16): last fuzzy rule set the service pushed (null until first push). Re-applied on
+     *  every [setEngine] swap so a hot-reloaded engine cannot revert the live 模糊音 state. */
+    private var pushedFuzzyRules: Set<String>? = null
+
     /** Extras-panel hooks wired by the IME service (it owns the InputConnection + Context). */
     var onShowEmoji: () -> Unit = {}
     var onShowClipboard: () -> Unit = {}
@@ -150,6 +154,10 @@ class KeyboardController(
     /** Swap in the real engine once dictionaries finish loading off the main thread. */
     fun setEngine(newEngine: CandidateEngine) {
         engine = newEngine
+        // E4 hot-toggle (debug.16): fuzzy rules live INSIDE the engine, so re-apply the last pushed set across a
+        // swap — otherwise a hot-reloaded engine (built with a stale build-time snapshot) could silently revert
+        // the user's 模糊音 toggle. null = the service has not pushed yet, so keep the engine's own build-time rules.
+        pushedFuzzyRules?.let { newEngine.setFuzzyRules(it) }
         refreshCandidates()
         render()
     }
@@ -174,6 +182,13 @@ class KeyboardController(
 
     /** D2: 联想开关 — the IME service pushes pref_associations_on; off hides next-word predictions. */
     fun setAssociationsEnabled(on: Boolean) { associationsEnabled = on }
+
+    /** E4 hot-toggle (debug.16): push a fuzzy-rule change to the live engine AND remember it, so [setEngine]
+     *  re-applies it across a hot-reload swap (the controller is the source of truth, like associationsEnabled). */
+    fun setFuzzyRules(rules: Set<String>) {
+        pushedFuzzyRules = rules
+        engine.setFuzzyRules(rules)
+    }
 
     fun reset() {
         composing.setLength(0)

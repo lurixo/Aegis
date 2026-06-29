@@ -101,6 +101,19 @@ class FuzzyVariantsTest {
     }
 
     @Test
+    fun activeRulesSelectsByMasterAndPerRuleToggles() {
+        // debug.16 (hot-toggle): the pure core of currentFuzzyRules() — master off ⇒ no rules at all, even
+        // when every per-rule toggle is on.
+        assertEquals(emptySet<String>(), Fuzzy.activeRules(masterOn = false) { true })
+        // master on + all per-rule toggles on ⇒ every rule key (the default-when-on behaviour).
+        assertEquals(all, Fuzzy.activeRules(masterOn = true) { true })
+        // master on + all per-rule toggles off ⇒ empty (each rule independently silenceable).
+        assertEquals(emptySet<String>(), Fuzzy.activeRules(masterOn = true) { false })
+        // master on + only "zh" enabled ⇒ exactly {zh}; proves per-rule selection passes through the key.
+        assertEquals(setOf("zh"), Fuzzy.activeRules(masterOn = true) { it == "zh" })
+    }
+
+    @Test
     fun initialConsonantRules_C4() {
         // Each 声母 rule resolves its intended confusion in BOTH directions, independently.
         assertTrue("n→l: nan reaches lan", vs("nan", setOf("n_l")).containsAll(setOf("nan", "lan")))

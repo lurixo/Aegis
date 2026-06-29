@@ -65,6 +65,16 @@ object Fuzzy {
     /** Master default: fuzzy ships OFF (it can degrade input quality, so it is opt-in). */
     const val DEFAULT_ON: Boolean = false
 
+    /**
+     * debug.16 (fuzzy hot-toggle): the active rule-key set selected by the prefs, as a PURE function so it is
+     * unit-testable without a Context. Master off ⇒ no rules; otherwise every rule whose per-item toggle
+     * [enabled] is on. The service wraps this over SharedPreferences and the decoder reads the result at query
+     * time ([variants]), so flipping a toggle takes effect on the next focus with no engine rebuild.
+     */
+    fun activeRules(masterOn: Boolean, enabled: (String) -> Boolean): Set<String> =
+        if (!masterOn) emptySet()
+        else RULES.filter { enabled(it.key) }.mapTo(LinkedHashSet()) { it.key }
+
     private const val MAX_VARIANTS = 64   // hard ceiling on the confusion class we enumerate
     private const val TOGGLE_BITS = 6     // toggle at most this many sites per rule (2^6 = 64)
     private const val MAX_FUZZY_LEN = 40  // never expand fuzzy for buffers longer than this
