@@ -63,6 +63,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     var historyProvider: () -> List<String> = { emptyList() }
     var categoriesProvider: () -> List<String> = { emptyList() }
     var phrasesInProvider: (String) -> List<String> = { emptyList() }
+    var phraseNoteProvider: (String, String) -> String = { _, _ -> "" } // debug.17 F2: (category, phrase) → display note ("" = none)
     var onDeleteClips: (List<String>) -> Unit = {}
     var onDeletePhrasesFrom: (String, List<String>) -> Unit = { _, _ -> }
     var onSaveAsPhrasesTo: (String, List<String>) -> Unit = { _, _ -> }
@@ -76,6 +77,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     var onAddCategoryThenMove: (String, List<String>) -> Unit = { _, _ -> } // debug.16: 新建分类 carrying a move (from, texts)
     var onRenameCategory: (String) -> Unit = {}        // debug.16 Option A: 分类改名 → inline text input
     var onDeleteCategory: (String) -> Unit = {}        // debug.16: 删除分类 (no typing)
+    var onEditNote: (String, String) -> Unit = { _, _ -> } // debug.17 F2: (category, phrase) → inline 备注 edit
+    var onClearCategory: (String) -> Unit = {}         // debug.17 E2: 清空当前分类所有常用语 (category)
+    var onExportPhrases: () -> Unit = {}               // debug.17 E1: SAF 导出全部常用语
+    var onImportPhrases: () -> Unit = {}               // debug.17 E1: SAF 导入常用语 (Activity 内选 合并/覆盖)
     var onClearHistory: () -> Unit = {}
     var historyEnabledProvider: () -> Boolean = { true }
     var onSetHistoryEnabled: (Boolean) -> Unit = {}
@@ -194,6 +199,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     internal fun hideSwipeForTest() { hideSwipe() }
     internal fun swipeRevealedForTest(): String? = swipeRevealed
     internal fun showPhraseManageMenuForTest() { showPhraseManageMenu() }
+    internal fun confirmClearForTest() { confirmClearCurrentCategory() } // debug.17 E2
     internal fun enterSortModeForTest() { enterSortMode() }
     internal fun isSortModeForTest(): Boolean = sortMode
     internal fun showSplitForTest(text: String) { showSplit(text) }
@@ -224,10 +230,13 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             addView(pillTray(), ll(WC, dp(36)))
             addView(View(context), ll(0, dp(1), 1f))
             // debug.17: the 常用语 tab's ＋ now ADDS A PHRASE to the current category (新建分类 moved to the
-            // categoryBar ✎ 二级菜单); 多选 (☰) lives on BOTH tabs, then ⚙.
+            // categoryBar ✎ 二级菜单); 多选 (☰) lives on BOTH tabs.
             if (st.tab == Tab.PHRASE) addView(roundBtn("＋") { onAddPhrase(currentCategory()) }, iconLp(true))
             addView(roundBtn("☰") { enterSelect() }, iconLp(true))
-            addView(roundBtn("⚙") { showGearMenu() }, iconLp(true))
+            // debug.17 E2: the LAST top icon is tab-specific — 常用语 tab = 清空当前分类 (二次确认); 剪贴板 tab = ⚙.
+            // (icon is a text/existing placeholder; the final glyph is unified in a later step.)
+            if (st.tab == Tab.PHRASE) addView(roundBtn("🗑") { confirmClearCurrentCategory() }, iconLp(true))
+            else addView(roundBtn("⚙") { showGearMenu() }, iconLp(true))
         }
         main.addView(topBar, ll(MP, dp(50)))
         // U9: no 字数/条数上限 line.
@@ -239,11 +248,30 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         if (st.tab == Tab.PHRASE) main.addView(categoryBar(), ll(MP, dp(44)))
     }
 
+    /** debug.17 F2: what a 常用语 SHOWS in the list — its note if set, else the phrase text itself. */
+    private fun phraseDisplayText(text: String): String {
+        val note = phraseNoteProvider(currentCategory(), text)
+        return if (note.isNotEmpty()) note else text
+    }
+
+    /** debug.17 F1: wrap an expanded card's [body] in a vertical ScrollView capped at ~4 text lines, so a long
+     *  entry shows 4 lines and scrolls (standard ScrollView inertia) instead of growing unbounded. AT_MOST so a
+     *  short entry stays its natural height (no empty padding). */
+    private fun boundedExpandBody(body: TextView): View {
+        val maxH = body.lineHeight * 4 + body.paddingTop + body.paddingBottom
+        return object : ScrollView(context) {
+            override fun onMeasure(widthSpec: Int, heightSpec: Int) =
+                super.onMeasure(widthSpec, MeasureSpec.makeMeasureSpec(maxH, MeasureSpec.AT_MOST))
+        }.apply { isFillViewport = false; addView(body) }
+    }
+
     private fun card(text: String, index: Int): View {
         if (isImage(text)) return imageCard(text) // U22 (M-1: only a marker backed by a real file)
         val expanded = st.expanded == text
         val revealed = swipeRevealed == text // debug.17: showing its left-swipe action row
         val phrase = st.tab == Tab.PHRASE
+        // debug.17 F2: a 常用语 with a note DISPLAYS the note (alias); 上屏 (onPick) still uses the original `text`.
+        val display = if (phrase) phraseDisplayText(text) else text
         val col = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(CARD, ImeShapes.cardRadiusDp)
@@ -253,9 +281,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val body = TextView(context).apply {
             // E5: show only a bounded PREVIEW — a million-char entry would make the TextView measure/layout the
             // whole string and jank. Storage + 上屏 (onPick) always use the full `text`, never the preview.
-            this.text = preview(text)
-            maxLines = if (expanded) 6 else 2
-            ellipsize = android.text.TextUtils.TruncateAt.END
+            this.text = preview(display)
+            // debug.17 F1: expanded shows the full text (no ellipsis); it rides a bounded ScrollView (≤4 lines).
+            maxLines = if (expanded) Integer.MAX_VALUE else 2
+            ellipsize = if (expanded) null else android.text.TextUtils.TruncateAt.END
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setTextColor(TEXT_DARK)
             setPadding(dp(14), dp(12), dp(8), dp(12))
@@ -273,7 +302,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setOnClickListener { swipeRevealed = null; st.toggleExpand(text); refresh() } // ⌄展开 supersedes a swipe reveal
             if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
         }
-        header.addView(body, ll(0, WC, 1f))
+        header.addView(if (expanded) boundedExpandBody(body) else body, ll(0, WC, 1f)) // F1: expanded body scrolls (≤4 lines)
         header.addView(chevron, ll(dp(40), MP))
         col.addView(header, ll(MP, WC))
         // debug.17: ⌄展开 (unchanged) → the expand action row; left-swipe (NEW) → an inline action row without
@@ -352,6 +381,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         setPadding(dp(8), 0, dp(8), dp(10))
         val cat = currentCategory()
         addView(action("✎ 编辑") { onEditPhrase(cat, text) }, ll(0, WC, 1f))
+        addView(action("✐ 备注") { onEditNote(cat, text) }, ll(0, WC, 1f)) // debug.17 F2: set/clear the display note
         addView(action("→ 移动") { chooseMoveCategoryThen(cat, listOf(text)) { target -> onMovePhrase(cat, text, target); refresh() } }, ll(0, WC, 1f))
         addView(action("🗑 删除") { deleteOne(text) }, ll(0, WC, 1f))
     }
@@ -551,7 +581,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             layoutParams = ll(MP, WC).apply { topMargin = dp(8) }
         }
         col.addView(TextView(context).apply {
-            this.text = preview(text); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
+            this.text = preview(phraseDisplayText(text)); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END // F2: note alias
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(TEXT_DARK)
             setPadding(dp(14), dp(12), dp(8), dp(12))
         }, ll(0, WC, 1f))
@@ -608,6 +638,23 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         card.addView(menuItem("移动") { hideOverlay(); enterSortMode() })
         card.addView(menuDivider())
         card.addView(menuItem("添加分类") { hideOverlay(); onAddCategory() })
+        card.addView(menuDivider())
+        card.addView(menuItem("导入常用语") { hideOverlay(); onImportPhrases() })   // debug.17 E1: SAF 导入 (合并/覆盖 in the picker)
+        card.addView(menuDivider())
+        card.addView(menuItem("导出常用语") { hideOverlay(); onExportPhrases() })   // debug.17 E1: SAF 导出
+        showOverlay(card)
+    }
+
+    /** debug.17 E2: 清空当前分类的全部常用语 — a destructive action behind a confirm overlay (二次确认). */
+    private fun confirmClearCurrentCategory() {
+        val cat = currentCategory()
+        if (cat.isEmpty()) return
+        val card = menuCard()
+        card.addView(menuTitle("清空分类「$cat」的全部常用语?"))
+        card.addView(menuDivider())
+        card.addView(menuItem("清空") { hideOverlay(); onClearCategory(cat); refresh() }.also { it.setTextColor(RED) })
+        card.addView(menuDivider())
+        card.addView(menuItem("取消") { hideOverlay() })
         showOverlay(card)
     }
 
@@ -707,8 +754,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setPadding(dp(14), 0, dp(8), 0)
         }, ll(WC, WC))
         addView(TextView(context).apply {
-            // U22: image entries show a label (not the raw marker path) in select mode.
-            this.text = if (isImage(text)) "［图片］" else text
+            // U22: image entries show a label (not the raw marker path) in select mode. debug.17 F2: a 常用语 with
+            // a note shows the note; selection still keys on the original `text`.
+            this.text = if (isImage(text)) "［图片］" else if (st.tab == Tab.PHRASE) phraseDisplayText(text) else text
             maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(TEXT_DARK)
             setPadding(0, dp(12), dp(14), dp(12))

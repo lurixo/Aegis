@@ -45,7 +45,11 @@ class ClipboardStore(private val dir: File) {
     private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "aegis-clip-io").apply { isDaemon = true } }
     private val saveGen = AtomicLong(0)
 
-    private class Category(var name: String, val phrases: ArrayList<String> = ArrayList())
+    // debug.17 F2: a saved phrase carries its text + an OPTIONAL display note. The note is only a display alias
+    // (列表有备注显示备注、无备注显示原文); committing (上屏) always uses [text]. Notes ride with the object
+    // through move/reorder/edit, and are persisted on an "N\t" line right after the phrase's "P\t" line.
+    private class Phrase(var text: String, var note: String = "")
+    private class Category(var name: String, val phrases: ArrayList<Phrase> = ArrayList())
     private val phraseCats = ArrayList<Category>()
 
     fun load() {
@@ -76,22 +80,33 @@ class ClipboardStore(private val dir: File) {
             // verbatim — emptying a category keeps the (now-empty) category — but a fully empty file falls
             // through to the migration branch below and re-seeds an empty "默认" so there is always ≥1 usable
             // category for the UI to target.
-            phraseCats.add(Category(DEFAULT_CATEGORY, ArrayList(DEFAULT_PHRASES)))
+            phraseCats.add(Category(DEFAULT_CATEGORY, ArrayList(DEFAULT_PHRASES.map { Phrase(it) })))
             return
         }
         val lines = runCatching { phraseFile.readLines() }.getOrDefault(emptyList())
         if (lines.none { it.startsWith("C\t") }) {
             // Legacy flat format (pre-C5): every line is a phrase → migrate into the default category.
             val c = Category(DEFAULT_CATEGORY)
-            lines.forEach { decode(it)?.let { p -> if (p.isNotBlank()) c.phrases.add(p) } }
+            lines.forEach { decode(it)?.let { p -> if (p.isNotBlank()) c.phrases.add(Phrase(p)) } }
             phraseCats.add(c)
             return
         }
+        phraseCats.addAll(parseCategories(lines))
+    }
+
+    /** debug.17 F2: parse C\t/P\t/N\t lines into categories. An N\t line sets the note of the phrase on the
+     *  immediately preceding P\t line (so a note never collides with phrase content). Used by both [loadPhrases]
+     *  and [importPhrasesText] — one parser, so export↔import round-trips and old note-less files still load. */
+    private fun parseCategories(lines: List<String>): List<Category> {
+        val out = ArrayList<Category>()
         var cur: Category? = null
+        var last: Phrase? = null
         for (line in lines) when {
-            line.startsWith("C\t") -> Category(decode(line.substring(2)).orEmpty()).also { phraseCats.add(it); cur = it }
-            line.startsWith("P\t") -> decode(line.substring(2))?.let { cur?.phrases?.add(it) }
+            line.startsWith("C\t") -> { val c = Category(decode(line.substring(2)).orEmpty()); out.add(c); cur = c; last = null }
+            line.startsWith("P\t") -> decode(line.substring(2))?.let { p -> Phrase(p).also { cur?.phrases?.add(it); last = it } }
+            line.startsWith("N\t") -> decode(line.substring(2))?.let { n -> last?.note = n }
         }
+        return out
     }
 
     /** Add [text] to the front of the history (dedup, trim, persist). No-op for blank text. */
@@ -125,11 +140,25 @@ class ClipboardStore(private val dir: File) {
     /** Category names, in display order. Always at least one after [load]. */
     fun categories(): List<String> = phraseCats.map { it.name }
 
-    /** Phrases in [category] (empty list if the category is unknown). */
-    fun phrasesIn(category: String): List<String> = find(category)?.phrases?.toList() ?: emptyList()
+    /** Phrases in [category] (empty list if the category is unknown). Returns the original TEXT (上屏 uses this);
+     *  display notes are fetched separately via [noteFor]. */
+    fun phrasesIn(category: String): List<String> = find(category)?.phrases?.map { it.text } ?: emptyList()
 
     /** All phrases across every category, flattened in category order. */
-    fun phrases(): List<String> = phraseCats.flatMap { it.phrases }
+    fun phrases(): List<String> = phraseCats.flatMap { c -> c.phrases.map { it.text } }
+
+    /** debug.17 F2: the display note for the phrase [text] in [category] (empty string if none / unknown). */
+    fun noteFor(category: String, text: String): String = findPhrase(find(category), text)?.note.orEmpty()
+
+    /** debug.17 F2: set/clear the display note for [text] in [category] (blank note clears it). The note is a
+     *  display alias only — it never changes what [phrasesIn] returns or what is committed. Returns false if the
+     *  phrase/category is missing. */
+    fun setPhraseNote(category: String, text: String, note: String): Boolean {
+        val p = findPhrase(find(category), text) ?: return false
+        p.note = note.filterNot { Character.isISOControl(it) }.trim()
+        savePhrases()
+        return true
+    }
 
     /** Create a new (empty) category. Returns false for blank / duplicate names. */
     fun addCategory(name: String): Boolean {
@@ -160,8 +189,8 @@ class ClipboardStore(private val dir: File) {
         for (raw in texts) {
             val t = raw.trim()
             // M-2 defense: an image marker must never become a phrase (it would be a dead "图片已不存在" item).
-            if (t.isEmpty() || isImageEntry(t) || c.phrases.contains(t)) continue
-            c.phrases.add(t); added++
+            if (t.isEmpty() || isImageEntry(t) || c.phrases.any { it.text == t }) continue
+            c.phrases.add(Phrase(t)); added++
         }
         if (added > 0) savePhrases()
         return added
@@ -173,14 +202,23 @@ class ClipboardStore(private val dir: File) {
 
     /** Remove a phrase from a specific category (常用语 management). */
     fun deletePhraseFrom(category: String, text: String) {
-        find(category)?.let { if (it.phrases.remove(text)) savePhrases() }
+        find(category)?.let { c -> if (c.phrases.removeAll { it.text == text }) savePhrases() }
     }
 
     /** Remove a phrase wherever it appears (back-compat convenience). */
     fun deletePhrase(text: String) {
         var changed = false
-        for (c in phraseCats) if (c.phrases.remove(text)) changed = true
+        for (c in phraseCats) if (c.phrases.removeAll { it.text == text }) changed = true
         if (changed) savePhrases()
+    }
+
+    /** debug.17 E2: empty [category]'s phrases (the category itself stays). Returns how many were removed;
+     *  persists only if it changed. Never deletes the category — only its contents. */
+    fun clearPhrasesIn(category: String): Int {
+        val c = find(category) ?: return 0
+        val n = c.phrases.size
+        if (n > 0) { c.phrases.clear(); savePhrases() }
+        return n
     }
 
     /**
@@ -192,12 +230,12 @@ class ClipboardStore(private val dir: File) {
      */
     fun editPhrase(category: String, oldText: String, newText: String): Boolean {
         val c = find(category) ?: return false
-        val idx = c.phrases.indexOf(oldText)
+        val idx = c.phrases.indexOfFirst { it.text == oldText }
         if (idx < 0) return false
         val n = newText.filterNot { Character.isISOControl(it) }.trim()
         if (n.isEmpty()) return false
-        if (c.phrases.withIndex().any { (j, p) -> j != idx && p == n }) return false // collides with another item
-        c.phrases[idx] = n
+        if (c.phrases.withIndex().any { (j, p) -> j != idx && p.text == n }) return false // collides with another item
+        c.phrases[idx].text = n // F2: keep the existing note attached to the edited phrase
         savePhrases()
         return true
     }
@@ -213,8 +251,9 @@ class ClipboardStore(private val dir: File) {
         val to = find(toCategory) ?: return false
         val from = find(fromCategory) ?: return false
         if (from === to) return true // same category → nothing to move (don't reorder)
-        if (!from.phrases.remove(text)) return false // not in source → nothing to move (no phantom at target)
-        if (!to.phrases.contains(text)) to.phrases.add(text)
+        val p = findPhrase(from, text) ?: return false // not in source → nothing to move (no phantom at target)
+        from.phrases.remove(p)
+        if (to.phrases.none { it.text == text }) to.phrases.add(p) // dedup by text; the note rides with the phrase
         savePhrases()
         return true
     }
@@ -230,10 +269,10 @@ class ClipboardStore(private val dir: File) {
         if (from === to) return 0
         var moved = 0
         for (t in texts) {
-            if (from.phrases.remove(t)) {
-                if (!to.phrases.contains(t)) to.phrases.add(t)
-                moved++
-            }
+            val p = findPhrase(from, t) ?: continue
+            from.phrases.remove(p)
+            if (to.phrases.none { it.text == t }) to.phrases.add(p)
+            moved++
         }
         if (moved > 0) savePhrases()
         return moved
@@ -254,6 +293,7 @@ class ClipboardStore(private val dir: File) {
     }
 
     private fun find(name: String): Category? = phraseCats.firstOrNull { it.name == name }
+    private fun findPhrase(c: Category?, text: String): Phrase? = c?.phrases?.firstOrNull { it.text == text }
 
     /**
      * E5: snapshot the list on the CALLER thread (cheap — copies references) and write it on the IO thread, so
@@ -307,13 +347,57 @@ class ClipboardStore(private val dir: File) {
     /** Test seam: block until every queued async write has finished (IO thread is single-threaded / FIFO). */
     internal fun awaitWritesForTest() { runCatching { io.submit { }.get() } }
 
-    private fun savePhrases() = runCatching {
+    private fun savePhrases() = runCatching { phraseFile.writeText(serializePhrases()) }
+
+    /** debug.17 F2: serialize all categories to the C\t/P\t/N\t text format (notes on an N\t line after their
+     *  P\t line). Used by both [savePhrases] (internal file) and [exportPhrasesText] (SAF export) — one writer,
+     *  so an exported file imports back identically. */
+    private fun serializePhrases(): String {
         val sb = StringBuilder()
         for (c in phraseCats) {
             sb.append("C\t").append(encode(c.name)).append('\n')
-            for (p in c.phrases) sb.append("P\t").append(encode(p)).append('\n')
+            for (p in c.phrases) {
+                sb.append("P\t").append(encode(p.text)).append('\n')
+                if (p.note.isNotEmpty()) sb.append("N\t").append(encode(p.note)).append('\n')
+            }
         }
-        phraseFile.writeText(sb.toString())
+        return sb.toString()
+    }
+
+    // --- debug.17 E1/F2: phrase library import / export (SAF .txt; mirrors the 学习词库 merge/overwrite rules) ---
+
+    /** Export the WHOLE phrase library (categories + phrases + notes) as the C\t/P\t/N\t .txt text. */
+    fun exportPhrasesText(): String = serializePhrases()
+
+    /**
+     * Import phrases from [text] (the C\t/P\t/N\t format produced by [exportPhrasesText]).
+     *  - [merge]=true: accumulate — create missing categories, add new phrases (dedup by text per category),
+     *    and fill in notes for imported phrases. Existing data is kept.
+     *  - [merge]=false (覆盖): REPLACE the whole library with the parsed set.
+     * NEVER silently clears: a file that parses to NO category/phrase leaves the store untouched and returns
+     * false (matches the 学习词库 "绝不静默清空" rule). Returns true iff something was imported + persisted.
+     */
+    fun importPhrasesText(text: String, merge: Boolean): Boolean {
+        val parsed = parseCategories(text.split('\n'))
+        val hasContent = parsed.any { it.phrases.isNotEmpty() || it.name.isNotBlank() }
+        if (!hasContent) return false // empty / unparseable → never wipe
+        if (merge) {
+            for (pc in parsed) {
+                if (pc.name.isBlank()) continue
+                val c = find(pc.name) ?: Category(pc.name).also { phraseCats.add(it) }
+                for (p in pc.phrases) {
+                    val existing = findPhrase(c, p.text)
+                    if (existing == null) c.phrases.add(Phrase(p.text, p.note))
+                    else if (existing.note.isEmpty() && p.note.isNotEmpty()) existing.note = p.note // fill a missing note
+                }
+            }
+        } else {
+            phraseCats.clear()
+            phraseCats.addAll(parsed)
+            if (phraseCats.none { it.name == DEFAULT_CATEGORY }) phraseCats.add(0, Category(DEFAULT_CATEGORY))
+        }
+        savePhrases()
+        return true
     }
 
     // Single-line encoding so multi-line clips survive a line-based file. BOTH \n and \r are escaped:
@@ -341,6 +425,13 @@ class ClipboardStore(private val dir: File) {
         const val IMG_PREFIX = "img:"
         fun isImageEntry(entry: String): Boolean = entry.startsWith(IMG_PREFIX)
         fun imagePath(entry: String): String = if (isImageEntry(entry)) entry.substring(IMG_PREFIX.length) else entry
+
+        /**
+         * debug.17: whether a copy/cut should be captured into clipboard history. Password / secure fields are
+         * NO LONGER excluded (policy change) — ONLY the history master switch [historyEnabled]
+         * gates capture now. (Was effectively `!secureField && historyEnabled`.)
+         */
+        fun shouldCapture(historyEnabled: Boolean): Boolean = historyEnabled
 
         // E5: a big entry is externalised to clips/<sha256>.txt and indexed by a "B\t<sha256>" line; every
         // other line is a bare inline entry (legacy-compatible). Above this many chars an entry is externalised.
