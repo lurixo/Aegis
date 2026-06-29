@@ -101,6 +101,15 @@ object ModelDownload {
 
     fun updateAvailable(local: String?, remote: String?): Boolean = !(remote != null && remote == local)
 
+    enum class UpdateCheck { OFFLINE, UP_TO_DATE, UPDATE }
+
+    fun updateAction(present: Boolean, local: String?, remote: String?): UpdateCheck? = when {
+        !present -> null
+        remote == null -> UpdateCheck.OFFLINE
+        remote == local -> UpdateCheck.UP_TO_DATE
+        else -> UpdateCheck.UPDATE
+    }
+
     fun purge(filesDir: File): Boolean {
         val a = destFile(filesDir).delete()
         val b = partFile(filesDir).delete()
@@ -111,7 +120,7 @@ object ModelDownload {
     const val DICT_URL =
         "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.13/aegis_dict_pack_debug13.zip"
 
-    const val DICT_REPO_URL = "https://github.com/lurixo/aegis/releases"
+    const val DICT_REPO_URL = "https://github.com/amzxyz/rime-wanxiang"
 
     const val DICT_NAME = "aegis_dict_pack_debug13.zip"
     const val DICT_SHA256 = "d048435631623513a9d6a6ccb877a6ba06fb15a293ade72bb101d1e0d4feaa60"

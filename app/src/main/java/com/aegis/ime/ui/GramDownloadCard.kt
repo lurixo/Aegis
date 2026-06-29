@@ -20,6 +20,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -34,7 +35,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,8 +45,10 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import com.aegis.ime.dict.ModelDownload
 
+internal data class DownloadCardPreview(val present: Boolean, val checking: Boolean = false, val status: String? = null)
+
 @Composable
-internal fun GramDownloadCard() {
+internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
     val dest = ModelDownload.destFile(context.filesDir)
@@ -54,30 +56,13 @@ internal fun GramDownloadCard() {
     fun doneLabel() = "✅ 已启用：增强语法生效中（已下载 ${dest.length() / 1048576} MB，仅存本机；切换到 Aegis 后加载）"
     val notDownloadedLabel = "⚠ 增强语法未启用 —— 需下载约 401 MB 模型后才生效"
 
-    var present by remember { mutableStateOf(dest.exists() && dest.length() > 1024) }
-    var status by remember { mutableStateOf(if (present) doneLabel() else notDownloadedLabel) }
+    var present by remember { mutableStateOf(preview?.present ?: (dest.exists() && dest.length() > 1024)) }
+    var status by remember { mutableStateOf(preview?.status ?: if (present) doneLabel() else notDownloadedLabel) }
     var progress by remember { mutableStateOf(0f) }
     var downloading by remember { mutableStateOf(false) }
-    var checking by remember { mutableStateOf(false) }
-    var updateAvailable by remember { mutableStateOf(false) }
+    var checking by remember { mutableStateOf(preview?.checking ?: false) }
 
     val handler = remember { Handler(Looper.getMainLooper()) }
-
-    LaunchedEffect(present) {
-        if (present && !downloading) {
-            checking = true
-            Thread {
-                val remote = ModelDownload.remoteValidator(ModelDownload.GRAM_URL)
-                val local = prefs.getString(ModelDownload.VALIDATOR_PREF, null)
-                handler.post {
-                    checking = false
-                    updateAvailable = ModelDownload.updateAvailable(local, remote)
-                }
-            }.apply { isDaemon = true }.start()
-        } else {
-            updateAvailable = false
-        }
-    }
 
     fun startDownload() {
         downloading = true
@@ -96,10 +81,39 @@ internal fun GramDownloadCard() {
                 present = dest.exists() && dest.length() > 1024
                 if (result.ok) {
                     prefs.edit { putString(ModelDownload.VALIDATOR_PREF, result.validator) }
-                    updateAvailable = false
                     status = doneLabel()
                 } else {
                     status = "下载失败"
+                }
+            }
+        }.apply { isDaemon = true }.start()
+    }
+
+    fun checkUpdate() {
+        checking = true
+        Thread {
+            val checked = runCatching {
+                ModelDownload.remoteValidator(ModelDownload.GRAM_URL) to
+                    prefs.getString(ModelDownload.VALIDATOR_PREF, null)
+            }.getOrNull()
+            val remote = checked?.first
+            val local = checked?.second
+            handler.post {
+                checking = false
+                when (ModelDownload.updateAction(present, local, remote)) {
+                    null -> {}
+                    ModelDownload.UpdateCheck.OFFLINE -> {
+                        status = "无法检查更新（网络不可用）"
+                        Toast.makeText(context, "无法检查更新（网络不可用）", Toast.LENGTH_SHORT).show()
+                    }
+                    ModelDownload.UpdateCheck.UP_TO_DATE -> {
+                        status = "已是最新，无更新（增强模型已是最新版本）"
+                        Toast.makeText(context, "已是最新，无更新", Toast.LENGTH_SHORT).show()
+                    }
+                    ModelDownload.UpdateCheck.UPDATE -> {
+                        Toast.makeText(context, "发现更新，开始更新", Toast.LENGTH_SHORT).show()
+                        startDownload()
+                    }
                 }
             }
         }.apply { isDaemon = true }.start()
@@ -139,7 +153,7 @@ internal fun GramDownloadCard() {
                 LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
             }
             Text(
-                if (present && checking) "$status（正在检查更新…）" else status,
+                if (checking) "正在检查更新…" else status,
                 style = MaterialTheme.typography.bodySmall,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -149,17 +163,16 @@ internal fun GramDownloadCard() {
                 ) { Text("下载") }
                 if (present) {
                     Button(
-                        enabled = !downloading && !checking && updateAvailable,
-                        onClick = { startDownload() },
-                    ) { Text(if (updateAvailable) "更新" else "已是最新") }
+                        enabled = !downloading && !checking,
+                        onClick = { checkUpdate() },
+                    ) { Text("检测更新") }
                 }
                 OutlinedButton(
-                    enabled = !downloading && present,
+                    enabled = !downloading && !checking && present,
                     onClick = {
                         ModelDownload.purge(context.filesDir)
                         prefs.edit { remove(ModelDownload.VALIDATOR_PREF) }
                         present = false
-                        updateAvailable = false
                         progress = 0f
                         status = "⚠ 增强语法未启用（已删除；重启输入法后释放已加载的内存模型）"
                     },
