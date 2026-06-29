@@ -57,6 +57,9 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         listOf(SymbolCatalog.RECENT_TITLE) + SymbolCatalog.categories.map { it.title }
     private var selected = 0
     private var locked = false // P3: when on, tapping a symbol does NOT close the panel
+    // debug.16: whether the chip bar is currently a 网址补全 (URL-completion) bar — true on the 网络 tab and for
+    // url-like recents in 常用. Ordinary multi-char marks (中文 破折号 —— / 省略号 ……) also chip, but are NOT this.
+    private var showingUrlCompletions = false
 
     private var palette = ImePalette.STATIC_LIGHT
     private val rail = LinearLayout(context).apply { orientation = VERTICAL }
@@ -147,18 +150,20 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         netBar.removeAllViews()
         val symbols = symbolsFor(index)
         if (symbols.isEmpty()) { netBar.visibility = View.GONE; grid.addView(emptySpan()); return }
-        // P5: multi-char entries (URL completions like http:// https:// www. ://) render as content-sized
-        // chips in the 网址补全 bar so they NEVER truncate in the single-glyph grid. This fires on the 网络
-        // tab and also catches any such completion surfaced in 常用 (recents). Single glyphs keep the
-        // unchanged grid path, so every all-glyph category (中文/英文/数学/…) stays pixel-identical.
+        // P5 + debug.16: multi-char entries render as content-sized chips so they NEVER truncate in the single-
+        // glyph grid. The 网址补全 treatment (the header) is scoped to the 网络 tab (and url-like recents in 常用);
+        // OTHER multi-char marks — the standard Chinese 破折号 —— / 省略号 …… in 中文 — are ordinary insertable
+        // chips, committed straight to the editor on tap, NOT advertised as URL completions. Single glyphs keep
+        // the unchanged grid path, so every all-glyph category stays pixel-identical.
         val completions = symbols.filter { it.length > 1 }
         val glyphs = symbols.filter { it.length == 1 }
+        val isNet = index != 0 && SymbolCatalog.categories.getOrNull(index - 1)?.id == "net"
+        showingUrlCompletions = completions.isNotEmpty() && (isNet || completions.any { isUrlLike(it) })
         if (completions.isEmpty()) {
             netBar.visibility = View.GONE
         } else {
             netBar.visibility = View.VISIBLE
-            // header only on the 网络 tab (gate on id, not a hardcoded index, so it survives reordering)
-            if (index != 0 && SymbolCatalog.categories.getOrNull(index - 1)?.id == "net") netBar.addView(netHeader("网址补全"))
+            if (isNet) netBar.addView(netHeader("网址补全")) // header only on the 网络 tab
             addCompletionChips(completions)
         }
         // P2: only the 常用 tab (index 0) shows an origin badge on its glyph cells.
@@ -219,6 +224,10 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         v.measure(unspec, unspec)
         return v.measuredWidth
     }
+
+    /** debug.16: a multi-char token that is a URL fragment (http:// https:// www. :// …) — gets the 网址补全
+     *  treatment. Ordinary marks like —— / …… contain none of / : . so they chip without that label. */
+    private fun isUrlLike(s: String): Boolean = s.any { it == '/' || it == ':' || it == '.' }
 
     private fun symbolsFor(index: Int): List<String> =
         if (index == 0) recentProvider() else SymbolCatalog.categories[index - 1].symbols
@@ -297,8 +306,11 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun toggleLockForTest() = toggleLock()
     internal fun gridScrollYForTest(): Int = gridScroll.scrollY
 
-    // P5 net-layout test seams.
-    internal fun netBarVisibleForTest(): Boolean = netBar.visibility == View.VISIBLE
+    // P5 net-layout test seams. "net bar" = the 网址补全 (URL-completion) bar specifically — debug.16: an
+    // ordinary multi-char chip (中文 —— / ……) makes the chip bar VISIBLE but is NOT a 网址补全 bar.
+    internal fun netBarVisibleForTest(): Boolean = showingUrlCompletions
+    /** Whether the chip bar is showing at all (url completions OR ordinary multi-char marks). */
+    internal fun chipBarVisibleForTest(): Boolean = netBar.visibility == View.VISIBLE
     internal fun gridCellCountForTest(): Int = grid.childCount
     internal fun netChipTextsForTest(): List<String> {
         val out = ArrayList<String>()

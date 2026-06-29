@@ -15,6 +15,9 @@
 
 package com.aegis.ime.ime
 
+import android.view.View
+import android.view.ViewGroup
+import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.layout.SymbolCatalog
 import org.junit.Assert.assertEquals
@@ -88,5 +91,43 @@ class NetCategoryLayoutTest {
         sv.openCategoryForTest(1) // 中文
         assertFalse("net bar hidden after leaving 网络", sv.netBarVisibleForTest())
         assertTrue("中文 grid populated", sv.gridCellCountForTest() > 0)
+    }
+
+    // ---- debug.16: 中文 破折号 —— / 省略号 …… render as ORDINARY chips, never a 网址补全 url bar ----
+
+    private fun textLeaves(v: View): List<TextView> = when (v) {
+        is TextView -> listOf(v)
+        is ViewGroup -> (0 until v.childCount).flatMap { textLeaves(v.getChildAt(it)) }
+        else -> emptyList()
+    }
+
+    private fun clickChip(root: View, text: String): Boolean =
+        textLeaves(root).firstOrNull { it.text == text }?.also { it.performClick() } != null
+
+    @Test fun chinese_double_dash_and_ellipsis_are_ordinary_chips_not_a_url_bar() {
+        val sv = SymbolsView(ctx)
+        sv.applyPalette(light)
+        sv.openCategoryForTest(1) // 中文
+        // The multi-char marks chip in full (so they never truncate in the single-glyph grid)…
+        val chips = sv.netChipTextsForTest()
+        assertTrue("中文 破折号 —— is chipped", "——" in chips)
+        assertTrue("中文 省略号 …… is chipped", "……" in chips)
+        assertTrue("the chip bar is showing on 中文", sv.chipBarVisibleForTest())
+        // …but they are NOT a 网址补全 url bar, so the net-category invariant is preserved.
+        assertFalse("中文 marks are ordinary chips, not a 网址补全 bar", sv.netBarVisibleForTest())
+        assertTrue("中文 single-glyph grid still populated", sv.gridCellCountForTest() > 0)
+    }
+
+    @Test fun tapping_a_chinese_mark_chip_commits_that_exact_string() {
+        val sv = SymbolsView(ctx)
+        var committed: String? = null
+        sv.onSymbol = { committed = it }
+        sv.applyPalette(light)
+        sv.openCategoryForTest(1) // 中文
+        assertTrue("—— chip present + clickable", clickChip(sv, "——"))
+        assertEquals("clicking the —— chip inserts the double em-dash", "——", committed)
+        committed = null
+        assertTrue("…… chip present + clickable", clickChip(sv, "……"))
+        assertEquals("clicking the …… chip inserts the double ellipsis", "……", committed)
     }
 }

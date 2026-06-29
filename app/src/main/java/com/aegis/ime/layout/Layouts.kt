@@ -41,17 +41,27 @@ object Layouts {
         LayoutId.NUMPAD -> numpad()
     }
 
+    // debug.16 item5/6: shared 9-key column metrics so 九键拼音 [nine] and 数字键盘 [numpad] render at IDENTICAL
+    // proportions — 1 scroll column + 3 main columns + 1 right column. The scroll/left column was 0.7 units
+    // (too narrow — it clipped 6-letter syllables like zhuang/shuang/chuang); widened to a full main-column
+    // width so the longest pinyin syllable shows in full, and numpad mirrors the same widths.
+    private const val NINE_LEFT_U = 1.0f    // left scroll column (readings / punctuation / operators) — was 0.7
+    private const val NINE_MAIN_U = 1.0f    // each of the 3 main columns (letters / digits)
+    private const val NINE_RIGHT_U = 0.7f   // right function column (⌫ / 重输·. / tall ↵)
+    private const val NINE_TOTAL_U = NINE_LEFT_U + 3f * NINE_MAIN_U + NINE_RIGHT_U // 4.7
+
+    /** The fixed marks the 9-key left punctuation column always shows (before the user's custom marks). Exposed
+     *  so the 自定义 中文 palette can exclude them and not offer a duplicate (debug.16 item1). */
+    val nineFixedPunctuation: List<String> = listOf("，", "。", "？", "！", "…", "：", "；", "~", ".", "-", "@")
+
     /**
-     * Resting 9-key left column (A3): the scrollable punctuation list, top→bottom ，。？！…：；~.-@ then any
-     * user [custom] marks, then 自定义 (opens the customization panel). ★D: each mark commits straight to
-     * the editor (never buffers as pinyin).
+     * Resting 9-key left column (A3): the scrollable punctuation list ([nineFixedPunctuation]) then any user
+     * [custom] marks, then 自定义 (opens the customization panel). ★D: each mark commits straight to the editor
+     * (never buffers as pinyin).
      */
     fun ninePunctuation(custom: List<String> = emptyList()): List<Key> =
-        listOf(
-            Key("，", direct = true), Key("。", direct = true), Key("？", direct = true), Key("！", direct = true),
-            Key("…", direct = true), Key("：", direct = true), Key("；", direct = true), Key("~", direct = true),
-            Key(".", direct = true), Key("-", direct = true), Key("@", direct = true),
-        ) + custom.map { Key(it, direct = true) } + Key("自定义", action = CUSTOM_SYMBOL)
+        nineFixedPunctuation.map { Key(it, direct = true) } +
+            custom.map { Key(it, direct = true) } + Key("自定义", action = CUSTOM_SYMBOL)
 
     private fun row(vararg keys: Key) = KeyboardRow(keys.toList())
 
@@ -101,10 +111,12 @@ object Layouts {
      * [KeyboardView] draws/scrolls/hit-tests it via [KeyboardLayout.scrollColumn], NOT as fixed cells.
      */
     fun nine(lang: Lang, left: List<Key>, composing: Boolean = false): KeyboardLayout {
-        val u = 1f / 4.4f                 // column unit: widths 0.7 | 1 | 1 | 1 | 0.7
-        val xL = 0f; val wL = 0.7f * u
-        val x1 = 0.7f * u; val x2 = 1.7f * u; val x3 = 2.7f * u; val wM = 1f * u
-        val xR = 3.7f * u; val wR = 0.7f * u
+        // debug.16 item5: shared metrics — widths NINE_LEFT_U(1.0) | 1 | 1 | 1 | NINE_RIGHT_U(0.7). The wider
+        // left column fits the longest pinyin syllable (zhuang/shuang/chuang) without clipping; numpad mirrors it.
+        val u = 1f / NINE_TOTAL_U
+        val xL = 0f; val wL = NINE_LEFT_U * u
+        val x1 = NINE_LEFT_U * u; val x2 = (NINE_LEFT_U + 1f) * u; val x3 = (NINE_LEFT_U + 2f) * u; val wM = NINE_MAIN_U * u
+        val xR = (NINE_LEFT_U + 3f) * u; val wR = NINE_RIGHT_U * u
         val cells = ArrayList<PlacedKey>()
         // A3: scrollable left column over the upper 0.75 band; ~4 rows visible, scroll for the rest.
         val leftColumn = ScrollColumn(left, xL, 0f, wL, 0.75f, cellHFrac = 0.75f / 4f)
@@ -129,9 +141,10 @@ object Layouts {
         cells.add(PlacedKey(t9key("WXYZ", "9"), x3, 0.5f, wM, 0.25f))
         // bottom row: 123 / SPACE (wide) / 中英 — space moved here off the right column.
         // 123 switches to the calculator-style number 9-grid (NUMPAD), not the row-based number page.
+        // bottom row spans the 3 main columns (relative to x1): 0.8 | 1.4 | 0.8 = 3 main units.
         cells.add(PlacedKey(Key("123", action = SWITCH_NUMPAD), x1, 0.75f, 0.8f * u, 0.25f))
-        cells.add(PlacedKey(Key("空格", output = " ", action = SPACE), 1.5f * u, 0.75f, 1.4f * u, 0.25f))
-        cells.add(PlacedKey(Key("中英", action = TOGGLE_LANG), 2.9f * u, 0.75f, 0.8f * u, 0.25f))
+        cells.add(PlacedKey(Key("空格", output = " ", action = SPACE), x1 + 0.8f * u, 0.75f, 1.4f * u, 0.25f))
+        cells.add(PlacedKey(Key("中英", action = TOGGLE_LANG), x1 + 2.2f * u, 0.75f, 0.8f * u, 0.25f))
         // right column: 退格(top) / 重输(mid) / 回车(green, tall).
         cells.add(PlacedKey(Key("⌫", action = BACKSPACE), xR, 0f, wR, 0.25f))
         cells.add(PlacedKey(Key("重输", action = CLEAR_COMPOSING), xR, 0.25f, wR, 0.25f))
@@ -182,16 +195,29 @@ object Layouts {
      * shares the 4-row page height (no resize when switching 9-key ⇄ 123).
      */
     fun numpad(operators: List<Key> = numpadOperators()): KeyboardLayout {
-        val u = 1f / 5f
-        val opCol = ScrollColumn(operators, 0f, 0f, u, 1f, cellHFrac = 0.25f) // 4 visible, scroll for the rest
+        // debug.16 items6-8: align to the 9-key pinyin metrics — same left/operator column width, same digit
+        // cell sizes, same row heights — so the two 9-key boards read at identical proportions side by side.
+        val u = 1f / NINE_TOTAL_U
+        val wL = NINE_LEFT_U * u
+        val x1 = NINE_LEFT_U * u; val x2 = (NINE_LEFT_U + 1f) * u; val x3 = (NINE_LEFT_U + 2f) * u; val wM = NINE_MAIN_U * u
+        val xR = (NINE_LEFT_U + 3f) * u; val wR = NINE_RIGHT_U * u
+        // operator scroll column = the pinyin left-column width (was 1/5).
+        val opCol = ScrollColumn(operators, 0f, 0f, wL, 1f, cellHFrac = 0.25f)
         val cells = ArrayList<PlacedKey>()
-        fun cell(key: Key, col: Int, row: Int) = cells.add(PlacedKey(key, col * u, row * 0.25f, u, 0.25f))
-        cell(Key("1"), 1, 0); cell(Key("2"), 2, 0); cell(Key("3"), 3, 0); cell(Key("⌫", action = BACKSPACE), 4, 0)
-        cell(Key("4"), 1, 1); cell(Key("5"), 2, 1); cell(Key("6"), 3, 1); cell(Key("."), 4, 1)
-        cell(Key("7"), 1, 2); cell(Key("8"), 2, 2); cell(Key("9"), 3, 2); cell(Key("@"), 4, 2)
-        // H-1: 返回 goes back to the user's text keyboard (9-key by default).
-        cell(Key("返回", action = SWITCH_TEXT), 1, 3); cell(Key("0"), 2, 3)
-        cell(Key("空格", output = " ", action = SPACE), 3, 3); cell(Key("↵", action = ENTER, accent = true), 4, 3)
+        fun digit(label: String, x: Float, row: Float) = cells.add(PlacedKey(Key(label), x, row, wM, 0.25f))
+        // digits 1-9 fill the 3 main columns (rows 0-2), exactly like the pinyin letter grid.
+        digit("1", x1, 0f); digit("2", x2, 0f); digit("3", x3, 0f)
+        digit("4", x1, 0.25f); digit("5", x2, 0.25f); digit("6", x3, 0.25f)
+        digit("7", x1, 0.5f); digit("8", x2, 0.5f); digit("9", x3, 0.5f)
+        // right function column mirrors pinyin's ⌫ / 重输 / tall-↵: ⌫(row0) / .(row1) / tall ↵ spanning rows 2-3.
+        // debug.16 item7: the old @ (col4,row2) is removed; item8: ↵ now spans the freed rows 2-3 (tall green).
+        cells.add(PlacedKey(Key("⌫", action = BACKSPACE), xR, 0f, wR, 0.25f))
+        cells.add(PlacedKey(Key("."), xR, 0.25f, wR, 0.25f))
+        cells.add(PlacedKey(Key("↵", action = ENTER, accent = true), xR, 0.5f, wR, 0.5f))
+        // bottom row (row3): 返回 / 0 / 空格 on the aligned 3-main-column grid (0 sits under the 2·5·8 column).
+        cells.add(PlacedKey(Key("返回", action = SWITCH_TEXT), x1, 0.75f, wM, 0.25f)) // H-1: back to the text keyboard
+        cells.add(PlacedKey(Key("0"), x2, 0.75f, wM, 0.25f))
+        cells.add(PlacedKey(Key("空格", output = " ", action = SPACE), x3, 0.75f, wM, 0.25f))
         return KeyboardLayout(LayoutId.NUMPAD, cells = cells, rowCount = 4, scrollColumn = opCol)
     }
 
