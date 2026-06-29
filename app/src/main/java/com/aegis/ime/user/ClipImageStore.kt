@@ -15,6 +15,8 @@
 
 package com.aegis.ime.user
 
+import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ContentResolver
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -99,5 +101,15 @@ class ClipImageStore(private val dir: File) {
             "bmp" -> "image/bmp"
             else -> "image/png"
         }
+
+        fun imageAccepted(accepts: Array<String>, mime: String): Boolean =
+            accepts.any { ClipDescription.compareMimeTypes(mime, it) }
+
+        inline fun deliverImage(accepts: Array<String>, mime: String, commit: () -> Boolean): Boolean =
+            imageAccepted(accepts, mime) && commit()
+
+        fun isSelfWrite(clipUri: Uri?, selfWrite: Uri?): Boolean = clipUri != null && clipUri == selfWrite
+
+        fun imageClip(resolver: ContentResolver, uri: Uri): ClipData = ClipData.newUri(resolver, "clip image", uri)
     }
 }

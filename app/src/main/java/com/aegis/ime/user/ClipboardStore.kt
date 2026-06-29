@@ -210,9 +210,6 @@ class ClipboardStore(private val dir: File) {
 
         private const val MAX_HISTORY = 100000
         private const val DEFAULT_CATEGORY = "默认"
-        private val DEFAULT_PHRASES = listOf(
-            "你好", "谢谢", "好的", "收到", "在吗？", "稍等一下", "马上到", "没问题",
-            "抱歉，刚看到消息", "哈哈哈", "晚点联系你", "辛苦了",
-        )
+        private val DEFAULT_PHRASES = emptyList<String>()
     }
 }

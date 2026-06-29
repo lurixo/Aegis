@@ -20,6 +20,11 @@ import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.ColorFilter
+import android.graphics.Paint
+import android.graphics.PixelFormat
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
@@ -117,6 +122,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     internal fun phraseCatForTest(): String = phraseCat
     internal fun forcePhrasesStateForTest(cat: String) { st.switchTab(ClipboardPanelState.Tab.PHRASE); phraseCat = cat }
     internal fun enterSelectForTest(selected: List<String> = emptyList()) { st.enterSelect(); st.selected.addAll(selected); refresh() }
+    internal fun requestClearSystemForTest() = confirmClearSystem()
+    internal fun confirmClearSystemForTest() = doClearSystem()
+    internal fun cancelClearSystemForTest() = hideOverlay()
+    internal fun isOverlayShownForTest(): Boolean = overlay.visibility == VISIBLE
 
     fun refresh() {
         main.removeAllViews()
@@ -134,6 +143,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             addView(pillTray(), ll(WC, dp(36)))
             addView(View(context), ll(0, dp(1), 1f))
             if (st.tab == Tab.PHRASE) addView(roundBtn("＋") { onManage() }, ll(dp(40), dp(44)))
+            addView(iconBtn(ClearClipDrawable(density).apply { tint(SUBTEXT) }) { confirmClearSystem() }, ll(dp(40), dp(44)))
             addView(roundBtn("☰") { enterSelect() }, ll(dp(40), dp(44)))
             addView(roundBtn("⚙") { showGearMenu() }, ll(dp(36), dp(44)))
         }
@@ -364,7 +374,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun showGearMenu() {
         val card = menuCard()
-        card.addView(menuItem("清空系统剪贴板") { hideOverlay(); onClearSystemClipboard() })
+        card.addView(menuItem("清空系统剪贴板") { confirmClearSystem() })
         card.addView(menuDivider())
         card.addView(menuItem("清空剪贴板历史") { hideOverlay(); onClearHistory(); refresh() })
         card.addView(menuDivider())
@@ -374,6 +384,19 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         card.addView(menuItem("常用语管理") { hideOverlay(); onManage() })
         showOverlay(card)
     }
+
+    private fun confirmClearSystem() {
+        val card = menuCard()
+        card.addView(menuTitle("清空系统剪贴板?"))
+        card.addView(hint("将清除系统剪贴板的当前内容,不影响剪贴板历史。", 13f, HINT).apply { setPadding(dp(20), 0, dp(20), dp(8)) })
+        card.addView(menuDivider())
+        card.addView(menuItem("确认清空") { doClearSystem() }.also { it.setTextColor(RED) })
+        card.addView(menuDivider())
+        card.addView(menuItem("取消") { hideOverlay() })
+        showOverlay(card)
+    }
+
+    private fun doClearSystem() { hideOverlay(); onClearSystemClipboard() }
 
     private fun chooseCategoryThen(action: (String) -> Unit) {
         val cats = categoriesProvider()
@@ -502,5 +525,33 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun rounded(color: Int, radiusDp: Float) = GradientDrawable().apply {
         setColor(color); cornerRadius = radiusDp * density
+    }
+
+    private fun iconBtn(icon: Drawable, onClick: () -> Unit): ImageView = ImageView(context).apply {
+        background = rounded(GREY_PILL, ImeShapes.chipRadiusDp)
+        scaleType = ImageView.ScaleType.CENTER
+        setImageDrawable(icon)
+        isClickable = true
+        setOnClickListener { onClick() }
+    }
+
+    private class ClearClipDrawable(private val density: Float) : Drawable() {
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1.8f * density
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+        fun tint(color: Int) { paint.color = color; invalidateSelf() }
+        override fun draw(canvas: Canvas) {
+            val b = bounds
+            Glyphs.drawClipboardClear(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) * 0.40f)
+        }
+        override fun getIntrinsicWidth() = (18 * density).toInt()
+        override fun getIntrinsicHeight() = (18 * density).toInt()
+        override fun setAlpha(alpha: Int) {}
+        override fun setColorFilter(colorFilter: ColorFilter?) {}
+        @Deprecated("Deprecated in Java")
+        override fun getOpacity() = PixelFormat.TRANSLUCENT
     }
 }
