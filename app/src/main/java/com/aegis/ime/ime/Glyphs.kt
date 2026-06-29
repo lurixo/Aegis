@@ -17,6 +17,7 @@ package com.aegis.ime.ime
 
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 
 /**
  * debug.13: the single source of truth for the IME's self-drawn, monochrome (palette-tinted) line glyphs, so
@@ -66,5 +67,81 @@ object Glyphs {
             c.drawLine(cx - sr, bTop, cx - sr, top + sr, paint)                    // left leg still seated
             c.drawArc(cx - sr, top, cx + sr, top + sr * 2f, 180f, 150f, false, paint) // arch, right side open
         }
+    }
+
+    // ---- debug.16 文字编辑面板 (issue #55): self-drawn outline icons in the SAME monochrome-stroke language ----
+
+    enum class Arrow { UP, DOWN, LEFT, RIGHT }
+
+    /** Hollow (outline / stroke-only, never filled) directional arrow for the edit-panel D-pad — a shaft with a
+     *  chevron head, so it reads bigger and cleaner than the old "↑←→↓" text glyphs (debug.16 item6). */
+    fun drawArrow(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, dir: Arrow) {
+        val dx: Float; val dy: Float
+        when (dir) {
+            Arrow.UP -> { dx = 0f; dy = -1f }
+            Arrow.DOWN -> { dx = 0f; dy = 1f }
+            Arrow.LEFT -> { dx = -1f; dy = 0f }
+            Arrow.RIGHT -> { dx = 1f; dy = 0f }
+        }
+        val tipX = cx + dx * s; val tipY = cy + dy * s
+        c.drawLine(cx - dx * s, cy - dy * s, tipX, tipY, paint)         // shaft
+        val hw = s * 0.66f                                              // chevron-head wing length
+        val px = -dy; val py = dx                                       // unit perpendicular to (dx,dy)
+        val baseX = tipX - dx * hw; val baseY = tipY - dy * hw          // where the wings meet the shaft
+        c.drawLine(tipX, tipY, baseX + px * hw, baseY + py * hw, paint) // wing 1
+        c.drawLine(tipX, tipY, baseX - px * hw, baseY - py * hw, paint) // wing 2
+    }
+
+    /** ⌫ backspace = a left-pointing tag outline with an ✕ on its face (debug.16 item5 删除). */
+    fun drawBackspace(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val h = s * 0.62f
+        val path = Path().apply {
+            moveTo(cx - s, cy)                       // left tip
+            lineTo(cx - s * 0.34f, cy - h)           // up to the top edge
+            lineTo(cx + s, cy - h)                   // top-right
+            lineTo(cx + s, cy + h)                   // bottom-right
+            lineTo(cx - s * 0.34f, cy + h)           // bottom edge
+            close()
+        }
+        c.drawPath(path, paint)
+        val xc = cx + s * 0.36f; val a = s * 0.24f   // ✕ on the right face
+        c.drawLine(xc - a, cy - a, xc + a, cy + a, paint)
+        c.drawLine(xc - a, cy + a, xc + a, cy - a, paint)
+    }
+
+    /** Two overlapping sheets = 复制 (debug.16 item5). */
+    fun drawCopy(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val w = s * 0.5f; val h = s * 0.66f; val r = s * 0.16f; val d = s * 0.3f
+        c.drawRoundRect(cx - w + d, cy - h - d, cx + w + d, cy + h - d, r, r, paint) // back sheet (upper-right)
+        c.drawRoundRect(cx - w - d, cy - h + d, cx + w - d, cy + h + d, r, r, paint) // front sheet (lower-left)
+    }
+
+    /** Scissors = 剪切: two handle rings whose blades cross above them and open at the top (debug.16 item5). */
+    fun drawCut(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val ringR = s * 0.26f
+        val hy = cy + s * 0.62f                                  // handle-ring centre height
+        c.drawCircle(cx - s * 0.42f, hy, ringR, paint)
+        c.drawCircle(cx + s * 0.42f, hy, ringR, paint)
+        c.drawLine(cx - s * 0.42f + ringR * 0.4f, hy - ringR * 0.4f, cx + s * 0.5f, cy - s * 0.72f, paint) // left ring → right tip
+        c.drawLine(cx + s * 0.42f - ringR * 0.4f, hy - ringR * 0.4f, cx - s * 0.5f, cy - s * 0.72f, paint) // right ring → left tip
+    }
+
+    /** Ticked box = 全选 (matches the old ☑ marker; debug.16 item5). */
+    fun drawSelectAll(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val hw = s * 0.74f
+        c.drawRoundRect(cx - hw, cy - hw, cx + hw, cy + hw, s * 0.22f, s * 0.22f, paint) // box
+        c.drawLine(cx - hw * 0.44f, cy + hw * 0.04f, cx - hw * 0.06f, cy + hw * 0.42f, paint) // check ↙
+        c.drawLine(cx - hw * 0.06f, cy + hw * 0.42f, cx + hw * 0.52f, cy - hw * 0.4f, paint)  // check ↗
+    }
+
+    /** An edge bar with an arrow pointing into it = 段首 ([toStart]) / 段尾 (mirror) (debug.16 item5/item1). */
+    fun drawParagraphEdge(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, toStart: Boolean) {
+        val sign = if (toStart) -1f else 1f                     // -1 = bar on the left, arrow points left
+        val barX = cx + sign * s
+        c.drawLine(barX, cy - s * 0.72f, barX, cy + s * 0.72f, paint)          // edge bar
+        val tipX = barX - sign * s * 0.46f                                     // arrow tip just off the bar
+        c.drawLine(cx - sign * s * 0.92f, cy, tipX, cy, paint)                 // shaft
+        c.drawLine(tipX, cy, tipX - sign * s * 0.44f, cy - s * 0.4f, paint)    // head wing
+        c.drawLine(tipX, cy, tipX - sign * s * 0.44f, cy + s * 0.4f, paint)    // head wing
     }
 }
