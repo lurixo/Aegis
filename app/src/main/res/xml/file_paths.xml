@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- U22: expose saved clipboard images (filesDir/clipboard_images) to the target app via FileProvider,
-     so the IME can InputConnection.commitContent a content:// uri with a temporary read grant. -->
-<paths>
-    <files-path name="clipboard_images" path="clipboard_images/" />
-</paths>
