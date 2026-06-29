@@ -1209,6 +1209,8 @@ class ClipboardStore(private val dir: File) {
         fun isLegacyImageEntry(entry: String): Boolean =
             entry.startsWith(LEGACY_IMG_PREFIX) && entry.contains(LEGACY_IMG_DIR)
 
+        fun shouldCapture(historyEnabled: Boolean): Boolean = historyEnabled
+
         fun sanitizePhraseText(s: String): String =
             s.filterNot { it != '\n' && it != '\r' && it != '\t' && Character.isISOControl(it) }
 

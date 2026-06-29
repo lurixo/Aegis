@@ -932,6 +932,12 @@ class ClipboardStoreTest {
         assertFalse("" in s.categories())
     }
 
+
+    @Test fun shouldCapture_only_gated_by_history_switch() {
+        assertTrue("history on → capture (even secure fields)", ClipboardStore.shouldCapture(true))
+        assertFalse("history off → never capture", ClipboardStore.shouldCapture(false))
+    }
+
     @Test fun a_delete_that_could_not_be_written_says_it_was_not_written() {
         val dir = newDir()
         val s = ClipboardStore(dir).apply { load(); record("要删的"); record("留下的"); flushPendingWrites() }
