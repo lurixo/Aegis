@@ -45,7 +45,7 @@ class KeyboardViewInteractionTest {
     private val context = RuntimeEnvironment.getApplication()
     private val density = context.resources.displayMetrics.density
     private val gap = 6f * density
-    private val u = 1f / 4.4f
+    private val u = 1f / 4.7f // debug.16 item5: widened left column → NINE_LEFT_U(1.0)|1|1|1|0.7 = 4.7 units
 
     private fun nineView(left: List<Key>, composing: Boolean): KeyboardView {
         val v = KeyboardView(context)
@@ -80,7 +80,7 @@ class KeyboardViewInteractionTest {
 
     // --- geometry of the scroll column (mirrors Layouts.nine + KeyboardView.relayout) ---
     private fun KeyboardView.regTop() = gap
-    private fun KeyboardView.cx() = (gap + (0.7f * u * width - gap)) / 2f
+    private fun KeyboardView.cx() = (gap + (1.0f * u * width - gap)) / 2f // left column is now NINE_LEFT_U(1.0) wide
     private fun KeyboardView.cellH() = ((0.75f * height - gap) - gap) / 4f
     private fun KeyboardView.colCellY(i: Int) = regTop() + cellH() * (i + 0.5f)
 
@@ -167,7 +167,7 @@ class KeyboardViewInteractionTest {
         // the middle grid, outside the left scroll region.
         var picked: Key? = null
         val v = nineView(Layouts.ninePunctuation(), composing = false).apply { onKey = { picked = it } }
-        v.tap(2.2f * u * v.width, 0.125f * v.height) // ABC cell centre
+        v.tap(2.5f * u * v.width, 0.125f * v.height) // ABC cell centre (main col 2 = x 2.0u, +0.5u to centre)
         assertNotNull(picked)
         assertEquals("ABC", picked?.label)
         assertEquals("2", picked?.output)
@@ -326,8 +326,9 @@ class KeyboardViewInteractionTest {
         return v
     }
 
-    // numpad operator column: x=0, w=1/5, full height, cellHFrac=0.25 → 4 visible.
-    private fun KeyboardView.opCx() = 0.1f * width
+    // numpad operator column: x=0, w=NINE_LEFT_U(1.0)*u (= the pinyin left-column width), full height,
+    // cellHFrac=0.25 → 4 visible. debug.16 item6: was w=1/5, now aligned to the 9-key pinyin left column.
+    private fun KeyboardView.opCx() = (1.0f * u * width) / 2f
     private fun KeyboardView.opCellH() = (height - 2 * gap) / 4f
     private fun KeyboardView.opCellY(i: Int) = gap + opCellH() * (i + 0.5f)
 
