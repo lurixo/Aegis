@@ -23,7 +23,7 @@ class SymbolCatalogTest {
 
     @Test fun category_titles_match_the_expected_order() {
         assertEquals(
-            listOf("中文", "英文", "货币", "网络", "数学", "箭头", "角标", "序号", "音标", "拼音"),
+            listOf("中文", "英文", "货币", "网络", "数学", "希腊", "箭头", "角标", "序号", "音标", "拼音"),
             SymbolCatalog.categories.map { it.title },
         )
     }
@@ -97,15 +97,35 @@ class SymbolCatalogTest {
 
     private fun cat(id: String) = SymbolCatalog.categories.first { it.id == id }.symbols
 
-    @Test fun item4_chineseGainsDoubleDashEllipsisAndFullWidth() {
-        assertTrue("中文 双破折号 —— (U+2014 U+2014) + 双省略号 …… (U+2026 U+2026)", cat("zh").containsAll(listOf("——", "……")))
-        assertEquals("—— is two em-dashes", "——", cat("zh").first { it == "——" })
-        assertEquals("…… is two ellipses", "……", cat("zh").first { it == "……" })
-        assertTrue("中文 single — / … also present", cat("zh").containsAll(listOf("—", "…")))
+    @Test fun chineseUsesSingleCellDashAndEllipsisOnly() {
+        assertTrue("中文 single — / … present", cat("zh").containsAll(listOf("—", "…")))
+        assertTrue("中文 双破折号 —— dropped", "——" !in cat("zh"))
+        assertTrue("中文 双省略号 …… dropped", "……" !in cat("zh"))
         assertTrue("中文 full-width marks", cat("zh").containsAll(listOf("＃", "＆", "＊", "＠", "％", "＋", "＝", "｜", "＜", "＞", "／", "＼")))
-        val multi = cat("zh").filter { it.length > 1 }.toSet()
-        assertEquals("only —— / …… are multi-char in 中文", setOf("——", "……"), multi)
-        assertTrue("zh multi-char marks are not url-like", multi.none { s -> s.any { it == '/' || it == ':' || it == '.' } })
+        assertTrue("中文 has NO multi-char token at all", cat("zh").none { it.length > 1 })
+    }
+
+    @Test fun mathGainsTrigonometryAndUnits() {
+        assertTrue("数学 三角函数", cat("math").containsAll(listOf(
+            "sin", "cos", "tan", "cot", "sec", "csc", "arcsin", "arccos", "arctan", "sinh", "cosh", "tanh")))
+        assertTrue("数学 计量单位", cat("math").containsAll(listOf(
+            "℃", "℉", "㎏", "㎜", "㎝", "㎞", "㎡", "㎥", "㎎", "㎖")))
+        assertEquals("数学", SymbolCatalog.categoryTitleOf("℃"))
+    }
+
+    @Test fun greekCategorySitsBetweenMathAndArrow() {
+        val ids = SymbolCatalog.categories.map { it.id }
+        assertEquals("希腊 right after 数学", ids.indexOf("math") + 1, ids.indexOf("greek"))
+        assertEquals("箭头 right after 希腊", ids.indexOf("greek") + 1, ids.indexOf("arrow"))
+        val lower = listOf("α", "β", "γ", "δ", "ε", "ζ", "η", "θ", "ι", "κ", "λ", "μ",
+            "ν", "ξ", "ο", "π", "ρ", "σ", "ς", "τ", "υ", "φ", "χ", "ψ", "ω")
+        val upper = listOf("Α", "Β", "Γ", "Δ", "Ε", "Ζ", "Η", "Θ", "Ι", "Κ", "Λ", "Μ",
+            "Ν", "Ξ", "Ο", "Π", "Ρ", "Σ", "Τ", "Υ", "Φ", "Χ", "Ψ", "Ω")
+        val greek = cat("greek")
+        assertTrue("complete lowercase α…ω (incl. final sigma ς)", greek.containsAll(lower))
+        assertTrue("complete uppercase Α…Ω", greek.containsAll(upper))
+        assertEquals("希腊 is exactly the 25 lowercase + 24 uppercase letters", lower.size + upper.size, greek.size)
+        assertTrue("希腊 letters are all single-cell (no multi-char tile)", greek.none { it.length > 1 })
     }
 
     @Test fun item4_englishGainsEnDashAndTrademarks() {
