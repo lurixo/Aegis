@@ -115,7 +115,7 @@ class ClipEntry private constructor(
     }
 }
 
-enum class PhraseEdit { ADD, TEXT, CATEGORY, LIST }
+enum class PhraseEdit { ADD, MOVE, TEXT, CATEGORY, LIST }
 
 class PhraseChange(val edit: PhraseEdit, val count: Int, val requested: Int, val saved: Boolean)
 
@@ -540,11 +540,49 @@ class ClipboardStore(private val dir: File) {
         return true
     }
 
+    fun movePhrase(fromCategory: String, text: String, toCategory: String): Boolean {
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.MOVE, 1); return false }
+        val after = synchronized(phraseCats) {
+            val to = find(toCategory) ?: return false
+            val from = find(fromCategory) ?: return false
+            if (from === to) return true
+            val p = findPhrase(from, text) ?: return false
+            from.phrases.remove(p)
+            carryInto(to, p)
+            phraseSnapshot()
+        }
+        writePhrases(PhraseEdit.MOVE, 1, 1, after)
+        return true
+    }
+
+    private fun carryInto(to: Category, p: Phrase) = mergePhraseInto(to, p, null)
+
     private fun mergePhraseInto(to: Category, p: Phrase, index: HashMap<String, Phrase>?) {
         if (p.text.isBlank()) return
         val existing = if (index == null) findPhrase(to, p.text) else index[p.text]
         if (existing == null) Phrase(p.text, p.note).also { to.phrases.add(it); index?.put(it.text, it) }
         else if (existing.note.isEmpty() && p.note.isNotEmpty()) existing.note = p.note
+    }
+
+    fun movePhrasesTo(fromCategory: String, texts: Collection<String>, toCategory: String): Int {
+        val requested = texts.size
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.MOVE, requested); return 0 }
+        var moved = 0
+        val after = synchronized(phraseCats) {
+            val to = find(toCategory) ?: return 0
+            val from = find(fromCategory) ?: return 0
+            if (from === to) return 0
+            for (t in texts) {
+                val p = findPhrase(from, t) ?: continue
+                from.phrases.remove(p)
+                carryInto(to, p)
+                moved++
+            }
+            if (moved == 0) return 0
+            phraseSnapshot()
+        }
+        writePhrases(PhraseEdit.MOVE, moved, requested, after)
+        return moved
     }
 
     fun reorderCategory(fromIndex: Int, toIndex: Int): Boolean {

@@ -490,6 +490,72 @@ class ClipboardStoreTest {
         assertFalse(s.editPhrase("工作", "缺失", "二"))
     }
 
+    @Test fun move_phrase_across_categories_dedupes_and_persists() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply {
+            load(); addCategory("甲"); addCategory("乙")
+            addPhrasesTo("甲", listOf("x", "y")); addPhrasesTo("乙", listOf("z"))
+        }
+        assertTrue(s.movePhrase("甲", "x", "乙"))
+        assertEquals(listOf("y"), s.phrasesIn("甲"))
+        assertEquals(listOf("z", "x"), s.phrasesIn("乙"))
+        s.flushPendingWrites()
+        val reloaded = ClipboardStore(dir).apply { load() }
+        assertEquals(listOf("y"), reloaded.phrasesIn("甲"))
+        assertEquals(listOf("z", "x"), reloaded.phrasesIn("乙"))
+    }
+
+    @Test fun move_phrase_target_must_exist() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("x")) }
+        assertFalse("never auto-create on move", s.movePhrase("甲", "x", "丙"))
+        assertEquals(listOf("x"), s.phrasesIn("甲"))
+        assertFalse("丙 not created", "丙" in s.categories())
+    }
+
+    @Test fun move_phrase_dedupes_when_already_in_target() {
+        val s = ClipboardStore(newDir()).apply {
+            load(); addCategory("甲"); addCategory("乙")
+            addPhrasesTo("甲", listOf("x")); addPhrasesTo("乙", listOf("x"))
+        }
+        assertTrue(s.movePhrase("甲", "x", "乙"))
+        assertTrue("removed from source", s.phrasesIn("甲").isEmpty())
+        assertEquals(listOf("x"), s.phrasesIn("乙"))
+    }
+
+    @Test fun move_phrase_absent_in_source_is_rejected_no_phantom_at_target() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addCategory("乙"); addPhrasesTo("乙", listOf("z")) }
+        assertFalse("nothing to move → reject", s.movePhrase("甲", "ghost", "乙"))
+        assertEquals(listOf("z"), s.phrasesIn("乙"))
+    }
+
+    @Test fun move_phrase_to_same_category_is_a_noop() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("x", "y")) }
+        assertTrue(s.movePhrase("甲", "x", "甲"))
+        assertEquals(listOf("x", "y"), s.phrasesIn("甲"))
+    }
+
+    @Test fun move_phrases_to_batch_moves_present_items_dedupes_and_counts() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply {
+            load(); addCategory("甲"); addCategory("乙")
+            addPhrasesTo("甲", listOf("a", "b", "c")); addPhrasesTo("乙", listOf("b"))
+        }
+        assertEquals(2, s.movePhrasesTo("甲", listOf("a", "b", "ghost"), "乙"))
+        assertEquals(listOf("c"), s.phrasesIn("甲"))
+        assertEquals(listOf("b", "a"), s.phrasesIn("乙"))
+        s.flushPendingWrites()
+        val reloaded = ClipboardStore(dir).apply { load() }
+        assertEquals(listOf("c"), reloaded.phrasesIn("甲"))
+        assertEquals(listOf("b", "a"), reloaded.phrasesIn("乙"))
+    }
+
+    @Test fun move_phrases_to_rejects_unknown_or_same_target() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("a")) }
+        assertEquals(0, s.movePhrasesTo("甲", listOf("a"), "丙"))
+        assertEquals(0, s.movePhrasesTo("甲", listOf("a"), "甲"))
+        assertEquals(listOf("a"), s.phrasesIn("甲"))
+    }
+
     @Test fun new_category_with_pending_clip_lands_the_clip_in_it() {
         val dir = newDir()
         val s = ClipboardStore(dir).apply { load(); addCategory("默认") }
@@ -498,6 +564,14 @@ class ClipboardStoreTest {
         assertEquals(listOf("hello"), s.phrasesIn("工作"))
         s.flushPendingWrites()
         assertFalse("未确认不应创建分类", "私人" in ClipboardStore(dir).apply { load() }.categories())
+    }
+
+    @Test fun new_category_with_pending_move_lands_item_in_it() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("默认"); addPhrasesTo("默认", listOf("你好", "在吗")) }
+        val name = "工作".trim()
+        s.addCategory(name); s.movePhrasesTo("默认", listOf("你好"), name)
+        assertEquals(listOf("在吗"), s.phrasesIn("默认"))
+        assertEquals(listOf("你好"), s.phrasesIn("工作"))
     }
 
     @Test fun reorder_category_moves_category_and_persists() {
