@@ -366,6 +366,7 @@ class RenderHarness {
 
     @Test fun phrase_move_chooser() {
         // debug.16: the move-to-category chooser lists OTHER existing categories (current excluded).
+        // debug.17 追加: each row now carries a trailing 🗑 (delete that category) + a ＋ 新建分类… entry.
         val h = (320 * density).toInt()
         for ((t, pal) in themes) {
             val v = ClipboardView(ctx).apply {
@@ -378,6 +379,8 @@ class RenderHarness {
             snap(v, h, "phrase_move_$t.png")
             assertTrue("$t: move chooser missing target 工作", v.hasTextLeaf("工作"))
             assertTrue("$t: move chooser missing target 私人", v.hasTextLeaf("私人"))
+            assertTrue("$t: move chooser row missing 🗑 delete", v.hasTextLeaf("🗑"))
+            assertTrue("$t: move chooser missing ＋ 新建分类…", v.hasTextLeaf("＋ 新建分类…"))
         }
     }
 
