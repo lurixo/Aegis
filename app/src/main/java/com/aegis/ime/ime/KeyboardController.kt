@@ -456,6 +456,11 @@ class KeyboardController(
 
     /** 9-key "重输": drop the pending pinyin + candidates without touching committed text. */
     private fun handleClearComposing() {
+        // debug.14 BUG1: 重输 also dismisses any next-word prediction sitting on the bar (it is a pending
+        // suggestion for [lastWord], not editor text). Null [lastWord] so the refresh that trails 重输 does
+        // NOT immediately regenerate it — the old code left lastWord set, so predict() re-populated the strip
+        // and the "ghost" prediction could not be cleared by 重输. A later commit re-enables predictions.
+        lastWord = null
         clearComposingState()
     }
 
@@ -505,11 +510,25 @@ class KeyboardController(
             // ★E×分词: drop consumed cuts, shift the rest left by the consumed length.
             val shifted = forcedCuts.filter { it > cand.coveredLen }.map { it - cand.coveredLen }
             forcedCuts.clear(); forcedCuts.addAll(shifted)
-            lockedReadings.clear()
-            activeStart = 0
+            // debug.14 BUG2: the pick consumed only the FIRST locked syllable(s) — KEEP the locks for the
+            // syllables it did NOT consume, so the remaining preedit/decode stays the readings the user locked
+            // (gai'lv'chu'xian) instead of re-decoding the bare digits to the T9-default reading
+            // (hai'lu'chu'xiao). Drop only the leading locks the pick covered; if the coverage does not land on
+            // a lock boundary (it always does on this path) fall back to clearing every lock (old behaviour).
+            var consumedDigits = 0; var dropLocks = 0
+            while (dropLocks < lockedReadings.size && consumedDigits < cand.coveredLen) {
+                consumedDigits += T9Pinyin.toT9(lockedReadings[dropLocks]).length; dropLocks++
+            }
+            if (lockedReadings.isNotEmpty() && consumedDigits == cand.coveredLen) {
+                repeat(dropLocks) { lockedReadings.removeAt(0) }
+                activeStart = (activeStart - cand.coveredLen).coerceAtLeast(0)
+            } else {
+                lockedReadings.clear(); activeStart = 0
+            }
             drillSyllable = -1 // UI-2: the remainder re-segments → drop the stale drill, show its candidates
             candidates = emptyList()
-            rebuildHistory() // A9: the remainder is fresh + lock-free → 退格 steps back per remaining digit
+            rebuildHistory() // A9: 退格 steps back per remaining digit …
+            repeat(lockedReadings.size) { history.addLast(StepKind.LOCK) } // … then per surviving locked syllable
         } else {
             // The pick completes the word: send the assembled prefix + this final chunk to the editor in ONE
             // commit (整词完成才上屏), then reset.
