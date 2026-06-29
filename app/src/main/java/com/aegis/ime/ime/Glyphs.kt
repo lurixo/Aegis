@@ -67,6 +67,13 @@ object Glyphs {
         c.drawLine(tipX, tipY, baseX - px * hw, baseY - py * hw, paint)
     }
 
+    fun drawBack(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val w = s * 0.6f
+        val h = s * 0.82f
+        c.drawLine(cx + w, cy - h, cx - w, cy, paint)
+        c.drawLine(cx - w, cy, cx + w, cy + h, paint)
+    }
+
     fun drawBackspace(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val h = s * 0.62f
         val path = Path().apply {

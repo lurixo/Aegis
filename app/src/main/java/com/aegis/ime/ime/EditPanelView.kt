@@ -65,7 +65,11 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         setBackgroundColor(palette.keyboardBg)
 
         addView(
-            textBtn("‹  文字编辑", EditAction.BACK, sp = 16f).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), 0, 0, 0) },
+            textBtn("文字编辑", EditAction.BACK, sp = 16f).apply {
+                gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), 0, 0, 0)
+                setCompoundDrawablesWithIntrinsicBounds(icon(26, 0.42f) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }, null, null, null)
+                compoundDrawablePadding = dp(6)
+            },
             LayoutParams(LayoutParams.MATCH_PARENT, dp(40)),
         )
 
