@@ -91,31 +91,48 @@ class NetCategoryLayoutTest {
         else -> emptyList()
     }
 
-    private fun clickChip(root: View, text: String): Boolean =
-        textLeaves(root).firstOrNull { it.text == text }?.also { it.performClick() } != null
+    private fun clickByText(root: View, text: String): Boolean {
+        var v: View? = textLeaves(root).firstOrNull { it.text == text } ?: return false
+        while (v != null && !v.isClickable) v = v.parent as? View
+        v?.performClick()
+        return v != null
+    }
 
-    @Test fun chinese_double_dash_and_ellipsis_are_ordinary_chips_not_a_url_bar() {
+    @Test fun chinese_double_dash_and_ellipsis_are_ordinary_grid_cells_not_a_chip_bar() {
         val sv = SymbolsView(ctx)
         sv.applyPalette(light)
         sv.openCategoryForTest(1)
-        val chips = sv.netChipTextsForTest()
-        assertTrue("中文 破折号 —— is chipped", "——" in chips)
-        assertTrue("中文 省略号 …… is chipped", "……" in chips)
-        assertTrue("the chip bar is showing on 中文", sv.chipBarVisibleForTest())
-        assertFalse("中文 marks are ordinary chips, not a 网址补全 bar", sv.netBarVisibleForTest())
-        assertTrue("中文 single-glyph grid still populated", sv.gridCellCountForTest() > 0)
+        val cells = sv.gridCellTextsForTest()
+        assertTrue("中文 破折号 —— is a grid cell", "——" in cells)
+        assertTrue("中文 省略号 …… is a grid cell", "……" in cells)
+        assertTrue("single — / … still present as grid cells", "—" in cells && "…" in cells)
+        assertFalse("NO chip bar on 中文 (the marks ride the grid now)", sv.chipBarVisibleForTest())
+        assertFalse("中文 is not a 网址补全 url bar", sv.netBarVisibleForTest())
     }
 
-    @Test fun tapping_a_chinese_mark_chip_commits_that_exact_string() {
+    @Test fun tapping_a_chinese_mark_cell_commits_that_exact_string() {
         val sv = SymbolsView(ctx)
         var committed: String? = null
         sv.onSymbol = { committed = it }
         sv.applyPalette(light)
         sv.openCategoryForTest(1)
-        assertTrue("—— chip present + clickable", clickChip(sv, "——"))
-        assertEquals("clicking the —— chip inserts the double em-dash", "——", committed)
+        assertTrue("—— cell present + clickable", clickByText(sv, "——"))
+        assertEquals("clicking the —— cell inserts the double em-dash", "——", committed)
         committed = null
-        assertTrue("…… chip present + clickable", clickChip(sv, "……"))
-        assertEquals("clicking the …… chip inserts the double ellipsis", "……", committed)
+        assertTrue("…… cell present + clickable", clickByText(sv, "……"))
+        assertEquals("clicking the …… cell inserts the double ellipsis", "……", committed)
+    }
+
+    @Test fun common_tab_mixing_a_url_and_a_chinese_mark_chips_only_the_url() {
+        val sv = SymbolsView(ctx)
+        sv.recentProvider = { listOf("https://", "——", "。") }
+        sv.applyPalette(light)
+        sv.openCategoryForTest(0)
+        assertEquals("only the url is chipped", listOf("https://"), sv.netChipTextsForTest())
+        assertTrue("the url bar shows (a real url completion is present)", sv.netBarVisibleForTest())
+        val cells = sv.gridCellTextsForTest()
+        assertTrue("—— rides the grid, not the chip bar", "——" in cells)
+        assertTrue("the single glyph 。 stays in the grid", "。" in cells)
+        assertFalse("—— is NOT chipped", "——" in sv.netChipTextsForTest())
     }
 }

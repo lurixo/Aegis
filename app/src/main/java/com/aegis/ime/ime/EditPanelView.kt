@@ -89,14 +89,16 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         rightCol.addView(iconBtn("删除", EditAction.DELETE, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }), rowLp())
         rightCol.addView(copyBtn, rowLp())
         rightCol.addView(cutBtn, rowLp())
-        mid.addView(rightCol, LayoutParams(0, LayoutParams.MATCH_PARENT, 2f))
+        mid.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        mid.addView(rightCol, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         addView(mid, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
 
         val bottom = LinearLayout(context).apply { orientation = HORIZONTAL }
         bottom.addView(iconBtn("段首", EditAction.HOME, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawParagraphEdge(c, p, x, y, s, toStart = true) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         bottom.addView(iconBtn("全选", EditAction.SELECT_ALL, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawSelectAll(c, p, x, y, s) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         bottom.addView(iconBtn("段尾", EditAction.END, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawParagraphEdge(c, p, x, y, s, toStart = false) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        bottom.addView(iconBtn("粘贴", EditAction.PASTE, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawClipboard(c, p, x, y, s) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 2f))
+        bottom.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        bottom.addView(iconBtn("粘贴", EditAction.PASTE, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawClipboard(c, p, x, y, s) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         addView(bottom, LayoutParams(LayoutParams.MATCH_PARENT, dp(56)))
 
         setHasSelection(false)
