@@ -358,8 +358,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
         val cnLayout = prefs.getString("cn_layout", "nine")
         controller.setCnDefaultLayout(if (cnLayout == "alpha") LayoutId.ALPHA else LayoutId.NINE)
-        // D2: 联想开关 — show learned next-word predictions only when the toggle is on (default on).
-        controller.setAssociationsEnabled(prefs.getBoolean("pref_associations_on", true))
+        // D2: 联想开关 — show learned next-word predictions only when the toggle is on. debug.17: default OFF;
+        // the stored pref still wins, so a user who explicitly enabled it keeps it. Single source of truth for
+        // the key + default lives in AssociationToggleCard.
+        controller.setAssociationsEnabled(
+            prefs.getBoolean(com.aegis.ime.ui.PREF_ASSOCIATIONS_ON, com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON),
+        )
         // debug.16: 模糊音 hot-toggle — re-read the fuzzy prefs each focus and push them to the live engine
         // (query-time variant expansion, no rebuild), so a 模糊音 change takes effect on 切走再回来 without a
         // cold start. The engine hot-reload path (#49) carries the same rules via buildEngine → currentFuzzyRules.
