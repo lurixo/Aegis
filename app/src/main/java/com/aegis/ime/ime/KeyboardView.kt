@@ -127,8 +127,9 @@ class KeyboardView(context: Context) : View(context) {
     private val rowHeight = 52f * density
     // I3/numpad-align: the 4-row pages (9-key + numpad/number/symbol) get a small per-row bump so they share
     // ONE height and switching between them (e.g. 9-key ⇄ 123) never resizes the IME; the 5-row 26-key keeps
-    // the base. (Supersedes the nine-only I3 bump — same +7dp on the 9-key, now generalized.)
-    private val shortPageRowExtra = 7f * density
+    // the base. debug.17 C (F3): trimmed 7→2dp/row so the 9-key (and its 4-row siblings) sit ~20dp lower overall
+    // — they read less tall/chunky — while still sharing one height (no resize on a 9-key⇄123 switch).
+    private val shortPageRowExtra = 2f * density
     private val gap = 6f * density
     private val keyRadius = ImeShapes.keyRadiusDp * density // F2: rounded-rect keys (≤16dp, never pill)
 
