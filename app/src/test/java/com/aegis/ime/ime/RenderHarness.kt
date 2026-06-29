@@ -342,9 +342,9 @@ class RenderHarness {
                 forcePhrasesStateForTest("默认"); refresh(); expandForTest("你好")
             }
             snap(v, h, "phrase_actions_$t.png")
-            assertTrue("$t: missing 编辑", v.hasTextLeaf("✎ 编辑"))
-            assertTrue("$t: missing 移动", v.hasTextLeaf("→ 移动"))
-            assertTrue("$t: missing 删除", v.hasTextLeaf("🗑 删除"))
+            assertTrue("$t: missing 编辑", v.hasTextLeaf("编辑"))
+            assertTrue("$t: missing 移动", v.hasTextLeaf("移动"))
+            assertTrue("$t: missing 删除", v.hasTextLeaf("删除"))
         }
     }
 
@@ -381,7 +381,6 @@ class RenderHarness {
             snap(v, h, "phrase_move_$t.png")
             assertTrue("$t: move chooser missing target 工作", v.hasTextLeaf("工作"))
             assertTrue("$t: move chooser missing target 私人", v.hasTextLeaf("私人"))
-            assertTrue("$t: move chooser row missing 🗑 delete", v.hasTextLeaf("🗑"))
             assertTrue("$t: move chooser missing ＋ 新建分类…", v.hasTextLeaf("＋ 新建分类…"))
         }
     }
@@ -435,7 +434,7 @@ class RenderHarness {
                 applyPalette(pal); refresh(); revealSwipeForTest("第一条复制内容")
             }
             snap(v, h, "clip_swipe_$t.png")
-            assertTrue("$t: swipe row missing 拆词", v.hasTextLeaf("拆 拆词"))
+            assertTrue("$t: swipe row missing 拆词", v.hasTextLeaf("拆词"))
         }
     }
 
@@ -449,7 +448,7 @@ class RenderHarness {
                 applyPalette(pal); forcePhrasesStateForTest("默认"); refresh(); revealSwipeForTest("在吗")
             }
             snap(v, h, "phrase_swipe_$t.png")
-            assertTrue("$t: swipe row missing 置顶", v.hasTextLeaf("↑ 置顶"))
+            assertTrue("$t: swipe row missing 置顶", v.hasTextLeaf("置顶"))
         }
     }
 

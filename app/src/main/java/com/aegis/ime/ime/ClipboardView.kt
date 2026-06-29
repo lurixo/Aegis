@@ -225,18 +225,19 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             // item7: every top icon is the SAME size/shape as the ‹ back icon, and the action icons are evenly
             // spaced (a gap between them) instead of crammed.
             fun iconLp(spaced: Boolean = false) = ll(dp(36), dp(44)).apply { if (spaced) marginStart = dp(6) }
-            addView(backBtn { onBack() }, iconLp()) // debug.17: 返回 = hollow-stroke chevron (Glyphs.drawBack), not a tiny "‹" char
+            // icon收尾: every top icon is a self-drawn Glyph in a chip (返回/＋/多选/设置/清空) — uniform with the app.
+            addView(glyphChipBtn(desc = "返回", onClick = { onBack() }) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }, iconLp())
             addView(View(context), ll(0, dp(1), 1f))
             addView(pillTray(), ll(WC, dp(36)))
             addView(View(context), ll(0, dp(1), 1f))
             // debug.17: the 常用语 tab's ＋ now ADDS A PHRASE to the current category (新建分类 moved to the
             // categoryBar ✎ 二级菜单); 多选 (☰) lives on BOTH tabs.
-            if (st.tab == Tab.PHRASE) addView(roundBtn("＋") { onAddPhrase(currentCategory()) }, iconLp(true))
-            addView(roundBtn("☰") { enterSelect() }, iconLp(true))
-            // debug.17 E2: the LAST top icon is tab-specific — 常用语 tab = 清空当前分类 (二次确认); 剪贴板 tab = ⚙.
-            // (icon is a text/existing placeholder; the final glyph is unified in a later step.)
-            if (st.tab == Tab.PHRASE) addView(roundBtn("🗑") { confirmClearCurrentCategory() }, iconLp(true))
-            else addView(roundBtn("⚙") { showGearMenu() }, iconLp(true))
+            if (st.tab == Tab.PHRASE) addView(glyphChipBtn(desc = "添加常用语", onClick = { onAddPhrase(currentCategory()) }) { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }, iconLp(true))
+            addView(glyphChipBtn(desc = "多选", onClick = { enterSelect() }) { c, p, x, y, s -> Glyphs.drawList(c, p, x, y, s) }, iconLp(true))
+            // debug.17 E2: the LAST top icon is tab-specific — 常用语 tab = 清空当前分类 (二次确认, RED-tinted 🗑);
+            // 剪贴板 tab = ⚙ settings.
+            if (st.tab == Tab.PHRASE) addView(glyphChipBtn(desc = "清空分类", tint = RED, onClick = { confirmClearCurrentCategory() }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }, iconLp(true))
+            else addView(glyphChipBtn(desc = "设置", onClick = { showGearMenu() }) { c, p, x, y, s -> Glyphs.drawGear(c, p, x, y, s) }, iconLp(true))
         }
         main.addView(topBar, ll(MP, dp(50)))
         // U9: no 字数/条数上限 line.
@@ -294,11 +295,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             // reorder (wired below); its 编辑/移动/删除 moved to the expanded action row.
             if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
         }
-        val chevron = TextView(context).apply {
-            this.text = if (expanded) "⌃" else "⌄"
-            gravity = Gravity.CENTER
-            setTextColor(HINT)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+        // icon收尾: ⌄/⌃ is now a self-drawn chevron (down=collapsed, up=expanded).
+        val chevron = glyphView(HINT, 7) { c, p, x, y, s -> Glyphs.drawChevron(c, p, x, y, s, down = !expanded) }.apply {
+            contentDescription = if (expanded) "收起" else "展开"
             setOnClickListener { swipeRevealed = null; st.toggleExpand(text); refresh() } // ⌄展开 supersedes a swipe reveal
             if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
         }
@@ -368,9 +367,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun actionRow(text: String): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         setPadding(dp(8), 0, dp(8), dp(10))
-        addView(action("＋ 常用语") { chooseCategoryThen(listOf(text)) }, ll(0, WC, 1f))
-        addView(action("拆 拆词") { showSplit(text) }, ll(0, WC, 1f))
-        addView(action("🗑 删除") { deleteOne(text) }, ll(0, WC, 1f))
+        addView(glyphAction("常用语", render = { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }) { chooseCategoryThen(listOf(text)) }, ll(0, WC, 1f))
+        addView(glyphAction("拆词", render = { c, p, x, y, s -> Glyphs.drawCut(c, p, x, y, s) }) { showSplit(text) }, ll(0, WC, 1f))
+        addView(glyphAction("删除", render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { deleteOne(text) }, ll(0, WC, 1f))
     }
 
     /** debug.16: expanded 常用语 card action row = 编辑 / 移动 / 删除 (＋常用语 is meaningless for an existing
@@ -380,10 +379,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         orientation = LinearLayout.HORIZONTAL
         setPadding(dp(8), 0, dp(8), dp(10))
         val cat = currentCategory()
-        addView(action("✎ 编辑") { onEditPhrase(cat, text) }, ll(0, WC, 1f))
-        addView(action("✐ 备注") { onEditNote(cat, text) }, ll(0, WC, 1f)) // debug.17 F2: set/clear the display note
-        addView(action("→ 移动") { chooseMoveCategoryThen(cat, listOf(text)) { target -> onMovePhrase(cat, text, target); refresh() } }, ll(0, WC, 1f))
-        addView(action("🗑 删除") { deleteOne(text) }, ll(0, WC, 1f))
+        addView(glyphAction("编辑", render = { c, p, x, y, s -> Glyphs.drawEditCaret(c, p, x, y, s) }) { onEditPhrase(cat, text) }, ll(0, WC, 1f))
+        addView(glyphAction("备注", render = { c, p, x, y, s -> Glyphs.drawTag(c, p, x, y, s) }) { onEditNote(cat, text) }, ll(0, WC, 1f)) // F2
+        addView(glyphAction("移动", render = { c, p, x, y, s -> Glyphs.drawArrow(c, p, x, y, s, Glyphs.Arrow.RIGHT) }) { chooseMoveCategoryThen(cat, listOf(text)) { target -> onMovePhrase(cat, text, target); refresh() } }, ll(0, WC, 1f))
+        addView(glyphAction("删除", render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { deleteOne(text) }, ll(0, WC, 1f))
     }
 
     /** debug.17: a 常用语 card's LEFT-SWIPE action row = 编辑 / 置顶 / 删除. 置顶 reorders the phrase to the top
@@ -393,9 +392,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         orientation = LinearLayout.HORIZONTAL
         setPadding(dp(8), 0, dp(8), dp(10))
         val cat = currentCategory()
-        addView(action("✎ 编辑") { onEditPhrase(cat, text) }, ll(0, WC, 1f))
-        addView(action("↑ 置顶") { onReorderPhrase(cat, index, 0); swipeRevealed = null; refresh() }, ll(0, WC, 1f))
-        addView(action("🗑 删除") { deleteOne(text) }, ll(0, WC, 1f))
+        addView(glyphAction("编辑", render = { c, p, x, y, s -> Glyphs.drawEditCaret(c, p, x, y, s) }) { onEditPhrase(cat, text) }, ll(0, WC, 1f))
+        addView(glyphAction("置顶", render = { c, p, x, y, s -> Glyphs.drawArrow(c, p, x, y, s, Glyphs.Arrow.UP) }) { onReorderPhrase(cat, index, 0); swipeRevealed = null; refresh() }, ll(0, WC, 1f))
+        addView(glyphAction("删除", render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { deleteOne(text) }, ll(0, WC, 1f))
     }
 
     // ---------- debug.16: drag-to-reorder a 常用语 card ----------
@@ -585,10 +584,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(TEXT_DARK)
             setPadding(dp(14), dp(12), dp(8), dp(12))
         }, ll(0, WC, 1f))
-        val handle = TextView(context).apply {
-            this.text = "≡"; gravity = Gravity.CENTER; setTextColor(HINT)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
-        }
+        val handle = glyphView(HINT, 9) { c, p, x, y, s -> Glyphs.drawList(c, p, x, y, s) } // icon收尾: ≡ drag handle
         col.addView(handle, ll(dp(44), MP))
         attachSortDrag(handle, col, index)
         return col
@@ -609,15 +605,6 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         }
     }
 
-    private fun action(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
-        this.text = label
-        gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
-        setTextColor(SUBTEXT)
-        setPadding(dp(8), dp(6), dp(8), dp(6))
-        setOnClickListener { onClick() }
-    }
-
     private fun categoryBar(): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
@@ -627,7 +614,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val cur = currentCategory()
         for (name in categoriesProvider()) chips.addView(catChip(name, name == cur))
         addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, ll(0, WC, 1f))
-        addView(roundBtn("✎") { showPhraseManageMenu() }, ll(dp(36), dp(44))) // debug.17: ✎ → 二级菜单(移动/添加分类)
+        addView(glyphChipBtn(desc = "管理常用语", onClick = { showPhraseManageMenu() }) { c, p, x, y, s -> Glyphs.drawPencil(c, p, x, y, s) }, ll(dp(36), dp(44))) // ✎ → 二级菜单
     }
 
     /** debug.17: the 常用语 categoryBar ✎ opens a small 二级菜单: 移动 (enter the drag-reorder 排序模式 for the
@@ -693,9 +680,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setPadding(dp(12), dp(8), dp(12), dp(8))
             val allSel = st.isAllSelected(all)
             addView(TextView(context).apply {
-                text = if (allSel) "● 全选" else "○ 全选"
+                text = "全选" // icon收尾: ○/● → self-drawn leading radio
                 setTextColor(if (allSel) GREEN else SUBTEXT)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+                setCompoundDrawablesWithIntrinsicBounds(glyphIcon(if (allSel) GREEN else SUBTEXT, 22) { c, p, x, y, s -> Glyphs.drawRadio(c, p, x, y, s, allSel) }, null, null, null)
+                compoundDrawablePadding = dp(6)
                 setOnClickListener { st.selectAll(all); refresh() }
             }, ll(0, WC, 1f))
             addView(TextView(context).apply {
@@ -747,12 +736,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         background = rounded(CARD, ImeShapes.cardRadiusDp)
         layoutParams = ll(MP, WC).apply { topMargin = dp(8) }
         val on = text in st.selected
-        addView(TextView(context).apply {
-            this.text = if (on) "●" else "○"
-            setTextColor(if (on) GREEN else HINT)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
-            setPadding(dp(14), 0, dp(8), 0)
-        }, ll(WC, WC))
+        // icon收尾: ○/● selection indicator → self-drawn radio (filled when selected, GREEN), centred in its column.
+        addView(glyphView(if (on) GREEN else HINT, 8) { c, p, x, y, s -> Glyphs.drawRadio(c, p, x, y, s, on) }, ll(dp(40), MP))
         addView(TextView(context).apply {
             // U22: image entries show a label (not the raw marker path) in select mode. debug.17 F2: a 常用语 with
             // a note shows the note; selection still keys on the original `text`.
@@ -818,16 +803,18 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             addView(menuItem(name) { hideOverlay(); action(name) }, ll(0, WC, 1f))
-            addView(TextView(context).apply {
-                text = "🗑"; gravity = Gravity.CENTER
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(RED)
-                setPadding(dp(8), dp(12), dp(16), dp(12))
-                setOnClickListener {
-                    onDeleteCategory(name); if (phraseCat == name) phraseCat = ""; swipeRevealed = null
-                    refresh() // update the panel (categoryBar chips) immediately, exactly like the chip-menu delete
-                    chooseMoveCategoryThen(current, moveTexts, after, action) // then re-open the chooser with the refreshed list
-                }
-            }, ll(WC, MP))
+            // icon收尾: the per-row delete 🗑 → self-drawn RED trash glyph.
+            addView(
+                glyphView(RED, 9) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }.apply {
+                    contentDescription = "删除分类"
+                    setOnClickListener {
+                        onDeleteCategory(name); if (phraseCat == name) phraseCat = ""; swipeRevealed = null
+                        refresh() // update the panel (categoryBar chips) immediately, exactly like the chip-menu delete
+                        chooseMoveCategoryThen(current, moveTexts, after, action) // then re-open the chooser with the refreshed list
+                    }
+                },
+                ll(dp(52), dp(48)),
+            )
         }
 
     /** C6: long-press → centered menu 删除此条内容 / 添加常用语 / 拆分选词. */
@@ -1003,28 +990,53 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             if (enabled) setOnClickListener { onClick() }
         }
 
-    /** debug.17: the top-bar 返回 button — same chip slot as ☰/⚙/＋ but its icon is the hollow-stroke
-     *  [Glyphs.drawBack] chevron (2dp stroke, ROUND caps, SUBTEXT tint), drawn larger than the old "‹" char so
-     *  it reads as the panel's main back affordance. */
-    private fun backBtn(onClick: () -> Unit): View {
-        val v = object : View(context) {
-            private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
-                strokeWidth = 2f * density; color = SUBTEXT
-            }
-            override fun onDraw(c: Canvas) { Glyphs.drawBack(c, p, width / 2f, height / 2f, dp(10).toFloat()) }
-        }
-        v.background = rounded(GREY_PILL, ImeShapes.chipRadiusDp) // same light chip as the other top icons
-        v.setOnClickListener { onClick() }
-        return v
+    // debug.17 (icon收尾): self-drawn single-colour Glyphs in place of font-char / emoji icons, matching the
+    // app-wide language (target box, 2dp stroke, ROUND caps/joins). A [render] is a Glyphs.draw* call.
+    private fun glyphPaint(tint: Int) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+        strokeWidth = 2f * density; color = tint
     }
 
-    private fun roundBtn(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
-        text = label; gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(SUBTEXT)
-        background = rounded(GREY_PILL, ImeShapes.chipRadiusDp) // light circular chip with the ☰/＋/⚙ glyphs
-        setOnClickListener { onClick() }
+    /** A standalone View that paints a Glyph centred (chip buttons, chevron, drag handle). [sDp] = half-extent. */
+    private fun glyphView(tint: Int, sDp: Int, render: (Canvas, Paint, Float, Float, Float) -> Unit): View =
+        object : View(context) {
+            private val p = glyphPaint(tint)
+            override fun onDraw(c: Canvas) { render(c, p, width / 2f, height / 2f, dp(sDp).toFloat()) }
+        }
+
+    /** A self-drawn Glyph as a Drawable, for use as a TextView's leading compound icon (action-row cells). */
+    private fun glyphIcon(tint: Int, boxDp: Int, render: (Canvas, Paint, Float, Float, Float) -> Unit): android.graphics.drawable.Drawable {
+        val box = dp(boxDp); val p = glyphPaint(tint)
+        return object : android.graphics.drawable.Drawable() {
+            override fun draw(canvas: Canvas) { val b = bounds; render(canvas, p, b.exactCenterX(), b.exactCenterY(), box * 0.42f) }
+            override fun getIntrinsicWidth() = box
+            override fun getIntrinsicHeight() = box
+            override fun setAlpha(a: Int) {}
+            override fun setColorFilter(cf: android.graphics.ColorFilter?) {}
+            @Deprecated("deprecated in Drawable", ReplaceWith("android.graphics.PixelFormat.TRANSLUCENT"))
+            override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
+        }
     }
+
+    /** Top-bar / categoryBar chip button whose icon is a self-drawn Glyph (replaces a font-char roundBtn).
+     *  [desc] is the contentDescription (accessibility + test locator, since there is no text). */
+    private fun glyphChipBtn(desc: String, tint: Int = SUBTEXT, onClick: () -> Unit, render: (Canvas, Paint, Float, Float, Float) -> Unit): View =
+        glyphView(tint, 10, render).apply {
+            background = rounded(GREY_PILL, ImeShapes.chipRadiusDp)
+            contentDescription = desc
+            setOnClickListener { onClick() }
+        }
+
+    /** An action-row cell = self-drawn leading icon + [label] (replaces "🗑 删除" / "✎ 编辑" font-char actions). */
+    private fun glyphAction(label: String, tint: Int = SUBTEXT, render: (Canvas, Paint, Float, Float, Float) -> Unit, onClick: () -> Unit): TextView =
+        TextView(context).apply {
+            text = label; gravity = Gravity.CENTER
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label); setTextColor(SUBTEXT)
+            setPadding(dp(4), dp(6), dp(4), dp(6))
+            setCompoundDrawablesWithIntrinsicBounds(glyphIcon(tint, 20, render), null, null, null)
+            compoundDrawablePadding = dp(4)
+            setOnClickListener { onClick() }
+        }
 
     private fun rounded(color: Int, radiusDp: Float) = GradientDrawable().apply {
         setColor(color); cornerRadius = radiusDp * density

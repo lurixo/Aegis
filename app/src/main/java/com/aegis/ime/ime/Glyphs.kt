@@ -201,4 +201,78 @@ object Glyphs {
         val bx = endX - e * 0.42f; val by = endY + e * 0.42f
         c.drawLine(bx + o, by + o, bx - o, by - o, paint)                       // ferrule band
     }
+
+    // ---- debug.17 (icon收尾): glyphs the 剪贴板/常用语 panel still drew as font chars / emoji, now self-drawn ----
+
+    /** ＋ add — two crossing strokes (顶栏 ＋ / ＋常用语). */
+    fun drawPlus(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val r = s * 0.72f
+        c.drawLine(cx - r, cy, cx + r, cy, paint)
+        c.drawLine(cx, cy - r, cx, cy + r, paint)
+    }
+
+    /** ☰ / ≡ — three horizontal lines (顶栏 多选 + 排序模式 drag handle). */
+    fun drawList(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val w = s * 0.78f; val g = s * 0.5f
+        c.drawLine(cx - w, cy - g, cx + w, cy - g, paint)
+        c.drawLine(cx - w, cy, cx + w, cy, paint)
+        c.drawLine(cx - w, cy + g, cx + w, cy + g, paint)
+    }
+
+    /** ⚙ settings — a cog: a hub ring + 8 radial teeth + centre hole (顶栏 设置). */
+    fun drawGear(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val rIn = s * 0.5f; val rOut = s * 0.82f
+        c.drawCircle(cx, cy, rIn, paint)
+        for (i in 0 until 8) {
+            val a = Math.toRadians(45.0 * i).toFloat()
+            val ca = kotlin.math.cos(a); val sa = kotlin.math.sin(a)
+            c.drawLine(cx + rIn * ca, cy + rIn * sa, cx + rOut * ca, cy + rOut * sa, paint) // tooth
+        }
+        c.drawCircle(cx, cy, s * 0.2f, paint) // hub hole
+    }
+
+    /** 🗑 delete — a bin: lid + handle + tapered body + two ribs (删除 / 清空分类 / 删除分类). */
+    fun drawTrash(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val w = s * 0.56f; val top = cy - s * 0.46f; val bot = cy + s * 0.8f
+        c.drawLine(cx - w, top, cx - w * 0.8f, bot, paint)                      // body left
+        c.drawLine(cx + w, top, cx + w * 0.8f, bot, paint)                      // body right
+        c.drawLine(cx - w * 0.8f, bot, cx + w * 0.8f, bot, paint)               // body bottom
+        c.drawLine(cx - w * 1.22f, top, cx + w * 1.22f, top, paint)             // lid
+        val hx = s * 0.26f; val hy = top - s * 0.22f
+        c.drawLine(cx - hx, top, cx - hx, hy, paint)                            // handle left
+        c.drawLine(cx + hx, top, cx + hx, hy, paint)                            // handle right
+        c.drawLine(cx - hx, hy, cx + hx, hy, paint)                             // handle top
+        c.drawLine(cx - s * 0.2f, top + s * 0.22f, cx - s * 0.16f, bot - s * 0.16f, paint) // rib
+        c.drawLine(cx + s * 0.2f, top + s * 0.22f, cx + s * 0.16f, bot - s * 0.16f, paint) // rib
+    }
+
+    /** ⌄ / ⌃ expand chevron (a v / ^) for the card expand/collapse toggle. */
+    fun drawChevron(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, down: Boolean) {
+        val w = s * 0.7f; val h = s * 0.38f
+        val ty = if (down) cy - h else cy + h
+        val my = if (down) cy + h else cy - h
+        c.drawLine(cx - w, ty, cx, my, paint)
+        c.drawLine(cx, my, cx + w, ty, paint)
+    }
+
+    /** 🏷 tag — a label outline with a punch hole (常用语 备注 / display alias). */
+    fun drawTag(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val l = cx - s * 0.85f; val r = cx + s * 0.45f; val tip = cx + s * 0.92f
+        val top = cy - s * 0.6f; val bot = cy + s * 0.6f
+        val p = Path().apply { moveTo(l, top); lineTo(r, top); lineTo(tip, cy); lineTo(r, bot); lineTo(l, bot); close() }
+        c.drawPath(p, paint)
+        c.drawCircle(l + s * 0.3f, cy, s * 0.13f, paint)                        // hole
+    }
+
+    /** ○ / ● selection indicator — a ring, plus a filled centre dot when [on] (多选 per-row select). Temporarily
+     *  flips the caller's paint to FILL for the dot and restores it. */
+    fun drawRadio(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, on: Boolean) {
+        c.drawCircle(cx, cy, s * 0.72f, paint)
+        if (on) {
+            val saved = paint.style
+            paint.style = Paint.Style.FILL
+            c.drawCircle(cx, cy, s * 0.36f, paint)
+            paint.style = saved
+        }
+    }
 }
