@@ -216,6 +216,16 @@
     <string name="app_version_card_title">App release</string>
     <string name="app_release_label_format" translatable="false">Aegis v%1$s</string>
 
+    <string name="phrase_transfer_toast_export_ok">Phrases exported</string>
+    <string name="phrase_transfer_toast_export_store_unreadable">Export failed: the saved phrases could not be read</string>
+    <string name="phrase_transfer_toast_export_write_failed">Export failed: the file could not be written</string>
+    <string name="phrase_transfer_toast_export_empty">Export failed: there was nothing to export</string>
+    <string name="phrase_transfer_toast_import_merged">Phrases imported and merged</string>
+    <string name="phrase_transfer_toast_import_overwritten">Phrases imported and overwritten</string>
+    <string name="phrase_transfer_toast_import_invalid">Import failed: no valid content</string>
+    <string name="phrase_transfer_toast_import_store_unreadable">Import failed: the saved phrases could not be read — use overwrite to replace them</string>
+    <string name="phrase_transfer_toast_import_write_failed">Import failed: the phrases could not be saved</string>
+
     <string name="settings_backup_title">Data backup</string>
     <string name="settings_backup_desc">Export or import all your data as an encrypted file</string>
     <string name="restore_gate_rollback_failed">Restore unfinished — undo failed, tap here</string>
