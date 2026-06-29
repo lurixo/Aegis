@@ -170,4 +170,69 @@ object Glyphs {
         val bx = endX - e * 0.42f; val by = endY + e * 0.42f
         c.drawLine(bx + o, by + o, bx - o, by - o, paint)
     }
+
+
+    fun drawPlus(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val r = s * 0.72f
+        c.drawLine(cx - r, cy, cx + r, cy, paint)
+        c.drawLine(cx, cy - r, cx, cy + r, paint)
+    }
+
+    fun drawList(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val w = s * 0.78f; val g = s * 0.5f
+        c.drawLine(cx - w, cy - g, cx + w, cy - g, paint)
+        c.drawLine(cx - w, cy, cx + w, cy, paint)
+        c.drawLine(cx - w, cy + g, cx + w, cy + g, paint)
+    }
+
+    fun drawGear(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val rIn = s * 0.5f; val rOut = s * 0.82f
+        c.drawCircle(cx, cy, rIn, paint)
+        for (i in 0 until 8) {
+            val a = Math.toRadians(45.0 * i).toFloat()
+            val ca = kotlin.math.cos(a); val sa = kotlin.math.sin(a)
+            c.drawLine(cx + rIn * ca, cy + rIn * sa, cx + rOut * ca, cy + rOut * sa, paint)
+        }
+        c.drawCircle(cx, cy, s * 0.2f, paint)
+    }
+
+    fun drawTrash(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val w = s * 0.56f; val top = cy - s * 0.46f; val bot = cy + s * 0.8f
+        c.drawLine(cx - w, top, cx - w * 0.8f, bot, paint)
+        c.drawLine(cx + w, top, cx + w * 0.8f, bot, paint)
+        c.drawLine(cx - w * 0.8f, bot, cx + w * 0.8f, bot, paint)
+        c.drawLine(cx - w * 1.22f, top, cx + w * 1.22f, top, paint)
+        val hx = s * 0.26f; val hy = top - s * 0.22f
+        c.drawLine(cx - hx, top, cx - hx, hy, paint)
+        c.drawLine(cx + hx, top, cx + hx, hy, paint)
+        c.drawLine(cx - hx, hy, cx + hx, hy, paint)
+        c.drawLine(cx - s * 0.2f, top + s * 0.22f, cx - s * 0.16f, bot - s * 0.16f, paint)
+        c.drawLine(cx + s * 0.2f, top + s * 0.22f, cx + s * 0.16f, bot - s * 0.16f, paint)
+    }
+
+    fun drawChevron(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, down: Boolean) {
+        val w = s * 0.7f; val h = s * 0.38f
+        val ty = if (down) cy - h else cy + h
+        val my = if (down) cy + h else cy - h
+        c.drawLine(cx - w, ty, cx, my, paint)
+        c.drawLine(cx, my, cx + w, ty, paint)
+    }
+
+    fun drawTag(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val l = cx - s * 0.85f; val r = cx + s * 0.45f; val tip = cx + s * 0.92f
+        val top = cy - s * 0.6f; val bot = cy + s * 0.6f
+        val p = Path().apply { moveTo(l, top); lineTo(r, top); lineTo(tip, cy); lineTo(r, bot); lineTo(l, bot); close() }
+        c.drawPath(p, paint)
+        c.drawCircle(l + s * 0.3f, cy, s * 0.13f, paint)
+    }
+
+    fun drawRadio(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, on: Boolean) {
+        c.drawCircle(cx, cy, s * 0.72f, paint)
+        if (on) {
+            val saved = paint.style
+            paint.style = Paint.Style.FILL
+            c.drawCircle(cx, cy, s * 0.36f, paint)
+            paint.style = saved
+        }
+    }
 }
