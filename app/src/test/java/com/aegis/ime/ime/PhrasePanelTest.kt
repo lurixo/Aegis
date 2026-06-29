@@ -215,4 +215,38 @@ class PhrasePanelTest {
         assertEquals("all top icons share one width (item7)", 1, widths.size)
         assertEquals("all top icons share one height (item7)", 1, heights.size)
     }
+
+    // ---- debug.16 fix: 剪贴板 添加常用语 → 新建分类 must carry the clip into the new category ----
+
+    private fun clipboardView(history: List<String>, cats: List<String>): ClipboardView = ClipboardView(ctx).apply {
+        historyProvider = { history }
+        categoriesProvider = { cats }
+        applyPalette(pal); refresh() // default tab = 剪贴板
+    }
+
+    @Test fun clipboard_add_to_new_category_carries_the_clip() {
+        var carried: List<String>? = null
+        val v = clipboardView(listOf("hello"), listOf("默认")).apply { onAddCategoryThenAdd = { carried = it } }
+        v.expandForTest("hello")
+        assertTrue(click(v, "＋ 常用语"))                 // open the category chooser
+        assertTrue(click(overlayOf(v), "＋ 新建分类…"))   // pick 新建分类
+        assertEquals("the clip rides the inline new-category flow", listOf("hello"), carried)
+    }
+
+    @Test fun clipboard_add_to_new_category_when_none_exist_carries_the_clip() {
+        var carried: List<String>? = null
+        val v = clipboardView(listOf("hello"), emptyList()).apply { onAddCategoryThenAdd = { carried = it } }
+        v.expandForTest("hello")
+        assertTrue(click(v, "＋ 常用语")) // no categories → straight into create-carrying-clip
+        assertEquals(listOf("hello"), carried)
+    }
+
+    @Test fun clipboard_add_to_existing_category_still_works() {
+        var saved: Pair<String, List<String>>? = null
+        val v = clipboardView(listOf("hello"), listOf("默认")).apply { onSaveAsPhrasesTo = { c, l -> saved = c to l } }
+        v.expandForTest("hello")
+        assertTrue(click(v, "＋ 常用语"))
+        assertTrue(click(overlayOf(v), "默认"))           // existing-category path unchanged
+        assertEquals("默认" to listOf("hello"), saved)
+    }
 }

@@ -69,6 +69,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     var onMovePhrasesTo: (String, List<String>, String) -> Unit = { _, _, _ -> } // debug.16: batch move (from, phrases, to)
     var onReorderPhrase: (String, Int, Int) -> Unit = { _, _, _ -> }    // debug.16: drag-reorder (category, fromIndex, toIndex)
     var onAddCategory: () -> Unit = {}                 // debug.16 Option A: ＋分类 → inline text input
+    var onAddCategoryThenAdd: (List<String>) -> Unit = {} // debug.16: 新建分类 carrying clip(s) to add once created
     var onRenameCategory: (String) -> Unit = {}        // debug.16 Option A: 分类改名 → inline text input
     var onDeleteCategory: (String) -> Unit = {}        // debug.16: 删除分类 (no typing)
     var onClearHistory: () -> Unit = {}
@@ -299,7 +300,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun actionRow(text: String): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         setPadding(dp(8), 0, dp(8), dp(10))
-        addView(action("＋ 常用语") { chooseCategoryThen { c -> onSaveAsPhrasesTo(c, listOf(text)) } }, ll(0, WC, 1f))
+        addView(action("＋ 常用语") { chooseCategoryThen(listOf(text)) }, ll(0, WC, 1f))
         addView(action("拆 拆词") { showSplit(text) }, ll(0, WC, 1f))
         addView(action("🗑 删除") { deleteOne(text) }, ll(0, WC, 1f))
     }
@@ -489,7 +490,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             } else {
                 addView(pillButton("添加常用语", GREEN, GREEN_PILL, hasSel) {
                     // M-2: never save image entries as phrases (their marker/path would become a dead 常用语).
-                    chooseCategoryThen { c -> onSaveAsPhrasesTo(c, st.selected.filterNot { ClipboardStore.isImageEntry(it) }); exitSelect() }
+                    chooseCategoryThen(st.selected.filterNot { ClipboardStore.isImageEntry(it) }) { exitSelect() }
                 }, ll(0, dp(44), 1f).apply { rightMargin = dp(8) })
             }
             addView(pillButton("删除", RED, RED_PILL, hasSel) {
@@ -566,7 +567,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val card = menuCard()
         card.addView(menuItem("删除此条内容") { hideOverlay(); deleteOne(text) })
         card.addView(menuDivider())
-        card.addView(menuItem("添加常用语") { hideOverlay(); chooseCategoryThen { c -> onSaveAsPhrasesTo(c, listOf(text)) } })
+        card.addView(menuItem("添加常用语") { hideOverlay(); chooseCategoryThen(listOf(text)) })
         card.addView(menuDivider())
         card.addView(menuItem("拆分选词") { hideOverlay(); showSplit(text) })
         showOverlay(card)
@@ -584,15 +585,17 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         showOverlay(card)
     }
 
-    /** C5: pick the target category for an add, or jump to the manager to create one. */
-    private fun chooseCategoryThen(action: (String) -> Unit) {
+    /** C5: pick a target category to ADD [pending] phrases into, or create a NEW one — carrying [pending]
+     *  THROUGH the inline create (debug.16 fix) so the clip still lands in the just-created category. [after]
+     *  runs cleanup (e.g. exitSelect) on either branch. */
+    private fun chooseCategoryThen(pending: List<String>, after: () -> Unit = {}) {
         val cats = categoriesProvider()
-        if (cats.isEmpty()) { onAddCategory(); return }
+        if (cats.isEmpty()) { after(); onAddCategoryThenAdd(pending); return } // no categories yet → create one carrying the clip
         val card = menuCard()
         card.addView(menuTitle("选择分类"))
-        for (c in cats) { card.addView(menuDivider()); card.addView(menuItem(c) { hideOverlay(); action(c); refresh() }) }
+        for (c in cats) { card.addView(menuDivider()); card.addView(menuItem(c) { hideOverlay(); onSaveAsPhrasesTo(c, pending); after(); refresh() }) }
         card.addView(menuDivider())
-        card.addView(menuItem("＋ 新建分类…") { hideOverlay(); onAddCategory() })
+        card.addView(menuItem("＋ 新建分类…") { hideOverlay(); after(); onAddCategoryThenAdd(pending) }) // carry the clip(s)
         showOverlay(card)
     }
 

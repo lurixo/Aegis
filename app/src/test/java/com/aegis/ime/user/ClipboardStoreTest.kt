@@ -331,6 +331,17 @@ class ClipboardStoreTest {
         assertEquals(listOf("d", "b", "c", "a"), ClipboardStore(dir).apply { load() }.phrasesIn("甲")) // persisted
     }
 
+    @Test fun new_category_with_pending_clip_lands_the_clip_in_it() {
+        // Mirrors confirmInlineInput's ADD_CATEGORY-with-pending step (剪贴板 添加常用语→新建分类→确认).
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply { load(); addCategory("默认") }
+        val name = "工作".trim()
+        s.addCategory(name); s.addPhrasesTo(name, listOf("hello")) // create then land the carried clip
+        assertEquals(listOf("hello"), s.phrasesIn("工作"))
+        // cancel-equivalent: with NO confirm calls the category is never created and nothing is added.
+        assertFalse("未确认不应创建分类", "私人" in ClipboardStore(dir).apply { load() }.categories())
+    }
+
     @Test fun reorder_phrase_rejects_bad_indices_and_noops() {
         val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("a", "b")) }
         assertFalse(s.reorderPhrase("甲", 0, 0))   // no-op
