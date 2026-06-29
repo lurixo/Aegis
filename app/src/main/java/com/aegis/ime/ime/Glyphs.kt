@@ -121,4 +121,53 @@ object Glyphs {
         c.drawLine(tipX, cy, tipX - sign * s * 0.44f, cy - s * 0.4f, paint)
         c.drawLine(tipX, cy, tipX - sign * s * 0.44f, cy + s * 0.4f, paint)
     }
+
+
+    fun drawEmoji(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        c.drawCircle(cx, cy, s * 0.82f, paint)
+        val ey = cy - s * 0.18f; val ex = s * 0.32f; val eh = s * 0.17f
+        c.drawLine(cx - ex, ey - eh, cx - ex, ey + eh, paint)
+        c.drawLine(cx + ex, ey - eh, cx + ex, ey + eh, paint)
+        c.drawArc(cx - s * 0.4f, cy - s * 0.05f, cx + s * 0.4f, cy + s * 0.45f, 20f, 140f, false, paint)
+    }
+
+    fun drawBrandA(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val h = s * 0.82f; val apexY = cy - h; val baseY = cy + h; val legX = s * 0.62f
+        val p = Path().apply { moveTo(cx - legX, baseY); lineTo(cx, apexY); lineTo(cx + legX, baseY) }
+        c.drawPath(p, paint)
+        val t = 0.58f; val ly = apexY + (baseY - apexY) * t
+        c.drawLine(cx - legX * t, ly, cx + legX * t, ly, paint)
+    }
+
+    fun drawEditCaret(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val h = s * 0.82f; val w = s * 0.5f
+        c.drawLine(cx, cy - h, cx, cy + h, paint)
+        c.drawLine(cx - w, cy - h, cx + w, cy - h, paint)
+        c.drawLine(cx - w, cy + h, cx + w, cy + h, paint)
+    }
+
+    fun drawShift(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, locked: Boolean) {
+        val tipY = cy - s * 0.85f; val headW = s * 0.8f; val midY = cy - s * 0.04f
+        val stemW = s * 0.34f; val botY = cy + s * 0.66f
+        c.drawLine(cx, tipY, cx - headW, midY, paint)
+        c.drawLine(cx, tipY, cx + headW, midY, paint)
+        c.drawLine(cx - headW, midY, cx - stemW, midY, paint)
+        c.drawLine(cx + headW, midY, cx + stemW, midY, paint)
+        c.drawLine(cx - stemW, midY, cx - stemW, botY, paint)
+        c.drawLine(cx + stemW, midY, cx + stemW, botY, paint)
+        c.drawLine(cx - stemW, botY, cx + stemW, botY, paint)
+        if (locked) c.drawLine(cx - headW, botY + s * 0.3f, cx + headW, botY + s * 0.3f, paint)
+    }
+
+    fun drawPencil(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val e = s * 0.78f; val o = s * 0.2f
+        val tipX = cx - e; val tipY = cy + e; val endX = cx + e; val endY = cy - e
+        c.drawLine(tipX + o, tipY + o, endX + o, endY + o, paint)
+        c.drawLine(tipX - o, tipY - o, endX - o, endY - o, paint)
+        c.drawLine(endX + o, endY + o, endX - o, endY - o, paint)
+        c.drawLine(tipX + o, tipY + o, tipX, tipY, paint)
+        c.drawLine(tipX - o, tipY - o, tipX, tipY, paint)
+        val bx = endX - e * 0.42f; val by = endY + e * 0.42f
+        c.drawLine(bx + o, by + o, bx - o, by - o, paint)
+    }
 }

@@ -69,7 +69,8 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     private val backBtn = barButton("返回") { onBack() }
     private val lockBtn = barButton("锁定") { toggleLock() }
     private val lockGlyph = LockDrawable(density)
-    private val backspaceBtn = barButton("⌫") { onBackspace() }
+    private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
+    private val backspaceBtn = barButton("") { onBackspace() }
     private val bottomBarView = bottomBar()
 
     private companion object {
@@ -81,6 +82,8 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         setBackgroundColor(palette.keyboardBg)
         lockBtn.setCompoundDrawablesWithIntrinsicBounds(lockGlyph, null, null, null)
         lockBtn.compoundDrawablePadding = dp(4)
+        backspaceBtn.setCompoundDrawablesWithIntrinsicBounds(backspaceGlyph, null, null, null)
+        backspaceGlyph.tint(palette.keyLabelSecondary)
 
         for ((i, t) in titles.withIndex()) rail.addView(railTab(i, t))
 
@@ -114,6 +117,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         (bottomBarView as LinearLayout).let { bar ->
             for (i in 0 until bar.childCount) (bar.getChildAt(i) as? TextView)?.setTextColor(p.keyLabelSecondary)
         }
+        backspaceGlyph.tint(p.keyLabelSecondary)
         updateLockFace()
         showCategory(selected)
     }
@@ -309,6 +313,8 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     private fun bottomBar(): View = LinearLayout(context).apply {
         orientation = HORIZONTAL
         setBackgroundColor(palette.keyboardBg)
+        backBtn.gravity = Gravity.START or Gravity.CENTER_VERTICAL; backBtn.setPadding(dp(20), 0, 0, 0)
+        backspaceBtn.gravity = Gravity.END or Gravity.CENTER_VERTICAL; backspaceBtn.setPadding(0, 0, dp(20), 0)
         addView(backBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         addView(lockBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         addView(backspaceBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
@@ -334,10 +340,32 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         fun tint(color: Int) { paint.color = color; invalidateSelf() }
         override fun draw(canvas: Canvas) {
             val b = bounds
-            Glyphs.drawLock(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) * 0.40f, closed)
+            Glyphs.drawLock(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) * 0.52f, closed)
         }
-        override fun getIntrinsicWidth() = (18 * density).toInt()
-        override fun getIntrinsicHeight() = (18 * density).toInt()
+        init { paint.strokeWidth = 2f * density }
+        override fun getIntrinsicWidth() = (22 * density).toInt()
+        override fun getIntrinsicHeight() = (22 * density).toInt()
+        override fun setAlpha(alpha: Int) {}
+        override fun setColorFilter(colorFilter: ColorFilter?) {}
+        @Deprecated("Deprecated in Java")
+        override fun getOpacity() = PixelFormat.TRANSLUCENT
+    }
+
+    private class IconDrawable(
+        private val density: Float,
+        private val sFactor: Float,
+        private val render: (Canvas, Paint, Float, Float, Float) -> Unit,
+    ) : Drawable() {
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeWidth = 2f * density; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+        }
+        fun tint(color: Int) { paint.color = color; invalidateSelf() }
+        override fun draw(canvas: Canvas) {
+            val b = bounds
+            render(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) * sFactor)
+        }
+        override fun getIntrinsicWidth() = (22 * density).toInt()
+        override fun getIntrinsicHeight() = (22 * density).toInt()
         override fun setAlpha(alpha: Int) {}
         override fun setColorFilter(colorFilter: ColorFilter?) {}
         @Deprecated("Deprecated in Java")

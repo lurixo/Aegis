@@ -18,18 +18,16 @@ package com.aegis.ime.ime
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.Path
 import android.graphics.RectF
 import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
 import kotlin.math.abs
 
-enum class BarFunction(val glyph: String) {
-    BRAND("A"), EMOJI("☺"), EDIT("✎"), CLIPBOARD("📋")
-}
+enum class BarFunction { BRAND, EMOJI, EDIT, CLIPBOARD }
 
 class CandidateView(context: Context) : View(context) {
 
@@ -56,6 +54,7 @@ class CandidateView(context: Context) : View(context) {
     private var downX = 0f
     private var downScroll = 0f
     private var dragging = false
+    private val fling = FlingScroller(context)
 
     init { setLayerType(LAYER_TYPE_SOFTWARE, null) }
 
@@ -124,6 +123,11 @@ class CandidateView(context: Context) : View(context) {
 
     internal fun chevronGlyph(): String = if (expanded) "⌃" else "⌄"
 
+    internal fun scrollXForTest(): Float = scrollX
+    internal fun maxScrollForTest(): Float = maxScroll()
+    internal fun isFlingingForTest(): Boolean = !fling.isFinished
+    internal fun flingVelocityForTest(): Float = fling.velocity()
+
     private fun layoutCells() {
         hitCount = items.size
         var x = 0f
@@ -174,7 +178,7 @@ class CandidateView(context: Context) : View(context) {
         val capR = width - capMarginH
         val capT = capMarginV
         val capB = height - capMarginV
-        val rad = (capB - capT) / 2f
+        val rad = minOf((capB - capT) / 2f, ImeShapes.toolbarPillRadiusDp * density)
         capsulePaint.setShadowLayer(6f * density, 0f, 2f * density, palette.shadow)
         canvas.drawRoundRect(capL, capT, capR, capB, rad, rad, capsulePaint)
         capsulePaint.clearShadowLayer()
@@ -200,38 +204,11 @@ class CandidateView(context: Context) : View(context) {
 
     private fun drawIcon(c: Canvas, f: BarFunction, cx: Float, cy: Float, s: Float) {
         when (f) {
-            BarFunction.BRAND -> drawBrand(c, cx, cy, s)
-            BarFunction.EMOJI -> {
-                c.drawCircle(cx, cy, s * 0.6f, iconPaint)
-                val eye = s * 0.16f
-                iconPaint.style = Paint.Style.FILL
-                c.drawCircle(cx - s * 0.24f, cy - s * 0.13f, eye, iconPaint)
-                c.drawCircle(cx + s * 0.24f, cy - s * 0.13f, eye, iconPaint)
-                iconPaint.style = Paint.Style.STROKE
-                c.drawArc(cx - s * 0.34f, cy - s * 0.08f, cx + s * 0.34f, cy + s * 0.3f, 20f, 140f, false, iconPaint)
-            }
-            BarFunction.EDIT -> {
-                c.drawLine(cx, cy - s * 0.75f, cx, cy + s * 0.75f, iconPaint)
-                c.drawLine(cx - s * 0.5f, cy - s * 0.75f, cx + s * 0.5f, cy - s * 0.75f, iconPaint)
-                c.drawLine(cx - s * 0.5f, cy + s * 0.75f, cx + s * 0.5f, cy + s * 0.75f, iconPaint)
-            }
+            BarFunction.BRAND -> Glyphs.drawBrandA(c, iconPaint, cx, cy, s)
+            BarFunction.EMOJI -> Glyphs.drawEmoji(c, iconPaint, cx, cy, s)
+            BarFunction.EDIT -> Glyphs.drawEditCaret(c, iconPaint, cx, cy, s)
             BarFunction.CLIPBOARD -> Glyphs.drawClipboard(c, iconPaint, cx, cy, s)
         }
-    }
-
-    private val brandPath = Path()
-    private fun drawBrand(c: Canvas, cx: Float, cy: Float, s: Float) {
-        val h = s * 0.78f
-        val apexY = cy - h; val baseY = cy + h
-        val legX = s * 0.6f
-        brandPath.reset()
-        brandPath.moveTo(cx - legX, baseY)
-        brandPath.lineTo(cx, apexY)
-        brandPath.lineTo(cx + legX, baseY)
-        c.drawPath(brandPath, iconPaint)
-        val t = 0.58f
-        val ly = apexY + (baseY - apexY) * t
-        c.drawLine(cx - legX * t, ly, cx + legX * t, ly, iconPaint)
     }
 
     private fun drawChevronDown(c: Canvas, cx: Float, cy: Float, s: Float) {
@@ -244,15 +221,21 @@ class CandidateView(context: Context) : View(context) {
         c.drawLine(cx, cy - s * 0.28f, cx + s * 0.5f, cy + s * 0.2f, iconPaint)
     }
 
+    override fun computeScroll() {
+        fling.computeOffset()?.let { scrollX = it.coerceIn(0f, maxScroll()); postInvalidateOnAnimation() }
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downX = event.x
                 downScroll = scrollX
                 dragging = false
+                fling.onDown()
             }
             MotionEvent.ACTION_MOVE -> {
                 if (!showingFunctions && items.isNotEmpty()) {
+                    fling.addSample(event.eventTime, event.x)
                     val dx = event.x - downX
                     if (!dragging && abs(dx) > touchSlop) dragging = true
                     if (dragging) {
@@ -262,7 +245,8 @@ class CandidateView(context: Context) : View(context) {
                 }
             }
             MotionEvent.ACTION_UP -> {
-                if (dragging) { dragging = false; return true }
+                if (dragging) { dragging = false; if (fling.fling(scrollX, maxScroll())) postInvalidateOnAnimation(); return true }
+                if (fling.stopArmed) return true
                 if (showingFunctions) {
                     if (collapseRect.contains(event.x, event.y)) { performClick(); onCollapse(); return true }
                     funcRects.indexOfFirst { it.contains(event.x, event.y) }

@@ -66,14 +66,7 @@ class KeyboardView(context: Context) : View(context) {
     private var scrolling = false
     private val tmpRect = RectF()
     private val scrollSlop = 6f * resources.displayMetrics.density
-    private val scroller = OverScroller(context)
-    private val minFlingVel = ViewConfiguration.get(context).scaledMinimumFlingVelocity.toFloat()
-    private val maxFlingVel = ViewConfiguration.get(context).scaledMaximumFlingVelocity.toFloat()
-    private val sampleT = LongArray(VELOCITY_SAMPLES)
-    private val sampleY = FloatArray(VELOCITY_SAMPLES)
-    private var sampleHead = 0
-    private var sampleCount = 0
-    private var flingStopArmed = false
+    private val fling = FlingScroller(context)
 
     private val repeatHandler = Handler(Looper.getMainLooper())
     private var downKey: Key? = null
@@ -103,7 +96,7 @@ class KeyboardView(context: Context) : View(context) {
 
     private val density = resources.displayMetrics.density
     private val rowHeight = 52f * density
-    private val shortPageRowExtra = 7f * density
+    private val shortPageRowExtra = 2f * density
     private val gap = 6f * density
     private val keyRadius = ImeShapes.keyRadiusDp * density
 
@@ -132,6 +125,7 @@ class KeyboardView(context: Context) : View(context) {
     private val scrollTrackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.railBg }
     private val scrollbarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withAlpha(palette.icon, 0x55) }
     private val scrollLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(17f) }
+    private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2f * density; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
 
     fun applyPalette(p: ImePalette) {
         palette = p
@@ -231,8 +225,8 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     override fun computeScroll() {
-        if (scroller.computeScrollOffset()) {
-            scrollY = scroller.currY.toFloat()
+        fling.computeOffset()?.let {
+            scrollY = it
             clampScroll()
             postInvalidateOnAnimation()
         }
@@ -312,6 +306,8 @@ class KeyboardView(context: Context) : View(context) {
     private fun drawLabel(canvas: Canvas, p: Placed) {
         if (p.key.action == KeyAction.TOGGLE_LANG) { drawLangToggle(canvas, p.rect); return }
         if (p.key.action == KeyAction.SHIFT) { drawShift(canvas, p.rect); return }
+        if (p.key.action == KeyAction.BACKSPACE) { drawKeyGlyph(canvas, p.rect, palette.keyLabel) { c, pt, x, y, s -> Glyphs.drawBackspace(c, pt, x, y, s) }; return }
+        if (p.key.action == KeyAction.SHOW_SYMBOLS) { drawKeyGlyph(canvas, p.rect, palette.keyLabelSecondary) { c, pt, x, y, s -> Glyphs.drawPencil(c, pt, x, y, s) }; return }
         val cx = p.rect.centerX()
         val cy = p.rect.centerY()
         val display = displayLabel(p.key)
@@ -337,9 +333,14 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     private fun drawShift(canvas: Canvas, rect: RectF) {
-        val glyph = if (shiftLocked) "⬆︎" else "⇧"
-        val paint = if (shifted) shiftActivePaint else labelPaint
-        canvas.drawText(glyph, rect.centerX(), rect.centerY() - (paint.descent() + paint.ascent()) / 2, paint)
+        drawKeyGlyph(canvas, rect, if (shifted) palette.accentBottom else palette.keyLabel) { c, pt, x, y, s ->
+            Glyphs.drawShift(c, pt, x, y, s, locked = shiftLocked)
+        }
+    }
+
+    private inline fun drawKeyGlyph(canvas: Canvas, rect: RectF, color: Int, draw: (Canvas, Paint, Float, Float, Float) -> Unit) {
+        iconPaint.color = color
+        draw(canvas, iconPaint, rect.centerX(), rect.centerY(), minOf(rect.width(), rect.height()) * 0.24f)
     }
 
     internal fun shiftRenderState(): String = if (shiftLocked) "LOCK" else if (shifted) "ONCE" else "OFF"
@@ -354,7 +355,6 @@ class KeyboardView(context: Context) : View(context) {
         if (shifted && key.action == KeyAction.COMMIT && key.label.length == 1 && key.label[0] in 'a'..'z') {
             return key.label.uppercase()
         }
-        if (key.label == "✎") return "✎︎"
         return key.label
     }
 
@@ -442,15 +442,13 @@ class KeyboardView(context: Context) : View(context) {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 inScrollDown = true; scrolling = false
-                flingStopArmed = !scroller.isFinished
-                if (flingStopArmed) scroller.forceFinished(true)
-                sampleCount = 0; sampleHead = 0
+                fling.onDown()
                 scrollDownY = event.y; scrollLastY = event.y
-                scrollPressedIndex = if (flingStopArmed) -1 else scrollIndexAt(event.y)
+                scrollPressedIndex = if (fling.stopArmed) -1 else scrollIndexAt(event.y)
                 invalidate()
             }
             MotionEvent.ACTION_MOVE -> {
-                addVelocitySample(event.eventTime, event.y)
+                fling.addSample(event.eventTime, event.y)
                 if (!scrolling && abs(event.y - scrollDownY) > scrollSlop) { scrolling = true; scrollPressedIndex = -1 }
                 if (scrolling) {
                     scrollY += scrollLastY - event.y
@@ -461,20 +459,16 @@ class KeyboardView(context: Context) : View(context) {
             MotionEvent.ACTION_UP -> {
                 val col = scrollColumn
                 if (scrolling) {
-                    val vy = flingVelocity()
-                    if (col != null && abs(vy) > minFlingVel && maxScroll() > 0f) {
-                        scroller.fling(0, scrollY.toInt(), 0, (-vy).toInt(), 0, 0, 0, maxScroll().toInt())
-                        postInvalidateOnAnimation()
-                    }
-                } else if (col != null && !flingStopArmed) {
+                    if (col != null && fling.fling(scrollY, maxScroll())) postInvalidateOnAnimation()
+                } else if (col != null && !fling.stopArmed) {
                     val idx = scrollIndexAt(event.y)
                     if (idx >= 0 && idx == scrollPressedIndex) { performClick(); onKey(col.items[idx]) }
                 }
-                scrollPressedIndex = -1; inScrollDown = false; scrolling = false; flingStopArmed = false
+                scrollPressedIndex = -1; inScrollDown = false; scrolling = false
                 invalidate()
             }
             MotionEvent.ACTION_CANCEL -> {
-                scrollPressedIndex = -1; inScrollDown = false; scrolling = false; flingStopArmed = false
+                scrollPressedIndex = -1; inScrollDown = false; scrolling = false
                 invalidate()
             }
         }
@@ -483,31 +477,10 @@ class KeyboardView(context: Context) : View(context) {
 
     internal fun scrollOffsetForTest(): Float = scrollY
     internal fun maxScrollForTest(): Float = maxScroll()
-    internal fun isFlingingForTest(): Boolean = !scroller.isFinished
-    internal fun flingFinalForTest(): Float = scroller.finalY.toFloat()
+    internal fun isFlingingForTest(): Boolean = !fling.isFinished
+    internal fun flingFinalForTest(): Float = fling.finalOffset()
 
-    private fun addVelocitySample(t: Long, y: Float) {
-        sampleT[sampleHead] = t; sampleY[sampleHead] = y
-        sampleHead = (sampleHead + 1) % VELOCITY_SAMPLES
-        if (sampleCount < VELOCITY_SAMPLES) sampleCount++
-    }
-
-    private fun flingVelocity(): Float {
-        if (sampleCount < 2) return 0f
-        val newest = (sampleHead - 1 + VELOCITY_SAMPLES) % VELOCITY_SAMPLES
-        val tNew = sampleT[newest]; val yNew = sampleY[newest]
-        var ref = newest
-        for (k in 1 until sampleCount) {
-            val idx = (newest - k + VELOCITY_SAMPLES) % VELOCITY_SAMPLES
-            ref = idx
-            if (tNew - sampleT[idx] >= VELOCITY_WINDOW_MS) break
-        }
-        val dt = (tNew - sampleT[ref]).toFloat()
-        if (dt <= 0f) return 0f
-        return ((yNew - sampleY[ref]) / dt * 1000f).coerceIn(-maxFlingVel, maxFlingVel)
-    }
-
-    internal fun flingVelocityForTest(): Float = flingVelocity()
+    internal fun flingVelocityForTest(): Float = fling.velocity()
 
     private fun placedAt(x: Float, y: Float): Placed? {
         var nearest: Placed? = null
@@ -562,7 +535,63 @@ class KeyboardView(context: Context) : View(context) {
     private companion object {
         const val REPEAT_DELAY_MS = 400L
         const val REPEAT_INTERVAL_MS = 55L
-        const val VELOCITY_SAMPLES = 12
-        const val VELOCITY_WINDOW_MS = 100L
+    }
+}
+
+class FlingScroller(context: Context) {
+    private val scroller = OverScroller(context)
+    private val minVel = ViewConfiguration.get(context).scaledMinimumFlingVelocity.toFloat()
+    private val maxVel = ViewConfiguration.get(context).scaledMaximumFlingVelocity.toFloat()
+    private val sampleT = LongArray(SAMPLES)
+    private val samplePos = FloatArray(SAMPLES)
+    private var head = 0
+    private var count = 0
+
+    var stopArmed = false
+        private set
+
+    fun onDown() {
+        stopArmed = !scroller.isFinished
+        if (stopArmed) scroller.forceFinished(true)
+        count = 0; head = 0
+    }
+
+    fun addSample(t: Long, pos: Float) {
+        sampleT[head] = t; samplePos[head] = pos
+        head = (head + 1) % SAMPLES
+        if (count < SAMPLES) count++
+    }
+
+    fun velocity(): Float {
+        if (count < 2) return 0f
+        val newest = (head - 1 + SAMPLES) % SAMPLES
+        val tNew = sampleT[newest]; val pNew = samplePos[newest]
+        var ref = newest
+        for (k in 1 until count) {
+            val idx = (newest - k + SAMPLES) % SAMPLES
+            ref = idx
+            if (tNew - sampleT[idx] >= WINDOW_MS) break
+        }
+        val dt = (tNew - sampleT[ref]).toFloat()
+        if (dt <= 0f) return 0f
+        return ((pNew - samplePos[ref]) / dt * 1000f).coerceIn(-maxVel, maxVel)
+    }
+
+    fun fling(start: Float, max: Float): Boolean {
+        val v = velocity()
+        if (kotlin.math.abs(v) <= minVel || max <= 0f) return false
+        scroller.fling(0, start.toInt(), 0, (-v).toInt(), 0, 0, 0, max.toInt())
+        return true
+    }
+
+    fun computeOffset(): Float? = if (scroller.computeScrollOffset()) scroller.currY.toFloat() else null
+
+    val isFinished: Boolean get() = scroller.isFinished
+
+    fun finalOffset(): Float = scroller.finalY.toFloat()
+
+    private companion object {
+        const val SAMPLES = 12
+        const val WINDOW_MS = 100L
     }
 }
