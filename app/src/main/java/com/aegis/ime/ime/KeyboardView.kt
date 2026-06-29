@@ -165,6 +165,8 @@ class KeyboardView(context: Context) : View(context) {
     private val scrollTrackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.railBg }
     private val scrollbarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withAlpha(palette.icon, 0x55) }
     private val scrollLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(17f) }
+    // debug.17: STROKE paint for the self-drawn key glyphs (⌫ / ⇧ / ✎) — colour is set per draw (state-aware).
+    private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2f * density; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
 
     /** F1: push a new (Monet, dark-aware) palette; re-colours every Paint and repaints. */
     fun applyPalette(p: ImePalette) {
@@ -371,6 +373,9 @@ class KeyboardView(context: Context) : View(context) {
     private fun drawLabel(canvas: Canvas, p: Placed) {
         if (p.key.action == KeyAction.TOGGLE_LANG) { drawLangToggle(canvas, p.rect); return }
         if (p.key.action == KeyAction.SHIFT) { drawShift(canvas, p.rect); return } // I4: stateful arrow glyph
+        // debug.17: ⌫ and 符号入口 ✎ are self-drawn Glyphs (no font character impersonating an icon, no FE0E hack).
+        if (p.key.action == KeyAction.BACKSPACE) { drawKeyGlyph(canvas, p.rect, palette.keyLabel) { c, pt, x, y, s -> Glyphs.drawBackspace(c, pt, x, y, s) }; return }
+        if (p.key.action == KeyAction.SHOW_SYMBOLS) { drawKeyGlyph(canvas, p.rect, palette.keyLabelSecondary) { c, pt, x, y, s -> Glyphs.drawPencil(c, pt, x, y, s) }; return }
         val cx = p.rect.centerX()
         val cy = p.rect.centerY()
         val display = displayLabel(p.key)
@@ -407,11 +412,18 @@ class KeyboardView(context: Context) : View(context) {
      *  LOCK → SOLID up-arrow ⬆ in the accent colour (caps lock — the "实心箭头").
      */
     private fun drawShift(canvas: Canvas, rect: RectF) {
-        // U+2B06 is emoji-presentation-capable; the U+FE0E text selector forces a flat glyph so it keeps the
-        // accent colour (a color-emoji ⬆ would ignore shiftActivePaint) and reads as the "实心箭头".
-        val glyph = if (shiftLocked) "⬆︎" else "⇧"
-        val paint = if (shifted) shiftActivePaint else labelPaint
-        canvas.drawText(glyph, rect.centerX(), rect.centerY() - (paint.descent() + paint.ascent()) / 2, paint)
+        // debug.17: self-drawn Glyphs.drawShift (no font ⇧/⬆ char). OFF/ONCE = hollow arrow (accent when armed);
+        // LOCK = the same arrow with a caps-lock underline bar — all in the same monochrome-stroke language.
+        drawKeyGlyph(canvas, rect, if (shifted) palette.accentBottom else palette.keyLabel) { c, pt, x, y, s ->
+            Glyphs.drawShift(c, pt, x, y, s, locked = shiftLocked)
+        }
+    }
+
+    /** debug.17: paint a self-drawn [Glyphs] key icon centred in [rect] at a consistent box (the iconPaint owns
+     *  stroke width/cap; colour set per call). s = ~0.24 of the key's short side. */
+    private inline fun drawKeyGlyph(canvas: Canvas, rect: RectF, color: Int, draw: (Canvas, Paint, Float, Float, Float) -> Unit) {
+        iconPaint.color = color
+        draw(canvas, iconPaint, rect.centerX(), rect.centerY(), minOf(rect.width(), rect.height()) * 0.24f)
     }
 
     /** I4 test seam: the shift key's current visual state (OFF / ONCE / LOCK). */
@@ -428,10 +440,7 @@ class KeyboardView(context: Context) : View(context) {
         if (shifted && key.action == KeyAction.COMMIT && key.label.length == 1 && key.label[0] in 'a'..'z') {
             return key.label.uppercase()
         }
-        // U-polish: force a flat (text-presentation) ✎ with U+FE0E so it takes the label colour instead of
-        // rendering as a colour emoji that ignores the paint (same trick as the shift ⬆︎ glyph).
-        if (key.label == "✎") return "✎︎"
-        return key.label
+        return key.label // debug.17: ✎ / ⌫ no longer drawn as text — drawLabel renders them via Glyphs
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
