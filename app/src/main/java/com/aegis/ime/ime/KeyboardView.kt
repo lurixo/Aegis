@@ -252,6 +252,9 @@ class KeyboardView(context: Context) : View(context) {
         canvas.save()
         canvas.clipRect(scrollRegion)
         val paint = scrollLabelPaint
+        val baseTextSize = paint.textSize
+        val avail = scrollRegion.width() - 12f * density
+        val minTextSize = 11f * density
         for ((i, key) in sc.items.withIndex()) {
             val top = scrollRegion.top - scrollY + i * scrollCellH
             val bottom = top + scrollCellH
@@ -260,11 +263,16 @@ class KeyboardView(context: Context) : View(context) {
                 tmpRect.set(scrollRegion.left, top, scrollRegion.right, bottom)
                 canvas.drawRoundRect(tmpRect, keyRadius * 0.6f, keyRadius * 0.6f, pressHighlight)
             }
-            canvas.drawText(displayLabel(key), scrollRegion.centerX(), (top + bottom) / 2f - (paint.descent() + paint.ascent()) / 2, paint)
+            val label = displayLabel(key)
+            paint.textSize = baseTextSize
+            val w = paint.measureText(label)
+            if (w > avail && avail > 0f) paint.textSize = (baseTextSize * avail / w).coerceAtLeast(minTextSize)
+            canvas.drawText(label, scrollRegion.centerX(), (top + bottom) / 2f - (paint.descent() + paint.ascent()) / 2, paint)
             if (i < sc.items.size - 1 && bottom < scrollRegion.bottom) {
                 canvas.drawLine(scrollRegion.left + 6 * density, bottom, scrollRegion.right - 6 * density, bottom, sepLinePaint)
             }
         }
+        paint.textSize = baseTextSize
         canvas.restore()
         val contentH = sc.items.size * scrollCellH
         val trackH = scrollRegion.height()
