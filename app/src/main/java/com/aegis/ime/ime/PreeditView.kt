@@ -22,17 +22,21 @@ import android.graphics.RectF
 import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
+import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
+import com.aegis.ime.ime.theme.ImeType
 
 open class PreeditView(context: Context) : View(context) {
 
     private var text: String = ""
     private var shownText: String = ""
+    private var model: PreeditModel? = null
     private val density = resources.displayMetrics.density
     private val pad = 6f * density
     private val candPad = 14f * density
     private val edgeInset = ImeShapes.edgeInsetDp * density
+    private val doneLabel = context.getString(R.string.panel_back)
     private var leftInset = 0f
     private var rightInset = 0f
     private val tab = RectF()
@@ -40,6 +44,8 @@ open class PreeditView(context: Context) : View(context) {
     private var downY = Float.NaN
 
     var onTap: () -> Unit = {}
+    var onCaret: (Int) -> Unit = {}
+    var onEditDone: () -> Unit = {}
 
     private var palette = ImePalette.STATIC_LIGHT
 
@@ -51,6 +57,26 @@ open class PreeditView(context: Context) : View(context) {
         color = palette.preeditText
         textSize = sp(16f)
     }
+    private val editTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = palette.preeditText
+        textSize = sp(20f)
+    }
+    private val caretPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = palette.accentBottom
+        strokeWidth = 2f * density
+        strokeCap = Paint.Cap.ROUND
+    }
+    private val underlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = palette.accentBottom
+        strokeWidth = 1.5f * density
+        strokeCap = Paint.Cap.ROUND
+    }
+    private val donePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = palette.keyLabel
+        textSize = sp(ImeType.body)
+        textAlign = Paint.Align.CENTER
+    }
+    private val doneWidth: Float get() = donePaint.measureText(doneLabel) + candPad * 2
     private val textLeft: Float get() = leftInset + candPad
 
     private fun sp(value: Float): Float =
@@ -61,16 +87,40 @@ open class PreeditView(context: Context) : View(context) {
         tabPaint.color = p.keySurface
         tabPaint.setShadowLayer(5f * density, 0f, 2f * density, p.shadow)
         textPaint.color = p.preeditText
+        editTextPaint.color = p.preeditText
+        caretPaint.color = p.accentBottom
+        underlinePaint.color = p.accentBottom
+        donePaint.color = p.keyLabel
         invalidate()
     }
+
+    fun setModel(m: PreeditModel?) {
+        val was = model
+        model = m
+        if (was == null && m == null) return
+        invalidate()
+    }
+
+    private fun editingModel(): PreeditModel? = model?.takeIf { it.text == shownText }
 
     private fun layoutTab() {
         if (shownText.isEmpty()) { tab.setEmpty(); return }
         val r = ImeShapes.cardRadiusDp * density
         val corner = ImeShapes.surfaceTopRadiusDp * density
         val left = maxOf(leftInset + edgeInset, corner)
+        if (editingModel() != null) {
+            val right = minOf(width - rightInset - edgeInset, width - corner).coerceAtLeast(textLeft + doneWidth + pad)
+            tab.set(left, 0f, right, height.toFloat() + r)
+        } else {
             val limit = if (width > 0) minOf(width - rightInset - edgeInset, width - corner) else Float.MAX_VALUE
             tab.set(left, 0f, minOf(textLeft + textPaint.measureText(shownText) + pad, limit), height.toFloat() + r)
+        }
+    }
+
+    private fun textOffset(m: PreeditModel): Float {
+        val caretX = editTextPaint.measureText(m.text, 0, m.displayCaret())
+        val visible = tab.right - doneWidth - pad - textLeft
+        return (caretX - visible).coerceAtLeast(0f)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -89,8 +139,12 @@ open class PreeditView(context: Context) : View(context) {
                 downX = Float.NaN
                 downY = Float.NaN
                 if (moved || !tab.contains(event.x, event.y)) return true
-
-                onTap()
+                val m = editingModel()
+                when {
+                    m == null -> onTap()
+                    event.x >= tab.right - doneWidth -> onEditDone()
+                    else -> onCaret(m.rawIndexForDisplay(nearestBoundary(m, event.x)))
+                }
                 return true
             }
             MotionEvent.ACTION_CANCEL -> {
@@ -101,6 +155,30 @@ open class PreeditView(context: Context) : View(context) {
         }
         return true
     }
+
+    private fun nearestBoundary(m: PreeditModel, x: Float): Int {
+        val textX = textLeft - textOffset(m)
+        var best = m.editableFrom
+        var bestDist = Float.MAX_VALUE
+        for (p in m.editableFrom..m.text.length) {
+            val bx = textX + editTextPaint.measureText(m.text, 0, p)
+            val d = kotlin.math.abs(bx - x)
+            if (d < bestDist) { bestDist = d; best = p }
+        }
+        return best
+    }
+
+    internal fun boundaryXForTest(position: Int): Float {
+        layoutTab()
+        val offset = editingModel()?.let(::textOffset) ?: 0f
+        return textLeft - offset + editTextPaint.measureText(shownText, 0, position.coerceIn(0, shownText.length))
+    }
+
+    internal fun doneLeftForTest(): Float { layoutTab(); return tab.right - doneWidth }
+
+    internal fun doneLabelForTest(): String = doneLabel
+
+    internal fun doneTextColorForTest(): Int = donePaint.color
 
     fun tabBounds(): RectF { layoutTab(); return RectF(tab) }
 
@@ -151,11 +229,41 @@ open class PreeditView(context: Context) : View(context) {
         layoutTab()
         if (shownText.isEmpty()) return
         val r = ImeShapes.cardRadiusDp * density
+        val m = editingModel()
+        if (m != null) { drawEditing(canvas, m, r); return }
         canvas.drawRoundRect(tab, r, r, tabPaint)
         val baseline = height / 2f - (textPaint.descent() + textPaint.ascent()) / 2
         canvas.save()
         canvas.clipRect(tab.left, 0f, tab.right - pad, height.toFloat())
         canvas.drawText(shownText, textLeft, baseline, textPaint)
         canvas.restore()
+    }
+
+    private fun drawEditing(canvas: Canvas, m: PreeditModel, r: Float) {
+        val left = tab.left
+        val right = tab.right
+        canvas.drawRoundRect(tab, r, r, tabPaint)
+        val textX = textLeft - textOffset(m)
+        val baseline = height / 2f - (editTextPaint.descent() + editTextPaint.ascent()) / 2
+        val textRight = right - doneWidth
+        canvas.save()
+        canvas.clipRect(left, 0f, textRight, height.toFloat())
+        canvas.drawText(m.text, textX, baseline, editTextPaint)
+        val underlineY = baseline + editTextPaint.descent() * 0.6f
+        for (range in m.lockedRanges) {
+            if (range.isEmpty()) continue
+            val x0 = textX + editTextPaint.measureText(m.text, 0, range.first)
+            val x1 = textX + editTextPaint.measureText(m.text, 0, range.last + 1)
+            canvas.drawLine(x0, underlineY, x1, underlineY, underlinePaint)
+        }
+        val caretAt = m.displayCaret()
+        val afterApostrophe = caretAt > 0 && m.text[caretAt - 1] == '\''
+        val caretX = textX + editTextPaint.measureText(m.text, 0, caretAt) + if (afterApostrophe) caretPaint.strokeWidth else 0f
+        val caretTop = baseline + editTextPaint.ascent()
+        val caretBottom = baseline + editTextPaint.descent()
+        canvas.drawLine(caretX, caretTop, caretX, caretBottom, caretPaint)
+        canvas.restore()
+        val doneBaseline = height / 2f - (donePaint.descent() + donePaint.ascent()) / 2
+        canvas.drawText(doneLabel, right - doneWidth / 2f, doneBaseline, donePaint)
     }
 }

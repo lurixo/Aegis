@@ -63,6 +63,8 @@ class InputView(context: Context) : LinearLayout(context) {
     var onTranslateSelectionChanged: (Boolean) -> Unit = {}
     var onOverlayChanged: () -> Unit = {}
     var onPreeditTap: () -> Unit = {}
+    var onPreeditCaret: (Int) -> Unit = {}
+    var onPreeditEditDone: () -> Unit = {}
 
     var onPanelChanged: (View?) -> Unit = {}
 
@@ -83,6 +85,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private var lastReadings: List<String> = emptyList()
     private var lastSelectedReading = -1
     private var pendingGridBind: Any? = null
+    private var preeditEditingNow = false
     private var currentPanel: View? = null
     private var editBarActive = false
     private var translateBarActive = false
@@ -134,6 +137,7 @@ class InputView(context: Context) : LinearLayout(context) {
         onOverlayChanged()
     }
     fun isEditBarShowing(): Boolean = editBarView.visibility == VISIBLE
+    fun setEditText(t: String) { editBarView.setText(t) }
     internal fun dismissEditBarForPanelReturn() {
         editBarActive = false
         editBarView.releaseField()
@@ -159,6 +163,7 @@ class InputView(context: Context) : LinearLayout(context) {
     }
 
     fun isTranslateBarActive(): Boolean = translateBarActive
+    fun isTranslateBarShowing(): Boolean = translateBarView.visibility == VISIBLE
     fun translateText(): String = translateBarView.text()
     fun setTranslateText(t: String) { translateBarView.setText(t) }
     internal fun translateBarForTest(): TranslateBarView = translateBarView
@@ -191,6 +196,8 @@ class InputView(context: Context) : LinearLayout(context) {
         translateBarView.onDialogVisibilityChanged = { onOverlayChanged() }
         translateBarView.onFieldTap = { onTranslateFieldTap() }
         preeditView.onTap = { onPreeditTap() }
+        preeditView.onCaret = { index -> onPreeditCaret(index) }
+        preeditView.onEditDone = { onPreeditEditDone() }
         addView(preeditSlot, LayoutParams(LayoutParams.MATCH_PARENT, barTopInsetPx()))
 
         body.orientation = VERTICAL
@@ -267,6 +274,7 @@ class InputView(context: Context) : LinearLayout(context) {
                 fractionalRows = keyboardView.usesFractionalCellsForSizing(),
                 editBarVisible = extraBarVisible(),
                 navBottom = windowNavBottomPx,
+                preeditEditing = preeditEditingNow,
             )
         } else {
             unconstrainedHeightSpec(preferredKeyboard, extraBarVisible())
@@ -294,7 +302,7 @@ class InputView(context: Context) : LinearLayout(context) {
         preferredKeyboard: Int,
         editBarVisible: Boolean,
     ): LandscapeDockSizing.HeightSpec {
-        val preeditHeight = dp(PREEDIT_HEIGHT_DP)
+        val preeditHeight = dp(if (preeditEditingNow) PREEDIT_EDIT_HEIGHT_DP else PREEDIT_HEIGHT_DP)
         val barHeight = dp(BAR_HEIGHT_DP)
         val bottomExtra = dp(BOTTOM_RAISE_DP)
         val rootHeight = preeditHeight + barHeight * (if (editBarVisible) 2 else 1) +
@@ -405,6 +413,7 @@ class InputView(context: Context) : LinearLayout(context) {
         readings: List<String>,
         selectedReading: Int = -1,
         candidateProjection: CandidateProjectionPolicy? = null,
+        preeditModel: PreeditModel? = null,
         candidatesPending: Boolean = false,
     ) {
         candidateTapGuard.show(candidates, candidatesPending, SystemClock.uptimeMillis())
@@ -413,7 +422,14 @@ class InputView(context: Context) : LinearLayout(context) {
         lastReadings = readings
         lastSelectedReading = selectedReading
         preeditView.setText(preedit)
-
+        preeditView.setModel(preeditModel)
+        val editing = preeditModel != null
+        if (editing != preeditEditingNow) {
+            preeditEditingNow = editing
+            requestLayout()
+            invalidate()
+            onOverlayChanged()
+        }
         candidateView.setContent(candidates, preedit)
 
         if (currentPanel === gridView) {
@@ -592,6 +608,38 @@ class InputView(context: Context) : LinearLayout(context) {
         onOverlayChanged()
     }
 
+    private enum class BackKind { NONE, TRANSLATE_DIALOG, PANEL, EDIT_BAR, PREEDIT_EDIT }
+
+    fun isPreeditEditing(): Boolean = preeditEditingNow
+
+    fun hasOverlay(): Boolean = when {
+        translateBarView.isModeDialogShowing() -> true
+        else -> currentPanel != null || editBarActive || preeditEditingNow
+    }
+
+    private fun topOverlay(): Pair<BackKind, View?> {
+        return when {
+            translateBarView.isModeDialogShowing() -> BackKind.TRANSLATE_DIALOG to null
+            editBarActive -> BackKind.EDIT_BAR to editBarView
+            currentPanel != null -> BackKind.PANEL to currentPanel
+            preeditEditingNow -> BackKind.PREEDIT_EDIT to preeditView
+            else -> BackKind.NONE to null
+        }
+    }
+
+    fun closeTopOverlay(): Boolean {
+        val (kind, view) = topOverlay()
+        return when (kind) {
+            BackKind.TRANSLATE_DIALOG -> { translateBarView.dismissModeDialog(); true }
+            BackKind.EDIT_BAR -> { onEditCancel(); true }
+            BackKind.PANEL -> { showPanel(null); true }
+            BackKind.PREEDIT_EDIT -> { onPreeditEditDone(); true }
+            BackKind.NONE -> false
+        }
+    }
+
+    internal fun backTargetKindForTest(): String = topOverlay().first.name
+
     private fun setPanelHeight(px: Int) {
         val lp = panelContainer.layoutParams
         if (lp.height != px) { lp.height = px; panelContainer.layoutParams = lp }
@@ -628,6 +676,7 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun dockSurfaceRightPx(): Int = dockSurfaceLeftPx() + body.width
     internal fun dockSurfaceTopPx(): Int = bodySlot.top + body.top
     internal fun dockSurfaceBottomPx(): Int = dockSurfaceTopPx() + body.height
+    internal fun surfaceTopRadiusPxForTest(): Float = body.topRadiusPx()
     internal fun dockHeightSpecForTest(): LandscapeDockSizing.HeightSpec? = lastDockHeightSpec
     internal fun keyboardMinimumKeyWidthPxForTest(): Float = keyboardView.minimumKeyWidthForTest()
 
@@ -724,6 +773,24 @@ class InputView(context: Context) : LinearLayout(context) {
         return boundsInWindow(body)
     }
 
+    internal fun preeditTabForTest(): RectF = preeditView.tabBounds()
+    internal fun preeditBoundaryXForTest(position: Int): Float = preeditView.boundaryXForTest(position)
+    internal fun preeditDoneLeftForTest(): Float = preeditView.doneLeftForTest()
+    internal fun preeditDoneLabelForTest(): String = preeditView.doneLabelForTest()
+    internal fun preeditDoneTextColorForTest(): Int = preeditView.doneTextColorForTest()
+
+    internal fun preeditTabBoundsInWindow(): Rect? {
+        val tab = preeditView.tabBounds()
+        if (tab.isEmpty || preeditView.width <= 0) return null
+        val loc = IntArray(2)
+        preeditView.getLocationInWindow(loc)
+        val left = loc[0] + tab.left.toInt()
+        val top = loc[1] + tab.top.toInt().coerceAtLeast(0)
+        val right = loc[0] + kotlin.math.ceil(tab.right).toInt()
+        val bottom = loc[1] + kotlin.math.ceil(tab.bottom).toInt().coerceAtMost(preeditView.height)
+        return Rect(left, top, right, bottom).takeIf { !it.isEmpty }
+    }
+
     private fun boundsInWindow(view: View): Rect {
         val loc = IntArray(2)
         view.getLocationInWindow(loc)
@@ -751,6 +818,8 @@ class InputView(context: Context) : LinearLayout(context) {
             }
             clipToOutline = true
         }
+
+        fun topRadiusPx(): Float = topRadiusPx
 
         override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
             super.onSizeChanged(w, h, oldw, oldh)
@@ -825,6 +894,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private companion object {
         private const val SIDE_PADDING_DP = 4
         private const val PREEDIT_HEIGHT_DP = 26
+        private const val PREEDIT_EDIT_HEIGHT_DP = 44
         private const val BAR_HEIGHT_DP = 44
         private const val BOTTOM_RAISE_DP = 34
 

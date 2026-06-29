@@ -159,6 +159,43 @@ class PanelTransitionSymmetryTest {
         }
     }
 
+    @Test fun a_transition_mash_lands_every_step_with_no_lost_panels() {
+        animationsOn()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val iv = attach(controller.get(), InputView(ctx))
+            val a = View(ctx)
+            val b = View(ctx)
+            val c = View(ctx)
+
+            iv.showPanel(a)
+            assertTrue("the first leg lands its attach at once", a.parent === container(iv))
+            iv.showPanel(b)
+            assertTrue("the a→b leg lands b at once", b.parent === container(iv))
+            assertNull(a.parent)
+            iv.showPanel(c)
+            assertTrue("the b→c leg lands c at once", c.parent === container(iv))
+            assertNull(b.parent)
+            iv.showPanel(null)
+            assertNull("the final close leaves no orphaned panel", c.parent)
+            assertFalse(iv.hasOverlay())
+            assertEquals(0, container(iv).childCount)
+            assertEquals(View.GONE, container(iv).visibility)
+            assertEquals("no orphaned GONE keyboard after the mash", View.VISIBLE, keyboard(iv).visibility)
+            assertEquals(1f, keyboard(iv).alpha, 0f)
+            assertFalse(iv.panelShown)
+
+            settle()
+            assertEquals("the settled state is unchanged once the residues finish", View.VISIBLE, keyboard(iv).visibility)
+            assertEquals(1f, keyboard(iv).alpha, 0f)
+            assertEquals(View.GONE, container(iv).visibility)
+            assertFalse(Motion.coverActiveForTest(keyboard(iv)))
+            assertFalse(Motion.coverActiveForTest(container(iv)))
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
     @Test fun show_immediately_mid_switch_attaches_instantly_with_no_residue() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()

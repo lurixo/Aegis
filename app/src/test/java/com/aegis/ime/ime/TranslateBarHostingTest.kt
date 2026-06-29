@@ -16,9 +16,11 @@
 package com.aegis.ime.ime
 
 import android.graphics.drawable.ColorDrawable
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
@@ -54,6 +56,51 @@ class TranslateBarHostingTest {
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
         )
         iv.layout(0, 0, iv.measuredWidth, iv.measuredHeight)
+    }
+
+    private fun topInParent(v: View, root: View): Int {
+        var y = 0
+        var cur: View? = v
+        while (cur != null && cur !== root) { y += cur.top; cur = cur.parent as? View }
+        return y
+    }
+
+    private fun leftInParent(v: View, root: View): Int {
+        var x = 0
+        var cur: View? = v
+        while (cur != null && cur !== root) { x += cur.left; cur = cur.parent as? View }
+        return x
+    }
+
+    private fun press(iv: InputView, action: Int, x: Float, y: Float) {
+        val e = MotionEvent.obtain(0L, if (action == MotionEvent.ACTION_UP) 16L else 0L, action, x, y, 0)
+        try {
+            iv.dispatchTouchEvent(e)
+        } finally {
+            e.recycle()
+        }
+    }
+
+    @Test fun the_translate_bar_sits_directly_above_the_candidate_bar_and_adds_one_bar_height() {
+        val iv = input()
+        layout(iv)
+        val closedHeight = iv.measuredHeight
+        iv.showTranslateBar(true)
+        layout(iv)
+        val bar = iv.translateBarForTest()
+        val candidates = iv.candidateBarForTest()
+        assertEquals(View.VISIBLE, bar.visibility)
+        assertTrue(iv.isTranslateBarShowing())
+        assertEquals("the bar closes onto the candidate bar", topInParent(candidates, iv), topInParent(bar, iv) + bar.height)
+        assertEquals(bar.fieldBoxForTest().height + 2 * (ImeShapes.toolbarCapsuleMarginDp * density).toInt(), bar.height)
+        assertEquals(closedHeight + bar.height, iv.measuredHeight)
+        assertTrue("the field owns focus while the bar is up", bar.fieldForTest().isFocused)
+        assertFalse("the persistent bar is not a back-key overlay", iv.hasOverlay())
+
+        iv.showTranslateBar(false)
+        layout(iv)
+        assertEquals(View.GONE, bar.visibility)
+        assertEquals(closedHeight, iv.measuredHeight)
     }
 
     @Test fun the_edit_bar_covers_the_translate_bar_and_hands_it_back() {
@@ -95,6 +142,43 @@ class TranslateBarHostingTest {
         assertTrue(iv.isTranslateBarActive())
         assertEquals(View.VISIBLE, iv.translateBarForTest().visibility)
         assertFalse(iv.isEditBarShowing())
+    }
+
+    @Test fun the_capsule_toggles_its_dialog_and_only_other_in_keyboard_taps_collapse_it() {
+        val iv = input()
+        iv.showTranslateBar(true)
+        layout(iv)
+        val bar = iv.translateBarForTest()
+        val btn = bar.modeButtonForTest()
+        btn.performClick()
+        assertTrue(bar.isModeDialogShowing())
+        assertTrue("the open dialog is a back-key overlay", iv.hasOverlay())
+
+        val bx = leftInParent(btn, iv) + btn.width / 2f
+        val by = topInParent(btn, iv) + btn.height / 2f
+        press(iv, MotionEvent.ACTION_DOWN, bx, by)
+        assertTrue("a press landing on the capsule leaves the toggle to its click", bar.isModeDialogShowing())
+        press(iv, MotionEvent.ACTION_UP, bx, by)
+        btn.performClick()
+        assertFalse("the capsule click completes the toggle without reopening", bar.isModeDialogShowing())
+
+        btn.performClick()
+        assertTrue(bar.isModeDialogShowing())
+        press(iv, MotionEvent.ACTION_DOWN, iv.width / 2f, iv.height - 5f)
+        assertFalse("a keyboard tap away from the capsule collapses the dialog", bar.isModeDialogShowing())
+        assertFalse(iv.hasOverlay())
+    }
+
+    @Test fun the_back_key_closes_the_mode_dialog_before_anything_else() {
+        val iv = input()
+        iv.showTranslateBar(true)
+        layout(iv)
+        val bar = iv.translateBarForTest()
+        bar.modeButtonForTest().performClick()
+        assertTrue(bar.isModeDialogShowing())
+        assertTrue(iv.closeTopOverlay())
+        assertFalse(bar.isModeDialogShowing())
+        assertFalse(iv.hasOverlay())
     }
 
     @Test fun the_mode_dialog_never_outlives_its_bar() {
