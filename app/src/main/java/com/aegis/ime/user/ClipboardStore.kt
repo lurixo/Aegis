@@ -54,9 +54,20 @@ class ClipboardStore(private val dir: File) {
 
     fun load() {
         history.clear()
-        runCatching { if (histFile.exists()) histFile.readLines().forEach { readEntry(it)?.let(history::add) } }
+        purgeLegacyImageDir() // U22 removed: reclaim a pre-removal version's orphaned clipboard_images/ dir
+        // U22 removed: an old clipboard.txt may still hold legacy "img:<path>" image entries — silently DROP
+        // them here (never render/paste, never show "图片已不存在"). Plain text history is unaffected.
+        runCatching {
+            if (histFile.exists()) histFile.readLines().forEach { line ->
+                readEntry(line)?.let { e -> if (!isLegacyImageEntry(e)) history.add(e) }
+            }
+        }
         loadPhrases()
     }
+
+    /** U22 removed: a pre-removal build saved copied images under filesDir/clipboard_images. The feature is gone,
+     *  so reclaim that (now-orphaned) directory — a cheap no-op on a fresh install / after the first cleanup. */
+    private fun purgeLegacyImageDir() { runCatching { File(dir, "clipboard_images").deleteRecursively() } }
 
     /**
      * E5: parse one clipboard.txt line into its full-text entry. A "B\t<hash>" line whose side file exists is a
@@ -118,12 +129,6 @@ class ClipboardStore(private val dir: File) {
         while (history.size > MAX_HISTORY) history.removeAt(history.size - 1)
         scheduleSave()
     }
-
-    /**
-     * U22: record an IMAGE history entry — the saved file [path] tagged with [IMG_PREFIX] so it rides the
-     * SAME history list (dedup/MRU/persist reused) while staying distinguishable from text entries.
-     */
-    fun recordImage(path: String) { if (path.isNotEmpty()) record(IMG_PREFIX + path) }
 
     /** C7 多选删除: drop one / many history entries (and persist). No-op for entries not present. */
     fun delete(text: String) { if (history.remove(text)) scheduleSave() }
@@ -188,8 +193,7 @@ class ClipboardStore(private val dir: File) {
         var added = 0
         for (raw in texts) {
             val t = raw.trim()
-            // M-2 defense: an image marker must never become a phrase (it would be a dead "图片已不存在" item).
-            if (t.isEmpty() || isImageEntry(t) || c.phrases.any { it.text == t }) continue
+            if (t.isEmpty() || c.phrases.any { it.text == t }) continue
             c.phrases.add(Phrase(t)); added++
         }
         if (added > 0) savePhrases()
@@ -326,7 +330,7 @@ class ClipboardStore(private val dir: File) {
         val sb = StringBuilder()
         val referenced = HashSet<String>()
         for (e in snapshot) {
-            if (e.length > BIG_THRESHOLD && !isImageEntry(e)) {
+            if (e.length > BIG_THRESHOLD) {
                 val hash = sha256(e)
                 referenced.add(hash)
                 val f = File(clipsDir().apply { mkdirs() }, "$hash.txt")
@@ -430,10 +434,14 @@ class ClipboardStore(private val dir: File) {
     }
 
     companion object {
-        // U22: image history entries are stored as IMG_PREFIX + file path in the shared history list.
-        const val IMG_PREFIX = "img:"
-        fun isImageEntry(entry: String): Boolean = entry.startsWith(IMG_PREFIX)
-        fun imagePath(entry: String): String = if (isImageEntry(entry)) entry.substring(IMG_PREFIX.length) else entry
+        // U22 image clipboard was REMOVED. An old clipboard.txt may still hold "img:<path>" entries pointing at
+        // the (now-deleted) clipboard_images dir - [isLegacyImageEntry] detects exactly those so [load] can drop
+        // them. A normal text clip that merely starts with "img:" never carried the image dir in its path, so it
+        // is NOT matched and is preserved untouched.
+        private const val LEGACY_IMG_PREFIX = "img:"
+        private const val LEGACY_IMG_DIR = "/clipboard_images/"
+        fun isLegacyImageEntry(entry: String): Boolean =
+            entry.startsWith(LEGACY_IMG_PREFIX) && entry.contains(LEGACY_IMG_DIR)
 
         /**
          * debug.17: whether a copy/cut should be captured into clipboard history. Password / secure fields are

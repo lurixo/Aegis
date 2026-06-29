@@ -19,7 +19,6 @@ import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
 import android.content.Context
-import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.drawable.GradientDrawable
@@ -34,7 +33,6 @@ import android.view.ViewGroup
 import kotlin.math.abs
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -54,10 +52,6 @@ import com.aegis.ime.user.ClipboardStore
 class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     var onPick: (String) -> Unit = {}                 // commit a clip/phrase and close
-    var onPickImage: (String) -> Unit = {}            // U22: tap an image entry → paste image (path arg)
-    var isImage: (String) -> Boolean = { false }      // M-1: VALIDATED image check (marker + real file), host-supplied
-    var thumbnailProvider: (String) -> Bitmap? = { null } // U22: path → CACHED thumbnail (no decode), or null
-    var onLoadThumbnail: (String, (Bitmap?) -> Unit) -> Unit = { _, cb -> cb(null) } // U22: decode async, call back on UI thread
     var onCopyBlockToAegis: (String) -> Unit = {}     // 拆词块 → 写 aegis 剪贴板(不上屏/不写系统);面板保持打开
     var onBack: () -> Unit = {}
     var historyProvider: () -> List<String> = { emptyList() }
@@ -267,7 +261,6 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
 
     private fun card(text: String, index: Int): View {
-        if (isImage(text)) return imageCard(text) // U22 (M-1: only a marker backed by a real file)
         val expanded = st.expanded == text
         val revealed = swipeRevealed == text // debug.17: showing its left-swipe action row
         val phrase = st.tab == Tab.PHRASE
@@ -314,53 +307,6 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             else -> attachSwipeReveal(body, text)
         }
         return col
-    }
-
-    /** U22: an image history entry — a thumbnail (tap → paste) with long-press → delete. No expand/拆词.
-     *  The thumbnail is shown from cache if present, else decoded ASYNC (B1: never decode on the UI thread). */
-    private fun imageCard(entry: String): View {
-        val path = ClipboardStore.imagePath(entry)
-        val col = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            background = rounded(CARD, ImeShapes.cardRadiusDp)
-            setPadding(dp(10), dp(10), dp(10), dp(10))
-            layoutParams = ll(MP, WC).apply { topMargin = dp(8) }
-        }
-        val img = ImageView(context).apply {
-            adjustViewBounds = true
-            maxHeight = dp(140)
-            minimumHeight = dp(48) // placeholder height while loading
-            scaleType = ImageView.ScaleType.FIT_START
-            setOnClickListener { onPickImage(path) }
-            setOnLongClickListener { showImageMenu(entry); true }
-        }
-        col.addView(img, ll(WC, WC))
-        val cached = thumbnailProvider(path)
-        if (cached != null) {
-            img.setImageBitmap(cached)
-        } else {
-            onLoadThumbnail(path) { bmp ->
-                img.post {
-                    if (bmp != null) img.setImageBitmap(bmp)
-                    else { img.visibility = GONE; col.addView(imageFallback(path, entry), ll(MP, WC)) }
-                }
-            }
-        }
-        col.setOnLongClickListener { showImageMenu(entry); true }
-        return col
-    }
-
-    /** Shown when an image can't be decoded (file pruned / gone) — still tappable to attempt paste. */
-    private fun imageFallback(path: String, entry: String): View = hint("［图片］点按粘贴", 15f, TEXT_DARK).apply {
-        setOnClickListener { onPickImage(path) }
-        setOnLongClickListener { showImageMenu(entry); true }
-    }
-
-    /** U22: minimal long-press menu for an image entry (only 删除 applies). */
-    private fun showImageMenu(entry: String) {
-        val card = menuCard()
-        card.addView(menuItem("删除此条内容") { hideOverlay(); deleteOne(entry) })
-        showOverlay(card)
     }
 
     /** Expanded 剪贴板 history card's bottom action row (C3): +常用语 / 拆词 / 删除. */
@@ -717,8 +663,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 }, ll(0, dp(44), 1f).apply { rightMargin = dp(8) })
             } else {
                 addView(pillButton("添加常用语", GREEN, GREEN_PILL, hasSel) {
-                    // M-2: never save image entries as phrases (their marker/path would become a dead 常用语).
-                    chooseCategoryThen(st.selected.filterNot { ClipboardStore.isImageEntry(it) }) { exitSelect() }
+                    chooseCategoryThen(st.selected.toList()) { exitSelect() }
                 }, ll(0, dp(44), 1f).apply { rightMargin = dp(8) })
             }
             addView(pillButton("删除", RED, RED_PILL, hasSel) {
@@ -739,9 +684,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         // icon收尾: ○/● selection indicator → self-drawn radio (filled when selected, GREEN), centred in its column.
         addView(glyphView(if (on) GREEN else HINT, 8) { c, p, x, y, s -> Glyphs.drawRadio(c, p, x, y, s, on) }, ll(dp(40), MP))
         addView(TextView(context).apply {
-            // U22: image entries show a label (not the raw marker path) in select mode. debug.17 F2: a 常用语 with
-            // a note shows the note; selection still keys on the original `text`.
-            this.text = if (isImage(text)) "［图片］" else if (st.tab == Tab.PHRASE) phraseDisplayText(text) else text
+            // debug.17 F2: a 常用语 with a note shows the note; selection still keys on the original `text`.
+            this.text = if (st.tab == Tab.PHRASE) phraseDisplayText(text) else text
             maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(TEXT_DARK)
             setPadding(0, dp(12), dp(14), dp(12))

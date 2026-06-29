@@ -22,18 +22,11 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
-import android.content.ClipDescription
-import android.graphics.Bitmap
-import android.util.LruCache
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedTextRequest
 import android.widget.Toast
-import androidx.core.content.FileProvider
-import androidx.core.view.inputmethod.EditorInfoCompat
-import androidx.core.view.inputmethod.InputConnectionCompat
-import androidx.core.view.inputmethod.InputContentInfoCompat
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.EngineAssets
@@ -108,8 +101,6 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var pendingMoveFrom = "" // ADD_CATEGORY via「移动到分类→新建分类」: source category of the carried move
     private var pendingMoveTexts: List<String> = emptyList() //  ...and the items to move into the new category
     private val clipboardStore by lazy { ClipboardStore(filesDir).also { it.load() } }
-    private val clipImageStore by lazy { com.aegis.ime.user.ClipImageStore(filesDir) } // U22 image clipboard
-    private val thumbCache = LruCache<String, Bitmap>(50) // U22: decoded thumbnails (path → bitmap)
     private val symbolUsageStore by lazy { SymbolUsageStore(filesDir).also { it.load() } }
     // E2: emoji MRU ("最近") — its OWN usage file (filesDir/emoji/) so it never mixes with the 符号 常用 list.
     private val emojiUsageStore by lazy { SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).also { it.load() } }
@@ -118,10 +109,6 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     // U21: the most-recent captured clip — kept so the 复制条 survives an app switch / IME re-show (restored
     // in onStartInputView). Cleared when the user leaves the bar (× or 上屏).
     private var lastCopy: String? = null
-    // BUG3: the URI of an image WE just placed on the system clipboard (the commitContent fallback). Our own
-    // OnPrimaryClipChangedListener would otherwise re-capture it into a DUPLICATE aegis history entry — skip
-    // exactly that one self-write. (The image already lives in aegis; it's the entry the user tapped.)
-    @Volatile private var selfClipUri: android.net.Uri? = null
     @Volatile private var userDbLoaded = false // M-2: the initial userdb load has completed
     // debug.16 (engine hot-reload): the downloaded-asset signature the LIVE engine was built from (empty until
     // the initial onCreate build commits it), plus a re-entrancy guard so a rebuild never runs twice at once.
@@ -525,14 +512,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.phrasesInProvider = { cat -> clipboardStore.phrasesIn(cat) }
             it.phraseNoteProvider = { cat, text -> clipboardStore.noteFor(cat, text) } // debug.17 F2: display note
             it.onPick = { t -> commitLargeText(t); inputView?.showPanel(null) } // E5: chunked for huge clips
-            // M-1: an entry is an image only if the marker is backed by a real file under clipboard_images.
-            it.isImage = { e -> ClipboardStore.isImageEntry(e) && clipImageStore.isStoredImage(ClipboardStore.imagePath(e)) }
-            it.onPickImage = { path -> pasteImage(path) }                                  // U22: 点图片条目 → commitContent
-            it.thumbnailProvider = { path -> thumbCache.get(path) }                        // U22: 缓存命中(同步)
-            it.onLoadThumbnail = { path, cb -> loadThumbnailAsync(path, cb) }              // U22: 未命中后台解码
             it.onCopyBlockToAegis = { b -> copyBlockToAegis(b) }                          // ③ 拆词块写 aegis 剪贴板(不上屏/不写系统)
             it.onBack = { inputView?.showPanel(null) }
-            it.onDeleteClips = { list -> clipboardStore.deleteAll(list); deleteImageFiles(list) } // C7 多选删除(+图片文件)
+            it.onDeleteClips = { list -> clipboardStore.deleteAll(list) }                 // C7 多选删除
             it.onDeletePhrasesFrom = { cat, list -> list.forEach { clipboardStore.deletePhraseFrom(cat, it) } }
             it.onSaveAsPhrasesTo = { cat, list -> clipboardStore.addPhrasesTo(cat, list) } // C7 批量添加常用语
             it.onEditPhrase = { cat, text -> beginInlineEdit(cat, text) }                  // debug.16 Option A: 编辑 → inline buffer
@@ -549,7 +531,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onClearCategory = { cat -> clipboardStore.clearPhrasesIn(cat) }            // debug.17 E2: 清空当前分类
             it.onExportPhrases = { launchPhraseTransfer(export = true) }                  // debug.17 E1: SAF 导出
             it.onImportPhrases = { launchPhraseTransfer(export = false) }                 // debug.17 E1: SAF 导入
-            it.onClearHistory = { clipboardStore.clearHistory(); clipImageStore.clear(); thumbCache.evictAll() }
+            it.onClearHistory = { clipboardStore.clearHistory() }
             it.historyEnabledProvider = { historyEnabled() }                               // C1 记录开关
             it.onSetHistoryEnabled = { on -> setHistoryEnabled(on) }
             clipboardView = it
@@ -744,41 +726,19 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
      */
     private fun onSystemClipChanged() {
         // BUG3-1: restore the debug.13 short-circuit — don't even read the system clipboard when capture is
-        // paused (history off) AND there's no pending self-write to consume. debug.17: secureField is passed as
-        // FALSE here (policy change) so secure/password-field copies ARE captured; only history-off
-        // (+ no pending self-write) still short-circuits the getPrimaryClip IPC.
-        if (!com.aegis.ime.user.ClipboardPolicy.shouldReadSystemClip(selfClipUri != null, false, historyEnabled())) return
+        // paused (history off). debug.17: secureField is passed as FALSE here (policy change) so
+        // secure/password-field copies ARE captured; only history-off short-circuits the getPrimaryClip IPC.
+        // (U22 image clipboard removed → there is no longer a self-write to consume.)
+        if (!com.aegis.ime.user.ClipboardPolicy.shouldReadSystemClip(false, false, historyEnabled())) return
         val clip = runCatching { clipboardManager.primaryClip }.getOrNull() ?: return
         if (clip.itemCount == 0) return
         val item = clip.getItemAt(0)
-        val uri = item.uri
-        // BUG3: consume our own image fallback write BEFORE the capture gate, so the guard is reset even when
-        // capture is paused (secure field / history off) and can never go stale to suppress a later clip.
-        if (com.aegis.ime.user.ClipImageStore.isSelfWrite(uri, selfClipUri)) { selfClipUri = null; return }
         if (!com.aegis.ime.user.ClipboardStore.shouldCapture(historyEnabled())) return // debug.17: secure fields recorded too
-        val declaredImage = clip.description?.hasMimeType("image/*") == true
-        if (uri != null) {
-            // U22: a URI clip → resolve type + (if image) save bytes ALL off the main thread (A1: no
-            // main-thread getType/IPC); otherwise fall back to its coerced text. Posts back to the main thread.
-            val seed = System.currentTimeMillis()
-            Thread {
-                val isImage = declaredImage || runCatching { contentResolver.getType(uri)?.startsWith("image/") }.getOrNull() == true
-                val path = if (isImage) clipImageStore.save(contentResolver, uri, seed) else null
-                val text = if (isImage) null else runCatching { item.coerceToText(this)?.toString() }.getOrNull()?.trim()
-                Handler(Looper.getMainLooper()).post {
-                    runCatching { // A3: service may be gone by now
-                        when {
-                            isImage && path != null -> clipboardStore.recordImage(path)
-                            isImage -> toast("图片过大或无法读取,未保存")
-                            !text.isNullOrEmpty() -> recordTextClip(text)
-                        }
-                    }
-                }
-            }.apply { isDaemon = true }.start()
-            return
-        }
-        // Plain text clip (no URI): item.text only, on the main thread.
-        val t = item.text?.toString()?.trim().orEmpty()
+        // A2 (mirrors captureClip): never record a URI-only item as a bogus "content://…" text entry. U22 removed
+        // → image/URI-only clips are simply ignored (no image save). When the item DOES carry explicit text,
+        // coerceToText returns it WITHOUT resolving the URI, so this stays on the main thread with no IPC/jank.
+        if (item.uri != null && item.text == null) return
+        val t = runCatching { item.coerceToText(this)?.toString() }.getOrNull()?.trim().orEmpty()
         if (t.isNotEmpty()) recordTextClip(t)
     }
 
@@ -787,64 +747,6 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         clipboardStore.record(t)
         lastCopy = t // U21: remember it so it survives an app switch / IME re-show
         if (inputView?.isComposing() != true) inputView?.showCopyBar(t) // don't clobber live candidates
-    }
-
-    /**
-     * U22 / BUG3: deliver a saved clipboard image to the target field. PREFERRED path = commitContent (rich
-     * content) when the field advertises a compatible image type via EditorInfoCompat.getContentMimeTypes,
-     * granting a temporary read on our FileProvider URI. FALLBACK (BUG3) = when the field does NOT support
-     * commitContent (no advertised image type) or the commit fails, the image is placed on the SYSTEM
-     * clipboard so the user can long-press → paste (works wherever system paste does). Never crashes.
-     */
-    private fun pasteImage(path: String) {
-        if (panelInput.active) return // debug.16: an image can't go into the text buffer — ignore during inline edit
-        val file = File(path)
-        if (!file.exists()) { toast("图片已不存在"); return }
-        val mime = com.aegis.ime.user.ClipImageStore.mimeOf(path)
-        val uri = runCatching { FileProvider.getUriForFile(this, "$packageName.fileprovider", file) }.getOrNull()
-        if (uri == null) { toast("插入失败"); return }
-
-        // 1) Preferred: rich-content commitContent into a field that advertises image support (BUG3 ①②③④ —
-        // verified correct). deliverImage only runs the commit when the field accepts it, so a field that does
-        // NOT advertise contentMimeTypes (subcase A) skips straight to the fallback below; a commit that
-        // returns false (subcase B) does too.
-        val ic = currentInputConnection
-        val editorInfo = currentInputEditorInfo
-        val committed = if (ic != null && editorInfo != null) {
-            val accepts = EditorInfoCompat.getContentMimeTypes(editorInfo)
-            com.aegis.ime.user.ClipImageStore.deliverImage(accepts, mime) {
-                val info = InputContentInfoCompat(uri, ClipDescription("clip image", arrayOf(mime)), null)
-                runCatching {
-                    InputConnectionCompat.commitContent(ic, editorInfo, info, InputConnectionCompat.INPUT_CONTENT_GRANT_READ_URI_PERMISSION, null)
-                }.getOrDefault(false)
-            }
-        } else false
-        if (committed) { inputView?.showPanel(null); return } // inserted directly — silent, no toast
-
-        // 2) BUG3 fallback: the field doesn't support commitContent (or it failed) — put the image on the
-        // SYSTEM clipboard so the user can long-press → paste (which works wherever system paste does). The
-        // ClipboardService grants read on our FileProvider URI to the pasting app.
-        selfClipUri = uri // BUG3: mark this write so our own clip listener doesn't re-record it
-        val copied = runCatching {
-            clipboardManager.setPrimaryClip(com.aegis.ime.user.ClipImageStore.imageClip(contentResolver, uri))
-        }.isSuccess
-        toast(if (copied) "图片已复制,请在输入框长按粘贴" else "插入失败")
-        inputView?.showPanel(null)
-    }
-
-    /** U22: decode a ~160px thumbnail OFF the main thread, cache it, and deliver it on the main thread. */
-    private fun loadThumbnailAsync(path: String, cb: (Bitmap?) -> Unit) {
-        Thread {
-            val b = clipImageStore.thumbnail(path, 160)?.also { thumbCache.put(path, it) }
-            Handler(Looper.getMainLooper()).post { runCatching { cb(b) } }
-        }.apply { isDaemon = true }.start()
-    }
-
-    /** U22: when image history entries are deleted, drop their backing files + cached thumbnails too. */
-    private fun deleteImageFiles(entries: List<String>) {
-        for (e in entries) if (ClipboardStore.isImageEntry(e)) {
-            val p = ClipboardStore.imagePath(e); clipImageStore.delete(p); thumbCache.remove(p)
-        }
     }
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
