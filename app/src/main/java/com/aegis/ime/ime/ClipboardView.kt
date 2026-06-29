@@ -64,11 +64,13 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     var onDeleteClips: (List<String>) -> Unit = {}
     var onDeletePhrasesFrom: (String, List<String>) -> Unit = { _, _ -> }
     var onSaveAsPhrasesTo: (String, List<String>) -> Unit = { _, _ -> }
-    var onEditPhrase: (String, String) -> Unit = { _, _ -> }            // debug.16: (category, phrase) → edit (typing deferred → manager)
+    var onEditPhrase: (String, String) -> Unit = { _, _ -> }            // debug.16 Option A: (category, phrase) → inline edit
     var onMovePhrase: (String, String, String) -> Unit = { _, _, _ -> } // debug.16: (fromCategory, phrase, toCategory)
     var onMovePhrasesTo: (String, List<String>, String) -> Unit = { _, _, _ -> } // debug.16: batch move (from, phrases, to)
     var onReorderPhrase: (String, Int, Int) -> Unit = { _, _, _ -> }    // debug.16: drag-reorder (category, fromIndex, toIndex)
-    var onManage: () -> Unit = {}                      // open the phrase-manager Activity (naming needs it)
+    var onAddCategory: () -> Unit = {}                 // debug.16 Option A: ＋分类 → inline text input
+    var onRenameCategory: (String) -> Unit = {}        // debug.16 Option A: 分类改名 → inline text input
+    var onDeleteCategory: (String) -> Unit = {}        // debug.16: 删除分类 (no typing)
     var onClearHistory: () -> Unit = {}
     var historyEnabledProvider: () -> Boolean = { true }
     var onSetHistoryEnabled: (Boolean) -> Unit = {}
@@ -104,6 +106,14 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private val st = ClipboardPanelState()
     private var phraseCat = "" // selected 常用语 category (category picker, not part of the core state machine)
+
+    /** debug.16: after an inline edit, reopen on the 常用语 tab (optionally at [category]) instead of the
+     *  reset-default 剪贴板 tab, so the user stays where they were editing. */
+    fun showPhraseTab(category: String) {
+        st.switchTab(ClipboardPanelState.Tab.PHRASE)
+        if (category.isNotEmpty() && category in categoriesProvider()) phraseCat = category
+        refresh()
+    }
 
     // debug.16: drag-to-reorder a 常用语 (long-press an un-expanded phrase card → drag up/down → drop persists).
     // dragFrom = the index the drag started at; dragCurrent = the index it would land at right now. The store is
@@ -176,14 +186,17 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8), dp(3), dp(8), dp(3)) // U-polish: 3dp so the 44dp buttons fit the 50dp bar (no clip)
-            addView(roundBtn("‹") { onBack() }, ll(dp(34), dp(44)))
+            // item7: every top icon is the SAME size/shape as the ‹ back icon, and the action icons are evenly
+            // spaced (a gap between them) instead of crammed.
+            fun iconLp(spaced: Boolean = false) = ll(dp(36), dp(44)).apply { if (spaced) marginStart = dp(6) }
+            addView(roundBtn("‹") { onBack() }, iconLp())
             addView(View(context), ll(0, dp(1), 1f))
             addView(pillTray(), ll(WC, dp(36)))
             addView(View(context), ll(0, dp(1), 1f))
             // the 常用语 tab adds a ＋; 多选 (☰) lives on BOTH tabs, then ⚙.
-            if (st.tab == Tab.PHRASE) addView(roundBtn("＋") { onManage() }, ll(dp(40), dp(44)))
-            addView(roundBtn("☰") { enterSelect() }, ll(dp(40), dp(44)))
-            addView(roundBtn("⚙") { showGearMenu() }, ll(dp(36), dp(44)))
+            if (st.tab == Tab.PHRASE) addView(roundBtn("＋") { onAddCategory() }, iconLp(true))
+            addView(roundBtn("☰") { enterSelect() }, iconLp(true))
+            addView(roundBtn("⚙") { showGearMenu() }, iconLp(true))
         }
         main.addView(topBar, ll(MP, dp(50)))
         // U9: no 字数/条数上限 line.
@@ -292,8 +305,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
 
     /** debug.16: expanded 常用语 card action row = 编辑 / 移动 / 删除 (＋常用语 is meaningless for an existing
-     *  phrase; 拆词 isn't wanted here). 编辑 hands off to the manager (in-IME typing deferred); 移动 picks a
-     *  target category in-panel; 删除 reuses deletePhraseFrom. */
+     *  phrase; 拆词 isn't wanted here). 编辑 = inline text input (Option A); 移动 picks a target category
+     *  in-panel; 删除 reuses deletePhraseFrom. */
     private fun phraseActionRow(text: String): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         setPadding(dp(8), 0, dp(8), dp(10))
@@ -402,7 +415,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val cur = currentCategory()
         for (name in categoriesProvider()) chips.addView(catChip(name, name == cur))
         addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, ll(0, WC, 1f))
-        addView(roundBtn("✎") { onManage() }, ll(dp(40), dp(44))) // ✎ 管理
+        addView(roundBtn("✎") { onAddCategory() }, ll(dp(36), dp(44))) // ✎ 内联新建分类 (debug.16)
     }
 
     private fun catChip(name: String, on: Boolean): View = TextView(context).apply {
@@ -414,7 +427,17 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         setTextColor(if (on) TEXT_DARK else SUBTEXT)
         setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         setOnClickListener { phraseCat = name; refresh() }
+        setOnLongClickListener { showCategoryMenu(name); true } // debug.16: 长按 chip → 改名 / 删除 (inline)
         layoutParams = ll(WC, WC).apply { rightMargin = dp(8) }
+    }
+
+    /** debug.16: long-press a category chip → inline 改名 (text input) / 删除. */
+    private fun showCategoryMenu(name: String) {
+        val card = menuCard()
+        card.addView(menuItem("重命名「$name」") { hideOverlay(); onRenameCategory(name) })
+        card.addView(menuDivider())
+        card.addView(menuItem("删除「$name」") { hideOverlay(); onDeleteCategory(name); if (phraseCat == name) phraseCat = ""; refresh() })
+        showOverlay(card)
     }
 
     // ---------- select mode (编辑剪贴板) ----------
@@ -530,7 +553,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         if (targets.isEmpty()) {
             card.addView(menuTitle("没有其它分类"))
             card.addView(menuDivider())
-            card.addView(menuItem("＋ 新建分类…") { hideOverlay(); onManage() })
+            card.addView(menuItem("＋ 新建分类…") { hideOverlay(); onAddCategory() })
         } else {
             card.addView(menuTitle("移动到分类"))
             for (c in targets) { card.addView(menuDivider()); card.addView(menuItem(c) { hideOverlay(); action(c) }) }
@@ -557,20 +580,19 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         card.addView(menuDivider())
         val on = historyEnabledProvider()
         card.addView(menuItem(if (on) "剪贴板记录:开" else "剪贴板记录:关") { hideOverlay(); onSetHistoryEnabled(!on) })
-        card.addView(menuDivider())
-        card.addView(menuItem("常用语管理") { hideOverlay(); onManage() })
+        // debug.16: 常用语管理 entry removed — category add/rename/delete is now inline (＋ / ✎ / 长按 chip).
         showOverlay(card)
     }
 
     /** C5: pick the target category for an add, or jump to the manager to create one. */
     private fun chooseCategoryThen(action: (String) -> Unit) {
         val cats = categoriesProvider()
-        if (cats.isEmpty()) { onManage(); return }
+        if (cats.isEmpty()) { onAddCategory(); return }
         val card = menuCard()
         card.addView(menuTitle("选择分类"))
         for (c in cats) { card.addView(menuDivider()); card.addView(menuItem(c) { hideOverlay(); action(c); refresh() }) }
         card.addView(menuDivider())
-        card.addView(menuItem("＋ 新建分类…") { hideOverlay(); onManage() })
+        card.addView(menuItem("＋ 新建分类…") { hideOverlay(); onAddCategory() })
         showOverlay(card)
     }
 

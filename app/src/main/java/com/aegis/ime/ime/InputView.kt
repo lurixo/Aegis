@@ -42,10 +42,13 @@ class InputView(context: Context) : LinearLayout(context) {
     var onCopyCommit: (String) -> Unit = {} // 复制条 ⑤: 上屏 the copied content
     var onCopyBlock: (String) -> Unit = {}  // 复制条 ③: 拆词 block → aegis clipboard
     var onCopyDismiss: () -> Unit = {}      // U21: 复制条 ④/⑤ left → host forgets the persisted clip
+    var onEditConfirm: () -> Unit = {}      // debug.16: inline edit bar 确定
+    var onEditCancel: () -> Unit = {}       // debug.16: inline edit bar 取消
 
     private val preeditView = PreeditView(context)
     private val candidateView = CandidateView(context)
     private val copyBarView = CopyBarView(context) // 复制条: shares the candidate-strip row
+    private val editBarView = EditBarView(context) // debug.16: inline text-input bar (above the candidate strip)
     private val keyboardView = KeyboardView(context)
     private val panelContainer = FrameLayout(context)
     private val gridView = CandidateGridView(context)
@@ -66,10 +69,17 @@ class InputView(context: Context) : LinearLayout(context) {
         copyBarView.applyPalette(p)
         keyboardView.applyPalette(p)
         gridView.applyPalette(p)
+        editBarView.applyPalette(p)
     }
 
     /** The active Monet palette (the IME service hands new panels their colours on open). */
     fun palette(): ImePalette = palette
+
+    /** debug.16: show/hide the inline text-input bar (keyboard + candidate strip stay visible below it). */
+    fun showEditBar(active: Boolean) { editBarView.visibility = if (active) VISIBLE else GONE }
+    fun isEditBarShowing(): Boolean = editBarView.visibility == VISIBLE
+    fun setEditTitle(t: String) { editBarView.setTitle(t) }
+    fun setEditText(t: String) { editBarView.setText(t) }
 
     init {
         orientation = VERTICAL
@@ -96,6 +106,8 @@ class InputView(context: Context) : LinearLayout(context) {
         copyBarView.onCommit = { t -> onCopyCommit(t) }
         copyBarView.onCopyBlock = { b -> onCopyBlock(b) }
         copyBarView.onDismiss = { hideCopyBar(); onCopyDismiss() }
+        editBarView.onConfirm = { onEditConfirm() }
+        editBarView.onCancel = { onEditCancel() }
         // the preedit + candidate rows are FIXED-HEIGHT and ALWAYS present — only their
         // CONTENT changes, never their visibility — so the IME's total height never changes while typing.
         // (Toggling the preedit GONE/VISIBLE grew/shrank the window on every keystroke that started or
@@ -106,6 +118,8 @@ class InputView(context: Context) : LinearLayout(context) {
 
         body.orientation = VERTICAL
         body.setBackgroundColor(palette.keyboardBg)
+        editBarView.visibility = GONE // debug.16: shown above the candidate strip only while inline-editing
+        body.addView(editBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
         body.addView(candidateView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
         copyBarView.visibility = GONE // 复制条 occupies the same 44dp row as the candidate strip when shown
         body.addView(copyBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))

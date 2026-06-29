@@ -181,4 +181,38 @@ class PhrasePanelTest {
         assertEquals("默认", del?.first)
         assertEquals(listOf("你好"), del?.second)
     }
+
+    // ---- debug.16 Option A: inline category management triggers ----
+
+    @Test fun top_add_and_categorybar_edit_buttons_trigger_onAddCategory() {
+        var adds = 0
+        val v = phraseView().apply { onAddCategory = { adds++ } }
+        assertTrue("top-bar ＋", click(v, "＋")); assertEquals(1, adds)
+        assertTrue("categoryBar ✎", click(v, "✎")); assertEquals(2, adds)
+    }
+
+    @Test fun category_chip_long_press_offers_inline_rename_and_delete() {
+        var renamed: String? = null
+        var deleted: String? = null
+        val v = phraseView().apply { onRenameCategory = { renamed = it }; onDeleteCategory = { deleted = it } }
+        val chip = textViews(v).first { it.text?.toString() == "工作" && it.hasOnClickListeners() }
+        assertTrue(chip.performLongClick())
+        assertTrue(click(overlayOf(v), "重命名「工作」")); assertEquals("工作", renamed)
+        // reopen the chip menu for delete
+        assertTrue(chip.performLongClick())
+        assertTrue(click(overlayOf(v), "删除「工作」")); assertEquals("工作", deleted)
+    }
+
+    // ---- item7: top icons uniform size ----
+
+    @Test fun top_bar_icons_are_uniform_size() {
+        val v = phraseView()
+        val icons = listOf("‹", "＋", "☰", "⚙").map { lbl ->
+            textViews(v).first { it.text?.toString() == lbl && it.hasOnClickListeners() }
+        }
+        val widths = icons.map { it.layoutParams.width }.toSet()
+        val heights = icons.map { it.layoutParams.height }.toSet()
+        assertEquals("all top icons share one width (item7)", 1, widths.size)
+        assertEquals("all top icons share one height (item7)", 1, heights.size)
+    }
 }
