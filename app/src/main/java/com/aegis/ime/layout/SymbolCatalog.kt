@@ -30,10 +30,10 @@ object SymbolCatalog {
     const val RECENT_TITLE = "常用"
 
     val categories: List<Category> = listOf(
-        // P1(#5): comma before period in both 中文 and 英文. debug.16 item4: add the common full-width marks
-        // (＃＆＊＠％＋＝｜＜＞／＼｀). NOTE: the double 破折号 —— / 省略号 …… are deliberately NOT added — SymbolsView
-        // renders any multi-char token as a 网址补全 chip (P5), which would mis-show them here; single — / … cover it.
-        Category("zh", "中文", tokens("， 。 、 ； ： ？ ！ “ ” ‘ ’ （ ） 《 》 〈 〉 「 」 『 』 【 】 〔 〕 〖 〗 … — ～ · ※ ° ‖ ￥ 〃 ＿ ﹏ ﹋ ＃ ＆ ＊ ＠ ％ ＋ ＝ ｜ ＜ ＞ ／ ＼ ｀")),
+        // P1(#5): comma before period in both 中文 and 英文. debug.16: the standard Chinese 破折号 —— (double
+        // em-dash) and 省略号 …… (double ellipsis) — SymbolsView renders these multi-char marks as ordinary
+        // insertable chips (the 网址补全 chip treatment is scoped to net/url-like tokens). Plus full-width marks.
+        Category("zh", "中文", tokens("， 。 、 ； ： ？ ！ “ ” ‘ ’ （ ） 《 》 〈 〉 「 」 『 』 【 】 〔 〕 〖 〗 … …… — —— ～ · ※ ° ‖ ￥ 〃 ＿ ﹏ ﹋ ＃ ＆ ＊ ＠ ％ ＋ ＝ ｜ ＜ ＞ ／ ＼ ｀")),
         // debug.16 item4: add en-dash – (was only em-dash —) and the ™©®¶ marks (previously only on the legacy
         // symbol() row keyboard, missing from this categorized panel).
         Category("en", "英文", listOf(
