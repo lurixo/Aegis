@@ -87,7 +87,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var selMoving = -1
     private var deletedSnapshot: CharSequence? = null
     private val panelInput = com.aegis.ime.ime.PanelTextInput()
-    private enum class InputPurpose { EDIT_PHRASE, ADD_PHRASE, ADD_CATEGORY, RENAME_CATEGORY }
+    private enum class InputPurpose { EDIT_PHRASE, ADD_PHRASE, EDIT_NOTE, ADD_CATEGORY, RENAME_CATEGORY }
     private var inputPurpose: InputPurpose? = null
     private var inputCat = ""
     private var inputOld = ""
@@ -413,6 +413,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.historyProvider = { clipboardStore.history() }
             it.categoriesProvider = { clipboardStore.categories() }
             it.phrasesInProvider = { cat -> clipboardStore.phrasesIn(cat) }
+            it.phraseNoteProvider = { cat, text -> clipboardStore.noteFor(cat, text) }
             it.onPick = { t -> commitLargeText(t); inputView?.showPanel(null) }
             it.isImage = { e -> ClipboardStore.isImageEntry(e) && clipImageStore.isStoredImage(ClipboardStore.imagePath(e)) }
             it.onPickImage = { path -> pasteImage(path) }
@@ -433,6 +434,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onAddCategoryThenMove = { from, texts -> beginInlineAddCategory(pendingMove = from to texts) }
             it.onRenameCategory = { old -> beginInlineRenameCategory(old) }
             it.onDeleteCategory = { name -> clipboardStore.deleteCategory(name) }
+            it.onEditNote = { cat, text -> beginInlineEditNote(cat, text) }
+            it.onClearCategory = { cat -> clipboardStore.clearPhrasesIn(cat) }
+            it.onExportPhrases = { launchPhraseTransfer(export = true) }
+            it.onImportPhrases = { launchPhraseTransfer(export = false) }
             it.onClearHistory = { clipboardStore.clearHistory(); clipImageStore.clear(); thumbCache.evictAll() }
             it.historyEnabledProvider = { historyEnabled() }
             it.onSetHistoryEnabled = { on -> setHistoryEnabled(on) }
@@ -499,6 +504,17 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
     }
 
+    private fun launchPhraseTransfer(export: Boolean) {
+        runCatching {
+            startActivity(
+                android.content.Intent(this, com.aegis.ime.ui.PhraseTransferActivity::class.java)
+                    .putExtra(com.aegis.ime.ui.PhraseTransferActivity.EXTRA_EXPORT, export)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+            inputView?.showPanel(null)
+        }
+    }
+
 
     private fun beginInlineEdit(category: String, phrase: String) {
         inputPurpose = InputPurpose.EDIT_PHRASE; inputCat = category; inputOld = phrase
@@ -508,6 +524,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun beginInlineAddPhrase(category: String) {
         inputPurpose = InputPurpose.ADD_PHRASE; inputCat = category; inputOld = ""
         startInlineInput("添加常用语", "")
+    }
+
+    private fun beginInlineEditNote(category: String, text: String) {
+        inputPurpose = InputPurpose.EDIT_NOTE; inputCat = category; inputOld = text
+        startInlineInput("备注", clipboardStore.noteFor(category, text))
     }
 
     private fun beginInlineAddCategory(
@@ -540,6 +561,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         when (inputPurpose) {
             InputPurpose.EDIT_PHRASE -> clipboardStore.editPhrase(inputCat, inputOld, text)
             InputPurpose.ADD_PHRASE -> { val t = text.trim(); if (t.isNotEmpty()) clipboardStore.addPhrasesTo(inputCat, listOf(t)) }
+            InputPurpose.EDIT_NOTE -> clipboardStore.setPhraseNote(inputCat, inputOld, text)
             InputPurpose.ADD_CATEGORY -> {
                 val name = text.trim()
                 if (name.isNotEmpty()) {
@@ -574,7 +596,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun captureClip() {
-        if (secureField || !historyEnabled()) return
+        if (!com.aegis.ime.user.ClipboardStore.shouldCapture(historyEnabled())) return
         runCatching {
             val clip = clipboardManager.primaryClip ?: return
             val item = clip.getItemAt(0) ?: return
@@ -584,13 +606,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun onSystemClipChanged() {
-        if (!com.aegis.ime.user.ClipboardPolicy.shouldReadSystemClip(selfClipUri != null, secureField, historyEnabled())) return
+        if (!com.aegis.ime.user.ClipboardPolicy.shouldReadSystemClip(selfClipUri != null, false, historyEnabled())) return
         val clip = runCatching { clipboardManager.primaryClip }.getOrNull() ?: return
         if (clip.itemCount == 0) return
         val item = clip.getItemAt(0)
         val uri = item.uri
         if (com.aegis.ime.user.ClipImageStore.isSelfWrite(uri, selfClipUri)) { selfClipUri = null; return }
-        if (secureField || !historyEnabled()) return
+        if (!com.aegis.ime.user.ClipboardStore.shouldCapture(historyEnabled())) return
         val declaredImage = clip.description?.hasMimeType("image/*") == true
         if (uri != null) {
             val seed = System.currentTimeMillis()

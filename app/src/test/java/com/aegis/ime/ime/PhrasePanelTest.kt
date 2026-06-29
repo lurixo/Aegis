@@ -191,7 +191,7 @@ class PhrasePanelTest {
 
     @Test fun top_bar_icons_are_uniform_size() {
         val v = phraseView()
-        val textIcons = listOf("＋", "☰", "⚙").map { lbl ->
+        val textIcons = listOf("＋", "☰", "🗑").map { lbl ->
             textViews(v).first { it.text?.toString() == lbl && it.hasOnClickListeners() }
         }
         val slotW = textIcons.first().layoutParams.width

@@ -31,7 +31,8 @@ class ClipboardStore(private val dir: File) {
     private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "aegis-clip-io").apply { isDaemon = true } }
     private val saveGen = AtomicLong(0)
 
-    private class Category(var name: String, val phrases: ArrayList<String> = ArrayList())
+    private class Phrase(var text: String, var note: String = "")
+    private class Category(var name: String, val phrases: ArrayList<Phrase> = ArrayList())
     private val phraseCats = ArrayList<Category>()
 
     fun load() {
@@ -51,21 +52,29 @@ class ClipboardStore(private val dir: File) {
     private fun loadPhrases() {
         phraseCats.clear()
         if (!phraseFile.exists()) {
-            phraseCats.add(Category(DEFAULT_CATEGORY, ArrayList(DEFAULT_PHRASES)))
+            phraseCats.add(Category(DEFAULT_CATEGORY, ArrayList(DEFAULT_PHRASES.map { Phrase(it) })))
             return
         }
         val lines = runCatching { phraseFile.readLines() }.getOrDefault(emptyList())
         if (lines.none { it.startsWith("C\t") }) {
             val c = Category(DEFAULT_CATEGORY)
-            lines.forEach { decode(it)?.let { p -> if (p.isNotBlank()) c.phrases.add(p) } }
+            lines.forEach { decode(it)?.let { p -> if (p.isNotBlank()) c.phrases.add(Phrase(p)) } }
             phraseCats.add(c)
             return
         }
+        phraseCats.addAll(parseCategories(lines))
+    }
+
+    private fun parseCategories(lines: List<String>): List<Category> {
+        val out = ArrayList<Category>()
         var cur: Category? = null
+        var last: Phrase? = null
         for (line in lines) when {
-            line.startsWith("C\t") -> Category(decode(line.substring(2)).orEmpty()).also { phraseCats.add(it); cur = it }
-            line.startsWith("P\t") -> decode(line.substring(2))?.let { cur?.phrases?.add(it) }
+            line.startsWith("C\t") -> { val c = Category(decode(line.substring(2)).orEmpty()); out.add(c); cur = c; last = null }
+            line.startsWith("P\t") -> decode(line.substring(2))?.let { p -> Phrase(p).also { cur?.phrases?.add(it); last = it } }
+            line.startsWith("N\t") -> decode(line.substring(2))?.let { n -> last?.note = n }
         }
+        return out
     }
 
     fun record(text: String?) {
@@ -90,9 +99,18 @@ class ClipboardStore(private val dir: File) {
 
     fun categories(): List<String> = phraseCats.map { it.name }
 
-    fun phrasesIn(category: String): List<String> = find(category)?.phrases?.toList() ?: emptyList()
+    fun phrasesIn(category: String): List<String> = find(category)?.phrases?.map { it.text } ?: emptyList()
 
-    fun phrases(): List<String> = phraseCats.flatMap { it.phrases }
+    fun phrases(): List<String> = phraseCats.flatMap { c -> c.phrases.map { it.text } }
+
+    fun noteFor(category: String, text: String): String = findPhrase(find(category), text)?.note.orEmpty()
+
+    fun setPhraseNote(category: String, text: String, note: String): Boolean {
+        val p = findPhrase(find(category), text) ?: return false
+        p.note = note.filterNot { Character.isISOControl(it) }.trim()
+        savePhrases()
+        return true
+    }
 
     fun addCategory(name: String): Boolean {
         val n = name.trim()
@@ -115,8 +133,8 @@ class ClipboardStore(private val dir: File) {
         var added = 0
         for (raw in texts) {
             val t = raw.trim()
-            if (t.isEmpty() || isImageEntry(t) || c.phrases.contains(t)) continue
-            c.phrases.add(t); added++
+            if (t.isEmpty() || isImageEntry(t) || c.phrases.any { it.text == t }) continue
+            c.phrases.add(Phrase(t)); added++
         }
         if (added > 0) savePhrases()
         return added
@@ -126,23 +144,30 @@ class ClipboardStore(private val dir: File) {
         addPhrasesTo(phraseCats.firstOrNull()?.name ?: DEFAULT_CATEGORY, texts)
 
     fun deletePhraseFrom(category: String, text: String) {
-        find(category)?.let { if (it.phrases.remove(text)) savePhrases() }
+        find(category)?.let { c -> if (c.phrases.removeAll { it.text == text }) savePhrases() }
     }
 
     fun deletePhrase(text: String) {
         var changed = false
-        for (c in phraseCats) if (c.phrases.remove(text)) changed = true
+        for (c in phraseCats) if (c.phrases.removeAll { it.text == text }) changed = true
         if (changed) savePhrases()
+    }
+
+    fun clearPhrasesIn(category: String): Int {
+        val c = find(category) ?: return 0
+        val n = c.phrases.size
+        if (n > 0) { c.phrases.clear(); savePhrases() }
+        return n
     }
 
     fun editPhrase(category: String, oldText: String, newText: String): Boolean {
         val c = find(category) ?: return false
-        val idx = c.phrases.indexOf(oldText)
+        val idx = c.phrases.indexOfFirst { it.text == oldText }
         if (idx < 0) return false
         val n = newText.filterNot { Character.isISOControl(it) }.trim()
         if (n.isEmpty()) return false
-        if (c.phrases.withIndex().any { (j, p) -> j != idx && p == n }) return false
-        c.phrases[idx] = n
+        if (c.phrases.withIndex().any { (j, p) -> j != idx && p.text == n }) return false
+        c.phrases[idx].text = n
         savePhrases()
         return true
     }
@@ -151,10 +176,17 @@ class ClipboardStore(private val dir: File) {
         val to = find(toCategory) ?: return false
         val from = find(fromCategory) ?: return false
         if (from === to) return true
-        if (!from.phrases.remove(text)) return false
-        if (!to.phrases.contains(text)) to.phrases.add(text)
+        val p = findPhrase(from, text) ?: return false
+        from.phrases.remove(p)
+        carryInto(to, p)
         savePhrases()
         return true
+    }
+
+    private fun carryInto(to: Category, p: Phrase) {
+        val existing = findPhrase(to, p.text)
+        if (existing == null) to.phrases.add(p)
+        else if (existing.note.isEmpty() && p.note.isNotEmpty()) existing.note = p.note
     }
 
     fun movePhrasesTo(fromCategory: String, texts: Collection<String>, toCategory: String): Int {
@@ -163,10 +195,10 @@ class ClipboardStore(private val dir: File) {
         if (from === to) return 0
         var moved = 0
         for (t in texts) {
-            if (from.phrases.remove(t)) {
-                if (!to.phrases.contains(t)) to.phrases.add(t)
-                moved++
-            }
+            val p = findPhrase(from, t) ?: continue
+            from.phrases.remove(p)
+            carryInto(to, p)
+            moved++
         }
         if (moved > 0) savePhrases()
         return moved
@@ -182,6 +214,7 @@ class ClipboardStore(private val dir: File) {
     }
 
     private fun find(name: String): Category? = phraseCats.firstOrNull { it.name == name }
+    private fun findPhrase(c: Category?, text: String): Phrase? = c?.phrases?.firstOrNull { it.text == text }
 
     private fun scheduleSave() {
         val snapshot = ArrayList(history)
@@ -220,13 +253,44 @@ class ClipboardStore(private val dir: File) {
 
     internal fun awaitWritesForTest() { runCatching { io.submit { }.get() } }
 
-    private fun savePhrases() = runCatching {
+    private fun savePhrases() = runCatching { phraseFile.writeText(serializePhrases()) }
+
+    private fun serializePhrases(): String {
         val sb = StringBuilder()
         for (c in phraseCats) {
             sb.append("C\t").append(encode(c.name)).append('\n')
-            for (p in c.phrases) sb.append("P\t").append(encode(p)).append('\n')
+            for (p in c.phrases) {
+                sb.append("P\t").append(encode(p.text)).append('\n')
+                if (p.note.isNotEmpty()) sb.append("N\t").append(encode(p.note)).append('\n')
+            }
         }
-        phraseFile.writeText(sb.toString())
+        return sb.toString()
+    }
+
+
+    fun exportPhrasesText(): String = serializePhrases()
+
+    fun importPhrasesText(text: String, merge: Boolean): Boolean {
+        val parsed = parseCategories(text.split('\n'))
+        val hasContent = parsed.any { it.phrases.isNotEmpty() || it.name.isNotBlank() }
+        if (!hasContent) return false
+        if (merge) {
+            for (pc in parsed) {
+                if (pc.name.isBlank()) continue
+                val c = find(pc.name) ?: Category(pc.name).also { phraseCats.add(it) }
+                for (p in pc.phrases) {
+                    val existing = findPhrase(c, p.text)
+                    if (existing == null) c.phrases.add(Phrase(p.text, p.note))
+                    else if (existing.note.isEmpty() && p.note.isNotEmpty()) existing.note = p.note
+                }
+            }
+        } else {
+            phraseCats.clear()
+            phraseCats.addAll(parsed)
+            if (phraseCats.none { it.name == DEFAULT_CATEGORY }) phraseCats.add(0, Category(DEFAULT_CATEGORY))
+        }
+        savePhrases()
+        return true
     }
 
     private fun encode(s: String) = s.replace("\\", "\\\\").replace("\n", "\\n").replace("\r", "\\r")
@@ -250,6 +314,8 @@ class ClipboardStore(private val dir: File) {
         const val IMG_PREFIX = "img:"
         fun isImageEntry(entry: String): Boolean = entry.startsWith(IMG_PREFIX)
         fun imagePath(entry: String): String = if (isImageEntry(entry)) entry.substring(IMG_PREFIX.length) else entry
+
+        fun shouldCapture(historyEnabled: Boolean): Boolean = historyEnabled
 
         private const val BIG_LINE = "B\t"
         const val BIG_THRESHOLD = 64 * 1024
