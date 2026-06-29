@@ -265,6 +265,20 @@ class KeyboardViewInteractionTest {
         assertTrue("a real flick with a soft finish still hands off to a fling", v.isFlingingForTest())
     }
 
+    @Test fun new_column_content_cancels_a_running_fling_and_renders_from_zero() {
+        val v = longComboView()
+        v.fastFlickUp()
+        assertTrue("precondition: a fling is running", v.isFlingingForTest())
+        assertTrue("precondition: it scrolled away from the top", v.scrollOffsetForTest() > 0f)
+
+        val other = (1..24).map { Key("q$it", output = "q$it", action = KeyAction.PICK_READING) }
+        v.setLayout(Layouts.nine(Lang.CN, other, composing = true), false, false, Lang.CN)
+        assertFalse("the content-change reset cancels the fling", v.isFlingingForTest())
+        assertEquals("the offset is reset to 0", 0f, v.scrollOffsetForTest(), 0f)
+        v.computeScroll()
+        assertEquals("the next frame does NOT restore the stale fling offset", 0f, v.scrollOffsetForTest(), 0f)
+    }
+
     @Test fun reversing_after_overscroll_tracks_the_finger_immediately() {
         val v = longComboView()
         val max = v.maxScrollForTest()

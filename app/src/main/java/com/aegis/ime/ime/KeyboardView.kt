@@ -157,7 +157,7 @@ class KeyboardView(context: Context) : View(context) {
         shiftLocked = isLocked
         lang = language
         scrollColumn = newLayout.scrollColumn
-        if (!sameColumn) scrollY = 0f
+        if (!sameColumn) { fling.forceFinish(); scrollY = 0f }
         if (width > 0) relayout()
         requestLayout()
         invalidate()
@@ -315,7 +315,6 @@ class KeyboardView(context: Context) : View(context) {
             p.key.accent -> accentLabelPaint
             p.key.bold -> boldLabelPaint
             display.length > 1 && p.key.action != KeyAction.COMMIT -> specialLabelPaint
-            p.key.action == KeyAction.SHOW_SYMBOLS -> specialLabelPaint
             else -> labelPaint
         }
         canvas.drawText(display, cx, cy - (paint.descent() + paint.ascent()) / 2, paint)
@@ -553,6 +552,12 @@ class FlingScroller(context: Context) {
     fun onDown() {
         stopArmed = !scroller.isFinished
         if (stopArmed) scroller.forceFinished(true)
+        count = 0; head = 0
+    }
+
+    fun forceFinish() {
+        scroller.forceFinished(true)
+        stopArmed = false
         count = 0; head = 0
     }
 
