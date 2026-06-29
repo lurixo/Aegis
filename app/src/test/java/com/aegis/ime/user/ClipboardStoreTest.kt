@@ -450,6 +450,46 @@ class ClipboardStoreTest {
         assertEquals(listOf("已收到"), s.phrasesIn("工作"))
     }
 
+
+    @Test fun edit_phrase_replaces_in_place_preserving_order_and_persists() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("一", "二", "三")) }
+        assertTrue(s.editPhrase("工作", "二", "  贰  "))
+        assertEquals(listOf("一", "  贰  ", "三"), s.phrasesIn("工作"))
+        s.flushPendingWrites()
+        val reloaded = ClipboardStore(dir).apply { load() }
+        assertEquals(listOf("一", "  贰  ", "三"), reloaded.phrasesIn("工作"))
+    }
+
+    @Test fun edit_phrase_keeps_format_whitespace_and_strips_other_control_chars() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("一")) }
+        assertTrue(s.editPhrase("工作", "一", "a\tb\nc"))
+        assertEquals(listOf("a\tb\nc"), s.phrasesIn("工作"))
+        assertTrue(s.editPhrase("工作", "a\tb\nc", "a\u0000b"))
+        assertEquals(listOf("ab"), s.phrasesIn("工作"))
+    }
+
+    @Test fun edit_phrase_rejects_empty_or_control_only_and_leaves_store_unchanged() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("一", "二")) }
+        assertFalse("blank after trim rejected", s.editPhrase("工作", "二", "   "))
+        assertFalse("control-only rejected", s.editPhrase("工作", "二", " \t\n"))
+        assertEquals(listOf("一", "二"), s.phrasesIn("工作"))
+    }
+
+    @Test fun edit_phrase_rejects_duplicate_of_another_item_but_allows_self() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("一", "二")) }
+        assertFalse("would collide with existing 一", s.editPhrase("工作", "二", "一"))
+        assertEquals(listOf("一", "二"), s.phrasesIn("工作"))
+        assertTrue("replacing with its own value is allowed", s.editPhrase("工作", "二", "二"))
+        assertEquals(listOf("一", "二"), s.phrasesIn("工作"))
+    }
+
+    @Test fun edit_phrase_rejects_unknown_category_or_phrase() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("一")) }
+        assertFalse(s.editPhrase("不存在", "一", "二"))
+        assertFalse(s.editPhrase("工作", "缺失", "二"))
+    }
+
     @Test fun new_category_with_pending_clip_lands_the_clip_in_it() {
         val dir = newDir()
         val s = ClipboardStore(dir).apply { load(); addCategory("默认") }

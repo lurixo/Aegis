@@ -496,6 +496,22 @@ class ClipboardStore(private val dir: File) {
     fun addPhrases(texts: Collection<String>): Int =
         addPhrasesTo(synchronized(phraseCats) { phraseCats.firstOrNull()?.name ?: DEFAULT_CATEGORY_ID }, texts)
 
+    fun editPhrase(category: String, oldText: String, newText: String): Boolean {
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.TEXT, 1); return false }
+        val after = synchronized(phraseCats) {
+            val c = find(category) ?: return false
+            val idx = c.phrases.indexOfFirst { it.text == oldText }
+            if (idx < 0) return false
+            val n = sanitizePhraseText(newText)
+            if (n.isBlank()) return false
+            if (c.phrases.withIndex().any { (j, p) -> j != idx && sanitizePhraseText(p.text) == n }) return false
+            c.phrases[idx].text = n
+            phraseSnapshot()
+        }
+        writePhrases(PhraseEdit.TEXT, 1, 1, after)
+        return true
+    }
+
     private fun mergePhraseInto(to: Category, p: Phrase, index: HashMap<String, Phrase>?) {
         if (p.text.isBlank()) return
         val existing = if (index == null) findPhrase(to, p.text) else index[p.text]
