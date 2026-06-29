@@ -237,6 +237,20 @@ object Glyphs {
         if (locked) c.drawLine(cx - headW, botY + s * 0.28f, cx + headW, botY + s * 0.28f, paint)
     }
 
+    fun drawTrash(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val w = s * 0.56f; val top = cy - s * 0.46f; val bot = cy + s * 0.8f
+        c.drawLine(cx - w, top, cx - w * 0.8f, bot, paint)
+        c.drawLine(cx + w, top, cx + w * 0.8f, bot, paint)
+        c.drawLine(cx - w * 0.8f, bot, cx + w * 0.8f, bot, paint)
+        c.drawLine(cx - w * 1.22f, top, cx + w * 1.22f, top, paint)
+        val hx = s * 0.26f; val hy = top - s * 0.22f
+        c.drawLine(cx - hx, top, cx - hx, hy, paint)
+        c.drawLine(cx + hx, top, cx + hx, hy, paint)
+        c.drawLine(cx - hx, hy, cx + hx, hy, paint)
+        c.drawLine(cx - s * 0.2f, top + s * 0.22f, cx - s * 0.16f, bot - s * 0.16f, paint)
+        c.drawLine(cx + s * 0.2f, top + s * 0.22f, cx + s * 0.16f, bot - s * 0.16f, paint)
+    }
+
     fun drawChevron(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, down: Boolean) {
         val bounds = chevronBounds(cx, cy, s)
         val ty = if (down) bounds.top else bounds.bottom

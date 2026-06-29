@@ -107,9 +107,33 @@ class KeyboardView(context: Context) : View(context) {
         onSwipe = { up -> onBackspaceSwipe(up) }
     }
 
+    private var backspaceBubbleObserver: Runnable? = null
+    private var lastBubbleUp: Pair<Boolean?, Boolean> = null to false
+
+    fun bindBackspaceBubbleObserver(observer: Runnable) {
+        backspaceBubbleObserver = observer
+    }
+
     var backspaceSwipeAvailable: (Boolean) -> Boolean
         get() = backspace.canSwipe
         set(value) { backspace.canSwipe = value }
+
+    fun backspaceBubbleDirectionUp(): Boolean? = backspace.swipeDirectionUp
+
+    fun backspaceBubbleArmed(): Boolean = backspace.swipeArmed
+
+    fun backspaceKeyBounds(): RectF? {
+        if (placed.isEmpty()) relayout()
+        return placed.firstOrNull { it.key.action == KeyAction.BACKSPACE }?.rect?.let(::RectF)
+    }
+
+    private fun notifyBackspaceBubble() {
+        val next = backspace.swipeDirectionUp to backspace.swipeArmed
+        if (next != lastBubbleUp) {
+            lastBubbleUp = next
+            backspaceBubbleObserver?.run()
+        }
+    }
 
     private val longPressRunnable = Runnable {
         val dk = downKey ?: return@Runnable
@@ -1084,6 +1108,7 @@ class KeyboardView(context: Context) : View(context) {
         } else {
             hidePreview()
         }
+        notifyBackspaceBubble()
     }
 
     private fun isPreviewable(key: Key) =
@@ -1185,6 +1210,7 @@ class KeyboardView(context: Context) : View(context) {
             dk != null && dk.action == KeyAction.BACKSPACE -> {
                 val bounds = downPlaced?.let(::heldBounds)
                 backspace.move(x, y, bounds == null || bounds.contains(x, y))
+                notifyBackspaceBubble()
             }
             dk != null && isAlphaLetter(dk) -> {
                 val dy = y - downY
@@ -1256,6 +1282,7 @@ class KeyboardView(context: Context) : View(context) {
                 val bounds = downPlaced?.let(::heldBounds)
                 backspace.move(x, y, bounds == null || bounds.contains(x, y))
                 if (backspace.finish()) currentTarget(x, y)?.let { performClick(); emitKey(it, eventTime) }
+                notifyBackspaceBubble()
             }
             dk != null && isAlphaLetter(dk) && swiped -> {
                 performClick()
@@ -1284,6 +1311,7 @@ class KeyboardView(context: Context) : View(context) {
     private fun cancelPrimary() {
         cancelKeyHold()
         backspace.cancel()
+        notifyBackspaceBubble()
         hidePreview()
         clearCaseBox()
         releasePressedKey()
@@ -1430,6 +1458,7 @@ class KeyboardView(context: Context) : View(context) {
         removeCallbacks(scrollbarTick)
         cancelKeyHold()
         backspace.cancel()
+        notifyBackspaceBubble()
         super.onDetachedFromWindow()
     }
 

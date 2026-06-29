@@ -299,6 +299,10 @@ class EditPanelView(context: Context) :
         for ((action, feedback) in actionFeedback) if (action != EditAction.DELETE) feedback.reset()
     }
 
+    override fun bindBackspaceBubbleObserver(observer: Runnable) { backspaceBubbleObserver = observer }
+    override fun backspaceBubbleDirectionUp(): Boolean? = backspaceTouch.bubbleDirectionUp()
+    override fun backspaceBubbleArmed(): Boolean = backspaceTouch.bubbleArmed()
+    override fun backspaceBubbleAnchor(): View = actionViews.getValue(EditAction.DELETE)
     internal fun selectingLabelForTest(): CharSequence = selectBtn.text
     internal fun selectionTintAnimatingForTest(): Boolean = tintAnimators.values.any { it.isRunning }
     internal fun actionViewForTest(action: EditAction): View? = actionViews[action]

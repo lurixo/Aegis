@@ -189,7 +189,12 @@ class ImeKeyFeedback(
     }
 }
 
-internal interface BackspaceBubbleSource
+internal interface BackspaceBubbleSource {
+    fun backspaceBubbleDirectionUp(): Boolean?
+    fun backspaceBubbleArmed(): Boolean
+    fun backspaceBubbleAnchor(): View
+    fun bindBackspaceBubbleObserver(observer: Runnable)
+}
 
 class ImeBackspaceTouch(
     private val view: View,
@@ -215,6 +220,10 @@ class ImeBackspaceTouch(
     var repeats: Boolean
         get() = gesture.repeats
         set(value) { gesture.repeats = value }
+
+    fun bubbleDirectionUp(): Boolean? = gesture.swipeDirectionUp
+
+    fun bubbleArmed(): Boolean = gesture.swipeArmed
 
     private fun notifyBubble() {
         val next = gesture.swipeDirectionUp to gesture.swipeArmed

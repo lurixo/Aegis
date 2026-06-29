@@ -26,6 +26,8 @@
     <string name="panel_back">Back</string>
     <string name="panel_all">All</string>
     <string name="panel_singles">Single</string>
+    <string name="backspace_bubble_clear">Swipe up to clear</string>
+    <string name="backspace_bubble_undo">Swipe down to restore</string>
 
     <string name="sym_cat_zh">Chinese</string>
     <string name="sym_cat_en">English</string>

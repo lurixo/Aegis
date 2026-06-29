@@ -26,6 +26,8 @@
     <string name="panel_back">返回</string>
     <string name="panel_all">全部</string>
     <string name="panel_singles">单字</string>
+    <string name="backspace_bubble_clear">上滑清空</string>
+    <string name="backspace_bubble_undo">下滑恢复</string>
 
     <string name="sym_cat_zh">中文</string>
     <string name="sym_cat_en">英文</string>
