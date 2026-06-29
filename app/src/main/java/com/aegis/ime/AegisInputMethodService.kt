@@ -28,6 +28,7 @@ import android.util.LruCache
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.ExtractedTextRequest
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.core.view.inputmethod.EditorInfoCompat
@@ -46,6 +47,7 @@ import com.aegis.ime.ime.EmojiView
 import com.aegis.ime.ime.ImeHost
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
+import com.aegis.ime.ime.SelectionMath
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.SymbolsView
 import com.aegis.ime.layout.LayoutId
@@ -83,6 +85,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         "*", "/", "±", "√", "^", "<", ">", "≤", "≥", "≠", "≈", "∑", "∏", "∫", "π", "∞", "°", "|", "{", "}", "[", "]", "!",
     )
     private var selecting = false
+    // debug.16 选区扩展: while selecting, the D-pad keeps [selAnchor] fixed and walks [selMoving]; -1 = inactive.
+    private var selAnchor = -1
+    private var selMoving = -1
     private var deletedSnapshot: CharSequence? = null // for the backspace up/down restore gesture (#5)
     // debug.16 Option A: inline text-input. While [panelInput] is active the keyboard's output is redirected into
     // its buffer (not the target app); on 确定 the buffered text runs the pending [inputPurpose] action.
@@ -317,7 +322,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun showEditPanel() {
         val iv = inputView ?: return
         if (iv.isPanelShowing(editPanelView)) { iv.showPanel(null); return } // P4(#4): re-tap 文字编辑 入口 = 返回
-        selecting = false
+        stopSelecting()
         val ep = editPanelView ?: EditPanelView(this).also {
             it.onAction = { a -> handleEdit(a) }
             editPanelView = it
@@ -333,20 +338,58 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         // mutate the target app underneath. (BACK still closes the panel.)
         if (panelInput.active && action != EditAction.BACK) return
         when (action) {
-            EditAction.UP -> sendKey(KeyEvent.KEYCODE_DPAD_UP, selecting)
-            EditAction.DOWN -> sendKey(KeyEvent.KEYCODE_DPAD_DOWN, selecting)
-            EditAction.LEFT -> sendKey(KeyEvent.KEYCODE_DPAD_LEFT, selecting)
-            EditAction.RIGHT -> sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, selecting)
-            EditAction.HOME -> sendKey(KeyEvent.KEYCODE_MOVE_HOME, selecting)
-            EditAction.END -> sendKey(KeyEvent.KEYCODE_MOVE_END, selecting)
-            EditAction.START_SELECT -> { selecting = !selecting; editPanelView?.setSelecting(selecting) }
+            EditAction.UP -> nav(KeyEvent.KEYCODE_DPAD_UP, SelectionMath.Move.UP)
+            EditAction.DOWN -> nav(KeyEvent.KEYCODE_DPAD_DOWN, SelectionMath.Move.DOWN)
+            EditAction.LEFT -> nav(KeyEvent.KEYCODE_DPAD_LEFT, SelectionMath.Move.LEFT)
+            EditAction.RIGHT -> nav(KeyEvent.KEYCODE_DPAD_RIGHT, SelectionMath.Move.RIGHT)
+            EditAction.HOME -> nav(KeyEvent.KEYCODE_MOVE_HOME, SelectionMath.Move.HOME)
+            EditAction.END -> nav(KeyEvent.KEYCODE_MOVE_END, SelectionMath.Move.END)
+            EditAction.START_SELECT -> toggleSelecting()
             EditAction.DELETE -> sendKey(KeyEvent.KEYCODE_DEL, false)
             EditAction.COPY -> currentInputConnection?.performContextMenuAction(android.R.id.copy)
             EditAction.CUT -> currentInputConnection?.performContextMenuAction(android.R.id.cut)
             EditAction.SELECT_ALL -> currentInputConnection?.performContextMenuAction(android.R.id.selectAll)
             EditAction.PASTE -> currentInputConnection?.performContextMenuAction(android.R.id.paste)
-            EditAction.BACK -> { selecting = false; inputView?.showPanel(null) }
+            EditAction.BACK -> { stopSelecting(); inputView?.showPanel(null) }
         }
+    }
+
+    /** 开始选择/结束选择 toggle. Entering capture: anchor at the current selection start, moving at its end (so
+     *  a pre-existing selection extends from the right end). Leaving: drop the anchor. */
+    private fun toggleSelecting() {
+        selecting = !selecting
+        if (selecting) {
+            val et = currentInputConnection?.getExtractedText(ExtractedTextRequest(), 0)
+            val base = et?.startOffset?.takeIf { it >= 0 } ?: 0
+            selAnchor = base + (et?.selectionStart?.coerceAtLeast(0) ?: 0)
+            selMoving = base + (et?.selectionEnd?.coerceAtLeast(0) ?: (selAnchor - base))
+        } else stopSelecting()
+        editPanelView?.setSelecting(selecting)
+    }
+
+    private fun stopSelecting() { selecting = false; selAnchor = -1; selMoving = -1 }
+
+    /**
+     * D-pad / 段首段尾 navigation. While selecting, EXTEND the selection: keep [selAnchor] fixed, step [selMoving]
+     * one unit and `setSelection(anchor, moving)` — the cross-editor-reliable way (an IME's injected shift+DPAD
+     * is widely ignored, which is the "开始选择后方向键不选中" bug). Not selecting: the original plain
+     * cursor key event, unchanged (keeps the editor's own visual-wrap navigation). Editors that expose no
+     * extracted text fall back to a best-effort shift+key.
+     */
+    private fun nav(keyCode: Int, move: SelectionMath.Move) {
+        if (!selecting) { sendKey(keyCode, false); return }
+        val ic = currentInputConnection
+        val et = ic?.getExtractedText(ExtractedTextRequest(), 0)
+        val text = et?.text
+        if (ic == null || text == null) { sendKey(keyCode, true); return }
+        val base = if (et.startOffset >= 0) et.startOffset else 0
+        if (selAnchor < 0) selAnchor = base + et.selectionStart.coerceAtLeast(0)
+        if (selMoving < 0) selMoving = base + et.selectionEnd.coerceAtLeast(0)
+        selMoving = base + SelectionMath.step(text, selMoving - base, move)
+        // Normalise to start<=end: selecting LEFT/UP/HOME drives selMoving below the anchor, and some editors
+        // mishandle a reversed setSelection. We keep [selAnchor]/[selMoving] as the directional model ourselves,
+        // so the next step still walks the correct moving end.
+        ic.setSelection(minOf(selAnchor, selMoving), maxOf(selAnchor, selMoving))
     }
 
     private fun sendKey(code: Int, shift: Boolean) {
