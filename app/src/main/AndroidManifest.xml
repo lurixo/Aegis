@@ -23,6 +23,13 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ui.PhraseTransferActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Aegis"
+            android:excludeFromRecents="true"
+            android:noHistory="true" />
+
         <service
             android:name=".AegisInputMethodService"
             android:exported="true"

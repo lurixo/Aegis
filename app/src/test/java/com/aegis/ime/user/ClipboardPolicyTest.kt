@@ -76,7 +76,7 @@ class ClipboardPolicyTest {
         assertFalse(ClipboardPolicy.shouldRestoreCopyBar(null, secureField = true))
     }
 
-    @Test fun capture_still_gated_a_visible_password_field_is_still_sensitive() {
+    @Test fun password_fields_are_still_classified_sensitive_for_the_learning_gate() {
         assertTrue(ClipboardPolicy.isSensitive(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD))
         assertTrue(ClipboardPolicy.isSensitive(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD))
     }

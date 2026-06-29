@@ -451,6 +451,44 @@ class RenderHarness {
         )
     }
 
+    @Test fun phrase_note_display() {
+        val h = (300 * density).toInt()
+        for ((t, pal) in themes) {
+            val v = ClipboardView(ctx).apply {
+                categoriesProvider = { listOf("默认") }
+                phrasesInProvider = { _ -> listOf("ssh root@10.0.0.1 -p 2222", "你好") }
+                phraseNoteProvider = { _, txt -> if (txt.startsWith("ssh")) "登录服务器" else "" }
+                applyPalette(pal); forcePhrasesStateForTest("默认"); refresh()
+            }
+            snap(v, h, "phrase_note_$t.png")
+            assertTrue("$t: note alias shown", v.hasTextLeaf("登录服务器"))
+        }
+    }
+
+    @Test fun phrase_expanded_scroll() {
+        val h = (300 * density).toInt()
+        val long = (1..12).joinToString("\n") { "第${it}行内容很长需要滚动查看完整文本" }
+        for ((t, pal) in themes) {
+            val v = ClipboardView(ctx).apply {
+                historyProvider = { listOf(long, "短") }; applyPalette(pal); refresh(); expandForTest(long)
+            }
+            snap(v, h, "phrase_expanded_scroll_$t.png")
+        }
+    }
+
+    @Test fun phrase_manage_menu() {
+        val h = (320 * density).toInt()
+        for ((t, pal) in themes) {
+            val v = ClipboardView(ctx).apply {
+                categoriesProvider = { listOf("默认") }; phrasesInProvider = { _ -> listOf("你好") }
+                applyPalette(pal); forcePhrasesStateForTest("默认"); refresh(); showPhraseManageMenuForTest()
+            }
+            snap(v, h, "phrase_manage_menu_$t.png")
+            assertTrue("$t: 导入常用语", v.hasTextLeaf("导入常用语"))
+            assertTrue("$t: 导出常用语", v.hasTextLeaf("导出常用语"))
+        }
+    }
+
     @Test fun keyboard_alpha() {
         val h = (230 * ctx.resources.displayMetrics.density).toInt()
         for ((t, pal) in themes) {

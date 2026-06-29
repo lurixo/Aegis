@@ -54,6 +54,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     var historyProvider: () -> List<String> = { emptyList() }
     var categoriesProvider: () -> List<String> = { emptyList() }
     var phrasesInProvider: (String) -> List<String> = { emptyList() }
+    var phraseNoteProvider: (String, String) -> String = { _, _ -> "" }
     var onDeleteClips: (List<String>) -> Unit = {}
     var onDeletePhrasesFrom: (String, List<String>) -> Unit = { _, _ -> }
     var onSaveAsPhrasesTo: (String, List<String>) -> Unit = { _, _ -> }
@@ -67,6 +68,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     var onAddCategoryThenMove: (String, List<String>) -> Unit = { _, _ -> }
     var onRenameCategory: (String) -> Unit = {}
     var onDeleteCategory: (String) -> Unit = {}
+    var onEditNote: (String, String) -> Unit = { _, _ -> }
+    var onClearCategory: (String) -> Unit = {}
+    var onExportPhrases: () -> Unit = {}
+    var onImportPhrases: () -> Unit = {}
     var onClearHistory: () -> Unit = {}
     var historyEnabledProvider: () -> Boolean = { true }
     var onSetHistoryEnabled: (Boolean) -> Unit = {}
@@ -160,6 +165,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     internal fun hideSwipeForTest() { hideSwipe() }
     internal fun swipeRevealedForTest(): String? = swipeRevealed
     internal fun showPhraseManageMenuForTest() { showPhraseManageMenu() }
+    internal fun confirmClearForTest() { confirmClearCurrentCategory() }
     internal fun enterSortModeForTest() { enterSortMode() }
     internal fun isSortModeForTest(): Boolean = sortMode
     internal fun showSplitForTest(text: String) { showSplit(text) }
@@ -188,7 +194,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             addView(View(context), ll(0, dp(1), 1f))
             if (st.tab == Tab.PHRASE) addView(roundBtn("＋") { onAddPhrase(currentCategory()) }, iconLp(true))
             addView(roundBtn("☰") { enterSelect() }, iconLp(true))
-            addView(roundBtn("⚙") { showGearMenu() }, iconLp(true))
+            if (st.tab == Tab.PHRASE) addView(roundBtn("🗑") { confirmClearCurrentCategory() }, iconLp(true))
+            else addView(roundBtn("⚙") { showGearMenu() }, iconLp(true))
         }
         main.addView(topBar, ll(MP, dp(50)))
         listColumn.removeAllViews()
@@ -199,11 +206,25 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         if (st.tab == Tab.PHRASE) main.addView(categoryBar(), ll(MP, dp(44)))
     }
 
+    private fun phraseDisplayText(text: String): String {
+        val note = phraseNoteProvider(currentCategory(), text)
+        return if (note.isNotEmpty()) note else text
+    }
+
+    private fun boundedExpandBody(body: TextView): View {
+        val maxH = body.lineHeight * 4 + body.paddingTop + body.paddingBottom
+        return object : ScrollView(context) {
+            override fun onMeasure(widthSpec: Int, heightSpec: Int) =
+                super.onMeasure(widthSpec, MeasureSpec.makeMeasureSpec(maxH, MeasureSpec.AT_MOST))
+        }.apply { isFillViewport = false; addView(body) }
+    }
+
     private fun card(text: String, index: Int): View {
         if (isImage(text)) return imageCard(text)
         val expanded = st.expanded == text
         val revealed = swipeRevealed == text
         val phrase = st.tab == Tab.PHRASE
+        val display = if (phrase) phraseDisplayText(text) else text
         val col = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(CARD, ImeShapes.cardRadiusDp)
@@ -211,9 +232,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         }
         val header = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         val body = TextView(context).apply {
-            this.text = preview(text)
-            maxLines = if (expanded) 6 else 2
-            ellipsize = android.text.TextUtils.TruncateAt.END
+            this.text = preview(display)
+            maxLines = if (expanded) Integer.MAX_VALUE else 2
+            ellipsize = if (expanded) null else android.text.TextUtils.TruncateAt.END
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setTextColor(TEXT_DARK)
             setPadding(dp(14), dp(12), dp(8), dp(12))
@@ -228,7 +249,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setOnClickListener { swipeRevealed = null; st.toggleExpand(text); refresh() }
             if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
         }
-        header.addView(body, ll(0, WC, 1f))
+        header.addView(if (expanded) boundedExpandBody(body) else body, ll(0, WC, 1f))
         header.addView(chevron, ll(dp(40), MP))
         col.addView(header, ll(MP, WC))
         when {
@@ -296,6 +317,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         setPadding(dp(8), 0, dp(8), dp(10))
         val cat = currentCategory()
         addView(action("✎ 编辑") { onEditPhrase(cat, text) }, ll(0, WC, 1f))
+        addView(action("✐ 备注") { onEditNote(cat, text) }, ll(0, WC, 1f))
         addView(action("→ 移动") { chooseMoveCategoryThen(cat, listOf(text)) { target -> onMovePhrase(cat, text, target); refresh() } }, ll(0, WC, 1f))
         addView(action("🗑 删除") { deleteOne(text) }, ll(0, WC, 1f))
     }
@@ -469,7 +491,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             layoutParams = ll(MP, WC).apply { topMargin = dp(8) }
         }
         col.addView(TextView(context).apply {
-            this.text = preview(text); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
+            this.text = preview(phraseDisplayText(text)); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(TEXT_DARK)
             setPadding(dp(14), dp(12), dp(8), dp(12))
         }, ll(0, WC, 1f))
@@ -522,6 +544,22 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         card.addView(menuItem("移动") { hideOverlay(); enterSortMode() })
         card.addView(menuDivider())
         card.addView(menuItem("添加分类") { hideOverlay(); onAddCategory() })
+        card.addView(menuDivider())
+        card.addView(menuItem("导入常用语") { hideOverlay(); onImportPhrases() })
+        card.addView(menuDivider())
+        card.addView(menuItem("导出常用语") { hideOverlay(); onExportPhrases() })
+        showOverlay(card)
+    }
+
+    private fun confirmClearCurrentCategory() {
+        val cat = currentCategory()
+        if (cat.isEmpty()) return
+        val card = menuCard()
+        card.addView(menuTitle("清空分类「$cat」的全部常用语?"))
+        card.addView(menuDivider())
+        card.addView(menuItem("清空") { hideOverlay(); onClearCategory(cat); refresh() }.also { it.setTextColor(RED) })
+        card.addView(menuDivider())
+        card.addView(menuItem("取消") { hideOverlay() })
         showOverlay(card)
     }
 
@@ -617,7 +655,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setPadding(dp(14), 0, dp(8), 0)
         }, ll(WC, WC))
         addView(TextView(context).apply {
-            this.text = if (isImage(text)) "［图片］" else text
+            this.text = if (isImage(text)) "［图片］" else if (st.tab == Tab.PHRASE) phraseDisplayText(text) else text
             maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(TEXT_DARK)
             setPadding(0, dp(12), dp(14), dp(12))
