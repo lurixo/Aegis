@@ -366,6 +366,31 @@ class RenderHarness {
         }
     }
 
+    @Test fun edit_bar() {
+        // debug.16 Option A: the inline text-input bar (buffer + caret + 取消/确定) shown above the keyboard.
+        val h = (44 * density).toInt()
+        for ((t, pal) in themes) {
+            val v = EditBarView(ctx).apply { applyPalette(pal); setTitle("编辑常用语"); setText("你好世界") }
+            snap(v, h, "edit_bar_$t.png")
+            assertTrue("$t: edit bar missing 确定", v.hasTextLeaf("确定"))
+            assertTrue("$t: edit bar missing 取消", v.hasTextLeaf("取消"))
+        }
+    }
+
+    @Test fun phrase_topbar_icons() {
+        // item7: render the 常用语 tab top bar so the uniform-size / even-spacing of ‹ tabs ＋ ☰ ⚙ can be eyeballed.
+        val h = (60 * density).toInt()
+        for ((t, pal) in themes) {
+            val v = ClipboardView(ctx).apply {
+                categoriesProvider = { listOf("默认", "工作") }
+                phrasesInProvider = { _ -> listOf("你好") }
+                applyPalette(pal)
+                forcePhrasesStateForTest("默认"); refresh()
+            }
+            snap(v, h, "phrase_topbar_$t.png")
+        }
+    }
+
     @Test fun keyboard_alpha() {
         val h = (230 * ctx.resources.displayMetrics.density).toInt()
         for ((t, pal) in themes) {
