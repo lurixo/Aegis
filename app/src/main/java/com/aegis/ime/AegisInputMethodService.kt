@@ -387,8 +387,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onDeleteClips = { list -> clipboardStore.deleteAll(list); deleteImageFiles(list) } // C7 多选删除(+图片文件)
             it.onDeletePhrasesFrom = { cat, list -> list.forEach { clipboardStore.deletePhraseFrom(cat, it) } }
             it.onSaveAsPhrasesTo = { cat, list -> clipboardStore.addPhrasesTo(cat, list) } // C7 批量添加常用语
-            it.onEditPhrase = { cat, text -> openPhraseManager(cat, text) }                // debug.16: 编辑常用语 → manager
+            it.onEditPhrase = { cat, text -> openPhraseManager(cat, text) }                // debug.16: 编辑常用语 → manager (in-IME typing deferred)
             it.onMovePhrase = { from, text, to -> clipboardStore.movePhrase(from, text, to) } // debug.16: 移动常用语分类
+            it.onMovePhrasesTo = { from, list, to -> clipboardStore.movePhrasesTo(from, list, to) } // debug.16: 批量移动
+            it.onReorderPhrase = { cat, fromIdx, toIdx -> clipboardStore.reorderPhrase(cat, fromIdx, toIdx) } // debug.16: 拖动重排
             it.onManage = { openPhraseManager() }                                          // C5 管理 / 新建分类
             it.onClearHistory = { clipboardStore.clearHistory(); clipImageStore.clear(); thumbCache.evictAll() }
             it.historyEnabledProvider = { historyEnabled() }                               // C1 记录开关

@@ -21,10 +21,15 @@ import com.aegis.ime.ime.theme.ImeShapes
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.drawable.GradientDrawable
+import android.os.Handler
+import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
+import kotlin.math.abs
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
@@ -59,8 +64,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     var onDeleteClips: (List<String>) -> Unit = {}
     var onDeletePhrasesFrom: (String, List<String>) -> Unit = { _, _ -> }
     var onSaveAsPhrasesTo: (String, List<String>) -> Unit = { _, _ -> }
-    var onEditPhrase: (String, String) -> Unit = { _, _ -> }            // debug.16: (category, phrase) → edit in manager
+    var onEditPhrase: (String, String) -> Unit = { _, _ -> }            // debug.16: (category, phrase) → edit (typing deferred → manager)
     var onMovePhrase: (String, String, String) -> Unit = { _, _, _ -> } // debug.16: (fromCategory, phrase, toCategory)
+    var onMovePhrasesTo: (String, List<String>, String) -> Unit = { _, _, _ -> } // debug.16: batch move (from, phrases, to)
+    var onReorderPhrase: (String, Int, Int) -> Unit = { _, _, _ -> }    // debug.16: drag-reorder (category, fromIndex, toIndex)
     var onManage: () -> Unit = {}                      // open the phrase-manager Activity (naming needs it)
     var onClearHistory: () -> Unit = {}
     var historyEnabledProvider: () -> Boolean = { true }
@@ -97,6 +104,15 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private val st = ClipboardPanelState()
     private var phraseCat = "" // selected 常用语 category (category picker, not part of the core state machine)
+
+    // debug.16: drag-to-reorder a 常用语 (long-press an un-expanded phrase card → drag up/down → drop persists).
+    // dragFrom = the index the drag started at; dragCurrent = the index it would land at right now. The store is
+    // reordered once on drop via onReorderPhrase(cat, dragFrom, dragCurrent). dragView is the lifted card.
+    private var dragFrom = -1
+    private var dragCurrent = -1
+    private var dragView: View? = null
+    private val dragHandler = Handler(Looper.getMainLooper())
+    private val isDragging get() = dragFrom >= 0
 
     private val main = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(BG) }
     private val overlay = FrameLayout(context).apply { visibility = GONE }
@@ -140,9 +156,13 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     internal fun phraseCatForTest(): String = phraseCat
     internal fun forcePhrasesStateForTest(cat: String) { st.switchTab(ClipboardPanelState.Tab.PHRASE); phraseCat = cat }
     internal fun enterSelectForTest(selected: List<String> = emptyList()) { st.enterSelect(); st.selected.addAll(selected); refresh() }
-    // debug.16 test seams: open the 常用语 long-press menu / the move-target chooser as a real long-press would.
-    internal fun showCardMenuForTest(text: String) { showCardMenu(text) }
+    // debug.16 test seams: the move-target chooser + the drag-reorder state machine (touch plumbing is exercised separately).
     internal fun showMoveChooserForTest(current: String) { chooseMoveCategoryThen(current) { target -> onMovePhrase(current, "", target) } }
+    internal fun dragStartForTest(index: Int) { startDrag(index) }
+    internal fun dragMoveToForTest(index: Int) { moveDragTo(index) }
+    internal fun dragDropForTest() { endDrag() }
+    internal fun isDraggingForTest(): Boolean = isDragging
+    internal fun expandForTest(text: String) { if (st.expanded != text) st.toggleExpand(text); refresh() }
 
     fun refresh() {
         main.removeAllViews()
@@ -169,15 +189,16 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         // U9: no 字数/条数上限 line.
         listColumn.removeAllViews()
         val entries = currentEntries()
-        if (entries.isEmpty()) listColumn.addView(emptyHint()) else for (e in entries) listColumn.addView(card(e))
+        if (entries.isEmpty()) listColumn.addView(emptyHint()) else for ((i, e) in entries.withIndex()) listColumn.addView(card(e, i))
         main.addView(listScroll, ll(MP, 0, 1f))
 
         if (st.tab == Tab.PHRASE) main.addView(categoryBar(), ll(MP, dp(44)))
     }
 
-    private fun card(text: String): View {
+    private fun card(text: String, index: Int): View {
         if (isImage(text)) return imageCard(text) // U22 (M-1: only a marker backed by a real file)
         val expanded = st.expanded == text
+        val phrase = st.tab == Tab.PHRASE
         val col = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(CARD, ImeShapes.cardRadiusDp)
@@ -194,9 +215,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setTextColor(TEXT_DARK)
             setPadding(dp(14), dp(12), dp(8), dp(12))
             setOnClickListener { onPick(text) }
-            // C6: long-press must live on the views that consume the touch (a clickable child blocks the
-            // parent's long-press detector), else hold-release would just paste+close via the click above.
-            setOnLongClickListener { showCardMenu(text); true }
+            // 剪贴板 history: long-press = the C6 menu. 常用语 (debug.16): long-press an UN-expanded card = drag to
+            // reorder (wired below); its 编辑/移动/删除 moved to the expanded action row.
+            if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
         }
         val chevron = TextView(context).apply {
             this.text = if (expanded) "⌃" else "⌄"
@@ -204,12 +225,13 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setTextColor(HINT)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setOnClickListener { st.toggleExpand(text); refresh() }
-            setOnLongClickListener { showCardMenu(text); true }
+            if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
         }
         header.addView(body, ll(0, WC, 1f))
         header.addView(chevron, ll(dp(40), MP))
         col.addView(header, ll(MP, WC))
-        if (expanded) col.addView(actionRow(text))
+        if (expanded) col.addView(if (phrase) phraseActionRow(text) else actionRow(text))
+        else if (phrase) attachDragHandle(body, col, index) // long-press drag only on a COLLAPSED 常用语 card
         return col
     }
 
@@ -260,13 +282,106 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         showOverlay(card)
     }
 
-    /** Expanded card's bottom action row (C3): +常用语 / 拆词 / 删除. */
+    /** Expanded 剪贴板 history card's bottom action row (C3): +常用语 / 拆词 / 删除. */
     private fun actionRow(text: String): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         setPadding(dp(8), 0, dp(8), dp(10))
         addView(action("＋ 常用语") { chooseCategoryThen { c -> onSaveAsPhrasesTo(c, listOf(text)) } }, ll(0, WC, 1f))
         addView(action("拆 拆词") { showSplit(text) }, ll(0, WC, 1f))
         addView(action("🗑 删除") { deleteOne(text) }, ll(0, WC, 1f))
+    }
+
+    /** debug.16: expanded 常用语 card action row = 编辑 / 移动 / 删除 (＋常用语 is meaningless for an existing
+     *  phrase; 拆词 isn't wanted here). 编辑 hands off to the manager (in-IME typing deferred); 移动 picks a
+     *  target category in-panel; 删除 reuses deletePhraseFrom. */
+    private fun phraseActionRow(text: String): View = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        setPadding(dp(8), 0, dp(8), dp(10))
+        val cat = currentCategory()
+        addView(action("✎ 编辑") { onEditPhrase(cat, text) }, ll(0, WC, 1f))
+        addView(action("→ 移动") { chooseMoveCategoryThen(cat) { target -> onMovePhrase(cat, text, target); refresh() } }, ll(0, WC, 1f))
+        addView(action("🗑 删除") { deleteOne(text) }, ll(0, WC, 1f))
+    }
+
+    // ---------- debug.16: drag-to-reorder a 常用语 card ----------
+
+    /** Long-press a collapsed 常用语 card → lift it → drag up/down → drop persists the new order. The card's
+     *  own onClick (上屏) still fires for a plain tap; a pre-long-press move is treated as a scroll. */
+    private fun attachDragHandle(touchTarget: View, card: View, index: Int) {
+        val slop = ViewConfiguration.get(context).scaledTouchSlop
+        var downY = 0f
+        val longPress = Runnable { startDrag(index); card.parent?.requestDisallowInterceptTouchEvent(true) }
+        touchTarget.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downY = e.rawY
+                    dragHandler.postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
+                    false // not consumed yet → a plain tap still reaches onClick
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (!isDragging) {
+                        if (abs(e.rawY - downY) > slop) dragHandler.removeCallbacks(longPress) // moved first = scroll, not drag
+                        false
+                    } else {
+                        card.translationY = e.rawY - downY
+                        indexAtRawY(e.rawY)?.let { moveDragTo(it) }
+                        true
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    dragHandler.removeCallbacks(longPress)
+                    if (isDragging) { endDrag(); true } else false
+                }
+                else -> false
+            }
+        }
+    }
+
+    /** Which list row currently sits under [rawY] (screen coords), or null if over none. The dragged card is
+     *  EXCLUDED: it's translated to follow the finger so its bounds always contain [rawY] — counting it would
+     *  pin the result to [dragFrom] and a downward drag could never reach a lower target. */
+    private fun indexAtRawY(rawY: Float): Int? {
+        val n = listColumn.childCount
+        if (n == 0) return null
+        val tops = IntArray(n); val heights = IntArray(n); val loc = IntArray(2)
+        for (i in 0 until n) {
+            val child = listColumn.getChildAt(i)
+            child.getLocationOnScreen(loc)
+            tops[i] = loc[1]; heights[i] = child.height
+        }
+        return rowAt(tops, heights, dragFrom, rawY.toInt())
+    }
+
+    /** Pure coordinate→row mapping (unit-tested): the first row whose [tops]/[heights] span contains [y],
+     *  skipping the dragged row [skip] (whose translated bounds would otherwise always match). */
+    internal fun rowAt(tops: IntArray, heights: IntArray, skip: Int, y: Int): Int? {
+        for (i in tops.indices) {
+            if (i == skip) continue
+            if (y >= tops[i] && y <= tops[i] + heights[i]) return i
+        }
+        return null
+    }
+
+    private fun startDrag(index: Int) {
+        dragFrom = index; dragCurrent = index
+        dragView = listColumn.getChildAt(index)?.also { it.translationZ = dp(8).toFloat(); it.alpha = 0.92f }
+    }
+
+    private fun moveDragTo(index: Int) { if (index in 0 until currentEntries().size) dragCurrent = index }
+
+    private fun endDrag() {
+        val from = dragFrom; val to = dragCurrent
+        dragView?.let { it.translationZ = 0f; it.alpha = 1f; it.translationY = 0f }
+        dragFrom = -1; dragCurrent = -1; dragView = null
+        if (from >= 0 && to >= 0 && from != to) { onReorderPhrase(currentCategory(), from, to); refresh() }
+        else refresh() // reset the lifted card even on a no-op drop
+    }
+
+    override fun onDetachedFromWindow() {
+        // Drop any pending long-press → drag so a panel close mid-press can't fire startDrag on a stale card.
+        dragHandler.removeCallbacksAndMessages(null)
+        dragFrom = -1; dragCurrent = -1; dragView = null
+        super.onDetachedFromWindow()
     }
 
     private fun action(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
@@ -321,7 +436,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 setOnClickListener { st.selectAll(all); refresh() }
             }, ll(0, WC, 1f))
             addView(TextView(context).apply {
-                text = "编辑剪贴板"; gravity = Gravity.CENTER
+                text = if (st.tab == Tab.PHRASE) "编辑常用语" else "编辑剪贴板" // debug.16: tab-aware select-mode title
+                gravity = Gravity.CENTER
                 setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 setTypeface(null, android.graphics.Typeface.BOLD)
             }, ll(0, WC, 1f))
@@ -341,10 +457,18 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val bottom = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(12), dp(8), dp(12), dp(8))
-            addView(pillButton("添加常用语", GREEN, GREEN_PILL, hasSel) {
-                // M-2: never save image entries as phrases (their marker/path would become a dead 常用语).
-                chooseCategoryThen { c -> onSaveAsPhrasesTo(c, st.selected.filterNot { ClipboardStore.isImageEntry(it) }); exitSelect() }
-            }, ll(0, dp(44), 1f).apply { rightMargin = dp(8) })
+            if (st.tab == Tab.PHRASE) {
+                // debug.16: 常用语 batch action = 移动到分类 (＋常用语 makes no sense for items already phrases).
+                addView(pillButton("移动到分类", GREEN, GREEN_PILL, hasSel) {
+                    val from = currentCategory(); val victims = st.selected.toList()
+                    chooseMoveCategoryThen(from) { target -> onMovePhrasesTo(from, victims, target); exitSelect() }
+                }, ll(0, dp(44), 1f).apply { rightMargin = dp(8) })
+            } else {
+                addView(pillButton("添加常用语", GREEN, GREEN_PILL, hasSel) {
+                    // M-2: never save image entries as phrases (their marker/path would become a dead 常用语).
+                    chooseCategoryThen { c -> onSaveAsPhrasesTo(c, st.selected.filterNot { ClipboardStore.isImageEntry(it) }); exitSelect() }
+                }, ll(0, dp(44), 1f).apply { rightMargin = dp(8) })
+            }
             addView(pillButton("删除", RED, RED_PILL, hasSel) {
                 val victims = st.selected.toList()
                 if (st.tab == Tab.CLIPBOARD) onDeleteClips(victims) else onDeletePhrasesFrom(currentCategory(), victims)
@@ -396,25 +520,6 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             val maxH = (overlay.height * 0.82f).toInt()
             if (maxH in 1 until scroll.height) { lp.height = maxH; scroll.layoutParams = lp }
         }
-    }
-
-    /** Long-press on a card routes to the tab's own menu: the 常用语 tab edits/moves/deletes a saved phrase
-     *  (debug.16); the 剪贴板 tab keeps the history menu (删除此条内容 / 添加常用语 / 拆分选词). */
-    private fun showCardMenu(text: String) {
-        if (st.tab == Tab.PHRASE) showPhraseMenu(text) else showLongPressMenu(text)
-    }
-
-    /** debug.16 (常用语 tab): long-press a saved phrase → 编辑 / 移动到分类 / 删除. Edit needs real typing so it
-     *  hands off to the manager Activity (focused on this phrase); move/delete act in-panel. */
-    private fun showPhraseMenu(text: String) {
-        val cat = currentCategory()
-        val card = menuCard()
-        card.addView(menuItem("编辑") { hideOverlay(); onEditPhrase(cat, text) })
-        card.addView(menuDivider())
-        card.addView(menuItem("移动到分类") { hideOverlay(); chooseMoveCategoryThen(cat) { target -> onMovePhrase(cat, text, target); refresh() } })
-        card.addView(menuDivider())
-        card.addView(menuItem("删除") { hideOverlay(); deleteOne(text) })
-        showOverlay(card)
     }
 
     /** debug.16: pick a DIFFERENT existing category to move a phrase into (the current category is excluded —
