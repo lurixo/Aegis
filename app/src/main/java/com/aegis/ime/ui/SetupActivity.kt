@@ -23,12 +23,15 @@ import android.view.inputmethod.InputMethodManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -79,9 +82,13 @@ private fun SetupScreen() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            // enableEdgeToEdge() draws under the system bars; keep content off the status/nav bars.
-            .safeDrawingPadding()
-            .verticalScroll(rememberScrollState())
+            // debug.16: pad the scroll VIEWPORT with the full safe-drawing insets (system bars + cutout + IME)
+            // OUTSIDE the scroll, so the viewport shrinks to the keyboard top — keeping content below the status
+            // bar and letting the focused "试打" field be brought above the keyboard (see settingsScrollInsets).
+            .settingsScrollInsets(
+                scrollState = rememberScrollState(),
+                insets = WindowInsets.safeDrawing,
+            )
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -161,3 +168,23 @@ private fun SetupScreen() {
         UserDictCard()
     }
 }
+
+/**
+ * debug.16: inset modifier for the edge-to-edge settings scroller. [insets] (WindowInsets.safeDrawing =
+ * system bars + display cutout + IME) pad the scroll container OUTSIDE the verticalScroll, so the scroll
+ * VIEWPORT shrinks to the keyboard top. This keeps the top content below the status bar and the nav bar
+ * unoccluded, and — crucially — because the viewport excludes the keyboard, the scroll's bring-into-view lifts
+ * the focused 试打 field ABOVE the keyboard when it gains focus (with windowSoftInputMode=adjustResize stopping
+ * the window from panning under the status bar). There is no leftover blank: the IME inset collapses when the
+ * keyboard hides.
+ *
+ * The IME inset MUST stay OUTSIDE the scroll. Placing it inside (as trailing content padding) only grows the
+ * scroll RANGE without shrinking the viewport, so the focused field is never auto-lifted and can sit hidden
+ * behind the keyboard. [insets] is a parameter so a Robolectric test can drive it deterministically.
+ */
+internal fun Modifier.settingsScrollInsets(
+    scrollState: ScrollState,
+    insets: WindowInsets,
+): Modifier = this
+    .windowInsetsPadding(insets)
+    .verticalScroll(scrollState)
