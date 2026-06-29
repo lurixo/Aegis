@@ -103,7 +103,11 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         rightCol.addView(iconBtn("删除", EditAction.DELETE, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }), rowLp())
         rightCol.addView(copyBtn, rowLp())
         rightCol.addView(cutBtn, rowLp())
-        mid.addView(rightCol, LayoutParams(0, LayoutParams.MATCH_PARENT, 2f))
+        // debug.17 B: a gutter column so the action column (删除/复制/剪切) sits at the far right, its right margin
+        // mirroring the left content's left margin (was weight 2 centred → too far from the right edge). dpad keeps
+        // weight 3, so its 3 arrows do not move; the right action column drops to weight 1 in the last 1/5.
+        mid.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        mid.addView(rightCol, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         addView(mid, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
 
         // Bottom row — 段首/段尾 (paragraph edges, debug.16 item1), 全选, and 粘贴 with the copy-bar clipboard glyph.
@@ -111,7 +115,8 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         bottom.addView(iconBtn("段首", EditAction.HOME, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawParagraphEdge(c, p, x, y, s, toStart = true) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         bottom.addView(iconBtn("全选", EditAction.SELECT_ALL, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawSelectAll(c, p, x, y, s) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         bottom.addView(iconBtn("段尾", EditAction.END, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawParagraphEdge(c, p, x, y, s, toStart = false) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        bottom.addView(iconBtn("粘贴", EditAction.PASTE, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawClipboard(c, p, x, y, s) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 2f))
+        bottom.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f)) // debug.17 B: gutter so 粘贴 lines up under the action column at the far right
+        bottom.addView(iconBtn("粘贴", EditAction.PASTE, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawClipboard(c, p, x, y, s) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         addView(bottom, LayoutParams(LayoutParams.MATCH_PARENT, dp(56)))
 
         setHasSelection(false)
