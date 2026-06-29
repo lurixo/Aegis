@@ -19,7 +19,6 @@ import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
 import android.content.Context
-import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.drawable.GradientDrawable
@@ -34,7 +33,6 @@ import android.view.ViewGroup
 import kotlin.math.abs
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -45,10 +43,6 @@ import com.aegis.ime.user.ClipboardStore
 class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     var onPick: (String) -> Unit = {}
-    var onPickImage: (String) -> Unit = {}
-    var isImage: (String) -> Boolean = { false }
-    var thumbnailProvider: (String) -> Bitmap? = { null }
-    var onLoadThumbnail: (String, (Bitmap?) -> Unit) -> Unit = { _, cb -> cb(null) }
     var onCopyBlockToAegis: (String) -> Unit = {}
     var onBack: () -> Unit = {}
     var historyProvider: () -> List<String> = { emptyList() }
@@ -220,7 +214,6 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
 
     private fun card(text: String, index: Int): View {
-        if (isImage(text)) return imageCard(text)
         val expanded = st.expanded == text
         val revealed = swipeRevealed == text
         val phrase = st.tab == Tab.PHRASE
@@ -256,49 +249,6 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             else -> attachSwipeReveal(body, text)
         }
         return col
-    }
-
-    private fun imageCard(entry: String): View {
-        val path = ClipboardStore.imagePath(entry)
-        val col = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            background = rounded(CARD, ImeShapes.cardRadiusDp)
-            setPadding(dp(10), dp(10), dp(10), dp(10))
-            layoutParams = ll(MP, WC).apply { topMargin = dp(8) }
-        }
-        val img = ImageView(context).apply {
-            adjustViewBounds = true
-            maxHeight = dp(140)
-            minimumHeight = dp(48)
-            scaleType = ImageView.ScaleType.FIT_START
-            setOnClickListener { onPickImage(path) }
-            setOnLongClickListener { showImageMenu(entry); true }
-        }
-        col.addView(img, ll(WC, WC))
-        val cached = thumbnailProvider(path)
-        if (cached != null) {
-            img.setImageBitmap(cached)
-        } else {
-            onLoadThumbnail(path) { bmp ->
-                img.post {
-                    if (bmp != null) img.setImageBitmap(bmp)
-                    else { img.visibility = GONE; col.addView(imageFallback(path, entry), ll(MP, WC)) }
-                }
-            }
-        }
-        col.setOnLongClickListener { showImageMenu(entry); true }
-        return col
-    }
-
-    private fun imageFallback(path: String, entry: String): View = hint("［图片］点按粘贴", 15f, TEXT_DARK).apply {
-        setOnClickListener { onPickImage(path) }
-        setOnLongClickListener { showImageMenu(entry); true }
-    }
-
-    private fun showImageMenu(entry: String) {
-        val card = menuCard()
-        card.addView(menuItem("删除此条内容") { hideOverlay(); deleteOne(entry) })
-        showOverlay(card)
     }
 
     private fun actionRow(text: String): View = LinearLayout(context).apply {
@@ -617,7 +567,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 }, ll(0, dp(44), 1f).apply { rightMargin = dp(8) })
             } else {
                 addView(pillButton("添加常用语", GREEN, GREEN_PILL, hasSel) {
-                    chooseCategoryThen(st.selected.filterNot { ClipboardStore.isImageEntry(it) }) { exitSelect() }
+                    chooseCategoryThen(st.selected.toList()) { exitSelect() }
                 }, ll(0, dp(44), 1f).apply { rightMargin = dp(8) })
             }
             addView(pillButton("删除", RED, RED_PILL, hasSel) {
@@ -637,7 +587,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val on = text in st.selected
         addView(glyphView(if (on) GREEN else HINT, 8) { c, p, x, y, s -> Glyphs.drawRadio(c, p, x, y, s, on) }, ll(dp(40), MP))
         addView(TextView(context).apply {
-            this.text = if (isImage(text)) "［图片］" else if (st.tab == Tab.PHRASE) phraseDisplayText(text) else text
+            this.text = if (st.tab == Tab.PHRASE) phraseDisplayText(text) else text
             maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(TEXT_DARK)
             setPadding(0, dp(12), dp(14), dp(12))
