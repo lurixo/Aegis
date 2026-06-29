@@ -1,0 +1,180 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Copyright (C) 2026 lurixo
+//
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 3.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+// PARTICULAR PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
+
+package com.aegis.ime
+
+import android.text.InputType
+import android.view.MotionEvent
+import android.view.inputmethod.EditorInfo
+import com.aegis.ime.engine.CandidateEngine
+import com.aegis.ime.ime.BarFunction
+import com.aegis.ime.ime.InputView
+import com.aegis.ime.ime.KeyboardController
+import com.aegis.ime.ime.PanelTextInput
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.Robolectric
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
+class TranslateBarSessionTest {
+
+    private class Session(val service: AegisInputMethodService, val controller: KeyboardController, var view: InputView)
+
+    private fun editor(fieldId: Int = 11, packageName: String = "com.example.editor") = EditorInfo().apply {
+        this.packageName = packageName
+        this.fieldId = fieldId
+        inputType = InputType.TYPE_CLASS_TEXT
+    }
+
+    private fun started(info: EditorInfo = editor()): Session {
+        val service = Robolectric.buildService(AegisInputMethodService::class.java).get()
+        val engine = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean): List<String> = emptyList()
+        }
+        val controller = KeyboardController(service, engine, null)
+        service.javaClass.getDeclaredField("controller").apply {
+            isAccessible = true
+            set(service, controller)
+        }
+        controller.onShowTranslate = { call(service, "toggleTranslateBar") }
+        service.onStartInput(info, false)
+        val view = service.onCreateInputView() as InputView
+        service.onStartInputView(info, false)
+        return Session(service, controller, view)
+    }
+
+    private fun call(service: AegisInputMethodService, name: String) {
+        service.javaClass.getDeclaredMethod(name).apply { isAccessible = true }.invoke(service)
+    }
+
+    private fun panelInput(service: AegisInputMethodService): PanelTextInput =
+        service.javaClass.getDeclaredField("panelInput").run { isAccessible = true; get(service) as PanelTextInput }
+
+    private fun type(service: AegisInputMethodService, text: String) {
+        service.javaClass.getDeclaredMethod("commitExternalText", CharSequence::class.java)
+            .apply { isAccessible = true }
+            .invoke(service, text)
+    }
+
+    private fun open(s: Session) = s.controller.onBarFunction(BarFunction.TRANSLATE)
+
+    @Test fun the_toolbar_entry_opens_the_bar_and_routes_typing_into_its_field() {
+        val s = started()
+        open(s)
+        assertTrue(s.service.translateBarOpenForTest())
+        assertTrue(s.view.isTranslateBarShowing())
+        type(s.service, "你好")
+        assertEquals("你好", s.view.translateText())
+        assertEquals("你好", panelInput(s.service).text())
+
+        open(s)
+        assertFalse(s.service.translateBarOpenForTest())
+        assertFalse(s.view.isTranslateBarShowing())
+        assertFalse(panelInput(s.service).active)
+        assertEquals("", s.view.translateText())
+    }
+
+    @Test fun the_close_key_closes_the_bar() {
+        val s = started()
+        open(s)
+        type(s.service, "abc")
+        s.view.translateBarForTest().closeButtonForTest().performClick()
+        assertFalse(s.service.translateBarOpenForTest())
+        assertFalse(s.view.isTranslateBarShowing())
+        assertFalse(panelInput(s.service).active)
+    }
+
+    @Test fun switching_editors_keeps_the_bar_open_with_an_empty_field() {
+        val s = started()
+        open(s)
+        type(s.service, "stale")
+
+        val next = editor(fieldId = 22)
+        s.service.onFinishInput()
+        s.service.onStartInput(next, false)
+        s.service.onStartInputView(next, false)
+
+        assertTrue(s.service.translateBarOpenForTest())
+        assertTrue(s.view.isTranslateBarShowing())
+        assertEquals("", s.view.translateText())
+        type(s.service, "fresh")
+        assertEquals("fresh", s.view.translateText())
+    }
+
+    @Test fun hiding_the_window_keeps_the_bar_for_the_next_show() {
+        val s = started()
+        open(s)
+        type(s.service, "gone")
+        s.service.onWindowHidden()
+        assertTrue(s.service.translateBarOpenForTest())
+        assertTrue(s.view.isTranslateBarShowing())
+        assertEquals("", s.view.translateText())
+        type(s.service, "back")
+        assertEquals("back", s.view.translateText())
+    }
+
+    @Test fun a_paused_bar_survives_a_same_editor_restart_without_rearming_translation() {
+        val s = started()
+        open(s)
+        assertTrue(panelInput(s.service).active)
+
+        s.service.onUpdateEditorToolType(MotionEvent.TOOL_TYPE_FINGER)
+        assertFalse("an editor tap hands typing back to the editor", panelInput(s.service).active)
+        assertTrue(s.view.isTranslateBarShowing())
+        assertFalse("the idle field gives up its cursor", s.view.translateBarForTest().fieldForTest().isFocused)
+
+        s.service.onStartInput(editor(), true)
+        s.service.onStartInputView(editor(), true)
+        assertTrue(s.view.isTranslateBarShowing())
+        assertFalse("a same-editor restart must not re-arm paused translation", panelInput(s.service).active)
+
+        val down = MotionEvent.obtain(0L, 0L, MotionEvent.ACTION_DOWN, 1f, 1f, 0)
+        try {
+            s.view.translateBarForTest().fieldForTest().dispatchTouchEvent(down)
+        } finally {
+            down.recycle()
+        }
+        assertTrue("a field tap re-arms routing", panelInput(s.service).active)
+        type(s.service, "回来")
+        assertEquals("回来", s.view.translateText())
+    }
+
+    @Suppress("DEPRECATION")
+    @Test fun the_view_click_report_pauses_translation_like_a_tool_type_report() {
+        val s = started()
+        open(s)
+        assertTrue(panelInput(s.service).active)
+        s.service.onViewClicked(false)
+        assertFalse("a reported editor click hands typing back to the editor", panelInput(s.service).active)
+        assertTrue(s.view.isTranslateBarShowing())
+    }
+
+    @Test fun a_recreated_input_view_shows_the_open_bar_again() {
+        val s = started()
+        open(s)
+        val info = editor()
+        val recreated = s.service.onCreateInputView() as InputView
+        s.service.onStartInputView(info, true)
+        assertTrue(recreated.isTranslateBarShowing())
+        type(s.service, "again")
+        assertEquals("again", recreated.translateText())
+    }
+}

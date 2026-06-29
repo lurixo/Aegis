@@ -31,6 +31,7 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import com.aegis.ime.ui.appLocaleTag
@@ -59,6 +60,9 @@ import com.aegis.ime.user.UserDeletionPromises
 import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
+import com.aegis.ime.dict.ModelDownload
+import com.aegis.ime.translate.TranslateClient
+import com.aegis.ime.translate.TranslateMode
 import java.io.File
 
 class AegisInputMethodService : InputMethodService(), ImeHost {
@@ -83,6 +87,16 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         logError = { Log.e("Aegis", "decode failed", it) },
         workDone = ::reportDecodeWork,
     )
+    private val translateWorker: java.util.concurrent.ExecutorService =
+        java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread(r, "aegis-translate").apply { isDaemon = true }
+        }
+    private val translateLane = DecodeLane(
+        worker = translateWorker,
+        main = mainLane,
+        logError = { Log.w("Aegis", "translate failed", it) },
+    )
+    private var translateClient = TranslateClient()
     private val userModel = UserModel()
     private val userLearning = UserLearning()
     private val userDbFile by lazy { File(filesDir, "userdb.txt") }
@@ -104,6 +118,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var selStart = -1
     private var selEnd = -1
 
+    private val panelInput = com.aegis.ime.ime.PanelTextInput().also {
+        it.onTargetChanged = { if (::controller.isInitialized) controller.onInputTargetChanged() }
+    }
     private val symbolUsageStore by lazy {
         SymbolUsageStore(filesDir).also {
             it.load()
@@ -142,6 +159,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var inputSessionActive = false
     private var resetControllerOnNextInputView = false
 
+    private var frameworkWillFinishInput = false
+    private var translateOpen = false
+    private var translateEngaged = true
+    private var translateInputConnection: InputConnection? = null
+    private var translatePending: Runnable? = null
     @Volatile private var userStoresLoaded = false
     @Volatile private var engineSig = ""
     @Volatile private var engineReloading = false
@@ -177,6 +199,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun uiString(res: Int): String = imeUiContext().getString(res)
+
+    private fun uiString(res: Int, vararg args: Any): String = imeUiContext().getString(res, *args)
 
     override fun onEvaluateFullscreenMode(): Boolean = false
 
@@ -294,6 +318,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             emailDomains = com.aegis.ime.ime.EmailDomains(getSharedPreferences("aegis", MODE_PRIVATE)),
         )
         controller.onShowEmoji = { showEmojiPanel() }
+        controller.onShowTranslate = { toggleTranslateBar() }
         controller.onShowLayout = { showLayoutPanel() }
         controller.onShowSymbols = { showSymbolsPanel() }
         controller.userLearning = userLearning
@@ -390,9 +415,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun clearEditorTransientState(resetController: Boolean, abortInline: Boolean = true, preserveLayout: Boolean = false) {
+        finishTranslation()
         inputView?.clearEditorTransientUiImmediately()
+        if (abortInline) abortInlineInput(hideBar = false)
         if (resetController && ::controller.isInitialized) controller.reset(preserveLayout)
     }
+
+    private fun canRestoreCurrentSession(): Boolean =
+        inputSessionActive && currentEditorTarget != null
 
     override fun onStartInput(info: EditorInfo?, restarting: Boolean) {
         super.onStartInput(info, restarting)
@@ -449,7 +479,15 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     override fun onFinishInput() {
+        frameworkWillFinishInput = true
+        try {
+            inputView?.finishCopySplitSelection()
+            finishTranslation()
+        } finally {
+            frameworkWillFinishInput = false
+        }
         super.onFinishInput()
+        abortInlineInput()
         clearEditorTransientState(resetController = true, abortInline = false, preserveLayout = layoutSessionPackage != null)
         currentEditorTarget = null
         inputSessionActive = false
@@ -492,12 +530,25 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onPanelClear = { controller.onPanelClear() }
             onExpandClosed = { controller.clearDrill() }
             onCollapse = { requestHideSelf(0) }
+            onTranslateClose = { closeTranslateBar() }
+            onTranslateFieldTap = { resumeTranslateRouting() }
             onOverlayChanged = { syncBackCallback() }
             onPreeditTap = { controller.onPreeditTap() }
             onPreeditCaret = { index -> controller.onPreeditCaret(index) }
             onPreeditEditDone = { controller.onPreeditEditDone() }
         }
         inputView = view
+        view.onTranslateTextChanged = { text ->
+            scheduleTranslation(text)
+            refreshPanelEmailContext(view)
+        }
+        view.onTranslateModeChanged = { mode ->
+            setTranslateMode(mode)
+            scheduleTranslation(view.translateText())
+        }
+        view.onTranslateSelectionChanged = { has ->
+            refreshPanelEmailContext(view)
+        }
         controller.attachView(view)
         imePalette = computePalette()
         view.applyPalette(imePalette)
@@ -511,7 +562,21 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         view.setKeyPreviewAlpha(SettingsHotApply.keyPreviewAlpha(fbPrefs))
         view.setLetterCase(SettingsHotApply.letterCase(fbPrefs))
 
+        if (canRestoreCurrentSession()) restoreTransientUi(view) else if (translateOpen) bindTranslateInput(view)
         return view
+    }
+
+    private fun refreshPanelEmailContext(view: InputView) {
+        mainHandler.post {
+            if (inputView === view && panelInput.active && ::controller.isInitialized) {
+                controller.onEditorContextChanged()
+            }
+        }
+    }
+
+    private fun restoreTransientUi(candidateView: InputView? = inputView) {
+        val view = candidateView ?: return
+        if (translateOpen) bindTranslateInput(view)
     }
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
@@ -523,6 +588,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             currentEditorTarget?.let { active -> viewTarget?.let(active::sameEditor) } == true
         if (!targetMatches) {
 
+        abortInlineInput()
             clearEditorTransientState(resetController = true, abortInline = false, preserveLayout = preserveLayout)
             currentEditorTarget = null
             inputSessionActive = false
@@ -655,6 +721,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         sendKeyWithMeta(code, if (shift) KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON else 0)
 
     private fun sendKeyWithMeta(code: Int, meta: Int) {
+        if (panelInput.active) return
         val ic = currentInputConnection ?: return
         val now = SystemClock.uptimeMillis()
         ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0, meta))
@@ -702,6 +769,139 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         iv.showPanel(sv)
     }
 
+    private fun abortInlineInput(hideBar: Boolean = true) {
+        if (!panelInput.active) return
+        panelInput.end()
+        if (hideBar) inputView?.showEditBar(false)
+        bindTranslateInput()
+    }
+
+    private fun toggleTranslateBar() {
+        if (translateOpen) closeTranslateBar() else openTranslateBar()
+    }
+
+    private fun openTranslateBar() {
+        val iv = inputView ?: return
+        translateOpen = true
+        translateEngaged = true
+        iv.showPanel(null)
+        bindTranslateInput(iv)
+    }
+
+    private fun closeTranslateBar() {
+        translateOpen = false
+        finishTranslation()
+        if (panelInput.active) {
+            if (::controller.isInitialized) controller.onPanelClear()
+            panelInput.end()
+        }
+        inputView?.let { iv ->
+            iv.setTranslateText("")
+            iv.showTranslateBar(false)
+        }
+    }
+
+    private fun bindTranslateInput(view: InputView? = inputView) {
+        val iv = view ?: return
+        if (!translateOpen) return
+        iv.setTranslateMode(translateMode())
+        iv.setTranslateFieldEngaged(translateEngaged)
+        iv.showTranslateBar(true)
+        if (translateEngaged) panelInput.begin(iv.translateEditable()) { iv.isTranslateBarShowing() }
+    }
+
+    private fun pauseTranslateRouting() {
+        if (!translateOpen || !translateEngaged) return
+        translateEngaged = false
+        if (panelInput.active) {
+            if (::controller.isInitialized) controller.onPanelClear()
+            panelInput.end()
+        }
+        finishTranslation()
+        inputView?.let { iv ->
+            iv.setTranslateText("")
+            iv.setTranslateFieldEngaged(false)
+        }
+    }
+
+    private fun resumeTranslateRouting() {
+        if (!translateOpen || translateEngaged) return
+        translateEngaged = true
+        bindTranslateInput()
+    }
+
+    override fun onUpdateEditorToolType(toolType: Int) {
+        super.onUpdateEditorToolType(toolType)
+        pauseTranslateRouting()
+    }
+
+    @Suppress("OVERRIDE_DEPRECATION")
+    override fun onViewClicked(focusChanged: Boolean) {
+        pauseTranslateRouting()
+    }
+
+    private fun translateMode(): TranslateMode = runCatching {
+        TranslateMode.valueOf(getSharedPreferences("aegis", MODE_PRIVATE).getString(PREF_TRANSLATE_MODE, null) ?: TranslateMode.AUTO.name)
+    }.getOrDefault(TranslateMode.AUTO)
+
+    private fun setTranslateMode(mode: TranslateMode) {
+        getSharedPreferences("aegis", MODE_PRIVATE).edit().putString(PREF_TRANSLATE_MODE, mode.name).apply()
+    }
+
+    private fun scheduleTranslation(text: String) {
+        translatePending?.let(mainHandler::removeCallbacks)
+        translatePending = null
+        translateLane.markSatisfiedSynchronously()
+        translateClient.abort()
+        if (text.isBlank()) {
+            translateInputConnection?.setComposingText("", 1)
+            return
+        }
+        val request = Runnable {
+            translatePending = null
+            val mode = translateMode()
+            translateLane.submit(
+                compute = { runCatching { translateClient.translate(text, mode) } },
+                apply = { outcome ->
+                    outcome.fold(
+                        onSuccess = { applyTranslation(it) },
+                        onFailure = { toast(uiString(R.string.translate_failed_cause, translateFailureCause(it))) },
+                    )
+                },
+            )
+        }
+        translatePending = request
+        mainHandler.postDelayed(request, TRANSLATE_DEBOUNCE_MS)
+    }
+
+    private fun translateFailureCause(failure: Throwable): String = uiString(
+        when (ModelDownload.classifyRequestFailure(failure)) {
+            ModelDownload.CheckFailure.OFFLINE -> R.string.download_cause_offline
+            ModelDownload.CheckFailure.TIMEOUT -> R.string.download_cause_timeout
+            ModelDownload.CheckFailure.SERVER, ModelDownload.CheckFailure.PARSE -> R.string.download_cause_server
+        },
+    )
+
+    private fun applyTranslation(text: String) {
+        if (!translateOpen) return
+        val connection = translateInputConnection ?: currentInputConnection?.also { translateInputConnection = it }
+        connection?.setComposingText(text, 1)
+    }
+
+    private fun finishTranslation() {
+        translatePending?.let(mainHandler::removeCallbacks)
+        translatePending = null
+        translateClient.abort()
+        translateLane.markSatisfiedSynchronously()
+        val connection = translateInputConnection ?: return
+        translateInputConnection = null
+        if (!frameworkWillFinishInput) connection.finishComposingText()
+    }
+
+    internal fun translateBarOpenForTest(): Boolean = translateOpen
+
+    internal fun setTranslateClientForTest(client: TranslateClient) { translateClient = client }
+
     private fun toast(msg: String) { inputView?.showToast(msg) }
 
     internal fun toastTextForTest(): String? = inputView?.toastTextForTest()
@@ -727,6 +927,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun onWindowHidden() {
         super.onWindowHidden()
+        if (panelInput.active && ::controller.isInitialized) controller.onPanelClear()
         clearEditorTransientState(resetController = false)
         layoutSessionPackage = null
         if (::controller.isInitialized) controller.restoreBaseKeyboard()
@@ -765,20 +966,30 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
 
     private fun commitExternalText(text: CharSequence) {
+        if (panelInput.commit(text)) {
+            controller.onEditorContextChanged()
+            return
+        }
         controller.expireCandidateChoiceUndo()
         if (currentInputConnection?.commitText(text, 1) == true) controller.onEditorContextChanged()
     }
 
     override fun commitText(text: CharSequence) {
+        if (panelInput.commit(text)) return
         currentInputConnection?.commitText(text, 1)
     }
 
     private fun commitExternalSymbol(symbol: CharSequence) {
+        if (panelInput.commitSymbol(symbol)) {
+            controller.onEditorContextChanged()
+            return
+        }
         controller.expireCandidateChoiceUndo()
         if (commitSymbolToEditor(symbol)) controller.onEditorContextChanged()
     }
 
     override fun commitSymbol(symbol: CharSequence) {
+        if (panelInput.commitSymbol(symbol)) return
         commitSymbolToEditor(symbol)
     }
 
@@ -801,10 +1012,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     override fun deleteBackward() {
+        if (panelInput.backspace()) return
         deleteLastEditorCluster()
     }
 
     override fun deleteGraphemeBackward() {
+        if (panelInput.backspace()) return
         deleteLastEditorCluster()
     }
 
@@ -816,6 +1029,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     override fun panelBackspace() {
+        if (panelInput.backspace()) return
         controller.expireCandidateChoiceUndo()
         if (hasSelection()) deleteSelection() else deleteGraphemeBackward()
     }
@@ -832,10 +1046,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     override fun textBeforeCursor(n: Int): CharSequence {
+        panelInput.textBefore(n)?.let { return it }
         return runCatching { currentInputConnection?.getTextBeforeCursor(n, 0) }.getOrNull() ?: ""
     }
 
     override fun hasSelection(): Boolean {
+        if (panelInput.active) return panelInput.hasSelection()
         if (selStart >= 0 && selEnd >= 0 && selStart != selEnd) return true
         val ic = currentInputConnection ?: return false
         val around = ic.getSurroundingText(0, 0, 0) ?: return false
@@ -845,10 +1061,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     override fun deleteSelection() {
+        if (panelInput.active) { panelInput.deleteSelection(); return }
         sendKey(KeyEvent.KEYCODE_DEL, false)
     }
 
     override fun performEnter() {
+        if (panelInput.newline()) return
         val ic = currentInputConnection ?: return
         val info = currentInputEditorInfo
         val action = (info?.imeOptions ?: 0) and EditorInfo.IME_MASK_ACTION
@@ -865,6 +1083,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 }
 
 private const val DECODE_TARGET_NANOS = 16_666_667L
+private const val PREF_TRANSLATE_MODE = "translate_mode"
+private const val TRANSLATE_DEBOUNCE_MS = 300L
 
 internal fun quarantineCorruptStore(file: java.io.File): Boolean {
     if (!file.exists()) return false

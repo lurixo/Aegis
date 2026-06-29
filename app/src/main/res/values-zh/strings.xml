@@ -307,6 +307,7 @@
     <string name="translate_mode_zh_en">中英互译</string>
     <string name="translate_mode_zh_ja">中日互译</string>
     <string name="translate_caption">翻译</string>
+    <string name="translate_failed_cause">翻译失败：%1$s</string>
     <string name="edit_title">文字编辑</string>
     <string name="edit_start_select">开始选择</string>
     <string name="edit_select">选择</string>

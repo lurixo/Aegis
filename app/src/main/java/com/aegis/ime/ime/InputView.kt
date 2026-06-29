@@ -113,6 +113,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private var copyBarActive = false
     private var editBarActive = false
     private var translateBarActive = false
+    private var translateFieldEngaged = true
     private var palette = ImePalette.STATIC_LIGHT
     private var barTrouble: RestoreTrouble? = null
     private var phraseNotice: String? = null
@@ -404,10 +405,16 @@ class InputView(context: Context) : LinearLayout(context) {
         syncTranslateBar()
     }
 
+    fun setTranslateFieldEngaged(engaged: Boolean) {
+        if (translateFieldEngaged == engaged) return
+        translateFieldEngaged = engaged
+        syncTranslateBar()
+    }
+
     private fun syncTranslateBar() {
         if (translateBarActive && !editBarActive) {
             if (translateBarView.visibility != VISIBLE || translateBarView.alpha < 1f) Motion.showNow(translateBarView)
-            translateBarView.focusField()
+            if (translateFieldEngaged) translateBarView.focusField() else translateBarView.releaseField()
         } else {
             translateBarView.dismissModeDialog()
             translateBarView.releaseField()
@@ -417,8 +424,11 @@ class InputView(context: Context) : LinearLayout(context) {
 
     fun isTranslateBarActive(): Boolean = translateBarActive
     fun isTranslateBarShowing(): Boolean = translateBarView.visibility == VISIBLE
+    fun translateEditable(): PanelEditable = translateBarView.editable()
     fun translateText(): String = translateBarView.text()
     fun setTranslateText(t: String) { translateBarView.setText(t) }
+    fun translateMode(): TranslateMode = translateBarView.mode()
+    fun setTranslateMode(m: TranslateMode) { translateBarView.setMode(m) }
     internal fun translateBarForTest(): TranslateBarView = translateBarView
 
     init {
@@ -723,6 +733,7 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun copyBarActiveForTest(): Boolean = copyBarActive
     internal fun copyBarForTest(): CopyBarView = copyBarView
     internal fun coveredBarForTest(): View? = coveredBar()
+    internal fun finishCopySplitSelection() = copyBarView.finishSplitSelection()
 
     fun isComposing(): Boolean = composingNow
 
