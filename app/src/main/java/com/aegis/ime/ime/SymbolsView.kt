@@ -82,7 +82,8 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     private val backBtn = barButton("返回") { onBack() }
     private val lockBtn = barButton("锁定") { toggleLock() }       // P3
     private val lockGlyph = LockDrawable(density)                 // P-C: self-drawn monochrome lock (was emoji)
-    private val backspaceBtn = barButton("⌫") { onBackspace() }
+    private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) } // debug.17: ⌫ self-drawn, no char
+    private val backspaceBtn = barButton("") { onBackspace() }
     private val bottomBarView = bottomBar()
 
     private companion object {
@@ -94,6 +95,8 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         setBackgroundColor(palette.keyboardBg) // P-A: panel floor == the strip/keyboard floor (no top seam)
         lockBtn.setCompoundDrawablesWithIntrinsicBounds(lockGlyph, null, null, null) // P-C: lock glyph left of 锁定
         lockBtn.compoundDrawablePadding = dp(4)
+        backspaceBtn.setCompoundDrawablesWithIntrinsicBounds(backspaceGlyph, null, null, null) // debug.17: ⌫ glyph (no char)
+        backspaceGlyph.tint(palette.keyLabelSecondary)
 
         for ((i, t) in titles.withIndex()) rail.addView(railTab(i, t))
 
@@ -134,6 +137,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         (bottomBarView as LinearLayout).let { bar ->
             for (i in 0 until bar.childCount) (bar.getChildAt(i) as? TextView)?.setTextColor(p.keyLabelSecondary)
         }
+        backspaceGlyph.tint(p.keyLabelSecondary)
         updateLockFace() // restore the lock-state colour after the bulk recolour
         showCategory(selected)
     }
@@ -361,6 +365,9 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     private fun bottomBar(): View = LinearLayout(context).apply {
         orientation = HORIZONTAL
         setBackgroundColor(palette.keyboardBg) // P-A: same as the unified floor
+        // debug.17: 返回 hugs the LEFT edge, 锁定(+lock) centres, ⌫ hugs the RIGHT edge (was three centred thirds).
+        backBtn.gravity = Gravity.START or Gravity.CENTER_VERTICAL; backBtn.setPadding(dp(20), 0, 0, 0)
+        backspaceBtn.gravity = Gravity.END or Gravity.CENTER_VERTICAL; backspaceBtn.setPadding(0, 0, dp(20), 0)
         addView(backBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         addView(lockBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f)) // P3: 锁定 between 返回 and ⌫
         addView(backspaceBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
@@ -388,10 +395,35 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         fun tint(color: Int) { paint.color = color; invalidateSelf() }
         override fun draw(canvas: Canvas) {
             val b = bounds
-            Glyphs.drawLock(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) * 0.40f, closed)
+            // debug.17: lock 放大 (sFactor 0.40→0.52, box 18→22dp, stroke 2dp) so its height ≈ the bar's text height.
+            Glyphs.drawLock(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) * 0.52f, closed)
         }
-        override fun getIntrinsicWidth() = (18 * density).toInt()
-        override fun getIntrinsicHeight() = (18 * density).toInt()
+        init { paint.strokeWidth = 2f * density }
+        override fun getIntrinsicWidth() = (22 * density).toInt()
+        override fun getIntrinsicHeight() = (22 * density).toInt()
+        override fun setAlpha(alpha: Int) {}
+        override fun setColorFilter(colorFilter: ColorFilter?) {}
+        @Deprecated("Deprecated in Java")
+        override fun getOpacity() = PixelFormat.TRANSLUCENT
+    }
+
+    /** debug.17: a palette-tinted [Drawable] drawing one self-drawn [Glyphs] icon (the bar's ⌫), so it stops
+     *  using a font character and matches the lock's monochrome-stroke language. */
+    private class IconDrawable(
+        private val density: Float,
+        private val sFactor: Float,
+        private val render: (Canvas, Paint, Float, Float, Float) -> Unit,
+    ) : Drawable() {
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeWidth = 2f * density; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+        }
+        fun tint(color: Int) { paint.color = color; invalidateSelf() }
+        override fun draw(canvas: Canvas) {
+            val b = bounds
+            render(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) * sFactor)
+        }
+        override fun getIntrinsicWidth() = (22 * density).toInt()
+        override fun getIntrinsicHeight() = (22 * density).toInt()
         override fun setAlpha(alpha: Int) {}
         override fun setColorFilter(colorFilter: ColorFilter?) {}
         @Deprecated("Deprecated in Java")
