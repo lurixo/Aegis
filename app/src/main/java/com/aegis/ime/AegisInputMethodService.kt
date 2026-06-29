@@ -91,6 +91,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var inputPurpose: InputPurpose? = null
     private var inputCat = "" // EDIT_PHRASE: owning category; RENAME_CATEGORY: (unused)
     private var inputOld = "" // EDIT_PHRASE: the phrase being edited; RENAME_CATEGORY: the old category name
+    private var pendingPhraseAdds: List<String> = emptyList() // ADD_CATEGORY via 剪贴板「添加常用语→新建分类」: clips to add once the category exists
     private val clipboardStore by lazy { ClipboardStore(filesDir).also { it.load() } }
     private val clipImageStore by lazy { com.aegis.ime.user.ClipImageStore(filesDir) } // U22 image clipboard
     private val thumbCache = LruCache<String, Bitmap>(50) // U22: decoded thumbnails (path → bitmap)
@@ -414,6 +415,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onMovePhrasesTo = { from, list, to -> clipboardStore.movePhrasesTo(from, list, to) } // debug.16: 批量移动
             it.onReorderPhrase = { cat, fromIdx, toIdx -> clipboardStore.reorderPhrase(cat, fromIdx, toIdx) } // debug.16: 拖动重排
             it.onAddCategory = { beginInlineAddCategory() }                               // debug.16: ＋分类 → inline buffer
+            it.onAddCategoryThenAdd = { texts -> beginInlineAddCategory(texts) }          // debug.16: 剪贴板 添加常用语→新建分类 (carry clips)
             it.onRenameCategory = { old -> beginInlineRenameCategory(old) }               // debug.16: 分类改名 → inline buffer
             it.onDeleteCategory = { name -> clipboardStore.deleteCategory(name) }         // debug.16: 删除分类 (no typing)
             it.onClearHistory = { clipboardStore.clearHistory(); clipImageStore.clear(); thumbCache.evictAll() }
@@ -534,8 +536,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         startInlineInput("编辑常用语", phrase)
     }
 
-    private fun beginInlineAddCategory() {
+    private fun beginInlineAddCategory(pendingAdds: List<String> = emptyList()) {
         inputPurpose = InputPurpose.ADD_CATEGORY; inputCat = ""; inputOld = ""
+        pendingPhraseAdds = pendingAdds // 剪贴板「添加常用语→新建分类」carries the clip(s) through the inline create
         startInlineInput("新建分类", "")
     }
 
@@ -558,8 +561,16 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val text = panelInput.text()
         when (inputPurpose) {
             InputPurpose.EDIT_PHRASE -> clipboardStore.editPhrase(inputCat, inputOld, text)
-            InputPurpose.ADD_CATEGORY -> clipboardStore.addCategory(text)
-            InputPurpose.RENAME_CATEGORY -> clipboardStore.renameCategory(inputOld, text)
+            InputPurpose.ADD_CATEGORY -> {
+                val name = text.trim()
+                if (name.isNotEmpty()) {
+                    clipboardStore.addCategory(name) // creates it (no-op if it already exists)
+                    // 剪贴板「添加常用语→新建分类」: the carried clip(s) now land in the just-created category.
+                    if (pendingPhraseAdds.isNotEmpty()) clipboardStore.addPhrasesTo(name, pendingPhraseAdds)
+                    inputCat = name // reopen the 常用语 tab on the new category
+                }
+            }
+            InputPurpose.RENAME_CATEGORY -> { val n = text.trim(); if (clipboardStore.renameCategory(inputOld, n)) inputCat = n }
             null -> {}
         }
         endInlineInput()
@@ -569,10 +580,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     /** Stop the redirect (keyboard output returns to the target app), hide the bar, reopen the 常用语 panel. */
     private fun endInlineInput() {
-        val reopenCat = inputCat // EDIT_PHRASE: the edited phrase's category (so we land back on it)
+        val reopenCat = inputCat // EDIT_PHRASE/ADD/RENAME: the category to land back on
         panelInput.end()
         inputView?.showEditBar(false)
-        inputPurpose = null; inputCat = ""; inputOld = ""
+        inputPurpose = null; inputCat = ""; inputOld = ""; pendingPhraseAdds = emptyList()
         showClipboardPanel()                       // reopen + reloadPhrases + refresh (lands on the 剪贴板 tab)
         clipboardView?.showPhraseTab(reopenCat)    // ...then switch to the 常用语 tab the user was editing on
     }
@@ -583,7 +594,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (!panelInput.active && inputPurpose == null) return
         panelInput.end()
         inputView?.showEditBar(false)
-        inputPurpose = null; inputCat = ""; inputOld = ""
+        inputPurpose = null; inputCat = ""; inputOld = ""; pendingPhraseAdds = emptyList()
     }
 
     private fun captureClip() {
