@@ -22,7 +22,6 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
-import android.content.ClipData
 import android.content.ClipDescription
 import android.graphics.Bitmap
 import android.util.LruCache
@@ -77,6 +76,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     )
     private var selecting = false
     private var deletedSnapshot: CharSequence? = null
+    private val panelInput = com.aegis.ime.ime.PanelTextInput()
+    private enum class InputPurpose { EDIT_PHRASE, ADD_CATEGORY, RENAME_CATEGORY }
+    private var inputPurpose: InputPurpose? = null
+    private var inputCat = ""
+    private var inputOld = ""
+    private var pendingPhraseAdds: List<String> = emptyList()
+    private var pendingMoveFrom = ""
+    private var pendingMoveTexts: List<String> = emptyList()
     private val clipboardStore by lazy { ClipboardStore(filesDir).also { it.load() } }
     private val clipImageStore by lazy { com.aegis.ime.user.ClipImageStore(filesDir) }
     private val thumbCache = LruCache<String, Bitmap>(50)
@@ -156,6 +163,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun onFinishInput() {
         super.onFinishInput()
+        abortInlineInput()
         if (userModel.dirty) runCatching {
             userModel.save(userDbFile)
             userDbMtime = userDbFile.lastModified()
@@ -193,7 +201,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onPickCandidate = { index -> controller.onPickCandidate(index) }
             onPickReading = { index -> controller.onPickReadingIndex(index) }
             onFunction = { f -> controller.onBarFunction(f) }
-            onBackspaceSwipe = { up -> if (!controller.onBackspaceSwipe(up)) handleBackspaceSwipe(up) }
+            onBackspaceSwipe = { up ->
+                if (!controller.onBackspaceSwipe(up)) {
+                    if (panelInput.active) { if (up) panelInput.begin("") }
+                    else handleBackspaceSwipe(up)
+                }
+            }
             onPanelBackspace = { controller.onPanelBackspace() }
             onPanelClear = { controller.onPanelClear() }
             onExpandClosed = { controller.clearDrill() }
@@ -201,8 +214,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onCopyCommit = { t -> commitLargeText(t) }
             onCopyBlock = { b -> copyBlockToAegis(b) }
             onCopyDismiss = { lastCopy = null }
+            onEditConfirm = { confirmInlineInput() }
+            onEditCancel = { cancelInlineInput() }
         }
         inputView = view
+        panelInput.onChange = { txt -> view.setEditText(txt) }
         controller.attachView(view)
         imePalette = computePalette()
         view.applyPalette(imePalette)
@@ -211,6 +227,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        abortInlineInput()
         inputView?.showPanel(null)
         val lc = lastCopy
         if (com.aegis.ime.user.ClipboardPolicy.shouldRestoreCopyBar(lc, secureField)) {
@@ -260,6 +277,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun handleEdit(action: EditAction) {
+        if (panelInput.active && action != EditAction.BACK) return
         when (action) {
             EditAction.UP -> sendKey(KeyEvent.KEYCODE_DPAD_UP, selecting)
             EditAction.DOWN -> sendKey(KeyEvent.KEYCODE_DPAD_DOWN, selecting)
@@ -278,6 +296,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun sendKey(code: Int, shift: Boolean) {
+        if (panelInput.active) return
         val ic = currentInputConnection ?: return
         val meta = if (shift) KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON else 0
         val now = SystemClock.uptimeMillis()
@@ -286,6 +305,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun handleBackspaceSwipe(up: Boolean) {
+        if (panelInput.active) return
         val ic = currentInputConnection ?: return
         if (up) {
             val all = ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)?.text
@@ -304,7 +324,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (iv.isPanelShowing(emojiView)) { iv.showPanel(null); return }
         val ev = emojiView ?: EmojiView(this).also {
             it.recentProvider = { emojiUsageStore.recent() }
-            it.onEmoji = { e -> emojiUsageStore.record(e); currentInputConnection?.commitText(e, 1) }
+            it.onEmoji = { e -> emojiUsageStore.record(e); commitText(e) }
             it.onBackspace = { panelBackspace() }
             it.onBack = { inputView?.showPanel(null) }
             emojiView = it
@@ -332,8 +352,15 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onDeleteClips = { list -> clipboardStore.deleteAll(list); deleteImageFiles(list) }
             it.onDeletePhrasesFrom = { cat, list -> list.forEach { clipboardStore.deletePhraseFrom(cat, it) } }
             it.onSaveAsPhrasesTo = { cat, list -> clipboardStore.addPhrasesTo(cat, list) }
-            it.onManage = { openPhraseManager() }
-            it.onClearSystemClipboard = { clearSystemClipboard() }
+            it.onEditPhrase = { cat, text -> beginInlineEdit(cat, text) }
+            it.onMovePhrase = { from, text, to -> clipboardStore.movePhrase(from, text, to) }
+            it.onMovePhrasesTo = { from, list, to -> clipboardStore.movePhrasesTo(from, list, to) }
+            it.onReorderPhrase = { cat, fromIdx, toIdx -> clipboardStore.reorderPhrase(cat, fromIdx, toIdx) }
+            it.onAddCategory = { beginInlineAddCategory() }
+            it.onAddCategoryThenAdd = { texts -> beginInlineAddCategory(texts) }
+            it.onAddCategoryThenMove = { from, texts -> beginInlineAddCategory(pendingMove = from to texts) }
+            it.onRenameCategory = { old -> beginInlineRenameCategory(old) }
+            it.onDeleteCategory = { name -> clipboardStore.deleteCategory(name) }
             it.onClearHistory = { clipboardStore.clearHistory(); clipImageStore.clear(); thumbCache.evictAll() }
             it.historyEnabledProvider = { historyEnabled() }
             it.onSetHistoryEnabled = { on -> setHistoryEnabled(on) }
@@ -413,7 +440,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (iv.isPanelShowing(symbolsView)) { iv.showPanel(null); return }
         val sv = symbolsView ?: SymbolsView(this).also {
             it.recentProvider = { symbolUsageStore.recent() }
-            it.onSymbol = { s -> symbolUsageStore.record(s); currentInputConnection?.commitText(s, 1) }
+            it.onSymbol = { s -> symbolUsageStore.record(s); commitText(s) }
             it.onBackspace = { panelBackspace() }
             it.onBack = { inputView?.showPanel(null) }
             symbolsView = it
@@ -432,13 +459,72 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
     }
 
-    private fun openPhraseManager() {
-        runCatching {
-            startActivity(
-                android.content.Intent(this, com.aegis.ime.ui.PhraseManagerActivity::class.java)
-                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
-            )
+
+    private fun beginInlineEdit(category: String, phrase: String) {
+        inputPurpose = InputPurpose.EDIT_PHRASE; inputCat = category; inputOld = phrase
+        startInlineInput("编辑常用语", phrase)
+    }
+
+    private fun beginInlineAddCategory(
+        pendingAdds: List<String> = emptyList(),
+        pendingMove: Pair<String, List<String>>? = null,
+    ) {
+        inputPurpose = InputPurpose.ADD_CATEGORY; inputCat = ""; inputOld = ""
+        pendingPhraseAdds = pendingAdds
+        pendingMoveFrom = pendingMove?.first ?: ""
+        pendingMoveTexts = pendingMove?.second ?: emptyList()
+        startInlineInput("新建分类", "")
+    }
+
+    private fun beginInlineRenameCategory(old: String) {
+        inputPurpose = InputPurpose.RENAME_CATEGORY; inputCat = ""; inputOld = old
+        startInlineInput("重命名分类", old)
+    }
+
+    private fun startInlineInput(title: String, initial: String) {
+        val iv = inputView ?: return
+        iv.showPanel(null)
+        panelInput.begin(initial)
+        iv.setEditTitle(title)
+        iv.setEditText(initial)
+        iv.showEditBar(true)
+    }
+
+    private fun confirmInlineInput() {
+        val text = panelInput.text()
+        when (inputPurpose) {
+            InputPurpose.EDIT_PHRASE -> clipboardStore.editPhrase(inputCat, inputOld, text)
+            InputPurpose.ADD_CATEGORY -> {
+                val name = text.trim()
+                if (name.isNotEmpty()) {
+                    clipboardStore.addCategory(name)
+                    if (pendingPhraseAdds.isNotEmpty()) clipboardStore.addPhrasesTo(name, pendingPhraseAdds)
+                    if (pendingMoveTexts.isNotEmpty()) clipboardStore.movePhrasesTo(pendingMoveFrom, pendingMoveTexts, name)
+                    inputCat = name
+                }
+            }
+            InputPurpose.RENAME_CATEGORY -> { val n = text.trim(); if (clipboardStore.renameCategory(inputOld, n)) inputCat = n }
+            null -> {}
         }
+        endInlineInput()
+    }
+
+    private fun cancelInlineInput() = endInlineInput()
+
+    private fun endInlineInput() {
+        val reopenCat = inputCat
+        panelInput.end()
+        inputView?.showEditBar(false)
+        inputPurpose = null; inputCat = ""; inputOld = ""; pendingPhraseAdds = emptyList(); pendingMoveFrom = ""; pendingMoveTexts = emptyList()
+        showClipboardPanel()
+        clipboardView?.showPhraseTab(reopenCat)
+    }
+
+    private fun abortInlineInput() {
+        if (!panelInput.active && inputPurpose == null) return
+        panelInput.end()
+        inputView?.showEditBar(false)
+        inputPurpose = null; inputCat = ""; inputOld = ""; pendingPhraseAdds = emptyList(); pendingMoveFrom = ""; pendingMoveTexts = emptyList()
     }
 
     private fun captureClip() {
@@ -489,6 +575,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun pasteImage(path: String) {
+        if (panelInput.active) return
         val file = File(path)
         if (!file.exists()) { toast("图片已不存在"); return }
         val mime = com.aegis.ime.user.ClipImageStore.mimeOf(path)
@@ -539,22 +626,6 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun historyEnabled() = getSharedPreferences("aegis", MODE_PRIVATE).getBoolean("clip_history", true)
     private fun setHistoryEnabled(on: Boolean) =
         getSharedPreferences("aegis", MODE_PRIVATE).edit().putBoolean("clip_history", on).apply()
-    private fun clearSystemClipboard() {
-        runCatching { clipboardManager.setPrimaryClip(ClipData.newPlainText("", "")) }
-            .onFailure { Log.e("Aegis", "setPrimaryClip(empty) failed", it) }
-        runCatching { clipboardManager.clearPrimaryClip() }
-            .onFailure { Log.e("Aegis", "clearPrimaryClip failed", it) }
-        val after = runCatching { clipboardManager.primaryClip }.getOrNull()
-        val hasClip = after != null && after.itemCount > 0
-        val item = after?.takeIf { it.itemCount > 0 }?.getItemAt(0)
-        val text = item?.text?.toString() ?: runCatching { item?.coerceToText(this)?.toString() }.getOrNull()
-        when (com.aegis.ime.user.ClipboardPolicy.clearResult(hasClip, text)) {
-            com.aegis.ime.user.ClipboardPolicy.ClearResult.CLEARED ->
-                toast("已清空系统剪贴板")
-            com.aegis.ime.user.ClipboardPolicy.ClearResult.CONTENT_REMAINS ->
-                toast("系统限制：已尽力清空（本设备可能无法完全移除系统剪贴板内容）")
-        }
-    }
 
     override fun onDestroy() {
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
@@ -563,10 +634,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
 
     override fun commitText(text: CharSequence) {
+        if (panelInput.commit(text)) return
         currentInputConnection?.commitText(text, 1)
     }
 
     private fun commitLargeText(text: CharSequence) {
+        if (panelInput.commit(text)) return
         val ic = currentInputConnection ?: return
         ic.beginBatchEdit()
         com.aegis.ime.ime.LargeCommit.commit(text) { ic.commitText(it, 1) }
@@ -574,17 +647,20 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     override fun deleteBackward() {
+        if (panelInput.backspace()) return
         currentInputConnection?.deleteSurroundingText(1, 0)
     }
 
     override fun deleteCodePointBackward() {
+        if (panelInput.backspace()) return
         currentInputConnection?.deleteSurroundingTextInCodePoints(1, 0)
     }
 
     override fun textBeforeCursor(n: Int): CharSequence =
-        currentInputConnection?.getTextBeforeCursor(n, 0) ?: ""
+        panelInput.textBefore(n) ?: currentInputConnection?.getTextBeforeCursor(n, 0) ?: ""
 
     override fun replaceBeforeCursor(length: Int, text: CharSequence) {
+        if (panelInput.replaceBefore(length, text)) return
         val ic = currentInputConnection ?: return
         ic.beginBatchEdit()
         ic.deleteSurroundingText(length, 0)
@@ -592,13 +668,16 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         ic.endBatchEdit()
     }
 
-    override fun hasSelection(): Boolean = !currentInputConnection?.getSelectedText(0).isNullOrEmpty()
+    override fun hasSelection(): Boolean =
+        if (panelInput.active) false else !currentInputConnection?.getSelectedText(0).isNullOrEmpty()
 
     override fun deleteSelection() {
+        if (panelInput.backspace()) return
         currentInputConnection?.commitText("", 1)
     }
 
     override fun performEnter() {
+        if (panelInput.active) return
         val ic = currentInputConnection ?: return
         val info = currentInputEditorInfo
         val action = (info?.imeOptions ?: 0) and EditorInfo.IME_MASK_ACTION

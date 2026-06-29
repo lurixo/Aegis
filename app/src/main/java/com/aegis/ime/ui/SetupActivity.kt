@@ -119,23 +119,6 @@ private fun SetupScreen() {
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(
                 modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text("常用语管理", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "管理剪贴板面板里的常用语：新建/重命名/删除分类,增删短语。",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Button(
-                    onClick = { context.startActivity(Intent(context, PhraseManagerActivity::class.java)) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("打开常用语管理") }
-            }
-        }
-
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text("启用步骤", style = MaterialTheme.typography.titleMedium)

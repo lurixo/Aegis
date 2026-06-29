@@ -17,7 +17,6 @@ package com.aegis.ime.user
 
 import android.text.InputType
 import android.view.inputmethod.EditorInfo
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -41,15 +40,6 @@ class ClipboardPolicyTest {
         assertTrue("secure field but self-write pending → read to consume guard", ClipboardPolicy.shouldReadSystemClip(true, true, true))
         assertTrue("history off but self-write pending → read", ClipboardPolicy.shouldReadSystemClip(true, false, false))
         assertTrue("normal field, history on → read", ClipboardPolicy.shouldReadSystemClip(false, false, true))
-    }
-
-
-    @Test fun clear_result_reports_success_only_when_the_clipboard_is_actually_empty() {
-        assertEquals(ClipboardPolicy.ClearResult.CLEARED, ClipboardPolicy.clearResult(false, null))
-        assertEquals(ClipboardPolicy.ClearResult.CLEARED, ClipboardPolicy.clearResult(true, ""))
-        assertEquals(ClipboardPolicy.ClearResult.CLEARED, ClipboardPolicy.clearResult(true, "   "))
-        assertEquals("no clip wins even if a stale text is passed", ClipboardPolicy.ClearResult.CLEARED, ClipboardPolicy.clearResult(false, "x"))
-        assertEquals(ClipboardPolicy.ClearResult.CONTENT_REMAINS, ClipboardPolicy.clearResult(true, "secret-token"))
     }
 
     @Test fun ordinary_fields_are_not_sensitive() {

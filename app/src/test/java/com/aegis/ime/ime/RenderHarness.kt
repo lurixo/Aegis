@@ -270,15 +270,75 @@ class RenderHarness {
         }
     }
 
-    @Test fun clipboard_clear_system_confirm() {
-        val h = (300 * density).toInt()
+    @Test fun phrase_expanded_actions() {
+        val h = (320 * density).toInt()
         for ((t, pal) in themes) {
             val v = ClipboardView(ctx).apply {
-                historyProvider = { listOf("第一条复制内容", "second clip on the board") }
+                categoriesProvider = { listOf("默认", "工作") }
+                phrasesInProvider = { c -> if (c == "工作") listOf("已收到") else listOf("你好", "在吗") }
                 applyPalette(pal)
-                requestClearSystemForTest()
+                forcePhrasesStateForTest("默认"); refresh(); expandForTest("你好")
             }
-            snap(v, h, "clip_clear_confirm_$t.png")
+            snap(v, h, "phrase_actions_$t.png")
+            assertTrue("$t: missing 编辑", v.hasTextLeaf("✎ 编辑"))
+            assertTrue("$t: missing 移动", v.hasTextLeaf("→ 移动"))
+            assertTrue("$t: missing 删除", v.hasTextLeaf("🗑 删除"))
+        }
+    }
+
+    @Test fun phrase_select_mode() {
+        val h = (320 * density).toInt()
+        for ((t, pal) in themes) {
+            val v = ClipboardView(ctx).apply {
+                categoriesProvider = { listOf("默认", "工作") }
+                phrasesInProvider = { _ -> listOf("你好", "在吗", "稍等") }
+                applyPalette(pal)
+                forcePhrasesStateForTest("默认"); refresh()
+                enterSelectForTest(listOf("你好"))
+            }
+            snap(v, h, "phrase_select_$t.png")
+            assertTrue("$t: missing title 编辑常用语", v.hasTextLeaf("编辑常用语"))
+            assertTrue("$t: missing 移动到分类", v.hasTextLeaf("移动到分类"))
+            assertTrue("$t: missing 删除", v.hasTextLeaf("删除"))
+        }
+    }
+
+    @Test fun phrase_move_chooser() {
+        val h = (320 * density).toInt()
+        for ((t, pal) in themes) {
+            val v = ClipboardView(ctx).apply {
+                categoriesProvider = { listOf("默认", "工作", "私人") }
+                phrasesInProvider = { _ -> listOf("你好") }
+                applyPalette(pal)
+                forcePhrasesStateForTest("默认"); refresh()
+                showMoveChooserForTest("默认")
+            }
+            snap(v, h, "phrase_move_$t.png")
+            assertTrue("$t: move chooser missing target 工作", v.hasTextLeaf("工作"))
+            assertTrue("$t: move chooser missing target 私人", v.hasTextLeaf("私人"))
+        }
+    }
+
+    @Test fun edit_bar() {
+        val h = (44 * density).toInt()
+        for ((t, pal) in themes) {
+            val v = EditBarView(ctx).apply { applyPalette(pal); setTitle("编辑常用语"); setText("你好世界") }
+            snap(v, h, "edit_bar_$t.png")
+            assertTrue("$t: edit bar missing 确定", v.hasTextLeaf("确定"))
+            assertTrue("$t: edit bar missing 取消", v.hasTextLeaf("取消"))
+        }
+    }
+
+    @Test fun phrase_topbar_icons() {
+        val h = (60 * density).toInt()
+        for ((t, pal) in themes) {
+            val v = ClipboardView(ctx).apply {
+                categoriesProvider = { listOf("默认", "工作") }
+                phrasesInProvider = { _ -> listOf("你好") }
+                applyPalette(pal)
+                forcePhrasesStateForTest("默认"); refresh()
+            }
+            snap(v, h, "phrase_topbar_$t.png")
         }
     }
 

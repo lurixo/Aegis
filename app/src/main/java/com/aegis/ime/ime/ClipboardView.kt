@@ -20,16 +20,16 @@ import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.ColorFilter
-import android.graphics.Paint
-import android.graphics.PixelFormat
-import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.os.Handler
+import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
+import kotlin.math.abs
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
@@ -55,8 +55,15 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     var onDeleteClips: (List<String>) -> Unit = {}
     var onDeletePhrasesFrom: (String, List<String>) -> Unit = { _, _ -> }
     var onSaveAsPhrasesTo: (String, List<String>) -> Unit = { _, _ -> }
-    var onManage: () -> Unit = {}
-    var onClearSystemClipboard: () -> Unit = {}
+    var onEditPhrase: (String, String) -> Unit = { _, _ -> }
+    var onMovePhrase: (String, String, String) -> Unit = { _, _, _ -> }
+    var onMovePhrasesTo: (String, List<String>, String) -> Unit = { _, _, _ -> }
+    var onReorderPhrase: (String, Int, Int) -> Unit = { _, _, _ -> }
+    var onAddCategory: () -> Unit = {}
+    var onAddCategoryThenAdd: (List<String>) -> Unit = {}
+    var onAddCategoryThenMove: (String, List<String>) -> Unit = { _, _ -> }
+    var onRenameCategory: (String) -> Unit = {}
+    var onDeleteCategory: (String) -> Unit = {}
     var onClearHistory: () -> Unit = {}
     var historyEnabledProvider: () -> Boolean = { true }
     var onSetHistoryEnabled: (Boolean) -> Unit = {}
@@ -90,6 +97,18 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private val st = ClipboardPanelState()
     private var phraseCat = ""
 
+    fun showPhraseTab(category: String) {
+        st.switchTab(ClipboardPanelState.Tab.PHRASE)
+        if (category.isNotEmpty() && category in categoriesProvider()) phraseCat = category
+        refresh()
+    }
+
+    private var dragFrom = -1
+    private var dragCurrent = -1
+    private var dragView: View? = null
+    private val dragHandler = Handler(Looper.getMainLooper())
+    private val isDragging get() = dragFrom >= 0
+
     private val main = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(BG) }
     private val overlay = FrameLayout(context).apply { visibility = GONE }
     private val listColumn = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(8), 0, dp(8), dp(8)) }
@@ -122,10 +141,12 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     internal fun phraseCatForTest(): String = phraseCat
     internal fun forcePhrasesStateForTest(cat: String) { st.switchTab(ClipboardPanelState.Tab.PHRASE); phraseCat = cat }
     internal fun enterSelectForTest(selected: List<String> = emptyList()) { st.enterSelect(); st.selected.addAll(selected); refresh() }
-    internal fun requestClearSystemForTest() = confirmClearSystem()
-    internal fun confirmClearSystemForTest() = doClearSystem()
-    internal fun cancelClearSystemForTest() = hideOverlay()
-    internal fun isOverlayShownForTest(): Boolean = overlay.visibility == VISIBLE
+    internal fun showMoveChooserForTest(current: String) { chooseMoveCategoryThen(current, emptyList()) { target -> onMovePhrase(current, "", target) } }
+    internal fun dragStartForTest(index: Int) { startDrag(index) }
+    internal fun dragMoveToForTest(index: Int) { moveDragTo(index) }
+    internal fun dragDropForTest() { endDrag() }
+    internal fun isDraggingForTest(): Boolean = isDragging
+    internal fun expandForTest(text: String) { if (st.expanded != text) st.toggleExpand(text); refresh() }
 
     fun refresh() {
         main.removeAllViews()
@@ -138,27 +159,28 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8), dp(3), dp(8), dp(3))
-            addView(roundBtn("‹") { onBack() }, ll(dp(34), dp(44)))
+            fun iconLp(spaced: Boolean = false) = ll(dp(36), dp(44)).apply { if (spaced) marginStart = dp(6) }
+            addView(roundBtn("‹") { onBack() }, iconLp())
             addView(View(context), ll(0, dp(1), 1f))
             addView(pillTray(), ll(WC, dp(36)))
             addView(View(context), ll(0, dp(1), 1f))
-            if (st.tab == Tab.PHRASE) addView(roundBtn("＋") { onManage() }, ll(dp(40), dp(44)))
-            addView(iconBtn(ClearClipDrawable(density).apply { tint(SUBTEXT) }) { confirmClearSystem() }, ll(dp(40), dp(44)))
-            addView(roundBtn("☰") { enterSelect() }, ll(dp(40), dp(44)))
-            addView(roundBtn("⚙") { showGearMenu() }, ll(dp(36), dp(44)))
+            if (st.tab == Tab.PHRASE) addView(roundBtn("＋") { onAddCategory() }, iconLp(true))
+            addView(roundBtn("☰") { enterSelect() }, iconLp(true))
+            addView(roundBtn("⚙") { showGearMenu() }, iconLp(true))
         }
         main.addView(topBar, ll(MP, dp(50)))
         listColumn.removeAllViews()
         val entries = currentEntries()
-        if (entries.isEmpty()) listColumn.addView(emptyHint()) else for (e in entries) listColumn.addView(card(e))
+        if (entries.isEmpty()) listColumn.addView(emptyHint()) else for ((i, e) in entries.withIndex()) listColumn.addView(card(e, i))
         main.addView(listScroll, ll(MP, 0, 1f))
 
         if (st.tab == Tab.PHRASE) main.addView(categoryBar(), ll(MP, dp(44)))
     }
 
-    private fun card(text: String): View {
+    private fun card(text: String, index: Int): View {
         if (isImage(text)) return imageCard(text)
         val expanded = st.expanded == text
+        val phrase = st.tab == Tab.PHRASE
         val col = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(CARD, ImeShapes.cardRadiusDp)
@@ -173,7 +195,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setTextColor(TEXT_DARK)
             setPadding(dp(14), dp(12), dp(8), dp(12))
             setOnClickListener { onPick(text) }
-            setOnLongClickListener { showLongPressMenu(text); true }
+            if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
         }
         val chevron = TextView(context).apply {
             this.text = if (expanded) "⌃" else "⌄"
@@ -181,12 +203,13 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setTextColor(HINT)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setOnClickListener { st.toggleExpand(text); refresh() }
-            setOnLongClickListener { showLongPressMenu(text); true }
+            if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
         }
         header.addView(body, ll(0, WC, 1f))
         header.addView(chevron, ll(dp(40), MP))
         col.addView(header, ll(MP, WC))
-        if (expanded) col.addView(actionRow(text))
+        if (expanded) col.addView(if (phrase) phraseActionRow(text) else actionRow(text))
+        else if (phrase) attachDragHandle(body, col, index)
         return col
     }
 
@@ -236,9 +259,90 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun actionRow(text: String): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         setPadding(dp(8), 0, dp(8), dp(10))
-        addView(action("＋ 常用语") { chooseCategoryThen { c -> onSaveAsPhrasesTo(c, listOf(text)) } }, ll(0, WC, 1f))
+        addView(action("＋ 常用语") { chooseCategoryThen(listOf(text)) }, ll(0, WC, 1f))
         addView(action("拆 拆词") { showSplit(text) }, ll(0, WC, 1f))
         addView(action("🗑 删除") { deleteOne(text) }, ll(0, WC, 1f))
+    }
+
+    private fun phraseActionRow(text: String): View = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        setPadding(dp(8), 0, dp(8), dp(10))
+        val cat = currentCategory()
+        addView(action("✎ 编辑") { onEditPhrase(cat, text) }, ll(0, WC, 1f))
+        addView(action("→ 移动") { chooseMoveCategoryThen(cat, listOf(text)) { target -> onMovePhrase(cat, text, target); refresh() } }, ll(0, WC, 1f))
+        addView(action("🗑 删除") { deleteOne(text) }, ll(0, WC, 1f))
+    }
+
+
+    private fun attachDragHandle(touchTarget: View, card: View, index: Int) {
+        val slop = ViewConfiguration.get(context).scaledTouchSlop
+        var downY = 0f
+        val longPress = Runnable { startDrag(index); card.parent?.requestDisallowInterceptTouchEvent(true) }
+        touchTarget.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downY = e.rawY
+                    dragHandler.postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
+                    false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (!isDragging) {
+                        if (abs(e.rawY - downY) > slop) dragHandler.removeCallbacks(longPress)
+                        false
+                    } else {
+                        card.translationY = e.rawY - downY
+                        indexAtRawY(e.rawY)?.let { moveDragTo(it) }
+                        true
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    dragHandler.removeCallbacks(longPress)
+                    if (isDragging) { endDrag(); true } else false
+                }
+                else -> false
+            }
+        }
+    }
+
+    private fun indexAtRawY(rawY: Float): Int? {
+        val n = listColumn.childCount
+        if (n == 0) return null
+        val tops = IntArray(n); val heights = IntArray(n); val loc = IntArray(2)
+        for (i in 0 until n) {
+            val child = listColumn.getChildAt(i)
+            child.getLocationOnScreen(loc)
+            tops[i] = loc[1]; heights[i] = child.height
+        }
+        return rowAt(tops, heights, dragFrom, rawY.toInt())
+    }
+
+    internal fun rowAt(tops: IntArray, heights: IntArray, skip: Int, y: Int): Int? {
+        for (i in tops.indices) {
+            if (i == skip) continue
+            if (y >= tops[i] && y <= tops[i] + heights[i]) return i
+        }
+        return null
+    }
+
+    private fun startDrag(index: Int) {
+        dragFrom = index; dragCurrent = index
+        dragView = listColumn.getChildAt(index)?.also { it.translationZ = dp(8).toFloat(); it.alpha = 0.92f }
+    }
+
+    private fun moveDragTo(index: Int) { if (index in 0 until currentEntries().size) dragCurrent = index }
+
+    private fun endDrag() {
+        val from = dragFrom; val to = dragCurrent
+        dragView?.let { it.translationZ = 0f; it.alpha = 1f; it.translationY = 0f }
+        dragFrom = -1; dragCurrent = -1; dragView = null
+        if (from >= 0 && to >= 0 && from != to) { onReorderPhrase(currentCategory(), from, to); refresh() }
+        else refresh()
+    }
+
+    override fun onDetachedFromWindow() {
+        dragHandler.removeCallbacksAndMessages(null)
+        dragFrom = -1; dragCurrent = -1; dragView = null
+        super.onDetachedFromWindow()
     }
 
     private fun action(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
@@ -259,7 +363,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val cur = currentCategory()
         for (name in categoriesProvider()) chips.addView(catChip(name, name == cur))
         addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, ll(0, WC, 1f))
-        addView(roundBtn("✎") { onManage() }, ll(dp(40), dp(44)))
+        addView(roundBtn("✎") { onAddCategory() }, ll(dp(36), dp(44)))
     }
 
     private fun catChip(name: String, on: Boolean): View = TextView(context).apply {
@@ -271,7 +375,16 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         setTextColor(if (on) TEXT_DARK else SUBTEXT)
         setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         setOnClickListener { phraseCat = name; refresh() }
+        setOnLongClickListener { showCategoryMenu(name); true }
         layoutParams = ll(WC, WC).apply { rightMargin = dp(8) }
+    }
+
+    private fun showCategoryMenu(name: String) {
+        val card = menuCard()
+        card.addView(menuItem("重命名「$name」") { hideOverlay(); onRenameCategory(name) })
+        card.addView(menuDivider())
+        card.addView(menuItem("删除「$name」") { hideOverlay(); onDeleteCategory(name); if (phraseCat == name) phraseCat = ""; refresh() })
+        showOverlay(card)
     }
 
 
@@ -292,7 +405,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 setOnClickListener { st.selectAll(all); refresh() }
             }, ll(0, WC, 1f))
             addView(TextView(context).apply {
-                text = "编辑剪贴板"; gravity = Gravity.CENTER
+                text = if (st.tab == Tab.PHRASE) "编辑常用语" else "编辑剪贴板"
+                gravity = Gravity.CENTER
                 setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 setTypeface(null, android.graphics.Typeface.BOLD)
             }, ll(0, WC, 1f))
@@ -312,9 +426,16 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val bottom = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(12), dp(8), dp(12), dp(8))
-            addView(pillButton("添加常用语", GREEN, GREEN_PILL, hasSel) {
-                chooseCategoryThen { c -> onSaveAsPhrasesTo(c, st.selected.filterNot { ClipboardStore.isImageEntry(it) }); exitSelect() }
-            }, ll(0, dp(44), 1f).apply { rightMargin = dp(8) })
+            if (st.tab == Tab.PHRASE) {
+                addView(pillButton("移动到分类", GREEN, GREEN_PILL, hasSel) {
+                    val from = currentCategory(); val victims = st.selected.toList()
+                    chooseMoveCategoryThen(from, victims, after = { exitSelect() }) { target -> onMovePhrasesTo(from, victims, target); exitSelect() }
+                }, ll(0, dp(44), 1f).apply { rightMargin = dp(8) })
+            } else {
+                addView(pillButton("添加常用语", GREEN, GREEN_PILL, hasSel) {
+                    chooseCategoryThen(st.selected.filterNot { ClipboardStore.isImageEntry(it) }) { exitSelect() }
+                }, ll(0, dp(44), 1f).apply { rightMargin = dp(8) })
+            }
             addView(pillButton("删除", RED, RED_PILL, hasSel) {
                 val victims = st.selected.toList()
                 if (st.tab == Tab.CLIPBOARD) onDeleteClips(victims) else onDeletePhrasesFrom(currentCategory(), victims)
@@ -362,11 +483,25 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         }
     }
 
+    private fun chooseMoveCategoryThen(current: String, moveTexts: List<String>, after: () -> Unit = {}, action: (String) -> Unit) {
+        val targets = categoriesProvider().filter { it != current }
+        val card = menuCard()
+        if (targets.isEmpty()) {
+            card.addView(menuTitle("没有其它分类"))
+            card.addView(menuDivider())
+            card.addView(menuItem("＋ 新建分类…") { hideOverlay(); after(); onAddCategoryThenMove(current, moveTexts) })
+        } else {
+            card.addView(menuTitle("移动到分类"))
+            for (c in targets) { card.addView(menuDivider()); card.addView(menuItem(c) { hideOverlay(); action(c) }) }
+        }
+        showOverlay(card)
+    }
+
     private fun showLongPressMenu(text: String) {
         val card = menuCard()
         card.addView(menuItem("删除此条内容") { hideOverlay(); deleteOne(text) })
         card.addView(menuDivider())
-        card.addView(menuItem("添加常用语") { hideOverlay(); chooseCategoryThen { c -> onSaveAsPhrasesTo(c, listOf(text)) } })
+        card.addView(menuItem("添加常用语") { hideOverlay(); chooseCategoryThen(listOf(text)) })
         card.addView(menuDivider())
         card.addView(menuItem("拆分选词") { hideOverlay(); showSplit(text) })
         showOverlay(card)
@@ -374,38 +509,21 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun showGearMenu() {
         val card = menuCard()
-        card.addView(menuItem("清空系统剪贴板") { confirmClearSystem() })
-        card.addView(menuDivider())
         card.addView(menuItem("清空剪贴板历史") { hideOverlay(); onClearHistory(); refresh() })
         card.addView(menuDivider())
         val on = historyEnabledProvider()
         card.addView(menuItem(if (on) "剪贴板记录:开" else "剪贴板记录:关") { hideOverlay(); onSetHistoryEnabled(!on) })
-        card.addView(menuDivider())
-        card.addView(menuItem("常用语管理") { hideOverlay(); onManage() })
         showOverlay(card)
     }
 
-    private fun confirmClearSystem() {
-        val card = menuCard()
-        card.addView(menuTitle("清空系统剪贴板?"))
-        card.addView(hint("将清除系统剪贴板的当前内容,不影响剪贴板历史。", 13f, HINT).apply { setPadding(dp(20), 0, dp(20), dp(8)) })
-        card.addView(menuDivider())
-        card.addView(menuItem("确认清空") { doClearSystem() }.also { it.setTextColor(RED) })
-        card.addView(menuDivider())
-        card.addView(menuItem("取消") { hideOverlay() })
-        showOverlay(card)
-    }
-
-    private fun doClearSystem() { hideOverlay(); onClearSystemClipboard() }
-
-    private fun chooseCategoryThen(action: (String) -> Unit) {
+    private fun chooseCategoryThen(pending: List<String>, after: () -> Unit = {}) {
         val cats = categoriesProvider()
-        if (cats.isEmpty()) { onManage(); return }
+        if (cats.isEmpty()) { after(); onAddCategoryThenAdd(pending); return }
         val card = menuCard()
         card.addView(menuTitle("选择分类"))
-        for (c in cats) { card.addView(menuDivider()); card.addView(menuItem(c) { hideOverlay(); action(c); refresh() }) }
+        for (c in cats) { card.addView(menuDivider()); card.addView(menuItem(c) { hideOverlay(); onSaveAsPhrasesTo(c, pending); after(); refresh() }) }
         card.addView(menuDivider())
-        card.addView(menuItem("＋ 新建分类…") { hideOverlay(); onManage() })
+        card.addView(menuItem("＋ 新建分类…") { hideOverlay(); after(); onAddCategoryThenAdd(pending) })
         showOverlay(card)
     }
 
@@ -525,33 +643,5 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun rounded(color: Int, radiusDp: Float) = GradientDrawable().apply {
         setColor(color); cornerRadius = radiusDp * density
-    }
-
-    private fun iconBtn(icon: Drawable, onClick: () -> Unit): ImageView = ImageView(context).apply {
-        background = rounded(GREY_PILL, ImeShapes.chipRadiusDp)
-        scaleType = ImageView.ScaleType.CENTER
-        setImageDrawable(icon)
-        isClickable = true
-        setOnClickListener { onClick() }
-    }
-
-    private class ClearClipDrawable(private val density: Float) : Drawable() {
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = 1.8f * density
-            strokeCap = Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND
-        }
-        fun tint(color: Int) { paint.color = color; invalidateSelf() }
-        override fun draw(canvas: Canvas) {
-            val b = bounds
-            Glyphs.drawClipboardClear(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) * 0.40f)
-        }
-        override fun getIntrinsicWidth() = (18 * density).toInt()
-        override fun getIntrinsicHeight() = (18 * density).toInt()
-        override fun setAlpha(alpha: Int) {}
-        override fun setColorFilter(colorFilter: ColorFilter?) {}
-        @Deprecated("Deprecated in Java")
-        override fun getOpacity() = PixelFormat.TRANSLUCENT
     }
 }

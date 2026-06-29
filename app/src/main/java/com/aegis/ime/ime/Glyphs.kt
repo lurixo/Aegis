@@ -28,15 +28,6 @@ object Glyphs {
         c.drawLine(cx - w * 0.5f, cy + h * 0.3f, cx + w * 0.5f, cy + h * 0.3f, paint)
     }
 
-    fun drawClipboardClear(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
-        val w = s * 0.58f; val h = s * 0.78f
-        c.drawRoundRect(cx - w, cy - h + s * 0.18f, cx + w, cy + h, s * 0.22f, s * 0.22f, paint)
-        c.drawRoundRect(cx - s * 0.26f, cy - h - s * 0.02f, cx + s * 0.26f, cy - h + s * 0.28f, s * 0.17f, s * 0.17f, paint)
-        val x = s * 0.24f; val yc = cy + s * 0.14f
-        c.drawLine(cx - x, yc - x, cx + x, yc + x, paint)
-        c.drawLine(cx - x, yc + x, cx + x, yc - x, paint)
-    }
-
     fun drawLock(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, closed: Boolean) {
         val bw = s * 0.62f
         val bTop = cy - s * 0.16f
