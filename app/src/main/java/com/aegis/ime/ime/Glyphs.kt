@@ -143,4 +143,62 @@ object Glyphs {
         c.drawLine(tipX, cy, tipX - sign * s * 0.44f, cy - s * 0.4f, paint)    // head wing
         c.drawLine(tipX, cy, tipX - sign * s * 0.44f, cy + s * 0.4f, paint)    // head wing
     }
+
+    // ---- debug.17 图标统一: the rest of the IME's font-char / inline icons move here, so every surface shares
+    //      ONE monochrome-stroke family at a consistent ~1.5s box (matching [drawClipboard]). ----
+
+    /** ☺ 表情: a face circle + two eyes + a smile arc. Sized to the same box as [drawClipboard] (the old inline
+     *  toolbar emoji used a 0.6s circle that read ~20% small). Pure stroke — eyes are short lines, not filled dots. */
+    fun drawEmoji(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        c.drawCircle(cx, cy, s * 0.82f, paint)                                  // face
+        val ey = cy - s * 0.18f; val ex = s * 0.32f; val eh = s * 0.17f
+        c.drawLine(cx - ex, ey - eh, cx - ex, ey + eh, paint)                   // left eye
+        c.drawLine(cx + ex, ey - eh, cx + ex, ey + eh, paint)                   // right eye
+        c.drawArc(cx - s * 0.4f, cy - s * 0.05f, cx + s * 0.4f, cy + s * 0.45f, 20f, 140f, false, paint) // smile
+    }
+
+    /** The Aegis brand "A" mark (candidate toolbar slot 1 → settings). One round-joined path so the apex is a
+     *  clean peak, plus the crossbar. ~1.5s tall to match the other toolbar icons. */
+    fun drawBrandA(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val h = s * 0.82f; val apexY = cy - h; val baseY = cy + h; val legX = s * 0.62f
+        val p = Path().apply { moveTo(cx - legX, baseY); lineTo(cx, apexY); lineTo(cx + legX, baseY) }
+        c.drawPath(p, paint)
+        val t = 0.58f; val ly = apexY + (baseY - apexY) * t
+        c.drawLine(cx - legX * t, ly, cx + legX * t, ly, paint)                 // crossbar
+    }
+
+    /** Text I-beam ⟨I⟩ for the 文字编辑 entry — a vertical stem with top/bottom serifs. */
+    fun drawEditCaret(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val h = s * 0.82f; val w = s * 0.5f
+        c.drawLine(cx, cy - h, cx, cy + h, paint)                               // stem
+        c.drawLine(cx - w, cy - h, cx + w, cy - h, paint)                       // top serif
+        c.drawLine(cx - w, cy + h, cx + w, cy + h, paint)                       // bottom serif
+    }
+
+    /** ⇧ Shift key arrow (outline). [locked] (caps-lock) adds an underline bar below the stem (⬆ state). */
+    fun drawShift(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, locked: Boolean) {
+        val tipY = cy - s * 0.85f; val headW = s * 0.8f; val midY = cy - s * 0.04f
+        val stemW = s * 0.34f; val botY = cy + s * 0.66f
+        c.drawLine(cx, tipY, cx - headW, midY, paint)                           // head left
+        c.drawLine(cx, tipY, cx + headW, midY, paint)                           // head right
+        c.drawLine(cx - headW, midY, cx - stemW, midY, paint)                   // shoulder left
+        c.drawLine(cx + headW, midY, cx + stemW, midY, paint)                   // shoulder right
+        c.drawLine(cx - stemW, midY, cx - stemW, botY, paint)                   // stem left
+        c.drawLine(cx + stemW, midY, cx + stemW, botY, paint)                   // stem right
+        c.drawLine(cx - stemW, botY, cx + stemW, botY, paint)                   // stem bottom
+        if (locked) c.drawLine(cx - headW, botY + s * 0.3f, cx + headW, botY + s * 0.3f, paint) // caps-lock bar
+    }
+
+    /** ✎ Pencil for the keyboard's 符号面板 entry — a diagonal body (tip lower-left, eraser upper-right). */
+    fun drawPencil(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val e = s * 0.78f; val o = s * 0.2f
+        val tipX = cx - e; val tipY = cy + e; val endX = cx + e; val endY = cy - e
+        c.drawLine(tipX + o, tipY + o, endX + o, endY + o, paint)               // body edge 1
+        c.drawLine(tipX - o, tipY - o, endX - o, endY - o, paint)               // body edge 2
+        c.drawLine(endX + o, endY + o, endX - o, endY - o, paint)               // eraser cap
+        c.drawLine(tipX + o, tipY + o, tipX, tipY, paint)                       // tip wedge 1
+        c.drawLine(tipX - o, tipY - o, tipX, tipY, paint)                       // tip wedge 2
+        val bx = endX - e * 0.42f; val by = endY + e * 0.42f
+        c.drawLine(bx + o, by + o, bx - o, by - o, paint)                       // ferrule band
+    }
 }
