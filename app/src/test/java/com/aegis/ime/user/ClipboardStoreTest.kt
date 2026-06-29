@@ -390,6 +390,29 @@ class ClipboardStoreTest {
         assertEquals("标签", s.noteFor("乙", "p"))
     }
 
+    @Test fun move_into_category_with_same_text_carries_note_no_silent_loss() {
+        // fix: on a text collision at the target, the moved phrase's note must NOT be silently dropped.
+        val s = ClipboardStore(newDir()).apply {
+            load(); addCategory("工作"); addCategory("私人")
+            addPhrasesTo("工作", listOf("谢谢")); addPhrasesTo("私人", listOf("谢谢")) // same text in both
+            setPhraseNote("工作", "谢谢", "thx") // source has a note; target's is note-less
+        }
+        assertTrue(s.movePhrase("工作", "谢谢", "私人"))
+        assertTrue("removed from source", s.phrasesIn("工作").isEmpty())
+        assertEquals("deduped at target", listOf("谢谢"), s.phrasesIn("私人"))
+        assertEquals("note carried onto the kept target item (not lost)", "thx", s.noteFor("私人", "谢谢"))
+    }
+
+    @Test fun batch_move_collision_carries_note() {
+        val s = ClipboardStore(newDir()).apply {
+            load(); addCategory("甲"); addCategory("乙")
+            addPhrasesTo("甲", listOf("x")); addPhrasesTo("乙", listOf("x"))
+            setPhraseNote("甲", "x", "n")
+        }
+        assertEquals(1, s.movePhrasesTo("甲", listOf("x"), "乙"))
+        assertEquals("n", s.noteFor("乙", "x"))
+    }
+
     // ---------- debug.17 E2: clear a category's phrases (category itself stays) ----------
 
     @Test fun clearPhrasesIn_empties_but_keeps_category() {
