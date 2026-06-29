@@ -38,9 +38,10 @@ class ClipboardStoreTest {
         assertEquals(listOf("x"), s.history())
     }
 
-    @Test fun defaults_phrases_present() {
+    @Test fun no_default_phrases_seeded_on_first_run() {
+        // debug.14 item1: a fresh store ships with NO preset phrases.
         val s = ClipboardStore(newDir()).apply { load() }
-        assertTrue(s.phrases().isNotEmpty())
+        assertTrue(s.phrases().isEmpty())
     }
 
     @Test fun multiline_clip_survives_persist_roundtrip() {
@@ -166,10 +167,21 @@ class ClipboardStoreTest {
 
     // ---- C5 categories ----
 
-    @Test fun first_run_has_a_default_category() {
+    @Test fun first_run_has_an_empty_default_category() {
+        // debug.14 item1: NO preset phrases — the "默认" category exists (so the UI has an add target) but is empty.
         val s = ClipboardStore(newDir()).apply { load() }
         assertEquals(listOf("默认"), s.categories())
-        assertTrue(s.phrasesIn("默认").isNotEmpty())
+        assertTrue("no default phrases are seeded", s.phrasesIn("默认").isEmpty())
+        assertTrue("no phrases at all on first run", s.phrases().isEmpty())
+    }
+
+    @Test fun existing_user_phrases_survive_the_no_seed_change() {
+        // item1 must only affect the FIRST-RUN seed — an existing phrases.txt is loaded verbatim, untouched.
+        val dir = newDir()
+        ClipboardStore(dir).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("已收到")) }
+        val reloaded = ClipboardStore(dir).apply { load() }
+        assertTrue("工作" in reloaded.categories())
+        assertEquals(listOf("已收到"), reloaded.phrasesIn("工作"))
     }
 
     @Test fun add_target_and_delete_categories_persist() {

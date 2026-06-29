@@ -279,9 +279,8 @@ class ClipboardStore(private val dir: File) {
 
         private const val MAX_HISTORY = 100000 // U9: effectively no 条数上限 (kept large only as a file-bloat backstop)
         private const val DEFAULT_CATEGORY = "默认"
-        private val DEFAULT_PHRASES = listOf(
-            "你好", "谢谢", "好的", "收到", "在吗？", "稍等一下", "马上到", "没问题",
-            "抱歉，刚看到消息", "哈哈哈", "晚点联系你", "辛苦了",
-        )
+        // debug.14 item1: ship NO preset phrases — first run seeds only the empty "默认" category (kept so the
+        // UI always has ≥1 add target). An existing phrases.txt is still honoured verbatim (user data untouched).
+        private val DEFAULT_PHRASES = emptyList<String>()
     }
 }
