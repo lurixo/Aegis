@@ -60,6 +60,34 @@ class ClipboardStoreTest {
         assertEquals("line1\nline2", reloaded.historyText().first())
     }
 
+    @Test fun legacy_image_entries_are_dropped_on_load() {
+        val dir = newDir()
+        File(dir, "clipboard.txt").writeText(
+            "img:/data/user/0/com.aegis.ime/files/clipboard_images/123.png\n" +
+            "hello world\n"
+        )
+        val h = ClipboardStore(dir).apply { load() }.historyText()
+        assertEquals("only the text entry survives", listOf("hello world"), h)
+    }
+
+    @Test fun legacy_image_dir_is_reclaimed_on_load() {
+        val dir = newDir()
+        File(dir, "clipboard_images").apply { mkdirs() }.also { File(it, "1.png").writeText("x") }
+        ClipboardStore(dir).apply { load() }
+        assertFalse("orphaned image dir reclaimed", File(dir, "clipboard_images").exists())
+    }
+
+    @Test fun text_starting_with_img_prefix_is_preserved() {
+        val dir = newDir()
+        File(dir, "clipboard.txt").writeText("img:hello\nreal text\n")
+        val h = ClipboardStore(dir).apply { load() }.historyText()
+        assertEquals(listOf("img:hello", "real text"), h)
+        assertFalse("the text-only img: entry is not classified as a legacy image",
+            ClipboardStore.isLegacyImageEntry("img:hello"))
+        assertTrue("a real clipboard_images marker is classified as a legacy image",
+            ClipboardStore.isLegacyImageEntry("img:/x/clipboard_images/1.png"))
+    }
+
     @Test fun crlf_clip_survives_persist_roundtrip() {
         val dir = newDir()
         ClipboardStore(dir).apply { load(); record("line1\r\nline2"); flushPendingWrites() }

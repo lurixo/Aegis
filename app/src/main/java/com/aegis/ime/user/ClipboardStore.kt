@@ -163,12 +163,13 @@ class ClipboardStore(private val dir: File) {
     private class LoadedHistory(val entries: List<ClipEntry>, val readable: Boolean)
 
     private fun readHistory(): LoadedHistory {
+        purgeLegacyImageDir()
         val entries = ArrayList<ClipEntry>()
         val seen = HashSet<String>()
         val readable = runCatching {
             if (histFile.exists()) Files.readAllLines(histFile.toPath()).forEach { line ->
                 readEntry(line)?.let { e ->
-                    if (e.key.isNotBlank() && seen.add(e.key)) entries.add(e)
+                    if (e.key.isNotBlank() && !isLegacyImageEntry(e.key) && seen.add(e.key)) entries.add(e)
                 }
             }
         }.isSuccess
@@ -184,6 +185,8 @@ class ClipboardStore(private val dir: File) {
             saveGen.incrementAndGet()
         }
     }
+
+    private fun purgeLegacyImageDir() { runCatching { File(dir, "clipboard_images").deleteRecursively() } }
 
     private fun readEntry(line: String): ClipEntry? {
         if (line.startsWith(BIG_LINE)) {
@@ -346,6 +349,11 @@ class ClipboardStore(private val dir: File) {
 
     companion object {
         private val TMP_TAGS = AtomicLong(0)
+
+        private const val LEGACY_IMG_PREFIX = "img:"
+        private const val LEGACY_IMG_DIR = "/clipboard_images/"
+        fun isLegacyImageEntry(entry: String): Boolean =
+            entry.startsWith(LEGACY_IMG_PREFIX) && entry.contains(LEGACY_IMG_DIR)
 
         fun foldLineBreaks(s: String): String = s.trim { it in LINE_BREAKS }.replace(LINE_BREAK_RUN, " ")
 
