@@ -42,6 +42,27 @@ class KeyboardControllerTest {
     private fun act(a: KeyAction) = Key("", action = a)
     private fun out(s: String) = Key(s, output = s)
 
+    private class FuzzyRecordingEngine : CandidateEngine {
+        var rules: Set<String>? = null
+        override fun candidates(composing: String, t9: Boolean): List<String> = emptyList()
+        override fun setFuzzyRules(rules: Set<String>) { this.rules = rules }
+    }
+
+    @Test fun setEngine_reapplies_last_pushed_fuzzy_rules_across_a_hot_reload_swap() {
+        val c = KeyboardController(FakeHost(), FuzzyRecordingEngine())
+        c.setFuzzyRules(setOf("zh"))
+        val swapped = FuzzyRecordingEngine()
+        c.setEngine(swapped)
+        assertEquals("engine swap must preserve the live fuzzy rules", setOf("zh"), swapped.rules)
+    }
+
+    @Test fun setEngine_does_not_force_fuzzy_rules_before_the_service_has_pushed_any() {
+        val c = KeyboardController(FakeHost(), engine)
+        val swapped = FuzzyRecordingEngine()
+        c.setEngine(swapped)
+        assertEquals("no push yet → swap must not override build-time rules", null, swapped.rules)
+    }
+
     @Test fun nine_enter_commits_raw_pinyin_not_digits() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)

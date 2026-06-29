@@ -84,6 +84,10 @@ class DictEngine(
         userModel?.record(prevWord, word, System.currentTimeMillis())
     }
 
+    override fun setFuzzyRules(rules: Set<String>) {
+        decoder?.setFuzzyRules(rules)
+    }
+
     private companion object {
         const val MAX_CANDIDATES = 30
         const val MAX_PREDICTIONS = 8

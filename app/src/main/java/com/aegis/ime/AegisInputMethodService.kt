@@ -36,6 +36,7 @@ import androidx.core.view.inputmethod.InputConnectionCompat
 import androidx.core.view.inputmethod.InputContentInfoCompat
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.dict.EngineAssets
 import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.dict.OctagramReader
 import com.aegis.ime.engine.DictEngine
@@ -97,6 +98,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var lastCopy: String? = null
     @Volatile private var selfClipUri: android.net.Uri? = null
     @Volatile private var userDbLoaded = false
+    @Volatile private var engineSig = ""
+    @Volatile private var engineReloading = false
     private var imePalette = ImePalette.STATIC_LIGHT
 
     private fun computePalette(): ImePalette {
@@ -139,19 +142,48 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         Thread {
             runCatching { userModel.load(userDbFile); userDbMtime = userDbFile.lastModified() }
             userDbLoaded = true
-            val dict = loadDict("aegis_dict.bin")
-            val t9Dict = loadDict("aegis_t9.bin")
-            val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
-            val fuzzyRules = if (!prefs.getBoolean("fuzzy", Fuzzy.DEFAULT_ON)) emptySet()
-                else Fuzzy.RULES.filter { prefs.getBoolean(Fuzzy.prefKey(it.key), true) }
-                    .mapTo(LinkedHashSet()) { it.key }
-            val initialsDict = loadDict("aegis_jianpin.bin")
-            val lm = loadLm("aegis_lm.bin")
-            val octagram = runCatching { OctagramReader.fromDownloads(this, "wanxiang-lts-zh-hans.gram") }
-                .onFailure { Log.e("Aegis", "octagram load failed", it) }.getOrNull()
-            val engine = DictEngine(dict, t9Dict, lm, userModel, fuzzyRules, initialsDict, octagram)
+            val engine = buildEngine()
             Handler(Looper.getMainLooper()).post { controller.setEngine(engine) }
         }.apply { name = "aegis-dict-load"; isDaemon = true }.start()
+    }
+
+    private fun buildEngine(): DictEngine {
+        val sig = EngineAssets.signature(File(filesDir, "downloaded"))
+        val dict = loadDict("aegis_dict.bin")
+        val t9Dict = loadDict("aegis_t9.bin")
+        val fuzzyRules = currentFuzzyRules()
+        val initialsDict = loadDict("aegis_jianpin.bin")
+        val lm = loadLm("aegis_lm.bin")
+        val octagram = runCatching { OctagramReader.fromDownloads(this, "wanxiang-lts-zh-hans.gram") }
+            .onFailure { Log.e("Aegis", "octagram load failed", it) }.getOrNull()
+        val engine = DictEngine(dict, t9Dict, lm, userModel, fuzzyRules, initialsDict, octagram)
+        engineSig = sig
+        return engine
+    }
+
+    private fun currentFuzzyRules(): Set<String> {
+        val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
+        return Fuzzy.activeRules(prefs.getBoolean("fuzzy", Fuzzy.DEFAULT_ON)) { prefs.getBoolean(Fuzzy.prefKey(it), true) }
+    }
+
+    private fun maybeReloadEngine() {
+        if (engineSig.isEmpty() || engineReloading) return
+        if (com.aegis.ime.dict.ModelDownload.installInProgress(filesDir)) return
+        val current = EngineAssets.signature(File(filesDir, "downloaded"))
+        if (!EngineAssets.needsReload(engineSig, current)) return
+        engineReloading = true
+        try {
+            Thread {
+                runCatching {
+                    val engine = buildEngine()
+                    Handler(Looper.getMainLooper()).post { controller.setEngine(engine) }
+                }.onFailure { Log.e("Aegis", "engine hot-reload failed", it) }
+                engineReloading = false
+            }.apply { name = "aegis-dict-reload"; isDaemon = true }.start()
+        } catch (t: Throwable) {
+            Log.e("Aegis", "engine hot-reload thread start failed", t)
+            engineReloading = false
+        }
     }
 
     override fun onStartInput(info: EditorInfo?, restarting: Boolean) {
@@ -163,6 +195,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (userDbLoaded && !userModel.dirty && userDbFile.lastModified() > userDbMtime) {
             runCatching { userModel.reload(userDbFile); userDbMtime = userDbFile.lastModified() }
         }
+        maybeReloadEngine()
     }
 
     override fun onFinishInput() {
@@ -243,6 +276,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val cnLayout = prefs.getString("cn_layout", "nine")
         controller.setCnDefaultLayout(if (cnLayout == "alpha") LayoutId.ALPHA else LayoutId.NINE)
         controller.setAssociationsEnabled(prefs.getBoolean("pref_associations_on", true))
+        controller.setFuzzyRules(currentFuzzyRules())
         controller.reset()
         applyPaletteEverywhere()
     }
