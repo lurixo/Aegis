@@ -142,7 +142,6 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         showingUrlCompletions = urlCompletions.isNotEmpty()
         if (showingUrlCompletions) {
             netBar.visibility = View.VISIBLE
-            if (isNet) netBar.addView(netHeader("网址补全"))
             addCompletionChips(urlCompletions)
         } else {
             netBar.visibility = View.GONE
@@ -166,13 +165,6 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
             rowW += w
         }
         if (row.childCount > 0) netBar.addView(row)
-    }
-
-    private fun netHeader(text: String): TextView = TextView(context).apply {
-        this.text = text
-        setTextColor(palette.keyLabelSecondary)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.caption)
-        setPadding(dp(8), dp(6), dp(8), dp(4))
     }
 
     private fun netRow(): LinearLayout = LinearLayout(context).apply {
