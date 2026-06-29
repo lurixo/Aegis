@@ -210,13 +210,20 @@ class PhrasePanelTest {
 
     @Test fun top_bar_icons_are_uniform_size() {
         val v = phraseView()
-        val icons = listOf("‹", "＋", "☰", "⚙").map { lbl ->
+        // ＋/☰/⚙ are text chips; debug.17: 返回 is now a DRAWN View (Glyphs.drawBack), all in the same icon slot.
+        val textIcons = listOf("＋", "☰", "⚙").map { lbl ->
             textViews(v).first { it.text?.toString() == lbl && it.hasOnClickListeners() }
         }
-        val widths = icons.map { it.layoutParams.width }.toSet()
-        val heights = icons.map { it.layoutParams.height }.toSet()
-        assertEquals("all top icons share one width (item7)", 1, widths.size)
-        assertEquals("all top icons share one height (item7)", 1, heights.size)
+        val slotW = textIcons.first().layoutParams.width
+        val slotH = textIcons.first().layoutParams.height
+        val all = ArrayList<View>()
+        fun walk(x: View) { all.add(x); if (x is ViewGroup) for (i in 0 until x.childCount) walk(x.getChildAt(i)) }
+        walk(v)
+        val back = all.first { it !is TextView && it.hasOnClickListeners() && it.layoutParams?.width == slotW && it.layoutParams?.height == slotH }
+        val icons = textIcons + back
+        assertTrue("返回 is no longer a '‹' text glyph", textViews(v).none { it.text?.toString() == "‹" })
+        assertEquals("all top icons share one width (item7)", 1, icons.map { it.layoutParams.width }.toSet().size)
+        assertEquals("all top icons share one height (item7)", 1, icons.map { it.layoutParams.height }.toSet().size)
     }
 
     // ---- debug.16 fix: 剪贴板 添加常用语 → 新建分类 must carry the clip into the new category ----

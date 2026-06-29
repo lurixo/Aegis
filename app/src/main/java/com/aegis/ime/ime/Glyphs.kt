@@ -81,6 +81,16 @@ object Glyphs {
         c.drawLine(tipX, tipY, baseX - px * hw, baseY - py * hw, paint) // wing 2
     }
 
+    /** debug.17: 返回 chevron "‹" — a left-pointing V in the SAME hollow-stroke language as [drawArrow], so the
+     *  back affordance reads as a real outline icon (clipboard top bar + edit-panel header) instead of the tiny
+     *  "‹" text glyph. Tip at the left (cx - w, cy); two wings open to the upper-/lower-right. */
+    fun drawBack(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val w = s * 0.6f   // horizontal half-extent (tip → wing ends)
+        val h = s * 0.82f  // vertical half-extent (wing spread)
+        c.drawLine(cx + w, cy - h, cx - w, cy, paint) // top-right → tip
+        c.drawLine(cx - w, cy, cx + w, cy + h, paint) // tip → bottom-right
+    }
+
     /** ⌫ backspace = a left-pointing tag outline with an ✕ on its face (debug.16 item5 删除). */
     fun drawBackspace(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val h = s * 0.62f

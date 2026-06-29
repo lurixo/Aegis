@@ -75,9 +75,14 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         orientation = VERTICAL
         setBackgroundColor(palette.keyboardBg) // P-A: panel floor == the strip/keyboard floor (no top seam)
 
-        // Title bar — back chevron "‹" matching the clipboard panel's 返回 (debug.16 item4).
+        // Title bar — debug.17: the back chevron is now the hollow-stroke Glyphs.drawBack icon (matching the
+        // clipboard panel's 返回 + the rest of the panel's outline icons), bigger than the old tiny "‹" char.
         addView(
-            textBtn("‹  文字编辑", EditAction.BACK, sp = 16f).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), 0, 0, 0) },
+            textBtn("文字编辑", EditAction.BACK, sp = 16f).apply {
+                gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), 0, 0, 0)
+                setCompoundDrawablesWithIntrinsicBounds(icon(26, 0.42f) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }, null, null, null)
+                compoundDrawablePadding = dp(6)
+            },
             LayoutParams(LayoutParams.MATCH_PARENT, dp(40)),
         )
 
