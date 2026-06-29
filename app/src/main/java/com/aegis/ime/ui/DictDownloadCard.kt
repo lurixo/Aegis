@@ -20,6 +20,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -34,7 +35,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,16 +48,19 @@ import java.io.File
 
 /**
  * B2 (debug.13) — 全量词库包下载管理. Mirrors [GramDownloadCard] (the model card) but targets the FULL
- * dictionary pack via [ModelDownload]'s dict surface (DICT_URL / dictDestFile / DICT_VALIDATOR_PREF), so the
+ * dictionary pack via [ModelDownload]'s dict surface (DICT_URL / dictZipFile / DICT_VALIDATOR_PREF), so the
  * two cards download + check for updates INDEPENDENTLY (B5: each HEADs its own URL). The bundled seed
- * dictionary works offline without this; the pack just widens candidate coverage. B4: a tappable 直达链接 to
- * the pack's release page. (PLACEHOLDER URL until the real pack is published — A3.)
+ * dictionary works offline without this; the pack just widens candidate coverage.
  *
- * NOTE: slice-1 is the download UI + mechanism only. The downloaded pack's consumption (override/extract into
- * the engine) is wired when the real pack ships — so the done state reads "已下载", not a false "生效中".
+ * debug.14 Bug1: the 来源链接 points at the UPSTREAM dictionary repo (amzxyz/rime-wanxiang), symmetric with the
+ * model card. debug.14 Bug2: 更新 is an EXPLICIT 检测更新 button with a visible "正在检查更新…" step and a clear
+ * result (有更新 → 立即更新 / 无更新 → 提示) — no more passive, permanently-disabled grey button.
+ *
+ * [preview] (test-only, default null) seeds the rendered state so the render harness can snapshot the
+ * present / checking / result states without a network HEAD or real downloaded files.
  */
 @Composable
-internal fun DictDownloadCard() {
+internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
     val zip = ModelDownload.dictZipFile(context.filesDir)
@@ -68,32 +71,13 @@ internal fun DictDownloadCard() {
     }
     val notDownloadedLabel = "⚠ 全量词库未下载 —— 可选下载约 98 MB 压缩包（解压约 243 MB；内置高频种子词库已可离线使用）"
 
-    var present by remember { mutableStateOf(ModelDownload.isDictDownloaded(context.filesDir)) }
-    var status by remember { mutableStateOf(if (present) doneLabel() else notDownloadedLabel) }
+    var present by remember { mutableStateOf(preview?.present ?: ModelDownload.isDictDownloaded(context.filesDir)) }
+    var status by remember { mutableStateOf(preview?.status ?: if (present) doneLabel() else notDownloadedLabel) }
     var progress by remember { mutableStateOf(0f) }
     var downloading by remember { mutableStateOf(false) }
-    var checking by remember { mutableStateOf(false) }
-    var updateAvailable by remember { mutableStateOf(false) }
+    var checking by remember { mutableStateOf(preview?.checking ?: false) }
 
     val handler = remember { Handler(Looper.getMainLooper()) }
-
-    // B5: this card checks its OWN remote (HEAD DICT_URL) against the dict's OWN recorded validator — wholly
-    // separate from the model card's check.
-    LaunchedEffect(present) {
-        if (present && !downloading) {
-            checking = true
-            Thread {
-                val remote = ModelDownload.remoteValidator(ModelDownload.DICT_URL)
-                val local = prefs.getString(ModelDownload.DICT_VALIDATOR_PREF, null)
-                handler.post {
-                    checking = false
-                    updateAvailable = ModelDownload.updateAvailable(local, remote)
-                }
-            }.apply { isDaemon = true }.start()
-        } else {
-            updateAvailable = false
-        }
-    }
 
     fun startDownload() {
         downloading = true
@@ -116,11 +100,47 @@ internal fun DictDownloadCard() {
                 when {
                     installed -> {
                         prefs.edit { putString(ModelDownload.DICT_VALIDATOR_PREF, result.validator) }
-                        updateAvailable = false
                         status = doneLabel()
                     }
                     !result.ok -> status = "下载失败"
                     else -> status = "校验或解压失败（文件可能损坏,请重试）"
+                }
+            }
+        }.apply { isDaemon = true }.start()
+    }
+
+    // Bug2: explicit update check with a VISIBLE in-progress step and a definite result. HEAD the dict URL,
+    // compare to the recorded validator; an update downloads immediately (有更新→正在更新), otherwise it says so.
+    fun checkUpdate() {
+        checking = true
+        Thread {
+            // runCatching wraps the WHOLE check so the post below always runs (checking always resets). A
+            // failed/blocked HEAD (or any unexpected failure) yields a null remote → OFFLINE (handled below),
+            // never a phantom "update".
+            val checked = runCatching {
+                ModelDownload.remoteValidator(ModelDownload.DICT_URL) to
+                    prefs.getString(ModelDownload.DICT_VALIDATOR_PREF, null)
+            }.getOrNull()
+            val remote = checked?.first
+            val local = checked?.second
+            handler.post {
+                checking = false
+                // F1: present is read live — if the user tapped 删除 during the (blocking) HEAD it is now false
+                // → updateAction returns null and we discard the stale result, never re-downloading what was deleted.
+                when (ModelDownload.updateAction(present, local, remote)) {
+                    null -> {} // deleted mid-check → no-op
+                    ModelDownload.UpdateCheck.OFFLINE -> { // F2: offline — not 有更新, not 无更新
+                        status = "无法检查更新（网络不可用）"
+                        Toast.makeText(context, "无法检查更新（网络不可用）", Toast.LENGTH_SHORT).show()
+                    }
+                    ModelDownload.UpdateCheck.UP_TO_DATE -> {
+                        status = "已是最新，无更新（全量词库已是最新版本）"
+                        Toast.makeText(context, "已是最新，无更新", Toast.LENGTH_SHORT).show()
+                    }
+                    ModelDownload.UpdateCheck.UPDATE -> {
+                        Toast.makeText(context, "发现更新，开始更新", Toast.LENGTH_SHORT).show()
+                        startDownload()
+                    }
                 }
             }
         }.apply { isDaemon = true }.start()
@@ -141,7 +161,7 @@ internal fun DictDownloadCard() {
                 "存放位置：$location（应用私有目录,文件管理器不可见,仅本机、可删除）。",
                 style = MaterialTheme.typography.bodySmall,
             )
-            // B4: tappable direct link to the dict pack's release page (system browser, ACTION_VIEW).
+            // Bug1: tappable link to the UPSTREAM dictionary source repo (symmetric with the model card).
             TextButton(
                 onClick = {
                     runCatching {
@@ -153,13 +173,13 @@ internal fun DictDownloadCard() {
                 },
                 contentPadding = PaddingValues(0.dp),
             ) {
-                Text("词库包下载页：Releases ↗", style = MaterialTheme.typography.bodySmall)
+                Text("词库来源：amzxyz/rime-wanxiang ↗", style = MaterialTheme.typography.bodySmall)
             }
             if (downloading) {
                 LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
             }
             Text(
-                if (present && checking) "$status（正在检查更新…）" else status,
+                if (checking) "正在检查更新…" else status,
                 style = MaterialTheme.typography.bodySmall,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -168,18 +188,19 @@ internal fun DictDownloadCard() {
                     onClick = { startDownload() },
                 ) { Text("下载") }
                 if (present) {
+                    // Bug2: always tappable while present (no passive grey button); the check itself decides.
                     Button(
-                        enabled = !downloading && !checking && updateAvailable,
-                        onClick = { startDownload() },
-                    ) { Text(if (updateAvailable) "更新" else "已是最新") }
+                        enabled = !downloading && !checking,
+                        onClick = { checkUpdate() },
+                    ) { Text("检测更新") }
                 }
                 OutlinedButton(
-                    enabled = !downloading && present,
+                    // F1: also disabled while a check is in flight, so a delete can't race the HEAD callback.
+                    enabled = !downloading && !checking && present,
                     onClick = {
                         ModelDownload.purgeDict(context.filesDir)
                         prefs.edit { remove(ModelDownload.DICT_VALIDATOR_PREF) }
                         present = false
-                        updateAvailable = false
                         progress = 0f
                         status = "⚠ 全量词库已删除（内置种子词库仍可用）"
                     },

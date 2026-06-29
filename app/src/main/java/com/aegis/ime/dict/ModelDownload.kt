@@ -127,6 +127,24 @@ object ModelDownload {
      */
     fun updateAvailable(local: String?, remote: String?): Boolean = !(remote != null && remote == local)
 
+    /** debug.14 Bug2/F2: the THREE outcomes an explicit 检测更新 must distinguish — distinct from
+     *  [updateAvailable]'s 2-valued "offer unless confirmed-equal" (which conflates offline with an update). */
+    enum class UpdateCheck { OFFLINE, UP_TO_DATE, UPDATE }
+
+    /**
+     * debug.14 Bug2 (F2 离线三态) + Bug1/F1 (删除竞态守卫): classify an explicit update check.
+     * [present] guards the late HEAD callback: if the user deleted the pack mid-check it is false → null
+     * (discard the stale result; NEVER re-download what was just deleted). Otherwise: an unreachable remote
+     * ([remote] == null) is OFFLINE (neither 有更新 nor 无更新 — no download), an exact match is UP_TO_DATE,
+     * a differing remote is UPDATE.
+     */
+    fun updateAction(present: Boolean, local: String?, remote: String?): UpdateCheck? = when {
+        !present -> null
+        remote == null -> UpdateCheck.OFFLINE
+        remote == local -> UpdateCheck.UP_TO_DATE
+        else -> UpdateCheck.UPDATE
+    }
+
     /** Thorough delete: the model file plus any interrupted .part leftover (callers also clear the
      *  stored validator). Returns true if anything was removed. Idempotent. */
     fun purge(filesDir: File): Boolean {
@@ -147,8 +165,9 @@ object ModelDownload {
     const val DICT_URL =
         "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.13/aegis_dict_pack_debug13.zip"
 
-    /** PLACEHOLDER — the dict pack's release page, shown as the card's tappable 直达链接 (B4). */
-    const val DICT_REPO_URL = "https://github.com/lurixo/aegis/releases"
+    /** The UPSTREAM dictionary source repo, shown as the card's tappable 来源链接 — symmetric with the model
+     *  card's [REPO_URL] (amzxyz/RIME-LMDG). Not a release asset / not our own repo (debug.14 Bug1). */
+    const val DICT_REPO_URL = "https://github.com/amzxyz/rime-wanxiang"
 
     /** The downloaded zip's filename + its expected sha256 (the debug.13 dict pack). */
     const val DICT_NAME = "aegis_dict_pack_debug13.zip"

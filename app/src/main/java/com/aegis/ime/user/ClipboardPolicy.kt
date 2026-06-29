@@ -49,6 +49,15 @@ object ClipboardPolicy {
             (imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0
 
     /**
+     * BUG3-1: should onSystemClipChanged even READ the system clipboard? Restores the debug.13 short-circuit —
+     * when capture is paused (secure field / history off) AND no self-write is pending, skip the getPrimaryClip
+     * IPC entirely (no read in password fields). A pending self-write is still read so the guard can be
+     * consumed/reset. Equivalent to: read iff there is a self-write OR capture is currently allowed.
+     */
+    fun shouldReadSystemClip(selfWritePending: Boolean, secureField: Boolean, historyEnabled: Boolean): Boolean =
+        selfWritePending || (!secureField && historyEnabled)
+
+    /**
      * 复制条 display: should the most-recently-captured 复制条 be RESTORED when a field (re)starts?
      * iff there is a pending clip — DECOUPLED from [isSensitive]/secureField on purpose. Showing a clip that
      * was captured ELSEWHERE is a paste convenience available in EVERY field type, including terminal /
