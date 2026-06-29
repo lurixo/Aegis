@@ -18,6 +18,7 @@ package com.aegis.ime.ime
 import com.aegis.ime.decoder.Cand
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.Key
+import com.aegis.ime.layout.KeyAction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -95,6 +96,29 @@ class PredictionTest {
         c.setLearningBlocked(true) // password / NO_PERSONALIZED_LEARNING field
         commitNiHao(c)
         assertTrue("no personalized predictions in a secure field", c.candidateWords().isEmpty())
+    }
+
+    @Test fun reentry_dismisses_a_lingering_prediction() {
+        // debug.14 BUG1: a next-word prediction sits on the bar after a commit. 重输 must clear it and it must
+        // NOT immediately regenerate (the old code left lastWord set, so refreshCandidates re-populated it —
+        // a "ghost" the user could not clear).
+        val h = EditorHost()
+        val c = KeyboardController(h, niHaoEngine())
+        commitNiHao(c)
+        assertEquals(listOf("世界", "啊"), c.candidateWords()) // prediction showing
+        c.onKey(Key("", action = KeyAction.CLEAR_COMPOSING)) // 重输
+        assertTrue("重输 clears the prediction and it does not regenerate", c.candidateWords().isEmpty())
+    }
+
+    @Test fun backspace_dismisses_a_lingering_prediction() {
+        // debug.14 BUG1: 退格 also clears the lingering prediction (it nulls lastWord, so predict() returns
+        // nothing on the refresh that follows).
+        val h = EditorHost()
+        val c = KeyboardController(h, niHaoEngine())
+        commitNiHao(c)
+        assertEquals(listOf("世界", "啊"), c.candidateWords())
+        c.onKey(Key("", action = KeyAction.BACKSPACE)) // 退格
+        assertTrue("退格 clears the prediction", c.candidateWords().isEmpty())
     }
 
     @Test fun calculator_takes_priority_over_prediction() {
