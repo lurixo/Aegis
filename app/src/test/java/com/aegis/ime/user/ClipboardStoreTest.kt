@@ -556,6 +556,17 @@ class ClipboardStoreTest {
         assertEquals(listOf("a"), s.phrasesIn("甲"))
     }
 
+    @Test fun reorder_phrase_moves_item_and_persists() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("a", "b", "c", "d")) }
+        assertTrue(s.reorderPhrase("甲", 0, 2))
+        assertEquals(listOf("b", "c", "a", "d"), s.phrasesIn("甲"))
+        assertTrue(s.reorderPhrase("甲", 3, 0))
+        assertEquals(listOf("d", "b", "c", "a"), s.phrasesIn("甲"))
+        s.flushPendingWrites()
+        assertEquals(listOf("d", "b", "c", "a"), ClipboardStore(dir).apply { load() }.phrasesIn("甲"))
+    }
+
     @Test fun new_category_with_pending_clip_lands_the_clip_in_it() {
         val dir = newDir()
         val s = ClipboardStore(dir).apply { load(); addCategory("默认") }
@@ -572,6 +583,15 @@ class ClipboardStoreTest {
         s.addCategory(name); s.movePhrasesTo("默认", listOf("你好"), name)
         assertEquals(listOf("在吗"), s.phrasesIn("默认"))
         assertEquals(listOf("你好"), s.phrasesIn("工作"))
+    }
+
+    @Test fun reorder_phrase_rejects_bad_indices_and_noops() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("a", "b")) }
+        assertFalse(s.reorderPhrase("甲", 0, 0))
+        assertFalse(s.reorderPhrase("甲", -1, 1))
+        assertFalse(s.reorderPhrase("甲", 0, 5))
+        assertFalse(s.reorderPhrase("无", 0, 1))
+        assertEquals(listOf("a", "b"), s.phrasesIn("甲"))
     }
 
     @Test fun reorder_category_moves_category_and_persists() {

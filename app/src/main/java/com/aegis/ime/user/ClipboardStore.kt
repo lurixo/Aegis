@@ -585,6 +585,19 @@ class ClipboardStore(private val dir: File) {
         return moved
     }
 
+    fun reorderPhrase(category: String, fromIndex: Int, toIndex: Int): Boolean {
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.LIST, 1); return false }
+        val after = synchronized(phraseCats) {
+            val c = find(category) ?: return false
+            val n = c.phrases.size
+            if (fromIndex !in 0 until n || toIndex !in 0 until n || fromIndex == toIndex) return false
+            c.phrases.add(toIndex, c.phrases.removeAt(fromIndex))
+            phraseSnapshot()
+        }
+        writePhrases(PhraseEdit.LIST, 1, 1, after)
+        return true
+    }
+
     fun reorderCategory(fromIndex: Int, toIndex: Int): Boolean {
         if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.LIST, 1); return false }
         val after = synchronized(phraseCats) {
