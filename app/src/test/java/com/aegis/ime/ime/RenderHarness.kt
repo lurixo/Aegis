@@ -26,6 +26,7 @@ import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -171,7 +172,8 @@ class RenderHarness {
             val v = SymbolsView(ctx).apply {
                 applyPalette(pal); openCategoryForTest(1)
             }
-            assertTrue("中文 chips include —— / ……", v.netChipTextsForTest().containsAll(listOf("——", "……")))
+            assertTrue("中文 grid cells include —— / ……", v.gridCellTextsForTest().containsAll(listOf("——", "……")))
+            assertFalse("中文 has no wide chip bar (marks ride the grid)", v.chipBarVisibleForTest())
             snap(v, (560 * density).toInt(), "symbols_chinese_$t.png")
         }
     }
@@ -363,6 +365,7 @@ class RenderHarness {
             val idle = EditPanelView(ctx).apply { applyPalette(pal); setHasSelection(false) }
             snap(idle, h, "edit_panel_$t.png")
             assertTrue("$t: header keeps the 文字编辑 label", idle.hasTextLeaf("文字编辑"))
+            assertActionGroupRightShifted(idle, h, pal, "edit_panel_$t")
             val active = EditPanelView(ctx).apply { applyPalette(pal); setSelecting(true); setHasSelection(true) }
             snap(active, h, "edit_panel_selecting_$t.png")
         }
@@ -430,6 +433,22 @@ class RenderHarness {
             if (x is android.view.ViewGroup) for (i in 0 until x.childCount) walk(x.getChildAt(i))
         }
         walk(root); return out
+    }
+
+    private fun assertActionGroupRightShifted(view: View, hPx: Int, pal: ImePalette, name: String) {
+        view.measure(exactly(wPx), exactly(hPx)); view.layout(0, 0, wPx, hPx)
+        val bmp = Bitmap.createBitmap(wPx, hPx, Bitmap.Config.ARGB_8888)
+        view.draw(Canvas(bmp))
+        val bg = pal.keyboardBg
+        val y0 = (46 * density).toInt()
+        fun colPainted(x: Int): Boolean { for (y in y0 until hPx) if (bmp.getPixel(x, y) != bg) return true; return false }
+        var left = 0; while (left < wPx && !colPainted(left)) left++
+        var right = wPx - 1; while (right > 0 && !colPainted(right)) right--
+        val leftMargin = left; val rightMargin = wPx - 1 - right
+        assertTrue(
+            "$name: action group not symmetric — leftMargin=$leftMargin rightMargin=$rightMargin (want ≈ equal)",
+            kotlin.math.abs(leftMargin - rightMargin) <= wPx / 20,
+        )
     }
 
     @Test fun keyboard_alpha() {

@@ -30,6 +30,7 @@ import android.widget.GridLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.widget.TextViewCompat
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
@@ -130,18 +131,19 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         netBar.removeAllViews()
         val symbols = symbolsFor(index)
         if (symbols.isEmpty()) { netBar.visibility = View.GONE; grid.addView(emptySpan()); return }
-        val completions = symbols.filter { it.length > 1 }
-        val glyphs = symbols.filter { it.length == 1 }
         val isNet = index != 0 && SymbolCatalog.categories.getOrNull(index - 1)?.id == "net"
-        showingUrlCompletions = completions.isNotEmpty() && (isNet || completions.any { isUrlLike(it) })
-        if (completions.isEmpty()) {
-            netBar.visibility = View.GONE
-        } else {
+        val completions = symbols.filter { it.length > 1 }
+        val urlCompletions = if (completions.isNotEmpty() && (isNet || completions.any { isUrlLike(it) }))
+            completions.filter { isUrlLike(it) } else emptyList()
+        showingUrlCompletions = urlCompletions.isNotEmpty()
+        if (showingUrlCompletions) {
             netBar.visibility = View.VISIBLE
             if (isNet) netBar.addView(netHeader("网址补全"))
-            addCompletionChips(completions)
+            addCompletionChips(urlCompletions)
+        } else {
+            netBar.visibility = View.GONE
         }
-        for (s in glyphs) grid.addView(cell(s, badge = if (index == 0) badgeFor(s) else null))
+        for (s in symbols) if (s !in urlCompletions) grid.addView(cell(s, badge = if (index == 0) badgeFor(s) else null))
     }
 
     private fun addCompletionChips(completions: List<String>) {
@@ -228,7 +230,12 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
             TextView(context).apply {
                 text = symbol
                 gravity = Gravity.CENTER
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.display)
+                maxLines = 1
+                if (symbol.length > 1) {
+                    TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(this, 9, ImeType.display.toInt(), 1, TypedValue.COMPLEX_UNIT_SP)
+                } else {
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.display)
+                }
                 setTextColor(palette.keyLabel)
                 val pv = dp(10); setPadding(0, pv, 0, pv)
             },
@@ -270,6 +277,15 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun netBarVisibleForTest(): Boolean = showingUrlCompletions
     internal fun chipBarVisibleForTest(): Boolean = netBar.visibility == View.VISIBLE
     internal fun gridCellCountForTest(): Int = grid.childCount
+    internal fun gridCellTextsForTest(): List<String> {
+        val out = ArrayList<String>()
+        for (i in 0 until grid.childCount) {
+            val tile = grid.getChildAt(i) as? android.view.ViewGroup ?: continue
+            val tv = (0 until tile.childCount).map { tile.getChildAt(it) }.filterIsInstance<TextView>().firstOrNull()
+            if (tv != null) out.add(tv.text.toString())
+        }
+        return out
+    }
     internal fun netChipTextsForTest(): List<String> {
         val out = ArrayList<String>()
         for (i in 0 until netBar.childCount) {
