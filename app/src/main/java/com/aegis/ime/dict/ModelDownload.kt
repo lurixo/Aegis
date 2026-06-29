@@ -127,6 +127,24 @@ object ModelDownload {
      */
     fun updateAvailable(local: String?, remote: String?): Boolean = !(remote != null && remote == local)
 
+    /** debug.14 Bug2/F2: the THREE outcomes an explicit 检测更新 must distinguish — distinct from
+     *  [updateAvailable]'s 2-valued "offer unless confirmed-equal" (which conflates offline with an update). */
+    enum class UpdateCheck { OFFLINE, UP_TO_DATE, UPDATE }
+
+    /**
+     * debug.14 Bug2 (F2 离线三态) + Bug1/F1 (删除竞态守卫): classify an explicit update check.
+     * [present] guards the late HEAD callback: if the user deleted the pack mid-check it is false → null
+     * (discard the stale result; NEVER re-download what was just deleted). Otherwise: an unreachable remote
+     * ([remote] == null) is OFFLINE (neither 有更新 nor 无更新 — no download), an exact match is UP_TO_DATE,
+     * a differing remote is UPDATE.
+     */
+    fun updateAction(present: Boolean, local: String?, remote: String?): UpdateCheck? = when {
+        !present -> null
+        remote == null -> UpdateCheck.OFFLINE
+        remote == local -> UpdateCheck.UP_TO_DATE
+        else -> UpdateCheck.UPDATE
+    }
+
     /** Thorough delete: the model file plus any interrupted .part leftover (callers also clear the
      *  stored validator). Returns true if anything was removed. Idempotent. */
     fun purge(filesDir: File): Boolean {

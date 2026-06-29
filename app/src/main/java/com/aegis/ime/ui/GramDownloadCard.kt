@@ -107,21 +107,33 @@ internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
     fun checkUpdate() {
         checking = true
         Thread {
-            // runCatching guarantees the post below always runs (checking resets); an unexpected failure
-            // falls back to offering an update — same rule as a remote that can't be fetched (remote 取不到 → 更新).
-            val hasUpdate = runCatching {
-                val remote = ModelDownload.remoteValidator(ModelDownload.GRAM_URL)
-                val local = prefs.getString(ModelDownload.VALIDATOR_PREF, null)
-                ModelDownload.updateAvailable(local, remote)
-            }.getOrDefault(true)
+            // runCatching wraps the WHOLE check so the post below always runs (checking always resets). A
+            // failed/blocked HEAD (or any unexpected failure) yields a null remote → OFFLINE (handled below),
+            // never a phantom "update".
+            val checked = runCatching {
+                ModelDownload.remoteValidator(ModelDownload.GRAM_URL) to
+                    prefs.getString(ModelDownload.VALIDATOR_PREF, null)
+            }.getOrNull()
+            val remote = checked?.first
+            val local = checked?.second
             handler.post {
                 checking = false
-                if (hasUpdate) {
-                    Toast.makeText(context, "发现更新，开始更新", Toast.LENGTH_SHORT).show()
-                    startDownload()
-                } else {
-                    status = "已是最新，无更新（增强模型已是最新版本）"
-                    Toast.makeText(context, "已是最新，无更新", Toast.LENGTH_SHORT).show()
+                // F1: present is read live — if the user tapped 删除 during the (blocking) HEAD it is now false
+                // → updateAction returns null and we discard the stale result, never re-downloading what was deleted.
+                when (ModelDownload.updateAction(present, local, remote)) {
+                    null -> {} // deleted mid-check → no-op
+                    ModelDownload.UpdateCheck.OFFLINE -> { // F2: offline — not 有更新, not 无更新
+                        status = "无法检查更新（网络不可用）"
+                        Toast.makeText(context, "无法检查更新（网络不可用）", Toast.LENGTH_SHORT).show()
+                    }
+                    ModelDownload.UpdateCheck.UP_TO_DATE -> {
+                        status = "已是最新，无更新（增强模型已是最新版本）"
+                        Toast.makeText(context, "已是最新，无更新", Toast.LENGTH_SHORT).show()
+                    }
+                    ModelDownload.UpdateCheck.UPDATE -> {
+                        Toast.makeText(context, "发现更新，开始更新", Toast.LENGTH_SHORT).show()
+                        startDownload()
+                    }
                 }
             }
         }.apply { isDaemon = true }.start()
@@ -178,7 +190,8 @@ internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
                     ) { Text("检测更新") }
                 }
                 OutlinedButton(
-                    enabled = !downloading && present,
+                    // F1: also disabled while a check is in flight, so a delete can't race the HEAD callback.
+                    enabled = !downloading && !checking && present,
                     onClick = {
                         ModelDownload.purge(context.filesDir)
                         prefs.edit { remove(ModelDownload.VALIDATOR_PREF) }
