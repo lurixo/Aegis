@@ -67,6 +67,9 @@ class CandidateView(context: Context) : View(context) {
     private var downX = 0f
     private var downScroll = 0f
     private var dragging = false
+    // debug.17 #66: the candidate strip's horizontal scroll now flings (was pure drag) via the SHARED helper —
+    // a quick flick coasts instead of stopping dead at the finger lift.
+    private val fling = FlingScroller(context)
 
     init { setLayerType(LAYER_TYPE_SOFTWARE, null) } // soft shadow for the floating toolbar capsule
 
@@ -139,6 +142,12 @@ class CandidateView(context: Context) : View(context) {
 
     /** U14 test seam: the chevron currently drawn at the right edge (⌃ when expanded, else ⌄). */
     internal fun chevronGlyph(): String = if (expanded) "⌃" else "⌄"
+
+    // debug.17 #66 fling test seams.
+    internal fun scrollXForTest(): Float = scrollX
+    internal fun maxScrollForTest(): Float = maxScroll()
+    internal fun isFlingingForTest(): Boolean = !fling.isFinished
+    internal fun flingVelocityForTest(): Float = fling.velocity()
 
     private fun layoutCells() {
         hitCount = items.size
@@ -244,15 +253,22 @@ class CandidateView(context: Context) : View(context) {
         c.drawLine(cx, cy - s * 0.28f, cx + s * 0.5f, cy + s * 0.2f, iconPaint)
     }
 
+    /** debug.17 #66: drive the horizontal momentum fling each frame (View.draw calls this automatically). */
+    override fun computeScroll() {
+        fling.computeOffset()?.let { scrollX = it.coerceIn(0f, maxScroll()); postInvalidateOnAnimation() }
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downX = event.x
                 downScroll = scrollX
                 dragging = false
+                fling.onDown() // stop any running fling; a tap that halts it must not also pick a candidate
             }
             MotionEvent.ACTION_MOVE -> {
                 if (!showingFunctions && items.isNotEmpty()) {
+                    fling.addSample(event.eventTime, event.x)
                     val dx = event.x - downX
                     if (!dragging && abs(dx) > touchSlop) dragging = true
                     if (dragging) {
@@ -262,7 +278,8 @@ class CandidateView(context: Context) : View(context) {
                 }
             }
             MotionEvent.ACTION_UP -> {
-                if (dragging) { dragging = false; return true }
+                if (dragging) { dragging = false; if (fling.fling(scrollX, maxScroll())) postInvalidateOnAnimation(); return true }
+                if (fling.stopArmed) return true // this tap only stopped a running fling — never a pick
                 if (showingFunctions) {
                     if (collapseRect.contains(event.x, event.y)) { performClick(); onCollapse(); return true }
                     funcRects.indexOfFirst { it.contains(event.x, event.y) }
