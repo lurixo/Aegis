@@ -44,6 +44,33 @@ class ModelDownloadTest {
     }
 
     @Test
+    fun installInProgressBracketsTheDictZipAndAnyPart() {
+        val base = tempFilesDir()
+        // Clean tree (only extracted bins present) → no install in flight → hot-reload may read it.
+        ModelDownload.DICT_PACK_FILES.forEach { File(base, "downloaded/$it").apply { parentFile?.mkdirs(); writeText("bin") } }
+        assertFalse("settled tree is not 'installing'", ModelDownload.installInProgress(base))
+
+        // The dict zip is present until all 3 .bin land → the whole verify+extract window reads as in-flight.
+        val zip = ModelDownload.dictZipFile(base).apply { writeText("zip") }
+        assertTrue("dict zip present → install in flight", ModelDownload.installInProgress(base))
+        zip.delete()
+        assertFalse(ModelDownload.installInProgress(base))
+
+        // A leftover per-pack .part (download not finished) also counts as in-flight.
+        val zipPart = ModelDownload.dictPartFile(base).apply { writeText("part") }
+        assertTrue("zip .part present → still downloading", ModelDownload.installInProgress(base))
+        zipPart.delete()
+
+        // The gram's own .part (model download) too.
+        val gramPart = ModelDownload.partFile(base).apply { writeText("part") }
+        assertTrue("gram .part present → model downloading", ModelDownload.installInProgress(base))
+        gramPart.delete()
+        assertFalse(ModelDownload.installInProgress(base))
+
+        base.deleteRecursively()
+    }
+
+    @Test
     fun updateAvailableOnlySuppressedByConfirmedMatch() {
         // Confirmed same release → no update offered.
         assertFalse(ModelDownload.updateAvailable(local = "etag-1", remote = "etag-1"))

@@ -36,6 +36,7 @@ import androidx.core.view.inputmethod.InputConnectionCompat
 import androidx.core.view.inputmethod.InputContentInfoCompat
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.dict.EngineAssets
 import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.dict.OctagramReader
 import com.aegis.ime.engine.DictEngine
@@ -101,6 +102,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     // exactly that one self-write. (The image already lives in aegis; it's the entry the user tapped.)
     @Volatile private var selfClipUri: android.net.Uri? = null
     @Volatile private var userDbLoaded = false // M-2: the initial userdb load has completed
+    // debug.16 (engine hot-reload): the downloaded-asset signature the LIVE engine was built from (empty until
+    // the initial onCreate build commits it), plus a re-entrancy guard so a rebuild never runs twice at once.
+    @Volatile private var engineSig = ""
+    @Volatile private var engineReloading = false
     private var imePalette = ImePalette.STATIC_LIGHT // F1: live Monet palette (dark-aware)
 
     /** F1: the current Monet palette for this process config (dark = system night mode). */
@@ -151,22 +156,69 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         Thread {
             runCatching { userModel.load(userDbFile); userDbMtime = userDbFile.lastModified() }
             userDbLoaded = true // M-2: gate onStartInput's reload until the initial load is done
-            val dict = loadDict("aegis_dict.bin")
-            val t9Dict = loadDict("aegis_t9.bin")
-            // Per-rule fuzzy (E4): the enabled rule keys drive query-time variant expansion in the
-            // decoder, so no separate fuzzy index is loaded. Master "fuzzy" off → no rules.
-            val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
-            val fuzzyRules = if (!prefs.getBoolean("fuzzy", Fuzzy.DEFAULT_ON)) emptySet()
-                else Fuzzy.RULES.filter { prefs.getBoolean(Fuzzy.prefKey(it.key), true) }
-                    .mapTo(LinkedHashSet()) { it.key }
-            val initialsDict = loadDict("aegis_jianpin.bin")
-            val lm = loadLm("aegis_lm.bin")
-            // Optional top-tier context model, only if the user downloaded it.
-            val octagram = runCatching { OctagramReader.fromDownloads(this, "wanxiang-lts-zh-hans.gram") }
-                .onFailure { Log.e("Aegis", "octagram load failed", it) }.getOrNull()
-            val engine = DictEngine(dict, t9Dict, lm, userModel, fuzzyRules, initialsDict, octagram)
+            val engine = buildEngine() // debug.16: also records engineSig for the hot-reload check
             Handler(Looper.getMainLooper()).post { controller.setEngine(engine) }
         }.apply { name = "aegis-dict-load"; isDaemon = true }.start()
+    }
+
+    /**
+     * Construct the real decode engine from the bundled assets plus any downloaded override packs. HEAVY (dict /
+     * lm / .gram parsing) — must be called OFF the main thread (onCreate's load thread and the hot-reload thread
+     * share this single construction site so both paths are byte-for-byte identical). [engineSig] is snapshotted
+     * BEFORE the loads (so it can never claim to be newer than the data actually read — at worst one redundant
+     * reload) and committed only once construction succeeds (a throwing build leaves the old signature so the
+     * next onStartInput retries). The SAME [userModel] instance is reused, preserving on-device learning.
+     */
+    private fun buildEngine(): DictEngine {
+        val sig = EngineAssets.signature(File(filesDir, "downloaded"))
+        val dict = loadDict("aegis_dict.bin")
+        val t9Dict = loadDict("aegis_t9.bin")
+        // Per-rule fuzzy (E4): the enabled rule keys drive query-time variant expansion in the
+        // decoder, so no separate fuzzy index is loaded. Master "fuzzy" off → no rules.
+        val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
+        val fuzzyRules = if (!prefs.getBoolean("fuzzy", Fuzzy.DEFAULT_ON)) emptySet()
+            else Fuzzy.RULES.filter { prefs.getBoolean(Fuzzy.prefKey(it.key), true) }
+                .mapTo(LinkedHashSet()) { it.key }
+        val initialsDict = loadDict("aegis_jianpin.bin")
+        val lm = loadLm("aegis_lm.bin")
+        // Optional top-tier context model, only if the user downloaded it.
+        val octagram = runCatching { OctagramReader.fromDownloads(this, "wanxiang-lts-zh-hans.gram") }
+            .onFailure { Log.e("Aegis", "octagram load failed", it) }.getOrNull()
+        val engine = DictEngine(dict, t9Dict, lm, userModel, fuzzyRules, initialsDict, octagram)
+        engineSig = sig // commit only on success; the pre-load snapshot keeps the invariant sig ≤ loaded data
+        return engine
+    }
+
+    /**
+     * debug.16 (engine hot-reload): if a downloaded model/dict pack changed (new download / update / delete)
+     * since the live engine was built, rebuild it off the main thread and atomically swap it in via
+     * [KeyboardController.setEngine]. The old engine keeps serving input until the new one is ready. No-op
+     * until the initial onCreate build has recorded [engineSig], and re-entrancy guarded against overlapping
+     * rebuilds. Mirrors the userdb reload in onStartInput; file mtime is the cross-process signal (no IPC).
+     */
+    private fun maybeReloadEngine() {
+        if (engineSig.isEmpty() || engineReloading) return // wait for the initial build; never rebuild twice at once
+        // Don't read downloaded/ mid-install: extractDictPack renames the 3 .bin one at a time, so a build during
+        // an install could load a mixed old/new set. The dict zip lives until all 3 land, so this is airtight;
+        // the next onStartInput (post-install) picks up the complete pack.
+        if (com.aegis.ime.dict.ModelDownload.installInProgress(filesDir)) return
+        val current = EngineAssets.signature(File(filesDir, "downloaded"))
+        if (!EngineAssets.needsReload(engineSig, current)) return
+        engineReloading = true
+        try {
+            Thread {
+                runCatching {
+                    val engine = buildEngine() // updates engineSig to the snapshot it loaded
+                    Handler(Looper.getMainLooper()).post { controller.setEngine(engine) }
+                }.onFailure { Log.e("Aegis", "engine hot-reload failed", it) }
+                engineReloading = false
+            }.apply { name = "aegis-dict-reload"; isDaemon = true }.start()
+        } catch (t: Throwable) {
+            // The thread could not be started (e.g. native-thread exhaustion under memory pressure). Clear the
+            // guard so a later onStartInput can retry — never latch hot-reload off for the process lifetime.
+            Log.e("Aegis", "engine hot-reload thread start failed", t)
+            engineReloading = false
+        }
     }
 
     override fun onStartInput(info: EditorInfo?, restarting: Boolean) {
@@ -182,6 +234,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (userDbLoaded && !userModel.dirty && userDbFile.lastModified() > userDbMtime) {
             runCatching { userModel.reload(userDbFile); userDbMtime = userDbFile.lastModified() }
         }
+        // debug.16: pick up a freshly-downloaded / updated model or dict pack the same way — rebuild the engine
+        // off the main thread and hot-swap it in, so a download takes effect on the next field focus (切走再回
+        // 来) instead of requiring an IME cold start. No-op when nothing downloaded changed.
+        maybeReloadEngine()
     }
 
     override fun onFinishInput() {
