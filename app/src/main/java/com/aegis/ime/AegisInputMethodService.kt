@@ -280,7 +280,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
         val cnLayout = prefs.getString("cn_layout", "nine")
         controller.setCnDefaultLayout(if (cnLayout == "alpha") LayoutId.ALPHA else LayoutId.NINE)
-        controller.setAssociationsEnabled(prefs.getBoolean("pref_associations_on", true))
+        controller.setAssociationsEnabled(
+            prefs.getBoolean(com.aegis.ime.ui.PREF_ASSOCIATIONS_ON, com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON),
+        )
         controller.setFuzzyRules(currentFuzzyRules())
         controller.reset()
         applyPaletteEverywhere()

@@ -120,13 +120,14 @@ class SettingsSlice1Test {
     }
 
 
-    @Test fun associations_pref_defaults_on_and_round_trips() {
+    @Test fun associations_pref_defaults_off_and_round_trips() {
         val prefs = ctx.getSharedPreferences("aegis", android.content.Context.MODE_PRIVATE)
+        assertFalse("联想 default constant is OFF", ASSOCIATIONS_DEFAULT_ON)
         prefs.edit { remove(PREF_ASSOCIATIONS_ON) }
-        assertTrue("default ON when unset", prefs.getBoolean(PREF_ASSOCIATIONS_ON, true))
-        prefs.edit { putBoolean(PREF_ASSOCIATIONS_ON, false) }
-        assertFalse("persists OFF", prefs.getBoolean(PREF_ASSOCIATIONS_ON, true))
+        assertFalse("default OFF when unset", prefs.getBoolean(PREF_ASSOCIATIONS_ON, ASSOCIATIONS_DEFAULT_ON))
         prefs.edit { putBoolean(PREF_ASSOCIATIONS_ON, true) }
-        assertTrue("persists ON", prefs.getBoolean(PREF_ASSOCIATIONS_ON, true))
+        assertTrue("explicit ON persists over the OFF default", prefs.getBoolean(PREF_ASSOCIATIONS_ON, ASSOCIATIONS_DEFAULT_ON))
+        prefs.edit { putBoolean(PREF_ASSOCIATIONS_ON, false) }
+        assertFalse("explicit OFF persists (wins even over a true default)", prefs.getBoolean(PREF_ASSOCIATIONS_ON, true))
     }
 }
