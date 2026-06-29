@@ -20,6 +20,7 @@ import com.aegis.ime.dict.ModelDownload
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -53,6 +54,15 @@ class SettingsSlice1Test {
         )
         // both land in the same downloaded/ dir (picked up like the model)
         assertEquals(ModelDownload.destFile(ctx.filesDir).parentFile, ModelDownload.dictZipFile(ctx.filesDir).parentFile)
+    }
+
+    // ---- debug.14 Bug1: the dict 来源链接 is the UPSTREAM repo, symmetric with the model card ----
+
+    @Test fun dict_repo_link_points_at_the_upstream_wanxiang_repo() {
+        assertEquals("https://github.com/amzxyz/rime-wanxiang", ModelDownload.DICT_REPO_URL)
+        // not the release-asset download URL, and not the model repo
+        assertNotEquals(ModelDownload.DICT_URL, ModelDownload.DICT_REPO_URL)
+        assertNotEquals(ModelDownload.REPO_URL, ModelDownload.DICT_REPO_URL)
     }
 
     // ---- B2 (slice-3): the dict pack is a ZIP → sha256-verify → unzip 3 .bin → rename ----
@@ -106,6 +116,23 @@ class SettingsSlice1Test {
         assertFalse("identical → suppress", ModelDownload.updateAvailable("etag-1", "etag-1"))
         assertTrue("differ → offer", ModelDownload.updateAvailable("etag-1", "etag-2"))
         assertTrue("remote unknown → fall back to offer", ModelDownload.updateAvailable("etag-1", null))
+    }
+
+    // ---- debug.14 Bug2: explicit-check three-state (F2 offline) + delete-race guard (F1) ----
+
+    @Test fun update_check_distinguishes_offline_uptodate_and_update() {
+        // F2: offline (remote null) is its OWN outcome — NOT a phantom update that would start a doomed download.
+        assertEquals(ModelDownload.UpdateCheck.OFFLINE, ModelDownload.updateAction(true, "etag-1", null))
+        assertEquals(ModelDownload.UpdateCheck.UP_TO_DATE, ModelDownload.updateAction(true, "etag-1", "etag-1"))
+        assertEquals(ModelDownload.UpdateCheck.UPDATE, ModelDownload.updateAction(true, "etag-1", "etag-2"))
+        assertEquals("never recorded but remote present → update", ModelDownload.UpdateCheck.UPDATE, ModelDownload.updateAction(true, null, "etag-1"))
+    }
+
+    @Test fun a_check_resolving_after_delete_is_discarded_and_never_redownloads() {
+        // F1: present=false (user tapped 删除 during the in-flight HEAD) → null = no-op, even when remote≠local
+        // (which would otherwise have started a re-download of the just-deleted pack).
+        assertNull("deleted mid-check → discard", ModelDownload.updateAction(false, null, "etag-2"))
+        assertNull("deleted mid-check, differing validators → still discard", ModelDownload.updateAction(false, "etag-1", "etag-2"))
     }
 
     // ---- D1: 联想 toggle pref — default ON, persists ----
