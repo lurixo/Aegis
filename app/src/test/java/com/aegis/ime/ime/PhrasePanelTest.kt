@@ -210,8 +210,9 @@ class PhrasePanelTest {
 
     @Test fun top_bar_icons_are_uniform_size() {
         val v = phraseView()
-        // ＋/☰/⚙ are text chips; debug.17: 返回 is now a DRAWN View (Glyphs.drawBack), all in the same icon slot.
-        val textIcons = listOf("＋", "☰", "⚙").map { lbl ->
+        // ＋/☰ are text chips; debug.17 E2: the phrase-tab last icon is 🗑 (清空当前分类), not ⚙. 返回 is a DRAWN
+        // View (Glyphs.drawBack). All ride the same icon slot.
+        val textIcons = listOf("＋", "☰", "🗑").map { lbl ->
             textViews(v).first { it.text?.toString() == lbl && it.hasOnClickListeners() }
         }
         val slotW = textIcons.first().layoutParams.width

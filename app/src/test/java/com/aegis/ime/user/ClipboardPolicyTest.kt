@@ -87,9 +87,10 @@ class ClipboardPolicyTest {
         assertFalse(ClipboardPolicy.shouldRestoreCopyBar(null, secureField = true))
     }
 
-    @Test fun capture_still_gated_a_visible_password_field_is_still_sensitive() {
-        // DISPLAY is decoupled, CAPTURE is not: the terminal field stays "sensitive" so onSystemClipChanged /
-        // captureClip (which early-return on secureField) still never harvest what's typed into it.
+    @Test fun password_fields_are_still_classified_sensitive_for_the_learning_gate() {
+        // isSensitive still flags password / visible-password fields. debug.17: this NO LONGER gates clipboard
+        // CAPTURE (secure-field copies are now recorded — only the history switch gates, see
+        // ClipboardStore.shouldCapture); isSensitive still gates LEARNING (passwords are never learned).
         assertTrue(ClipboardPolicy.isSensitive(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD))
         assertTrue(ClipboardPolicy.isSensitive(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD))
     }

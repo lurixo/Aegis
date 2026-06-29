@@ -100,7 +100,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     // debug.16 Option A: inline text-input. While [panelInput] is active the keyboard's output is redirected into
     // its buffer (not the target app); on 确定 the buffered text runs the pending [inputPurpose] action.
     private val panelInput = com.aegis.ime.ime.PanelTextInput()
-    private enum class InputPurpose { EDIT_PHRASE, ADD_PHRASE, ADD_CATEGORY, RENAME_CATEGORY }
+    private enum class InputPurpose { EDIT_PHRASE, ADD_PHRASE, EDIT_NOTE, ADD_CATEGORY, RENAME_CATEGORY }
     private var inputPurpose: InputPurpose? = null
     private var inputCat = "" // EDIT_PHRASE: owning category; RENAME_CATEGORY: (unused)
     private var inputOld = "" // EDIT_PHRASE: the phrase being edited; RENAME_CATEGORY: the old category name
@@ -523,6 +523,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.historyProvider = { clipboardStore.history() }
             it.categoriesProvider = { clipboardStore.categories() }                       // C5 分类
             it.phrasesInProvider = { cat -> clipboardStore.phrasesIn(cat) }
+            it.phraseNoteProvider = { cat, text -> clipboardStore.noteFor(cat, text) } // debug.17 F2: display note
             it.onPick = { t -> commitLargeText(t); inputView?.showPanel(null) } // E5: chunked for huge clips
             // M-1: an entry is an image only if the marker is backed by a real file under clipboard_images.
             it.isImage = { e -> ClipboardStore.isImageEntry(e) && clipImageStore.isStoredImage(ClipboardStore.imagePath(e)) }
@@ -544,6 +545,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onAddCategoryThenMove = { from, texts -> beginInlineAddCategory(pendingMove = from to texts) } // debug.16: 移动到分类→新建分类 (carry move)
             it.onRenameCategory = { old -> beginInlineRenameCategory(old) }               // debug.16: 分类改名 → inline buffer
             it.onDeleteCategory = { name -> clipboardStore.deleteCategory(name) }         // debug.16: 删除分类 (no typing)
+            it.onEditNote = { cat, text -> beginInlineEditNote(cat, text) }               // debug.17 F2: 备注 → inline buffer
+            it.onClearCategory = { cat -> clipboardStore.clearPhrasesIn(cat) }            // debug.17 E2: 清空当前分类
+            it.onExportPhrases = { launchPhraseTransfer(export = true) }                  // debug.17 E1: SAF 导出
+            it.onImportPhrases = { launchPhraseTransfer(export = false) }                 // debug.17 E1: SAF 导入
             it.onClearHistory = { clipboardStore.clearHistory(); clipImageStore.clear(); thumbCache.evictAll() }
             it.historyEnabledProvider = { historyEnabled() }                               // C1 记录开关
             it.onSetHistoryEnabled = { on -> setHistoryEnabled(on) }
@@ -617,6 +622,20 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
     }
 
+    /** debug.17 E1: launch the SAF bridge Activity to export / import the 常用语 library (the IME service is not
+     *  an Activity, so SAF document pickers must run in a real Activity). It reads/writes the SAME ClipboardStore
+     *  files in filesDir; the panel re-reads phrases when it next opens. */
+    private fun launchPhraseTransfer(export: Boolean) {
+        runCatching {
+            startActivity(
+                android.content.Intent(this, com.aegis.ime.ui.PhraseTransferActivity::class.java)
+                    .putExtra(com.aegis.ime.ui.PhraseTransferActivity.EXTRA_EXPORT, export)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+            inputView?.showPanel(null) // close the panel so the picker is unobstructed
+        }
+    }
+
     // --- debug.16 Option A: inline text input (edit a 常用语 / add+rename a category) ---
 
     private fun beginInlineEdit(category: String, phrase: String) {
@@ -628,6 +647,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun beginInlineAddPhrase(category: String) {
         inputPurpose = InputPurpose.ADD_PHRASE; inputCat = category; inputOld = ""
         startInlineInput("添加常用语", "")
+    }
+
+    /** debug.17 F2: edit the display 备注 for phrase [text] in [category] — pre-filled with the current note; an
+     *  empty buffer clears it. Reuses the same Option A gated buffer (never reaches the target app). */
+    private fun beginInlineEditNote(category: String, text: String) {
+        inputPurpose = InputPurpose.EDIT_NOTE; inputCat = category; inputOld = text
+        startInlineInput("备注", clipboardStore.noteFor(category, text))
     }
 
     private fun beginInlineAddCategory(
@@ -661,6 +687,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         when (inputPurpose) {
             InputPurpose.EDIT_PHRASE -> clipboardStore.editPhrase(inputCat, inputOld, text)
             InputPurpose.ADD_PHRASE -> { val t = text.trim(); if (t.isNotEmpty()) clipboardStore.addPhrasesTo(inputCat, listOf(t)) } // inputCat stays → reopen there
+            InputPurpose.EDIT_NOTE -> clipboardStore.setPhraseNote(inputCat, inputOld, text) // F2: empty buffer clears the note
             InputPurpose.ADD_CATEGORY -> {
                 val name = text.trim()
                 if (name.isNotEmpty()) {
@@ -700,7 +727,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun captureClip() {
-        if (secureField || !historyEnabled()) return // C1: skip password fields / when history is off
+        if (!com.aegis.ime.user.ClipboardStore.shouldCapture(historyEnabled())) return // debug.17: secure fields ARE captured now; only the history switch gates
         runCatching {
             val clip = clipboardManager.primaryClip ?: return
             val item = clip.getItemAt(0) ?: return
@@ -717,10 +744,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
      */
     private fun onSystemClipChanged() {
         // BUG3-1: restore the debug.13 short-circuit — don't even read the system clipboard when capture is
-        // paused (secure field / history off) AND there's no pending self-write to consume. (BUG3 had moved the
-        // gate below the read to consume the self-write guard; this keeps the guard consumable while avoiding
-        // the getPrimaryClip IPC in password fields / history-off when nothing is pending.)
-        if (!com.aegis.ime.user.ClipboardPolicy.shouldReadSystemClip(selfClipUri != null, secureField, historyEnabled())) return
+        // paused (history off) AND there's no pending self-write to consume. debug.17: secureField is passed as
+        // FALSE here (policy change) so secure/password-field copies ARE captured; only history-off
+        // (+ no pending self-write) still short-circuits the getPrimaryClip IPC.
+        if (!com.aegis.ime.user.ClipboardPolicy.shouldReadSystemClip(selfClipUri != null, false, historyEnabled())) return
         val clip = runCatching { clipboardManager.primaryClip }.getOrNull() ?: return
         if (clip.itemCount == 0) return
         val item = clip.getItemAt(0)
@@ -728,7 +755,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         // BUG3: consume our own image fallback write BEFORE the capture gate, so the guard is reset even when
         // capture is paused (secure field / history off) and can never go stale to suppress a later clip.
         if (com.aegis.ime.user.ClipImageStore.isSelfWrite(uri, selfClipUri)) { selfClipUri = null; return }
-        if (secureField || !historyEnabled()) return
+        if (!com.aegis.ime.user.ClipboardStore.shouldCapture(historyEnabled())) return // debug.17: secure fields recorded too
         val declaredImage = clip.description?.hasMimeType("image/*") == true
         if (uri != null) {
             // U22: a URI clip → resolve type + (if image) save bytes ALL off the main thread (A1: no

@@ -359,4 +359,114 @@ class ClipboardStoreTest {
         assertFalse(s.reorderPhrase("无", 0, 1))   // unknown category
         assertEquals(listOf("a", "b"), s.phrasesIn("甲"))
     }
+
+    // ---------- debug.17 F2: phrase notes (display alias; 上屏 uses the original text) ----------
+
+    @Test fun note_persists_and_phrasesIn_still_returns_original_text() {
+        val dir = newDir()
+        ClipboardStore(dir).apply {
+            load(); addCategory("甲"); addPhrasesTo("甲", listOf("你好世界"))
+            assertTrue(setPhraseNote("甲", "你好世界", "招呼"))
+        }
+        val r = ClipboardStore(dir).apply { load() }
+        assertEquals("note persists across reload", "招呼", r.noteFor("甲", "你好世界"))
+        assertEquals("phrasesIn returns the ORIGINAL text, not the note", listOf("你好世界"), r.phrasesIn("甲"))
+    }
+
+    @Test fun setPhraseNote_blank_clears_and_edit_keeps_note() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("orig")) }
+        s.setPhraseNote("甲", "orig", "别名")
+        assertTrue("editPhrase keeps the note attached", s.editPhrase("甲", "orig", "orig2"))
+        assertEquals("别名", s.noteFor("甲", "orig2"))
+        assertTrue(s.setPhraseNote("甲", "orig2", "  ")) // blank clears
+        assertEquals("", s.noteFor("甲", "orig2"))
+        assertFalse("unknown phrase → false", s.setPhraseNote("甲", "missing", "x"))
+    }
+
+    @Test fun movePhrase_carries_the_note() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addCategory("乙"); addPhrasesTo("甲", listOf("p")) }
+        s.setPhraseNote("甲", "p", "标签")
+        assertTrue(s.movePhrase("甲", "p", "乙"))
+        assertEquals("标签", s.noteFor("乙", "p"))
+    }
+
+    @Test fun move_into_category_with_same_text_carries_note_no_silent_loss() {
+        // fix: on a text collision at the target, the moved phrase's note must NOT be silently dropped.
+        val s = ClipboardStore(newDir()).apply {
+            load(); addCategory("工作"); addCategory("私人")
+            addPhrasesTo("工作", listOf("谢谢")); addPhrasesTo("私人", listOf("谢谢")) // same text in both
+            setPhraseNote("工作", "谢谢", "thx") // source has a note; target's is note-less
+        }
+        assertTrue(s.movePhrase("工作", "谢谢", "私人"))
+        assertTrue("removed from source", s.phrasesIn("工作").isEmpty())
+        assertEquals("deduped at target", listOf("谢谢"), s.phrasesIn("私人"))
+        assertEquals("note carried onto the kept target item (not lost)", "thx", s.noteFor("私人", "谢谢"))
+    }
+
+    @Test fun batch_move_collision_carries_note() {
+        val s = ClipboardStore(newDir()).apply {
+            load(); addCategory("甲"); addCategory("乙")
+            addPhrasesTo("甲", listOf("x")); addPhrasesTo("乙", listOf("x"))
+            setPhraseNote("甲", "x", "n")
+        }
+        assertEquals(1, s.movePhrasesTo("甲", listOf("x"), "乙"))
+        assertEquals("n", s.noteFor("乙", "x"))
+    }
+
+    // ---------- debug.17 E2: clear a category's phrases (category itself stays) ----------
+
+    @Test fun clearPhrasesIn_empties_but_keeps_category() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("a", "b", "c")) }
+        assertEquals(3, s.clearPhrasesIn("甲"))
+        assertTrue(s.phrasesIn("甲").isEmpty())
+        assertTrue("category still exists", "甲" in s.categories())
+        assertEquals("already empty → 0", 0, s.clearPhrasesIn("甲"))
+        assertEquals("unknown → 0", 0, s.clearPhrasesIn("无"))
+    }
+
+    // ---------- debug.17 E1: import / export (round-trip + merge/overwrite + never-clear) ----------
+
+    @Test fun export_import_roundtrip_preserves_categories_phrases_notes() {
+        val src = ClipboardStore(newDir()).apply {
+            load(); addCategory("工作"); addPhrasesTo("工作", listOf("已收到", "稍等")); setPhraseNote("工作", "已收到", "回执")
+            addCategory("私人"); addPhrasesTo("私人", listOf("晚安"))
+        }
+        val text = src.exportPhrasesText()
+        val dst = ClipboardStore(newDir()).apply { load() }
+        assertTrue(dst.importPhrasesText(text, merge = false))
+        assertTrue(dst.categories().containsAll(listOf("工作", "私人")))
+        assertEquals(listOf("已收到", "稍等"), dst.phrasesIn("工作"))
+        assertEquals("回执", dst.noteFor("工作", "已收到"))
+        assertEquals(listOf("晚安"), dst.phrasesIn("私人"))
+    }
+
+    @Test fun import_merge_accumulates_and_dedupes() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("已收到")) }
+        val incoming = "C\t工作\nP\t已收到\nP\t稍等\nC\t新组\nP\t你好\n" // 已收到 dup, 稍等 new, 新组 new
+        assertTrue(s.importPhrasesText(incoming, merge = true))
+        assertEquals("dedup 已收到, add 稍等", listOf("已收到", "稍等"), s.phrasesIn("工作"))
+        assertEquals(listOf("你好"), s.phrasesIn("新组"))
+    }
+
+    @Test fun import_overwrite_replaces_whole_library() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("旧组"); addPhrasesTo("旧组", listOf("旧")) }
+        assertTrue(s.importPhrasesText("C\t新组\nP\t新\n", merge = false))
+        assertFalse("旧组 replaced away", "旧组" in s.categories())
+        assertEquals(listOf("新"), s.phrasesIn("新组"))
+    }
+
+    @Test fun import_empty_or_unparseable_never_clears() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("keep")) }
+        assertFalse("empty → no change", s.importPhrasesText("", merge = false))
+        assertFalse("blank lines → no change", s.importPhrasesText("\n  \n", merge = false))
+        assertFalse("garbage with no markers → no change", s.importPhrasesText("just some text\nmore", merge = false))
+        assertEquals("library intact after failed overwrite", listOf("keep"), s.phrasesIn("甲"))
+    }
+
+    // ---------- debug.17: capture policy (secure fields no longer block) ----------
+
+    @Test fun shouldCapture_only_gated_by_history_switch() {
+        assertTrue("history on → capture (even secure fields)", ClipboardStore.shouldCapture(true))
+        assertFalse("history off → never capture", ClipboardStore.shouldCapture(false))
+    }
 }
