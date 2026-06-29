@@ -201,6 +201,18 @@ class RenderHarness {
         }
     }
 
+    /** debug.16: the 中文 tab — the 破折号 —— and 省略号 …… render as ordinary insertable chips above the glyph
+     *  grid (no 网址补全 header — that bar is scoped to 网络). Light AND dark. */
+    @Test fun symbols_chinese_marks() {
+        for ((t, pal) in themes) {
+            val v = SymbolsView(ctx).apply {
+                applyPalette(pal); openCategoryForTest(1) // 中文
+            }
+            assertTrue("中文 chips include —— / ……", v.netChipTextsForTest().containsAll(listOf("——", "……")))
+            snap(v, (560 * density).toInt(), "symbols_chinese_$t.png")
+        }
+    }
+
     /** UI-2: the 26-key EXPAND screen — LEFT 分词 column (the drilled syllable highlighted) + that syllable's
      *  full 同音单字 grid (uncapped) + the 返回/⌫/重输 function column. Light AND dark. */
     @Test fun expand_syllable_column() {

@@ -107,11 +107,17 @@ class SymbolCatalogTest {
 
     private fun cat(id: String) = SymbolCatalog.categories.first { it.id == id }.symbols
 
-    @Test fun item4_chineseGainsFullWidthMarks() {
-        assertTrue("中文 single — / … present", cat("zh").containsAll(listOf("—", "…")))
+    @Test fun item4_chineseGainsDoubleDashEllipsisAndFullWidth() {
+        assertTrue("中文 双破折号 —— (U+2014 U+2014) + 双省略号 …… (U+2026 U+2026)", cat("zh").containsAll(listOf("——", "……")))
+        assertEquals("—— is two em-dashes", "——", cat("zh").first { it == "——" })
+        assertEquals("…… is two ellipses", "……", cat("zh").first { it == "……" })
+        assertTrue("中文 single — / … also present", cat("zh").containsAll(listOf("—", "…")))
         assertTrue("中文 full-width marks", cat("zh").containsAll(listOf("＃", "＆", "＊", "＠", "％", "＋", "＝", "｜", "＜", "＞", "／", "＼")))
-        // multi-char tokens must NOT be in 中文 — SymbolsView (P5) would render them as 网址补全 chips.
-        assertTrue("no multi-char tokens in 中文", cat("zh").none { it.length > 1 })
+        // the ONLY multi-char zh tokens are —— / …… and neither is url-like → SymbolsView chips them as ordinary
+        // marks (not 网址补全), which is what keeps the 中文 tab off the URL bar.
+        val multi = cat("zh").filter { it.length > 1 }.toSet()
+        assertEquals("only —— / …… are multi-char in 中文", setOf("——", "……"), multi)
+        assertTrue("zh multi-char marks are not url-like", multi.none { s -> s.any { it == '/' || it == ':' || it == '.' } })
     }
 
     @Test fun item4_englishGainsEnDashAndTrademarks() {
