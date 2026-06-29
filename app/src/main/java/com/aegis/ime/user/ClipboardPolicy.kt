@@ -50,12 +50,15 @@ object ClipboardPolicy {
 
     /**
      * BUG3-1: should onSystemClipChanged even READ the system clipboard? Restores the debug.13 short-circuit —
-     * when capture is paused (secure field / history off) AND no self-write is pending, skip the getPrimaryClip
-     * IPC entirely (no read in password fields). A pending self-write is still read so the guard can be
-     * consumed/reset. Equivalent to: read iff there is a self-write OR capture is currently allowed.
+     * when capture is paused (secure field / history off) skip the getPrimaryClip IPC entirely (no read in
+     * password fields). Equivalent to: read iff capture is currently allowed.
+     *
+     * (U22: the former `selfWritePending` parameter was a BUG3 image self-write guard; it was removed with the
+     * image clipboard. Its only caller already forced it false, so the `selfWritePending ||` disjunction was
+     * production-dead — dropping it leaves the real behaviour unchanged.)
      */
-    fun shouldReadSystemClip(selfWritePending: Boolean, secureField: Boolean, historyEnabled: Boolean): Boolean =
-        selfWritePending || (!secureField && historyEnabled)
+    fun shouldReadSystemClip(secureField: Boolean, historyEnabled: Boolean): Boolean =
+        !secureField && historyEnabled
 
     /**
      * 复制条 display: should the most-recently-captured 复制条 be RESTORED when a field (re)starts?

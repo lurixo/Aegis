@@ -34,17 +34,14 @@ class ClipboardPolicyTest {
         assertTrue(ClipboardPolicy.isSensitive(InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD))
     }
 
-    // ---- BUG3-1: onSystemClipChanged must not read the clipboard when gated AND nothing is pending ----
+    // ---- BUG3-1: onSystemClipChanged must not read the clipboard when gated (secure field / history off) ----
 
-    @Test fun no_clip_read_in_a_password_field_or_history_off_unless_a_self_write_is_pending() {
-        // gated + no self-write → short-circuit (no getPrimaryClip IPC), restoring the debug.13 behaviour.
-        assertFalse("secure field, nothing pending → skip read", ClipboardPolicy.shouldReadSystemClip(false, true, true))
-        assertFalse("history off, nothing pending → skip read", ClipboardPolicy.shouldReadSystemClip(false, false, false))
-        // a pending self-write must still be read so the guard gets consumed/reset, even while gated.
-        assertTrue("secure field but self-write pending → read to consume guard", ClipboardPolicy.shouldReadSystemClip(true, true, true))
-        assertTrue("history off but self-write pending → read", ClipboardPolicy.shouldReadSystemClip(true, false, false))
+    @Test fun no_clip_read_when_gated_by_secure_field_or_history_off() {
+        // gated → short-circuit (no getPrimaryClip IPC), restoring the debug.13 behaviour.
+        assertFalse("secure field → skip read", ClipboardPolicy.shouldReadSystemClip(true, true))
+        assertFalse("history off → skip read", ClipboardPolicy.shouldReadSystemClip(false, false))
         // ungated → read normally.
-        assertTrue("normal field, history on → read", ClipboardPolicy.shouldReadSystemClip(false, false, true))
+        assertTrue("normal field, history on → read", ClipboardPolicy.shouldReadSystemClip(false, true))
     }
 
     @Test fun ordinary_fields_are_not_sensitive() {
