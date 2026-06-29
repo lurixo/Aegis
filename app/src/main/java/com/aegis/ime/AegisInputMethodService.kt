@@ -100,7 +100,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     // debug.16 Option A: inline text-input. While [panelInput] is active the keyboard's output is redirected into
     // its buffer (not the target app); on 确定 the buffered text runs the pending [inputPurpose] action.
     private val panelInput = com.aegis.ime.ime.PanelTextInput()
-    private enum class InputPurpose { EDIT_PHRASE, ADD_CATEGORY, RENAME_CATEGORY }
+    private enum class InputPurpose { EDIT_PHRASE, ADD_PHRASE, ADD_CATEGORY, RENAME_CATEGORY }
     private var inputPurpose: InputPurpose? = null
     private var inputCat = "" // EDIT_PHRASE: owning category; RENAME_CATEGORY: (unused)
     private var inputOld = "" // EDIT_PHRASE: the phrase being edited; RENAME_CATEGORY: the old category name
@@ -534,7 +534,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onMovePhrase = { from, text, to -> clipboardStore.movePhrase(from, text, to) } // debug.16: 移动常用语分类
             it.onMovePhrasesTo = { from, list, to -> clipboardStore.movePhrasesTo(from, list, to) } // debug.16: 批量移动
             it.onReorderPhrase = { cat, fromIdx, toIdx -> clipboardStore.reorderPhrase(cat, fromIdx, toIdx) } // debug.16: 拖动重排
-            it.onAddCategory = { beginInlineAddCategory() }                               // debug.16: ＋分类 → inline buffer
+            it.onAddPhrase = { cat -> beginInlineAddPhrase(cat) }                         // debug.17: 顶部 ＋ → 当前分类内联新增常用语
+            it.onAddCategory = { beginInlineAddCategory() }                               // debug.16/17: ＋分类(now ✎二级菜单) → inline buffer
             it.onAddCategoryThenAdd = { texts -> beginInlineAddCategory(texts) }          // debug.16: 剪贴板 添加常用语→新建分类 (carry clips)
             it.onAddCategoryThenMove = { from, texts -> beginInlineAddCategory(pendingMove = from to texts) } // debug.16: 移动到分类→新建分类 (carry move)
             it.onRenameCategory = { old -> beginInlineRenameCategory(old) }               // debug.16: 分类改名 → inline buffer
@@ -619,6 +620,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         startInlineInput("编辑常用语", phrase)
     }
 
+    /** debug.17: 顶部 ＋(常用语tab) — add a NEW phrase under [category] via the same Option A inline buffer. */
+    private fun beginInlineAddPhrase(category: String) {
+        inputPurpose = InputPurpose.ADD_PHRASE; inputCat = category; inputOld = ""
+        startInlineInput("添加常用语", "")
+    }
+
     private fun beginInlineAddCategory(
         pendingAdds: List<String> = emptyList(),
         pendingMove: Pair<String, List<String>>? = null,
@@ -649,6 +656,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val text = panelInput.text()
         when (inputPurpose) {
             InputPurpose.EDIT_PHRASE -> clipboardStore.editPhrase(inputCat, inputOld, text)
+            InputPurpose.ADD_PHRASE -> { val t = text.trim(); if (t.isNotEmpty()) clipboardStore.addPhrasesTo(inputCat, listOf(t)) } // inputCat stays → reopen there
             InputPurpose.ADD_CATEGORY -> {
                 val name = text.trim()
                 if (name.isNotEmpty()) {

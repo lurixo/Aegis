@@ -19,6 +19,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.view.View
+import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
@@ -365,6 +366,7 @@ class RenderHarness {
 
     @Test fun phrase_move_chooser() {
         // debug.16: the move-to-category chooser lists OTHER existing categories (current excluded).
+        // debug.17 追加: each row now carries a trailing 🗑 (delete that category) + a ＋ 新建分类… entry.
         val h = (320 * density).toInt()
         for ((t, pal) in themes) {
             val v = ClipboardView(ctx).apply {
@@ -377,6 +379,8 @@ class RenderHarness {
             snap(v, h, "phrase_move_$t.png")
             assertTrue("$t: move chooser missing target 工作", v.hasTextLeaf("工作"))
             assertTrue("$t: move chooser missing target 私人", v.hasTextLeaf("私人"))
+            assertTrue("$t: move chooser row missing 🗑 delete", v.hasTextLeaf("🗑"))
+            assertTrue("$t: move chooser missing ＋ 新建分类…", v.hasTextLeaf("＋ 新建分类…"))
         }
     }
 
@@ -406,16 +410,87 @@ class RenderHarness {
     }
 
     // debug.16 (#55): the polished 文字编辑面板 — hollow D-pad arrows, 段首/段尾 labels, the copy-bar clipboard
-    // glyph on 粘贴, the "‹" back chevron, and per-key outline icons. Snapped with AND without a selection so
-    // the muted-vs-active 复制/剪切 icons are both eyeballable.
+    // glyph on 粘贴, and per-key outline icons. debug.17: the header back is now the hollow-stroke Glyphs.drawBack
+    // icon + "文字编辑". Snapped with AND without a selection so the muted-vs-active 复制/剪切 icons are eyeballable.
     @Test fun edit_panel() {
         val h = (230 * density).toInt()
         for ((t, pal) in themes) {
             val idle = EditPanelView(ctx).apply { applyPalette(pal); setHasSelection(false) }
             snap(idle, h, "edit_panel_$t.png")
+            assertTrue("$t: header keeps the 文字编辑 label", idle.hasTextLeaf("文字编辑"))
             val active = EditPanelView(ctx).apply { applyPalette(pal); setSelecting(true); setHasSelection(true) }
             snap(active, h, "edit_panel_selecting_$t.png")
         }
+    }
+
+    /** debug.17 ④: a 剪贴板 card's left-swipe reveal — the inline 添加常用语/拆词/删除 row, card NOT expanded. */
+    @Test fun clip_swipe_reveal() {
+        val h = (300 * density).toInt()
+        for ((t, pal) in themes) {
+            val v = ClipboardView(ctx).apply {
+                historyProvider = { listOf("第一条复制内容", "second clip") }
+                applyPalette(pal); refresh(); revealSwipeForTest("第一条复制内容")
+            }
+            snap(v, h, "clip_swipe_$t.png")
+            assertTrue("$t: swipe row missing 拆词", v.hasTextLeaf("拆 拆词"))
+        }
+    }
+
+    /** debug.17 ⑤: a 常用语 card's left-swipe reveal — 编辑 / 置顶 / 删除 (distinct from the ⌄ expand row). */
+    @Test fun phrase_swipe_reveal() {
+        val h = (320 * density).toInt()
+        for ((t, pal) in themes) {
+            val v = ClipboardView(ctx).apply {
+                categoriesProvider = { listOf("默认", "工作") }
+                phrasesInProvider = { _ -> listOf("你好", "在吗", "稍等") }
+                applyPalette(pal); forcePhrasesStateForTest("默认"); refresh(); revealSwipeForTest("在吗")
+            }
+            snap(v, h, "phrase_swipe_$t.png")
+            assertTrue("$t: swipe row missing 置顶", v.hasTextLeaf("↑ 置顶"))
+        }
+    }
+
+    /** debug.17 ③: 排序模式 — the focused drag-reorder list (拖动排序 + ≡ handles + 完成). */
+    @Test fun phrase_sort_mode() {
+        val h = (320 * density).toInt()
+        for ((t, pal) in themes) {
+            val v = ClipboardView(ctx).apply {
+                categoriesProvider = { listOf("默认") }
+                phrasesInProvider = { _ -> listOf("你好", "在吗", "稍等") }
+                applyPalette(pal); forcePhrasesStateForTest("默认"); refresh(); enterSortModeForTest()
+            }
+            snap(v, h, "phrase_sort_$t.png")
+            assertTrue("$t: missing 拖动排序", v.hasTextLeaf("拖动排序"))
+            assertTrue("$t: missing 完成", v.hasTextLeaf("完成"))
+        }
+    }
+
+    /** debug.17 ⑦: the 拆词 overlay — blocks NEUTRAL by default, then one tapped → 浅紫 highlight. Both snapped
+     *  (default vs after-tap) so the two block states are eyeball-able; the 全部复制 affordance must be present. */
+    @Test fun split_overlay() {
+        val h = (300 * density).toInt()
+        for ((t, pal) in themes) {
+            val neutral = ClipboardView(ctx).apply {
+                historyProvider = { listOf("在铅笔下面abc") }; applyPalette(pal); refresh(); showSplitForTest("在铅笔下面abc")
+            }
+            snap(neutral, h, "split_neutral_$t.png")
+            assertTrue("$t: 全部复制 present", neutral.hasTextLeaf("全部复制"))
+            val tapped = ClipboardView(ctx).apply {
+                historyProvider = { listOf("在铅笔下面abc") }; applyPalette(pal); refresh(); showSplitForTest("在铅笔下面abc")
+            }
+            // tap a block → it highlights 浅紫 (the other stays neutral)
+            findViewsWithText(tapped, "在铅笔下面").firstOrNull { it.hasOnClickListeners() }?.performClick()
+            snap(tapped, h, "split_tapped_$t.png")
+        }
+    }
+
+    private fun findViewsWithText(root: View, s: String): List<TextView> {
+        val out = ArrayList<TextView>()
+        fun walk(x: View) {
+            if (x is TextView && x.text?.toString() == s) out.add(x)
+            if (x is android.view.ViewGroup) for (i in 0 until x.childCount) walk(x.getChildAt(i))
+        }
+        walk(root); return out
     }
 
     @Test fun keyboard_alpha() {
