@@ -50,26 +50,32 @@ class ClipboardStoreTest {
         assertEquals("line1\nline2", reloaded.history().first())
     }
 
-    @Test fun image_entries_ride_history_and_stay_distinguishable() {
-        val s = ClipboardStore(newDir()).apply { load() }
-        s.record("hello")
-        s.recordImage("/data/x/clipboard_images/1.png")
-        val h = s.history()
-        assertEquals(2, h.size)
-        assertTrue("newest is the image", ClipboardStore.isImageEntry(h[0]))
-        assertEquals("/data/x/clipboard_images/1.png", ClipboardStore.imagePath(h[0]))
-        assertFalse("text entry is not an image", ClipboardStore.isImageEntry(h[1]))
-        assertEquals("hello", h[1])
-        assertEquals("imagePath on plain text is identity", "hello", ClipboardStore.imagePath("hello"))
+    @Test fun legacy_image_entries_are_dropped_on_load() {
+        val dir = newDir()
+        File(dir, "clipboard.txt").writeText(
+            "img:/data/user/0/com.aegis.ime/files/clipboard_images/123.png\n" +
+            "hello world\n"
+        )
+        val h = ClipboardStore(dir).apply { load() }.history()
+        assertEquals("only the text entry survives", listOf("hello world"), h)
     }
 
-    @Test fun image_markers_are_never_saved_as_phrases() {
-        val s = ClipboardStore(newDir()).apply { load() }
-        val img = ClipboardStore.IMG_PREFIX + "/data/x/clipboard_images/1.png"
-        val added = s.addPhrasesTo("默认", listOf("正常短语", img))
-        assertEquals("only the text phrase is added", 1, added)
-        assertTrue("正常短语" in s.phrases())
-        assertFalse("no image marker leaks into phrases", s.phrases().any { ClipboardStore.isImageEntry(it) })
+    @Test fun legacy_image_dir_is_reclaimed_on_load() {
+        val dir = newDir()
+        File(dir, "clipboard_images").apply { mkdirs() }.also { File(it, "1.png").writeText("x") }
+        ClipboardStore(dir).apply { load() }
+        assertFalse("orphaned image dir reclaimed", File(dir, "clipboard_images").exists())
+    }
+
+    @Test fun text_starting_with_img_prefix_is_preserved() {
+        val dir = newDir()
+        File(dir, "clipboard.txt").writeText("img:hello\nreal text\n")
+        val h = ClipboardStore(dir).apply { load() }.history()
+        assertEquals(listOf("img:hello", "real text"), h)
+        assertFalse("the text-only img: entry is not classified as a legacy image",
+            ClipboardStore.isLegacyImageEntry("img:hello"))
+        assertTrue("a real clipboard_images marker is classified as a legacy image",
+            ClipboardStore.isLegacyImageEntry("img:/x/clipboard_images/1.png"))
     }
 
     @Test fun crlf_clip_survives_persist_roundtrip() {

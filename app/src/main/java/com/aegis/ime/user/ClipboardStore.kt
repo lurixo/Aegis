@@ -37,9 +37,16 @@ class ClipboardStore(private val dir: File) {
 
     fun load() {
         history.clear()
-        runCatching { if (histFile.exists()) histFile.readLines().forEach { readEntry(it)?.let(history::add) } }
+        purgeLegacyImageDir()
+        runCatching {
+            if (histFile.exists()) histFile.readLines().forEach { line ->
+                readEntry(line)?.let { e -> if (!isLegacyImageEntry(e)) history.add(e) }
+            }
+        }
         loadPhrases()
     }
+
+    private fun purgeLegacyImageDir() { runCatching { File(dir, "clipboard_images").deleteRecursively() } }
 
     private fun readEntry(line: String): String? =
         if (line.startsWith(BIG_LINE)) {
@@ -86,8 +93,6 @@ class ClipboardStore(private val dir: File) {
         scheduleSave()
     }
 
-    fun recordImage(path: String) { if (path.isNotEmpty()) record(IMG_PREFIX + path) }
-
     fun delete(text: String) { if (history.remove(text)) scheduleSave() }
     fun deleteAll(texts: Collection<String>) { if (history.removeAll(texts.toSet())) scheduleSave() }
     fun clearHistory() { if (history.isNotEmpty()) { history.clear(); scheduleSave() } }
@@ -133,7 +138,7 @@ class ClipboardStore(private val dir: File) {
         var added = 0
         for (raw in texts) {
             val t = raw.trim()
-            if (t.isEmpty() || isImageEntry(t) || c.phrases.any { it.text == t }) continue
+            if (t.isEmpty() || c.phrases.any { it.text == t }) continue
             c.phrases.add(Phrase(t)); added++
         }
         if (added > 0) savePhrases()
@@ -226,7 +231,7 @@ class ClipboardStore(private val dir: File) {
         val sb = StringBuilder()
         val referenced = HashSet<String>()
         for (e in snapshot) {
-            if (e.length > BIG_THRESHOLD && !isImageEntry(e)) {
+            if (e.length > BIG_THRESHOLD) {
                 val hash = sha256(e)
                 referenced.add(hash)
                 val f = File(clipsDir().apply { mkdirs() }, "$hash.txt")
@@ -311,9 +316,10 @@ class ClipboardStore(private val dir: File) {
     }
 
     companion object {
-        const val IMG_PREFIX = "img:"
-        fun isImageEntry(entry: String): Boolean = entry.startsWith(IMG_PREFIX)
-        fun imagePath(entry: String): String = if (isImageEntry(entry)) entry.substring(IMG_PREFIX.length) else entry
+        private const val LEGACY_IMG_PREFIX = "img:"
+        private const val LEGACY_IMG_DIR = "/clipboard_images/"
+        fun isLegacyImageEntry(entry: String): Boolean =
+            entry.startsWith(LEGACY_IMG_PREFIX) && entry.contains(LEGACY_IMG_DIR)
 
         fun shouldCapture(historyEnabled: Boolean): Boolean = historyEnabled
 
