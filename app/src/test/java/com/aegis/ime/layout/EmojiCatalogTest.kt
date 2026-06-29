@@ -23,10 +23,17 @@ import org.junit.Test
 class EmojiCatalogTest {
 
     @Test fun has_the_expected_categories_in_order() {
+        // debug.14: 旗帜 moved up to between 手势 and 动物 (the rest keep their relative order).
         assertEquals(
-            listOf("黄脸", "手势", "动物", "植物", "食物", "旅行", "活动", "物品", "符号", "旗帜"),
+            listOf("黄脸", "手势", "旗帜", "动物", "植物", "食物", "旅行", "活动", "物品", "符号"),
             EmojiCatalog.categories.map { it.title },
         )
+    }
+
+    @Test fun flags_sit_between_gestures_and_animals() {
+        val titles = EmojiCatalog.categories.map { it.title }
+        assertTrue("旗帜 after 手势", titles.indexOf("旗帜") > titles.indexOf("手势"))
+        assertTrue("旗帜 before 动物", titles.indexOf("旗帜") < titles.indexOf("动物"))
     }
 
     @Test fun is_a_near_complete_keyboard() {
