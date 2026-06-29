@@ -128,4 +128,34 @@ class CandidateBarChevronTest {
         assertTrue("a flick on the candidate strip starts a horizontal fling", v.isFlingingForTest())
         assertTrue("the windowed velocity reflects the leftward flick", v.flingVelocityForTest() < -300f)
     }
+
+    // --- debug.17 FIX-1: new content must CANCEL a running fling so the strip renders from 0 ---
+
+    @Test fun new_content_cancels_a_running_fling_and_renders_from_zero() {
+        // Bug: flicking the strip into a fling then typing (new candidates) left scrollX reset to 0 but the
+        // fling still running, so the NEXT computeScroll frame restored the stale offset over the 0 — the new
+        // list rendered scrolled (could hide the green 首选). setContent must kill the fling, not just zero it.
+        val v = CandidateView(ctx)
+        v.setContent(List(40) { "候选$it" }, "ni") // overflow → room to fling
+        v.measure(
+            View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec((44 * density).toInt(), View.MeasureSpec.EXACTLY),
+        )
+        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+        val y = v.height / 2f
+        var t = 0L
+        fun send(action: Int, x: Float) { v.dispatchTouchEvent(MotionEvent.obtain(0, t, action, x, y, 0)); t += 16 }
+        send(MotionEvent.ACTION_DOWN, 300f)
+        send(MotionEvent.ACTION_MOVE, 284f); send(MotionEvent.ACTION_MOVE, 268f); send(MotionEvent.ACTION_MOVE, 252f)
+        send(MotionEvent.ACTION_MOVE, 236f); send(MotionEvent.ACTION_MOVE, 220f)
+        v.dispatchTouchEvent(MotionEvent.obtain(0, t, MotionEvent.ACTION_UP, 220f, y, 0))
+        assertTrue("precondition: a horizontal fling is running", v.isFlingingForTest())
+        assertTrue("precondition: it scrolled away from the left edge", v.scrollXForTest() > 0f)
+
+        v.setContent(List(40) { "新候选$it" }, "hao") // the user typed → new candidates
+        assertFalse("new content cancels the fling", v.isFlingingForTest())
+        assertEquals("the offset is reset to 0", 0f, v.scrollXForTest(), 0f)
+        v.computeScroll() // simulate the next frame
+        assertEquals("the next frame does NOT restore the stale fling offset", 0f, v.scrollXForTest(), 0f)
+    }
 }
