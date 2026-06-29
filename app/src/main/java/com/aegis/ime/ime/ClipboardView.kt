@@ -20,6 +20,8 @@ import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
@@ -217,7 +219,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             // item7: every top icon is the SAME size/shape as the ‹ back icon, and the action icons are evenly
             // spaced (a gap between them) instead of crammed.
             fun iconLp(spaced: Boolean = false) = ll(dp(36), dp(44)).apply { if (spaced) marginStart = dp(6) }
-            addView(roundBtn("‹") { onBack() }, iconLp())
+            addView(backBtn { onBack() }, iconLp()) // debug.17: 返回 = hollow-stroke chevron (Glyphs.drawBack), not a tiny "‹" char
             addView(View(context), ll(0, dp(1), 1f))
             addView(pillTray(), ll(WC, dp(36)))
             addView(View(context), ll(0, dp(1), 1f))
@@ -952,6 +954,22 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             isClickable = enabled
             if (enabled) setOnClickListener { onClick() }
         }
+
+    /** debug.17: the top-bar 返回 button — same chip slot as ☰/⚙/＋ but its icon is the hollow-stroke
+     *  [Glyphs.drawBack] chevron (2dp stroke, ROUND caps, SUBTEXT tint), drawn larger than the old "‹" char so
+     *  it reads as the panel's main back affordance. */
+    private fun backBtn(onClick: () -> Unit): View {
+        val v = object : View(context) {
+            private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+                strokeWidth = 2f * density; color = SUBTEXT
+            }
+            override fun onDraw(c: Canvas) { Glyphs.drawBack(c, p, width / 2f, height / 2f, dp(10).toFloat()) }
+        }
+        v.background = rounded(GREY_PILL, ImeShapes.chipRadiusDp) // same light chip as the other top icons
+        v.setOnClickListener { onClick() }
+        return v
+    }
 
     private fun roundBtn(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
         text = label; gravity = Gravity.CENTER

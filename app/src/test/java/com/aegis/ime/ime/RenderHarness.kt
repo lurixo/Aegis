@@ -410,13 +410,14 @@ class RenderHarness {
     }
 
     // debug.16 (#55): the polished 文字编辑面板 — hollow D-pad arrows, 段首/段尾 labels, the copy-bar clipboard
-    // glyph on 粘贴, the "‹" back chevron, and per-key outline icons. Snapped with AND without a selection so
-    // the muted-vs-active 复制/剪切 icons are both eyeballable.
+    // glyph on 粘贴, and per-key outline icons. debug.17: the header back is now the hollow-stroke Glyphs.drawBack
+    // icon + "文字编辑". Snapped with AND without a selection so the muted-vs-active 复制/剪切 icons are eyeballable.
     @Test fun edit_panel() {
         val h = (230 * density).toInt()
         for ((t, pal) in themes) {
             val idle = EditPanelView(ctx).apply { applyPalette(pal); setHasSelection(false) }
             snap(idle, h, "edit_panel_$t.png")
+            assertTrue("$t: header keeps the 文字编辑 label", idle.hasTextLeaf("文字编辑"))
             val active = EditPanelView(ctx).apply { applyPalette(pal); setSelecting(true); setHasSelection(true) }
             snap(active, h, "edit_panel_selecting_$t.png")
         }
