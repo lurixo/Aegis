@@ -24,6 +24,7 @@ package com.aegis.ime.layout
 object SymbolCatalog {
 
     data class Category(val id: String, val title: String, val symbols: List<String>)
+    data class Pairing(val left: String, val right: String)
 
     /** The "常用" tab is dynamic; this id lets the view slot it in at the front. */
     const val RECENT_ID = "recent"
@@ -70,11 +71,38 @@ object SymbolCatalog {
      */
     fun categoryTitleOf(symbol: String): String? = symbolToCategory[symbol]
 
+    fun pairingFor(symbol: String): Pairing? = pairedSymbols[symbol]?.let { Pairing(symbol, it) }
+
+    fun insertionFor(symbol: String, hasTextAfterCursor: Boolean): List<String> {
+        val pair = pairingFor(symbol)
+        return if (pair != null && !hasTextAfterCursor) listOf(pair.left, pair.right) else listOf(symbol)
+    }
+
     private val symbolToCategory: Map<String, String> by lazy {
         val m = LinkedHashMap<String, String>()
         for (c in categories) for (s in c.symbols) m.putIfAbsent(s, c.title)
         m
     }
+
+    private val pairedSymbols: Map<String, String> = linkedMapOf(
+        "（" to "）",
+        "《" to "》",
+        "〈" to "〉",
+        "「" to "」",
+        "『" to "』",
+        "【" to "】",
+        "〔" to "〕",
+        "〖" to "〗",
+        "“" to "”",
+        "‘" to "’",
+        "(" to ")",
+        "[" to "]",
+        "{" to "}",
+        "<" to ">",
+        "\"" to "\"",
+        "'" to "'",
+        "`" to "`",
+    )
 
     private fun tokens(s: String): List<String> = s.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
 }

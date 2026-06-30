@@ -600,7 +600,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val sv = symbolsView ?: SymbolsView(this).also {
             it.recentProvider = { symbolUsageStore.recent() }
             // U3/P3: 点符号 = 上屏 + 记入常用;是否回键盘由 SymbolsView 的锁定态决定(锁定则连续输入)。
-            it.onSymbol = { s -> symbolUsageStore.record(s); commitText(s) } // debug.16: via gated commitText
+            it.onSymbol = { s -> symbolUsageStore.record(s); commitSymbol(s) } // debug.16: via gated symbol commit
             it.onBackspace = { panelBackspace() } // F2: selection-aware (else eats the char before a selection)
             it.onBack = { inputView?.showPanel(null) }
             symbolsView = it
@@ -815,6 +815,24 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     override fun commitText(text: CharSequence) {
         if (panelInput.commit(text)) return
         currentInputConnection?.commitText(text, 1)
+    }
+
+    override fun commitSymbol(symbol: CharSequence) {
+        if (panelInput.commit(symbol)) return
+        val ic = currentInputConnection ?: return
+        val s = symbol.toString()
+        val insertion = SymbolCatalog.insertionFor(
+            s,
+            hasTextAfterCursor = !ic.getTextAfterCursor(1, 0).isNullOrEmpty(),
+        )
+        if (insertion.size == 1) {
+            ic.commitText(insertion[0], 1)
+            return
+        }
+        ic.beginBatchEdit()
+        ic.commitText(insertion[0], 1)
+        ic.commitText(insertion[1], 0)
+        ic.endBatchEdit()
     }
 
     /**

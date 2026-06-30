@@ -112,6 +112,7 @@ class KeyboardController(
         val drillChoices: Map<Int, String>,
         val deferredLearnEvents: List<LearnEvent>,
         val lastWord: String?,
+        val committedText: String?,
     )
 
     private val preeditChoiceUndo = ArrayDeque<PreeditChoiceUndo>()
@@ -429,9 +430,11 @@ class KeyboardController(
             // U23: an associated emoji/symbol commits directly and is NOT learned as a pinyin word. S1(c):
             // flush any assembled prefix ahead of it so the emoji follows the confirmed word, not replaces it.
             cand in directCommitCands -> {
-                host.commitText(committedPrefix.toString() + cand.word)
+                val text = committedPrefix.toString() + cand.word
+                savePreeditChoiceUndo(committedText = text)
+                host.commitText(text)
                 applyDeferredLearning()
-                clearComposingState(); lastWord = null
+                clearComposingState(keepChoiceUndo = true); lastWord = null
             }
             // C5: a next-word prediction commits directly and becomes the new [lastWord] so predictions
             // chain (你好 → 世界 → …); it is reinforced as a bigram after the previous word, like a normal pick.
@@ -440,7 +443,11 @@ class KeyboardController(
                 if (!learningBlocked) engine.learn(lastWord, cand.word)
                 lastWord = cand.word
             }
-            else -> commitCandidate(cand)
+            else -> {
+                val committed = if (cand.coveredLen !in 1 until composing.length) committedPrefix.toString() + cand.word else null
+                savePreeditChoiceUndo(committedText = committed)
+                commitCandidate(cand)
+            }
         }
         refreshCandidates()
         render()
@@ -459,7 +466,7 @@ class KeyboardController(
             // away) so the punctuation/number follows the confirmed word ("就。"), never precedes it ("。就")
             // or gets stranded for reset() to drop.
             if (composing.isNotEmpty() || committedPrefix.isNotEmpty()) flushComposing()
-            host.commitText(applyCase(key.output))
+            host.commitSymbol(applyCase(key.output))
             if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
             lastWord = null
             return
@@ -468,7 +475,7 @@ class KeyboardController(
             Mode.PINYIN -> { composing.append(key.output); history.addLast(StepKind.DIGIT) } // T9 buffer; one step per digit
             Mode.DIRECT -> {
                 // EN letters / numbers / symbols go straight to the editor (D), with shift applied.
-                host.commitText(applyCase(key.output))
+                host.commitSymbol(applyCase(key.output))
                 if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
                 lastWord = null
             }
@@ -602,7 +609,7 @@ class KeyboardController(
             host.commitText(committedPrefix.toString() + cand.word)
             applyDeferredLearning(cand.word)
             lastWord = cand.word
-            clearComposingState()
+            clearComposingState(keepChoiceUndo = true)
         }
     }
 
@@ -692,14 +699,14 @@ class KeyboardController(
         return if (layoutId == LayoutId.NINE && lang == Lang.CN) fullLetters() else composing.toString()
     }
 
-    private fun clearComposingState() {
+    private fun clearComposingState(keepChoiceUndo: Boolean = false) {
         composing.setLength(0)
         candidates = emptyList()
         lockedReadings.clear()
         activeStart = 0
         forcedCuts.clear()
         history.clear()
-        preeditChoiceUndo.clear()
+        if (!keepChoiceUndo) preeditChoiceUndo.clear()
         deferredLearnEvents.clear()
         committedPrefix.setLength(0) // S1(c): drop any assembled-but-uncommitted prefix too
         drillSyllable = -1 // UI-2: clearing the buffer leaves no syllable to drill
@@ -853,7 +860,7 @@ class KeyboardController(
     private fun currentSyllables(): List<Syllable> =
         if (composing.isEmpty()) emptyList() else engine.syllablesForReading(composing.toString())
 
-    private fun savePreeditChoiceUndo() {
+    private fun savePreeditChoiceUndo(committedText: String? = null) {
         preeditChoiceUndo.addLast(PreeditChoiceUndo(
             composing = composing.toString(),
             committedPrefix = committedPrefix.toString(),
@@ -865,11 +872,16 @@ class KeyboardController(
             drillChoices = drillChoices.toMap(),
             deferredLearnEvents = deferredLearnEvents.toList(),
             lastWord = lastWord,
+            committedText = committedText?.takeIf { it.isNotEmpty() },
         ))
     }
 
     private fun restorePreeditChoiceUndo(): Boolean {
         val snap = preeditChoiceUndo.removeLastOrNull() ?: return false
+        snap.committedText?.let { committed ->
+            if (host.textBeforeCursor(committed.length).toString() != committed) return false
+            host.replaceBeforeCursor(committed.length, "")
+        }
         composing.setLength(0); composing.append(snap.composing)
         committedPrefix.setLength(0); committedPrefix.append(snap.committedPrefix)
         lockedReadings.clear(); lockedReadings.addAll(snap.lockedReadings)
@@ -904,7 +916,14 @@ class KeyboardController(
         if (composing.isEmpty()) { drillSyllable = -1; drillChoices.clear(); return } // defensive
         val syls = currentSyllables()
         if (drillSyllable !in syls.indices) { drillSyllable = -1; return }
-        if (drillSyllable == 0 && syls[0].end in 1 until composing.length) savePreeditChoiceUndo()
+        val choices = HashMap(drillChoices)
+        choices[drillSyllable] = charWord
+        var k = 0
+        while (choices.containsKey(k) && k < syls.size) k++
+        val committed = if (k > 0 && syls[k - 1].end >= composing.length) {
+            committedPrefix.toString() + (0 until k).joinToString("") { choices[it] ?: "" }
+        } else null
+        savePreeditChoiceUndo(committedText = committed)
         drillChoices[drillSyllable] = charWord
         if (drillChoices.containsKey(0)) commitChosenLeftPrefix()
     }
