@@ -39,9 +39,16 @@ class Ui12SyllableColumnTest {
 
     private class RecordingHost : ImeHost {
         val commits = mutableListOf<String>()
-        override fun commitText(text: CharSequence) { commits.add(text.toString()) }
+        val text = StringBuilder()
+        override fun commitText(text: CharSequence) { commits.add(text.toString()); this.text.append(text) }
         override fun deleteBackward() {}
         override fun performEnter() {}
+        override fun textBeforeCursor(n: Int): CharSequence = text.substring(maxOf(0, text.length - n))
+        override fun replaceBeforeCursor(length: Int, text: CharSequence) {
+            val start = maxOf(0, this.text.length - length)
+            this.text.delete(start, this.text.length)
+            this.text.append(text)
+        }
     }
 
     private fun out(s: String) = Key(s, output = s)
@@ -106,10 +113,12 @@ class Ui12SyllableColumnTest {
             candidatesCovered(composing, t9).map { it.word }
         override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> = when {
             composing.isEmpty() -> emptyList()
+            composing == "ni" -> listOf(Cand("你", composing.length))
             composing == "ceshi" -> listOf(Cand("测试", composing.length), Cand("测", 2))
             else -> listOf(Cand("你好", composing.length), Cand("你", 2))
         }
         override fun syllablesForReading(letters: String): List<Syllable> = when (letters) {
+            "ni" -> listOf(Syllable("ni", 0, 2))
             "nihao" -> listOf(Syllable("ni", 0, 2), Syllable("hao", 2, 5))
             "ceshi" -> listOf(Syllable("ce", 0, 2), Syllable("shi", 2, 5))
             "hao" -> listOf(Syllable("hao", 0, 3))
@@ -117,6 +126,7 @@ class Ui12SyllableColumnTest {
             else -> emptyList()
         }
         override fun homophonesForReadingAt(letters: String, index: Int): List<String> = when {
+            letters == "ni" && index == 0 -> niHomophones
             letters == "nihao" && index == 0 -> niHomophones
             letters == "nihao" && index == 1 -> haoHomophones
             letters == "ceshi" && index == 0 -> ceHomophones
@@ -236,6 +246,25 @@ class Ui12SyllableColumnTest {
         c.onPickCandidate(c.candidateWords().indexOf("你"))
         assertEquals("the syllable can be chosen again", "你", c.composingPrefix())
         assertEquals(listOf("hao"), c.expandedReadings())
+    }
+
+    @Test fun backspace_after_a_single_syllable_homophone_commit_restores_the_choice_grid() {
+        val (host, c) = alphaWithBuffer("ni")
+        c.onPickReadingIndex(0)
+        assertEquals(0, c.drilledSyllableForTest())
+        assertEquals(niHomophones, c.candidateWords())
+
+        c.onPickCandidate(c.candidateWords().indexOf("你"))
+        assertEquals(listOf("你"), host.commits)
+        assertEquals("你", host.text.toString())
+        assertEquals("", c.preeditForTest())
+
+        c.onKey(act(KeyAction.BACKSPACE))
+
+        assertEquals("the committed character is removed from the editor", "", host.text.toString())
+        assertEquals("the original preedit syllable is restored", "ni", c.preeditForTest())
+        assertEquals("the original syllable remains drilled", 0, c.drilledSyllableForTest())
+        assertEquals("the homophone grid is restored", niHomophones, c.candidateWords())
     }
 
     @Test fun backspace_after_a_preedit_homophone_choice_discards_its_learning() {

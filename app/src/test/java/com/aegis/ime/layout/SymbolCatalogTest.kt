@@ -45,6 +45,19 @@ class SymbolCatalogTest {
         assertEquals("英", SymbolCatalog.categoryTitleOf(",")?.take(1))
     }
 
+    @Test fun paired_symbol_insertion_uses_the_full_pair_only_at_the_end() {
+        assertEquals(listOf("（", "）"), SymbolCatalog.insertionFor("（", hasTextAfterCursor = false))
+        assertEquals(listOf("（"), SymbolCatalog.insertionFor("（", hasTextAfterCursor = true))
+        assertEquals(listOf("\"", "\""), SymbolCatalog.insertionFor("\"", hasTextAfterCursor = false))
+        assertEquals(listOf("，"), SymbolCatalog.insertionFor("，", hasTextAfterCursor = false))
+    }
+
+    @Test fun paired_symbol_left_marks_are_present_in_the_catalogue() {
+        for (left in listOf("（", "《", "「", "【", "“", "‘", "(", "[", "{", "<", "\"", "'", "`")) {
+            assertTrue("paired left mark $left must be reachable from the symbol catalogue", SymbolCatalog.categoryTitleOf(left) != null)
+        }
+    }
+
     @Test fun currency_category_sits_between_english_and_net_with_common_symbols() {
         val ids = SymbolCatalog.categories.map { it.id }
         assertEquals(ids.indexOf("en") + 1, ids.indexOf("currency"))
