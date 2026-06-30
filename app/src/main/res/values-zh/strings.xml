@@ -41,6 +41,11 @@
     <string name="key_haptic_soft_description">缓起缓落，柔和绵长</string>
     <string name="key_haptic_system_description">使用设备默认的按键触感</string>
 
+    <string name="layout_nine">全拼9键</string>
+    <string name="layout_alpha">全拼26键</string>
+    <string name="layout_en">英文26键</string>
+    <string name="layout_panel_title">键盘布局</string>
+
     <string name="restore_gate_rollback_failed">恢复没做完，撤销失败，点这里</string>
     <string name="restore_gate_rollback_impossible">恢复没做完，无法撤销，点这里</string>
 

@@ -15,10 +15,14 @@
 
 package com.aegis.ime.ime
 
+import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Rect
+import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
@@ -29,8 +33,10 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -46,6 +52,11 @@ class PanelIconAlignmentTest {
             View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY),
         )
         v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+    }
+
+    private fun View.tap(x: Float, y: Float) {
+        dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, x, y, 0))
+        dispatchTouchEvent(MotionEvent.obtain(0, 10, MotionEvent.ACTION_UP, x, y, 0))
     }
 
     private fun View.dragVertically(from: Float, to: Float) {
@@ -72,6 +83,57 @@ class PanelIconAlignmentTest {
             (PanelBackButton.EDGE_DP * density).toInt() - (ImeShapes.edgeInsetDp * density).toInt(),
             back.paddingLeft,
         )
+    }
+
+    @Test fun edit_and_layout_back_actions_use_the_complete_target_and_exclude_their_outer_insets() {
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val root = requireNotNull(controller.get().findViewById<ViewGroup>(android.R.id.content))
+            var backCount = 0
+            val edit = EditPanelView(controller.get()).apply { onAction = { if (it == EditAction.BACK) backCount++ } }
+            val keyboardLayout = LayoutPanelView(controller.get()).apply { onBack = { backCount++ } }
+            for ((v, back) in listOf(edit to requireNotNull(edit.actionViewForTest(EditAction.BACK)), keyboardLayout to keyboardLayout.titleButtonForTest())) {
+                root.addView(v)
+                shadowOf(Looper.getMainLooper()).idle()
+                for ((widthDp, heightDp) in listOf(411 to 324, 320 to 200, 640 to 220)) {
+                    layout(root, width = (widthDp * density).roundToInt(), height = (heightDp * density).roundToInt())
+                    val topRow = back.parent as View
+                    val hit = Rect(0, 0, back.width, back.height).also { root.offsetDescendantRectToMyCoords(back, it) }
+                    assertTrue(back.hasOnClickListeners())
+                    assertTrue("the natural-width target leaves the rest of the header free", back.right < topRow.width)
+                    assertFalse(topRow.hasOnClickListeners())
+                    assertEquals((56 * density).toInt(), topRow.height)
+                    assertEquals((PanelBackButton.HIT_DP * density).toInt(), hit.height())
+                    assertEquals((topRow.height - back.height) / 2, hit.top)
+                    assertTrue("the clickable target excludes a real outer top inset", hit.top > 0)
+                    for (point in listOf(
+                        hit.left + 1f to hit.top + 1f,
+                        hit.right - 1f to hit.top + 1f,
+                        hit.left + 1f to hit.bottom - 1f,
+                        hit.right - 1f to hit.bottom - 1f,
+                    )) {
+                        backCount = 0
+                        root.tap(point.first, point.second)
+                        shadowOf(Looper.getMainLooper()).idle()
+                        assertEquals("every corner of the full target returns once", 1, backCount)
+                    }
+                    for (point in listOf(
+                        hit.exactCenterX() to hit.top - 1f,
+                        hit.exactCenterX() to hit.bottom + 1f,
+                        hit.right + 1f to hit.exactCenterY(),
+                        root.width - 1f to hit.exactCenterY(),
+                    )) {
+                        backCount = 0
+                        root.tap(point.first, point.second)
+                        shadowOf(Looper.getMainLooper()).idle()
+                        assertEquals("the outer inset and remaining header do not return", 0, backCount)
+                    }
+                }
+                root.removeView(v)
+            }
+        } finally {
+            controller.pause().stop().destroy()
+        }
     }
 
     @Test fun edit_panel_never_pages_at_compact_or_portrait_heights() {

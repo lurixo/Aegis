@@ -239,6 +239,7 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
     }
     internal fun toolbarIconCentersForTest(): FloatArray = iconCentersX.copyOf()
     internal fun toolbarIconScaleForTest(f: BarFunction): Float = iconScale(f)
+    internal fun toolbarFunctionsForTest(): List<BarFunction> = functions
 
     internal fun centerOfCandidateForTest(index: Int): Pair<Float, Float>? {
         if (index !in items.indices) return null
