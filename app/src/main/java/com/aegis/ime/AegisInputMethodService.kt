@@ -252,8 +252,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onExpandClosed = { controller.clearDrill() }
             onCollapse = { requestHideSelf(0) }
             onCopyCommit = { t -> commitLargeText(t) }
-            onCopyBlock = { b -> copyBlockToAegis(b) }
-            onCopyDismiss = { lastCopy = null }
+            onCopyBlock = { b ->
+                controller.expireCandidateChoiceUndo()
+                copyBlockToAegis(b)
+            }
+            onCopyDismiss = {
+                controller.expireCandidateChoiceUndo()
+                lastCopy = null
+            }
             onEditConfirm = { confirmInlineInput() }
             onEditCancel = { cancelInlineInput() }
         }
@@ -321,6 +327,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun handleEdit(action: EditAction) {
         if (panelInput.active && action != EditAction.BACK) return
+        controller.expireCandidateChoiceUndo()
         when (action) {
             EditAction.UP -> nav(KeyEvent.KEYCODE_DPAD_UP, SelectionMath.Move.UP)
             EditAction.DOWN -> nav(KeyEvent.KEYCODE_DPAD_DOWN, SelectionMath.Move.DOWN)
@@ -376,6 +383,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun handleBackspaceSwipe(up: Boolean) {
         if (panelInput.active) return
         val ic = currentInputConnection ?: return
+        controller.expireCandidateChoiceUndo()
         if (up) {
             val all = ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)?.text
             if (!all.isNullOrEmpty()) {
@@ -393,7 +401,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (iv.isPanelShowing(emojiView)) { iv.showPanel(null); return }
         val ev = emojiView ?: EmojiView(this).also {
             it.recentProvider = { emojiUsageStore.recent() }
-            it.onEmoji = { e -> emojiUsageStore.record(e); commitText(e) }
+            it.onEmoji = { e -> emojiUsageStore.record(e); commitExternalText(e) }
             it.onBackspace = { panelBackspace() }
             it.onBack = { inputView?.showPanel(null) }
             emojiView = it
@@ -484,7 +492,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (iv.isPanelShowing(symbolsView)) { iv.showPanel(null); return }
         val sv = symbolsView ?: SymbolsView(this).also {
             it.recentProvider = { symbolUsageStore.recent() }
-            it.onSymbol = { s -> symbolUsageStore.record(s); commitSymbol(s) }
+            it.onSymbol = { s -> symbolUsageStore.record(s); commitExternalSymbol(s) }
             it.onBackspace = { panelBackspace() }
             it.onBack = { inputView?.showPanel(null) }
             symbolsView = it
@@ -657,13 +665,29 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
 
+    private fun commitExternalText(text: CharSequence) {
+        if (panelInput.commit(text)) return
+        controller.expireCandidateChoiceUndo()
+        currentInputConnection?.commitText(text, 1)
+    }
+
     override fun commitText(text: CharSequence) {
         if (panelInput.commit(text)) return
         currentInputConnection?.commitText(text, 1)
     }
 
+    private fun commitExternalSymbol(symbol: CharSequence) {
+        if (panelInput.commit(symbol)) return
+        controller.expireCandidateChoiceUndo()
+        commitSymbolToEditor(symbol)
+    }
+
     override fun commitSymbol(symbol: CharSequence) {
         if (panelInput.commit(symbol)) return
+        commitSymbolToEditor(symbol)
+    }
+
+    private fun commitSymbolToEditor(symbol: CharSequence) {
         val ic = currentInputConnection ?: return
         val s = symbol.toString()
         val insertion = SymbolCatalog.insertionFor(
@@ -682,6 +706,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun commitLargeText(text: CharSequence) {
         if (panelInput.commit(text)) return
+        controller.expireCandidateChoiceUndo()
         val ic = currentInputConnection ?: return
         ic.beginBatchEdit()
         com.aegis.ime.ime.LargeCommit.commit(text) { ic.commitText(it, 1) }
@@ -696,6 +721,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     override fun deleteCodePointBackward() {
         if (panelInput.backspace()) return
         currentInputConnection?.deleteSurroundingTextInCodePoints(1, 0)
+    }
+
+    override fun panelBackspace() {
+        if (panelInput.backspace()) return
+        controller.expireCandidateChoiceUndo()
+        if (hasSelection()) deleteSelection() else deleteCodePointBackward()
     }
 
     override fun textBeforeCursor(n: Int): CharSequence =
