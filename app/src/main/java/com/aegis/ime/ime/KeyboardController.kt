@@ -764,6 +764,7 @@ class KeyboardController(
     }
 
     fun onPanelBackspace() {
+        expirePreeditChoiceUndo()
         if (composing.isEmpty()) return
         handleBackspace()
         refreshCandidates()
