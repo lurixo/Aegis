@@ -135,6 +135,17 @@ class PhrasePanelTest {
         assertEquals(Triple("默认", 0, 2), r)
     }
 
+    @Test fun drag_visual_translation_tracks_finger_before_drop() {
+        val v = phraseView()
+        v.dragStartAtForTest(0, 20f)
+        v.dragMoveAtForTest(0, 76f)
+        assertEquals("dragged row follows the finger before any drop", 56f, v.dragTranslationYForTest(), 0.01f)
+        v.dragMoveAtForTest(2, 140f)
+        assertEquals("row order updates while the drag is still active", listOf("在吗", "稍等", "你好"), v.listRowTextsForTest())
+        assertTrue("drop callback has not reset the lifted row yet", v.dragTranslationYForTest() != 0f)
+        v.dragDropForTest()
+    }
+
     @Test fun drag_move_reorders_category_rows_live_before_drop() {
         var r: Pair<Int, Int>? = null
         val v = phraseView().apply { onReorderCategory = { f, t -> r = f to t } }
@@ -235,6 +246,7 @@ class PhrasePanelTest {
         assertTrue("返回 is no longer a '‹' text glyph", textViews(v).none { it.text?.toString() == "‹" })
         assertEquals("all top icons share one width (item7)", 1, icons.map { it.layoutParams.width }.toSet().size)
         assertEquals("all top icons share one height (item7)", 1, icons.map { it.layoutParams.height }.toSet().size)
+        assertTrue("top icons are transparent controls, not rounded chips", icons.all { it.background == null })
     }
 
 

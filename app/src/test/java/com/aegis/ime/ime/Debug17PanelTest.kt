@@ -435,23 +435,52 @@ class Debug17PanelTest {
         assertEquals(2, tabs.size)
         assertTrue(tabs.all { it.background == null })
         assertEquals(pal.candidateFirst, tabs.first { it.text?.toString() == "剪贴板" }.currentTextColor)
-        assertEquals(pal.keyLabelSecondary, tabs.first { it.text?.toString() == "常用语" }.currentTextColor)
+        assertEquals(pal.keyLabel, tabs.first { it.text?.toString() == "常用语" }.currentTextColor)
 
         val phrase = phraseView()
         val phraseTabs = textViews(phrase).filter { it.text?.toString() in setOf("剪贴板", "常用语") }
-        assertEquals(pal.keyLabelSecondary, phraseTabs.first { it.text?.toString() == "剪贴板" }.currentTextColor)
+        assertEquals(pal.keyLabel, phraseTabs.first { it.text?.toString() == "剪贴板" }.currentTextColor)
         assertEquals(pal.candidateFirst, phraseTabs.first { it.text?.toString() == "常用语" }.currentTextColor)
     }
 
     @Test fun phrase_category_row_uses_text_edit_button_without_chip_backgrounds() {
         val v = phraseView()
         val category = textViews(v).first { it.text?.toString() == "默认" && it.hasOnClickListeners() }
+        val inactiveCategory = textViews(v).first { it.text?.toString() == "工作" && it.hasOnClickListeners() }
         val manage = textViews(v).first { it.text?.toString() == "编辑" && it.contentDescription?.toString() == "管理常用语" }
         assertEquals(pal.candidateFirst, category.currentTextColor)
-        assertEquals(pal.keyLabelSecondary, manage.currentTextColor)
+        assertEquals(pal.keyLabel, inactiveCategory.currentTextColor)
+        assertEquals(pal.keyLabel, manage.currentTextColor)
         assertTrue(category.background == null)
+        assertTrue(inactiveCategory.background == null)
         assertTrue(manage.background == null)
         assertTrue(clickDesc(v, "管理常用语"))
+    }
+
+    @Test fun select_and_action_row_defaults_use_body_text_color() {
+        val selected = clipView().apply { enterSelectForTest() }
+        assertEquals(pal.keyLabel, textViews(selected).first { it.text?.toString() == "全选" }.currentTextColor)
+        assertEquals(pal.keyLabel, textViews(selected).first { it.text?.toString() == "取消" }.currentTextColor)
+
+        val expanded = clipView().apply { expandForTest("hello") }
+        val actions = textViews(expanded)
+            .filter { it.text?.toString() in setOf("常用语", "拆词", "删除") && it.compoundDrawables.any { d -> d != null } }
+        assertEquals(3, actions.size)
+        assertTrue(actions.all { it.currentTextColor == pal.keyLabel })
+    }
+
+    @Test fun clear_confirmation_actions_use_body_text_color() {
+        val phrase = phraseView()
+        phrase.confirmClearForTest()
+        val phraseActions = textViews(overlayOf(phrase)).filter { it.text?.toString() in setOf("清空", "取消") }
+        assertEquals(2, phraseActions.size)
+        assertTrue(phraseActions.all { it.currentTextColor == pal.keyLabel })
+
+        val clip = clipView()
+        clip.confirmClearHistoryForTest()
+        val clipActions = textViews(overlayOf(clip)).filter { it.text?.toString() in setOf("清空", "取消") }
+        assertEquals(2, clipActions.size)
+        assertTrue(clipActions.all { it.currentTextColor == pal.keyLabel })
     }
 
     @Test fun expanding_a_card_wraps_its_body_in_a_scrollview() {
