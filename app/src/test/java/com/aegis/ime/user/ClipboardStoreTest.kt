@@ -436,6 +436,25 @@ class ClipboardStoreTest {
         assertEquals(listOf("晚安"), dst.phrasesIn("私人"))
     }
 
+    @Test fun export_text_is_stable_and_import_accepts_crlf_files() {
+        val src = ClipboardStore(newDir()).apply {
+            load()
+            addCategory("Work")
+            addPhrasesTo("Work", listOf("line1\nline2", "slash\\value"))
+            setPhraseNote("Work", "line1\nline2", "note\\next")
+        }
+        val text = src.exportPhrasesText()
+        assertTrue("export includes category markers", text.contains("C\tWork\n"))
+        assertTrue("export includes escaped phrase lines", text.contains("P\tline1\\nline2\n"))
+        assertTrue("export includes escaped note lines", text.contains("N\tnote\\\\next\n"))
+
+        val crlf = text.replace("\n", "\r\n")
+        val dst = ClipboardStore(newDir()).apply { load() }
+        assertTrue(dst.importPhrasesText(crlf, merge = false))
+        assertEquals(listOf("line1\nline2", "slash\\value"), dst.phrasesIn("Work"))
+        assertEquals("note\\next", dst.noteFor("Work", "line1\nline2"))
+    }
+
     @Test fun import_merge_accumulates_and_dedupes() {
         val s = ClipboardStore(newDir()).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("已收到")) }
         val incoming = "C\t工作\nP\t已收到\nP\t稍等\nC\t新组\nP\t你好\n"

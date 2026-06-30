@@ -613,6 +613,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun recordTextClip(t: String) {
         clipboardStore.record(t)
+        refreshOpenClipboardPanel()
         lastCopy = t
         if (inputView?.isComposing() != true) inputView?.showCopyBar(t)
     }
@@ -621,7 +622,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun copyBlockToAegis(block: String) {
         clipboardStore.record(block)
+        refreshOpenClipboardPanel()
         Toast.makeText(this, "已存入剪贴板", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun refreshOpenClipboardPanel() {
+        val cv = clipboardView ?: return
+        if (inputView?.isPanelShowing(cv) == true) cv.refresh()
     }
 
     private fun historyEnabled() = getSharedPreferences("aegis", MODE_PRIVATE).getBoolean("clip_history", true)

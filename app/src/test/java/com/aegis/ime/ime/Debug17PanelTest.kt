@@ -411,19 +411,47 @@ class Debug17PanelTest {
         assertTrue(click(overlayOf(v), "清空")); assertEquals("clears the CURRENT category", "默认", cleared)
     }
 
-    @Test fun clipboard_tab_top_right_icon_clears_history_directly() {
+    @Test fun clipboard_tab_top_right_icon_confirms_before_clearing_history() {
         var clears = 0
         val v = clipView().apply { onClearHistory = { clears++ } }
         assertTrue("clipboard tab top bar carries clear-history", "清空剪贴板历史" in descs(mainOf(v)))
         assertFalse("old settings gear is not present", "设置" in descs(mainOf(v)))
         assertTrue(clickDesc(v, "清空剪贴板历史"))
-        assertEquals("tap clears history directly", 1, clears)
+        assertEquals("tap only opens confirmation", 0, clears)
+        assertTrue("confirmation offers clear", "清空" in labels(overlayOf(v)))
+        assertTrue(click(overlayOf(v), "清空"))
+        assertEquals("confirmed clear fires once", 1, clears)
     }
 
     @Test fun clipboard_clear_icon_long_press_keeps_recording_toggle_reachable() {
         val v = clipView()
         assertTrue(longClickDesc(v, "清空剪贴板历史"))
         assertTrue("history recording toggle remains reachable", labels(overlayOf(v)).any { it.startsWith("剪贴板记录:") })
+    }
+
+    @Test fun clipboard_and_phrase_tab_row_uses_text_color_only() {
+        val clip = clipView()
+        val tabs = textViews(clip).filter { it.text?.toString() in setOf("剪贴板", "常用语") }
+        assertEquals(2, tabs.size)
+        assertTrue(tabs.all { it.background == null })
+        assertEquals(pal.candidateFirst, tabs.first { it.text?.toString() == "剪贴板" }.currentTextColor)
+        assertEquals(pal.keyLabelSecondary, tabs.first { it.text?.toString() == "常用语" }.currentTextColor)
+
+        val phrase = phraseView()
+        val phraseTabs = textViews(phrase).filter { it.text?.toString() in setOf("剪贴板", "常用语") }
+        assertEquals(pal.keyLabelSecondary, phraseTabs.first { it.text?.toString() == "剪贴板" }.currentTextColor)
+        assertEquals(pal.candidateFirst, phraseTabs.first { it.text?.toString() == "常用语" }.currentTextColor)
+    }
+
+    @Test fun phrase_category_row_uses_text_edit_button_without_chip_backgrounds() {
+        val v = phraseView()
+        val category = textViews(v).first { it.text?.toString() == "默认" && it.hasOnClickListeners() }
+        val manage = textViews(v).first { it.text?.toString() == "编辑" && it.contentDescription?.toString() == "管理常用语" }
+        assertEquals(pal.candidateFirst, category.currentTextColor)
+        assertEquals(pal.keyLabelSecondary, manage.currentTextColor)
+        assertTrue(category.background == null)
+        assertTrue(manage.background == null)
+        assertTrue(clickDesc(v, "管理常用语"))
     }
 
     @Test fun expanding_a_card_wraps_its_body_in_a_scrollview() {

@@ -284,7 +284,7 @@ class ClipboardStore(private val dir: File) {
     fun exportPhrasesText(): String = serializePhrases()
 
     fun importPhrasesText(text: String, merge: Boolean): Boolean {
-        val parsed = parseCategories(text.split('\n'))
+        val parsed = parseCategories(text.lineSequence().toList())
         val hasContent = parsed.any { it.phrases.isNotEmpty() || it.name.isNotBlank() }
         if (!hasContent) return false
         if (merge) {
