@@ -135,14 +135,18 @@ class ClipboardStore(private val dir: File) {
     fun addPhrasesTo(category: String, texts: Collection<String>): Int {
         if (category.isBlank()) return 0
         val c = find(category) ?: Category(category).also { phraseCats.add(it) }
-        var added = 0
+        val seen = c.phrases.mapTo(HashSet()) { it.text }
+        val added = ArrayList<Phrase>()
         for (raw in texts) {
             val t = raw.trim()
-            if (t.isEmpty() || c.phrases.any { it.text == t }) continue
-            c.phrases.add(Phrase(t)); added++
+            if (t.isEmpty() || !seen.add(t)) continue
+            added.add(Phrase(t))
         }
-        if (added > 0) savePhrases()
-        return added
+        if (added.isNotEmpty()) {
+            c.phrases.addAll(0, added)
+            savePhrases()
+        }
+        return added.size
     }
 
     fun addPhrases(texts: Collection<String>): Int =

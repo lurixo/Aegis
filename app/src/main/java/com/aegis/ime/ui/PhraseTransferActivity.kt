@@ -18,19 +18,10 @@ package com.aegis.ime.ui
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import com.aegis.ime.user.ClipboardStore
 
 class PhraseTransferActivity : ComponentActivity() {
-
-    private var pendingImport by mutableStateOf<String?>(null)
 
     private val exportLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) {
@@ -43,23 +34,16 @@ class PhraseTransferActivity : ComponentActivity() {
     private val importLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) { finish(); return@registerForActivityResult }
         val text = runCatching { contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() } }.getOrNull()
-        if (text == null) { toast("导入失败：文件无法读取,常用语未改动"); finish() } else pendingImport = text
+        if (text == null) {
+            toast("导入失败：文件无法读取,常用语未改动")
+            finish()
+        } else {
+            applyImport(text, merge = intent.getBooleanExtra(EXTRA_IMPORT_MERGE, true))
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent {
-            val text = pendingImport
-            if (text != null) {
-                AlertDialog(
-                    onDismissRequest = { finish() },
-                    title = { Text("导入常用语") },
-                    text = { Text("「合并」把导入内容累加到现有常用语（按分类去重）；「覆盖」用导入文件整体替换常用语库。空文件不会清空。") },
-                    confirmButton = { TextButton(onClick = { applyImport(text, merge = true) }) { Text("合并（推荐）") } },
-                    dismissButton = { TextButton(onClick = { applyImport(text, merge = false) }) { Text("覆盖") } },
-                )
-            }
-        }
         if (intent.getBooleanExtra(EXTRA_EXPORT, false)) exportLauncher.launch("aegis-phrases.txt")
         else importLauncher.launch(arrayOf("text/plain"))
     }
@@ -79,5 +63,6 @@ class PhraseTransferActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_EXPORT = "export"
+        const val EXTRA_IMPORT_MERGE = "import_merge"
     }
 }

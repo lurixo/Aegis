@@ -157,6 +157,20 @@ class ClipboardStoreTest {
         assertEquals(before + 2, reloaded.phrases().size)
     }
 
+    @Test fun added_phrases_land_at_front_preserving_batch_order() {
+        val s = ClipboardStore(newDir()).apply { load(); addPhrasesTo("默认", listOf("old")) }
+        assertEquals(2, s.addPhrasesTo("默认", listOf("new1", "new2", "old")))
+        assertEquals(listOf("new1", "new2", "old"), s.phrasesIn("默认"))
+    }
+
+    @Test fun phrase_dedup_is_scoped_to_the_target_category() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("工作"); addCategory("私人") }
+        assertEquals(1, s.addPhrasesTo("工作", listOf("谢谢", "谢谢")))
+        assertEquals(1, s.addPhrasesTo("私人", listOf("谢谢")))
+        assertEquals(listOf("谢谢"), s.phrasesIn("工作"))
+        assertEquals(listOf("谢谢"), s.phrasesIn("私人"))
+    }
+
 
     @Test fun first_run_has_an_empty_default_category() {
         val s = ClipboardStore(newDir()).apply { load() }
@@ -419,6 +433,19 @@ class ClipboardStoreTest {
         assertTrue("category still exists", "甲" in s.categories())
         assertEquals("already empty → 0", 0, s.clearPhrasesIn("甲"))
         assertEquals("unknown → 0", 0, s.clearPhrasesIn("无"))
+    }
+
+    @Test fun clearPhrasesIn_only_empties_the_named_category() {
+        val s = ClipboardStore(newDir()).apply {
+            load()
+            addCategory("甲")
+            addCategory("乙")
+            addPhrasesTo("甲", listOf("a"))
+            addPhrasesTo("乙", listOf("b"))
+        }
+        assertEquals(1, s.clearPhrasesIn("甲"))
+        assertTrue(s.phrasesIn("甲").isEmpty())
+        assertEquals(listOf("b"), s.phrasesIn("乙"))
     }
 
 
