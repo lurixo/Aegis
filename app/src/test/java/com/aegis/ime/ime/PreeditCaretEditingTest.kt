@@ -326,5 +326,21 @@ class PreeditCaretEditingTest {
         }
     }
 
+    @Test fun backspace_right_after_a_partial_pick_restores_the_buffer_and_leaves_editing() {
+        forEachLayout { nine, case ->
+            val (host, c) = controller(engine(), nine, case.input(nine) + case.input(nine))
+            c.onPreeditCaret(3)
+            val idx = c.candidateWords().indexOf(case.word)
+            assertTrue("$case nine=$nine offers the partial word", idx >= 0)
+            c.onPickCandidate(idx)
+            assertEquals(case.word, c.composingPrefix())
+            c.onKey(act(KeyAction.BACKSPACE))
+            assertEquals("", c.composingPrefix())
+            assertEquals(case.input(nine) + case.input(nine), rawOf(c, nine))
+            assertFalse(c.preeditEditing())
+            assertTrue(host.commits.isEmpty())
+        }
+    }
+
     private fun rawOf(c: KeyboardController, nine: Boolean): String = c.rawComposingForTest()
 }

@@ -136,6 +136,19 @@ class UserDictEndToEndTest {
         assertTrue("self-created word survives a restart", "此是" in c2.candidateWords())
     }
 
+    @Test fun assembledWord_committedViaFlush_isAlsoLearned() {
+        val um = UserModel()
+        val (c, h) = controller(um)
+        switchAlpha(c)
+        "cishihao".forEach { c.onKey(out(it.toString())) }
+        pick(c, "此")
+        pick(c, "是")
+        c.expireCandidateChoiceUndo()
+        repeat(3) { c.onKey(Key("", action = KeyAction.BACKSPACE)) }
+        assertEquals("此是", h.text)
+        assertEquals("flush-committed assembled word is learned under its reading", listOf("此是"), um.readingSnapshot()["cishi"])
+    }
+
     @Test fun exact_dictionary_word_is_saved_once_and_recalled_after_reload() {
         val um = UserModel()
         val (c, h) = controller(um)

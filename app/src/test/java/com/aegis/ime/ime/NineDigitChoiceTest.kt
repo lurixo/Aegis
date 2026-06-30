@@ -104,6 +104,20 @@ class NineDigitChoiceTest {
         assertEquals("6", c.digit()?.label)
     }
 
+    @Test fun choosing_a_literal_prefix_preserves_remaining_reading_locks_and_can_be_undone() {
+        val host = Host()
+        val c = controller(host)
+        c.onKey(c.digit()!!)
+        c.pick("o")
+        c.onPickCandidate(c.candidateWords().indexOf("9"))
+        assertEquals("9o'men", c.preeditForTest())
+        assertEquals("6", c.digit()?.label)
+        assertTrue(host.commits.isEmpty())
+        c.onKey(Key(action = KeyAction.BACKSPACE))
+        assertEquals("9'o'men", c.preeditForTest())
+        assertEquals("6", c.digit()?.label)
+    }
+
     @Test fun a_selected_chinese_prefix_remains_pending_when_a_digit_is_chosen() {
         val host = Host()
         val prefixEngine = object : CandidateEngine {

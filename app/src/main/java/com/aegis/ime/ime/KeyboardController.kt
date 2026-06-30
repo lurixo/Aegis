@@ -127,7 +127,25 @@ class KeyboardController(
 
     private val history = ArrayDeque<StepKind>()
 
+    private data class PreeditChoiceUndo(
+        val composing: String,
+        val literalIndices: Set<Int>,
+        val committedPrefix: String,
+        val lockedReadings: List<String>,
+        val lockedInputLengths: List<Int>,
+        val activeStart: Int,
+        val forcedCuts: Set<Int>,
+        val history: List<StepKind>,
+        val drillSyllable: Int,
+        val drillChoices: Map<Int, String>,
+        val deferredLearnEvents: List<LearnEvent>,
+        val lastWord: String?,
+        val inputEpoch: Long,
+    )
+
+    private val preeditChoiceUndo = ArrayDeque<PreeditChoiceUndo>()
     private val deferredLearnEvents = ArrayDeque<LearnEvent>()
+    private var inputEpoch = 0L
 
     private var drillSyllable = -1
 
@@ -299,6 +317,7 @@ class KeyboardController(
         activeStart = 0
         forcedCuts.clear()
         history.clear()
+        preeditChoiceUndo.clear()
         deferredLearnEvents.clear()
         drillSyllable = -1
         drillChoices.clear()
@@ -325,6 +344,7 @@ class KeyboardController(
     internal fun activeLayoutId(): LayoutId = layoutId
 
     internal fun switchTextLayoutForTest(nine: Boolean) {
+        expirePreeditChoiceUndo()
         drillSyllable = -1
         drillChoices.clear()
         switchLayout(if (nine) LayoutId.NINE else LayoutId.ALPHA)
@@ -334,6 +354,7 @@ class KeyboardController(
 
     fun onKey(key: Key) {
         if (key.action != KeyAction.BACKSPACE) {
+            expirePreeditChoiceUndo()
             drillSyllable = -1
             drillChoices.clear()
         }
@@ -374,6 +395,7 @@ class KeyboardController(
     }
 
     fun onBarFunction(f: BarFunction) {
+        expirePreeditChoiceUndo()
         if (composing.isNotEmpty() || committedPrefix.isNotEmpty() || englishWord.isNotEmpty()) {
             flushComposing()
             refreshCandidates()
@@ -396,6 +418,7 @@ class KeyboardController(
     }
 
     fun applyLayoutChoice(choice: LayoutChoice) {
+        expirePreeditChoiceUndo()
         flushComposing()
         shiftState = ShiftState.OFF
         if (choice == LayoutChoice.EN_ALPHA) {
@@ -462,6 +485,7 @@ class KeyboardController(
         if (layoutId != LayoutId.NINE || mode() != Mode.PINYIN) return
         val at = ninePendingIndex()
         if (at < 0 || composing[at] !in '2'..'9' || key.output != composing[at].toString()) return
+        savePreeditChoiceUndo()
         lockLeadingLiterals()
         literalIndices.add(at)
         lockedReadings.add(key.output)
@@ -498,6 +522,7 @@ class KeyboardController(
 
     fun onPreeditCaret(rawIndex: Int) {
         if (mode() != Mode.PINYIN || composing.isEmpty()) return
+        expirePreeditChoiceUndo()
         val hadDrill = drillSyllable >= 0 || drillChoices.isNotEmpty()
         drillSyllable = -1
         drillChoices.clear()
@@ -718,6 +743,7 @@ class KeyboardController(
             cand in emailCands -> {
                 val live = currentEmailContext()
                 if (live != null && live == emailContext && !hasComposingToClear() && emailDomains.contains(cand.word)) {
+                    expirePreeditChoiceUndo()
                     host.commitText(cand.word)
                     if (!learningBlocked && !LiveUserData.restoreInProgress) emailDomains.record(cand.word)
                 }
@@ -731,6 +757,7 @@ class KeyboardController(
                 clearComposingState(); lastWord = null
             }
             cand in directCommitCands -> {
+                expirePreeditChoiceUndo()
                 if (committedPrefix.isNotEmpty()) host.commitText(committedPrefix.toString())
                 host.commitSymbol(cand.word)
                 applyDeferredLearning()
@@ -739,11 +766,13 @@ class KeyboardController(
             cand in compositeCands -> commitCompositeCandidate(cand)
             cand in literalCands -> commitLiteralCandidate(cand)
             cand in englishCands -> {
+                expirePreeditChoiceUndo()
                 host.commitText(cand.word)
                 forgetEnglishWord()
                 lastWord = null
             }
             cand in predictionCands -> {
+                expirePreeditChoiceUndo()
                 host.commitText(cand.word)
                 if (!learningBlocked) engine.learn(lastWord, cand.word)
                 if (!learningBlocked) {
@@ -752,6 +781,7 @@ class KeyboardController(
                 lastWord = cand.word
             }
             else -> {
+                if (candidateStaysInPreedit(cand)) savePreeditChoiceUndo()
                 commitCandidate(cand)
             }
         }
@@ -815,6 +845,7 @@ class KeyboardController(
     }
 
     private fun handleBackspace() {
+        if (restorePreeditChoiceUndo()) return
         drillSyllable = -1
         drillChoices.clear()
         if (preeditEditing()) { backspaceAtCaret(); return }
@@ -893,12 +924,14 @@ class KeyboardController(
             pick != null && pick in compositeCands -> commitCompositeCandidate(pick)
             pick != null && pick in literalCands -> commitLiteralCandidate(pick)
             pick != null && pick in directCommitCands -> {
+                expirePreeditChoiceUndo()
                 if (committedPrefix.isNotEmpty()) host.commitText(committedPrefix.toString())
                 host.commitSymbol(pick.word)
                 applyDeferredLearning()
                 clearComposingState(); lastWord = null
             }
             pick != null -> {
+                if (candidateStaysInPreedit(pick)) savePreeditChoiceUndo()
                 commitCandidate(pick)
             }
             else -> { host.commitText(committedPrefix.toString() + rawComposingText()); clearComposingState() }
@@ -915,6 +948,7 @@ class KeyboardController(
     }
 
     private fun commitCompositeCandidate(cand: Cand) {
+        expirePreeditChoiceUndo()
         host.commitText(committedPrefix.toString() + cand.word)
         applyDeferredLearning()
         clearComposingState()
@@ -923,9 +957,11 @@ class KeyboardController(
 
     private fun commitLiteralCandidate(cand: Cand) {
         if (candidateStaysInPreedit(cand)) {
+            savePreeditChoiceUndo()
             committedPrefix.append(cand.word)
             consumeComposingPrefix(cand.coveredLen)
         } else {
+            expirePreeditChoiceUndo()
             host.commitText(committedPrefix.toString() + cand.word)
             applyDeferredLearning()
             clearComposingState()
@@ -977,6 +1013,7 @@ class KeyboardController(
             committedPrefix.append(cand.word)
             consumeComposingPrefix(cand.coveredLen)
         } else {
+            expirePreeditChoiceUndo()
             val assembled = committedPrefix.isNotEmpty()
             val finalReading = cand.correctedReading ?: consumedReading(cand.coveredLen)
             val wholeWord = committedPrefix.toString() + cand.word
@@ -1138,6 +1175,7 @@ class KeyboardController(
         activeStart = 0
         forcedCuts.clear()
         history.clear()
+        preeditChoiceUndo.clear()
         deferredLearnEvents.clear()
         committedPrefix.setLength(0)
         drillSyllable = -1
@@ -1510,10 +1548,66 @@ class KeyboardController(
         return req.engine.syllablesForReading(reading, req.readingCuts)
     }
 
+    private fun savePreeditChoiceUndo() {
+        preeditChoiceUndo.addLast(PreeditChoiceUndo(
+            composing = composing.toString(),
+            literalIndices = literalIndices.toSet(),
+            committedPrefix = committedPrefix.toString(),
+            lockedReadings = lockedReadings.toList(),
+            lockedInputLengths = lockedInputLengths.toList(),
+            activeStart = activeStart,
+            forcedCuts = forcedCuts.toSet(),
+            history = history.toList(),
+            drillSyllable = drillSyllable,
+            drillChoices = drillChoices.toMap(),
+            deferredLearnEvents = deferredLearnEvents.toList(),
+            lastWord = lastWord,
+            inputEpoch = inputEpoch,
+        ))
+    }
+
+    private fun expirePreeditChoiceUndo() {
+        inputEpoch++
+        preeditChoiceUndo.clear()
+    }
+
+    fun expireCandidateChoiceUndo() {
+        expirePreeditChoiceUndo()
+    }
+
+    private fun restorePreeditChoiceUndo(): Boolean {
+        val snap = preeditChoiceUndo.removeLastOrNull() ?: return false
+        if (snap.inputEpoch != inputEpoch) {
+            preeditChoiceUndo.clear()
+            return false
+        }
+        composing.setLength(0); composing.append(snap.composing)
+        literalIndices.clear(); literalIndices.addAll(snap.literalIndices)
+        committedPrefix.setLength(0); committedPrefix.append(snap.committedPrefix)
+        lockedReadings.clear(); lockedReadings.addAll(snap.lockedReadings)
+        lockedInputLengths.clear(); lockedInputLengths.addAll(snap.lockedInputLengths)
+        activeStart = snap.activeStart
+        forcedCuts.clear(); forcedCuts.addAll(snap.forcedCuts)
+        history.clear(); for (step in snap.history) history.addLast(step)
+        drillSyllable = snap.drillSyllable
+        drillChoices.clear(); drillChoices.putAll(snap.drillChoices)
+        deferredLearnEvents.clear(); deferredLearnEvents.addAll(snap.deferredLearnEvents)
+        lastWord = snap.lastWord
+        leavePreeditEditing()
+        if (decodeLane != null) candidatesSuperseded = true
+        return true
+    }
+
     private fun pickDrilledHomophone(charWord: String) {
         if (composing.isEmpty()) { drillSyllable = -1; drillChoices.clear(); return }
         val syls = currentSyllables()
         if (drillSyllable !in syls.indices) { drillSyllable = -1; return }
+        val choices = HashMap(drillChoices)
+        choices[drillSyllable] = charWord
+        var k = 0
+        while (choices.containsKey(k) && k < syls.size) k++
+        val commitsToEditor = k > 0 && syls[k - 1].end >= composing.length
+        if (!commitsToEditor) savePreeditChoiceUndo()
         drillChoices[drillSyllable] = charWord
         if (drillChoices.containsKey(0)) {
             commitChosenLeftPrefix()
@@ -1771,6 +1865,7 @@ class KeyboardController(
         if (index !in readings.indices) return
         val reading = readings[index]
         if (drillSyllable >= 0 && reading == currentSyllables().getOrNull(drillSyllable)?.reading) return
+        expirePreeditChoiceUndo()
         val focus = expandedFocusIndex()
         val recentLockedReading = lockedReadings.lastOrNull()
         val lockedIndex = recentLockedReading?.let(readings::indexOf) ?: -1
