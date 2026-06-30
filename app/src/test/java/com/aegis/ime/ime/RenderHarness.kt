@@ -310,15 +310,15 @@ class RenderHarness {
         }
     }
 
-    @Test fun clipboard_gear_menu() {
+    @Test fun clipboard_history_recording_menu() {
         val h = (300 * ctx.resources.displayMetrics.density).toInt()
         for ((t, pal) in themes) {
             val v = ClipboardView(ctx).apply {
                 historyProvider = { listOf("第一条复制内容") }
                 applyPalette(pal)
-                showGearMenuForTest()
+                showHistoryRecordingMenuForTest()
             }
-            snap(v, h, "clip_gear_menu_$t.png")
+            snap(v, h, "clip_recording_menu_$t.png")
         }
     }
 
