@@ -224,7 +224,7 @@ class Ui12SyllableColumnTest {
         assertEquals("both syllables commit in order, each the user's pick", listOf("测试"), host.commits)
     }
 
-    // ② (debug.18) the leading-first path stays normal.
+    // ② (debug.18) the leading-first path stays normal: tap the leading syllable, reselect its char, normal flow.
     @Test fun ceshi_drilling_ce_first_partial_commits_then_continues_to_shi() {
         val (host, c) = alphaWithBuffer("ceshi")
         c.onPickReadingIndex(0)                            // 点首音节 ce
