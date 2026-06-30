@@ -47,6 +47,9 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
 
+    /** debug.18 (item13): the 文字编辑 title text size; the back chevron is sized to match its visual height. */
+    private val TITLE_SP = 16f
+
     private var palette = ImePalette.STATIC_LIGHT
     private val copyBtn: TextView
     private val cutBtn: TextView
@@ -75,12 +78,15 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         orientation = VERTICAL
         setBackgroundColor(palette.keyboardBg) // P-A: panel floor == the strip/keyboard floor (no top seam)
 
-        // Title bar — debug.17: the back chevron is now the hollow-stroke Glyphs.drawBack icon (matching the
-        // clipboard panel's 返回 + the rest of the panel's outline icons), bigger than the old tiny "‹" char.
+        // Title bar — debug.17: the back chevron is the hollow-stroke Glyphs.drawBack icon (matching the
+        // clipboard panel's 返回 + the rest of the panel's outline icons). debug.18 (item13): grow it so its
+        // drawn height tracks the 16sp "文字编辑" title's visual height (drawBack spans 1.64·s, so sFactor 0.48
+        // on the 26dp box ≈ a ~20dp chevron — level with the CJK title text, with a touch of optical comp for
+        // the thin strokes — instead of sitting visibly smaller). Final cross-check is on-device.
         addView(
-            textBtn("文字编辑", EditAction.BACK, sp = 16f).apply {
+            textBtn("文字编辑", EditAction.BACK, sp = TITLE_SP).apply {
                 gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), 0, 0, 0)
-                setCompoundDrawablesWithIntrinsicBounds(icon(26, 0.42f) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }, null, null, null)
+                setCompoundDrawablesWithIntrinsicBounds(icon(26, 0.48f) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }, null, null, null)
                 compoundDrawablePadding = dp(6)
             },
             LayoutParams(LayoutParams.MATCH_PARENT, dp(40)),

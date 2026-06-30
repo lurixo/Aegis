@@ -95,7 +95,11 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         setBackgroundColor(palette.keyboardBg) // P-A: panel floor == the strip/keyboard floor (no top seam)
         lockBtn.setCompoundDrawablesWithIntrinsicBounds(lockGlyph, null, null, null) // P-C: lock glyph left of 锁定
         lockBtn.compoundDrawablePadding = dp(4)
-        backspaceBtn.setCompoundDrawablesWithIntrinsicBounds(backspaceGlyph, null, null, null) // debug.17: ⌫ glyph (no char)
+        // debug.18 (item14): ⌫ glyph as the END (right) compound drawable, not LEFT — a left drawable anchors to
+        // the button's left edge so the gravity-END + right-padding below were ineffective (⌫ floated mid-bar).
+        // As an end drawable it hugs the right edge (right-padding mirrors 返回's left-padding → the two are
+        // equidistant from the bar's left/right edges, 锁定 centred between them).
+        backspaceBtn.setCompoundDrawablesWithIntrinsicBounds(null, null, backspaceGlyph, null)
         backspaceGlyph.tint(palette.keyLabelSecondary)
 
         for ((i, t) in titles.withIndex()) rail.addView(railTab(i, t))
@@ -317,6 +321,9 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun openCategoryForTest(index: Int) = showCategory(index)
     internal fun toggleLockForTest() = toggleLock()
     internal fun gridScrollYForTest(): Int = gridScroll.scrollY
+    // debug.18 (item14): the bottom-bar 返回 / ⌫ buttons, so a test can assert ⌫ hugs the right edge symmetrically.
+    internal fun backBtnForTest(): TextView = backBtn
+    internal fun backspaceBtnForTest(): TextView = backspaceBtn
 
     // P5 net-layout test seams. "net bar" = the 网址补全 (URL-completion) chip bar. Non-url multi-char tokens
     // (e.g. 数学 三角函数 sin/arcsin) ride the GRID instead, leaving this bar hidden.

@@ -75,7 +75,10 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         setBackgroundColor(palette.keyboardBg) // P-A: panel floor == the strip/keyboard floor (no top seam)
         lockBtn.setCompoundDrawablesWithIntrinsicBounds(lockGlyph, null, null, null)
         lockBtn.compoundDrawablePadding = dp(4)
-        backspaceBtn.setCompoundDrawablesWithIntrinsicBounds(backspaceGlyph, null, null, null)
+        // debug.18 (item14): ⌫ glyph as the END (right) compound drawable, not LEFT — a left drawable anchors to
+        // the button's left edge so the gravity-END + right-padding below were ineffective (⌫ floated mid-bar).
+        // As an end drawable it hugs the right edge, equidistant with 返回 on the left (matches SymbolsView).
+        backspaceBtn.setCompoundDrawablesWithIntrinsicBounds(null, null, backspaceGlyph, null)
         backspaceGlyph.tint(palette.keyLabelSecondary)
         updateLockFace()
 
@@ -135,6 +138,9 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun openCategoryForTest(index: Int) = showCategory(index)
     internal fun lockedForTest(): Boolean = locked
     internal fun toggleLockForTest() = toggleLock()
+    // debug.18 (item14): the bottom-bar 返回 / ⌫ buttons, so a test can assert ⌫ hugs the right edge symmetrically.
+    internal fun backBtnForTest(): TextView = backBtn
+    internal fun backspaceBtnForTest(): TextView = backspaceBtn
 
     private fun showCategory(index: Int) {
         selected = index
