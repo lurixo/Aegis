@@ -15,6 +15,10 @@
 
 package com.aegis.ime.ui
 
+import android.app.Activity.OVERRIDE_TRANSITION_CLOSE
+import android.app.Activity.OVERRIDE_TRANSITION_OPEN
+import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -44,8 +48,14 @@ class PhraseTransferActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        suppressBridgeTransitions()
         if (intent.getBooleanExtra(EXTRA_EXPORT, false)) exportLauncher.launch("aegis-phrases.txt")
         else importLauncher.launch(arrayOf("text/plain"))
+    }
+
+    override fun finish() {
+        super.finish()
+        suppressBridgeTransitions()
     }
 
     private fun applyImport(text: String, merge: Boolean) {
@@ -61,8 +71,24 @@ class PhraseTransferActivity : ComponentActivity() {
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
+    private fun suppressBridgeTransitions() {
+        overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, 0, 0)
+        overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0)
+    }
+
     companion object {
         const val EXTRA_EXPORT = "export"
         const val EXTRA_IMPORT_MERGE = "import_merge"
+
+        internal val LAUNCH_FLAGS: Int =
+            Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or
+                Intent.FLAG_ACTIVITY_NO_ANIMATION
+
+        internal fun launchIntent(context: Context, export: Boolean, merge: Boolean = true): Intent =
+            Intent(context, PhraseTransferActivity::class.java)
+                .putExtra(EXTRA_EXPORT, export)
+                .putExtra(EXTRA_IMPORT_MERGE, merge)
+                .addFlags(LAUNCH_FLAGS)
     }
 }
