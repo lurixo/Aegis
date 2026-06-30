@@ -422,6 +422,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onMovePhrase = { from, text, to -> clipboardStore.movePhrase(from, text, to) }
             it.onMovePhrasesTo = { from, list, to -> clipboardStore.movePhrasesTo(from, list, to) }
             it.onReorderPhrase = { cat, fromIdx, toIdx -> clipboardStore.reorderPhrase(cat, fromIdx, toIdx) }
+            it.onReorderCategory = { fromIdx, toIdx -> clipboardStore.reorderCategory(fromIdx, toIdx) }
             it.onAddPhrase = { cat -> beginInlineAddPhrase(cat) }
             it.onAddCategory = { beginInlineAddCategory() }
             it.onAddCategoryThenAdd = { texts -> beginInlineAddCategory(texts) }
