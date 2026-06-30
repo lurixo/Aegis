@@ -757,6 +757,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     /** Record a captured text clip + raise the copy-bar (unless composing). Shared by the text + URI paths. */
     private fun recordTextClip(t: String) {
         clipboardStore.record(t)
+        refreshOpenClipboardPanel()
         lastCopy = t // U21: remember it so it survives an app switch / IME re-show
         if (inputView?.isComposing() != true) inputView?.showCopyBar(t) // don't clobber live candidates
     }
@@ -770,7 +771,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
      */
     private fun copyBlockToAegis(block: String) {
         clipboardStore.record(block)
+        refreshOpenClipboardPanel()
         Toast.makeText(this, "已存入剪贴板", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun refreshOpenClipboardPanel() {
+        val cv = clipboardView ?: return
+        if (inputView?.isPanelShowing(cv) == true) cv.refresh()
     }
 
     // C1/C2 clipboard controls wired to the clipboard panel controls.

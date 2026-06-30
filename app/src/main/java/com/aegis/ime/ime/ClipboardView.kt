@@ -130,11 +130,13 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         refresh()
     }
 
-    // debug.16: drag-to-reorder a 常用语 (long-press an un-expanded phrase card → drag up/down → drop persists).
-    // dragFrom = the index the drag started at; dragCurrent = the index it would land at right now. The store is
-    // reordered once on drop via onReorderPhrase(cat, dragFrom, dragCurrent). dragView is the lifted card.
+    // dragFrom is the persisted start index; dragCurrent/dragVisualIndex track the live visual target while
+    // dragging. The backing store is still updated once on drop.
     private var dragFrom = -1
     private var dragCurrent = -1
+    private var dragVisualIndex = -1
+    private var dragTouchOffsetY = 0f
+    private var dragLastRawY = 0f
     private var dragView: View? = null
     private enum class DragKind { NONE, PHRASE, CATEGORY }
     private var dragKind = DragKind.NONE
@@ -200,6 +202,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     internal fun showPhraseManageMenuForTest() { showPhraseManageMenu() }
     internal fun showHistoryRecordingMenuForTest() { showHistoryRecordingMenu() }
     internal fun confirmClearForTest() { confirmClearCurrentCategory() } // debug.17 E2
+    internal fun confirmClearHistoryForTest() { confirmClearHistory() }
     internal fun enterSortModeForTest() { enterSortMode() }
     internal fun isSortModeForTest(): Boolean = sortMode
     internal fun enterCategorySortModeForTest() { enterCategorySortMode() }
@@ -207,6 +210,16 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     internal fun showSplitForTest(text: String) { showSplit(text) }
     internal fun splitSelectedForTest(): Set<String> = splitSelected.toSet()
     internal fun settleSwipeForTest(dxPx: Float, text: String) { settleSwipe(dxPx, text) }
+    internal fun listRowTextsForTest(): List<String> {
+        val out = ArrayList<String>()
+        fun firstText(v: View): String? {
+            if (v is TextView) return v.text?.toString()
+            if (v is ViewGroup) for (i in 0 until v.childCount) firstText(v.getChildAt(i))?.let { return it }
+            return null
+        }
+        for (i in 0 until listColumn.childCount) firstText(listColumn.getChildAt(i))?.let { out.add(it) }
+        return out
+    }
 
     fun refresh() {
         main.removeAllViews()
@@ -229,7 +242,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             // spaced (a gap between them) instead of crammed.
             fun iconLp(spaced: Boolean = false) = ll(dp(36), dp(44)).apply { if (spaced) marginStart = dp(6) }
             // Every top icon is a self-drawn glyph in a chip, uniform with the app.
-            addView(glyphChipBtn(desc = "返回", onClick = { onBack() }) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }, iconLp())
+            addView(glyphChipBtn(desc = "返回", glyphSizeDp = 12, onClick = { onBack() }) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }, iconLp())
             addView(View(context), ll(0, dp(1), 1f))
             addView(pillTray(), ll(WC, dp(36)))
             addView(View(context), ll(0, dp(1), 1f))
@@ -237,10 +250,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             // categoryBar ✎ 二级菜单); 多选 (☰) lives on BOTH tabs.
             if (st.tab == Tab.PHRASE) addView(glyphChipBtn(desc = "添加常用语", onClick = { onAddPhrase(currentCategory()) }) { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }, iconLp(true))
             addView(glyphChipBtn(desc = "多选", onClick = { enterSelect() }) { c, p, x, y, s -> Glyphs.drawList(c, p, x, y, s) }, iconLp(true))
-            // The last top icon is tab-specific: phrase tab clears the current category with confirmation;
-            // clipboard tab directly clears Aegis clipboard history.
+            // The last top icon is tab-specific: both destructive clear actions require confirmation.
             if (st.tab == Tab.PHRASE) addView(glyphChipBtn(desc = "清空分类", tint = RED, onClick = { confirmClearCurrentCategory() }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }, iconLp(true))
-            else addView(glyphChipBtn(desc = "清空剪贴板历史", tint = RED, onClick = { onClearHistory(); refresh() }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }.apply {
+            else addView(glyphChipBtn(desc = "清空剪贴板历史", tint = RED, onClick = { confirmClearHistory() }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }.apply {
                 setOnLongClickListener { showHistoryRecordingMenu(); true }
             }, iconLp(true))
         }
@@ -385,7 +397,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val slop = ViewConfiguration.get(context).scaledTouchSlop
         var downX = 0f; var downY = 0f
         var mode = 0 // 0=undecided, 1=horizontal swipe, 2=vertical scroll (drag is tracked by isDragging)
-        val longPress = Runnable { startDrag(index); card.parent?.requestDisallowInterceptTouchEvent(true) }
+        val longPress = Runnable { startDrag(index, downY); card.parent?.requestDisallowInterceptTouchEvent(true) }
         touchTarget.setOnTouchListener { _, e ->
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -395,8 +407,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 }
                 MotionEvent.ACTION_MOVE -> {
                     if (isDragging) {
-                        card.translationY = e.rawY - downY
-                        indexAtRawY(e.rawY)?.let { moveDragTo(it) }
+                        updateDraggedTranslation(e.rawY)
+                        indexAtRawY(e.rawY)?.let { moveDragTo(it, e.rawY) }
                         true
                     } else {
                         val dx = e.rawX - downX; val dy = e.rawY - downY
@@ -477,7 +489,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             child.getLocationOnScreen(loc)
             tops[i] = loc[1]; heights[i] = child.height
         }
-        return rowAt(tops, heights, dragFrom, rawY.toInt())
+        return rowAt(tops, heights, dragVisualIndex, rawY.toInt())
     }
 
     /** Pure coordinate→row mapping (unit-tested): the first row whose [tops]/[heights] span contains [y],
@@ -490,28 +502,68 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         return null
     }
 
-    private fun startDrag(index: Int) {
+    private fun startDrag(index: Int, rawY: Float? = null) {
         dragKind = DragKind.PHRASE
         dragFrom = index; dragCurrent = index
-        dragView = listColumn.getChildAt(index)?.also { it.translationZ = dp(8).toFloat(); it.alpha = 0.92f }
+        dragVisualIndex = index
+        dragView = listColumn.getChildAt(index)?.also {
+            rawY?.let { y ->
+                val loc = IntArray(2)
+                it.getLocationOnScreen(loc)
+                dragTouchOffsetY = y - loc[1]
+            }
+            it.translationZ = dp(8).toFloat(); it.alpha = 0.92f
+        }
     }
 
-    private fun startCategoryDrag(index: Int) {
+    private fun startCategoryDrag(index: Int, rawY: Float? = null) {
         dragKind = DragKind.CATEGORY
         dragFrom = index; dragCurrent = index
-        dragView = listColumn.getChildAt(index)?.also { it.translationZ = dp(8).toFloat(); it.alpha = 0.92f }
+        dragVisualIndex = index
+        dragView = listColumn.getChildAt(index)?.also {
+            rawY?.let { y ->
+                val loc = IntArray(2)
+                it.getLocationOnScreen(loc)
+                dragTouchOffsetY = y - loc[1]
+            }
+            it.translationZ = dp(8).toFloat(); it.alpha = 0.92f
+        }
     }
 
-    private fun moveDragTo(index: Int) {
+    private fun moveDragTo(index: Int, rawY: Float? = null) {
         val n = if (dragKind == DragKind.CATEGORY) categoriesProvider().size else currentEntries().size
-        if (index in 0 until n) dragCurrent = index
+        if (index !in 0 until n) return
+        dragCurrent = index
+        if (dragView != null && index != dragVisualIndex) {
+            moveDraggedViewTo(index)
+            rawY?.let { updateDraggedTranslation(it) }
+        }
+    }
+
+    private fun moveDraggedViewTo(index: Int) {
+        val view = dragView ?: return
+        val from = dragVisualIndex
+        if (from !in 0 until listColumn.childCount) return
+        listColumn.removeViewAt(from)
+        listColumn.addView(view, index.coerceIn(0, listColumn.childCount))
+        dragVisualIndex = index
+        listColumn.post { if (isDragging) updateDraggedTranslation(dragLastRawY) }
+    }
+
+    private fun updateDraggedTranslation(rawY: Float) {
+        val view = dragView ?: return
+        dragLastRawY = rawY
+        val loc = IntArray(2)
+        listColumn.getLocationOnScreen(loc)
+        val baseTop = loc[1] + view.top
+        view.translationY = rawY - dragTouchOffsetY - baseTop
     }
 
     private fun endDrag() {
         val from = dragFrom; val to = dragCurrent
         val kind = dragKind
         dragView?.let { it.translationZ = 0f; it.alpha = 1f; it.translationY = 0f }
-        dragFrom = -1; dragCurrent = -1; dragView = null; dragKind = DragKind.NONE
+        dragFrom = -1; dragCurrent = -1; dragVisualIndex = -1; dragTouchOffsetY = 0f; dragLastRawY = 0f; dragView = null; dragKind = DragKind.NONE
         if (from >= 0 && to >= 0 && from != to) {
             if (kind == DragKind.CATEGORY) onReorderCategory(from, to) else onReorderPhrase(currentCategory(), from, to)
             refresh()
@@ -522,7 +574,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     override fun onDetachedFromWindow() {
         // Drop any pending long-press → drag so a panel close mid-press can't fire startDrag on a stale card.
         dragHandler.removeCallbacksAndMessages(null)
-        dragFrom = -1; dragCurrent = -1; dragView = null; dragKind = DragKind.NONE
+        dragFrom = -1; dragCurrent = -1; dragVisualIndex = -1; dragTouchOffsetY = 0f; dragLastRawY = 0f; dragView = null; dragKind = DragKind.NONE
         super.onDetachedFromWindow()
     }
 
@@ -585,12 +637,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     /** In 排序模式 a touch on the ≡ handle starts the drag immediately (no long-press gate). */
     private fun attachSortDrag(handle: View, card: View, index: Int) {
-        var downY = 0f
         handle.setOnTouchListener { _, e ->
             when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { downY = e.rawY; startDrag(index); card.parent?.requestDisallowInterceptTouchEvent(true); true }
+                MotionEvent.ACTION_DOWN -> { startDrag(index, e.rawY); card.parent?.requestDisallowInterceptTouchEvent(true); true }
                 MotionEvent.ACTION_MOVE -> {
-                    if (isDragging) { card.translationY = e.rawY - downY; indexAtRawY(e.rawY)?.let { moveDragTo(it) }; true } else false
+                    if (isDragging) { updateDraggedTranslation(e.rawY); indexAtRawY(e.rawY)?.let { moveDragTo(it, e.rawY) }; true } else false
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { if (isDragging) { endDrag(); true } else false }
                 else -> false
@@ -642,12 +693,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
 
     private fun attachCategorySortDrag(handle: View, card: View, index: Int) {
-        var downY = 0f
         handle.setOnTouchListener { _, e ->
             when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { downY = e.rawY; startCategoryDrag(index); card.parent?.requestDisallowInterceptTouchEvent(true); true }
+                MotionEvent.ACTION_DOWN -> { startCategoryDrag(index, e.rawY); card.parent?.requestDisallowInterceptTouchEvent(true); true }
                 MotionEvent.ACTION_MOVE -> {
-                    if (isDragging) { card.translationY = e.rawY - downY; indexAtRawY(e.rawY)?.let { moveDragTo(it) }; true } else false
+                    if (isDragging) { updateDraggedTranslation(e.rawY); indexAtRawY(e.rawY)?.let { moveDragTo(it, e.rawY) }; true } else false
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { if (isDragging) { endDrag(); true } else false }
                 else -> false
@@ -664,10 +714,14 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val cur = currentCategory()
         for (name in categoriesProvider()) chips.addView(catChip(name, name == cur))
         addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, ll(0, WC, 1f))
-        // debug.18: float the ✎ chip as a compact 36×40 icon button (centred → 2dp breathing each side)
-        // instead of filling the whole 44dp categoryBar, which made it read as an oversized full-height block.
-        // (Intentionally a hair shorter than the 36×44 top-bar pills so it sits contained within the 44dp bar.)
-        addView(glyphChipBtn(desc = "管理常用语", onClick = { showPhraseManageMenu() }) { c, p, x, y, s -> Glyphs.drawPencil(c, p, x, y, s) }, ll(dp(36), dp(40))) // ✎ → 二级菜单
+        addView(TextView(context).apply {
+            text = "编辑"
+            gravity = Gravity.CENTER
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+            setTextColor(SUBTEXT)
+            contentDescription = "管理常用语"
+            setOnClickListener { showPhraseManageMenu() }
+        }, ll(dp(48), dp(40)))
     }
 
     /** debug.19: the categoryBar pencil menu's category-move item reorders categories, not phrases. */
@@ -696,13 +750,23 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         showOverlay(card)
     }
 
+    private fun confirmClearHistory() {
+        val card = menuCard()
+        card.addView(menuTitle("清空剪贴板历史?"))
+        card.addView(menuDivider())
+        card.addView(menuItem("清空") { hideOverlay(); onClearHistory(); refresh() }.also { it.setTextColor(RED) })
+        card.addView(menuDivider())
+        card.addView(menuItem("取消") { hideOverlay() })
+        showOverlay(card)
+    }
+
     private fun catChip(name: String, on: Boolean): View = TextView(context).apply {
         text = name
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
         setPadding(dp(14), dp(6), dp(14), dp(6))
-        background = if (on) rounded(GREY_PILL, ImeShapes.chipRadiusDp) else null // selected chip = grey pill, others plain
-        setTextColor(if (on) TEXT_DARK else SUBTEXT)
+        background = null
+        setTextColor(if (on) GREEN else SUBTEXT)
         setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         setOnClickListener { swipeRevealed = null; phraseCat = name; refresh() } // debug.17: a category switch drops any stale reveal
         setOnLongClickListener { showCategoryMenu(name); true } // debug.16: 长按 chip → 改名 / 删除 (inline)
@@ -974,7 +1038,6 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun pillTray(): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
-        background = rounded(TRAY, ImeShapes.chipRadiusDp)
         addView(pill("剪贴板", st.tab == Tab.CLIPBOARD) { if (st.switchTab(Tab.CLIPBOARD)) { swipeRevealed = null; sortMode = false; categorySortMode = false; refresh() } }, ll(dp(84), dp(34)))
         addView(pill("常用语", st.tab == Tab.PHRASE) { if (st.switchTab(Tab.PHRASE)) { swipeRevealed = null; sortMode = false; categorySortMode = false; refresh() } }, ll(dp(84), dp(34)))
     }
@@ -982,7 +1045,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun pill(label: String, on: Boolean, onClick: () -> Unit): TextView = TextView(context).apply {
         text = label; gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
-        background = if (on) rounded(GREEN_PILL, ImeShapes.chipRadiusDp) else null
+        background = null
         setTextColor(if (on) GREEN else SUBTEXT)
         setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         setOnClickListener { onClick() }
@@ -1064,8 +1127,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     /** Top-bar / categoryBar chip button whose icon is a self-drawn Glyph (replaces a font-char roundBtn).
      *  [desc] is the contentDescription (accessibility + test locator, since there is no text). */
-    private fun glyphChipBtn(desc: String, tint: Int = SUBTEXT, onClick: () -> Unit, render: (Canvas, Paint, Float, Float, Float) -> Unit): View =
-        glyphView(tint, 10, render).apply {
+    private fun glyphChipBtn(desc: String, tint: Int = SUBTEXT, glyphSizeDp: Int = 10, onClick: () -> Unit, render: (Canvas, Paint, Float, Float, Float) -> Unit): View =
+        glyphView(tint, glyphSizeDp, render).apply {
             background = rounded(GREY_PILL, ImeShapes.chipRadiusDp)
             contentDescription = desc
             setOnClickListener { onClick() }

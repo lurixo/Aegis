@@ -134,6 +134,31 @@ class PhrasePanelTest {
         assertEquals(Triple("默认", 0, 2), r)
     }
 
+    @Test fun drag_move_reorders_phrase_rows_live_before_drop() {
+        var r: Triple<String, Int, Int>? = null
+        val v = phraseView().apply { onReorderPhrase = { c, f, t -> r = Triple(c, f, t) } }
+        assertEquals(listOf("你好", "在吗", "稍等"), v.listRowTextsForTest())
+        v.dragStartForTest(0)
+        v.dragMoveToForTest(2)
+        assertEquals("row order updates while dragging", listOf("在吗", "稍等", "你好"), v.listRowTextsForTest())
+        assertNull("drop callback has not fired yet", r)
+        v.dragDropForTest()
+        assertEquals(Triple("默认", 0, 2), r)
+    }
+
+    @Test fun drag_move_reorders_category_rows_live_before_drop() {
+        var r: Pair<Int, Int>? = null
+        val v = phraseView().apply { onReorderCategory = { f, t -> r = f to t } }
+        v.enterCategorySortModeForTest()
+        assertEquals(listOf("默认", "工作", "私人"), v.listRowTextsForTest())
+        v.dragStartForTest(0)
+        v.dragMoveToForTest(2)
+        assertEquals("category rows update while dragging", listOf("工作", "私人", "默认"), v.listRowTextsForTest())
+        assertNull("drop callback has not fired yet", r)
+        v.dragDropForTest()
+        assertEquals(0 to 2, r)
+    }
+
     @Test fun rowAt_skips_the_dragged_row_so_downward_drag_finds_a_lower_target() {
         // 3 stacked rows, each 100px tall at tops 0/100/200. The dragged row (skip) is excluded — without that,
         // its finger-following translated bounds would always match and a downward drag could never move down.

@@ -157,6 +157,20 @@ class ClipboardViewInteractionTest {
         assertNull("a vertical drag does not 上屏", picked)
     }
 
+    @Test fun refresh_renders_new_history_items_without_reopening_panel() {
+        val history = mutableListOf("old")
+        val v = ClipboardView(ctx).apply {
+            historyProvider = { history.toList() }
+            applyPalette(pal)
+            refresh()
+        }
+        assertTrue("initial item is visible", "old" in labels(v))
+        history.add(0, "new")
+        v.refresh()
+        assertTrue("new item appears in the existing panel", "new" in labels(v))
+        assertTrue("existing item remains visible", "old" in labels(v))
+    }
+
     // ---------- G: the expanded card's inner ScrollView scrolls; the outer list must not steal it ----------
 
     @Test fun expanded_card_inner_scroll_drags_and_the_outer_list_does_not_steal_it() {
@@ -211,14 +225,16 @@ class ClipboardViewInteractionTest {
         assertFalse("the bare 「移动」 label is gone", ls.any { it == "移动" })
     }
 
-    // ---------- debug.19: clipboard tab top-right icon clears history directly ----------
+    // ---------- debug.20: clipboard clear requires confirmation ----------
 
-    @Test fun clear_history_top_icon_clears_history_directly() {
+    @Test fun clear_history_top_icon_requires_confirmation() {
         var clears = 0
         val v = clipView(listOf("第一条")).apply { onClearHistory = { clears++ } }
         layout(v)
         assertTrue("tap the clear-history icon", clickDesc(v, "清空剪贴板历史"))
-        assertEquals("clear is direct, not behind a settings menu", 1, clears)
+        assertEquals("top icon does not clear immediately", 0, clears)
+        assertTrue(clickText(overlayOf(v), "清空"))
+        assertEquals("confirming clears history", 1, clears)
         assertFalse("old settings gear is gone", allViews(v).any { it.contentDescription?.toString() == "设置" })
     }
 }
