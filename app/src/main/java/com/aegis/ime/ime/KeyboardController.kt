@@ -50,6 +50,8 @@ class KeyboardController(
     private val host: ImeHost,
     private var engine: CandidateEngine,
 ) {
+    private data class LearnEvent(val prevWord: String?, val word: String, val prefixEnd: Int)
+
     private var lang = Lang.CN
     private var shiftState = ShiftState.OFF
     private val shifted get() = shiftState != ShiftState.OFF
@@ -108,10 +110,12 @@ class KeyboardController(
         val history: List<StepKind>,
         val drillSyllable: Int,
         val drillChoices: Map<Int, String>,
+        val deferredLearnEvents: List<LearnEvent>,
         val lastWord: String?,
     )
 
     private val preeditChoiceUndo = ArrayDeque<PreeditChoiceUndo>()
+    private val deferredLearnEvents = ArrayDeque<LearnEvent>()
 
     /**
      * UI-2 (debug.13/debug.19): on the 26-key expanded screen the left column shows only the first unresolved
@@ -236,6 +240,7 @@ class KeyboardController(
         forcedCuts.clear()
         history.clear()
         preeditChoiceUndo.clear()
+        deferredLearnEvents.clear()
         drillSyllable = -1 // UI-2: a fresh field starts on the normal grid, not a drilled syllable
         drillChoices.clear() // ②: a fresh field drops any deferred 逐音节 selection
         // D1 (debug.12): reset() runs on every onStartInputView (field switch) and config change (rotation),
@@ -425,6 +430,7 @@ class KeyboardController(
             // flush any assembled prefix ahead of it so the emoji follows the confirmed word, not replaces it.
             cand in directCommitCands -> {
                 host.commitText(committedPrefix.toString() + cand.word)
+                applyDeferredLearning()
                 clearComposingState(); lastWord = null
             }
             // C5: a next-word prediction commits directly and becomes the new [lastWord] so predictions
@@ -479,6 +485,7 @@ class KeyboardController(
             // can still see — only once the prefix is empty does 退格 reach the field.
             if (committedPrefix.isNotEmpty()) {
                 committedPrefix.setLength(committedPrefix.length - 1)
+                trimDeferredLearningToPrefix()
                 if (committedPrefix.isEmpty()) lastWord = null
                 return
             }
@@ -556,17 +563,14 @@ class KeyboardController(
      * (its reading is a prefix of the input), commit that part and keep composing the remaining digits.
      */
     private fun commitCandidate(cand: Cand) {
-        // M-3/L-3: never learn a word committed in a password / NO_PERSONALIZED_LEARNING field — it would
-        // be saved to userdb in plaintext and later resurface (via wordBoost) in ordinary fields (肩窥).
-        // Each picked chunk is still learned as a bigram so 就→见→左侧 adaptation survives (the deferral
-        // below changes only WHEN text reaches the editor, never what is learned).
-        if (!learningBlocked) engine.learn(lastWord, cand.word)
-        lastWord = cand.word
         if (cand.coveredLen in 1 until composing.length) {
             // S1(c): a PARTIAL pick confirms cand.word as the next chunk of the word being assembled but does
             // NOT reach the editor yet — accumulate it in [committedPrefix] (shown at the strip's leftmost)
             // and keep decoding the remainder. The old code commitText()'d every pick, dribbling one
             // syllable at a time into the app (the "选一个就上屏一个" bug).
+            val prefixEnd = committedPrefix.length + cand.word.length
+            if (!learningBlocked) deferredLearnEvents.addLast(LearnEvent(lastWord, cand.word, prefixEnd))
+            lastWord = cand.word
             committedPrefix.append(cand.word)
             composing.delete(0, cand.coveredLen)
             // ★E×分词: drop consumed cuts, shift the rest left by the consumed length.
@@ -595,6 +599,8 @@ class KeyboardController(
             // The pick completes the word: send the assembled prefix + this final chunk to the editor in ONE
             // commit (整词完成才上屏), then reset.
             host.commitText(committedPrefix.toString() + cand.word)
+            applyDeferredLearning(cand.word)
+            lastWord = cand.word
             clearComposingState()
         }
     }
@@ -615,9 +621,11 @@ class KeyboardController(
         val prefix = committedPrefix.toString()
         if (composing.isNotEmpty()) {
             host.commitText(prefix + rawComposingText())
+            applyDeferredLearning()
             clearComposingState()
         } else if (prefix.isNotEmpty()) {
             host.commitText(prefix)
+            applyDeferredLearning()
             clearComposingState()
         }
         lastWord = null
@@ -691,9 +699,28 @@ class KeyboardController(
         forcedCuts.clear()
         history.clear()
         preeditChoiceUndo.clear()
+        deferredLearnEvents.clear()
         committedPrefix.setLength(0) // S1(c): drop any assembled-but-uncommitted prefix too
         drillSyllable = -1 // UI-2: clearing the buffer leaves no syllable to drill
         drillChoices.clear() // ②: …and no deferred 逐音节 selection (commitChosenLeftPrefix re-seeds any carry-over)
+    }
+
+    private fun applyDeferredLearning(finalWord: String? = null) {
+        if (!learningBlocked) {
+            for (event in deferredLearnEvents) engine.learn(event.prevWord, event.word)
+            if (finalWord != null) engine.learn(lastWord, finalWord)
+        }
+        deferredLearnEvents.clear()
+    }
+
+    private fun trimDeferredLearningToPrefix() {
+        val baseLastWord = deferredLearnEvents.firstOrNull()?.prevWord
+        var removed = false
+        while (deferredLearnEvents.lastOrNull()?.prefixEnd?.let { it > committedPrefix.length } == true) {
+            deferredLearnEvents.removeLast()
+            removed = true
+        }
+        if (removed) lastWord = deferredLearnEvents.lastOrNull()?.word ?: baseLastWord
     }
 
     private fun refreshCandidates() {
@@ -835,6 +862,7 @@ class KeyboardController(
             history = history.toList(),
             drillSyllable = drillSyllable,
             drillChoices = drillChoices.toMap(),
+            deferredLearnEvents = deferredLearnEvents.toList(),
             lastWord = lastWord,
         ))
     }
@@ -849,6 +877,7 @@ class KeyboardController(
         history.clear(); for (step in snap.history) history.addLast(step)
         drillSyllable = snap.drillSyllable
         drillChoices.clear(); drillChoices.putAll(snap.drillChoices)
+        deferredLearnEvents.clear(); deferredLearnEvents.addAll(snap.deferredLearnEvents)
         lastWord = snap.lastWord
         candidates = emptyList()
         return true
