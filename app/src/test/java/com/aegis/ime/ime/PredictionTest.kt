@@ -50,6 +50,14 @@ class PredictionTest {
             if (prevWord == "你好") listOf("世界", "啊") else emptyList()
     }
 
+    private fun echoPredictsItselfEngine() = object : CandidateEngine {
+        override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+        override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence) =
+            if (composing.isEmpty()) emptyList() else listOf(Cand("echo", composing.length))
+        override fun predict(prevWord: String?): List<String> =
+            if (prevWord == "echo") listOf("echo") else emptyList()
+    }
+
     /** Always predicts — used to prove the calculator wins the empty-buffer slot. */
     private fun alwaysPredictEngine() = object : CandidateEngine {
         override fun candidates(composing: String, t9: Boolean) = emptyList<String>()
@@ -80,6 +88,24 @@ class PredictionTest {
         assertEquals("the prediction is committed after 你好", "你好世界", h.text)
         // lastWord is now 世界; niHaoEngine predicts nothing after it → empty bar (chained, then dry).
         assertTrue("no prediction after 世界", c.candidateWords().isEmpty())
+    }
+
+    @Test fun picking_a_prediction_retires_previous_candidate_undo() {
+        val h = EditorHost()
+        val c = KeyboardController(h, echoPredictsItselfEngine())
+        "echo".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(c.candidateWords().indexOf("echo"))
+        assertEquals("echo", h.text)
+        assertEquals(listOf("echo"), c.candidateWords())
+
+        c.onPickCandidate(c.candidateWords().indexOf("echo"))
+        assertEquals("echoecho", h.text)
+        assertEquals("prediction chaining remains available", listOf("echo"), c.candidateWords())
+
+        c.onKey(Key("", action = KeyAction.BACKSPACE))
+
+        assertEquals("Backspace is a normal editor delete after a prediction pick", "echoech", h.text)
+        assertEquals("stale candidate undo must not restore the previous preedit", "", c.preeditForTest())
     }
 
     @Test fun associations_ship_off_by_default() {

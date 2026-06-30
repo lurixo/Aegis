@@ -442,6 +442,7 @@ class KeyboardController(
             // C5: a next-word prediction commits directly and becomes the new [lastWord] so predictions
             // chain (你好 → 世界 → …); it is reinforced as a bigram after the previous word, like a normal pick.
             cand in predictionCands -> {
+                expirePreeditChoiceUndo()
                 host.commitText(cand.word)
                 if (!learningBlocked) engine.learn(lastWord, cand.word)
                 lastWord = cand.word
@@ -888,8 +889,8 @@ class KeyboardController(
 
     /**
      * Service panels and copy-bar actions mutate the target editor outside [onKey], so they must explicitly retire
-     * candidate-choice undo before touching the InputConnection. Controller-owned candidate commits intentionally
-     * do not call this, preserving immediate Backspace undo after a pick.
+     * candidate-choice undo before touching the InputConnection. Normal preedit candidate commits intentionally do
+     * not call this, preserving immediate Backspace undo after a pick.
      */
     fun expireCandidateChoiceUndo() {
         expirePreeditChoiceUndo()
