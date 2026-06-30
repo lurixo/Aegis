@@ -31,11 +31,9 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 /**
- * debug.17 剪贴板/常用语面板交互重做. Covers: ① top ＋ (常用语) adds a phrase to the current category (no longer
- * a 新建分类); ③ the categoryBar ✎ 二级菜单 (移动→排序模式 / 添加分类) + the drag-reorder sort mode; ④ a 剪贴板
- * card's left-swipe reveal (添加常用语/拆词/删除); ⑤ a 常用语 card's left-swipe reveal (编辑/置顶/删除) + 置顶;
- * ⑦ the 拆词 overlay (blocks default NEUTRAL, tap → 浅紫 highlight + copy, 全部复制). The ⌄展开 + 长按菜单 are
- * verified UNCHANGED (zero regression). Overlay menus live in ClipboardView child 1.
+ * debug.17 clipboard/phrase panel interaction coverage. Includes top add-phrase behavior, the categoryBar
+ * pencil submenu, clipboard and phrase left-swipe reveals, phrase pinning, split blocks, and regression checks
+ * for chevron expansion and long-press menus. Overlay menus live in ClipboardView child 1.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -72,6 +70,10 @@ class Debug17PanelTest {
         val v = allViews(root).firstOrNull { it.contentDescription?.toString() == desc && it.hasOnClickListeners() } ?: return false
         v.performClick(); return true
     }
+    private fun longClickDesc(root: View, desc: String): Boolean {
+        val v = allViews(root).firstOrNull { it.contentDescription?.toString() == desc && it.hasOnClickListeners() } ?: return false
+        return v.performLongClick()
+    }
 
     private fun phraseView(phrases: List<String> = listOf("你好", "在吗", "稍等")): ClipboardView = ClipboardView(ctx).apply {
         categoriesProvider = { listOf("默认", "工作") }
@@ -104,12 +106,13 @@ class Debug17PanelTest {
         assertTrue("menu has 添加分类", "添加分类" in ls)
     }
 
-    @Test fun manage_menu_move_enters_sort_mode() {
+    @Test fun manage_menu_move_category_enters_category_sort_mode() {
         val v = phraseView()
         clickDesc(v, "管理常用语"); assertTrue(click(overlayOf(v), "移动分类")) // debug.18
-        assertTrue("移动 → 排序模式", v.isSortModeForTest())
+        assertTrue("移动分类 → category sort mode", v.isCategorySortModeForTest())
+        assertFalse("does not enter phrase sort mode", v.isSortModeForTest())
         val ls = labels(v)
-        assertTrue("sort header", "拖动排序" in ls); assertTrue("done button", "完成" in ls)
+        assertTrue("category sort header", "拖动分类" in ls); assertTrue("done button", "完成" in ls)
     }
 
     @Test fun manage_menu_add_category_triggers_inline_create() {
@@ -133,6 +136,37 @@ class Debug17PanelTest {
         assertEquals("drag in 排序模式 reorders the current category", Triple("默认", 0, 2), reorder)
     }
 
+    @Test fun category_sort_mode_drag_reorders_categories_not_phrases() {
+        var categoryReorder: Pair<Int, Int>? = null
+        var phraseReorder: Triple<String, Int, Int>? = null
+        val v = phraseView().apply {
+            onReorderCategory = { from, to -> categoryReorder = from to to }
+            onReorderPhrase = { c, f, t -> phraseReorder = Triple(c, f, t) }
+        }
+        v.enterCategorySortModeForTest()
+        v.dragStartForTest(0); v.dragMoveToForTest(1); v.dragDropForTest()
+        assertEquals("category drag calls category reorder callback", 0 to 1, categoryReorder)
+        assertNull("category drag must not call phrase reorder", phraseReorder)
+    }
+
+    @Test fun category_sort_mode_updates_category_chip_order() {
+        val cats = mutableListOf("默认", "工作", "私人")
+        val v = ClipboardView(ctx).apply {
+            categoriesProvider = { cats }
+            phrasesInProvider = { emptyList() }
+            onReorderCategory = { from, to -> cats.add(to, cats.removeAt(from)) }
+            applyPalette(pal); forcePhrasesStateForTest("默认"); refresh()
+        }
+        v.enterCategorySortModeForTest()
+        v.dragStartForTest(2); v.dragMoveToForTest(0); v.dragDropForTest()
+        assertEquals(listOf("私人", "默认", "工作"), labels(v).filter { it in cats })
+        assertTrue(click(v, "完成"))
+        val chipOrder = textViews(v)
+            .filter { it.text?.toString() in cats && it.hasOnClickListeners() }
+            .map { it.text.toString() }
+        assertEquals("category chips follow persisted category order", listOf("私人", "默认", "工作"), chipOrder)
+    }
+
     // ---------- ④ 剪贴板 card left-swipe reveal (+ ⌄展开 / 长按菜单 zero regression) ----------
 
     @Test fun clipboard_left_swipe_reveals_action_row_without_expanding() {
@@ -145,6 +179,17 @@ class Debug17PanelTest {
         assertTrue("删除 action", ls.any { it.contains("删除") })
         assertTrue("NOT expanded (chevron shows 展开)", "展开" in descs(v))
         assertFalse("not the expanded chevron", "收起" in descs(v))
+    }
+
+    @Test fun clipboard_left_swipe_shows_four_line_body_without_expanding_chevron() {
+        val long = (1..8).joinToString("\n") { "line $it" }
+        val v = clipView(listOf(long))
+        v.revealSwipeForTest(long)
+        val body = textViews(v).first { it.text?.toString() == long }
+        assertTrue("left-swipe wraps the body like expanded cards", body.parent is android.widget.ScrollView)
+        assertTrue("body itself is not capped to two text lines", body.maxLines > 4)
+        assertTrue("chevron still reports collapsed state", "展开" in descs(v))
+        assertFalse("left-swipe is not chevron expansion", "收起" in descs(v))
     }
 
     @Test fun clipboard_chevron_expand_still_works_and_clears_a_swipe() {
@@ -171,6 +216,17 @@ class Debug17PanelTest {
         val ls = labels(v)
         assertTrue("编辑", "编辑" in ls); assertTrue("置顶", "置顶" in ls); assertTrue("删除", "删除" in ls)
         assertFalse("swipe row is NOT the expand row (no 移动)", "移动" in ls)
+    }
+
+    @Test fun phrase_left_swipe_shows_four_line_body_without_expanding_chevron() {
+        val long = (1..8).joinToString("\n") { "phrase $it" }
+        val v = phraseView(listOf(long))
+        v.revealSwipeForTest(long)
+        val body = textViews(v).first { it.text?.toString() == long }
+        assertTrue("left-swiped phrase body is four-line bounded", body.parent is android.widget.ScrollView)
+        assertTrue("phrase body itself is not a two-line preview", body.maxLines > 4)
+        assertTrue("chevron still reports collapsed state", "展开" in descs(v))
+        assertFalse("left-swipe is not chevron expansion", "收起" in descs(v))
     }
 
     @Test fun category_switch_clears_a_stale_swipe_reveal() {
@@ -379,8 +435,19 @@ class Debug17PanelTest {
         assertTrue(click(overlayOf(v), "清空")); assertEquals("clears the CURRENT category", "默认", cleared)
     }
 
-    @Test fun clipboard_tab_keeps_the_gear_menu() {
-        assertTrue("⚙ gear stays on the 剪贴板 tab", "设置" in descs(mainOf(clipView())))
+    @Test fun clipboard_tab_top_right_icon_clears_history_directly() {
+        var clears = 0
+        val v = clipView().apply { onClearHistory = { clears++ } }
+        assertTrue("clipboard tab top bar carries clear-history", "清空剪贴板历史" in descs(mainOf(v)))
+        assertFalse("old settings gear is not present", "设置" in descs(mainOf(v)))
+        assertTrue(clickDesc(v, "清空剪贴板历史"))
+        assertEquals("tap clears history directly", 1, clears)
+    }
+
+    @Test fun clipboard_clear_icon_long_press_keeps_recording_toggle_reachable() {
+        val v = clipView()
+        assertTrue(longClickDesc(v, "清空剪贴板历史"))
+        assertTrue("history recording toggle remains reachable", labels(overlayOf(v)).any { it.startsWith("剪贴板记录:") })
     }
 
     @Test fun expanding_a_card_wraps_its_body_in_a_scrollview() {

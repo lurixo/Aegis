@@ -533,6 +533,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onMovePhrase = { from, text, to -> clipboardStore.movePhrase(from, text, to) } // debug.16: 移动常用语分类
             it.onMovePhrasesTo = { from, list, to -> clipboardStore.movePhrasesTo(from, list, to) } // debug.16: 批量移动
             it.onReorderPhrase = { cat, fromIdx, toIdx -> clipboardStore.reorderPhrase(cat, fromIdx, toIdx) } // debug.16: 拖动重排
+            it.onReorderCategory = { fromIdx, toIdx -> clipboardStore.reorderCategory(fromIdx, toIdx) }
             it.onAddPhrase = { cat -> beginInlineAddPhrase(cat) }                         // debug.17: 顶部 ＋ → 当前分类内联新增常用语
             it.onAddCategory = { beginInlineAddCategory() }                               // debug.16/17: ＋分类(now ✎二级菜单) → inline buffer
             it.onAddCategoryThenAdd = { texts -> beginInlineAddCategory(texts) }          // debug.16: 剪贴板 添加常用语→新建分类 (carry clips)
@@ -772,7 +773,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         Toast.makeText(this, "已存入剪贴板", Toast.LENGTH_SHORT).show()
     }
 
-    // C1/C2 clipboard controls (wired to the panel ⚙ menu).
+    // C1/C2 clipboard controls wired to the clipboard panel controls.
     private fun historyEnabled() = getSharedPreferences("aegis", MODE_PRIVATE).getBoolean("clip_history", true)
     private fun setHistoryEnabled(on: Boolean) =
         getSharedPreferences("aegis", MODE_PRIVATE).edit().putBoolean("clip_history", on).apply()

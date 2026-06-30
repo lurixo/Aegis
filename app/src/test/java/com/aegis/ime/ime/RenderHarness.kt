@@ -364,16 +364,15 @@ class RenderHarness {
         }
     }
 
-    @Test fun clipboard_gear_menu() {
-        // debug.18: the ⚙ menu's 清空剪贴板历史 carries the SAME RED trash glyph as the 常用语 tab's 清空分类.
+    @Test fun clipboard_history_recording_menu() {
         val h = (300 * ctx.resources.displayMetrics.density).toInt()
         for ((t, pal) in themes) {
             val v = ClipboardView(ctx).apply {
                 historyProvider = { listOf("第一条复制内容") }
                 applyPalette(pal)
-                showGearMenuForTest()
+                showHistoryRecordingMenuForTest()
             }
-            snap(v, h, "clip_gear_menu_$t.png")
+            snap(v, h, "clip_recording_menu_$t.png")
         }
     }
 
@@ -455,7 +454,7 @@ class RenderHarness {
     }
 
     @Test fun phrase_topbar_icons() {
-        // item7: render the 常用语 tab top bar so the uniform-size / even-spacing of ‹ tabs ＋ ☰ ⚙ can be eyeballed.
+        // item7: render the phrase tab top bar so uniform icon size and spacing can be eyeballed.
         val h = (60 * density).toInt()
         for ((t, pal) in themes) {
             val v = ClipboardView(ctx).apply {

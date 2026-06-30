@@ -370,6 +370,24 @@ class ClipboardStoreTest {
         assertEquals(listOf("a", "b"), s.phrasesIn("甲"))
     }
 
+    @Test fun reorder_category_moves_category_and_persists() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply { load(); addCategory("甲"); addCategory("乙"); addCategory("丙") }
+        assertTrue(s.reorderCategory(3, 1))
+        assertEquals(listOf("默认", "丙", "甲", "乙"), s.categories())
+        assertTrue(s.reorderCategory(0, 3))
+        assertEquals(listOf("丙", "甲", "乙", "默认"), s.categories())
+        assertEquals(listOf("丙", "甲", "乙", "默认"), ClipboardStore(dir).apply { load() }.categories())
+    }
+
+    @Test fun reorder_category_rejects_bad_indices_and_noops() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addCategory("乙") }
+        assertFalse(s.reorderCategory(0, 0))
+        assertFalse(s.reorderCategory(-1, 1))
+        assertFalse(s.reorderCategory(0, 3))
+        assertEquals(listOf("默认", "甲", "乙"), s.categories())
+    }
+
     // ---------- debug.17 F2: phrase notes (display alias; 上屏 uses the original text) ----------
 
     @Test fun note_persists_and_phrasesIn_still_returns_original_text() {

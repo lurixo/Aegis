@@ -24,7 +24,6 @@ import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.user.ClipSplitter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -212,14 +211,14 @@ class ClipboardViewInteractionTest {
         assertFalse("the bare 「移动」 label is gone", ls.any { it == "移动" })
     }
 
-    // ---------- 清空剪贴板历史 carries the same trash icon as 清空分类 ----------
+    // ---------- debug.19: clipboard tab top-right icon clears history directly ----------
 
-    @Test fun clear_history_menu_item_has_a_leading_trash_icon() {
-        val v = clipView(listOf("第一条"))
+    @Test fun clear_history_top_icon_clears_history_directly() {
+        var clears = 0
+        val v = clipView(listOf("第一条")).apply { onClearHistory = { clears++ } }
         layout(v)
-        assertTrue("open the ⚙ menu", clickDesc(v, "设置"))
-        val item = textViews(overlayOf(v)).first { it.text?.toString() == "清空剪贴板历史" }
-        assertNotNull("清空剪贴板历史 now shows a leading icon (the same Glyphs.drawTrash as 清空分类)",
-            item.compoundDrawables[0])
+        assertTrue("tap the clear-history icon", clickDesc(v, "清空剪贴板历史"))
+        assertEquals("clear is direct, not behind a settings menu", 1, clears)
+        assertFalse("old settings gear is gone", allViews(v).any { it.contentDescription?.toString() == "设置" })
     }
 }

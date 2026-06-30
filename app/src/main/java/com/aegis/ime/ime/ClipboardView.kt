@@ -44,9 +44,8 @@ import com.aegis.ime.user.ClipSplitter
  * cards. A card expands (chevron) to reveal +常用语 / 拆词 / 删除 (C3); long-press pops the same three
  * as a centered menu (C6). 拆词 splits a clip into tappable blocks (C4) via [ClipSplitter]. The 多选
  * entry opens the "编辑剪贴板" mode (C7: ○全选 / circle selectors / green 添加常用语 + red 删除) on BOTH
- * tabs. The 常用语 tab carries a ＋ (add) and a bottom category-chip row with a ✎ manage entry (C5);
- * the ⚙ menu clears the system clipboard / history and toggles recording (C1/C2). The tab/select/expand
- * state lives in the pure [ClipboardPanelState] (unit-tested).
+ * tabs. The 常用语 tab carries a ＋ (add) and a bottom category-chip row with a ✎ manage entry (C5).
+ * The tab/select/expand state lives in the pure [ClipboardPanelState] (unit-tested).
  */
 class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
@@ -64,6 +63,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     var onMovePhrase: (String, String, String) -> Unit = { _, _, _ -> } // debug.16: (fromCategory, phrase, toCategory)
     var onMovePhrasesTo: (String, List<String>, String) -> Unit = { _, _, _ -> } // debug.16: batch move (from, phrases, to)
     var onReorderPhrase: (String, Int, Int) -> Unit = { _, _, _ -> }    // debug.16: drag-reorder (category, fromIndex, toIndex)
+    var onReorderCategory: (Int, Int) -> Unit = { _, _ -> }
     var onAddPhrase: (String) -> Unit = {}             // debug.17: 顶部 ＋(常用语tab) → 在 (category) 下内联新增一条常用语
     var onAddCategory: () -> Unit = {}                 // debug.16 Option A: ＋分类 → inline text input
     var onAddCategoryThenAdd: (List<String>) -> Unit = {} // debug.16: 新建分类 carrying clip(s) to add once created
@@ -114,9 +114,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     // debug.17: a card's left-swipe reveals an inline action row WITHOUT expanding it (the ⌄ expand + long-press
     // menu are untouched). Only one card reveals at a time; a right-swipe (or tapping its body) hides it.
     private var swipeRevealed: String? = null
-    // debug.17: 排序模式 (entered from the 常用语 categoryBar ✎ → 移动). A focused list of the current category's
-    // phrases, each draggable to reorder (reuses the debug.16 drag state machine / onReorderPhrase).
+    // Phrase reorder mode remains available for direct entry points; category reorder mode is opened from the
+    // categoryBar pencil menu's category-move item.
     private var sortMode = false
+    private var categorySortMode = false
     // debug.17 拆词: blocks the user has tapped (→ highlighted + copied to the aegis clipboard) this session.
     private val splitSelected = mutableSetOf<String>()
 
@@ -124,7 +125,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
      *  reset-default 剪贴板 tab, so the user stays where they were editing. */
     fun showPhraseTab(category: String) {
         st.switchTab(ClipboardPanelState.Tab.PHRASE)
-        swipeRevealed = null; sortMode = false
+        swipeRevealed = null; sortMode = false; categorySortMode = false
         if (category.isNotEmpty() && category in categoriesProvider()) phraseCat = category
         refresh()
     }
@@ -135,6 +136,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private var dragFrom = -1
     private var dragCurrent = -1
     private var dragView: View? = null
+    private enum class DragKind { NONE, PHRASE, CATEGORY }
+    private var dragKind = DragKind.NONE
     private val dragHandler = Handler(Looper.getMainLooper())
     private val isDragging get() = dragFrom >= 0
 
@@ -164,7 +167,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
 
     /** Open fresh: clipboard tab, normal mode, nothing expanded/overlaid/swiped/sorting. */
-    fun reset() { st.reset(); hideOverlay(); swipeRevealed = null; sortMode = false }
+    fun reset() { st.reset(); hideOverlay(); swipeRevealed = null; sortMode = false; categorySortMode = false }
 
     /**
      * P7 (#19): on dismissal, return to the default view — clipboard tab, normal mode, no expanded card /
@@ -185,7 +188,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     internal fun enterSelectForTest(selected: List<String> = emptyList()) { st.enterSelect(); st.selected.addAll(selected); refresh() }
     // debug.16 test seams: the move-target chooser + the drag-reorder state machine (touch plumbing is exercised separately).
     internal fun showMoveChooserForTest(current: String) { chooseMoveCategoryThen(current, emptyList()) { target -> onMovePhrase(current, "", target) } }
-    internal fun dragStartForTest(index: Int) { startDrag(index) }
+    internal fun dragStartForTest(index: Int) { if (categorySortMode) startCategoryDrag(index) else startDrag(index) }
     internal fun dragMoveToForTest(index: Int) { moveDragTo(index) }
     internal fun dragDropForTest() { endDrag() }
     internal fun isDraggingForTest(): Boolean = isDragging
@@ -195,10 +198,12 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     internal fun hideSwipeForTest() { hideSwipe() }
     internal fun swipeRevealedForTest(): String? = swipeRevealed
     internal fun showPhraseManageMenuForTest() { showPhraseManageMenu() }
-    internal fun showGearMenuForTest() { showGearMenu() } // debug.18: render/verify the 清空剪贴板历史 trash icon
+    internal fun showHistoryRecordingMenuForTest() { showHistoryRecordingMenu() }
     internal fun confirmClearForTest() { confirmClearCurrentCategory() } // debug.17 E2
     internal fun enterSortModeForTest() { enterSortMode() }
     internal fun isSortModeForTest(): Boolean = sortMode
+    internal fun enterCategorySortModeForTest() { enterCategorySortMode() }
+    internal fun isCategorySortModeForTest(): Boolean = categorySortMode
     internal fun showSplitForTest(text: String) { showSplit(text) }
     internal fun splitSelectedForTest(): Set<String> = splitSelected.toSet()
     internal fun settleSwipeForTest(dxPx: Float, text: String) { settleSwipe(dxPx, text) }
@@ -207,6 +212,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         main.removeAllViews()
         when {
             st.selectMode -> buildSelectMode()
+            categorySortMode -> buildCategorySortMode()
             sortMode -> buildSortMode()
             else -> buildNormal()
         }
@@ -222,7 +228,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             // item7: every top icon is the SAME size/shape as the ‹ back icon, and the action icons are evenly
             // spaced (a gap between them) instead of crammed.
             fun iconLp(spaced: Boolean = false) = ll(dp(36), dp(44)).apply { if (spaced) marginStart = dp(6) }
-            // icon收尾: every top icon is a self-drawn Glyph in a chip (返回/＋/多选/设置/清空) — uniform with the app.
+            // Every top icon is a self-drawn glyph in a chip, uniform with the app.
             addView(glyphChipBtn(desc = "返回", onClick = { onBack() }) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }, iconLp())
             addView(View(context), ll(0, dp(1), 1f))
             addView(pillTray(), ll(WC, dp(36)))
@@ -231,10 +237,12 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             // categoryBar ✎ 二级菜单); 多选 (☰) lives on BOTH tabs.
             if (st.tab == Tab.PHRASE) addView(glyphChipBtn(desc = "添加常用语", onClick = { onAddPhrase(currentCategory()) }) { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }, iconLp(true))
             addView(glyphChipBtn(desc = "多选", onClick = { enterSelect() }) { c, p, x, y, s -> Glyphs.drawList(c, p, x, y, s) }, iconLp(true))
-            // debug.17 E2: the LAST top icon is tab-specific — 常用语 tab = 清空当前分类 (二次确认, RED-tinted 🗑);
-            // 剪贴板 tab = ⚙ settings.
+            // The last top icon is tab-specific: phrase tab clears the current category with confirmation;
+            // clipboard tab directly clears Aegis clipboard history.
             if (st.tab == Tab.PHRASE) addView(glyphChipBtn(desc = "清空分类", tint = RED, onClick = { confirmClearCurrentCategory() }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }, iconLp(true))
-            else addView(glyphChipBtn(desc = "设置", onClick = { showGearMenu() }) { c, p, x, y, s -> Glyphs.drawGear(c, p, x, y, s) }, iconLp(true))
+            else addView(glyphChipBtn(desc = "清空剪贴板历史", tint = RED, onClick = { onClearHistory(); refresh() }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }.apply {
+                setOnLongClickListener { showHistoryRecordingMenu(); true }
+            }, iconLp(true))
         }
         main.addView(topBar, ll(MP, dp(50)))
         // U9: no 字数/条数上限 line.
@@ -286,6 +294,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun card(text: String, index: Int): View {
         val expanded = st.expanded == text
         val revealed = swipeRevealed == text // debug.17: showing its left-swipe action row
+        val openBody = expanded || revealed
         val phrase = st.tab == Tab.PHRASE
         // debug.17 F2: a 常用语 with a note DISPLAYS the note (alias); 上屏 (onPick) still uses the original `text`.
         val display = if (phrase) phraseDisplayText(text) else text
@@ -299,9 +308,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             // E5: show only a bounded PREVIEW — a million-char entry would make the TextView measure/layout the
             // whole string and jank. Storage + 上屏 (onPick) always use the full `text`, never the preview.
             this.text = preview(display)
-            // debug.17 F1: expanded shows the full text (no ellipsis); it rides a bounded ScrollView (≤4 lines).
-            maxLines = if (expanded) Integer.MAX_VALUE else 2
-            ellipsize = if (expanded) null else android.text.TextUtils.TruncateAt.END
+            // debug.19: expanded and left-swiped cards show the full preview in a bounded four-line body.
+            maxLines = if (openBody) Integer.MAX_VALUE else 2
+            ellipsize = if (openBody) null else android.text.TextUtils.TruncateAt.END
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setTextColor(TEXT_DARK)
             setPadding(dp(14), dp(12), dp(8), dp(12))
@@ -317,7 +326,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setOnClickListener { swipeRevealed = null; st.toggleExpand(text); refresh() } // ⌄展开 supersedes a swipe reveal
             if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
         }
-        header.addView(if (expanded) boundedExpandBody(body) else body, ll(0, WC, 1f)) // F1: expanded body scrolls (≤4 lines)
+        header.addView(if (openBody) boundedExpandBody(body) else body, ll(0, WC, 1f)) // open body scrolls (≤4 lines)
         header.addView(chevron, ll(dp(40), MP))
         col.addView(header, ll(MP, WC))
         // debug.17: ⌄展开 (unchanged) → the expand action row; left-swipe (NEW) → an inline action row without
@@ -482,31 +491,47 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
 
     private fun startDrag(index: Int) {
+        dragKind = DragKind.PHRASE
         dragFrom = index; dragCurrent = index
         dragView = listColumn.getChildAt(index)?.also { it.translationZ = dp(8).toFloat(); it.alpha = 0.92f }
     }
 
-    private fun moveDragTo(index: Int) { if (index in 0 until currentEntries().size) dragCurrent = index }
+    private fun startCategoryDrag(index: Int) {
+        dragKind = DragKind.CATEGORY
+        dragFrom = index; dragCurrent = index
+        dragView = listColumn.getChildAt(index)?.also { it.translationZ = dp(8).toFloat(); it.alpha = 0.92f }
+    }
+
+    private fun moveDragTo(index: Int) {
+        val n = if (dragKind == DragKind.CATEGORY) categoriesProvider().size else currentEntries().size
+        if (index in 0 until n) dragCurrent = index
+    }
 
     private fun endDrag() {
         val from = dragFrom; val to = dragCurrent
+        val kind = dragKind
         dragView?.let { it.translationZ = 0f; it.alpha = 1f; it.translationY = 0f }
-        dragFrom = -1; dragCurrent = -1; dragView = null
-        if (from >= 0 && to >= 0 && from != to) { onReorderPhrase(currentCategory(), from, to); refresh() }
+        dragFrom = -1; dragCurrent = -1; dragView = null; dragKind = DragKind.NONE
+        if (from >= 0 && to >= 0 && from != to) {
+            if (kind == DragKind.CATEGORY) onReorderCategory(from, to) else onReorderPhrase(currentCategory(), from, to)
+            refresh()
+        }
         else refresh() // reset the lifted card even on a no-op drop
     }
 
     override fun onDetachedFromWindow() {
         // Drop any pending long-press → drag so a panel close mid-press can't fire startDrag on a stale card.
         dragHandler.removeCallbacksAndMessages(null)
-        dragFrom = -1; dragCurrent = -1; dragView = null
+        dragFrom = -1; dragCurrent = -1; dragView = null; dragKind = DragKind.NONE
         super.onDetachedFromWindow()
     }
 
-    // ---------- debug.17: 排序模式 (reorder the current category, entered from the categoryBar ✎ → 移动) ----------
+    // ---------- debug.17: 排序模式 (reorder phrases in the current category) ----------
 
-    private fun enterSortMode() { swipeRevealed = null; sortMode = true; refresh() }
+    private fun enterSortMode() { swipeRevealed = null; categorySortMode = false; sortMode = true; refresh() }
     private fun exitSortMode() { sortMode = false; refresh() }
+    private fun enterCategorySortMode() { swipeRevealed = null; sortMode = false; categorySortMode = true; refresh() }
+    private fun exitCategorySortMode() { categorySortMode = false; refresh() }
 
     /** A focused list of the current category's phrases, each with a ≡ drag handle (touch-and-drag reorders
      *  immediately — no long-press needed, since the user explicitly entered this mode). 完成 exits. Reuses the
@@ -573,6 +598,63 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         }
     }
 
+    private fun buildCategorySortMode() {
+        val topBar = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            addView(TextView(context).apply {
+                text = "拖动分类"
+                setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+                setTypeface(null, android.graphics.Typeface.BOLD)
+            }, ll(0, WC, 1f))
+            addView(TextView(context).apply {
+                text = "完成"; gravity = Gravity.END
+                setTextColor(GREEN); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+                setOnClickListener { exitCategorySortMode() }
+            }, ll(0, WC, 1f))
+        }
+        main.addView(topBar, ll(MP, WC))
+
+        listColumn.removeAllViews()
+        val cats = categoriesProvider()
+        if (cats.isEmpty()) listColumn.addView(emptyHint()) else for ((i, name) in cats.withIndex()) listColumn.addView(categorySortRow(name, i))
+        main.addView(listScroll, ll(MP, 0, 1f))
+    }
+
+    private fun categorySortRow(name: String, index: Int): View {
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = rounded(CARD, ImeShapes.cardRadiusDp)
+            layoutParams = ll(MP, WC).apply { topMargin = dp(8) }
+        }
+        row.addView(TextView(context).apply {
+            text = name; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(TEXT_DARK)
+            setPadding(dp(14), dp(12), dp(8), dp(12))
+            setTypeface(null, if (name == currentCategory()) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+        }, ll(0, WC, 1f))
+        val handle = glyphView(HINT, 9) { c, p, x, y, s -> Glyphs.drawList(c, p, x, y, s) }
+        row.addView(handle, ll(dp(44), MP))
+        attachCategorySortDrag(handle, row, index)
+        return row
+    }
+
+    private fun attachCategorySortDrag(handle: View, card: View, index: Int) {
+        var downY = 0f
+        handle.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { downY = e.rawY; startCategoryDrag(index); card.parent?.requestDisallowInterceptTouchEvent(true); true }
+                MotionEvent.ACTION_MOVE -> {
+                    if (isDragging) { card.translationY = e.rawY - downY; indexAtRawY(e.rawY)?.let { moveDragTo(it) }; true } else false
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { if (isDragging) { endDrag(); true } else false }
+                else -> false
+            }
+        }
+    }
+
     private fun categoryBar(): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
@@ -588,12 +670,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         addView(glyphChipBtn(desc = "管理常用语", onClick = { showPhraseManageMenu() }) { c, p, x, y, s -> Glyphs.drawPencil(c, p, x, y, s) }, ll(dp(36), dp(40))) // ✎ → 二级菜单
     }
 
-    /** debug.17: the 常用语 categoryBar ✎ opens a small 二级菜单: 移动 (enter the drag-reorder 排序模式 for the
-     *  current category) / 添加分类 (the existing inline new-category editor). 新建分类 used to be the ✎'s only
-     *  action (and the top ＋'s) — it now lives here, alongside reordering. */
+    /** debug.19: the categoryBar pencil menu's category-move item reorders categories, not phrases. */
     private fun showPhraseManageMenu() {
         val card = menuCard()
-        card.addView(menuItem("移动分类") { hideOverlay(); enterSortMode() })
+        card.addView(menuItem("移动分类") { hideOverlay(); enterCategorySortMode() })
         card.addView(menuDivider())
         card.addView(menuItem("添加分类") { hideOverlay(); onAddCategory() })
         card.addView(menuDivider())
@@ -640,7 +720,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     // ---------- select mode (编辑剪贴板) ----------
 
-    private fun enterSelect() { swipeRevealed = null; sortMode = false; st.enterSelect(); refresh() }
+    private fun enterSelect() { swipeRevealed = null; sortMode = false; categorySortMode = false; st.enterSelect(); refresh() }
     private fun exitSelect() { st.exitSelect(); refresh() }
 
     private fun buildSelectMode() {
@@ -797,20 +877,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         showOverlay(card)
     }
 
-    /** ⚙ menu: clear history / toggle recording / manage phrases. (debug.16: 清空系统剪贴板 removed — OEM
-     *  clipboards, e.g. Samsung/Vivo, silently ignore clearPrimaryClip, so the action was unreliable.) */
-    private fun showGearMenu() {
+    private fun showHistoryRecordingMenu() {
         val card = menuCard()
-        // debug.18: 清空剪贴板历史 carries the SAME icon as the 常用语 tab's 清空分类 — the identical RED
-        // Glyphs.drawTrash — so the two "清空" actions read as one consistent icon.
-        card.addView(menuItem("清空剪贴板历史") { hideOverlay(); onClearHistory(); refresh() }.also {
-            it.setCompoundDrawablesWithIntrinsicBounds(glyphIcon(RED, 22) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }, null, null, null)
-            it.compoundDrawablePadding = dp(10)
-        })
-        card.addView(menuDivider())
         val on = historyEnabledProvider()
-        card.addView(menuItem(if (on) "剪贴板记录:开" else "剪贴板记录:关") { hideOverlay(); onSetHistoryEnabled(!on) })
-        // debug.16: 常用语管理 entry removed — category add/rename/delete is now inline (＋ / ✎ / 长按 chip).
+        card.addView(menuItem(if (on) "剪贴板记录:开" else "剪贴板记录:关") { hideOverlay(); onSetHistoryEnabled(!on); refresh() })
         showOverlay(card)
     }
 
@@ -905,8 +975,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun pillTray(): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         background = rounded(TRAY, ImeShapes.chipRadiusDp)
-        addView(pill("剪贴板", st.tab == Tab.CLIPBOARD) { if (st.switchTab(Tab.CLIPBOARD)) { swipeRevealed = null; sortMode = false; refresh() } }, ll(dp(84), dp(34)))
-        addView(pill("常用语", st.tab == Tab.PHRASE) { if (st.switchTab(Tab.PHRASE)) { swipeRevealed = null; sortMode = false; refresh() } }, ll(dp(84), dp(34)))
+        addView(pill("剪贴板", st.tab == Tab.CLIPBOARD) { if (st.switchTab(Tab.CLIPBOARD)) { swipeRevealed = null; sortMode = false; categorySortMode = false; refresh() } }, ll(dp(84), dp(34)))
+        addView(pill("常用语", st.tab == Tab.PHRASE) { if (st.switchTab(Tab.PHRASE)) { swipeRevealed = null; sortMode = false; categorySortMode = false; refresh() } }, ll(dp(84), dp(34)))
     }
 
     private fun pill(label: String, on: Boolean, onClick: () -> Unit): TextView = TextView(context).apply {

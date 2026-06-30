@@ -305,6 +305,14 @@ class ClipboardStore(private val dir: File) {
         return true
     }
 
+    fun reorderCategory(fromIndex: Int, toIndex: Int): Boolean {
+        val n = phraseCats.size
+        if (fromIndex !in 0 until n || toIndex !in 0 until n || fromIndex == toIndex) return false
+        phraseCats.add(toIndex, phraseCats.removeAt(fromIndex))
+        savePhrases()
+        return true
+    }
+
     private fun find(name: String): Category? = phraseCats.firstOrNull { it.name == name }
     private fun findPhrase(c: Category?, text: String): Phrase? = c?.phrases?.firstOrNull { it.text == text }
 
