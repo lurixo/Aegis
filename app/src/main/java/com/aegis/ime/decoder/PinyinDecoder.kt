@@ -141,6 +141,14 @@ class PinyinDecoder(
     private fun isHan(cp: Int): Boolean = cp in 0x3400..0x9FFF || cp in 0xF900..0xFAFF
 
     /**
+     * debug.18 (FIX-1): a "single character" by CODE POINTS, not UTF-16 units. A CJK extension char
+     * (U+20000+) is a surrogate pair so its [String.length] is 2 — the old `length == 1` test misclassified
+     * it as a multi-char WORD, flooding the front of the grid (PREFIX_PER_LEN) AND dropping it from the
+     * single-char homophone layer. Shared by 26-key and 9-key (both decode through here).
+     */
+    private fun isSingleChar(w: String): Boolean = w.codePointCount(0, w.length) == 1
+
+    /**
      * debug.17 隔音符 normalisation. A [SEP] ' in the buffer is a user-forced syllable boundary, never a key
      * character — but the dict keyspace is pure a-z/2-9, so a stray ' silently broke segmentation, dict lookup
      * AND the lattice (the post-' tail was dropped → 丢字). [normalizeSeparators] strips every ' to a clean
@@ -229,61 +237,148 @@ class PinyinDecoder(
 
     private fun decodeCoveredClean(input: String, limit: Int, cuts: Set<Int>, context: CharSequence): List<Cand> {
         val (ctxCp, ctxWord) = parseContext(context)
+        val interior = cuts.filter { it in 1 until input.length }.toSortedSet()
+        // debug.18 (FIX-2): a buffer carrying FORCED syllable boundaries — 9-key locked readings OR a 26-key
+        // 隔音符/分词 (both arrive here as interior `cuts`) — decodes BOUNDARY-ALIGNED & atomic. Shared by both
+        // keyboards (26-key chai'ci and 9-key locked chai|ci funnel through the SAME decodeCovered → here).
+        if (interior.isNotEmpty()) return decodeAtomic(input, limit, interior, ctxCp, ctxWord)
+
+        // ---- no forced boundary: the original whole-input completion + per-prefix word path (unchanged) ----
         val cover = LinkedHashMap<String, Int>()
         // Reserve part of the budget for leading single-chars/short words so full-input completions
         // (which can alone fill `limit`) never starve the ★G mixed grid.
         val completionCap = maxOf(1, limit * 2 / 3)
-        // ★分词: a forced boundary strictly inside the input means whole-input completions (which would
-        // span it) are invalid, and leading prefix words may not extend past it.
-        val firstCut = cuts.filter { it in 1 until input.length }.minOrNull()
         fun addCompletions(words: List<String>) {
             for (w in words) { if (cover.size >= completionCap) return; cover.putIfAbsent(w, input.length) }
         }
-        bestSentence(input, cuts, ctxCp, ctxWord)?.let { cover[it] = input.length }
-        if (firstCut == null) {
-            addCompletions(rerankedWholeInput(input, ctxCp, ctxWord)) // ★top-N rerank, context-conditioned
-            addCompletions(dict.query(input, completionCap))
-            if (fuzzyRules.isNotEmpty()) {
-                for (variant in Fuzzy.variants(input, fuzzyRules)) {
-                    if (variant == input) continue
-                    addCompletions(dict.query(variant, completionCap))
-                    if (cover.size >= completionCap) break
-                }
+        bestSentence(input, emptySet(), ctxCp, ctxWord)?.let { cover[it] = input.length }
+        addCompletions(rerankedWholeInput(input, ctxCp, ctxWord)) // ★top-N rerank, context-conditioned
+        addCompletions(dict.query(input, completionCap))
+        if (fuzzyRules.isNotEmpty()) {
+            for (variant in Fuzzy.variants(input, fuzzyRules)) {
+                if (variant == input) continue
+                addCompletions(dict.query(variant, completionCap))
+                if (cover.size >= completionCap) break
             }
-            initialsDict?.let { addCompletions(it.query(input, completionCap)) }
         }
+        initialsDict?.let { addCompletions(it.query(input, completionCap)) }
         // Multi-char prefix WORDS straight from the main dict (freq-ordered), independent of the lattice
-        // edge cap, so leading short words (你说 你们 …) surface even without an LM (★G); capped at the cut.
+        // edge cap, so leading short words (你说 你们 …) surface even without an LM (★G).
         // Leading single chars are intentionally NOT emitted here — they are served by the lossless layer
         // below, so the PREFIX_PER_LEN cap can never truncate a syllable's 同音字 (the debug.13 loss bug).
-        for (q in (firstCut ?: input.length) downTo 1) {
+        for (q in input.length downTo 1) {
             if (cover.size >= limit) break
             var added = 0
             for (wf in dict.exact(input.substring(0, q))) {
-                if (wf.word.length == 1) continue // ★单字: lossless layer below, never capped here
+                if (isSingleChar(wf.word)) continue // FIX-1: ★单字 (incl. U+20000+) → lossless layer, never capped here
                 if (cover.putIfAbsent(wf.word, q) == null && ++added >= PREFIX_PER_LEN) break
             }
         }
         val out = ArrayList<Cand>(minOf(cover.size, limit) + 20)
         for ((w, len) in cover) { out.add(Cand(w, len)); if (out.size >= limit) break }
-        // ★单字无损层 (debug.13): append the COMPLETE homophone set of EVERY leading syllable the buffer
-        // could start with (longest first), on a budget SEPARATE from the word/phrase candidates above. So
-        // no number of word candidates can crowd a 同音字 out, no per-length cap can trim it, and a homophone
-        // is reachable regardless of how the whole buffer segments — xian surfaces 现… (xian) AND 西… (xi),
-        // fangan surfaces 方… (fang) AND 反… (fan). 2nd+ syllables are served per-position by
-        // [syllables]/[homophonesAt] for the navigable UI (UI-1/UI-2).
-        val span = firstCut ?: input.length
+        appendLeadingSingles(input, input.length, out)
+        return out
+    }
+
+    /**
+     * debug.18 (FIX-2) BOUNDARY-ALIGNED ATOMIC decode for a buffer whose syllable boundaries are FORCED
+     * (9-key locks / 26-key 隔音符). The boundary set B = the syllable ends honouring the cuts (each
+     * cut-segment is segmented independently, so a declared syllable like `xian` stays ONE syllable and is
+     * NEVER internally re-split into `xi|an` → no spurious 西安). Every lattice edge [p,q] has p,q ∈ B; an
+     * edge spanning exactly one syllable yields only single chars (so the 2-char 西安 keyed by the single
+     * syllable `xian` is DROPPED), an edge spanning ≥2 syllables yields multi-char words (实现 / 九键 / 词库).
+     * Order: ① best sentence, ③ leading multi-syllable words (freq), ② the leading-syllable 同音字 (lossless,
+     * incl. U+20000+ rares at the freq tail), ④ the remaining top-N alternative whole sentences.
+     */
+    private fun decodeAtomic(input: String, limit: Int, interior: Set<Int>, ctxCp: Int, ctxWord: String): List<Cand> {
+        // B = the forced boundaries (always honoured) PLUS the syllable boundaries WITHIN each cut-segment. The
+        // forced cuts are added unconditionally so a chunk that fails to segment (garbage mid-typing) can never
+        // silently drop a boundary the user declared.
+        val bset = sortedSetOf(0, input.length)
+        bset.addAll(interior)
+        for (s in syllablesCleanCut(input, interior)) bset.add(s.end)
+        val B = bset.toList()
+        val nSyl = B.size - 1
+
+        val cover = LinkedHashMap<String, Int>()
+        val sentences = atomicSentences(input, B, ctxCp, ctxWord)
+        sentences.firstOrNull()?.let { cover[it] = input.length }            // ① best sentence
+        // ③ leading multi-syllable words [0, B[j]] (cover the first j syllables), freq-descending.
+        val leadWords = ArrayList<Pair<String, Int>>() // (word, coveredLen) sortable by the carried freq
+        val leadFreq = HashMap<String, Int>()
+        for (j in 2..nSyl) for (wf in dict.exact(input.substring(0, B[j]))) if (!isSingleChar(wf.word)) {
+            if (leadFreq.put(wf.word, wf.freq) == null) leadWords.add(wf.word to B[j])
+        }
+        leadWords.sortedByDescending { leadFreq[it.first] ?: 0 }.forEach { cover.putIfAbsent(it.first, it.second) }
+
+        val out = ArrayList<Cand>(minOf(cover.size, limit) + 40)
+        for ((w, len) in cover) { out.add(Cand(w, len)); if (out.size >= limit) break }
+        // ② lossless first-syllable 同音字 (freq-ordered, U+20000+ rares at the tail). The first syllable IS the
+        // user-DECLARED unit [0, B[1]] — unlike the unlocked layer it is NOT re-split into sub-prefixes (a locked
+        // `xian` lists 现… only, never the `xi`→西 / `xia`→下 sub-readings the user did not ask for).
+        val seen = HashSet<String>(out.size * 2); for (c in out) seen.add(c.word)
+        for (w in homophonesOf(input.substring(0, B[1]))) if (seen.add(w)) out.add(Cand(w, B[1]))
+        for (s in sentences.drop(1)) if (seen.add(s)) out.add(Cand(s, input.length)) // ④ alternative sentences
+        return out
+    }
+
+    private class APath(val text: String, val lastCp: Int, val lastWord: String, val score: Double)
+
+    /**
+     * Top-[ATOMIC_BEAM_N] whole-buffer sentences over the boundary-aligned lattice [B], best score first.
+     * Single-syllable spans contribute the syllable's single chars (top [SENTENCE_EDGE_N] by freq);
+     * multi-syllable spans contribute multi-char words. Scored like [bestSentence] (unigram + λ·char-bigram +
+     * octagram + user boost), with the committed context conditioning the first word. Every returned sentence
+     * covers all [B] syllables, so its codePointCount equals the syllable count.
+     */
+    private fun atomicSentences(input: String, B: List<Int>, ctxCp: Int, ctxWord: String): List<String> {
+        val nSyl = B.size - 1
+        val dp = Array(B.size) { ArrayList<APath>() }
+        dp[0].add(APath("", ctxCp, ctxWord, 0.0))
+        for (i in 0 until nSyl) {
+            if (dp[i].isEmpty()) continue
+            val src = dp[i].sortedByDescending { it.score }.take(BEAM_W)
+            for (j in i + 1..nSyl) {
+                val seg = input.substring(B[i], B[j])
+                val raw = dict.exact(seg)
+                val edges = (if (j == i + 1) raw.filter { isSingleChar(it.word) } else raw.filterNot { isSingleChar(it.word) })
+                    .take(SENTENCE_EDGE_N)
+                for (wf in edges) {
+                    val w = wf.word
+                    val firstCp = w.codePointAt(0)
+                    val lastCp = w.codePointBefore(w.length)
+                    val uni = ln(wf.freq.toDouble()) - lnTotal
+                    val boost = userModel?.wordBoost(w) ?: 0.0
+                    for (p in src) {
+                        val bw = if (p.text.isEmpty() && p.lastCp != BOS) contextWeight else lambda
+                        val bi = if (lm == null || p.lastCp == BOS) 0.0 else bw * lm.logCond(p.lastCp, firstCp)
+                        val og = if (octagram != null && p.lastWord.isNotEmpty())
+                            octagramWeight * (octagram.rawScore(p.lastWord + w) ?: 0.0) else 0.0
+                        dp[j].add(APath(p.text + w, lastCp, w, p.score + uni + bi + boost + og))
+                    }
+                }
+            }
+        }
+        if (dp[nSyl].isEmpty()) return emptyList()
+        val ordered = LinkedHashSet<String>()
+        for (p in dp[nSyl].sortedByDescending { it.score }) { ordered.add(p.text); if (ordered.size >= ATOMIC_BEAM_N) break }
+        return ordered.toList()
+    }
+
+    /**
+     * ★单字无损层 (debug.13): append the COMPLETE homophone set of every leading syllable the buffer could
+     * start with (within [span], longest first), on a budget SEPARATE from the word/phrase candidates — so no
+     * number of words crowds a 同音字 out and no per-length cap can trim it, regardless of how the buffer
+     * segments. 2nd+ syllables are served per-position by [homophonesAt] for the navigable UI (UI-1/UI-2).
+     */
+    private fun appendLeadingSingles(input: String, span: Int, out: ArrayList<Cand>) {
         val head = input.substring(0, span)
         val lens = if (input[0] in '2'..'9') T9Pinyin.leadingSyllableDigitLens(head)
         else T9Pinyin.leadingSyllableLetterLens(head)
-        if (lens.isNotEmpty()) {
-            val seen = HashSet<String>(out.size * 2)
-            for (c in out) seen.add(c.word)
-            for (k in lens) for (w in homophonesOf(input.substring(0, k))) {
-                if (seen.add(w)) out.add(Cand(w, k))
-            }
-        }
-        return out
+        if (lens.isEmpty()) return
+        val seen = HashSet<String>(out.size * 2)
+        for (c in out) seen.add(c.word)
+        for (k in lens) for (w in homophonesOf(input.substring(0, k))) if (seen.add(w)) out.add(Cand(w, k))
     }
 
     /**
@@ -344,7 +439,7 @@ class PinyinDecoder(
     /** Every single-char entry for an exact syllable key, frequency-ordered, uncapped. */
     private fun homophonesOf(key: String): List<String> {
         val out = ArrayList<String>()
-        for (wf in dict.exact(key)) if (wf.word.length == 1) out.add(wf.word)
+        for (wf in dict.exact(key)) if (isSingleChar(wf.word)) out.add(wf.word) // FIX-1: incl. U+20000+ singles
         return out
     }
 
@@ -448,6 +543,9 @@ class PinyinDecoder(
         const val INITIALS_PENALTY = 5.0  // 简拼 is the most ambiguous → lowest preference
         const val DEFAULT_OCTAGRAM_WEIGHT = 0.3 // scales the large positive octagram log-weights
         const val PREFIX_PER_LEN = 16 // max multi-char short words pulled per prefix length (★G; singles are lossless, separate) (C3)
+        const val BEAM_W = 12         // debug.18: atomic sentence beam width per syllable node
+        const val SENTENCE_EDGE_N = 6 // debug.18: single chars / words considered per atomic lattice cell (the FULL homophone set still reaches the grid via the lossless layer)
+        const val ATOMIC_BEAM_N = 8   // debug.18: alternative whole sentences kept from the atomic beam
         const val CTX_WORD_MAX = 4    // trailing Han chars of context used as the octagram prev-word proxy
         const val DEFAULT_CONTEXT_WEIGHT = 2.0 // ③ weight of the committed-context boundary bigram (vs λ for
         // internal word boundaries); context is reliable preceding text, so it outvotes raw frequency more
