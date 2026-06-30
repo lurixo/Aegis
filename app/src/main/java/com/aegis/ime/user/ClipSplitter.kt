@@ -20,12 +20,12 @@ package com.aegis.ime.user
  *
  * Two-pass-per-position scan: at each index we first try to match an ATOMIC entity that must stay whole
  * — a URL (http(s):// , www. , bare domain) or an email — and emit it as one [Block]; otherwise we
- * consume a maximal run of one character class (中文 / 英文字母 / 数字 / 符号), emitting that run. Pure
- * whitespace runs are dropped (a blank block is useless to copy). Examples:
- *   "你好hello,world!"      → 你好 | hello | , | world | !
- *   "看这个https://x.com很好" → 看这个 | https://x.com | 很好
- *   "联系bob@x.com谢谢"     → 联系 | bob@x.com | 谢谢
- * Pure data — no Android deps — so the segmentation is unit-testable.
+ * consume a maximal run of one character class. Han runs fall back to single code-point blocks so plain
+ * Chinese without punctuation remains useful to pick apart. Pure whitespace runs are dropped. Examples:
+ *   "你好hello,world!"      -> 你 | 好 | hello | , | world | !
+ *   "看这个https://x.com很好" -> 看 | 这 | 个 | https://x.com | 很 | 好
+ *   "联系bob@x.com谢谢"     -> 联 | 系 | bob@x.com | 谢 | 谢
+ * Pure data, no Android deps, so the segmentation is unit-testable.
  */
 object ClipSplitter {
 
@@ -56,9 +56,17 @@ object ClipSplitter {
         while (i < s.length) {
             val entity = entityAt(s, i)
             if (entity != null) { out.add(entity); i += entity.text.length; continue }
-            val cls = classOf(s[i])
-            var j = i + 1
-            while (j < s.length && classOf(s[j]) == cls && entityAt(s, j) == null) j++
+            val cp = s.codePointAt(i)
+            val cls = classOf(cp)
+            var j = i + Character.charCount(cp)
+            if (cls == Cls.HAN) {
+                out.add(Block(s.substring(i, j), Kind.HAN))
+                i = j
+                continue
+            }
+            while (j < s.length && classOf(s.codePointAt(j)) == cls && entityAt(s, j) == null) {
+                j += Character.charCount(s.codePointAt(j))
+            }
             if (cls != Cls.SPACE) out.add(Block(s.substring(i, j), kindOf(cls))) // drop blank runs
             i = j
         }
@@ -97,11 +105,11 @@ object ClipSplitter {
         return if (s.isEmpty()) v else s
     }
 
-    private fun classOf(c: Char): Cls = when {
-        c.isWhitespace() -> Cls.SPACE
-        c in '一'..'鿿' -> Cls.HAN
-        c in 'a'..'z' || c in 'A'..'Z' -> Cls.LATIN
-        c in '0'..'9' -> Cls.DIGIT
+    private fun classOf(cp: Int): Cls = when {
+        Character.isWhitespace(cp) -> Cls.SPACE
+        Character.UnicodeScript.of(cp) == Character.UnicodeScript.HAN -> Cls.HAN
+        cp in 'a'.code..'z'.code || cp in 'A'.code..'Z'.code -> Cls.LATIN
+        cp in '0'.code..'9'.code -> Cls.DIGIT
         else -> Cls.SYMBOL
     }
 

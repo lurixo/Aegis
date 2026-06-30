@@ -347,10 +347,12 @@ class Debug17PanelTest {
     @Test fun split_blocks_start_neutral() {
         val v = clipView()
         v.showSplitForTest("你好abc")
-        val a = chip(overlayOf(v), "你好"); val b = chip(overlayOf(v), "abc")
+        val a = chip(overlayOf(v), "你"); val b = chip(overlayOf(v), "abc")
         assertTrue("blocks present", a != null && b != null)
-        assertEquals("block 你好 default = neutral", pal.keySurfacePressed, bgColor(a!!))
-        assertEquals("block abc default = neutral", pal.keySurfacePressed, bgColor(b!!))
+        assertEquals("block 你 default matches Enter key", pal.accentBottom, bgColor(a!!))
+        assertEquals("block abc default matches Enter key", pal.accentBottom, bgColor(b!!))
+        assertEquals("block text matches Enter label", pal.accentLabel, a.currentTextColor)
+        assertEquals("block text matches Enter label", pal.accentLabel, b.currentTextColor)
         assertTrue("nothing copied yet", v.splitSelectedForTest().isEmpty())
     }
 
@@ -358,11 +360,11 @@ class Debug17PanelTest {
         val copied = ArrayList<String>()
         val v = clipView().apply { onCopyBlockToAegis = { copied.add(it) } }
         v.showSplitForTest("你好abc")
-        val a = chip(overlayOf(v), "你好")!!
+        val a = chip(overlayOf(v), "你")!!
         a.performClick()
-        assertEquals("tapped block copied to aegis", listOf("你好"), copied)
+        assertEquals("tapped block copied to aegis", listOf("你"), copied)
         assertEquals("tapped block now 浅紫 highlight", pal.chipBg, bgColor(a))
-        assertTrue("tracked as selected", "你好" in v.splitSelectedForTest())
+        assertTrue("tracked as selected", "你" in v.splitSelectedForTest())
         assertEquals("panel stays open", View.VISIBLE.toLong(), overlayOf(v).visibility.toLong())
     }
 
@@ -372,9 +374,25 @@ class Debug17PanelTest {
         val v = clipView().apply { onCopyBlockToAegis = { copied.add(it) } }
         v.showSplitForTest("你好abc")
         assertTrue(click(overlayOf(v), "全部复制"))
-        assertEquals("全部复制 copies each block separately", listOf("你好", "abc"), copied)
-        assertEquals("all blocks marked", setOf("你好", "abc"), v.splitSelectedForTest())
-        assertEquals("all blocks highlighted", pal.chipBg, bgColor(chip(overlayOf(v), "你好")!!))
+        assertEquals("全部复制 copies each block separately", listOf("你", "好", "abc"), copied)
+        assertEquals("all blocks marked", setOf("你", "好", "abc"), v.splitSelectedForTest())
+        assertEquals("all blocks highlighted", pal.chipBg, bgColor(chip(overlayOf(v), "你")!!))
+    }
+
+    @Test fun split_copy_all_uses_batch_callback_once_when_available() {
+        val batches = ArrayList<List<String>>()
+        val v = clipView().apply { onCopyBlocksToAegis = { batches.add(it) } }
+        v.showSplitForTest("你好abc")
+        assertTrue(click(overlayOf(v), "全部复制"))
+        assertEquals(listOf(listOf("你", "好", "abc")), batches)
+    }
+
+    @Test fun split_chooser_hides_original_preview_and_uses_normal_footer_color() {
+        val v = clipView()
+        v.showSplitForTest("你好abc")
+        assertFalse("original preview removed", "你好abc" in labels(overlayOf(v)))
+        assertEquals(pal.keyLabel, textViews(overlayOf(v)).first { it.text?.toString() == "返回" }.currentTextColor)
+        assertEquals(pal.keyLabel, textViews(overlayOf(v)).first { it.text?.toString() == "全部复制" }.currentTextColor)
     }
 
     // ---------- debug.17: note display + 备注, import/export submenu, E2 clear-category, F1 scroll ----------
@@ -413,14 +431,37 @@ class Debug17PanelTest {
     }
 
     @Test fun manage_menu_offers_import_and_export() {
-        var imp = 0; var exp = 0
-        val v = phraseView().apply { onImportPhrases = { imp++ }; onExportPhrases = { exp++ } }
+        val imports = ArrayList<Boolean>(); var exp = 0
+        val v = phraseView().apply { onImportPhrasesWithMode = { imports.add(it) }; onExportPhrases = { exp++ } }
         v.showPhraseManageMenuForTest()
         val ls = labels(overlayOf(v))
         assertTrue("导入常用语" in ls); assertTrue("导出常用语" in ls)
-        assertTrue(click(overlayOf(v), "导入常用语")); assertEquals(1, imp)
+        assertTrue(click(overlayOf(v), "导入常用语"))
+        assertTrue("import opens the in-panel confirmation", "覆盖" in labels(overlayOf(v)) && "合并（推荐）" in labels(overlayOf(v)))
+        assertTrue(click(overlayOf(v), "合并（推荐）"))
+        assertEquals(listOf(true), imports)
+        v.showPhraseManageMenuForTest()
+        assertTrue(click(overlayOf(v), "导入常用语"))
+        assertTrue(click(overlayOf(v), "覆盖"))
+        assertEquals(listOf(true, false), imports)
         v.showPhraseManageMenuForTest()
         assertTrue(click(overlayOf(v), "导出常用语")); assertEquals(1, exp)
+    }
+
+    @Test fun import_confirmation_uses_normal_panel_colors() {
+        val v = phraseView()
+        v.showPhraseManageMenuForTest()
+        assertTrue(click(overlayOf(v), "导入常用语"))
+        val expected = setOf(
+            "导入常用语",
+            "「合并」把导入内容累加到现有常用语（按分类去重）；「覆盖」用导入文件整体替换常用语库。空文件不会清空。",
+            "覆盖",
+            "合并（推荐）",
+            "取消",
+        )
+        val views = textViews(overlayOf(v)).filter { it.text?.toString() in expected }
+        assertEquals(expected.size, views.size)
+        assertTrue(views.all { it.currentTextColor == pal.keyLabel })
     }
 
     @Test fun phrase_tab_last_top_icon_clears_current_category_with_confirm() {

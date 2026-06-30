@@ -33,6 +33,7 @@ class PhraseTransferManifestTest {
         )
         assertEquals("false", activity.androidAttr("exported"))
         assertEquals("true", activity.androidAttr("excludeFromRecents"))
+        assertEquals("@style/Theme.Aegis.Transparent", activity.androidAttr("theme"))
     }
 
     private fun phraseTransferActivity(): Element {

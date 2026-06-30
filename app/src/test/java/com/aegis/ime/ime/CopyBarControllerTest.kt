@@ -47,7 +47,7 @@ class CopyBarControllerTest {
         c.show("你好hello,world!")
         c.toggleSplit()
         assertTrue(c.splitMode)
-        assertEquals(listOf("你好", "hello", ",", "world", "!"), c.blocks)
+        assertEquals(listOf("你", "好", "hello", ",", "world", "!"), c.blocks)
         c.toggleSplit() // fold back
         assertFalse(c.splitMode)
         assertTrue(c.blocks.isEmpty())

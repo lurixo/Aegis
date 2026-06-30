@@ -8,4 +8,10 @@
              Compose draws. DayNight-aware via the attr, so dark mode stays dark. -->
         <item name="android:windowBackground">?android:attr/colorBackground</item>
     </style>
+
+    <style name="Theme.Aegis.Transparent" parent="Theme.Aegis">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
 </resources>

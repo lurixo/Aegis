@@ -15,6 +15,8 @@
 
 package com.aegis.ime.ime
 
+import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
@@ -70,6 +72,8 @@ class PhrasePanelTest {
         val tv = textViews(root).firstOrNull { it.text?.toString() == label && it.hasOnClickListeners() && it.compoundDrawables.any { d -> d != null } } ?: return false
         tv.performClick(); return true
     }
+    private fun send(root: View, action: Int, y: Float) =
+        root.dispatchTouchEvent(MotionEvent.obtain(0, 16, action, 20f, y, 0))
 
     private fun phraseView(): ClipboardView = ClipboardView(ctx).apply {
         categoriesProvider = { listOf("默认", "工作", "私人") }
@@ -94,6 +98,18 @@ class PhrasePanelTest {
         }
         val ls = labels(v)
         assertTrue(ls.any { it.contains("常用语") }); assertTrue(ls.any { it.contains("拆词") }); assertTrue(ls.any { it.contains("删除") })
+    }
+
+    @Test fun expanded_clipboard_action_row_wraps_actions_inside_left_center_right_slots() {
+        val v = ClipboardView(ctx).apply {
+            historyProvider = { listOf("abc") }; applyPalette(pal); refresh(); expandForTest("abc")
+        }
+        val actions = textViews(v)
+            .filter { it.text?.toString() in setOf("常用语", "拆词", "删除") && it.compoundDrawables.any { d -> d != null } }
+        assertEquals(3, actions.size)
+        val gravities = actions.map { (it.layoutParams as android.widget.FrameLayout.LayoutParams).gravity }
+        assertEquals(listOf(Gravity.START, Gravity.CENTER, Gravity.END), gravities)
+        assertTrue(actions.all { it.layoutParams.width == ViewGroup.LayoutParams.WRAP_CONTENT })
     }
 
     @Test fun edit_action_invokes_onEditPhrase() {
@@ -155,6 +171,20 @@ class PhrasePanelTest {
         assertEquals("row order updates while the drag is still active", listOf("在吗", "稍等", "你好"), v.listRowTextsForTest())
         assertTrue("drop callback has not reset the lifted row yet", v.dragTranslationYForTest() != 0f)
         v.dragDropForTest()
+    }
+
+    @Test fun active_drag_stays_captured_after_live_row_reorder_until_pointer_up() {
+        var r: Triple<String, Int, Int>? = null
+        val v = phraseView().apply { onReorderPhrase = { c, f, t -> r = Triple(c, f, t) } }
+        v.dragStartAtForTest(0, 20f)
+        v.dragMoveAtForTest(1, 90f)
+        assertTrue(v.isDraggingForTest())
+        assertTrue(send(v, MotionEvent.ACTION_MOVE, 120f))
+        assertTrue("drag remains live after the row moved under the finger", v.isDraggingForTest())
+        assertNull(r)
+        assertTrue(send(v, MotionEvent.ACTION_UP, 120f))
+        assertFalse(v.isDraggingForTest())
+        assertEquals(Triple("默认", 0, 1), r)
     }
 
     @Test fun drag_move_reorders_category_rows_live_before_drop() {

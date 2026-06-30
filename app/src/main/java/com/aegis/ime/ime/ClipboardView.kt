@@ -51,6 +51,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     var onPick: (String) -> Unit = {}                 // commit a clip/phrase and close
     var onCopyBlockToAegis: (String) -> Unit = {}     // 拆词块 → 写 aegis 剪贴板(不上屏/不写系统);面板保持打开
+    var onCopyBlocksToAegis: (List<String>) -> Unit = { blocks -> blocks.forEach { onCopyBlockToAegis(it) } }
     var onBack: () -> Unit = {}
     var historyProvider: () -> List<String> = { emptyList() }
     var categoriesProvider: () -> List<String> = { emptyList() }
@@ -73,7 +74,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     var onEditNote: (String, String) -> Unit = { _, _ -> } // debug.17 F2: (category, phrase) → inline 备注 edit
     var onClearCategory: (String) -> Unit = {}         // debug.17 E2: 清空当前分类所有常用语 (category)
     var onExportPhrases: () -> Unit = {}               // debug.17 E1: SAF 导出全部常用语
-    var onImportPhrases: () -> Unit = {}               // debug.17 E1: SAF 导入常用语 (Activity 内选 合并/覆盖)
+    var onImportPhrases: () -> Unit = {}               // debug.17 E1: back-compat import callback
+    var onImportPhrasesWithMode: (Boolean) -> Unit = { onImportPhrases() }
     var onClearHistory: () -> Unit = {}
     var historyEnabledProvider: () -> Boolean = { true }
     var onSetHistoryEnabled: (Boolean) -> Unit = {}
@@ -89,7 +91,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private var RED = palette.onErrorContainer    // U-polish: 删除 text on its destructive container
     private var RED_PILL = palette.errorContainer // U-polish: 删除 reads red (MD3 destructive), not a grey chip
     private var GREY_PILL = palette.chipBg
-    private var CHIP_NEUTRAL = palette.keySurfacePressed // debug.17 拆词块默认中性底(无高亮),点击后才换成 GREY_PILL(浅紫)
+    private var SPLIT_BLOCK_BG = palette.accentBottom
+    private var SPLIT_BLOCK_TEXT = palette.accentLabel
     private var TEXT_DARK = palette.keyLabel
     private var HINT = palette.keyHint
     private var CARD = palette.keySurface
@@ -100,7 +103,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     fun applyPalette(p: ImePalette) {
         palette = p
         GREEN = p.candidateFirst; GREEN_PILL = p.chipBg; RED = p.onErrorContainer; RED_PILL = p.errorContainer
-        GREY_PILL = p.chipBg; CHIP_NEUTRAL = p.keySurfacePressed; TEXT_DARK = p.keyLabel; HINT = p.keyHint; CARD = p.keySurface
+        GREY_PILL = p.chipBg; SPLIT_BLOCK_BG = p.accentBottom; SPLIT_BLOCK_TEXT = p.accentLabel; TEXT_DARK = p.keyLabel; HINT = p.keyHint; CARD = p.keySurface
         BG = p.keyboardBg; SEP = p.separator // P-A: BG = unified floor
         main.setBackgroundColor(BG)
         refresh()
@@ -164,6 +167,22 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     init {
         addView(main, FrameLayout.LayoutParams(MP, MP))
         addView(overlay, FrameLayout.LayoutParams(MP, MP))
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (isDragging && ev.actionMasked != MotionEvent.ACTION_DOWN) return handleActiveDrag(ev)
+        return super.dispatchTouchEvent(ev)
+    }
+
+    private fun handleActiveDrag(e: MotionEvent): Boolean {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_MOVE -> {
+                updateDraggedTranslation(e.rawY)
+                indexAtRawY(e.rawY)?.let { moveDragTo(it, e.rawY) }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> endDrag()
+        }
+        return true
     }
 
     /** Open fresh: clipboard tab, normal mode, nothing expanded/overlaid/swiped/sorting. */
@@ -249,8 +268,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             if (st.tab == Tab.PHRASE) addView(glyphToolbarBtn(desc = "添加常用语", onClick = { onAddPhrase(currentCategory()) }) { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }, iconLp(true))
             addView(glyphToolbarBtn(desc = "多选", onClick = { enterSelect() }) { c, p, x, y, s -> Glyphs.drawList(c, p, x, y, s) }, iconLp(true))
             // The last top icon is tab-specific: both destructive clear actions require confirmation.
-            if (st.tab == Tab.PHRASE) addView(glyphToolbarBtn(desc = "清空分类", tint = RED, onClick = { confirmClearCurrentCategory() }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }, iconLp(true))
-            else addView(glyphToolbarBtn(desc = "清空剪贴板历史", tint = RED, onClick = { confirmClearHistory() }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }.apply {
+            if (st.tab == Tab.PHRASE) addView(glyphToolbarBtn(desc = "清空分类", tint = TEXT_DARK, onClick = { confirmClearCurrentCategory() }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }, iconLp(true))
+            else addView(glyphToolbarBtn(desc = "清空剪贴板历史", tint = TEXT_DARK, onClick = { confirmClearHistory() }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }.apply {
                 setOnLongClickListener { showHistoryRecordingMenu(); true }
             }, iconLp(true))
         }
@@ -354,10 +373,14 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     /** Expanded 剪贴板 history card's bottom action row (C3): +常用语 / 拆词 / 删除. */
     private fun actionRow(text: String): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
-        setPadding(dp(8), 0, dp(8), dp(10))
-        addView(glyphAction("常用语", render = { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }) { chooseCategoryThen(listOf(text)) }, ll(0, WC, 1f))
-        addView(glyphAction("拆词", render = { c, p, x, y, s -> Glyphs.drawCut(c, p, x, y, s) }) { showSplit(text) }, ll(0, WC, 1f))
-        addView(glyphAction("删除", render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { deleteOne(text) }, ll(0, WC, 1f))
+        setPadding(dp(24), 0, dp(24), dp(10))
+        addView(actionSlot(Gravity.START, glyphAction("常用语", render = { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }) { chooseCategoryThen(listOf(text)) }), ll(0, WC, 1f))
+        addView(actionSlot(Gravity.CENTER, glyphAction("拆词", render = { c, p, x, y, s -> Glyphs.drawCut(c, p, x, y, s) }) { showSplit(text) }), ll(0, WC, 1f))
+        addView(actionSlot(Gravity.END, glyphAction("删除", render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { deleteOne(text) }), ll(0, WC, 1f))
+    }
+
+    private fun actionSlot(gravity: Int, action: View): View = FrameLayout(context).apply {
+        addView(action, FrameLayout.LayoutParams(WC, WC, gravity))
     }
 
     /** debug.16: expanded 常用语 card action row = 编辑 / 移动 / 删除 (＋常用语 is meaningless for an existing
@@ -730,9 +753,22 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         card.addView(menuDivider())
         card.addView(menuItem("添加分类") { hideOverlay(); onAddCategory() })
         card.addView(menuDivider())
-        card.addView(menuItem("导入常用语") { hideOverlay(); onImportPhrases() })   // debug.17 E1: SAF 导入 (合并/覆盖 in the picker)
+        card.addView(menuItem("导入常用语") { showImportConfirm() })   // debug.17 E1: choose import mode in-panel before SAF
         card.addView(menuDivider())
-        card.addView(menuItem("导出常用语") { hideOverlay(); onExportPhrases() })   // debug.17 E1: SAF 导出
+        card.addView(menuItem("导出常用语") { hideOverlay(); onExportPhrases() })   // debug.17 E1: SAF export
+        showOverlay(card)
+    }
+
+    private fun showImportConfirm() {
+        val card = menuCard()
+        card.addView(menuTitle("导入常用语"))
+        card.addView(menuBody("「合并」把导入内容累加到现有常用语（按分类去重）；「覆盖」用导入文件整体替换常用语库。空文件不会清空。"))
+        card.addView(menuDivider())
+        card.addView(menuItem("覆盖") { hideOverlay(); onImportPhrasesWithMode(false) })
+        card.addView(menuDivider())
+        card.addView(menuItem("合并（推荐）") { hideOverlay(); onImportPhrasesWithMode(true) })
+        card.addView(menuDivider())
+        card.addView(menuItem("取消") { hideOverlay() })
         showOverlay(card)
     }
 
@@ -865,7 +901,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun hideOverlay() { overlay.removeAllViews(); overlay.visibility = GONE }
 
-    private fun showOverlay(content: View, gravity: Int = Gravity.CENTER) {
+    private fun showOverlay(content: View, gravity: Int = Gravity.CENTER, maxWidthDp: Int? = null) {
         overlay.removeAllViews()
         // U8: no dim scrim behind the menu (the "暗色长方形") — the bordered card alone
         // separates it from the panel. The overlay stays clickable to catch outside taps for dismissal.
@@ -874,7 +910,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         // Wrap in a ScrollView so a tall menu (many categories) scrolls instead of clipping items off-screen;
         // the ScrollView is clickable so taps on the card area don't bubble to the scrim and dismiss it.
         val scroll = ScrollView(context).apply { isClickable = true; addView(content) }
-        val lp = FrameLayout.LayoutParams(WC, WC, gravity).apply { val m = dp(24); leftMargin = m; rightMargin = m; topMargin = m; bottomMargin = m }
+        val margin = dp(24)
+        val requestedWidth = maxWidthDp?.let { minOf(dp(it), (resources.displayMetrics.widthPixels - margin * 2).coerceAtLeast(dp(260))) } ?: WC
+        val lp = FrameLayout.LayoutParams(requestedWidth, WC, gravity).apply { leftMargin = margin; rightMargin = margin; topMargin = margin; bottomMargin = margin }
         overlay.addView(scroll, lp)
         overlay.visibility = VISIBLE
         scroll.post {
@@ -961,9 +999,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         showOverlay(card)
     }
 
-    /** C4: split [text] into blocks; the panel stays open. debug.17: each block starts NEUTRAL (no
-     *  highlight); tapping it turns it 浅紫 (the highlight) AND copies it to the aegis clipboard. The 返回 row
-     *  carries a 全部复制 on the far right that copies the whole original text to the aegis clipboard at once. */
+    /** C4: split [text] into blocks while keeping the panel open. Tapping a block highlights it and copies it
+     *  to the Aegis clipboard; the footer can copy all blocks in one action. */
     private fun showSplit(text: String) {
         splitSelected.clear()
         val panel = LinearLayout(context).apply {
@@ -973,10 +1010,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         panel.addView(TextView(context).apply {
             this.text = "拆分选词"; setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setTypeface(null, android.graphics.Typeface.BOLD)
-        })
-        panel.addView(TextView(context).apply {
-            this.text = text; maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
-            setTextColor(HINT); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label); setPadding(0, dp(4), 0, dp(10))
+            setPadding(0, 0, 0, dp(10))
         })
         val chips = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
         val blocks = ClipSplitter.blocks(text)
@@ -985,36 +1019,36 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         for (b in blocks) {
             val chip = TextView(context).apply {
                 this.text = b
-                setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+                setTextColor(SPLIT_BLOCK_TEXT); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 setPadding(dp(12), dp(8), dp(12), dp(8))
-                background = rounded(CHIP_NEUTRAL, ImeShapes.chipRadiusDp) // 默认中性(无高亮)
+                background = rounded(SPLIT_BLOCK_BG, ImeShapes.chipRadiusDp)
                 layoutParams = ll(WC, WC).apply { rightMargin = dp(8) }
             }
             chip.setOnClickListener {
                 splitSelected.add(b)
-                chip.background = rounded(GREY_PILL, ImeShapes.chipRadiusDp) // 点击 → 浅紫高亮(选中反馈)
-                onCopyBlockToAegis(b)                                       // 复制到 aegis 剪贴板,面板保持打开
+                chip.background = rounded(GREY_PILL, ImeShapes.chipRadiusDp)
+                onCopyBlockToAegis(b)
             }
             chipViews.add(chip); chips.addView(chip)
         }
-        panel.addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) })
+        panel.addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, ll(MP, WC))
         val footer = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         footer.addView(TextView(context).apply {
-            this.text = "返回"; setTextColor(GREEN); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+            this.text = "返回"; setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setPadding(dp(8), dp(14), dp(16), dp(10)); setOnClickListener { hideOverlay() }
         }, ll(WC, WC))
         footer.addView(View(context), ll(0, dp(1), 1f))
         if (blocks.isNotEmpty()) footer.addView(TextView(context).apply {
-            this.text = "全部复制"; gravity = Gravity.END; setTextColor(GREEN); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+            this.text = "全部复制"; gravity = Gravity.END; setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setPadding(dp(16), dp(14), dp(8), dp(10))
             setOnClickListener {
                 splitSelected.addAll(blocks)
-                for (c in chipViews) c.background = rounded(GREY_PILL, ImeShapes.chipRadiusDp) // 全选高亮反馈
-                for (b in blocks) onCopyBlockToAegis(b) // debug.18 H: 每块各写入一条(N 条),不是整段合并成 1 条
+                for (c in chipViews) c.background = rounded(GREY_PILL, ImeShapes.chipRadiusDp)
+                onCopyBlocksToAegis(blocks)
             }
         }, ll(WC, WC))
         panel.addView(footer, ll(MP, WC))
-        showOverlay(panel)
+        showOverlay(panel, maxWidthDp = 340)
     }
 
     // ---------- shared bits ----------
@@ -1072,6 +1106,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun menuTitle(s: String, color: Int = TEXT_DARK): View = TextView(context).apply {
         text = s; gravity = Gravity.CENTER; setTextColor(color)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label); setPadding(dp(20), dp(12), dp(20), dp(4))
+    }
+
+    private fun menuBody(s: String): View = TextView(context).apply {
+        text = s; gravity = Gravity.START; setTextColor(TEXT_DARK)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label); setPadding(dp(20), dp(6), dp(20), dp(10))
     }
 
     private fun menuItem(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
@@ -1138,8 +1177,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             text = label; gravity = Gravity.CENTER
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label); setTextColor(TEXT_DARK)
             setPadding(dp(4), dp(6), dp(4), dp(6))
-            setCompoundDrawablesWithIntrinsicBounds(glyphIcon(tint, 20, render), null, null, null)
-            compoundDrawablePadding = dp(4)
+            setCompoundDrawablesWithIntrinsicBounds(glyphIcon(tint, 18, render), null, null, null)
+            compoundDrawablePadding = dp(2)
             setOnClickListener { onClick() }
         }
 

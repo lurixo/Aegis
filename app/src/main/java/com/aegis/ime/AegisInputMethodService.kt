@@ -525,10 +525,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.phraseNoteProvider = { cat, text -> clipboardStore.noteFor(cat, text) } // debug.17 F2: display note
             it.onPick = { t -> commitLargeText(t); inputView?.showPanel(null) } // E5: chunked for huge clips
             it.onCopyBlockToAegis = { b -> copyBlockToAegis(b) }                          // ③ 拆词块写 aegis 剪贴板(不上屏/不写系统)
+            it.onCopyBlocksToAegis = { blocks -> copyBlocksToAegis(blocks) }
             it.onBack = { inputView?.showPanel(null) }
             it.onDeleteClips = { list -> clipboardStore.deleteAll(list) }                 // C7 多选删除
             it.onDeletePhrasesFrom = { cat, list -> list.forEach { clipboardStore.deletePhraseFrom(cat, it) } }
-            it.onSaveAsPhrasesTo = { cat, list -> clipboardStore.addPhrasesTo(cat, list) } // C7 批量添加常用语
+            it.onSaveAsPhrasesTo = { cat, list ->
+                val added = clipboardStore.addPhrasesTo(cat, list)
+                if (list.size == 1) toast(if (added > 0) "常用语已添加成功" else "常用语已存在")
+            } // C7 batch add phrases
             it.onEditPhrase = { cat, text -> beginInlineEdit(cat, text) }                  // debug.16 Option A: 编辑 → inline buffer
             it.onMovePhrase = { from, text, to -> clipboardStore.movePhrase(from, text, to) } // debug.16: 移动常用语分类
             it.onMovePhrasesTo = { from, list, to -> clipboardStore.movePhrasesTo(from, list, to) } // debug.16: 批量移动
@@ -543,7 +547,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onEditNote = { cat, text -> beginInlineEditNote(cat, text) }               // debug.17 F2: 备注 → inline buffer
             it.onClearCategory = { cat -> clipboardStore.clearPhrasesIn(cat) }            // debug.17 E2: 清空当前分类
             it.onExportPhrases = { launchPhraseTransfer(export = true) }                  // debug.17 E1: SAF 导出
-            it.onImportPhrases = { launchPhraseTransfer(export = false) }                 // debug.17 E1: SAF 导入
+            it.onImportPhrasesWithMode = { merge -> launchPhraseTransfer(export = false, merge = merge) } // debug.17 E1: SAF import
             it.onClearHistory = { clipboardStore.clearHistory() }
             it.historyEnabledProvider = { historyEnabled() }                               // C1 记录开关
             it.onSetHistoryEnabled = { on -> setHistoryEnabled(on) }
@@ -617,14 +621,15 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
     }
 
-    /** debug.17 E1: launch the SAF bridge Activity to export / import the 常用语 library (the IME service is not
+    /** debug.17 E1: launch the SAF bridge Activity to export / import the phrase library (the IME service is not
      *  an Activity, so SAF document pickers must run in a real Activity). It reads/writes the SAME ClipboardStore
      *  files in filesDir; the panel re-reads phrases when it next opens. */
-    private fun launchPhraseTransfer(export: Boolean) {
+    private fun launchPhraseTransfer(export: Boolean, merge: Boolean = true) {
         runCatching {
             startActivity(
                 android.content.Intent(this, com.aegis.ime.ui.PhraseTransferActivity::class.java)
                     .putExtra(com.aegis.ime.ui.PhraseTransferActivity.EXTRA_EXPORT, export)
+                    .putExtra(com.aegis.ime.ui.PhraseTransferActivity.EXTRA_IMPORT_MERGE, merge)
                     .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
             )
             inputView?.showPanel(null) // close the panel so the picker is unobstructed
@@ -681,7 +686,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val text = panelInput.text()
         when (inputPurpose) {
             InputPurpose.EDIT_PHRASE -> clipboardStore.editPhrase(inputCat, inputOld, text)
-            InputPurpose.ADD_PHRASE -> { val t = text.trim(); if (t.isNotEmpty()) clipboardStore.addPhrasesTo(inputCat, listOf(t)) } // inputCat stays → reopen there
+            InputPurpose.ADD_PHRASE -> { val t = text.trim(); if (t.isNotEmpty()) addSinglePhraseWithToast(inputCat, t) } // inputCat stays → reopen there
             InputPurpose.EDIT_NOTE -> clipboardStore.setPhraseNote(inputCat, inputOld, text) // F2: empty buffer clears the note
             InputPurpose.ADD_CATEGORY -> {
                 val name = text.trim()
@@ -698,6 +703,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             null -> {}
         }
         endInlineInput()
+    }
+
+    private fun addSinglePhraseWithToast(category: String, text: String) {
+        val added = clipboardStore.addPhrasesTo(category, listOf(text))
+        toast(if (added > 0) "常用语已添加成功" else "常用语已存在")
     }
 
     private fun cancelInlineInput() = endInlineInput()
@@ -770,9 +780,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
      * and the clipboard panel's 拆词 chips.
      */
     private fun copyBlockToAegis(block: String) {
-        clipboardStore.record(block)
+        copyBlocksToAegis(listOf(block))
+    }
+
+    private fun copyBlocksToAegis(blocks: List<String>) {
+        if (blocks.isEmpty()) return
+        for (block in blocks) clipboardStore.record(block)
         refreshOpenClipboardPanel()
-        Toast.makeText(this, "已存入剪贴板", Toast.LENGTH_SHORT).show()
+        toast("已存入剪贴板")
     }
 
     private fun refreshOpenClipboardPanel() {
