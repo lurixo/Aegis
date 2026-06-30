@@ -1081,10 +1081,10 @@ class KeyboardController(
         render()
     }
 
-    /** A2 expanded screen 退格: delete one composing unit, then refresh. No-op on an empty buffer so the
-     *  panel button never reaches back into committed editor text. */
+    /** A2 expanded screen 退格: undo a pending preedit-only candidate choice first; otherwise delete one
+     *  composing unit. No-op on an empty buffer so the panel button never reaches back into committed editor
+     *  text. */
     fun onPanelBackspace() {
-        expirePreeditChoiceUndo()
         if (composing.isEmpty()) return
         handleBackspace()
         refreshCandidates()
