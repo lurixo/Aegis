@@ -41,9 +41,17 @@ object ClipSplitter {
         while (i < s.length) {
             val entity = entityAt(s, i)
             if (entity != null) { out.add(entity); i += entity.text.length; continue }
-            val cls = classOf(s[i])
-            var j = i + 1
-            while (j < s.length && classOf(s[j]) == cls && entityAt(s, j) == null) j++
+            val cp = s.codePointAt(i)
+            val cls = classOf(cp)
+            var j = i + Character.charCount(cp)
+            if (cls == Cls.HAN) {
+                out.add(Block(s.substring(i, j), Kind.HAN))
+                i = j
+                continue
+            }
+            while (j < s.length && classOf(s.codePointAt(j)) == cls && entityAt(s, j) == null) {
+                j += Character.charCount(s.codePointAt(j))
+            }
             if (cls != Cls.SPACE) out.add(Block(s.substring(i, j), kindOf(cls)))
             i = j
         }
@@ -77,11 +85,11 @@ object ClipSplitter {
         return if (s.isEmpty()) v else s
     }
 
-    private fun classOf(c: Char): Cls = when {
-        c.isWhitespace() -> Cls.SPACE
-        c in '一'..'鿿' -> Cls.HAN
-        c in 'a'..'z' || c in 'A'..'Z' -> Cls.LATIN
-        c in '0'..'9' -> Cls.DIGIT
+    private fun classOf(cp: Int): Cls = when {
+        Character.isWhitespace(cp) -> Cls.SPACE
+        Character.UnicodeScript.of(cp) == Character.UnicodeScript.HAN -> Cls.HAN
+        cp in 'a'.code..'z'.code || cp in 'A'.code..'Z'.code -> Cls.LATIN
+        cp in '0'.code..'9'.code -> Cls.DIGIT
         else -> Cls.SYMBOL
     }
 

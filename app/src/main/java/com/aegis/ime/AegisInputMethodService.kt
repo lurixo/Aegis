@@ -414,10 +414,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.phraseNoteProvider = { cat, text -> clipboardStore.noteFor(cat, text) }
             it.onPick = { t -> commitLargeText(t); inputView?.showPanel(null) }
             it.onCopyBlockToAegis = { b -> copyBlockToAegis(b) }
+            it.onCopyBlocksToAegis = { blocks -> copyBlocksToAegis(blocks) }
             it.onBack = { inputView?.showPanel(null) }
             it.onDeleteClips = { list -> clipboardStore.deleteAll(list) }
             it.onDeletePhrasesFrom = { cat, list -> list.forEach { clipboardStore.deletePhraseFrom(cat, it) } }
-            it.onSaveAsPhrasesTo = { cat, list -> clipboardStore.addPhrasesTo(cat, list) }
+            it.onSaveAsPhrasesTo = { cat, list ->
+                val added = clipboardStore.addPhrasesTo(cat, list)
+                if (list.size == 1) toast(if (added > 0) "常用语已添加成功" else "常用语已存在")
+            }
             it.onEditPhrase = { cat, text -> beginInlineEdit(cat, text) }
             it.onMovePhrase = { from, text, to -> clipboardStore.movePhrase(from, text, to) }
             it.onMovePhrasesTo = { from, list, to -> clipboardStore.movePhrasesTo(from, list, to) }
@@ -432,7 +436,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onEditNote = { cat, text -> beginInlineEditNote(cat, text) }
             it.onClearCategory = { cat -> clipboardStore.clearPhrasesIn(cat) }
             it.onExportPhrases = { launchPhraseTransfer(export = true) }
-            it.onImportPhrases = { launchPhraseTransfer(export = false) }
+            it.onImportPhrasesWithMode = { merge -> launchPhraseTransfer(export = false, merge = merge) }
             it.onClearHistory = { clipboardStore.clearHistory() }
             it.historyEnabledProvider = { historyEnabled() }
             it.onSetHistoryEnabled = { on -> setHistoryEnabled(on) }
@@ -499,11 +503,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
     }
 
-    private fun launchPhraseTransfer(export: Boolean) {
+    private fun launchPhraseTransfer(export: Boolean, merge: Boolean = true) {
         runCatching {
             startActivity(
                 android.content.Intent(this, com.aegis.ime.ui.PhraseTransferActivity::class.java)
                     .putExtra(com.aegis.ime.ui.PhraseTransferActivity.EXTRA_EXPORT, export)
+                    .putExtra(com.aegis.ime.ui.PhraseTransferActivity.EXTRA_IMPORT_MERGE, merge)
                     .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
             )
             inputView?.showPanel(null)
@@ -555,7 +560,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val text = panelInput.text()
         when (inputPurpose) {
             InputPurpose.EDIT_PHRASE -> clipboardStore.editPhrase(inputCat, inputOld, text)
-            InputPurpose.ADD_PHRASE -> { val t = text.trim(); if (t.isNotEmpty()) clipboardStore.addPhrasesTo(inputCat, listOf(t)) }
+            InputPurpose.ADD_PHRASE -> { val t = text.trim(); if (t.isNotEmpty()) addSinglePhraseWithToast(inputCat, t) }
             InputPurpose.EDIT_NOTE -> clipboardStore.setPhraseNote(inputCat, inputOld, text)
             InputPurpose.ADD_CATEGORY -> {
                 val name = text.trim()
@@ -570,6 +575,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             null -> {}
         }
         endInlineInput()
+    }
+
+    private fun addSinglePhraseWithToast(category: String, text: String) {
+        val added = clipboardStore.addPhrasesTo(category, listOf(text))
+        toast(if (added > 0) "常用语已添加成功" else "常用语已存在")
     }
 
     private fun cancelInlineInput() = endInlineInput()
@@ -621,9 +631,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
     private fun copyBlockToAegis(block: String) {
-        clipboardStore.record(block)
+        copyBlocksToAegis(listOf(block))
+    }
+
+    private fun copyBlocksToAegis(blocks: List<String>) {
+        if (blocks.isEmpty()) return
+        for (block in blocks) clipboardStore.record(block)
         refreshOpenClipboardPanel()
-        Toast.makeText(this, "已存入剪贴板", Toast.LENGTH_SHORT).show()
+        toast("已存入剪贴板")
     }
 
     private fun refreshOpenClipboardPanel() {
