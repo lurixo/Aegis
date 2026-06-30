@@ -466,7 +466,7 @@ class KeyboardController(
             // away) so the punctuation/number follows the confirmed word ("就。"), never precedes it ("。就")
             // or gets stranded for reset() to drop.
             if (composing.isNotEmpty() || committedPrefix.isNotEmpty()) flushComposing()
-            host.commitSymbol(applyCase(key.output))
+            host.commitText(applyCase(key.output))
             if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
             lastWord = null
             return
@@ -475,7 +475,7 @@ class KeyboardController(
             Mode.PINYIN -> { composing.append(key.output); history.addLast(StepKind.DIGIT) } // T9 buffer; one step per digit
             Mode.DIRECT -> {
                 // EN letters / numbers / symbols go straight to the editor (D), with shift applied.
-                host.commitSymbol(applyCase(key.output))
+                host.commitText(applyCase(key.output))
                 if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
                 lastWord = null
             }

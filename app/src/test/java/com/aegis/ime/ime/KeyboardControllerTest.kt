@@ -20,6 +20,7 @@ import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.LayoutId
+import com.aegis.ime.layout.SymbolCatalog
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -44,6 +45,24 @@ class KeyboardControllerTest {
             this.text.delete(start, this.text.length)
             this.text.append(text)
         }
+    }
+
+    private class SymbolPairingHost : ImeHost {
+        val commits = mutableListOf<String>()
+        val text = StringBuilder()
+        override fun commitText(text: CharSequence) {
+            commits.add(text.toString())
+            this.text.append(text)
+        }
+        override fun commitSymbol(symbol: CharSequence) {
+            for (part in SymbolCatalog.insertionFor(symbol.toString(), hasTextAfterCursor = false)) {
+                commitText(part)
+            }
+        }
+        override fun deleteBackward() {
+            if (text.isNotEmpty()) text.delete(text.length - 1, text.length)
+        }
+        override fun performEnter() {}
     }
 
     private val engine = object : CandidateEngine {
@@ -291,6 +310,47 @@ class KeyboardControllerTest {
         "64".forEach { c.onKey(out(it.toString())) } // ni
         c.onKey(Key("，", output = "，", direct = true)) // ★D: punctuation never buffers as pinyin
         assertEquals(listOf("ni", "，"), h.commits)
+    }
+
+    @Test fun english_direct_apostrophe_is_plain_text_between_letters() {
+        val h = SymbolPairingHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        "don".forEach { c.onKey(out(it.toString())) }
+        c.onKey(Key("'", output = "'", direct = true))
+        c.onKey(out("t"))
+        assertEquals(listOf("d", "o", "n", "'", "t"), h.commits)
+        assertEquals("don't", h.text.toString())
+    }
+
+    @Test fun direct_pairable_symbol_flushes_pinyin_then_commits_plain_text() {
+        val h = SymbolPairingHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(out("n"))
+        c.onKey(Key("\"", output = "\"", direct = true))
+        assertEquals(listOf("n", "\""), h.commits)
+        assertEquals("n\"", h.text.toString())
+    }
+
+    @Test fun direct_pairable_symbols_from_keyboard_commit_plain_text() {
+        val h = SymbolPairingHost()
+        val c = KeyboardController(h, engine)
+        for (symbol in listOf("\"", "[", "(", "`")) {
+            c.onKey(Key(symbol, output = symbol, direct = true))
+        }
+        assertEquals(listOf("\"", "[", "(", "`"), h.commits)
+        assertEquals("\"[(`", h.text.toString())
+    }
+
+    @Test fun direct_mode_pairable_symbols_commit_plain_text() {
+        val h = SymbolPairingHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        for (symbol in listOf("'", "\"", "[")) {
+            c.onKey(Key(symbol, output = symbol))
+        }
+        assertEquals(listOf("'", "\"", "["), h.commits)
+        assertEquals("'\"[", h.text.toString())
     }
 
     // ---- I4: shift one-shot (single tap) vs caps lock (double tap → SHIFT_LOCK), reset on switch ----
