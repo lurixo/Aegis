@@ -112,7 +112,6 @@ class KeyboardController(
         val drillChoices: Map<Int, String>,
         val deferredLearnEvents: List<LearnEvent>,
         val lastWord: String?,
-        val committedText: String?,
         val inputEpoch: Long,
     )
 
@@ -434,10 +433,10 @@ class KeyboardController(
             // flush any assembled prefix ahead of it so the emoji follows the confirmed word, not replaces it.
             cand in directCommitCands -> {
                 val text = committedPrefix.toString() + cand.word
-                savePreeditChoiceUndo(committedText = text)
+                expirePreeditChoiceUndo()
                 host.commitText(text)
                 applyDeferredLearning()
-                clearComposingState(keepChoiceUndo = true); lastWord = null
+                clearComposingState(); lastWord = null
             }
             // C5: a next-word prediction commits directly and becomes the new [lastWord] so predictions
             // chain (你好 → 世界 → …); it is reinforced as a bigram after the previous word, like a normal pick.
@@ -448,8 +447,7 @@ class KeyboardController(
                 lastWord = cand.word
             }
             else -> {
-                val committed = if (cand.coveredLen !in 1 until composing.length) committedPrefix.toString() + cand.word else null
-                savePreeditChoiceUndo(committedText = committed)
+                if (candidateStaysInPreedit(cand)) savePreeditChoiceUndo()
                 commitCandidate(cand)
             }
         }
@@ -575,7 +573,7 @@ class KeyboardController(
      * (its reading is a prefix of the input), commit that part and keep composing the remaining digits.
      */
     private fun commitCandidate(cand: Cand) {
-        if (cand.coveredLen in 1 until composing.length) {
+        if (candidateStaysInPreedit(cand)) {
             // S1(c): a PARTIAL pick confirms cand.word as the next chunk of the word being assembled but does
             // NOT reach the editor yet — accumulate it in [committedPrefix] (shown at the strip's leftmost)
             // and keep decoding the remainder. The old code commitText()'d every pick, dribbling one
@@ -610,12 +608,16 @@ class KeyboardController(
         } else {
             // The pick completes the word: send the assembled prefix + this final chunk to the editor in ONE
             // commit (整词完成才上屏), then reset.
+            expirePreeditChoiceUndo()
             host.commitText(committedPrefix.toString() + cand.word)
             applyDeferredLearning(cand.word)
             lastWord = cand.word
-            clearComposingState(keepChoiceUndo = true)
+            clearComposingState()
         }
     }
+
+    private fun candidateStaysInPreedit(cand: Cand): Boolean =
+        cand.coveredLen in 1 until composing.length
 
     private fun switchLayout(id: LayoutId) {
         flushComposing()
@@ -703,14 +705,14 @@ class KeyboardController(
         return if (layoutId == LayoutId.NINE && lang == Lang.CN) fullLetters() else composing.toString()
     }
 
-    private fun clearComposingState(keepChoiceUndo: Boolean = false) {
+    private fun clearComposingState() {
         composing.setLength(0)
         candidates = emptyList()
         lockedReadings.clear()
         activeStart = 0
         forcedCuts.clear()
         history.clear()
-        if (!keepChoiceUndo) preeditChoiceUndo.clear()
+        preeditChoiceUndo.clear()
         deferredLearnEvents.clear()
         committedPrefix.setLength(0) // S1(c): drop any assembled-but-uncommitted prefix too
         drillSyllable = -1 // UI-2: clearing the buffer leaves no syllable to drill
@@ -864,7 +866,7 @@ class KeyboardController(
     private fun currentSyllables(): List<Syllable> =
         if (composing.isEmpty()) emptyList() else engine.syllablesForReading(composing.toString())
 
-    private fun savePreeditChoiceUndo(committedText: String? = null) {
+    private fun savePreeditChoiceUndo() {
         preeditChoiceUndo.addLast(PreeditChoiceUndo(
             composing = composing.toString(),
             committedPrefix = committedPrefix.toString(),
@@ -876,7 +878,6 @@ class KeyboardController(
             drillChoices = drillChoices.toMap(),
             deferredLearnEvents = deferredLearnEvents.toList(),
             lastWord = lastWord,
-            committedText = committedText?.takeIf { it.isNotEmpty() },
             inputEpoch = inputEpoch,
         ))
     }
@@ -889,8 +890,8 @@ class KeyboardController(
 
     /**
      * Service panels and copy-bar actions mutate the target editor outside [onKey], so they must explicitly retire
-     * candidate-choice undo before touching the InputConnection. Normal preedit candidate commits intentionally do
-     * not call this, preserving immediate Backspace undo after a pick.
+     * candidate-choice undo before touching the InputConnection. Candidate picks that stay in IME preedit keep their
+     * own undo; picks that commit to the editor retire it before touching editor text.
      */
     fun expireCandidateChoiceUndo() {
         expirePreeditChoiceUndo()
@@ -901,13 +902,6 @@ class KeyboardController(
         if (snap.inputEpoch != inputEpoch) {
             preeditChoiceUndo.clear()
             return false
-        }
-        snap.committedText?.let { committed ->
-            if (host.textBeforeCursor(committed.length).toString() != committed) {
-                preeditChoiceUndo.clear()
-                return false
-            }
-            host.replaceBeforeCursor(committed.length, "")
         }
         composing.setLength(0); composing.append(snap.composing)
         committedPrefix.setLength(0); committedPrefix.append(snap.committedPrefix)
@@ -947,10 +941,8 @@ class KeyboardController(
         choices[drillSyllable] = charWord
         var k = 0
         while (choices.containsKey(k) && k < syls.size) k++
-        val committed = if (k > 0 && syls[k - 1].end >= composing.length) {
-            committedPrefix.toString() + (0 until k).joinToString("") { choices[it] ?: "" }
-        } else null
-        savePreeditChoiceUndo(committedText = committed)
+        val commitsToEditor = k > 0 && syls[k - 1].end >= composing.length
+        if (!commitsToEditor) savePreeditChoiceUndo()
         drillChoices[drillSyllable] = charWord
         if (drillChoices.containsKey(0)) commitChosenLeftPrefix()
     }

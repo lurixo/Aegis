@@ -149,15 +149,15 @@ class PredictionTest {
         assertTrue("重输 clears the prediction and it does not regenerate", c.candidateWords().isEmpty())
     }
 
-    @Test fun backspace_after_a_committed_candidate_restores_preedit_before_predictions() {
+    @Test fun backspace_after_a_committed_candidate_deletes_text_without_restoring_predictions() {
         val h = EditorHost()
         val c = KeyboardController(h, niHaoEngine())
         commitNiHao(c)
         assertEquals(listOf("世界", "啊"), c.candidateWords())
         c.onKey(Key("", action = KeyAction.BACKSPACE)) // 退格
-        assertEquals("the committed candidate is removed from the editor", "", h.text)
-        assertEquals("nihao", c.preeditForTest())
-        assertEquals("the original top candidate is restored", "你好", c.candidateWords().firstOrNull())
+        assertEquals("Backspace deletes one committed editor character", "你", h.text)
+        assertEquals("full editor commits must not restore preedit", "", c.preeditForTest())
+        assertTrue("stale predictions must not return after normal Backspace", c.candidateWords().isEmpty())
     }
 
     @Test fun calculator_takes_priority_over_prediction() {
