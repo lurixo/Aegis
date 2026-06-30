@@ -100,10 +100,11 @@ class KeyboardView(context: Context) : View(context) {
         }
     }
 
-    // B2: a long-press on a 26-key English letter repeats it ("长按连续输入字母"); functional keys repeat too.
-    private fun isRepeatable(key: Key) =
-        key.action == KeyAction.BACKSPACE || key.action == KeyAction.SPACE || key.action == KeyAction.ENTER ||
-            (lang == Lang.EN && isAlphaLetter(key))
+    // debug.18 ④: long-press auto-repeat for ANY output-producing key — every COMMIT key (letters EN/CN,
+    // 9-key/numpad digits, symbols) plus 退格/空格/回车 — not just English letters. Stateful / navigational keys
+    // (shift, switch-*, 符号, 分词, 读音 PICK_READING, 中英…) are NOT COMMIT and therefore never auto-repeat.
+    private fun isRepeatable(key: Key) = key.action == KeyAction.COMMIT ||
+        key.action == KeyAction.BACKSPACE || key.action == KeyAction.SPACE || key.action == KeyAction.ENTER
 
     /** A 26-key letter key (single a–z label, COMMIT) — the target of the B2 swipe / long-press gestures. */
     private fun isAlphaLetter(key: Key) =
@@ -363,9 +364,10 @@ class KeyboardView(context: Context) : View(context) {
     private fun drawLabel(canvas: Canvas, p: Placed) {
         if (p.key.action == KeyAction.TOGGLE_LANG) { drawLangToggle(canvas, p.rect); return }
         if (p.key.action == KeyAction.SHIFT) { drawShift(canvas, p.rect); return } // I4: stateful arrow glyph
-        // debug.17: ⌫ and 符号入口 ✎ are self-drawn Glyphs (no font character impersonating an icon, no FE0E hack).
+        // debug.17: ⌫ is a self-drawn Glyph (no font character impersonating an icon, no FE0E hack).
         if (p.key.action == KeyAction.BACKSPACE) { drawKeyGlyph(canvas, p.rect, palette.keyLabel) { c, pt, x, y, s -> Glyphs.drawBackspace(c, pt, x, y, s) }; return }
-        if (p.key.action == KeyAction.SHOW_SYMBOLS) { drawKeyGlyph(canvas, p.rect, palette.keyLabelSecondary) { c, pt, x, y, s -> Glyphs.drawPencil(c, pt, x, y, s) }; return }
+        // debug.18 ⑫: the 符号 key shows its label as TEXT (was the self-drawn ✎ pencil) — falls through to the
+        // text path below, which paints the multi-char "符号" with specialLabelPaint like the 123 / 中英 keys.
         val cx = p.rect.centerX()
         val cy = p.rect.centerY()
         val display = displayLabel(p.key)

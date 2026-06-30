@@ -145,9 +145,21 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     // Aegis is the active input method.
     private val clipChangedListener = android.content.ClipboardManager.OnPrimaryClipChangedListener { onSystemClipChanged() }
 
+    // ③ debug.18: a live 9键/26键 setting flip (LayoutChoiceCard writes cn_layout in the SAME process) reaches the
+    // RUNNING IME without a re-launch — re-read the pref and hot-apply the CN default keyboard the instant it
+    // changes (the controller's setCnDefaultLayout then switches the live layout in place). Was: only re-read in
+    // onStartInputView, so a settings change needed a field refocus / IME re-launch to take effect.
+    private val layoutPrefListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
+        if (key == "cn_layout") {
+            val id = if (prefs.getString("cn_layout", "nine") == "alpha") LayoutId.ALPHA else LayoutId.NINE
+            Handler(Looper.getMainLooper()).post { controller.setCnDefaultLayout(id) }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         runCatching { clipboardManager.addPrimaryClipChangedListener(clipChangedListener) }
+        runCatching { getSharedPreferences("aegis", MODE_PRIVATE).registerOnSharedPreferenceChangeListener(layoutPrefListener) } // ③
         // Start with an empty engine (ASCII typing works immediately); load the ~70 MB dictionaries
         // and the user model off the main thread and swap the real engine in when ready.
         controller = KeyboardController(this, DictEngine(null, null, null))
@@ -769,6 +781,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun onDestroy() {
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
+        runCatching { getSharedPreferences("aegis", MODE_PRIVATE).unregisterOnSharedPreferenceChangeListener(layoutPrefListener) } // ③
         super.onDestroy()
     }
 
