@@ -736,7 +736,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         showOverlay(card)
     }
 
-    /** debug.17 E2: 清空当前分类的全部常用语 — a destructive action behind a confirm overlay (二次确认). */
+    /** debug.17 E2: clear all phrases in the current category behind a confirmation overlay. */
     private fun confirmClearCurrentCategory() {
         val cat = currentCategory()
         if (cat.isEmpty()) return
@@ -781,7 +781,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         showOverlay(card)
     }
 
-    // ---------- select mode (编辑剪贴板) ----------
+    // ---------- select mode ----------
 
     private fun enterSelect() { swipeRevealed = null; sortMode = false; categorySortMode = false; st.enterSelect(); refresh() }
     private fun exitSelect() { st.exitSelect(); refresh() }
@@ -794,7 +794,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setPadding(dp(12), dp(8), dp(12), dp(8))
             val allSel = st.isAllSelected(all)
             addView(TextView(context).apply {
-                text = "全选" // icon收尾: ○/● → self-drawn leading radio
+                text = "全选" // Icon polish: the radio indicator is a self-drawn leading glyph.
                 setTextColor(if (allSel) GREEN else TEXT_DARK)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 setCompoundDrawablesWithIntrinsicBounds(glyphIcon(if (allSel) GREEN else TEXT_DARK, 22) { c, p, x, y, s -> Glyphs.drawRadio(c, p, x, y, s, allSel) }, null, null, null)
@@ -824,7 +824,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(12), dp(8), dp(12), dp(8))
             if (st.tab == Tab.PHRASE) {
-                // debug.16: 常用语 batch action = 移动到分类 (＋常用语 makes no sense for items already phrases).
+                // debug.16: phrase batch action = move to category; add-phrase makes no sense for existing phrases.
                 addView(pillButton("移动到分类", GREEN, GREEN_PILL, hasSel) {
                     val from = currentCategory(); val victims = st.selected.toList()
                     chooseMoveCategoryThen(from, victims, after = { exitSelect() }) { target -> onMovePhrasesTo(from, victims, target); exitSelect() }
@@ -849,7 +849,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         background = rounded(CARD, ImeShapes.cardRadiusDp)
         layoutParams = ll(MP, WC).apply { topMargin = dp(8) }
         val on = text in st.selected
-        // icon收尾: ○/● selection indicator → self-drawn radio (filled when selected, GREEN), centred in its column.
+        // Icon polish: the selection indicator is a self-drawn radio, filled in GREEN when selected.
         addView(glyphView(if (on) GREEN else TEXT_DARK, 8) { c, p, x, y, s -> Glyphs.drawRadio(c, p, x, y, s, on) }, ll(dp(40), MP))
         addView(TextView(context).apply {
             // debug.17 F2: a 常用语 with a note shows the note; selection still keys on the original `text`.
@@ -896,26 +896,26 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             card.addView(menuItem("＋ 新建分类…") { hideOverlay(); after(); onAddCategoryThenMove(current, moveTexts) }) // carry the move
         } else {
             card.addView(menuTitle("移动到分类"))
-            // debug.17 追加: each target row = [tap = move into it] + [🗑 = delete that category]. The 🗑 reuses the
+            // debug.17 addition: each target row = [tap = move into it] + [trash = delete that category]. The trash action reuses the
             // SAME delete semantics as the long-press chip menu (onDeleteCategory + phraseCat/swipe reset) and then
             // re-opens the chooser with the refreshed list. `current` (the move SOURCE) is excluded from targets, so
             // it can never be deleted here.
             for (c in targets) { card.addView(menuDivider()); card.addView(moveTargetRow(c, current, moveTexts, after, action)) }
             card.addView(menuDivider())
-            card.addView(menuItem("＋ 新建分类…") { hideOverlay(); after(); onAddCategoryThenMove(current, moveTexts) }) // 新建 always available, same carry
+            card.addView(menuItem("＋ 新建分类…") { hideOverlay(); after(); onAddCategoryThenMove(current, moveTexts) }) // creating a category is always available with the same carry
         }
         showOverlay(card)
     }
 
     /** A target row in the move chooser: tapping the name moves into it (original behaviour, unchanged); the
-     *  trailing 🗑 deletes that category — same semantics as [showCategoryMenu]'s delete — then re-opens the
-     *  chooser so the refreshed list is shown (the move only ever fires from a name tap, never from 🗑). */
+     *  trailing trash action deletes that category with the same semantics as [showCategoryMenu]'s delete, then
+     *  re-opens the chooser so the refreshed list is shown. The move only ever fires from a name tap. */
     private fun moveTargetRow(name: String, current: String, moveTexts: List<String>, after: () -> Unit, action: (String) -> Unit): View =
         LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             addView(menuItem(name) { hideOverlay(); action(name) }, ll(0, WC, 1f))
-            // icon收尾: the per-row delete 🗑 → self-drawn RED trash glyph.
+            // Icon polish: the per-row delete action uses a self-drawn RED trash glyph.
             addView(
                 glyphView(RED, 9) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }.apply {
                     contentDescription = "删除分类"
@@ -929,7 +929,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             )
         }
 
-    /** C6: long-press → centered menu 删除此条内容 / 添加常用语 / 拆分选词. */
+    /** C6: long-press opens the centered delete/add/split menu. */
     private fun showLongPressMenu(text: String) {
         val card = menuCard()
         card.addView(menuItem("删除此条内容") { hideOverlay(); deleteOne(text) })
@@ -1069,13 +1069,13 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         background = GradientDrawable().apply { setColor(CARD); cornerRadius = ImeShapes.cardRadiusDp * density; setStroke(dp(1), SEP) } // U8: bordered, no scrim
     }
 
-    private fun menuTitle(s: String, color: Int = HINT): View = TextView(context).apply {
+    private fun menuTitle(s: String, color: Int = TEXT_DARK): View = TextView(context).apply {
         text = s; gravity = Gravity.CENTER; setTextColor(color)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label); setPadding(dp(20), dp(12), dp(20), dp(4))
     }
 
     private fun menuItem(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
-        text = label; gravity = Gravity.CENTER_VERTICAL or Gravity.START // left-aligned menu items
+        text = label; gravity = Gravity.CENTER_VERTICAL or Gravity.START // C6: left-aligned menu items
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(TEXT_DARK)
         setPadding(dp(24), dp(16), dp(24), dp(16))
         setOnClickListener { onClick() }
@@ -1096,7 +1096,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             if (enabled) setOnClickListener { onClick() }
         }
 
-    // debug.17 (icon收尾): self-drawn single-colour Glyphs in place of font-char / emoji icons, matching the
+    // debug.17 icon polish: self-drawn single-colour Glyphs in place of font-char / emoji icons, matching the
     // app-wide language (target box, 2dp stroke, ROUND caps/joins). A [render] is a Glyphs.draw* call.
     private fun glyphPaint(tint: Int) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
@@ -1132,7 +1132,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setOnClickListener { onClick() }
         }
 
-    /** An action-row cell = self-drawn leading icon + [label] (replaces "🗑 删除" / "✎ 编辑" font-char actions). */
+    /** An action-row cell = self-drawn leading icon + [label] (replaces font-char delete/edit actions). */
     private fun glyphAction(label: String, tint: Int = TEXT_DARK, render: (Canvas, Paint, Float, Float, Float) -> Unit, onClick: () -> Unit): TextView =
         TextView(context).apply {
             text = label; gravity = Gravity.CENTER
