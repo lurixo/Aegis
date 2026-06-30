@@ -29,9 +29,13 @@
              host a document picker). Not exported; launched only by AegisInputMethodService. -->
         <activity
             android:name=".ui.PhraseTransferActivity"
+            android:autoRemoveFromRecents="true"
             android:exported="false"
-            android:theme="@style/Theme.Aegis.Transparent"
-            android:excludeFromRecents="true" />
+            android:excludeFromRecents="true"
+            android:finishOnTaskLaunch="true"
+            android:noHistory="false"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Aegis.Transparent" />
 
         <service
             android:name=".AegisInputMethodService"

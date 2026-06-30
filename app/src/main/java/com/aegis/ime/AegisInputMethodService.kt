@@ -635,10 +635,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun launchPhraseTransfer(export: Boolean, merge: Boolean = true) {
         runCatching {
             startActivity(
-                android.content.Intent(this, com.aegis.ime.ui.PhraseTransferActivity::class.java)
-                    .putExtra(com.aegis.ime.ui.PhraseTransferActivity.EXTRA_EXPORT, export)
-                    .putExtra(com.aegis.ime.ui.PhraseTransferActivity.EXTRA_IMPORT_MERGE, merge)
-                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                com.aegis.ime.ui.PhraseTransferActivity.launchIntent(this, export, merge),
             )
             inputView?.showPanel(null) // close the panel so the picker is unobstructed
         }
