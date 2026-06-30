@@ -71,6 +71,7 @@ class ClipboardViewInteractionTest {
     private fun textViews(root: View): List<TextView> = allViews(root).filterIsInstance<TextView>()
     private fun bodyOf(root: View, text: String): TextView =
         textViews(root).first { it.text?.toString() == text }
+    private fun mainOf(v: ClipboardView): View = (v as ViewGroup).getChildAt(0)
     private fun overlayOf(v: ClipboardView): View = (v as ViewGroup).getChildAt(1)
     private fun labels(root: View): List<String> = textViews(root).mapNotNull { it.text?.toString() }
     private fun clickText(root: View, label: String): Boolean {
@@ -169,6 +170,20 @@ class ClipboardViewInteractionTest {
         v.refresh()
         assertTrue("new item appears in the existing panel", "new" in labels(v))
         assertTrue("existing item remains visible", "old" in labels(v))
+    }
+
+    @Test fun copy_block_callback_can_refresh_open_panel_without_reopening() {
+        val history = mutableListOf("old")
+        val v = ClipboardView(ctx).apply {
+            historyProvider = { history.toList() }
+            onCopyBlockToAegis = { block -> history.add(0, block); refresh() }
+            applyPalette(pal)
+            refresh()
+        }
+        v.showSplitForTest("复制 block")
+        assertTrue(clickText(overlayOf(v), "block"))
+        assertTrue("copied block appears in the still-open panel", "block" in labels(mainOf(v)))
+        assertTrue("previous history remains visible", "old" in labels(mainOf(v)))
     }
 
     // ---------- G: the expanded card's inner ScrollView scrolls; the outer list must not steal it ----------
