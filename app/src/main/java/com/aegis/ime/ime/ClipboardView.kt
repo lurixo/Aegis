@@ -125,6 +125,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         const val MP = ViewGroup.LayoutParams.MATCH_PARENT
         const val WC = ViewGroup.LayoutParams.WRAP_CONTENT
         const val DISPLAY_CAP = 2000
+        const val SWIPE_VERTICAL_BIAS = 1.5f
     }
 
     private fun preview(s: String): CharSequence = if (s.length > DISPLAY_CAP) s.substring(0, DISPLAY_CAP) + "…" else s
@@ -158,6 +159,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     internal fun hideSwipeForTest() { hideSwipe() }
     internal fun swipeRevealedForTest(): String? = swipeRevealed
     internal fun showPhraseManageMenuForTest() { showPhraseManageMenu() }
+    internal fun showGearMenuForTest() { showGearMenu() }
     internal fun confirmClearForTest() { confirmClearCurrentCategory() }
     internal fun enterSortModeForTest() { enterSortMode() }
     internal fun isSortModeForTest(): Boolean = sortMode
@@ -207,8 +209,24 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun boundedExpandBody(body: TextView): View {
         val maxH = body.lineHeight * 4 + body.paddingTop + body.paddingBottom
         return object : ScrollView(context) {
+            private var lastRawY = 0f
             override fun onMeasure(widthSpec: Int, heightSpec: Int) =
                 super.onMeasure(widthSpec, MeasureSpec.makeMeasureSpec(maxH, MeasureSpec.AT_MOST))
+            override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
+                if (e.actionMasked == MotionEvent.ACTION_DOWN) {
+                    lastRawY = e.rawY
+                    if (canScrollVertically(1) || canScrollVertically(-1)) parent?.requestDisallowInterceptTouchEvent(true)
+                }
+                return super.onInterceptTouchEvent(e)
+            }
+            override fun onTouchEvent(e: MotionEvent): Boolean {
+                if (e.actionMasked == MotionEvent.ACTION_MOVE) {
+                    val dir = if (e.rawY < lastRawY) 1 else -1
+                    lastRawY = e.rawY
+                    parent?.requestDisallowInterceptTouchEvent(canScrollVertically(dir))
+                }
+                return super.onTouchEvent(e)
+            }
         }.apply { isFillViewport = false; addView(body) }
     }
 
@@ -299,7 +317,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                         val dx = e.rawX - downX; val dy = e.rawY - downY
                         if (mode == 0 && (abs(dx) > slop || abs(dy) > slop)) {
                             dragHandler.removeCallbacks(longPress)
-                            mode = if (abs(dx) > abs(dy)) 1 else 2
+                            mode = if (abs(dy) > abs(dx) * SWIPE_VERTICAL_BIAS) 2 else 1
                             if (mode == 1) card.parent?.requestDisallowInterceptTouchEvent(true)
                         }
                         mode == 1
@@ -327,7 +345,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 MotionEvent.ACTION_MOVE -> {
                     val dx = e.rawX - downX; val dy = e.rawY - downY
                     if (mode == 0 && (abs(dx) > slop || abs(dy) > slop)) {
-                        mode = if (abs(dx) > abs(dy)) 1 else 2
+                        mode = if (abs(dy) > abs(dx) * SWIPE_VERTICAL_BIAS) 2 else 1
                         if (mode == 1) { target.cancelLongPress(); target.parent?.requestDisallowInterceptTouchEvent(true) }
                     }
                     mode == 1
@@ -339,12 +357,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
 
     private fun settleSwipe(dx: Float, text: String) {
-        val threshold = dp(40)
-        when {
-            dx <= -threshold -> revealSwipe(text)
-            dx >= threshold -> hideSwipe()
-            else -> if (swipeRevealed == text) hideSwipe() else onPick(text)
-        }
+        if (dx < 0f) revealSwipe(text) else hideSwipe()
     }
 
     private fun revealSwipe(text: String) {
@@ -470,12 +483,12 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val cur = currentCategory()
         for (name in categoriesProvider()) chips.addView(catChip(name, name == cur))
         addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, ll(0, WC, 1f))
-        addView(glyphChipBtn(desc = "管理常用语", onClick = { showPhraseManageMenu() }) { c, p, x, y, s -> Glyphs.drawPencil(c, p, x, y, s) }, ll(dp(36), dp(44)))
+        addView(glyphChipBtn(desc = "管理常用语", onClick = { showPhraseManageMenu() }) { c, p, x, y, s -> Glyphs.drawPencil(c, p, x, y, s) }, ll(dp(36), dp(40)))
     }
 
     private fun showPhraseManageMenu() {
         val card = menuCard()
-        card.addView(menuItem("移动") { hideOverlay(); enterSortMode() })
+        card.addView(menuItem("移动分类") { hideOverlay(); enterSortMode() })
         card.addView(menuDivider())
         card.addView(menuItem("添加分类") { hideOverlay(); onAddCategory() })
         card.addView(menuDivider())
@@ -657,7 +670,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun showGearMenu() {
         val card = menuCard()
-        card.addView(menuItem("清空剪贴板历史") { hideOverlay(); onClearHistory(); refresh() })
+        card.addView(menuItem("清空剪贴板历史") { hideOverlay(); onClearHistory(); refresh() }.also {
+            it.setCompoundDrawablesWithIntrinsicBounds(glyphIcon(RED, 22) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }, null, null, null)
+            it.compoundDrawablePadding = dp(10)
+        })
         card.addView(menuDivider())
         val on = historyEnabledProvider()
         card.addView(menuItem(if (on) "剪贴板记录:开" else "剪贴板记录:关") { hideOverlay(); onSetHistoryEnabled(!on) })
@@ -721,7 +737,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setOnClickListener {
                 splitSelected.addAll(blocks)
                 for (c in chipViews) c.background = rounded(GREY_PILL, ImeShapes.chipRadiusDp)
-                onCopyBlockToAegis(text)
+                for (b in blocks) onCopyBlockToAegis(b)
             }
         }, ll(WC, WC))
         panel.addView(footer, ll(MP, WC))
