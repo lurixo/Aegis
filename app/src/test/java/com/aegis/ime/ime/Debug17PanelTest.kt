@@ -88,13 +88,13 @@ class Debug17PanelTest {
         val v = phraseView()
         assertTrue(clickDesc(v, "管理常用语"))
         val ls = labels(overlayOf(v))
-        assertTrue("menu has 移动", "移动" in ls)
+        assertTrue("menu has 移动分类", "移动分类" in ls)
         assertTrue("menu has 添加分类", "添加分类" in ls)
     }
 
     @Test fun manage_menu_move_enters_sort_mode() {
         val v = phraseView()
-        clickDesc(v, "管理常用语"); assertTrue(click(overlayOf(v), "移动"))
+        clickDesc(v, "管理常用语"); assertTrue(click(overlayOf(v), "移动分类"))
         assertTrue("移动 → 排序模式", v.isSortModeForTest())
         val ls = labels(v)
         assertTrue("sort header", "拖动排序" in ls); assertTrue("done button", "完成" in ls)
@@ -166,12 +166,14 @@ class Debug17PanelTest {
         assertNull("a category switch drops the stale reveal", v.swipeRevealedForTest())
     }
 
-    @Test fun sub_threshold_horizontal_drift_falls_back_to_tap() {
+    @Test fun a_decided_horizontal_gesture_never_commits() {
         val picked = ArrayList<String>()
         val v = clipView().apply { onPick = { picked.add(it) } }
+        v.settleSwipeForTest(-3f, "hello"); assertEquals("any leftward swipe reveals", "hello", v.swipeRevealedForTest())
+        v.hideSwipeForTest()
         v.settleSwipeForTest(0f, "hello")
-        assertEquals("sub-threshold drift = tap → 上屏", listOf("hello"), picked)
-        assertNull("no reveal for a sub-threshold drift", v.swipeRevealedForTest())
+        assertTrue("a decided horizontal gesture never 上屏s", picked.isEmpty())
+        assertNull("a non-leftward drift does not reveal", v.swipeRevealedForTest())
     }
 
     @Test fun clear_left_swipe_reveals_clear_right_swipe_hides() {
@@ -284,12 +286,12 @@ class Debug17PanelTest {
         assertEquals("panel stays open", View.VISIBLE.toLong(), overlayOf(v).visibility.toLong())
     }
 
-    @Test fun split_copy_all_copies_original_and_highlights_all() {
+    @Test fun split_copy_all_copies_each_block_separately_and_highlights_all() {
         val copied = ArrayList<String>()
         val v = clipView().apply { onCopyBlockToAegis = { copied.add(it) } }
         v.showSplitForTest("你好abc")
         assertTrue(click(overlayOf(v), "全部复制"))
-        assertEquals("全部复制 copies the whole original once", listOf("你好abc"), copied)
+        assertEquals("全部复制 copies each block separately", listOf("你好", "abc"), copied)
         assertEquals("all blocks marked", setOf("你好", "abc"), v.splitSelectedForTest())
         assertEquals("all blocks highlighted", pal.chipBg, bgColor(chip(overlayOf(v), "你好")!!))
     }
