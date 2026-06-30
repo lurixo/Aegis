@@ -520,6 +520,27 @@ class KeyboardControllerTest {
     }
 
 
+    @Test fun changing_the_cn_default_keyboard_hot_applies_without_a_relaunch() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.reset()
+        assertEquals(LayoutId.NINE, c.activeLayoutId())
+        c.setCnDefaultLayout(LayoutId.ALPHA)
+        assertEquals("switches to 26-key in place", LayoutId.ALPHA, c.activeLayoutId())
+        c.setCnDefaultLayout(LayoutId.NINE)
+        assertEquals("switches back to 9-key in place", LayoutId.NINE, c.activeLayoutId())
+    }
+
+    @Test fun changing_the_cn_default_does_not_yank_en_off_26_key() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.reset()
+        c.setCnDefaultLayout(LayoutId.ALPHA)
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        assertEquals(LayoutId.ALPHA, c.activeLayoutId())
+        c.setCnDefaultLayout(LayoutId.NINE)
+        assertEquals("EN stays 26-key regardless of the CN default flip", LayoutId.ALPHA, c.activeLayoutId())
+    }
+
+
     @Test fun nine_key_default_user_can_return_from_the_numpad() {
         val c = KeyboardController(FakeHost(), engine)
         c.reset()

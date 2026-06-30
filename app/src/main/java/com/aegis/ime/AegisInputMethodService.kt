@@ -120,9 +120,17 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private val clipboardManager by lazy { getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager }
     private val clipChangedListener = android.content.ClipboardManager.OnPrimaryClipChangedListener { onSystemClipChanged() }
 
+    private val layoutPrefListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
+        if (key == "cn_layout") {
+            val id = if (prefs.getString("cn_layout", "nine") == "alpha") LayoutId.ALPHA else LayoutId.NINE
+            Handler(Looper.getMainLooper()).post { controller.setCnDefaultLayout(id) }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         runCatching { clipboardManager.addPrimaryClipChangedListener(clipChangedListener) }
+        runCatching { getSharedPreferences("aegis", MODE_PRIVATE).registerOnSharedPreferenceChangeListener(layoutPrefListener) }
         controller = KeyboardController(this, DictEngine(null, null, null))
         controller.onShowEmoji = { showEmojiPanel() }
         controller.onShowClipboard = { showClipboardPanel() }
@@ -621,6 +629,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun onDestroy() {
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
+        runCatching { getSharedPreferences("aegis", MODE_PRIVATE).unregisterOnSharedPreferenceChangeListener(layoutPrefListener) }
         super.onDestroy()
     }
 
