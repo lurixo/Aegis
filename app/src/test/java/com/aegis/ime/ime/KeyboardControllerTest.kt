@@ -559,6 +559,33 @@ class KeyboardControllerTest {
         assertEquals(LayoutId.ALPHA, c.activeLayoutId())
     }
 
+    // ---- ③ debug.18: changing the CN default keyboard takes effect IMMEDIATELY (no IME re-launch) ----
+
+    @Test fun changing_the_cn_default_keyboard_hot_applies_without_a_relaunch() {
+        // The bug: flipping the 9键/26键 setting only took effect on the next reset()/onStartInputView, so it
+        // needed re-launching the IME. Now the live layout switches the instant the pref is pushed.
+        val c = KeyboardController(FakeHost(), engine)
+        c.reset() // CN, 9-key default
+        assertEquals(LayoutId.NINE, c.activeLayoutId())
+        c.setCnDefaultLayout(LayoutId.ALPHA) // user picks 26-key in settings — NOTE: no reset() after
+        assertEquals("switches to 26-key in place", LayoutId.ALPHA, c.activeLayoutId())
+        c.setCnDefaultLayout(LayoutId.NINE) // …and back
+        assertEquals("switches back to 9-key in place", LayoutId.NINE, c.activeLayoutId())
+    }
+
+    @Test fun changing_the_cn_default_does_not_yank_en_off_26_key() {
+        // The hot-apply is gated to CN — changing the CN default while typing English must NOT disturb EN. The
+        // CN default must REALLY change here (ALPHA→NINE) while in EN, so the lang gate is actually exercised
+        // (a no-op same-value call would be short-circuited by the cnDefaultLayout==id guard and prove nothing).
+        val c = KeyboardController(FakeHost(), engine)
+        c.reset()
+        c.setCnDefaultLayout(LayoutId.ALPHA)  // CN: cnDefaultLayout becomes ALPHA (and CN hot-switches to 26-key)
+        c.onKey(act(KeyAction.TOGGLE_LANG))   // CN -> EN (26-key only)
+        assertEquals(LayoutId.ALPHA, c.activeLayoutId())
+        c.setCnDefaultLayout(LayoutId.NINE)   // cnDefaultLayout really flips ALPHA→NINE WHILE in EN
+        assertEquals("EN stays 26-key regardless of the CN default flip", LayoutId.ALPHA, c.activeLayoutId())
+    }
+
     // ---- H-1: a default-9-key user must be able to return to the 9-key from the number/symbol pages ----
 
     @Test fun nine_key_default_user_can_return_from_the_numpad() {

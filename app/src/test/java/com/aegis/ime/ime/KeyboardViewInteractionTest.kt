@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
 import com.aegis.ime.layout.Key
@@ -31,7 +32,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
+import java.time.Duration
 
 /**
  * REAL interaction tests for the self-drawn [KeyboardView] (A3) — Robolectric dispatches actual
@@ -372,6 +375,44 @@ class KeyboardViewInteractionTest {
         assertEquals("symbol page matches", nineH, measuredH(Layouts.forId(com.aegis.ime.layout.LayoutId.SYMBOL, Lang.CN)))
         assertTrue("the 5-row 26-key keeps the base height and stays taller",
             measuredH(Layouts.forId(com.aegis.ime.layout.LayoutId.ALPHA, Lang.CN)) > nineH)
+    }
+
+    // ---- ④ debug.18: long-press auto-repeat for ANY output key, not just English letters ----
+
+    /** Hold [v]'s first COMMIT key for [holdMs] of looper time and return every emitted key. */
+    private fun KeyboardView.holdFirstCommit(holdMs: Long): List<String> {
+        val emitted = mutableListOf<String>()
+        onKey = { emitted.add(it.output) }
+        val (x, y) = centerOfActionForTest(KeyAction.COMMIT)!!
+        send(MotionEvent.ACTION_DOWN, x, y, 0)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(holdMs)) // > 400ms delay + several 55ms intervals
+        send(MotionEvent.ACTION_UP, x, y, holdMs)
+        return emitted
+    }
+
+    @Test fun a_held_9key_digit_auto_repeats() {
+        // The headline ④ case: digits/letters/symbols (all COMMIT) now repeat on hold, like the English letters.
+        val emitted = nineView(Layouts.ninePunctuation(), composing = false).holdFirstCommit(700)
+        assertTrue("a held 9-key digit auto-repeats (got ${emitted.size})", emitted.size >= 3)
+        assertEquals("every repeat is the SAME held key", 1, emitted.toSet().size)
+    }
+
+    @Test fun a_held_english_letter_still_auto_repeats() {
+        // Regression guard: the pre-existing English-letter long-press repeat keeps working under the new rule.
+        val emitted = alphaView().holdFirstCommit(700)
+        assertTrue("a held English letter auto-repeats (got ${emitted.size})", emitted.size >= 3)
+        assertEquals(1, emitted.toSet().size)
+    }
+
+    @Test fun a_quick_tap_emits_exactly_once_no_repeat() {
+        // The repeat must not fire on a normal tap (UP before the 400ms hold threshold).
+        val emitted = mutableListOf<String>()
+        val v = nineView(Layouts.ninePunctuation(), composing = false).apply { onKey = { emitted.add(it.output) } }
+        val (x, y) = v.centerOfActionForTest(KeyAction.COMMIT)!!
+        v.send(MotionEvent.ACTION_DOWN, x, y, 0)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(100)) // < 400ms → no repeat
+        v.send(MotionEvent.ACTION_UP, x, y, 100)
+        assertEquals("a quick tap emits exactly once", 1, emitted.size)
     }
 
     @Test fun tapping_an_operator_in_the_numpad_column_commits_it() {

@@ -168,10 +168,11 @@ class LayoutsTest {
     @Test fun qwerty_has_no_nine_switch_key_and_pen_opens_symbols() {
         val actions = keysOf(qwerty).map { it.action }
         assertTrue("9-key switch is via the startup setting, not a key", KeyAction.SWITCH_NINE !in actions)
-        // D: the ✎ pencil now opens the symbols panel (text-edit moved to the toolbar 文字编辑 entry).
+        // D / debug.18 ⑫: the 符号 key opens the symbols panel (text-edit moved to the toolbar 文字编辑 entry);
+        // it now shows the TEXT label「符号」instead of the self-drawn ✎ pencil icon.
         assertTrue("pen / symbols entry present", KeyAction.SHOW_SYMBOLS in actions)
         val pen = keysOf(qwerty).first { it.action == KeyAction.SHOW_SYMBOLS }
-        assertEquals("✎", pen.label)
+        assertEquals("符号", pen.label)
     }
 
     @Test fun qwerty_pen_width_matches_the_adjacent_function_keys() {

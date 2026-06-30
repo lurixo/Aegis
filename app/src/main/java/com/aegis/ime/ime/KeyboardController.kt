@@ -180,7 +180,23 @@ class KeyboardController(
     fun setLearningBlocked(blocked: Boolean) { learningBlocked = blocked }
 
     /** B5: choose the CN default keyboard (NINE / ALPHA). Applied on the next [reset]; EN ignores it. */
-    fun setCnDefaultLayout(id: LayoutId) { cnDefaultLayout = id }
+    fun setCnDefaultLayout(id: LayoutId) {
+        if (cnDefaultLayout == id) return
+        cnDefaultLayout = id
+        // ③ debug.18: apply the new CN default keyboard IMMEDIATELY when we are already on a CN pinyin keyboard
+        // with NOTHING pending. It used to only take effect on the next reset()/onStartInputView, so flipping the
+        // 9键/26键 setting required re-launching the IME. Gated to an EMPTY buffer so switchLayout's flush can
+        // never commit a half-typed word into the wrong field (a non-empty buffer defers the switch to the next
+        // reset/onStartInputView). EN (lang==EN) and the number/symbol pages (layoutId∉{NINE,ALPHA}) are untouched.
+        if (lang == Lang.CN && (layoutId == LayoutId.NINE || layoutId == LayoutId.ALPHA) &&
+            composing.isEmpty() && committedPrefix.isEmpty()
+        ) {
+            cnLayout = id
+            switchLayout(id)
+            refreshCandidates()
+            render()
+        }
+    }
 
     /** D2: 联想开关 — the IME service pushes pref_associations_on; off hides next-word predictions. */
     fun setAssociationsEnabled(on: Boolean) { associationsEnabled = on }

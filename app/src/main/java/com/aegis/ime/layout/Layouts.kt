@@ -87,7 +87,7 @@ object Layouts {
         val comma = if (lang == Lang.CN) "，" else ","
         val period = if (lang == Lang.CN) "。" else "."
         val bottom = listOf(
-            Key("✎", action = SHOW_SYMBOLS, weight = 1.5f), // D: pencil → symbols panel (width matches 123/中英)
+            Key("符号", action = SHOW_SYMBOLS, weight = 1.5f), // D: 符号 → symbols panel (width matches 123/中英)
             Key("123", action = SWITCH_NUMBERS, weight = 1.5f),
             Key(comma, direct = true), // ★D punctuation direct (U6: dropped the vestigial "A" swipe-up badge)
             Key("空格", output = " ", action = SPACE, weight = 3.5f),
@@ -120,7 +120,7 @@ object Layouts {
         val cells = ArrayList<PlacedKey>()
         // A3: scrollable left column over the upper 0.75 band; ~4 rows visible, scroll for the rest.
         val leftColumn = ScrollColumn(left, xL, 0f, wL, 0.75f, cellHFrac = 0.75f / 4f)
-        cells.add(PlacedKey(Key("✎", action = SHOW_SYMBOLS), xL, 0.75f, wL, 0.25f)) // D1: pencil → symbols panel
+        cells.add(PlacedKey(Key("符号", action = SHOW_SYMBOLS), xL, 0.75f, wL, 0.25f)) // D1: 符号 → symbols panel
         // middle 3×3: letters as the main label, T9 digit as the emitted output; "1" position = symbols
         // (idle "@#", more symbols "@!./" while composing).
         // Top-left: while composing it is the 分词/隔音 key (lock a syllable boundary);
