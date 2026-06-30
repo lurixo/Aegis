@@ -99,6 +99,8 @@ class PinyinDecoder(
 
     private fun isHan(cp: Int): Boolean = cp in 0x3400..0x9FFF || cp in 0xF900..0xFAFF
 
+    private fun isSingleChar(w: String): Boolean = w.codePointCount(0, w.length) == 1
+
     private class Norm(val clean: String, val cuts: Set<Int>, val origLen: IntArray, private val cleanLenAtOrig: IntArray) {
         fun cleanIndexOfOrig(o: Int): Int? = cleanLenAtOrig.getOrNull(o)
     }
@@ -160,47 +162,108 @@ class PinyinDecoder(
 
     private fun decodeCoveredClean(input: String, limit: Int, cuts: Set<Int>, context: CharSequence): List<Cand> {
         val (ctxCp, ctxWord) = parseContext(context)
+        val interior = cuts.filter { it in 1 until input.length }.toSortedSet()
+        if (interior.isNotEmpty()) return decodeAtomic(input, limit, interior, ctxCp, ctxWord)
+
         val cover = LinkedHashMap<String, Int>()
         val completionCap = maxOf(1, limit * 2 / 3)
-        val firstCut = cuts.filter { it in 1 until input.length }.minOrNull()
         fun addCompletions(words: List<String>) {
             for (w in words) { if (cover.size >= completionCap) return; cover.putIfAbsent(w, input.length) }
         }
-        bestSentence(input, cuts, ctxCp, ctxWord)?.let { cover[it] = input.length }
-        if (firstCut == null) {
-            addCompletions(rerankedWholeInput(input, ctxCp, ctxWord))
-            addCompletions(dict.query(input, completionCap))
-            if (fuzzyRules.isNotEmpty()) {
-                for (variant in Fuzzy.variants(input, fuzzyRules)) {
-                    if (variant == input) continue
-                    addCompletions(dict.query(variant, completionCap))
-                    if (cover.size >= completionCap) break
-                }
+        bestSentence(input, emptySet(), ctxCp, ctxWord)?.let { cover[it] = input.length }
+        addCompletions(rerankedWholeInput(input, ctxCp, ctxWord))
+        addCompletions(dict.query(input, completionCap))
+        if (fuzzyRules.isNotEmpty()) {
+            for (variant in Fuzzy.variants(input, fuzzyRules)) {
+                if (variant == input) continue
+                addCompletions(dict.query(variant, completionCap))
+                if (cover.size >= completionCap) break
             }
-            initialsDict?.let { addCompletions(it.query(input, completionCap)) }
         }
-        for (q in (firstCut ?: input.length) downTo 1) {
+        initialsDict?.let { addCompletions(it.query(input, completionCap)) }
+        for (q in input.length downTo 1) {
             if (cover.size >= limit) break
             var added = 0
             for (wf in dict.exact(input.substring(0, q))) {
-                if (wf.word.length == 1) continue
+                if (isSingleChar(wf.word)) continue
                 if (cover.putIfAbsent(wf.word, q) == null && ++added >= PREFIX_PER_LEN) break
             }
         }
         val out = ArrayList<Cand>(minOf(cover.size, limit) + 20)
         for ((w, len) in cover) { out.add(Cand(w, len)); if (out.size >= limit) break }
-        val span = firstCut ?: input.length
+        appendLeadingSingles(input, input.length, out)
+        return out
+    }
+
+    private fun decodeAtomic(input: String, limit: Int, interior: Set<Int>, ctxCp: Int, ctxWord: String): List<Cand> {
+        val bset = sortedSetOf(0, input.length)
+        bset.addAll(interior)
+        for (s in syllablesCleanCut(input, interior)) bset.add(s.end)
+        val B = bset.toList()
+        val nSyl = B.size - 1
+
+        val cover = LinkedHashMap<String, Int>()
+        val sentences = atomicSentences(input, B, ctxCp, ctxWord)
+        sentences.firstOrNull()?.let { cover[it] = input.length }
+        val leadWords = ArrayList<Pair<String, Int>>()
+        val leadFreq = HashMap<String, Int>()
+        for (j in 2..nSyl) for (wf in dict.exact(input.substring(0, B[j]))) if (!isSingleChar(wf.word)) {
+            if (leadFreq.put(wf.word, wf.freq) == null) leadWords.add(wf.word to B[j])
+        }
+        leadWords.sortedByDescending { leadFreq[it.first] ?: 0 }.forEach { cover.putIfAbsent(it.first, it.second) }
+
+        val out = ArrayList<Cand>(minOf(cover.size, limit) + 40)
+        for ((w, len) in cover) { out.add(Cand(w, len)); if (out.size >= limit) break }
+        val seen = HashSet<String>(out.size * 2); for (c in out) seen.add(c.word)
+        for (w in homophonesOf(input.substring(0, B[1]))) if (seen.add(w)) out.add(Cand(w, B[1]))
+        for (s in sentences.drop(1)) if (seen.add(s)) out.add(Cand(s, input.length))
+        return out
+    }
+
+    private class APath(val text: String, val lastCp: Int, val lastWord: String, val score: Double)
+
+    private fun atomicSentences(input: String, B: List<Int>, ctxCp: Int, ctxWord: String): List<String> {
+        val nSyl = B.size - 1
+        val dp = Array(B.size) { ArrayList<APath>() }
+        dp[0].add(APath("", ctxCp, ctxWord, 0.0))
+        for (i in 0 until nSyl) {
+            if (dp[i].isEmpty()) continue
+            val src = dp[i].sortedByDescending { it.score }.take(BEAM_W)
+            for (j in i + 1..nSyl) {
+                val seg = input.substring(B[i], B[j])
+                val raw = dict.exact(seg)
+                val edges = (if (j == i + 1) raw.filter { isSingleChar(it.word) } else raw.filterNot { isSingleChar(it.word) })
+                    .take(SENTENCE_EDGE_N)
+                for (wf in edges) {
+                    val w = wf.word
+                    val firstCp = w.codePointAt(0)
+                    val lastCp = w.codePointBefore(w.length)
+                    val uni = ln(wf.freq.toDouble()) - lnTotal
+                    val boost = userModel?.wordBoost(w) ?: 0.0
+                    for (p in src) {
+                        val bw = if (p.text.isEmpty() && p.lastCp != BOS) contextWeight else lambda
+                        val bi = if (lm == null || p.lastCp == BOS) 0.0 else bw * lm.logCond(p.lastCp, firstCp)
+                        val og = if (octagram != null && p.lastWord.isNotEmpty())
+                            octagramWeight * (octagram.rawScore(p.lastWord + w) ?: 0.0) else 0.0
+                        dp[j].add(APath(p.text + w, lastCp, w, p.score + uni + bi + boost + og))
+                    }
+                }
+            }
+        }
+        if (dp[nSyl].isEmpty()) return emptyList()
+        val ordered = LinkedHashSet<String>()
+        for (p in dp[nSyl].sortedByDescending { it.score }) { ordered.add(p.text); if (ordered.size >= ATOMIC_BEAM_N) break }
+        return ordered.toList()
+    }
+
+    private fun appendLeadingSingles(input: String, span: Int, out: ArrayList<Cand>) {
         val head = input.substring(0, span)
         val lens = if (input[0] in '2'..'9') T9Pinyin.leadingSyllableDigitLens(head)
         else T9Pinyin.leadingSyllableLetterLens(head)
-        if (lens.isNotEmpty()) {
-            val seen = HashSet<String>(out.size * 2)
-            for (c in out) seen.add(c.word)
-            for (k in lens) for (w in homophonesOf(input.substring(0, k))) {
-                if (seen.add(w)) out.add(Cand(w, k))
-            }
-        }
-        return out
+        if (lens.isEmpty()) return
+        val seen = HashSet<String>(out.size * 2)
+        for (c in out) seen.add(c.word)
+        for (k in lens) for (w in homophonesOf(input.substring(0, k))) if (seen.add(w)) out.add(Cand(w, k))
     }
 
     fun syllables(input: String): List<Syllable> {
@@ -240,7 +303,7 @@ class PinyinDecoder(
 
     private fun homophonesOf(key: String): List<String> {
         val out = ArrayList<String>()
-        for (wf in dict.exact(key)) if (wf.word.length == 1) out.add(wf.word)
+        for (wf in dict.exact(key)) if (isSingleChar(wf.word)) out.add(wf.word)
         return out
     }
 
@@ -339,6 +402,9 @@ class PinyinDecoder(
         const val INITIALS_PENALTY = 5.0
         const val DEFAULT_OCTAGRAM_WEIGHT = 0.3
         const val PREFIX_PER_LEN = 16
+        const val BEAM_W = 12
+        const val SENTENCE_EDGE_N = 6
+        const val ATOMIC_BEAM_N = 8
         const val CTX_WORD_MAX = 4
         const val DEFAULT_CONTEXT_WEIGHT = 2.0
     }
