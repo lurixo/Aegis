@@ -460,6 +460,25 @@ class ClipboardStoreTest {
         assertFalse("未确认不应创建分类", "私人" in ClipboardStore(dir).apply { load() }.categories())
     }
 
+    @Test fun reorder_category_moves_category_and_persists() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply { load(); addCategory("甲"); addCategory("乙"); addCategory("丙") }
+        assertTrue(s.reorderCategory(3, 1))
+        assertEquals(listOf(ClipboardStore.DEFAULT_CATEGORY_ID, "丙", "甲", "乙"), s.categories())
+        assertTrue(s.reorderCategory(0, 3))
+        assertEquals(listOf("丙", "甲", "乙", ClipboardStore.DEFAULT_CATEGORY_ID), s.categories())
+        s.flushPendingWrites()
+        assertEquals(listOf("丙", "甲", "乙", ClipboardStore.DEFAULT_CATEGORY_ID), ClipboardStore(dir).apply { load() }.categories())
+    }
+
+    @Test fun reorder_category_rejects_bad_indices_and_noops() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addCategory("乙") }
+        assertFalse(s.reorderCategory(0, 0))
+        assertFalse(s.reorderCategory(-1, 1))
+        assertFalse(s.reorderCategory(0, 3))
+        assertEquals(listOf(ClipboardStore.DEFAULT_CATEGORY_ID, "甲", "乙"), s.categories())
+    }
+
     @Test fun an_overwriting_import_takes_back_a_history_nobody_could_read() {
         val dir = newDir()
         val index = File(dir, "clipboard.txt").apply { writeText("读不出来的一条\n") }

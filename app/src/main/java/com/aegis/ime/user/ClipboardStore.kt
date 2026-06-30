@@ -503,6 +503,18 @@ class ClipboardStore(private val dir: File) {
         else if (existing.note.isEmpty() && p.note.isNotEmpty()) existing.note = p.note
     }
 
+    fun reorderCategory(fromIndex: Int, toIndex: Int): Boolean {
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.LIST, 1); return false }
+        val after = synchronized(phraseCats) {
+            val n = phraseCats.size
+            if (fromIndex !in 0 until n || toIndex !in 0 until n || fromIndex == toIndex) return false
+            phraseCats.add(toIndex, phraseCats.removeAt(fromIndex))
+            phraseSnapshot()
+        }
+        writePhrases(PhraseEdit.LIST, 1, 1, after)
+        return true
+    }
+
     private fun find(name: String): Category? =
         phraseCats.firstOrNull { it.name == name }
             ?: sanitizePhraseText(name).let { n -> phraseCats.firstOrNull { sanitizePhraseText(it.name) == n } }
