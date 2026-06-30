@@ -48,7 +48,9 @@ class Ui12SyllableColumnTest {
         val commits = mutableListOf<String>()
         val text = StringBuilder()
         override fun commitText(text: CharSequence) { commits.add(text.toString()); this.text.append(text) }
-        override fun deleteBackward() {}
+        override fun deleteBackward() {
+            if (text.isNotEmpty()) text.delete(text.length - 1, text.length)
+        }
         override fun performEnter() {}
         override fun textBeforeCursor(n: Int): CharSequence = text.substring(maxOf(0, text.length - n))
         override fun replaceBeforeCursor(length: Int, text: CharSequence) {
@@ -262,6 +264,8 @@ class Ui12SyllableColumnTest {
 
         c.onKey(act(KeyAction.BACKSPACE))
         assertTrue("undoing the preedit choice does not delete editor text", host.commits.isEmpty())
+        assertEquals("undoing the preedit choice leaves editor text alone", "", host.text.toString())
+        assertEquals("the original preedit is restored", "nihao", c.preeditForTest())
         assertEquals("the chosen prefix is removed", "", c.composingPrefix())
         assertEquals("the first syllable is offered again", listOf("ni"), c.expandedReadings())
         assertEquals("the original syllable remains drilled", 0, c.drilledSyllableForTest())
@@ -272,7 +276,7 @@ class Ui12SyllableColumnTest {
         assertEquals(listOf("hao"), c.expandedReadings())
     }
 
-    @Test fun backspace_after_a_single_syllable_homophone_commit_restores_the_choice_grid() {
+    @Test fun backspace_after_a_single_syllable_homophone_commit_deletes_editor_text() {
         val (host, c) = alphaWithBuffer("ni")
         c.onPickReadingIndex(0)
         assertEquals(0, c.drilledSyllableForTest())
@@ -286,9 +290,9 @@ class Ui12SyllableColumnTest {
         c.onKey(act(KeyAction.BACKSPACE))
 
         assertEquals("the committed character is removed from the editor", "", host.text.toString())
-        assertEquals("the original preedit syllable is restored", "ni", c.preeditForTest())
-        assertEquals("the original syllable remains drilled", 0, c.drilledSyllableForTest())
-        assertEquals("the homophone grid is restored", niHomophones, c.candidateWords())
+        assertEquals("full editor commits must not restore preedit", "", c.preeditForTest())
+        assertEquals("full editor commits must not restore the drilled syllable", -1, c.drilledSyllableForTest())
+        assertTrue("full editor commits must not restore the homophone grid", c.candidateWords().isEmpty())
     }
 
     @Test fun backspace_after_a_preedit_homophone_choice_discards_its_learning() {
