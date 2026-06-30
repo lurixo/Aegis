@@ -364,6 +364,19 @@ class RenderHarness {
         }
     }
 
+    @Test fun clipboard_gear_menu() {
+        // debug.18: the ⚙ menu's 清空剪贴板历史 carries the SAME RED trash glyph as the 常用语 tab's 清空分类.
+        val h = (300 * ctx.resources.displayMetrics.density).toInt()
+        for ((t, pal) in themes) {
+            val v = ClipboardView(ctx).apply {
+                historyProvider = { listOf("第一条复制内容") }
+                applyPalette(pal)
+                showGearMenuForTest()
+            }
+            snap(v, h, "clip_gear_menu_$t.png")
+        }
+    }
+
     @Test fun clipboard_select_delete() {
         val h = (300 * ctx.resources.displayMetrics.density).toInt()
         for ((t, pal) in themes) {
