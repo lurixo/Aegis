@@ -69,7 +69,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         addView(
             textBtn("文字编辑", EditAction.BACK, sp = TITLE_SP).apply {
                 gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), 0, 0, 0)
-                setCompoundDrawablesWithIntrinsicBounds(icon(26, 0.48f) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }, null, null, null)
+                setCompoundDrawablesWithIntrinsicBounds(icon(16, 0.56f) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }, null, null, null)
                 compoundDrawablePadding = dp(6)
             },
             LayoutParams(LayoutParams.MATCH_PARENT, dp(40)),
