@@ -107,6 +107,15 @@ class KeyboardController(
      */
     private var drillSyllable = -1
 
+    /**
+     * ② (debug.18) 逐音节锁定回选: the 同音字 the user has chosen for each drilled syllable, keyed by its index in
+     * the LIVE segmentation ([currentSyllables]). A pick on a NON-leftmost syllable (ceshi → tap shi) records its
+     * choice here and DEFERS — nothing reaches the editor while a leading syllable is still unchosen, so ce is
+     * never auto-defaulted/skipped. Committed (and re-indexed) left-to-right by [commitChosenLeftPrefix]; cleared
+     * on every keyboard action / buffer reset, exactly like [drillSyllable]. Mirrors the 9-key lockedReadings flow.
+     */
+    private val drillChoices = HashMap<Int, String>()
+
     /** A3 自定义: the user's custom punctuation marks (injected from prefs by the service). */
     private var customSymbols: List<String> = emptyList()
 
@@ -216,6 +225,7 @@ class KeyboardController(
         forcedCuts.clear()
         history.clear()
         drillSyllable = -1 // UI-2: a fresh field starts on the normal grid, not a drilled syllable
+        drillChoices.clear() // ②: a fresh field drops any deferred 逐音节 selection
         // D1 (debug.12): reset() runs on every onStartInputView (field switch) and config change (rotation),
         // and onFinishInput does NOT flush — so an assembled-but-uncommitted prefix MUST be dropped here, or
         // a partial pick ("就") left pending leaks into the next field (committed there or flushed into the
@@ -236,6 +246,8 @@ class KeyboardController(
         // UI-2: any keyboard action (type / 退格 / switch / commit) leaves a drilled syllable and returns the
         // grid to the normal candidates — the drill is a transient view of one syllable's 同音字.
         drillSyllable = -1
+        drillChoices.clear() // ②: any keyboard action abandons a deferred 逐音节 selection (drill/pick taps don't
+        //     reach here — they go through onPickReadingIndex/onPickCandidate — so a multi-tap回选 survives).
         when (key.action) {
             KeyAction.COMMIT -> handleCommit(key)
             KeyAction.BACKSPACE -> handleBackspace()
@@ -374,7 +386,7 @@ class KeyboardController(
         // UI-2: a pick while a syllable is drilled is one of its 同音字 — 逐字 commit it (display was a bare
         // single char; the leading-syllable defaults are supplied here), not a normal whole-word candidate.
         if (drillSyllable >= 0) {
-            commitDrilledHomophone(candidates[index].word)
+            pickDrilledHomophone(candidates[index].word)
             refreshCandidates()
             render()
             return
@@ -444,6 +456,7 @@ class KeyboardController(
 
     private fun handleBackspace() {
         drillSyllable = -1 // UI-2: a delete (incl. the expand-screen 退格) returns the grid to normal candidates
+        drillChoices.clear() // ②: …and drops any deferred 逐音节 selection (covers the onPanelBackspace direct path)
         if (composing.isEmpty()) {
             // S1(c): an assembled-but-not-yet-committed word prefix lives inside the IME, NOT in the editor.
             // Peel its last confirmed character back here instead of deleting committed editor text the user
@@ -663,6 +676,7 @@ class KeyboardController(
         history.clear()
         committedPrefix.setLength(0) // S1(c): drop any assembled-but-uncommitted prefix too
         drillSyllable = -1 // UI-2: clearing the buffer leaves no syllable to drill
+        drillChoices.clear() // ②: …and no deferred 逐音节 selection (commitChosenLeftPrefix re-seeds any carry-over)
     }
 
     private fun refreshCandidates() {
@@ -798,8 +812,8 @@ class KeyboardController(
      * UI-2: the COMPLETE 同音单字 set of the drilled [index]th syllable — each candidate is a SINGLE 同音字 (so
      * the grid shows 号, not 你号), tagged with the syllable's coverage. The set is whatever
      * [CandidateEngine.homophonesForReadingAt] returns — NOT re-capped here, so the lossless single-char layer
-     * (he=257 / yi=875…) reaches the grid in full. Picking one routes through [commitDrilledHomophone], which
-     * supplies any leading-syllable defaults at commit time (the display stays a bare single char).
+     * (he=257 / yi=875…) reaches the grid in full. Picking one routes through [pickDrilledHomophone], which LOCKS
+     * it for that syllable and commits left-to-right (a non-leftmost pick defers; the display stays a bare char).
      */
     private fun syllableHomophoneCandidates(index: Int): List<Cand> {
         val syls = currentSyllables()
@@ -809,22 +823,43 @@ class KeyboardController(
     }
 
     /**
-     * UI-2: commit the chosen 同音字 [charWord] of the drilled syllable, 逐字 (left-to-right). Syllables BEFORE
-     * the drilled one (only possible when the user taps a non-leftmost syllable) are committed at their top
-     * 同音字 so the word stays ordered; the chosen char closes the drilled syllable. Reuses [commitCandidate]
-     * so the partial-vs-full / prefix-assembly / 退格 bookkeeping is identical to a normal pick.
+     * UI-2 / ② (debug.18) 逐音节锁定回选: record the chosen 同音字 [charWord] of the drilled syllable in
+     * [drillChoices], then commit the editor ONLY for the maximal CONTIGUOUS left-prefix of already-chosen
+     * syllables (left-to-right, 逐字).
+     *
+     * fix: tapping a NON-leftmost syllable (ceshi → tap shi) and picking a char must NOT auto-default the
+     * leading syllable (ce) and dump the whole string into the editor — that SKIPPED ce's selection (the
+     * "整串直接上屏、跳过了 ce 的选词"). A pick whose leading syllable is still unchosen now DEFERS: the choice is
+     * locked here and NOTHING reaches the editor until ce is also chosen — exactly the 9-key left column's
+     * 逐音节锁定回选 semantics (lock a syllable, advance; never commit out of order, never skip a syllable).
      */
-    private fun commitDrilledHomophone(charWord: String) {
-        if (composing.isEmpty()) { drillSyllable = -1; return } // defensive: no syllable to commit
-        val letters = composing.toString()
+    private fun pickDrilledHomophone(charWord: String) {
+        if (composing.isEmpty()) { drillSyllable = -1; drillChoices.clear(); return } // defensive
+        if (drillSyllable !in currentSyllables().indices) { drillSyllable = -1; return }
+        drillChoices[drillSyllable] = charWord // 锁定该音节的选字; keep the focus on it (聚焦不变)
+        // Commit only the contiguous left run of chosen syllables; a gap (unchosen leading syllable) DEFERS.
+        if (drillChoices.containsKey(0)) commitChosenLeftPrefix()
+    }
+
+    /**
+     * ② (debug.18): commit the maximal CONTIGUOUS left-prefix of chosen syllables (0..k−1 all in [drillChoices])
+     * as ONE ordered word, reusing [commitCandidate] so the partial-vs-full / prefix-assembly / 退格 bookkeeping is
+     * identical to a normal pick. Choices for syllables AFTER the committed run are carried over, re-indexed to the
+     * post-commit (re-segmented) buffer, so a deferred later pick survives the advance and is never lost.
+     */
+    private fun commitChosenLeftPrefix() {
         val syls = currentSyllables()
-        val i = drillSyllable
-        if (i !in syls.indices) { drillSyllable = -1; return }
-        val leading = (0 until i).joinToString("") {
-            engine.homophonesForReadingAt(letters, it).firstOrNull() ?: ""
-        }
-        val coveredLen = syls[i].end.coerceIn(1, composing.length)
-        commitCandidate(Cand(leading + charWord, coveredLen))
+        var k = 0
+        while (drillChoices.containsKey(k) && k < syls.size) k++
+        if (k == 0) return // leftmost syllable not chosen yet → defer (never skip it)
+        val word = (0 until k).joinToString("") { drillChoices[it] ?: "" }
+        val coveredLen = syls[k - 1].end.coerceIn(1, composing.length)
+        val carried = HashMap<Int, String>()
+        for ((idx, ch) in drillChoices) if (idx >= k) carried[idx - k] = ch
+        drillSyllable = -1
+        commitCandidate(Cand(word, coveredLen)) // partial → keeps the remainder; full → clearComposingState
+        drillChoices.clear()
+        drillChoices.putAll(carried)
     }
 
     private fun applyCase(s: String): String = if (shifted) s.uppercase() else s
@@ -960,8 +995,9 @@ class KeyboardController(
     /** UI-2: the expand grid closed (返回 / chevron) — drop any drilled syllable so the strip shows the normal
      *  word candidates again. No-op when nothing is drilled (every other panel close is unaffected). */
     fun clearDrill() {
-        if (drillSyllable < 0) return
+        if (drillSyllable < 0 && drillChoices.isEmpty()) return
         drillSyllable = -1
+        drillChoices.clear() // ②: backing out of the expand grid drops any deferred 逐音节 selection
         refreshCandidates()
         render()
     }
