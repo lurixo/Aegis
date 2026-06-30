@@ -97,7 +97,7 @@ class PinyinDecoder(
         return lastCp to s.substring(start)
     }
 
-    private fun isHan(cp: Int): Boolean = cp in 0x3400..0x9FFF || cp in 0xF900..0xFAFF || cp in 0x20000..0x2FFFF
+    private fun isHan(cp: Int): Boolean = Character.isIdeographic(cp)
 
     private fun isSingleChar(w: String): Boolean = w.codePointCount(0, w.length) == 1
 
