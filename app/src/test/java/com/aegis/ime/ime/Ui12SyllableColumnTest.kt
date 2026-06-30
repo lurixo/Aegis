@@ -98,17 +98,31 @@ class Ui12SyllableColumnTest {
 
     private val niHomophones = listOf("你") + (1..39).map { ('一' + it).toString() }
     private val haoHomophones = listOf("号") + (1..49).map { ('伀' + it).toString() }
+    private val ceHomophones = listOf("测", "侧", "厕", "策", "册")
+    private val shiHomophones = listOf("试", "是", "事", "时", "市")
 
     private val syllabic = object : CandidateEngine {
         override fun candidates(composing: String, t9: Boolean): List<String> =
             candidatesCovered(composing, t9).map { it.word }
-        override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
-            if (composing.isEmpty()) emptyList() else listOf(Cand("你好", composing.length), Cand("你", 2))
-        override fun syllablesForReading(letters: String): List<Syllable> =
-            if (letters == "nihao") listOf(Syllable("ni", 0, 2), Syllable("hao", 2, 5)) else emptyList()
+        override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> = when {
+            composing.isEmpty() -> emptyList()
+            composing == "ceshi" -> listOf(Cand("测试", composing.length), Cand("测", 2))
+            else -> listOf(Cand("你好", composing.length), Cand("你", 2))
+        }
+        override fun syllablesForReading(letters: String): List<Syllable> = when (letters) {
+            "nihao" -> listOf(Syllable("ni", 0, 2), Syllable("hao", 2, 5))
+            "ceshi" -> listOf(Syllable("ce", 0, 2), Syllable("shi", 2, 5))
+            "hao" -> listOf(Syllable("hao", 0, 3))
+            "shi" -> listOf(Syllable("shi", 0, 3))
+            else -> emptyList()
+        }
         override fun homophonesForReadingAt(letters: String, index: Int): List<String> = when {
             letters == "nihao" && index == 0 -> niHomophones
             letters == "nihao" && index == 1 -> haoHomophones
+            letters == "ceshi" && index == 0 -> ceHomophones
+            letters == "ceshi" && index == 1 -> shiHomophones
+            letters == "hao" && index == 0 -> haoHomophones
+            letters == "shi" && index == 0 -> shiHomophones
             else -> emptyList()
         }
     }
@@ -151,11 +165,47 @@ class Ui12SyllableColumnTest {
         assertEquals(listOf("你hao"), host.commits)
     }
 
-    @Test fun picking_a_later_syllables_homophone_uses_the_leading_default() {
+    @Test fun drilling_a_later_syllable_defers_and_never_skips_the_leading_one() {
         val (host, c) = alphaWithBuffer("nihao")
         c.onPickReadingIndex(1)
         c.onPickCandidate(c.candidateWords().indexOf("号"))
+        assertTrue("a later-syllable pick does NOT commit the whole string", host.commits.isEmpty())
+        assertEquals("the leading syllable 'ni' is NOT consumed/skipped", "", c.composingPrefix())
+        assertEquals("focus stays on the drilled syllable 'hao'", 1, c.drilledSyllableForTest())
+
+        c.onPickReadingIndex(0)
+        c.onPickCandidate(c.candidateWords().indexOf("你"))
         assertEquals(listOf("你号"), host.commits)
+    }
+
+    @Test fun ceshi_drilling_shi_never_skips_ce_or_commits_the_whole_string() {
+        val (host, c) = alphaWithBuffer("ceshi")
+        assertEquals("26-key 分词", listOf("ce", "shi"), c.expandedReadings())
+        c.onPickReadingIndex(1)
+        assertEquals("聚焦的是 shi 音节", 1, c.drilledSyllableForTest())
+        assertEquals("grid shows shi's 同音字", shiHomophones, c.candidateWords())
+        c.onPickCandidate(c.candidateWords().indexOf("试"))
+
+        assertTrue("整串未被直接提交", host.commits.isEmpty())
+        assertEquals("ce 未被跳过/未被默认提交 (nothing consumed)", "", c.composingPrefix())
+        assertEquals("聚焦仍在 shi、ce 仍按逐音节流程待处理", 1, c.drilledSyllableForTest())
+
+        c.onPickReadingIndex(0)
+        c.onPickCandidate(c.candidateWords().indexOf("测"))
+        assertEquals("both syllables commit in order, each the user's pick", listOf("测试"), host.commits)
+    }
+
+    @Test fun ceshi_drilling_ce_first_partial_commits_then_continues_to_shi() {
+        val (host, c) = alphaWithBuffer("ceshi")
+        c.onPickReadingIndex(0)
+        c.onPickCandidate(c.candidateWords().indexOf("测"))
+        assertTrue("a leading partial pick does not reach the editor yet", host.commits.isEmpty())
+        assertEquals("测", c.composingPrefix())
+        assertEquals("the drill clears so the remainder shows normally", -1, c.drilledSyllableForTest())
+        assertEquals("the buffer advanced to the 'shi' syllable", listOf("shi"), c.expandedReadings())
+
+        c.onKey(act(KeyAction.ENTER))
+        assertEquals(listOf("测shi"), host.commits)
     }
 
     @Test fun the_drill_clears_on_typing_or_backspace() {

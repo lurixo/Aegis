@@ -60,6 +60,8 @@ class KeyboardController(
 
     private var drillSyllable = -1
 
+    private val drillChoices = HashMap<Int, String>()
+
     private var customSymbols: List<String> = emptyList()
 
     private var customOperators: List<String> = emptyList()
@@ -139,6 +141,7 @@ class KeyboardController(
         forcedCuts.clear()
         history.clear()
         drillSyllable = -1
+        drillChoices.clear()
         committedPrefix.setLength(0)
         shiftState = ShiftState.OFF
         cnLayout = cnDefaultLayout
@@ -151,6 +154,7 @@ class KeyboardController(
 
     fun onKey(key: Key) {
         drillSyllable = -1
+        drillChoices.clear()
         when (key.action) {
             KeyAction.COMMIT -> handleCommit(key)
             KeyAction.BACKSPACE -> handleBackspace()
@@ -240,7 +244,7 @@ class KeyboardController(
     fun onPickCandidate(index: Int) {
         if (index !in candidates.indices) return
         if (drillSyllable >= 0) {
-            commitDrilledHomophone(candidates[index].word)
+            pickDrilledHomophone(candidates[index].word)
             refreshCandidates()
             render()
             return
@@ -294,6 +298,7 @@ class KeyboardController(
 
     private fun handleBackspace() {
         drillSyllable = -1
+        drillChoices.clear()
         if (composing.isEmpty()) {
             if (committedPrefix.isNotEmpty()) {
                 committedPrefix.setLength(committedPrefix.length - 1)
@@ -452,6 +457,7 @@ class KeyboardController(
         history.clear()
         committedPrefix.setLength(0)
         drillSyllable = -1
+        drillChoices.clear()
     }
 
     private fun refreshCandidates() {
@@ -534,17 +540,26 @@ class KeyboardController(
         return engine.homophonesForReadingAt(composing.toString(), index).map { Cand(it, coveredLen) }
     }
 
-    private fun commitDrilledHomophone(charWord: String) {
-        if (composing.isEmpty()) { drillSyllable = -1; return }
-        val letters = composing.toString()
+    private fun pickDrilledHomophone(charWord: String) {
+        if (composing.isEmpty()) { drillSyllable = -1; drillChoices.clear(); return }
+        if (drillSyllable !in currentSyllables().indices) { drillSyllable = -1; return }
+        drillChoices[drillSyllable] = charWord
+        if (drillChoices.containsKey(0)) commitChosenLeftPrefix()
+    }
+
+    private fun commitChosenLeftPrefix() {
         val syls = currentSyllables()
-        val i = drillSyllable
-        if (i !in syls.indices) { drillSyllable = -1; return }
-        val leading = (0 until i).joinToString("") {
-            engine.homophonesForReadingAt(letters, it).firstOrNull() ?: ""
-        }
-        val coveredLen = syls[i].end.coerceIn(1, composing.length)
-        commitCandidate(Cand(leading + charWord, coveredLen))
+        var k = 0
+        while (drillChoices.containsKey(k) && k < syls.size) k++
+        if (k == 0) return
+        val word = (0 until k).joinToString("") { drillChoices[it] ?: "" }
+        val coveredLen = syls[k - 1].end.coerceIn(1, composing.length)
+        val carried = HashMap<Int, String>()
+        for ((idx, ch) in drillChoices) if (idx >= k) carried[idx - k] = ch
+        drillSyllable = -1
+        commitCandidate(Cand(word, coveredLen))
+        drillChoices.clear()
+        drillChoices.putAll(carried)
     }
 
     private fun applyCase(s: String): String = if (shifted) s.uppercase() else s
@@ -635,8 +650,9 @@ class KeyboardController(
     }
 
     fun clearDrill() {
-        if (drillSyllable < 0) return
+        if (drillSyllable < 0 && drillChoices.isEmpty()) return
         drillSyllable = -1
+        drillChoices.clear()
         refreshCandidates()
         render()
     }
