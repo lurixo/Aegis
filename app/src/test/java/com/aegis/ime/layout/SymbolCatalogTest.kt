@@ -49,6 +49,11 @@ class SymbolCatalogTest {
         assertEquals(listOf("（", "）"), SymbolCatalog.insertionFor("（", hasTextAfterCursor = false))
         assertEquals(listOf("（"), SymbolCatalog.insertionFor("（", hasTextAfterCursor = true))
         assertEquals(listOf("\"", "\""), SymbolCatalog.insertionFor("\"", hasTextAfterCursor = false))
+        assertEquals(listOf("'", "'"), SymbolCatalog.insertionFor("'", hasTextAfterCursor = false))
+        assertEquals(listOf("[", "]"), SymbolCatalog.insertionFor("[", hasTextAfterCursor = false))
+        assertEquals(listOf("`", "`"), SymbolCatalog.insertionFor("`", hasTextAfterCursor = false))
+        assertEquals(listOf("'"), SymbolCatalog.insertionFor("'", hasTextAfterCursor = true))
+        assertEquals(listOf("["), SymbolCatalog.insertionFor("[", hasTextAfterCursor = true))
         assertEquals(listOf("，"), SymbolCatalog.insertionFor("，", hasTextAfterCursor = false))
     }
 

@@ -312,7 +312,7 @@ class KeyboardController(
     private fun handleCommit(key: Key) {
         if (key.direct) {
             if (composing.isNotEmpty() || committedPrefix.isNotEmpty()) flushComposing()
-            host.commitSymbol(applyCase(key.output))
+            host.commitText(applyCase(key.output))
             if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
             lastWord = null
             return
@@ -320,7 +320,7 @@ class KeyboardController(
         when (mode()) {
             Mode.PINYIN -> { composing.append(key.output); history.addLast(StepKind.DIGIT) }
             Mode.DIRECT -> {
-                host.commitSymbol(applyCase(key.output))
+                host.commitText(applyCase(key.output))
                 if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
                 lastWord = null
             }
