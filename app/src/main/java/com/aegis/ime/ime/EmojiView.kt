@@ -66,7 +66,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         setBackgroundColor(palette.keyboardBg)
         lockBtn.setCompoundDrawablesWithIntrinsicBounds(lockGlyph, null, null, null)
         lockBtn.compoundDrawablePadding = dp(4)
-        backspaceBtn.setCompoundDrawablesWithIntrinsicBounds(backspaceGlyph, null, null, null)
+        backspaceBtn.setCompoundDrawablesWithIntrinsicBounds(null, null, backspaceGlyph, null)
         backspaceGlyph.tint(palette.keyLabelSecondary)
         updateLockFace()
 
@@ -119,6 +119,8 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun openCategoryForTest(index: Int) = showCategory(index)
     internal fun lockedForTest(): Boolean = locked
     internal fun toggleLockForTest() = toggleLock()
+    internal fun backBtnForTest(): TextView = backBtn
+    internal fun backspaceBtnForTest(): TextView = backspaceBtn
 
     private fun showCategory(index: Int) {
         selected = index
