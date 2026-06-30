@@ -1,0 +1,109 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Copyright (C) 2026 lurixo
+//
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 3.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+// PARTICULAR PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
+
+package com.aegis.ime.ime
+
+import com.aegis.ime.decoder.EngineFixture
+import com.aegis.ime.engine.DictEngine
+import com.aegis.ime.layout.Key
+import com.aegis.ime.layout.KeyAction
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
+
+/**
+ * debug.18 FIX-2, end-to-end on BOTH keyboards (the 26-key has the same problem too — yes, and it's fixed by the
+ * same shared layer). The 9-key locks each reading from the left column; the 26-key types literal 隔音符. Both
+ * funnel into the SAME [PinyinDecoder.decodeCovered] with the same (letters, interior cuts), so both grids are
+ * boundary-aligned & atomic: no 西安 from a locked xian, no extension-area flood, the target words kept.
+ */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
+class BothKeyboardsAtomicFixTest {
+
+    private val ctx = RuntimeEnvironment.getApplication()
+    private val fixture = EngineFixture.dict()
+
+    private class Host : ImeHost {
+        override fun commitText(text: CharSequence) {}
+        override fun deleteBackward() {}
+        override fun performEnter() {}
+    }
+
+    private fun controller(): KeyboardController =
+        KeyboardController(Host(), DictEngine(fixture, fixture, null)).apply { attachView(InputView(ctx)) }
+
+    private fun KeyboardController.type(s: String) = s.forEach { onKey(Key(it.toString(), output = it.toString())) }
+    private fun KeyboardController.pick(reading: String) = onKey(Key(reading, output = reading, action = KeyAction.PICK_READING))
+    private fun t9(letters: String): String = com.aegis.ime.decoder.T9Pinyin.toT9(letters)
+
+    /** Drive the 9-key to a FULL lock of [readings] (type each syllable's T9 digits, then pick its reading). */
+    private fun nineKeyLocked(readings: List<String>): List<String> {
+        val c = controller()
+        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        for (r in readings) { c.type(t9(r)); c.pick(r) }
+        return c.candidateWords()
+    }
+
+    /** Drive the 26-key with literal 隔音符 between [readings]. */
+    private fun alphaSeparated(readings: List<String>): List<String> {
+        val c = controller()
+        c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+        readings.forEachIndexed { i, r -> if (i > 0) c.onKey(Key("'", output = "'")); c.type(r) }
+        return c.candidateWords()
+    }
+
+    private fun isSupp(s: String) = s.codePointCount(0, s.length) == 1 && Character.isSupplementaryCodePoint(s.codePointAt(0))
+
+    /** The shared contract both keyboards must satisfy for a fully-bounded buffer. */
+    private fun assertAtomic(label: String, words: List<String>, syllables: Int, topWord: String?, presentSentence: String?) {
+        assertFalse("$label: no extension-area single in the top 10", words.take(10).any { isSupp(it) })
+        assertFalse("$label: NO candidate contains 西安 (a bounded xian is never re-split)", words.any { it.contains("西安") })
+        if (topWord != null) assertTrue("$label: $topWord must lead (#1/#2)", words.take(2).contains(topWord))
+        if (presentSentence != null) assertTrue("$label: $presentSentence present", presentSentence in words)
+    }
+
+    /** Han-only candidates (drops the 26-key ALPHA raw-literal fallback like "ci'ku", which the 9-key has no
+     *  equivalent of) — the decoded grid both keyboards share. */
+    private fun han(words: List<String>) = words.filter { w -> w.all { it.code > 0x2E80 } }
+
+    private fun bothMatch(readings: List<String>, syllables: Int, topWord: String?, sentence: String?) {
+        val nine = nineKeyLocked(readings)
+        val alpha = alphaSeparated(readings)
+        assertAtomic("9-key $readings", nine, syllables, topWord, sentence)
+        assertAtomic("26-key $readings", alpha, syllables, topWord, sentence)
+        assertEquals("both keyboards funnel to the SAME atomic decode for $readings", han(nine), han(alpha))
+    }
+
+    @Test fun ciku_bothKeyboards() = bothMatch(listOf("ci", "ku"), 2, topWord = "词库", sentence = null)
+
+    @Test fun jiujian_bothKeyboards() = bothMatch(listOf("jiu", "jian"), 2, topWord = "九键", sentence = null)
+
+    @Test fun diuzi_bothKeyboards() = bothMatch(listOf("diu", "zi"), 2, topWord = null, sentence = "丢字")
+
+    @Test fun bushixian_bothKeyboards_noXiAnAndKeepsBushixian() =
+        bothMatch(listOf("bu", "shi", "xian"), 3, topWord = null, sentence = "不实现")
+
+    @Test fun ninekey_and_alpha_grids_are_identical_for_every_input() {
+        for (r in listOf(listOf("ci", "ku"), listOf("diu", "zi"), listOf("bu", "shi", "xian"), listOf("jiu", "jian"))) {
+            assertEquals("identical decoded grid for $r", han(nineKeyLocked(r)), han(alphaSeparated(r)))
+        }
+    }
+}
