@@ -86,9 +86,8 @@ class KeyboardView(context: Context) : View(context) {
         }
     }
 
-    private fun isRepeatable(key: Key) =
-        key.action == KeyAction.BACKSPACE || key.action == KeyAction.SPACE || key.action == KeyAction.ENTER ||
-            (lang == Lang.EN && isAlphaLetter(key))
+    private fun isRepeatable(key: Key) = key.action == KeyAction.COMMIT ||
+        key.action == KeyAction.BACKSPACE || key.action == KeyAction.SPACE || key.action == KeyAction.ENTER
 
     private fun isAlphaLetter(key: Key) =
         layout.id == LayoutId.ALPHA && key.action == KeyAction.COMMIT &&
@@ -307,7 +306,6 @@ class KeyboardView(context: Context) : View(context) {
         if (p.key.action == KeyAction.TOGGLE_LANG) { drawLangToggle(canvas, p.rect); return }
         if (p.key.action == KeyAction.SHIFT) { drawShift(canvas, p.rect); return }
         if (p.key.action == KeyAction.BACKSPACE) { drawKeyGlyph(canvas, p.rect, palette.keyLabel) { c, pt, x, y, s -> Glyphs.drawBackspace(c, pt, x, y, s) }; return }
-        if (p.key.action == KeyAction.SHOW_SYMBOLS) { drawKeyGlyph(canvas, p.rect, palette.keyLabelSecondary) { c, pt, x, y, s -> Glyphs.drawPencil(c, pt, x, y, s) }; return }
         val cx = p.rect.centerX()
         val cy = p.rect.centerY()
         val display = displayLabel(p.key)

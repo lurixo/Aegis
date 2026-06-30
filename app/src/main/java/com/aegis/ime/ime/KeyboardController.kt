@@ -111,7 +111,18 @@ class KeyboardController(
 
     fun setLearningBlocked(blocked: Boolean) { learningBlocked = blocked }
 
-    fun setCnDefaultLayout(id: LayoutId) { cnDefaultLayout = id }
+    fun setCnDefaultLayout(id: LayoutId) {
+        if (cnDefaultLayout == id) return
+        cnDefaultLayout = id
+        if (lang == Lang.CN && (layoutId == LayoutId.NINE || layoutId == LayoutId.ALPHA) &&
+            composing.isEmpty() && committedPrefix.isEmpty()
+        ) {
+            cnLayout = id
+            switchLayout(id)
+            refreshCandidates()
+            render()
+        }
+    }
 
     fun setAssociationsEnabled(on: Boolean) { associationsEnabled = on }
 

@@ -70,7 +70,7 @@ object Layouts {
         val comma = if (lang == Lang.CN) "，" else ","
         val period = if (lang == Lang.CN) "。" else "."
         val bottom = listOf(
-            Key("✎", action = SHOW_SYMBOLS, weight = 1.5f),
+            Key("符号", action = SHOW_SYMBOLS, weight = 1.5f),
             Key("123", action = SWITCH_NUMBERS, weight = 1.5f),
             Key(comma, direct = true),
             Key("空格", output = " ", action = SPACE, weight = 3.5f),
@@ -93,7 +93,7 @@ object Layouts {
         val xR = (NINE_LEFT_U + 3f) * u; val wR = NINE_RIGHT_U * u
         val cells = ArrayList<PlacedKey>()
         val leftColumn = ScrollColumn(left, xL, 0f, wL, 0.75f, cellHFrac = 0.75f / 4f)
-        cells.add(PlacedKey(Key("✎", action = SHOW_SYMBOLS), xL, 0.75f, wL, 0.25f))
+        cells.add(PlacedKey(Key("符号", action = SHOW_SYMBOLS), xL, 0.75f, wL, 0.25f))
         cells.add(PlacedKey(
             if (composing) Key("分词", action = SEGMENT, bold = true) else Key("@#", action = SWITCH_SYMBOLS, bold = true),
             x1, 0f, wM, 0.25f,

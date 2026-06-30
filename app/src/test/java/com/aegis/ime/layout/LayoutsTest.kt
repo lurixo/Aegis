@@ -160,7 +160,7 @@ class LayoutsTest {
         assertTrue("9-key switch is via the startup setting, not a key", KeyAction.SWITCH_NINE !in actions)
         assertTrue("pen / symbols entry present", KeyAction.SHOW_SYMBOLS in actions)
         val pen = keysOf(qwerty).first { it.action == KeyAction.SHOW_SYMBOLS }
-        assertEquals("✎", pen.label)
+        assertEquals("符号", pen.label)
     }
 
     @Test fun qwerty_pen_width_matches_the_adjacent_function_keys() {
