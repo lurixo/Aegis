@@ -469,18 +469,24 @@ class Debug17PanelTest {
         assertTrue(actions.all { it.currentTextColor == pal.keyLabel })
     }
 
-    @Test fun clear_confirmation_actions_use_body_text_color() {
+    @Test fun clear_confirmation_title_and_actions_use_body_text_color() {
         val phrase = phraseView()
         phrase.confirmClearForTest()
-        val phraseActions = textViews(overlayOf(phrase)).filter { it.text?.toString() in setOf("清空", "取消") }
+        val phraseViews = textViews(overlayOf(phrase)).filter {
+            it.text?.toString() in setOf("清空分类「默认」的全部常用语?", "清空", "取消")
+        }
+        assertEquals(3, phraseViews.size)
+        assertTrue(phraseViews.all { it.currentTextColor == pal.keyLabel })
+        val phraseActions = phraseViews.filter { it.text?.toString() in setOf("清空", "取消") }
         assertEquals(2, phraseActions.size)
-        assertTrue(phraseActions.all { it.currentTextColor == pal.keyLabel })
 
         val clip = clipView()
         clip.confirmClearHistoryForTest()
-        val clipActions = textViews(overlayOf(clip)).filter { it.text?.toString() in setOf("清空", "取消") }
+        val clipViews = textViews(overlayOf(clip)).filter { it.text?.toString() in setOf("清空剪贴板历史?", "清空", "取消") }
+        assertEquals(3, clipViews.size)
+        assertTrue(clipViews.all { it.currentTextColor == pal.keyLabel })
+        val clipActions = clipViews.filter { it.text?.toString() in setOf("清空", "取消") }
         assertEquals(2, clipActions.size)
-        assertTrue(clipActions.all { it.currentTextColor == pal.keyLabel })
     }
 
     @Test fun expanding_a_card_wraps_its_body_in_a_scrollview() {

@@ -646,7 +646,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val cat = currentCategory()
         if (cat.isEmpty()) return
         val card = menuCard()
-        card.addView(menuTitle("清空分类「$cat」的全部常用语?"))
+        card.addView(menuTitle("清空分类「$cat」的全部常用语?", color = TEXT_DARK))
         card.addView(menuDivider())
         card.addView(menuItem("清空") { hideOverlay(); onClearCategory(cat); refresh() })
         card.addView(menuDivider())
@@ -656,7 +656,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun confirmClearHistory() {
         val card = menuCard()
-        card.addView(menuTitle("清空剪贴板历史?"))
+        card.addView(menuTitle("清空剪贴板历史?", color = TEXT_DARK))
         card.addView(menuDivider())
         card.addView(menuItem("清空") { hideOverlay(); onClearHistory(); refresh() })
         card.addView(menuDivider())
@@ -944,8 +944,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         background = GradientDrawable().apply { setColor(CARD); cornerRadius = ImeShapes.cardRadiusDp * density; setStroke(dp(1), SEP) }
     }
 
-    private fun menuTitle(s: String): View = TextView(context).apply {
-        text = s; gravity = Gravity.CENTER; setTextColor(HINT)
+    private fun menuTitle(s: String, color: Int = HINT): View = TextView(context).apply {
+        text = s; gravity = Gravity.CENTER; setTextColor(color)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label); setPadding(dp(20), dp(12), dp(20), dp(4))
     }
 
