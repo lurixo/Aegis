@@ -113,10 +113,12 @@ class KeyboardController(
         val deferredLearnEvents: List<LearnEvent>,
         val lastWord: String?,
         val committedText: String?,
+        val inputEpoch: Long,
     )
 
     private val preeditChoiceUndo = ArrayDeque<PreeditChoiceUndo>()
     private val deferredLearnEvents = ArrayDeque<LearnEvent>()
+    private var inputEpoch = 0L
 
     /**
      * UI-2 (debug.13/debug.19): on the 26-key expanded screen the left column shows only the first unresolved
@@ -264,7 +266,7 @@ class KeyboardController(
         // UI-2: any keyboard action (type / 退格 / switch / commit) leaves a drilled syllable and returns the
         // grid to the normal candidates — the drill is a transient view of one syllable's 同音字.
         if (key.action != KeyAction.BACKSPACE) {
-            preeditChoiceUndo.clear()
+            expirePreeditChoiceUndo()
             drillSyllable = -1
             drillChoices.clear() // ②: any keyboard action abandons a deferred 逐音节 selection (drill/pick taps don't
             //     reach here — they go through onPickReadingIndex/onPickCandidate — so a multi-tap回选 survives).
@@ -873,11 +875,22 @@ class KeyboardController(
             deferredLearnEvents = deferredLearnEvents.toList(),
             lastWord = lastWord,
             committedText = committedText?.takeIf { it.isNotEmpty() },
+            inputEpoch = inputEpoch,
         ))
+    }
+
+    private fun expirePreeditChoiceUndo() {
+        // A candidate-choice undo is only valid for the next Backspace after the pick.
+        inputEpoch++
+        preeditChoiceUndo.clear()
     }
 
     private fun restorePreeditChoiceUndo(): Boolean {
         val snap = preeditChoiceUndo.removeLastOrNull() ?: return false
+        if (snap.inputEpoch != inputEpoch) {
+            preeditChoiceUndo.clear()
+            return false
+        }
         snap.committedText?.let { committed ->
             if (host.textBeforeCursor(committed.length).toString() != committed) return false
             host.replaceBeforeCursor(committed.length, "")
@@ -1048,6 +1061,7 @@ class KeyboardController(
     fun onPickReadingIndex(index: Int) {
         if (layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty()) {
             if (index != 0 || currentSyllables().isEmpty()) return
+            expirePreeditChoiceUndo()
             drillSyllable = 0
             refreshCandidates()
             render()
@@ -1055,6 +1069,7 @@ class KeyboardController(
         }
         val readings = expandedReadings()
         if (index !in readings.indices) return
+        expirePreeditChoiceUndo()
         handlePickReading(Key(readings[index], output = readings[index], action = KeyAction.PICK_READING))
         refreshCandidates()
         render()

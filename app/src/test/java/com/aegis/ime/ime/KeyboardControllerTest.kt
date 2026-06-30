@@ -597,6 +597,27 @@ class KeyboardControllerTest {
         assertEquals("candidate undo must not call raw deleteBackward", 0, h.deletes)
     }
 
+    @Test fun backspace_after_new_composing_input_keeps_committed_candidate_text() {
+        val h = FakeHost()
+        val full = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你好", composing.length))
+        }
+        val c = KeyboardController(h, full)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        assertEquals("你好", h.text.toString())
+
+        c.onKey(out("6"))
+        c.onKey(act(KeyAction.BACKSPACE))
+
+        assertEquals("backspace must keep the already committed candidate", "你好", h.text.toString())
+        assertEquals("backspace removes only the new composing input", "", c.preeditForTest())
+        assertEquals(listOf("你好"), h.commits)
+    }
+
     // ---- M-3/L-3: password / NO_PERSONALIZED_LEARNING fields must not learn committed words ----
 
     private fun learnSpyEngine(learned: MutableList<String>) = object : CandidateEngine {
