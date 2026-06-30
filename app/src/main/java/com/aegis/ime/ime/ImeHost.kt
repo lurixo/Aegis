@@ -17,6 +17,7 @@ package com.aegis.ime.ime
 
 interface ImeHost {
     fun commitText(text: CharSequence)
+    fun commitSymbol(symbol: CharSequence) { commitText(symbol) }
     fun deleteBackward()
     fun performEnter()
 

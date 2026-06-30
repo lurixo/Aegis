@@ -114,13 +114,15 @@ class PredictionTest {
         assertTrue("重输 clears the prediction and it does not regenerate", c.candidateWords().isEmpty())
     }
 
-    @Test fun backspace_dismisses_a_lingering_prediction() {
+    @Test fun backspace_after_a_committed_candidate_restores_preedit_before_predictions() {
         val h = EditorHost()
         val c = KeyboardController(h, niHaoEngine())
         commitNiHao(c)
         assertEquals(listOf("世界", "啊"), c.candidateWords())
         c.onKey(Key("", action = KeyAction.BACKSPACE))
-        assertTrue("退格 clears the prediction", c.candidateWords().isEmpty())
+        assertEquals("the committed candidate is removed from the editor", "", h.text)
+        assertEquals("nihao", c.preeditForTest())
+        assertEquals("the original top candidate is restored", "你好", c.candidateWords().firstOrNull())
     }
 
     @Test fun calculator_takes_priority_over_prediction() {

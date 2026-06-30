@@ -28,11 +28,21 @@ class KeyboardControllerTest {
 
     private class FakeHost : ImeHost {
         val commits = mutableListOf<String>()
+        val text = StringBuilder()
         var enters = 0
         var deletes = 0
-        override fun commitText(text: CharSequence) { commits.add(text.toString()) }
-        override fun deleteBackward() { deletes++ }
+        override fun commitText(text: CharSequence) { commits.add(text.toString()); this.text.append(text) }
+        override fun deleteBackward() {
+            deletes++
+            if (text.isNotEmpty()) text.delete(text.length - 1, text.length)
+        }
         override fun performEnter() { enters++ }
+        override fun textBeforeCursor(n: Int): CharSequence = text.substring(maxOf(0, text.length - n))
+        override fun replaceBeforeCursor(length: Int, text: CharSequence) {
+            val start = maxOf(0, this.text.length - length)
+            this.text.delete(start, this.text.length)
+            this.text.append(text)
+        }
     }
 
     private val engine = object : CandidateEngine {
@@ -41,6 +51,10 @@ class KeyboardControllerTest {
 
     private fun act(a: KeyAction) = Key("", action = a)
     private fun out(s: String) = Key(s, output = s)
+    private fun clearCandidateUndo(c: KeyboardController) {
+        c.onKey(out("2"))
+        c.onKey(act(KeyAction.BACKSPACE))
+    }
 
     private class FuzzyRecordingEngine : CandidateEngine {
         var rules: Set<String>? = null
@@ -135,6 +149,7 @@ class KeyboardControllerTest {
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onPickCandidate(0)
         assertEquals("你", c.composingPrefix())
+        clearCandidateUndo(c)
         repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }
         assertEquals("prefix intact while the remainder peels", "你", c.composingPrefix())
         c.onKey(act(KeyAction.BACKSPACE))
@@ -157,6 +172,7 @@ class KeyboardControllerTest {
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onPickCandidate(0)
         assertEquals(supplementaryHan, c.composingPrefix())
+        clearCandidateUndo(c)
         repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }
 
         c.onKey(act(KeyAction.BACKSPACE))
@@ -177,6 +193,7 @@ class KeyboardControllerTest {
         c.onKey(act(KeyAction.SWITCH_NINE))
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onPickCandidate(0)
+        clearCandidateUndo(c)
         repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }
         c.onKey(act(KeyAction.SPACE))
         assertEquals(listOf("你"), h.commits)
@@ -216,6 +233,7 @@ class KeyboardControllerTest {
         c.onKey(act(KeyAction.SWITCH_NINE))
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onPickCandidate(0)
+        clearCandidateUndo(c)
         repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }
         c.onKey(Key("，", output = "，", direct = true))
         assertEquals(listOf("你", "，"), h.commits)
@@ -440,6 +458,50 @@ class KeyboardControllerTest {
         assertTrue("no candidates linger after commit (no ghost)", c.candidateWords().isEmpty())
     }
 
+    @Test fun backspace_after_a_partial_candidate_pick_restores_the_previous_preedit() {
+        val h = FakeHost()
+        val partial = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
+        }
+        val c = KeyboardController(h, partial)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        assertEquals("你hao", c.preeditForTest())
+        assertTrue("partial pick has not reached the editor", h.commits.isEmpty())
+
+        c.onKey(act(KeyAction.BACKSPACE))
+
+        assertEquals("ni'hao", c.preeditForTest())
+        assertEquals("", c.composingPrefix())
+        assertTrue("undoing the pick must not touch editor text", h.commits.isEmpty())
+    }
+
+    @Test fun backspace_after_a_full_candidate_pick_deletes_the_commit_and_restores_preedit() {
+        val h = FakeHost()
+        val full = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你好", composing.length))
+        }
+        val c = KeyboardController(h, full)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        assertEquals(listOf("你好"), h.commits)
+        assertEquals("你好", h.text.toString())
+        assertEquals("", c.preeditForTest())
+
+        c.onKey(act(KeyAction.BACKSPACE))
+
+        assertEquals("the committed candidate is removed from the editor", "", h.text.toString())
+        assertEquals("ni'hao", c.preeditForTest())
+        assertEquals(listOf("你好"), c.candidateWords())
+        assertEquals("candidate undo must not call raw deleteBackward", 0, h.deletes)
+    }
+
 
     private fun learnSpyEngine(learned: MutableList<String>) = object : CandidateEngine {
         override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
@@ -624,6 +686,7 @@ class KeyboardControllerTest {
         c.onKey(act(KeyAction.SWITCH_NINE))
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onPickCandidate(0)
+        clearCandidateUndo(c)
         repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }
         assertEquals("你", c.composingPrefix())
         assertTrue("up-swipe must consume the gesture (重输), not fall through to the field wipe", c.onBackspaceSwipe(true))

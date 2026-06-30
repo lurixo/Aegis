@@ -92,7 +92,6 @@ class CandidateView(context: Context) : View(context) {
     }
     private val capsulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySurface }
     private val sepPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.separator }
-    private val expandBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.railBg }
 
     fun applyPalette(p: ImePalette) {
         palette = p
@@ -101,12 +100,12 @@ class CandidateView(context: Context) : View(context) {
         iconPaint.color = p.icon
         capsulePaint.color = p.keySurface
         sepPaint.color = p.separator
-        expandBgPaint.color = p.railBg
         invalidate()
     }
 
     fun setContent(candidates: List<String>, composingText: String) {
-        items = candidates
+        if (candidates == items && composingText == composing) return
+        items = candidates.toList()
         composing = composingText
         fling.forceFinish()
         scrollX = 0f
@@ -168,7 +167,6 @@ class CandidateView(context: Context) : View(context) {
         }
         canvas.restore()
 
-        canvas.drawRect(visibleW, 0f, width.toFloat(), height.toFloat(), expandBgPaint)
         canvas.drawRect(visibleW, height * 0.25f, visibleW + density, height * 0.75f, sepPaint)
         val chCx = visibleW + expandW / 2f; val chCy = height / 2f; val chS = 9f * density
         if (expanded) drawChevronUp(canvas, chCx, chCy, chS) else drawChevronDown(canvas, chCx, chCy, chS)

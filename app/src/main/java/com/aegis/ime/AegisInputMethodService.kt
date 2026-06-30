@@ -484,7 +484,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (iv.isPanelShowing(symbolsView)) { iv.showPanel(null); return }
         val sv = symbolsView ?: SymbolsView(this).also {
             it.recentProvider = { symbolUsageStore.recent() }
-            it.onSymbol = { s -> symbolUsageStore.record(s); commitText(s) }
+            it.onSymbol = { s -> symbolUsageStore.record(s); commitSymbol(s) }
             it.onBackspace = { panelBackspace() }
             it.onBack = { inputView?.showPanel(null) }
             symbolsView = it
@@ -660,6 +660,24 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     override fun commitText(text: CharSequence) {
         if (panelInput.commit(text)) return
         currentInputConnection?.commitText(text, 1)
+    }
+
+    override fun commitSymbol(symbol: CharSequence) {
+        if (panelInput.commit(symbol)) return
+        val ic = currentInputConnection ?: return
+        val s = symbol.toString()
+        val insertion = SymbolCatalog.insertionFor(
+            s,
+            hasTextAfterCursor = !ic.getTextAfterCursor(1, 0).isNullOrEmpty(),
+        )
+        if (insertion.size == 1) {
+            ic.commitText(insertion[0], 1)
+            return
+        }
+        ic.beginBatchEdit()
+        ic.commitText(insertion[0], 1)
+        ic.commitText(insertion[1], 0)
+        ic.endBatchEdit()
     }
 
     private fun commitLargeText(text: CharSequence) {
