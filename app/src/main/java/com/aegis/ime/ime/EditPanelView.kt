@@ -37,6 +37,8 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
 
+    private val TITLE_SP = 16f
+
     private var palette = ImePalette.STATIC_LIGHT
     private val copyBtn: TextView
     private val cutBtn: TextView
@@ -65,9 +67,9 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         setBackgroundColor(palette.keyboardBg)
 
         addView(
-            textBtn("文字编辑", EditAction.BACK, sp = 16f).apply {
+            textBtn("文字编辑", EditAction.BACK, sp = TITLE_SP).apply {
                 gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), 0, 0, 0)
-                setCompoundDrawablesWithIntrinsicBounds(icon(26, 0.42f) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }, null, null, null)
+                setCompoundDrawablesWithIntrinsicBounds(icon(26, 0.48f) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }, null, null, null)
                 compoundDrawablePadding = dp(6)
             },
             LayoutParams(LayoutParams.MATCH_PARENT, dp(40)),
