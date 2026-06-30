@@ -30,14 +30,11 @@ import com.aegis.ime.user.ClipboardStore
 
 class PhraseTransferActivity : ComponentActivity() {
 
-    private val store by lazy { ClipboardStore(filesDir).also { it.load() } }
     private var pendingImport by mutableStateOf<String?>(null)
 
     private val exportLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) {
-            val ok = runCatching {
-                contentResolver.openOutputStream(uri)?.use { it.write(store.exportPhrasesText().toByteArray()) }
-            }.isSuccess
+            val ok = PhraseTransferIo.exportPhrases(filesDir) { contentResolver.openOutputStream(uri) }
             toast(if (ok) "已导出常用语" else "导出失败")
         }
         finish()
@@ -68,7 +65,9 @@ class PhraseTransferActivity : ComponentActivity() {
     }
 
     private fun applyImport(text: String, merge: Boolean) {
-        val ok = runCatching { store.importPhrasesText(text, merge) }.getOrDefault(false)
+        val ok = runCatching {
+            ClipboardStore(filesDir).also { it.load() }.importPhrasesText(text, merge)
+        }.getOrDefault(false)
         toast(
             if (ok) (if (merge) "已合并导入常用语" else "已覆盖导入常用语")
             else "导入失败：无有效内容,常用语未改动",
