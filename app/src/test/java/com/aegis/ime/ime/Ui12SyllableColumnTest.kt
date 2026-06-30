@@ -135,9 +135,9 @@ class Ui12SyllableColumnTest {
         return host to c
     }
 
-    @Test fun expand_left_column_lists_the_segmented_syllables_on_26key() {
+    @Test fun expand_left_column_shows_only_the_first_unresolved_syllable_on_26key() {
         val (_, c) = alphaWithBuffer("nihao")
-        assertEquals("the 26-key expand column is the 分词", listOf("ni", "hao"), c.expandedReadings())
+        assertEquals("26-key starts with only the first unresolved syllable", listOf("ni"), c.expandedReadings())
         assertEquals("nothing drilled yet", -1, c.drilledSyllableForTest())
     }
 
@@ -147,10 +147,6 @@ class Ui12SyllableColumnTest {
         assertEquals("drilled syllable recorded", 0, c.drilledSyllableForTest())
         assertEquals("every ni 同音字 surfaces, uncapped", niHomophones, c.candidateWords())
         assertTrue("more than the 30-cap", c.candidateWords().size > 30)
-
-        c.onPickReadingIndex(1)
-        assertEquals("re-drill switches the grid to the other syllable", haoHomophones, c.candidateWords())
-        assertEquals(1, c.drilledSyllableForTest())
     }
 
     @Test fun picking_a_homophone_from_the_first_syllable_partial_commits_then_continues() {
@@ -160,39 +156,32 @@ class Ui12SyllableColumnTest {
         assertTrue("a partial 逐字 pick does not reach the editor yet", host.commits.isEmpty())
         assertEquals("你", c.composingPrefix())
         assertEquals("the drill clears so the remainder shows normally", -1, c.drilledSyllableForTest())
+        assertEquals("the next unresolved syllable is now shown", listOf("hao"), c.expandedReadings())
 
         c.onKey(act(KeyAction.ENTER))
         assertEquals(listOf("你hao"), host.commits)
     }
 
-    @Test fun drilling_a_later_syllable_defers_and_never_skips_the_leading_one() {
+    @Test fun non_leftmost_syllable_cannot_be_drilled_from_the_26key_column() {
         val (host, c) = alphaWithBuffer("nihao")
+        assertEquals(listOf("ni"), c.expandedReadings())
         c.onPickReadingIndex(1)
-        c.onPickCandidate(c.candidateWords().indexOf("号"))
-        assertTrue("a later-syllable pick does NOT commit the whole string", host.commits.isEmpty())
-        assertEquals("the leading syllable 'ni' is NOT consumed/skipped", "", c.composingPrefix())
-        assertEquals("focus stays on the drilled syllable 'hao'", 1, c.drilledSyllableForTest())
-
-        c.onPickReadingIndex(0)
-        c.onPickCandidate(c.candidateWords().indexOf("你"))
-        assertEquals(listOf("你号"), host.commits)
+        assertEquals("out-of-visible-range drill ignored", -1, c.drilledSyllableForTest())
+        assertEquals("normal candidates remain visible", "你好", c.candidateWords().firstOrNull())
+        assertTrue("nothing commits while trying to pick a hidden syllable", host.commits.isEmpty())
     }
 
-    @Test fun ceshi_drilling_shi_never_skips_ce_or_commits_the_whole_string() {
+    @Test fun ceshi_starts_at_ce_and_advances_to_shi_after_ce_is_chosen() {
         val (host, c) = alphaWithBuffer("ceshi")
-        assertEquals("26-key 分词", listOf("ce", "shi"), c.expandedReadings())
+        assertEquals("26-key shows only the first unresolved syllable", listOf("ce"), c.expandedReadings())
         c.onPickReadingIndex(1)
-        assertEquals("聚焦的是 shi 音节", 1, c.drilledSyllableForTest())
-        assertEquals("grid shows shi's 同音字", shiHomophones, c.candidateWords())
-        c.onPickCandidate(c.candidateWords().indexOf("试"))
-
-        assertTrue("整串未被直接提交", host.commits.isEmpty())
-        assertEquals("ce 未被跳过/未被默认提交 (nothing consumed)", "", c.composingPrefix())
-        assertEquals("聚焦仍在 shi、ce 仍按逐音节流程待处理", 1, c.drilledSyllableForTest())
+        assertEquals("shi is not visible yet", -1, c.drilledSyllableForTest())
 
         c.onPickReadingIndex(0)
         c.onPickCandidate(c.candidateWords().indexOf("测"))
-        assertEquals("both syllables commit in order, each the user's pick", listOf("测试"), host.commits)
+        assertTrue("the leading partial pick remains in preedit", host.commits.isEmpty())
+        assertEquals("测", c.composingPrefix())
+        assertEquals("after ce is chosen, shi becomes the visible unresolved syllable", listOf("shi"), c.expandedReadings())
     }
 
     @Test fun ceshi_drilling_ce_first_partial_commits_then_continues_to_shi() {
@@ -206,6 +195,29 @@ class Ui12SyllableColumnTest {
 
         c.onKey(act(KeyAction.ENTER))
         assertEquals(listOf("测shi"), host.commits)
+    }
+
+    @Test fun backspace_after_a_preedit_homophone_choice_restores_the_choice_grid() {
+        val (host, c) = alphaWithBuffer("nihao")
+        c.onPickReadingIndex(0)
+        assertEquals(0, c.drilledSyllableForTest())
+        assertEquals(niHomophones, c.candidateWords())
+
+        c.onPickCandidate(c.candidateWords().indexOf("你"))
+        assertTrue("the partial choice is still IME preedit", host.commits.isEmpty())
+        assertEquals("你", c.composingPrefix())
+        assertEquals(listOf("hao"), c.expandedReadings())
+
+        c.onKey(act(KeyAction.BACKSPACE))
+        assertTrue("undoing the preedit choice does not delete editor text", host.commits.isEmpty())
+        assertEquals("the chosen prefix is removed", "", c.composingPrefix())
+        assertEquals("the first syllable is offered again", listOf("ni"), c.expandedReadings())
+        assertEquals("the original syllable remains drilled", 0, c.drilledSyllableForTest())
+        assertEquals("the homophone grid is restored", niHomophones, c.candidateWords())
+
+        c.onPickCandidate(c.candidateWords().indexOf("你"))
+        assertEquals("the syllable can be chosen again", "你", c.composingPrefix())
+        assertEquals(listOf("hao"), c.expandedReadings())
     }
 
     @Test fun the_drill_clears_on_typing_or_backspace() {
@@ -277,7 +289,7 @@ class Ui12SyllableColumnTest {
         val c = KeyboardController(RecordingHost(), eng!!)
         c.onKey(act(KeyAction.SWITCH_ALPHA))
         "heshui".forEach { c.onKey(out(it.toString())) }
-        assertEquals("26-key 分词", listOf("he", "shui"), c.expandedReadings())
+        assertEquals("26-key shows only the first unresolved syllable", listOf("he"), c.expandedReadings())
 
         c.onPickReadingIndex(0)
         val shown = c.candidateWords().toSet()

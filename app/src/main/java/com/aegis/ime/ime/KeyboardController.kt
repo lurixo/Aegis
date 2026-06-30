@@ -58,6 +58,20 @@ class KeyboardController(
 
     private val history = ArrayDeque<StepKind>()
 
+    private data class PreeditChoiceUndo(
+        val composing: String,
+        val committedPrefix: String,
+        val lockedReadings: List<String>,
+        val activeStart: Int,
+        val forcedCuts: Set<Int>,
+        val history: List<StepKind>,
+        val drillSyllable: Int,
+        val drillChoices: Map<Int, String>,
+        val lastWord: String?,
+    )
+
+    private val preeditChoiceUndo = ArrayDeque<PreeditChoiceUndo>()
+
     private var drillSyllable = -1
 
     private val drillChoices = HashMap<Int, String>()
@@ -140,6 +154,7 @@ class KeyboardController(
         activeStart = 0
         forcedCuts.clear()
         history.clear()
+        preeditChoiceUndo.clear()
         drillSyllable = -1
         drillChoices.clear()
         committedPrefix.setLength(0)
@@ -153,8 +168,11 @@ class KeyboardController(
     internal fun activeLayoutId(): LayoutId = layoutId
 
     fun onKey(key: Key) {
-        drillSyllable = -1
-        drillChoices.clear()
+        if (key.action != KeyAction.BACKSPACE) {
+            preeditChoiceUndo.clear()
+            drillSyllable = -1
+            drillChoices.clear()
+        }
         when (key.action) {
             KeyAction.COMMIT -> handleCommit(key)
             KeyAction.BACKSPACE -> handleBackspace()
@@ -297,6 +315,7 @@ class KeyboardController(
     }
 
     private fun handleBackspace() {
+        if (restorePreeditChoiceUndo()) return
         drillSyllable = -1
         drillChoices.clear()
         if (composing.isEmpty()) {
@@ -455,6 +474,7 @@ class KeyboardController(
         activeStart = 0
         forcedCuts.clear()
         history.clear()
+        preeditChoiceUndo.clear()
         committedPrefix.setLength(0)
         drillSyllable = -1
         drillChoices.clear()
@@ -533,6 +553,35 @@ class KeyboardController(
     private fun currentSyllables(): List<Syllable> =
         if (composing.isEmpty()) emptyList() else engine.syllablesForReading(composing.toString())
 
+    private fun savePreeditChoiceUndo() {
+        preeditChoiceUndo.addLast(PreeditChoiceUndo(
+            composing = composing.toString(),
+            committedPrefix = committedPrefix.toString(),
+            lockedReadings = lockedReadings.toList(),
+            activeStart = activeStart,
+            forcedCuts = forcedCuts.toSet(),
+            history = history.toList(),
+            drillSyllable = drillSyllable,
+            drillChoices = drillChoices.toMap(),
+            lastWord = lastWord,
+        ))
+    }
+
+    private fun restorePreeditChoiceUndo(): Boolean {
+        val snap = preeditChoiceUndo.removeLastOrNull() ?: return false
+        composing.setLength(0); composing.append(snap.composing)
+        committedPrefix.setLength(0); committedPrefix.append(snap.committedPrefix)
+        lockedReadings.clear(); lockedReadings.addAll(snap.lockedReadings)
+        activeStart = snap.activeStart
+        forcedCuts.clear(); forcedCuts.addAll(snap.forcedCuts)
+        history.clear(); for (step in snap.history) history.addLast(step)
+        drillSyllable = snap.drillSyllable
+        drillChoices.clear(); drillChoices.putAll(snap.drillChoices)
+        lastWord = snap.lastWord
+        candidates = emptyList()
+        return true
+    }
+
     private fun syllableHomophoneCandidates(index: Int): List<Cand> {
         val syls = currentSyllables()
         if (index !in syls.indices) return emptyList()
@@ -542,7 +591,9 @@ class KeyboardController(
 
     private fun pickDrilledHomophone(charWord: String) {
         if (composing.isEmpty()) { drillSyllable = -1; drillChoices.clear(); return }
-        if (drillSyllable !in currentSyllables().indices) { drillSyllable = -1; return }
+        val syls = currentSyllables()
+        if (drillSyllable !in syls.indices) { drillSyllable = -1; return }
+        if (drillSyllable == 0 && syls[0].end in 1 until composing.length) savePreeditChoiceUndo()
         drillChoices[drillSyllable] = charWord
         if (drillChoices.containsKey(0)) commitChosenLeftPrefix()
     }
@@ -610,7 +661,7 @@ class KeyboardController(
 
     internal fun expandedReadings(): List<String> = when {
         layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty() ->
-            currentSyllables().map { it.reading }
+            currentSyllables().firstOrNull()?.let { listOf(it.reading) } ?: emptyList()
         else -> nineLeftColumn().filter { it.action == KeyAction.PICK_READING }.map { it.label }
     }
 
@@ -624,8 +675,8 @@ class KeyboardController(
 
     fun onPickReadingIndex(index: Int) {
         if (layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty()) {
-            if (index !in currentSyllables().indices) return
-            drillSyllable = index
+            if (index != 0 || currentSyllables().isEmpty()) return
+            drillSyllable = 0
             refreshCandidates()
             render()
             return
