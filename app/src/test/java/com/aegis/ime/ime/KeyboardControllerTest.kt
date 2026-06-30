@@ -540,6 +540,46 @@ class KeyboardControllerTest {
         assertTrue("hao gone after one backspace", "hao" !in c.expandedReadings())
     }
 
+    @Test fun panel_backspace_after_a_partial_candidate_pick_deletes_the_remainder_not_the_pick_undo() {
+        val h = FakeHost()
+        val partial = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
+        }
+        val c = KeyboardController(h, partial)
+        "nihao".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        assertEquals("你hao", c.preeditForTest())
+
+        c.onPanelBackspace()
+
+        assertEquals("panel backspace deletes from the active remainder", "你ha", c.preeditForTest())
+        assertEquals("partial pick has not reached the editor", 0, h.commits.size)
+        c.onKey(act(KeyAction.BACKSPACE))
+        assertEquals("candidate undo remains expired after panel backspace", "你h", c.preeditForTest())
+    }
+
+    @Test fun panel_backspace_with_empty_composing_after_a_full_pick_does_not_delete_editor_text() {
+        val h = FakeHost()
+        val full = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你好", composing.length))
+        }
+        val c = KeyboardController(h, full)
+        "nihao".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        assertEquals("你好", h.text.toString())
+        assertEquals("", c.preeditForTest())
+
+        c.onPanelBackspace()
+
+        assertEquals("empty panel backspace must not touch committed editor text", "你好", h.text.toString())
+        assertEquals("empty panel backspace must not call raw deleteBackward", 0, h.deletes)
+        assertEquals("", c.preeditForTest())
+    }
+
     @Test fun panel_clear_drops_composing() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
