@@ -148,6 +148,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         const val MP = ViewGroup.LayoutParams.MATCH_PARENT
         const val WC = ViewGroup.LayoutParams.WRAP_CONTENT
         const val DISPLAY_CAP = 2000 // E5: max chars shown in a card preview (storage/上屏 stay full)
+        // debug.18 F: a swipe is treated as a vertical list scroll only when dy dominates dx by this factor —
+        // i.e. the direction decision is biased toward HORIZONTAL (left-swipe reveal) unless clearly vertical.
+        const val SWIPE_VERTICAL_BIAS = 1.5f
     }
 
     /** E5: a bounded preview of [s] for display only (full text is kept for tap/save). */
@@ -192,6 +195,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     internal fun hideSwipeForTest() { hideSwipe() }
     internal fun swipeRevealedForTest(): String? = swipeRevealed
     internal fun showPhraseManageMenuForTest() { showPhraseManageMenu() }
+    internal fun showGearMenuForTest() { showGearMenu() } // debug.18: render/verify the 清空剪贴板历史 trash icon
     internal fun confirmClearForTest() { confirmClearCurrentCategory() } // debug.17 E2
     internal fun enterSortModeForTest() { enterSortMode() }
     internal fun isSortModeForTest(): Boolean = sortMode
@@ -254,8 +258,28 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun boundedExpandBody(body: TextView): View {
         val maxH = body.lineHeight * 4 + body.paddingTop + body.paddingBottom
         return object : ScrollView(context) {
+            private var lastRawY = 0f
             override fun onMeasure(widthSpec: Int, heightSpec: Int) =
                 super.onMeasure(widthSpec, MeasureSpec.makeMeasureSpec(maxH, MeasureSpec.AT_MOST))
+            // debug.18 G: this inner ScrollView lives inside the outer list ScrollView. Without claiming the
+            // gesture the outer one intercepts the vertical drag and the inner never scrolls (展开卡滚不动).
+            // On DOWN, if we can scroll at all, ask the ancestors NOT to intercept; on MOVE keep that only while
+            // we can still scroll in the drag direction, releasing at our boundary so the outer list takes over.
+            override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
+                if (e.actionMasked == MotionEvent.ACTION_DOWN) {
+                    lastRawY = e.rawY
+                    if (canScrollVertically(1) || canScrollVertically(-1)) parent?.requestDisallowInterceptTouchEvent(true)
+                }
+                return super.onInterceptTouchEvent(e)
+            }
+            override fun onTouchEvent(e: MotionEvent): Boolean {
+                if (e.actionMasked == MotionEvent.ACTION_MOVE) {
+                    val dir = if (e.rawY < lastRawY) 1 else -1 // finger up → scroll content toward +y; down → -y
+                    lastRawY = e.rawY
+                    parent?.requestDisallowInterceptTouchEvent(canScrollVertically(dir))
+                }
+                return super.onTouchEvent(e)
+            }
         }.apply { isFillViewport = false; addView(body) }
     }
 
@@ -369,7 +393,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                         val dx = e.rawX - downX; val dy = e.rawY - downY
                         if (mode == 0 && (abs(dx) > slop || abs(dy) > slop)) {
                             dragHandler.removeCallbacks(longPress) // moved before long-press → not a drag
-                            mode = if (abs(dx) > abs(dy)) 1 else 2
+                            // debug.18 F: bias toward HORIZONTAL — only a clearly vertical gesture (dy dominates by
+                            // SWIPE_VERTICAL_BIAS) is treated as a list scroll; everything else is a left-swipe.
+                            mode = if (abs(dy) > abs(dx) * SWIPE_VERTICAL_BIAS) 2 else 1
                             if (mode == 1) card.parent?.requestDisallowInterceptTouchEvent(true)
                         }
                         mode == 1 // consume a horizontal swipe; let a vertical scroll pass to the ScrollView
@@ -400,7 +426,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 MotionEvent.ACTION_MOVE -> {
                     val dx = e.rawX - downX; val dy = e.rawY - downY
                     if (mode == 0 && (abs(dx) > slop || abs(dy) > slop)) {
-                        mode = if (abs(dx) > abs(dy)) 1 else 2
+                        // debug.18 F: bias toward HORIZONTAL — only a clearly vertical gesture is a list scroll.
+                        mode = if (abs(dy) > abs(dx) * SWIPE_VERTICAL_BIAS) 2 else 1
                         if (mode == 1) { target.cancelLongPress(); target.parent?.requestDisallowInterceptTouchEvent(true) }
                     }
                     mode == 1
@@ -411,17 +438,13 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         }
     }
 
-    /** A horizontal gesture of [dx] px on the card for [text]: a clear LEFT swipe reveals its action row, a clear
-     *  RIGHT swipe hides any reveal. A sub-threshold drift (the handler already consumed the move, so onClick
-     *  can't fire) falls back to the TAP action so a slightly-wobbly tap still 上屏s / dismisses — matching the
-     *  pre-debug.17 behaviour where the listener never consumed. (Threshold > touch slop.) */
+    /** debug.18 F: settle a gesture that was ALREADY decided horizontal (mode==1, disallow-intercept set). It must
+     *  NEVER 上屏 — that was the bug where a light left-swipe typed the clip instead of revealing its actions.
+     *  Any LEFT swipe ([dx] negative) reveals the action row regardless of distance (even a short, deliberate
+     *  swipe); a RIGHT swipe hides any reveal. A plain TAP never reaches here (it stays mode==0 → onClick → 上屏),
+     *  so 上屏 still works for taps. */
     private fun settleSwipe(dx: Float, text: String) {
-        val threshold = dp(40)
-        when {
-            dx <= -threshold -> revealSwipe(text)
-            dx >= threshold -> hideSwipe()
-            else -> if (swipeRevealed == text) hideSwipe() else onPick(text) // sub-threshold drift = a tap
-        }
+        if (dx < 0f) revealSwipe(text) else hideSwipe()
     }
 
     /** debug.17: show [text]'s left-swipe action row (collapsing it first if it was ⌄-expanded). */
@@ -559,7 +582,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val cur = currentCategory()
         for (name in categoriesProvider()) chips.addView(catChip(name, name == cur))
         addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, ll(0, WC, 1f))
-        addView(glyphChipBtn(desc = "管理常用语", onClick = { showPhraseManageMenu() }) { c, p, x, y, s -> Glyphs.drawPencil(c, p, x, y, s) }, ll(dp(36), dp(44))) // ✎ → 二级菜单
+        // debug.18: float the ✎ chip as a compact 36×40 icon button (centred → 2dp breathing each side)
+        // instead of filling the whole 44dp categoryBar, which made it read as an oversized full-height block.
+        // (Intentionally a hair shorter than the 36×44 top-bar pills so it sits contained within the 44dp bar.)
+        addView(glyphChipBtn(desc = "管理常用语", onClick = { showPhraseManageMenu() }) { c, p, x, y, s -> Glyphs.drawPencil(c, p, x, y, s) }, ll(dp(36), dp(40))) // ✎ → 二级菜单
     }
 
     /** debug.17: the 常用语 categoryBar ✎ opens a small 二级菜单: 移动 (enter the drag-reorder 排序模式 for the
@@ -567,7 +593,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
      *  action (and the top ＋'s) — it now lives here, alongside reordering. */
     private fun showPhraseManageMenu() {
         val card = menuCard()
-        card.addView(menuItem("移动") { hideOverlay(); enterSortMode() })
+        card.addView(menuItem("移动分类") { hideOverlay(); enterSortMode() })
         card.addView(menuDivider())
         card.addView(menuItem("添加分类") { hideOverlay(); onAddCategory() })
         card.addView(menuDivider())
@@ -775,7 +801,12 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
      *  clipboards, e.g. Samsung/Vivo, silently ignore clearPrimaryClip, so the action was unreliable.) */
     private fun showGearMenu() {
         val card = menuCard()
-        card.addView(menuItem("清空剪贴板历史") { hideOverlay(); onClearHistory(); refresh() })
+        // debug.18: 清空剪贴板历史 carries the SAME icon as the 常用语 tab's 清空分类 — the identical RED
+        // Glyphs.drawTrash — so the two "清空" actions read as one consistent icon.
+        card.addView(menuItem("清空剪贴板历史") { hideOverlay(); onClearHistory(); refresh() }.also {
+            it.setCompoundDrawablesWithIntrinsicBounds(glyphIcon(RED, 22) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }, null, null, null)
+            it.compoundDrawablePadding = dp(10)
+        })
         card.addView(menuDivider())
         val on = historyEnabledProvider()
         card.addView(menuItem(if (on) "剪贴板记录:开" else "剪贴板记录:关") { hideOverlay(); onSetHistoryEnabled(!on) })
@@ -846,7 +877,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setOnClickListener {
                 splitSelected.addAll(blocks)
                 for (c in chipViews) c.background = rounded(GREY_PILL, ImeShapes.chipRadiusDp) // 全选高亮反馈
-                onCopyBlockToAegis(text)                                                       // 整段原文一次性写 aegis 剪贴板
+                for (b in blocks) onCopyBlockToAegis(b) // debug.18 H: 每块各写入一条(N 条),不是整段合并成 1 条
             }
         }, ll(WC, WC))
         panel.addView(footer, ll(MP, WC))
