@@ -508,7 +508,7 @@ class KeyboardControllerTest {
         assertTrue("hao gone after one backspace", "hao" !in c.expandedReadings())
     }
 
-    @Test fun panel_backspace_after_a_partial_candidate_pick_deletes_the_remainder_not_the_pick_undo() {
+    @Test fun panel_backspace_after_a_partial_candidate_pick_restores_the_previous_preedit() {
         val h = FakeHost()
         val partial = object : CandidateEngine {
             override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
@@ -522,10 +522,11 @@ class KeyboardControllerTest {
 
         c.onPanelBackspace()
 
-        assertEquals("panel backspace deletes from the active remainder", "你ha", c.preeditForTest())
+        assertEquals("panel backspace undoes the preedit-only pick", "nihao", c.preeditForTest())
+        assertEquals("", c.composingPrefix())
         assertEquals("partial pick has not reached the editor", 0, h.commits.size)
         c.onKey(act(KeyAction.BACKSPACE))
-        assertEquals("candidate undo remains expired after panel backspace", "你h", c.preeditForTest())
+        assertEquals("candidate undo is consumed after it restores the previous preedit", "niha", c.preeditForTest())
     }
 
     @Test fun panel_backspace_with_empty_composing_after_a_full_pick_does_not_delete_editor_text() {
@@ -660,6 +661,52 @@ class KeyboardControllerTest {
         assertEquals("", c.composingPrefix())
         assertTrue("undoing the partial pick must not touch editor text", h.commits.isEmpty())
         assertEquals("the original syllable drill is restored", 0, c.drilledSyllableForTest())
+        assertEquals("the first-syllable homophone grid is restored", listOf("输", "书"), c.candidateWords())
+    }
+
+    @Test fun panel_backspace_after_an_apostrophe_separated_26_key_partial_pick_restores_the_previous_preedit() {
+        val h = FakeHost()
+        val shuru = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(
+                composing: String,
+                t9: Boolean,
+                cuts: Set<Int>,
+                context: CharSequence,
+            ): List<Cand> = when (composing) {
+                "shu'ru" -> listOf(Cand("输入", composing.length), Cand("输", 4))
+                "ru" -> listOf(Cand("入", composing.length))
+                else -> emptyList()
+            }
+            override fun syllablesForReading(letters: String): List<Syllable> = when (letters) {
+                "shu'ru" -> listOf(Syllable("shu", 0, 4), Syllable("ru", 4, 6))
+                "ru" -> listOf(Syllable("ru", 0, 2))
+                else -> emptyList()
+            }
+            override fun homophonesForReadingAt(letters: String, index: Int): List<String> = when {
+                letters == "shu'ru" && index == 0 -> listOf("输", "书")
+                letters == "ru" && index == 0 -> listOf("入")
+                else -> emptyList()
+            }
+        }
+        val c = KeyboardController(h, shuru)
+        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        "shu'ru".forEach { c.onKey(out(it.toString())) }
+        assertEquals("shu'ru", c.preeditForTest())
+        assertEquals(listOf("shu"), c.expandedReadings())
+
+        c.onPickReadingIndex(0)
+        assertEquals(listOf("输", "书"), c.candidateWords())
+        c.onPickCandidate(c.candidateWords().indexOf("输"))
+        assertEquals("输ru", c.preeditForTest())
+        assertTrue("the apostrophe-separated first-syllable pick has not reached the editor", h.commits.isEmpty())
+
+        c.onPanelBackspace()
+
+        assertEquals("shu'ru", c.preeditForTest())
+        assertEquals("", c.composingPrefix())
+        assertTrue("undoing the partial pick must not touch editor text", h.commits.isEmpty())
+        assertEquals("the original apostrophe-separated syllable drill is restored", 0, c.drilledSyllableForTest())
         assertEquals("the first-syllable homophone grid is restored", listOf("输", "书"), c.candidateWords())
     }
 
