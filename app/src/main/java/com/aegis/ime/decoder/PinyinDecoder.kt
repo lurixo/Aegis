@@ -49,7 +49,7 @@ class PinyinDecoder(
         out: MutableList<Edge>,
         seen: MutableSet<String>,
     ): Boolean {
-        for (wf in source.exact(key, edgeN + seen.size)) {
+        for (wf in preferredExact(source, key, edgeN + seen.size)) {
             if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, penalty))
             if (out.size >= edgeN) return true
         }
@@ -156,11 +156,28 @@ class PinyinDecoder(
 
     private fun isSingleChar(w: String): Boolean = w.codePointCount(0, w.length) == 1
 
+    private fun supplementarySingleTieRank(word: String): Int =
+        if (isSingleChar(word) && Character.isSupplementaryCodePoint(word.codePointAt(0))) 1 else 0
+
+    private fun preferredWordFreqs(words: List<BinaryDict.WordFreq>): List<BinaryDict.WordFreq> =
+        words.sortedWith(compareByDescending<BinaryDict.WordFreq> { it.freq }.thenBy { supplementarySingleTieRank(it.word) })
+
     private fun cachedExact(source: BinaryDict, key: String): List<BinaryDict.WordFreq> =
         source.exact(key)
 
     private fun cachedPrefix(source: BinaryDict, prefix: String, limit: Int): List<BinaryDict.WordFreq> =
         source.prefixByFreq(prefix, limit)
+
+    private fun preferredExact(source: BinaryDict, key: String, limit: Int = Int.MAX_VALUE): List<BinaryDict.WordFreq> {
+        if (limit <= 0) return emptyList()
+            return lookupPreferredExact(source, key, limit)
+    }
+
+    private fun lookupPreferredExact(source: BinaryDict, key: String, limit: Int): List<BinaryDict.WordFreq> {
+        val scanLimit = if (limit == Int.MAX_VALUE) limit else limit + EXACT_TIE_LOOKAHEAD
+        val preferred = preferredWordFreqs(source.exact(key, scanLimit))
+        return if (preferred.size <= limit) preferred else preferred.subList(0, limit).toList()
+    }
 
     private class Norm(val clean: String, val cuts: Set<Int>, val origLen: IntArray, private val cleanLenAtOrig: IntArray) {
         fun cleanIndexOfOrig(o: Int): Int? = cleanLenAtOrig.getOrNull(o)
@@ -263,7 +280,8 @@ class PinyinDecoder(
         cachedPrefix(dict, input, completionCap).forEach { offer(it, 0.0) }
         DecodeCancellation.checkpoint()
         pool.sortWith(
-            compareByDescending<RankedWord> { it.score },
+            compareByDescending<RankedWord> { it.score }
+                .thenBy { supplementarySingleTieRank(it.wordFreq.word) },
         )
         for ((wf, _) in pool) {
             if (cover.size >= completionCap && wf.word !in exactWords) continue
@@ -294,7 +312,7 @@ class PinyinDecoder(
         val leadFreq = LinkedHashMap<String, Double>()
         val leadCov = HashMap<String, Int>()
         for (j in 2..nSyl) {
-            for (wf in cachedExact(dict, input.substring(0, B[j]))) if (!isSingleChar(wf.word)) {
+            for (wf in preferredExact(dict, input.substring(0, B[j]))) if (!isSingleChar(wf.word)) {
                 if (!admissibleUnderCuts(wf.word, 0, B[j], interior, input, singlesCache)) continue
                 if (leadFreq.put(wf.word, wf.freq.toDouble()) == null) leadCov[wf.word] = B[j]
             }
@@ -401,7 +419,7 @@ class PinyinDecoder(
             val src = dp[i].sortedByDescending { it.score }.take(BEAM_W)
             for (j in i + 1..nSyl) {
                 val seg = input.substring(B[i], B[j])
-                val raw = cachedExact(dict, seg)
+                val raw = preferredExact(dict, seg)
                 val eligible = if (j == i + 1) raw.filter { isSingleChar(it.word) }
                 else raw.filterNot { isSingleChar(it.word) }
                     .filter { admissibleUnderCuts(it.word, B[i], B[j], interior, input, singlesCache) }
@@ -619,6 +637,7 @@ class PinyinDecoder(
         const val SENTENCE_RERANK_N = 128
         const val CTX_WORD_MAX = 4
         const val MAX_SYLLABLE_KEY_LEN = 6
+        const val EXACT_TIE_LOOKAHEAD = 16
         const val SENTENCE_STATE_CAPACITY = 256
         const val DEFAULT_CONTEXT_WEIGHT = 1.0
         fun completionCap(limit: Int): Int = maxOf(1, (limit.toLong() * 2 / 3).toInt())
