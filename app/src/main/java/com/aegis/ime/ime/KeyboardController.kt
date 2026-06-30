@@ -37,6 +37,8 @@ class KeyboardController(
     private val host: ImeHost,
     private var engine: CandidateEngine,
 ) {
+    private data class LearnEvent(val prevWord: String?, val word: String, val prefixEnd: Int)
+
     private var lang = Lang.CN
     private var shiftState = ShiftState.OFF
     private val shifted get() = shiftState != ShiftState.OFF
@@ -67,10 +69,12 @@ class KeyboardController(
         val history: List<StepKind>,
         val drillSyllable: Int,
         val drillChoices: Map<Int, String>,
+        val deferredLearnEvents: List<LearnEvent>,
         val lastWord: String?,
     )
 
     private val preeditChoiceUndo = ArrayDeque<PreeditChoiceUndo>()
+    private val deferredLearnEvents = ArrayDeque<LearnEvent>()
 
     private var drillSyllable = -1
 
@@ -155,6 +159,7 @@ class KeyboardController(
         forcedCuts.clear()
         history.clear()
         preeditChoiceUndo.clear()
+        deferredLearnEvents.clear()
         drillSyllable = -1
         drillChoices.clear()
         committedPrefix.setLength(0)
@@ -278,6 +283,7 @@ class KeyboardController(
             }
             cand in directCommitCands -> {
                 host.commitText(committedPrefix.toString() + cand.word)
+                applyDeferredLearning()
                 clearComposingState(); lastWord = null
             }
             cand in predictionCands -> {
@@ -321,6 +327,7 @@ class KeyboardController(
         if (composing.isEmpty()) {
             if (committedPrefix.isNotEmpty()) {
                 committedPrefix.setLength(committedPrefix.length - 1)
+                trimDeferredLearningToPrefix()
                 if (committedPrefix.isEmpty()) lastWord = null
                 return
             }
@@ -377,9 +384,10 @@ class KeyboardController(
     }
 
     private fun commitCandidate(cand: Cand) {
-        if (!learningBlocked) engine.learn(lastWord, cand.word)
-        lastWord = cand.word
         if (cand.coveredLen in 1 until composing.length) {
+            val prefixEnd = committedPrefix.length + cand.word.length
+            if (!learningBlocked) deferredLearnEvents.addLast(LearnEvent(lastWord, cand.word, prefixEnd))
+            lastWord = cand.word
             committedPrefix.append(cand.word)
             composing.delete(0, cand.coveredLen)
             val shifted = forcedCuts.filter { it > cand.coveredLen }.map { it - cand.coveredLen }
@@ -400,6 +408,8 @@ class KeyboardController(
             repeat(lockedReadings.size) { history.addLast(StepKind.LOCK) }
         } else {
             host.commitText(committedPrefix.toString() + cand.word)
+            applyDeferredLearning(cand.word)
+            lastWord = cand.word
             clearComposingState()
         }
     }
@@ -414,9 +424,11 @@ class KeyboardController(
         val prefix = committedPrefix.toString()
         if (composing.isNotEmpty()) {
             host.commitText(prefix + rawComposingText())
+            applyDeferredLearning()
             clearComposingState()
         } else if (prefix.isNotEmpty()) {
             host.commitText(prefix)
+            applyDeferredLearning()
             clearComposingState()
         }
         lastWord = null
@@ -475,9 +487,28 @@ class KeyboardController(
         forcedCuts.clear()
         history.clear()
         preeditChoiceUndo.clear()
+        deferredLearnEvents.clear()
         committedPrefix.setLength(0)
         drillSyllable = -1
         drillChoices.clear()
+    }
+
+    private fun applyDeferredLearning(finalWord: String? = null) {
+        if (!learningBlocked) {
+            for (event in deferredLearnEvents) engine.learn(event.prevWord, event.word)
+            if (finalWord != null) engine.learn(lastWord, finalWord)
+        }
+        deferredLearnEvents.clear()
+    }
+
+    private fun trimDeferredLearningToPrefix() {
+        val baseLastWord = deferredLearnEvents.firstOrNull()?.prevWord
+        var removed = false
+        while (deferredLearnEvents.lastOrNull()?.prefixEnd?.let { it > committedPrefix.length } == true) {
+            deferredLearnEvents.removeLast()
+            removed = true
+        }
+        if (removed) lastWord = deferredLearnEvents.lastOrNull()?.word ?: baseLastWord
     }
 
     private fun refreshCandidates() {
@@ -563,6 +594,7 @@ class KeyboardController(
             history = history.toList(),
             drillSyllable = drillSyllable,
             drillChoices = drillChoices.toMap(),
+            deferredLearnEvents = deferredLearnEvents.toList(),
             lastWord = lastWord,
         ))
     }
@@ -577,6 +609,7 @@ class KeyboardController(
         history.clear(); for (step in snap.history) history.addLast(step)
         drillSyllable = snap.drillSyllable
         drillChoices.clear(); drillChoices.putAll(snap.drillChoices)
+        deferredLearnEvents.clear(); deferredLearnEvents.addAll(snap.deferredLearnEvents)
         lastWord = snap.lastWord
         candidates = emptyList()
         return true

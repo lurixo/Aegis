@@ -103,6 +103,7 @@ class EngineLockedFixTest {
     @Test fun supplementaryPlaneHanContextConditionsDecodeCoveredButBmpSymbolsDoNot() {
         val plane3Han = 0x30000
         val star = 0x2605
+        val yijing = 0x4DC0
         val ge = '各'.code
         val plain = '个'.code
         val context = String(Character.toChars(plane3Han))
@@ -111,13 +112,18 @@ class EngineLockedFixTest {
             EngineFixture.Row("ge", "各", 900),
         ))
         val tinyLm = lm(
-            mapOf(plane3Han to 1000L, star to 1000L, ge to 1000L, plain to 1000L),
-            mapOf((plane3Han to ge) to 1000L, (star to ge) to 1000L),
+            mapOf(plane3Han to 1000L, star to 1000L, yijing to 1000L, ge to 1000L, plain to 1000L),
+            mapOf((plane3Han to ge) to 1000L, (star to ge) to 1000L, (yijing to ge) to 1000L),
         )
         val decoder = PinyinDecoder(tinyDict, tinyLm)
 
         assertEquals("Plane 3 CJK context should affect ranking", "各", decoder.decodeCovered("ge", 10, context = context).first().word)
         assertEquals("an obvious BMP symbol must break context", "个", decoder.decodeCovered("ge", 10, context = "★").first().word)
+        assertEquals(
+            "U+4DC0 must break context even though a broad numeric Han range would include it",
+            "个",
+            decoder.decodeCovered("ge", 10, context = String(Character.toChars(yijing))).first().word,
+        )
     }
 
 

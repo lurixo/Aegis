@@ -127,6 +127,24 @@ class Ui12SyllableColumnTest {
         }
     }
 
+    private fun learningSyllabic(learns: MutableList<Pair<String?, String>>) = object : CandidateEngine {
+        override fun candidates(composing: String, t9: Boolean): List<String> =
+            candidatesCovered(composing, t9).map { it.word }
+        override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+            if (composing.isEmpty()) emptyList() else listOf(Cand("你好", composing.length), Cand("你", 2))
+        override fun syllablesForReading(letters: String): List<Syllable> = when (letters) {
+            "nihao" -> listOf(Syllable("ni", 0, 2), Syllable("hao", 2, 5))
+            "hao" -> listOf(Syllable("hao", 0, 3))
+            else -> emptyList()
+        }
+        override fun homophonesForReadingAt(letters: String, index: Int): List<String> = when {
+            letters == "nihao" && index == 0 -> niHomophones
+            letters == "hao" && index == 0 -> haoHomophones
+            else -> emptyList()
+        }
+        override fun learn(prevWord: String?, word: String) { learns.add(prevWord to word) }
+    }
+
     private fun alphaWithBuffer(letters: String): Pair<RecordingHost, KeyboardController> {
         val host = RecordingHost()
         val c = KeyboardController(host, syllabic)
@@ -218,6 +236,31 @@ class Ui12SyllableColumnTest {
         c.onPickCandidate(c.candidateWords().indexOf("你"))
         assertEquals("the syllable can be chosen again", "你", c.composingPrefix())
         assertEquals(listOf("hao"), c.expandedReadings())
+    }
+
+    @Test fun backspace_after_a_preedit_homophone_choice_discards_its_learning() {
+        val learns = mutableListOf<Pair<String?, String>>()
+        val host = RecordingHost()
+        val c = KeyboardController(host, learningSyllabic(learns))
+        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        "nihao".forEach { c.onKey(out(it.toString())) }
+
+        c.onPickReadingIndex(0)
+        c.onPickCandidate(c.candidateWords().indexOf("你"))
+        assertTrue("preedit-only choices must not learn before editor commit", learns.isEmpty())
+        assertEquals("你", c.composingPrefix())
+
+        c.onKey(act(KeyAction.BACKSPACE))
+        assertEquals("the undone prefix is removed", "", c.composingPrefix())
+        assertEquals("the original homophone grid is restored", niHomophones, c.candidateWords())
+
+        val replacement = niHomophones[1]
+        c.onPickCandidate(c.candidateWords().indexOf(replacement))
+        assertTrue("the replacement is still preedit-only until commit", learns.isEmpty())
+        c.onKey(act(KeyAction.ENTER))
+
+        assertEquals(listOf(replacement + "hao"), host.commits)
+        assertEquals("only the replacement choice is learned after it reaches the editor", listOf(null to replacement), learns)
     }
 
     @Test fun the_drill_clears_on_typing_or_backspace() {
