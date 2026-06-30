@@ -69,6 +69,20 @@ class KeyboardControllerTest {
         override fun candidates(composing: String, t9: Boolean): List<String> = emptyList()
     }
 
+    private fun stagedNiHaoEngine() = object : CandidateEngine {
+        override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+        override fun candidatesCovered(
+            composing: String,
+            t9: Boolean,
+            cuts: Set<Int>,
+            context: CharSequence,
+        ): List<Cand> = when (composing) {
+            "64426" -> listOf(Cand("你", 2))
+            "426" -> listOf(Cand("好", composing.length))
+            else -> emptyList()
+        }
+    }
+
     private fun act(a: KeyAction) = Key("", action = a)
     private fun out(s: String) = Key(s, output = s)
     private fun clearCandidateUndo(c: KeyboardController) {
@@ -616,6 +630,62 @@ class KeyboardControllerTest {
         assertEquals("backspace must keep the already committed candidate", "你好", h.text.toString())
         assertEquals("backspace removes only the new composing input", "", c.preeditForTest())
         assertEquals(listOf("你好"), h.commits)
+    }
+
+    @Test fun failed_committed_text_undo_validation_clears_older_candidate_snapshots() {
+        val h = FakeHost()
+        val c = KeyboardController(h, stagedNiHaoEngine())
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0) // partial pick: stack now has an older no-editor snapshot
+        assertEquals("你hao", c.preeditForTest())
+        c.onPickCandidate(0) // full pick: stack top expects "你好" immediately before the cursor
+        assertEquals("你好", h.text.toString())
+
+        h.text.append("!") // External editor mutation without controller expiry: force committed-text validation to fail.
+        c.onKey(act(KeyAction.BACKSPACE))
+        assertEquals("first Backspace deletes the external text after validation fails", "你好", h.text.toString())
+        assertEquals("", c.preeditForTest())
+
+        c.onKey(act(KeyAction.BACKSPACE))
+        assertEquals("older stale snapshots must not resurrect preedit", "你", h.text.toString())
+        assertEquals("", c.preeditForTest())
+    }
+
+    @Test fun external_editor_mutation_expiry_prevents_candidate_undo_on_next_backspace() {
+        val h = FakeHost()
+        val c = KeyboardController(h, stagedNiHaoEngine())
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        c.onPickCandidate(0)
+        assertEquals("你好", h.text.toString())
+
+        c.expireCandidateChoiceUndo()
+        h.commitText("!")
+        c.onKey(act(KeyAction.BACKSPACE))
+
+        assertEquals("Backspace deletes the external commit instead of restoring preedit", "你好", h.text.toString())
+        assertEquals("", c.preeditForTest())
+    }
+
+    @Test fun opening_a_toolbar_panel_expires_candidate_undo() {
+        val h = FakeHost()
+        val c = KeyboardController(h, stagedNiHaoEngine())
+        var emojiPanelOpens = 0
+        c.onShowEmoji = { emojiPanelOpens++ }
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        c.onPickCandidate(0)
+        assertEquals("你好", h.text.toString())
+
+        c.onBarFunction(BarFunction.EMOJI)
+        c.onKey(act(KeyAction.BACKSPACE))
+
+        assertEquals(1, emojiPanelOpens)
+        assertEquals("toolbar interaction must retire candidate undo before Backspace", "你", h.text.toString())
+        assertEquals("", c.preeditForTest())
     }
 
     // ---- M-3/L-3: password / NO_PERSONALIZED_LEARNING fields must not learn committed words ----

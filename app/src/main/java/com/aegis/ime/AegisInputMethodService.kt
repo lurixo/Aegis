@@ -324,8 +324,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onExpandClosed = { controller.clearDrill() }          // UI-2: drop the drilled syllable on close
             onCollapse = { requestHideSelf(0) } // idle toolbar ⌄ collapses the keyboard
             onCopyCommit = { t -> commitLargeText(t) } // 复制条 ⑤: 上屏 (到当前字段; E5: chunked for huge clips)
-            onCopyBlock = { b -> copyBlockToAegis(b) }                        // 复制条 ③: 写 aegis 剪贴板(不上屏/不写系统)
-            onCopyDismiss = { lastCopy = null }                              // U21: ④/⑤ 离开 → 不再恢复该复制条
+            onCopyBlock = { b ->
+                controller.expireCandidateChoiceUndo()
+                copyBlockToAegis(b)
+            }                                                                    // 复制条 ③: 写 aegis 剪贴板(不上屏/不写系统)
+            onCopyDismiss = {
+                controller.expireCandidateChoiceUndo()
+                lastCopy = null
+            }                                                                    // U21: ④/⑤ 离开 → 不再恢复该复制条
             onEditConfirm = { confirmInlineInput() }                         // debug.16: inline edit 确定
             onEditCancel = { cancelInlineInput() }                           // debug.16: inline edit 取消
         }
@@ -415,6 +421,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         // debug.16: during an inline 常用语/分类 edit the buffer is the document — the text-edit panel must never
         // mutate the target app underneath. (BACK still closes the panel.)
         if (panelInput.active && action != EditAction.BACK) return
+        controller.expireCandidateChoiceUndo()
         when (action) {
             EditAction.UP -> nav(KeyEvent.KEYCODE_DPAD_UP, SelectionMath.Move.UP)
             EditAction.DOWN -> nav(KeyEvent.KEYCODE_DPAD_DOWN, SelectionMath.Move.DOWN)
@@ -483,6 +490,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun handleBackspaceSwipe(up: Boolean) {
         if (panelInput.active) return // debug.16: the swipe-clear must NOT wipe the target field during inline edit
         val ic = currentInputConnection ?: return
+        controller.expireCandidateChoiceUndo()
         if (up) {
             val all = ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)?.text
             if (!all.isNullOrEmpty()) {
@@ -501,7 +509,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (iv.isPanelShowing(emojiView)) { iv.showPanel(null); return } // P4(#4): re-tap 表情 入口 = 返回
         val ev = emojiView ?: EmojiView(this).also {
             it.recentProvider = { emojiUsageStore.recent() } // E2: 最近 (MRU) tab
-            it.onEmoji = { e -> emojiUsageStore.record(e); commitText(e) } // E2: record usage (debug.16: via gated commitText)
+            it.onEmoji = { e -> emojiUsageStore.record(e); commitExternalText(e) } // E2: record usage (debug.16: via gated commitText)
             it.onBackspace = { panelBackspace() } // F2: selection-aware (else eats the char before a selection)
             it.onBack = { inputView?.showPanel(null) }
             emojiView = it
@@ -600,7 +608,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val sv = symbolsView ?: SymbolsView(this).also {
             it.recentProvider = { symbolUsageStore.recent() }
             // U3/P3: 点符号 = 上屏 + 记入常用;是否回键盘由 SymbolsView 的锁定态决定(锁定则连续输入)。
-            it.onSymbol = { s -> symbolUsageStore.record(s); commitSymbol(s) } // debug.16: via gated symbol commit
+            it.onSymbol = { s -> symbolUsageStore.record(s); commitExternalSymbol(s) } // debug.16: via gated symbol commit
             it.onBackspace = { panelBackspace() } // F2: selection-aware (else eats the char before a selection)
             it.onBack = { inputView?.showPanel(null) }
             symbolsView = it
@@ -812,13 +820,29 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     // debug.16 Option A: every ImeHost output checks [panelInput] FIRST. While inline-editing it consumes the
     // output into the buffer and returns; otherwise (the normal case) it falls through to the editor UNCHANGED.
+    private fun commitExternalText(text: CharSequence) {
+        if (panelInput.commit(text)) return
+        controller.expireCandidateChoiceUndo()
+        currentInputConnection?.commitText(text, 1)
+    }
+
     override fun commitText(text: CharSequence) {
         if (panelInput.commit(text)) return
         currentInputConnection?.commitText(text, 1)
     }
 
+    private fun commitExternalSymbol(symbol: CharSequence) {
+        if (panelInput.commit(symbol)) return
+        controller.expireCandidateChoiceUndo()
+        commitSymbolToEditor(symbol)
+    }
+
     override fun commitSymbol(symbol: CharSequence) {
         if (panelInput.commit(symbol)) return
+        commitSymbolToEditor(symbol)
+    }
+
+    private fun commitSymbolToEditor(symbol: CharSequence) {
         val ic = currentInputConnection ?: return
         val s = symbol.toString()
         val insertion = SymbolCatalog.insertionFor(
@@ -842,6 +866,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
      */
     private fun commitLargeText(text: CharSequence) {
         if (panelInput.commit(text)) return // debug.16: a clip tapped during inline edit goes into the buffer, not the app
+        controller.expireCandidateChoiceUndo()
         val ic = currentInputConnection ?: return
         ic.beginBatchEdit()
         com.aegis.ime.ime.LargeCommit.commit(text) { ic.commitText(it, 1) }
@@ -857,6 +882,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     override fun deleteCodePointBackward() {
         if (panelInput.backspace()) return
         currentInputConnection?.deleteSurroundingTextInCodePoints(1, 0)
+    }
+
+    override fun panelBackspace() {
+        if (panelInput.backspace()) return
+        controller.expireCandidateChoiceUndo()
+        if (hasSelection()) deleteSelection() else deleteCodePointBackward()
     }
 
     override fun textBeforeCursor(n: Int): CharSequence =

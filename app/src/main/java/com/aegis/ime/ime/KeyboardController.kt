@@ -326,6 +326,7 @@ class KeyboardController(
 
     /** Candidate-strip toolbar shortcut (C2). Every kept entry opens a panel / screen — no layout switch. */
     fun onBarFunction(f: BarFunction) {
+        expirePreeditChoiceUndo()
         // F7 (debug.12): defensively land any in-progress pinyin before opening a panel/screen, so an entry can
         // never open over a live buffer (the assembled word would otherwise be left dangling for the panel to
         // commit at the wrong caret / lose on reset / delete around — S1). GUARDED like handleCommit(direct) /
@@ -885,6 +886,15 @@ class KeyboardController(
         preeditChoiceUndo.clear()
     }
 
+    /**
+     * Service panels and copy-bar actions mutate the target editor outside [onKey], so they must explicitly retire
+     * candidate-choice undo before touching the InputConnection. Controller-owned candidate commits intentionally
+     * do not call this, preserving immediate Backspace undo after a pick.
+     */
+    fun expireCandidateChoiceUndo() {
+        expirePreeditChoiceUndo()
+    }
+
     private fun restorePreeditChoiceUndo(): Boolean {
         val snap = preeditChoiceUndo.removeLastOrNull() ?: return false
         if (snap.inputEpoch != inputEpoch) {
@@ -892,7 +902,10 @@ class KeyboardController(
             return false
         }
         snap.committedText?.let { committed ->
-            if (host.textBeforeCursor(committed.length).toString() != committed) return false
+            if (host.textBeforeCursor(committed.length).toString() != committed) {
+                preeditChoiceUndo.clear()
+                return false
+            }
             host.replaceBeforeCursor(committed.length, "")
         }
         composing.setLength(0); composing.append(snap.composing)
