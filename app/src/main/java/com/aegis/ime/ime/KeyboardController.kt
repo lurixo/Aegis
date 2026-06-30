@@ -221,6 +221,7 @@ class KeyboardController(
     }
 
     fun onBarFunction(f: BarFunction) {
+        expirePreeditChoiceUndo()
         if (composing.isNotEmpty() || committedPrefix.isNotEmpty()) {
             flushComposing()
             refreshCandidates()
@@ -616,6 +617,10 @@ class KeyboardController(
         preeditChoiceUndo.clear()
     }
 
+    fun expireCandidateChoiceUndo() {
+        expirePreeditChoiceUndo()
+    }
+
     private fun restorePreeditChoiceUndo(): Boolean {
         val snap = preeditChoiceUndo.removeLastOrNull() ?: return false
         if (snap.inputEpoch != inputEpoch) {
@@ -623,7 +628,10 @@ class KeyboardController(
             return false
         }
         snap.committedText?.let { committed ->
-            if (host.textBeforeCursor(committed.length).toString() != committed) return false
+            if (host.textBeforeCursor(committed.length).toString() != committed) {
+                preeditChoiceUndo.clear()
+                return false
+            }
             host.replaceBeforeCursor(committed.length, "")
         }
         composing.setLength(0); composing.append(snap.composing)
