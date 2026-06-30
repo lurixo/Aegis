@@ -944,7 +944,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         background = GradientDrawable().apply { setColor(CARD); cornerRadius = ImeShapes.cardRadiusDp * density; setStroke(dp(1), SEP) }
     }
 
-    private fun menuTitle(s: String, color: Int = HINT): View = TextView(context).apply {
+    private fun menuTitle(s: String, color: Int = TEXT_DARK): View = TextView(context).apply {
         text = s; gravity = Gravity.CENTER; setTextColor(color)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label); setPadding(dp(20), dp(12), dp(20), dp(4))
     }

@@ -489,6 +489,25 @@ class Debug17PanelTest {
         assertEquals(2, clipActions.size)
     }
 
+    @Test fun chooser_titles_use_body_text_color() {
+        val move = phraseView().apply { showMoveChooserForTest("默认") }
+        assertEquals(pal.keyLabel, textViews(overlayOf(move)).first { it.text?.toString() == "移动到分类" }.currentTextColor)
+
+        val singleTarget = ClipboardView(ctx).apply {
+            categoriesProvider = { listOf("默认") }
+            phrasesInProvider = { _ -> listOf("你好") }
+            applyPalette(pal); forcePhrasesStateForTest("默认"); refresh()
+            showMoveChooserForTest("默认")
+        }
+        assertEquals(pal.keyLabel, textViews(overlayOf(singleTarget)).first { it.text?.toString() == "没有其它分类" }.currentTextColor)
+
+        val category = clipView().apply { expandForTest("hello") }
+        textViews(category)
+            .first { tv -> tv.text?.toString() == "常用语" && tv.compoundDrawables.any { d -> d != null } }
+            .performClick()
+        assertEquals(pal.keyLabel, textViews(overlayOf(category)).first { it.text?.toString() == "选择分类" }.currentTextColor)
+    }
+
     @Test fun expanding_a_card_wraps_its_body_in_a_scrollview() {
         val baseline = scrollViews(clipView(listOf("a long clip"))).size
         val expanded = clipView(listOf("a long clip")).apply { expandForTest("a long clip") }
