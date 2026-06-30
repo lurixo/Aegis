@@ -484,7 +484,8 @@ class KeyboardController(
             // Peel its last confirmed character back here instead of deleting committed editor text the user
             // can still see — only once the prefix is empty does 退格 reach the field.
             if (committedPrefix.isNotEmpty()) {
-                committedPrefix.setLength(committedPrefix.length - 1)
+                val removeCount = Character.charCount(committedPrefix.codePointBefore(committedPrefix.length))
+                committedPrefix.setLength(committedPrefix.length - removeCount)
                 trimDeferredLearningToPrefix()
                 if (committedPrefix.isEmpty()) lastWord = null
                 return

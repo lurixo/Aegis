@@ -81,6 +81,10 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     private val gridScroll = ScrollView(context).apply { addView(gridHolder); isFillViewport = true }
     private val backBtn = barButton("返回") { onBack() }
     private val lockBtn = barButton("锁定") { toggleLock() }       // P3
+    private val lockSlot = FrameLayout(context).apply {
+        isClickable = true
+        setOnClickListener { toggleLock() }
+    }
     private val lockGlyph = LockDrawable(density)                 // P-C: self-drawn monochrome lock (was emoji)
     private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) } // debug.17: ⌫ self-drawn, no char
     private val backspaceBtn = barButton("") { onBackspace() }
@@ -94,7 +98,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         orientation = VERTICAL
         setBackgroundColor(palette.keyboardBg) // P-A: panel floor == the strip/keyboard floor (no top seam)
         lockBtn.setCompoundDrawablesWithIntrinsicBounds(lockGlyph, null, null, null) // P-C: lock glyph left of 锁定
-        lockBtn.compoundDrawablePadding = dp(4)
+        lockBtn.compoundDrawablePadding = dp(2)
         // debug.18 (item14): ⌫ glyph as the END (right) compound drawable, not LEFT — a left drawable anchors to
         // the button's left edge so the gravity-END + right-padding below were ineffective (⌫ floated mid-bar).
         // As an end drawable it hugs the right edge (right-padding mirrors 返回's left-padding → the two are
@@ -324,6 +328,8 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     // debug.18 (item14): the bottom-bar 返回 / ⌫ buttons, so a test can assert ⌫ hugs the right edge symmetrically.
     internal fun backBtnForTest(): TextView = backBtn
     internal fun backspaceBtnForTest(): TextView = backspaceBtn
+    internal fun lockBtnForTest(): TextView = lockBtn
+    internal fun lockSlotForTest(): View = lockSlot
 
     // P5 net-layout test seams. "net bar" = the 网址补全 (URL-completion) chip bar. Non-url multi-char tokens
     // (e.g. 数学 三角函数 sin/arcsin) ride the GRID instead, leaving this bar hidden.
@@ -369,8 +375,9 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         // debug.17: 返回 hugs the LEFT edge, 锁定(+lock) centres, ⌫ hugs the RIGHT edge (was three centred thirds).
         backBtn.gravity = Gravity.START or Gravity.CENTER_VERTICAL; backBtn.setPadding(dp(20), 0, 0, 0)
         backspaceBtn.gravity = Gravity.END or Gravity.CENTER_VERTICAL; backspaceBtn.setPadding(0, 0, dp(20), 0)
+        lockSlot.addView(lockBtn, FrameLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT, Gravity.CENTER))
         addView(backBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        addView(lockBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f)) // P3: 锁定 between 返回 and ⌫
+        addView(lockSlot, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         addView(backspaceBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
     }
 
@@ -395,12 +402,11 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         fun tint(color: Int) { paint.color = color; invalidateSelf() }
         override fun draw(canvas: Canvas) {
             val b = bounds
-            // debug.17: lock 放大 (sFactor 0.40→0.52, box 18→22dp, stroke 2dp) so its height ≈ the bar's text height.
-            Glyphs.drawLock(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) * 0.52f, closed)
+            Glyphs.drawLock(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) * 0.48f, closed)
         }
         init { paint.strokeWidth = 2f * density } // the bar's stroke weight (matches EmojiView's lock)
-        override fun getIntrinsicWidth() = (22 * density).toInt()
-        override fun getIntrinsicHeight() = (22 * density).toInt()
+        override fun getIntrinsicWidth() = (18 * density).toInt()
+        override fun getIntrinsicHeight() = (18 * density).toInt()
         override fun setAlpha(alpha: Int) {}
         override fun setColorFilter(colorFilter: ColorFilter?) {}
         @Deprecated("Deprecated in Java")

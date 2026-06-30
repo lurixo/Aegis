@@ -154,6 +154,29 @@ class KeyboardControllerTest {
         assertTrue("nothing was ever committed", h.commits.isEmpty())
     }
 
+    @Test fun backspace_peels_a_supplementary_committed_prefix_as_one_code_point() {
+        val h = FakeHost()
+        val supplementaryHan = String(Character.toChars(0x20000))
+        assertEquals("test character must occupy a surrogate pair", 2, supplementaryHan.length)
+        val partial = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand(supplementaryHan, 2))
+        }
+        val c = KeyboardController(h, partial)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        assertEquals(supplementaryHan, c.composingPrefix())
+        repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }
+
+        c.onKey(act(KeyAction.BACKSPACE))
+
+        assertEquals("one backspace must remove the full supplementary code point", "", c.composingPrefix())
+        assertEquals("never deleted committed editor text", 0, h.deletes)
+        assertTrue("nothing was ever committed", h.commits.isEmpty())
+    }
+
     @Test fun space_on_a_bare_assembled_prefix_commits_it_once_without_a_literal_space() {
         // S1(c): the remainder may be backspaced away leaving only the prefix — space commits that pending
         // word in ONE commit and is consumed (no stray " " inserted).
