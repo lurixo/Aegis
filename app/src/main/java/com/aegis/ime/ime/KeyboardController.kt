@@ -72,10 +72,12 @@ class KeyboardController(
         val deferredLearnEvents: List<LearnEvent>,
         val lastWord: String?,
         val committedText: String?,
+        val inputEpoch: Long,
     )
 
     private val preeditChoiceUndo = ArrayDeque<PreeditChoiceUndo>()
     private val deferredLearnEvents = ArrayDeque<LearnEvent>()
+    private var inputEpoch = 0L
 
     private var drillSyllable = -1
 
@@ -175,7 +177,7 @@ class KeyboardController(
 
     fun onKey(key: Key) {
         if (key.action != KeyAction.BACKSPACE) {
-            preeditChoiceUndo.clear()
+            expirePreeditChoiceUndo()
             drillSyllable = -1
             drillChoices.clear()
         }
@@ -605,11 +607,21 @@ class KeyboardController(
             deferredLearnEvents = deferredLearnEvents.toList(),
             lastWord = lastWord,
             committedText = committedText?.takeIf { it.isNotEmpty() },
+            inputEpoch = inputEpoch,
         ))
+    }
+
+    private fun expirePreeditChoiceUndo() {
+        inputEpoch++
+        preeditChoiceUndo.clear()
     }
 
     private fun restorePreeditChoiceUndo(): Boolean {
         val snap = preeditChoiceUndo.removeLastOrNull() ?: return false
+        if (snap.inputEpoch != inputEpoch) {
+            preeditChoiceUndo.clear()
+            return false
+        }
         snap.committedText?.let { committed ->
             if (host.textBeforeCursor(committed.length).toString() != committed) return false
             host.replaceBeforeCursor(committed.length, "")
@@ -729,6 +741,7 @@ class KeyboardController(
     fun onPickReadingIndex(index: Int) {
         if (layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty()) {
             if (index != 0 || currentSyllables().isEmpty()) return
+            expirePreeditChoiceUndo()
             drillSyllable = 0
             refreshCandidates()
             render()
@@ -736,6 +749,7 @@ class KeyboardController(
         }
         val readings = expandedReadings()
         if (index !in readings.indices) return
+        expirePreeditChoiceUndo()
         handlePickReading(Key(readings[index], output = readings[index], action = KeyAction.PICK_READING))
         refreshCandidates()
         render()
