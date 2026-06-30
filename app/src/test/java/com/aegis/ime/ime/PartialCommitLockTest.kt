@@ -111,8 +111,8 @@ class PartialCommitLockTest {
             File(assets + "aegis_dict.bin").exists() && File(assets + "aegis_lm.bin").exists())
         val c = alphaController()
         "yougailvchuxian".forEach { c.onKey(Key(it.toString(), output = it.toString())) }
-        // UI-2 expand column = the buffer's 分词; drill into syllable 0 (you).
-        assertEquals(listOf("you", "gai", "lv", "chu", "xian"), c.expandedReadings())
+        // The 26-key expand column advances one unresolved syllable at a time.
+        assertEquals(listOf("you"), c.expandedReadings())
         c.onPickReadingIndex(0)
         assertEquals("drilled into syllable 0", 0, c.drilledSyllableForTest())
 
@@ -124,6 +124,6 @@ class PartialCommitLockTest {
         assertEquals("有", c.composingPrefix())
         // 26-key preedit is raw letters (no 隔音符): the remaining stays gai/lv/chu/xian, never hai/lu/xiao.
         assertEquals("有gailvchuxian", c.preeditForTest())
-        assertEquals("remaining segmentation preserved", listOf("gai", "lv", "chu", "xian"), c.expandedReadings())
+        assertEquals("remaining segmentation preserved", listOf("gai"), c.expandedReadings())
     }
 }

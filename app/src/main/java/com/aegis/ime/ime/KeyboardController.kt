@@ -99,20 +99,31 @@ class KeyboardController(
      *  digit, a reading lock (left-column pick), or a forced cut — never dropping a whole locked syllable. */
     private val history = ArrayDeque<StepKind>()
 
+    private data class PreeditChoiceUndo(
+        val composing: String,
+        val committedPrefix: String,
+        val lockedReadings: List<String>,
+        val activeStart: Int,
+        val forcedCuts: Set<Int>,
+        val history: List<StepKind>,
+        val drillSyllable: Int,
+        val drillChoices: Map<Int, String>,
+        val lastWord: String?,
+    )
+
+    private val preeditChoiceUndo = ArrayDeque<PreeditChoiceUndo>()
+
     /**
-     * UI-2 (debug.13): on the 26-key EXPANDED screen the left column lists the buffer's syllables (分词);
-     * tapping syllable N drills into it — [drillSyllable] holds that index (−1 = not drilled) and the
-     * candidate grid then shows that syllable's COMPLETE 同音单字 set ([CandidateEngine.homophonesForReadingAt],
-     * uncapped). Any buffer change (type / 退格 / commit / 重输) clears it back to the normal candidate grid.
+     * UI-2 (debug.13/debug.19): on the 26-key expanded screen the left column shows only the first unresolved
+     * syllable. Tapping it sets [drillSyllable] to 0 and the candidate grid shows that syllable's complete
+     * homophone set ([CandidateEngine.homophonesForReadingAt], uncapped). Buffer changes clear it back to the
+     * normal candidate grid.
      */
     private var drillSyllable = -1
 
     /**
-     * ② (debug.18) 逐音节锁定回选: the 同音字 the user has chosen for each drilled syllable, keyed by its index in
-     * the LIVE segmentation ([currentSyllables]). A pick on a NON-leftmost syllable (ceshi → tap shi) records its
-     * choice here and DEFERS — nothing reaches the editor while a leading syllable is still unchosen, so ce is
-     * never auto-defaulted/skipped. Committed (and re-indexed) left-to-right by [commitChosenLeftPrefix]; cleared
-     * on every keyboard action / buffer reset, exactly like [drillSyllable]. Mirrors the 9-key lockedReadings flow.
+     * 26-key homophone choices keyed by the current segmentation index. debug.19 keeps the visible column
+     * left-to-right, so normal UI picks only index 0; the map remains for the shared left-prefix commit path.
      */
     private val drillChoices = HashMap<Int, String>()
 
@@ -224,6 +235,7 @@ class KeyboardController(
         activeStart = 0
         forcedCuts.clear()
         history.clear()
+        preeditChoiceUndo.clear()
         drillSyllable = -1 // UI-2: a fresh field starts on the normal grid, not a drilled syllable
         drillChoices.clear() // ②: a fresh field drops any deferred 逐音节 selection
         // D1 (debug.12): reset() runs on every onStartInputView (field switch) and config change (rotation),
@@ -245,9 +257,12 @@ class KeyboardController(
     fun onKey(key: Key) {
         // UI-2: any keyboard action (type / 退格 / switch / commit) leaves a drilled syllable and returns the
         // grid to the normal candidates — the drill is a transient view of one syllable's 同音字.
-        drillSyllable = -1
-        drillChoices.clear() // ②: any keyboard action abandons a deferred 逐音节 selection (drill/pick taps don't
-        //     reach here — they go through onPickReadingIndex/onPickCandidate — so a multi-tap回选 survives).
+        if (key.action != KeyAction.BACKSPACE) {
+            preeditChoiceUndo.clear()
+            drillSyllable = -1
+            drillChoices.clear() // ②: any keyboard action abandons a deferred 逐音节 selection (drill/pick taps don't
+            //     reach here — they go through onPickReadingIndex/onPickCandidate — so a multi-tap回选 survives).
+        }
         when (key.action) {
             KeyAction.COMMIT -> handleCommit(key)
             KeyAction.BACKSPACE -> handleBackspace()
@@ -455,6 +470,7 @@ class KeyboardController(
     }
 
     private fun handleBackspace() {
+        if (restorePreeditChoiceUndo()) return
         drillSyllable = -1 // UI-2: a delete (incl. the expand-screen 退格) returns the grid to normal candidates
         drillChoices.clear() // ②: …and drops any deferred 逐音节 selection (covers the onPanelBackspace direct path)
         if (composing.isEmpty()) {
@@ -674,6 +690,7 @@ class KeyboardController(
         activeStart = 0
         forcedCuts.clear()
         history.clear()
+        preeditChoiceUndo.clear()
         committedPrefix.setLength(0) // S1(c): drop any assembled-but-uncommitted prefix too
         drillSyllable = -1 // UI-2: clearing the buffer leaves no syllable to drill
         drillChoices.clear() // ②: …and no deferred 逐音节 selection (commitChosenLeftPrefix re-seeds any carry-over)
@@ -808,12 +825,39 @@ class KeyboardController(
     private fun currentSyllables(): List<Syllable> =
         if (composing.isEmpty()) emptyList() else engine.syllablesForReading(composing.toString())
 
+    private fun savePreeditChoiceUndo() {
+        preeditChoiceUndo.addLast(PreeditChoiceUndo(
+            composing = composing.toString(),
+            committedPrefix = committedPrefix.toString(),
+            lockedReadings = lockedReadings.toList(),
+            activeStart = activeStart,
+            forcedCuts = forcedCuts.toSet(),
+            history = history.toList(),
+            drillSyllable = drillSyllable,
+            drillChoices = drillChoices.toMap(),
+            lastWord = lastWord,
+        ))
+    }
+
+    private fun restorePreeditChoiceUndo(): Boolean {
+        val snap = preeditChoiceUndo.removeLastOrNull() ?: return false
+        composing.setLength(0); composing.append(snap.composing)
+        committedPrefix.setLength(0); committedPrefix.append(snap.committedPrefix)
+        lockedReadings.clear(); lockedReadings.addAll(snap.lockedReadings)
+        activeStart = snap.activeStart
+        forcedCuts.clear(); forcedCuts.addAll(snap.forcedCuts)
+        history.clear(); for (step in snap.history) history.addLast(step)
+        drillSyllable = snap.drillSyllable
+        drillChoices.clear(); drillChoices.putAll(snap.drillChoices)
+        lastWord = snap.lastWord
+        candidates = emptyList()
+        return true
+    }
+
     /**
-     * UI-2: the COMPLETE 同音单字 set of the drilled [index]th syllable — each candidate is a SINGLE 同音字 (so
-     * the grid shows 号, not 你号), tagged with the syllable's coverage. The set is whatever
-     * [CandidateEngine.homophonesForReadingAt] returns — NOT re-capped here, so the lossless single-char layer
-     * (he=257 / yi=875…) reaches the grid in full. Picking one routes through [pickDrilledHomophone], which LOCKS
-     * it for that syllable and commits left-to-right (a non-leftmost pick defers; the display stays a bare char).
+     * Complete single-character homophone set for the drilled syllable, tagged with that syllable's coverage.
+     * The controller does not re-cap [CandidateEngine.homophonesForReadingAt], so large homophone sets still
+     * reach the grid in full.
      */
     private fun syllableHomophoneCandidates(index: Int): List<Cand> {
         val syls = currentSyllables()
@@ -823,35 +867,27 @@ class KeyboardController(
     }
 
     /**
-     * UI-2 / ② (debug.18) 逐音节锁定回选: record the chosen 同音字 [charWord] of the drilled syllable in
-     * [drillChoices], then commit the editor ONLY for the maximal CONTIGUOUS left-prefix of already-chosen
-     * syllables (left-to-right, 逐字).
-     *
-     * fix: tapping a NON-leftmost syllable (ceshi → tap shi) and picking a char must NOT auto-default the
-     * leading syllable (ce) and dump the whole string into the editor — that SKIPPED ce's selection (the
-     * "整串直接上屏、跳过了 ce 的选词"). A pick whose leading syllable is still unchosen now DEFERS: the choice is
-     * locked here and NOTHING reaches the editor until ce is also chosen — exactly the 9-key left column's
-     * 逐音节锁定回选 semantics (lock a syllable, advance; never commit out of order, never skip a syllable).
+     * Record the chosen homophone for the drilled syllable, then commit only the contiguous chosen prefix.
+     * A partial preedit commit is snapshotted first so Backspace can return to this exact choice grid.
      */
     private fun pickDrilledHomophone(charWord: String) {
         if (composing.isEmpty()) { drillSyllable = -1; drillChoices.clear(); return } // defensive
-        if (drillSyllable !in currentSyllables().indices) { drillSyllable = -1; return }
-        drillChoices[drillSyllable] = charWord // 锁定该音节的选字; keep the focus on it (聚焦不变)
-        // Commit only the contiguous left run of chosen syllables; a gap (unchosen leading syllable) DEFERS.
+        val syls = currentSyllables()
+        if (drillSyllable !in syls.indices) { drillSyllable = -1; return }
+        if (drillSyllable == 0 && syls[0].end in 1 until composing.length) savePreeditChoiceUndo()
+        drillChoices[drillSyllable] = charWord
         if (drillChoices.containsKey(0)) commitChosenLeftPrefix()
     }
 
     /**
-     * ② (debug.18): commit the maximal CONTIGUOUS left-prefix of chosen syllables (0..k−1 all in [drillChoices])
-     * as ONE ordered word, reusing [commitCandidate] so the partial-vs-full / prefix-assembly / 退格 bookkeeping is
-     * identical to a normal pick. Choices for syllables AFTER the committed run are carried over, re-indexed to the
-     * post-commit (re-segmented) buffer, so a deferred later pick survives the advance and is never lost.
+     * Commit the maximal contiguous left-prefix of chosen syllables (0..k-1 all in [drillChoices]) as one
+     * ordered word, reusing [commitCandidate] so partial/full commit bookkeeping stays identical to a normal pick.
      */
     private fun commitChosenLeftPrefix() {
         val syls = currentSyllables()
         var k = 0
         while (drillChoices.containsKey(k) && k < syls.size) k++
-        if (k == 0) return // leftmost syllable not chosen yet → defer (never skip it)
+        if (k == 0) return
         val word = (0 until k).joinToString("") { drillChoices[it] ?: "" }
         val coveredLen = syls[k - 1].end.coerceIn(1, composing.length)
         val carried = HashMap<Int, String>()
@@ -935,12 +971,12 @@ class KeyboardController(
 
     /**
      * Expand-screen left column. On the 9-key it is the active syllable's reading combinations (tap = lock,
-     * ★E). On the 26-key (UI-2) it is the buffer's 分词 — the segmented syllables — and a tap drills into one
-     * to list its 同音单字 (see [onPickReadingIndex]). Empty when there is nothing to offer.
+     * ★E). On the 26-key it exposes only the first unresolved segmented syllable; choosing it advances the
+     * buffer before the next unresolved syllable is shown. Empty when there is nothing to offer.
      */
     internal fun expandedReadings(): List<String> = when {
         layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty() ->
-            currentSyllables().map { it.reading } // UI-2: 26-key syllable column
+            currentSyllables().firstOrNull()?.let { listOf(it.reading) } ?: emptyList()
         else -> nineLeftColumn().filter { it.action == KeyAction.PICK_READING }.map { it.label }
     }
 
@@ -962,10 +998,8 @@ class KeyboardController(
      */
     fun onPickReadingIndex(index: Int) {
         if (layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty()) {
-            // UI-2: drill into syllable [index] — re-tapping a different syllable re-drills; the buffer is
-            // untouched (no lock/commit) so the user can browse any syllable's homophones freely.
-            if (index !in currentSyllables().indices) return
-            drillSyllable = index
+            if (index != 0 || currentSyllables().isEmpty()) return
+            drillSyllable = 0
             refreshCandidates()
             render()
             return

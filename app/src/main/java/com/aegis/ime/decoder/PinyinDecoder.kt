@@ -138,7 +138,7 @@ class PinyinDecoder(
         return lastCp to s.substring(start)
     }
 
-    private fun isHan(cp: Int): Boolean = cp in 0x3400..0x9FFF || cp in 0xF900..0xFAFF || cp in 0x20000..0x2FFFF
+    private fun isHan(cp: Int): Boolean = Character.isIdeographic(cp)
 
     /**
      * debug.18 (FIX-1): a "single character" by CODE POINTS, not UTF-16 units. A CJK extension char
