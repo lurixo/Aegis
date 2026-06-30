@@ -24,6 +24,7 @@ import android.graphics.drawable.Drawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.widget.FrameLayout
 import android.widget.GridLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -56,6 +57,10 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     private var locked = false
     private val backBtn = barButton("返回") { onBack() }
     private val lockBtn = barButton("锁定") { toggleLock() }
+    private val lockSlot = FrameLayout(context).apply {
+        isClickable = true
+        setOnClickListener { toggleLock() }
+    }
     private val lockGlyph = LockDrawable(density)
     private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
     private val backspaceBtn = barButton("") { onBackspace() }
@@ -65,7 +70,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         orientation = VERTICAL
         setBackgroundColor(palette.keyboardBg)
         lockBtn.setCompoundDrawablesWithIntrinsicBounds(lockGlyph, null, null, null)
-        lockBtn.compoundDrawablePadding = dp(4)
+        lockBtn.compoundDrawablePadding = dp(2)
         backspaceBtn.setCompoundDrawablesWithIntrinsicBounds(null, null, backspaceGlyph, null)
         backspaceGlyph.tint(palette.keyLabelSecondary)
         updateLockFace()
@@ -121,6 +126,8 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun toggleLockForTest() = toggleLock()
     internal fun backBtnForTest(): TextView = backBtn
     internal fun backspaceBtnForTest(): TextView = backspaceBtn
+    internal fun lockBtnForTest(): TextView = lockBtn
+    internal fun lockSlotForTest(): View = lockSlot
 
     private fun showCategory(index: Int) {
         selected = index
@@ -179,8 +186,9 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         setBackgroundColor(palette.keyboardBg)
         backBtn.gravity = Gravity.START or Gravity.CENTER_VERTICAL; backBtn.setPadding(dp(20), 0, 0, 0)
         backspaceBtn.gravity = Gravity.END or Gravity.CENTER_VERTICAL; backspaceBtn.setPadding(0, 0, dp(20), 0)
+        lockSlot.addView(lockBtn, FrameLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT, Gravity.CENTER))
         addView(backBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        addView(lockBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        addView(lockSlot, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         addView(backspaceBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
     }
 
@@ -201,10 +209,10 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         fun tint(color: Int) { paint.color = color; invalidateSelf() }
         override fun draw(canvas: Canvas) {
             val b = bounds
-            Glyphs.drawLock(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) * 0.52f, closed)
+            Glyphs.drawLock(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) * 0.48f, closed)
         }
-        override fun getIntrinsicWidth() = (22 * density).toInt()
-        override fun getIntrinsicHeight() = (22 * density).toInt()
+        override fun getIntrinsicWidth() = (18 * density).toInt()
+        override fun getIntrinsicHeight() = (18 * density).toInt()
         override fun setAlpha(alpha: Int) {}
         override fun setColorFilter(colorFilter: ColorFilter?) {}
         @Deprecated("Deprecated in Java") override fun getOpacity() = PixelFormat.TRANSLUCENT

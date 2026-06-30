@@ -326,7 +326,8 @@ class KeyboardController(
         drillChoices.clear()
         if (composing.isEmpty()) {
             if (committedPrefix.isNotEmpty()) {
-                committedPrefix.setLength(committedPrefix.length - 1)
+                val removeCount = Character.charCount(committedPrefix.codePointBefore(committedPrefix.length))
+                committedPrefix.setLength(committedPrefix.length - removeCount)
                 trimDeferredLearningToPrefix()
                 if (committedPrefix.isEmpty()) lastWord = null
                 return
