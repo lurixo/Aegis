@@ -71,7 +71,6 @@ class KeyboardController(
         val drillChoices: Map<Int, String>,
         val deferredLearnEvents: List<LearnEvent>,
         val lastWord: String?,
-        val committedText: String?,
         val inputEpoch: Long,
     )
 
@@ -287,10 +286,10 @@ class KeyboardController(
             }
             cand in directCommitCands -> {
                 val text = committedPrefix.toString() + cand.word
-                savePreeditChoiceUndo(committedText = text)
+                expirePreeditChoiceUndo()
                 host.commitText(text)
                 applyDeferredLearning()
-                clearComposingState(keepChoiceUndo = true); lastWord = null
+                clearComposingState(); lastWord = null
             }
             cand in predictionCands -> {
                 expirePreeditChoiceUndo()
@@ -299,8 +298,7 @@ class KeyboardController(
                 lastWord = cand.word
             }
             else -> {
-                val committed = if (cand.coveredLen !in 1 until composing.length) committedPrefix.toString() + cand.word else null
-                savePreeditChoiceUndo(committedText = committed)
+                if (candidateStaysInPreedit(cand)) savePreeditChoiceUndo()
                 commitCandidate(cand)
             }
         }
@@ -396,7 +394,7 @@ class KeyboardController(
     }
 
     private fun commitCandidate(cand: Cand) {
-        if (cand.coveredLen in 1 until composing.length) {
+        if (candidateStaysInPreedit(cand)) {
             val prefixEnd = committedPrefix.length + cand.word.length
             if (!learningBlocked) deferredLearnEvents.addLast(LearnEvent(lastWord, cand.word, prefixEnd))
             lastWord = cand.word
@@ -419,12 +417,16 @@ class KeyboardController(
             rebuildHistory()
             repeat(lockedReadings.size) { history.addLast(StepKind.LOCK) }
         } else {
+            expirePreeditChoiceUndo()
             host.commitText(committedPrefix.toString() + cand.word)
             applyDeferredLearning(cand.word)
             lastWord = cand.word
-            clearComposingState(keepChoiceUndo = true)
+            clearComposingState()
         }
     }
+
+    private fun candidateStaysInPreedit(cand: Cand): Boolean =
+        cand.coveredLen in 1 until composing.length
 
     private fun switchLayout(id: LayoutId) {
         flushComposing()
@@ -491,14 +493,14 @@ class KeyboardController(
         return if (layoutId == LayoutId.NINE && lang == Lang.CN) fullLetters() else composing.toString()
     }
 
-    private fun clearComposingState(keepChoiceUndo: Boolean = false) {
+    private fun clearComposingState() {
         composing.setLength(0)
         candidates = emptyList()
         lockedReadings.clear()
         activeStart = 0
         forcedCuts.clear()
         history.clear()
-        if (!keepChoiceUndo) preeditChoiceUndo.clear()
+        preeditChoiceUndo.clear()
         deferredLearnEvents.clear()
         committedPrefix.setLength(0)
         drillSyllable = -1
@@ -596,7 +598,7 @@ class KeyboardController(
     private fun currentSyllables(): List<Syllable> =
         if (composing.isEmpty()) emptyList() else engine.syllablesForReading(composing.toString())
 
-    private fun savePreeditChoiceUndo(committedText: String? = null) {
+    private fun savePreeditChoiceUndo() {
         preeditChoiceUndo.addLast(PreeditChoiceUndo(
             composing = composing.toString(),
             committedPrefix = committedPrefix.toString(),
@@ -608,7 +610,6 @@ class KeyboardController(
             drillChoices = drillChoices.toMap(),
             deferredLearnEvents = deferredLearnEvents.toList(),
             lastWord = lastWord,
-            committedText = committedText?.takeIf { it.isNotEmpty() },
             inputEpoch = inputEpoch,
         ))
     }
@@ -627,13 +628,6 @@ class KeyboardController(
         if (snap.inputEpoch != inputEpoch) {
             preeditChoiceUndo.clear()
             return false
-        }
-        snap.committedText?.let { committed ->
-            if (host.textBeforeCursor(committed.length).toString() != committed) {
-                preeditChoiceUndo.clear()
-                return false
-            }
-            host.replaceBeforeCursor(committed.length, "")
         }
         composing.setLength(0); composing.append(snap.composing)
         committedPrefix.setLength(0); committedPrefix.append(snap.committedPrefix)
@@ -664,10 +658,8 @@ class KeyboardController(
         choices[drillSyllable] = charWord
         var k = 0
         while (choices.containsKey(k) && k < syls.size) k++
-        val committed = if (k > 0 && syls[k - 1].end >= composing.length) {
-            committedPrefix.toString() + (0 until k).joinToString("") { choices[it] ?: "" }
-        } else null
-        savePreeditChoiceUndo(committedText = committed)
+        val commitsToEditor = k > 0 && syls[k - 1].end >= composing.length
+        if (!commitsToEditor) savePreeditChoiceUndo()
         drillChoices[drillSyllable] = charWord
         if (drillChoices.containsKey(0)) commitChosenLeftPrefix()
     }

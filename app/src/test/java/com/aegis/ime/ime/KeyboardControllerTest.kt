@@ -16,6 +16,7 @@
 package com.aegis.ime.ime
 
 import com.aegis.ime.decoder.Cand
+import com.aegis.ime.decoder.Syllable
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
@@ -593,7 +594,7 @@ class KeyboardControllerTest {
         assertTrue("undoing the pick must not touch editor text", h.commits.isEmpty())
     }
 
-    @Test fun backspace_after_a_full_candidate_pick_deletes_the_commit_and_restores_preedit() {
+    @Test fun backspace_after_a_full_candidate_pick_deletes_editor_text_without_restoring_preedit() {
         val h = FakeHost()
         val full = object : CandidateEngine {
             override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
@@ -610,10 +611,56 @@ class KeyboardControllerTest {
 
         c.onKey(act(KeyAction.BACKSPACE))
 
-        assertEquals("the committed candidate is removed from the editor", "", h.text.toString())
-        assertEquals("ni'hao", c.preeditForTest())
-        assertEquals(listOf("你好"), c.candidateWords())
-        assertEquals("candidate undo must not call raw deleteBackward", 0, h.deletes)
+        assertEquals("Backspace deletes one committed editor character", "你", h.text.toString())
+        assertEquals("full editor commits must not restore preedit", "", c.preeditForTest())
+        assertTrue("full editor commits must not restore candidate grid", c.candidateWords().isEmpty())
+        assertEquals("full editor commits use normal raw deleteBackward", 1, h.deletes)
+    }
+
+    @Test fun backspace_after_a_drilled_26_key_partial_pick_restores_the_previous_preedit() {
+        val h = FakeHost()
+        val shuru = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(
+                composing: String,
+                t9: Boolean,
+                cuts: Set<Int>,
+                context: CharSequence,
+            ): List<Cand> = when (composing) {
+                "shuru" -> listOf(Cand("输入", composing.length), Cand("输", 3))
+                "ru" -> listOf(Cand("入", composing.length))
+                else -> emptyList()
+            }
+            override fun syllablesForReading(letters: String): List<Syllable> = when (letters) {
+                "shuru" -> listOf(Syllable("shu", 0, 3), Syllable("ru", 3, 5))
+                "ru" -> listOf(Syllable("ru", 0, 2))
+                else -> emptyList()
+            }
+            override fun homophonesForReadingAt(letters: String, index: Int): List<String> = when {
+                letters == "shuru" && index == 0 -> listOf("输", "书")
+                letters == "ru" && index == 0 -> listOf("入")
+                else -> emptyList()
+            }
+        }
+        val c = KeyboardController(h, shuru)
+        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        "shuru".forEach { c.onKey(out(it.toString())) }
+        assertEquals("shuru", c.preeditForTest())
+        assertEquals(listOf("shu"), c.expandedReadings())
+
+        c.onPickReadingIndex(0)
+        assertEquals(listOf("输", "书"), c.candidateWords())
+        c.onPickCandidate(c.candidateWords().indexOf("输"))
+        assertEquals("输ru", c.preeditForTest())
+        assertTrue("the first-syllable pick has not reached the editor", h.commits.isEmpty())
+
+        c.onKey(act(KeyAction.BACKSPACE))
+
+        assertEquals("shuru", c.preeditForTest())
+        assertEquals("", c.composingPrefix())
+        assertTrue("undoing the partial pick must not touch editor text", h.commits.isEmpty())
+        assertEquals("the original syllable drill is restored", 0, c.drilledSyllableForTest())
+        assertEquals("the first-syllable homophone grid is restored", listOf("输", "书"), c.candidateWords())
     }
 
     @Test fun backspace_after_new_composing_input_keeps_committed_candidate_text() {
@@ -637,7 +684,7 @@ class KeyboardControllerTest {
         assertEquals(listOf("你好"), h.commits)
     }
 
-    @Test fun failed_committed_text_undo_validation_clears_older_candidate_snapshots() {
+    @Test fun full_candidate_commit_expires_older_partial_candidate_snapshots() {
         val h = FakeHost()
         val c = KeyboardController(h, stagedNiHaoEngine())
         c.onKey(act(KeyAction.SWITCH_NINE))
@@ -649,7 +696,7 @@ class KeyboardControllerTest {
 
         h.text.append("!")
         c.onKey(act(KeyAction.BACKSPACE))
-        assertEquals("first Backspace deletes the external text after validation fails", "你好", h.text.toString())
+        assertEquals("first Backspace deletes the external text", "你好", h.text.toString())
         assertEquals("", c.preeditForTest())
 
         c.onKey(act(KeyAction.BACKSPACE))
