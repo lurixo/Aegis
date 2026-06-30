@@ -16,11 +16,17 @@
 package com.aegis.ime
 
 import com.aegis.ime.user.clipEntries
+import android.app.Activity
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Rect
+import android.graphics.drawable.Drawable
+import android.os.Looper
 import android.text.InputType
 import android.util.TypedValue
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
@@ -29,9 +35,13 @@ import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import com.aegis.ime.ime.ClipboardView
 import com.aegis.ime.ime.CustomSymbolPanel
+import com.aegis.ime.ime.EditAction
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
+import com.aegis.ime.ime.LayoutPanelView
 import com.aegis.ime.ime.PanelBackButton
+import com.aegis.ime.ime.PanelHeaderBackControl
+import com.aegis.ime.ime.SettingsPanelView
 import com.aegis.ime.ime.EditPanelView
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeType
@@ -47,6 +57,7 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -184,6 +195,82 @@ class SharedPanelBackControlTest {
         assertNotEquals("each custom page names its own object", titles[0], titles[1])
     }
 
+    @Test fun every_titled_panel_back_control_starts_at_the_shared_edge_inset_and_accepts_a_real_drifting_gesture() {
+        val inset = (com.aegis.ime.ime.theme.ImeShapes.edgeInsetDp * density).toInt()
+        class Fixture(
+            val name: String,
+            val root: View,
+            val hits: () -> Int,
+        )
+
+        var editHits = 0
+        val edit = EditPanelView(ctx).apply {
+            onAction = { if (it == EditAction.BACK) editHits++ }
+            applyPalette(ImePalette.STATIC_LIGHT)
+        }
+        var layoutHits = 0
+        val layoutPanel = LayoutPanelView(ctx).apply {
+            onBack = { layoutHits++ }
+            applyPalette(ImePalette.STATIC_LIGHT)
+        }
+        var settingsHits = 0
+        val settingsPanel = SettingsPanelView(ctx).apply {
+            onBack = { settingsHits++ }
+            applyPalette(ImePalette.STATIC_LIGHT)
+        }
+        var customHits = 0
+        val custom = CustomSymbolPanel(ctx).apply {
+            onBack = { customHits++ }
+            refresh()
+        }
+        var clipboardHits = 0
+        val clipboard = clipboardView(phrase = false).apply { onBack = { clipboardHits++ } }
+        var phraseHits = 0
+        val phrases = clipboardView(phrase = true).apply { onBack = { phraseHits++ } }
+        val fixtures = listOf(
+            Fixture("edit", edit) { editHits },
+            Fixture("layout", layoutPanel) { layoutHits },
+            Fixture("settings", settingsPanel) { settingsHits },
+            Fixture("custom", custom) { customHits },
+            Fixture("clipboard", clipboard) { clipboardHits },
+            Fixture("phrases", phrases) { phraseHits },
+        )
+
+        for (fixture in fixtures) {
+            val controller = Robolectric.buildActivity(Activity::class.java).setup()
+            try {
+                controller.get().setContentView(fixture.root)
+                fixture.root.layoutDirection = View.LAYOUT_DIRECTION_RTL
+                layout(fixture.root)
+                val back = backControls(fixture.root).single()
+                val bounds = boundsIn(fixture.root, back)
+                assertTrue("${fixture.name} must use the one header back class", back is PanelHeaderBackControl)
+                assertEquals("${fixture.name} back must begin at the shared edge inset in RTL too", inset, bounds.left)
+                assertEquals("${fixture.name} back target height", dp(PanelBackButton.HIT_DP), bounds.height())
+                assertTrue("${fixture.name} back target width", bounds.width() >= dp(PanelBackButton.HIT_DP))
+                assertEquals("${fixture.name} shared leading content inset", dp(PanelBackButton.EDGE_DP) - inset, back.paddingLeft)
+                assertEquals("${fixture.name} the glyph keeps its place", dp(PanelBackButton.EDGE_DP), bounds.left + back.paddingLeft)
+                assertEquals("${fixture.name} shared trailing content inset", dp(PanelBackButton.EDGE_DP), back.paddingRight)
+                if (fixture.root is ClipboardView) {
+                    val scroll = topBarOf(fixture.root)
+                    val before = Rect(bounds)
+                    scroll.scrollTo(scroll.getChildAt(0).width, 0)
+                    assertFalse(
+                        "${fixture.name} back must not be a descendant of the horizontally scrolling toolbar",
+                        hasAncestor(back, HorizontalScrollView::class.java),
+                    )
+                    assertEquals("${fixture.name} back must stay fixed while actions scroll", before, boundsIn(fixture.root, back))
+                }
+                dispatchEdgeGesture(fixture.root, back, 0f)
+                assertEquals("${fixture.name} a gesture in the edge inset must not click", 0, fixture.hits())
+                assertTrue("${fixture.name} root must handle DOWN-MOVE-UP from the control's edge", dispatchEdgeGesture(fixture.root, back, bounds.left.toFloat()))
+                assertEquals("${fixture.name} drifting gesture from the control's edge must click exactly once", 1, fixture.hits())
+            } finally {
+                controller.pause().stop().destroy()
+            }
+        }
+    }
+
     private fun topBarOf(clipboard: ClipboardView): HorizontalScrollView {
         fun find(view: View): HorizontalScrollView? {
             if (view is HorizontalScrollView) return view
@@ -238,6 +325,24 @@ class SharedPanelBackControlTest {
             current = current.parent
         }
         return false
+    }
+
+    private fun dispatchEdgeGesture(root: View, target: View, fromX: Float): Boolean {
+        val bounds = boundsIn(root, target)
+        val y = bounds.exactCenterY()
+        val events = listOf(
+            MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, fromX, y, 0),
+            MotionEvent.obtain(0, 12, MotionEvent.ACTION_MOVE, fromX + dp(3), y + dp(2), 0),
+            MotionEvent.obtain(0, 24, MotionEvent.ACTION_UP, fromX + dp(2), y + dp(1), 0),
+        )
+        return try {
+            var handled = true
+            for (event in events) handled = root.dispatchTouchEvent(event) && handled
+            shadowOf(Looper.getMainLooper()).idle()
+            handled
+        } finally {
+            events.forEach(MotionEvent::recycle)
+        }
     }
 
     private fun clipboardView(phrase: Boolean): ClipboardView = ClipboardView(ctx).apply {
@@ -400,6 +505,70 @@ class SharedPanelBackControlTest {
         )
     }
 
+    @Test fun clipboard_and_phrase_pages_use_the_same_header_back_geometry() {
+        val clipboard = clipboardView(phrase = false)
+        val custom = CustomSymbolPanel(ctx).apply { refresh() }
+        layout(custom)
+        val editBack = editPanelBack()
+        val layoutBack = LayoutPanelView(ctx).titleButtonForTest()
+
+        for (phrase in listOf(false, true)) {
+            if (phrase) clipboard.showPhraseTab("默认") else clipboard.refresh()
+            layout(clipboard)
+            val name = if (phrase) "phrases" else "clipboard"
+            val button = backControls(clipboard).single()
+            assertEquals("$name back hit height", dp(48), button.height)
+            assertTrue("$name back hit width", button.width >= dp(48))
+            assertTrue("$name uses the one header back class", button is PanelHeaderBackControl)
+            assertEquals("$name back text scale", editBack.textSize, button.textSize, 0.01f)
+            assertEquals(
+                "$name back icon box",
+                editBack.compoundDrawables[0]!!.intrinsicWidth,
+                button.compoundDrawables[0]!!.intrinsicWidth,
+            )
+            assertEquals("$name back icon gap", editBack.compoundDrawablePadding, button.compoundDrawablePadding)
+            val customBack = custom.backButtonForTest() as TextView
+            assertEquals("$name back text scale matches the custom pages", customBack.textSize, button.textSize, 0.01f)
+            assertEquals(
+                "$name back icon box matches the custom pages",
+                customBack.compoundDrawables[0]!!.intrinsicWidth,
+                button.compoundDrawables[0]!!.intrinsicWidth,
+            )
+            assertEquals(
+                "$name back icon gap matches the custom pages",
+                customBack.compoundDrawablePadding,
+                button.compoundDrawablePadding,
+            )
+            assertEquals("$name back text scale matches the layout page", layoutBack.textSize, button.textSize, 0.01f)
+            assertEquals(
+                "$name back starts at the shared edge inset",
+                (com.aegis.ime.ime.theme.ImeShapes.edgeInsetDp * density).toInt(),
+                boundsIn(clipboard, button).left,
+            )
+        }
+    }
+
+    @Test fun the_clipboard_back_control_matches_the_edit_panel_icon_box() {
+        val editBack = editPanelBack()
+        for (phrase in listOf(false, true)) {
+            val clipboard = clipboardView(phrase)
+            layout(clipboard)
+            val name = if (phrase) "phrases" else "clipboard"
+            val glyph = backControls(clipboard).single().compoundDrawables[0]!!
+            assertEquals(
+                "$name back icon box width",
+                editBack.compoundDrawables[0]!!.intrinsicWidth,
+                glyph.intrinsicWidth,
+            )
+            assertEquals(
+                "$name back icon box height",
+                editBack.compoundDrawables[0]!!.intrinsicHeight,
+                glyph.intrinsicHeight,
+            )
+            assertEquals("$name back icon box in dp", dp(PanelBackButton.ICON_DP), glyph.intrinsicWidth)
+        }
+    }
+
     @Test fun the_clipboard_back_control_carries_the_back_label() {
         for (phrase in listOf(false, true)) {
             val clipboard = clipboardView(phrase)
@@ -410,5 +579,63 @@ class SharedPanelBackControlTest {
             assertEquals("$name back label stays on one line", 1, button.maxLines)
             assertTrue("$name back label must be clickable", button.hasOnClickListeners())
         }
+    }
+
+    private fun inkBounds(bitmap: Bitmap): Rect {
+        var left = bitmap.width
+        var top = bitmap.height
+        var right = -1
+        var bottom = -1
+        for (y in 0 until bitmap.height) {
+            for (x in 0 until bitmap.width) {
+                if (bitmap.getPixel(x, y).ushr(24) == 0) continue
+                if (x < left) left = x
+                if (x > right) right = x
+                if (y < top) top = y
+                if (y > bottom) bottom = y
+            }
+        }
+        return Rect(left, top, right + 1, bottom + 1)
+    }
+
+    private fun glyphInk(glyph: Drawable): Rect {
+        val bitmap = Bitmap.createBitmap(glyph.intrinsicWidth, glyph.intrinsicHeight, Bitmap.Config.ARGB_8888)
+        glyph.setBounds(0, 0, glyph.intrinsicWidth, glyph.intrinsicHeight)
+        glyph.draw(Canvas(bitmap))
+        return inkBounds(bitmap)
+    }
+
+    @Test fun the_shared_back_control_draws_a_sixteen_dp_icon_box_on_every_panel() {
+        val clipboard = clipboardView(phrase = false)
+        layout(clipboard)
+        val custom = CustomSymbolPanel(ctx).apply { refresh() }
+        layout(custom)
+        val layout = LayoutPanelView(ctx)
+        val settings = SettingsPanelView(ctx)
+        val glyphs = listOf(
+            "clipboard" to backControls(clipboard).single().compoundDrawables[0]!!,
+            "custom" to (custom.backButtonForTest() as TextView).compoundDrawables[0]!!,
+            "edit" to editPanelBack().compoundDrawables[0]!!,
+            "layout" to layout.titleButtonForTest().compoundDrawables[0]!!,
+            "settings" to settings.titleButtonForTest().compoundDrawables[0]!!,
+        )
+
+        for ((name, glyph) in glyphs) {
+            assertEquals("$name back icon box width", dp(PanelBackButton.ICON_DP), glyph.intrinsicWidth)
+            assertEquals("$name back icon box height", dp(PanelBackButton.ICON_DP), glyph.intrinsicHeight)
+            val ink = glyphInk(glyph)
+            assertTrue("$name must draw its glyph", ink.width() > 0 && ink.height() > 0)
+            val inkWidthDp = ink.width() / density
+            val inkHeightDp = ink.height() / density
+            assertEquals("$name back glyph ink width in dp", 12.75f, inkWidthDp, 0.75f)
+            assertEquals("$name back glyph ink height in dp", 16.69f, inkHeightDp, 0.75f)
+            assertTrue(
+                "$name back glyph must stay inside a 16dp icon box: ${inkWidthDp}dp by ${inkHeightDp}dp",
+                inkWidthDp <= 16f && inkHeightDp <= 16f,
+            )
+            assertEquals("$name back glyph ink center x", glyph.intrinsicWidth / 2f, ink.exactCenterX(), 1f)
+            assertEquals("$name back glyph ink center y", glyph.intrinsicHeight / 2f, ink.exactCenterY(), 1f)
+        }
+        assertEquals("shared back control icon box in dp", 16, PanelBackButton.ICON_DP)
     }
 }

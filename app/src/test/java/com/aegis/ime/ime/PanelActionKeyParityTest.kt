@@ -17,6 +17,8 @@ package com.aegis.ime.ime
 
 import android.app.Activity
 import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.RectF
@@ -33,6 +35,7 @@ import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.layout.EmojiCatalog
 import com.aegis.ime.layout.SymbolCatalog
 import java.time.Duration
+import kotlin.math.roundToInt
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -523,6 +526,60 @@ class PanelActionKeyParityTest {
                 ),
                 symbols::openCategoryForTest,
             )
+        }
+    }
+
+    @Test fun emoji_and_symbol_category_tabs_press_like_the_phrase_category_tabs() {
+        fun rail(v: View): ImePanelCategoryRail? = when (v) {
+            is ImePanelCategoryRail -> v
+            is ViewGroup -> (0 until v.childCount).firstNotNullOfOrNull { rail(v.getChildAt(it)) }
+            else -> null
+        }
+        fun frame(panel: View): Bitmap =
+            Bitmap.createBitmap(panel.width, panel.height, Bitmap.Config.ARGB_8888).also { panel.draw(Canvas(it)) }
+        for (palette in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
+            val phrases = ClipboardView(context).apply {
+                categoriesProvider = { listOf("默认", "工作") }
+                phrasesInProvider = { emptyList() }
+                applyPalette(palette); forcePhrasesStateForTest("默认"); refresh()
+            }
+            layout(phrases, 360)
+            val phraseTab = requireNotNull(rail(phrases)).getChildAt(0)
+            val reference = surface(phraseTab)
+            val inset = reference.faceBoundsForTest(phraseTab.width, phraseTab.height).left
+            assertTrue("the phrase category press is inset", inset > 0f)
+            assertTrue("the phrase category press is rounded", reference.cornerRadiusPx > 0f)
+            val emoji = EmojiView(context).apply { applyPalette(palette) }
+            layout(emoji, 360)
+            val symbols = SymbolsView(context).apply { applyPalette(palette) }
+            layout(symbols, 360)
+            for ((name, panel, tabs) in listOf(
+                Triple("emoji", emoji, railTabs(emoji.railTabForTest(0))),
+                Triple("symbols", symbols, railTabs(symbols.railTabForTest(0))),
+            )) {
+                for ((index, tab) in tabs.withIndex()) {
+                    val face = surface(tab)
+                    assertEquals("$name tab $index", reference.faceColor, face.faceColor)
+                    assertEquals("$name tab $index", reference.cornerRadiusPx, face.cornerRadiusPx, 0f)
+                    assertEquals(
+                        "$name tab $index",
+                        RectF(inset, inset, tab.width - inset, tab.height - inset),
+                        face.faceBoundsForTest(tab.width, tab.height),
+                    )
+                }
+                val tab = tabs[1]
+                val box = Rect(0, 0, tab.width, tab.height).also { panel.offsetDescendantRectToMyCoords(tab, it) }
+                val lit = Rect(box).apply { inset(inset.roundToInt(), inset.roundToInt()) }
+                val rest = frame(panel)
+                tab.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, tab.width / 2f, tab.height / 2f))
+                shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(Motion.PRESS_IN))
+                val held = frame(panel)
+                assertEquals("$name: the press stays off the tab corner", rest.getPixel(box.left + 1, box.top + 2), held.getPixel(box.left + 1, box.top + 2))
+                assertEquals("$name: the press rounds its corner", rest.getPixel(lit.left, lit.top), held.getPixel(lit.left, lit.top))
+                assertTrue("$name: the press lights its face", rest.getPixel(lit.centerX(), lit.top + 1) != held.getPixel(lit.centerX(), lit.top + 1))
+                tab.dispatchTouchEvent(event(MotionEvent.ACTION_CANCEL, tab.width / 2f, tab.height / 2f, 16L))
+                shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(Motion.PRESS_OUT))
+            }
         }
     }
 

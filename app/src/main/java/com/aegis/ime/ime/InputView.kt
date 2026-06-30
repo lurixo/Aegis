@@ -889,6 +889,8 @@ class InputView(context: Context) : LinearLayout(context) {
 
     internal fun barChevronGlyph(): String = candidateView.chevronGlyph()
 
+    internal fun candidateBarHapticsForTest(): Boolean = candidateView.hapticEnabled
+
     internal fun toolbarShownForTest(): Boolean = candidateView.visibility == VISIBLE
 
     fun showPanel(panel: View?) = showPanel(panel, animateReveal = true)

@@ -29,6 +29,7 @@ import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.layout.Layouts
+import com.aegis.ime.user.asClipEntries
 import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -49,6 +50,16 @@ class PanelIconAlignmentTest {
     private val ctx = RuntimeEnvironment.getApplication()
     private val density = ctx.resources.displayMetrics.density
 
+    private fun textViews(root: View): List<TextView> {
+        val out = ArrayList<TextView>()
+        fun walk(v: View) {
+            if (v is TextView) out.add(v)
+            if (v is ViewGroup) for (i in 0 until v.childCount) walk(v.getChildAt(i))
+        }
+        walk(root)
+        return out
+    }
+
     private fun layout(v: View, width: Int = 480, height: Int = 320) {
         v.measure(
             View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
@@ -67,6 +78,107 @@ class PanelIconAlignmentTest {
         dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, x, height * from, 0))
         dispatchTouchEvent(MotionEvent.obtain(0, 16, MotionEvent.ACTION_MOVE, x, height * to, 0))
         dispatchTouchEvent(MotionEvent.obtain(0, 32, MotionEvent.ACTION_UP, x, height * to, 0))
+    }
+
+    @Test fun edit_panel_header_matches_shared_control_geometry_and_both_clipboard_tabs() {
+        val v = EditPanelView(ctx)
+        val title = requireNotNull(v.actionViewForTest(EditAction.BACK)) as PanelHeaderBackControl
+        val reference = PanelBackButton.control(ctx, ctx.getString(com.aegis.ime.R.string.edit_title), ImePalette.STATIC_LIGHT.keyLabel) {}
+        reference.measure(
+            View.MeasureSpec.makeMeasureSpec((411 * density).toInt(), View.MeasureSpec.AT_MOST),
+            View.MeasureSpec.makeMeasureSpec((PanelBackButton.HIT_DP * density).toInt(), View.MeasureSpec.EXACTLY),
+        )
+        reference.layout(0, 0, reference.measuredWidth, reference.measuredHeight)
+        val layoutPanel = LayoutPanelView(ctx)
+        layout(layoutPanel, width = (411 * density).roundToInt(), height = (324 * density).roundToInt())
+        val layoutBack = layoutPanel.titleButtonForTest()
+        val layoutBounds = Rect(0, 0, layoutBack.width, layoutBack.height).also { layoutPanel.offsetDescendantRectToMyCoords(layoutBack, it) }
+        val clipboardBounds = listOf(false, true).map { phrases ->
+            val clipboard = ClipboardView(ctx)
+            if (phrases) clipboard.showPhraseTab("") else clipboard.refresh()
+            layout(clipboard, width = (411 * density).roundToInt(), height = (324 * density).roundToInt())
+            val back = textViews(clipboard).filterIsInstance<PanelHeaderBackControl>().single()
+            Rect(0, 0, back.width, back.height).also { clipboard.offsetDescendantRectToMyCoords(back, it) }
+        }
+        for ((widthDp, heightDp) in listOf(411 to 324, 320 to 200, 640 to 220, 411 to 324)) {
+            layout(v, width = (widthDp * density).roundToInt(), height = (heightDp * density).roundToInt())
+            val hit = Rect(0, 0, title.width, title.height).also { v.offsetDescendantRectToMyCoords(title, it) }
+            assertEquals((56 * density).toInt(), v.titleBarForTest().height)
+            assertEquals(v.titleBarForTest().height, v.actionViewportForTest().top)
+            assertTrue("the header target has an outer top inset", hit.top > 0)
+            assertEquals((56 * density).toInt(), (layoutBack.parent as View).height)
+            for (back in clipboardBounds + layoutBounds) {
+                assertEquals("the left edge matches layout and both clipboard tabs", back.left, hit.left)
+                assertEquals("the top edge matches layout and both clipboard tabs", back.top, hit.top)
+                assertEquals("the bottom edge matches layout and both clipboard tabs", back.bottom, hit.bottom)
+            }
+            assertEquals("the whole title is one natural-width target", reference.width, title.width)
+            assertEquals("the full target height matches keyboard layout", layoutBack.height, title.height)
+            val icon = requireNotNull(title.compoundDrawables[0])
+            assertTrue("the header draws the shared back glyph", icon === title.glyphForTest())
+            assertEquals((16 * density).toInt(), icon.intrinsicHeight)
+            for (back in listOf(reference, layoutBack)) {
+                assertEquals(back.compoundPaddingLeft, title.compoundPaddingLeft)
+                assertEquals(back.compoundPaddingRight, title.compoundPaddingRight)
+                assertEquals(back.compoundPaddingTop, title.compoundPaddingTop)
+                assertEquals(back.compoundPaddingBottom, title.compoundPaddingBottom)
+                assertEquals(back.compoundDrawablePadding, title.compoundDrawablePadding)
+                assertEquals(back.typeface, title.typeface)
+                assertEquals(back.includeFontPadding, title.includeFontPadding)
+                assertEquals(back.textSize, title.textSize, 0f)
+                assertEquals("the baseline uses the same full-height control", back.baseline, title.baseline)
+            }
+            assertEquals(reference.text.toString(), title.text.toString())
+            assertTrue("the header fits its label", requireNotNull(title.layout).height <= title.height - title.compoundPaddingTop - title.compoundPaddingBottom)
+        }
+    }
+
+    @Test @Config(qualifiers = "420dpi")
+    fun layout_cards_and_edit_keys_start_at_the_clipboard_and_phrase_card_inset() {
+        fun bounds(root: ViewGroup, view: View): Rect = Rect(0, 0, view.width, view.height).also { root.offsetDescendantRectToMyCoords(view, it) }
+        for ((widthDp, heightDp) in listOf(411 to 324, 360 to 290, 320 to 300, 411 to 230, 360 to 222, 520 to 220, 640 to 220, 720 to 230, 900 to 260)) {
+            val width = (widthDp * density).roundToInt()
+            val height = (heightDp * density).roundToInt()
+            val clipboard = ClipboardView(ctx).apply {
+                historyProvider = { listOf("clip").asClipEntries() }
+                refresh()
+            }
+            layout(clipboard, width, height)
+            val phrases = ClipboardView(ctx).apply {
+                categoriesProvider = { listOf("默认") }
+                phrasesInProvider = { if (it == "默认") listOf("phrase") else emptyList() }
+                forcePhrasesStateForTest("默认")
+                refresh()
+            }
+            layout(phrases, width, height)
+            val reference = bounds(clipboard, requireNotNull(clipboard.listRowViewForTest(0)))
+            val message = "$widthDp x $heightDp"
+            val inset = (ImeShapes.edgeInsetDp * density).toInt()
+            assertEquals("$message clipboard card left inset", inset, reference.left)
+            assertEquals("$message clipboard card top", (56 * density).toInt() + (8 * density).toInt(), reference.top)
+            assertEquals("$message clipboard card right inset", width - inset, reference.right)
+
+            val layoutPanel = LayoutPanelView(ctx)
+            layout(layoutPanel, width, height)
+            val firstCard = bounds(layoutPanel, layoutPanel.cardViewForTest(LayoutChoice.CN_NINE))
+            val lastCard = bounds(layoutPanel, layoutPanel.cardViewForTest(LayoutChoice.EN_ALPHA))
+            val edit = EditPanelView(ctx)
+            layout(edit, width, height)
+            val tray = edit.actionTrayBoundsForTest()
+            val tab = bounds(edit, requireNotNull(edit.actionViewForTest(EditAction.TAB)))
+            val backspace = bounds(edit, requireNotNull(edit.actionViewForTest(EditAction.DELETE)))
+            val phrase = bounds(phrases, requireNotNull(phrases.listRowViewForTest(0)))
+            for ((name, edges, tolerance) in listOf(
+                Triple("phrases", Triple(phrase.left, phrase.top, phrase.right), 0f),
+                Triple("layout cards", Triple(firstCard.left, firstCard.top, lastCard.right), 0f),
+                Triple("edit keys", Triple(tray.left, tab.top, backspace.right), 1f),
+                Triple("edit tray", Triple(tray.left, tray.top, backspace.right), 1f),
+            )) {
+                assertEquals("$message $name left inset", reference.left.toFloat(), edges.first.toFloat(), tolerance)
+                assertEquals("$message $name top", reference.top.toFloat(), edges.second.toFloat(), tolerance)
+                assertEquals("$message $name right inset", reference.right.toFloat(), edges.third.toFloat(), tolerance)
+            }
+        }
     }
 
     @Test fun the_back_control_press_fills_the_control_that_starts_at_the_shared_edge_inset() {

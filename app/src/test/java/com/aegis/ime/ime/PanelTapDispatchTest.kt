@@ -127,6 +127,30 @@ class PanelTapDispatchTest {
         assertFalse("$kind releases press feedback", target.isPressed)
     }
 
+    @Test fun shared_header_backs_close_each_panel_with_short_jitter_slow_and_edge_taps_in_both_layouts() {
+        for (nine in listOf(false, true)) withKeyboard(nine) { activity, input ->
+            var backs = 0
+            val onBack = { backs++; input.showPanel(null) }
+            val panels = listOf(
+                EditPanelView(activity).apply { onAction = { if (it == EditAction.BACK) onBack() } },
+                LayoutPanelView(activity).apply { this.onBack = onBack },
+                SettingsPanelView(activity).apply { this.onBack = onBack },
+                CustomSymbolPanel(activity).apply { this.onBack = onBack; refresh() },
+                ClipboardView(activity).apply { this.onBack = onBack; refresh() },
+            )
+            for (panel in panels) {
+                for (kind in listOf(Gesture.SHORT, Gesture.JITTER, Gesture.SLOW, Gesture.EDGE)) {
+                    input.showPanel(panel)
+                    layout(input)
+                    val before = backs
+                    gesture(input, backControl(panel), kind)
+                    assertEquals("$nine ${panel.javaClass.simpleName} $kind dispatches once", before + 1, backs)
+                    assertFalse("$nine ${panel.javaClass.simpleName} $kind closes the panel", input.isPanelShowing(panel))
+                }
+            }
+        }
+    }
+
     @Test fun canceled_or_outside_header_gestures_do_not_close_and_the_next_tap_still_works() {
         for (nine in listOf(false, true)) withKeyboard(nine) { activity, input ->
             var backs = 0

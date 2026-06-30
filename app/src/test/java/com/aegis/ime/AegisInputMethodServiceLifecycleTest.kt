@@ -33,6 +33,8 @@ import android.widget.FrameLayout
 import com.aegis.ime.dict.ModelDownload
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.ime.BackspaceGesture
+import com.aegis.ime.ime.CandidateGridView
+import com.aegis.ime.ime.ClipboardView
 import com.aegis.ime.ime.DecodeLane
 import com.aegis.ime.ime.EditAction
 import com.aegis.ime.ime.EditPanelView
@@ -40,9 +42,11 @@ import com.aegis.ime.ime.EmojiView
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.ime.KeyboardView
+import com.aegis.ime.ime.KeyHapticsAware
 import com.aegis.ime.ime.LargeCommit
 import com.aegis.ime.ime.Motion
 import com.aegis.ime.ime.SelectionMath
+import com.aegis.ime.ime.SymbolsView
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.Lang
@@ -621,6 +625,33 @@ class AegisInputMethodServiceLifecycleTest {
             f.view.setKeyHaptics(true)
             showEditPanel(f.service)
             assertTrue("${layout.id}: a reopened panel picks up the current toggle", panel.hapticEnabled)
+        }
+    }
+
+    @Test fun every_panel_with_input_or_immediate_action_keys_tracks_the_live_haptics_toggle() {
+        val f = fixture()
+        val panels = listOf(
+            "expanded candidates" to CandidateGridView(f.service),
+            "text editing" to EditPanelView(f.service),
+            "emoji" to EmojiView(f.service),
+            "symbols" to SymbolsView(f.service),
+            "clipboard and phrases" to ClipboardView(f.service),
+        )
+
+        f.view.setKeyHaptics(true)
+        assertTrue("the candidate bar receives the enabled toggle", f.view.candidateBarHapticsForTest())
+        for ((name, panel) in panels) {
+            val aware = panel as KeyHapticsAware
+            f.view.showPanelImmediately(panel)
+            assertTrue("$name inherits the enabled toggle when opened", aware.hapticEnabled)
+
+            f.view.setKeyHaptics(false)
+            assertFalse("$name receives a live disable", aware.hapticEnabled)
+            assertFalse("the candidate bar receives the same live disable", f.view.candidateBarHapticsForTest())
+
+            f.view.setKeyHaptics(true)
+            assertTrue("$name receives a live enable", aware.hapticEnabled)
+            assertTrue("the candidate bar receives the same live enable", f.view.candidateBarHapticsForTest())
         }
     }
 

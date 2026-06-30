@@ -307,6 +307,10 @@ class EditPanelView(context: Context) :
     internal fun selectionTintAnimatingForTest(): Boolean = tintAnimators.values.any { it.isRunning }
     internal fun actionViewForTest(action: EditAction): View? = actionViews[action]
     internal fun actionFeedbackLevelForTest(action: EditAction): Float? = actionFeedback[action]?.levelForTest()
+    internal fun titleBarForTest(): View = titleBar
+    internal fun actionTrayBoundsForTest(): Rect = actionBody.trayForTest().let {
+        Rect(it.left.roundToInt(), it.top.roundToInt(), it.right.roundToInt(), it.bottom.roundToInt())
+    }.also { offsetDescendantRectToMyCoords(actionBody, it) }
     internal fun actionViewportForTest(): View = actionScroll
     internal fun actionContentCanScrollForTest(): Boolean = actionScroll.canScrollVertically(-1) || actionScroll.canScrollVertically(1)
     internal fun scrollActionIntoViewForTest(action: EditAction) {
@@ -399,6 +403,8 @@ class EditPanelView(context: Context) :
             clipChildren = false
             clipToPadding = false
         }
+
+        fun trayForTest(): RectF = RectF(tray)
 
         private fun target(action: EditAction, x: Float, y: Float, w: Float, h: Float) {
             targets[action] = Rect(px(x), px(y), px(x + w), px(y + h))
