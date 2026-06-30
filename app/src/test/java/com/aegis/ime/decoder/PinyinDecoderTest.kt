@@ -125,4 +125,15 @@ class PinyinDecoderTest {
         assertTrue("26-key: a huge limit keeps every candidate the small limit shows", atMax.containsAll(at30))
         assertTrue("26-key: a huge limit offers more completions than the small limit", atMax.size > at30.size)
     }
+
+    @Test
+    fun selectedXiangUsesOnlyTheChosenReadingInTheAssetDict() {
+        val d = decoder()
+        val words = d.decodeCoveredAtomic("xiang", 30).map { it.word }
+
+        assumeTrue("asset has common xiang homophones", words.containsAll(listOf("向", "想", "相")))
+        assertTrue("common xiang homophones stay prominent", words.take(8).containsAll(listOf("向", "想", "相")))
+        assertTrue("selected xiang must not leak xi prefix singles", "西" !in words)
+        assertTrue("selected xiang must not leak xian words", "西安" !in words)
+    }
 }

@@ -19,6 +19,7 @@ import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.DecodeCancellation
 import com.aegis.ime.dict.TghGrading
+import kotlin.math.exp
 import kotlin.math.ln
 
 data class Cand(
@@ -88,6 +89,31 @@ class PinyinDecoder(
             offset += Character.charCount(next)
         }
         return score
+    }
+
+    private fun assemblyFrequency(
+        word: String,
+        headFrequency: Double,
+        readingMass: Double,
+        classMass: Double,
+    ): Double {
+        val model = lm ?: return headFrequency
+        var offset = 0
+        var previous = word.codePointAt(offset)
+        offset += Character.charCount(previous)
+        var total = 0.0
+        var pairs = 0
+        while (offset < word.length) {
+            val next = word.codePointAt(offset)
+            total += model.logCond(previous, next)
+            previous = next
+            offset += Character.charCount(next)
+            pairs++
+        }
+        if (pairs == 0) return headFrequency
+        val estimate = exp(ln(headFrequency.coerceAtLeast(1.0)) + total / pairs)
+        if (classMass <= 0.0 || readingMass <= 0.0) return estimate
+        return estimate * minOf(1.0, classMass / readingMass)
     }
 
     private fun wordModelScore(word: String, freq: Int, ctxId: Int, ctx: Ctx): Double =
@@ -340,7 +366,66 @@ class PinyinDecoder(
                 if (leadFreq.put(wf.word, wf.freq.toDouble()) == null) leadCov[wf.word] = B[j]
             }
         }
-        val out = ArrayList<Cand>(1 + leadFreq.size)
+
+        val sylCharFreq = Array(nSyl) { i ->
+            val m = HashMap<String, Double>()
+            for ((w, f) in segmentSingleFreqs(input.substring(B[i], B[i + 1]))) m.putIfAbsent(w, f)
+            m
+        }
+        fun commonnessFreq(word: String, coveredSyls: Int, carried: Double): Double {
+            var mn = Double.MAX_VALUE
+            var ci = 0
+            var si = 0
+            while (ci < word.length && si < coveredSyls) {
+                val cp = word.codePointAt(ci)
+                val f = sylCharFreq.getOrNull(si)?.get(String(Character.toChars(cp))) ?: carried
+                if (f < mn) mn = f
+                ci += Character.charCount(cp)
+                si++
+            }
+            return if (mn == Double.MAX_VALUE) carried else mn
+        }
+        val tailScore = HashMap<String, Double>()
+        val tailFreq = HashMap<String, Double>()
+        val tailCand = LinkedHashMap<String, Cand>()
+        val measuredMass = HashMap<Int, Double>()
+        for ((w, f) in leadFreq) {
+            val cov = leadCov[w] ?: input.length
+            if (dict.exactWordFreq(input.substring(0, cov), w) != null) {
+                measuredMass[cov] = (measuredMass[cov] ?: 0.0) + f.toDouble()
+            }
+        }
+        var readingMass = 0.0
+        for (f in sylCharFreq[0].values) readingMass += f
+        fun tailFrequency(word: String, coveredSyls: Int, carried: Double): Double {
+            val plain = commonnessFreq(word, coveredSyls, carried)
+            if (isSingleChar(word)) return plain
+            val head = sylCharFreq[0][String(Character.toChars(word.codePointAt(0)))] ?: plain
+            val cov = if (coveredSyls <= 0) input.length else B[coveredSyls.coerceAtMost(nSyl)]
+            return assemblyFrequency(word, head, readingMass, measuredMass[cov] ?: 0.0)
+        }
+        fun offerTail(word: String, coveredLen: Int, coveredSyls: Int, carried: Double) {
+            if (word == best || word in leadFreq) return
+            val frequency = tailFrequency(word, coveredSyls, carried)
+            val score = wordModelScore(word, frequency, ctxId, ctx)
+            val prev = tailScore[word]
+            if (prev == null || score > prev) {
+                tailScore[word] = score
+                tailFreq[word] = frequency
+                tailCand[word] = Cand(word, coveredLen)
+            }
+        }
+        for (sentence in sentences) offerTail(sentence.text, input.length, nSyl, 1.0)
+        for ((w, _) in segmentSingleFreqs(input.substring(0, B[1]))) offerTail(w, B[1], 1, 0.0)
+        DecodeCancellation.checkpoint()
+        val tailRanked = tailCand.values.sortedWith(
+            compareBy<Cand> { isSingleChar(it.word) }
+                .thenByDescending { tailScore[it.word] ?: Double.NEGATIVE_INFINITY }
+                .thenBy { it.word.codePointCount(0, it.word.length) }
+                .thenBy { supplementarySingleTieRank(it.word) },
+        )
+
+        val out = ArrayList<Cand>(1 + leadFreq.size + tailRanked.size)
         val seen = HashSet<String>()
         fun emit(words: List<String>) {
             for (w in words) {
@@ -355,6 +440,26 @@ class PinyinDecoder(
             if (w !in rest) rest.add(w)
         }
         emit(rest)
+        best?.let { if (seen.add(it)) out.add(Cand(it, input.length)) }
+        val merged = ArrayList<Cand>(leadFreq.size + tailRanked.size)
+        for (w in rest) if (w !in seen) merged.add(Cand(w, leadCov[w] ?: input.length))
+        for (c in tailRanked) if (c.word !in seen) merged.add(c)
+        fun candFrequency(c: Cand): Double =
+            leadFreq[c.word]?.toDouble() ?: tailFreq[c.word] ?: tailFrequency(c.word, nSyl, 1.0)
+        val classTotal = HashMap<Int, Double>()
+        for (c in out) classTotal[c.coveredLen] = (classTotal[c.coveredLen] ?: 0.0) + candFrequency(c)
+        for (c in merged) classTotal[c.coveredLen] = (classTotal[c.coveredLen] ?: 0.0) + candFrequency(c)
+        val mergedRank = HashMap<String, Double>(merged.size * 2)
+        for (c in merged) {
+            val raw = tailScore[c.word] ?: wordModelScore(c.word, candFrequency(c), ctxId, ctx)
+            mergedRank[c.word] = raw + lnTotal - ln((classTotal[c.coveredLen] ?: 1.0).coerceAtLeast(1.0))
+        }
+        merged.sortWith(
+            compareBy<Cand> { if (rareSingle(it.word, sylCharFreq[0])) 1 else 0 }
+                .thenByDescending { mergedRank.getValue(it.word) }
+                .thenBy { supplementarySingleTieRank(it.word) },
+        )
+        for (c in merged) if (seen.add(c.word)) out.add(c)
         return out
     }
 

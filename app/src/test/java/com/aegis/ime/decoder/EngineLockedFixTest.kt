@@ -38,6 +38,8 @@ class EngineLockedFixTest {
         return d.decodeCovered(full, 30, cuts)
     }
 
+    private fun pureSentences(c: List<Cand>, fullLen: Int) = c.filter { it.coveredLen == fullLen }.map { it.word }
+
     private fun lm(uni: Map<Int, Long>, bi: Map<Pair<Int, Int>, Long>): CharBigramLM {
         val cps = sortedSetOf<Int>()
         cps.addAll(uni.keys)
@@ -218,9 +220,95 @@ class EngineLockedFixTest {
         )
     }
 
+
+    private fun assertCleanAtomic(readings: List<String>, vararg topWords: String) {
+        val c = locked(readings)
+        val w = words(c)
+        val full = readings.joinToString("").length
+        assertFalse("$readings: no extension-area single in the top 10", w.take(10).any { isSupp(it) })
+        for (tw in topWords) assertTrue("$readings: $tw must be in #1/#2", w.take(2).contains(tw))
+        assertFalse("$readings: NO candidate may contain 西安 (a locked syllable is never re-split)", w.any { it.contains("西安") })
+        for (s in pureSentences(c, full)) assertEquals(
+            "$readings: every pure-sentence candidate '$s' spans exactly ${readings.size} syllables",
+            readings.size, s.codePointCount(0, s.length),
+        )
+    }
+
+    @Test fun ciku_keepsTheWordAndCommonChars() {
+        assertCleanAtomic(listOf("ci", "ku"), "词库")
+        val w = words(locked(listOf("ci", "ku")))
+        val singles = w.filter { it.codePointCount(0, it.length) == 1 }
+        assertTrue("a single layer exists", singles.isNotEmpty())
+        assertTrue("the list closes on single characters", w.takeLastWhile { it.codePointCount(0, it.length) == 1 }.isNotEmpty())
+        assertEquals("common ci 同音字 lead the single layer", listOf("次", "此"), singles.take(2))
+    }
+
+    @Test fun jiujian_keepsTheWord() {
+        assertCleanAtomic(listOf("jiu", "jian"), "九键")
+    }
+
+    @Test fun diuzi_surfacesDiuziAndZiIsNavigable() {
+        val c = locked(listOf("diu", "zi"))
+        val w = words(c)
+        assertFalse("no extension-area single in the top 10", w.take(10).any { isSupp(it) })
+        assertTrue("丢字 present", "丢字" in w)
+        assertTrue("字 navigable at syllable 1", "字" in d.homophonesAt("diuzi", 1))
+        pureSentences(c, 5).forEach { assertEquals(2, it.codePointCount(0, it.length)) }
+    }
+
+    @Test fun bushixian_keepsBushixianDropsXian() {
+        val c = locked(listOf("bu", "shi", "xian"))
+        val w = words(c)
+        assertFalse("no extension-area single in the top 10", w.take(10).any { isSupp(it) })
+        assertFalse("NO candidate contains 西安", w.any { it.contains("西安") })
+        assertTrue("不实现 present", "不实现" in w)
+        val singles = w.filter { it.codePointCount(0, it.length) == 1 }
+        assertTrue("a single layer exists", singles.isNotEmpty())
+        assertTrue("the list closes on single characters", w.takeLastWhile { it.codePointCount(0, it.length) == 1 }.isNotEmpty())
+        assertEquals("common bu 同音字 lead the single layer", listOf("不", "部"), singles.take(2))
+        assertTrue("现 navigable at the last syllable", "现" in d.homophonesAt("bushixian", 2))
+        pureSentences(c, "bushixian".length).forEach {
+            assertEquals("every pure sentence spans 3 syllables", 3, it.codePointCount(0, it.length))
+        }
+    }
+
     @Test fun shixian_surfacesShixianAsTheLeadingWord() {
         val w = words(locked(listOf("shi", "xian")))
         assertTrue("实现 in #1/#2", w.take(2).contains("实现"))
         assertFalse("no 西安", w.any { it.contains("西安") })
+    }
+
+    @Test fun aLockedFirstSyllableIsNeverReSplitIntoSubReadings() {
+        val w = words(locked(listOf("xian", "ku")))
+        assertTrue("现 (the xian reading) present", "现" in w)
+        assertFalse("西 (the xi sub-reading) must NOT appear — the locked xian is atomic", "西" in w)
+        assertFalse("no 西安 either", w.any { it.contains("西安") })
+        assertTrue("control: unlocked xianku still surfaces 西 (xi)", "西" in words(d.decodeCovered("xianku", 30)))
+    }
+
+    @Test fun aSingleLockedSyllableIsAtomicToo() {
+        val w = words(d.decodeCoveredAtomic("xiang", 30))
+
+        assertTrue("common xiang homophones stay prominent", w.take(7).containsAll(listOf("向", "想", "相", "像", "香")))
+        assertFalse("selected xiang must not leak xian candidates", "西安" in w)
+        assertFalse("selected xiang must not leak xi prefix singles", "西" in w)
+        assertFalse("selected xiang must not leak xia prefix singles", "下" in w)
+    }
+
+    @Test fun aPartiallyLockedFirstSyllableIsAtomicButCanJoinTheTail() {
+        val w = words(d.decodeCoveredAtomic("xiangku", 30, setOf("xiang".length)))
+
+        assertTrue("cross-boundary word remains available", "想哭" in w.take(3))
+        assertEquals("the top xiang homophones lead the single-character tail", listOf("向", "想", "相"),
+            w.filter { it.codePointCount(0, it.length) == 1 }.take(3))
+        assertTrue("all common xiang homophones remain reachable", w.containsAll(listOf("向", "想", "相", "像", "香")))
+        assertFalse("selected xiang must not leak xian candidates", "西安" in w)
+        assertFalse("selected xiang must not leak xi prefix singles", "西" in w)
+        assertFalse("selected xiang must not leak xia prefix singles", "下" in w)
+
+        val unlocked = words(d.decodeCovered("xiangku", 30))
+        assertTrue("control: free typing still keeps the xian prefix candidate", "西安" in unlocked)
+        assertTrue("control: free typing still keeps the xi prefix single", "西" in unlocked)
+        assertTrue("control: free typing still keeps the xia prefix single", "下" in unlocked)
     }
 }
