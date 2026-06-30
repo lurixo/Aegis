@@ -396,6 +396,57 @@ class AegisInputMethodServiceLifecycleTest {
         view.layout(0, 0, view.measuredWidth, view.measuredHeight)
     }
 
+    @Test fun copy_bar_split_selection_composes_in_source_order_without_writing_either_clipboard() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        val systemClipboard = f.service.getSystemService(ClipboardManager::class.java)
+        systemClipboard.setPrimaryClip(ClipData.newPlainText("sentinel", "SYSTEM_SENTINEL"))
+        shadowOf(Looper.getMainLooper()).idle()
+        clipboardStore(f.service).clearHistory()
+
+        f.view.showCopyBar("检查一下，检查")
+        val bar = f.view.copyBarForTest()
+        bar.toggleSplitForTest()
+        assertEquals(listOf("检查", "一下", "，", "检查"), bar.splitBlocksForTest())
+
+        assertTrue(bar.tapSplitBlockForTest(2) == true)
+        assertTrue(bar.tapSplitBlockForTest(0) == true)
+        assertTrue(bar.tapSplitBlockForTest(1) == true)
+        assertTrue(bar.tapSplitBlockForTest(2) == false)
+
+        assertEquals(listOf("，", "检查，", "检查一下，", "检查一下"), connection.composingUpdates)
+        assertEquals("检查一下", connection.editable.toString())
+        assertEquals(setOf(0, 1), bar.splitSelectedForTest())
+        assertTrue(clipboardStore(f.service).historyText().isEmpty())
+        assertEquals(
+            "SYSTEM_SENTINEL",
+            systemClipboard.primaryClip?.getItemAt(0)?.text?.toString(),
+        )
+
+        bar.toggleSplitForTest()
+        assertEquals(1, connection.finishes)
+        bar.finishSplitSelection()
+        assertEquals("the completed taskbar session must not finish twice", 1, connection.finishes)
+    }
+
+    @Test fun active_copy_bar_split_selection_finishes_once_when_the_input_target_ends() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        f.view.showCopyBar("检查一下")
+        val bar = f.view.copyBarForTest()
+        bar.toggleSplitForTest()
+        bar.tapSplitBlockForTest(0)
+
+        assertEquals(0, connection.finishes)
+        f.service.onFinishInput()
+        assertEquals(1, connection.finishes)
+        assertEquals("检查", connection.editable.toString())
+        bar.finishSplitSelection()
+        assertEquals("the ended taskbar session must not finish twice", 1, connection.finishes)
+    }
+
     @Test fun edit_paste_replaces_the_selection_with_the_latest_aegis_entry_without_system_paste() {
         val f = fixture()
         val connection = RecordingInputConnection(FrameLayout(f.service))

@@ -283,6 +283,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var inputSessionActive = false
     private var resetControllerOnNextInputView = false
 
+    private var splitSelectionInputConnection: InputConnection? = null
     private var frameworkWillFinishInput = false
     private var translateOpen = false
     private var translateEngaged = true
@@ -702,6 +703,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onPanelClear = { controller.onPanelClear() }
             onExpandClosed = { controller.clearDrill() }
             onCollapse = { requestHideSelf(0) }
+            onCopyCommit = { t ->
+                toast(uiString(if (commitLargeText(t)) R.string.edit_paste_done else R.string.edit_paste_failed))
+            }
+            onCopySelectionChanged = { text ->
+                controller.expireCandidateChoiceUndo()
+                updateSplitSelection(text)
+            }
+            onCopySelectionFinished = { finishSplitSelection() }
             onCopyDismiss = {
                 controller.expireCandidateChoiceUndo()
                 lastCopy = null
@@ -1953,6 +1962,19 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun toast(msg: String) { inputView?.showToast(msg) }
 
     internal fun toastTextForTest(): String? = inputView?.toastTextForTest()
+
+    private fun updateSplitSelection(text: String) {
+        val connection = splitSelectionInputConnection ?: currentInputConnection?.also {
+            splitSelectionInputConnection = it
+        }
+        connection?.setComposingText(text, 1)
+    }
+
+    private fun finishSplitSelection() {
+        val connection = splitSelectionInputConnection ?: currentInputConnection
+        if (!frameworkWillFinishInput) connection?.finishComposingText()
+        splitSelectionInputConnection = null
+    }
 
     private fun historyEnabled() =
         runCatching { getSharedPreferences("aegis", MODE_PRIVATE).getBoolean("clip_history", true) }.getOrDefault(true)

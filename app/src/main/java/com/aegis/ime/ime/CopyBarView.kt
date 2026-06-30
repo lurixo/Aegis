@@ -149,6 +149,8 @@ class CopyBarView(context: Context) : LinearLayout(context) {
     internal fun splitModeForTest(): Boolean = ctl.splitMode
     internal fun contentForTest(): String? = ctl.content
     internal fun splitBlocksForTest(): List<String> = ctl.blocks
+    internal fun splitSelectedForTest(): Set<Int> = ctl.selectedIndices()
+    internal fun tapSplitBlockForTest(index: Int): Boolean? = ctl.tapBlock(index)
     internal fun finishSplitSelection() = ctl.finishSelection()
     internal fun splitRenderedForTest(): Boolean = scrollerForTest { it is LinearLayout } != null
     internal fun contentScrollerForTest(): HorizontalScrollView? = scrollerForTest { it is TextView }
