@@ -293,6 +293,7 @@ class KeyboardController(
                 clearComposingState(keepChoiceUndo = true); lastWord = null
             }
             cand in predictionCands -> {
+                expirePreeditChoiceUndo()
                 host.commitText(cand.word)
                 if (!learningBlocked) engine.learn(lastWord, cand.word)
                 lastWord = cand.word
