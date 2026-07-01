@@ -91,6 +91,7 @@ object EngineFixture {
         rows.add(Row("ciku", "词库", 850))
         rows.add(Row("jiujian", "九键", 850))
         rows.add(Row("shixian", "实现", 880))
+        rows.add(Row("xiangku", "想哭", 870))
         rows.add(Row("bushi", "不是", 800)) // a leading 2-syllable word inside bu'shi'xian
         return build(rows)
     }

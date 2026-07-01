@@ -826,24 +826,11 @@ class KeyboardController(
                 // forced (the cut "disappeared" the moment a reading was locked). T9 maps each letter to
                 // exactly one digit, so |fullLetters| == |composing| and a forcedCut's digit index IS its
                 // letter offset in fullLetters — interior active cuts pass straight through, no translation.
-                // debug.17 (9-key 丢字): when EVERY syllable is locked (no active tail) the user has declared the
-                // COMPLETE segmentation, so feed those locked boundaries to the decoder as forced cuts. That drops
-                // the extending cross-boundary completions (柴磁地黄丸 = chaicidihuangwan) + reranked rare chars that
-                // otherwise flood a rich dict and bury 拆/拆词. A PARTIAL lock (still typing the tail) adds NO lock
-                // cut, so a legitimate multi-syllable word over the locked-syllable + tail (你的, while only 你 is
-                // locked) is NOT suppressed. letters↔digits is 1:1, so a lock boundary's letter offset is also its
-                // digit offset — the same index space as forcedCuts and the [bounds] coverage remap below.
                 val full = fullLetters()
-                val lockCuts = if (activeDigits().isEmpty()) {
-                    val cuts = ArrayList<Int>(lockedReadings.size); var acc = 0
-                    for (r in lockedReadings) { acc += r.length; if (acc < full.length) cuts.add(acc) }
-                    cuts
-                } else emptyList()
+                val lockCuts = ArrayList<Int>(lockedReadings.size); var acc = 0
+                for (r in lockedReadings) { acc += r.length; if (acc < full.length) lockCuts.add(acc) }
                 val readingCuts = (forcedCuts.filter { it in (activeStart + 1) until composing.length } + lockCuts).toSet()
-                val lockedCandidates =
-                    if (activeDigits().isEmpty()) engine.candidatesForLockedReadingCovered(full, readingCuts, context)
-                    else engine.candidatesForReadingCovered(full, readingCuts, context)
-                lockedCandidates
+                engine.candidatesForLockedReadingCovered(full, readingCuts, context)
                     // F1 (debug.12, DATA LOSS): coveredLen is in LETTERS of fullLetters; remap it to DIGITS of
                     // the live buffer. A coverage NOT on a syllable boundary (e.g. a 2-letter word while the
                     // locked syllable is 3 letters) is absent from [bounds]; the old `?: composing.length`

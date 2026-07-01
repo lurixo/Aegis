@@ -45,9 +45,9 @@ class Debug12FixATest {
 
     /**
      * Stand-in decoder for the LOCKED path. Records the cuts it is handed (F6) and returns a full-cover
-     * sentence plus "X" (covers 4 letters — OFF the syllable boundaries, exercises the F1 remap). When a
-     * forced cut is present it suppresses the spanning sentence, mirroring `PinyinDecoder.decodeCovered`
-     * dropping whole-input completions across a forced boundary.
+     * sentence plus "X" (covers 4 letters — OFF the syllable boundaries, exercises the F1 remap). When the
+     * active-tail forced cut is present it suppresses the spanning sentence, while a locked-reading
+     * boundary still allows a multi-syllable word across the locked prefix and tail.
      */
     private class ProbeEngine : CandidateEngine {
         var lastReadingCuts: Set<Int> = setOf(-1) // sentinel: not "called with the empty set"
@@ -57,7 +57,7 @@ class Debug12FixATest {
             if (composing.isEmpty()) emptyList() else listOf(Cand("好", composing.length))
         override fun candidatesForReadingCovered(letters: String, cuts: Set<Int>, context: CharSequence): List<Cand> {
             lastReadingCuts = cuts
-            val spanning = if (cuts.isEmpty()) listOf(Cand("好的", letters.length)) else emptyList()
+            val spanning = if (4 !in cuts) listOf(Cand("好的", letters.length)) else emptyList()
             return spanning + listOf(Cand("X", 4))
         }
     }
@@ -100,7 +100,7 @@ class Debug12FixATest {
 
         assertEquals(
             "the forced 分词 boundary inside the active tail is forwarded to the locked-path decode",
-            setOf(4), probe.lastReadingCuts,
+            setOf(2, 4), probe.lastReadingCuts,
         )
     }
 

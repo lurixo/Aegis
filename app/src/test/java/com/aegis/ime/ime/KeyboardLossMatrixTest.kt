@@ -151,17 +151,16 @@ class KeyboardLossMatrixTest {
     }
 
     /**
-     * GATE lock (the other direction): with the tail STILL ACTIVE (only chai locked, ci typed-not-locked) the
-     * locked boundary must NOT be forwarded as a cut — otherwise a legitimate word spanning the locked syllable
-     * and the active tail (the 你的 class) would be wrongly suppressed. Guards the activeDigits().isEmpty() gate.
+     * Partial locks still use the locked-reading decoder: the selected syllable boundary is forwarded so the
+     * locked prefix remains atomic while the active tail can still form a multi-syllable word with it.
      */
-    @Test fun nineKey_partialLockDoesNotForwardLockedBoundaries() {
+    @Test fun nineKey_partialLockForwardsLockedBoundaryToLockedDecode() {
         var seenCuts: Set<Int>? = null
         val recorder = object : CandidateEngine {
             override fun candidates(composing: String, t9: Boolean) = listOf("拆")
             override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence) =
                 listOf(Cand("拆", composing.length))
-            override fun candidatesForReadingCovered(letters: String, cuts: Set<Int>, context: CharSequence): List<Cand> {
+            override fun candidatesForLockedReadingCovered(letters: String, cuts: Set<Int>, context: CharSequence): List<Cand> {
                 seenCuts = cuts; return listOf(Cand("拆", 4))
             }
         }
@@ -170,7 +169,7 @@ class KeyboardLossMatrixTest {
         type(c, "2424"); pick(c, "chai") // lock ONLY chai
         type(c, "24")                     // type ci but DO NOT lock → active tail remains
         assertTrue("the locked-path decode ran", seenCuts != null)
-        assertFalse("a partial lock must NOT forward the chai boundary as a cut", 4 in seenCuts!!)
+        assertTrue("a partial lock must forward the selected chai boundary as a cut", 4 in seenCuts!!)
     }
 
     /**
