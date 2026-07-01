@@ -81,8 +81,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private var RED = palette.onErrorContainer
     private var RED_PILL = palette.errorContainer
     private var GREY_PILL = palette.chipBg
-    private var SPLIT_BLOCK_BG = palette.accentBottom
-    private var SPLIT_BLOCK_TEXT = palette.accentLabel
+    private var SPLIT_BLOCK_BG = palette.chipBg
+    private var SPLIT_BLOCK_TEXT = palette.chipText
+    private var SPLIT_BLOCK_COPIED_BG = palette.accentBottom
+    private var SPLIT_BLOCK_COPIED_TEXT = palette.accentLabel
     private var TEXT_DARK = palette.keyLabel
     private var HINT = palette.keyHint
     private var CARD = palette.keySurface
@@ -92,7 +94,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     fun applyPalette(p: ImePalette) {
         palette = p
         GREEN = p.candidateFirst; GREEN_PILL = p.chipBg; RED = p.onErrorContainer; RED_PILL = p.errorContainer
-        GREY_PILL = p.chipBg; SPLIT_BLOCK_BG = p.accentBottom; SPLIT_BLOCK_TEXT = p.accentLabel; TEXT_DARK = p.keyLabel; HINT = p.keyHint; CARD = p.keySurface
+        GREY_PILL = p.chipBg; SPLIT_BLOCK_BG = p.chipBg; SPLIT_BLOCK_TEXT = p.chipText
+        SPLIT_BLOCK_COPIED_BG = p.accentBottom; SPLIT_BLOCK_COPIED_TEXT = p.accentLabel
+        TEXT_DARK = p.keyLabel; HINT = p.keyHint; CARD = p.keySurface
         BG = p.keyboardBg; SEP = p.separator
         main.setBackgroundColor(BG)
         refresh()
@@ -903,7 +907,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             }
             chip.setOnClickListener {
                 splitSelected.add(b)
-                chip.background = rounded(GREY_PILL, ImeShapes.chipRadiusDp)
+                chip.setTextColor(SPLIT_BLOCK_COPIED_TEXT)
+                chip.background = rounded(SPLIT_BLOCK_COPIED_BG, ImeShapes.chipRadiusDp)
                 onCopyBlockToAegis(b)
             }
             chipViews.add(chip); chips.addView(chip)
@@ -920,7 +925,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setPadding(dp(16), dp(14), dp(8), dp(10))
             setOnClickListener {
                 splitSelected.addAll(blocks)
-                for (c in chipViews) c.background = rounded(GREY_PILL, ImeShapes.chipRadiusDp)
+                for (c in chipViews) {
+                    c.setTextColor(SPLIT_BLOCK_COPIED_TEXT)
+                    c.background = rounded(SPLIT_BLOCK_COPIED_BG, ImeShapes.chipRadiusDp)
+                }
                 onCopyBlocksToAegis(blocks)
             }
         }, ll(WC, WC))
