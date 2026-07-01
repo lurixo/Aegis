@@ -58,6 +58,15 @@ interface CandidateEngine {
         candidatesForReading(letters).map { Cand(it, letters.length) }
 
     /**
+     * Coverage-tagged candidates for a reading that the user explicitly locked/chose. Unlike free typing,
+     * the chosen reading is atomic: a single locked syllable such as `xiang` must not leak shorter prefix
+     * readings such as `xian`/`xia` into the grid. The default keeps test doubles source-compatible; the real
+     * dictionary engine overrides this with the boundary-aligned decoder.
+     */
+    fun candidatesForLockedReadingCovered(letters: String, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =
+        candidatesForReadingCovered(letters, cuts, context)
+
+    /**
      * ★单字无损 / per-syllable navigation (debug.13). Segment the live buffer into syllables so the UI can
      * navigate syllable positions (UI-1 9-key trailing column, UI-2 26-key pinyin column). [t9] is true
      * when [composing] is a digit sequence. Empty when there is no decoder.

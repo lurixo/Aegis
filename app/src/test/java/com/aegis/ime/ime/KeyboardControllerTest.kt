@@ -948,6 +948,8 @@ class KeyboardControllerTest {
         assertEquals(LayoutId.ALPHA, c.activeLayoutId())
         c.setCnDefaultLayout(LayoutId.NINE)   // cnDefaultLayout really flips ALPHA→NINE WHILE in EN
         assertEquals("EN stays 26-key regardless of the CN default flip", LayoutId.ALPHA, c.activeLayoutId())
+        c.onKey(act(KeyAction.TOGGLE_LANG))   // EN -> CN
+        assertEquals("returning to CN uses the latest setting without an IME relaunch", LayoutId.NINE, c.activeLayoutId())
     }
 
     // ---- H-1: a default-9-key user must be able to return to the 9-key from the number/symbol pages ----

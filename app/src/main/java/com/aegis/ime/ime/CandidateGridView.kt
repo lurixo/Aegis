@@ -120,8 +120,10 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         }
         backspaceGlyph.tint(p.keyLabelSecondary) // debug.17 A2: keep the self-drawn ⌫ in step with the column
         for (i in 0 until readingColumn.childCount) (readingColumn.getChildAt(i) as? TextView)?.let {
-            it.setTextColor(p.preeditText)
-            Motion.applyTapFeedback(it, p.preeditText)
+            val on = i == renderedSelected
+            val color = if (on) p.candidateFirst else p.candidateText
+            it.setTextColor(color)
+            Motion.applyTapFeedback(it, color)
         }
         renderedCandidates = null
         renderedReadings = null
@@ -188,10 +190,11 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
                     gravity = Gravity.CENTER
                     setPadding(0, dp(10), 0, dp(10))
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
-                    setTextColor(if (on) palette.candidateFirst else palette.preeditText)
+                    val color = if (on) palette.candidateFirst else palette.candidateText
+                    setTextColor(color)
                     setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
                     isClickable = true
-                    Motion.applyTapFeedback(this, if (on) palette.candidateFirst else palette.preeditText)
+                    Motion.applyTapFeedback(this, color)
                     setOnClickListener { onPickReading(i) }
                 },
                 LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT),
@@ -246,6 +249,8 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         gridScroll.scrollTo(0, gridY)
         readingScroll.scrollTo(0, readingY)
     }
+    internal fun readingTextColorForTest(index: Int): Int? =
+        (readingColumn.getChildAt(index) as? TextView)?.currentTextColor
     internal fun selectedReadingBackgroundForTest(index: Int): Drawable? =
         (readingColumn.getChildAt(index) as? TextView)?.background
 

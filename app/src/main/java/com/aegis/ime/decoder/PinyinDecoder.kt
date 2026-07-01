@@ -263,6 +263,27 @@ class PinyinDecoder(
             .map { Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length }) }
     }
 
+    /**
+     * Boundary-aligned decode for readings the user explicitly selected. This is stricter than normal
+     * [decodeCovered]: even with a single syllable and no interior cut, the selected reading is atomic, so
+     * shorter prefix readings remain available only through the normal free-typing path.
+     */
+    fun decodeCoveredAtomic(input: String, limit: Int, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> {
+        if (input.isEmpty()) return emptyList()
+        val (ctxCp, ctxWord) = parseContext(context)
+        val norm = normalizeSeparators(input)
+        val clean = norm?.clean ?: input
+        if (clean.isEmpty()) return emptyList()
+        val passedClean = if (norm == null) cuts else cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
+        val interior = ((norm?.cuts ?: emptySet()) + passedClean).filter { it in 1 until clean.length }.toSet()
+        val decoded = decodeAtomic(clean, limit, interior, ctxCp, ctxWord)
+        return if (norm == null) {
+            decoded
+        } else {
+            decoded.map { Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length }) }
+        }
+    }
+
     private fun decodeCoveredClean(input: String, limit: Int, cuts: Set<Int>, context: CharSequence): List<Cand> {
         val (ctxCp, ctxWord) = parseContext(context)
         val interior = cuts.filter { it in 1 until input.length }.toSortedSet()

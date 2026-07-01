@@ -92,6 +92,14 @@ class BothKeyboardsAtomicFixTest {
         assertEquals("both keyboards funnel to the SAME atomic decode for $readings", han(nine), han(alpha))
     }
 
+    private fun alphaDrilled(reading: String): List<String> {
+        val c = controller()
+        c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+        c.type(reading)
+        c.onPickReadingIndex(0)
+        return c.candidateWords()
+    }
+
     @Test fun ciku_bothKeyboards() = bothMatch(listOf("ci", "ku"), 2, topWord = "词库", sentence = null)
 
     @Test fun jiujian_bothKeyboards() = bothMatch(listOf("jiu", "jian"), 2, topWord = "九键", sentence = null)
@@ -104,6 +112,19 @@ class BothKeyboardsAtomicFixTest {
     @Test fun ninekey_and_alpha_grids_are_identical_for_every_input() {
         for (r in listOf(listOf("ci", "ku"), listOf("diu", "zi"), listOf("bu", "shi", "xian"), listOf("jiu", "jian"))) {
             assertEquals("identical decoded grid for $r", han(nineKeyLocked(r)), han(alphaSeparated(r)))
+        }
+    }
+
+    @Test fun single_selected_xiang_stays_on_the_selected_reading() {
+        val cases = listOf(
+            "9-key locked xiang" to nineKeyLocked(listOf("xiang")),
+            "26-key drilled xiang" to alphaDrilled("xiang"),
+        )
+        for ((label, words) in cases) {
+            assertTrue("$label: common xiang homophones stay prominent", words.take(7).containsAll(listOf("向", "想", "相", "像", "香")))
+            assertFalse("$label: no xian word leak", "西安" in words)
+            assertFalse("$label: no xi prefix leak", "西" in words)
+            assertFalse("$label: no xia prefix leak", "下" in words)
         }
     }
 }

@@ -97,4 +97,15 @@ class PinyinDecoderTest {
         assertEquals("plain input keeps the zhi tail navigable", zhi, d.homophonesAt("jiangzhi", 1).toSet())
         assertEquals("separated input keeps the zhi tail navigable", zhi, d.homophonesAt("jiang'zhi", 1).toSet())
     }
+
+    @Test
+    fun selectedXiangUsesOnlyTheChosenReadingInTheAssetDict() {
+        val d = decoder()
+        val words = d.decodeCoveredAtomic("xiang", 30).map { it.word }
+
+        assumeTrue("asset has common xiang homophones", words.containsAll(listOf("向", "想", "相")))
+        assertTrue("common xiang homophones stay prominent", words.take(8).containsAll(listOf("向", "想", "相")))
+        assertTrue("selected xiang must not leak xi prefix singles", "西" !in words)
+        assertTrue("selected xiang must not leak xian words", "西安" !in words)
+    }
 }

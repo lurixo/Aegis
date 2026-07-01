@@ -205,10 +205,11 @@ class KeyboardController(
     /** M-3/L-3 privacy: when true (password / NO_PERSONALIZED_LEARNING field), commits are NOT learned. */
     fun setLearningBlocked(blocked: Boolean) { learningBlocked = blocked }
 
-    /** B5: choose the CN default keyboard (NINE / ALPHA). Applied on the next [reset]; EN ignores it. */
+    /** B5: choose the CN default keyboard (NINE / ALPHA). Applied live when safe and always on the next CN return. */
     fun setCnDefaultLayout(id: LayoutId) {
         if (cnDefaultLayout == id) return
         cnDefaultLayout = id
+        cnLayout = id
         // ③ debug.18: apply the new CN default keyboard IMMEDIATELY when we are already on a CN pinyin keyboard
         // with NOTHING pending. It used to only take effect on the next reset()/onStartInputView, so flipping the
         // 9键/26键 setting required re-launching the IME. Gated to an EMPTY buffer so switchLayout's flush can
@@ -217,7 +218,6 @@ class KeyboardController(
         if (lang == Lang.CN && (layoutId == LayoutId.NINE || layoutId == LayoutId.ALPHA) &&
             composing.isEmpty() && committedPrefix.isEmpty()
         ) {
-            cnLayout = id
             switchLayout(id)
             refreshCandidates()
             render()
@@ -313,8 +313,9 @@ class KeyboardController(
                 flushComposing()
                 shiftState = ShiftState.OFF // I4: switching 中英 clears caps lock / one-shot
                 if (lang == Lang.CN) {
-                    // Leaving CN: remember the CN keyboard (issue #10: EN is 26-key only).
-                    cnLayout = layoutId
+                    // Leaving CN keeps the already-recorded CN restore target. Settings changes can arrive
+                    // while composing or while already in EN; do not overwrite that newer target with a stale
+                    // visible layout here.
                     lang = Lang.EN
                     layoutId = LayoutId.ALPHA
                 } else {
@@ -630,6 +631,7 @@ class KeyboardController(
         flushComposing()
         shiftState = ShiftState.OFF // I4: a layout switch clears caps lock / one-shot
         layoutId = id
+        if (lang == Lang.CN && (id == LayoutId.NINE || id == LayoutId.ALPHA)) cnLayout = id
     }
 
     /**
@@ -838,7 +840,10 @@ class KeyboardController(
                     cuts
                 } else emptyList()
                 val readingCuts = (forcedCuts.filter { it in (activeStart + 1) until composing.length } + lockCuts).toSet()
-                engine.candidatesForReadingCovered(full, readingCuts, context)
+                val lockedCandidates =
+                    if (activeDigits().isEmpty()) engine.candidatesForLockedReadingCovered(full, readingCuts, context)
+                    else engine.candidatesForReadingCovered(full, readingCuts, context)
+                lockedCandidates
                     // F1 (debug.12, DATA LOSS): coveredLen is in LETTERS of fullLetters; remap it to DIGITS of
                     // the live buffer. A coverage NOT on a syllable boundary (e.g. a 2-letter word while the
                     // locked syllable is 3 letters) is absent from [bounds]; the old `?: composing.length`

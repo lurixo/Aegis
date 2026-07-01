@@ -70,6 +70,11 @@ class DictEngine(
         return decoder?.decodeCovered(letters, MAX_CANDIDATES, cuts, context) ?: emptyList()
     }
 
+    override fun candidatesForLockedReadingCovered(letters: String, cuts: Set<Int>, context: CharSequence): List<Cand> {
+        if (letters.isEmpty()) return emptyList()
+        return decoder?.decodeCoveredAtomic(letters, MAX_CANDIDATES, cuts, context) ?: emptyList()
+    }
+
     // ★单字无损 / per-syllable navigation API (debug.13) — for UI-1 (9-key trailing column) and UI-2
     // (26-key pinyin column). Single-char homophones come straight from the decoder uncapped.
     override fun syllables(composing: String, t9: Boolean): List<Syllable> {

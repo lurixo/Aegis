@@ -75,6 +75,11 @@ object EngineFixture {
         // 西(xi) + 安(an): so a SINGLE locked xian can be internally re-split into xi|an -> 西安 by the old
         // "forbid only cross-cut" decode. The boundary-aligned locked decode must forbid that interior split.
         rows.add(Row("xi", "西", 850)); rows.add(Row("an", "安", 900))
+        // --- xiang: regression fixture for a single locked reading. Shorter prefixes (xian/xia/xi) must not
+        // leak into the selected xiang grid, while the common xiang homophones stay at the front.
+        listOf("向" to 980, "想" to 930, "相" to 900, "像" to 860, "香" to 800, "响" to 760, "享" to 700)
+            .forEach { rows.add(Row("xiang", it.first, it.second)) }
+        listOf("下" to 900, "夏" to 760, "霞" to 700).forEach { rows.add(Row("xia", it.first, it.second)) }
         // --- jiu (no supplementary — kept sparse; jiu'jian ① is proven via the leading 九键 + common singles) ---
         listOf("九" to 900, "就" to 880, "久" to 860, "酒" to 840, "旧" to 800, "救" to 700)
             .forEach { rows.add(Row("jiu", it.first, it.second)) }
