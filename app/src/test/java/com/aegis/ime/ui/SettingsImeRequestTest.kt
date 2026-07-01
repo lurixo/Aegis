@@ -58,6 +58,7 @@ class SettingsImeRequestTest {
                 true
             },
             isReady = { true },
+            isImeVisible = { shownFor != null },
         )
         shadowOf(Looper.getMainLooper()).idle()
 
@@ -93,6 +94,7 @@ class SettingsImeRequestTest {
                 true
             },
             isReady = { true },
+            isImeVisible = { shownFor != null },
         )
         shadowOf(Looper.getMainLooper()).idle()
 
@@ -115,6 +117,7 @@ class SettingsImeRequestTest {
         val calls = ArrayList<String>()
         val shownFor = ArrayList<View>()
         repeat(2) {
+            val alreadyShown = shownFor.size
             host.requestImeWhenReady(
                 context = activity,
                 focusTarget = {
@@ -127,6 +130,7 @@ class SettingsImeRequestTest {
                     true
                 },
                 isReady = { true },
+                isImeVisible = { shownFor.size > alreadyShown },
             )
             shadowOf(Looper.getMainLooper()).idle()
         }
@@ -157,6 +161,37 @@ class SettingsImeRequestTest {
                 shownFor.size >= 3
             },
             isReady = { true },
+            isImeVisible = { shownFor.size >= 3 },
+            retryDelaysMs = longArrayOf(0L, 0L, 0L, 0L),
+        )
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(listOf(target, target, target), shownFor)
+    }
+
+    @Test fun ime_request_keeps_retrying_when_accepted_show_is_still_not_visible() {
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup()
+        val activity = controller.get()
+        val host = FrameLayout(activity)
+        val target = View(activity).apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
+        }
+        host.addView(target)
+        activity.setContentView(host)
+
+        val shownFor = ArrayList<View>()
+        host.requestImeWhenReady(
+            context = activity,
+            focusTarget = {
+                target.requestFocus()
+            },
+            showSoftInput = {
+                shownFor.add(it)
+                true
+            },
+            isReady = { true },
+            isImeVisible = { shownFor.size >= 3 },
             retryDelaysMs = longArrayOf(0L, 0L, 0L, 0L),
         )
         shadowOf(Looper.getMainLooper()).idle()
