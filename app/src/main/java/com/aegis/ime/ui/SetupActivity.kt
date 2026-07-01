@@ -62,10 +62,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import com.aegis.ime.R
 import com.aegis.ime.ui.theme.AegisTheme
 
 /** Landing screen: enable the IME, switch to it, and a field to try typing. */
@@ -164,10 +166,9 @@ private fun SetupScreen(resumeSignal: Int = 0) {
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("Aegis 输入法", style = MaterialTheme.typography.headlineMedium)
+        Text(stringResource(R.string.setup_title), style = MaterialTheme.typography.headlineMedium)
         Text(
-            "离线中文 / 英文输入法。自建拼音引擎（全拼 + 九宫格 T9），模糊拼音、简拼、中英混输、" +
-                "英文补全纠错、离线自学习；可选下载万象大模型增强。全程离线，输入不联网。",
+            stringResource(R.string.setup_summary),
             style = MaterialTheme.typography.bodyMedium,
         )
 
@@ -178,10 +179,9 @@ private fun SetupScreen(resumeSignal: Int = 0) {
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text("首次使用", style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.setup_first_run_title), style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "下方可选下载【增强模型】与【全量词库】(都不是必须的)。内置种子词库与基础语法已能离线打字," +
-                            "想要更准/更全时再下载即可。",
+                        stringResource(R.string.setup_first_run_body),
                         style = MaterialTheme.typography.bodySmall,
                     )
                     TextButton(
@@ -189,7 +189,7 @@ private fun SetupScreen(resumeSignal: Int = 0) {
                             showDownloadHint = false
                             prefs.edit { putBoolean("dl_hint_dismissed", true) }
                         },
-                    ) { Text("知道了") }
+                    ) { Text(stringResource(R.string.setup_first_run_ack)) }
                 }
             }
         }
@@ -209,7 +209,7 @@ private fun SetupScreen(resumeSignal: Int = 0) {
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("启用步骤", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.setup_steps_title), style = MaterialTheme.typography.titleMedium)
                 Button(
                     onClick = {
                         context.startActivity(
@@ -218,7 +218,7 @@ private fun SetupScreen(resumeSignal: Int = 0) {
                         )
                     },
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("1 · 在系统设置中启用 Aegis") }
+                ) { Text(stringResource(R.string.setup_enable_button)) }
                 Button(
                     onClick = {
                         val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE)
@@ -226,14 +226,14 @@ private fun SetupScreen(resumeSignal: Int = 0) {
                         imm.showInputMethodPicker()
                     },
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("2 · 切换到 Aegis 输入法") }
+                ) { Text(stringResource(R.string.setup_switch_button)) }
             }
         }
 
         OutlinedTextField(
             value = typed,
             onValueChange = { typed = it },
-            label = { Text("3 · 在此试打") },
+            label = { Text(stringResource(R.string.setup_try_field_label)) },
             modifier = Modifier
                 .fillMaxWidth()
                 .focusRequester(tryFieldFocusRequester)
@@ -251,6 +251,7 @@ private fun SetupScreen(resumeSignal: Int = 0) {
         )
 
         UserDictCard()
+        AppVersionCard()
     }
 }
 

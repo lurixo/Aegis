@@ -40,7 +40,7 @@ import kotlin.math.abs
  *  - MIDDLE = candidate grid (scroll), single chars included (no forced combining) — tap commits [onPick].
  *  - RIGHT = function column: 返回 [onClose] / 退格 [onBackspace] / 重输 [onClear]  (⛔ 笔画 / 全部·单字 dropped).
  */
-class CandidateGridView(context: Context) : LinearLayout(context) {
+class CandidateGridView(context: Context) : LinearLayout(context), ResettablePanel {
 
     var onPick: (Int) -> Unit = {}
     var onPickReading: (Int) -> Unit = {}
@@ -54,6 +54,8 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
     private var palette = ImePalette.STATIC_LIGHT
     private val readingColumn = LinearLayout(context).apply { orientation = VERTICAL }
     private val gridColumn = LinearLayout(context).apply { orientation = VERTICAL }
+    private val readingScroll = ScrollView(context).apply { addView(readingColumn) }
+    private val gridScroll = ScrollView(context).apply { addView(gridColumn) }
     private val rightColumn = FrameLayout(context)
     // debug.17 A2: the right column's ⌫ is a self-drawn [Glyphs.drawBackspace] icon (same GlyphDrawable wrapper
     // as the keyboard / 符号 / 表情 ⌫: 22dp box, 2dp ROUND stroke), not a font character. 返回/重输 stay text.
@@ -76,12 +78,12 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
         // LEFT — pinyin-combination selector (scroll).
         readingColumn.setBackgroundColor(palette.keyboardBg)
         addView(
-            ScrollView(context).apply { addView(readingColumn) },
+            readingScroll,
             LayoutParams(dp(60), LayoutParams.MATCH_PARENT),
         )
         // MIDDLE — candidate grid (scroll), takes the remaining width.
         addView(
-            ScrollView(context).apply { addView(gridColumn) },
+            gridScroll,
             LayoutParams(0, LayoutParams.MATCH_PARENT, 1f),
         )
         // RIGHT — function column: 返回 / 退格 / 重输.
@@ -99,6 +101,11 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
         )
         rightColumn.addView(funcButton("重输") { onClear() }, rowAlignedLp(4))
         addView(rightColumn, LayoutParams(dp(64), LayoutParams.MATCH_PARENT))
+    }
+
+    override fun resetToDefault() {
+        readingScroll.scrollTo(0, 0)
+        gridScroll.scrollTo(0, 0)
     }
 
     /** F1: recolour the panel from the Monet palette (content recolours on the next setReadings/setCandidates). */
@@ -233,6 +240,12 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
     internal fun returnButtonForTest(): TextView = rightColumn.getChildAt(0) as TextView
     internal fun backspaceButtonForTest(): TextView = rightColumn.getChildAt(1) as TextView
     internal fun clearButtonForTest(): TextView = rightColumn.getChildAt(2) as TextView
+    internal fun gridScrollYForTest(): Int = gridScroll.scrollY
+    internal fun readingScrollYForTest(): Int = readingScroll.scrollY
+    internal fun scrollForTest(gridY: Int, readingY: Int = 0) {
+        gridScroll.scrollTo(0, gridY)
+        readingScroll.scrollTo(0, readingY)
+    }
     internal fun selectedReadingBackgroundForTest(index: Int): Drawable? =
         (readingColumn.getChildAt(index) as? TextView)?.background
 

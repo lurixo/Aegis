@@ -527,6 +527,7 @@ class KeyboardController(
                 if (activeStart > composing.length) activeStart = composing.length
             }
         }
+        if (composing.isEmpty() && committedPrefix.isNotEmpty()) flushComposing()
     }
 
     /** Rebuild [history] from the current (lock-free) buffer: a DIGIT per digit + a CUT at each boundary.

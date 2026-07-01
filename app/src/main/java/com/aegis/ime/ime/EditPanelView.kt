@@ -25,6 +25,7 @@ import android.graphics.drawable.Drawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
 
@@ -57,6 +58,9 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
     private val copyIcon: GlyphDrawable
     private val cutIcon: GlyphDrawable
     private val icons = mutableListOf<GlyphDrawable>() // tinted as a group on applyPalette (copy/cut re-tinted by state)
+    private val actionViews = mutableMapOf<EditAction, View>()
+    private val arrowIcons = mutableMapOf<EditAction, GlyphDrawable>()
+    private val titleBar: LinearLayout
 
     /** F1: recolour from the Monet palette (every button text → onSurface; disabled copy/cut stays muted). */
     fun applyPalette(p: ImePalette) {
@@ -68,12 +72,12 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
     }
 
     private fun recolor(v: View) {
+        if (v.hasOnClickListeners()) Motion.applyTapFeedback(v, palette.keyLabel)
         when (v) {
             is TextView -> {
                 v.setTextColor(palette.keyLabel)
-                Motion.applyTapFeedback(v, palette.keyLabel)
             }
-            is android.view.ViewGroup -> for (i in 0 until v.childCount) recolor(v.getChildAt(i))
+            is ViewGroup -> for (i in 0 until v.childCount) recolor(v.getChildAt(i))
         }
     }
 
@@ -83,14 +87,24 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
 
         // Title bar: keep the back chevron in the same outline style as the panel icons, but size its box near
         // the right-side action label height so it does not read heavier than the controls beside the D-pad.
-        addView(
-            textBtn("文字编辑", EditAction.BACK, sp = TITLE_SP).apply {
-                gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), 0, 0, 0)
-                setCompoundDrawablesWithIntrinsicBounds(icon(16, 0.56f) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }, null, null, null)
-                compoundDrawablePadding = dp(6)
-            },
-            LayoutParams(LayoutParams.MATCH_PARENT, dp(40)),
-        )
+        titleBar = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(
+                textBtn("文字编辑", EditAction.BACK, sp = TITLE_SP).apply {
+                    gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), 0, dp(12), 0)
+                    setCompoundDrawablesWithIntrinsicBounds(
+                        icon(16, 0.56f) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) },
+                        null,
+                        null,
+                        null,
+                    )
+                    compoundDrawablePadding = dp(6)
+                },
+                LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT),
+            )
+        }
+        addView(titleBar, LayoutParams(LayoutParams.MATCH_PARENT, dp(40)))
 
         // Middle: D-pad (left) + delete/copy/cut column (right). Arrows = hollow Glyphs.drawArrow (debug.16 item6).
         val mid = LinearLayout(context).apply { orientation = HORIZONTAL }
@@ -149,6 +163,10 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
 
     // P7 test seam.
     internal fun selectingLabelForTest(): CharSequence = selectBtn.text
+    internal fun actionViewForTest(action: EditAction): View? = actionViews[action]
+    internal fun titleBarForTest(): View = titleBar
+    internal fun arrowLastDrawCenterForTest(action: EditAction): Pair<Float, Float>? =
+        arrowIcons[action]?.lastDrawCenterForTest()
 
     private fun rowLp() = LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f)
 
@@ -171,6 +189,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         isClickable = true
         Motion.applyTapFeedback(this, palette.keyLabel)
         setOnClickListener { onAction(action) }
+        actionViews[action] = this
     }
 
     /** Icon-over-label key (删除/复制/剪切/全选/段首/段尾/粘贴). */
@@ -184,15 +203,18 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         isClickable = true
         Motion.applyTapFeedback(this, palette.keyLabel)
         setOnClickListener { onAction(action) }
+        actionViews[action] = this
     }
 
     /** Icon-only hollow-arrow key for the D-pad. */
-    private fun arrowBtn(action: EditAction, dir: Glyphs.Arrow): TextView = TextView(context).apply {
-        gravity = Gravity.CENTER
-        setCompoundDrawablesWithIntrinsicBounds(null, icon(32, 0.40f) { c, p, x, y, s -> Glyphs.drawArrow(c, p, x, y, s, dir) }, null, null)
+    private fun arrowBtn(action: EditAction, dir: Glyphs.Arrow): View = View(context).apply {
+        val glyph = icon(32, 0.40f) { c, p, x, y, s -> Glyphs.drawArrow(c, p, x, y, s, dir) }
+        arrowIcons[action] = glyph
+        background = glyph
         isClickable = true
         Motion.applyTapFeedback(this, palette.keyLabel)
         setOnClickListener { onAction(action) }
+        actionViews[action] = this
     }
 
     /** Build a palette-tinted [GlyphDrawable] in a [boxDp]² box and register it for recolouring. */
@@ -211,15 +233,25 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
             style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND; strokeWidth = strokePx
         }
         fun applyTint(color: Int) { paint.color = color; invalidateSelf() }
+        fun lastDrawCenterForTest(): Pair<Float, Float>? {
+            val x = lastCenterX
+            val y = lastCenterY
+            return if (x.isNaN() || y.isNaN()) null else x to y
+        }
         override fun getIntrinsicWidth() = boxPx
         override fun getIntrinsicHeight() = boxPx
         override fun draw(canvas: Canvas) {
             val b = bounds
-            render(canvas, paint, b.exactCenterX(), b.exactCenterY(), boxPx * sFactor)
+            lastCenterX = b.exactCenterX()
+            lastCenterY = b.exactCenterY()
+            render(canvas, paint, lastCenterX, lastCenterY, boxPx * sFactor)
         }
         override fun setAlpha(alpha: Int) {}
         override fun setColorFilter(colorFilter: ColorFilter?) {}
         @Deprecated("deprecated in Drawable", ReplaceWith("PixelFormat.TRANSLUCENT"))
         override fun getOpacity() = PixelFormat.TRANSLUCENT
+
+        private var lastCenterX = Float.NaN
+        private var lastCenterY = Float.NaN
     }
 }

@@ -79,6 +79,25 @@ class CandidateGridViewTest {
         assertEquals(readingRebuilds + 1, v.readingRebuildsForTest())
     }
 
+    @Test fun reset_to_default_scrolls_candidate_and_reading_columns_to_top() {
+        val v = CandidateGridView(ctx)
+        v.setReadings((1..30).map { "r$it" })
+        v.setCandidates((1..120).map { "候选$it" })
+        v.measure(
+            View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec((250 * density).toInt(), View.MeasureSpec.EXACTLY),
+        )
+        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+        v.scrollForTest(gridY = 180, readingY = 96)
+        assertTrue("precondition: candidate grid was scrolled", v.gridScrollYForTest() > 0)
+        assertTrue("precondition: reading column was scrolled", v.readingScrollYForTest() > 0)
+
+        v.resetToDefault()
+
+        assertEquals("candidate grid scroll resets to top", 0, v.gridScrollYForTest())
+        assertEquals("reading column scroll resets to top", 0, v.readingScrollYForTest())
+    }
+
     @Test fun up_swipe_on_grid_backspace_clears_instead_of_deleting_one_unit() {
         var cleared = false
         var deleted = false

@@ -33,8 +33,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
+import com.aegis.ime.R
 
 /**
  * Cross-session contract (debug.13 D1): the "联想" (next-word prediction) on/off flag, in prefs "aegis".
@@ -71,9 +73,9 @@ internal fun AssociationToggleCard() {
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text("联想", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.association_title), style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "打字时在候选栏显示下一词预测/联想。默认关,可开。",
+                    stringResource(R.string.association_description),
                     style = MaterialTheme.typography.bodySmall,
                 )
             }

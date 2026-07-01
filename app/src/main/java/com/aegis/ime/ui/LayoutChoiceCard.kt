@@ -34,8 +34,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
+import com.aegis.ime.R
 
 /**
  * B5 — 全拼 9 键 / 26 键 二选一（默认九键）。Persisted to the `cn_layout` pref; the IME service reads it in
@@ -52,9 +54,12 @@ internal fun LayoutChoiceCard() {
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("全拼键盘", style = MaterialTheme.typography.titleMedium)
-            Text("中文默认使用哪种键盘（英文始终为 26 键）。", style = MaterialTheme.typography.bodySmall)
-            listOf("nine" to "全拼九键", "alpha" to "全拼 26 键").forEach { (value, label) ->
+            Text(stringResource(R.string.layout_card_title), style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.layout_card_description), style = MaterialTheme.typography.bodySmall)
+            listOf(
+                "nine" to R.string.layout_nine,
+                "alpha" to R.string.layout_alpha,
+            ).forEach { (value, labelRes) ->
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth().clickable {
@@ -69,7 +74,7 @@ internal fun LayoutChoiceCard() {
                             prefs.edit { putString("cn_layout", value) }
                         },
                     )
-                    Text(label, style = MaterialTheme.typography.bodyLarge)
+                    Text(stringResource(labelRes), style = MaterialTheme.typography.bodyLarge)
                 }
             }
         }

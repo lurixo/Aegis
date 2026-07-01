@@ -41,8 +41,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
+import com.aegis.ime.R
 import com.aegis.ime.dict.ModelDownload
 
 /**
@@ -67,11 +69,13 @@ internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
     val dest = ModelDownload.destFile(context.filesDir)
     val location = dest.parentFile?.absolutePath ?: dest.absolutePath
     // P2: state the enhancement status in plain words — is the 401 MB model actually in use or not?
-    fun doneLabel() = "✅ 已启用：增强语法生效中（已下载 ${dest.length() / 1048576} MB，仅存本机；切换到 Aegis 后加载）"
-    val notDownloadedLabel = "⚠ 增强语法未启用 —— 需下载约 401 MB 模型后才生效"
+    fun doneStatus() = LocalizedText.ResourceLong(R.string.gram_status_enabled, dest.length() / 1048576)
+    val notDownloadedStatus = LocalizedText.Resource(R.string.gram_status_not_downloaded)
 
     var present by remember { mutableStateOf(preview?.present ?: (dest.exists() && dest.length() > 1024)) }
-    var status by remember { mutableStateOf(preview?.status ?: if (present) doneLabel() else notDownloadedLabel) }
+    var status by remember {
+        mutableStateOf(preview?.status?.let(LocalizedText::Raw) ?: if (present) doneStatus() else notDownloadedStatus)
+    }
     var progress by remember { mutableStateOf(0f) }
     var downloading by remember { mutableStateOf(false) }
     var checking by remember { mutableStateOf(preview?.checking ?: false) }
@@ -81,7 +85,7 @@ internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
     fun startDownload() {
         downloading = true
         progress = 0f
-        status = "下载中…"
+        status = LocalizedText.Resource(R.string.download_status_downloading)
         var lastPct = -1
         Thread {
             val result = ModelDownload.download(ModelDownload.GRAM_URL, dest) { done, total ->
@@ -95,9 +99,9 @@ internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
                 present = dest.exists() && dest.length() > 1024
                 if (result.ok) {
                     prefs.edit { putString(ModelDownload.VALIDATOR_PREF, result.validator) }
-                    status = doneLabel()
+                    status = doneStatus()
                 } else {
-                    status = "下载失败"
+                    status = LocalizedText.Resource(R.string.gram_status_download_failed)
                 }
             }
         }.apply { isDaemon = true }.start()
@@ -123,15 +127,15 @@ internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
                 when (ModelDownload.updateAction(present, local, remote)) {
                     null -> {} // deleted mid-check → no-op
                     ModelDownload.UpdateCheck.OFFLINE -> { // F2: offline — not 有更新, not 无更新
-                        status = "无法检查更新（网络不可用）"
-                        Toast.makeText(context, "无法检查更新（网络不可用）", Toast.LENGTH_SHORT).show()
+                        status = LocalizedText.Resource(R.string.download_toast_update_offline)
+                        Toast.makeText(context, R.string.download_toast_update_offline, Toast.LENGTH_SHORT).show()
                     }
                     ModelDownload.UpdateCheck.UP_TO_DATE -> {
-                        status = "已是最新，无更新（增强模型已是最新版本）"
-                        Toast.makeText(context, "已是最新，无更新", Toast.LENGTH_SHORT).show()
+                        status = LocalizedText.Resource(R.string.gram_status_update_current)
+                        Toast.makeText(context, R.string.download_toast_up_to_date, Toast.LENGTH_SHORT).show()
                     }
                     ModelDownload.UpdateCheck.UPDATE -> {
-                        Toast.makeText(context, "发现更新，开始更新", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, R.string.download_toast_update_found, Toast.LENGTH_SHORT).show()
                         startDownload()
                     }
                 }
@@ -144,13 +148,13 @@ internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("增强模型（万象离线大模型）", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.gram_card_title), style = MaterialTheme.typography.titleMedium)
             Text(
-                "可选下载 ~401 MB。下载后中文候选明显更准（内部评测 top-1 +约 9 分）；仅存本机，输入过程仍全程离线。",
+                stringResource(R.string.gram_card_description),
                 style = MaterialTheme.typography.bodySmall,
             )
             Text(
-                "存放位置：$location（应用私有目录，文件管理器不可见，仅本机、可删除）。",
+                stringResource(R.string.download_storage_format, location),
                 style = MaterialTheme.typography.bodySmall,
             )
             // 模型来源仓库：可点击，用系统浏览器打开（ACTION_VIEW）。
@@ -166,7 +170,7 @@ internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
                 contentPadding = PaddingValues(0.dp),
             ) {
                 Text(
-                    "模型来源：amzxyz/RIME-LMDG ↗",
+                    stringResource(R.string.gram_source_link),
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
@@ -174,20 +178,20 @@ internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
                 LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
             }
             Text(
-                if (checking) "正在检查更新…" else status,
+                if (checking) stringResource(R.string.download_status_checking_update) else status.asString(),
                 style = MaterialTheme.typography.bodySmall,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
                     enabled = !downloading && !present,
                     onClick = { startDownload() },
-                ) { Text("下载") }
+                ) { Text(stringResource(R.string.download_button)) }
                 if (present) {
                     // Bug2: always tappable while present (no passive grey button); the check itself decides.
                     Button(
                         enabled = !downloading && !checking,
                         onClick = { checkUpdate() },
-                    ) { Text("检测更新") }
+                    ) { Text(stringResource(R.string.check_update_button)) }
                 }
                 OutlinedButton(
                     // F1: also disabled while a check is in flight, so a delete can't race the HEAD callback.
@@ -197,9 +201,9 @@ internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
                         prefs.edit { remove(ModelDownload.VALIDATOR_PREF) }
                         present = false
                         progress = 0f
-                        status = "⚠ 增强语法未启用（已删除；重启输入法后释放已加载的内存模型）"
+                        status = LocalizedText.Resource(R.string.gram_status_deleted)
                     },
-                ) { Text("删除") }
+                ) { Text(stringResource(R.string.delete_button)) }
             }
         }
     }

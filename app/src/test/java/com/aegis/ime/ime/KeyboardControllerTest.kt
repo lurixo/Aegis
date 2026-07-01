@@ -180,9 +180,9 @@ class KeyboardControllerTest {
         assertEquals(listOf("你hao"), h.commits)
     }
 
-    @Test fun backspace_peels_the_assembled_prefix_before_touching_the_editor() {
-        // S1(c): after a partial pick the confirmed prefix lives in the IME, not the editor — 退格 peels the
-        // remainder digits then the prefix char, never calling deleteBackward on committed text.
+    @Test fun backspace_commits_the_assembled_prefix_when_the_remaining_reading_is_deleted() {
+        // A partial pick still stays inside the IME while reading remains. Once Backspace clears the final
+        // reading unit, the confirmed prefix lands in the editor instead of sitting above a blank taskbar.
         val h = FakeHost()
         val partial = object : CandidateEngine {
             override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
@@ -195,15 +195,14 @@ class KeyboardControllerTest {
         c.onPickCandidate(0) // prefix "你", remainder "426"
         assertEquals("你", c.composingPrefix())
         clearCandidateUndo(c)
-        repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }   // peel 426 -> empty
-        assertEquals("prefix intact while the remainder peels", "你", c.composingPrefix())
-        c.onKey(act(KeyAction.BACKSPACE))                 // now peel the prefix char itself
-        assertEquals("prefix peeled away", "", c.composingPrefix())
-        assertEquals("never deleted committed editor text", 0, h.deletes)
-        assertTrue("nothing was ever committed", h.commits.isEmpty())
+        repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }   // 426 -> empty, then commit the confirmed prefix
+        assertEquals("prefix committed when no reading remains", listOf("你"), h.commits)
+        assertEquals("preedit cleared after committing the prefix", "", c.preeditForTest())
+        assertEquals("prefix no longer stranded inside the IME", "", c.composingPrefix())
+        assertEquals("clearing reading did not delete editor text", 0, h.deletes)
     }
 
-    @Test fun backspace_peels_a_supplementary_committed_prefix_as_one_code_point() {
+    @Test fun backspace_commits_a_supplementary_prefix_when_the_remaining_reading_is_deleted() {
         val h = FakeHost()
         val supplementaryHan = String(Character.toChars(0x20000))
         assertEquals("test character must occupy a surrogate pair", 2, supplementaryHan.length)
@@ -220,16 +219,13 @@ class KeyboardControllerTest {
         clearCandidateUndo(c)
         repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }
 
-        c.onKey(act(KeyAction.BACKSPACE))
-
-        assertEquals("one backspace must remove the full supplementary code point", "", c.composingPrefix())
-        assertEquals("never deleted committed editor text", 0, h.deletes)
-        assertTrue("nothing was ever committed", h.commits.isEmpty())
+        assertEquals("supplementary prefix committed as one string", listOf(supplementaryHan), h.commits)
+        assertEquals("preedit cleared after committing the prefix", "", c.preeditForTest())
+        assertEquals("prefix no longer stranded inside the IME", "", c.composingPrefix())
+        assertEquals("clearing reading did not delete editor text", 0, h.deletes)
     }
 
-    @Test fun space_on_a_bare_assembled_prefix_commits_it_once_without_a_literal_space() {
-        // S1(c): the remainder may be backspaced away leaving only the prefix — space commits that pending
-        // word in ONE commit and is consumed (no stray " " inserted).
+    @Test fun space_after_deleting_the_remaining_reading_follows_the_committed_prefix() {
         val h = FakeHost()
         val partial = object : CandidateEngine {
             override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
@@ -241,9 +237,9 @@ class KeyboardControllerTest {
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onPickCandidate(0)                              // prefix "你", remainder "426"
         clearCandidateUndo(c)
-        repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }   // remainder gone, only the prefix remains
+        repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }   // remainder gone, prefix committed
         c.onKey(act(KeyAction.SPACE))
-        assertEquals(listOf("你"), h.commits)
+        assertEquals(listOf("你", " "), h.commits)
     }
 
     @Test fun field_switch_drops_an_assembled_prefix_no_cross_field_leak() {
@@ -273,9 +269,7 @@ class KeyboardControllerTest {
         assertEquals("no leaked 你 in the new field", listOf("nihao"), h.commits)
     }
 
-    @Test fun direct_key_on_a_bare_prefix_flushes_the_word_first_then_the_symbol() {
-        // D2 (debug.12): a punctuation/number (direct) tapped when only the prefix remains must commit the
-        // word THEN the symbol — "你" then "，", never "，你" and never a stranded prefix.
+    @Test fun direct_key_after_deleting_the_remaining_reading_follows_the_committed_prefix() {
         val h = FakeHost()
         val partial = object : CandidateEngine {
             override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
@@ -287,7 +281,7 @@ class KeyboardControllerTest {
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onPickCandidate(0)                              // prefix "你", remainder "426"
         clearCandidateUndo(c)
-        repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }   // remainder gone, only prefix "你" remains
+        repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }   // remainder gone, prefix committed
         c.onKey(Key("，", output = "，", direct = true))   // idle-column punctuation (direct)
         assertEquals(listOf("你", "，"), h.commits)
     }
@@ -1013,10 +1007,7 @@ class KeyboardControllerTest {
         assertEquals(false, c.onBackspaceSwipe(true))
     }
 
-    @Test fun up_swipe_on_a_bare_assembled_prefix_clears_it_and_consumes_the_gesture() {
-        // D3 (debug.12): an up-swipe with ONLY the prefix pending (remainder backspaced away) must 重输
-        // (drop the prefix) and be CONSUMED — never fall through to the service's whole-field clear, which
-        // would wipe the editor AND strand the prefix.
+    @Test fun up_swipe_with_an_assembled_prefix_and_remaining_reading_clears_it_and_consumes_the_gesture() {
         val h = FakeHost()
         val partial = object : CandidateEngine {
             override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
@@ -1028,10 +1019,10 @@ class KeyboardControllerTest {
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onPickCandidate(0)                              // prefix "你", remainder "426"
         clearCandidateUndo(c)
-        repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }   // remainder gone, only prefix "你" remains
         assertEquals("你", c.composingPrefix())
         assertTrue("up-swipe must consume the gesture (重输), not fall through to the field wipe", c.onBackspaceSwipe(true))
         assertEquals("the pending prefix is dropped", "", c.composingPrefix())
+        assertEquals("the pending reading is dropped", "", c.preeditForTest())
         assertTrue("nothing committed, field untouched", h.commits.isEmpty())
         assertEquals("never deleted committed editor text", 0, h.deletes)
     }
