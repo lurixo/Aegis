@@ -123,14 +123,32 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private val layoutPrefListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
         if (key == "cn_layout") {
             val id = if (prefs.getString("cn_layout", "nine") == "alpha") LayoutId.ALPHA else LayoutId.NINE
-            Handler(Looper.getMainLooper()).post { controller.setCnDefaultLayout(id) }
+            Handler(Looper.getMainLooper()).post {
+                if (::controller.isInitialized) controller.setCnDefaultLayout(id)
+            }
+        }
+    }
+
+    private val associationPrefListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
+        if (key == com.aegis.ime.ui.PREF_ASSOCIATIONS_ON) {
+            val on = prefs.getBoolean(
+                com.aegis.ime.ui.PREF_ASSOCIATIONS_ON,
+                com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON,
+            )
+            Handler(Looper.getMainLooper()).post {
+                if (::controller.isInitialized) controller.setAssociationsEnabled(on)
+            }
         }
     }
 
     override fun onCreate() {
         super.onCreate()
         runCatching { clipboardManager.addPrimaryClipChangedListener(clipChangedListener) }
-        runCatching { getSharedPreferences("aegis", MODE_PRIVATE).registerOnSharedPreferenceChangeListener(layoutPrefListener) }
+        runCatching {
+            val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
+            prefs.registerOnSharedPreferenceChangeListener(layoutPrefListener)
+            prefs.registerOnSharedPreferenceChangeListener(associationPrefListener)
+        }
         controller = KeyboardController(this, DictEngine(null, null, null))
         controller.onShowEmoji = { showEmojiPanel() }
         controller.onShowClipboard = { showClipboardPanel() }
@@ -656,7 +674,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun onDestroy() {
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
-        runCatching { getSharedPreferences("aegis", MODE_PRIVATE).unregisterOnSharedPreferenceChangeListener(layoutPrefListener) }
+        runCatching {
+            val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
+            prefs.unregisterOnSharedPreferenceChangeListener(layoutPrefListener)
+            prefs.unregisterOnSharedPreferenceChangeListener(associationPrefListener)
+        }
         super.onDestroy()
     }
 
