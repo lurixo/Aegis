@@ -103,7 +103,7 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
             }
             i++
         }
-        all.sortByDescending { it.freq }
+        all.sortWith(compareByDescending<WordFreq> { it.freq }.thenBy { supplementarySingleTieRank(it.word) })
         return if (all.size <= limit) all else all.subList(0, limit)
     }
 
@@ -170,6 +170,12 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
             j++
         }
     }
+
+    private fun supplementarySingleTieRank(word: String): Int =
+        if (word.isNotEmpty() &&
+            word.codePointCount(0, word.length) == 1 &&
+            Character.isSupplementaryCodePoint(word.codePointAt(0))
+        ) 1 else 0
 
     private fun readWord(wordOffset: Int, len: Int): String {
         val bytes = ByteArray(len)

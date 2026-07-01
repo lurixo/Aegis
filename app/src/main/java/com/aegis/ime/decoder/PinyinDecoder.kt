@@ -78,7 +78,7 @@ class PinyinDecoder(
         out: MutableList<Edge>,
         seen: MutableSet<String>,
     ): Boolean {
-        for (wf in dict.exact(key)) {
+        for (wf in preferredExact(dict, key)) {
             if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, penalty))
             if (out.size >= edgeN) return true
         }
@@ -91,7 +91,7 @@ class PinyinDecoder(
         for (alias in inputAliases(input)) {
             for (wf in dict.exact(alias)) if (seen.add(wf.word)) out.add(wf)
         }
-        return out
+        return preferredWordFreqs(out)
     }
 
     /** Lattice edges for a substring, by descending preference: exact, aliases, fuzzy, then jianpin initials. */
@@ -105,14 +105,14 @@ class PinyinDecoder(
             // dict (no monolithic fuzzy index, so individual rules can be turned off — E4).
             for (variant in Fuzzy.variants(sub, fuzzyRules)) {
                 if (variant == sub) continue
-                for (wf in dict.exact(variant)) {
+                for (wf in preferredExact(dict, variant)) {
                     if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, FUZZY_PENALTY))
                     if (out.size >= edgeN) return out
                 }
             }
         }
         initialsDict?.let { id ->
-            for (wf in id.exact(sub)) {
+            for (wf in preferredExact(id, sub)) {
                 if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, INITIALS_PENALTY))
                 if (out.size >= edgeN) break
             }
@@ -136,11 +136,19 @@ class PinyinDecoder(
 
     /** Whole-input dict words (exact key = input) ordered by [wordModelScore] — model, not raw freq. */
     private fun rerankedWholeInput(input: String, ctxCp: Int, ctxWord: String): List<String> =
-        dict.exact(input).sortedByDescending { wordModelScore(it.word, it.freq, ctxCp, ctxWord) }.map { it.word }
+        dict.exact(input)
+            .sortedWith(
+                compareByDescending<BinaryDict.WordFreq> { wordModelScore(it.word, it.freq, ctxCp, ctxWord) }
+                    .thenBy { supplementarySingleTieRank(it.word) },
+            )
+            .map { it.word }
 
     private fun rerankedInputAliases(input: String, ctxCp: Int, ctxWord: String): List<String> =
         inputAliasWordFreqs(input)
-            .sortedByDescending { wordModelScore(it.word, it.freq, ctxCp, ctxWord) - ALIAS_PENALTY }
+            .sortedWith(
+                compareByDescending<BinaryDict.WordFreq> { wordModelScore(it.word, it.freq, ctxCp, ctxWord) - ALIAS_PENALTY }
+                    .thenBy { supplementarySingleTieRank(it.word) },
+            )
             .map { it.word }
 
     /**
@@ -174,6 +182,18 @@ class PinyinDecoder(
      * single-char homophone layer. Shared by 26-key and 9-key (both decode through here).
      */
     private fun isSingleChar(w: String): Boolean = w.codePointCount(0, w.length) == 1
+
+    private fun supplementarySingleTieRank(word: String): Int =
+        if (isSingleChar(word) && Character.isSupplementaryCodePoint(word.codePointAt(0))) 1 else 0
+
+    private fun preferredWordFreqs(words: List<BinaryDict.WordFreq>): List<BinaryDict.WordFreq> =
+        words.sortedWith(compareByDescending<BinaryDict.WordFreq> { it.freq }.thenBy { supplementarySingleTieRank(it.word) })
+
+    private fun preferredExact(source: BinaryDict, key: String): List<BinaryDict.WordFreq> =
+        preferredWordFreqs(source.exact(key))
+
+    private fun prefixWords(source: BinaryDict, input: String, limit: Int): List<String> =
+        source.prefixByFreq(input, limit).map { it.word }
 
     /**
      * debug.17 隔音符 normalisation. A [SEP] ' in the buffer is a user-forced syllable boundary, never a key
@@ -232,15 +252,15 @@ class PinyinDecoder(
         bestSentence(clean, cuts, ctxCp = ctxCp, ctxWord = ctxWord)?.let { out.add(it) }
         out.addAll(rerankedWholeInput(clean, ctxCp, ctxWord)) // ★top-N rerank, context-conditioned
         out.addAll(rerankedInputAliases(clean, ctxCp, ctxWord))
-        out.addAll(dict.query(clean, limit))
+        out.addAll(prefixWords(dict, clean, limit))
         if (out.size < limit && fuzzyRules.isNotEmpty()) {
             for (variant in Fuzzy.variants(clean, fuzzyRules)) {
                 if (variant == clean) continue
-                out.addAll(dict.query(variant, limit))
+                out.addAll(prefixWords(dict, variant, limit))
                 if (out.size >= limit) break
             }
         }
-        if (out.size < limit) initialsDict?.let { out.addAll(it.query(clean, limit)) }
+        if (out.size < limit) initialsDict?.let { out.addAll(prefixWords(it, clean, limit)) }
         return if (out.size <= limit) out.toList() else out.toList().subList(0, limit)
     }
 
@@ -303,15 +323,15 @@ class PinyinDecoder(
         bestSentence(input, emptySet(), ctxCp, ctxWord)?.let { cover[it] = input.length }
         addCompletions(rerankedWholeInput(input, ctxCp, ctxWord)) // ★top-N rerank, context-conditioned
         addCompletions(rerankedInputAliases(input, ctxCp, ctxWord))
-        addCompletions(dict.query(input, completionCap))
+        addCompletions(prefixWords(dict, input, completionCap))
         if (fuzzyRules.isNotEmpty()) {
             for (variant in Fuzzy.variants(input, fuzzyRules)) {
                 if (variant == input) continue
-                addCompletions(dict.query(variant, completionCap))
+                addCompletions(prefixWords(dict, variant, completionCap))
                 if (cover.size >= completionCap) break
             }
         }
-        initialsDict?.let { addCompletions(it.query(input, completionCap)) }
+        initialsDict?.let { addCompletions(prefixWords(it, input, completionCap)) }
         // Multi-char prefix WORDS straight from the main dict (freq-ordered), independent of the lattice
         // edge cap, so leading short words (你说 你们 …) surface even without an LM (★G).
         // Leading single chars are intentionally NOT emitted here — they are served by the lossless layer
@@ -319,7 +339,7 @@ class PinyinDecoder(
         for (q in input.length downTo 1) {
             if (cover.size >= limit) break
             var added = 0
-            for (wf in dict.exact(input.substring(0, q))) {
+            for (wf in preferredExact(dict, input.substring(0, q))) {
                 if (isSingleChar(wf.word)) continue // FIX-1: ★单字 (incl. U+20000+) → lossless layer, never capped here
                 if (cover.putIfAbsent(wf.word, q) == null && ++added >= PREFIX_PER_LEN) break
             }
@@ -356,7 +376,7 @@ class PinyinDecoder(
         // ③ leading multi-syllable words [0, B[j]] (cover the first j syllables), freq-descending.
         val leadWords = ArrayList<Pair<String, Int>>() // (word, coveredLen) sortable by the carried freq
         val leadFreq = HashMap<String, Int>()
-        for (j in 2..nSyl) for (wf in dict.exact(input.substring(0, B[j]))) if (!isSingleChar(wf.word)) {
+        for (j in 2..nSyl) for (wf in preferredExact(dict, input.substring(0, B[j]))) if (!isSingleChar(wf.word)) {
             if (leadFreq.put(wf.word, wf.freq) == null) leadWords.add(wf.word to B[j])
         }
         leadWords.sortedByDescending { leadFreq[it.first] ?: 0 }.forEach { cover.putIfAbsent(it.first, it.second) }
@@ -390,7 +410,7 @@ class PinyinDecoder(
             val src = dp[i].sortedByDescending { it.score }.take(BEAM_W)
             for (j in i + 1..nSyl) {
                 val seg = input.substring(B[i], B[j])
-                val raw = dict.exact(seg)
+                val raw = preferredExact(dict, seg)
                 val edges = (if (j == i + 1) raw.filter { isSingleChar(it.word) } else raw.filterNot { isSingleChar(it.word) })
                     .take(SENTENCE_EDGE_N)
                 for (wf in edges) {
@@ -490,7 +510,7 @@ class PinyinDecoder(
     private fun homophonesOf(key: String): List<String> {
         val out = ArrayList<String>()
         val seen = HashSet<String>()
-        for (wf in dict.exact(key)) if (isSingleChar(wf.word) && seen.add(wf.word)) out.add(wf.word) // FIX-1: incl. U+20000+ singles
+        for (wf in preferredExact(dict, key)) if (isSingleChar(wf.word) && seen.add(wf.word)) out.add(wf.word) // FIX-1: incl. U+20000+ singles
         for (wf in inputAliasWordFreqs(key)) if (isSingleChar(wf.word) && seen.add(wf.word)) out.add(wf.word)
         return out
     }

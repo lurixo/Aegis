@@ -76,10 +76,11 @@ class KeyboardLossMatrixTest {
     private fun type(c: KeyboardController, s: String) = s.forEach { c.onKey(Key(it.toString(), output = it.toString())) }
     private fun pick(c: KeyboardController, reading: String) =
         c.onKey(Key(reading, output = reading, action = KeyAction.PICK_READING))
+    private fun isSingleChar(word: String): Boolean = word.codePointCount(0, word.length) == 1
 
     /** The dict's chai homophones, frequency-descending (拆 first … 瘥 last) — derived, so rebuild-safe. */
     private fun chaiSingles() =
-        BinaryDict.fromFile(File(assets, "aegis_dict.bin")).exact("chai").filter { it.word.length == 1 }.map { it.word }
+        BinaryDict.fromFile(File(assets, "aegis_dict.bin")).exact("chai").filter { isSingleChar(it.word) }.map { it.word }
 
     /** 拆 reachable + leads the rarer chai homophones, on whatever grid the controller rendered (dict-derived). */
     private fun assertChaiReachableAndRanked(words: List<String>) {
@@ -122,7 +123,7 @@ class KeyboardLossMatrixTest {
         c.onKey(Key("", action = KeyAction.SWITCH_NINE))
         type(c, "2424"); pick(c, "chai")
         assertTrue("拆 reachable for a single locked chai", "拆" in c.candidateWords())
-        assertEquals("拆 leads its homophones (freq order)", "拆", c.candidateWords().first { it.length == 1 })
+        assertEquals("拆 leads its homophones (freq order)", "拆", c.candidateWords().first { isSingleChar(it) })
     }
 
     /**

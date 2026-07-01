@@ -121,7 +121,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         backspaceGlyph.tint(p.keyLabelSecondary) // debug.17 A2: keep the self-drawn ⌫ in step with the column
         for (i in 0 until readingColumn.childCount) (readingColumn.getChildAt(i) as? TextView)?.let {
             val on = i == renderedSelected
-            val color = if (on) p.candidateFirst else p.candidateText
+            val color = if (on) p.accentBottom else p.candidateText
             it.setTextColor(color)
             Motion.applyTapFeedback(it, color)
         }
@@ -190,7 +190,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
                     gravity = Gravity.CENTER
                     setPadding(0, dp(10), 0, dp(10))
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
-                    val color = if (on) palette.candidateFirst else palette.candidateText
+                    val color = if (on) palette.accentBottom else palette.candidateText
                     setTextColor(color)
                     setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
                     isClickable = true

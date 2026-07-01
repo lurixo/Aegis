@@ -17,10 +17,12 @@ package com.aegis.ime.ime
 
 import com.aegis.ime.decoder.Cand
 import com.aegis.ime.decoder.Syllable
+import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.engine.DictEngine
+import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import org.junit.Assert.assertEquals
@@ -200,6 +202,52 @@ class Ui12SyllableColumnTest {
         // 全出 at the device; here the synthetic 40 > the engine's MAX_CANDIDATES=30 proves no UI truncation).
         assertEquals("every ni 同音字 surfaces, uncapped", niHomophones, c.candidateWords())
         assertTrue("more than the 30-cap", c.candidateWords().size > 30)
+    }
+
+    @Test fun input_view_marks_the_drilled_reading_with_the_accent_color() {
+        val palette = ImePalette.STATIC_LIGHT
+        val iv = InputView(RuntimeEnvironment.getApplication()).apply { applyPalette(palette) }
+        val c = KeyboardController(RecordingHost(), syllabic)
+        iv.onPickReading = { i -> c.onPickReadingIndex(i) }
+        iv.onPickCandidate = { i -> c.onPickCandidate(i) }
+        iv.onExpandClosed = { c.clearDrill() }
+        c.attachView(iv)
+        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        "nihao".forEach { c.onKey(out(it.toString())) }
+
+        iv.showExpandedCandidates()
+        assertEquals("undrilled reading starts with the normal text color", palette.candidateText, iv.expandedReadingTextColorForTest(0))
+
+        c.onPickReadingIndex(0)
+
+        assertEquals("drilled reading is visibly marked with the theme accent color", palette.accentBottom, iv.expandedReadingTextColorForTest(0))
+    }
+
+    @Test fun input_view_marks_the_persisted_9key_locked_reading_with_the_accent_color() {
+        val palette = ImePalette.STATIC_LIGHT
+        val iv = InputView(RuntimeEnvironment.getApplication()).apply { applyPalette(palette) }
+        val c = KeyboardController(RecordingHost(), syllabic)
+        iv.onPickReading = { i -> c.onPickReadingIndex(i) }
+        iv.onPickCandidate = { i -> c.onPickCandidate(i) }
+        iv.onExpandClosed = { c.clearDrill() }
+        c.attachView(iv)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64".forEach { c.onKey(out(it.toString())) }
+        iv.showExpandedCandidates()
+
+        val before = c.expandedReadings().indexOf("ni")
+        assertTrue("precondition: ni is offered before locking, was ${c.expandedReadings()}", before >= 0)
+        assertEquals("unlocked 9-key reading starts with normal text color", palette.candidateText, iv.expandedReadingTextColorForTest(before))
+
+        c.onPickReadingIndex(before)
+
+        val afterReadings = c.expandedReadings()
+        val selected = afterReadings.indexOf("ni")
+        assertTrue("locked last syllable remains visible, was $afterReadings", selected >= 0)
+        assertEquals("persisted locked 9-key reading is marked with the theme accent color", palette.accentBottom, iv.expandedReadingTextColorForTest(selected))
+        afterReadings.indices.firstOrNull { it != selected }?.let {
+            assertEquals("unselected 9-key readings keep the normal text color", palette.candidateText, iv.expandedReadingTextColorForTest(it))
+        }
     }
 
     @Test fun picking_a_homophone_from_the_first_syllable_partial_commits_then_continues() {
@@ -383,10 +431,13 @@ class Ui12SyllableColumnTest {
         return DictEngine(BinaryDict.fromFile(p), BinaryDict.fromFile(t), CharBigramLM.fromFile(l))
     }
 
+    private fun isSingleChar(word: String): Boolean = word.codePointCount(0, word.length) == 1
+    private fun biangChar(): String = String(Character.toChars(0x30EDE))
+
     @Test fun real_dict_drill_surfaces_every_homophone_the_dict_holds() {
         val eng = realEngine(); assumeTrue("dict assets present", eng != null)
         val dict = BinaryDict.fromFile(File("src/main/assets/aegis_dict.bin"))
-        val heSet = dict.exact("he").filter { it.word.length == 1 }.map { it.word }.toSet()
+        val heSet = dict.exact("he").filter { isSingleChar(it.word) }.map { it.word }.toSet()
         assumeTrue("dict has a meaningful he set", heSet.size > 8)
 
         val c = KeyboardController(RecordingHost(), eng!!)
@@ -399,6 +450,28 @@ class Ui12SyllableColumnTest {
         assertTrue("the UI lists EVERY he 同音字 the dict holds (no re-cap)", shown.containsAll(heSet))
         assertTrue("…and more than the old 30-cap", c.candidateWords().size > 30 || heSet.size <= 30)
         assertTrue("和 reachable through the drill", "和" in shown)
+    }
+
+    @Test fun real_dict_biang_is_available_in_expanded_reading_paths() {
+        val eng = realEngine(); assumeTrue("dict assets present", eng != null)
+        val engine = eng!!
+        val rare = biangChar()
+        val alpha = KeyboardController(RecordingHost(), engine)
+        alpha.onKey(act(KeyAction.SWITCH_ALPHA))
+        "biang".forEach { alpha.onKey(out(it.toString())) }
+
+        assertEquals("26-key exposes biang as a selectable reading", listOf("biang"), alpha.expandedReadings())
+        alpha.onPickReadingIndex(0)
+        assertTrue("26-key biang drill includes the rare character", rare in alpha.candidateWords())
+
+        val nine = KeyboardController(RecordingHost(), engine)
+        nine.onKey(act(KeyAction.SWITCH_NINE))
+        T9Pinyin.toT9("biang").forEach { nine.onKey(out(it.toString())) }
+        val readings = nine.expandedReadings()
+        val biang = readings.indexOf("biang")
+        assertTrue("9-key exposes biang as a lockable reading, was $readings", biang >= 0)
+        nine.onPickReadingIndex(biang)
+        assertTrue("9-key locked biang includes the rare character", rare in nine.candidateWords())
     }
 
     @Test fun real_dict_jiangzhi_expand_and_reset_track_the_current_reading() {

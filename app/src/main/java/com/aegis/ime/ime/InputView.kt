@@ -255,6 +255,9 @@ class InputView(context: Context) : LinearLayout(context) {
     /** Candidates actually rendered in the strip right now (test hook, U1 regression guard). */
     internal fun shownCandidateCount(): Int = candidateView.itemCount()
 
+    internal fun expandedReadingTextColorForTest(index: Int): Int? =
+        gridView.readingTextColorForTest(index)
+
     /** U14 test seam: the candidate-bar chevron glyph (⌃ while the A2 grid is open, else ⌄). */
     internal fun barChevronGlyph(): String = candidateView.chevronGlyph()
 

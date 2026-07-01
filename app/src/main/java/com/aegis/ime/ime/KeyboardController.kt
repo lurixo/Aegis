@@ -1029,8 +1029,9 @@ class KeyboardController(
             else -> Layouts.forId(layoutId, lang)
         }
         v.showKeyboard(layout, shifted, shiftState == ShiftState.LOCK, lang) // I4 locked + I2 numpad merged
-        // UI-2: pass the drilled syllable so the expand grid can highlight which 分词 chunk is selected.
-        v.showCandidates(candidates.map { it.word }, preeditText(), expandedReadings(), drillSyllable)
+        // Expanded left column selected state: 26-key drill, or the persisted last locked 9-key reading.
+        val readings = expandedReadings()
+        v.showCandidates(candidates.map { it.word }, preeditText(), readings, selectedExpandedReadingIndex(readings))
     }
 
     /** I4 test seam: the shift state name (OFF / ONCE / LOCK) driving the key glyph + uppercasing. */
@@ -1045,6 +1046,13 @@ class KeyboardController(
         layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty() ->
             currentSyllables().firstOrNull()?.let { listOf(it.reading) } ?: emptyList()
         else -> nineLeftColumn().filter { it.action == KeyAction.PICK_READING }.map { it.label }
+    }
+
+    private fun selectedExpandedReadingIndex(readings: List<String>): Int = when {
+        layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty() -> drillSyllable
+        layoutId == LayoutId.NINE && mode() == Mode.PINYIN && composing.isNotEmpty() &&
+            activeDigits().isEmpty() && lockedReadings.isNotEmpty() -> readings.indexOf(lockedReadings.last())
+        else -> -1
     }
 
     /** UI-2 test seam / render hook: which syllable (if any) is currently drilled in the 26-key expand grid. */

@@ -57,16 +57,18 @@ class LossFixTest {
     }
 
     /** The dictionary's COMPLETE single-char homophone set for an exact syllable key. */
+    private fun isSingleChar(word: String): Boolean = word.codePointCount(0, word.length) == 1
+
     private fun dictSingles(dict: BinaryDict, key: String): Set<String> =
-        dict.exact(key).filter { it.word.length == 1 }.map { it.word }.toSet()
+        dict.exact(key).filter { isSingleChar(it.word) }.map { it.word }.toSet()
 
     /** All single-char candidate words in [cands] (any coverage). */
     private fun allSingles(cands: List<Cand>): Set<String> =
-        cands.filter { it.word.length == 1 }.map { it.word }.toSet()
+        cands.filter { isSingleChar(it.word) }.map { it.word }.toSet()
 
     /** Single-char candidates of [cands] covering exactly [coveredLen] input units (one syllable). */
     private fun singlesAt(cands: List<Cand>, coveredLen: Int): List<String> =
-        cands.filter { it.word.length == 1 && it.coveredLen == coveredLen }.map { it.word }.distinct()
+        cands.filter { isSingleChar(it.word) && it.coveredLen == coveredLen }.map { it.word }.distinct()
 
     // ---- ① 首音节单字完整（与整串长度无关）----
 
@@ -178,7 +180,7 @@ class LossFixTest {
             d.decodeCovered("heshui", 30).any { it.word == "喝水" })
         // single chars never crowd out the leading word: the word candidate precedes the appended 单字 layer.
         val cands = d.decodeCovered("heshui", 30)
-        val firstSingleIdx = cands.indexOfFirst { it.word.length == 1 }
+        val firstSingleIdx = cands.indexOfFirst { isSingleChar(it.word) }
         val heShuiWordIdx = cands.indexOfFirst { it.word == "喝水" }
         assertTrue("word candidates precede the appended 单字 layer", heShuiWordIdx in 0 until firstSingleIdx)
     }

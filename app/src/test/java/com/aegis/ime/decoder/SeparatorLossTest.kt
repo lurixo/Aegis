@@ -58,11 +58,13 @@ class SeparatorLossTest {
         return PinyinDecoder(BinaryDict.fromFile(t9File), CharBigramLM.fromFile(lmFile))
     }
 
+    private fun isSingleChar(word: String): Boolean = word.codePointCount(0, word.length) == 1
+
     private fun dictSingles(key: String): Set<String> =
-        BinaryDict.fromFile(dictFile).exact(key).filter { it.word.length == 1 }.map { it.word }.toSet()
+        BinaryDict.fromFile(dictFile).exact(key).filter { isSingleChar(it.word) }.map { it.word }.toSet()
 
     private fun singles(cands: List<Cand>): List<String> =
-        cands.filter { it.word.length == 1 }.map { it.word }
+        cands.filter { isSingleChar(it.word) }.map { it.word }
 
     // ---- ① the chai'ci case: chai'ci must behave like chaici, the ci syllable must NOT vanish ----
 

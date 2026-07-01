@@ -79,7 +79,7 @@ object T9Pinyin {
         za ze zi zai zei zao zou zan zen zang zeng zong zu zuo zui zuan zun
         ca ce ci cai cao cou can cen cang ceng cong cu cuo cui cuan cun
         sa se si sai sao sou san sen sang seng song su suo sui suan sun
-        n ng m
+        n ng m biang
     """.trim().split(Regex("\\s+")).toSet()
 
     /** Frequency-ish ordering so an ambiguous digit group resolves to its common reading first. */
