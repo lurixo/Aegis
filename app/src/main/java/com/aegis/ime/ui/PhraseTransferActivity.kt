@@ -23,6 +23,7 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import com.aegis.ime.R
 import com.aegis.ime.user.ClipboardStore
 
 class PhraseTransferActivity : ComponentActivity() {
@@ -30,7 +31,7 @@ class PhraseTransferActivity : ComponentActivity() {
     private val exportLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) {
             val ok = PhraseTransferIo.exportPhrases(filesDir) { contentResolver.openOutputStream(uri) }
-            toast(if (ok) "已导出常用语" else "导出失败")
+            toast(if (ok) R.string.phrase_transfer_toast_export_ok else R.string.phrase_transfer_toast_export_failed)
         }
         finish()
     }
@@ -39,7 +40,7 @@ class PhraseTransferActivity : ComponentActivity() {
         if (uri == null) { finish(); return@registerForActivityResult }
         val text = runCatching { contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() } }.getOrNull()
         if (text == null) {
-            toast("导入失败：文件无法读取,常用语未改动")
+            toast(R.string.phrase_transfer_toast_import_read_failed)
             finish()
         } else {
             applyImport(text, merge = intent.getBooleanExtra(EXTRA_IMPORT_MERGE, true))
@@ -63,13 +64,17 @@ class PhraseTransferActivity : ComponentActivity() {
             ClipboardStore(filesDir).also { it.load() }.importPhrasesText(text, merge)
         }.getOrDefault(false)
         toast(
-            if (ok) (if (merge) "已合并导入常用语" else "已覆盖导入常用语")
-            else "导入失败：无有效内容,常用语未改动",
+            if (ok) {
+                if (merge) R.string.phrase_transfer_toast_import_merged
+                else R.string.phrase_transfer_toast_import_overwritten
+            } else {
+                R.string.phrase_transfer_toast_import_invalid
+            },
         )
         finish()
     }
 
-    private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    private fun toast(resId: Int) = Toast.makeText(this, resId, Toast.LENGTH_SHORT).show()
 
     private fun suppressBridgeTransitions() {
         overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, 0, 0)

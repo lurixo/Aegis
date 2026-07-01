@@ -35,8 +35,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
+import com.aegis.ime.R
 import com.aegis.ime.dict.Fuzzy
 
 @Composable
@@ -45,16 +47,16 @@ internal fun FuzzySettingsCard() {
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
 
     val labels = mapOf(
-        "zh" to ("zh → z" to "翘舌/平舌：知=资、长=藏"),
-        "ch" to ("ch → c" to "翘舌/平舌：吃=疵"),
-        "sh" to ("sh → s" to "翘舌/平舌：是=四"),
-        "ang" to ("ang → an" to "前后鼻音：刚=干、唱=灿"),
-        "eng" to ("eng → en" to "前后鼻音：冷=（len）"),
-        "ing" to ("ing → in" to "前后鼻音：心=星、林=灵"),
-        "n_l" to ("n ↔ l" to "声母混淆：南=兰、你=李"),
-        "f_h" to ("f ↔ h" to "声母混淆：饭=换、福=湖"),
-        "l_r" to ("l ↔ r" to "声母混淆：蓝=然、路=入"),
-        "k_g" to ("k ↔ g" to "声母混淆：看=干、开=该"),
+        "zh" to (R.string.fuzzy_rule_zh_title to R.string.fuzzy_rule_zh_desc),
+        "ch" to (R.string.fuzzy_rule_ch_title to R.string.fuzzy_rule_ch_desc),
+        "sh" to (R.string.fuzzy_rule_sh_title to R.string.fuzzy_rule_sh_desc),
+        "ang" to (R.string.fuzzy_rule_ang_title to R.string.fuzzy_rule_ang_desc),
+        "eng" to (R.string.fuzzy_rule_eng_title to R.string.fuzzy_rule_eng_desc),
+        "ing" to (R.string.fuzzy_rule_ing_title to R.string.fuzzy_rule_ing_desc),
+        "n_l" to (R.string.fuzzy_rule_n_l_title to R.string.fuzzy_rule_n_l_desc),
+        "f_h" to (R.string.fuzzy_rule_f_h_title to R.string.fuzzy_rule_f_h_desc),
+        "l_r" to (R.string.fuzzy_rule_l_r_title to R.string.fuzzy_rule_l_r_desc),
+        "k_g" to (R.string.fuzzy_rule_k_g_title to R.string.fuzzy_rule_k_g_desc),
     )
 
     var master by remember { mutableStateOf(prefs.getBoolean("fuzzy", Fuzzy.DEFAULT_ON)) }
@@ -69,12 +71,12 @@ internal fun FuzzySettingsCard() {
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("输入设置 · 模糊拼音", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.fuzzy_card_title), style = MaterialTheme.typography.titleMedium)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("模糊拼音（总开关）", style = MaterialTheme.typography.bodyLarge)
+                    Text(stringResource(R.string.fuzzy_master_title), style = MaterialTheme.typography.bodyLarge)
                     Text(
-                        "容忍常见拼音混淆；可逐项单独开关。下次切换到 Aegis 生效。",
+                        stringResource(R.string.fuzzy_master_description),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -88,12 +90,15 @@ internal fun FuzzySettingsCard() {
             }
             HorizontalDivider()
             for (rule in Fuzzy.RULES) {
-                val (title, desc) = labels[rule.key] ?: (rule.key to "")
+                val resourcePair = labels[rule.key]
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(title, style = MaterialTheme.typography.bodyLarge)
-                        if (desc.isNotEmpty()) {
-                            Text(desc, style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            if (resourcePair == null) rule.key else stringResource(resourcePair.first),
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                        if (resourcePair != null) {
+                            Text(stringResource(resourcePair.second), style = MaterialTheme.typography.bodySmall)
                         }
                     }
                     Switch(
