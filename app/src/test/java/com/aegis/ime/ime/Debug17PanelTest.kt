@@ -22,6 +22,7 @@ import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -339,10 +340,17 @@ class Debug17PanelTest {
         val v = clipView().apply { onCopyBlockToAegis = { copied.add(it) } }
         v.showSplitForTest("你好abc")
         val a = chip(overlayOf(v), "你")!!
+        val b = chip(overlayOf(v), "好")!!
+        val defaultBg = bgColor(a)
+        val defaultText = a.currentTextColor
         a.performClick()
         assertEquals("tapped block copied to aegis", listOf("你"), copied)
-        assertEquals("tapped block uses copied background", pal.accentBottom, bgColor(a))
-        assertEquals("tapped block uses copied text", pal.accentLabel, a.currentTextColor)
+        assertEquals("tapped block uses copied background", pal.chipBg, bgColor(a))
+        assertEquals("tapped block uses copied text", pal.chipText, a.currentTextColor)
+        assertNotEquals("copied background differs from default", defaultBg, bgColor(a))
+        assertNotEquals("copied text differs from default", defaultText, a.currentTextColor)
+        assertEquals("untapped block keeps default background", defaultBg, bgColor(b))
+        assertEquals("untapped block keeps default text", defaultText, b.currentTextColor)
         assertTrue("tracked as selected", "你" in v.splitSelectedForTest())
         assertEquals("panel stays open", View.VISIBLE.toLong(), overlayOf(v).visibility.toLong())
     }
@@ -351,12 +359,19 @@ class Debug17PanelTest {
         val copied = ArrayList<String>()
         val v = clipView().apply { onCopyBlockToAegis = { copied.add(it) } }
         v.showSplitForTest("你好abc")
+        val blockLabels = listOf("你", "好", "abc")
+        val chips = blockLabels.map { chip(overlayOf(v), it)!! }
+        val defaultBg = bgColor(chips.first())
+        val defaultText = chips.first().currentTextColor
         assertTrue(click(overlayOf(v), "全部复制"))
         assertEquals("全部复制 copies each block separately", listOf("你", "好", "abc"), copied)
         assertEquals("all blocks marked", setOf("你", "好", "abc"), v.splitSelectedForTest())
-        val first = chip(overlayOf(v), "你")!!
-        assertEquals("all blocks use copied background", pal.accentBottom, bgColor(first))
-        assertEquals("all blocks use copied text", pal.accentLabel, first.currentTextColor)
+        chips.forEach { block ->
+            assertEquals("all blocks use copied background", pal.chipBg, bgColor(block))
+            assertEquals("all blocks use copied text", pal.chipText, block.currentTextColor)
+            assertNotEquals("copied background differs from default", defaultBg, bgColor(block))
+            assertNotEquals("copied text differs from default", defaultText, block.currentTextColor)
+        }
     }
 
     @Test fun split_copy_all_uses_batch_callback_once_when_available() {

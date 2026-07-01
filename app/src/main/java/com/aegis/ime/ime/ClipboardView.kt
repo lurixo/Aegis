@@ -82,8 +82,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private var GREY_PILL = palette.chipBg
     private var SPLIT_BLOCK_BG = palette.accentBottom
     private var SPLIT_BLOCK_TEXT = palette.accentLabel
-    private var SPLIT_BLOCK_COPIED_BG = palette.accentBottom
-    private var SPLIT_BLOCK_COPIED_TEXT = palette.accentLabel
+    private var SPLIT_BLOCK_COPIED_BG = palette.chipBg
+    private var SPLIT_BLOCK_COPIED_TEXT = palette.chipText
     private var TEXT_DARK = palette.keyLabel
     private var HINT = palette.keyHint
     private var CARD = palette.keySurface
@@ -94,7 +94,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         palette = p
         GREEN = p.candidateFirst; RED = p.onErrorContainer
         GREY_PILL = p.chipBg; SPLIT_BLOCK_BG = p.accentBottom; SPLIT_BLOCK_TEXT = p.accentLabel
-        SPLIT_BLOCK_COPIED_BG = p.accentBottom; SPLIT_BLOCK_COPIED_TEXT = p.accentLabel
+        SPLIT_BLOCK_COPIED_BG = p.chipBg; SPLIT_BLOCK_COPIED_TEXT = p.chipText
         TEXT_DARK = p.keyLabel; HINT = p.keyHint; CARD = p.keySurface
         BG = p.keyboardBg; SEP = p.separator
         main.setBackgroundColor(BG)
