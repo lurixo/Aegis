@@ -563,9 +563,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         cv.resetToDefault() // P7(#19): always open on the 剪贴板 tab, normal mode (also recreation-proof — see
                             // showEmojiPanel). Reset BEFORE applyPalette so its refresh() builds the clean state.
-        cv.applyPalette(imePalette)
         clipboardStore.reloadPhrases() // pick up category/phrase edits made in the manager Activity
-        cv.refresh()
+        cv.applyPalette(imePalette)
         iv.showPanel(cv)
     }
 
