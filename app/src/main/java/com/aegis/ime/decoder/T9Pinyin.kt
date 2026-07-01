@@ -94,6 +94,7 @@ object T9Pinyin {
     ).withIndex().associate { (i, s) -> s to i }
 
     private const val DEFAULT_RANK = 1000
+    private const val UNKNOWN_LEN_BONUS = 220
     private const val LEN_BONUS = 480 // ★T/xuan: per-letter bonus so full syllables (xuan/yuan…) beat 2-letter prefixes
     private const val SYLLABLE_PENALTY = 50.0 // bias toward fewer, longer syllables
     private val maxDigits: Int = SYLLABLES.maxOf { toT9(it).length }
@@ -106,7 +107,7 @@ object T9Pinyin {
         m.mapValues { (_, v) -> v.sortedBy { freqRank[it] ?: DEFAULT_RANK } }
     }
 
-    private fun rankOf(s: String) = freqRank[s] ?: DEFAULT_RANK
+    private fun rankOf(s: String) = freqRank[s] ?: (DEFAULT_RANK - UNKNOWN_LEN_BONUS * s.length)
 
     /** Lowest-cost segmentation of [digits] into known syllables, or null if none fits exactly. */
     fun segment(digits: String): List<String>? {
