@@ -129,6 +129,40 @@ class PredictionTest {
         assertTrue("联想 off → no predictions", c.candidateWords().isEmpty())
     }
 
+    @Test fun association_toggle_off_clears_visible_predictions_immediately() {
+        val h = EditorHost()
+        val c = KeyboardController(h, niHaoEngine())
+        commitNiHao(c)
+        assertEquals(listOf("世界", "啊"), c.candidateWords())
+
+        c.setAssociationsEnabled(false)
+
+        assertTrue("turning associations off must clear already visible predictions", c.candidateWords().isEmpty())
+        c.onKey(Key("", action = KeyAction.SPACE))
+        assertEquals("space remains a literal editor space", "你好 ", h.text)
+        assertTrue("space after hot-off must not regenerate predictions", c.candidateWords().isEmpty())
+    }
+
+    @Test fun association_toggle_off_stays_empty_after_candidate_commit_space_punctuation_and_reset() {
+        val h = EditorHost()
+        val c = KeyboardController(h, niHaoEngine())
+        c.setAssociationsEnabled(false)
+        commitNiHao(c)
+        assertEquals("你好 still committed", "你好", h.text)
+        assertTrue("off after commit -> no prediction", c.candidateWords().isEmpty())
+
+        c.onKey(Key("", action = KeyAction.SPACE))
+        assertEquals("space commits normally", "你好 ", h.text)
+        assertTrue("space must not surface predictions while off", c.candidateWords().isEmpty())
+
+        c.onKey(Key("，", output = "，", direct = true))
+        assertEquals("punctuation commits normally", "你好 ，", h.text)
+        assertTrue("punctuation must not surface predictions while off", c.candidateWords().isEmpty())
+
+        c.reset()
+        assertTrue("reset must not restore predictions while off", c.candidateWords().isEmpty())
+    }
+
     @Test fun predictions_hidden_when_personalization_is_blocked() {
         val h = EditorHost()
         val c = KeyboardController(h, niHaoEngine())

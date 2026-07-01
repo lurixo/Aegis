@@ -160,9 +160,9 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
             val tab = rail.getChildAt(i) as TextView
             val on = i == index
             tab.setTextColor(if (on) palette.candidateFirst else palette.keyLabelSecondary)
-            tab.setBackgroundColor(if (on) palette.keySurface else 0x00000000)
+            tab.background = railTabBackground(on)
             tab.setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
-            Motion.applyTapFeedback(tab, if (on) palette.candidateFirst else palette.keyLabelSecondary)
+            Motion.applyTapFeedback(tab, if (on) palette.candidateFirst else palette.keyLabelSecondary, radiusDp = ImeShapes.chipRadiusDp)
         }
         grid.removeAllViews()
         netBar.removeAllViews()
@@ -259,10 +259,17 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
         setPadding(0, dp(13), 0, dp(13))
+        background = railTabBackground(index == selected)
         isClickable = true
-        Motion.applyTapFeedback(this, if (index == selected) palette.candidateFirst else palette.keyLabelSecondary)
+        Motion.applyTapFeedback(this, if (index == selected) palette.candidateFirst else palette.keyLabelSecondary, radiusDp = ImeShapes.chipRadiusDp)
         setOnClickListener { showCategory(index) }
     }
+
+    private fun railTabBackground(on: Boolean): GradientDrawable? =
+        if (!on) null else GradientDrawable().apply {
+            setColor(palette.keySurface)
+            cornerRadius = ImeShapes.chipRadiusDp * density
+        }
 
     /**
      * One symbol key-tile (U11). [badge] (P2) draws a small origin tag at the bottom-right for 常用 cells.
@@ -338,6 +345,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun backspaceBtnForTest(): TextView = backspaceBtn
     internal fun lockBtnForTest(): TextView = lockBtn
     internal fun lockSlotForTest(): View = lockSlot
+    internal fun railTabForTest(index: Int): TextView = rail.getChildAt(index) as TextView
 
     // P5 net-layout test seams. "net bar" = the 网址补全 (URL-completion) chip bar. Non-url multi-char tokens
     // (e.g. 数学 三角函数 sin/arcsin) ride the GRID instead, leaving this bar hidden.

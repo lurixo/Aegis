@@ -21,6 +21,7 @@ import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -30,6 +31,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.layout.EmojiCatalog
 
@@ -154,6 +156,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun backspaceBtnForTest(): TextView = backspaceBtn
     internal fun lockBtnForTest(): TextView = lockBtn
     internal fun lockSlotForTest(): View = lockSlot
+    internal fun railTabForTest(index: Int): TextView = rail.getChildAt(index) as TextView
 
     private fun showCategory(index: Int) {
         selected = index
@@ -161,9 +164,9 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
             val tab = rail.getChildAt(i) as TextView
             val on = i == index
             tab.setTextColor(if (on) palette.candidateFirst else palette.keyLabelSecondary)
-            tab.setBackgroundColor(if (on) palette.keySurface else 0x00000000)
+            tab.background = railTabBackground(on)
             tab.setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
-            Motion.applyTapFeedback(tab, if (on) palette.candidateFirst else palette.keyLabelSecondary)
+            Motion.applyTapFeedback(tab, if (on) palette.candidateFirst else palette.keyLabelSecondary, radiusDp = ImeShapes.chipRadiusDp)
         }
         grid.removeAllViews()
         // E2: index 0 = the live 最近 (MRU) feed; the rest are catalogue categories (shifted by one).
@@ -190,10 +193,17 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
         setPadding(0, dp(13), 0, dp(13))
+        background = railTabBackground(index == selected)
         isClickable = true
-        Motion.applyTapFeedback(this, if (index == selected) palette.candidateFirst else palette.keyLabelSecondary)
+        Motion.applyTapFeedback(this, if (index == selected) palette.candidateFirst else palette.keyLabelSecondary, radiusDp = ImeShapes.chipRadiusDp)
         setOnClickListener { showCategory(index) }
     }
+
+    private fun railTabBackground(on: Boolean): GradientDrawable? =
+        if (!on) null else GradientDrawable().apply {
+            setColor(palette.keySurface)
+            cornerRadius = ImeShapes.chipRadiusDp * density
+        }
 
     private fun emojiCell(emoji: String): TextView = TextView(context).apply {
         text = emoji

@@ -67,7 +67,6 @@ import androidx.core.content.edit
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.aegis.ime.ui.theme.AegisTheme
-import kotlinx.coroutines.delay
 
 /** Landing screen: enable the IME, switch to it, and a field to try typing. */
 class SetupActivity : ComponentActivity() {
@@ -133,8 +132,6 @@ private fun SetupScreen(resumeSignal: Int = 0) {
         activeTryFieldImeRequest,
     ) {
         val requestToken = tryFieldImeRequest
-        if (!isTryFieldImeRequestActive(requestToken)) return@LaunchedEffect
-        delay(50)
         if (!isTryFieldImeRequestActive(requestToken)) return@LaunchedEffect
         activeImeRequest.replace(
             hostView.requestImeWhenReady(
@@ -277,7 +274,9 @@ internal fun Modifier.settingsScrollInsets(
     .windowInsetsPadding(insets)
     .verticalScroll(scrollState)
 
-private val IME_SHOW_RETRY_DELAYS_MS = longArrayOf(0L, 75L, 150L, 300L, 600L, 900L, 1200L, 1800L)
+private val IME_SHOW_RETRY_DELAYS_MS = longArrayOf(
+    0L, 50L, 100L, 150L, 225L, 300L, 400L, 500L, 650L, 800L, 950L, 1_100L,
+)
 
 private class ImeRequestHolder {
     private var current: ImeRequestHandle? = null

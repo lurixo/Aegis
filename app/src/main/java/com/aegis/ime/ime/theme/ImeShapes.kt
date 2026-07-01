@@ -26,6 +26,9 @@ object ImeShapes {
     /** Ordinary key corner — MD3 medium (≤16dp, never pill). */
     const val keyRadiusDp = 12f
 
+    /** Idle IME toolbar tap state: a restrained rounded rectangle, smaller than key corners. */
+    const val toolbarFeedbackRadiusDp = 6f
+
     /** Candidate / panel card corner. debug.17 E3: tightened 16→11 ("圆角不宜过大"). */
     const val cardRadiusDp = 11f
 

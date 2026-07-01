@@ -155,6 +155,8 @@ class CandidateView(context: Context) : View(context) {
     internal fun maxScrollForTest(): Float = maxScroll()
     internal fun isFlingingForTest(): Boolean = !fling.isFinished
     internal fun flingVelocityForTest(): Float = fling.velocity()
+    internal fun taskbarPressRadiusDpForTest(): Float = ImeShapes.toolbarFeedbackRadiusDp
+    internal fun keyPressRadiusDpForTest(): Float = ImeShapes.keyRadiusDp
 
     private fun layoutCells() {
         hitCount = items.size
@@ -247,8 +249,13 @@ class CandidateView(context: Context) : View(context) {
         if (level <= 0f || right <= left || bottom <= top) return
         pressPaint.color = Motion.stateLayerColor(palette.keyLabel, level, 0x22)
         tmpRect.set(left, top, right, bottom)
-        val r = ImeShapes.keyRadiusDp * density
+        val r = pressRadiusDp(target) * density
         canvas.drawRoundRect(tmpRect, r, r, pressPaint)
+    }
+
+    private fun pressRadiusDp(target: PressTarget): Float = when (target.kind) {
+        PressKind.FUNCTION, PressKind.COLLAPSE -> ImeShapes.toolbarFeedbackRadiusDp
+        PressKind.CANDIDATE, PressKind.EXPAND -> ImeShapes.keyRadiusDp
     }
 
     /** Dispatch to a self-drawn [Glyphs] icon for each toolbar function (debug.17: all share the Glyphs family

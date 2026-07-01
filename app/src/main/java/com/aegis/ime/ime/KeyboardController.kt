@@ -225,7 +225,13 @@ class KeyboardController(
     }
 
     /** D2: 联想开关 — the IME service pushes pref_associations_on; off hides next-word predictions. */
-    fun setAssociationsEnabled(on: Boolean) { associationsEnabled = on }
+    fun setAssociationsEnabled(on: Boolean) {
+        if (associationsEnabled == on) return
+        associationsEnabled = on
+        predictionCands = emptySet()
+        refreshCandidates()
+        render()
+    }
 
     /** E4 hot-toggle (debug.16): push a fuzzy-rule change to the live engine AND remember it, so [setEngine]
      *  re-applies it across a hot-reload swap (the controller is the source of truth, like associationsEnabled). */

@@ -95,6 +95,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private var SPLIT_BLOCK_COPIED_BG = palette.chipBg
     private var SPLIT_BLOCK_COPIED_TEXT = palette.chipText
     private var TEXT_DARK = palette.keyLabel
+    private var TEXT_SECONDARY = palette.keyLabelSecondary
     private var HINT = palette.keyHint
     private var CARD = palette.keySurface
     private var BG = palette.keyboardBg // P-A: panel floor == the strip/keyboard floor (no top seam)
@@ -106,7 +107,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         GREEN = p.candidateFirst; RED = p.onErrorContainer
         GREY_PILL = p.chipBg; SPLIT_BLOCK_BG = p.accentBottom; SPLIT_BLOCK_TEXT = p.accentLabel
         SPLIT_BLOCK_COPIED_BG = p.chipBg; SPLIT_BLOCK_COPIED_TEXT = p.chipText
-        TEXT_DARK = p.keyLabel; HINT = p.keyHint; CARD = p.keySurface
+        TEXT_DARK = p.keyLabel; TEXT_SECONDARY = p.keyLabelSecondary; HINT = p.keyHint; CARD = p.keySurface
         BG = p.keyboardBg; SEP = p.separator // P-A: BG = unified floor
         main.setBackgroundColor(BG)
         refresh()
@@ -247,6 +248,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         r.run()
         return true
     }
+    internal fun disabledActionTextColorForTest(): Int = TEXT_SECONDARY
+    internal fun disabledActionBackgroundColorForTest(): Int = GREY_PILL
     internal fun listScrollRawTopForTest(): Int {
         val loc = IntArray(2)
         listScroll.getLocationOnScreen(loc)
@@ -1356,7 +1359,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             text = label; gravity = Gravity.CENTER
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             background = rounded(if (enabled) SPLIT_BLOCK_BG else GREY_PILL, ImeShapes.chipRadiusDp)
-            setTextColor(if (enabled) SPLIT_BLOCK_TEXT else HINT)
+            setTextColor(if (enabled) SPLIT_BLOCK_TEXT else TEXT_SECONDARY)
             isClickable = enabled
             if (enabled) {
                 Motion.applyTapFeedback(this, SPLIT_BLOCK_TEXT)

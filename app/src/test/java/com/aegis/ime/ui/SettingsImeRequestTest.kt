@@ -171,6 +171,36 @@ class SettingsImeRequestTest {
         assertEquals(listOf(target, target, target), shownFor)
     }
 
+    @Test fun ime_request_front_loads_retries_during_startup_rebind_latency() {
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup()
+        val activity = controller.get()
+        val host = FrameLayout(activity)
+        val target = View(activity).apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
+        }
+        host.addView(target)
+        activity.setContentView(host)
+
+        val shownFor = ArrayList<View>()
+        host.requestImeWhenReady(
+            context = activity,
+            focusTarget = {
+                target.requestFocus()
+            },
+            showSoftInput = {
+                shownFor.add(it)
+                true
+            },
+            restartInput = {},
+            isReady = { true },
+            isImeVisible = { false },
+        )
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1_000))
+
+        assertEquals(List(6) { target }, shownFor)
+    }
+
     @Test fun ime_request_restarts_input_connection_before_showing_input() {
         val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup()
         val activity = controller.get()
@@ -422,10 +452,10 @@ class SettingsImeRequestTest {
             },
             restartInput = {},
             isReady = { true },
-            isImeVisible = { shownFor.size >= 8 },
+            isImeVisible = { shownFor.size >= 12 },
         )
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(5_500))
 
-        assertEquals(List(8) { target }, shownFor)
+        assertEquals(List(12) { target }, shownFor)
     }
 }
