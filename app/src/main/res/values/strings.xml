@@ -50,6 +50,8 @@
     <string name="layout_en">English 26-key</string>
     <string name="layout_panel_title">Keyboard layout</string>
 
+    <string name="app_release_label_format" translatable="false">Aegis v%1$s</string>
+
     <string name="restore_gate_rollback_failed">Restore unfinished — undo failed, tap here</string>
     <string name="restore_gate_rollback_impossible">Restore unfinished — cannot undo, tap here</string>
 
