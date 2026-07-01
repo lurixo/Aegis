@@ -176,7 +176,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         return true
     }
 
-    fun reset() { st.reset(); hideOverlay(); swipeRevealed = null; sortMode = false; categorySortMode = false }
+    fun reset() {
+        invalidateListRender()
+        st.reset(); hideOverlay(); swipeRevealed = null; sortMode = false; categorySortMode = false
+    }
 
     override fun resetToDefault() {
         reset()
@@ -252,8 +255,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
 
     fun refresh() {
-        cancelPendingListAppend()
-        listRenderGeneration++
+        invalidateListRender()
         main.removeAllViews()
         when {
             st.selectMode -> buildSelectMode()
@@ -266,6 +268,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun cancelPendingListAppend() {
         pendingListAppend?.let { removeCallbacks(it) }
         pendingListAppend = null
+    }
+
+    private fun invalidateListRender() {
+        cancelPendingListAppend()
+        listRenderGeneration++
     }
 
     private fun populateListRows(entries: List<String>, row: (String, Int) -> View) {
