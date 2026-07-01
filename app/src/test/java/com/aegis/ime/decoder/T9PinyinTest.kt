@@ -60,6 +60,16 @@ class T9PinyinTest {
         assertEquals("ni", T9Pinyin.preedit("64"))
     }
 
+    @Test fun jiangzhi_keeps_the_jiang_boundary_in_continuous_input() {
+        assertEquals(listOf("jiang", "zhi"), T9Pinyin.segmentLetters("jiangzhi"))
+
+        val digits = T9Pinyin.toT9("jiangzhi")
+        assertTrue("jiang must be selectable from its T9 code", "jiang" in T9Pinyin.leftColumnReadings(digits, 12))
+        val locked = T9Pinyin.lockFirstReading(digits, "jiang")!!
+        assertEquals("jiang'zhi", locked.display)
+        assertEquals("jiangzhi", locked.letters)
+    }
+
     @Test fun partial_buffer_still_shows_something() {
         val pre = T9Pinyin.preedit("6")
         assertTrue(pre.isNotEmpty())

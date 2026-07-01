@@ -373,4 +373,35 @@ class Ui12SyllableColumnTest {
         assertTrue("…and more than the old 30-cap", c.candidateWords().size > 30 || heSet.size <= 30)
         assertTrue("和 reachable through the drill", "和" in shown)
     }
+
+    @Test fun real_dict_jiangzhi_expand_and_reset_track_the_current_reading() {
+        val eng = realEngine(); assumeTrue("dict assets present", eng != null)
+        val c = KeyboardController(RecordingHost(), eng!!)
+        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        "jiangzhi".forEach { c.onKey(out(it.toString())) }
+
+        assertEquals("continuous input exposes jiang as the first unresolved syllable", listOf("jiang"), c.expandedReadings())
+        val normalCandidates = c.candidateWords()
+        c.onPickReadingIndex(0)
+        val jiangHomophones = eng.homophonesForReadingAt("jiangzhi", 0)
+        assertEquals("drill grid is keyed by jiang", jiangHomophones, c.candidateWords())
+
+        c.clearDrill()
+        assertEquals("closing the expanded grid restores word candidates", -1, c.drilledSyllableForTest())
+        assertEquals(normalCandidates, c.candidateWords())
+
+        c.onPickReadingIndex(0)
+        val drilledCandidates = c.candidateWords()
+        c.onPanelBackspace()
+        assertEquals("panel backspace clears stale drill state", -1, c.drilledSyllableForTest())
+        assertTrue("panel backspace must not leave the old homophone grid visible", c.candidateWords() != drilledCandidates)
+        c.onKey(out("i"))
+        assertEquals("retyping returns to the same jiang reading path", listOf("jiang"), c.expandedReadings())
+
+        c.onPanelClear()
+        "jiang'zhi".forEach { c.onKey(out(it.toString())) }
+        assertEquals("explicit separator preserves the same first syllable label", listOf("jiang"), c.expandedReadings())
+        c.onPickReadingIndex(0)
+        assertEquals("separator drill grid is keyed by the same jiang syllable", eng.homophonesForReadingAt("jiang'zhi", 0), c.candidateWords())
+    }
 }

@@ -31,6 +31,12 @@ class PinyinDecoderTest {
         return PinyinDecoder(BinaryDict.fromFile(dictFile))
     }
 
+    private fun dictSingles(key: String): Set<String> =
+        BinaryDict.fromFile(dictFile).exact(key)
+            .filter { it.word.codePointCount(0, it.word.length) == 1 }
+            .map { it.word }
+            .toSet()
+
     @Test
     fun decodesSentences() {
         val d = decoder()
@@ -71,5 +77,23 @@ class PinyinDecoderTest {
             "n should remain a source-backed syllabic nasal reading for 嗯",
             d.decodeCovered("n", 30).any { it.word == "嗯" && it.coveredLen == 1 },
         )
+    }
+
+    @Test
+    fun jiangzhiAndSeparatedJiangZhiShareTheSameSyllablePath() {
+        val d = decoder()
+
+        assertEquals(listOf("jiang", "zhi"), d.syllables("jiangzhi").map { it.reading })
+        assertEquals(listOf("jiang", "zhi"), d.syllables("jiang'zhi").map { it.reading })
+
+        val jiang = dictSingles("jiang")
+        val zhi = dictSingles("zhi")
+        assumeTrue("dict has jiang homophones", jiang.isNotEmpty())
+        assumeTrue("dict has zhi homophones", zhi.isNotEmpty())
+
+        assertEquals("plain input drills the jiang syllable, not a shorter prefix", jiang, d.homophonesAt("jiangzhi", 0).toSet())
+        assertEquals("separated input drills the same jiang syllable", jiang, d.homophonesAt("jiang'zhi", 0).toSet())
+        assertEquals("plain input keeps the zhi tail navigable", zhi, d.homophonesAt("jiangzhi", 1).toSet())
+        assertEquals("separated input keeps the zhi tail navigable", zhi, d.homophonesAt("jiang'zhi", 1).toSet())
     }
 }

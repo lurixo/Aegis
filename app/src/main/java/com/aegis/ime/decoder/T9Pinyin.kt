@@ -79,6 +79,7 @@ object T9Pinyin {
     ).withIndex().associate { (i, s) -> s to i }
 
     private const val DEFAULT_RANK = 1000
+    private const val UNKNOWN_LEN_BONUS = 220
     private const val LEN_BONUS = 480
     private const val SYLLABLE_PENALTY = 50.0
     private val maxDigits: Int = SYLLABLES.maxOf { toT9(it).length }
@@ -90,7 +91,7 @@ object T9Pinyin {
         m.mapValues { (_, v) -> v.sortedBy { freqRank[it] ?: DEFAULT_RANK } }
     }
 
-    private fun rankOf(s: String) = freqRank[s] ?: DEFAULT_RANK
+    private fun rankOf(s: String) = freqRank[s] ?: (DEFAULT_RANK - UNKNOWN_LEN_BONUS * s.length)
 
     fun segment(digits: String): List<String>? {
         val n = digits.length
