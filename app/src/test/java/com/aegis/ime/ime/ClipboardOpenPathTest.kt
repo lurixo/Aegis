@@ -83,4 +83,18 @@ class ClipboardOpenPathTest {
         assertEquals(listOf("new"), v.listRowTextsForTest())
         assertFalse("the refresh cancelled the previous deferred append", v.runPendingListAppendForTest())
     }
+
+    @Test fun reset_to_default_cancels_a_stale_deferred_append() {
+        val clips = (0 until (ClipboardView(ctx).initialSyncRowsForTest() + 5)).map { "old-$it" }
+        val v = ClipboardView(ctx).apply {
+            historyProvider = { clips }
+            applyPalette(pal)
+        }
+        assertEquals("large first render leaves rows deferred", v.initialSyncRowsForTest(), v.listRowCountForTest())
+
+        v.resetToDefault()
+
+        assertFalse("the reset cancelled the previous deferred append", v.runPendingListAppendForTest())
+        assertEquals(v.initialSyncRowsForTest(), v.listRowCountForTest())
+    }
 }
