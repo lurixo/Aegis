@@ -451,9 +451,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             clipboardView = it
         }
         cv.resetToDefault()
-        cv.applyPalette(imePalette)
         clipboardStore.reloadPhrases()
-        cv.refresh()
+        cv.applyPalette(imePalette)
         iv.showPanel(cv)
     }
 

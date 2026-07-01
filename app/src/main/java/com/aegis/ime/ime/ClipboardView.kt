@@ -138,11 +138,15 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private val overlay = FrameLayout(context).apply { visibility = GONE }
     private val listColumn = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(8), 0, dp(8), dp(8)) }
     private val listScroll = ScrollView(context).apply { addView(listColumn) }
+    private var listRenderGeneration = 0
+    private var pendingListAppend: Runnable? = null
 
     private companion object {
         const val MP = ViewGroup.LayoutParams.MATCH_PARENT
         const val WC = ViewGroup.LayoutParams.WRAP_CONTENT
         const val DISPLAY_CAP = 2000
+        const val INITIAL_SYNC_ROWS = 48
+        const val APPEND_ROWS_PER_FRAME = 48
         const val SWIPE_VERTICAL_BIAS = 1.5f
         const val DRAG_AUTO_SCROLL_INTERVAL_MS = 16L
         const val DRAG_AUTO_SCROLL_MIN_STEP_DP = 2
@@ -198,6 +202,15 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     internal fun isDragAutoScrollScheduledForTest(): Boolean = dragAutoScrollScheduled
     internal fun listScrollYForTest(): Int = listScroll.scrollY
     internal fun listRowViewForTest(index: Int): View? = listColumn.getChildAt(index)
+    internal fun listRowCountForTest(): Int = listColumn.childCount
+    internal fun initialSyncRowsForTest(): Int = INITIAL_SYNC_ROWS
+    internal fun runPendingListAppendForTest(): Boolean {
+        val r = pendingListAppend ?: return false
+        removeCallbacks(r)
+        pendingListAppend = null
+        r.run()
+        return true
+    }
     internal fun listScrollRawTopForTest(): Int {
         val loc = IntArray(2)
         listScroll.getLocationOnScreen(loc)
@@ -239,6 +252,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
 
     fun refresh() {
+        cancelPendingListAppend()
+        listRenderGeneration++
         main.removeAllViews()
         when {
             st.selectMode -> buildSelectMode()
@@ -246,6 +261,38 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             sortMode -> buildSortMode()
             else -> buildNormal()
         }
+    }
+
+    private fun cancelPendingListAppend() {
+        pendingListAppend?.let { removeCallbacks(it) }
+        pendingListAppend = null
+    }
+
+    private fun populateListRows(entries: List<String>, row: (String, Int) -> View) {
+        listColumn.removeAllViews()
+        if (entries.isEmpty()) {
+            listColumn.addView(emptyHint())
+            return
+        }
+        val firstEnd = min(entries.size, INITIAL_SYNC_ROWS)
+        appendListRows(entries, 0, firstEnd, row)
+        if (firstEnd < entries.size) scheduleListAppend(entries, firstEnd, listRenderGeneration, row)
+    }
+
+    private fun appendListRows(entries: List<String>, start: Int, end: Int, row: (String, Int) -> View) {
+        for (i in start until end) listColumn.addView(row(entries[i], i))
+    }
+
+    private fun scheduleListAppend(entries: List<String>, start: Int, generation: Int, row: (String, Int) -> View) {
+        val r = Runnable {
+            if (generation != listRenderGeneration) return@Runnable
+            pendingListAppend = null
+            val end = min(entries.size, start + APPEND_ROWS_PER_FRAME)
+            appendListRows(entries, start, end, row)
+            if (end < entries.size) scheduleListAppend(entries, end, generation, row)
+        }
+        pendingListAppend = r
+        postOnAnimation(r)
     }
 
 
@@ -267,9 +314,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             }, iconLp(true))
         }
         main.addView(topBar, ll(MP, dp(50)))
-        listColumn.removeAllViews()
         val entries = currentEntries()
-        if (entries.isEmpty()) listColumn.addView(emptyHint()) else for ((i, e) in entries.withIndex()) listColumn.addView(card(e, i))
+        populateListRows(entries) { e, i -> card(e, i) }
         main.addView(listScroll, ll(MP, 0, 1f))
 
         if (st.tab == Tab.PHRASE) main.addView(categoryBar(), ll(MP, dp(44)))
@@ -659,6 +705,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     override fun onDetachedFromWindow() {
         dragHandler.removeCallbacksAndMessages(null)
+        cancelPendingListAppend()
         resetDragPreviewTranslations()
         dragAutoScrollScheduled = false
         dragFrom = -1; dragCurrent = -1; dragVisualIndex = -1; dragTouchOffsetY = 0f; dragLastRawY = 0f; dragView = null; dragKind = DragKind.NONE
