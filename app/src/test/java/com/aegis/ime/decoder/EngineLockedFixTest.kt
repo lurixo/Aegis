@@ -148,15 +148,38 @@ class EngineLockedFixTest {
 
     @Test fun prefixCompletionsDoNotLetTiedSupplementarySinglesCrowdOutCommonWords() {
         val rare = EngineFixture.supplementary(702)
-        val decoder = PinyinDecoder(EngineFixture.build(listOf(
-            EngineFixture.Row("cea", rare, 10),
-            EngineFixture.Row("ceb", "测词", 10),
-            EngineFixture.Row("cec", "册词", 9),
-        )))
+        val rows = ArrayList<EngineFixture.Row>()
+        rows.add(EngineFixture.Row("cea", rare, 10))
+        rows.add(EngineFixture.Row("ceb", "测词", 10))
+        rows.add(EngineFixture.Row("cec", "册词", 9))
+        for (i in 0 until 200) rows.add(EngineFixture.Row("cez${i.toString().padStart(3, '0')}", "低$i", 1))
+        val decoder = PinyinDecoder(EngineFixture.build(rows))
         val words = decoder.decode("ce", 3)
 
         assertEquals("same-frequency common word wins the prefix completion tie", "测词", words.first())
         assertTrue("supplementary rare remains reachable in prefix completions", rare in words)
+    }
+
+    @Test fun boundedPrefixCompletionsKeepTieBreakForShortLetterAndDigitPrefixes() {
+        val letterRare = EngineFixture.supplementary(703)
+        val letterRows = ArrayList<EngineFixture.Row>()
+        letterRows.add(EngineFixture.Row("cea", letterRare, 10))
+        letterRows.add(EngineFixture.Row("ceb", "测", 10))
+        for (i in 0 until 200) letterRows.add(EngineFixture.Row("cez${i.toString().padStart(3, '0')}", "低$i", 1))
+        val letterWords = PinyinDecoder(EngineFixture.build(letterRows)).decode("ce", 2)
+
+        assertEquals("same-frequency common BMP char wins the bounded letter-prefix tie", "测", letterWords.first())
+        assertTrue("supplementary rare remains reachable in bounded letter-prefix completions", letterRare in letterWords)
+
+        val digitRare = EngineFixture.supplementary(704)
+        val digitRows = ArrayList<EngineFixture.Row>()
+        digitRows.add(EngineFixture.Row("22", digitRare, 10))
+        digitRows.add(EngineFixture.Row("23", "测", 10))
+        for (i in 0 until 200) digitRows.add(EngineFixture.Row("29${i.toString().padStart(3, '0')}", "低$i", 1))
+        val digitWords = PinyinDecoder(EngineFixture.build(digitRows)).decode("2", 2)
+
+        assertEquals("same-frequency common BMP char wins the bounded digit-prefix tie", "测", digitWords.first())
+        assertTrue("supplementary rare remains reachable in bounded digit-prefix completions", digitRare in digitWords)
     }
 
     @Test fun supplementaryPlaneHanContextConditionsDecodeCoveredButBmpSymbolsDoNot() {

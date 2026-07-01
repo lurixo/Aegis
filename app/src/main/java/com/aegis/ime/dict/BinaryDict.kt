@@ -21,6 +21,7 @@ import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.FileChannel
+import java.util.PriorityQueue
 
 /**
  * Read-only, memory-mapped pinyin dictionary. Keys are toneless concatenated syllables
@@ -64,6 +65,8 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
     /** A candidate word and its corpus frequency. */
     data class WordFreq(val word: String, val freq: Int)
 
+    private data class PrefixHit(val word: String, val freq: Int, val tieRank: Int, val order: Int)
+
     /** Entries for an exact key (its full toneless pinyin), frequency-descending. Empty if absent. */
     fun exact(key: String): List<WordFreq> {
         if (key.isEmpty() || numKeys == 0) return emptyList()
@@ -84,27 +87,44 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
         return out
     }
 
-    /** All entries whose key starts with [prefix], ranked by frequency (for English completion). */
+    /** All entries whose key starts with [prefix], ranked by frequency. */
     fun prefixByFreq(prefix: String, limit: Int): List<WordFreq> {
-        if (prefix.isEmpty() || numKeys == 0) return emptyList()
+        if (prefix.isEmpty() || limit <= 0 || numKeys == 0) return emptyList()
         val q = prefix.toByteArray(Charsets.US_ASCII)
-        val all = ArrayList<WordFreq>()
+        val top = PriorityQueue<PrefixHit>(limit, Comparator { a, b -> comparePrefixWorstFirst(a, b) })
+        var order = 0
         var i = lowerBound(q)
         while (i < numKeys && startsWith(i, q)) {
             val es = entryStart(i)
             val ee = if (i + 1 < numKeys) entryStart(i + 1) else numEntries
             var j = es
             while (j < ee) {
-                val wo = buf.getInt(entryArrOff + j * 12)
-                val wl = buf.getInt(entryArrOff + j * 12 + 4)
-                val fr = buf.getInt(entryArrOff + j * 12 + 8)
-                all.add(WordFreq(readWord(wo, wl), fr))
+                val entryOff = entryArrOff + j * 12
+                val fr = buf.getInt(entryOff + 8)
+                if (top.size >= limit) {
+                    val worst = top.peek() ?: break
+                    if (fr < worst.freq || (fr == worst.freq && worst.tieRank == 0)) break
+                }
+                val wo = buf.getInt(entryOff)
+                val wl = buf.getInt(entryOff + 4)
+                val word = readWord(wo, wl)
+                val hit = PrefixHit(word, fr, supplementarySingleTieRank(word), order++)
+                if (top.size < limit) {
+                    top.add(hit)
+                } else {
+                    val worst = top.peek() ?: break
+                    if (comparePrefixBestFirst(hit, worst) < 0) {
+                        top.poll()
+                        top.add(hit)
+                    }
+                }
                 j++
             }
             i++
         }
-        all.sortWith(compareByDescending<WordFreq> { it.freq }.thenBy { supplementarySingleTieRank(it.word) })
-        return if (all.size <= limit) all else all.subList(0, limit)
+        return top.toList()
+            .sortedWith(Comparator { a, b -> comparePrefixBestFirst(a, b) })
+            .map { WordFreq(it.word, it.freq) }
     }
 
     /** Exact match for [input] (its full toneless pinyin), then prefix matches; freq-ordered, deduped. */
@@ -176,6 +196,22 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
             word.codePointCount(0, word.length) == 1 &&
             Character.isSupplementaryCodePoint(word.codePointAt(0))
         ) 1 else 0
+
+    private fun comparePrefixWorstFirst(a: PrefixHit, b: PrefixHit): Int {
+        val freq = a.freq.compareTo(b.freq)
+        if (freq != 0) return freq
+        val tie = b.tieRank.compareTo(a.tieRank)
+        if (tie != 0) return tie
+        return b.order.compareTo(a.order)
+    }
+
+    private fun comparePrefixBestFirst(a: PrefixHit, b: PrefixHit): Int {
+        val freq = b.freq.compareTo(a.freq)
+        if (freq != 0) return freq
+        val tie = a.tieRank.compareTo(b.tieRank)
+        if (tie != 0) return tie
+        return a.order.compareTo(b.order)
+    }
 
     private fun readWord(wordOffset: Int, len: Int): String {
         val bytes = ByteArray(len)
