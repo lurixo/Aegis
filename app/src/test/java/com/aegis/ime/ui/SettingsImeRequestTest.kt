@@ -20,6 +20,7 @@ import android.view.View
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertSame
 import org.junit.Test
@@ -234,6 +235,168 @@ class SettingsImeRequestTest {
         shadowOf(Looper.getMainLooper()).idle()
 
         assertEquals(listOf(target, target, target), shownFor)
+    }
+
+    @Test fun ime_request_stops_pending_retries_when_field_focus_predicate_turns_false() {
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup()
+        val activity = controller.get()
+        val host = FrameLayout(activity)
+        val target = View(activity).apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
+        }
+        host.addView(target)
+        activity.setContentView(host)
+
+        var fieldFocused = true
+        val calls = ArrayList<String>()
+        host.requestImeWhenReady(
+            context = activity,
+            focusTarget = {
+                calls.add("focus")
+                target.requestFocus()
+            },
+            showSoftInput = {
+                calls.add("show")
+                true
+            },
+            restartInput = {
+                calls.add("restart")
+                assertSame(target, it)
+            },
+            isReady = { true },
+            isImeVisible = { false },
+            shouldContinue = { fieldFocused },
+            retryDelaysMs = longArrayOf(0L, 1_000L, 1_000L),
+        )
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(listOf("focus", "restart", "show"), calls)
+
+        fieldFocused = false
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(2_500))
+
+        assertEquals(listOf("focus", "restart", "show"), calls)
+    }
+
+    @Test fun ime_request_stops_pending_retries_when_host_detaches() {
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup()
+        val activity = controller.get()
+        val host = FrameLayout(activity)
+        val target = View(activity).apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
+        }
+        host.addView(target)
+        activity.setContentView(host)
+
+        val calls = ArrayList<String>()
+        host.requestImeWhenReady(
+            context = activity,
+            focusTarget = {
+                calls.add("focus")
+                target.requestFocus()
+            },
+            showSoftInput = {
+                calls.add("show")
+                true
+            },
+            restartInput = {
+                calls.add("restart")
+                assertSame(target, it)
+            },
+            isReady = { true },
+            isImeVisible = { false },
+            retryDelaysMs = longArrayOf(0L, 1_000L, 1_000L),
+        )
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(listOf("focus", "restart", "show"), calls)
+
+        activity.setContentView(FrameLayout(activity))
+        assertFalse(host.isAttachedToWindow)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(2_500))
+
+        assertEquals(listOf("focus", "restart", "show"), calls)
+    }
+
+    @Test fun ime_request_cancel_stops_pending_retries() {
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup()
+        val activity = controller.get()
+        val host = FrameLayout(activity)
+        val target = View(activity).apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
+        }
+        host.addView(target)
+        activity.setContentView(host)
+
+        val calls = ArrayList<String>()
+        val request = host.requestImeWhenReady(
+            context = activity,
+            focusTarget = {
+                calls.add("focus")
+                target.requestFocus()
+            },
+            showSoftInput = {
+                calls.add("show")
+                true
+            },
+            restartInput = {
+                calls.add("restart")
+                assertSame(target, it)
+            },
+            isReady = { true },
+            isImeVisible = { false },
+            retryDelaysMs = longArrayOf(0L, 1_000L, 1_000L),
+        )
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(listOf("focus", "restart", "show"), calls)
+
+        request.cancel()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(2_500))
+
+        assertEquals(listOf("focus", "restart", "show"), calls)
+    }
+
+    @Test fun ime_request_does_not_show_after_request_token_is_superseded() {
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup()
+        val activity = controller.get()
+        val host = FrameLayout(activity)
+        val target = View(activity).apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
+        }
+        host.addView(target)
+        activity.setContentView(host)
+
+        var activeToken = 1
+        val requestToken = activeToken
+        val calls = ArrayList<String>()
+        host.requestImeWhenReady(
+            context = activity,
+            focusTarget = {
+                calls.add("focus")
+                target.requestFocus()
+            },
+            showSoftInput = {
+                calls.add("show")
+                true
+            },
+            restartInput = {
+                calls.add("restart")
+            },
+            isReady = { true },
+            isImeVisible = { false },
+            shouldContinue = { activeToken == requestToken },
+            retryDelaysMs = longArrayOf(0L),
+        )
+
+        activeToken += 1
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(emptyList<String>(), calls)
     }
 
     @Test fun ime_request_covers_slow_update_rebind_before_giving_up() {
