@@ -42,18 +42,27 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import com.aegis.ime.ui.theme.AegisTheme
+import kotlinx.coroutines.delay
 
 /** Landing screen: enable the IME, switch to it, and a field to try typing. */
 class SetupActivity : ComponentActivity() {
+    private var resumeSignal by mutableIntStateOf(0)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -63,18 +72,36 @@ class SetupActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    SetupScreen()
+                    SetupScreen(resumeSignal = resumeSignal)
                 }
             }
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        resumeSignal += 1
+    }
 }
 
 @Composable
-private fun SetupScreen() {
+private fun SetupScreen(resumeSignal: Int = 0) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
     var typed by remember { mutableStateOf("") }
+    var tryFieldFocused by remember { mutableStateOf(false) }
+    val tryFieldFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(tryFieldFocused, resumeSignal) {
+        if (!tryFieldFocused) return@LaunchedEffect
+        delay(50)
+        tryFieldFocusRequester.requestFocus()
+        keyboardController?.show()
+        delay(150)
+        keyboardController?.show()
+    }
+
     // B3: a one-time, non-blocking first-run hint that the optional downloads exist (the seed dict + base
     // grammar already work offline, so this never blocks typing). Dismissed for good once acknowledged.
     var showDownloadHint by remember { mutableStateOf(!prefs.getBoolean("dl_hint_dismissed", false)) }
@@ -162,7 +189,10 @@ private fun SetupScreen() {
             value = typed,
             onValueChange = { typed = it },
             label = { Text("3 · 在此试打") },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(tryFieldFocusRequester)
+                .onFocusChanged { tryFieldFocused = it.isFocused },
         )
 
         UserDictCard()

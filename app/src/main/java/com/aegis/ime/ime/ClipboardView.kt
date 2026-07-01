@@ -88,12 +88,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     // recomputes them and rebuilds. Declared before [main] et al. since those field initializers use them.
     private var palette = ImePalette.STATIC_LIGHT
     private var GREEN = palette.candidateFirst
-    private var GREEN_PILL = palette.chipBg
-    private var RED = palette.onErrorContainer    // U-polish: 删除 text on its destructive container
-    private var RED_PILL = palette.errorContainer // U-polish: 删除 reads red (MD3 destructive), not a grey chip
+    private var RED = palette.onErrorContainer
     private var GREY_PILL = palette.chipBg
-    private var SPLIT_BLOCK_BG = palette.chipBg
-    private var SPLIT_BLOCK_TEXT = palette.chipText
+    private var SPLIT_BLOCK_BG = palette.accentBottom
+    private var SPLIT_BLOCK_TEXT = palette.accentLabel
     private var SPLIT_BLOCK_COPIED_BG = palette.accentBottom
     private var SPLIT_BLOCK_COPIED_TEXT = palette.accentLabel
     private var TEXT_DARK = palette.keyLabel
@@ -105,8 +103,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     /** F1: recolour from the Monet palette and rebuild. */
     fun applyPalette(p: ImePalette) {
         palette = p
-        GREEN = p.candidateFirst; GREEN_PILL = p.chipBg; RED = p.onErrorContainer; RED_PILL = p.errorContainer
-        GREY_PILL = p.chipBg; SPLIT_BLOCK_BG = p.chipBg; SPLIT_BLOCK_TEXT = p.chipText
+        GREEN = p.candidateFirst; RED = p.onErrorContainer
+        GREY_PILL = p.chipBg; SPLIT_BLOCK_BG = p.accentBottom; SPLIT_BLOCK_TEXT = p.accentLabel
         SPLIT_BLOCK_COPIED_BG = p.accentBottom; SPLIT_BLOCK_COPIED_TEXT = p.accentLabel
         TEXT_DARK = p.keyLabel; HINT = p.keyHint; CARD = p.keySurface
         BG = p.keyboardBg; SEP = p.separator // P-A: BG = unified floor
@@ -951,16 +949,16 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setPadding(dp(12), dp(8), dp(12), dp(8))
             if (st.tab == Tab.PHRASE) {
                 // debug.16: phrase batch action = move to category; add-phrase makes no sense for existing phrases.
-                addView(pillButton("移动到分类", GREEN, GREEN_PILL, hasSel) {
+                addView(pillButton("移动到分类", hasSel) {
                     val from = currentCategory(); val victims = st.selected.toList()
                     chooseMoveCategoryThen(from, victims, after = { exitSelect() }) { target -> onMovePhrasesTo(from, victims, target); exitSelect() }
                 }, ll(0, dp(44), 1f).apply { rightMargin = dp(8) })
             } else {
-                addView(pillButton("添加常用语", GREEN, GREEN_PILL, hasSel) {
+                addView(pillButton("添加常用语", hasSel) {
                     chooseCategoryThen(st.selected.toList()) { exitSelect() }
                 }, ll(0, dp(44), 1f).apply { rightMargin = dp(8) })
             }
-            addView(pillButton("删除", RED, RED_PILL, hasSel) {
+            addView(pillButton("删除", hasSel) {
                 val victims = st.selected.toList()
                 if (st.tab == Tab.CLIPBOARD) onDeleteClips(victims) else onDeletePhrasesFrom(currentCategory(), victims)
                 exitSelect()
@@ -1219,12 +1217,12 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         layoutParams = LinearLayout.LayoutParams(MP, maxOf(1, dp(1)))
     }
 
-    private fun pillButton(label: String, fg: Int, bg: Int, enabled: Boolean, onClick: () -> Unit): TextView =
+    private fun pillButton(label: String, enabled: Boolean, onClick: () -> Unit): TextView =
         TextView(context).apply {
             text = label; gravity = Gravity.CENTER
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
-            background = rounded(if (enabled) bg else GREY_PILL, ImeShapes.chipRadiusDp)
-            setTextColor(if (enabled) fg else HINT)
+            background = rounded(if (enabled) SPLIT_BLOCK_BG else GREY_PILL, ImeShapes.chipRadiusDp)
+            setTextColor(if (enabled) SPLIT_BLOCK_TEXT else HINT)
             isClickable = enabled
             if (enabled) setOnClickListener { onClick() }
         }
