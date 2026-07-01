@@ -31,6 +31,7 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
     private val wordBlobOff: Int
     private val keyArrOff: Int
     private val entryArrOff: Int
+    private val shortPrefixTop: Array<List<WordFreq>>
 
     val totalFreq: Long
 
@@ -48,6 +49,7 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
         wordBlobOff = wordBlobLenPos + 4
         keyArrOff = wordBlobOff + wordBlobLen
         entryArrOff = keyArrOff + numKeys * 12
+        shortPrefixTop = buildShortPrefixTop()
     }
 
     data class WordFreq(val word: String, val freq: Int)
@@ -75,6 +77,7 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
 
     fun prefixByFreq(prefix: String, limit: Int): List<WordFreq> {
         if (prefix.isEmpty() || limit <= 0 || numKeys == 0) return emptyList()
+        shortPrefixIndex(prefix)?.let { return it.take(limit) }
         val q = prefix.toByteArray(Charsets.US_ASCII)
         val top = PriorityQueue<PrefixHit>(limit, Comparator { a, b -> comparePrefixWorstFirst(a, b) })
         var order = 0
@@ -94,22 +97,12 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
                 val wl = buf.getInt(entryOff + 4)
                 val word = readWord(wo, wl)
                 val hit = PrefixHit(word, fr, supplementarySingleTieRank(word), order++)
-                if (top.size < limit) {
-                    top.add(hit)
-                } else {
-                    val worst = top.peek() ?: break
-                    if (comparePrefixBestFirst(hit, worst) < 0) {
-                        top.poll()
-                        top.add(hit)
-                    }
-                }
+                offerPrefixHit(top, hit, limit)
                 j++
             }
             i++
         }
-        return top.toList()
-            .sortedWith(Comparator { a, b -> comparePrefixBestFirst(a, b) })
-            .map { WordFreq(it.word, it.freq) }
+        return sortedPrefixHits(top)
     }
 
     fun query(input: String, limit: Int): List<String> {
@@ -174,6 +167,74 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
         }
     }
 
+    private fun shortPrefixIndex(prefix: String): List<WordFreq>? {
+        if (prefix.length != 1) return null
+        val c = prefix[0].code
+        return if (isShortPrefixByte(c)) shortPrefixTop[c] else null
+    }
+
+    private fun buildShortPrefixTop(): Array<List<WordFreq>> {
+        val heaps = arrayOfNulls<PriorityQueue<PrefixHit>>(SHORT_PREFIX_BUCKETS)
+        val order = IntArray(SHORT_PREFIX_BUCKETS)
+        var i = 0
+        while (i < numKeys) {
+            val first = firstKeyByte(i)
+            if (isShortPrefixByte(first)) {
+                val top = heaps[first] ?: PriorityQueue<PrefixHit>(
+                    SHORT_PREFIX_TOP_N,
+                    Comparator { a, b -> comparePrefixWorstFirst(a, b) },
+                ).also { heaps[first] = it }
+                val es = entryStart(i)
+                val ee = if (i + 1 < numKeys) entryStart(i + 1) else numEntries
+                var j = es
+                while (j < ee) {
+                    val entryOff = entryArrOff + j * 12
+                    val fr = buf.getInt(entryOff + 8)
+                    if (top.size >= SHORT_PREFIX_TOP_N) {
+                        val worst = top.peek() ?: break
+                        if (fr < worst.freq || (fr == worst.freq && worst.tieRank == 0)) break
+                    }
+                    val wo = buf.getInt(entryOff)
+                    val wl = buf.getInt(entryOff + 4)
+                    val word = readWord(wo, wl)
+                    offerPrefixHit(
+                        top,
+                        PrefixHit(word, fr, supplementarySingleTieRank(word), order[first]++),
+                        SHORT_PREFIX_TOP_N,
+                    )
+                    j++
+                }
+            }
+            i++
+        }
+        return Array(SHORT_PREFIX_BUCKETS) { b -> heaps[b]?.let { sortedPrefixHits(it) } ?: emptyList() }
+    }
+
+    private fun firstKeyByte(i: Int): Int {
+        if (keyLen(i) <= 0) return -1
+        return buf.get(keyBlobOff + keyOffset(i)).toInt() and 0xFF
+    }
+
+    private fun isShortPrefixByte(b: Int): Boolean =
+        b in 'a'.code..'z'.code || b in '2'.code..'9'.code
+
+    private fun offerPrefixHit(top: PriorityQueue<PrefixHit>, hit: PrefixHit, limit: Int) {
+        if (top.size < limit) {
+            top.add(hit)
+            return
+        }
+        val worst = top.peek() ?: return
+        if (comparePrefixBestFirst(hit, worst) < 0) {
+            top.poll()
+            top.add(hit)
+        }
+    }
+
+    private fun sortedPrefixHits(top: PriorityQueue<PrefixHit>): List<WordFreq> =
+        top.toList()
+            .sortedWith(Comparator { a, b -> comparePrefixBestFirst(a, b) })
+            .map { WordFreq(it.word, it.freq) }
+
     private fun supplementarySingleTieRank(word: String): Int =
         if (word.isNotEmpty() &&
             word.codePointCount(0, word.length) == 1 &&
@@ -204,6 +265,9 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
     }
 
     companion object {
+        private const val SHORT_PREFIX_TOP_N = 128
+        private const val SHORT_PREFIX_BUCKETS = 128
+
         fun fromFile(file: File): BinaryDict =
             RandomAccessFile(file, "r").use { raf ->
                 val ch = raf.channel
