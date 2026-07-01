@@ -363,6 +363,7 @@ class KeyboardController(
                 if (activeStart > composing.length) activeStart = composing.length
             }
         }
+        if (composing.isEmpty() && committedPrefix.isNotEmpty()) flushComposing()
     }
 
     private fun rebuildHistory() {

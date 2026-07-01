@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
+import com.aegis.ime.R
 import com.aegis.ime.ui.theme.AegisTheme
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -94,8 +95,8 @@ class SettingsRenderTest {
             snapCompose("dlcard_states_$t.png", dark, hDp = 1600) {
                 DictDownloadCard(DownloadCardPreview(present = true))
                 GramDownloadCard(DownloadCardPreview(present = true, checking = true))
-                DictDownloadCard(DownloadCardPreview(present = true, status = "已是最新，无更新（全量词库已是最新版本）"))
-                GramDownloadCard(DownloadCardPreview(present = true, status = "无法检查更新（网络不可用）"))
+                DictDownloadCard(DownloadCardPreview(present = true, status = ctx.getString(R.string.dict_status_update_current)))
+                GramDownloadCard(DownloadCardPreview(present = true, status = ctx.getString(R.string.download_toast_update_offline)))
             }
         }
     }

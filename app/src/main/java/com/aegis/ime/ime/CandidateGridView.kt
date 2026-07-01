@@ -34,7 +34,7 @@ import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeType
 import kotlin.math.abs
 
-class CandidateGridView(context: Context) : LinearLayout(context) {
+class CandidateGridView(context: Context) : LinearLayout(context), ResettablePanel {
 
     var onPick: (Int) -> Unit = {}
     var onPickReading: (Int) -> Unit = {}
@@ -48,6 +48,8 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
     private var palette = ImePalette.STATIC_LIGHT
     private val readingColumn = LinearLayout(context).apply { orientation = VERTICAL }
     private val gridColumn = LinearLayout(context).apply { orientation = VERTICAL }
+    private val readingScroll = ScrollView(context).apply { addView(readingColumn) }
+    private val gridScroll = ScrollView(context).apply { addView(gridColumn) }
     private val rightColumn = FrameLayout(context)
     private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
     private val measurePaint = Paint().apply {
@@ -67,11 +69,11 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
 
         readingColumn.setBackgroundColor(palette.keyboardBg)
         addView(
-            ScrollView(context).apply { addView(readingColumn) },
+            readingScroll,
             LayoutParams(dp(60), LayoutParams.MATCH_PARENT),
         )
         addView(
-            ScrollView(context).apply { addView(gridColumn) },
+            gridScroll,
             LayoutParams(0, LayoutParams.MATCH_PARENT, 1f),
         )
         rightColumn.setBackgroundColor(palette.keyboardBg)
@@ -85,6 +87,11 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
         )
         rightColumn.addView(funcButton("重输") { onClear() }, rowAlignedLp(4))
         addView(rightColumn, LayoutParams(dp(64), LayoutParams.MATCH_PARENT))
+    }
+
+    override fun resetToDefault() {
+        readingScroll.scrollTo(0, 0)
+        gridScroll.scrollTo(0, 0)
     }
 
     fun applyPalette(p: ImePalette) {
@@ -211,6 +218,12 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
     internal fun returnButtonForTest(): TextView = rightColumn.getChildAt(0) as TextView
     internal fun backspaceButtonForTest(): TextView = rightColumn.getChildAt(1) as TextView
     internal fun clearButtonForTest(): TextView = rightColumn.getChildAt(2) as TextView
+    internal fun gridScrollYForTest(): Int = gridScroll.scrollY
+    internal fun readingScrollYForTest(): Int = readingScroll.scrollY
+    internal fun scrollForTest(gridY: Int, readingY: Int = 0) {
+        gridScroll.scrollTo(0, gridY)
+        readingScroll.scrollTo(0, readingY)
+    }
     internal fun selectedReadingBackgroundForTest(index: Int): Drawable? =
         (readingColumn.getChildAt(index) as? TextView)?.background
 

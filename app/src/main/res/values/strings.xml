@@ -1,8 +1,104 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Aegis</string>
-    <string name="ime_label">Aegis 输入法</string>
-    <string name="subtype_zh">Aegis 输入法</string>
+    <string name="ime_label">Aegis IME</string>
+    <string name="subtype_zh">Aegis Chinese</string>
     <string name="subtype_en">Aegis English</string>
-    <string name="phrase_manager_title">常用语管理</string>
+    <string name="phrase_manager_title">Phrase Manager</string>
+
+    <string name="setup_title">Aegis IME</string>
+    <string name="setup_summary">Offline Chinese / English input method. Built-in Pinyin engine (full Pinyin and T9), fuzzy Pinyin, abbreviated Pinyin, mixed Chinese/English input, English completion and correction, offline self-learning, and optional Wanxiang model enhancement. All input stays offline.</string>
+    <string name="setup_first_run_title">First use</string>
+    <string name="setup_first_run_body">Optional enhancement model and full dictionary downloads are available below. They are not required: the built-in seed dictionary and base grammar can already type offline. Download them later if you want broader or more accurate candidates.</string>
+    <string name="setup_first_run_ack">Got it</string>
+    <string name="setup_steps_title">Setup steps</string>
+    <string name="setup_enable_button">1 · Enable Aegis in system settings</string>
+    <string name="setup_switch_button">2 · Switch to Aegis IME</string>
+    <string name="setup_try_field_label">3 · Try typing here</string>
+
+    <string name="download_button">Download</string>
+    <string name="check_update_button">Check updates</string>
+    <string name="delete_button">Delete</string>
+    <string name="download_status_downloading">Downloading…</string>
+    <string name="download_status_checking_update">Checking for updates…</string>
+    <string name="download_toast_update_offline">Unable to check for updates (network unavailable)</string>
+    <string name="download_toast_up_to_date">Up to date, no update</string>
+    <string name="download_toast_update_found">Update found, starting update</string>
+    <string name="download_storage_format">Storage: %1$s (app-private directory, hidden from file managers; local only and removable).</string>
+
+    <string name="gram_card_title">Enhancement model (Wanxiang offline model)</string>
+    <string name="gram_card_description">Optional ~401 MB download. Chinese candidates become noticeably more accurate after download (internal evaluation top-1 + about 9 points). Stored locally only; input remains fully offline.</string>
+    <string name="gram_source_link">Model source: amzxyz/RIME-LMDG ↗</string>
+    <string name="gram_status_enabled">✅ Enabled: enhanced grammar is active (downloaded %1$d MB, local only; loaded after switching to Aegis)</string>
+    <string name="gram_status_not_downloaded">⚠ Enhanced grammar is not enabled - download the ~401 MB model to enable it</string>
+    <string name="gram_status_download_failed">Download failed</string>
+    <string name="gram_status_update_current">Up to date, no update (enhancement model is already current)</string>
+    <string name="gram_status_deleted">⚠ Enhanced grammar is not enabled (deleted; restart the input method to release any loaded model)</string>
+
+    <string name="dict_card_title">Full dictionary pack (14 tables freq >= 1)</string>
+    <string name="dict_card_description">Optional full dictionary download, about 243 MB extracted (characters, base words, associations, sound corrections, polyphones, poetry, places, medicine, chemistry, drugs, notable names, variants, species, and personal names). The built-in high-frequency seed dictionary works offline without download; the full pack broadens Chinese candidate coverage. Stored locally only; input remains fully offline.</string>
+    <string name="dict_source_link">Dictionary source: amzxyz/rime-wanxiang ↗</string>
+    <string name="dict_status_enabled">✅ Downloaded and enabled: full dictionary (about %1$d MB, local only; switch/restart Aegis to load broader Chinese coverage)</string>
+    <string name="dict_status_not_downloaded">⚠ Full dictionary is not downloaded - optional ~98 MB compressed pack (~243 MB extracted; built-in seed dictionary already works offline)</string>
+    <string name="dict_status_verifying_extracting">Verifying and extracting…</string>
+    <string name="dict_status_install_failed">Verification or extraction failed (file may be corrupt, please retry)</string>
+    <string name="dict_status_download_failed">Download failed</string>
+    <string name="dict_status_update_current">Up to date, no update (full dictionary is already current)</string>
+    <string name="dict_status_deleted">⚠ Full dictionary deleted (built-in seed dictionary remains available)</string>
+
+    <string name="fuzzy_card_title">Input settings · Fuzzy Pinyin</string>
+    <string name="fuzzy_master_title">Fuzzy Pinyin (master switch)</string>
+    <string name="fuzzy_master_description">Tolerate common Pinyin confusions; each rule can also be toggled separately. Takes effect next time you switch to Aegis.</string>
+    <string name="fuzzy_rule_zh_title">zh → z</string>
+    <string name="fuzzy_rule_zh_desc">Retroflex/plain initial: zhi=zi, chang=cang</string>
+    <string name="fuzzy_rule_ch_title">ch → c</string>
+    <string name="fuzzy_rule_ch_desc">Retroflex/plain initial: chi=ci</string>
+    <string name="fuzzy_rule_sh_title">sh → s</string>
+    <string name="fuzzy_rule_sh_desc">Retroflex/plain initial: shi=si</string>
+    <string name="fuzzy_rule_ang_title">ang → an</string>
+    <string name="fuzzy_rule_ang_desc">Front/back nasal final: gang=gan, chang=can</string>
+    <string name="fuzzy_rule_eng_title">eng → en</string>
+    <string name="fuzzy_rule_eng_desc">Front/back nasal final: leng=len</string>
+    <string name="fuzzy_rule_ing_title">ing → in</string>
+    <string name="fuzzy_rule_ing_desc">Front/back nasal final: xin=xing, lin=ling</string>
+    <string name="fuzzy_rule_n_l_title">n ↔ l</string>
+    <string name="fuzzy_rule_n_l_desc">Initial confusion: nan=lan, ni=li</string>
+    <string name="fuzzy_rule_f_h_title">f ↔ h</string>
+    <string name="fuzzy_rule_f_h_desc">Initial confusion: fan=huan, fu=hu</string>
+    <string name="fuzzy_rule_l_r_title">l ↔ r</string>
+    <string name="fuzzy_rule_l_r_desc">Initial confusion: lan=ran, lu=ru</string>
+    <string name="fuzzy_rule_k_g_title">k ↔ g</string>
+    <string name="fuzzy_rule_k_g_desc">Initial confusion: kan=gan, kai=gai</string>
+
+    <string name="association_title">Next-word suggestions</string>
+    <string name="association_description">Show next-word predictions in the candidate bar while typing. Off by default; you can enable it.</string>
+
+    <string name="layout_card_title">Full Pinyin keyboard</string>
+    <string name="layout_card_description">Default keyboard for Chinese input (English always uses 26 keys).</string>
+    <string name="layout_nine">Full Pinyin T9</string>
+    <string name="layout_alpha">Full Pinyin 26-key</string>
+
+    <string name="user_dict_title">Learning dictionary</string>
+    <string name="user_dict_description">Aegis learns your frequent words and next-word pairs offline and stores them as the learning dictionary on this device. This is separate from the downloaded main dictionary: import/overwrite here only changes the learning dictionary and never changes the main dictionary. Imports take effect next time you switch to Aegis.</string>
+    <string name="user_dict_default_path_format">Default dictionary: %1$s (app-private directory, hidden from file managers; use Export to copy it out. Default file name: aegis-userdb.txt).</string>
+    <string name="user_dict_export_button">Export learning dictionary</string>
+    <string name="user_dict_import_button">Import learning dictionary</string>
+    <string name="user_dict_toast_import_merged">Learning dictionary imported and merged</string>
+    <string name="user_dict_toast_import_overwritten">Learning dictionary imported and overwritten</string>
+    <string name="user_dict_toast_import_failed">Import failed: file cannot be read or has no valid entries; dictionary was not changed</string>
+    <string name="user_dict_import_dialog_title">Import learning dictionary</string>
+    <string name="user_dict_import_dialog_body">This imports/exports the learning dictionary (userdb.txt - words and frequencies learned on this device), not the downloaded main dictionary. Merge adds imported entries to the current learning dictionary with dedupe and accumulated frequencies. Overwrite replaces the learning dictionary with the imported file. Neither option changes the downloaded main dictionary.</string>
+    <string name="user_dict_import_merge">Merge (recommended)</string>
+    <string name="user_dict_import_overwrite">Overwrite</string>
+
+    <string name="app_version_card_title">App release</string>
+    <string name="app_version_card_description">Aegis app release label. This is separate from the learning dictionary, main dictionary, and model files.</string>
+    <string name="app_release_label_value" translatable="false">Aegis v0.1.0-debug.38</string>
+
+    <string name="phrase_transfer_toast_export_ok">Phrases exported</string>
+    <string name="phrase_transfer_toast_export_failed">Export failed</string>
+    <string name="phrase_transfer_toast_import_read_failed">Import failed: file cannot be read; phrases were not changed</string>
+    <string name="phrase_transfer_toast_import_merged">Phrases imported and merged</string>
+    <string name="phrase_transfer_toast_import_overwritten">Phrases imported and overwritten</string>
+    <string name="phrase_transfer_toast_import_invalid">Import failed: no valid content; phrases were not changed</string>
 </resources>
