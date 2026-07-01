@@ -171,6 +171,28 @@ class PhrasePanelTest {
         v.dragDropForTest()
     }
 
+    @Test fun active_drag_does_not_reparent_the_touched_row_while_preview_reorders() {
+        val v = phraseView()
+        val row = v.listRowViewForTest(0)
+        v.dragStartAtForTest(0, 20f)
+        v.dragMoveToForTest(2)
+        assertTrue("dragged row remains the same physical child until pointer up", row === v.listRowViewForTest(0))
+        assertEquals("visual order still previews the pending drop", listOf("在吗", "稍等", "你好"), v.listRowTextsForTest())
+        v.dragCancelForTest()
+    }
+
+    @Test fun active_drag_can_move_back_to_the_original_slot_before_drop() {
+        val v = phraseView()
+        layout(v)
+        val top = v.listScrollRawTopForTest().toFloat()
+        v.dragStartAtForTest(0, top + 24f)
+        v.dragUpdateForTest(top + 220f)
+        assertEquals(listOf("在吗", "稍等", "你好"), v.listRowTextsForTest())
+        v.dragUpdateForTest(top + 12f)
+        assertEquals(listOf("你好", "在吗", "稍等"), v.listRowTextsForTest())
+        v.dragCancelForTest()
+    }
+
     @Test fun active_drag_stays_captured_after_live_row_reorder_until_pointer_up() {
         var r: Triple<String, Int, Int>? = null
         val v = phraseView().apply { onReorderPhrase = { c, f, t -> r = Triple(c, f, t) } }
@@ -252,6 +274,7 @@ class PhrasePanelTest {
         assertTrue(send(v, MotionEvent.ACTION_CANCEL, 140f))
         assertFalse(v.isDraggingForTest())
         assertNull("cancel is cleanup, not a persisted drop", r)
+        assertEquals("cancel restores the original visual order", listOf("你好", "在吗", "稍等"), v.listRowTextsForTest())
     }
 
     @Test fun drag_move_reorders_category_rows_live_before_drop() {
@@ -312,6 +335,7 @@ class PhrasePanelTest {
         assertTrue(send(v, MotionEvent.ACTION_CANCEL, 140f))
         assertFalse(v.isDraggingForTest())
         assertNull("category cancel is cleanup, not a persisted drop", r)
+        assertEquals("category cancel restores the original visual order", listOf("默认", "工作", "私人"), v.listRowTextsForTest())
     }
 
     @Test fun rowAt_skips_the_dragged_row_so_downward_drag_finds_a_lower_target() {
