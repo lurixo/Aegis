@@ -49,6 +49,9 @@ object EngineFixture {
         for (i in 0 until 3) rows.add(Row("xian", supplementary(240 + i), 1))
         rows.add(Row("xian", "西安", 5000))
         rows.add(Row("xi", "西", 850)); rows.add(Row("an", "安", 900))
+        listOf("向" to 980, "想" to 930, "相" to 900, "像" to 860, "香" to 800, "响" to 760, "享" to 700)
+            .forEach { rows.add(Row("xiang", it.first, it.second)) }
+        listOf("下" to 900, "夏" to 760, "霞" to 700).forEach { rows.add(Row("xia", it.first, it.second)) }
         listOf("九" to 900, "就" to 880, "久" to 860, "酒" to 840, "旧" to 800, "救" to 700)
             .forEach { rows.add(Row("jiu", it.first, it.second)) }
         listOf("键" to 900, "见" to 880, "件" to 860, "间" to 840, "简" to 800, "减" to 700, "建" to 680)

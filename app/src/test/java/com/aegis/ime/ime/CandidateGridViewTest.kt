@@ -60,6 +60,18 @@ class CandidateGridViewTest {
         assertNull("selected reading should not paint a mismatched rectangle", v.selectedReadingBackgroundForTest(0))
     }
 
+    @Test fun selected_reading_uses_accent_and_unselected_uses_default_text_color() {
+        val pal = com.aegis.ime.ime.theme.ImePalette.STATIC_LIGHT
+        val v = CandidateGridView(ctx).apply {
+            applyPalette(pal)
+            setReadings(listOf("zhang", "xiang", "xia"), selected = 1)
+        }
+
+        assertEquals("unselected reading uses the default candidate text color", pal.candidateText, v.readingTextColorForTest(0))
+        assertEquals("selected reading uses the theme accent color", pal.candidateFirst, v.readingTextColorForTest(1))
+        assertEquals("other unselected readings also use the default candidate text color", pal.candidateText, v.readingTextColorForTest(2))
+    }
+
     @Test fun repeated_content_does_not_rebuild_the_grid_or_reading_column() {
         val v = CandidateGridView(ctx)
         v.setCandidates(listOf("你", "好"))

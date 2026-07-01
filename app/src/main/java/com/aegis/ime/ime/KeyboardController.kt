@@ -136,10 +136,10 @@ class KeyboardController(
     fun setCnDefaultLayout(id: LayoutId) {
         if (cnDefaultLayout == id) return
         cnDefaultLayout = id
+        cnLayout = id
         if (lang == Lang.CN && (layoutId == LayoutId.NINE || layoutId == LayoutId.ALPHA) &&
             composing.isEmpty() && committedPrefix.isEmpty()
         ) {
-            cnLayout = id
             switchLayout(id)
             refreshCandidates()
             render()
@@ -212,7 +212,6 @@ class KeyboardController(
                 flushComposing()
                 shiftState = ShiftState.OFF
                 if (lang == Lang.CN) {
-                    cnLayout = layoutId
                     lang = Lang.EN
                     layoutId = LayoutId.ALPHA
                 } else {
@@ -439,6 +438,7 @@ class KeyboardController(
         flushComposing()
         shiftState = ShiftState.OFF
         layoutId = id
+        if (lang == Lang.CN && (id == LayoutId.NINE || id == LayoutId.ALPHA)) cnLayout = id
     }
 
     private fun flushComposing() {
@@ -587,7 +587,10 @@ class KeyboardController(
                     cuts
                 } else emptyList()
                 val readingCuts = (forcedCuts.filter { it in (activeStart + 1) until composing.length } + lockCuts).toSet()
-                engine.candidatesForReadingCovered(full, readingCuts, context)
+                val lockedCandidates =
+                    if (activeDigits().isEmpty()) engine.candidatesForLockedReadingCovered(full, readingCuts, context)
+                    else engine.candidatesForReadingCovered(full, readingCuts, context)
+                lockedCandidates
                     .map { Cand(it.word, bounds[it.coveredLen] ?: it.coveredLen.coerceAtMost(composing.length)) }
             } else {
                 val isNine = layoutId == LayoutId.NINE

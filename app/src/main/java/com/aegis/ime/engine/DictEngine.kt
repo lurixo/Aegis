@@ -59,6 +59,11 @@ class DictEngine(
         return decoder?.decodeCovered(letters, MAX_CANDIDATES, cuts, context) ?: emptyList()
     }
 
+    override fun candidatesForLockedReadingCovered(letters: String, cuts: Set<Int>, context: CharSequence): List<Cand> {
+        if (letters.isEmpty()) return emptyList()
+        return decoder?.decodeCoveredAtomic(letters, MAX_CANDIDATES, cuts, context) ?: emptyList()
+    }
+
     override fun syllables(composing: String, t9: Boolean): List<Syllable> {
         if (composing.isEmpty()) return emptyList()
         return (if (t9) t9Decoder else decoder)?.syllables(composing) ?: emptyList()
