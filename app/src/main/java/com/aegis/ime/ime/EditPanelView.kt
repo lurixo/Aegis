@@ -57,7 +57,10 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
 
     private fun recolor(v: View) {
         when (v) {
-            is TextView -> v.setTextColor(palette.keyLabel)
+            is TextView -> {
+                v.setTextColor(palette.keyLabel)
+                Motion.applyTapFeedback(v, palette.keyLabel)
+            }
             is android.view.ViewGroup -> for (i in 0 until v.childCount) recolor(v.getChildAt(i))
         }
     }
@@ -108,7 +111,11 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
 
     fun setHasSelection(has: Boolean) {
         val tint = if (has) palette.keyLabel else palette.disabled
-        for (b in listOf(copyBtn, cutBtn)) { b.isEnabled = has; b.setTextColor(tint) }
+        for (b in listOf(copyBtn, cutBtn)) {
+            b.isEnabled = has
+            b.setTextColor(tint)
+            Motion.applyTapFeedback(b, tint)
+        }
         copyIcon.applyTint(tint); cutIcon.applyTint(tint)
     }
 
@@ -138,6 +145,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
         setTextColor(palette.keyLabel)
         isClickable = true
+        Motion.applyTapFeedback(this, palette.keyLabel)
         setOnClickListener { onAction(action) }
     }
 
@@ -149,6 +157,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         setCompoundDrawablesWithIntrinsicBounds(null, glyph, null, null)
         compoundDrawablePadding = dp(2)
         isClickable = true
+        Motion.applyTapFeedback(this, palette.keyLabel)
         setOnClickListener { onAction(action) }
     }
 
@@ -156,6 +165,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         gravity = Gravity.CENTER
         setCompoundDrawablesWithIntrinsicBounds(null, icon(32, 0.40f) { c, p, x, y, s -> Glyphs.drawArrow(c, p, x, y, s, dir) }, null, null)
         isClickable = true
+        Motion.applyTapFeedback(this, palette.keyLabel)
         setOnClickListener { onAction(action) }
     }
 
