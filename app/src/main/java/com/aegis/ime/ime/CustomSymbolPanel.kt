@@ -54,6 +54,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         setPadding(dp(12), dp(10), dp(12), dp(10))
         isClickable = true
         setTextColor(colors.keyLabel)
+        Motion.applyTapFeedback(this, colors.keyLabel)
     }
     private val sectionLabels = mutableListOf<TextView>()
 
@@ -93,6 +94,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         setBackgroundColor(p.keyboardBg) // P-A: see init
         headerBar.setBackgroundColor(p.keyboardBg) // P-A: 返回 row on the unified floor
         backText.setTextColor(p.keyLabel)
+        Motion.applyTapFeedback(backText, p.keyLabel)
         sectionLabels.forEach { it.setTextColor(p.keyLabelSecondary) }
         refresh()
     }
@@ -138,6 +140,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         setTextColor(if (removable) colors.deletable else colors.keyLabel)
         background = GradientDrawable().apply { setColor(this@CustomSymbolPanel.colors.keySurface); cornerRadius = ImeShapes.keyRadiusDp * density } // U-polish: round like every other tile
         isClickable = true
+        Motion.applyTapFeedback(this, if (removable) colors.deletable else colors.keyLabel)
         setOnClickListener { onClick() }
     }
 }

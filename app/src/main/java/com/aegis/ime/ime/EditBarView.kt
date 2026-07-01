@@ -97,6 +97,8 @@ class EditBarView(context: Context) : LinearLayout(context) {
         field.background = GradientDrawable().apply { setColor(p.keySurface); cornerRadius = ImeShapes.inputRadiusDp * density } // debug.17: 圆角矩形, not a pill
         cancel.setTextColor(p.keyLabelSecondary)
         confirm.setTextColor(p.candidateFirst)
+        Motion.applyTapFeedback(cancel, p.keyLabelSecondary)
+        Motion.applyTapFeedback(confirm, p.candidateFirst)
     }
 
     /** The bar title (e.g. 编辑常用语 / 新建分类 / 重命名分类). */

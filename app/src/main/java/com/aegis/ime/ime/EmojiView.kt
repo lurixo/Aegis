@@ -68,6 +68,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     private val lockBtn = barButton("锁定") { toggleLock() }
     private val lockSlot = FrameLayout(context).apply {
         isClickable = true
+        Motion.applyTapFeedback(this, palette.keyLabelSecondary)
         setOnClickListener { toggleLock() }
     }
     private val lockGlyph = LockDrawable(density)
@@ -107,7 +108,10 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         railScroll.setBackgroundColor(p.railBg)
         bottomBarView.setBackgroundColor(p.keyboardBg) // P-A: 返回 bar = the unified floor
         (bottomBarView as LinearLayout).let { bar ->
-            for (i in 0 until bar.childCount) (bar.getChildAt(i) as? TextView)?.setTextColor(p.keyLabelSecondary)
+            for (i in 0 until bar.childCount) (bar.getChildAt(i) as? TextView)?.let {
+                it.setTextColor(p.keyLabelSecondary)
+                Motion.applyTapFeedback(it, p.keyLabelSecondary)
+            }
         }
         backspaceGlyph.tint(p.keyLabelSecondary)
         updateLockFace()
@@ -135,6 +139,8 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         lockGlyph.closed = locked
         lockGlyph.tint(tint)
         lockBtn.setTextColor(tint)
+        Motion.applyTapFeedback(lockBtn, tint)
+        Motion.applyTapFeedback(lockSlot, tint)
         lockBtn.setTypeface(null, if (locked) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
     }
 
@@ -157,6 +163,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
             tab.setTextColor(if (on) palette.candidateFirst else palette.keyLabelSecondary)
             tab.setBackgroundColor(if (on) palette.keySurface else 0x00000000)
             tab.setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+            Motion.applyTapFeedback(tab, if (on) palette.candidateFirst else palette.keyLabelSecondary)
         }
         grid.removeAllViews()
         // E2: index 0 = the live 最近 (MRU) feed; the rest are catalogue categories (shifted by one).
@@ -184,6 +191,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
         setPadding(0, dp(13), 0, dp(13))
         isClickable = true
+        Motion.applyTapFeedback(this, if (index == selected) palette.candidateFirst else palette.keyLabelSecondary)
         setOnClickListener { showCategory(index) }
     }
 
@@ -194,6 +202,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         val p = dp(8)
         setPadding(0, p, 0, p)
         isClickable = true
+        Motion.applyTapFeedback(this, palette.keyLabel)
         setOnClickListener { onEmoji(emoji); if (!locked) onBack() } // debug.17: locked → stay open for multi-insert
         layoutParams = GridLayout.LayoutParams().apply {
             width = 0
@@ -221,6 +230,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         setTextColor(palette.keyLabelSecondary)
         isClickable = true
+        Motion.applyTapFeedback(this, palette.keyLabelSecondary)
         setOnClickListener { onClick() }
     }
 

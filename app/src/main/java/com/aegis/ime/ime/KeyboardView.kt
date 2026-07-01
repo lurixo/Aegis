@@ -61,6 +61,8 @@ class KeyboardView(context: Context) : View(context) {
 
     private val placed = ArrayList<Placed>()
     private var pressed: Key? = null
+    private var visualPressed: Key? = null
+    private val keyPress = Motion.PressFeedback(this)
 
     // A3: the scrollable left column (pinyin combos while composing / punctuation at rest).
     private var scrollColumn: ScrollColumn? = null
@@ -68,6 +70,8 @@ class KeyboardView(context: Context) : View(context) {
     private var scrollCellH = 0f
     private var scrollY = 0f
     private var scrollPressedIndex = -1
+    private var scrollVisualPressedIndex = -1
+    private val scrollPress = Motion.PressFeedback(this)
     private var inScrollDown = false
     private var scrollDownY = 0f // where the gesture went down (for the slop threshold)
     private var scrollLastY = 0f // I5: previous touch-Y — the drag consumes incremental deltas (true 1:1,
@@ -170,14 +174,14 @@ class KeyboardView(context: Context) : View(context) {
         langSmallPaint.color = p.keyHint
         keyOutlinePaint.color = p.separator
         sepLinePaint.color = p.separator
-        pressHighlight.color = withAlpha(p.keyLabel, 0x22)
+        pressHighlight.color = Motion.withAlpha(p.keyLabel, 0x22)
         scrollTrackPaint.color = p.railBg
         scrollbarPaint.color = withAlpha(p.icon, 0x55)
         scrollLabelPaint.color = p.keyLabel
         invalidate()
     }
 
-    private fun withAlpha(argb: Int, alpha: Int): Int = (argb and 0x00FFFFFF) or (alpha shl 24)
+    private fun withAlpha(argb: Int, alpha: Int): Int = Motion.withAlpha(argb, alpha)
 
     private data class Placed(val rect: RectF, val key: Key, val groupId: Int = 0)
 
@@ -303,8 +307,10 @@ class KeyboardView(context: Context) : View(context) {
             val top = scrollRegion.top - scrollY + i * scrollCellH
             val bottom = top + scrollCellH
             if (bottom < scrollRegion.top || top > scrollRegion.bottom) continue // off-screen
-            if (i == scrollPressedIndex) {
+            val pressLevel = if (i == scrollVisualPressedIndex) scrollPress.level else 0f
+            if (pressLevel > 0f) {
                 tmpRect.set(scrollRegion.left, top, scrollRegion.right, bottom)
+                pressHighlight.color = Motion.stateLayerColor(palette.keyLabel, pressLevel)
                 canvas.drawRoundRect(tmpRect, keyRadius * 0.6f, keyRadius * 0.6f, pressHighlight)
             }
             // debug.16 item5: the left column is narrow; keep the reference size unless a label is wider than the
@@ -340,7 +346,8 @@ class KeyboardView(context: Context) : View(context) {
 
         // Flat MD3 keys (F2: no peanut/oval/neumorphic — the 9-key left column is the A3 scroll strip below).
         for (p in placed) {
-            drawKey(canvas, p.rect, p.key.accent, p.key == pressed)
+            val pressLevel = if (p.key == visualPressed) keyPress.level else 0f
+            drawKey(canvas, p.rect, p.key.accent, pressLevel)
             drawLabel(canvas, p)
         }
 
@@ -349,15 +356,22 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     /** F2: a flat MD3 tonal key — accent = solid primary fill; normal = tonal fill + thin outline. */
-    private fun drawKey(canvas: Canvas, rect: RectF, accent: Boolean, pressed: Boolean) {
+    private fun drawKey(canvas: Canvas, rect: RectF, accent: Boolean, pressLevel: Float) {
         if (accent) {
             fillPaint.color = palette.accentBottom
             canvas.drawRoundRect(rect, keyRadius, keyRadius, fillPaint)
-            if (pressed) canvas.drawRoundRect(rect, keyRadius, keyRadius, pressHighlight)
+            if (pressLevel > 0f) {
+                pressHighlight.color = Motion.stateLayerColor(palette.keyLabel, pressLevel)
+                canvas.drawRoundRect(rect, keyRadius, keyRadius, pressHighlight)
+            }
             return
         }
-        fillPaint.color = if (pressed) palette.keySurfacePressed else palette.keySurface
+        fillPaint.color = palette.keySurface
         canvas.drawRoundRect(rect, keyRadius, keyRadius, fillPaint)
+        if (pressLevel > 0f) {
+            pressHighlight.color = Motion.stateLayerColor(palette.keyLabel, pressLevel)
+            canvas.drawRoundRect(rect, keyRadius, keyRadius, pressHighlight)
+        }
         canvas.drawRoundRect(rect, keyRadius, keyRadius, keyOutlinePaint)
     }
 
@@ -446,11 +460,10 @@ class KeyboardView(context: Context) : View(context) {
             MotionEvent.ACTION_DOWN -> {
                 downPlaced = placedAt(event.x, event.y)
                 downKey = downPlaced?.key
-                pressed = downKey
+                setPressedKey(downKey)
                 downX = event.x; downY = event.y
                 repeating = false; swiped = false; vSwipeDir = 0
                 downKey?.let { if (isRepeatable(it)) repeatHandler.postDelayed(repeatRunnable, REPEAT_DELAY_MS) }
-                invalidate()
             }
             MotionEvent.ACTION_MOVE -> {
                 val dk = downKey
@@ -475,18 +488,16 @@ class KeyboardView(context: Context) : View(context) {
                         } else if (!swiped) {
                             val k = currentTarget(event.x, event.y)
                             if (k !== pressed) {
-                                pressed = k
+                                setPressedKey(k)
                                 if (k !== downKey) repeatHandler.removeCallbacks(repeatRunnable)
-                                invalidate()
                             }
                         }
                     }
                     else -> {
                         val k = currentTarget(event.x, event.y)
                         if (k !== pressed) {
-                            pressed = k
+                            setPressedKey(k)
                             if (k !== downKey) repeatHandler.removeCallbacks(repeatRunnable)
-                            invalidate()
                         }
                     }
                 }
@@ -494,8 +505,7 @@ class KeyboardView(context: Context) : View(context) {
             MotionEvent.ACTION_UP -> {
                 repeatHandler.removeCallbacks(repeatRunnable)
                 val dk = downKey
-                pressed = null
-                invalidate()
+                releasePressedKey()
                 when {
                     // !repeating: a long-press that already auto-fired must not ALSO emit a swipe/tap on lift.
                     dk != null && dk.action == KeyAction.BACKSPACE && swiped && !repeating ->
@@ -515,13 +525,29 @@ class KeyboardView(context: Context) : View(context) {
             }
             MotionEvent.ACTION_CANCEL -> {
                 repeatHandler.removeCallbacks(repeatRunnable)
-                pressed = null
+                releasePressedKey()
                 downKey = null
                 downPlaced = null
-                invalidate()
             }
         }
         return true
+    }
+
+    private fun setPressedKey(key: Key?) {
+        pressed = key
+        if (key == null) {
+            keyPress.release()
+        } else {
+            visualPressed = key
+            keyPress.press()
+        }
+        invalidate()
+    }
+
+    private fun releasePressedKey() {
+        pressed = null
+        keyPress.release()
+        invalidate()
     }
 
     /**
@@ -537,11 +563,15 @@ class KeyboardView(context: Context) : View(context) {
                 fling.onDown()
                 scrollDownY = event.y; scrollLastY = event.y
                 scrollPressedIndex = if (fling.stopArmed) -1 else scrollIndexAt(event.y)
+                scrollVisualPressedIndex = scrollPressedIndex
+                if (scrollPressedIndex >= 0) scrollPress.press() else scrollPress.release()
                 invalidate()
             }
             MotionEvent.ACTION_MOVE -> {
                 fling.addSample(event.eventTime, event.y)
-                if (!scrolling && abs(event.y - scrollDownY) > scrollSlop) { scrolling = true; scrollPressedIndex = -1 }
+                if (!scrolling && abs(event.y - scrollDownY) > scrollSlop) {
+                    scrolling = true; scrollPressedIndex = -1; scrollPress.release()
+                }
                 if (scrolling) {
                     // 1:1 drag via INCREMENTAL deltas: content moves exactly as far as the finger, and a
                     // clamp at the top/bottom is applied to the accumulated offset (not absorbed into an
@@ -561,10 +591,12 @@ class KeyboardView(context: Context) : View(context) {
                     if (idx >= 0 && idx == scrollPressedIndex) { performClick(); onKey(col.items[idx]) }
                 }
                 scrollPressedIndex = -1; inScrollDown = false; scrolling = false
+                scrollPress.release()
                 invalidate()
             }
             MotionEvent.ACTION_CANCEL -> {
                 scrollPressedIndex = -1; inScrollDown = false; scrolling = false
+                scrollPress.release()
                 invalidate()
             }
         }

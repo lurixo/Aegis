@@ -111,7 +111,10 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         }
         override fun onDraw(canvas: Canvas) =
             Glyphs.drawClipboard(canvas, p, width / 2f, height / 2f, 9f * density) // match the toolbar icon scale
-    }.apply { setOnClickListener { ctl.tapContent() } } // the whole left block (glyph + 内容) 上屏s
+    }.apply {
+        Motion.applyTapFeedback(this, palette.icon)
+        setOnClickListener { ctl.tapContent() }
+    } // the whole left block (glyph + 内容) 上屏s
 
     private fun content(s: String): TextView = TextView(context).apply {
         // E5: bound the displayed preview — a million-char clip would jank the TextView even with maxLines=1.
@@ -123,6 +126,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         setTextColor(palette.candidateText)
         setPadding(dp(8), 0, dp(8), 0)
         gravity = Gravity.CENTER_VERTICAL
+        Motion.applyTapFeedback(this, palette.candidateText)
         setOnClickListener { ctl.tapContent() } // ⑤ 上屏 (CopyBarController fires commit; InputView hides the bar)
     }
 
@@ -133,6 +137,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         setTextColor(palette.chipText) // U-polish: onSecondaryContainer pairs with the chipBg container
         setPadding(dp(12), dp(5), dp(12), dp(5))
         background = GradientDrawable().apply { setColor(palette.chipBg); cornerRadius = ImeShapes.chipRadiusDp * density }
+        Motion.applyTapFeedback(this, palette.chipText)
         setOnClickListener { onClick() }
         layoutParams = LinearLayout.LayoutParams(WC, WC).apply { rightMargin = dp(6) }
     }
@@ -143,6 +148,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
         setTextColor(palette.icon)
         setPadding(dp(10), 0, dp(10), 0)
+        Motion.applyTapFeedback(this, palette.icon)
         setOnClickListener { onClick() }
     }
 

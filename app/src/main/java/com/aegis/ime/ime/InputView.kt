@@ -76,7 +76,14 @@ class InputView(context: Context) : LinearLayout(context) {
     fun palette(): ImePalette = palette
 
     /** debug.16: show/hide the inline text-input bar (keyboard + candidate strip stay visible below it). */
-    fun showEditBar(active: Boolean) { editBarView.visibility = if (active) VISIBLE else GONE }
+    fun showEditBar(active: Boolean) {
+        if (active) {
+            Motion.revealIn(editBarView, Motion.EnterFrom.TOP, distanceDp = 6f, duration = Motion.STATE_CHANGE)
+        } else {
+            editBarView.visibility = GONE
+            Motion.reset(editBarView)
+        }
+    }
     fun isEditBarShowing(): Boolean = editBarView.visibility == VISIBLE
     fun setEditTitle(t: String) { editBarView.setTitle(t) }
     fun setEditText(t: String) { editBarView.setText(t) }
@@ -179,6 +186,9 @@ class InputView(context: Context) : LinearLayout(context) {
         // half-faded keyboard / panel / preedit.
         Motion.reset(keyboardView)
         Motion.reset(preeditView)
+        Motion.reset(candidateView)
+        Motion.reset(copyBarView)
+        Motion.reset(editBarView)
         currentPanel?.let { Motion.reset(it) }
     }
 
@@ -197,14 +207,12 @@ class InputView(context: Context) : LinearLayout(context) {
     /** 复制条: show the captured clip on the taskbar row (replacing the normal toolbar). */
     fun showCopyBar(text: String) {
         copyBarView.show(text)
-        copyBarView.visibility = VISIBLE
-        candidateView.visibility = GONE
+        Motion.swapIn(copyBarView, candidateView)
     }
 
     /** Leave the copy-bar state → restore the normal candidate strip / toolbar. */
     fun hideCopyBar() {
-        copyBarView.visibility = GONE
-        candidateView.visibility = VISIBLE
+        Motion.swapIn(candidateView, copyBarView)
     }
 
     val copyBarShown: Boolean get() = copyBarView.visibility == VISIBLE
@@ -284,7 +292,7 @@ class InputView(context: Context) : LinearLayout(context) {
             )
             panelContainer.visibility = VISIBLE
             keyboardView.visibility = GONE
-            Motion.fadeIn(panel) // U-anim: MD3 fade-through (incoming half). Alpha only — the slot height is pinned above.
+            Motion.revealIn(panel, Motion.EnterFrom.BOTTOM) // The slot height is pinned above.
         }
     }
 
