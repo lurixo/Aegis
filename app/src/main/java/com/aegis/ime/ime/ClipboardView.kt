@@ -230,6 +230,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     internal fun runDragAutoScrollFrameForTest(): Boolean = runDragAutoScrollFrame()
     internal fun isDragAutoScrollScheduledForTest(): Boolean = dragAutoScrollScheduled
     internal fun listScrollYForTest(): Int = listScroll.scrollY
+    internal fun listRowViewForTest(index: Int): View? = listColumn.getChildAt(index)
     internal fun listScrollRawTopForTest(): Int {
         val loc = IntArray(2)
         listScroll.getLocationOnScreen(loc)
@@ -260,7 +261,15 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             return null
         }
         for (i in 0 until listColumn.childCount) firstText(listColumn.getChildAt(i))?.let { out.add(it) }
-        return out
+        return dragPreviewOrder(out)
+    }
+
+    private fun <T> dragPreviewOrder(items: List<T>): List<T> {
+        if (!isDragging || dragFrom !in items.indices || dragCurrent !in items.indices || dragFrom == dragCurrent) return items
+        return items.toMutableList().apply {
+            val item = removeAt(dragFrom)
+            add(dragCurrent.coerceIn(0, size), item)
+        }
     }
 
     fun refresh() {
@@ -526,13 +535,19 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun indexAtRawY(rawY: Float): Int? {
         val n = listColumn.childCount
         if (n == 0) return null
-        val tops = IntArray(n); val heights = IntArray(n)
         val contentTop = listContentRawTop()
+        var target = (n - 1).coerceAtLeast(0)
         for (i in 0 until n) {
+            if (i == dragFrom) continue
             val child = listColumn.getChildAt(i)
-            tops[i] = contentTop + child.top; heights[i] = child.height
+            if (child.height <= 0) return null
+            val center = contentTop + child.top + child.height / 2f
+            if (rawY < center) {
+                target = if (i < dragFrom) i else i - 1
+                break
+            }
         }
-        return rowAt(tops, heights, dragVisualIndex, rawY.toInt())
+        return target.coerceIn(0, n - 1)
     }
 
     private fun listContentRawTop(): Int {
@@ -657,23 +672,38 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun moveDragTo(index: Int, rawY: Float? = null) {
         val n = if (dragKind == DragKind.CATEGORY) categoriesProvider().size else currentEntries().size
         if (index !in 0 until n) return
+        val old = dragCurrent
         dragCurrent = index
-        if (dragView != null && index != dragVisualIndex) {
-            moveDraggedViewTo(index)
+        dragVisualIndex = index
+        if (dragView != null && index != old) {
+            updateDragPreviewTranslations()
             rawY?.let { updateDraggedTranslation(it) }
         }
     }
 
-    private fun moveDraggedViewTo(index: Int) {
-        val view = dragView ?: return
-        val from = dragVisualIndex
-        if (from !in 0 until listColumn.childCount) return
-        listColumn.removeViewAt(from)
-        listColumn.addView(view, index.coerceIn(0, listColumn.childCount))
-        dragVisualIndex = index
-        listColumn.requestLayout()
+    private fun updateDragPreviewTranslations() {
+        val from = dragFrom
+        val to = dragCurrent
+        if (from !in 0 until listColumn.childCount || to !in 0 until listColumn.childCount) {
+            resetDragPreviewTranslations()
+            return
+        }
+        val lifted = dragView
+        for (i in 0 until listColumn.childCount) {
+            val child = listColumn.getChildAt(i)
+            if (child === lifted) continue
+            val targetTop = when {
+                from < to && i in (from + 1)..to -> listColumn.getChildAt(i - 1).top
+                to < from && i in to until from -> listColumn.getChildAt(i + 1).top
+                else -> child.top
+            }
+            child.translationY = (targetTop - child.top).toFloat()
+        }
         listColumn.invalidate()
-        listColumn.post { if (isDragging) updateDraggedTranslation(dragLastRawY) }
+    }
+
+    private fun resetDragPreviewTranslations() {
+        for (i in 0 until listColumn.childCount) listColumn.getChildAt(i).translationY = 0f
     }
 
     private fun updateDraggedTranslation(rawY: Float) {
@@ -702,6 +732,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
 
     private fun resetDragState() {
+        resetDragPreviewTranslations()
         dragView?.let { it.translationZ = 0f; it.alpha = 1f; it.translationY = 0f }
         dragFrom = -1; dragCurrent = -1; dragVisualIndex = -1; dragTouchOffsetY = 0f; dragLastRawY = 0f; dragView = null; dragKind = DragKind.NONE
     }
@@ -709,6 +740,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     override fun onDetachedFromWindow() {
         // Drop any pending long-press → drag so a panel close mid-press can't fire startDrag on a stale card.
         dragHandler.removeCallbacksAndMessages(null)
+        resetDragPreviewTranslations()
         dragAutoScrollScheduled = false
         dragFrom = -1; dragCurrent = -1; dragVisualIndex = -1; dragTouchOffsetY = 0f; dragLastRawY = 0f; dragView = null; dragKind = DragKind.NONE
         super.onDetachedFromWindow()
