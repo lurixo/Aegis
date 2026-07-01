@@ -19,10 +19,14 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
+import android.view.View
+import android.view.ViewTreeObserver
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -54,6 +58,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import com.aegis.ime.ui.theme.AegisTheme
@@ -89,16 +95,23 @@ private fun SetupScreen(resumeSignal: Int = 0) {
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
     var typed by remember { mutableStateOf("") }
     var tryFieldFocused by remember { mutableStateOf(false) }
+    var tryFieldImeRequest by remember { mutableIntStateOf(0) }
     val tryFieldFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
+    val hostView = LocalView.current
 
-    LaunchedEffect(tryFieldFocused, resumeSignal) {
-        if (!tryFieldFocused) return@LaunchedEffect
+    LaunchedEffect(tryFieldFocused, resumeSignal, tryFieldImeRequest) {
+        if (!tryFieldFocused && tryFieldImeRequest == 0) return@LaunchedEffect
         delay(50)
-        tryFieldFocusRequester.requestFocus()
-        keyboardController?.show()
+        hostView.requestImeWhenReady(context, focusTarget = {
+            tryFieldFocusRequester.requestFocus()
+            keyboardController?.show()
+        })
         delay(150)
-        keyboardController?.show()
+        hostView.requestImeWhenReady(context, focusTarget = {
+            tryFieldFocusRequester.requestFocus()
+            keyboardController?.show()
+        })
     }
 
     var showDownloadHint by remember { mutableStateOf(!prefs.getBoolean("dl_hint_dismissed", false)) }
@@ -181,6 +194,12 @@ private fun SetupScreen(resumeSignal: Int = 0) {
             modifier = Modifier
                 .fillMaxWidth()
                 .focusRequester(tryFieldFocusRequester)
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        tryFieldImeRequest += 1
+                    }
+                }
                 .onFocusChanged { tryFieldFocused = it.isFocused },
         )
 
@@ -194,3 +213,42 @@ internal fun Modifier.settingsScrollInsets(
 ): Modifier = this
     .windowInsetsPadding(insets)
     .verticalScroll(scrollState)
+
+internal fun View.requestImeWhenReady(
+    context: Context = this.context,
+    focusTarget: () -> Unit,
+    showSoftInput: (View) -> Unit = { target ->
+        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.showSoftInput(target, InputMethodManager.SHOW_IMPLICIT)
+    },
+    isReady: View.() -> Boolean = { isAttachedToWindow && hasWindowFocus() },
+) {
+    if (isReady()) {
+        post {
+            focusTarget()
+            showSoftInput(rootView.findFocus() ?: this)
+        }
+        return
+    }
+    if (!isAttachedToWindow) {
+        addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) {
+                v.removeOnAttachStateChangeListener(this)
+                v.requestImeWhenReady(context, focusTarget, showSoftInput, isReady)
+            }
+            override fun onViewDetachedFromWindow(v: View) = Unit
+        })
+        return
+    }
+    if (!hasWindowFocus()) {
+        val listener = object : ViewTreeObserver.OnWindowFocusChangeListener {
+            override fun onWindowFocusChanged(hasFocus: Boolean) {
+                if (!hasFocus) return
+                val observer = viewTreeObserver
+                if (observer.isAlive) observer.removeOnWindowFocusChangeListener(this)
+                requestImeWhenReady(context, focusTarget, showSoftInput, isReady)
+            }
+        }
+        viewTreeObserver.addOnWindowFocusChangeListener(listener)
+    }
+}
