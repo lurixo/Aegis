@@ -235,7 +235,7 @@ internal fun Modifier.settingsScrollInsets(
     .windowInsetsPadding(insets)
     .verticalScroll(scrollState)
 
-private val IME_SHOW_RETRY_DELAYS_MS = longArrayOf(0L, 75L, 150L, 300L, 600L, 900L)
+private val IME_SHOW_RETRY_DELAYS_MS = longArrayOf(0L, 75L, 150L, 300L, 600L, 900L, 1200L, 1800L)
 
 internal fun View.requestImeWhenReady(
     context: Context = this.context,
@@ -243,6 +243,10 @@ internal fun View.requestImeWhenReady(
     showSoftInput: (View) -> Boolean = { target ->
         val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         imm.showSoftInput(target, InputMethodManager.SHOW_IMPLICIT)
+    },
+    restartInput: (View) -> Unit = { target ->
+        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.restartInput(target)
     },
     isReady: View.() -> Boolean = { isAttachedToWindow && hasWindowFocus() },
     isImeVisible: View.() -> Boolean = {
@@ -253,7 +257,7 @@ internal fun View.requestImeWhenReady(
     if (isReady()) {
         post {
             focusTarget()
-            showImeForFocusedViewWhenReady(showSoftInput, isReady, isImeVisible, retryDelaysMs)
+            showImeForFocusedViewWhenReady(showSoftInput, restartInput, isReady, isImeVisible, retryDelaysMs)
         }
         return
     }
@@ -261,7 +265,15 @@ internal fun View.requestImeWhenReady(
         addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: View) {
                 v.removeOnAttachStateChangeListener(this)
-                v.requestImeWhenReady(context, focusTarget, showSoftInput, isReady, isImeVisible, retryDelaysMs)
+                v.requestImeWhenReady(
+                    context,
+                    focusTarget,
+                    showSoftInput,
+                    restartInput,
+                    isReady,
+                    isImeVisible,
+                    retryDelaysMs,
+                )
             }
             override fun onViewDetachedFromWindow(v: View) = Unit
         })
@@ -273,7 +285,15 @@ internal fun View.requestImeWhenReady(
                 if (!hasFocus) return
                 val observer = viewTreeObserver
                 if (observer.isAlive) observer.removeOnWindowFocusChangeListener(this)
-                requestImeWhenReady(context, focusTarget, showSoftInput, isReady, isImeVisible, retryDelaysMs)
+                requestImeWhenReady(
+                    context,
+                    focusTarget,
+                    showSoftInput,
+                    restartInput,
+                    isReady,
+                    isImeVisible,
+                    retryDelaysMs,
+                )
             }
         }
         viewTreeObserver.addOnWindowFocusChangeListener(listener)
@@ -282,6 +302,7 @@ internal fun View.requestImeWhenReady(
 
 private fun View.showImeForFocusedViewWhenReady(
     showSoftInput: (View) -> Boolean,
+    restartInput: (View) -> Unit,
     isReady: View.() -> Boolean,
     isImeVisible: View.() -> Boolean,
     retryDelaysMs: LongArray,
@@ -333,6 +354,7 @@ private fun View.showImeForFocusedViewWhenReady(
                 finish()
                 return@post
             }
+            restartInput(current)
             showSoftInput(current)
             if (current.isImeVisible()) finish() else scheduleAttempt(index + 1)
         }
