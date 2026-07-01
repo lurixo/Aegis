@@ -1,15 +1,12 @@
 [versions]
-agp = "8.13.2"
-kotlin = "2.3.21"
-# AndroidX clamped to the newest releases that still build against API 36.
-# The very latest (core 1.19.0 / lifecycle 2.11.0 / their compose siblings) require
-# compileSdk 37 + AGP 9.1, neither of which is stable yet (no android-37 platform; AGP 9.x is alpha).
-coreKtx = "1.18.0"
+agp = "9.2.1"
+kotlin = "2.4.0"
+coreKtx = "1.19.0"
 activityCompose = "1.13.0"
 composeBom = "2026.06.00"
-lifecycleRuntimeCompose = "2.10.0"
+lifecycleRuntimeCompose = "2.11.0"
 junit = "4.13.2"
-robolectric = "4.14.1"
+robolectric = "4.16.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
