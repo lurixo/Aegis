@@ -36,6 +36,8 @@ class AppLocalizationTest {
         assertEquals("Aegis 输入法", ctx.getString(R.string.ime_label))
         assertEquals("学习词库", ctx.getString(R.string.user_dict_title))
         assertEquals("增强模型（万象离线大模型）", ctx.getString(R.string.gram_card_title))
+        assertEquals("检测模型更新", ctx.getString(R.string.check_model_update_button))
+        assertEquals("检测词库更新", ctx.getString(R.string.check_dict_update_button))
         assertEquals("应用版本", ctx.getString(R.string.app_version_card_title))
     }
 
@@ -48,6 +50,8 @@ class AppLocalizationTest {
         assertEquals("Aegis IME", ctx.getString(R.string.ime_label))
         assertEquals("Learning dictionary", ctx.getString(R.string.user_dict_title))
         assertEquals("Enhancement model (Wanxiang offline model)", ctx.getString(R.string.gram_card_title))
+        assertEquals("Check model updates", ctx.getString(R.string.check_model_update_button))
+        assertEquals("Check dictionary updates", ctx.getString(R.string.check_dict_update_button))
         assertEquals("App release", ctx.getString(R.string.app_version_card_title))
     }
 
@@ -60,6 +64,8 @@ class AppLocalizationTest {
         assertEquals("Aegis Chinese", ctx.getString(R.string.subtype_zh))
         assertEquals("Learning dictionary", ctx.getString(R.string.user_dict_title))
         assertEquals("Full dictionary pack (14 tables freq >= 1)", ctx.getString(R.string.dict_card_title))
+        assertEquals("Check model updates", ctx.getString(R.string.check_model_update_button))
+        assertEquals("Check dictionary updates", ctx.getString(R.string.check_dict_update_button))
         assertEquals("App release", ctx.getString(R.string.app_version_card_title))
     }
 }

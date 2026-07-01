@@ -169,7 +169,7 @@ internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
                     Button(
                         enabled = !downloading && !checking,
                         onClick = { checkUpdate() },
-                    ) { Text(stringResource(R.string.check_update_button)) }
+                    ) { Text(stringResource(R.string.check_model_update_button)) }
                 }
                 OutlinedButton(
                     enabled = !downloading && !checking && present,

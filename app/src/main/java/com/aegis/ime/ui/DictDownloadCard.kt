@@ -172,7 +172,7 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
                     Button(
                         enabled = !downloading && !checking,
                         onClick = { checkUpdate() },
-                    ) { Text(stringResource(R.string.check_update_button)) }
+                    ) { Text(stringResource(R.string.check_dict_update_button)) }
                 }
                 OutlinedButton(
                     enabled = !downloading && !checking && present,

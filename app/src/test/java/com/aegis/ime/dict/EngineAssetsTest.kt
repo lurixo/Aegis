@@ -17,6 +17,7 @@ package com.aegis.ime.dict
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -52,6 +53,20 @@ class EngineAssetsTest {
         File(dir, "aegis_dict.bin").writeText("freshly downloaded pack")
         val after = EngineAssets.signature(dir)
         assertTrue("a newly appeared file must require a reload", EngineAssets.needsReload(before, after))
+        dir.deleteRecursively()
+    }
+
+    @Test
+    fun downloaded_override_selects_the_same_resource_files_the_engine_tracks() {
+        val dir = tempDownloadedDir()
+        val dict = File(dir, "aegis_dict.bin").apply { writeText("freshly downloaded pack") }
+        val gram = File(dir, "wanxiang-lts-zh-hans.gram").apply { writeBytes(ByteArray(2048)) }
+        val tinyGram = File(dir, "tiny.gram").apply { writeBytes(ByteArray(1024)) }
+
+        assertEquals(dict.absolutePath, EngineAssets.downloadedOverride(dir, "aegis_dict.bin")?.absolutePath)
+        assertEquals(gram.absolutePath, EngineAssets.downloadedOverride(dir, "wanxiang-lts-zh-hans.gram", minBytes = 1025L)?.absolutePath)
+        assertNull("incomplete .gram must not be activated", EngineAssets.downloadedOverride(dir, tinyGram.name, minBytes = 1025L))
+
         dir.deleteRecursively()
     }
 

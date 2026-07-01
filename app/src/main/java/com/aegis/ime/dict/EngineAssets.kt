@@ -21,6 +21,9 @@ object EngineAssets {
 
     val ASSET_NAMES: List<String> = ModelDownload.DICT_PACK_FILES + ModelDownload.GRAM_NAME
 
+    fun downloadedOverride(downloadedDir: File, name: String, minBytes: Long = 1L): File? =
+        File(downloadedDir, name).takeIf { it.exists() && it.length() >= minBytes }
+
     fun signature(downloadedDir: File): String =
         ASSET_NAMES.joinToString(";") { name ->
             val f = File(downloadedDir, name)

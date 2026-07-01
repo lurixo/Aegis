@@ -17,7 +17,8 @@
     <string name="setup_try_field_label">3 · Try typing here</string>
 
     <string name="download_button">Download</string>
-    <string name="check_update_button">Check updates</string>
+    <string name="check_model_update_button">Check model updates</string>
+    <string name="check_dict_update_button">Check dictionary updates</string>
     <string name="delete_button">Delete</string>
     <string name="download_status_downloading">Downloading…</string>
     <string name="download_status_checking_update">Checking for updates…</string>
