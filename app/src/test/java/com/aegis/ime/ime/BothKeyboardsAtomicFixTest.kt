@@ -55,6 +55,14 @@ class BothKeyboardsAtomicFixTest {
         return c.candidateWords()
     }
 
+    private fun nineKeyPartialLocked(locked: String, activeTail: String): Pair<String, List<String>> {
+        val c = controller()
+        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        c.type(t9(locked)); c.pick(locked)
+        c.type(t9(activeTail))
+        return c.preeditForTest() to c.candidateWords()
+    }
+
     private fun alphaSeparated(readings: List<String>): List<String> {
         val c = controller()
         c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
@@ -115,5 +123,15 @@ class BothKeyboardsAtomicFixTest {
             assertFalse("$label: no xi prefix leak", "西" in words)
             assertFalse("$label: no xia prefix leak", "下" in words)
         }
+    }
+
+    @Test fun nineKey_partiallyLockedXiangThenKuCode_staysOnTheSelectedReading() {
+        val (preedit, words) = nineKeyPartialLocked("xiang", "ku")
+
+        assertTrue("preedit keeps selected xiang and a live tail, was $preedit", preedit.startsWith("xiang'"))
+        assertTrue("common xiang homophones stay prominent", words.take(7).containsAll(listOf("向", "想", "相", "像", "香")))
+        assertFalse("partial locked xiang must not leak xian candidates", "西安" in words)
+        assertFalse("partial locked xiang must not leak xi prefix singles", "西" in words)
+        assertFalse("partial locked xiang must not leak xia prefix singles", "下" in words)
     }
 }
