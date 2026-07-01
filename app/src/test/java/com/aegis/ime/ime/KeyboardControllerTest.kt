@@ -906,6 +906,8 @@ class KeyboardControllerTest {
         assertEquals(LayoutId.ALPHA, c.activeLayoutId())
         c.setCnDefaultLayout(LayoutId.NINE)
         assertEquals("EN stays 26-key regardless of the CN default flip", LayoutId.ALPHA, c.activeLayoutId())
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        assertEquals("returning to CN uses the latest setting without an IME relaunch", LayoutId.NINE, c.activeLayoutId())
     }
 
 

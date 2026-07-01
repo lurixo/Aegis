@@ -185,4 +185,13 @@ class EngineLockedFixTest {
         assertFalse("no 西安 either", w.any { it.contains("西安") })
         assertTrue("control: unlocked xianku still surfaces 西 (xi)", "西" in words(d.decodeCovered("xianku", 30)))
     }
+
+    @Test fun aSingleLockedSyllableIsAtomicToo() {
+        val w = words(d.decodeCoveredAtomic("xiang", 30))
+
+        assertTrue("common xiang homophones stay prominent", w.take(7).containsAll(listOf("向", "想", "相", "像", "香")))
+        assertFalse("selected xiang must not leak xian candidates", "西安" in w)
+        assertFalse("selected xiang must not leak xi prefix singles", "西" in w)
+        assertFalse("selected xiang must not leak xia prefix singles", "下" in w)
+    }
 }

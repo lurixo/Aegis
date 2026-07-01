@@ -29,6 +29,9 @@ interface CandidateEngine {
     fun candidatesForReadingCovered(letters: String, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =
         candidatesForReading(letters).map { Cand(it, letters.length) }
 
+    fun candidatesForLockedReadingCovered(letters: String, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =
+        candidatesForReadingCovered(letters, cuts, context)
+
     fun syllables(composing: String, t9: Boolean): List<Syllable> = emptyList()
 
     fun homophonesAt(composing: String, t9: Boolean, index: Int): List<String> = emptyList()
