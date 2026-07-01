@@ -99,6 +99,20 @@ class ImeVisualPolishTest {
         assertTrue("clickable helper uses RippleDrawable feedback", v.foreground is RippleDrawable)
     }
 
+    @Test fun symbols_and_emoji_category_tabs_mark_selection_with_an_accent_underline() {
+        val palette = ImePalette.STATIC_LIGHT
+        val symbols = SymbolsView(ctx).apply { applyPalette(palette); refresh() }
+        val emoji = EmojiView(ctx).apply { applyPalette(palette) }
+
+        for (tab in listOf(symbols.railTabForTest(0), emoji.railTabForTest(0), symbols.railTabForTest(1), emoji.railTabForTest(1))) {
+            assertRoundedRailTab(tab, "category ${tab.text}", Color.TRANSPARENT)
+        }
+        assertEquals("symbols keep the accent underline", palette.accentBottom, symbols.categoryRailForTest().underlineColor)
+        assertEquals("emoji keep the accent underline", palette.accentBottom, emoji.categoryRailForTest().underlineColor)
+        assertEquals("selected symbols tab carries the underline", 0, symbols.categoryRailForTest().selectedIndex)
+        assertEquals("selected emoji tab carries the underline", 0, emoji.categoryRailForTest().selectedIndex)
+    }
+
     @Test fun copy_bar_background_uses_the_toolbar_capsule_radius() {
         for (palette in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
             val view = CopyBarView(ctx).apply {
@@ -162,6 +176,14 @@ class ImeVisualPolishTest {
     @Test fun edit_panel_controls_all_use_rounded_tap_feedback() {
         val panel = EditPanelView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
         assertAllClickableViewsUseRoundedTapFeedback(panel, "text edit panel")
+    }
+
+    private fun assertRoundedRailTab(tab: TextView, label: String, faceColor: Int) {
+        val surface = tab.background as? ImeKeySurface
+        assertTrue("$label uses the shared rounded key surface", surface != null)
+        assertEquals("$label resting face", faceColor, requireNotNull(surface).faceColor)
+        assertFalse("$label does not stack a platform ripple", tab.foreground is RippleDrawable)
+        assertTrue("$label remains clickable", tab.hasOnClickListeners())
     }
 
     private fun assertAllClickableViewsUseRoundedTapFeedback(root: View, label: String) {
