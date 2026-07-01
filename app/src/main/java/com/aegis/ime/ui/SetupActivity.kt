@@ -250,7 +250,7 @@ internal fun View.requestImeWhenReady(
     if (isReady()) {
         post {
             focusTarget()
-            showSoftInput(rootView.findFocus() ?: this)
+            showImeForFocusedViewWhenReady(showSoftInput, isReady)
         }
         return
     }
@@ -275,4 +275,42 @@ internal fun View.requestImeWhenReady(
         }
         viewTreeObserver.addOnWindowFocusChangeListener(listener)
     }
+}
+
+private fun View.showImeForFocusedViewWhenReady(
+    showSoftInput: (View) -> Unit,
+    isReady: View.() -> Boolean,
+) {
+    var done = false
+    var listener: ViewTreeObserver.OnGlobalFocusChangeListener? = null
+
+    fun focusedImeTarget(): View? =
+        rootView.findFocus()?.takeIf { isReady() && it.isAttachedToWindow && it.isFocused }
+
+    fun removeListener() {
+        val current = viewTreeObserver
+        val active = listener ?: return
+        if (current.isAlive) current.removeOnGlobalFocusChangeListener(active)
+        listener = null
+    }
+
+    fun scheduleIfReady(): Boolean {
+        if (done) return true
+        val target = focusedImeTarget() ?: return false
+        done = true
+        removeListener()
+        target.post {
+            focusedImeTarget()?.let(showSoftInput)
+        }
+        return true
+    }
+
+    if (scheduleIfReady()) return
+
+    val observer = viewTreeObserver
+    if (!observer.isAlive) return
+
+    listener = ViewTreeObserver.OnGlobalFocusChangeListener { _, _ -> scheduleIfReady() }
+    observer.addOnGlobalFocusChangeListener(listener)
+    post { scheduleIfReady() }
 }

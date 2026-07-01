@@ -21,6 +21,7 @@ import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertSame
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -61,5 +62,73 @@ class SettingsImeRequestTest {
 
         assertEquals(listOf("focus", "show"), calls)
         assertNotNull(shownFor)
+    }
+
+    @Test fun ime_request_waits_for_focused_target_before_showing_input_on_first_entry() {
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup()
+        val activity = controller.get()
+        val host = FrameLayout(activity)
+        val target = View(activity).apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
+        }
+        host.addView(target)
+        activity.setContentView(host)
+
+        val calls = ArrayList<String>()
+        var shownFor: View? = null
+        host.requestImeWhenReady(
+            context = activity,
+            focusTarget = {
+                calls.add("focus-request")
+                target.post {
+                    calls.add("target-focus")
+                    target.requestFocus()
+                }
+            },
+            showSoftInput = {
+                calls.add("show")
+                shownFor = it
+            },
+            isReady = { true },
+        )
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(listOf("focus-request", "target-focus", "show"), calls)
+        assertSame(target, shownFor)
+    }
+
+    @Test fun ime_request_repeats_for_an_already_focused_target() {
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup()
+        val activity = controller.get()
+        val host = FrameLayout(activity)
+        val target = View(activity).apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
+        }
+        host.addView(target)
+        activity.setContentView(host)
+        target.requestFocus()
+
+        val calls = ArrayList<String>()
+        val shownFor = ArrayList<View>()
+        repeat(2) {
+            host.requestImeWhenReady(
+                context = activity,
+                focusTarget = {
+                    calls.add("focus")
+                    target.requestFocus()
+                },
+                showSoftInput = {
+                    calls.add("show")
+                    shownFor.add(it)
+                },
+                isReady = { true },
+            )
+            shadowOf(Looper.getMainLooper()).idle()
+        }
+
+        assertEquals(listOf("focus", "show", "focus", "show"), calls)
+        assertEquals(listOf(target, target), shownFor)
     }
 }
