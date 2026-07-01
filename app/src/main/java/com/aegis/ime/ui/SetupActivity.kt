@@ -62,6 +62,8 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.aegis.ime.ui.theme.AegisTheme
 import kotlinx.coroutines.delay
 
@@ -243,12 +245,15 @@ internal fun View.requestImeWhenReady(
         imm.showSoftInput(target, InputMethodManager.SHOW_IMPLICIT)
     },
     isReady: View.() -> Boolean = { isAttachedToWindow && hasWindowFocus() },
+    isImeVisible: View.() -> Boolean = {
+        ViewCompat.getRootWindowInsets(this)?.isVisible(WindowInsetsCompat.Type.ime()) == true
+    },
     retryDelaysMs: LongArray = IME_SHOW_RETRY_DELAYS_MS,
 ) {
     if (isReady()) {
         post {
             focusTarget()
-            showImeForFocusedViewWhenReady(showSoftInput, isReady, retryDelaysMs)
+            showImeForFocusedViewWhenReady(showSoftInput, isReady, isImeVisible, retryDelaysMs)
         }
         return
     }
@@ -256,7 +261,7 @@ internal fun View.requestImeWhenReady(
         addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: View) {
                 v.removeOnAttachStateChangeListener(this)
-                v.requestImeWhenReady(context, focusTarget, showSoftInput, isReady, retryDelaysMs)
+                v.requestImeWhenReady(context, focusTarget, showSoftInput, isReady, isImeVisible, retryDelaysMs)
             }
             override fun onViewDetachedFromWindow(v: View) = Unit
         })
@@ -268,7 +273,7 @@ internal fun View.requestImeWhenReady(
                 if (!hasFocus) return
                 val observer = viewTreeObserver
                 if (observer.isAlive) observer.removeOnWindowFocusChangeListener(this)
-                requestImeWhenReady(context, focusTarget, showSoftInput, isReady, retryDelaysMs)
+                requestImeWhenReady(context, focusTarget, showSoftInput, isReady, isImeVisible, retryDelaysMs)
             }
         }
         viewTreeObserver.addOnWindowFocusChangeListener(listener)
@@ -278,6 +283,7 @@ internal fun View.requestImeWhenReady(
 private fun View.showImeForFocusedViewWhenReady(
     showSoftInput: (View) -> Boolean,
     isReady: View.() -> Boolean,
+    isImeVisible: View.() -> Boolean,
     retryDelaysMs: LongArray,
 ) {
     var done = false
@@ -285,7 +291,9 @@ private fun View.showImeForFocusedViewWhenReady(
     var retry: Runnable? = null
 
     fun focusedImeTarget(): View? =
-        rootView.findFocus()?.takeIf { isReady() && it.isAttachedToWindow && it.isFocused }
+        rootView.findFocus()?.takeIf {
+            isReady() && it.isAttachedToWindow && it.windowToken != null && it.isShown && it.isFocused
+        }
 
     fun removeListener() {
         val current = viewTreeObserver
@@ -321,7 +329,12 @@ private fun View.showImeForFocusedViewWhenReady(
                 scheduleAttempt(index + 1)
                 return@post
             }
-            if (showSoftInput(current)) finish() else scheduleAttempt(index + 1)
+            if (current.isImeVisible()) {
+                finish()
+                return@post
+            }
+            showSoftInput(current)
+            if (current.isImeVisible()) finish() else scheduleAttempt(index + 1)
         }
     }
 
