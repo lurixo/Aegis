@@ -349,10 +349,10 @@ class Debug17PanelTest {
         v.showSplitForTest("你好abc")
         val a = chip(overlayOf(v), "你"); val b = chip(overlayOf(v), "abc")
         assertTrue("blocks present", a != null && b != null)
-        assertEquals("block 你 default matches Enter key", pal.accentBottom, bgColor(a!!))
-        assertEquals("block abc default matches Enter key", pal.accentBottom, bgColor(b!!))
-        assertEquals("block text matches Enter label", pal.accentLabel, a.currentTextColor)
-        assertEquals("block text matches Enter label", pal.accentLabel, b.currentTextColor)
+        assertEquals("block default uses chip background", pal.chipBg, bgColor(a!!))
+        assertEquals("block default uses chip background", pal.chipBg, bgColor(b!!))
+        assertEquals("block default text uses chip label", pal.chipText, a.currentTextColor)
+        assertEquals("block default text uses chip label", pal.chipText, b.currentTextColor)
         assertTrue("nothing copied yet", v.splitSelectedForTest().isEmpty())
     }
 
@@ -363,7 +363,8 @@ class Debug17PanelTest {
         val a = chip(overlayOf(v), "你")!!
         a.performClick()
         assertEquals("tapped block copied to aegis", listOf("你"), copied)
-        assertEquals("tapped block now 浅紫 highlight", pal.chipBg, bgColor(a))
+        assertEquals("tapped block uses copied background", pal.accentBottom, bgColor(a))
+        assertEquals("tapped block uses copied text", pal.accentLabel, a.currentTextColor)
         assertTrue("tracked as selected", "你" in v.splitSelectedForTest())
         assertEquals("panel stays open", View.VISIBLE.toLong(), overlayOf(v).visibility.toLong())
     }
@@ -376,7 +377,9 @@ class Debug17PanelTest {
         assertTrue(click(overlayOf(v), "全部复制"))
         assertEquals("全部复制 copies each block separately", listOf("你", "好", "abc"), copied)
         assertEquals("all blocks marked", setOf("你", "好", "abc"), v.splitSelectedForTest())
-        assertEquals("all blocks highlighted", pal.chipBg, bgColor(chip(overlayOf(v), "你")!!))
+        val first = chip(overlayOf(v), "你")!!
+        assertEquals("all blocks use copied background", pal.accentBottom, bgColor(first))
+        assertEquals("all blocks use copied text", pal.accentLabel, first.currentTextColor)
     }
 
     @Test fun split_copy_all_uses_batch_callback_once_when_available() {

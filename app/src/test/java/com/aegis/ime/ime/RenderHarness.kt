@@ -524,8 +524,8 @@ class RenderHarness {
         }
     }
 
-    /** debug.17 ⑦: the 拆词 overlay — blocks NEUTRAL by default, then one tapped → 浅紫 highlight. Both snapped
-     *  (default vs after-tap) so the two block states are eyeball-able; the 全部复制 affordance must be present. */
+    /** debug.17 7: the split overlay - both default and after-tap block states are snapped, and the copy-all
+     *  affordance must be present. */
     @Test fun split_overlay() {
         val h = (300 * density).toInt()
         for ((t, pal) in themes) {
@@ -537,7 +537,7 @@ class RenderHarness {
             val tapped = ClipboardView(ctx).apply {
                 historyProvider = { listOf("在铅笔下面abc") }; applyPalette(pal); refresh(); showSplitForTest("在铅笔下面abc")
             }
-            // tap a block → it highlights 浅紫 (the other stays neutral)
+            // Tap one block so the copied-state palette is visible next to the default state.
             findViewsWithText(tapped, "在铅笔下面").firstOrNull { it.hasOnClickListeners() }?.performClick()
             snap(tapped, h, "split_tapped_$t.png")
         }
