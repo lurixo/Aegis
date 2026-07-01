@@ -70,6 +70,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     private val lockBtn = barButton("锁定") { toggleLock() }
     private val lockSlot = FrameLayout(context).apply {
         isClickable = true
+        Motion.applyTapFeedback(this, palette.keyLabelSecondary)
         setOnClickListener { toggleLock() }
     }
     private val lockGlyph = LockDrawable(density)
@@ -119,7 +120,10 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         railScroll.setBackgroundColor(p.railBg)
         bottomBarView.setBackgroundColor(p.keyboardBg)
         (bottomBarView as LinearLayout).let { bar ->
-            for (i in 0 until bar.childCount) (bar.getChildAt(i) as? TextView)?.setTextColor(p.keyLabelSecondary)
+            for (i in 0 until bar.childCount) (bar.getChildAt(i) as? TextView)?.let {
+                it.setTextColor(p.keyLabelSecondary)
+                Motion.applyTapFeedback(it, p.keyLabelSecondary)
+            }
         }
         backspaceGlyph.tint(p.keyLabelSecondary)
         updateLockFace()
@@ -134,6 +138,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
             tab.setTextColor(if (on) palette.candidateFirst else palette.keyLabelSecondary)
             tab.setBackgroundColor(if (on) palette.keySurface else 0x00000000)
             tab.setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+            Motion.applyTapFeedback(tab, if (on) palette.candidateFirst else palette.keyLabelSecondary)
         }
         grid.removeAllViews()
         netBar.removeAllViews()
@@ -187,6 +192,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         background = GradientDrawable().apply { setColor(palette.keySurface); cornerRadius = ImeShapes.keyRadiusDp * density }
         val ph = dp(14); setPadding(ph, dp(8), ph, dp(8))
         isClickable = true
+        Motion.applyTapFeedback(this, palette.keyLabel)
         setOnClickListener { onSymbol(symbol); if (!locked) onBack() }
     }
 
@@ -209,6 +215,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
         setPadding(0, dp(13), 0, dp(13))
         isClickable = true
+        Motion.applyTapFeedback(this, if (index == selected) palette.candidateFirst else palette.keyLabelSecondary)
         setOnClickListener { showCategory(index) }
     }
 
@@ -217,6 +224,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
             minimumHeight = dp(44)
             background = GradientDrawable().apply { setColor(palette.keySurface); cornerRadius = ImeShapes.keyRadiusDp * density }
             isClickable = true
+            Motion.applyTapFeedback(this, palette.keyLabel)
             setOnClickListener { onSymbol(symbol); if (!locked) onBack() }
             layoutParams = GridLayout.LayoutParams().apply {
                 width = 0
@@ -307,6 +315,8 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         lockGlyph.tint(tint)
         lockBtn.text = "锁定"
         lockBtn.setTextColor(tint)
+        Motion.applyTapFeedback(lockBtn, tint)
+        Motion.applyTapFeedback(lockSlot, tint)
         lockBtn.setTypeface(null, if (locked) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
     }
 
@@ -327,6 +337,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         setTextColor(palette.keyLabelSecondary)
         isClickable = true
+        Motion.applyTapFeedback(this, palette.keyLabelSecondary)
         setOnClickListener { onClick() }
     }
 
