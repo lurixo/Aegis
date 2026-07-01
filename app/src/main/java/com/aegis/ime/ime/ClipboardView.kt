@@ -31,6 +31,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
 import kotlin.math.abs
+import kotlin.math.min
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
@@ -127,6 +128,13 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private var dragKind = DragKind.NONE
     private val dragHandler = Handler(Looper.getMainLooper())
     private val isDragging get() = dragFrom >= 0
+    private var dragAutoScrollScheduled = false
+    private val dragAutoScrollRunnable = object : Runnable {
+        override fun run() {
+            dragAutoScrollScheduled = false
+            if (runDragAutoScrollFrame()) scheduleDragAutoScroll()
+        }
+    }
 
     private val main = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(BG) }
     private val overlay = FrameLayout(context).apply { visibility = GONE }
@@ -138,6 +146,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         const val WC = ViewGroup.LayoutParams.WRAP_CONTENT
         const val DISPLAY_CAP = 2000
         const val SWIPE_VERTICAL_BIAS = 1.5f
+        const val DRAG_AUTO_SCROLL_INTERVAL_MS = 16L
     }
 
     private fun preview(s: String): CharSequence = if (s.length > DISPLAY_CAP) s.substring(0, DISPLAY_CAP) + "…" else s
@@ -156,10 +165,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun handleActiveDrag(e: MotionEvent): Boolean {
         when (e.actionMasked) {
-            MotionEvent.ACTION_MOVE -> {
-                updateDraggedTranslation(e.rawY)
-                indexAtRawY(e.rawY)?.let { moveDragTo(it, e.rawY) }
-            }
+            MotionEvent.ACTION_MOVE -> updateActiveDrag(e.rawY)
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> endDrag()
         }
         return true
@@ -181,10 +187,20 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     internal fun dragStartForTest(index: Int) { if (categorySortMode) startCategoryDrag(index) else startDrag(index) }
     internal fun dragStartAtForTest(index: Int, rawY: Float) { if (categorySortMode) startCategoryDrag(index, rawY) else startDrag(index, rawY) }
     internal fun dragMoveToForTest(index: Int) { moveDragTo(index) }
-    internal fun dragMoveAtForTest(index: Int, rawY: Float) { updateDraggedTranslation(rawY); moveDragTo(index, rawY) }
+    internal fun dragMoveAtForTest(index: Int, rawY: Float) { updateActiveDrag(rawY); moveDragTo(index, rawY) }
     internal fun dragDropForTest() { endDrag() }
     internal fun isDraggingForTest(): Boolean = isDragging
     internal fun dragTranslationYForTest(): Float = dragView?.translationY ?: 0f
+    internal fun dragUpdateForTest(rawY: Float) { updateActiveDrag(rawY) }
+    internal fun runDragAutoScrollFrameForTest(): Boolean = runDragAutoScrollFrame()
+    internal fun isDragAutoScrollScheduledForTest(): Boolean = dragAutoScrollScheduled
+    internal fun listScrollYForTest(): Int = listScroll.scrollY
+    internal fun listScrollRawTopForTest(): Int {
+        val loc = IntArray(2)
+        listScroll.getLocationOnScreen(loc)
+        return loc[1]
+    }
+    internal fun listScrollRawBottomForTest(): Int = listScrollRawTopForTest() + listScroll.height
     internal fun expandForTest(text: String) { if (st.expanded != text) st.toggleExpand(text); refresh() }
     internal fun revealSwipeForTest(text: String) { revealSwipe(text) }
     internal fun hideSwipeForTest() { hideSwipe() }
@@ -362,8 +378,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 }
                 MotionEvent.ACTION_MOVE -> {
                     if (isDragging) {
-                        updateDraggedTranslation(e.rawY)
-                        indexAtRawY(e.rawY)?.let { moveDragTo(it, e.rawY) }
+                        updateActiveDrag(e.rawY)
                         true
                     } else {
                         val dx = e.rawX - downX; val dy = e.rawY - downY
@@ -423,13 +438,19 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun indexAtRawY(rawY: Float): Int? {
         val n = listColumn.childCount
         if (n == 0) return null
-        val tops = IntArray(n); val heights = IntArray(n); val loc = IntArray(2)
+        val tops = IntArray(n); val heights = IntArray(n)
+        val contentTop = listContentRawTop()
         for (i in 0 until n) {
             val child = listColumn.getChildAt(i)
-            child.getLocationOnScreen(loc)
-            tops[i] = loc[1]; heights[i] = child.height
+            tops[i] = contentTop + child.top; heights[i] = child.height
         }
         return rowAt(tops, heights, dragVisualIndex, rawY.toInt())
+    }
+
+    private fun listContentRawTop(): Int {
+        val loc = IntArray(2)
+        listScroll.getLocationOnScreen(loc)
+        return loc[1] + listColumn.top - listScroll.scrollY
     }
 
     internal fun rowAt(tops: IntArray, heights: IntArray, skip: Int, y: Int): Int? {
@@ -438,6 +459,67 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             if (y >= tops[i] && y <= tops[i] + heights[i]) return i
         }
         return null
+    }
+
+    private fun updateActiveDrag(rawY: Float) {
+        if (!isDragging) return
+        updateDraggedTranslation(rawY)
+        indexAtRawY(rawY)?.let { moveDragTo(it, rawY) }
+        updateDragAutoScroll()
+    }
+
+    private fun updateDragAutoScroll() {
+        if (dragAutoScrollDelta(dragLastRawY) == 0) stopDragAutoScroll() else scheduleDragAutoScroll()
+    }
+
+    private fun scheduleDragAutoScroll() {
+        if (dragAutoScrollScheduled || !isDragging) return
+        dragAutoScrollScheduled = true
+        dragHandler.postDelayed(dragAutoScrollRunnable, DRAG_AUTO_SCROLL_INTERVAL_MS)
+    }
+
+    private fun stopDragAutoScroll() {
+        dragAutoScrollScheduled = false
+        dragHandler.removeCallbacks(dragAutoScrollRunnable)
+    }
+
+    private fun runDragAutoScrollFrame(): Boolean {
+        if (!isDragging) {
+            stopDragAutoScroll()
+            return false
+        }
+        val dy = dragAutoScrollDelta(dragLastRawY)
+        if (dy == 0) {
+            stopDragAutoScroll()
+            return false
+        }
+        val before = listScroll.scrollY
+        listScroll.scrollBy(0, dy)
+        updateDraggedTranslation(dragLastRawY)
+        indexAtRawY(dragLastRawY)?.let { moveDragTo(it, dragLastRawY) }
+        return listScroll.scrollY != before && dragAutoScrollDelta(dragLastRawY) != 0
+    }
+
+    private fun dragAutoScrollDelta(rawY: Float): Int {
+        val h = listScroll.height
+        if (h <= 0) return 0
+        val loc = IntArray(2)
+        listScroll.getLocationOnScreen(loc)
+        val top = loc[1].toFloat()
+        val bottom = top + h
+        val edge = min(dp(48), h / 3).coerceAtLeast(1)
+        return when {
+            rawY <= top + edge && listScroll.canScrollVertically(-1) -> -dragAutoScrollStep(top + edge - rawY, edge)
+            rawY >= bottom - edge && listScroll.canScrollVertically(1) -> dragAutoScrollStep(rawY - (bottom - edge), edge)
+            else -> 0
+        }
+    }
+
+    private fun dragAutoScrollStep(distanceIntoEdge: Float, edge: Int): Int {
+        val minStep = dp(4).coerceAtLeast(1)
+        val maxStep = dp(18).coerceAtLeast(minStep)
+        val ratio = (distanceIntoEdge.coerceIn(0f, edge.toFloat()) / edge)
+        return minStep + ((maxStep - minStep) * ratio).toInt()
     }
 
     private fun startDrag(index: Int, rawY: Float? = null) {
@@ -451,7 +533,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 dragTouchOffsetY = y - loc[1]
             }
             it.translationZ = dp(8).toFloat(); it.alpha = 0.92f
+            listScroll.requestDisallowInterceptTouchEvent(true)
         }
+        rawY?.let { y -> updateDraggedTranslation(y); updateDragAutoScroll() }
     }
 
     private fun startCategoryDrag(index: Int, rawY: Float? = null) {
@@ -465,7 +549,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 dragTouchOffsetY = y - loc[1]
             }
             it.translationZ = dp(8).toFloat(); it.alpha = 0.92f
+            listScroll.requestDisallowInterceptTouchEvent(true)
         }
+        rawY?.let { y -> updateDraggedTranslation(y); updateDragAutoScroll() }
     }
 
     private fun moveDragTo(index: Int, rawY: Float? = null) {
@@ -493,13 +579,12 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun updateDraggedTranslation(rawY: Float) {
         val view = dragView ?: return
         dragLastRawY = rawY
-        val loc = IntArray(2)
-        listColumn.getLocationOnScreen(loc)
-        val baseTop = loc[1] + view.top
+        val baseTop = listContentRawTop() + view.top
         view.translationY = rawY - dragTouchOffsetY - baseTop
     }
 
     private fun endDrag() {
+        stopDragAutoScroll()
         val from = dragFrom; val to = dragCurrent
         val kind = dragKind
         dragView?.let { it.translationZ = 0f; it.alpha = 1f; it.translationY = 0f }
@@ -513,6 +598,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     override fun onDetachedFromWindow() {
         dragHandler.removeCallbacksAndMessages(null)
+        dragAutoScrollScheduled = false
         dragFrom = -1; dragCurrent = -1; dragVisualIndex = -1; dragTouchOffsetY = 0f; dragLastRawY = 0f; dragView = null; dragKind = DragKind.NONE
         super.onDetachedFromWindow()
     }
@@ -575,7 +661,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> { startDrag(index, e.rawY); card.parent?.requestDisallowInterceptTouchEvent(true); true }
                 MotionEvent.ACTION_MOVE -> {
-                    if (isDragging) { updateDraggedTranslation(e.rawY); indexAtRawY(e.rawY)?.let { moveDragTo(it, e.rawY) }; true } else false
+                    if (isDragging) { updateActiveDrag(e.rawY); true } else false
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { if (isDragging) { endDrag(); true } else false }
                 else -> false
@@ -631,7 +717,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> { startCategoryDrag(index, e.rawY); card.parent?.requestDisallowInterceptTouchEvent(true); true }
                 MotionEvent.ACTION_MOVE -> {
-                    if (isDragging) { updateDraggedTranslation(e.rawY); indexAtRawY(e.rawY)?.let { moveDragTo(it, e.rawY) }; true } else false
+                    if (isDragging) { updateActiveDrag(e.rawY); true } else false
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { if (isDragging) { endDrag(); true } else false }
                 else -> false

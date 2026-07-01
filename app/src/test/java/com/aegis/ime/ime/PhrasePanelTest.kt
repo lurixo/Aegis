@@ -65,10 +65,18 @@ class PhrasePanelTest {
     }
     private fun send(root: View, action: Int, y: Float) =
         root.dispatchTouchEvent(MotionEvent.obtain(0, 16, action, 20f, y, 0))
+    private fun layout(v: View, w: Int = 480, h: Int = 320) {
+        v.measure(
+            View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY),
+        )
+        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+    }
 
-    private fun phraseView(): ClipboardView = ClipboardView(ctx).apply {
+    private fun phraseView(): ClipboardView = phraseView(listOf("你好", "在吗", "稍等"))
+    private fun phraseView(phrases: List<String>): ClipboardView = ClipboardView(ctx).apply {
         categoriesProvider = { listOf("默认", "工作", "私人") }
-        phrasesInProvider = { c -> if (c == "默认") listOf("你好", "在吗", "稍等") else emptyList() }
+        phrasesInProvider = { c -> if (c == "默认") phrases else emptyList() }
         applyPalette(pal)
         forcePhrasesStateForTest("默认"); refresh()
     }
@@ -174,6 +182,48 @@ class PhrasePanelTest {
         assertTrue(send(v, MotionEvent.ACTION_UP, 120f))
         assertFalse(v.isDraggingForTest())
         assertEquals(Triple("默认", 0, 1), r)
+    }
+
+    @Test fun active_drag_auto_scrolls_at_edges_and_keeps_rows_live_until_drop() {
+        val phrases = (0 until 30).map { "P" + it.toString().padStart(2, '0') }
+        val drops = ArrayList<Triple<String, Int, Int>>()
+        val v = phraseView(phrases).apply {
+            onReorderPhrase = { c, f, t -> drops.add(Triple(c, f, t)) }
+            enterSortModeForTest()
+        }
+        layout(v)
+        val top = v.listScrollRawTopForTest().toFloat()
+        val bottom = v.listScrollRawBottomForTest().toFloat()
+        v.dragStartAtForTest(0, top + 24f)
+
+        v.dragUpdateForTest(bottom - 2f)
+        val indexAfterEdgeMove = v.listRowTextsForTest().indexOf("P00")
+        assertTrue("bottom edge starts the auto-scroll loop", v.isDragAutoScrollScheduledForTest())
+        assertTrue("drag remains captured at the bottom edge", v.isDraggingForTest())
+        val scrollBeforeDown = v.listScrollYForTest()
+        repeat(12) { v.runDragAutoScrollFrameForTest() }
+        val indexAfterScroll = v.listRowTextsForTest().indexOf("P00")
+        assertTrue("the list scrolls down while the drag stays active", v.listScrollYForTest() > scrollBeforeDown)
+        assertTrue(
+            "row order keeps updating as edge scrolling changes the target",
+            indexAfterScroll > indexAfterEdgeMove,
+        )
+        assertTrue(v.isDraggingForTest())
+        assertTrue("drop callback has not fired during live scrolling", drops.isEmpty())
+
+        v.dragUpdateForTest(top + 2f)
+        assertTrue("top edge keeps the auto-scroll loop active", v.isDragAutoScrollScheduledForTest())
+        val scrollBeforeUp = v.listScrollYForTest()
+        repeat(8) { v.runDragAutoScrollFrameForTest() }
+        assertTrue("the list scrolls back up while the same drag is active", v.listScrollYForTest() < scrollBeforeUp)
+
+        v.dragUpdateForTest((top + bottom) / 2f)
+        assertFalse("leaving the edge stops auto-scroll without dropping", v.isDragAutoScrollScheduledForTest())
+        assertTrue(v.isDraggingForTest())
+        val finalIndex = v.listRowTextsForTest().indexOf("P00")
+        v.dragDropForTest()
+        assertFalse(v.isDraggingForTest())
+        assertEquals(listOf(Triple("默认", 0, finalIndex)), drops)
     }
 
     @Test fun drag_move_reorders_category_rows_live_before_drop() {
