@@ -182,6 +182,37 @@ class EngineLockedFixTest {
         assertTrue("supplementary rare remains reachable in bounded digit-prefix completions", digitRare in digitWords)
     }
 
+    @Test fun oneUnitPrefixCompletionsUseTheBoundedTopIndexOnLiveDecodePaths() {
+        val fanout = 300
+        val letterRows = ArrayList<EngineFixture.Row>()
+        for (i in 0 until fanout) {
+            letterRows.add(EngineFixture.Row("sa${i.toString().padStart(3, '0')}", "低频字$i", 1))
+        }
+        letterRows.add(EngineFixture.Row("sz999", "高频词", 5000))
+        val letterDict = EngineFixture.build(letterRows)
+        val letterTop = letterDict.prefixByFreq("s", fanout + 10)
+        assertTrue("one-letter prefix index must not materialize every matching key", letterTop.size < letterRows.size)
+        assertEquals("高频词", letterTop.first().word)
+
+        val letterDecoder = PinyinDecoder(letterDict)
+        assertEquals("高频词", letterDecoder.decode("s", 1).single())
+        assertEquals("高频词", letterDecoder.decodeCovered("s", 1).single().word)
+
+        val digitRows = ArrayList<EngineFixture.Row>()
+        for (i in 0 until fanout) {
+            digitRows.add(EngineFixture.Row("92${i.toString().padStart(3, '0')}", "低频九$i", 1))
+        }
+        digitRows.add(EngineFixture.Row("99", "高频九", 5000))
+        val digitDict = EngineFixture.build(digitRows)
+        val digitTop = digitDict.prefixByFreq("9", fanout + 10)
+        assertTrue("one-digit prefix index must not materialize every matching key", digitTop.size < digitRows.size)
+        assertEquals("高频九", digitTop.first().word)
+
+        val digitDecoder = PinyinDecoder(digitDict)
+        assertEquals("高频九", digitDecoder.decode("9", 1).single())
+        assertEquals("高频九", digitDecoder.decodeCovered("9", 1).single().word)
+    }
+
     @Test fun supplementaryPlaneHanContextConditionsDecodeCoveredButBmpSymbolsDoNot() {
         val plane3Han = 0x30000
         val star = 0x2605
