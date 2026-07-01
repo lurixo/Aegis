@@ -42,14 +42,16 @@ class LossFixTest {
         return PinyinDecoder(BinaryDict.fromFile(t9File), CharBigramLM.fromFile(lmFile))
     }
 
+    private fun isSingleChar(word: String): Boolean = word.codePointCount(0, word.length) == 1
+
     private fun dictSingles(dict: BinaryDict, key: String): Set<String> =
-        dict.exact(key).filter { it.word.length == 1 }.map { it.word }.toSet()
+        dict.exact(key).filter { isSingleChar(it.word) }.map { it.word }.toSet()
 
     private fun allSingles(cands: List<Cand>): Set<String> =
-        cands.filter { it.word.length == 1 }.map { it.word }.toSet()
+        cands.filter { isSingleChar(it.word) }.map { it.word }.toSet()
 
     private fun singlesAt(cands: List<Cand>, coveredLen: Int): List<String> =
-        cands.filter { it.word.length == 1 && it.coveredLen == coveredLen }.map { it.word }.distinct()
+        cands.filter { isSingleChar(it.word) && it.coveredLen == coveredLen }.map { it.word }.distinct()
 
 
     @Test fun firstSyllableHomophonesCompleteWhenAlone() {
@@ -147,7 +149,7 @@ class LossFixTest {
         assertTrue("multi-char prefix word 喝水 still surfaces (★G word layer intact)",
             d.decodeCovered("heshui", 30).any { it.word == "喝水" })
         val cands = d.decodeCovered("heshui", 30)
-        val firstSingleIdx = cands.indexOfFirst { it.word.length == 1 }
+        val firstSingleIdx = cands.indexOfFirst { isSingleChar(it.word) }
         val heShuiWordIdx = cands.indexOfFirst { it.word == "喝水" }
         assertTrue("word candidates precede the appended 单字 layer", heShuiWordIdx in 0 until firstSingleIdx)
     }

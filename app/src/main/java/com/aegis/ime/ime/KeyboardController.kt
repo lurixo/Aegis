@@ -724,7 +724,8 @@ class KeyboardController(
             else -> Layouts.forId(layoutId, lang)
         }
         v.showKeyboard(layout, shifted, shiftState == ShiftState.LOCK, lang)
-        v.showCandidates(candidates.map { it.word }, preeditText(), expandedReadings(), drillSyllable)
+        val readings = expandedReadings()
+        v.showCandidates(candidates.map { it.word }, preeditText(), readings, selectedExpandedReadingIndex(readings))
     }
 
     internal fun shiftStateName(): String = shiftState.name
@@ -733,6 +734,13 @@ class KeyboardController(
         layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty() ->
             currentSyllables().firstOrNull()?.let { listOf(it.reading) } ?: emptyList()
         else -> nineLeftColumn().filter { it.action == KeyAction.PICK_READING }.map { it.label }
+    }
+
+    private fun selectedExpandedReadingIndex(readings: List<String>): Int = when {
+        layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty() -> drillSyllable
+        layoutId == LayoutId.NINE && mode() == Mode.PINYIN && composing.isNotEmpty() &&
+            activeDigits().isEmpty() && lockedReadings.isNotEmpty() -> readings.indexOf(lockedReadings.last())
+        else -> -1
     }
 
     internal fun drilledSyllableForTest(): Int = drillSyllable

@@ -25,11 +25,19 @@ import java.io.File
 class PinyinDecoderTest {
 
     private val dictFile = File("src/main/assets/aegis_dict.bin")
+    private val t9File = File("src/main/assets/aegis_t9.bin")
 
     private fun decoder(): PinyinDecoder {
         assumeTrue("demo dict asset present", dictFile.exists())
         return PinyinDecoder(BinaryDict.fromFile(dictFile))
     }
+
+    private fun t9Decoder(): PinyinDecoder {
+        assumeTrue("T9 dict asset present", t9File.exists())
+        return PinyinDecoder(BinaryDict.fromFile(t9File))
+    }
+
+    private fun biangChar(): String = String(Character.toChars(0x30EDE))
 
     private fun dictSingles(key: String): Set<String> =
         BinaryDict.fromFile(dictFile).exact(key)
@@ -77,6 +85,30 @@ class PinyinDecoderTest {
             "n should remain a source-backed syllabic nasal reading for 嗯",
             d.decodeCovered("n", 30).any { it.word == "嗯" && it.coveredLen == 1 },
         )
+    }
+
+    @Test
+    fun rareBiangReadingIsSegmentableAndNavigable() {
+        val rare = biangChar()
+        val d = decoder()
+        assumeTrue("dict has the biang rare character", rare in dictSingles("biang"))
+
+        assertEquals(listOf("biang"), d.syllables("biang").map { it.reading })
+        assertTrue("biang free typing recalls the rare character", d.decodeCovered("biang", 30).any { it.word == rare && it.coveredLen == 5 })
+        assertTrue("biang homophone drill includes the rare character", rare in d.homophonesAt("biang", 0))
+    }
+
+    @Test
+    fun t9BiangReadingIsLockableAndNavigable() {
+        val rare = biangChar()
+        val digits = T9Pinyin.toT9("biang")
+        assumeTrue("T9 dict asset present", t9File.exists())
+        val t9 = BinaryDict.fromFile(t9File)
+        assumeTrue("T9 dict has the biang rare character", t9.exact(digits).any { it.word == rare })
+
+        assertTrue("9-key reading list offers biang for $digits", "biang" in T9Pinyin.leftColumnReadings(digits, 24))
+        assertTrue("T9 free typing recalls the rare character", t9Decoder().decodeCovered(digits, 30).any { it.word == rare })
+        assertTrue("T9 homophone drill includes the rare character", rare in t9Decoder().homophonesAt(digits, 0))
     }
 
     @Test

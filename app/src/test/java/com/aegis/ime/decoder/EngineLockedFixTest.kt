@@ -100,6 +100,48 @@ class EngineLockedFixTest {
         assertTrue("common chars rank ABOVE the freq=1 supplementary tail", h.indexOf("次") < h.indexOfFirst { isSupp(it) })
     }
 
+    @Test fun tiedSupplementarySinglesFallBehindCommonSinglesOnTheLetterPath() {
+        val rare = EngineFixture.supplementary(700)
+        val decoder = PinyinDecoder(EngineFixture.build(listOf(
+            EngineFixture.Row("ce", rare, 10),
+            EngineFixture.Row("ce", "测", 10),
+            EngineFixture.Row("ce", "册", 9),
+        )))
+        val words = words(decoder.decodeCovered("ce", 10))
+
+        assertEquals("same-frequency common BMP char beats source-earlier supplementary rare", "测", words.first())
+        assertTrue("supplementary rare remains reachable", rare in words)
+        assertTrue("same-frequency common char ranks before the supplementary rare", words.indexOf("测") < words.indexOf(rare))
+    }
+
+    @Test fun tiedSupplementarySinglesFallBehindCommonSinglesOnTheT9Path() {
+        val rare = EngineFixture.supplementary(701)
+        val ceDigits = T9Pinyin.toT9("ce")
+        val decoder = PinyinDecoder(EngineFixture.build(listOf(
+            EngineFixture.Row(ceDigits, rare, 10),
+            EngineFixture.Row(ceDigits, "测", 10),
+            EngineFixture.Row(ceDigits, "册", 9),
+        )))
+        val words = words(decoder.decodeCovered(ceDigits, 10))
+
+        assertEquals("same-frequency common BMP char beats source-earlier supplementary rare on T9", "测", words.first())
+        assertTrue("supplementary rare remains reachable on T9", rare in words)
+        assertTrue("same-frequency common char ranks before the supplementary rare on T9", words.indexOf("测") < words.indexOf(rare))
+    }
+
+    @Test fun prefixCompletionsDoNotLetTiedSupplementarySinglesCrowdOutCommonWords() {
+        val rare = EngineFixture.supplementary(702)
+        val decoder = PinyinDecoder(EngineFixture.build(listOf(
+            EngineFixture.Row("cea", rare, 10),
+            EngineFixture.Row("ceb", "测词", 10),
+            EngineFixture.Row("cec", "册词", 9),
+        )))
+        val words = decoder.decode("ce", 3)
+
+        assertEquals("same-frequency common word wins the prefix completion tie", "测词", words.first())
+        assertTrue("supplementary rare remains reachable in prefix completions", rare in words)
+    }
+
     @Test fun supplementaryPlaneHanContextConditionsDecodeCoveredButBmpSymbolsDoNot() {
         val plane3Han = 0x30000
         val star = 0x2605
