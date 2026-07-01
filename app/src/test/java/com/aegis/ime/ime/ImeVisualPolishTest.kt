@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.user.clipEntries
 import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
@@ -176,6 +177,62 @@ class ImeVisualPolishTest {
     @Test fun edit_panel_controls_all_use_rounded_tap_feedback() {
         val panel = EditPanelView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
         assertAllClickableViewsUseRoundedTapFeedback(panel, "text edit panel")
+    }
+
+    @Test fun major_panel_click_targets_use_shared_rounded_tap_feedback() {
+        assertAllClickableViewsUseRoundedTapFeedback(
+            CandidateGridView(ctx).apply {
+                applyPalette(ImePalette.STATIC_LIGHT)
+                setReadings(listOf("ni", "hao"), selected = 0)
+                setCandidates(listOf("你", "好"))
+            },
+            "expanded candidates",
+        )
+        assertAllClickableViewsUseRoundedTapFeedback(
+            SymbolsView(ctx).apply {
+                recentProvider = { listOf("，", "。") }
+                applyPalette(ImePalette.STATIC_LIGHT)
+                refresh()
+            },
+            "symbols panel",
+        )
+        assertAllClickableViewsUseRoundedTapFeedback(
+            EmojiView(ctx).apply {
+                recentProvider = { listOf("😀", "😂") }
+                applyPalette(ImePalette.STATIC_LIGHT)
+            },
+            "emoji panel",
+        )
+        assertAllClickableViewsUseRoundedTapFeedback(
+            CustomSymbolPanel(ctx).apply {
+                current = { listOf("、") }
+                addPalette = listOf("、", "。", "，")
+                applyPalette(ImePalette.STATIC_LIGHT)
+                refresh()
+            },
+            "custom symbol panel",
+        )
+        assertAllClickableViewsUseRoundedTapFeedback(
+            CopyBarView(ctx).apply {
+                applyPalette(ImePalette.STATIC_LIGHT)
+                show("测试内容")
+            },
+            "copy bar",
+        )
+        assertAllClickableViewsUseRoundedTapFeedback(
+            EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) },
+            "inline edit bar",
+        )
+        assertAllClickableViewsUseRoundedTapFeedback(
+            ClipboardView(ctx).apply {
+                historyProvider = { clipEntries("clip") }
+                categoriesProvider = { listOf("默认") }
+                phrasesInProvider = { listOf("phrase") }
+                applyPalette(ImePalette.STATIC_LIGHT)
+                refresh()
+            },
+            "clipboard panel",
+        )
     }
 
     private fun assertRoundedRailTab(tab: TextView, label: String, faceColor: Int) {
