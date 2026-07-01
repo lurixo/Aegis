@@ -32,6 +32,10 @@ object EngineAssets {
     /** The downloadable files the engine loads from `downloaded/` (single source of truth = the cards' targets). */
     val ASSET_NAMES: List<String> = ModelDownload.DICT_PACK_FILES + ModelDownload.GRAM_NAME
 
+    /** Return the downloaded resource file the engine should prefer, or null when it is absent/incomplete. */
+    fun downloadedOverride(downloadedDir: File, name: String, minBytes: Long = 1L): File? =
+        File(downloadedDir, name).takeIf { it.exists() && it.length() >= minBytes }
+
     /**
      * A signature of [ASSET_NAMES] in [downloadedDir]: `name=mtime/size` per file (`name=0/0` when absent),
      * joined. A new download, an in-place update, or a delete each changes the string. Pure over the snapshot.

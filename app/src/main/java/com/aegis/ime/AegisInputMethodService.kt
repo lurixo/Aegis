@@ -297,7 +297,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     /** Prefer a downloaded enhancement pack (optional full dict / .gram tier) over the bundled asset. */
     private fun downloadedOverride(name: String): File? =
-        File(File(filesDir, "downloaded"), name).takeIf { it.exists() && it.length() > 0 }
+        EngineAssets.downloadedOverride(File(filesDir, "downloaded"), name)
 
     // A downloaded override that exists but fails to parse (e.g. a truncated extract) must NOT sink the whole
     // load — fall back to the bundled asset rather than returning null (which would yield zero candidates).

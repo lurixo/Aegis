@@ -76,8 +76,8 @@ class OctagramReader private constructor(
 
         /** Present only if the user downloaded the .gram into filesDir/downloaded/. */
         fun fromDownloads(context: Context, name: String): OctagramReader? {
-            val f = File(File(context.filesDir, "downloaded"), name)
-            return if (f.exists() && f.length() > 1024) fromFile(f) else null
+            val f = EngineAssets.downloadedOverride(File(context.filesDir, "downloaded"), name, minBytes = 1025L)
+            return if (f != null) fromFile(f) else null
         }
 
         /**

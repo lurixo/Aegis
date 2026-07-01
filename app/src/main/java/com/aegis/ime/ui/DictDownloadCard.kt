@@ -195,7 +195,7 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
                     Button(
                         enabled = !downloading && !checking,
                         onClick = { checkUpdate() },
-                    ) { Text(stringResource(R.string.check_update_button)) }
+                    ) { Text(stringResource(R.string.check_dict_update_button)) }
                 }
                 OutlinedButton(
                     // F1: also disabled while a check is in flight, so a delete can't race the HEAD callback.
