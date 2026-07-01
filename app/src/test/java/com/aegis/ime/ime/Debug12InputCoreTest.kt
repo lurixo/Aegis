@@ -70,6 +70,7 @@ class Debug12InputCoreTest {
     }
 
     private fun digit(d: Char) = Key(d.toString(), output = d.toString())
+    private fun isSingleChar(word: String): Boolean = word.codePointCount(0, word.length) == 1
 
     private fun leftColumnHasNoPunctuation(c: KeyboardController): Boolean =
         c.nineLeftColumn().all { it.action == KeyAction.PICK_READING }
@@ -112,7 +113,7 @@ class Debug12InputCoreTest {
         c.onKey(Key("", action = KeyAction.SWITCH_NINE))
         digits.forEach { c.onKey(digit(it)) }
 
-        val partialIdx = c.candidateWords().indexOfFirst { it.length == 1 }
+        val partialIdx = c.candidateWords().indexOfFirst { isSingleChar(it) }
         assertTrue("a single-char partial candidate is offered, was ${c.candidateWords().take(8)}", partialIdx >= 0)
         val firstChar = c.candidateWords()[partialIdx]
         c.onPickCandidate(partialIdx)
