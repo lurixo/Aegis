@@ -40,6 +40,7 @@ class DictEngine(
             it,
             lm,
             octagram = octagram,
+            aliasDict = pinyinDict,
         )
     }
 

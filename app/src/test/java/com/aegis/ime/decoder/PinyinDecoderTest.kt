@@ -57,6 +57,18 @@ class PinyinDecoderTest {
     }
 
     @Test
+    fun enCompatibilityAliasSurfacesNasalInterjection() {
+        val d = decoder()
+
+        assertTrue(
+            "covered en candidates should include 嗯 covering the whole input",
+            d.decodeCovered("en", 30).any { it.word == "嗯" && it.coveredLen == 2 },
+        )
+        assertEquals(listOf("en"), d.syllables("en").map { it.reading })
+        assertTrue("en homophone drill should include the compatibility alias 嗯", "嗯" in d.homophonesAt("en", 0))
+    }
+
+    @Test
     fun syllabicNasalReadingsStayCompleteSyllables() {
         val d = decoder()
 

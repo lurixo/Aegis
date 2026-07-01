@@ -36,6 +36,7 @@ class PinyinDecoder(
     private val octagram: com.aegis.ime.dict.OctagramReader? = null,
     private val octagramWeight: Double = DEFAULT_OCTAGRAM_WEIGHT,
     private val contextWeight: Double = DEFAULT_CONTEXT_WEIGHT,
+    private val aliasDict: BinaryDict? = null,
 ) {
     private val grading = TghGrading.bundled
     private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
@@ -44,6 +45,12 @@ class PinyinDecoder(
         if (lm != null || octagram != null) EDGE_N else 1
 
     private class Edge(val word: String, val freq: Int, val penalty: Double)
+
+    private fun inputAliases(key: String): List<String> =
+        if (key.isNotEmpty() && key[0] in '2'..'9') T9_INPUT_ALIASES[key].orEmpty()
+        else INPUT_ALIASES[key].orEmpty()
+
+    private val aliasSource: BinaryDict get() = aliasDict ?: dict
 
     private fun addExactEdges(
         source: BinaryDict,
@@ -59,10 +66,25 @@ class PinyinDecoder(
         return false
     }
 
+    private fun inputAliasWordFreqs(input: String): List<BinaryDict.WordFreq> {
+        val out = ArrayList<BinaryDict.WordFreq>()
+        val seen = HashSet<String>()
+        for (alias in inputAliases(input)) {
+            for (wf in cachedExact(aliasSource, alias)) if (seen.add(wf.word)) out.add(wf)
+        }
+        return preferredWordFreqs(out)
+    }
+
     private fun edgesFor(sub: String): List<Edge> {
         val out = ArrayList<Edge>(edgeN)
         val seen = HashSet<String>()
         val exactFull = addExactEdges(dict, sub, 0.0, out, seen)
+        for (alias in inputAliases(sub)) {
+            var added = 0
+            for (wf in preferredExact(aliasSource, alias, edgeN + seen.size)) {
+                if (seen.add(wf.word)) { out.add(Edge(wf.word, wf.freq, ALIAS_PENALTY)); if (++added >= edgeN) break }
+            }
+        }
         if (exactFull || out.size >= edgeN) return out
         return out
     }
@@ -306,6 +328,7 @@ class PinyinDecoder(
             if (!isSingleChar(wf.word)) exactWords.add(wf.word)
             offer(wf, 0.0)
         }
+        inputAliasWordFreqs(input).forEach { offer(it, ALIAS_PENALTY) }
         cachedPrefix(dict, input, completionCap).forEach { offer(it, 0.0) }
         DecodeCancellation.checkpoint()
         pool.sortWith(
@@ -819,6 +842,9 @@ class PinyinDecoder(
         for (wf in preferredExact(dict, key)) {
             if (isSingleChar(wf.word) && seen.add(wf.word)) out.add(wf.word to wf.freq.toDouble())
         }
+        for (wf in inputAliasWordFreqs(key)) {
+            if (isSingleChar(wf.word) && seen.add(wf.word)) out.add(wf.word to wf.freq * ALIAS_FREQ_DISCOUNT)
+        }
         out.sortWith(
             compareByDescending<Pair<String, Double>> { it.second }
                 .thenBy { supplementarySingleTieRank(it.first) },
@@ -949,6 +975,7 @@ class PinyinDecoder(
         const val NO_CTX = Int.MIN_VALUE
         const val EDGE_N = 20
         const val DEFAULT_LAMBDA = 0.5
+        const val ALIAS_PENALTY = 3.5
         const val DEFAULT_OCTAGRAM_WEIGHT = 0.1
         const val BEAM_W = 12
         const val SENTENCE_EDGE_N = 6
@@ -972,7 +999,11 @@ class PinyinDecoder(
         const val EXTENSION_B_FLOOR = 0x20000
         const val GENERAL_USE_CARDINALITY = TghGrading.LEVEL1_COUNT + TghGrading.LEVEL2_COUNT
         const val CORPUS_BAND_OUT = 3
+        val ALIAS_FREQ_DISCOUNT = exp(-ALIAS_PENALTY)
         const val DEFAULT_CONTEXT_WEIGHT = 1.0
         fun completionCap(limit: Int): Int = maxOf(1, (limit.toLong() * 2 / 3).toInt())
+        val INPUT_ALIASES = mapOf("en" to listOf("ng"))
+        val T9_INPUT_ALIASES: Map<String, List<String>> =
+            INPUT_ALIASES.entries.associate { (k, v) -> T9Pinyin.toT9(k) to v }
     }
 }
