@@ -22,6 +22,7 @@ import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.engine.DictEngine
+import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import org.junit.Assert.assertEquals
@@ -369,6 +370,52 @@ class Ui12SyllableColumnTest {
         assertEquals("drilled syllable recorded", 0, c.drilledSyllableForTest())
         assertEquals("every ni 同音字 surfaces, uncapped", niHomophones, c.candidateWords())
         assertTrue("more than the 30-cap", c.candidateWords().size > 30)
+    }
+
+    @Test fun input_view_marks_the_drilled_reading_with_the_accent_color() {
+        val palette = ImePalette.STATIC_LIGHT
+        val iv = InputView(RuntimeEnvironment.getApplication()).apply { applyPalette(palette) }
+        val c = KeyboardController(RecordingHost(), syllabic)
+        iv.onPickReading = { i -> c.onPickReadingIndex(i) }
+        iv.onPickCandidate = { i -> c.onPickCandidate(i) }
+        iv.onExpandClosed = { c.clearDrill() }
+        c.attachView(iv)
+        c.switchTextLayoutForTest(nine = false)
+        "nihao".forEach { c.onKey(out(it.toString())) }
+
+        iv.showExpandedCandidates()
+        assertEquals("undrilled reading starts with the normal text color", palette.candidateText, iv.expandedReadingTextColorForTest(0))
+
+        lockAndDrillFirst(c)
+
+        assertEquals("drilled reading is visibly marked with the locked-reading color", palette.lockedReading, iv.expandedReadingTextColorForTest(0))
+    }
+
+    @Test fun input_view_marks_the_persisted_9key_locked_reading_with_the_accent_color() {
+        val palette = ImePalette.STATIC_LIGHT
+        val iv = InputView(RuntimeEnvironment.getApplication()).apply { applyPalette(palette) }
+        val c = KeyboardController(RecordingHost(), syllabic)
+        iv.onPickReading = { i -> c.onPickReadingIndex(i) }
+        iv.onPickCandidate = { i -> c.onPickCandidate(i) }
+        iv.onExpandClosed = { c.clearDrill() }
+        c.attachView(iv)
+        c.switchTextLayoutForTest(nine = true)
+        "64".forEach { c.onKey(out(it.toString())) }
+        iv.showExpandedCandidates()
+
+        val before = c.expandedReadings().indexOf("ni")
+        assertTrue("precondition: ni is offered before locking, was ${c.expandedReadings()}", before >= 0)
+        assertEquals("unlocked 9-key reading starts with normal text color", palette.candidateText, iv.expandedReadingTextColorForTest(before))
+
+        c.onPickReadingIndex(before)
+
+        val afterReadings = c.expandedReadings()
+        val selected = afterReadings.indexOf("ni")
+        assertTrue("locked last syllable remains visible, was $afterReadings", selected >= 0)
+        assertEquals("persisted locked 9-key reading is marked with the locked-reading color", palette.lockedReading, iv.expandedReadingTextColorForTest(selected))
+        afterReadings.indices.firstOrNull { it != selected }?.let {
+            assertEquals("unselected 9-key readings keep the normal text color", palette.candidateText, iv.expandedReadingTextColorForTest(it))
+        }
     }
 
     @Test fun picking_a_homophone_from_the_first_syllable_partial_commits_then_continues() {

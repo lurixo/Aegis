@@ -1139,14 +1139,14 @@ class KeyboardController(
         return parts.joinToString("'")
     }
 
-    internal fun nineLeftColumn(): List<Key> {
+    internal fun nineLeftColumn(highlight: String? = null): List<Key> {
         if (composing.isEmpty()) return Layouts.ninePunctuation(customSymbols)
         val start = ninePendingIndex()
         if (start < 0) {
             if (literalIndices.isNotEmpty()) return emptyList()
             if (lockedReadings.isEmpty()) return emptyList()
             val lastDigits = T9Pinyin.toT9(lockedReadings.last())
-            return readingKeys(T9Pinyin.leftColumnReadings(lastDigits, NINE_LEFT_MAX))
+            return readingKeys(T9Pinyin.leftColumnReadings(lastDigits, NINE_LEFT_MAX), highlight)
         }
         val end = minOf(
             forcedCuts.firstOrNull { it > start } ?: composing.length,
@@ -1157,7 +1157,7 @@ class KeyboardController(
         val last = lockedReadings.lastOrNull()?.takeIf { it.all { c -> c in 'a'..'z' } }
         val visible = if (last == null) readings else listOf(last) + readings
         val digit = composing[start].takeIf { layoutId == LayoutId.NINE && it in '2'..'9' }
-        return readingKeys(visible) + listOfNotNull(
+        return readingKeys(visible, highlight) + listOfNotNull(
             digit?.let { Key(it.toString(), action = KeyAction.PICK_DIGIT, weight = 0.85f) },
         )
     }
@@ -1169,16 +1169,18 @@ class KeyboardController(
             T9Pinyin.leftColumnLetterReadings(inputForReading(reading), NINE_LEFT_MAX)
         }
 
-    private fun readingKeys(readings: List<String>): List<Key> {
-        return readings.map { r ->
-            Key(r, output = r, action = KeyAction.PICK_READING, weight = 0.85f)
+    private fun readingKeys(readings: List<String>, highlight: String?): List<Key> {
+        val marked = highlight?.let(readings::indexOf) ?: -1
+        return readings.mapIndexed { i, r ->
+            Key(r, output = r, action = KeyAction.PICK_READING, weight = 0.85f, accent = i == marked)
         }
     }
 
     private fun render() {
         val v = view ?: return
+        val highlight = lockedHighlightReading()
         val layout = when (layoutId) {
-            LayoutId.NINE -> Layouts.nine(nineLeftColumn(), composing.isNotEmpty())
+            LayoutId.NINE -> Layouts.nine(nineLeftColumn(highlight), composing.isNotEmpty())
             LayoutId.NUMPAD -> Layouts.numpad()
             else -> Layouts.forId(layoutId, lang, composing.isNotEmpty())
         }
@@ -1189,6 +1191,7 @@ class KeyboardController(
             candidates.map { it.word },
             preedit,
             readings,
+            selectedExpandedReadingIndex(readings, highlight),
             candidateProjection = CandidateProjectionPolicy.PINYIN.takeIf {
                 mode() == Mode.PINYIN && composing.isNotEmpty()
             },
@@ -1242,6 +1245,17 @@ class KeyboardController(
         }
         else -> nineLeftColumn().filter { it.action == KeyAction.PICK_READING }.map { it.label }
     }
+
+    internal fun lockedHighlightReading(): String? = when {
+        literalIndices.isNotEmpty() -> null
+        drillSyllable >= 0 -> currentSyllables().getOrNull(drillSyllable)?.reading
+        mode() == Mode.PINYIN && composing.isNotEmpty() && lockedReadings.isNotEmpty() ->
+            lockedReadings.last()
+        else -> null
+    }
+
+    private fun selectedExpandedReadingIndex(readings: List<String>, highlight: String?): Int =
+        highlight?.let(readings::indexOf) ?: -1
 
     internal fun drilledSyllableForTest(): Int = drillSyllable
 

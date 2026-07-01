@@ -17,6 +17,7 @@ package com.aegis.ime.ime
 
 import com.aegis.ime.decoder.Cand
 import com.aegis.ime.decoder.Syllable
+import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.layout.Key
@@ -136,6 +137,168 @@ class ExpandedReadingColumnTest {
         val index = c.expandedReadings().indexOf(reading)
         assertTrue("'$reading' must be offered, was ${c.expandedReadings()}", index >= 0)
         c.onPickReadingIndex(index)
+    }
+
+    @Test fun nine_key_lock_that_eats_the_input_keeps_the_whole_reading_column() {
+        val (_, c) = nine("943")
+        val before = c.expandedReadings()
+        assertEquals("every reading of the key sequence is offered", T9Pinyin.leftColumnReadings("943", 24), before)
+        assertTrue("xie among them, was $before", "xie" in before)
+        assertTrue("zhe among them, was $before", "zhe" in before)
+
+        pick(c, "xie")
+
+        assertEquals("xie", c.preeditForTest())
+        assertEquals("a lock that eats the input must not shrink the column", before, c.expandedReadings())
+        assertEquals("the locked reading is the marked one", "xie", c.lockedHighlightReading())
+        assertEquals(
+            "the expanded column and the keyboard column offer the same readings",
+            c.nineLeftColumn().map { it.label },
+            c.expandedReadings(),
+        )
+    }
+
+    @Test fun nine_key_column_switches_the_locked_reading_and_refreshes_the_panel() {
+        val (host, c) = nine("943")
+        pick(c, "xie")
+        assertEquals(wordsFor("xie").first(), c.candidateWords().first())
+        val column = c.expandedReadings()
+
+        pick(c, "zhe")
+
+        assertEquals("switching rewrites the locked reading", "zhe", c.preeditForTest())
+        assertEquals("a same-width switch leaves the column in place", column, c.expandedReadings())
+        assertEquals("the mark follows the switch", "zhe", c.lockedHighlightReading())
+        assertEquals("the panel decodes the newly chosen reading", wordsFor("zhe").first(), c.candidateWords().first())
+        assertTrue("the abandoned reading leaves the panel", wordsFor("xie").first() !in c.candidateWords())
+        assertTrue("switching a reading never commits", host.commits.isEmpty())
+    }
+
+    @Test fun nine_key_column_switches_a_drilled_earlier_syllable_and_keeps_the_later_lock() {
+        val (host, c) = nine("6443")
+        pick(c, "ni")
+        pick(c, "he")
+        assertEquals("ni'he", c.preeditForTest())
+
+        pick(c, "he")
+
+        assertEquals("the drill opens on the earlier syllable", 0, c.drilledSyllableForTest())
+        val column = c.expandedReadings()
+        assertEquals(
+            "the drilled syllable keeps every reading of its key sequence",
+            T9Pinyin.leftColumnReadings("64", 24),
+            column,
+        )
+        assertEquals("the drilled reading is the marked one", "ni", c.lockedHighlightReading())
+        assertEquals(niChars, c.candidateWords())
+
+        pick(c, "mi")
+
+        assertEquals("switching an earlier syllable keeps the later lock", "mi'he", c.preeditForTest())
+        assertEquals("a same-width switch leaves the column in place", column, c.expandedReadings())
+        assertEquals("the mark follows the switch", "mi", c.lockedHighlightReading())
+        assertEquals("the drill stays on the switched syllable", 0, c.drilledSyllableForTest())
+        assertEquals("and the panel lists the new reading's homophones", miChars, c.candidateWords())
+        assertTrue("switching a reading never commits", host.commits.isEmpty())
+    }
+
+    @Test fun nine_key_expanded_panel_rail_switches_readings_under_the_finger() {
+        val (_, c) = nine("943")
+        val iv = expanded(c)
+        val grid = iv.expandedGridForTest()
+        val column = c.expandedReadings()
+        assertTrue(grid.tapReadingForTest(column.indexOf("xie")))
+        assertEquals("the rail keeps every same-key reading after the lock", column, grid.renderedReadingTextsForTest())
+        assertEquals(c.candidateWords(), grid.renderedCandidateTextsForTest())
+
+        assertTrue(grid.tapReadingForTest(column.indexOf("zhe")))
+
+        assertEquals("the rail is unchanged by the switch", column, grid.renderedReadingTextsForTest())
+        assertEquals("the grid follows the switched reading", c.candidateWords(), grid.renderedCandidateTextsForTest())
+        assertEquals("which now leads with the new reading", wordsFor("zhe").first(), grid.renderedCandidateTextsForTest().first())
+        assertEquals(
+            "the switched reading carries the mark",
+            palette.lockedReading,
+            iv.expandedReadingTextColorForTest(column.indexOf("zhe")),
+        )
+        assertEquals(
+            "the abandoned reading drops back to the plain color",
+            palette.candidateText,
+            iv.expandedReadingTextColorForTest(column.indexOf("xie")),
+        )
+    }
+
+    @Test fun alpha_lock_that_eats_the_input_keeps_the_whole_reading_column() {
+        val (_, c) = alpha("xian")
+        val before = c.expandedReadings()
+        assertEquals("every reading of the letters is offered", T9Pinyin.leftColumnLetterReadings("xian", 24), before)
+        assertTrue("more than one reading to choose from, was $before", before.size > 1)
+
+        pick(c, "xian")
+
+        assertEquals("xian", c.preeditForTest())
+        assertEquals("a lock that eats the input must not shrink the column", before, c.expandedReadings())
+        assertEquals("the locked reading is the marked one", "xian", c.lockedHighlightReading())
+    }
+
+    @Test fun alpha_column_switches_the_locked_reading_and_refreshes_the_panel() {
+        val (host, c) = alpha("xian")
+        pick(c, "xian")
+        assertEquals(wordsFor("xian"), c.candidateWords())
+
+        pick(c, "xi")
+
+        assertEquals("the switch hands the uncovered letters back to the buffer", "xi'an", c.preeditForTest())
+        assertEquals("the mark follows the switch", "xi", c.lockedHighlightReading())
+        assertTrue("the shorter reading stays selectable, was ${c.expandedReadings()}", "xi" in c.expandedReadings())
+        assertEquals("the panel decodes against the new lock", listOf("西安"), c.candidateWords())
+        assertTrue("switching a reading never commits", host.commits.isEmpty())
+    }
+
+    @Test fun alpha_column_keeps_a_drilled_syllable_switchable() {
+        val (host, c) = alpha("nihao")
+        pick(c, "ni")
+        pick(c, "hao")
+
+        pick(c, "hao")
+
+        assertEquals("the drill opens on the earlier syllable", 0, c.drilledSyllableForTest())
+        val column = c.expandedReadings()
+        assertEquals(
+            "the drilled syllable keeps every reading of its letters",
+            T9Pinyin.leftColumnLetterReadings("ni", 24),
+            column,
+        )
+        assertTrue("which is more than the drilled reading alone, was $column", column.size > 1)
+        assertEquals("the drilled reading is the marked one", "ni", c.lockedHighlightReading())
+        assertEquals(niChars, c.candidateWords())
+
+        pick(c, "n")
+
+        assertEquals("switching the drilled syllable rewrites the lock", "n'ihao", c.preeditForTest())
+        assertEquals("a switch that uncovers letters ends the drill", -1, c.drilledSyllableForTest())
+        assertTrue("the panel leaves the abandoned homophone grid", c.candidateWords() != niChars)
+        assertTrue("switching a reading never commits", host.commits.isEmpty())
+    }
+
+    @Test fun alpha_switch_inside_a_separated_lock_span_keeps_the_separator_covered() {
+        val (host, c) = alpha("ni'hao")
+        pick(c, "ni")
+        pick(c, "hao")
+        assertEquals("ni'hao", c.preeditForTest())
+
+        pick(c, "ha")
+
+        assertEquals("the switched lock still covers the separator it was locked over", "ni'ha'o", c.preeditForTest())
+        assertEquals("the mark follows the switch", "ha", c.lockedHighlightReading())
+        assertTrue("switching a reading never commits", host.commits.isEmpty())
+
+        c.onKey(act(KeyAction.BACKSPACE))
+        assertEquals("the first backspace undoes the switched lock", "ni'hao", c.preeditForTest())
+        c.onKey(act(KeyAction.BACKSPACE))
+        assertEquals("the second backspace undoes the leading lock", "ni'hao", c.preeditForTest())
+        c.onKey(act(KeyAction.BACKSPACE))
+        assertEquals("only then do the typed letters go", "ni'ha", c.preeditForTest())
     }
 
     @Test fun alpha_switch_of_a_separated_earlier_lock_leaves_backspace_stepping_correctly() {

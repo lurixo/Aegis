@@ -865,6 +865,9 @@ class InputView(context: Context) : LinearLayout(context) {
 
     internal fun shownCandidateCount(): Int = candidateView.itemCount()
 
+    internal fun expandedReadingTextColorForTest(index: Int): Int? =
+        gridView.readingTextColorForTest(index)
+
     internal fun toolbarShownForTest(): Boolean = candidateView.visibility == VISIBLE
 
     fun showPanel(panel: View?) = showPanel(panel, animateReveal = true)
