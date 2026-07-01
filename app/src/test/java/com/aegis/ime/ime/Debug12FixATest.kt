@@ -41,7 +41,7 @@ class Debug12FixATest {
             if (composing.isEmpty()) emptyList() else listOf(Cand("好", composing.length))
         override fun candidatesForReadingCovered(letters: String, cuts: Set<Int>, context: CharSequence): List<Cand> {
             lastReadingCuts = cuts
-            val spanning = if (cuts.isEmpty()) listOf(Cand("好的", letters.length)) else emptyList()
+            val spanning = if (4 !in cuts) listOf(Cand("好的", letters.length)) else emptyList()
             return spanning + listOf(Cand("X", 4))
         }
     }
@@ -78,7 +78,7 @@ class Debug12FixATest {
 
         assertEquals(
             "the forced 分词 boundary inside the active tail is forwarded to the locked-path decode",
-            setOf(4), probe.lastReadingCuts,
+            setOf(2, 4), probe.lastReadingCuts,
         )
     }
 

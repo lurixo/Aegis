@@ -194,4 +194,19 @@ class EngineLockedFixTest {
         assertFalse("selected xiang must not leak xi prefix singles", "西" in w)
         assertFalse("selected xiang must not leak xia prefix singles", "下" in w)
     }
+
+    @Test fun aPartiallyLockedFirstSyllableIsAtomicButCanJoinTheTail() {
+        val w = words(d.decodeCoveredAtomic("xiangku", 30, setOf("xiang".length)))
+
+        assertTrue("cross-boundary word remains available", "想哭" in w.take(3))
+        assertTrue("xiang homophones remain prominent", w.take(8).containsAll(listOf("向", "想", "相", "像", "香")))
+        assertFalse("selected xiang must not leak xian candidates", "西安" in w)
+        assertFalse("selected xiang must not leak xi prefix singles", "西" in w)
+        assertFalse("selected xiang must not leak xia prefix singles", "下" in w)
+
+        val unlocked = words(d.decodeCovered("xiangku", 30))
+        assertTrue("control: free typing still keeps the xian prefix candidate", "西安" in unlocked)
+        assertTrue("control: free typing still keeps the xi prefix single", "西" in unlocked)
+        assertTrue("control: free typing still keeps the xia prefix single", "下" in unlocked)
+    }
 }
