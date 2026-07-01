@@ -28,6 +28,7 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import java.time.Duration
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -169,6 +170,42 @@ class SettingsImeRequestTest {
         assertEquals(listOf(target, target, target), shownFor)
     }
 
+    @Test fun ime_request_restarts_input_connection_before_showing_input() {
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup()
+        val activity = controller.get()
+        val host = FrameLayout(activity)
+        val target = View(activity).apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
+        }
+        host.addView(target)
+        activity.setContentView(host)
+
+        val calls = ArrayList<String>()
+        var shownFor: View? = null
+        host.requestImeWhenReady(
+            context = activity,
+            focusTarget = {
+                calls.add("focus")
+                target.requestFocus()
+            },
+            showSoftInput = {
+                calls.add("show")
+                shownFor = it
+                true
+            },
+            restartInput = {
+                calls.add("restart")
+                assertSame(target, it)
+            },
+            isReady = { true },
+            isImeVisible = { shownFor != null },
+        )
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(listOf("focus", "restart", "show"), calls)
+    }
+
     @Test fun ime_request_keeps_retrying_when_accepted_show_is_still_not_visible() {
         val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup()
         val activity = controller.get()
@@ -197,5 +234,35 @@ class SettingsImeRequestTest {
         shadowOf(Looper.getMainLooper()).idle()
 
         assertEquals(listOf(target, target, target), shownFor)
+    }
+
+    @Test fun ime_request_covers_slow_update_rebind_before_giving_up() {
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup()
+        val activity = controller.get()
+        val host = FrameLayout(activity)
+        val target = View(activity).apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
+        }
+        host.addView(target)
+        activity.setContentView(host)
+
+        val shownFor = ArrayList<View>()
+        host.requestImeWhenReady(
+            context = activity,
+            focusTarget = {
+                target.requestFocus()
+            },
+            showSoftInput = {
+                shownFor.add(it)
+                true
+            },
+            restartInput = {},
+            isReady = { true },
+            isImeVisible = { shownFor.size >= 8 },
+        )
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(5_500))
+
+        assertEquals(List(8) { target }, shownFor)
     }
 }
