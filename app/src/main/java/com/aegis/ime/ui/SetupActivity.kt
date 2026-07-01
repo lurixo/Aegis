@@ -108,11 +108,6 @@ private fun SetupScreen(resumeSignal: Int = 0) {
             tryFieldFocusRequester.requestFocus()
             keyboardController?.show()
         })
-        delay(150)
-        hostView.requestImeWhenReady(context, focusTarget = {
-            tryFieldFocusRequester.requestFocus()
-            keyboardController?.show()
-        })
     }
 
     // B3: a one-time, non-blocking first-run hint that the optional downloads exist (the seed dict + base
@@ -238,19 +233,22 @@ internal fun Modifier.settingsScrollInsets(
     .windowInsetsPadding(insets)
     .verticalScroll(scrollState)
 
+private val IME_SHOW_RETRY_DELAYS_MS = longArrayOf(0L, 75L, 150L, 300L, 600L, 900L)
+
 internal fun View.requestImeWhenReady(
     context: Context = this.context,
     focusTarget: () -> Unit,
-    showSoftInput: (View) -> Unit = { target ->
+    showSoftInput: (View) -> Boolean = { target ->
         val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         imm.showSoftInput(target, InputMethodManager.SHOW_IMPLICIT)
     },
     isReady: View.() -> Boolean = { isAttachedToWindow && hasWindowFocus() },
+    retryDelaysMs: LongArray = IME_SHOW_RETRY_DELAYS_MS,
 ) {
     if (isReady()) {
         post {
             focusTarget()
-            showImeForFocusedViewWhenReady(showSoftInput, isReady)
+            showImeForFocusedViewWhenReady(showSoftInput, isReady, retryDelaysMs)
         }
         return
     }
@@ -258,7 +256,7 @@ internal fun View.requestImeWhenReady(
         addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: View) {
                 v.removeOnAttachStateChangeListener(this)
-                v.requestImeWhenReady(context, focusTarget, showSoftInput, isReady)
+                v.requestImeWhenReady(context, focusTarget, showSoftInput, isReady, retryDelaysMs)
             }
             override fun onViewDetachedFromWindow(v: View) = Unit
         })
@@ -270,7 +268,7 @@ internal fun View.requestImeWhenReady(
                 if (!hasFocus) return
                 val observer = viewTreeObserver
                 if (observer.isAlive) observer.removeOnWindowFocusChangeListener(this)
-                requestImeWhenReady(context, focusTarget, showSoftInput, isReady)
+                requestImeWhenReady(context, focusTarget, showSoftInput, isReady, retryDelaysMs)
             }
         }
         viewTreeObserver.addOnWindowFocusChangeListener(listener)
@@ -278,11 +276,13 @@ internal fun View.requestImeWhenReady(
 }
 
 private fun View.showImeForFocusedViewWhenReady(
-    showSoftInput: (View) -> Unit,
+    showSoftInput: (View) -> Boolean,
     isReady: View.() -> Boolean,
+    retryDelaysMs: LongArray,
 ) {
     var done = false
     var listener: ViewTreeObserver.OnGlobalFocusChangeListener? = null
+    var retry: Runnable? = null
 
     fun focusedImeTarget(): View? =
         rootView.findFocus()?.takeIf { isReady() && it.isAttachedToWindow && it.isFocused }
@@ -294,23 +294,56 @@ private fun View.showImeForFocusedViewWhenReady(
         listener = null
     }
 
-    fun scheduleIfReady(): Boolean {
-        if (done) return true
-        val target = focusedImeTarget() ?: return false
-        done = true
-        removeListener()
-        target.post {
-            focusedImeTarget()?.let(showSoftInput)
-        }
-        return true
+    fun cancelRetry() {
+        retry?.let { removeCallbacks(it) }
+        retry = null
     }
 
-    if (scheduleIfReady()) return
+    fun finish() {
+        done = true
+        removeListener()
+        cancelRetry()
+    }
+
+    lateinit var scheduleAttempt: (Int) -> Unit
+
+    fun attempt(index: Int) {
+        if (done) return
+        val target = focusedImeTarget()
+        if (target == null) {
+            scheduleAttempt(index + 1)
+            return
+        }
+        target.post {
+            if (done) return@post
+            val current = focusedImeTarget()
+            if (current == null) {
+                scheduleAttempt(index + 1)
+                return@post
+            }
+            if (showSoftInput(current)) finish() else scheduleAttempt(index + 1)
+        }
+    }
+
+    scheduleAttempt = attemptScheduler@{ index ->
+        if (done || retry != null) return@attemptScheduler
+        if (index >= retryDelaysMs.size) {
+            removeListener()
+            return@attemptScheduler
+        }
+        val r = Runnable {
+            retry = null
+            attempt(index)
+        }
+        retry = r
+        val delayMs = retryDelaysMs[index]
+        if (delayMs <= 0L) post(r) else postDelayed(r, delayMs)
+    }
 
     val observer = viewTreeObserver
     if (!observer.isAlive) return
 
-    listener = ViewTreeObserver.OnGlobalFocusChangeListener { _, _ -> scheduleIfReady() }
+    listener = ViewTreeObserver.OnGlobalFocusChangeListener { _, _ -> scheduleAttempt(0) }
     observer.addOnGlobalFocusChangeListener(listener)
-    post { scheduleIfReady() }
+    scheduleAttempt(0)
 }

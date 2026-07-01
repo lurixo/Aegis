@@ -55,6 +55,7 @@ class SettingsImeRequestTest {
             showSoftInput = {
                 calls.add("show")
                 shownFor = it
+                true
             },
             isReady = { true },
         )
@@ -89,6 +90,7 @@ class SettingsImeRequestTest {
             showSoftInput = {
                 calls.add("show")
                 shownFor = it
+                true
             },
             isReady = { true },
         )
@@ -122,6 +124,7 @@ class SettingsImeRequestTest {
                 showSoftInput = {
                     calls.add("show")
                     shownFor.add(it)
+                    true
                 },
                 isReady = { true },
             )
@@ -130,5 +133,34 @@ class SettingsImeRequestTest {
 
         assertEquals(listOf("focus", "show", "focus", "show"), calls)
         assertEquals(listOf(target, target), shownFor)
+    }
+
+    @Test fun ime_request_retries_when_startup_show_request_is_not_accepted_yet() {
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup()
+        val activity = controller.get()
+        val host = FrameLayout(activity)
+        val target = View(activity).apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
+        }
+        host.addView(target)
+        activity.setContentView(host)
+
+        val shownFor = ArrayList<View>()
+        host.requestImeWhenReady(
+            context = activity,
+            focusTarget = {
+                target.requestFocus()
+            },
+            showSoftInput = {
+                shownFor.add(it)
+                shownFor.size >= 3
+            },
+            isReady = { true },
+            retryDelaysMs = longArrayOf(0L, 0L, 0L, 0L),
+        )
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(listOf(target, target, target), shownFor)
     }
 }
