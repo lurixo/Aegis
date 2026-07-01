@@ -92,9 +92,15 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
         setBackgroundColor(p.keyboardBg)
         readingColumn.setBackgroundColor(p.keyboardBg)
         rightColumn.setBackgroundColor(p.keyboardBg)
-        for (i in 0 until rightColumn.childCount) (rightColumn.getChildAt(i) as? TextView)?.setTextColor(p.keyLabelSecondary)
+        for (i in 0 until rightColumn.childCount) (rightColumn.getChildAt(i) as? TextView)?.let {
+            it.setTextColor(p.keyLabelSecondary)
+            Motion.applyTapFeedback(it, p.keyLabelSecondary)
+        }
         backspaceGlyph.tint(p.keyLabelSecondary)
-        for (i in 0 until readingColumn.childCount) (readingColumn.getChildAt(i) as? TextView)?.setTextColor(p.preeditText)
+        for (i in 0 until readingColumn.childCount) (readingColumn.getChildAt(i) as? TextView)?.let {
+            it.setTextColor(p.preeditText)
+            Motion.applyTapFeedback(it, p.preeditText)
+        }
         renderedCandidates = null
         renderedReadings = null
     }
@@ -110,6 +116,7 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         setTextColor(palette.keyLabelSecondary)
         isClickable = true
+        Motion.applyTapFeedback(this, palette.keyLabelSecondary)
         setOnClickListener { onClick() }
     }
 
@@ -157,6 +164,7 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
                     setTextColor(if (on) palette.candidateFirst else palette.preeditText)
                     setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
                     isClickable = true
+                    Motion.applyTapFeedback(this, if (on) palette.candidateFirst else palette.preeditText)
                     setOnClickListener { onPickReading(i) }
                 },
                 LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT),
@@ -194,6 +202,7 @@ class CandidateGridView(context: Context) : LinearLayout(context) {
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
         setTextColor(palette.candidateText)
         isClickable = true
+        Motion.applyTapFeedback(this, palette.candidateText)
         setOnClickListener { onPick(index) }
     }
 

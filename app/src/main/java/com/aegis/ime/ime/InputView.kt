@@ -72,7 +72,14 @@ class InputView(context: Context) : LinearLayout(context) {
 
     fun palette(): ImePalette = palette
 
-    fun showEditBar(active: Boolean) { editBarView.visibility = if (active) VISIBLE else GONE }
+    fun showEditBar(active: Boolean) {
+        if (active) {
+            Motion.revealIn(editBarView, Motion.EnterFrom.TOP, distanceDp = 6f, duration = Motion.STATE_CHANGE)
+        } else {
+            editBarView.visibility = GONE
+            Motion.reset(editBarView)
+        }
+    }
     fun isEditBarShowing(): Boolean = editBarView.visibility == VISIBLE
     fun setEditTitle(t: String) { editBarView.setTitle(t) }
     fun setEditText(t: String) { editBarView.setText(t) }
@@ -137,6 +144,9 @@ class InputView(context: Context) : LinearLayout(context) {
         super.onDetachedFromWindow()
         Motion.reset(keyboardView)
         Motion.reset(preeditView)
+        Motion.reset(candidateView)
+        Motion.reset(copyBarView)
+        Motion.reset(editBarView)
         currentPanel?.let { Motion.reset(it) }
     }
 
@@ -148,13 +158,11 @@ class InputView(context: Context) : LinearLayout(context) {
 
     fun showCopyBar(text: String) {
         copyBarView.show(text)
-        copyBarView.visibility = VISIBLE
-        candidateView.visibility = GONE
+        Motion.swapIn(copyBarView, candidateView)
     }
 
     fun hideCopyBar() {
-        copyBarView.visibility = GONE
-        candidateView.visibility = VISIBLE
+        Motion.swapIn(candidateView, copyBarView)
     }
 
     val copyBarShown: Boolean get() = copyBarView.visibility == VISIBLE
@@ -206,7 +214,7 @@ class InputView(context: Context) : LinearLayout(context) {
             )
             panelContainer.visibility = VISIBLE
             keyboardView.visibility = GONE
-            Motion.fadeIn(panel)
+            Motion.revealIn(panel, Motion.EnterFrom.BOTTOM)
         }
     }
 

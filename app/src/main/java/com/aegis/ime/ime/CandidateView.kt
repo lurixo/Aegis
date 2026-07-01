@@ -49,6 +49,11 @@ class CandidateView(context: Context) : View(context) {
     private val funcRects = ArrayList<RectF>().also { l -> repeat(functions.size) { l.add(RectF()) } }
     private val collapseRect = RectF()
     private var showingFunctions = false
+    private enum class PressKind { CANDIDATE, FUNCTION, EXPAND, COLLAPSE }
+    private data class PressTarget(val kind: PressKind, val index: Int = -1)
+    private var pressedTarget: PressTarget? = null
+    private var visualPressedTarget: PressTarget? = null
+    private val pressFeedback = Motion.PressFeedback(this)
 
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private var downX = 0f
@@ -92,6 +97,8 @@ class CandidateView(context: Context) : View(context) {
     }
     private val capsulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySurface }
     private val sepPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.separator }
+    private val pressPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val tmpRect = RectF()
 
     fun applyPalette(p: ImePalette) {
         palette = p
@@ -160,6 +167,7 @@ class CandidateView(context: Context) : View(context) {
             val r = hitRects[i]
             r.bottom = height.toFloat()
             val left = r.left - scrollX
+            drawPressLayer(canvas, PressTarget(PressKind.CANDIDATE, i), left, 4f * density, left + r.width(), height - 4f * density)
             canvas.drawText(items[i], left + padding, baseline, if (i == 0) firstPaint else textPaint)
             if (i != hitCount - 1) {
                 canvas.drawRect(r.right - scrollX, height * 0.25f, r.right - scrollX + density, height * 0.75f, sepPaint)
@@ -168,6 +176,7 @@ class CandidateView(context: Context) : View(context) {
         canvas.restore()
 
         canvas.drawRect(visibleW, height * 0.25f, visibleW + density, height * 0.75f, sepPaint)
+        drawPressLayer(canvas, PressTarget(PressKind.EXPAND), visibleW, 4f * density, width.toFloat(), height - 4f * density)
         val chCx = visibleW + expandW / 2f; val chCy = height / 2f; val chS = 9f * density
         if (expanded) drawChevronUp(canvas, chCx, chCy, chS) else drawChevronDown(canvas, chCx, chCy, chS)
     }
@@ -193,12 +202,23 @@ class CandidateView(context: Context) : View(context) {
         for ((i, f) in functions.withIndex()) {
             val cx = areaL + slot * (i + 0.5f)
             funcRects[i].set(areaL + slot * i, capT, areaL + slot * (i + 1), capB)
+            drawPressLayer(canvas, PressTarget(PressKind.FUNCTION, i), funcRects[i].left, funcRects[i].top, funcRects[i].right, funcRects[i].bottom)
             drawIcon(canvas, f, cx, cy, s)
         }
         collapseRect.set(collapseL, capT, capR - edgePad, capB)
         val sepH = (capB - capT) * 0.25f
         canvas.drawRect(collapseL, cy - sepH, collapseL + density, cy + sepH, sepPaint)
+        drawPressLayer(canvas, PressTarget(PressKind.COLLAPSE), collapseRect.left, collapseRect.top, collapseRect.right, collapseRect.bottom)
         drawChevronDown(canvas, collapseL + collapseW / 2f, cy, s)
+    }
+
+    private fun drawPressLayer(canvas: Canvas, target: PressTarget, left: Float, top: Float, right: Float, bottom: Float) {
+        val level = if (target == visualPressedTarget) pressFeedback.level else 0f
+        if (level <= 0f || right <= left || bottom <= top) return
+        pressPaint.color = Motion.stateLayerColor(palette.keyLabel, level, 0x22)
+        tmpRect.set(left, top, right, bottom)
+        val r = ImeShapes.keyRadiusDp * density
+        canvas.drawRoundRect(tmpRect, r, r, pressPaint)
     }
 
     private fun drawIcon(c: Canvas, f: BarFunction, cx: Float, cy: Float, s: Float) {
@@ -231,6 +251,7 @@ class CandidateView(context: Context) : View(context) {
                 downScroll = scrollX
                 dragging = false
                 fling.onDown()
+                setPressedTarget(targetAt(event.x, event.y))
             }
             MotionEvent.ACTION_MOVE -> {
                 if (!showingFunctions && items.isNotEmpty()) {
@@ -238,12 +259,16 @@ class CandidateView(context: Context) : View(context) {
                     val dx = event.x - downX
                     if (!dragging && abs(dx) > touchSlop) dragging = true
                     if (dragging) {
+                        releasePressedTarget()
                         scrollX = (downScroll - dx).coerceIn(0f, maxScroll())
                         invalidate()
                     }
+                } else if (!dragging) {
+                    setPressedTarget(targetAt(event.x, event.y))
                 }
             }
             MotionEvent.ACTION_UP -> {
+                releasePressedTarget()
                 if (dragging) { dragging = false; if (fling.fling(scrollX, maxScroll())) postInvalidateOnAnimation(); return true }
                 if (fling.stopArmed) return true
                 if (showingFunctions) {
@@ -261,8 +286,46 @@ class CandidateView(context: Context) : View(context) {
                     if (cx >= r.left && cx < r.right) { performClick(); onPick(i); break }
                 }
             }
+            MotionEvent.ACTION_CANCEL -> releasePressedTarget()
         }
         return true
+    }
+
+    private fun isFunctionMode(): Boolean = items.isEmpty() && composing.isEmpty()
+
+    private fun targetAt(x: Float, y: Float): PressTarget? {
+        if (isFunctionMode()) {
+            if (collapseRect.contains(x, y)) return PressTarget(PressKind.COLLAPSE)
+            val idx = funcRects.indexOfFirst { it.contains(x, y) }
+            return if (idx >= 0) PressTarget(PressKind.FUNCTION, idx) else null
+        }
+        if (items.isNotEmpty()) {
+            if (x >= width - expandW) return PressTarget(PressKind.EXPAND)
+            val cx = x + scrollX
+            for (i in 0 until hitCount) {
+                val r = hitRects[i]
+                if (cx >= r.left && cx < r.right && y >= 0f && y <= height) return PressTarget(PressKind.CANDIDATE, i)
+            }
+        }
+        return null
+    }
+
+    private fun setPressedTarget(target: PressTarget?) {
+        if (pressedTarget == target) return
+        pressedTarget = target
+        if (target == null) {
+            pressFeedback.release()
+        } else {
+            visualPressedTarget = target
+            pressFeedback.press()
+        }
+        invalidate()
+    }
+
+    private fun releasePressedTarget() {
+        pressedTarget = null
+        pressFeedback.release()
+        invalidate()
     }
 
     override fun performClick(): Boolean {

@@ -323,11 +323,13 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setTextColor(TEXT_DARK)
             setPadding(dp(14), dp(12), dp(8), dp(12))
+            Motion.applyTapFeedback(this, TEXT_DARK)
             setOnClickListener { if (swipeRevealed == text) hideSwipe() else onPick(text) }
             if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
         }
         val chevron = glyphView(TEXT_DARK, 7) { c, p, x, y, s -> Glyphs.drawChevron(c, p, x, y, s, down = !expanded) }.apply {
             contentDescription = if (expanded) "收起" else "展开"
+            Motion.applyTapFeedback(this, TEXT_DARK)
             setOnClickListener { swipeRevealed = null; st.toggleExpand(text); refresh() }
             if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
         }
@@ -335,12 +337,17 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         header.addView(chevron, ll(dp(40), MP))
         col.addView(header, ll(MP, WC))
         when {
-            expanded -> col.addView(if (phrase) phraseActionRow(text) else actionRow(text))
-            revealed -> { col.addView(if (phrase) phraseSwipeRow(text, index) else actionRow(text)); attachSwipeReveal(body, text) }
+            expanded -> addRevealedRow(col, if (phrase) phraseActionRow(text) else actionRow(text))
+            revealed -> { addRevealedRow(col, if (phrase) phraseSwipeRow(text, index) else actionRow(text)); attachSwipeReveal(body, text) }
             phrase -> attachDragHandle(body, col, index, text)
             else -> attachSwipeReveal(body, text)
         }
         return col
+    }
+
+    private fun addRevealedRow(parent: LinearLayout, row: View) {
+        parent.addView(row)
+        row.post { Motion.revealIn(row, Motion.EnterFrom.TOP, distanceDp = 6f, duration = Motion.STATE_CHANGE) }
     }
 
     private fun actionRow(text: String): View = LinearLayout(context).apply {
@@ -682,6 +689,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             addView(TextView(context).apply {
                 text = "完成"; gravity = Gravity.END
                 setTextColor(GREEN); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+                Motion.applyTapFeedback(this, GREEN)
                 setOnClickListener { exitSortMode() }
             }, ll(0, WC, 1f))
         }
@@ -738,6 +746,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             addView(TextView(context).apply {
                 text = "完成"; gravity = Gravity.END
                 setTextColor(GREEN); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+                Motion.applyTapFeedback(this, GREEN)
                 setOnClickListener { exitCategorySortMode() }
             }, ll(0, WC, 1f))
         }
@@ -796,6 +805,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setTextColor(TEXT_DARK)
             contentDescription = "管理常用语"
+            Motion.applyTapFeedback(this, TEXT_DARK)
             setOnClickListener { showPhraseManageMenu() }
         }, ll(dp(48), dp(40)))
     }
@@ -855,6 +865,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         background = null
         setTextColor(if (on) GREEN else TEXT_DARK)
         setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+        Motion.applyTapFeedback(this, if (on) GREEN else TEXT_DARK)
         setOnClickListener { swipeRevealed = null; phraseCat = name; refresh() }
         setOnLongClickListener { showCategoryMenu(name); true }
         layoutParams = ll(WC, WC).apply { rightMargin = dp(8) }
@@ -885,6 +896,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 setCompoundDrawablesWithIntrinsicBounds(glyphIcon(if (allSel) GREEN else TEXT_DARK, 22) { c, p, x, y, s -> Glyphs.drawRadio(c, p, x, y, s, allSel) }, null, null, null)
                 compoundDrawablePadding = dp(6)
+                Motion.applyTapFeedback(this, if (allSel) GREEN else TEXT_DARK)
                 setOnClickListener { st.selectAll(all); refresh() }
             }, ll(0, WC, 1f))
             addView(TextView(context).apply {
@@ -896,6 +908,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             addView(TextView(context).apply {
                 text = "取消"; gravity = Gravity.END
                 setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+                Motion.applyTapFeedback(this, TEXT_DARK)
                 setOnClickListener { exitSelect() }
             }, ll(0, WC, 1f))
         }
@@ -934,6 +947,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         background = rounded(CARD, ImeShapes.cardRadiusDp)
         layoutParams = ll(MP, WC).apply { topMargin = dp(8) }
         val on = text in st.selected
+        Motion.applyTapFeedback(this, if (on) GREEN else TEXT_DARK)
         addView(glyphView(if (on) GREEN else TEXT_DARK, 8) { c, p, x, y, s -> Glyphs.drawRadio(c, p, x, y, s, on) }, ll(dp(40), MP))
         addView(TextView(context).apply {
             this.text = if (st.tab == Tab.PHRASE) phraseDisplayText(text) else text
@@ -957,6 +971,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val lp = FrameLayout.LayoutParams(requestedWidth, WC, gravity).apply { leftMargin = margin; rightMargin = margin; topMargin = margin; bottomMargin = margin }
         overlay.addView(scroll, lp)
         overlay.visibility = VISIBLE
+        Motion.revealIn(scroll, Motion.EnterFrom.BOTTOM, distanceDp = 10f, duration = Motion.REVEAL)
         scroll.post {
             val maxH = (overlay.height * 0.82f).toInt()
             if (maxH in 1 until scroll.height) { lp.height = maxH; scroll.layoutParams = lp }
@@ -987,6 +1002,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             addView(
                 glyphView(RED, 9) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }.apply {
                     contentDescription = "删除分类"
+                    Motion.applyTapFeedback(this, RED)
                     setOnClickListener {
                         onDeleteCategory(name); if (phraseCat == name) phraseCat = ""; swipeRevealed = null
                         refresh()
@@ -1052,20 +1068,23 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 splitSelected.add(b)
                 chip.setTextColor(SPLIT_BLOCK_COPIED_TEXT)
                 chip.background = rounded(SPLIT_BLOCK_COPIED_BG, ImeShapes.chipRadiusDp)
+                Motion.applyTapFeedback(chip, SPLIT_BLOCK_COPIED_TEXT)
                 onCopyBlockToAegis(b)
             }
+            Motion.applyTapFeedback(chip, SPLIT_BLOCK_TEXT)
             chipViews.add(chip); chips.addView(chip)
         }
         panel.addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, ll(MP, WC))
         val footer = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         footer.addView(TextView(context).apply {
             this.text = "返回"; setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
-            setPadding(dp(8), dp(14), dp(16), dp(10)); setOnClickListener { hideOverlay() }
+            setPadding(dp(8), dp(14), dp(16), dp(10)); Motion.applyTapFeedback(this, TEXT_DARK); setOnClickListener { hideOverlay() }
         }, ll(WC, WC))
         footer.addView(View(context), ll(0, dp(1), 1f))
         if (blocks.isNotEmpty()) footer.addView(TextView(context).apply {
             this.text = "全部复制"; gravity = Gravity.END; setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setPadding(dp(16), dp(14), dp(8), dp(10))
+            Motion.applyTapFeedback(this, TEXT_DARK)
             setOnClickListener {
                 splitSelected.addAll(blocks)
                 for (c in chipViews) {
@@ -1108,6 +1127,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         background = null
         setTextColor(if (on) GREEN else TEXT_DARK)
         setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+        Motion.applyTapFeedback(this, if (on) GREEN else TEXT_DARK)
         setOnClickListener { onClick() }
     }
 
@@ -1144,6 +1164,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         text = label; gravity = Gravity.CENTER_VERTICAL or Gravity.START
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(TEXT_DARK)
         setPadding(dp(24), dp(16), dp(24), dp(16))
+        Motion.applyTapFeedback(this, TEXT_DARK)
         setOnClickListener { onClick() }
     }
 
@@ -1159,7 +1180,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             background = rounded(if (enabled) SPLIT_BLOCK_BG else GREY_PILL, ImeShapes.chipRadiusDp)
             setTextColor(if (enabled) SPLIT_BLOCK_TEXT else HINT)
             isClickable = enabled
-            if (enabled) setOnClickListener { onClick() }
+            if (enabled) {
+                Motion.applyTapFeedback(this, SPLIT_BLOCK_TEXT)
+                setOnClickListener { onClick() }
+            }
         }
 
     private fun glyphPaint(tint: Int) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -1189,6 +1213,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun glyphToolbarBtn(desc: String, tint: Int = TEXT_DARK, glyphSizeDp: Int = 9, onClick: () -> Unit, render: (Canvas, Paint, Float, Float, Float) -> Unit): View =
         glyphView(tint, glyphSizeDp, render).apply {
             contentDescription = desc
+            Motion.applyTapFeedback(this, tint)
             setOnClickListener { onClick() }
         }
 
@@ -1199,6 +1224,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setPadding(dp(4), dp(6), dp(4), dp(6))
             setCompoundDrawablesWithIntrinsicBounds(glyphIcon(tint, 18, render), null, null, null)
             compoundDrawablePadding = dp(2)
+            Motion.applyTapFeedback(this, tint)
             setOnClickListener { onClick() }
         }
 
