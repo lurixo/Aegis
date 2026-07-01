@@ -70,14 +70,36 @@ class PinyinDecoder(
 
     private class Edge(val word: String, val freq: Int, val penalty: Double)
 
-    /** Lattice edges for a substring, by descending preference: exact, then fuzzy, then 简拼 initials. */
+    private fun inputAliases(key: String): List<String> = INPUT_ALIASES[key].orEmpty()
+
+    private fun addExactEdges(
+        key: String,
+        penalty: Double,
+        out: MutableList<Edge>,
+        seen: MutableSet<String>,
+    ): Boolean {
+        for (wf in dict.exact(key)) {
+            if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, penalty))
+            if (out.size >= edgeN) return true
+        }
+        return false
+    }
+
+    private fun inputAliasWordFreqs(input: String): List<BinaryDict.WordFreq> {
+        val out = ArrayList<BinaryDict.WordFreq>()
+        val seen = HashSet<String>()
+        for (alias in inputAliases(input)) {
+            for (wf in dict.exact(alias)) if (seen.add(wf.word)) out.add(wf)
+        }
+        return out
+    }
+
+    /** Lattice edges for a substring, by descending preference: exact, aliases, fuzzy, then jianpin initials. */
     private fun edgesFor(sub: String): List<Edge> {
         val out = ArrayList<Edge>(edgeN)
         val seen = HashSet<String>()
-        for (wf in dict.exact(sub)) {
-            if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, 0.0))
-            if (out.size >= edgeN) return out
-        }
+        if (addExactEdges(sub, 0.0, out, seen)) return out
+        for (alias in inputAliases(sub)) if (addExactEdges(alias, ALIAS_PENALTY, out, seen)) return out
         if (fuzzyRules.isNotEmpty()) {
             // Per-rule fuzzy: enumerate the confusion class of `sub` and match each against the exact
             // dict (no monolithic fuzzy index, so individual rules can be turned off — E4).
@@ -115,6 +137,11 @@ class PinyinDecoder(
     /** Whole-input dict words (exact key = input) ordered by [wordModelScore] — model, not raw freq. */
     private fun rerankedWholeInput(input: String, ctxCp: Int, ctxWord: String): List<String> =
         dict.exact(input).sortedByDescending { wordModelScore(it.word, it.freq, ctxCp, ctxWord) }.map { it.word }
+
+    private fun rerankedInputAliases(input: String, ctxCp: Int, ctxWord: String): List<String> =
+        inputAliasWordFreqs(input)
+            .sortedByDescending { wordModelScore(it.word, it.freq, ctxCp, ctxWord) - ALIAS_PENALTY }
+            .map { it.word }
 
     /**
      * Parse the editor text before the cursor into (last Han code point, trailing Han run) for
@@ -204,6 +231,7 @@ class PinyinDecoder(
         val out = LinkedHashSet<String>()
         bestSentence(clean, cuts, ctxCp = ctxCp, ctxWord = ctxWord)?.let { out.add(it) }
         out.addAll(rerankedWholeInput(clean, ctxCp, ctxWord)) // ★top-N rerank, context-conditioned
+        out.addAll(rerankedInputAliases(clean, ctxCp, ctxWord))
         out.addAll(dict.query(clean, limit))
         if (out.size < limit && fuzzyRules.isNotEmpty()) {
             for (variant in Fuzzy.variants(clean, fuzzyRules)) {
@@ -253,6 +281,7 @@ class PinyinDecoder(
         }
         bestSentence(input, emptySet(), ctxCp, ctxWord)?.let { cover[it] = input.length }
         addCompletions(rerankedWholeInput(input, ctxCp, ctxWord)) // ★top-N rerank, context-conditioned
+        addCompletions(rerankedInputAliases(input, ctxCp, ctxWord))
         addCompletions(dict.query(input, completionCap))
         if (fuzzyRules.isNotEmpty()) {
             for (variant in Fuzzy.variants(input, fuzzyRules)) {
@@ -439,7 +468,9 @@ class PinyinDecoder(
     /** Every single-char entry for an exact syllable key, frequency-ordered, uncapped. */
     private fun homophonesOf(key: String): List<String> {
         val out = ArrayList<String>()
-        for (wf in dict.exact(key)) if (isSingleChar(wf.word)) out.add(wf.word) // FIX-1: incl. U+20000+ singles
+        val seen = HashSet<String>()
+        for (wf in dict.exact(key)) if (isSingleChar(wf.word) && seen.add(wf.word)) out.add(wf.word) // FIX-1: incl. U+20000+ singles
+        for (wf in inputAliasWordFreqs(key)) if (isSingleChar(wf.word) && seen.add(wf.word)) out.add(wf.word)
         return out
     }
 
@@ -540,6 +571,7 @@ class PinyinDecoder(
         const val EDGE_N = 20         // candidate words considered per lattice edge when an LM is present (C3)
         const val DEFAULT_LAMBDA = 1.0
         const val FUZZY_PENALTY = 3.0     // log-domain cost so exact matches outrank fuzzy ones
+        const val ALIAS_PENALTY = 3.5
         const val INITIALS_PENALTY = 5.0  // 简拼 is the most ambiguous → lowest preference
         const val DEFAULT_OCTAGRAM_WEIGHT = 0.3 // scales the large positive octagram log-weights
         const val PREFIX_PER_LEN = 16 // max multi-char short words pulled per prefix length (★G; singles are lossless, separate) (C3)
@@ -549,5 +581,6 @@ class PinyinDecoder(
         const val CTX_WORD_MAX = 4    // trailing Han chars of context used as the octagram prev-word proxy
         const val DEFAULT_CONTEXT_WEIGHT = 2.0 // ③ weight of the committed-context boundary bigram (vs λ for
         // internal word boundaries); context is reliable preceding text, so it outvotes raw frequency more
+        val INPUT_ALIASES = mapOf("en" to listOf("ng"))
     }
 }

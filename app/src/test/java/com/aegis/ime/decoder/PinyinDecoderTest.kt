@@ -17,6 +17,7 @@ package com.aegis.ime.decoder
 
 import com.aegis.ime.dict.BinaryDict
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
@@ -40,5 +41,36 @@ class PinyinDecoderTest {
         assertEquals("我是中国人", top("woshizhongguoren"))
         assertEquals("北京大学", top("beijingdaxue"))
         assertEquals("输入法", top("shurufa"))
+    }
+
+    @Test
+    fun enCompatibilityAliasSurfacesNasalInterjection() {
+        val d = decoder()
+
+        assertTrue("en should offer 嗯 through the ng compatibility alias", "嗯" in d.decode("en", 30))
+        assertTrue(
+            "covered en candidates should include 嗯 covering the whole input",
+            d.decodeCovered("en", 30).any { it.word == "嗯" && it.coveredLen == 2 },
+        )
+        assertEquals(listOf("en"), d.syllables("en").map { it.reading })
+        assertTrue("en homophone drill should include the compatibility alias 嗯", "嗯" in d.homophonesAt("en", 0))
+    }
+
+    @Test
+    fun syllabicNasalReadingsStayCompleteSyllables() {
+        val d = decoder()
+
+        assertEquals(listOf("ng"), d.syllables("ng").map { it.reading })
+        assertTrue(
+            "ng should offer 嗯 and cover the complete reading",
+            d.decodeCovered("ng", 30).any { it.word == "嗯" && it.coveredLen == 2 },
+        )
+        assertTrue("ng homophones should include 嗯", "嗯" in d.homophonesAt("ng", 0))
+
+        assertEquals(listOf("n"), d.syllables("n").map { it.reading })
+        assertTrue(
+            "n should remain a source-backed syllabic nasal reading for 嗯",
+            d.decodeCovered("n", 30).any { it.word == "嗯" && it.coveredLen == 1 },
+        )
     }
 }
