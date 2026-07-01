@@ -46,13 +46,35 @@ class PinyinDecoder(
 
     private class Edge(val word: String, val freq: Int, val penalty: Double)
 
+    private fun inputAliases(key: String): List<String> = INPUT_ALIASES[key].orEmpty()
+
+    private fun addExactEdges(
+        key: String,
+        penalty: Double,
+        out: MutableList<Edge>,
+        seen: MutableSet<String>,
+    ): Boolean {
+        for (wf in dict.exact(key)) {
+            if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, penalty))
+            if (out.size >= edgeN) return true
+        }
+        return false
+    }
+
+    private fun inputAliasWordFreqs(input: String): List<BinaryDict.WordFreq> {
+        val out = ArrayList<BinaryDict.WordFreq>()
+        val seen = HashSet<String>()
+        for (alias in inputAliases(input)) {
+            for (wf in dict.exact(alias)) if (seen.add(wf.word)) out.add(wf)
+        }
+        return out
+    }
+
     private fun edgesFor(sub: String): List<Edge> {
         val out = ArrayList<Edge>(edgeN)
         val seen = HashSet<String>()
-        for (wf in dict.exact(sub)) {
-            if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, 0.0))
-            if (out.size >= edgeN) return out
-        }
+        if (addExactEdges(sub, 0.0, out, seen)) return out
+        for (alias in inputAliases(sub)) if (addExactEdges(alias, ALIAS_PENALTY, out, seen)) return out
         if (fuzzyRules.isNotEmpty()) {
             for (variant in Fuzzy.variants(sub, fuzzyRules)) {
                 if (variant == sub) continue
@@ -80,6 +102,11 @@ class PinyinDecoder(
 
     private fun rerankedWholeInput(input: String, ctxCp: Int, ctxWord: String): List<String> =
         dict.exact(input).sortedByDescending { wordModelScore(it.word, it.freq, ctxCp, ctxWord) }.map { it.word }
+
+    private fun rerankedInputAliases(input: String, ctxCp: Int, ctxWord: String): List<String> =
+        inputAliasWordFreqs(input)
+            .sortedByDescending { wordModelScore(it.word, it.freq, ctxCp, ctxWord) - ALIAS_PENALTY }
+            .map { it.word }
 
     private fun parseContext(context: CharSequence): Pair<Int, String> {
         val s = context.toString()
@@ -139,6 +166,7 @@ class PinyinDecoder(
         val out = LinkedHashSet<String>()
         bestSentence(clean, cuts, ctxCp = ctxCp, ctxWord = ctxWord)?.let { out.add(it) }
         out.addAll(rerankedWholeInput(clean, ctxCp, ctxWord))
+        out.addAll(rerankedInputAliases(clean, ctxCp, ctxWord))
         out.addAll(dict.query(clean, limit))
         if (out.size < limit && fuzzyRules.isNotEmpty()) {
             for (variant in Fuzzy.variants(clean, fuzzyRules)) {
@@ -172,6 +200,7 @@ class PinyinDecoder(
         }
         bestSentence(input, emptySet(), ctxCp, ctxWord)?.let { cover[it] = input.length }
         addCompletions(rerankedWholeInput(input, ctxCp, ctxWord))
+        addCompletions(rerankedInputAliases(input, ctxCp, ctxWord))
         addCompletions(dict.query(input, completionCap))
         if (fuzzyRules.isNotEmpty()) {
             for (variant in Fuzzy.variants(input, fuzzyRules)) {
@@ -303,7 +332,9 @@ class PinyinDecoder(
 
     private fun homophonesOf(key: String): List<String> {
         val out = ArrayList<String>()
-        for (wf in dict.exact(key)) if (isSingleChar(wf.word)) out.add(wf.word)
+        val seen = HashSet<String>()
+        for (wf in dict.exact(key)) if (isSingleChar(wf.word) && seen.add(wf.word)) out.add(wf.word)
+        for (wf in inputAliasWordFreqs(key)) if (isSingleChar(wf.word) && seen.add(wf.word)) out.add(wf.word)
         return out
     }
 
@@ -399,6 +430,7 @@ class PinyinDecoder(
         const val EDGE_N = 20
         const val DEFAULT_LAMBDA = 1.0
         const val FUZZY_PENALTY = 3.0
+        const val ALIAS_PENALTY = 3.5
         const val INITIALS_PENALTY = 5.0
         const val DEFAULT_OCTAGRAM_WEIGHT = 0.3
         const val PREFIX_PER_LEN = 16
@@ -407,5 +439,6 @@ class PinyinDecoder(
         const val ATOMIC_BEAM_N = 8
         const val CTX_WORD_MAX = 4
         const val DEFAULT_CONTEXT_WEIGHT = 2.0
+        val INPUT_ALIASES = mapOf("en" to listOf("ng"))
     }
 }

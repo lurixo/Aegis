@@ -65,10 +65,11 @@ object T9Pinyin {
         za ze zi zai zei zao zou zan zen zang zeng zong zu zuo zui zuan zun
         ca ce ci cai cao cou can cen cang ceng cong cu cuo cui cuan cun
         sa se si sai sao sou san sen sang seng song su suo sui suan sun
+        n ng m
     """.trim().split(Regex("\\s+")).toSet()
 
     private val freqRank: Map<String, Int> = listOf(
-        "de", "shi", "yi", "bu", "le", "zai", "wo", "ni", "ta", "men", "zhe", "ge", "shang",
+        "de", "shi", "yi", "bu", "le", "zai", "wo", "ni", "ng", "ta", "men", "zhe", "ge", "shang",
         "you", "he", "zhong", "da", "wei", "dao", "shuo", "guo", "jiu", "hai", "er", "na", "hao",
         "hen", "xia", "lai", "qu", "kan", "xiang", "hui", "neng", "dui", "jia", "xue", "gong",
         "fang", "dian", "yong", "fa", "xin", "zi", "ren", "sheng", "cheng", "ming", "mei", "hua",

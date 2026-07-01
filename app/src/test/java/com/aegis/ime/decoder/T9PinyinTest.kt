@@ -52,6 +52,14 @@ class T9PinyinTest {
         assertTrue("xian must be offered", T9Pinyin.firstSyllableOptions("9426", 4).contains("xian"))
     }
 
+    @Test fun syllabic_nasals_are_known_syllables() {
+        assertEquals(listOf("ng"), T9Pinyin.segmentLetters("ng"))
+        assertEquals(listOf("n"), T9Pinyin.segmentLetters("n"))
+        assertEquals(listOf("m"), T9Pinyin.segmentLetters("m"))
+        assertTrue("ng should be selectable from its T9 code", "ng" in T9Pinyin.firstSyllableOptions("64", 6))
+        assertEquals("ni", T9Pinyin.preedit("64"))
+    }
+
     @Test fun partial_buffer_still_shows_something() {
         val pre = T9Pinyin.preedit("6")
         assertTrue(pre.isNotEmpty())
