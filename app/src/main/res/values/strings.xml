@@ -94,7 +94,7 @@
 
     <string name="app_version_card_title">App release</string>
     <string name="app_version_card_description">Aegis app release label. This is separate from the learning dictionary, main dictionary, and model files.</string>
-    <string name="app_release_label_value" translatable="false">Aegis v0.1.0-debug.38</string>
+    <string name="app_release_label_format" translatable="false">Aegis v%1$s</string>
 
     <string name="phrase_transfer_toast_export_ok">Phrases exported</string>
     <string name="phrase_transfer_toast_export_failed">Export failed</string>
