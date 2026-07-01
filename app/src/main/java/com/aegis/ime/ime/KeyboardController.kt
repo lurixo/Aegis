@@ -146,7 +146,13 @@ class KeyboardController(
         }
     }
 
-    fun setAssociationsEnabled(on: Boolean) { associationsEnabled = on }
+    fun setAssociationsEnabled(on: Boolean) {
+        if (associationsEnabled == on) return
+        associationsEnabled = on
+        predictionCands = emptySet()
+        refreshCandidates()
+        render()
+    }
 
     fun setFuzzyRules(rules: Set<String>) {
         pushedFuzzyRules = rules

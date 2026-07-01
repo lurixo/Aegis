@@ -21,12 +21,13 @@ import android.animation.ValueAnimator
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
-import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.provider.Settings
 import android.view.View
 import android.view.animation.Interpolator
 import android.view.animation.PathInterpolator
+import com.aegis.ime.ime.theme.ImeShapes
 import kotlin.math.roundToInt
 
 object Motion {
@@ -59,11 +60,15 @@ object Motion {
     fun stateLayerColor(argb: Int, level: Float, maxAlpha: Int = 0x22): Int =
         withAlpha(argb, (maxAlpha * level.coerceIn(0f, 1f)).roundToInt())
 
-    fun applyTapFeedback(view: View, color: Int, alpha: Int = 0x24) {
+    fun applyTapFeedback(view: View, color: Int, alpha: Int = 0x24, radiusDp: Float = ImeShapes.keyRadiusDp) {
+        val mask = GradientDrawable().apply {
+            setColor(Color.WHITE)
+            cornerRadius = radiusDp * view.resources.displayMetrics.density
+        }
         view.foreground = RippleDrawable(
             ColorStateList.valueOf(withAlpha(color, alpha)),
-            ColorDrawable(Color.TRANSPARENT),
             null,
+            mask,
         )
     }
 

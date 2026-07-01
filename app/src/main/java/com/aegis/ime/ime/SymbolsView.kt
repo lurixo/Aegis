@@ -136,9 +136,9 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
             val tab = rail.getChildAt(i) as TextView
             val on = i == index
             tab.setTextColor(if (on) palette.candidateFirst else palette.keyLabelSecondary)
-            tab.setBackgroundColor(if (on) palette.keySurface else 0x00000000)
+            tab.background = railTabBackground(on)
             tab.setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
-            Motion.applyTapFeedback(tab, if (on) palette.candidateFirst else palette.keyLabelSecondary)
+            Motion.applyTapFeedback(tab, if (on) palette.candidateFirst else palette.keyLabelSecondary, radiusDp = ImeShapes.chipRadiusDp)
         }
         grid.removeAllViews()
         netBar.removeAllViews()
@@ -214,10 +214,17 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
         setPadding(0, dp(13), 0, dp(13))
+        background = railTabBackground(index == selected)
         isClickable = true
-        Motion.applyTapFeedback(this, if (index == selected) palette.candidateFirst else palette.keyLabelSecondary)
+        Motion.applyTapFeedback(this, if (index == selected) palette.candidateFirst else palette.keyLabelSecondary, radiusDp = ImeShapes.chipRadiusDp)
         setOnClickListener { showCategory(index) }
     }
+
+    private fun railTabBackground(on: Boolean): GradientDrawable? =
+        if (!on) null else GradientDrawable().apply {
+            setColor(palette.keySurface)
+            cornerRadius = ImeShapes.chipRadiusDp * density
+        }
 
     private fun cell(symbol: String, badge: String?): View {
         val tile = FrameLayout(context).apply {
@@ -285,6 +292,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun backspaceBtnForTest(): TextView = backspaceBtn
     internal fun lockBtnForTest(): TextView = lockBtn
     internal fun lockSlotForTest(): View = lockSlot
+    internal fun railTabForTest(index: Int): TextView = rail.getChildAt(index) as TextView
 
     internal fun netBarVisibleForTest(): Boolean = showingUrlCompletions
     internal fun chipBarVisibleForTest(): Boolean = netBar.visibility == View.VISIBLE
