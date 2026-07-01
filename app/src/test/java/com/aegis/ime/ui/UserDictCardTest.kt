@@ -15,35 +15,22 @@
 
 package com.aegis.ime.ui
 
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import org.robolectric.RobolectricTestRunner
 import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class UserDictCardTest {
 
-    private val ctx = RuntimeEnvironment.getApplication()
-
-    @Test fun app_release_label_uses_dedicated_full_release_label() {
-        val version = ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName
-        assertTrue("runtime package version is available", !version.isNullOrBlank())
-        assertEquals("Aegis v0.1.0-debug.38", appReleaseLabel(ctx))
-        assertNotEquals("the release label must not be the bare package version", version, appReleaseLabel(ctx))
-        assertTrue("release label makes the product explicit", appReleaseLabel(ctx).startsWith("Aegis v"))
-    }
-
     @Test fun learning_dictionary_card_no_longer_owns_the_app_version_label() {
         val source = File("src/main/java/com/aegis/ime/ui/UserDictCard.kt").readText()
         assertFalse("learning dictionary card must not read package versionName", source.contains("getPackageInfo"))
+        assertFalse("learning dictionary card must not own the app version card", source.contains("AppVersionCard"))
+        assertFalse("learning dictionary card must not own the app release label", source.contains("appReleaseLabel"))
         assertFalse("old footer helper must be gone", source.contains("currentAppVersionLabel"))
-        assertTrue("app release is rendered by its own card", source.contains("internal fun AppVersionCard()"))
     }
 }
