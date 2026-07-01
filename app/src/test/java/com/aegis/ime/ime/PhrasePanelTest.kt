@@ -81,6 +81,7 @@ class PhrasePanelTest {
         )
         v.layout(0, 0, v.measuredWidth, v.measuredHeight)
     }
+    private fun maxAutoScrollStepPx(): Int = (8 * ctx.resources.displayMetrics.density).toInt().coerceAtLeast(1)
 
     private fun phraseView(): ClipboardView = phraseView(listOf("你好", "在吗", "稍等"))
     private fun phraseView(phrases: List<String>): ClipboardView = ClipboardView(ctx).apply {
@@ -212,7 +213,7 @@ class PhrasePanelTest {
         assertTrue("bottom edge starts the auto-scroll loop", v.isDragAutoScrollScheduledForTest())
         assertTrue("drag remains captured at the bottom edge", v.isDraggingForTest())
         val scrollBeforeDown = v.listScrollYForTest()
-        repeat(12) { v.runDragAutoScrollFrameForTest() }
+        repeat(24) { v.runDragAutoScrollFrameForTest() }
         val indexAfterScroll = v.listRowTextsForTest().indexOf("P00")
         assertTrue("the list scrolls down while the drag stays active", v.listScrollYForTest() > scrollBeforeDown)
         assertTrue(
@@ -225,7 +226,7 @@ class PhrasePanelTest {
         v.dragUpdateForTest(top + 2f)
         assertTrue("top edge keeps the auto-scroll loop active", v.isDragAutoScrollScheduledForTest())
         val scrollBeforeUp = v.listScrollYForTest()
-        repeat(8) { v.runDragAutoScrollFrameForTest() }
+        repeat(12) { v.runDragAutoScrollFrameForTest() }
         assertTrue("the list scrolls back up while the same drag is active", v.listScrollYForTest() < scrollBeforeUp)
 
         v.dragUpdateForTest((top + bottom) / 2f)
@@ -235,6 +236,33 @@ class PhrasePanelTest {
         v.dragDropForTest()
         assertFalse(v.isDraggingForTest())
         assertEquals(listOf(Triple("默认", 0, finalIndex)), drops)
+    }
+
+    @Test fun drag_auto_scroll_step_is_capped_for_control() {
+        val phrases = (0 until 40).map { "P" + it.toString().padStart(2, '0') }
+        val v = phraseView(phrases).apply { enterSortModeForTest() }
+        layout(v)
+        val top = v.listScrollRawTopForTest().toFloat()
+        val bottom = v.listScrollRawBottomForTest().toFloat()
+        v.dragStartAtForTest(0, top + 24f)
+        v.dragUpdateForTest(bottom + 1000f)
+
+        val before = v.listScrollYForTest()
+        assertTrue(v.runDragAutoScrollFrameForTest())
+        val step = v.listScrollYForTest() - before
+        assertTrue("edge auto-scroll should stay slow and controllable", step in 1..maxAutoScrollStepPx())
+        v.dragCancelForTest()
+    }
+
+    @Test fun action_cancel_cleans_phrase_drag_without_reorder_callback() {
+        var r: Triple<String, Int, Int>? = null
+        val v = phraseView().apply { onReorderPhrase = { c, f, t -> r = Triple(c, f, t) } }
+        v.dragStartAtForTest(0, 20f)
+        v.dragMoveAtForTest(2, 140f)
+        assertTrue(v.isDraggingForTest())
+        assertTrue(send(v, MotionEvent.ACTION_CANCEL, 140f))
+        assertFalse(v.isDraggingForTest())
+        assertNull("cancel is cleanup, not a persisted drop", r)
     }
 
     @Test fun drag_move_reorders_category_rows_live_before_drop() {
@@ -248,6 +276,53 @@ class PhrasePanelTest {
         assertNull("drop callback has not fired yet", r)
         v.dragDropForTest()
         assertEquals(0 to 2, r)
+    }
+
+    @Test fun active_category_drag_auto_scrolls_at_edges_and_drops_once() {
+        val cats = (0 until 30).map { "C" + it.toString().padStart(2, '0') }
+        val drops = ArrayList<Pair<Int, Int>>()
+        val v = ClipboardView(ctx).apply {
+            categoriesProvider = { cats }
+            phrasesInProvider = { emptyList() }
+            onReorderCategory = { f, t -> drops.add(f to t) }
+            applyPalette(pal)
+            forcePhrasesStateForTest(cats.first())
+            refresh()
+            enterCategorySortModeForTest()
+        }
+        layout(v)
+        val top = v.listScrollRawTopForTest().toFloat()
+        val bottom = v.listScrollRawBottomForTest().toFloat()
+        v.dragStartAtForTest(0, top + 24f)
+
+        v.dragUpdateForTest(bottom - 2f)
+        val indexAfterEdgeMove = v.listRowTextsForTest().indexOf("C00")
+        assertTrue("bottom edge starts category auto-scroll", v.isDragAutoScrollScheduledForTest())
+        val scrollBeforeDown = v.listScrollYForTest()
+        repeat(24) { v.runDragAutoScrollFrameForTest() }
+        val indexAfterScroll = v.listRowTextsForTest().indexOf("C00")
+        assertTrue("category list scrolls down while dragging", v.listScrollYForTest() > scrollBeforeDown)
+        assertTrue("category row order updates during edge scroll", indexAfterScroll > indexAfterEdgeMove)
+        assertTrue(v.isDraggingForTest())
+        assertTrue("drop callback waits for pointer up", drops.isEmpty())
+
+        v.dragUpdateForTest((top + bottom) / 2f)
+        val finalIndex = v.listRowTextsForTest().indexOf("C00")
+        v.dragDropForTest()
+        assertFalse(v.isDraggingForTest())
+        assertEquals(listOf(0 to finalIndex), drops)
+    }
+
+    @Test fun action_cancel_cleans_category_drag_without_reorder_callback() {
+        var r: Pair<Int, Int>? = null
+        val v = phraseView().apply { onReorderCategory = { f, t -> r = f to t } }
+        v.enterCategorySortModeForTest()
+        v.dragStartAtForTest(0, 20f)
+        v.dragMoveAtForTest(2, 140f)
+        assertTrue(v.isDraggingForTest())
+        assertTrue(send(v, MotionEvent.ACTION_CANCEL, 140f))
+        assertFalse(v.isDraggingForTest())
+        assertNull("category cancel is cleanup, not a persisted drop", r)
     }
 
     @Test fun rowAt_skips_the_dragged_row_so_downward_drag_finds_a_lower_target() {
