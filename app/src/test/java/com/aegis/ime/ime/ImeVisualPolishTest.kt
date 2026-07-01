@@ -60,6 +60,63 @@ class ImeVisualPolishTest {
         assertTrue("emoji unselected tabs also use rounded ripple", emoji.railTabForTest(1).foreground is RippleDrawable)
     }
 
+    @Test fun edit_panel_controls_all_use_rounded_tap_feedback() {
+        val panel = EditPanelView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        assertAllClickableViewsUseRoundedTapFeedback(panel, "text edit panel")
+    }
+
+    @Test fun major_panel_click_targets_use_shared_rounded_tap_feedback() {
+        assertAllClickableViewsUseRoundedTapFeedback(
+            CandidateGridView(ctx).apply {
+                applyPalette(ImePalette.STATIC_LIGHT)
+                setReadings(listOf("ni", "hao"), selected = 0)
+                setCandidates(listOf("你", "好"))
+            },
+            "expanded candidates",
+        )
+        assertAllClickableViewsUseRoundedTapFeedback(
+            SymbolsView(ctx).apply {
+                recentProvider = { listOf("，", "。") }
+                applyPalette(ImePalette.STATIC_LIGHT)
+                refresh()
+            },
+            "symbols panel",
+        )
+        assertAllClickableViewsUseRoundedTapFeedback(
+            EmojiView(ctx).apply {
+                recentProvider = { listOf("😀", "😂") }
+                applyPalette(ImePalette.STATIC_LIGHT)
+            },
+            "emoji panel",
+        )
+        assertAllClickableViewsUseRoundedTapFeedback(
+            CustomSymbolPanel(ctx).apply {
+                current = { listOf("、") }
+                addPalette = listOf("、", "。", "，")
+                applyPalette(ImePalette.STATIC_LIGHT)
+                refresh()
+            },
+            "custom symbol panel",
+        )
+        assertAllClickableViewsUseRoundedTapFeedback(
+            CopyBarView(ctx).apply {
+                applyPalette(ImePalette.STATIC_LIGHT)
+                show("测试内容")
+            },
+            "copy bar",
+        )
+        assertAllClickableViewsUseRoundedTapFeedback(
+            ClipboardView(ctx).apply {
+                historyProvider = { listOf("clip") }
+                categoriesProvider = { listOf("默认") }
+                phrasesInProvider = { listOf("phrase") }
+                applyPalette(ImePalette.STATIC_LIGHT)
+                refresh()
+            },
+            "clipboard panel",
+        )
+    }
+
     @Test fun clipboard_select_mode_disabled_actions_keep_readable_contrast_in_light_and_dark() {
         assertDisabledActionContrast(ImePalette.STATIC_LIGHT)
         assertDisabledActionContrast(ImePalette.STATIC_DARK)
@@ -74,6 +131,24 @@ class ImeVisualPolishTest {
         assertTrue("$label selected background is rounded", tab.background is GradientDrawable)
         assertTrue("$label press state is a rounded ripple", tab.foreground is RippleDrawable)
         assertTrue("$label remains clickable", tab.hasOnClickListeners())
+    }
+
+    private fun assertAllClickableViewsUseRoundedTapFeedback(root: View, label: String) {
+        val clickable = clickableViews(root)
+        assertTrue("$label exposes click targets for the audit", clickable.isNotEmpty())
+        clickable.forEach {
+            assertTrue("$label click target ${it.javaClass.simpleName} uses rounded ripple feedback", it.foreground is RippleDrawable)
+        }
+    }
+
+    private fun clickableViews(root: View): List<View> {
+        val out = ArrayList<View>()
+        fun walk(v: View) {
+            if (v.hasOnClickListeners()) out.add(v)
+            if (v is ViewGroup) for (i in 0 until v.childCount) walk(v.getChildAt(i))
+        }
+        walk(root)
+        return out
     }
 
     private fun assertDisabledActionContrast(palette: ImePalette) {

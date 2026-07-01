@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ui
 
+import android.content.Context
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -102,6 +103,11 @@ internal fun UserDictCard() {
                 onClick = { importLauncher.launch(arrayOf("text/plain")) },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("导入学习词库") }
+            Text(
+                currentAppVersionLabel(context),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 
@@ -130,3 +136,11 @@ internal fun UserDictCard() {
         )
     }
 }
+
+internal fun currentAppVersionLabel(context: Context): String =
+    "当前版本：${currentAppVersionName(context)}"
+
+private fun currentAppVersionName(context: Context): String =
+    runCatching {
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName
+    }.getOrNull()?.takeIf { it.isNotBlank() } ?: "unknown"
