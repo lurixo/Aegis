@@ -16,6 +16,8 @@
 package com.aegis.ime.ui
 
 import androidx.core.content.edit
+import com.aegis.ime.R
+import com.aegis.ime.dict.EngineAssets
 import com.aegis.ime.dict.ModelDownload
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -56,6 +58,31 @@ class SettingsSlice1Test {
         assertNotEquals(ModelDownload.REPO_URL, ModelDownload.DICT_REPO_URL)
     }
 
+    @Test fun resource_update_sources_are_not_app_update_wiring() {
+        assertEquals(
+            "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/${ModelDownload.GRAM_NAME}",
+            ModelDownload.GRAM_URL,
+        )
+        assertEquals("https://github.com/amzxyz/RIME-LMDG", ModelDownload.REPO_URL)
+        assertEquals(
+            "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.13/${ModelDownload.DICT_NAME}",
+            ModelDownload.DICT_URL,
+        )
+        assertEquals("https://github.com/amzxyz/rime-wanxiang", ModelDownload.DICT_REPO_URL)
+        assertFalse("model updates must not point at the Aegis app repo", ModelDownload.REPO_URL.contains("lurixo/Aegis"))
+        assertFalse("dictionary source link must not point at the Aegis app repo", ModelDownload.DICT_REPO_URL.contains("lurixo/Aegis"))
+        assertFalse("resource downloads must not be APK self-update assets", ModelDownload.GRAM_URL.endsWith(".apk"))
+        assertFalse("resource downloads must not be APK self-update assets", ModelDownload.DICT_URL.endsWith(".apk"))
+    }
+
+    @Test fun resource_update_labels_are_specific_to_model_and_dictionary() {
+        assertEquals("Check model updates", ctx.getString(R.string.check_model_update_button))
+        assertEquals("Check dictionary updates", ctx.getString(R.string.check_dict_update_button))
+        assertFalse(ctx.getString(R.string.gram_status_update_current).contains("app", ignoreCase = true))
+        assertFalse(ctx.getString(R.string.dict_status_update_current).contains("app", ignoreCase = true))
+        assertTrue(ctx.getString(R.string.app_version_card_description).contains("separate"))
+    }
+
 
     private fun writePackZip(dest: File, dict: String, t9: String, jianpin: String) {
         dest.parentFile?.mkdirs()
@@ -73,6 +100,11 @@ class SettingsSlice1Test {
         val produced = ModelDownload.extractDictPack(zip, dir)
         assertEquals(ModelDownload.DICT_PACK_FILES.toSet(), produced)
         assertTrue("3 bins present", ModelDownload.isDictDownloaded(ctx.filesDir))
+        assertTrue("installed dict files are tracked for engine reload", ModelDownload.DICT_PACK_FILES.all { it in EngineAssets.ASSET_NAMES })
+        assertEquals(
+            File(dir, "aegis_dict.bin").absolutePath,
+            EngineAssets.downloadedOverride(dir, "aegis_dict.bin")?.absolutePath,
+        )
         assertEquals("DICT".repeat(400), File(dir, "aegis_dict.bin").readText())
     }
 

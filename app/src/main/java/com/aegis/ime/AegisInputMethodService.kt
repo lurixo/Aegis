@@ -229,7 +229,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun downloadedOverride(name: String): File? =
-        File(File(filesDir, "downloaded"), name).takeIf { it.exists() && it.length() > 0 }
+        EngineAssets.downloadedOverride(File(filesDir, "downloaded"), name)
 
     private fun loadDict(name: String): BinaryDict? {
         downloadedOverride(name)?.let { f ->
