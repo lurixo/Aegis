@@ -327,10 +327,10 @@ class Debug17PanelTest {
         v.showSplitForTest("你好abc")
         val a = chip(overlayOf(v), "你"); val b = chip(overlayOf(v), "abc")
         assertTrue("blocks present", a != null && b != null)
-        assertEquals("block default uses chip background", pal.chipBg, bgColor(a!!))
-        assertEquals("block default uses chip background", pal.chipBg, bgColor(b!!))
-        assertEquals("block default text uses chip label", pal.chipText, a.currentTextColor)
-        assertEquals("block default text uses chip label", pal.chipText, b.currentTextColor)
+        assertEquals("block default uses enter background", pal.accentBottom, bgColor(a!!))
+        assertEquals("block default uses enter background", pal.accentBottom, bgColor(b!!))
+        assertEquals("block default text uses enter label", pal.accentLabel, a.currentTextColor)
+        assertEquals("block default text uses enter label", pal.accentLabel, b.currentTextColor)
         assertTrue("nothing copied yet", v.splitSelectedForTest().isEmpty())
     }
 
@@ -511,6 +511,24 @@ class Debug17PanelTest {
             .filter { it.text?.toString() in setOf("常用语", "拆词", "删除") && it.compoundDrawables.any { d -> d != null } }
         assertEquals(3, actions.size)
         assertTrue(actions.all { it.currentTextColor == pal.keyLabel })
+    }
+
+    @Test fun select_mode_action_buttons_match_split_block_colors_when_enabled() {
+        val clip = clipView().apply { enterSelectForTest(listOf("hello")) }
+        for (label in listOf("添加常用语", "删除")) {
+            val button = textViews(clip).first { it.text?.toString() == label }
+            assertEquals("$label uses split block background", pal.accentBottom, bgColor(button))
+            assertEquals("$label uses split block text", pal.accentLabel, button.currentTextColor)
+            assertTrue("$label remains clickable when enabled", button.hasOnClickListeners())
+        }
+
+        val phrase = phraseView().apply { enterSelectForTest(listOf("你好")) }
+        for (label in listOf("移动到分类", "删除")) {
+            val button = textViews(phrase).first { it.text?.toString() == label }
+            assertEquals("$label uses split block background", pal.accentBottom, bgColor(button))
+            assertEquals("$label uses split block text", pal.accentLabel, button.currentTextColor)
+            assertTrue("$label remains clickable when enabled", button.hasOnClickListeners())
+        }
     }
 
     @Test fun clear_confirmation_title_and_actions_use_body_text_color() {
