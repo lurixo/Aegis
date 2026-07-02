@@ -40,6 +40,10 @@ import javax.net.ssl.SSLException
 @Config(sdk = [34])
 class UpdateCheckClassificationTest {
 
+    private val sha1 = "1".repeat(64)
+    private val sha2 = "2".repeat(64)
+
+
     @Test
     fun onlyUnreachableConnectivityFailuresAreOffline() {
         assertEquals(ModelDownload.CheckFailure.OFFLINE, ModelDownload.classifyRequestFailure(UnknownHostException("timeout.example")))
@@ -125,6 +129,76 @@ class UpdateCheckClassificationTest {
     }
 
     @Test
+    fun dictionaryCheckOverTheUpdateManifestReturnsRealVerdict() {
+        val update = ModelDownload.dictionaryUpdateFromFetch(
+            { dictionaryManifest(sha2) },
+            ModelDownload.DictionaryInstallMetadata(sha256 = sha1),
+        )
+        assertEquals(ModelDownload.UpdateCheck.UPDATE, update.state)
+        assertEquals(sha2, update.asset?.sha256)
+
+        val unidentified = ModelDownload.dictionaryUpdateFromFetch(
+            { dictionaryManifest(sha2) },
+            ModelDownload.DictionaryInstallMetadata(),
+        )
+        assertEquals(ModelDownload.UpdateCheck.UNKNOWN, unidentified.state)
+        assertNull("an unknown local pack must not carry a download asset", unidentified.asset)
+
+        val current = ModelDownload.dictionaryUpdateFromFetch(
+            { dictionaryManifest(sha2) },
+            ModelDownload.DictionaryInstallMetadata(sha256 = sha2, publishedAt = PUBLISHED),
+        )
+        assertEquals(ModelDownload.UpdateCheck.UP_TO_DATE, current.state)
+    }
+
+    @Test
+    fun matchingShaWithAnIncompletePackStillOffersTheDownload() {
+        val incomplete = ModelDownload.dictionaryUpdateFromFetch(
+            { dictionaryManifest(sha2) },
+            ModelDownload.DictionaryInstallMetadata(sha256 = sha2, publishedAt = PUBLISHED, complete = false),
+        )
+        assertEquals(ModelDownload.UpdateCheck.UPDATE, incomplete.state)
+        assertEquals(sha2, incomplete.asset?.sha256)
+
+        val unidentified = ModelDownload.dictionaryUpdateFromFetch(
+            { dictionaryManifest(sha2) },
+            ModelDownload.DictionaryInstallMetadata(complete = false),
+        )
+        assertEquals(ModelDownload.UpdateCheck.UNKNOWN, unidentified.state)
+    }
+
+    @Test
+    fun trulyOfflineDictionaryCheckReportsOffline() {
+        val result = ModelDownload.dictionaryUpdateFromFetch(
+            { throw UnknownHostException("api.github.com") },
+            ModelDownload.DictionaryInstallMetadata(),
+        )
+        assertEquals(ModelDownload.UpdateCheck.OFFLINE, result.state)
+        assertNull(result.asset)
+    }
+
+    @Test
+    fun dictionaryHttpFailureReportsServerNotOffline() {
+        val result = ModelDownload.dictionaryUpdateFromFetch(
+            { throw ModelDownload.HttpStatusException(403) },
+            ModelDownload.DictionaryInstallMetadata(),
+        )
+        assertEquals(ModelDownload.UpdateCheck.SERVER_ERROR, result.state)
+        assertNotEquals(ModelDownload.UpdateCheck.OFFLINE, result.state)
+    }
+
+    @Test
+    fun errorObjectBodyDictionaryCheckReportsParseNotOffline() {
+        val result = ModelDownload.dictionaryUpdateFromFetch({ GITHUB_ERROR_OBJECT }, ModelDownload.DictionaryInstallMetadata())
+        assertEquals(ModelDownload.UpdateCheck.PARSE_ERROR, result.state)
+        assertNotEquals("a malformed body must NOT read as offline", ModelDownload.UpdateCheck.OFFLINE, result.state)
+        assertNull(result.asset)
+
+        assertEquals(ModelDownload.UpdateCheck.PARSE_ERROR, ModelDownload.dictionaryUpdateFromFetch({ "<html>502 Bad Gateway</html>" }, ModelDownload.DictionaryInstallMetadata()).state)
+    }
+
+
+    @Test
     fun modelProbeAgainstErroringServerIsServerNotOffline() {
         listOf(403, 500).forEach { code ->
             val probe = probeHead { it.sendResponseHeaders(code, -1) }
@@ -194,7 +268,27 @@ class UpdateCheckClassificationTest {
         }
     }
 
+    private fun dictionaryManifest(sha256: String, tag: String = "dict-latest"): String =
+        """
+        {
+          "schema_version": 1,
+          "kind": "dictionary_update",
+          "asset": {
+            "name": "aegis_dict_pack_$tag.zip",
+            "url": "https://github.com/lurixo/Aegis/releases/download/$tag/aegis_dict_pack_$tag.zip",
+            "release_tag": "$tag",
+            "release_url": "https://github.com/lurixo/Aegis/releases/tag/$tag",
+            "prerelease": false,
+            "published_at": null,
+            "sha256": "$sha256",
+            "size_bytes": 97927377
+          }
+        }
+        """.trimIndent()
+
     private companion object {
+        const val PUBLISHED = "2026-07-05T00:00:00Z"
+
         const val GITHUB_ERROR_OBJECT =
             """{"message":"API rate limit exceeded for 1.2.3.4","documentation_url":"https://docs.github.com/rest#rate-limiting"}"""
     }

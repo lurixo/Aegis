@@ -19,6 +19,7 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
+import org.json.JSONObject
 
 object ModelDownload {
 
@@ -133,6 +134,104 @@ object ModelDownload {
 
     private fun trustworthyValidator(value: String?): String? =
         value?.trim()?.takeIf { it.isNotEmpty() && !it.startsWith("size:", ignoreCase = true) }
+
+    const val DICT_LATEST_TAG = "dict-latest"
+
+    const val DICT_UPDATE_URL =
+        "https://github.com/lurixo/Aegis/releases/download/$DICT_LATEST_TAG/aegis-dictionary-update.json"
+
+    data class DictionaryAsset(
+        val url: String,
+        val assetName: String,
+        val sizeBytes: Long,
+        val sha256: String,
+        val releaseTag: String,
+        val releaseUrl: String,
+        val prerelease: Boolean,
+        val publishedAt: String?,
+    )
+
+    data class DictionaryInstallMetadata(
+        val sha256: String? = null,
+        val publishedAt: String? = null,
+        val complete: Boolean = true,
+    )
+
+    data class DictionaryUpdateCheck(
+        val state: UpdateCheck,
+        val asset: DictionaryAsset? = null,
+    )
+
+    internal fun resolveDictionaryDownloadAsset(fetch: () -> String): Result<DictionaryAsset> =
+        runCatching { dictionaryAssetFromUpdateJson(fetch()) }
+
+    internal fun dictionaryUpdateFromFetch(
+        fetch: () -> String,
+        current: DictionaryInstallMetadata,
+    ): DictionaryUpdateCheck {
+        val json = try {
+            fetch()
+        } catch (t: Exception) {
+            return DictionaryUpdateCheck(classifyRequestFailure(t).toUpdateCheck())
+        }
+        return try {
+            val asset = dictionaryAssetFromUpdateJson(json)
+            val comparison = dictionaryComparison(asset, current)
+            if (comparison == UpdateCheck.UPDATE) DictionaryUpdateCheck(comparison, asset)
+            else DictionaryUpdateCheck(comparison)
+        } catch (t: Exception) {
+            DictionaryUpdateCheck(UpdateCheck.PARSE_ERROR)
+        }
+    }
+
+    internal fun dictionaryAssetFromUpdateJson(updateJson: String): DictionaryAsset {
+        val update = JSONObject(updateJson)
+        require(update.getInt("schema_version") == 1)
+        require(update.getString("kind") == "dictionary_update")
+        val asset = update.getJSONObject("asset")
+        val name = asset.getString("name")
+        val url = asset.getString("url")
+        val sha256 = requireNotNull(normalizeSha256(asset.getString("sha256")))
+        val sizeBytes = asset.getLong("size_bytes")
+        val releaseTag = asset.getString("release_tag")
+        val releaseUrl = asset.getString("release_url")
+        val prerelease = asset.getBoolean("prerelease")
+        require(
+            sizeBytes > 0L &&
+                name == "aegis_dict_pack_$DICT_LATEST_TAG.zip" &&
+                url == "https://github.com/lurixo/Aegis/releases/download/$DICT_LATEST_TAG/$name" &&
+                releaseTag == DICT_LATEST_TAG &&
+                releaseUrl == "https://github.com/lurixo/Aegis/releases/tag/$DICT_LATEST_TAG" &&
+                !prerelease
+        )
+        return DictionaryAsset(
+            url = url,
+            assetName = name,
+            sizeBytes = sizeBytes,
+            sha256 = sha256,
+            releaseTag = releaseTag,
+            releaseUrl = releaseUrl,
+            prerelease = prerelease,
+            publishedAt = asset.optStringOrNull("published_at"),
+        )
+    }
+
+    private fun dictionaryComparison(
+        asset: DictionaryAsset,
+        current: DictionaryInstallMetadata,
+    ): UpdateCheck {
+        val currentSha = normalizeSha256(current.sha256) ?: return UpdateCheck.UNKNOWN
+        return if (current.complete && asset.sha256.equals(currentSha, ignoreCase = true)) UpdateCheck.UP_TO_DATE
+        else UpdateCheck.UPDATE
+    }
+
+    internal fun normalizeSha256(value: String?): String? {
+        val raw = value?.trim()?.lowercase()?.removePrefix("sha256:") ?: return null
+        return raw.takeIf { it.matches(Regex("[0-9a-f]{64}")) }
+    }
+
+    private fun JSONObject.optStringOrNull(name: String): String? =
+        if (has(name) && !isNull(name)) optString(name).takeIf { it.isNotBlank() } else null
 
     internal fun fetchText(url: String): String {
         var conn: HttpURLConnection? = null
