@@ -235,6 +235,178 @@ class LanguageModelProtocolTest(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, message):
                         self.require(root, bytes(data))
 
+class DefaultAssetNameTest(unittest.TestCase):
+    def test_rolling_tag_keeps_the_name_the_installed_app_asks_for(self):
+        self.assertEqual("aegis_dict_pack_dict-latest.zip", bp.default_asset_name("dict-latest"))
+
+    def test_debug_tag_keeps_the_short_numbered_name(self):
+        self.assertEqual("aegis_dict_pack_debug13.zip", bp.default_asset_name("v0.1.0-debug.13"))
+
+    def test_a_dotted_tag_keeps_its_dots_so_two_versions_cannot_share_a_name(self):
+        self.assertEqual("aegis_dict_pack_dict-v16.2.3.zip", bp.default_asset_name("dict-v16.2.3"))
+        self.assertEqual("aegis_dict_pack_dict-v1.6.23.zip", bp.default_asset_name("dict-v1.6.23"))
+
+
+class ManifestReleaseTypeTest(unittest.TestCase):
+    def manifest(self, root):
+        repo = root / "builder"
+        repo.mkdir()
+        for command in (
+            ["init", "-q"],
+            ["config", "user.name", "Test User"],
+            ["config", "user.email", "test@example.com"],
+            ["commit", "-qm", "Create builder", "--allow-empty"],
+        ):
+            subprocess.run(["git", *command], cwd=repo, check=True, capture_output=True, text=True)
+        pack = root / "pack.zip"
+        pack.write_bytes(b"pack")
+        args = SimpleNamespace(
+            release_tag="dict-latest",
+            source_repo_https=REPO,
+            source_tag="v16.3.0",
+            source_branch="wanxiang",
+        )
+        return bp.build_info(
+            args,
+            repo,
+            COMMIT,
+            "aegis_dict_pack_dict-latest.zip",
+            pack,
+            [],
+            [],
+            {},
+            tooling={"schema_version": 1, "fixture": "fixed-tooling"},
+        )
+
+    def test_the_dictionary_asset_is_never_published_as_a_prerelease(self):
+        with tempfile.TemporaryDirectory() as directory:
+            info = self.manifest(Path(directory))
+
+            self.assertIs(False, info["resources"][0]["physical_asset"]["prerelease"])
+            self.assertIs(False, bp.update_payload(info)["asset"]["prerelease"])
+
+class BuilderTreeDirtTest(unittest.TestCase):
+    def git(self, repo, *args):
+        subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
+
+    def builder(self, root):
+        repo = root / "builder"
+        repo.mkdir()
+        self.git(repo, "init", "-q")
+        self.git(repo, "config", "user.name", "Test User")
+        self.git(repo, "config", "user.email", "test@example.com")
+        for name in ("kept.txt", "changed.txt", "moved.txt", "removed.txt"):
+            (repo / name).write_text(f"{name} original\n")
+        self.git(repo, "add", "-A")
+        self.git(repo, "commit", "-qm", "Create builder")
+        return repo
+
+    def build(self, repo, root):
+        pack = root / "pack.zip"
+        pack.write_bytes(b"pack")
+        args = SimpleNamespace(
+            release_tag="dict-latest",
+            source_repo_https=REPO,
+            source_tag="v16.3.0",
+            source_branch="wanxiang",
+        )
+        info = bp.build_info(
+            args,
+            repo,
+            COMMIT,
+            "aegis_dict_pack_dict-latest.zip",
+            pack,
+            [],
+            [],
+            {},
+            tooling={"schema_version": 1, "fixture": "fixed-tooling"},
+        )
+        return info["resources"][0]["build"]
+
+    def test_a_clean_builder_tree_reports_no_dirt_at_all(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            build = self.build(self.builder(root), root)
+
+            self.assertIs(False, build["builder_tree_dirty"])
+            self.assertEqual([], build["builder_tree_dirt"], "a clean tree must not be described as dirty")
+
+    def test_every_dirty_path_is_listed_with_its_working_tree_digest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = self.builder(root)
+            (repo / "changed.txt").write_text("changed.txt overlay\n")
+            self.git(repo, "mv", "moved.txt", "renamed.txt")
+            (repo / "removed.txt").unlink()
+            (repo / "untracked").mkdir()
+            (repo / "untracked" / "added.txt").write_text("added\n")
+
+            build = self.build(repo, root)
+            rows = {row["path"]: row for row in build["builder_tree_dirt"]}
+
+            self.assertIs(True, build["builder_tree_dirty"])
+            self.assertEqual(
+                {"changed.txt", "renamed.txt", "removed.txt", "untracked/added.txt"},
+                set(rows),
+                "every dirty path must be described, and no clean path may be",
+            )
+            self.assertEqual("moved.txt", rows["renamed.txt"]["renamed_from"])
+            self.assertIsNone(rows["removed.txt"]["sha256"], "a deleted path has no working-tree content")
+            self.assertIsNone(rows["removed.txt"]["size_bytes"])
+            for path in ("changed.txt", "renamed.txt", "untracked/added.txt"):
+                content = (repo / path).read_bytes()
+                self.assertEqual(hashlib.sha256(content).hexdigest(), rows[path]["sha256"])
+                self.assertEqual(len(content), rows[path]["size_bytes"])
+            self.assertNotIn("kept.txt", rows)
+
+    def test_a_working_tree_rename_is_described_as_one_row(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = self.builder(root)
+            (repo / "moved.txt").rename(repo / "renamed.txt")
+            self.git(repo, "add", "-N", "renamed.txt")
+
+            rows = self.build(repo, root)["builder_tree_dirt"]
+
+            self.assertEqual([" R"], [row["status"] for row in rows])
+            self.assertEqual(
+                ["renamed.txt"],
+                [row["path"] for row in rows],
+                "the from-path of a working-tree rename must not become a row of its own",
+            )
+            self.assertEqual("moved.txt", rows[0]["renamed_from"])
+            content = (repo / "renamed.txt").read_bytes()
+            self.assertEqual(hashlib.sha256(content).hexdigest(), rows[0]["sha256"])
+            self.assertEqual(len(content), rows[0]["size_bytes"])
+
+    def test_a_working_tree_copy_is_described_as_one_row(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = self.builder(root)
+            self.git(repo, "config", "status.renames", "copies")
+            (repo / "copied.txt").write_bytes((repo / "changed.txt").read_bytes())
+            (repo / "changed.txt").write_text("changed.txt overlay\n")
+            self.git(repo, "add", "-N", "copied.txt")
+
+            rows = self.build(repo, root)["builder_tree_dirt"]
+
+            self.assertEqual([" M", " C"], [row["status"] for row in rows])
+            self.assertEqual(
+                ["changed.txt", "copied.txt"],
+                [row["path"] for row in rows],
+                "the from-path of a working-tree copy must not become a row of its own",
+            )
+            self.assertEqual("changed.txt", rows[1]["renamed_from"])
+
+    def test_a_path_outside_the_repository_is_refused_instead_of_hashed(self):
+        repo = Path("/nonexistent/builder")
+
+        self.assertEqual(repo / "app" / "kept.txt", bp.path_in_repo(repo, "app/kept.txt"))
+        for outside in ("/etc/hostname", "app/../../etc/hostname"):
+            with self.assertRaises(ValueError):
+                bp.path_in_repo(repo, outside)
+
+
 class SourceCheckoutValidationTest(unittest.TestCase):
     def git(self, repo, *args):
         subprocess.run(

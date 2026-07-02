@@ -2,10 +2,14 @@
 #
 # SPDX-License-Identifier: GPL-3.0-only
 
+import hashlib
+import os
+import re
 import shutil
 import struct
 import subprocess
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 TABLES = [
@@ -33,6 +37,7 @@ OUTPUTS = [
 
 NOTICE_NAME = "NOTICE.txt"
 LM_ENTRY = "aegis_lm.bin"
+LM_MIN_BIGRAM = 1
 PACK_ENTRIES = [NOTICE_NAME] + [item[0] for item in OUTPUTS] + [LM_ENTRY]
 DANGEROUS_NEW_ENTRY_SUBSTRINGS = ("dict", "t9", "jianpin")
 
@@ -80,6 +85,14 @@ def run(cmd, cwd, env=None):
 def output(cmd, cwd, env=None):
     return subprocess.check_output(cmd, cwd=cwd, env=env, text=True).strip()
 
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
 def require_safe_new_entry_names():
     names = [LM_ENTRY]
     if len(names) != len(set(names)):
@@ -89,6 +102,45 @@ def require_safe_new_entry_names():
         dangerous = [part for part in DANGEROUS_NEW_ENTRY_SUBSTRINGS if part in lowered]
         if dangerous:
             raise ValueError(f"unsafe downloadable component entry {name!r}: contains {dangerous}")
+
+def path_in_repo(repo_root, relative):
+    target = Path(os.path.normpath(repo_root / relative))
+    if repo_root not in target.parents:
+        raise ValueError(f"git reported a path outside the repository: {relative!r}")
+    return target
+
+
+def tree_dirt(repo_root):
+    fields = subprocess.check_output(
+        ["git", "status", "--porcelain", "-z", "--untracked-files=all"],
+        cwd=repo_root,
+        text=True,
+    ).split("\0")
+    rows = []
+    index = 0
+    while index < len(fields):
+        entry = fields[index]
+        index += 1
+        if not entry:
+            continue
+        row = {"status": entry[:2], "path": entry[3:]}
+        if "R" in entry[:2] or "C" in entry[:2]:
+            row["renamed_from"] = fields[index]
+            index += 1
+        target = path_in_repo(repo_root, row["path"])
+        stat = target.stat() if target.is_file() else None
+        row["sha256"] = sha256_file(target) if stat else None
+        row["size_bytes"] = stat.st_size if stat else None
+        rows.append(row)
+    return rows
+
+
+def default_asset_name(release_tag):
+    match = re.fullmatch(r"v\d+\.\d+\.\d+-debug\.(\d+)", release_tag)
+    if match:
+        return f"aegis_dict_pack_debug{match.group(1)}.zip"
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", release_tag).strip("-")
+    return f"aegis_dict_pack_{safe}.zip"
 
 def ensure_source_checkout(args, work_dir):
     if args.source_dir:
@@ -140,6 +192,125 @@ def write_zip(zip_path, entries):
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o100644 << 16
             zf.writestr(info, file_path.read_bytes(), compresslevel=9)
+
+
+def build_info(
+    args,
+    repo_root,
+    source_commit,
+    asset_name,
+    zip_path,
+    component_infos,
+    source_infos,
+    grammar_info,
+    pack_state="intermediate",
+    tooling=None,
+):
+    if not isinstance(tooling, dict) or tooling.get("schema_version") != 1:
+        raise ValueError("fixed builder tooling identity is missing")
+    release_url = f"https://github.com/lurixo/Aegis/releases/tag/{args.release_tag}"
+    asset_url = f"https://github.com/lurixo/Aegis/releases/download/{args.release_tag}/{asset_name}"
+    builder_commit = output(["git", "rev-parse", "HEAD"], cwd=repo_root)
+    dirt = tree_dirt(repo_root)
+    generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+    return {
+        "schema_version": 1,
+        "schema_name": "aegis.resource-build-info",
+        "generated_at": generated_at,
+        "app": {
+            "project": "Aegis",
+            "repository": "https://github.com/lurixo/Aegis",
+            "release_tag": args.release_tag,
+        },
+        "resources": [
+            {
+                "kind": "dictionary",
+                "physical_asset": {
+                    "name": asset_name,
+                    "url": asset_url,
+                    "release_tag": args.release_tag,
+                    "release_url": release_url,
+                    "prerelease": False,
+                    "published_at": None,
+                    "sha256": sha256_file(zip_path),
+                    "size_bytes": zip_path.stat().st_size,
+                },
+                "source": {
+                    "repo": args.source_repo_https,
+                    "ref_type": "tag" if args.source_tag else "branch",
+                    "tag": args.source_tag,
+                    "branch": None if args.source_tag else args.source_branch,
+                    "commit": source_commit,
+                    "license": "CC-BY-4.0",
+                    "attribution_file_in_pack": NOTICE_NAME,
+                    "tables": TABLES,
+                    "input_yaml_sha256": source_infos,
+                },
+                "build": {
+                    "pack_state": pack_state,
+                    "builder_path": "tools/src/main/kotlin/com/aegis/tools/DictBuilder.kt",
+                    "builder_commit": builder_commit,
+                    "builder_tree_dirty": bool(dirt),
+                    "builder_tree_dirt": dirt,
+                    "tooling": tooling,
+                    "full_pack_parameters": {
+                        "min_freq": 1,
+                        "max_per_key": None,
+                        "commands": [
+                            "--out aegis_dict_full.bin --min-freq 1 --keytype letter --t2s-data tools/t2s-data",
+                            "--out aegis_t9_full.bin --min-freq 1 --keytype digit --t2s-data tools/t2s-data",
+                            "--out aegis_jianpin_full.bin --min-freq 1 --keytype initials --t2s-data tools/t2s-data",
+                            f"lm --out {LM_ENTRY} --min-bigram {LM_MIN_BIGRAM} --t2s-data tools/t2s-data",
+                        ],
+                    },
+                    "language_model": {
+                        "format": "AEGL v1",
+                        "min_bigram": LM_MIN_BIGRAM,
+                    },
+                    "t2s_data": {
+                        "path": "tools/t2s-data",
+                        "provenance": "tools/t2s-data/PROVENANCE.md",
+                        "license": "Apache-2.0 for the OpenCC tables (tools/t2s-data/LICENSE-OpenCC)",
+                        "effect": "traditional and variant forms merge into their simplified image with frequency merging",
+                    },
+                    "output_bins": component_infos,
+                    "zip_packaging": {
+                        "file_order": PACK_ENTRIES,
+                        "timestamp_utc": "1980-01-01T00:00:00Z",
+                        "unix_mode": "0644",
+                        "compression": "zip_deflated_level_9",
+                    },
+                },
+                "attestation": {
+                    "status": "not_attested",
+                    "reproducibility_status": "build_inputs_recorded_but_unsigned",
+                    "missing": [
+                        "signature or attestation",
+                        "independent external rebuild verification",
+                    ],
+                },
+            }
+        ],
+        "external_resource_references": [grammar_info],
+    }
+
+
+def update_payload(build_info_json):
+    dictionary = build_info_json["resources"][0]
+    return {
+        "schema_version": 1,
+        "kind": "dictionary_update",
+        "asset": dictionary["physical_asset"],
+        "source": {
+            "repo": dictionary["source"]["repo"],
+            "ref_type": dictionary["source"]["ref_type"],
+            "tag": dictionary["source"]["tag"],
+            "branch": dictionary["source"]["branch"],
+            "commit": dictionary["source"]["commit"],
+        },
+    }
+
 
 def require_aegl_v1(path):
     data = path.read_bytes()
