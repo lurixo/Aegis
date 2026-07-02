@@ -43,7 +43,7 @@ class SettingsSlice1Test {
     @Test fun dict_surface_is_independent_of_the_gram_surface() {
         assertNotEquals(ModelDownload.DICT_NAME, ModelDownload.GRAM_NAME)
         assertNotEquals(ModelDownload.DICT_VALIDATOR_PREF, ModelDownload.VALIDATOR_PREF)
-        assertNotEquals(ModelDownload.DICT_URL, ModelDownload.GRAM_URL)
+        assertNotEquals(ModelDownload.FALLBACK_DICT_ASSET.url, ModelDownload.GRAM_URL)
         assertNotEquals(
             ModelDownload.dictZipFile(ctx.filesDir).absolutePath,
             ModelDownload.destFile(ctx.filesDir).absolutePath,
@@ -54,7 +54,7 @@ class SettingsSlice1Test {
 
     @Test fun dict_repo_link_points_at_the_upstream_wanxiang_repo() {
         assertEquals("https://github.com/amzxyz/rime-wanxiang", ModelDownload.DICT_REPO_URL)
-        assertNotEquals(ModelDownload.DICT_URL, ModelDownload.DICT_REPO_URL)
+        assertNotEquals(ModelDownload.FALLBACK_DICT_ASSET.url, ModelDownload.DICT_REPO_URL)
         assertNotEquals(ModelDownload.REPO_URL, ModelDownload.DICT_REPO_URL)
     }
 
@@ -65,14 +65,16 @@ class SettingsSlice1Test {
         )
         assertEquals("https://github.com/amzxyz/RIME-LMDG", ModelDownload.REPO_URL)
         assertEquals(
-            "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.13/${ModelDownload.DICT_NAME}",
-            ModelDownload.DICT_URL,
+            "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.13/${ModelDownload.FALLBACK_DICT_NAME}",
+            ModelDownload.FALLBACK_DICT_ASSET.url,
         )
+        assertEquals("https://api.github.com/repos/lurixo/Aegis/releases?per_page=100", ModelDownload.DICT_RELEASES_API_URL)
         assertEquals("https://github.com/amzxyz/rime-wanxiang", ModelDownload.DICT_REPO_URL)
         assertFalse("model updates must not point at the Aegis app repo", ModelDownload.REPO_URL.contains("lurixo/Aegis"))
         assertFalse("dictionary source link must not point at the Aegis app repo", ModelDownload.DICT_REPO_URL.contains("lurixo/Aegis"))
         assertFalse("resource downloads must not be APK self-update assets", ModelDownload.GRAM_URL.endsWith(".apk"))
-        assertFalse("resource downloads must not be APK self-update assets", ModelDownload.DICT_URL.endsWith(".apk"))
+        assertFalse("resource downloads must not be APK self-update assets", ModelDownload.FALLBACK_DICT_ASSET.url.endsWith(".apk"))
+        assertFalse("resource discovery must not be an APK endpoint", ModelDownload.DICT_RELEASES_API_URL.endsWith(".apk"))
     }
 
     @Test fun resource_update_labels_are_specific_to_model_and_dictionary() {

@@ -16,10 +16,14 @@
 package com.aegis.ime.dict
 
 import java.io.File
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
+import org.json.JSONArray
+import org.json.JSONObject
 
 object ModelDownload {
 
@@ -91,7 +95,9 @@ object ModelDownload {
                 readTimeout = 20_000
             }
             if (conn.responseCode !in 200..299) null
-            else conn.getHeaderField("ETag") ?: conn.getHeaderField("Last-Modified")
+            else conn.getHeaderField("ETag")
+                ?: conn.getHeaderField("Last-Modified")
+                ?: conn.contentLengthLong.takeIf { it > 0L }?.let { "size:$it" }
         } catch (e: Exception) {
             null
         } finally {
@@ -117,32 +123,77 @@ object ModelDownload {
     }
 
 
-    const val DICT_URL =
-        "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.13/aegis_dict_pack_debug13.zip"
-
     const val DICT_REPO_URL = "https://github.com/amzxyz/rime-wanxiang"
 
-    const val DICT_NAME = "aegis_dict_pack_debug13.zip"
-    const val DICT_SHA256 = "d048435631623513a9d6a6ccb877a6ba06fb15a293ade72bb101d1e0d4feaa60"
+    const val DICT_RELEASES_API_URL = "https://api.github.com/repos/lurixo/Aegis/releases?per_page=100"
+
+    const val DICT_NAME = "aegis_dict_pack.zip"
+    const val FALLBACK_DICT_NAME = "aegis_dict_pack_debug13.zip"
+    const val FALLBACK_DICT_URL =
+        "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.13/$FALLBACK_DICT_NAME"
+    const val FALLBACK_DICT_SHA256 = "d048435631623513a9d6a6ccb877a6ba06fb15a293ade72bb101d1e0d4feaa60"
 
     val DICT_PACK_FILES = listOf("aegis_dict.bin", "aegis_t9.bin", "aegis_jianpin.bin")
 
     const val DICT_VALIDATOR_PREF = "dict_validator"
+    const val DICT_SHA256_PREF = "dict_sha256"
+    const val DICT_ASSET_NAME_PREF = "dict_asset_name"
+    const val DICT_ASSET_URL_PREF = "dict_asset_url"
+    const val DICT_RELEASE_TAG_PREF = "dict_release_tag"
+    const val DICT_RELEASE_PUBLISHED_PREF = "dict_release_published_at"
+
+    data class DictionaryAsset(
+        val url: String,
+        val assetName: String,
+        val sizeBytes: Long,
+        val sha256: String,
+        val releaseTag: String,
+        val releaseUrl: String,
+        val prerelease: Boolean,
+        val publishedAt: String,
+    )
+
+    data class DictionaryInstallMetadata(
+        val sha256: String? = null,
+        val publishedAt: String? = null,
+    )
+
+    data class DictionaryUpdateCheck(
+        val state: UpdateCheck,
+        val asset: DictionaryAsset? = null,
+    )
+
+    val FALLBACK_DICT_ASSET = DictionaryAsset(
+        url = FALLBACK_DICT_URL,
+        assetName = FALLBACK_DICT_NAME,
+        sizeBytes = 98_214_288L,
+        sha256 = FALLBACK_DICT_SHA256,
+        releaseTag = "v0.1.0-debug.13",
+        releaseUrl = "https://github.com/lurixo/Aegis/releases/tag/v0.1.0-debug.13",
+        prerelease = true,
+        publishedAt = "2026-06-28T18:46:56Z",
+    )
 
     private fun downloadedDir(filesDir: File) = File(filesDir, "downloaded")
     fun dictZipFile(filesDir: File): File = File(downloadedDir(filesDir), DICT_NAME)
     fun dictPartFile(filesDir: File): File = File(downloadedDir(filesDir), "$DICT_NAME.part")
+    private fun legacyDictZipFile(filesDir: File): File = File(downloadedDir(filesDir), FALLBACK_DICT_NAME)
+    private fun legacyDictPartFile(filesDir: File): File = File(downloadedDir(filesDir), "$FALLBACK_DICT_NAME.part")
 
     fun isDictDownloaded(filesDir: File): Boolean =
         DICT_PACK_FILES.all { File(downloadedDir(filesDir), it).let { f -> f.exists() && f.length() > 1024 } }
 
     fun installInProgress(filesDir: File): Boolean =
-        dictZipFile(filesDir).exists() || dictPartFile(filesDir).exists() || partFile(filesDir).exists()
+        dictZipFile(filesDir).exists() ||
+            dictPartFile(filesDir).exists() ||
+            legacyDictZipFile(filesDir).exists() ||
+            legacyDictPartFile(filesDir).exists() ||
+            partFile(filesDir).exists()
 
-    fun installDictPack(filesDir: File): Boolean {
+    fun installDictPack(filesDir: File, expectedSha256: String = FALLBACK_DICT_SHA256): Boolean {
         val zip = dictZipFile(filesDir)
         if (!zip.exists()) return false
-        if (!sha256Of(zip).equals(DICT_SHA256, ignoreCase = true)) { zip.delete(); return false }
+        if (!sha256Of(zip).equals(expectedSha256, ignoreCase = true)) { zip.delete(); return false }
         val produced = runCatching { extractDictPack(zip, downloadedDir(filesDir)) }.getOrDefault(emptySet())
         zip.delete()
         val ok = DICT_PACK_FILES.all { it in produced }
@@ -153,6 +204,143 @@ object ModelDownload {
             }
         }
         return ok
+    }
+
+    fun resolveDictionaryDownloadAsset(current: DictionaryInstallMetadata = DictionaryInstallMetadata()): DictionaryAsset =
+        runCatching { dictionaryUpdateFromReleasesJson(fetchText(DICT_RELEASES_API_URL), current).asset }
+            .getOrNull()
+            ?: FALLBACK_DICT_ASSET
+
+    fun checkDictionaryUpdate(current: DictionaryInstallMetadata): DictionaryUpdateCheck =
+        runCatching { dictionaryUpdateFromReleasesJson(fetchText(DICT_RELEASES_API_URL), current) }
+            .getOrDefault(DictionaryUpdateCheck(UpdateCheck.OFFLINE))
+
+    internal fun dictionaryUpdateFromReleasesJson(
+        releasesJson: String,
+        current: DictionaryInstallMetadata,
+    ): DictionaryUpdateCheck {
+        val releases = parseGitHubReleases(releasesJson)
+        for (prerelease in listOf(true, false)) {
+            val asset = latestUsableDictionaryAsset(releases, prerelease) ?: continue
+            if (isNewerDictionaryAsset(asset, current)) return DictionaryUpdateCheck(UpdateCheck.UPDATE, asset)
+        }
+        return DictionaryUpdateCheck(UpdateCheck.UP_TO_DATE)
+    }
+
+    private data class GitHubRelease(
+        val tagName: String,
+        val releaseUrl: String,
+        val prerelease: Boolean,
+        val publishedAt: String,
+        val assets: List<GitHubAsset>,
+    )
+
+    private data class GitHubAsset(
+        val name: String,
+        val url: String,
+        val sizeBytes: Long,
+        val digest: String?,
+    )
+
+    private fun latestUsableDictionaryAsset(releases: List<GitHubRelease>, prerelease: Boolean): DictionaryAsset? =
+        releases
+            .filter { it.prerelease == prerelease }
+            .sortedWith(compareByDescending<GitHubRelease> { instantOrEpoch(it.publishedAt) }.thenByDescending { it.tagName })
+            .firstNotNullOfOrNull { release ->
+                release.assets.firstNotNullOfOrNull { asset -> dictionaryAssetFrom(release, asset) }
+            }
+
+    private fun dictionaryAssetFrom(release: GitHubRelease, asset: GitHubAsset): DictionaryAsset? {
+        val name = asset.name
+        val url = asset.url
+        if (!isDictionaryZipAsset(name, url)) return null
+        val sha256 = normalizeSha256(asset.digest) ?: return null
+        if (asset.sizeBytes <= 0L || release.releaseUrl.isBlank() || release.publishedAt.isBlank()) return null
+        return DictionaryAsset(
+            url = url,
+            assetName = name,
+            sizeBytes = asset.sizeBytes,
+            sha256 = sha256,
+            releaseTag = release.tagName,
+            releaseUrl = release.releaseUrl,
+            prerelease = release.prerelease,
+            publishedAt = release.publishedAt,
+        )
+    }
+
+    private fun isNewerDictionaryAsset(asset: DictionaryAsset, current: DictionaryInstallMetadata): Boolean {
+        val currentSha = normalizeSha256(current.sha256) ?: return true
+        if (asset.sha256.equals(currentSha, ignoreCase = true)) return false
+        val currentPublished = current.publishedAt?.let(::instantOrNull)
+        val assetPublished = instantOrNull(asset.publishedAt)
+        return currentPublished == null || assetPublished == null || assetPublished.isAfter(currentPublished)
+    }
+
+    private fun isDictionaryZipAsset(name: String, url: String): Boolean {
+        val n = name.lowercase()
+        val u = url.lowercase()
+        return n.endsWith(".zip") &&
+            ("dict" in n || "dictionary" in n) &&
+            !n.endsWith(".apk") &&
+            !u.endsWith(".apk") &&
+            u.startsWith("https://github.com/lurixo/aegis/releases/download/")
+    }
+
+    internal fun normalizeSha256(value: String?): String? {
+        val raw = value?.trim()?.lowercase()?.removePrefix("sha256:") ?: return null
+        return raw.takeIf { it.matches(Regex("[0-9a-f]{64}")) }
+    }
+
+    private fun parseGitHubReleases(json: String): List<GitHubRelease> {
+        val array = JSONArray(json)
+        val releases = ArrayList<GitHubRelease>(array.length())
+        for (i in 0 until array.length()) {
+            val r = array.getJSONObject(i)
+            val assetsArray = r.optJSONArray("assets") ?: JSONArray()
+            val assets = ArrayList<GitHubAsset>(assetsArray.length())
+            for (j in 0 until assetsArray.length()) {
+                val a = assetsArray.getJSONObject(j)
+                assets += GitHubAsset(
+                    name = a.optStringOrNull("name") ?: continue,
+                    url = a.optStringOrNull("browser_download_url") ?: continue,
+                    sizeBytes = a.optLong("size", -1L),
+                    digest = a.optStringOrNull("digest"),
+                )
+            }
+            releases += GitHubRelease(
+                tagName = r.optStringOrNull("tag_name") ?: continue,
+                releaseUrl = r.optStringOrNull("html_url") ?: continue,
+                prerelease = r.optBoolean("prerelease", false),
+                publishedAt = r.optStringOrNull("published_at") ?: continue,
+                assets = assets,
+            )
+        }
+        return releases
+    }
+
+    private fun JSONObject.optStringOrNull(name: String): String? =
+        if (has(name) && !isNull(name)) optString(name).takeIf { it.isNotBlank() } else null
+
+    private fun instantOrEpoch(value: String): Instant = instantOrNull(value) ?: Instant.EPOCH
+
+    private fun instantOrNull(value: String): Instant? = runCatching { Instant.parse(value) }.getOrNull()
+
+    private fun fetchText(url: String): String {
+        var conn: HttpURLConnection? = null
+        return try {
+            conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                instanceFollowRedirects = true
+                connectTimeout = 20_000
+                readTimeout = 20_000
+                setRequestProperty("Accept", "application/vnd.github+json")
+                setRequestProperty("User-Agent", "Aegis-resource-updater")
+            }
+            if (conn.responseCode !in 200..299) throw IOException("GET $url failed: ${conn.responseCode}")
+            conn.inputStream.bufferedReader().use { it.readText() }
+        } finally {
+            conn?.disconnect()
+        }
     }
 
     internal fun extractDictPack(zip: File, dir: File): Set<String> {
@@ -209,6 +397,8 @@ object ModelDownload {
         }
         if (dictZipFile(filesDir).delete()) removed = true
         if (dictPartFile(filesDir).delete()) removed = true
+        if (legacyDictZipFile(filesDir).delete()) removed = true
+        if (legacyDictPartFile(filesDir).delete()) removed = true
         return removed
     }
 }
