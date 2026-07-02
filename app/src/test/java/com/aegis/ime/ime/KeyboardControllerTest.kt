@@ -390,8 +390,8 @@ class KeyboardControllerTest {
     }
 
     @Test fun shift_is_inert_in_cn_full_pinyin_26_key() {
-        // I4: ⇧ sits on the shared 26-key, but shift is meaningless for full-pinyin — tapping it in
-        // Chinese IME behavior note.
+        // Shift sits on the shared 26-key, but it is meaningless for full-pinyin input; tapping it in
+        // Chinese mode should stay inert.
         val h = FakeHost()
         val c = KeyboardController(h, engine)
         c.onKey(act(KeyAction.SWITCH_ALPHA)) // Chinese IME behavior note.

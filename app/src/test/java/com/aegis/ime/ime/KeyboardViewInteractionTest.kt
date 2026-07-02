@@ -38,7 +38,7 @@ import java.time.Duration
 
 /**
  * REAL interaction tests for the self-drawn [KeyboardView] (A3) — Robolectric dispatches actual
- * MotionEvents on the JVM so the touch/scroll bugs that only surface at runtime (backspace, follow-finger
+ * MotionEvents on the JVM so touch/scroll regressions (backspace, follow-finger
  * scroll, left-column hit-testing) are caught in CI, never again only on real hardware.
  */
 @RunWith(RobolectricTestRunner::class)

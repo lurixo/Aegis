@@ -62,7 +62,7 @@ object Fuzzy {
     /** SharedPreferences key (prefs "aegis") for a rule's per-item toggle, e.g. "fuzzy_zh". */
     fun prefKey(ruleKey: String): String = "fuzzy_$ruleKey"
 
-    /** Master default: fuzzy ships OFF (it can degrade input quality, so it is opt-in). */
+    /** Master default: fuzzy ships OFF because it can degrade input quality, so it remains opt-in. */
     const val DEFAULT_ON: Boolean = false
 
     /**
