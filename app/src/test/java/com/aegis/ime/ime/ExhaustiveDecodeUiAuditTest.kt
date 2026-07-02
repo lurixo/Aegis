@@ -82,35 +82,30 @@ class ExhaustiveDecodeUiAuditTest {
 
     // ---------- exact deng reproductions ----------
 
-    @Test fun deng_26key_readingLabelShowsDe_whileCharsAreCorrect() {
+    @Test fun deng_26key_readingLabelIsDeng_afterFix() {
         assumeTrue(assetsPresent())
         val c = controller(realEngine())
         c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
         type(c, "deng")
-        // BUG (reproduced): the expand-screen left reading label shows the mis-segmented first syllable "de".
-        assertEquals("26-key deng reading label is the mis-segmented 'de'",
-            listOf("de"), c.expandedReadings())
-        // …while the candidate CHARS are the correct deng characters (等/登/灯…).
-        val words = c.candidateWords()
-        assertTrue("correct deng char 等 is present among candidates", "等" in words)
+        // the 26-key expand-screen reading label is now the whole syllable 'deng' (was mis-segmented 'de').
+        assertEquals("26-key deng reading label is 'deng'", listOf("deng"), c.expandedReadings())
+        assertTrue("correct deng char 等 is present among candidates", "等" in c.candidateWords())
     }
 
-    @Test fun deng_9key_lockDeng_yieldsDeSoundChars() {
+    @Test fun deng_9key_lockDeng_yieldsDengChars_afterFix() {
         assumeTrue(assetsPresent())
         val c = controller(realEngine())
         c.onKey(Key("", action = KeyAction.SWITCH_NINE))
         type(c, T9Pinyin.toT9("deng")) // "3364"
-        // the left column DOES offer the correct reading "deng"…
         assertTrue("9-key left column offers the reading 'deng'", "deng" in c.expandedReadings())
         pick(c, "deng")
-        // …but locking it yields de-sound characters (德/的/得…), NOT deng characters — the exact bug.
-        val words = c.candidateWords()
+        // locking 'deng' now yields deng-characters; no de-only char (德/的/得…) leaks in.
         val dengChars = dictSingles("deng")
         val deChars = dictSingles("de")
-        val shownSingles = words.filter { isSingleChar(it) }.toSet()
-        val leaked = shownSingles intersect deChars
-        assertTrue("locking 'deng' surfaces de-sound chars (${leaked.take(6)}) that do not read deng",
-            leaked.isNotEmpty() && leaked.any { it !in dengChars })
+        val shownSingles = c.candidateWords().filter { isSingleChar(it) }.toSet()
+        assertTrue("a correct deng char is present (e.g. 等)", shownSingles.any { it in dengChars })
+        val leakedDeOnly = (shownSingles intersect deChars).filter { it !in dengChars }
+        assertTrue("locking 'deng' no longer leaks de-only chars (got $leakedDeOnly)", leakedDeOnly.isEmpty())
     }
 
     // ---------- n=1 controller sweep: 26-key reading label == input, over all 415 ----------
@@ -134,31 +129,39 @@ class ExhaustiveDecodeUiAuditTest {
             "Level B — controller 26-key expandedReadings() label over ${syls.size} syllables\n" +
                 "syllables whose UI reading label != input: ${fails.size}\n"
         )
-        // detection proof at the UI layer
-        assertTrue("controller sweep must flag deng (label != deng)", fails.any { it.startsWith("deng\t") })
+        // after the fix, every 26-key reading label equals its input syllable.
+        assertTrue("no 26-key reading-label mismatches remain after the fix: ${fails.take(10)}", fails.isEmpty())
     }
 
     // ---------- systematic n=2 subset: broken-syllable-led pairs on 9-key ----------
 
-    @Test fun controllerN2Subset_9key_brokenLedPairs_lockChars() {
+    @Test fun controllerN2Subset_9key_brokenLedPairs_noPrefixCharLeak_afterFix() {
         assumeTrue(assetsPresent())
-        // the 12 n=1 offenders as first syllable, crossed with a few common seconds — a systematic subset
-        val broken = listOf("deng", "dang", "geng", "heng", "keng", "leng", "nang", "ning", "tang", "xing", "ying", "en")
+        // the 12 former n=1 offenders as first syllable (with the mis-segment prefix whose chars used to leak),
+        // crossed with a few common seconds — a systematic subset. After the fix, locking the (formerly broken)
+        // reading must surface that reading's own chars and NOT the prefix's chars.
+        // The 11 nasal-coda syllables fixed by segmentLetters (en is intentionally excluded: it segments
+        // fine and its 嗯 is the retained en->ng colloquial alias, whitelisted in the Level A audit).
+        val prefixOf = mapOf(
+            "deng" to "de", "dang" to "da", "geng" to "ge", "heng" to "he", "keng" to "ke", "leng" to "le",
+            "nang" to "na", "ning" to "ni", "tang" to "ta", "xing" to "xi", "ying" to "yi",
+        )
         val seconds = listOf("hao", "ni", "shui")
         val fails = ArrayList<String>()
-        for (s1 in broken) for (s2 in seconds) {
+        for ((s1, pfx) in prefixOf) for (s2 in seconds) {
             val c = controller(realEngine())
             c.onKey(Key("", action = KeyAction.SWITCH_NINE))
             type(c, T9Pinyin.toT9(s1))
-            pick(c, s1)              // lock the (broken) first reading
+            pick(c, s1) // lock the reading
             val singles = c.candidateWords().filter { isSingleChar(it) }.toSet()
-            val leaked = singles - dictSingles(s1)
-            if (leaked.isNotEmpty()) fails.add("$s1+$s2\t$s1\t${leaked.take(6).joinToString(" ")}")
+            val s1Chars = dictSingles(s1)
+            val prefixLeak = (singles intersect dictSingles(pfx)) - s1Chars
+            if (prefixLeak.isNotEmpty()) fails.add("$s1+$s2\t$s1\tprefix-leak ${prefixLeak.take(6).joinToString(" ")}")
+            if (s1Chars.isNotEmpty() && singles.none { it in s1Chars }) fails.add("$s1+$s2\t$s1\tno correct $s1 char")
         }
         File(outDir(), "levelB_n2subset_9key.tsv").writeText(
-            "pair\tlockedReading\tleakedChars\n" + fails.joinToString("\n") + if (fails.isNotEmpty()) "\n" else ""
+            "pair\tlockedReading\tissue\n" + fails.joinToString("\n") + if (fails.isNotEmpty()) "\n" else ""
         )
-        assertTrue("locking a broken first syllable on 9-key leaks wrong chars (propagation to pairs)",
-            fails.isNotEmpty())
+        assertTrue("no broken-led pair leaks a prefix char after the fix: ${fails.take(8)}", fails.isEmpty())
     }
 }

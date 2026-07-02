@@ -82,6 +82,10 @@ object T9Pinyin {
         n ng m biang
     """.trim().split(Regex("\\s+")).toSet()
 
+    /** Bare syllabic-nasal readings: valid only standalone (or utterance-initial), never as a trailing coda
+     *  split off a preceding syllable — [segmentLetters] merges them leftward when the merge is a valid syllable. */
+    private val NASAL_CODAS: Set<String> = setOf("ng", "n", "m")
+
     /** Frequency-ish ordering so an ambiguous digit group resolves to its common reading first. */
     private val freqRank: Map<String, Int> = listOf(
         "de", "shi", "yi", "bu", "le", "zai", "wo", "ni", "ng", "ta", "men", "zhe", "ge", "shang",
@@ -152,6 +156,13 @@ object T9Pinyin {
                 if (cost[j] == Double.POSITIVE_INFINITY) continue
                 val sub = letters.substring(j, i)
                 if (sub !in SYLLABLES) continue
+                // A bare nasal coda (ng/n/m) must not split off as its own non-initial syllable when it can
+                // merge leftward into a valid whole syllable ending here: otherwise a common short prefix plus
+                // the cheap "ng" (freqRank 8) beats the whole rarer syllable (deng -> de+ng). A standalone
+                // ng/n/m (j == 0) still segments as itself.
+                if (sub in NASAL_CODAS && j > 0 &&
+                    (lo until j).any { k -> cost[k] != Double.POSITIVE_INFINITY && letters.substring(k, i) in SYLLABLES }
+                ) continue
                 val c = cost[j] + rankOf(sub) + SYLLABLE_PENALTY
                 if (c < cost[i]) { cost[i] = c; pick[i] = sub; back[i] = j }
             }
