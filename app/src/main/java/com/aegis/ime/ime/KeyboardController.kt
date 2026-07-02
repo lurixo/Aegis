@@ -521,6 +521,17 @@ class KeyboardController(
     }
 
     private fun expandedReadingsWithoutFocus(): List<String> = when {
+        layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty() -> {
+            val active = activeInput()
+            val separatorPrefix = active.takeWhile { it == '\'' }.length
+            val body = active.substring(separatorPrefix)
+            val forcedEnd = activeCuts().firstOrNull { it > separatorPrefix }?.minus(separatorPrefix)
+            val separatorEnd = body.indexOf('\'').takeIf { it >= 0 }
+            val chunkEnd = listOfNotNull(forcedEnd, separatorEnd).minOrNull() ?: body.length
+            val chunk = body.substring(0, chunkEnd.coerceIn(0, body.length))
+            val next = T9Pinyin.leftColumnLetterReadings(chunk, NINE_LEFT_MAX)
+            next
+        }
         else -> nineLeftColumn().filter { it.action == KeyAction.PICK_READING }.map { it.label }
     }
 
