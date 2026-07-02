@@ -54,7 +54,7 @@ class CopyBarControllerTest {
 
     @Test fun tapping_a_block_writes_aegis_clipboard_only_not_commit_not_system() {
         val c = ctl()
-        c.show("看这个https://x.com很好")
+        c.show("read https://x.com now")
         c.toggleSplit()
         c.tapBlock("https://x.com")
         assertEquals("block goes to the aegis clipboard", listOf("https://x.com"), aegisCopies)

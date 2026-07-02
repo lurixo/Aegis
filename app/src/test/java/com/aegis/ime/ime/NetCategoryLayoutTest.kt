@@ -60,7 +60,7 @@ class NetCategoryLayoutTest {
         sv.openCategoryForTest(0)
 
         assertTrue("net bar shown for the recents completion", sv.netBarVisibleForTest())
-        assertTrue("https:// chipped in 常用", "https://" in sv.netChipTextsForTest())
+        assertTrue("https:// remains available as a full recents chip", "https://" in sv.netChipTextsForTest())
         assertEquals("the single glyphs stay in the grid", 2, sv.gridCellCountForTest())
     }
 

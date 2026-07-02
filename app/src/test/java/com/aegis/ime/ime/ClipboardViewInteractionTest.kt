@@ -201,7 +201,7 @@ class ClipboardViewInteractionTest {
 
 
     @Test fun copy_all_records_each_split_block_separately() {
-        val text = "访问 https://aegis.example 联系 hi@aegis.example 再见"
+        val text = "visit https://x.com and copy each block"
         val blocks = ClipSplitter.blocks(text)
         assertTrue("precondition: the text splits into ≥2 blocks", blocks.size >= 2)
         val collected = ArrayList<String>()

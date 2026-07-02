@@ -29,7 +29,9 @@ class T9RerankEvalTest {
     private val dictFile = File("src/main/assets/aegis_dict.bin")
     private val lmFile = File("src/main/assets/aegis_lm.bin")
     private val evalFile = File("src/test/resources/eval_set.tsv")
-    private val gramFile = File(System.getenv("AEGIS_GRAM") ?: "build/nonexistent-aegis-gram")
+    private val gramFile =
+        System.getenv("AEGIS_GRAM")?.takeIf { it.isNotBlank() }?.let(::File)
+            ?: File("build/nonexistent-aegis-gram")
 
     private fun toT9(letters: String): String {
         val map = HashMap<Char, Char>()

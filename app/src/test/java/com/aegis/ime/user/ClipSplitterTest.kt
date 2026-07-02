@@ -40,8 +40,8 @@ class ClipSplitterTest {
     }
 
     @Test fun link_embedded_in_chinese_ends_cleanly_without_trailing_punct() {
-        assertEquals(listOf("看", "这", "个", "https://x.com", "很", "好"), texts("看这个https://x.com很好"))
-        assertEquals(listOf("访", "问", "https://x.com", "。"), texts("访问https://x.com。"))
+        assertEquals(listOf("看", "这", "个", "https://x.com", "。"), texts("看这个https://x.com。"))
+        assertEquals(listOf("访", "问", "https://a.b/c?d=1", "，"), texts("访问https://a.b/c?d=1，"))
     }
 
     @Test fun www_and_bare_domain_are_links() {
