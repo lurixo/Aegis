@@ -2,8 +2,11 @@
 #
 # SPDX-License-Identifier: GPL-3.0-only
 
+import shutil
 import struct
+import subprocess
 import zipfile
+from pathlib import Path
 
 TABLES = [
     "zi",
@@ -68,6 +71,15 @@ def attribution_text(repo_https, source_tag, source_branch, source_commit):
         "data only. The repository's THIRD_PARTY_LICENSES.md carries the full license texts.\n"
     )
 
+
+def run(cmd, cwd, env=None):
+    print("+", " ".join(str(part) for part in cmd), flush=True)
+    subprocess.run(cmd, cwd=cwd, env=env, check=True)
+
+
+def output(cmd, cwd, env=None):
+    return subprocess.check_output(cmd, cwd=cwd, env=env, text=True).strip()
+
 def require_safe_new_entry_names():
     names = [LM_ENTRY]
     if len(names) != len(set(names)):
@@ -77,6 +89,49 @@ def require_safe_new_entry_names():
         dangerous = [part for part in DANGEROUS_NEW_ENTRY_SUBSTRINGS if part in lowered]
         if dangerous:
             raise ValueError(f"unsafe downloadable component entry {name!r}: contains {dangerous}")
+
+def ensure_source_checkout(args, work_dir):
+    if args.source_dir:
+        source = Path(args.source_dir).resolve()
+        if not source.exists():
+            raise SystemExit(f"source dir does not exist: {source}")
+        try:
+            head = output(["git", "rev-parse", "--verify", "HEAD^{commit}"], cwd=source)
+            tag_commit = (
+                output(
+                    ["git", "rev-parse", "--verify", f"{args.source_tag}^{{commit}}"],
+                    cwd=source,
+                )
+                if args.source_tag
+                else head
+            )
+            dirty = output(["git", "status", "--short"], cwd=source)
+        except subprocess.CalledProcessError as error:
+            raise SystemExit("source dir is not a valid checkout of the requested source tag") from error
+        if dirty:
+            raise SystemExit("source dir must be clean")
+        if head != tag_commit:
+            raise SystemExit(f"source dir HEAD does not match source tag {args.source_tag}")
+        return source
+
+    source = work_dir / "rime-wanxiang"
+    if source.exists():
+        shutil.rmtree(source)
+    clone_ref = args.source_tag or args.source_branch
+    run(
+        [
+            "git",
+            "clone",
+            "--depth",
+            "1",
+            "--branch",
+            clone_ref,
+            args.source_repo,
+            str(source),
+        ],
+        cwd=work_dir,
+    )
+    return source
 
 def write_zip(zip_path, entries):
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:

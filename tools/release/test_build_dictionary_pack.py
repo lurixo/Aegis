@@ -6,12 +6,14 @@
 import base64
 import hashlib
 import struct
+import subprocess
 import sys
 import tempfile
 import unittest
 import zipfile
 import zlib
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -232,6 +234,73 @@ class LanguageModelProtocolTest(unittest.TestCase):
                 with self.subTest(message=message):
                     with self.assertRaisesRegex(ValueError, message):
                         self.require(root, bytes(data))
+
+class SourceCheckoutValidationTest(unittest.TestCase):
+    def git(self, repo, *args):
+        subprocess.run(
+            ["git", *args],
+            cwd=repo,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+    def repository(self, root):
+        repo = root / "source"
+        repo.mkdir()
+        self.git(repo, "init", "-q")
+        self.git(repo, "config", "user.name", "Test User")
+        self.git(repo, "config", "user.email", "test@example.com")
+        table = repo / "table.dict.yaml"
+        table.write_text("first\n")
+        self.git(repo, "add", "table.dict.yaml")
+        self.git(repo, "commit", "-qm", "Create source")
+        self.git(repo, "tag", "v16.2.3")
+        return repo, table
+
+    def args(self, repo, source_tag="v16.2.3"):
+        return SimpleNamespace(source_dir=str(repo), source_tag=source_tag)
+
+    def test_accepts_clean_source_dir_at_the_source_tag(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo, _ = self.repository(root)
+
+            self.assertEqual(
+                repo.resolve(),
+                bp.ensure_source_checkout(self.args(repo), root / "work"),
+            )
+
+    def test_accepts_clean_source_dir_with_no_pinned_source_tag(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo, _ = self.repository(root)
+
+            self.assertEqual(
+                repo.resolve(),
+                bp.ensure_source_checkout(self.args(repo, None), root / "work"),
+            )
+
+    def test_rejects_source_dir_whose_head_does_not_match_the_source_tag(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo, table = self.repository(root)
+            table.write_text("second\n")
+            self.git(repo, "add", "table.dict.yaml")
+            self.git(repo, "commit", "-qm", "Change source")
+
+            with self.assertRaisesRegex(SystemExit, "HEAD does not match"):
+                bp.ensure_source_checkout(self.args(repo), root / "work")
+
+    def test_rejects_dirty_source_dir(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo, table = self.repository(root)
+            table.write_text("dirty\n")
+
+            with self.assertRaisesRegex(SystemExit, "must be clean"):
+                bp.ensure_source_checkout(self.args(repo), root / "work")
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
