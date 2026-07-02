@@ -25,7 +25,7 @@ import java.io.File
 
 /**
  * 9-key T9 disambiguation harness. Measures top-1 accuracy of the user-visible candidate
- * (#1 of decodeCovered) on a representative T9 set (many same-code collisions like 谢谢/这些 =
+  * Chinese IME behavior note.
  * 943943), a full-pinyin regression guard so the T9 work never costs 26-key quality, and the effect
  * of the ★top-N list rerank (user learning + octagram now order the whole list, not just #1).
  * Writes build/t9_report.txt. Octagram is used only if the downloaded model is present locally.
@@ -36,7 +36,9 @@ class T9RerankEvalTest {
     private val dictFile = File("src/main/assets/aegis_dict.bin")
     private val lmFile = File("src/main/assets/aegis_lm.bin")
     private val evalFile = File("src/test/resources/eval_set.tsv")
-    private val gramFile = File(System.getenv("AEGIS_GRAM") ?: "build/nonexistent-aegis-gram")
+    private val gramFile =
+        System.getenv("AEGIS_GRAM")?.takeIf { it.isNotBlank() }?.let(::File)
+            ?: File("build/nonexistent-aegis-gram")
 
     private fun toT9(letters: String): String {
         val map = HashMap<Char, Char>()
@@ -104,7 +106,7 @@ class T9RerankEvalTest {
         val um5 = UserModel().apply { t9Set.forEach { repeat(5) { _ -> record(null, it.second, 1) } } }
         row("+ learning x5", PinyinDecoder(t9, lm, userModel = um5), PinyinDecoder(dict, lm))
 
-        // 943943 candidate LIST: bundled (freq) vs after learning 谢谢 — the tail now responds to learning.
+        // Chinese IME behavior note.
         sb.append("\n943943 list (bundled)   = ").append(PinyinDecoder(t9, lm).decodeCovered("943943", 8).map { it.word })
         val umXie = UserModel().apply { repeat(30) { record(null, "谢谢", 1) } }
         sb.append("\n943943 list (learn 谢谢) = ")
@@ -136,7 +138,7 @@ class T9RerankEvalTest {
 
         val sb = StringBuilder("③ context-aware T9 — contextWeight sweep (octagram=${oct != null})\n")
         sb.append("flip set=${flipSet.size} (context-correct word), control set=${controlSet.size} (freq word correct)\n\n")
-        // ③前 baseline (no context at all)
+        // Chinese IME behavior note.
         val plain = PinyinDecoder(t9, lm, octagram = oct)
         val flipBefore = flipSet.count { (_, py, e) -> plain.decodeCovered(toT9(py), 30).firstOrNull()?.word == e }
         sb.append("③前(无上下文): flip ${flipBefore}/${flipSet.size}\n")

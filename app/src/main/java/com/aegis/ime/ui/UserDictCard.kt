@@ -43,10 +43,10 @@ import com.aegis.ime.user.UserDictImport
 import java.io.File
 
 /**
- * E2/E3 — 学习词库 导入/导出. Import is explicit: after picking a file the user chooses 合并 (default;
- * counts accumulate + dedupe) or 覆盖 (the imported file replaces the dictionary). The card spells out
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  * the default dictionary location (an app-private path invisible to file managers) so it's clear why
- * 导出 exists — it's the only way to pull a copy out.
+  * Chinese IME behavior note.
  */
 @Composable
 internal fun UserDictCard() {
@@ -80,7 +80,7 @@ internal fun UserDictCard() {
                 tmp.outputStream().use { input.copyTo(it) }
             }
             // ④ The pure apply step validates the import and never wipes the live dict on failure
-            // (missing/empty copy, or — for 覆盖 — an import that parses to no entries).
+            // Chinese IME behavior note.
             UserDictImport.apply(tmp, userDb, merge, System.currentTimeMillis())
                 .also { tmp.delete() }
         }.getOrDefault(false)

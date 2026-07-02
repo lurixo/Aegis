@@ -25,18 +25,18 @@ import org.junit.Test
 import java.io.File
 
 /**
- * debug.17 — 隔音符 (apostrophe ' = 显式音节硬边界) 丢字回归矩阵.
+  * Chinese IME behavior note.
  *
- * Root cause: the 26-key buffer admits a LITERAL ' (there is no 分词
+  * Chinese IME behavior note.
  * key on 26-key, so the long-press ' is appended as a buffer char). The decoder's core invariant is "the
  * buffer is pure a-z" — a stray ' poisons segmentation, dict lookup AND the lattice, so the entire post-'
  * tail was silently dropped: `decode("chai'ci")` returned [] and `syllables("chai'ci")` lost the "ci"
- * syllable entirely (≡ 打不出「拆词」, 满屏生僻字).
+  * Chinese IME behavior note.
  *
  * The fix treats ' as a hard syllable boundary throughout the decoder (strip → forced cut, coverage remapped
  * back to the original ' -inclusive index). These lock the WHOLE class so it can never silently regress:
- *   ① 多音节 (带/不带隔音符) 等价无损   ② 隔音符 = 硬边界 (改变切分)   ③ 单字无损 (每个音节位全量同音字)
- *   ④ 常用字/词召回且排序优先于生僻字     ⑤ 健壮性 (前导/尾随/连续 ' 不丢不崩)
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  *
  * Assertions are dict-derived (compare to BinaryDict.exact) so they survive dictionary rebuilds.
  */
@@ -77,7 +77,7 @@ class SeparatorLossTest {
 
         val cov = d.decodeCovered("chai'ci", 30)
         assertTrue("单字「拆」reachable for chai'ci", "拆" in cov.map { it.word })
-        // the post-' "ci" syllable is fully navigable — its complete 同音字 set, not lost.
+        // Chinese IME behavior note.
         assertEquals("ci syllable's homophones intact at position 1", dictSingles("ci"), d.homophonesAt("chai'ci", 1).toSet())
         assertTrue("词 reachable as the 2nd syllable (拆+词 buildable)", "词" in d.homophonesAt("chai'ci", 1))
     }
@@ -97,18 +97,18 @@ class SeparatorLossTest {
         assertTrue("and complete vs the dict", withSep.toSet().containsAll(dictSingles("chai")))
     }
 
-    // ---- ② 隔音符 = 硬边界: it MUST change an otherwise-different segmentation (xi'an vs xian) ----
+    // Chinese IME behavior note.
 
     @Test fun apostropheForcesABoundaryThatPlainInputWouldNot() {
         val d = decoder()
         assertEquals("xian alone is ONE syllable", listOf("xian"), d.syllables("xian").map { it.reading })
         assertEquals("xi'an is forced to xi|an", listOf("xi", "an"), d.syllables("xi'an").map { it.reading })
-        // 西 (xi) is only reachable once the boundary splits xi|an — proves the hard boundary is honoured.
+        // Chinese IME behavior note.
         assertTrue("西 reachable under the forced xi|an split", "西" in singles(d.decodeCovered("xi'an", 30)))
         assertEquals("an syllable homophones intact at position 1", dictSingles("an"), d.homophonesAt("xi'an", 1).toSet())
     }
 
-    // ---- ③ 单字无损 across positions, with a separator present ----
+    // Chinese IME behavior note.
 
     @Test fun everySyllablePositionStaysLosslessWithSeparators() {
         val d = decoder()
@@ -121,7 +121,7 @@ class SeparatorLossTest {
         assertTrue("好 reachable", "好" in d.homophonesAt(input, 1))
     }
 
-    // ---- ④ 常用字/词召回 + 排序优先于生僻字 (freq drives the single-char layer; NOT drowned) ----
+    // Chinese IME behavior note.
 
     @Test fun commonCharsOutrankRareOnesInTheSingleCharLayer() {
         val d = decoder()
@@ -129,7 +129,7 @@ class SeparatorLossTest {
             val s = singles(d.decodeCovered(input, 30))
             val chai = s.filter { it in dictSingles("chai") }
             assertTrue("[$input] 拆 present", "拆" in chai)
-            // 拆(11090) ≫ 钗(2036) > 豺(1463) > 侪(862): the common char must precede the rarer ones.
+            // Chinese IME behavior note.
             assertTrue("[$input] 拆 before 钗", chai.indexOf("拆") < chai.indexOf("钗"))
             assertTrue("[$input] 钗 before 豺", chai.indexOf("钗") < chai.indexOf("豺"))
             assertTrue("[$input] 拆 in the visible head (top 8)", "拆" in s.take(8))
@@ -138,15 +138,15 @@ class SeparatorLossTest {
 
     @Test fun pickingTheLeadingCharConsumesThroughTheSeparator() {
         val d = decoder()
-        // coverage for 拆 must eat "chai" AND the trailing ' (so the remaining buffer is a clean "ci", never "'ci").
+        // Chinese IME behavior note.
         val chaiCand = d.decodeCovered("chai'ci", 30).firstOrNull { it.word == "拆" }
         assertTrue("拆 candidate present", chaiCand != null)
         assertEquals("拆 covers chai + the separator (5 of chai'ci)", 5, chaiCand!!.coveredLen)
     }
 
     @Test fun pickingLeadingCharLeavesACleanTailThatDecodes() {
-        // End-to-end 拆词: pick 拆 (consumes chai + '), the host slices the ORIGINAL buffer by coveredLen, and the
-        // remaining tail must be a clean "ci" that decodes to 词/次 — i.e. 拆 + 词 = 拆词 is fully buildable.
+        // Chinese IME behavior note.
+        // Chinese IME behavior note.
         val d = decoder()
         val chai = d.decodeCovered("chai'ci", 30).first { it.word == "拆" }
         val remaining = "chai'ci".substring(chai.coveredLen)

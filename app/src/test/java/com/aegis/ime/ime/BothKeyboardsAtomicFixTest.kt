@@ -29,10 +29,10 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 /**
- * debug.18 FIX-2, end-to-end on BOTH keyboards (the 26-key has the same problem too — yes, and it's fixed by the
- * same shared layer). The 9-key locks each reading from the left column; the 26-key types literal 隔音符. Both
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  * funnel into the SAME [PinyinDecoder.decodeCovered] with the same (letters, interior cuts), so both grids are
- * boundary-aligned & atomic: no 西安 from a locked xian, no extension-area flood, the target words kept.
+  * Chinese IME behavior note.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -70,7 +70,7 @@ class BothKeyboardsAtomicFixTest {
         return c.preeditForTest() to c.candidateWords()
     }
 
-    /** Drive the 26-key with literal 隔音符 between [readings]. */
+    /** Chinese IME behavior note. */
     private fun alphaSeparated(readings: List<String>): List<String> {
         val c = controller()
         c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))

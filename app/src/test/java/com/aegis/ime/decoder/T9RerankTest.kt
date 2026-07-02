@@ -26,7 +26,7 @@ import java.io.File
 
 /**
  * Locks the 9-key T9 candidate-list rerank: user learning (and, when present, octagram) now order the
- * whole top-N candidate list, not just slot #1. 943943 = 谢谢/这些 collision (这些 has ~21× the corpus
+  * Chinese IME behavior note.
  * frequency, so context-free it legitimately leads; only learning /
  * context / ★E reading-selection can flip a same-code word).
  */
@@ -63,7 +63,7 @@ class T9RerankTest {
 
     @Test
     fun learningDisambiguatesSameCodeToTop1() {
-        // The legitimate path for the 谢谢/这些 case: enough commits of 谢谢 flip it to #1.
+        // Chinese IME behavior note.
         val user = UserModel().apply { repeat(30) { record(null, "谢谢", 1) } }
         val list = decoder(user).decodeCovered("943943", 30).map { it.word }
         assertEquals("谢谢", list.first())
@@ -72,8 +72,8 @@ class T9RerankTest {
 
     @Test
     fun contextDisambiguatesSameCode_theFix() {
-        // ③ THE FIX: 4343 = 各个/哥哥 (各个 slightly more frequent). With no context 各个 leads; with the
-        // committed preceding text 大, the cross-word char-bigram lifts 哥哥 (大哥哥) — for ANY input, no
+        // Chinese IME behavior note.
+        // Chinese IME behavior note.
         // prior learning and no octagram needed. This is the universal same-code disambiguation.
         val d = decoder()
         assertEquals("各个", d.decodeCovered("4343", 30).firstOrNull()?.word)
@@ -95,7 +95,7 @@ class T9RerankTest {
 
     @Test
     fun contextDoesNotOverflipWhenFreqWordIsCorrect() {
-        // 我喜欢这些: the high-frequency 这些 stays #1 — context must not wrongly force a same-code word.
+        // Chinese IME behavior note.
         assertEquals("这些", decoder().decodeCovered("943943", 30, context = "我喜欢").firstOrNull()?.word)
     }
 }

@@ -157,7 +157,7 @@ class RenderHarness {
     @Test fun seam_strip_over_symbols() {
         for ((t, pal) in themes) {
             val panel = SymbolsView(ctx).apply {
-                recentProvider = { listOf("，", "。", "@") }; applyPalette(pal); openCategoryForTest(1) // 中文 glyph grid
+                recentProvider = { listOf("，", "。", "@") }; applyPalette(pal); openCategoryForTest(1) // Chinese IME behavior note.
             }
             stitchStripAndPanel(panel, (300 * density).toInt(), "seam_symbols_$t.png", pal)
         }
@@ -172,7 +172,7 @@ class RenderHarness {
         }
     }
 
-    /** P-C: the symbols panel with 锁定 engaged — the self-drawn padlock should read closed + accent-tinted. */
+    /** Chinese IME behavior note. */
     @Test fun symbols_locked() {
         for ((t, pal) in themes) {
             val v = SymbolsView(ctx).apply {
@@ -182,13 +182,13 @@ class RenderHarness {
         }
     }
 
-    /** E2: the emoji panel — verifies the rail (最近 MRU + the new categories) + grid layout. NOTE: Robolectric's
+    /**
      *  JVM font has no colour-emoji glyphs, so the cells render as tofu boxes here; the device shows real emoji. */
     @Test fun emoji_panel() {
         for ((t, pal) in themes) {
             val v = EmojiView(ctx).apply {
                 recentProvider = { listOf("😀", "👍", "❤️") }
-                applyPalette(pal); openCategoryForTest(1) // index 0 = 最近(MRU); 1 = 黄脸
+                applyPalette(pal); openCategoryForTest(1) // Chinese IME behavior note.
             }
             snap(v, (560 * density).toInt(), "emoji_$t.png")
         }
@@ -204,12 +204,13 @@ class RenderHarness {
         }
     }
 
-    /** debug.17: the 中文 tab now carries ONLY single-cell marks — the single 短横 — / 三点 … ride the grid and
-     *  the wide 双破折号 —— / 双省略号 …… were dropped, so there is no multi-char tile or chip bar. Light AND dark. */
+    /**
+      * Chinese IME behavior note.
+      */
     @Test fun symbols_chinese_marks() {
         for ((t, pal) in themes) {
             val v = SymbolsView(ctx).apply {
-                applyPalette(pal); openCategoryForTest(1) // 中文
+                applyPalette(pal); openCategoryForTest(1) // Chinese IME behavior note.
             }
             val cells = v.gridCellTextsForTest()
             assertTrue("中文 single — / … are grid cells", cells.containsAll(listOf("—", "…")))
@@ -219,7 +220,7 @@ class RenderHarness {
         }
     }
 
-    /** debug.17 items 1+2: the 数学 tab gains trig functions (multi-char cells that auto-shrink to the equal-width
+    /**
      *  grid, NOT wide tiles) and measurement units (℃ ㎏ …). Eyeball that the multi-char cells don't break the
      *  7-column grid. Light AND dark. */
     @Test fun symbols_math() {
@@ -235,7 +236,7 @@ class RenderHarness {
         }
     }
 
-    /** debug.17 item 3: the new 希腊 tab (between 数学 and 箭头) — full lowercase α…ω + uppercase Α…Ω, every cell a
+    /**
      *  single glyph so the grid stays uniform. Eyeball the full set lays out without breaking. Light AND dark. */
     @Test fun symbols_greek() {
         val greekIndex = SymbolCatalog.categories.indexOfFirst { it.id == "greek" } + 1
@@ -249,7 +250,7 @@ class RenderHarness {
         }
     }
 
-    /** debug.17 A2: the 网络 tab — its URL completions still chip in full, but the old "网址补全" caption header
+    /**
      *  above them is gone (the chips speak for themselves). Light AND dark. */
     @Test fun symbols_net() {
         val netIndex = SymbolCatalog.categories.indexOfFirst { it.id == "net" } + 1
@@ -261,8 +262,9 @@ class RenderHarness {
         }
     }
 
-    /** UI-2: the 26-key EXPAND screen — LEFT 分词 column (the drilled syllable highlighted) + that syllable's
-     *  full 同音单字 grid (uncapped) + the 返回/⌫/重输 function column. Light AND dark. */
+    /**
+      * Chinese IME behavior note.
+      */
     @Test fun expand_syllable_column() {
         for ((t, pal) in themes) {
             val v = CandidateGridView(ctx).apply {
@@ -303,7 +305,7 @@ class RenderHarness {
         }
     }
 
-    /** S1 expanded selection grid (A2): left readings + middle candidate grid + right 返回/⌫/重输 column.
+    /**
      *  This is the rich grid the polish touched (right-column bg) but had no render case — now eyeball-able. */
     @Test fun candidate_grid() {
         val h = (300 * ctx.resources.displayMetrics.density).toInt()
@@ -382,14 +384,14 @@ class RenderHarness {
             val v = ClipboardView(ctx).apply {
                 historyProvider = { listOf("hello world", "复制的一段文字") }
                 applyPalette(pal)
-                enterSelectForTest(listOf("hello world")) // selection present -> 删除 enabled (destructive red)
+                enterSelectForTest(listOf("hello world")) // Chinese IME behavior note.
             }
             snap(v, h, "clip_select_$t.png")
         }
     }
 
     @Test fun phrase_expanded_actions() {
-        // debug.16: an expanded 常用语 card's action row = 编辑 / 移动 / 删除. Rendered light + dark.
+        // Chinese IME behavior note.
         val h = (320 * density).toInt()
         for ((t, pal) in themes) {
             val v = ClipboardView(ctx).apply {
@@ -406,7 +408,7 @@ class RenderHarness {
     }
 
     @Test fun phrase_select_mode() {
-        // debug.16: select mode on the 常用语 tab → title 编辑常用语, batch 移动到分类 / 删除.
+        // Chinese IME behavior note.
         val h = (320 * density).toInt()
         for ((t, pal) in themes) {
             val v = ClipboardView(ctx).apply {
@@ -425,7 +427,7 @@ class RenderHarness {
 
     @Test fun phrase_move_chooser() {
         // debug.16: the move-to-category chooser lists OTHER existing categories (current excluded).
-        // debug.17 追加: each row now carries a trailing 🗑 (delete that category) + a ＋ 新建分类… entry.
+        // Chinese IME behavior note.
         val h = (320 * density).toInt()
         for ((t, pal) in themes) {
             val v = ClipboardView(ctx).apply {
@@ -443,7 +445,7 @@ class RenderHarness {
     }
 
     @Test fun edit_bar() {
-        // debug.16 Option A: the inline text-input bar (buffer + caret + 取消/确定) shown above the keyboard.
+        // Chinese IME behavior note.
         val h = (44 * density).toInt()
         for ((t, pal) in themes) {
             val v = EditBarView(ctx).apply { applyPalette(pal); setTitle("编辑常用语"); setText("你好世界") }
@@ -467,9 +469,9 @@ class RenderHarness {
         }
     }
 
-    // debug.16 (#55): the polished 文字编辑面板 — hollow D-pad arrows, 段首/段尾 labels, the copy-bar clipboard
-    // glyph on 粘贴, and per-key outline icons. debug.17: the header back is now the hollow-stroke Glyphs.drawBack
-    // icon + "文字编辑". Snapped with AND without a selection so the muted-vs-active 复制/剪切 icons are eyeballable.
+    // Chinese IME behavior note.
+    // Chinese IME behavior note.
+    // Chinese IME behavior note.
     @Test fun edit_panel() {
         val h = (230 * density).toInt()
         for ((t, pal) in themes) {
@@ -482,7 +484,7 @@ class RenderHarness {
         }
     }
 
-    /** debug.17 ④: a 剪贴板 card's left-swipe reveal — the inline 添加常用语/拆词/删除 row, card NOT expanded. */
+    /** Chinese IME behavior note. */
     @Test fun clip_swipe_reveal() {
         val h = (300 * density).toInt()
         for ((t, pal) in themes) {
@@ -495,7 +497,7 @@ class RenderHarness {
         }
     }
 
-    /** debug.17 ⑤: a 常用语 card's left-swipe reveal — 编辑 / 置顶 / 删除 (distinct from the ⌄ expand row). */
+    /** Chinese IME behavior note. */
     @Test fun phrase_swipe_reveal() {
         val h = (320 * density).toInt()
         for ((t, pal) in themes) {
@@ -509,7 +511,7 @@ class RenderHarness {
         }
     }
 
-    /** debug.17 ③: 排序模式 — the focused drag-reorder list (拖动排序 + ≡ handles + 完成). */
+    /** Chinese IME behavior note. */
     @Test fun phrase_sort_mode() {
         val h = (320 * density).toInt()
         for ((t, pal) in themes) {
@@ -553,8 +555,8 @@ class RenderHarness {
     }
 
     /**
-     * debug.17 B: the action column (删除/复制/剪切/粘贴) must be RIGHT-shifted so its right margin mirrors the
-     * left content's left margin. Scan the rows BELOW the title bar (so "‹ 文字编辑" doesn't skew it) for the
+      * Chinese IME behavior note.
+      * Chinese IME behavior note.
      * leftmost and rightmost painted (non-keyboardBg) columns; assert the two margins are within ~5% of each other.
      */
     private fun assertActionGroupRightShifted(view: View, hPx: Int, pal: ImePalette, name: String) {
@@ -573,7 +575,7 @@ class RenderHarness {
         )
     }
 
-    /** debug.17 F2: a 常用语 with a note SHOWS the note (alias) in the list (上屏 still uses the original). */
+    /** Chinese IME behavior note. */
     @Test fun phrase_note_display() {
         val h = (300 * density).toInt()
         for ((t, pal) in themes) {
@@ -600,7 +602,7 @@ class RenderHarness {
         }
     }
 
-    /** debug.17 E1: the categoryBar ✎ 二级菜单 now carries 导入/导出 alongside 移动/添加分类. */
+    /** Chinese IME behavior note. */
     @Test fun phrase_manage_menu() {
         val h = (320 * density).toInt()
         for ((t, pal) in themes) {
@@ -640,7 +642,7 @@ class RenderHarness {
         }
     }
 
-    /** debug.16 items6-8: the 数字键盘 numpad, aligned to the 9-key pinyin metrics — left operator column the
+    /**
      *  same width, digit cells the same size, NO @, the green ↵ tall across rows 2-3. Eyeball vs keyboard_nine. */
     @Test fun keyboard_numpad() {
         val h = (230 * density).toInt()

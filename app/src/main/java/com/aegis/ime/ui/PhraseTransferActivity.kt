@@ -27,10 +27,10 @@ import com.aegis.ime.R
 import com.aegis.ime.user.ClipboardStore
 
 /**
- * debug.17 E1: SAF bridge for 常用语 (canned-phrase) import / export. The IME service is not an Activity, so it
- * cannot host SAF document pickers — the clipboard panel's ✎ 二级菜单 launches this transparent helper instead.
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  * It reads/writes the SAME [ClipboardStore] files in filesDir (the panel re-reads phrases on its next open), and
- * follows the same rules as the 学习词库 import ([UserDictCard]): 合并 (accumulate, dedupe) vs 覆盖 (replace), and
+  * Chinese IME behavior note.
  * NEVER silently clears — an empty/unreadable file leaves the phrase library untouched.
  */
 class PhraseTransferActivity : ComponentActivity() {

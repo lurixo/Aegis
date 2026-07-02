@@ -45,7 +45,7 @@ import java.io.File
 import java.io.FileOutputStream
 
 /**
- * debug.13 slice-1 render: rasterise the SETTINGS download cards (B1 model on top, B2 dict below) + the 联想
+  * Chinese IME behavior note.
  * toggle (D1) to PNGs in light AND dark, so the order/layout can be eyeballed without a device. Hosts the
  * Compose content in a ComposeView under a Robolectric ComponentActivity, NATIVE-graphics. Writes build/render/.
  * (Cards are in the not-downloaded state, so no network HEAD fires during composition.)
@@ -88,25 +88,25 @@ class SettingsRenderTest {
         for (dark in listOf(false, true)) {
             val t = if (dark) "dark" else "light"
             snapCompose("settings_$t.png", dark) {
-                GramDownloadCard()       // B1 模型 — must render ABOVE
-                DictDownloadCard()       // B2 词库 — must render BELOW
-                AssociationToggleCard()  // D1 联想 toggle
+                GramDownloadCard() // Chinese IME behavior note.
+                DictDownloadCard() // Chinese IME behavior note.
+                AssociationToggleCard() // Chinese IME behavior note.
             }
         }
     }
 
     /**
-     * debug.14 Bug2: the explicit 检测更新 experience in the 已下载 state — the button (present+idle), the visible
-     * "正在检查更新…" step, and the 无更新 result. Seeded via [DownloadCardPreview] so no network HEAD fires.
+      * Chinese IME behavior note.
+      * Chinese IME behavior note.
      */
     @Test fun download_card_update_states() {
         for (dark in listOf(false, true)) {
             val t = if (dark) "dark" else "light"
             snapCompose("dlcard_states_$t.png", dark, hDp = 1600) {
-                DictDownloadCard(DownloadCardPreview(present = true))                       // 检测更新 enabled + 删除 enabled
-                GramDownloadCard(DownloadCardPreview(present = true, checking = true))      // 正在检查更新… + 检测更新/删除 disabled (F1)
-                DictDownloadCard(DownloadCardPreview(present = true, status = ctx.getString(R.string.dict_status_update_current))) // 无更新 结果
-                GramDownloadCard(DownloadCardPreview(present = true, status = ctx.getString(R.string.download_toast_update_offline))) // F2 离线结果
+                DictDownloadCard(DownloadCardPreview(present = true)) // Chinese IME behavior note.
+                GramDownloadCard(DownloadCardPreview(present = true, checking = true)) // Chinese IME behavior note.
+                DictDownloadCard(DownloadCardPreview(present = true, status = ctx.getString(R.string.dict_status_update_current))) // Chinese IME behavior note.
+                GramDownloadCard(DownloadCardPreview(present = true, status = ctx.getString(R.string.download_toast_update_offline))) // Chinese IME behavior note.
             }
         }
     }

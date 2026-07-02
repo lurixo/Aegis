@@ -16,7 +16,7 @@
 package com.aegis.ime.ime
 
 /**
- * debug.16 Option A — the in-IME text-capture buffer for inline 常用语/分类 editing. While [active] (between
+  * Chinese IME behavior note.
  * [begin] and [end]), the IME redirects ALL keyboard output here instead of the target app's InputConnection:
  * committed text / pinyin candidate picks / space / backspace / emoji / symbols. On [end] the redirect stops
  * and normal typing resumes — the host's ImeHost methods are written `if (panelInput.<op>()) return; <editor>`,

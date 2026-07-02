@@ -21,7 +21,7 @@ import org.junit.Test
 import java.io.File
 import java.nio.file.Files
 
-/** Locks the D "常用" symbol store: MRU ordering, dedup, blank-skip, cap, and persistence. */
+/** Chinese IME behavior note. */
 class SymbolUsageStoreTest {
 
     private fun newDir(): File = Files.createTempDirectory("symusage").toFile()

@@ -54,7 +54,7 @@ class LockedReadingCandidatesTest {
     /**
      * Stand-in for the real decoder: rich for both the live digit buffer ([candidatesCovered]) AND the
      * locked full-pinyin reading ([candidatesForReadingCovered]). The locked path returns a full
-     * sentence (covers all the letters) plus shorter prefix words (你/拟/泥 over the first syllable),
+      * Chinese IME behavior note.
      * mirroring `PinyinDecoder.decodeCovered`.
      */
     private val rich = object : CandidateEngine {
@@ -94,19 +94,19 @@ class LockedReadingCandidatesTest {
     }
 
     @Test fun a_prefix_word_picked_after_locking_builds_a_prefix_not_a_per_syllable_commit() {
-        // S1(c) (debug.12): the coverage bridge still maps letters→digits so 你 covers only the first
+        // Chinese IME behavior note.
         // syllable — but picking it must NOT commit per syllable. It builds the assembled prefix and keeps
-        // "de" composing; the whole word reaches the editor in ONE commit at the flush ("你de"), never
-        // "你" then "de" dribbled separately.
+        // Chinese IME behavior note.
+        // Chinese IME behavior note.
         val host = RecordingHost()
         val (_, c) = attached(host)
         c.onKey(Key("", action = KeyAction.SWITCH_NINE))
         "6433".forEach { c.onKey(out(it.toString())) } // ni(64) de(33)
-        c.onKey(pick("ni"))                            // lock syllable 1 → grid: 你的, 你, 拟, 泥
+        c.onKey(pick("ni")) // Chinese IME behavior note.
 
         val niIndex = c.candidateWords().indexOf("你")
         assertTrue("你 present as a partial candidate", niIndex >= 0)
-        c.onPickCandidate(niIndex)                     // build prefix 你, keep "de" composing — NOT committed
+        c.onPickCandidate(niIndex) // Chinese IME behavior note.
         assertTrue("a partial pick must not commit to the editor", host.commits.isEmpty())
         assertEquals("你", c.composingPrefix())
         c.onKey(Key("", action = KeyAction.ENTER))     // flush remainder
@@ -117,7 +117,7 @@ class LockedReadingCandidatesTest {
     @Test fun the_left_column_keeps_offering_the_next_syllable_after_a_lock() {
         // U5 (same region as U1): picking a left-column reading must keep BOTH the middle candidate grid
         // AND the left column populated — the NEXT syllable's combinations must still come out, so the
-        // user can keep selecting ("至少要能出来"). leftColumnReadings is real (no engine), so this also
+        // Chinese IME behavior note.
         // proves the column is never empty while an active syllable remains.
         val (_, c) = attached()
         c.onKey(Key("", action = KeyAction.SWITCH_NINE))

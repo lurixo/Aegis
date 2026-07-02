@@ -41,17 +41,17 @@ import com.aegis.ime.ime.ClipboardPanelState.Tab
 import com.aegis.ime.user.ClipSplitter
 
 /**
- * Clipboard-history + canned-phrases panel (C). Green pill tabs over a list of
- * cards. A card expands (chevron) to reveal +常用语 / 拆词 / 删除 (C3); long-press pops the same three
- * as a centered menu (C6). 拆词 splits a clip into tappable blocks (C4) via [ClipSplitter]. The 多选
- * entry opens the "编辑剪贴板" mode (C7: ○全选 / circle selectors / green 添加常用语 + red 删除) on BOTH
- * tabs. The 常用语 tab carries a ＋ (add) and a bottom category-chip row with a ✎ manage entry (C5).
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  * The tab/select/expand state lives in the pure [ClipboardPanelState] (unit-tested).
  */
 class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     var onPick: (String) -> Unit = {}                 // commit a clip/phrase and close
-    var onCopyBlockToAegis: (String) -> Unit = {}     // 拆词块 → 写 aegis 剪贴板(不上屏/不写系统);面板保持打开
+    var onCopyBlockToAegis: (String) -> Unit = {} // Chinese IME behavior note.
     var onCopyBlocksToAegis: (List<String>) -> Unit = { blocks -> blocks.forEach { onCopyBlockToAegis(it) } }
     var onBack: () -> Unit = {}
     var historyProvider: () -> List<String> = { emptyList() }
@@ -66,15 +66,15 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     var onMovePhrasesTo: (String, List<String>, String) -> Unit = { _, _, _ -> } // debug.16: batch move (from, phrases, to)
     var onReorderPhrase: (String, Int, Int) -> Unit = { _, _, _ -> }    // debug.16: drag-reorder (category, fromIndex, toIndex)
     var onReorderCategory: (Int, Int) -> Unit = { _, _ -> }
-    var onAddPhrase: (String) -> Unit = {}             // debug.17: 顶部 ＋(常用语tab) → 在 (category) 下内联新增一条常用语
-    var onAddCategory: () -> Unit = {}                 // debug.16 Option A: ＋分类 → inline text input
-    var onAddCategoryThenAdd: (List<String>) -> Unit = {} // debug.16: 新建分类 carrying clip(s) to add once created
-    var onAddCategoryThenMove: (String, List<String>) -> Unit = { _, _ -> } // debug.16: 新建分类 carrying a move (from, texts)
-    var onRenameCategory: (String) -> Unit = {}        // debug.16 Option A: 分类改名 → inline text input
-    var onDeleteCategory: (String) -> Unit = {}        // debug.16: 删除分类 (no typing)
-    var onEditNote: (String, String) -> Unit = { _, _ -> } // debug.17 F2: (category, phrase) → inline 备注 edit
-    var onClearCategory: (String) -> Unit = {}         // debug.17 E2: 清空当前分类所有常用语 (category)
-    var onExportPhrases: () -> Unit = {}               // debug.17 E1: SAF 导出全部常用语
+    var onAddPhrase: (String) -> Unit = {} // Chinese IME behavior note.
+    var onAddCategory: () -> Unit = {} // Chinese IME behavior note.
+    var onAddCategoryThenAdd: (List<String>) -> Unit = {} // Chinese IME behavior note.
+    var onAddCategoryThenMove: (String, List<String>) -> Unit = { _, _ -> } // Chinese IME behavior note.
+    var onRenameCategory: (String) -> Unit = {} // Chinese IME behavior note.
+    var onDeleteCategory: (String) -> Unit = {} // Chinese IME behavior note.
+    var onEditNote: (String, String) -> Unit = { _, _ -> } // Chinese IME behavior note.
+    var onClearCategory: (String) -> Unit = {} // Chinese IME behavior note.
+    var onExportPhrases: () -> Unit = {} // Chinese IME behavior note.
     var onImportPhrases: () -> Unit = {}               // debug.17 E1: back-compat import callback
     var onImportPhrasesWithMode: (Boolean) -> Unit = { onImportPhrases() }
     var onClearHistory: () -> Unit = {}
@@ -114,7 +114,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
 
     private val st = ClipboardPanelState()
-    private var phraseCat = "" // selected 常用语 category (category picker, not part of the core state machine)
+    private var phraseCat = "" // Chinese IME behavior note.
 
     // debug.17: a card's left-swipe reveals an inline action row WITHOUT expanding it (the ⌄ expand + long-press
     // menu are untouched). Only one card reveals at a time; a right-swipe (or tapping its body) hides it.
@@ -123,11 +123,12 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     // categoryBar pencil menu's category-move item.
     private var sortMode = false
     private var categorySortMode = false
-    // debug.17 拆词: blocks the user has tapped (→ highlighted + copied to the aegis clipboard) this session.
+    // Chinese IME behavior note.
     private val splitSelected = mutableSetOf<String>()
 
-    /** debug.16: after an inline edit, reopen on the 常用语 tab (optionally at [category]) instead of the
-     *  reset-default 剪贴板 tab, so the user stays where they were editing. */
+    /**
+      * Chinese IME behavior note.
+      */
     fun showPhraseTab(category: String) {
         st.switchTab(ClipboardPanelState.Tab.PHRASE)
         swipeRevealed = null; sortMode = false; categorySortMode = false
@@ -157,7 +158,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private val main = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(BG) }
     private val overlay = FrameLayout(context).apply { visibility = GONE }
-    // One reused list (scroll position survives refresh() — toggling a ○ deep in 编辑剪贴板 no longer jumps to top).
+    // Chinese IME behavior note.
     private val listColumn = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(8), 0, dp(8), dp(8)) }
     private val listScroll = ScrollView(context).apply { addView(listColumn) }
     private var listRenderGeneration = 0
@@ -166,7 +167,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private companion object {
         const val MP = ViewGroup.LayoutParams.MATCH_PARENT
         const val WC = ViewGroup.LayoutParams.WRAP_CONTENT
-        const val DISPLAY_CAP = 2000 // E5: max chars shown in a card preview (storage/上屏 stay full)
+        const val DISPLAY_CAP = 2000 // Chinese IME behavior note.
         const val INITIAL_SYNC_ROWS = 48
         const val APPEND_ROWS_PER_FRAME = 48
         // debug.18 F: a swipe is treated as a vertical list scroll only when dy dominates dx by this factor —
@@ -209,7 +210,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     /**
      * P7 (#19): on dismissal, return to the default view — clipboard tab, normal mode, no expanded card /
-     * overlay, the 常用语 category picker cleared, and the list scrolled to the top — so reopening the panel
+      * Chinese IME behavior note.
      * never resumes on the last tab / category / scroll position. Extends [reset] (which the state-machine
      * test covers) with the picker + scroll state that lives on the view.
      */
@@ -257,7 +258,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
     internal fun listScrollRawBottomForTest(): Int = listScrollRawTopForTest() + listScroll.height
     internal fun expandForTest(text: String) { if (st.expanded != text) st.toggleExpand(text); refresh() }
-    // debug.17 test seams: left-swipe reveal, ✎ 二级菜单, 排序模式, 拆词浮层.
+    // Chinese IME behavior note.
     internal fun revealSwipeForTest(text: String) { revealSwipe(text) }
     internal fun hideSwipeForTest() { hideSwipe() }
     internal fun swipeRevealedForTest(): String? = swipeRevealed
@@ -351,8 +352,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             addView(View(context), ll(0, dp(1), 1f))
             addView(pillTray(), ll(WC, dp(36)))
             addView(View(context), ll(0, dp(1), 1f))
-            // debug.17: the 常用语 tab's ＋ now ADDS A PHRASE to the current category (新建分类 moved to the
-            // categoryBar ✎ 二级菜单); 多选 (☰) lives on BOTH tabs.
+            // Chinese IME behavior note.
+            // Chinese IME behavior note.
             if (st.tab == Tab.PHRASE) addView(glyphToolbarBtn(desc = "添加常用语", onClick = { onAddPhrase(currentCategory()) }) { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }, iconLp(true))
             addView(glyphToolbarBtn(desc = "多选", onClick = { enterSelect() }) { c, p, x, y, s -> Glyphs.drawList(c, p, x, y, s) }, iconLp(true))
             // The last top icon is tab-specific: both destructive clear actions require confirmation.
@@ -362,7 +363,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             }, iconLp(true))
         }
         main.addView(topBar, ll(MP, dp(50)))
-        // U9: no 字数/条数上限 line.
+        // Chinese IME behavior note.
         val entries = currentEntries()
         populateListRows(entries) { e, i -> card(e, i) }
         main.addView(listScroll, ll(MP, 0, 1f))
@@ -370,7 +371,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         if (st.tab == Tab.PHRASE) main.addView(categoryBar(), ll(MP, dp(44)))
     }
 
-    /** debug.17 F2: what a 常用语 SHOWS in the list — its note if set, else the phrase text itself. */
+    /** Chinese IME behavior note. */
     private fun phraseDisplayText(text: String): String {
         val note = phraseNoteProvider(currentCategory(), text)
         return if (note.isNotEmpty()) note else text
@@ -386,7 +387,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             override fun onMeasure(widthSpec: Int, heightSpec: Int) =
                 super.onMeasure(widthSpec, MeasureSpec.makeMeasureSpec(maxH, MeasureSpec.AT_MOST))
             // debug.18 G: this inner ScrollView lives inside the outer list ScrollView. Without claiming the
-            // gesture the outer one intercepts the vertical drag and the inner never scrolls (展开卡滚不动).
+            // Chinese IME behavior note.
             // On DOWN, if we can scroll at all, ask the ancestors NOT to intercept; on MOVE keep that only while
             // we can still scroll in the drag direction, releasing at our boundary so the outer list takes over.
             override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
@@ -412,7 +413,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val revealed = swipeRevealed == text // debug.17: showing its left-swipe action row
         val openBody = expanded || revealed
         val phrase = st.tab == Tab.PHRASE
-        // debug.17 F2: a 常用语 with a note DISPLAYS the note (alias); 上屏 (onPick) still uses the original `text`.
+        // Chinese IME behavior note.
         val display = if (phrase) phraseDisplayText(text) else text
         val col = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -422,7 +423,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val header = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         val body = TextView(context).apply {
             // E5: show only a bounded PREVIEW — a million-char entry would make the TextView measure/layout the
-            // whole string and jank. Storage + 上屏 (onPick) always use the full `text`, never the preview.
+            // Chinese IME behavior note.
             this.text = preview(display)
             // debug.19: expanded and left-swiped cards show the full preview in a bounded four-line body.
             maxLines = if (openBody) Integer.MAX_VALUE else 2
@@ -430,25 +431,25 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setTextColor(TEXT_DARK)
             setPadding(dp(14), dp(12), dp(8), dp(12))
-            // debug.17: tapping a SWIPE-revealed card dismisses the action row (it doesn't 上屏); otherwise 上屏.
+            // Chinese IME behavior note.
             Motion.applyTapFeedback(this, TEXT_DARK)
             setOnClickListener { if (swipeRevealed == text) hideSwipe() else onPick(text) }
-            // 剪贴板 history: long-press = the C6 menu. 常用语 (debug.16): long-press an UN-expanded card = drag to
-            // reorder (wired below); its 编辑/移动/删除 moved to the expanded action row.
+            // Chinese IME behavior note.
+            // Chinese IME behavior note.
             if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
         }
-        // icon收尾: ⌄/⌃ is now a self-drawn chevron (down=collapsed, up=expanded).
+        // Chinese IME behavior note.
         val chevron = glyphView(TEXT_DARK, 7) { c, p, x, y, s -> Glyphs.drawChevron(c, p, x, y, s, down = !expanded) }.apply {
             contentDescription = if (expanded) "收起" else "展开"
             Motion.applyTapFeedback(this, TEXT_DARK)
-            setOnClickListener { swipeRevealed = null; st.toggleExpand(text); refresh() } // ⌄展开 supersedes a swipe reveal
+            setOnClickListener { swipeRevealed = null; st.toggleExpand(text); refresh() } // Chinese IME behavior note.
             if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
         }
         header.addView(if (openBody) boundedExpandBody(body) else body, ll(0, WC, 1f)) // open body scrolls (≤4 lines)
         header.addView(chevron, ll(dp(40), MP))
         col.addView(header, ll(MP, WC))
-        // debug.17: ⌄展开 (unchanged) → the expand action row; left-swipe (NEW) → an inline action row without
-        // expanding (剪贴板: 添加常用语/拆词/删除 — same as expand; 常用语: 编辑/置顶/删除). A collapsed 常用语
+        // Chinese IME behavior note.
+        // Chinese IME behavior note.
         // card keeps its long-press drag-reorder; the swipe is merged into the same touch handler.
         when {
             expanded -> addRevealedRow(col, if (phrase) phraseActionRow(text) else actionRow(text))
@@ -464,7 +465,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         row.post { Motion.revealIn(row, Motion.EnterFrom.TOP, distanceDp = 6f, duration = Motion.STATE_CHANGE) }
     }
 
-    /** Expanded 剪贴板 history card's bottom action row (C3): +常用语 / 拆词 / 删除. */
+    /** Chinese IME behavior note. */
     private fun actionRow(text: String): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         setPadding(dp(24), 0, dp(24), dp(10))
@@ -477,9 +478,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         addView(action, FrameLayout.LayoutParams(WC, WC, gravity))
     }
 
-    /** debug.16: expanded 常用语 card action row = 编辑 / 移动 / 删除 (＋常用语 is meaningless for an existing
-     *  phrase; 拆词 isn't wanted here). 编辑 = inline text input (Option A); 移动 picks a target category
-     *  in-panel; 删除 reuses deletePhraseFrom. */
+    /**
+      * Chinese IME behavior note.
+      * Chinese IME behavior note.
+      */
     private fun phraseActionRow(text: String): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         setPadding(dp(8), 0, dp(8), dp(10))
@@ -490,8 +492,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         addView(glyphAction("删除", render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { deleteOne(text) }, ll(0, WC, 1f))
     }
 
-    /** debug.17: a 常用语 card's LEFT-SWIPE action row = 编辑 / 置顶 / 删除. 置顶 reorders the phrase to the top
-     *  of its category (reuses onReorderPhrase(cat, index, 0)). Distinct from the ⌄-expand row (编辑/移动/删除),
+    /**
+      * Chinese IME behavior note.
      *  which is unchanged. [index] is the phrase's current position in the category. */
     private fun phraseSwipeRow(text: String, index: Int): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
@@ -502,10 +504,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         addView(glyphAction("删除", render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { deleteOne(text) }, ll(0, WC, 1f))
     }
 
-    // ---------- debug.16: drag-to-reorder a 常用语 card ----------
+    // Chinese IME behavior note.
 
-    /** Long-press a collapsed 常用语 card → lift it → drag up/down → drop persists the new order. The card's
-     *  own onClick (上屏) still fires for a plain tap; a pre-long-press VERTICAL move is treated as a scroll, a
+    /**
+      * Chinese IME behavior note.
      *  pre-long-press HORIZONTAL move (debug.17) becomes the left-swipe reveal — so one touch handler serves
      *  tap + long-press-drag + swipe without ever stealing the others' gestures. */
     private fun attachDragHandle(touchTarget: View, card: View, index: Int, text: String) {
@@ -550,7 +552,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         }
     }
 
-    /** debug.17: a swipe-only reveal handler for cards that don't carry the drag handler (剪贴板 cards, and any
+    /**
      *  already-revealed card — so a right-swipe / tap can hide it). Returns false until a horizontal gesture is
      *  certain, so tap / long-press-menu are never swallowed. */
     private fun attachSwipeReveal(target: View, text: String) {
@@ -575,10 +577,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
 
     /** debug.18 F: settle a gesture that was ALREADY decided horizontal (mode==1, disallow-intercept set). It must
-     *  NEVER 上屏 — that was the bug where a light left-swipe typed the clip instead of revealing its actions.
+      * Chinese IME behavior note.
      *  Any LEFT swipe ([dx] negative) reveals the action row regardless of distance (even a short, deliberate
-     *  swipe); a RIGHT swipe hides any reveal. A plain TAP never reaches here (it stays mode==0 → onClick → 上屏),
-     *  so 上屏 still works for taps. */
+      * Chinese IME behavior note.
+      * Chinese IME behavior note.
+      */
     private fun settleSwipe(dx: Float, text: String) {
         if (dx < 0f) revealSwipe(text) else hideSwipe()
     }
@@ -810,7 +813,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         super.onDetachedFromWindow()
     }
 
-    // ---------- debug.17: 排序模式 (reorder phrases in the current category) ----------
+    // Chinese IME behavior note.
 
     private fun enterSortMode() { swipeRevealed = null; categorySortMode = false; sortMode = true; refresh() }
     private fun exitSortMode() { sortMode = false; refresh() }
@@ -818,7 +821,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun exitCategorySortMode() { categorySortMode = false; refresh() }
 
     /** A focused list of the current category's phrases, each with a ≡ drag handle (touch-and-drag reorders
-     *  immediately — no long-press needed, since the user explicitly entered this mode). 完成 exits. Reuses the
+      * Chinese IME behavior note.
      *  debug.16 drag state machine (startDrag/moveDragTo/endDrag over listColumn) and onReorderPhrase. */
     private fun buildSortMode() {
         val cat = currentCategory()
@@ -862,13 +865,13 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(TEXT_DARK)
             setPadding(dp(14), dp(12), dp(8), dp(12))
         }, ll(0, WC, 1f))
-        val handle = glyphView(TEXT_DARK, 9) { c, p, x, y, s -> Glyphs.drawList(c, p, x, y, s) } // icon收尾: ≡ drag handle
+        val handle = glyphView(TEXT_DARK, 9) { c, p, x, y, s -> Glyphs.drawList(c, p, x, y, s) } // Chinese IME behavior note.
         col.addView(handle, ll(dp(44), MP))
         attachSortDrag(handle, col, index)
         return col
     }
 
-    /** In 排序模式 a touch on the ≡ handle starts the drag immediately (no long-press gate). */
+    /** Chinese IME behavior note. */
     private fun attachSortDrag(handle: View, card: View, index: Int) {
         handle.setOnTouchListener { _, e ->
             when (e.actionMasked) {
@@ -1019,11 +1022,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         Motion.applyTapFeedback(this, if (on) GREEN else TEXT_DARK)
         setOnClickListener { swipeRevealed = null; phraseCat = name; refresh() } // debug.17: a category switch drops any stale reveal
-        setOnLongClickListener { showCategoryMenu(name); true } // debug.16: 长按 chip → 改名 / 删除 (inline)
+        setOnLongClickListener { showCategoryMenu(name); true } // Chinese IME behavior note.
         layoutParams = ll(WC, WC).apply { rightMargin = dp(8) }
     }
 
-    /** debug.16: long-press a category chip → inline 改名 (text input) / 删除. */
+    /** Chinese IME behavior note. */
     private fun showCategoryMenu(name: String) {
         val card = menuCard()
         card.addView(menuItem("重命名「$name」") { hideOverlay(); onRenameCategory(name) })
@@ -1106,7 +1109,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         // Icon polish: the selection indicator is a self-drawn radio, filled in GREEN when selected.
         addView(glyphView(if (on) GREEN else TEXT_DARK, 8) { c, p, x, y, s -> Glyphs.drawRadio(c, p, x, y, s, on) }, ll(dp(40), MP))
         addView(TextView(context).apply {
-            // debug.17 F2: a 常用语 with a note shows the note; selection still keys on the original `text`.
+            // Chinese IME behavior note.
             this.text = if (st.tab == Tab.PHRASE) phraseDisplayText(text) else text
             maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(TEXT_DARK)
@@ -1121,7 +1124,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun showOverlay(content: View, gravity: Int = Gravity.CENTER, maxWidthDp: Int? = null) {
         overlay.removeAllViews()
-        // U8: no dim scrim behind the menu (the "暗色长方形") — the bordered card alone
+        // Chinese IME behavior note.
         // separates it from the panel. The overlay stays clickable to catch outside taps for dismissal.
         overlay.setBackgroundColor(0x00000000)
         overlay.setOnClickListener { hideOverlay() }

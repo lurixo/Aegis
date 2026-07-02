@@ -49,7 +49,7 @@ class T9PinyinTest {
 
     @Test fun first_syllable_options_surface_the_full_syllable_xuan_yuan() {
         // xuan/yuan = 9826 (x,y both on key 9). The left column (limit 4) must offer the WHOLE syllables,
-        // not just the 2-letter prefixes yu/wu/xu/zu — else the user can never pick xuan to reach 选 (★T).
+        // Chinese IME behavior note.
         val opts = T9Pinyin.firstSyllableOptions("9826", 4)
         assertTrue("xuan must be offered, was $opts", opts.contains("xuan"))
         assertTrue("yuan must be offered, was $opts", opts.contains("yuan"))
@@ -88,7 +88,7 @@ class T9PinyinTest {
     }
 
     @Test fun preedit_renders_forced_cuts_as_separators() {
-        // a forced boundary must show as 隔音符 ' — including a trailing one right after 分词.
+        // Chinese IME behavior note.
         assertEquals("ni'", T9Pinyin.preedit("64", setOf(2)))          // boundary at the very end
         assertTrue(T9Pinyin.preedit("6433", setOf(2)).startsWith("ni'")) // internal boundary kept in place
         assertEquals(T9Pinyin.preedit("6433"), T9Pinyin.preedit("6433", emptySet())) // no cuts == plain preedit
@@ -117,7 +117,7 @@ class T9PinyinTest {
         assertNull(T9Pinyin.lockFirstReading("64", "mie")) // mie -> 643, not a prefix of 64
     }
 
-    // ---- 9-key left column = real readings only (syllables + 首键字母), no blanks/punct ----
+    // Chinese IME behavior note.
 
     private fun assertCleanColumn(opts: List<String>) {
         assertTrue("no empty placeholder slots, was $opts", opts.none { it.isEmpty() })
@@ -134,7 +134,7 @@ class T9PinyinTest {
     }
 
     @Test fun left_column_ni_full_content_matches_reference() {
-        // ni'shuo'de'bu'dui (expected candidate layout): first key '6' (MNO) → mi, ni + the letters o, m, n.
+        // Chinese IME behavior note.
         // Asserted at the expanded-screen depth (limit 6) where the whole reference set is present.
         val opts = T9Pinyin.leftColumnReadings("64744336488", 6)
         assertTrue("must offer ni, was $opts", "ni" in opts)

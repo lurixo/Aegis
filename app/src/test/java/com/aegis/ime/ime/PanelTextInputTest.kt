@@ -74,10 +74,10 @@ class PanelTextInputTest {
     }
 
     @Test fun begin_resets_the_buffer_so_swipe_up_clears_it() {
-        // The inline backspace swipe-up (重输) re-begins with "" — it must clear the buffer, never the app.
+        // Chinese IME behavior note.
         val p = PanelTextInput()
         p.begin("abc"); assertEquals("abc", p.text())
-        p.begin("") // 重输
+        p.begin("") // Chinese IME behavior note.
         assertTrue(p.active); assertEquals("", p.text())
     }
 

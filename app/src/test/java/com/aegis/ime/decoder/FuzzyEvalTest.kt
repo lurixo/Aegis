@@ -88,7 +88,7 @@ class FuzzyEvalTest {
             exactOn >= exactOff - pairs.size / 20) // within ~5 pts
     }
 
-    /** Collapse only the earliest fuzzy point (a single 平翘舌/鼻音 slip). */
+    /** Chinese IME behavior note. */
     private fun oneFuzzySlip(s: String): String {
         val pats = listOf("zh" to "z", "ch" to "c", "sh" to "s", "ang" to "an", "eng" to "en", "ing" to "in")
         var bestIdx = Int.MAX_VALUE

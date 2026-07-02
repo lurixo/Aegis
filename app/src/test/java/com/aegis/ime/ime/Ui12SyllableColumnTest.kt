@@ -36,11 +36,11 @@ import org.robolectric.annotation.Config
 import java.io.File
 
 /**
- * debug.13 E4 — UI-1 (九键左列末组音节选完保留不消失) and UI-2 (26键展开左侧音节选择列 → 全量同音单字).
+  * Chinese IME behavior note.
  *
  * UI-1 asserts the 9-key left column never vanishes after the LAST syllable is locked — it keeps that
- * syllable visible and re-pickable. UI-2 asserts the 26-key EXPAND screen's left column lists the 分词
- * syllables, drilling one surfaces its COMPLETE (uncapped) 同音单字 set, and picking one 逐字-commits.
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -128,7 +128,7 @@ class Ui12SyllableColumnTest {
     // engine's internal MAX_CANDIDATES=30, proving the controller passes the whole set through.
     private val niHomophones = listOf("你") + (1..39).map { ('一' + it).toString() }
     private val haoHomophones = listOf("号") + (1..49).map { ('伀' + it).toString() }
-    // ② (debug.18) repro fixture: ceshi → [ce, shi]. Distinct homophones so the 逐音节 picks are observable.
+    // Chinese IME behavior note.
     private val ceHomophones = listOf("测", "侧", "厕", "策", "册")
     private val shiHomophones = listOf("试", "是", "事", "时", "市")
 
@@ -199,7 +199,7 @@ class Ui12SyllableColumnTest {
         c.onPickReadingIndex(0) // drill 'ni'
         assertEquals("drilled syllable recorded", 0, c.drilledSyllableForTest())
         // The WHOLE 40-char set reaches the grid — the controller does not re-impose any cap (he=257 / yi=875
-        // 全出 at the device; here the synthetic 40 > the engine's MAX_CANDIDATES=30 proves no UI truncation).
+        // Chinese IME behavior note.
         assertEquals("every ni 同音字 surfaces, uncapped", niHomophones, c.candidateWords())
         assertTrue("more than the 30-cap", c.candidateWords().size > 30)
     }
@@ -253,13 +253,13 @@ class Ui12SyllableColumnTest {
     @Test fun picking_a_homophone_from_the_first_syllable_partial_commits_then_continues() {
         val (host, c) = alphaWithBuffer("nihao")
         c.onPickReadingIndex(0)                       // drill 'ni'
-        c.onPickCandidate(c.candidateWords().indexOf("你")) // pick 你 → 逐字 partial commit
+        c.onPickCandidate(c.candidateWords().indexOf("你")) // Chinese IME behavior note.
         assertTrue("a partial 逐字 pick does not reach the editor yet", host.commits.isEmpty())
         assertEquals("你", c.composingPrefix())
         assertEquals("the drill clears so the remainder shows normally", -1, c.drilledSyllableForTest())
         assertEquals("the next unresolved syllable is now shown", listOf("hao"), c.expandedReadings())
 
-        c.onKey(act(KeyAction.ENTER))                 // flush 你 + remaining 'hao'
+        c.onKey(act(KeyAction.ENTER)) // Chinese IME behavior note.
         assertEquals(listOf("你hao"), host.commits)
     }
 
@@ -288,14 +288,14 @@ class Ui12SyllableColumnTest {
     // ② (debug.18) the leading-first path stays normal: tap the leading syllable, reselect its char, normal flow.
     @Test fun ceshi_drilling_ce_first_partial_commits_then_continues_to_shi() {
         val (host, c) = alphaWithBuffer("ceshi")
-        c.onPickReadingIndex(0)                            // 点首音节 ce
-        c.onPickCandidate(c.candidateWords().indexOf("测")) // 回选 测 → 逐字 partial commit
+        c.onPickReadingIndex(0) // Chinese IME behavior note.
+        c.onPickCandidate(c.candidateWords().indexOf("测")) // Chinese IME behavior note.
         assertTrue("a leading partial pick does not reach the editor yet", host.commits.isEmpty())
         assertEquals("测", c.composingPrefix())
         assertEquals("the drill clears so the remainder shows normally", -1, c.drilledSyllableForTest())
         assertEquals("the buffer advanced to the 'shi' syllable", listOf("shi"), c.expandedReadings())
 
-        c.onKey(act(KeyAction.ENTER))                      // flush 测 + remaining 'shi'
+        c.onKey(act(KeyAction.ENTER)) // Chinese IME behavior note.
         assertEquals(listOf("测shi"), host.commits)
     }
 
@@ -390,7 +390,7 @@ class Ui12SyllableColumnTest {
         val (_, c) = alphaWithBuffer("nihao")
         c.onPickReadingIndex(0)
         assertEquals("drilled grid shows single-char homophones", niHomophones, c.candidateWords())
-        c.clearDrill() // the expand panel was closed (返回 / chevron)
+        c.clearDrill() // Chinese IME behavior note.
         assertEquals("drill cleared on close", -1, c.drilledSyllableForTest())
         assertEquals("strip returns to the normal word candidates", "你好", c.candidateWords().firstOrNull())
     }
@@ -409,7 +409,7 @@ class Ui12SyllableColumnTest {
         iv.showExpandedCandidates()        // open the A2 grid
         c.onPickReadingIndex(0)            // drill 'ni'
         assertEquals(0, c.drilledSyllableForTest())
-        iv.showPanel(null)                 // 返回 closes the grid → onExpandClosed → clearDrill
+        iv.showPanel(null) // Chinese IME behavior note.
         assertEquals("the close path drops the drill", -1, c.drilledSyllableForTest())
     }
 

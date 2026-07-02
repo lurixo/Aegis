@@ -47,7 +47,7 @@ class T9DecoderTest {
 
     @Test
     fun can_type_xuan_选() {
-        // ★T: 选 is keyed under 9826 (xuan); it must be reachable in the candidate list. (Selecting it via
+        // Chinese IME behavior note.
         // the 'xuan' reading needs the scrollable reading column F; here we lock that the dict surfaces it.)
         val d = decoder()
         assertTrue("9826 must surface 选", d.decode("9826", 30).contains("选"))

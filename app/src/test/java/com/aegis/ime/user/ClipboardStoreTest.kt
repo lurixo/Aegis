@@ -192,7 +192,7 @@ class ClipboardStoreTest {
     // ---- C5 categories ----
 
     @Test fun first_run_has_an_empty_default_category() {
-        // debug.14 item1: NO preset phrases — the "默认" category exists (so the UI has an add target) but is empty.
+        // Chinese IME behavior note.
         val s = ClipboardStore(newDir()).apply { load() }
         assertEquals(listOf("默认"), s.categories())
         assertTrue("no default phrases are seeded", s.phrasesIn("默认").isEmpty())
@@ -356,7 +356,7 @@ class ClipboardStoreTest {
     }
 
     @Test fun new_category_with_pending_clip_lands_the_clip_in_it() {
-        // Mirrors confirmInlineInput's ADD_CATEGORY-with-pending step (剪贴板 添加常用语→新建分类→确认).
+        // Chinese IME behavior note.
         val dir = newDir()
         val s = ClipboardStore(dir).apply { load(); addCategory("默认") }
         val name = "工作".trim()
@@ -367,7 +367,7 @@ class ClipboardStoreTest {
     }
 
     @Test fun new_category_with_pending_move_lands_item_in_it() {
-        // Mirrors confirmInlineInput's ADD_CATEGORY-with-pending-move step (移动到分类→新建分类→确认).
+        // Chinese IME behavior note.
         val s = ClipboardStore(newDir()).apply { load(); addCategory("默认"); addPhrasesTo("默认", listOf("你好", "在吗")) }
         val name = "工作".trim()
         s.addCategory(name); s.movePhrasesTo("默认", listOf("你好"), name) // create then land the carried move
@@ -402,7 +402,7 @@ class ClipboardStoreTest {
         assertEquals(listOf("默认", "甲", "乙"), s.categories())
     }
 
-    // ---------- debug.17 F2: phrase notes (display alias; 上屏 uses the original text) ----------
+    // Chinese IME behavior note.
 
     @Test fun note_persists_and_phrasesIn_still_returns_original_text() {
         val dir = newDir()
@@ -516,7 +516,7 @@ class ClipboardStoreTest {
 
     @Test fun import_merge_accumulates_and_dedupes() {
         val s = ClipboardStore(newDir()).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("已收到")) }
-        val incoming = "C\t工作\nP\t已收到\nP\t稍等\nC\t新组\nP\t你好\n" // 已收到 dup, 稍等 new, 新组 new
+        val incoming = "C\t工作\nP\t已收到\nP\t稍等\nC\t新组\nP\t你好\n" // Chinese IME behavior note.
         assertTrue(s.importPhrasesText(incoming, merge = true))
         assertEquals("dedup 已收到, add 稍等", listOf("已收到", "稍等"), s.phrasesIn("工作"))
         assertEquals(listOf("你好"), s.phrasesIn("新组"))

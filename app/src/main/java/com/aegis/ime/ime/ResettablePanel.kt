@@ -19,7 +19,7 @@ package com.aegis.ime.ime
  * P7 (#19): a panel that returns to its DEFAULT state when it is dismissed, so reopening it always starts
  * fresh — default tab/category, no expanded card or overlay, scrolled to the top, locks cleared. [InputView]
  * calls [resetToDefault] on the panel it is leaving (every close funnels through `showPanel(null)`, including
- * `onStartInputView`), so "退出即重置" is wired in one place for every panel. Mirrors P3's lock reset.
+  * Chinese IME behavior note.
  */
 interface ResettablePanel {
     fun resetToDefault()

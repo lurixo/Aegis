@@ -59,7 +59,7 @@ object ModelDownload {
     /**
      * Download [url] to [dest] (via a .part temp + atomic rename), reporting (bytesDone, total).
      * Blocking — call off the main thread. The atomic rename onto the single [dest] path means a
-     * re-download / 更新 overwrites in place rather than accumulating duplicates. Returns the server
+      * Chinese IME behavior note.
      * validator so the caller can record it and later detect a newer remote release. A second call
      * while one is already running returns ok=false immediately (it does not touch the .part).
      */
@@ -127,21 +127,21 @@ object ModelDownload {
     }
 
     /**
-     * Whether to offer an 更新 (update). True unless we positively confirmed the remote validator
+      * Chinese IME behavior note.
      * equals the local one. So: differing validators → update; remote unknown/unreachable → fall back
      * to allowing a forced re-download; only an exact match suppresses it.
      */
     fun updateAvailable(local: String?, remote: String?): Boolean = !(remote != null && remote == local)
 
-    /** debug.14 Bug2/F2: the THREE outcomes an explicit 检测更新 must distinguish — distinct from
+    /**
      *  [updateAvailable]'s 2-valued "offer unless confirmed-equal" (which conflates offline with an update). */
     enum class UpdateCheck { OFFLINE, UP_TO_DATE, UPDATE }
 
     /**
-     * debug.14 Bug2 (F2 离线三态) + Bug1/F1 (删除竞态守卫): classify an explicit update check.
+      * Chinese IME behavior note.
      * [present] guards the late HEAD callback: if the user deleted the pack mid-check it is false → null
      * (discard the stale result; NEVER re-download what was just deleted). Otherwise: an unreachable remote
-     * ([remote] == null) is OFFLINE (neither 有更新 nor 无更新 — no download), an exact match is UP_TO_DATE,
+      * Chinese IME behavior note.
      * a differing remote is UPDATE.
      */
     fun updateAction(present: Boolean, local: String?, remote: String?): UpdateCheck? = when {

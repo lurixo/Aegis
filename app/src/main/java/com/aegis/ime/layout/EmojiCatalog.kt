@@ -16,9 +16,9 @@
 package com.aegis.ime.layout
 
 /**
- * E2 (debug.13): a near-complete standard-Unicode emoji catalogue for the 表情 panel, split into the usual
- * keyboard categories (黄脸 / 手势 / 旗帜 / 动物 / 植物 / 食物 / 旅行 / 活动 / 物品 / 符号). A live "最近" (MRU)
- * page is prepended by the panel itself (fed from a usage store), mirroring the 符号 panel's 常用 tab — it is
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  * NOT a category here. Pure data — no Android deps, no network — so the contents are unit-testable.
  */
 object EmojiCatalog {

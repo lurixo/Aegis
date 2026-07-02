@@ -21,7 +21,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
-/** ④ — import 覆盖/合并 must apply cleanly and, above all, never silently erase the learned dict. */
+/** Chinese IME behavior note. */
 class UserDictImportTest {
 
     private fun userdbWith(vararg words: String): File {

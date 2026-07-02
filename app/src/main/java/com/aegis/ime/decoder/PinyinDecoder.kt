@@ -28,7 +28,8 @@ data class Cand(val word: String, val coveredLen: Int)
 /** A segmented syllable of the input: its [reading] (pinyin letters, for display) and the half-open
  *  input-unit span [[start], [end]) it consumes — letters on the 26-key decoder, digits on the T9
  *  decoder. Exposed (with [PinyinDecoder.homophonesAt]) so the UI can navigate syllable positions and
- *  list every 同音字 of each (UI-1 9-key trailing column / UI-2 26-key pinyin column). */
+  * Chinese IME behavior note.
+  */
 data class Syllable(val reading: String, val start: Int, val end: Int)
 
 /**
@@ -61,7 +62,7 @@ class PinyinDecoder(
      * E4 hot-toggle (debug.16): swap the active fuzzy rule set without rebuilding the decoder — fuzzy is pure
      * query-time variant expansion ([edgesFor] → [Fuzzy.variants]), not a prebuilt index. [edgeN] is widened
      * iff there is now a reason to keep more than one edge per cell, so a non-empty rule set's fuzzy variants
-     * are not crowded out by the single exact match (matters only when there is no lm / 简拼 dict).
+      * Chinese IME behavior note.
      */
     fun setFuzzyRules(rules: Set<String>) {
         fuzzyRules = rules
@@ -196,14 +197,14 @@ class PinyinDecoder(
         source.prefixByFreq(input, limit).map { it.word }
 
     /**
-     * debug.17 隔音符 normalisation. A [SEP] ' in the buffer is a user-forced syllable boundary, never a key
+      * Chinese IME behavior note.
      * character — but the dict keyspace is pure a-z/2-9, so a stray ' silently broke segmentation, dict lookup
-     * AND the lattice (the post-' tail was dropped → 丢字). [normalizeSeparators] strips every ' to a clean
+      * Chinese IME behavior note.
      * buffer and records:
      *  - [Norm.cuts]: clean-index forced boundaries (one per interior ');
      *  - [Norm.origLen]: clean-coverage-length → ORIGINAL coverage length, eating a trailing ' so a partial
      *    commit consumes the separator (the remaining buffer is a clean syllable, never "'ci");
-     *  - [Norm.cleanIndexOfOrig]: original-index → clean-index, to remap any caller-supplied 分词 cuts.
+      * Chinese IME behavior note.
      * Returns null when there is no ' at all — callers then take the original (zero-overhead) path unchanged.
      */
     private class Norm(val clean: String, val cuts: Set<Int>, val origLen: IntArray, private val cleanLenAtOrig: IntArray) {
@@ -240,7 +241,7 @@ class PinyinDecoder(
      *  the committed text before the cursor, conditioning the first word (③ context-aware). */
     fun decode(input: String, limit: Int, context: CharSequence = ""): List<String> {
         if (input.isEmpty()) return emptyList()
-        // debug.17: a 隔音符 ' is a hard syllable boundary, never a buffer character — strip it to pure pinyin
+        // Chinese IME behavior note.
         // and turn its position into a forced cut, so the lattice / dict see valid keys. Without this the whole
         // post-' tail was silently dropped (decode("chai'ci") returned []). No separator → unchanged fast path.
         val norm = normalizeSeparators(input)
@@ -308,7 +309,7 @@ class PinyinDecoder(
         val (ctxCp, ctxWord) = parseContext(context)
         val interior = cuts.filter { it in 1 until input.length }.toSortedSet()
         // debug.18 (FIX-2): a buffer carrying FORCED syllable boundaries — 9-key locked readings OR a 26-key
-        // 隔音符/分词 (both arrive here as interior `cuts`) — decodes BOUNDARY-ALIGNED & atomic. Shared by both
+        // Chinese IME behavior note.
         // keyboards (26-key chai'ci and 9-key locked chai|ci funnel through the SAME decodeCovered → here).
         if (interior.isNotEmpty()) return decodeAtomic(input, limit, interior, ctxCp, ctxWord)
 
@@ -333,14 +334,14 @@ class PinyinDecoder(
         }
         initialsDict?.let { addCompletions(prefixWords(it, input, completionCap)) }
         // Multi-char prefix WORDS straight from the main dict (freq-ordered), independent of the lattice
-        // edge cap, so leading short words (你说 你们 …) surface even without an LM (★G).
+        // Chinese IME behavior note.
         // Leading single chars are intentionally NOT emitted here — they are served by the lossless layer
-        // below, so the PREFIX_PER_LEN cap can never truncate a syllable's 同音字 (the debug.13 loss bug).
+        // Chinese IME behavior note.
         for (q in input.length downTo 1) {
             if (cover.size >= limit) break
             var added = 0
             for (wf in preferredExact(dict, input.substring(0, q))) {
-                if (isSingleChar(wf.word)) continue // FIX-1: ★单字 (incl. U+20000+) → lossless layer, never capped here
+                if (isSingleChar(wf.word)) continue // Chinese IME behavior note.
                 if (cover.putIfAbsent(wf.word, q) == null && ++added >= PREFIX_PER_LEN) break
             }
         }
@@ -352,12 +353,12 @@ class PinyinDecoder(
 
     /**
      * debug.18 (FIX-2) BOUNDARY-ALIGNED ATOMIC decode for a buffer whose syllable boundaries are FORCED
-     * (9-key locks / 26-key 隔音符). The boundary set B = the syllable ends honouring the cuts (each
+      * Chinese IME behavior note.
      * cut-segment is segmented independently, so a declared syllable like `xian` stays ONE syllable and is
-     * NEVER internally re-split into `xi|an` → no spurious 西安). Every lattice edge [p,q] has p,q ∈ B; an
-     * edge spanning exactly one syllable yields only single chars (so the 2-char 西安 keyed by the single
-     * syllable `xian` is DROPPED), an edge spanning ≥2 syllables yields multi-char words (实现 / 九键 / 词库).
-     * Order: ① best sentence, ③ leading multi-syllable words (freq), ② the leading-syllable 同音字 (lossless,
+      * Chinese IME behavior note.
+      * Chinese IME behavior note.
+      * Chinese IME behavior note.
+      * Chinese IME behavior note.
      * incl. U+20000+ rares at the freq tail), ④ the remaining top-N alternative whole sentences.
      */
     private fun decodeAtomic(input: String, limit: Int, interior: Set<Int>, ctxCp: Int, ctxWord: String): List<Cand> {
@@ -383,9 +384,9 @@ class PinyinDecoder(
 
         val out = ArrayList<Cand>(minOf(cover.size, limit) + 40)
         for ((w, len) in cover) { out.add(Cand(w, len)); if (out.size >= limit) break }
-        // ② lossless first-syllable 同音字 (freq-ordered, U+20000+ rares at the tail). The first syllable IS the
+        // Chinese IME behavior note.
         // user-DECLARED unit [0, B[1]] — unlike the unlocked layer it is NOT re-split into sub-prefixes (a locked
-        // `xian` lists 现… only, never the `xi`→西 / `xia`→下 sub-readings the user did not ask for).
+        // Chinese IME behavior note.
         val seen = HashSet<String>(out.size * 2); for (c in out) seen.add(c.word)
         for (w in homophonesOf(input.substring(0, B[1]))) if (seen.add(w)) out.add(Cand(w, B[1]))
         for (s in sentences.drop(1)) if (seen.add(s)) out.add(Cand(s, input.length)) // ④ alternative sentences
@@ -436,9 +437,9 @@ class PinyinDecoder(
     }
 
     /**
-     * ★单字无损层 (debug.13): append the COMPLETE homophone set of every leading syllable the buffer could
+      * Chinese IME behavior note.
      * start with (within [span], longest first), on a budget SEPARATE from the word/phrase candidates — so no
-     * number of words crowds a 同音字 out and no per-length cap can trim it, regardless of how the buffer
+      * Chinese IME behavior note.
      * segments. 2nd+ syllables are served per-position by [homophonesAt] for the navigable UI (UI-1/UI-2).
      */
     private fun appendLeadingSingles(input: String, span: Int, out: ArrayList<Cand>) {
@@ -458,7 +459,7 @@ class PinyinDecoder(
      */
     fun syllables(input: String): List<Syllable> {
         if (input.isEmpty()) return emptyList()
-        // debug.17: a 隔音符 ' was breaking segmentation outright (syllables("chai'ci") returned only [chai],
+        // Chinese IME behavior note.
         // dropping "ci"). Strip separators, segment the clean buffer, then remap each span back to the original
         // ' -inclusive index — the syllable END eats a trailing separator so its coverage is contiguous.
         normalizeSeparators(input)?.let { n ->
@@ -490,7 +491,7 @@ class PinyinDecoder(
 
     /**
      * The COMPLETE single-char homophone set of syllable [index] of [input], frequency-ordered and
-     * UNCAPPED — the ★单字无损 layer for per-syllable UI navigation. Empty when [index] is out of range or
+      * Chinese IME behavior note.
      * the syllable is unknown. On the T9 decoder the key is the syllable's digit group, so the set spans
      * every reading of that group (T9 is inherently ambiguous).
      */
@@ -558,7 +559,7 @@ class PinyinDecoder(
             for (p in 0 until q) {
                 val from = dp[p]
                 if (from.isEmpty()) continue
-                if (cuts.any { it > p && it < q }) continue // ★分词: no word may cross a forced syllable boundary
+                if (cuts.any { it > p && it < q }) continue // Chinese IME behavior note.
                 val edges = edgesFor(input.substring(p, q))
                 if (edges.isEmpty()) continue
                 for (e in edges) {
@@ -607,13 +608,13 @@ class PinyinDecoder(
     }
 
     private companion object {
-        const val SEP = '\''          // 隔音符: a user-forced hard syllable boundary in the buffer (debug.17)
+        const val SEP = '\'' // Chinese IME behavior note.
         const val BOS = -1            // sentence-start sentinel (real code points are >= 0)
         const val EDGE_N = 20         // candidate words considered per lattice edge when an LM is present (C3)
         const val DEFAULT_LAMBDA = 1.0
         const val FUZZY_PENALTY = 3.0     // log-domain cost so exact matches outrank fuzzy ones
         const val ALIAS_PENALTY = 3.5
-        const val INITIALS_PENALTY = 5.0  // 简拼 is the most ambiguous → lowest preference
+        const val INITIALS_PENALTY = 5.0 // Chinese IME behavior note.
         const val DEFAULT_OCTAGRAM_WEIGHT = 0.3 // scales the large positive octagram log-weights
         const val PREFIX_PER_LEN = 16 // max multi-char short words pulled per prefix length (★G; singles are lossless, separate) (C3)
         const val BEAM_W = 12         // debug.18: atomic sentence beam width per syllable node

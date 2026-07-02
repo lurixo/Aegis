@@ -35,20 +35,20 @@ import org.robolectric.annotation.Config
 import java.io.File
 
 /**
- * debug.17 丢字 回归矩阵 — explicitly split by KEYBOARD, driven through the REAL [KeyboardController] +
- * [DictEngine] (assets dict). The chai'ci 拆词 case enters by DIFFERENT paths per keyboard, so each
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  * must be proven separately:
  *
- *  - 26键 (全拼): the 隔音符 is a LITERAL ' appended to the letter buffer → PinyinDecoder.normalizeSeparators
+  * Chinese IME behavior note.
  *    turns it into a hard cut (debug.17 first fix).
- *  - 9键 (T9): the digit buffer never holds a '; the user declares boundaries by LOCKING readings from the
- *    left column (chai, then ci). The locked-path decode used to forward ONLY explicit 分词 cuts, NOT those
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  *    locked-syllable boundaries — so on a rich (downloaded) dict the cross-boundary completions
- *    (柴磁地黄丸 = chaicidihuangwan) + reranked rare chars flooded in and buried 拆/拆词. The fix forwards the
+  * Chinese IME behavior note.
  *    locked boundaries as decode cuts too (KeyboardController, baseCandidates locked branch).
  *
- * 拆 freq 11090 ≫ 钗 2036 > 豺 1463, so the single-char layer (which is freq-ordered, NOT LM-reranked) must
- * keep 拆 ahead of the rarer chai homophones on BOTH keyboards.
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -78,11 +78,11 @@ class KeyboardLossMatrixTest {
         c.onKey(Key(reading, output = reading, action = KeyAction.PICK_READING))
     private fun isSingleChar(word: String): Boolean = word.codePointCount(0, word.length) == 1
 
-    /** The dict's chai homophones, frequency-descending (拆 first … 瘥 last) — derived, so rebuild-safe. */
+    /** Chinese IME behavior note. */
     private fun chaiSingles() =
         BinaryDict.fromFile(File(assets, "aegis_dict.bin")).exact("chai").filter { isSingleChar(it.word) }.map { it.word }
 
-    /** 拆 reachable + leads the rarer chai homophones, on whatever grid the controller rendered (dict-derived). */
+    /** Chinese IME behavior note. */
     private fun assertChaiReachableAndRanked(words: List<String>) {
         assertTrue("拆 must be reachable (was buried/lost)", "拆" in words)
         assertTrue("拆次 (chai|ci best sentence) is among the top candidates", "拆次" in words.take(3))
@@ -93,7 +93,7 @@ class KeyboardLossMatrixTest {
         assertFalse("no stray non-pinyin junk leading the grid", words.first().any { it.code < 128 })
     }
 
-    // ---------------- 26键 (全拼, literal 隔音符) ----------------
+    // Chinese IME behavior note.
 
     @Test fun fullPinyin26Key_chaiApostropheCi_surfacesChaiAndChaici() {
         assumeTrue(assetsPresent())
@@ -104,20 +104,20 @@ class KeyboardLossMatrixTest {
         assertChaiReachableAndRanked(c.candidateWords())
     }
 
-    // ---------------- 9键 (T9, locked readings) ----------------
+    // Chinese IME behavior note.
 
     @Test fun nineKey_lockChaiThenCi_surfacesChaiAndChaici() {
         assumeTrue(assetsPresent())
         val c = controller(realEngine())
         c.onKey(Key("", action = KeyAction.SWITCH_NINE))
-        type(c, "2424"); pick(c, "chai")   // lock 拆/chai (2424) from the left column
-        type(c, "24"); pick(c, "ci")        // lock 词/ci (24)
+        type(c, "2424"); pick(c, "chai") // Chinese IME behavior note.
+        type(c, "24"); pick(c, "ci") // Chinese IME behavior note.
         assertEquals("preedit shows the locked chai'ci", "chai'ci", c.preeditForTest())
         assertChaiReachableAndRanked(c.candidateWords())
     }
 
     @Test fun nineKey_singleSyllableStaysFine_control() {
-        // Single syllables were never broken — guard that chai alone still surfaces 拆 well.
+        // Chinese IME behavior note.
         assumeTrue(assetsPresent())
         val c = controller(realEngine())
         c.onKey(Key("", action = KeyAction.SWITCH_NINE))
@@ -129,7 +129,7 @@ class KeyboardLossMatrixTest {
     /**
      * STRUCTURAL root-cause lock: the locked-syllable boundaries (chai|ci → cut at letter 4) MUST be forwarded
      * to the decode. A recording engine captures the cuts the controller passes; before the fix this set was
-     * empty (only explicit 分词 cuts were forwarded), so the decode could span the boundary the user declared.
+      * Chinese IME behavior note.
      */
     @Test fun nineKey_lockedBoundariesAreForwardedAsDecodeCuts() {
         var seenLetters = ""
@@ -175,8 +175,8 @@ class KeyboardLossMatrixTest {
 
     /**
      * MECHANISM proof (decoder, assets dict): a declared syllable-boundary cut EXCLUDES the cross-boundary
-     * completions that otherwise flood a rich dict (the 柴磁地黄丸 class), while KEEPING the in-boundary word
-     * and the leading single chars. Demonstrated on ni|hao (assets has many 你好X completions; chaici has none).
+      * Chinese IME behavior note.
+      * Chinese IME behavior note.
      */
     @Test fun aDeclaredBoundaryCutExcludesCrossBoundaryCompletions() {
         assumeTrue(File(assets, "aegis_dict.bin").exists())

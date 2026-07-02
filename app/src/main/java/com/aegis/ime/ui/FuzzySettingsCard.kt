@@ -42,7 +42,7 @@ import com.aegis.ime.R
 import com.aegis.ime.dict.Fuzzy
 
 /**
- * E4 — 模糊拼音, each confusion rule with its own toggle. A master switch gates the whole feature;
+  * Chinese IME behavior note.
  * the per-rule switches (sub-keyed "fuzzy_<rule>") feed the decoder's per-rule variant matching and
  * are the same prefs the startup screen (J②) drives, so the two stay in sync. Takes effect next time
  * the user switches to Aegis (the engine reads these on (re)load).

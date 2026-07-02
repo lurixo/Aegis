@@ -34,7 +34,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 /**
- * debug.13 slice-1 logic guards: the dict-pack download surface added to [ModelDownload] (B2) and the 联想
+  * Chinese IME behavior note.
  * toggle pref (D1). The Compose layout itself (model card above dict card, the toggle Switch) is verified by
  * render/eyeball; this pins the non-UI contracts the cards depend on.
  */
@@ -58,7 +58,7 @@ class SettingsSlice1Test {
         assertEquals(ModelDownload.destFile(ctx.filesDir).parentFile, ModelDownload.dictZipFile(ctx.filesDir).parentFile)
     }
 
-    // ---- debug.14 Bug1: the dict 来源链接 is the UPSTREAM repo, symmetric with the model card ----
+    // Chinese IME behavior note.
 
     @Test fun dict_repo_link_points_at_the_upstream_wanxiang_repo() {
         assertEquals("https://github.com/amzxyz/rime-wanxiang", ModelDownload.DICT_REPO_URL)
@@ -145,7 +145,7 @@ class SettingsSlice1Test {
     }
 
     @Test fun updateAvailable_semantics_reused_for_the_dict_card() {
-        // B5: same rule as the model — only an exact validator match suppresses 更新.
+        // Chinese IME behavior note.
         assertTrue("never recorded → offer", ModelDownload.updateAvailable(null, "etag-1"))
         assertFalse("identical → suppress", ModelDownload.updateAvailable("etag-1", "etag-1"))
         assertTrue("differ → offer", ModelDownload.updateAvailable("etag-1", "etag-2"))
@@ -163,13 +163,13 @@ class SettingsSlice1Test {
     }
 
     @Test fun a_check_resolving_after_delete_is_discarded_and_never_redownloads() {
-        // F1: present=false (user tapped 删除 during the in-flight HEAD) → null = no-op, even when remote≠local
+        // Chinese IME behavior note.
         // (which would otherwise have started a re-download of the just-deleted pack).
         assertNull("deleted mid-check → discard", ModelDownload.updateAction(false, null, "etag-2"))
         assertNull("deleted mid-check, differing validators → still discard", ModelDownload.updateAction(false, "etag-1", "etag-2"))
     }
 
-    // ---- D1/debug.17: 联想 toggle pref — default OFF, persists an explicit choice ----
+    // Chinese IME behavior note.
 
     @Test fun associations_pref_defaults_off_and_round_trips() {
         val prefs = ctx.getSharedPreferences("aegis", android.content.Context.MODE_PRIVATE)

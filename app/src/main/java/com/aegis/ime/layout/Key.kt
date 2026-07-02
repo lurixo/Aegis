@@ -25,24 +25,24 @@ enum class LayoutId { ALPHA, NINE, NUMBER, SYMBOL, NUMPAD }
 enum class KeyAction {
     COMMIT,          // emit [Key.output] (directly in EN, or into the composing buffer in CN)
     BACKSPACE,
-    CLEAR_COMPOSING, // 9-key "重输": clear the composing buffer + candidates, leave committed text
+    CLEAR_COMPOSING, // Chinese IME behavior note.
     ENTER,
     SHIFT,           // I4 single tap: one-shot shift (next letter only); tap again to cancel
-    SHIFT_LOCK,      // I4 double tap: caps lock (persistent uppercase until toggled / layout switch / 中英)
+    SHIFT_LOCK, // Chinese IME behavior note.
     SPACE,
     SWITCH_SYMBOLS,
     SWITCH_NUMBERS,
     SWITCH_ALPHA,
     SWITCH_NINE,
-    SWITCH_TEXT,     // H-1: number/symbol/numpad 返回 → the CN default text keyboard (9-key) / EN 26-key
+    SWITCH_TEXT, // Chinese IME behavior note.
     SWITCH_NUMPAD,   // calculator-style number 9-grid
     TOGGLE_LANG,
     PICK_READING,    // 9-key left column: switch to an explicit pinyin reading ([Key.output]) and re-rank
-    SHOW_EDIT,       // open the text-editing (cursor/selection) panel (now via the toolbar 文字编辑 entry)
-    SHOW_SYMBOLS,    // D: 铅笔 ✎ key → the categorized symbols panel (SymbolsView)
-    SEGMENT,         // 9-key 分词/隔音: lock the active syllable boundary while composing
-    CUSTOM_SYMBOL,   // 9-key left punctuation list: the "自定义" entry (per-symbol customization, A3)
-    CUSTOM_OPERATOR, // I2 numpad operator column: the "自定义" entry (add custom operators)
+    SHOW_EDIT, // Chinese IME behavior note.
+    SHOW_SYMBOLS, // Chinese IME behavior note.
+    SEGMENT, // Chinese IME behavior note.
+    CUSTOM_SYMBOL, // Chinese IME behavior note.
+    CUSTOM_OPERATOR, // Chinese IME behavior note.
 }
 
 /**
@@ -53,7 +53,7 @@ enum class KeyAction {
  * @param weight relative width within its row (row-based layouts only).
  * @param direct when true, COMMIT always goes straight to the editor even in pinyin mode (number row, symbols).
  * @param accent draw as the highlighted action key (green enter).
- * @param bold I6: draw the label in the bold primary style (the 9-key 分词/@# keys, matching the letter keys).
+  * Chinese IME behavior note.
  */
 data class Key(
     val label: String,

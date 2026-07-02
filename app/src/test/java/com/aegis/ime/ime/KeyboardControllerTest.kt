@@ -101,7 +101,7 @@ class KeyboardControllerTest {
     @Test fun setEngine_reapplies_last_pushed_fuzzy_rules_across_a_hot_reload_swap() {
         // The lost-update guard: fuzzy rules live inside the engine, so a hot-reload swap must NOT revert them.
         val c = KeyboardController(FakeHost(), FuzzyRecordingEngine())
-        c.setFuzzyRules(setOf("zh")) // service pushes the user's 模糊音 choice (mirrors onStartInputView)
+        c.setFuzzyRules(setOf("zh")) // Chinese IME behavior note.
         val swapped = FuzzyRecordingEngine() // a freshly hot-reloaded engine that carries no rules of its own
         c.setEngine(swapped)
         assertEquals("engine swap must preserve the live fuzzy rules", setOf("zh"), swapped.rules)
@@ -161,18 +161,18 @@ class KeyboardControllerTest {
 
     @Test fun picking_a_partial_candidate_builds_a_prefix_and_defers_the_commit() {
         // S1(c) (debug.12): a candidate whose reading covers only part of the buffer must NOT dribble into
-        // the editor ("选一个就上屏一个"). It joins the assembled prefix (shown at the strip's leftmost) and
+        // Chinese IME behavior note.
         // decoding continues; the whole word lands in ONE commit only when it completes (here: ENTER flush).
         val h = FakeHost()
         val partial = object : CandidateEngine {
             override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
             override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
-                if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2)) // 你 covers the first 2 digits "64"
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2)) // Chinese IME behavior note.
         }
         val c = KeyboardController(h, partial)
         c.onKey(act(KeyAction.SWITCH_NINE))
         "64426".forEach { c.onKey(out(it.toString())) } // ni(64) hao(426)
-        c.onPickCandidate(0) // pick 你 → builds prefix "你", drops "64", keeps "426" — NOTHING committed yet
+        c.onPickCandidate(0) // Chinese IME behavior note.
         assertTrue("a partial pick must NOT commit to the editor", h.commits.isEmpty())
         assertEquals("你 is the assembled prefix", "你", c.composingPrefix())
         assertEquals("the prefix renders at the strip's leftmost", "你hao", c.preeditForTest())
@@ -192,7 +192,7 @@ class KeyboardControllerTest {
         val c = KeyboardController(h, partial)
         c.onKey(act(KeyAction.SWITCH_NINE))
         "64426".forEach { c.onKey(out(it.toString())) } // ni(64) hao(426)
-        c.onPickCandidate(0) // prefix "你", remainder "426"
+        c.onPickCandidate(0) // Chinese IME behavior note.
         assertEquals("你", c.composingPrefix())
         clearCandidateUndo(c)
         repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }   // 426 -> empty, then commit the confirmed prefix
@@ -235,7 +235,7 @@ class KeyboardControllerTest {
         val c = KeyboardController(h, partial)
         c.onKey(act(KeyAction.SWITCH_NINE))
         "64426".forEach { c.onKey(out(it.toString())) }
-        c.onPickCandidate(0)                              // prefix "你", remainder "426"
+        c.onPickCandidate(0) // Chinese IME behavior note.
         clearCandidateUndo(c)
         repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }   // remainder gone, prefix committed
         c.onKey(act(KeyAction.SPACE))
@@ -244,7 +244,7 @@ class KeyboardControllerTest {
 
     @Test fun field_switch_drops_an_assembled_prefix_no_cross_field_leak() {
         // D1 (debug.12, blocker): reset() (onStartInputView / rotation) must DROP a pending prefix so it
-        // cannot leak into the next field. Build "你", reset → the prefix is gone and a fresh commit in the
+        // Chinese IME behavior note.
         // new field never carries it.
         val h = FakeHost()
         val partial = object : CandidateEngine {
@@ -255,14 +255,14 @@ class KeyboardControllerTest {
         val c = KeyboardController(h, partial)
         c.onKey(act(KeyAction.SWITCH_NINE))
         "64426".forEach { c.onKey(out(it.toString())) }
-        c.onPickCandidate(0)                              // prefix "你" pending, nothing committed
+        c.onPickCandidate(0) // Chinese IME behavior note.
         assertEquals("你", c.composingPrefix())
         assertTrue("partial pick committed nothing", h.commits.isEmpty())
 
         c.reset()                                         // simulate onStartInputView (new field) / rotation
         assertEquals("the pending prefix is dropped on field switch", "", c.composingPrefix())
 
-        // In the "new field": flush a fresh buffer — the dropped 你 must NOT reappear prepended.
+        // Chinese IME behavior note.
         c.onKey(act(KeyAction.SWITCH_NINE))
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onKey(act(KeyAction.ENTER))
@@ -279,7 +279,7 @@ class KeyboardControllerTest {
         val c = KeyboardController(h, partial)
         c.onKey(act(KeyAction.SWITCH_NINE))
         "64426".forEach { c.onKey(out(it.toString())) }
-        c.onPickCandidate(0)                              // prefix "你", remainder "426"
+        c.onPickCandidate(0) // Chinese IME behavior note.
         clearCandidateUndo(c)
         repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }   // remainder gone, prefix committed
         c.onKey(Key("，", output = "，", direct = true))   // idle-column punctuation (direct)
@@ -391,10 +391,10 @@ class KeyboardControllerTest {
 
     @Test fun shift_is_inert_in_cn_full_pinyin_26_key() {
         // I4: ⇧ sits on the shared 26-key, but shift is meaningless for full-pinyin — tapping it in
-        // CN 全拼26键 must NOT arm (which would stick the keycaps uppercase while the pinyin stays lowercase).
+        // Chinese IME behavior note.
         val h = FakeHost()
         val c = KeyboardController(h, engine)
-        c.onKey(act(KeyAction.SWITCH_ALPHA)) // CN 全拼26键 → mode = PINYIN
+        c.onKey(act(KeyAction.SWITCH_ALPHA)) // Chinese IME behavior note.
         c.onKey(act(KeyAction.SHIFT))
         assertEquals("shift stays OFF in CN pinyin", "OFF", c.shiftStateName())
         c.onKey(act(KeyAction.SHIFT_LOCK))
@@ -410,7 +410,7 @@ class KeyboardControllerTest {
         assertEquals("OFF", c.shiftStateName())
         c.onKey(act(KeyAction.SWITCH_ALPHA)); c.onKey(act(KeyAction.SHIFT_LOCK))
         assertEquals("LOCK", c.shiftStateName())
-        c.onKey(act(KeyAction.TOGGLE_LANG))    // 中英 toggle clears it too
+        c.onKey(act(KeyAction.TOGGLE_LANG)) // Chinese IME behavior note.
         assertEquals("OFF", c.shiftStateName())
     }
 
@@ -446,7 +446,7 @@ class KeyboardControllerTest {
         val c = KeyboardController(FakeHost(), engine)
         c.onKey(act(KeyAction.SWITCH_NINE))
         assertEquals(
-            com.aegis.ime.layout.Layouts.ninePunctuation().map { it.label }, // ，。？！…：；~.-@自定义
+            com.aegis.ime.layout.Layouts.ninePunctuation().map { it.label }, // Chinese IME behavior note.
             c.nineLeftColumn().map { it.label },
         )
     }
@@ -494,7 +494,7 @@ class KeyboardControllerTest {
 
     @Test fun nine_left_column_ni_full_scroll_list_matches_reference() {
         // A3: the scrollable column now carries the FULL combo list for ni'shuo'de'bu'dui — real readings
-        // ni & mi PLUS the first-key letters m/n/o (expected candidate layout "mi ni o m n"), clean, no blanks.
+        // Chinese IME behavior note.
         val col = nineColumnFor("64744336488").map { it.label }
         assertTrue("ni present, was $col", "ni" in col)
         assertTrue("mi present, was $col", "mi" in col)
@@ -503,7 +503,7 @@ class KeyboardControllerTest {
         assertTrue("clean a-z only, was $col", col.all { s -> s.all { it in 'a'..'z' } })
     }
 
-    // ---- A2 expanded selection screen (combo selector + 退格 / 重输) ----
+    // Chinese IME behavior note.
 
     @Test fun expanded_readings_empty_at_rest_combos_while_composing() {
         val c = KeyboardController(FakeHost(), engine)
@@ -599,7 +599,7 @@ class KeyboardControllerTest {
         val c = KeyboardController(FakeHost(), full)
         c.onKey(act(KeyAction.SWITCH_NINE))
         "426".forEach { c.onKey(out(it.toString())) }
-        c.onPickCandidate(0) // commit 你好 → buffer empties
+        c.onPickCandidate(0) // Chinese IME behavior note.
         assertTrue("no candidates linger after commit (no ghost)", c.candidateWords().isEmpty())
     }
 
@@ -831,7 +831,7 @@ class KeyboardControllerTest {
         c.setLearningBlocked(true) // password / NO_PERSONALIZED_LEARNING field
         c.onKey(act(KeyAction.SWITCH_NINE))
         "426".forEach { c.onKey(out(it.toString())) }
-        c.onPickCandidate(0) // commit 密码
+        c.onPickCandidate(0) // Chinese IME behavior note.
         assertTrue("a blocked field must never learn the committed word", learned.isEmpty())
     }
 
@@ -844,7 +844,7 @@ class KeyboardControllerTest {
         assertEquals(listOf("密码"), learned)
     }
 
-    // ---- ★A9 退格 = 退回上一步 (a left-column pick is a step; never drop a whole syllable) ----
+    // Chinese IME behavior note.
 
     @Test fun backspace_steps_back_a_locked_reading_not_the_whole_syllable() {
         val c = KeyboardController(FakeHost(), engine)
@@ -902,7 +902,7 @@ class KeyboardControllerTest {
     }
 
     @Test fun lang_round_trip_returns_to_the_cn_default_keyboard() {
-        // B5 regression: 中英 there-and-back must NOT demote a 9-key user to 26-key.
+        // Chinese IME behavior note.
         val c = KeyboardController(FakeHost(), engine)
         c.reset() // CN, 9-key default
         assertEquals(LayoutId.NINE, c.activeLayoutId())
@@ -913,7 +913,7 @@ class KeyboardControllerTest {
     }
 
     @Test fun lang_round_trip_preserves_a_manual_cn_26_key_choice() {
-        // If the user manually switched CN to 26-key, a 中英 round-trip keeps 26-key (captured on leave).
+        // Chinese IME behavior note.
         val c = KeyboardController(FakeHost(), engine)
         c.reset() // CN 9-key
         c.onKey(act(KeyAction.SWITCH_ALPHA)) // manual CN -> 26-key
@@ -926,7 +926,7 @@ class KeyboardControllerTest {
     // ---- ③ debug.18: changing the CN default keyboard takes effect IMMEDIATELY (no IME re-launch) ----
 
     @Test fun changing_the_cn_default_keyboard_hot_applies_without_a_relaunch() {
-        // The bug: flipping the 9键/26键 setting only took effect on the next reset()/onStartInputView, so it
+        // Chinese IME behavior note.
         // needed re-launching the IME. Now the live layout switches the instant the pref is pushed.
         val c = KeyboardController(FakeHost(), engine)
         c.reset() // CN, 9-key default
@@ -960,7 +960,7 @@ class KeyboardControllerTest {
         assertEquals(LayoutId.NINE, c.activeLayoutId())
         c.onKey(act(KeyAction.SWITCH_NUMPAD)) // 123 → numpad
         assertEquals(LayoutId.NUMPAD, c.activeLayoutId())
-        c.onKey(act(KeyAction.SWITCH_TEXT))   // 返回
+        c.onKey(act(KeyAction.SWITCH_TEXT)) // Chinese IME behavior note.
         assertEquals("返回 lands back on the 9-key default, not 26-key (H-1)", LayoutId.NINE, c.activeLayoutId())
     }
 
@@ -969,7 +969,7 @@ class KeyboardControllerTest {
         c.reset()
         c.onKey(act(KeyAction.SWITCH_SYMBOLS)) // @# → symbols
         assertEquals(LayoutId.SYMBOL, c.activeLayoutId())
-        c.onKey(act(KeyAction.SWITCH_TEXT))    // 返回
+        c.onKey(act(KeyAction.SWITCH_TEXT)) // Chinese IME behavior note.
         assertEquals(LayoutId.NINE, c.activeLayoutId())
     }
 
@@ -979,7 +979,7 @@ class KeyboardControllerTest {
         c.reset()
         c.onKey(act(KeyAction.TOGGLE_LANG))    // → EN (26-key)
         c.onKey(act(KeyAction.SWITCH_NUMBERS)) // 123 → number page
-        c.onKey(act(KeyAction.SWITCH_TEXT))    // 返回
+        c.onKey(act(KeyAction.SWITCH_TEXT)) // Chinese IME behavior note.
         assertEquals(LayoutId.ALPHA, c.activeLayoutId())
     }
 
@@ -996,7 +996,7 @@ class KeyboardControllerTest {
     }
 
     @Test fun backspace_up_swipe_clears_pending_pinyin_in_any_layout() {
-        // C: up-swipe on backspace clears the 任务栏 (pending pinyin) and is consumed before the field clear.
+        // Chinese IME behavior note.
         val h = FakeHost()
         val c = KeyboardController(h, engine)
         c.onKey(act(KeyAction.SWITCH_NINE))
@@ -1019,7 +1019,7 @@ class KeyboardControllerTest {
         val c = KeyboardController(h, partial)
         c.onKey(act(KeyAction.SWITCH_NINE))
         "64426".forEach { c.onKey(out(it.toString())) }
-        c.onPickCandidate(0)                              // prefix "你", remainder "426"
+        c.onPickCandidate(0) // Chinese IME behavior note.
         clearCandidateUndo(c)
         assertEquals("你", c.composingPrefix())
         assertTrue("up-swipe must consume the gesture (重输), not fall through to the field wipe", c.onBackspaceSwipe(true))

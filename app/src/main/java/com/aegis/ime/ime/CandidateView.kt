@@ -28,8 +28,8 @@ import com.aegis.ime.ime.theme.ImeShapes
 import kotlin.math.abs
 
 /**
- * Toolbar shortcuts on the idle candidate strip (C2).
- * the bar keeps ONLY: A (brand/settings) · 表情 · 文字编辑 · 剪贴板·常用语 — plus the collapse ⌄ (separate).
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  * The leftover ⌨ (9↔26 switch → the keyboard's startup setting) and 123 (numpad, still on the keyboards) are gone.
  */
 enum class BarFunction { BRAND, EMOJI, EDIT, CLIPBOARD } // debug.17: glyphs are self-drawn (Glyphs.*), no char field
@@ -263,9 +263,9 @@ class CandidateView(context: Context) : View(context) {
     private fun drawIcon(c: Canvas, f: BarFunction, cx: Float, cy: Float, s: Float) {
         when (f) {
             BarFunction.BRAND -> Glyphs.drawBrandA(c, iconPaint, cx, cy, s)     // leading brand mark → settings
-            BarFunction.EMOJI -> Glyphs.drawEmoji(c, iconPaint, cx, cy, s)      // 表情
-            BarFunction.EDIT -> Glyphs.drawEditCaret(c, iconPaint, cx, cy, s)   // 文字编辑 (text I-beam)
-            BarFunction.CLIPBOARD -> Glyphs.drawClipboard(c, iconPaint, cx, cy, s) // 剪贴板·常用语
+            BarFunction.EMOJI -> Glyphs.drawEmoji(c, iconPaint, cx, cy, s) // Chinese IME behavior note.
+            BarFunction.EDIT -> Glyphs.drawEditCaret(c, iconPaint, cx, cy, s) // Chinese IME behavior note.
+            BarFunction.CLIPBOARD -> Glyphs.drawClipboard(c, iconPaint, cx, cy, s) // Chinese IME behavior note.
         }
     }
 

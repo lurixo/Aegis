@@ -30,8 +30,8 @@ import org.junit.Test
  *
  *  F1 (data loss): after locking a reading, a candidate whose coverage is NOT on a syllable boundary used
  *      to be mislabelled as covering the WHOLE buffer — picking it committed the partial word AND cleared
- *      the rest of the still-typed digits (越界候选过度上屏丢数据). It must partial-commit only what it covers.
- *  F6: a forced 分词 boundary in the active tail was dropped the moment a reading was locked, because the
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  *      locked-path decode was called without the cuts the unlocked path always forwarded.
  */
 class Debug12FixATest {
@@ -94,7 +94,7 @@ class Debug12FixATest {
         val c = KeyboardController(RecordingHost(), probe)
         c.onKey(nine())
         "6433".forEach { c.onKey(digit(it)) }        // ni(64) de(33)
-        c.onKey(Key("", action = KeyAction.SEGMENT)) // 分词 → forced boundary at digit 4 (between "de" and "hao")
+        c.onKey(Key("", action = KeyAction.SEGMENT)) // Chinese IME behavior note.
         "426".forEach { c.onKey(digit(it)) }         // hao(426)
         c.onKey(pick("ni"))                          // lock syllable 1 (activeStart → 2)
 
@@ -169,13 +169,13 @@ class Debug12FixATest {
         val eng = LearnSpyEngine()
         val c = KeyboardController(RecordingHost(), eng) // default ALPHA + CN = pinyin buffer
         "hao".forEach { c.onKey(Key(it.toString(), output = it.toString())) }
-        c.onPickCandidate(c.candidateWords().indexOf("好")) // commit 好 → learn(null,好); lastWord=好
+        c.onPickCandidate(c.candidateWords().indexOf("好")) // Chinese IME behavior note.
         assertTrue("precondition: nothing pending after the commit", c.preeditForTest().isEmpty())
 
         c.onBarFunction(BarFunction.EMOJI)                 // idle tap → must be a no-op for the buffer/lastWord
 
         "hao".forEach { c.onKey(Key(it.toString(), output = it.toString())) }
-        c.onPickCandidate(c.candidateWords().indexOf("好")) // commit 好 again → must learn(好,好), not (null,好)
+        c.onPickCandidate(c.candidateWords().indexOf("好")) // Chinese IME behavior note.
         assertEquals(
             "an idle toolbar tap preserves the bigram predecessor",
             listOf<Pair<String?, String>>(null to "好", "好" to "好"), eng.learns,

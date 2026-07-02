@@ -158,7 +158,7 @@ private fun SetupScreen(resumeSignal: Int = 0) {
             .fillMaxSize()
             // debug.16: pad the scroll VIEWPORT with the full safe-drawing insets (system bars + cutout + IME)
             // OUTSIDE the scroll, so the viewport shrinks to the keyboard top — keeping content below the status
-            // bar and letting the focused "试打" field be brought above the keyboard (see settingsScrollInsets).
+            // Chinese IME behavior note.
             .settingsScrollInsets(
                 scrollState = rememberScrollState(),
                 insets = WindowInsets.safeDrawing,
@@ -194,15 +194,15 @@ private fun SetupScreen(resumeSignal: Int = 0) {
             }
         }
 
-        // debug.13 下载模块顺序: 增强模型(B1, 上) → 全量词库(B2, 下) → 模糊拼音 → 联想(D1) → 9键/26键。
+        // Chinese IME behavior note.
         // The cards are each in their own file so the B-order work and the model/dict/fuzzy work don't collide.
-        GramDownloadCard()   // B1 模型(.gram) — reused as-is, on top
-        DictDownloadCard()   // B2 全量词库包 — below the model,独立 download / 更新检测 (B5)
+        GramDownloadCard() // Chinese IME behavior note.
+        DictDownloadCard() // Chinese IME behavior note.
         FuzzySettingsCard()
-        AssociationToggleCard() // D1 联想开关 (UI + pref; KeyboardController D2 reads it)
+        AssociationToggleCard() // Chinese IME behavior note.
         LayoutChoiceCard()
-        // debug.16 Option A: the separate 常用语管理 Activity is gone — categories/phrases are now managed
-        // fully inline in the clipboard panel's 常用语 tab (＋ / ✎ / 长按 chip / 长按卡拖动 / 展开卡 编辑·移动·删除).
+        // Chinese IME behavior note.
+        // Chinese IME behavior note.
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(
@@ -260,7 +260,7 @@ private fun SetupScreen(resumeSignal: Int = 0) {
  * system bars + display cutout + IME) pad the scroll container OUTSIDE the verticalScroll, so the scroll
  * VIEWPORT shrinks to the keyboard top. This keeps the top content below the status bar and the nav bar
  * unoccluded, and — crucially — because the viewport excludes the keyboard, the scroll's bring-into-view lifts
- * the focused 试打 field ABOVE the keyboard when it gains focus (with windowSoftInputMode=adjustResize stopping
+  * Chinese IME behavior note.
  * the window from panning under the status bar). There is no leftover blank: the IME inset collapses when the
  * keyboard hides.
  *

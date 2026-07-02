@@ -32,8 +32,8 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 /**
- * debug.16 (常用语 tab) full rewrite: expanded-card action row (编辑 / 移动 / 删除), drag-to-reorder state
- * machine, and the tab-aware select mode (编辑常用语 + batch 移动到分类 / 删除). The 剪贴板 history tab is
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  * unaffected. Overlay menus live in ClipboardView child 1, so chooser interactions are scoped there to avoid
  * hitting same-named category chips in the bottom bar.
  */
@@ -56,7 +56,7 @@ class PhrasePanelTest {
         val tv = textViews(root).firstOrNull { it.text?.toString() == label && it.hasOnClickListeners() } ?: return false
         tv.performClick(); return true
     }
-    // icon收尾: self-drawn icon buttons have NO text — locate by contentDescription.
+    // Chinese IME behavior note.
     private fun allViews(root: View): List<View> {
         val out = ArrayList<View>()
         fun walk(x: View) { out.add(x); if (x is ViewGroup) for (i in 0 until x.childCount) walk(x.getChildAt(i)) }
@@ -67,7 +67,8 @@ class PhrasePanelTest {
         v.performClick(); return true
     }
     /** Click an action-row cell [label]: an icon+label TextView (has a leading compound drawable), so it is not
-     *  confused with the same-named tab pill (icon收尾 made the action's label "常用语" collide with the 常用语 tab). */
+      * Chinese IME behavior note.
+      */
     private fun clickAction(root: View, label: String): Boolean {
         val tv = textViews(root).firstOrNull { it.text?.toString() == label && it.hasOnClickListeners() && it.compoundDrawables.any { d -> d != null } } ?: return false
         tv.performClick(); return true
@@ -91,7 +92,7 @@ class PhrasePanelTest {
         forcePhrasesStateForTest("默认"); refresh()
     }
 
-    // ---- expanded card action row = 编辑 / 移动 / 删除 ----
+    // Chinese IME behavior note.
 
     @Test fun expanded_phrase_card_action_row_is_edit_move_delete() {
         val v = phraseView().apply { expandForTest("你好") }
@@ -414,8 +415,8 @@ class PhrasePanelTest {
     }
 
     // ---- debug.16 Option A: inline category management triggers ----
-    // (debug.17 re-routed these: top ＋ → 添加常用语; categoryBar ✎ → 二级菜单 whose 添加分类 → onAddCategory.
-    //  Full coverage is in Debug17PanelTest; this guards that 新建分类 is still reachable from the ✎ menu.)
+    // Chinese IME behavior note.
+    // Chinese IME behavior note.
 
     @Test fun categorybar_pencil_menu_add_category_still_triggers_onAddCategory() {
         var adds = 0
@@ -441,8 +442,8 @@ class PhrasePanelTest {
 
     @Test fun top_bar_icons_are_uniform_size() {
         val v = phraseView()
-        // icon收尾: all top icons are self-drawn Views (no text), located by contentDescription, in one icon slot
-        // (返回 / ＋添加常用语 / ☰多选 / 🗑清空分类 on the 常用语 tab).
+        // Chinese IME behavior note.
+        // Chinese IME behavior note.
         val wanted = setOf("返回", "添加常用语", "多选", "清空分类")
         val icons = allViews(v).filter { it.contentDescription?.toString() in wanted && it.hasOnClickListeners() }
         assertEquals("all 4 phrase-tab top icons present", 4, icons.size)
@@ -452,12 +453,12 @@ class PhrasePanelTest {
         assertTrue("top icons are transparent controls, not rounded chips", icons.all { it.background == null })
     }
 
-    // ---- debug.16 fix: 剪贴板 添加常用语 → 新建分类 must carry the clip into the new category ----
+    // Chinese IME behavior note.
 
     private fun clipboardView(history: List<String>, cats: List<String>): ClipboardView = ClipboardView(ctx).apply {
         historyProvider = { history }
         categoriesProvider = { cats }
-        applyPalette(pal); refresh() // default tab = 剪贴板
+        applyPalette(pal); refresh() // Chinese IME behavior note.
     }
 
     @Test fun clipboard_add_to_new_category_carries_the_clip() {
@@ -465,7 +466,7 @@ class PhrasePanelTest {
         val v = clipboardView(listOf("hello"), listOf("默认")).apply { onAddCategoryThenAdd = { carried = it } }
         v.expandForTest("hello")
         assertTrue(clickAction(v, "常用语"))           // open the category chooser
-        assertTrue(click(overlayOf(v), "＋ 新建分类…"))   // pick 新建分类
+        assertTrue(click(overlayOf(v), "＋ 新建分类…")) // Chinese IME behavior note.
         assertEquals("the clip rides the inline new-category flow", listOf("hello"), carried)
     }
 
@@ -486,9 +487,9 @@ class PhrasePanelTest {
         assertEquals("默认" to listOf("hello"), saved)
     }
 
-    // ---- debug.16 symmetric fix: 移动到分类 → 新建分类 must carry the move (only reachable with no other category) ----
+    // Chinese IME behavior note.
 
-    /** A 常用语-tab view with a SINGLE category, so the move chooser has no other target → offers 新建分类. */
+    /** Chinese IME behavior note. */
     private fun singleCatPhraseView(): ClipboardView = ClipboardView(ctx).apply {
         categoriesProvider = { listOf("默认") }
         phrasesInProvider = { c -> if (c == "默认") listOf("你好", "在吗") else emptyList() }

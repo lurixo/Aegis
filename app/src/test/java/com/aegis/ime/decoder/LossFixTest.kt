@@ -25,12 +25,12 @@ import org.junit.Test
 import java.io.File
 
 /**
- * debug.13 — 连续拼音「单字丢字」 fix (②分层预算 + ①按音节全量补单字), now over the FULL (freq≥1, 14-table)
+  * Chinese IME behavior note.
  * dictionary.
  *
  * Contract proven here: for EVERY syllable position the single-char layer lists the syllable's COMPLETE
  * homophone set — exactly what `dict.exact(syllable)` holds — independent of total buffer length and never
- * crowded out by word/phrase candidates. The bug: 「he」 alone listed all its 单字 but 「heshui」 truncated
+  * Chinese IME behavior note.
  * them (PREFIX_PER_LEN cap).
  *
  * Assertions are **dict-derived** (compare against `BinaryDict.exact`), not hard-coded counts, so they
@@ -44,7 +44,7 @@ class LossFixTest {
     private val lmFile = File("src/main/assets/aegis_lm.bin")
     private val jianpinFile = File("src/main/assets/aegis_jianpin.bin")
 
-    /** Production-faithful 26-key decoder: letter dict + char-bigram LM + 简拼 initials (fuzzy off). */
+    /** Chinese IME behavior note. */
     private fun letterDecoder(): PinyinDecoder {
         assumeTrue("26-key dict + LM assets present", dictFile.exists() && lmFile.exists())
         val initials = if (jianpinFile.exists()) BinaryDict.fromFile(jianpinFile) else null
@@ -70,7 +70,7 @@ class LossFixTest {
     private fun singlesAt(cands: List<Cand>, coveredLen: Int): List<String> =
         cands.filter { isSingleChar(it.word) && it.coveredLen == coveredLen }.map { it.word }.distinct()
 
-    // ---- ① 首音节单字完整（与整串长度无关）----
+    // Chinese IME behavior note.
 
     @Test fun firstSyllableHomophonesCompleteWhenAlone() {
         val dict = BinaryDict.fromFile(dictFile)
@@ -87,13 +87,13 @@ class LossFixTest {
         val he = dictSingles(dict, "he")
         assumeTrue("dict present with he homophones", he.size >= 8)
         val got = allSingles(letterDecoder().decodeCovered("heshui", 30))
-        // containsAll covers EVERY he 同音字 the dict holds — including the lower-freq ranks the old
+        // Chinese IME behavior note.
         // PREFIX_PER_LEN=8 cap used to drop — whatever the seed/full floor keeps (floor-independent).
         assertTrue("every he 同音字 must stay reachable in a longer buffer (no cap)", got.containsAll(he))
     }
 
     @Test fun firstSyllableHomophonesCompleteInThreeSyllableBuffer() {
-        // 3+ syllables「丢得更狠」path: gan|xie|nin — gan's complete 单字 set must survive, uncrowded.
+        // Chinese IME behavior note.
         val dict = BinaryDict.fromFile(dictFile)
         val gan = dictSingles(dict, "gan")
         assumeTrue("dict present with gan homophones", gan.size >= 8)
@@ -102,7 +102,7 @@ class LossFixTest {
         assertTrue("感 present", "感" in got); assertTrue("赶 present", "赶" in got)
     }
 
-    // ---- ② 结构性：每个音节位都能全量取到（含非首音节）----
+    // Chinese IME behavior note.
 
     @Test fun everySyllablePositionExposesAllHomophones() {
         val dict = BinaryDict.fromFile(dictFile)
@@ -122,7 +122,7 @@ class LossFixTest {
         assertTrue("out-of-range index → empty, no crash", d.homophonesAt(input, 99).isEmpty())
     }
 
-    // ---- 26-key 音节切分（UI-2 依赖；与词库大小无关）----
+    // Chinese IME behavior note.
 
     @Test fun letterSegmenterSplitsCorrectly() {
         val d = letterDecoder()
@@ -138,11 +138,11 @@ class LossFixTest {
         assertEquals(2, syl[1].start); assertEquals(6, syl[1].end)
     }
 
-    // ---- 切分歧义无关：每个合法首音节读法的同音字都可达 ----
+    // Chinese IME behavior note.
 
     @Test fun ambiguousLeadingSyllablesAllReachable() {
         // segmentation-INDEPENDENT: when a leading prefix is ambiguous (xian ⊃ xi, fangan ⊃ fang/fan/fa)
-        // EVERY leading syllable's 同音字 must surface — else 西 (西安) / 反 (反感) would be unreachable.
+        // Chinese IME behavior note.
         val dict = BinaryDict.fromFile(dictFile)
         val d = letterDecoder()
 
@@ -150,7 +150,7 @@ class LossFixTest {
         assertTrue("all xian 同音字 reachable", xian.containsAll(dictSingles(dict, "xian")))
         assertTrue("all xi 同音字 reachable (the xi'an reading)", xian.containsAll(dictSingles(dict, "xi")))
         assertTrue("现 reachable", "现" in xian); assertTrue("西 reachable — lost if keyed only off the split", "西" in xian)
-        // 西 (xi-only) commits 2 letters; 现 (xian-only) commits 4 → partial-commit coverage is right.
+        // Chinese IME behavior note.
         assertTrue("西 tagged coveredLen=2", d.decodeCovered("xian", 30).any { it.word == "西" && it.coveredLen == 2 })
 
         val fangan = allSingles(d.decodeCovered("fangan", 30))
@@ -160,7 +160,7 @@ class LossFixTest {
         for (c in listOf("方", "反", "发")) assertTrue("$c reachable", c in fangan)
     }
 
-    // ---- 变异守卫：恢复任何 cap 都让此测试挂 ----
+    // Chinese IME behavior note.
 
     @Test fun singleCharLayerIsUncapped_mutationGuard() {
         val dict = BinaryDict.fromFile(dictFile)
@@ -171,21 +171,21 @@ class LossFixTest {
         assertTrue("must contain the dict's ENTIRE he set — a re-imposed cap fails here", got.containsAll(he))
     }
 
-    // ---- 词组/整句质量不回归 ----
+    // Chinese IME behavior note.
 
     @Test fun wordLayerQualityUnchanged() {
         val d = letterDecoder()
         assertEquals("best sentence still leads", "你好", d.decodeCovered("nihao", 30).firstOrNull()?.word)
         assertTrue("multi-char prefix word 喝水 still surfaces (★G word layer intact)",
             d.decodeCovered("heshui", 30).any { it.word == "喝水" })
-        // single chars never crowd out the leading word: the word candidate precedes the appended 单字 layer.
+        // Chinese IME behavior note.
         val cands = d.decodeCovered("heshui", 30)
         val firstSingleIdx = cands.indexOfFirst { isSingleChar(it.word) }
         val heShuiWordIdx = cands.indexOfFirst { it.word == "喝水" }
         assertTrue("word candidates precede the appended 单字 layer", heShuiWordIdx in 0 until firstSingleIdx)
     }
 
-    // ---- 9键路径同样无损 ----
+    // Chinese IME behavior note.
 
     @Test fun t9PathAlsoLossless() {
         val t9 = BinaryDict.fromFile(t9File)
@@ -199,7 +199,7 @@ class LossFixTest {
         assertEquals("homophonesAt = the dict's full 43-group set", group43, d.homophonesAt(digits, 0).toSet())
     }
 
-    // ---- 健壮性 ----
+    // Chinese IME behavior note.
 
     @Test fun robustOnEmptyAndNonPinyin() {
         val d = letterDecoder()

@@ -79,7 +79,7 @@ class KeyboardView(context: Context) : View(context) {
     private var scrolling = false
     private val tmpRect = RectF()
     // A3: start scrolling after only a small drag so the list FOLLOWS the finger (the 24dp backspace-swipe
-    // threshold felt like "滑不动 / 不跟手"); once started it tracks 1:1.
+    // Chinese IME behavior note.
     private val scrollSlop = 6f * resources.displayMetrics.density
     // U7/U17/I5 fling: a quick flick must carry the A3 reading column to the bottom in ONE gesture. The momentum
     // + windowed-velocity logic now lives in the SHARED [FlingScroller] (debug.17 #66) — reused by CandidateView.
@@ -105,8 +105,8 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     // debug.18 ④: long-press auto-repeat for ANY output-producing key — every COMMIT key (letters EN/CN,
-    // 9-key/numpad digits, symbols) plus 退格/空格/回车 — not just English letters. Stateful / navigational keys
-    // (shift, switch-*, 符号, 分词, 读音 PICK_READING, 中英…) are NOT COMMIT and therefore never auto-repeat.
+    // Chinese IME behavior note.
+    // Chinese IME behavior note.
     private fun isRepeatable(key: Key) = key.action == KeyAction.COMMIT ||
         key.action == KeyAction.BACKSPACE || key.action == KeyAction.SPACE || key.action == KeyAction.ENTER
 
@@ -139,13 +139,13 @@ class KeyboardView(context: Context) : View(context) {
     // F2: flat MD3 text — no neumorphic emboss shadow.
     private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(20f) }
     private val specialLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabelSecondary; textAlign = Paint.Align.CENTER; textSize = sp(15f) }
-    // I6: bold primary label for the 9-key 分词 / @# keys so they read as prominently as the letter keys.
+    // Chinese IME behavior note.
     private val boldLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(18f); typeface = android.graphics.Typeface.DEFAULT_BOLD }
     // I4: the shift glyph when one-shot/locked — accent colour makes the active state obvious on a normal key.
     private val shiftActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.accentBottom; textAlign = Paint.Align.CENTER; textSize = sp(20f) }
     private val accentLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.accentLabel; textAlign = Paint.Align.CENTER; textSize = sp(20f) }
     private val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyHint; textAlign = Paint.Align.RIGHT; textSize = sp(10f) }
-    // B3 中英字号: active language large & centred, inactive one small in the bottom-right corner.
+    // Chinese IME behavior note.
     private val langActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabelSecondary; textAlign = Paint.Align.CENTER; textSize = sp(17f) }
     private val langSmallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyHint; textAlign = Paint.Align.RIGHT; textSize = sp(11f) }
 
@@ -380,14 +380,14 @@ class KeyboardView(context: Context) : View(context) {
         if (p.key.action == KeyAction.SHIFT) { drawShift(canvas, p.rect); return } // I4: stateful arrow glyph
         // debug.17: ⌫ is a self-drawn Glyph (no font character impersonating an icon, no FE0E hack).
         if (p.key.action == KeyAction.BACKSPACE) { drawKeyGlyph(canvas, p.rect, palette.keyLabel) { c, pt, x, y, s -> Glyphs.drawBackspace(c, pt, x, y, s) }; return }
-        // debug.18 ⑫: the 符号 key shows its label as TEXT (was the self-drawn ✎ pencil) — falls through to the
-        // text path below, which paints the multi-char "符号" with specialLabelPaint like the 123 / 中英 keys.
+        // Chinese IME behavior note.
+        // Chinese IME behavior note.
         val cx = p.rect.centerX()
         val cy = p.rect.centerY()
         val display = displayLabel(p.key)
         val paint = when {
             p.key.accent -> accentLabelPaint
-            p.key.bold -> boldLabelPaint // I6: 分词 / @# at the prominent primary weight
+            p.key.bold -> boldLabelPaint // Chinese IME behavior note.
             display.length > 1 && p.key.action != KeyAction.COMMIT -> specialLabelPaint
             else -> labelPaint
         }
@@ -399,8 +399,8 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     /**
-     * B3 中英 toggle: draw the ACTIVE input language large & centred and the inactive one small in the
-     * bottom-right corner — 中文态 shrinks "英", 英文态 shrinks "中".
+      * Chinese IME behavior note.
+      * Chinese IME behavior note.
      */
     private fun drawLangToggle(canvas: Canvas, rect: RectF) {
         val active = if (lang == Lang.CN) "中" else "英"
@@ -413,8 +413,8 @@ class KeyboardView(context: Context) : View(context) {
     /**
      * I4 shift key, three visually distinct states:
      *  OFF  → hollow up-arrow ⇧ in the normal label colour;
-     *  ONCE → hollow up-arrow ⇧ in the accent colour (temporarily armed — "临时态");
-     *  LOCK → SOLID up-arrow ⬆ in the accent colour (caps lock — the "实心箭头").
+      * Chinese IME behavior note.
+      * Chinese IME behavior note.
      */
     private fun drawShift(canvas: Canvas, rect: RectF) {
         // debug.17: self-drawn Glyphs.drawShift (no font ⇧/⬆ char). OFF/ONCE = hollow arrow (accent when armed);
@@ -477,7 +477,7 @@ class KeyboardView(context: Context) : View(context) {
                         }
                     }
                     dk != null && lang == Lang.EN && isAlphaLetter(dk) -> {
-                        // B2 (英文26键 only): a deliberate vertical flick on a letter selects symbol (up) /
+                        // Chinese IME behavior note.
                         // letter (down); a horizontal slide still retargets to the neighbour (★V slide-to-correct).
                         // Gated to EN so it never flushes a half-typed CN pinyin buffer.
                         val dy = event.y - downY

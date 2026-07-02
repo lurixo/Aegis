@@ -30,7 +30,7 @@ import org.robolectric.annotation.Config
 /**
  * P7 (#19): a panel returns to its default state when dismissed, so reopening always starts fresh (default
  * tab/category/scroll, no lock). Two layers are covered: (1) the [InputView.showPanel] chokepoint calls
- * [ResettablePanel.resetToDefault] on the panel being left — every close (返回 / commit / P4 re-tap /
+  * Chinese IME behavior note.
  * onStartInputView's showPanel(null)) funnels through it; (2) each real panel's resetToDefault restores its
  * own defaults.
  */
@@ -53,7 +53,7 @@ class PanelResetOnExitTest {
         val spy = SpyPanel(ctx)
         iv.showPanel(spy)
         assertEquals("opening must not reset", 0, spy.resets)
-        iv.showPanel(null) // 退出 → 重置
+        iv.showPanel(null) // Chinese IME behavior note.
         assertEquals(1, spy.resets)
     }
 
@@ -80,7 +80,7 @@ class PanelResetOnExitTest {
     @Test fun symbols_panel_resets_to_the_common_tab_unlocked_and_scrolled_up() {
         val sv = SymbolsView(ctx)
         sv.applyPalette(light)
-        sv.openCategoryForTest(4) // jump off the default 常用 tab
+        sv.openCategoryForTest(4) // Chinese IME behavior note.
         sv.toggleLockForTest()    // lock it (P3)
         assertEquals(4, sv.selectedCategoryForTest())
         assertTrue(sv.lockedForTest())

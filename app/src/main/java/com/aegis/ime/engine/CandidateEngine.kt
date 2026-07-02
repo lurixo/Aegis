@@ -51,7 +51,7 @@ interface CandidateEngine {
      * digit buffer, so locking a reading keeps the full sentence + completions + per-prefix words
      * instead of collapsing to just the best sentence. coveredLen is in LETTERS of [letters].
      *
-     * F6 (debug.12): [cuts] are the user's forced 分词 boundaries (positions in [letters]) still inside the
+      * Chinese IME behavior note.
      * active tail, so a locked reading no longer drops them — no decoded word may span a forced boundary.
      */
     fun candidatesForReadingCovered(letters: String, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =
@@ -67,14 +67,14 @@ interface CandidateEngine {
         candidatesForReadingCovered(letters, cuts, context)
 
     /**
-     * ★单字无损 / per-syllable navigation (debug.13). Segment the live buffer into syllables so the UI can
+      * Chinese IME behavior note.
      * navigate syllable positions (UI-1 9-key trailing column, UI-2 26-key pinyin column). [t9] is true
      * when [composing] is a digit sequence. Empty when there is no decoder.
      */
     fun syllables(composing: String, t9: Boolean): List<Syllable> = emptyList()
 
     /**
-     * The COMPLETE single-char homophone set for syllable [index] of [composing] — every 同音字 of that
+      * Chinese IME behavior note.
      * syllable position, frequency-ordered and NOT subject to any top-N / per-length cap. This is the
      * lossless single-char layer the UI lists for a chosen syllable.
      */

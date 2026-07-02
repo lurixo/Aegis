@@ -134,7 +134,7 @@ class CandidateBarChevronTest {
     @Test fun new_content_cancels_a_running_fling_and_renders_from_zero() {
         // Bug: flicking the strip into a fling then typing (new candidates) left scrollX reset to 0 but the
         // fling still running, so the NEXT computeScroll frame restored the stale offset over the 0 — the new
-        // list rendered scrolled (could hide the green 首选). setContent must kill the fling, not just zero it.
+        // Chinese IME behavior note.
         val v = CandidateView(ctx)
         v.setContent(List(40) { "候选$it" }, "ni") // overflow → room to fling
         v.measure(

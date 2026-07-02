@@ -16,15 +16,15 @@
 package com.aegis.ime.user
 
 /**
- * C4 拆词: split a long clip into tappable blocks so the user can copy one piece at a time.
+  * Chinese IME behavior note.
  *
  * Two-pass-per-position scan: at each index we first try to match an ATOMIC entity that must stay whole
  * — a URL (http(s):// , www. , bare domain) or an email — and emit it as one [Block]; otherwise we
  * consume a maximal run of one character class. Han runs fall back to single code-point blocks so plain
  * Chinese without punctuation remains useful to pick apart. Pure whitespace runs are dropped. Examples:
- *   "你好hello,world!"      -> 你 | 好 | hello | , | world | !
- *   "看这个https://x.com很好" -> 看 | 这 | 个 | https://x.com | 很 | 好
- *   "联系bob@x.com谢谢"     -> 联 | 系 | bob@x.com | 谢 | 谢
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  * Pure data, no Android deps, so the segmentation is unit-testable.
  */
 object ClipSplitter {
@@ -39,7 +39,7 @@ object ClipSplitter {
     private val URL = Regex("https?://[^$STOP]+", RegexOption.IGNORE_CASE)
     private val WWW = Regex("www\\.[^$STOP]+", RegexOption.IGNORE_CASE)
     // A curated TLD whitelist (common gTLDs + ccTLDs) so a bare domain like x.ai / x.uk / x.tv is one block,
-    // while an ordinary "字.字" / "file.txt" is NOT mistaken for a domain.
+    // Chinese IME behavior note.
     private const val TLDS =
         "com|cn|net|org|io|gov|edu|co|me|app|dev|xyz|top|info|biz|ai|ru|uk|tv|de|fr|jp|kr|us|ca|au|in|it|es|" +
             "nl|se|no|ch|eu|hk|tw|sg|cc|to|pro|club|live|vip|ltd|art|online|site|store|tech|news|blog|wiki"

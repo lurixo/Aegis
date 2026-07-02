@@ -36,7 +36,7 @@ class BinaryDictTest {
         assertTrue("ceshi -> 测试", dict.query("ceshi", 30).contains("测试"))
         assertTrue("shuru -> 输入", dict.query("shuru", 30).contains("输入"))
 
-        // single syllable, frequency-ordered: 啊 outranks 阿
+        // Chinese IME behavior note.
         val a = dict.query("a", 30)
         assertTrue("a -> 啊", a.contains("啊"))
         assertTrue("啊 before 阿", a.indexOf("啊") < a.indexOf("阿"))

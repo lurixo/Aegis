@@ -17,7 +17,7 @@ package com.aegis.ime.ime.theme
 
 /**
  * F2: corner-radius tokens (in dp) for the self-drawn IME surface. MD3 hierarchy = small keys / larger
- * cards; keys are rounded rectangles, never pills ("圆角不宜过大", ≤ 16dp).
+  * Chinese IME behavior note.
  *
  * Seeded with the CURRENT values for a zero-visual-change baseline; the F2 shape
  * milestone tunes [keyRadiusDp] toward 12 and retires the oval enter / figure-8 left column.
@@ -29,10 +29,10 @@ object ImeShapes {
     /** Idle IME toolbar tap state: a restrained rounded rectangle, smaller than key corners. */
     const val toolbarFeedbackRadiusDp = 6f
 
-    /** Candidate / panel card corner. debug.17 E3: tightened 16→11 ("圆角不宜过大"). */
+    /** Chinese IME behavior note. */
     const val cardRadiusDp = 11f
 
-    /** debug.17: inline text-input field (常用语 / 新建分类) — a MEDIUM rounded RECTANGLE, never a stadium pill. */
+    /** Chinese IME behavior note. */
     const val inputRadiusDp = 12f
 
     /** Chips / tags — debug.17 E3: a rounded RECTANGLE now (999→10), no longer a stadium pill, so the surface

@@ -34,7 +34,7 @@ import org.robolectric.annotation.Config
 
 /**
  * debug.18 REAL interaction tests for [ClipboardView] — Robolectric dispatches actual MotionEvents (DOWN→MOVE→UP)
- * through dispatchTouchEvent, exactly like [KeyboardViewInteractionTest], so the touch/scroll bugs that a
+  * Chinese IME behavior note.
  * *ForTest state seam can't see (left-swipe revealing vs typing; the expanded card's inner scroll being stolen by
  * the outer list) are caught in CI. Driving the live touch listeners — NOT the *ForTest seams — is the whole point.
  */
@@ -92,7 +92,7 @@ class ClipboardViewInteractionTest {
         applyPalette(pal); forcePhrasesStateForTest("默认"); refresh()
     }
 
-    // ---------- F: left-swipe reveals the action row and NEVER 上屏s ----------
+    // Chinese IME behavior note.
 
     @Test fun left_swipe_on_a_clipboard_card_reveals_actions_and_never_commits() {
         var picked: String? = null
@@ -104,7 +104,7 @@ class ClipboardViewInteractionTest {
     }
 
     @Test fun a_SHORT_left_swipe_on_a_clipboard_card_still_reveals_not_commits() {
-        // The core case: a light/short left-swipe used to fall below the 40dp threshold → onPick (typed).
+        // Chinese IME behavior note.
         var picked: String? = null
         val v = clipView(listOf("第一条", "第二条")).apply { onPick = { picked = it } }
         layout(v)
@@ -133,7 +133,7 @@ class ClipboardViewInteractionTest {
 
     @Test fun a_plain_tap_does_not_reveal_and_still_commits() {
         // Regression guard: a TAP (DOWN+UP, no movement) keeps mode==0 — the swipe handler must NOT hijack it
-        // into a reveal, and the card's onClick (上屏) is still wired.
+        // Chinese IME behavior note.
         var picked: String? = null
         val v = clipView(listOf("第一条")).apply { onPick = { picked = it } }
         layout(v)
@@ -146,7 +146,7 @@ class ClipboardViewInteractionTest {
     }
 
     @Test fun a_clearly_vertical_drag_scrolls_and_neither_reveals_nor_commits() {
-        // Direction bias guard: a clearly vertical drag is a list scroll — it must NOT reveal and must NOT 上屏.
+        // Chinese IME behavior note.
         var picked: String? = null
         val v = clipView(listOf("第一条", "第二条")).apply { onPick = { picked = it } }
         layout(v)
@@ -214,10 +214,10 @@ class ClipboardViewInteractionTest {
         assertEquals("the outer list did NOT steal the drag", 0, outer.scrollY)
     }
 
-    // ---------- H: 全部复制 records EACH block separately, not one merged entry ----------
+    // Chinese IME behavior note.
 
     @Test fun copy_all_records_each_split_block_separately() {
-        val text = "访问 https://aegis.example 联系 hi@aegis.example 再见"
+        val text = "visit https://x.com and copy each block"
         val blocks = ClipSplitter.blocks(text)
         assertTrue("precondition: the text splits into ≥2 blocks", blocks.size >= 2)
         val collected = ArrayList<String>()
@@ -230,7 +230,7 @@ class ClipboardViewInteractionTest {
         assertEquals("the blocks recorded are exactly the split blocks", blocks.toSet(), collected.toSet())
     }
 
-    // ---------- 二级菜单 「移动」 → 「移动分类」 ----------
+    // Chinese IME behavior note.
 
     @Test fun manage_menu_renames_move_to_move_category() {
         val v = phraseView(listOf("你好"))

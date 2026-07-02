@@ -23,7 +23,7 @@ import java.nio.ByteOrder
 import java.nio.channels.FileChannel
 
 /**
- * Clean-room reader for the wanxiang "离线大模型" octagram `.gram` (≈401 MB) — the optional
+  * Chinese IME behavior note.
  * top-tier context model. Format reverse-engineered from librime-octagram + darts-clone:
  *
  *   byte 0:  Metadata { char format[32]; u32 checksum; u32 double_array_size; int32 OffsetPtr }

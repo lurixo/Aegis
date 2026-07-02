@@ -55,12 +55,12 @@ import com.aegis.ime.dict.ModelDownload
 internal data class DownloadCardPreview(val present: Boolean, val checking: Boolean = false, val status: String? = null)
 
 /**
- * E1 — 增强模型下载管理. Three states: 未下载[下载] → 下载中[进度] → 已下载[检测更新 + 删除].
- * The single `downloaded/` path + atomic rename mean re-download/更新 overwrite rather than duplicate;
- * 删除 is thorough (.gram + leftover .part + stored validator).
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  *
- * debug.14 Bug2: 更新 is an EXPLICIT 检测更新 button with a visible "正在检查更新…" step and a definite result
- * (有更新 → 立即更新 / 无更新 → 提示) — symmetric with [DictDownloadCard], no passive grey button.
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  */
 @Composable
 internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
@@ -122,11 +122,11 @@ internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
             val local = checked?.second
             handler.post {
                 checking = false
-                // F1: present is read live — if the user tapped 删除 during the (blocking) HEAD it is now false
+                // Chinese IME behavior note.
                 // → updateAction returns null and we discard the stale result, never re-downloading what was deleted.
                 when (ModelDownload.updateAction(present, local, remote)) {
                     null -> {} // deleted mid-check → no-op
-                    ModelDownload.UpdateCheck.OFFLINE -> { // F2: offline — not 有更新, not 无更新
+                    ModelDownload.UpdateCheck.OFFLINE -> { // Chinese IME behavior note.
                         status = LocalizedText.Resource(R.string.download_toast_update_offline)
                         Toast.makeText(context, R.string.download_toast_update_offline, Toast.LENGTH_SHORT).show()
                     }
@@ -157,7 +157,7 @@ internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
                 stringResource(R.string.download_storage_format, location),
                 style = MaterialTheme.typography.bodySmall,
             )
-            // 模型来源仓库：可点击，用系统浏览器打开（ACTION_VIEW）。
+            // Chinese IME behavior note.
             TextButton(
                 onClick = {
                     runCatching {

@@ -50,7 +50,7 @@ class AssociationsAndCalcTest {
         val text get() = sb.toString()
     }
 
-    /** Returns one base candidate "好的" for any pinyin, and records learns. */
+    /** Chinese IME behavior note. */
     private fun spyEngine(learned: MutableList<String>) = object : CandidateEngine {
         override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
         override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence) =
@@ -131,14 +131,14 @@ class AssociationsAndCalcTest {
     @Test fun u25_m3_moving_the_caret_before_picking_does_not_delete_unrelated_text() {
         // M-3 (data loss): type an expression so its result is offered, then move the caret elsewhere with
         // NO keystroke (so the stale candidate lingers), then tap it. The blind old replace deleted
-        // calcExprLen chars before the NEW caret ("买了3个5*2" → "买105*2"); the fix re-validates against
+        // Chinese IME behavior note.
         // the live text, finds the expression is no longer there, and leaves every character intact.
         val h = EditorHost()
         val c = KeyboardController(h, emptyEngine)
-        "买了3个5*2".forEach { c.onKey(digit(it.toString())) } // editor = 买了3个5*2, caret at end
+        "买了3个5*2".forEach { c.onKey(digit(it.toString())) } // Chinese IME behavior note.
         assertEquals("trailing 5*2 is offered as =10", listOf("=10"), c.candidateWords())
 
-        h.moveCursorTo(4) // caret now sits after "个" (before "5"), no keystroke → candidate is stale
+        h.moveCursorTo(4) // Chinese IME behavior note.
 
         c.onPickCandidate(c.candidateWords().indexOf("=10"))
         assertEquals("nothing is appended at the stale caret; text intact", "买了3个5*2", h.text)

@@ -16,7 +16,7 @@
 package com.aegis.ime.engine
 
 /**
- * U23 输入联想: a small curated table mapping a typed full pinyin to emoji / symbols that should also be
+  * Chinese IME behavior note.
  * offered as candidates (e.g. haode → 👌, jia → +). Deliberately keyed on the WHOLE pinyin (exact, no
  * prefix) so it never fires on a half-typed syllable and never crowds normal candidates — the controller
  * injects at most [MAX_PER_QUERY] of these just after the top candidate.

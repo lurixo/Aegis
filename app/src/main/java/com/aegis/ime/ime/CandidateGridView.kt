@@ -35,10 +35,10 @@ import com.aegis.ime.ime.theme.ImeType
 import kotlin.math.abs
 
 /**
- * Expanded selection screen (A2). Three columns:
+  * Chinese IME behavior note.
  *  - LEFT  = pinyin-combination selector (scroll) — tap re-ranks via [onPickReading].
  *  - MIDDLE = candidate grid (scroll), single chars included (no forced combining) — tap commits [onPick].
- *  - RIGHT = function column: 返回 [onClose] / 退格 [onBackspace] / 重输 [onClear]  (⛔ 笔画 / 全部·单字 dropped).
+  * Chinese IME behavior note.
  */
 class CandidateGridView(context: Context) : LinearLayout(context), ResettablePanel {
 
@@ -58,7 +58,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private val gridScroll = ScrollView(context).apply { addView(gridColumn) }
     private val rightColumn = FrameLayout(context)
     // debug.17 A2: the right column's ⌫ is a self-drawn [Glyphs.drawBackspace] icon (same GlyphDrawable wrapper
-    // as the keyboard / 符号 / 表情 ⌫: 22dp box, 2dp ROUND stroke), not a font character. 返回/重输 stay text.
+    // Chinese IME behavior note.
     private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
     private val measurePaint = Paint().apply {
         textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, ImeType.title, resources.displayMetrics)
@@ -86,12 +86,12 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             gridScroll,
             LayoutParams(0, LayoutParams.MATCH_PARENT, 1f),
         )
-        // RIGHT — function column: 返回 / 退格 / 重输.
-        rightColumn.setBackgroundColor(palette.keyboardBg) // P-A: 返回-column on the unified floor (was panelBg)
+        // Chinese IME behavior note.
+        rightColumn.setBackgroundColor(palette.keyboardBg) // Chinese IME behavior note.
         rightColumn.addView(funcButton("返回") { onClose() }, rowAlignedLp(0))
         // debug.17 A2: ⌫ → self-drawn glyph. TOP compound slot (not LEFT) so it centres horizontally in the
         // narrow column like the D-pad's icon-only arrowBtn — LEFT/RIGHT slots pin to the padding edge and
-        // gravity can't recentre them, which would leave it left of the centred 返回/重输.
+        // Chinese IME behavior note.
         rightColumn.addView(
             backspaceButton().apply {
                 setCompoundDrawablesWithIntrinsicBounds(null, backspaceGlyph, null, null)
@@ -172,9 +172,9 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     }
 
     /**
-     * LEFT column: the active syllable's pinyin combinations (9-key, tap = lock) or the buffer's 分词
+      * Chinese IME behavior note.
      * syllables (26-key UI-2, tap = drill); tapping [i] fires [onPickReading]. [selected] (UI-2) highlights
-     * the drilled syllable so the user can see which chunk's 同音字 the grid is showing; −1 = none.
+      * Chinese IME behavior note.
      */
     fun setReadings(readings: List<String>, selected: Int = -1) {
         if (readings == renderedReadings && selected == renderedSelected) return
@@ -255,7 +255,8 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         (readingColumn.getChildAt(index) as? TextView)?.background
 
     /** debug.17 A2: a palette-tinted [Drawable] drawing one self-drawn [Glyphs] icon (the right column's ⌫), so
-     *  it stops using a font character and matches the keyboard / 符号 / 表情 ⌫ (same 22dp box, 2dp ROUND stroke). */
+      * Chinese IME behavior note.
+      */
     private class IconDrawable(
         private val density: Float,
         private val sFactor: Float,

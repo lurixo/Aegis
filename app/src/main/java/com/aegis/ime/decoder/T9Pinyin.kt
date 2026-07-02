@@ -46,7 +46,7 @@ object T9Pinyin {
         '2' to 'a', '3' to 'd', '4' to 'g', '5' to 'j', '6' to 'm', '7' to 'p', '8' to 't', '9' to 'w',
     )
 
-    /** Letters printed on each T9 key — the 首键字母 fallback options for the left column. */
+    /** Chinese IME behavior note. */
     private val KEY_LETTERS: Map<Char, String> = mapOf(
         '2' to "abc", '3' to "def", '4' to "ghi", '5' to "jkl",
         '6' to "mno", '7' to "pqrs", '8' to "tuv", '9' to "wxyz",
@@ -184,7 +184,7 @@ object T9Pinyin {
     fun syllableReading(digitGroup: String): String = byDigits[digitGroup]?.firstOrNull() ?: ""
 
     /** All leading-prefix lengths of [letters] that are themselves known syllables (longest first) — every
-     *  leading syllable the buffer could start with, so the single-char layer can list each one's 同音字
+      * Chinese IME behavior note.
      *  regardless of how the whole buffer eventually segments (xian → both xian AND xi). */
     fun leadingSyllableLetterLens(letters: String): List<Int> {
         val out = ArrayList<Int>()
@@ -235,7 +235,7 @@ object T9Pinyin {
 
     /**
      * Preedit with explicit forced syllable boundaries [cuts] (positions in [digits]) rendered as the
-     * 隔音符 ' — including a TRAILING ' when a boundary sits at the very end, so pressing 分词 immediately
+      * Chinese IME behavior note.
      * shows the split (e.g. "ni'") even before the next syllable is typed.
      */
     fun preedit(digits: String, cuts: Set<Int>): String {
@@ -251,7 +251,7 @@ object T9Pinyin {
         }
         when {
             prev < digits.length -> { if (sb.isNotEmpty()) sb.append('\''); sb.append(preedit(digits.substring(prev))) }
-            digits.isNotEmpty() -> sb.append('\'') // boundary at the very end → trailing 隔音符
+            digits.isNotEmpty() -> sb.append('\'') // Chinese IME behavior note.
         }
         return sb.toString()
     }
@@ -284,9 +284,9 @@ object T9Pinyin {
     /**
      * The 9-key left-column readings for the active syllable. REAL options only,
      * deterministic, with NO padding: the canonical syllable readings that can begin [digits] (ranked by
-     * [firstSyllableOptions]), followed by the individual letters of the FIRST digit key (首键字母) not
+      * Chinese IME behavior note.
      * already present — letters that are themselves syllables (a/o/e…) ordered ahead of the rest, so e.g.
-     * "23"→[ce, a, b, c] and "64…"→[ni, mi, o, m, n]. A bare ambiguous key with no
+      * Chinese IME behavior note.
      * syllable still yields its letters ("9"→[w, x, y, z]), never an empty slot. The caller renders
      * EXACTLY this list (the column height follows the count) — it must never inject blanks or punctuation.
      */

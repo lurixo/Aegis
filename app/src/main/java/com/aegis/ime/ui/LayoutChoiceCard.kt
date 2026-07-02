@@ -40,7 +40,7 @@ import androidx.core.content.edit
 import com.aegis.ime.R
 
 /**
- * B5 — 全拼 9 键 / 26 键 二选一（默认九键）。Persisted to the `cn_layout` pref; the IME service reads it in
+  * Chinese IME behavior note.
  * onStartInputView and pushes it to KeyboardController.setCnDefaultLayout (EN is always 26-key).
  */
 @Composable

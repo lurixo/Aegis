@@ -22,7 +22,7 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
 
-/** 简拼 (initial-letter abbreviation): zg -> 中国, bjdx -> 北京大学 should surface as candidates. */
+/** Chinese IME behavior note. */
 class JianpinTest {
 
     private val dictFile = File("src/main/assets/aegis_dict.bin")

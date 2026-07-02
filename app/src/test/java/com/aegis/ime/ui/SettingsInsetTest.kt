@@ -48,7 +48,7 @@ import org.robolectric.annotation.Config
  * debug.16: regression guard for the settings-screen inset bug. The screen draws edge-to-edge, so when the IME
  * opens the content must (a) stay BELOW the status bar — not pan/scroll under it, the original symptom — and
  * (b) reserve the keyboard's height by SHRINKING the scroll viewport (insets applied OUTSIDE verticalScroll),
- * so the scroll's bring-into-view can lift the focused 试打 field above the keyboard and nothing is left blank
+  * Chinese IME behavior note.
  * when it hides. Both are driven through the production [settingsScrollInsets] modifier with deterministic
  * literal insets, so the test exercises the real inset logic without a live window dispatching system insets.
  *

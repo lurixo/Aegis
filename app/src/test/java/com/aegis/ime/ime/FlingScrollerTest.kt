@@ -55,7 +55,7 @@ class FlingScrollerTest {
     }
 
     @Test fun aSoftFinishStillCarriesTheWindowedVelocity() {
-        // ROOT CAUSE of "要滑很长才到底": a 2-point estimate read ~0 when the finger eased off in the last ms.
+        // Chinese IME behavior note.
         val f = FlingScroller(ctx)
         f.addSample(0, 180f); f.addSample(16, 148f); f.addSample(32, 116f) // fast up to here…
         f.addSample(64, 116f)                                              // …then a brief flat finish (0 last delta)

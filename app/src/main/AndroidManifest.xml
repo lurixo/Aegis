@@ -25,8 +25,7 @@
             </intent-filter>
         </activity>
 
-        <!-- debug.17 E1: SAF bridge so the IME panel's ✎ 二级菜单 can import/export 常用语 (the IME service can't
-             host a document picker). Not exported; launched only by AegisInputMethodService. -->
+        <!-- Chinese IME behavior note. -->
         <activity
             android:name=".ui.PhraseTransferActivity"
             android:autoRemoveFromRecents="true"

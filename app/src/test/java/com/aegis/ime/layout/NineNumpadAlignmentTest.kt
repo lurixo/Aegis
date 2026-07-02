@@ -27,7 +27,7 @@ import org.robolectric.annotation.Config
 
 /**
  * debug.16 item5 + items6-8: the 9-key left read-out column is wide enough that the longest pinyin syllable
- * (zhuang/shuang/chuang = 6 letters) shows in full (no edge clipping), and the 数字键盘 numpad shares the
+  * Chinese IME behavior note.
  * 9-key pinyin metrics (same left/operator column width, same digit cell sizes, no @, a tall row-2-3 ↵).
  */
 @RunWith(RobolectricTestRunner::class)
@@ -94,7 +94,7 @@ class NineNumpadAlignmentTest {
         assertEquals("numpad enter height == pinyin enter height", nineEnter.h, numEnter.h, 1e-5f)
         assertTrue("numpad enter is the green accent key", numEnter.key.accent)
 
-        // the digit grid 0-9 is intact and the bottom row stays aligned (返回/0/空格 on the 3 main columns).
+        // Chinese IME behavior note.
         val labels = cells(numpad).map { it.key.label }
         assertTrue("digits 0-9 all present", (0..9).all { it.toString() in labels })
         val zero = cells(numpad).first { it.key.label == "0" }

@@ -55,11 +55,11 @@ class Debug17PanelTest {
         val tv = textViews(root).firstOrNull { it.text?.toString() == label && it.hasOnClickListeners() } ?: return false
         tv.performClick(); return true
     }
-    /** A clickable leaf chip in the overlay with exactly [label] (a 拆词 block / 全部复制). */
+    /** Chinese IME behavior note. */
     private fun chip(root: View, label: String): TextView? =
         textViews(root).firstOrNull { it.text?.toString() == label && it.hasOnClickListeners() }
     private fun bgColor(v: View): Int? = (v.background as? GradientDrawable)?.color?.defaultColor
-    // icon收尾: top/categoryBar/move-chooser icon buttons are self-drawn Views with NO text — locate them by their
+    // Chinese IME behavior note.
     // contentDescription instead.
     private fun allViews(root: View): List<View> {
         val out = ArrayList<View>()
@@ -86,7 +86,7 @@ class Debug17PanelTest {
         applyPalette(pal); refresh()
     }
 
-    // ---------- ① top ＋ (常用语 tab) = add a phrase to the current category ----------
+    // Chinese IME behavior note.
 
     @Test fun top_plus_adds_phrase_to_current_category_not_a_new_category() {
         var addPhraseCat: String? = null
@@ -97,19 +97,19 @@ class Debug17PanelTest {
         assertFalse("＋ no longer creates a category", addCategoryFired)
     }
 
-    // ---------- ③ categoryBar ✎ 二级菜单 (移动 / 添加分类) + 排序模式 ----------
+    // Chinese IME behavior note.
 
     @Test fun categorybar_pencil_opens_manage_menu() {
         val v = phraseView()
         assertTrue(clickDesc(v, "管理常用语"))
         val ls = labels(overlayOf(v))
-        assertTrue("menu has 移动分类", "移动分类" in ls) // debug.18: 移动 → 移动分类
+        assertTrue("menu has 移动分类", "移动分类" in ls) // Chinese IME behavior note.
         assertTrue("menu has 添加分类", "添加分类" in ls)
     }
 
     @Test fun manage_menu_move_category_enters_category_sort_mode() {
         val v = phraseView()
-        clickDesc(v, "管理常用语"); assertTrue(click(overlayOf(v), "移动分类")) // debug.18
+        clickDesc(v, "管理常用语"); assertTrue(click(overlayOf(v), "移动分类")) // Chinese IME behavior note.
         assertTrue("移动分类 → category sort mode", v.isCategorySortModeForTest())
         assertFalse("does not enter phrase sort mode", v.isSortModeForTest())
         val ls = labels(v)
@@ -168,7 +168,7 @@ class Debug17PanelTest {
         assertEquals("category chips follow persisted category order", listOf("私人", "默认", "工作"), chipOrder)
     }
 
-    // ---------- ④ 剪贴板 card left-swipe reveal (+ ⌄展开 / 长按菜单 zero regression) ----------
+    // Chinese IME behavior note.
 
     @Test fun clipboard_left_swipe_reveals_action_row_without_expanding() {
         val v = clipView()
@@ -209,7 +209,7 @@ class Debug17PanelTest {
         assertTrue("拆分选词", "拆分选词" in ls); assertTrue("添加常用语", "添加常用语" in ls); assertTrue("删除此条内容", "删除此条内容" in ls)
     }
 
-    // ---------- ⑤ 常用语 card left-swipe reveal (编辑 / 置顶 / 删除) + 置顶 ----------
+    // Chinese IME behavior note.
 
     @Test fun phrase_left_swipe_reveals_edit_pin_delete() {
         val v = phraseView()
@@ -240,8 +240,8 @@ class Debug17PanelTest {
 
     @Test fun a_decided_horizontal_gesture_never_commits() {
         // debug.18 F: settleSwipe runs ONLY after the gesture was decided horizontal (mode==1, onClick already
-        // suppressed), so it must NEVER 上屏 — that was the bug where a light left-swipe typed the clip.
-        // A leftward dx reveals (any distance); a non-leftward drift just hides. Neither 上屏s. (上屏 for a real
+        // Chinese IME behavior note.
+        // Chinese IME behavior note.
         // TAP is covered end-to-end in ClipboardViewInteractionTest.a_plain_tap_does_not_reveal_and_still_commits.)
         val picked = ArrayList<String>()
         val v = clipView().apply { onPick = { picked.add(it) } }
@@ -267,16 +267,16 @@ class Debug17PanelTest {
     }
 
     @Test fun phrase_expand_row_is_unchanged_edit_move_delete() {
-        // zero regression: ⌄展开 keeps 编辑/移动/删除 (NOT the swipe row's 置顶).
+        // Chinese IME behavior note.
         val v = phraseView().apply { expandForTest("你好") }
         val ls = labels(v)
         assertTrue("移动" in ls); assertTrue("编辑" in ls); assertTrue("删除" in ls)
         assertFalse("expand row has no 置顶", "置顶" in ls)
     }
 
-    // ---------- ⑦ 拆词 overlay: neutral default → tap highlight + copy; 全部复制 ----------
+    // Chinese IME behavior note.
 
-    // ---------- debug.17 追加: 移动选择器里也能 新建 / 删除分类 ----------
+    // Chinese IME behavior note.
 
     /** Click the 🗑 in the move-chooser row for [name] (a sibling of the name within the same row). */
     private fun deleteTargetInChooser(v: ClipboardView, name: String) {
@@ -378,7 +378,7 @@ class Debug17PanelTest {
     }
 
     @Test fun split_copy_all_copies_each_block_separately_and_highlights_all() {
-        // debug.18 H: 全部复制 now writes EACH block as its own clipboard entry (N 条), not one merged original.
+        // Chinese IME behavior note.
         val copied = ArrayList<String>()
         val v = clipView().apply { onCopyBlockToAegis = { copied.add(it) } }
         v.showSplitForTest("你好abc")
@@ -413,7 +413,7 @@ class Debug17PanelTest {
         assertEquals(pal.keyLabel, textViews(overlayOf(v)).first { it.text?.toString() == "全部复制" }.currentTextColor)
     }
 
-    // ---------- debug.17: note display + 备注, import/export submenu, E2 clear-category, F1 scroll ----------
+    // Chinese IME behavior note.
 
     private fun scrollViews(root: View): List<android.widget.ScrollView> {
         val out = ArrayList<android.widget.ScrollView>()

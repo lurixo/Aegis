@@ -28,7 +28,7 @@ import android.graphics.Path
  */
 object Glyphs {
 
-    /** 剪贴板 board + clip + two lines. Extracted verbatim from the candidate toolbar so the copy bar's left
+    /**
      *  marker is pixel-identical to the toolbar's clipboard icon (debug.13 P-B). */
     fun drawClipboard(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val w = s * 0.58f; val h = s * 0.78f
@@ -38,7 +38,7 @@ object Glyphs {
         c.drawLine(cx - w * 0.5f, cy + h * 0.3f, cx + w * 0.5f, cy + h * 0.3f, paint)                       // line 2
     }
 
-    /** Padlock for the symbols panel's 锁定 key (debug.13 P-C): a rounded body with a shackle on top. [closed]
+    /**
      *  draws the shackle seated on the body (locked); open lifts it and detaches the right leg (unlocked). */
     fun drawLock(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, closed: Boolean) {
         val bw = s * 0.62f                 // body half-width
@@ -58,7 +58,7 @@ object Glyphs {
         }
     }
 
-    // ---- debug.16 文字编辑面板 (issue #55): self-drawn outline icons in the SAME monochrome-stroke language ----
+    // Chinese IME behavior note.
 
     enum class Arrow { UP, DOWN, LEFT, RIGHT }
 
@@ -81,7 +81,7 @@ object Glyphs {
         c.drawLine(tipX, tipY, baseX - px * hw, baseY - py * hw, paint) // wing 2
     }
 
-    /** debug.17: 返回 chevron "‹" — a left-pointing V in the SAME hollow-stroke language as [drawArrow], so the
+    /**
      *  back affordance reads as a real outline icon (clipboard top bar + edit-panel header) instead of the tiny
      *  "‹" text glyph. Tip at the left (cx - w, cy); two wings open to the upper-/lower-right. */
     fun drawBack(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
@@ -91,7 +91,7 @@ object Glyphs {
         c.drawLine(cx - w, cy, cx + w, cy + h, paint) // tip → bottom-right
     }
 
-    /** ⌫ backspace = a left-pointing tag outline with an ✕ on its face (debug.16 item5 删除). */
+    /** Chinese IME behavior note. */
     fun drawBackspace(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val h = s * 0.62f
         val path = Path().apply {
@@ -108,14 +108,14 @@ object Glyphs {
         c.drawLine(xc - a, cy + a, xc + a, cy - a, paint)
     }
 
-    /** Two overlapping sheets = 复制 (debug.16 item5). */
+    /** Chinese IME behavior note. */
     fun drawCopy(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val w = s * 0.5f; val h = s * 0.66f; val r = s * 0.16f; val d = s * 0.3f
         c.drawRoundRect(cx - w + d, cy - h - d, cx + w + d, cy + h - d, r, r, paint) // back sheet (upper-right)
         c.drawRoundRect(cx - w - d, cy - h + d, cx + w - d, cy + h + d, r, r, paint) // front sheet (lower-left)
     }
 
-    /** Scissors = 剪切: two handle rings whose blades cross above them and open at the top (debug.16 item5). */
+    /** Chinese IME behavior note. */
     fun drawCut(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val ringR = s * 0.26f
         val hy = cy + s * 0.62f                                  // handle-ring centre height
@@ -125,7 +125,7 @@ object Glyphs {
         c.drawLine(cx + s * 0.42f - ringR * 0.4f, hy - ringR * 0.4f, cx - s * 0.5f, cy - s * 0.72f, paint) // right ring → left tip
     }
 
-    /** Ticked box = 全选 (matches the old ☑ marker; debug.16 item5). */
+    /** Chinese IME behavior note. */
     fun drawSelectAll(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val hw = s * 0.74f
         c.drawRoundRect(cx - hw, cy - hw, cx + hw, cy + hw, s * 0.22f, s * 0.22f, paint) // box
@@ -133,7 +133,7 @@ object Glyphs {
         c.drawLine(cx - hw * 0.06f, cy + hw * 0.42f, cx + hw * 0.52f, cy - hw * 0.4f, paint)  // check ↗
     }
 
-    /** An edge bar with an arrow pointing into it = 段首 ([toStart]) / 段尾 (mirror) (debug.16 item5/item1). */
+    /** Chinese IME behavior note. */
     fun drawParagraphEdge(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, toStart: Boolean) {
         val sign = if (toStart) -1f else 1f                     // -1 = bar on the left, arrow points left
         val barX = cx + sign * s
@@ -144,10 +144,10 @@ object Glyphs {
         c.drawLine(tipX, cy, tipX - sign * s * 0.44f, cy + s * 0.4f, paint)    // head wing
     }
 
-    // ---- debug.17 图标统一: the rest of the IME's font-char / inline icons move here, so every surface shares
+    // Chinese IME behavior note.
     //      ONE monochrome-stroke family at a consistent ~1.5s box (matching [drawClipboard]). ----
 
-    /** ☺ 表情: a face circle + two eyes + a smile arc. Sized to the same box as [drawClipboard] (the old inline
+    /**
      *  toolbar emoji used a 0.6s circle that read ~20% small). Pure stroke — eyes are short lines, not filled dots. */
     fun drawEmoji(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         c.drawCircle(cx, cy, s * 0.82f, paint)                                  // face
@@ -167,7 +167,7 @@ object Glyphs {
         c.drawLine(cx - legX * t, ly, cx + legX * t, ly, paint)                 // crossbar
     }
 
-    /** Text I-beam ⟨I⟩ for the 文字编辑 entry — a vertical stem with top/bottom serifs. */
+    /** Chinese IME behavior note. */
     fun drawEditCaret(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val h = s * 0.82f; val w = s * 0.5f
         c.drawLine(cx, cy - h, cx, cy + h, paint)                               // stem
@@ -189,7 +189,7 @@ object Glyphs {
         if (locked) c.drawLine(cx - headW, botY + s * 0.3f, cx + headW, botY + s * 0.3f, paint) // caps-lock bar
     }
 
-    /** ✎ Pencil for the keyboard's 符号面板 entry — a diagonal body (tip lower-left, eraser upper-right). */
+    /** Chinese IME behavior note. */
     fun drawPencil(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val e = s * 0.78f; val o = s * 0.2f
         val tipX = cx - e; val tipY = cy + e; val endX = cx + e; val endY = cy - e
@@ -202,16 +202,16 @@ object Glyphs {
         c.drawLine(bx + o, by + o, bx - o, by - o, paint)                       // ferrule band
     }
 
-    // ---- debug.17 (icon收尾): glyphs the 剪贴板/常用语 panel still drew as font chars / emoji, now self-drawn ----
+    // Chinese IME behavior note.
 
-    /** ＋ add — two crossing strokes (顶栏 ＋ / ＋常用语). */
+    /** Chinese IME behavior note. */
     fun drawPlus(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val r = s * 0.72f
         c.drawLine(cx - r, cy, cx + r, cy, paint)
         c.drawLine(cx, cy - r, cx, cy + r, paint)
     }
 
-    /** ☰ / ≡ — three horizontal lines (顶栏 多选 + 排序模式 drag handle). */
+    /** Chinese IME behavior note. */
     fun drawList(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val w = s * 0.78f; val g = s * 0.5f
         c.drawLine(cx - w, cy - g, cx + w, cy - g, paint)
@@ -219,7 +219,7 @@ object Glyphs {
         c.drawLine(cx - w, cy + g, cx + w, cy + g, paint)
     }
 
-    /** ⚙ settings — a cog: a hub ring + 8 radial teeth + centre hole (顶栏 设置). */
+    /** Chinese IME behavior note. */
     fun drawGear(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val rIn = s * 0.5f; val rOut = s * 0.82f
         c.drawCircle(cx, cy, rIn, paint)
@@ -231,7 +231,7 @@ object Glyphs {
         c.drawCircle(cx, cy, s * 0.2f, paint) // hub hole
     }
 
-    /** 🗑 delete — a bin: lid + handle + tapered body + two ribs (删除 / 清空分类 / 删除分类). */
+    /** Chinese IME behavior note. */
     fun drawTrash(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val w = s * 0.56f; val top = cy - s * 0.46f; val bot = cy + s * 0.8f
         c.drawLine(cx - w, top, cx - w * 0.8f, bot, paint)                      // body left
@@ -255,7 +255,7 @@ object Glyphs {
         c.drawLine(cx, my, cx + w, ty, paint)
     }
 
-    /** 🏷 tag — a label outline with a punch hole (常用语 备注 / display alias). */
+    /** Chinese IME behavior note. */
     fun drawTag(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val l = cx - s * 0.85f; val r = cx + s * 0.45f; val tip = cx + s * 0.92f
         val top = cy - s * 0.6f; val bot = cy + s * 0.6f
@@ -264,7 +264,7 @@ object Glyphs {
         c.drawCircle(l + s * 0.3f, cy, s * 0.13f, paint)                        // hole
     }
 
-    /** ○ / ● selection indicator — a ring, plus a filled centre dot when [on] (多选 per-row select). Temporarily
+    /**
      *  flips the caller's paint to FILL for the dot and restores it. */
     fun drawRadio(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, on: Boolean) {
         c.drawCircle(cx, cy, s * 0.72f, paint)

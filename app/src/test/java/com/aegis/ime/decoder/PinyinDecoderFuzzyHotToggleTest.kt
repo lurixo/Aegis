@@ -24,13 +24,13 @@ import org.junit.Test
 import java.io.File
 
 /**
- * debug.16 (模糊音 hot-toggle): flipping fuzzy rules at runtime via setFuzzyRules must change query results
+  * Chinese IME behavior note.
  * immediately, with no decoder/engine rebuild. Fuzzy is pure query-time variant expansion, so the same
  * decoder instance produces the fuzzy match only after the rule set is pushed (and loses it again when
  * cleared). Runs against the committed demo dict so no device/network is needed.
  *
- * 平翘舌 zh↔z gives a clean signal on the demo dict: typing "zongguo" reaches 中国 ONLY with the zh rule on
- * (without it, "zongguo" → 总过, no 中国).
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  */
 class PinyinDecoderFuzzyHotToggleTest {
 
@@ -41,11 +41,11 @@ class PinyinDecoderFuzzyHotToggleTest {
         assumeTrue("demo dict asset present", dictFile.exists())
         val decoder = PinyinDecoder(BinaryDict.fromFile(dictFile)) // starts with NO fuzzy rules
 
-        // Sanity: the correct spelling always reaches 中国; the z-spelling does not, with fuzzy off.
+        // Chinese IME behavior note.
         assertTrue("correct spelling reaches 中国", decoder.decode("zhongguo", 30).contains("中国"))
         assertFalse("fuzzy off: zongguo must NOT reach 中国", decoder.decode("zongguo", 30).contains("中国"))
 
-        // Hot-enable 平翘舌: the SAME decoder now reaches 中国 from the z-spelling — no rebuild.
+        // Chinese IME behavior note.
         decoder.setFuzzyRules(setOf("zh"))
         assertTrue("fuzzy on: zongguo now reaches 中国", decoder.decode("zongguo", 30).contains("中国"))
 

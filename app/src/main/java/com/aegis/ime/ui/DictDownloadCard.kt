@@ -54,9 +54,9 @@ import java.io.File
  * updates independently. The bundled seed dictionary works offline without this; the pack just widens candidate
  * coverage.
  *
- * debug.14 Bug1: the 来源链接 points at the UPSTREAM dictionary repo (amzxyz/rime-wanxiang), symmetric with the
- * model card. debug.14 Bug2: 更新 is an EXPLICIT 检测更新 button with a visible "正在检查更新…" step and a clear
- * result (有更新 → 立即更新 / 无更新 → 提示) — no more passive, permanently-disabled grey button.
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  *
  * [preview] (test-only, default null) seeds the rendered state so the render harness can snapshot the
  * present / checking / result states without a network HEAD or real downloaded files.
@@ -137,7 +137,7 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
                 // → updateAction returns null and we discard the stale result, never re-downloading what was deleted.
                 when (if (present) checked.state else null) {
                     null -> {} // deleted mid-check → no-op
-                    ModelDownload.UpdateCheck.OFFLINE -> { // F2: offline — not 有更新, not 无更新
+                    ModelDownload.UpdateCheck.OFFLINE -> { // Chinese IME behavior note.
                         status = LocalizedText.Resource(R.string.download_toast_update_offline)
                         Toast.makeText(context, R.string.download_toast_update_offline, Toast.LENGTH_SHORT).show()
                     }

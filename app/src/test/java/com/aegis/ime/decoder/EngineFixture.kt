@@ -23,7 +23,7 @@ import java.io.File
  * debug.18 engine-fix test fixture: builds a tiny in-memory [BinaryDict] in the exact AEGD binary format
  * (mirrors tools/DictBuilder.writeBinary), so the engine fixes can be proven against the REAL decode path
  * with a dictionary that — unlike the committed freq≥400 seed asset — holds BOTH the target words and the
- * freq=1 SUPPLEMENTARY-PLANE (U+20000+) rare chars that reproduce the 生僻字泛滥 / 丢字 hard bugs.
+  * Chinese IME behavior note.
  *
  * A supplementary-plane char has codePointCount(0,len)==1 but String.length==2 (surrogate pair) — exactly the
  * case the old `word.length == 1` "single char" test misclassified as a multi-char word.
@@ -38,8 +38,8 @@ object EngineFixture {
 
     /**
      * The committed debug.18 fixture dict. Common homophones carry high freqs; each of a few syllables also
-     * gets a run of freq=1 supplementary-plane rares (the flood/loss triggers). Target words: 词库(ciku),
-     * 九键(jiujian), 实现(shixian); plus 西安(xian) — a multi-char word keyed by a SINGLE syllable, which the
+      * Chinese IME behavior note.
+      * Chinese IME behavior note.
      * boundary-aligned locked decode must DROP (rule ②). Frequencies are chosen so the intended sentences win.
      */
     fun dict(): BinaryDict {
@@ -48,7 +48,7 @@ object EngineFixture {
         val ci = listOf("次" to 900, "此" to 850, "词" to 800, "刺" to 700, "辞" to 600, "磁" to 500,
             "慈" to 450, "茨" to 400, "瓷" to 350, "赐" to 300, "雌" to 250, "祠" to 200, "疵" to 150, "伺" to 100)
         ci.forEach { rows.add(Row("ci", it.first, it.second)) }
-        for (i in 0 until 16) rows.add(Row("ci", supplementary(i), 1)) // 生僻字泛滥 trigger (16 > PREFIX_PER_LEN)
+        for (i in 0 until 16) rows.add(Row("ci", supplementary(i), 1)) // Chinese IME behavior note.
         // --- ku ---
         listOf("库" to 900, "苦" to 850, "哭" to 800, "酷" to 700, "裤" to 600, "窟" to 300)
             .forEach { rows.add(Row("ku", it.first, it.second)) }
@@ -59,20 +59,20 @@ object EngineFixture {
         listOf("字" to 900, "子" to 880, "自" to 860, "紫" to 700, "资" to 680, "仔" to 500, "籽" to 300)
             .forEach { rows.add(Row("zi", it.first, it.second)) }
         for (i in 0 until 3) rows.add(Row("zi", supplementary(210 + i), 1))
-        // --- bu (10 common so its 3 supplementary rares land past rank 10 even with 不实现/不是 ahead) ---
+        // Chinese IME behavior note.
         listOf("不" to 950, "部" to 900, "布" to 850, "步" to 800, "补" to 700, "捕" to 600,
             "卜" to 500, "哺" to 450, "埠" to 400, "簿" to 300).forEach { rows.add(Row("bu", it.first, it.second)) }
         for (i in 0 until 3) rows.add(Row("bu", supplementary(220 + i), 1))
-        // --- shi (实 high so 不实现 is a strong beam path) ---
+        // Chinese IME behavior note.
         listOf("是" to 950, "时" to 920, "实" to 900, "事" to 860, "市" to 840, "十" to 820, "始" to 700,
             "试" to 680, "视" to 660).forEach { rows.add(Row("shi", it.first, it.second)) }
         for (i in 0 until 3) rows.add(Row("shi", supplementary(230 + i), 1))
-        // --- xian (现 high) + 西安 (multi-char word keyed by the SINGLE syllable xian → must be DROPPED) ---
+        // Chinese IME behavior note.
         listOf("现" to 900, "县" to 850, "限" to 800, "先" to 780, "显" to 760, "鲜" to 700, "险" to 680, "嫌" to 500)
             .forEach { rows.add(Row("xian", it.first, it.second)) }
         for (i in 0 until 3) rows.add(Row("xian", supplementary(240 + i), 1))
         rows.add(Row("xian", "西安", 5000)) // 2-char word under one syllable key — the rule ② drop target
-        // 西(xi) + 安(an): so a SINGLE locked xian can be internally re-split into xi|an -> 西安 by the old
+        // Chinese IME behavior note.
         // "forbid only cross-cut" decode. The boundary-aligned locked decode must forbid that interior split.
         rows.add(Row("xi", "西", 850)); rows.add(Row("an", "安", 900))
         // --- xiang: regression fixture for a single locked reading. Shorter prefixes (xian/xia/xi) must not
@@ -80,7 +80,7 @@ object EngineFixture {
         listOf("向" to 980, "想" to 930, "相" to 900, "像" to 860, "香" to 800, "响" to 760, "享" to 700)
             .forEach { rows.add(Row("xiang", it.first, it.second)) }
         listOf("下" to 900, "夏" to 760, "霞" to 700).forEach { rows.add(Row("xia", it.first, it.second)) }
-        // --- jiu (no supplementary — kept sparse; jiu'jian ① is proven via the leading 九键 + common singles) ---
+        // Chinese IME behavior note.
         listOf("九" to 900, "就" to 880, "久" to 860, "酒" to 840, "旧" to 800, "救" to 700)
             .forEach { rows.add(Row("jiu", it.first, it.second)) }
         // --- jian ---

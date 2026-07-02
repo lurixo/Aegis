@@ -20,7 +20,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
-/** Network-free coverage of the E1 download bookkeeping: thorough delete + 更新 availability logic. */
+/** Chinese IME behavior note. */
 class ModelDownloadTest {
 
     private fun tempFilesDir(): File =

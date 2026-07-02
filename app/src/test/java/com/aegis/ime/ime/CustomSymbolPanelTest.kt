@@ -26,7 +26,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
-/** A3 自定义 panel: real click wiring — tapping a palette mark adds it, tapping an added mark removes it. */
+/** Chinese IME behavior note. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class CustomSymbolPanelTest {

@@ -33,12 +33,12 @@ import android.widget.TextView
 enum class EditAction { UP, DOWN, LEFT, RIGHT, START_SELECT, DELETE, COPY, CUT, SELECT_ALL, HOME, END, PASTE, BACK }
 
 /**
- * Text-editing panel (issue #4): a cursor D-pad with a center "开始选择" toggle,
- * a right column 删除/复制/剪切 (复制/剪切 disabled without a selection), and a bottom row 段首/全选/段尾/粘贴.
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  * Pure UI — the service maps [EditAction]s onto the InputConnection.
  *
  * debug.16 (#55): every key now carries a self-drawn [Glyphs] outline icon in the IME's monochrome-stroke
- * language — the D-pad is hollow arrows, 粘贴 reuses the copy-bar clipboard glyph, and the back chevron "‹"
+  * Chinese IME behavior note.
  * matches the clipboard panel — instead of mixed text/emoji markers.
  */
 class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
@@ -48,7 +48,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
 
-    /** debug.18 (item13): the 文字编辑 title text size; the back chevron is sized to match its visual height. */
+    /** Chinese IME behavior note. */
     private val TITLE_SP = 16f
 
     private var palette = ImePalette.STATIC_LIGHT
@@ -123,26 +123,26 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         rightCol.addView(iconBtn("删除", EditAction.DELETE, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }), rowLp())
         rightCol.addView(copyBtn, rowLp())
         rightCol.addView(cutBtn, rowLp())
-        // debug.17 B: a gutter column so the action column (删除/复制/剪切) sits at the far right, its right margin
+        // Chinese IME behavior note.
         // mirroring the left content's left margin (was weight 2 centred → too far from the right edge). dpad keeps
         // weight 3, so its 3 arrows do not move; the right action column drops to weight 1 in the last 1/5.
         mid.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         mid.addView(rightCol, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         addView(mid, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
 
-        // Bottom row — 段首/段尾 (paragraph edges, debug.16 item1), 全选, and 粘贴 with the copy-bar clipboard glyph.
+        // Chinese IME behavior note.
         val bottom = LinearLayout(context).apply { orientation = HORIZONTAL }
         bottom.addView(iconBtn("段首", EditAction.HOME, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawParagraphEdge(c, p, x, y, s, toStart = true) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         bottom.addView(iconBtn("全选", EditAction.SELECT_ALL, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawSelectAll(c, p, x, y, s) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         bottom.addView(iconBtn("段尾", EditAction.END, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawParagraphEdge(c, p, x, y, s, toStart = false) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        bottom.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f)) // debug.17 B: gutter so 粘贴 lines up under the action column at the far right
+        bottom.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f)) // Chinese IME behavior note.
         bottom.addView(iconBtn("粘贴", EditAction.PASTE, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawClipboard(c, p, x, y, s) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         addView(bottom, LayoutParams(LayoutParams.MATCH_PARENT, dp(56)))
 
         setHasSelection(false)
     }
 
-    /** Enable 复制/剪切 only when there is a selection — text AND icon are muted when off. */
+    /** Chinese IME behavior note. */
     fun setHasSelection(has: Boolean) {
         val tint = if (has) palette.keyLabel else palette.disabled
         for (b in listOf(copyBtn, cutBtn)) {
@@ -157,7 +157,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         selectBtn.text = if (selecting) "结束选择" else "开始选择"
     }
 
-    /** P7 (#19): on dismissal, drop selection mode so the panel reopens showing "开始选择". The D-pad panel
+    /**
      *  holds no tab/scroll state; the host re-syncs its own `selecting` flag when it next opens the panel. */
     override fun resetToDefault() = setSelecting(false)
 
@@ -180,7 +180,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
 
     private fun spacer(): View = View(context)
 
-    /** Text-only key (back chevron + the 开始选择 toggle). */
+    /** Chinese IME behavior note. */
     private fun textBtn(label: String, action: EditAction, sp: Float): TextView = TextView(context).apply {
         text = label
         gravity = Gravity.CENTER
@@ -192,7 +192,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         actionViews[action] = this
     }
 
-    /** Icon-over-label key (删除/复制/剪切/全选/段首/段尾/粘贴). */
+    /** Chinese IME behavior note. */
     private fun iconBtn(label: String, action: EditAction, glyph: GlyphDrawable): TextView = TextView(context).apply {
         text = label
         gravity = Gravity.CENTER
