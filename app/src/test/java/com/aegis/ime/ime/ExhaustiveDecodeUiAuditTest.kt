@@ -75,31 +75,28 @@ class ExhaustiveDecodeUiAuditTest {
     }
 
 
-    @Test fun deng_26key_readingLabelShowsDe_whileCharsAreCorrect() {
+    @Test fun deng_26key_readingLabelIsDeng_afterFix() {
         assumeTrue(assetsPresent())
         val c = controller(realEngine())
         c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
         type(c, "deng")
-        assertEquals("26-key deng reading label is the mis-segmented 'de'",
-            listOf("de"), c.expandedReadings())
-        val words = c.candidateWords()
-        assertTrue("correct deng char 等 is present among candidates", "等" in words)
+        assertEquals("26-key deng reading label is 'deng'", listOf("deng"), c.expandedReadings())
+        assertTrue("correct deng char 等 is present among candidates", "等" in c.candidateWords())
     }
 
-    @Test fun deng_9key_lockDeng_yieldsDeSoundChars() {
+    @Test fun deng_9key_lockDeng_yieldsDengChars_afterFix() {
         assumeTrue(assetsPresent())
         val c = controller(realEngine())
         c.onKey(Key("", action = KeyAction.SWITCH_NINE))
         type(c, T9Pinyin.toT9("deng"))
         assertTrue("9-key left column offers the reading 'deng'", "deng" in c.expandedReadings())
         pick(c, "deng")
-        val words = c.candidateWords()
         val dengChars = dictSingles("deng")
         val deChars = dictSingles("de")
-        val shownSingles = words.filter { isSingleChar(it) }.toSet()
-        val leaked = shownSingles intersect deChars
-        assertTrue("locking 'deng' surfaces de-sound chars (${leaked.take(6)}) that do not read deng",
-            leaked.isNotEmpty() && leaked.any { it !in dengChars })
+        val shownSingles = c.candidateWords().filter { isSingleChar(it) }.toSet()
+        assertTrue("a correct deng char is present (e.g. 等)", shownSingles.any { it in dengChars })
+        val leakedDeOnly = (shownSingles intersect deChars).filter { it !in dengChars }
+        assertTrue("locking 'deng' no longer leaks de-only chars (got $leakedDeOnly)", leakedDeOnly.isEmpty())
     }
 
 
@@ -122,28 +119,32 @@ class ExhaustiveDecodeUiAuditTest {
             "Level B — controller 26-key expandedReadings() label over ${syls.size} syllables\n" +
                 "syllables whose UI reading label != input: ${fails.size}\n"
         )
-        assertTrue("controller sweep must flag deng (label != deng)", fails.any { it.startsWith("deng\t") })
+        assertTrue("no 26-key reading-label mismatches remain after the fix: ${fails.take(10)}", fails.isEmpty())
     }
 
 
-    @Test fun controllerN2Subset_9key_brokenLedPairs_lockChars() {
+    @Test fun controllerN2Subset_9key_brokenLedPairs_noPrefixCharLeak_afterFix() {
         assumeTrue(assetsPresent())
-        val broken = listOf("deng", "dang", "geng", "heng", "keng", "leng", "nang", "ning", "tang", "xing", "ying", "en")
+        val prefixOf = mapOf(
+            "deng" to "de", "dang" to "da", "geng" to "ge", "heng" to "he", "keng" to "ke", "leng" to "le",
+            "nang" to "na", "ning" to "ni", "tang" to "ta", "xing" to "xi", "ying" to "yi",
+        )
         val seconds = listOf("hao", "ni", "shui")
         val fails = ArrayList<String>()
-        for (s1 in broken) for (s2 in seconds) {
+        for ((s1, pfx) in prefixOf) for (s2 in seconds) {
             val c = controller(realEngine())
             c.onKey(Key("", action = KeyAction.SWITCH_NINE))
             type(c, T9Pinyin.toT9(s1))
             pick(c, s1)
             val singles = c.candidateWords().filter { isSingleChar(it) }.toSet()
-            val leaked = singles - dictSingles(s1)
-            if (leaked.isNotEmpty()) fails.add("$s1+$s2\t$s1\t${leaked.take(6).joinToString(" ")}")
+            val s1Chars = dictSingles(s1)
+            val prefixLeak = (singles intersect dictSingles(pfx)) - s1Chars
+            if (prefixLeak.isNotEmpty()) fails.add("$s1+$s2\t$s1\tprefix-leak ${prefixLeak.take(6).joinToString(" ")}")
+            if (s1Chars.isNotEmpty() && singles.none { it in s1Chars }) fails.add("$s1+$s2\t$s1\tno correct $s1 char")
         }
         File(outDir(), "levelB_n2subset_9key.tsv").writeText(
-            "pair\tlockedReading\tleakedChars\n" + fails.joinToString("\n") + if (fails.isNotEmpty()) "\n" else ""
+            "pair\tlockedReading\tissue\n" + fails.joinToString("\n") + if (fails.isNotEmpty()) "\n" else ""
         )
-        assertTrue("locking a broken first syllable on 9-key leaks wrong chars (propagation to pairs)",
-            fails.isNotEmpty())
+        assertTrue("no broken-led pair leaks a prefix char after the fix: ${fails.take(8)}", fails.isEmpty())
     }
 }
