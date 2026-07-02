@@ -244,6 +244,79 @@ class LanguageModelProtocolTest(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, message):
                         self.require(root, bytes(data))
 
+
+class CurrentLanguageModelBuildTest(unittest.TestCase):
+    def test_builds_the_model_from_the_same_current_tables_and_converter_as_dictionaries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo_root = root / "repo"
+            (repo_root / "tools/t2s-data").mkdir(parents=True)
+            source = root / "source"
+            (source / "dicts").mkdir(parents=True)
+            for table in bp.TABLES:
+                (source / "dicts" / f"{table}.dict.yaml").write_text(f"{table} fixture\n")
+            output_dir = root / "output"
+            calls = []
+            environment = {"fixture": "controlled"}
+            tooling = {"schema_version": 1, "fixture": "frozen"}
+
+            def build(command, cwd, env=None):
+                calls.append(command)
+                self.assertIs(env, environment)
+                if "--out" in command:
+                    target = Path(command[command.index("--out") + 1])
+                    target.write_bytes(minimal_language_model() if "lm" in command else b"AEGD fixture")
+
+            with mock.patch.object(bp, "__file__", str(repo_root / "tools/release/build_dictionary_pack.py")), mock.patch.object(
+                bp, "ensure_source_checkout", return_value=source
+            ), mock.patch.object(
+                bp, "fixed_tool_environment", return_value=environment
+            ), mock.patch.object(bp, "verify_toolchain", return_value=tooling) as verify, mock.patch.object(
+                bp, "current_tooling_identity", return_value=tooling
+            ), mock.patch.object(bp, "run", side_effect=build), mock.patch.object(
+                bp, "output", return_value=COMMIT
+            ), mock.patch.object(bp, "tree_dirt", return_value=[]), mock.patch.object(
+                bp, "load_grammar_reference", return_value={"fixture": "grammar"}
+            ), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(0, bp.main(["--release-tag", "dict-latest", "--output-dir", str(output_dir)]))
+            verify.assert_called_once()
+            self.assertEqual(5, len(calls))
+            expected_inputs = [str(source / "dicts" / f"{table}.dict.yaml") for table in bp.TABLES]
+            for command in calls[1:]:
+                self.assertEqual(expected_inputs, command[-len(bp.TABLES):])
+                self.assertEqual(
+                    str(repo_root / "tools/t2s-data"),
+                    command[command.index("--t2s-data") + 1],
+                )
+            self.assertEqual(
+                [str(repo_root / bp.TOOL_EXECUTABLE_RELATIVE),
+                 "lm", "--out", str(output_dir / "staging" / bp.LM_ENTRY), "--min-bigram", "1",
+                 "--t2s-data", str(repo_root / "tools/t2s-data"), *expected_inputs],
+                calls[-1],
+            )
+            info = json.loads((output_dir / "aegis-build-info.json").read_text())
+            resource = info["resources"][0]
+            self.assertEqual({"format": "AEGL v1", "min_bigram": 1}, resource["build"]["language_model"])
+            self.assertEqual(tooling, resource["build"]["tooling"])
+            for table in resource["source"]["input_yaml_sha256"]:
+                self.assertEqual(bp.sha256_file(source / table["path"]), table["sha256"])
+            lm = resource["build"]["output_bins"][-1]
+            self.assertEqual("AEGL v1", lm["format"])
+            self.assertEqual(1, lm["min_bigram"])
+            self.assertEqual(hashlib.sha256(minimal_language_model()).hexdigest(), lm["sha256"])
+
+    def test_packager_includes_the_shared_runtime_identity_and_tool_distribution(self):
+        repo = Path("/fixture/repo")
+        environment = {"fixture": "environment"}
+        identity = {"schema_version": 1, "python": {"version": "3.14.7"}, "java": {"runtime_version": "25.0.5"}}
+        distribution = {"fixture": "distribution"}
+        with mock.patch.object(bp, "verify_toolchain", return_value=identity) as verify, mock.patch.object(
+            bp, "tool_distribution_identity", return_value=distribution
+        ):
+            self.assertEqual({**identity, "distribution": distribution}, bp.current_tooling_identity(repo, environment))
+        verify.assert_called_once_with(repo, environment)
+
+
 class FinalizePackTest(unittest.TestCase):
     def tooling_identity(self):
         return {"schema_version": 1, "fixture": "fixed-tooling"}
@@ -684,6 +757,14 @@ class ManifestReleaseTypeTest(unittest.TestCase):
 
             self.assertIs(False, info["resources"][0]["physical_asset"]["prerelease"])
             self.assertIs(False, bp.update_payload(info)["asset"]["prerelease"])
+
+    def test_no_command_line_flag_can_request_a_prerelease_manifest(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as raised:
+                bp.main(["--release-tag", "dict-latest", "--prerelease"])
+
+        self.assertEqual(2, raised.exception.code)
+
 
 class BuilderTreeDirtTest(unittest.TestCase):
     def git(self, repo, *args):

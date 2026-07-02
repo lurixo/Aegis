@@ -16,10 +16,42 @@
 package com.aegis.ime.dict
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
 class ReleaseDictionaryBuildToolTest {
+
+    @Test
+    fun releaseDictionaryToolBuildsLatestFullPackMetadataWithoutUploading() {
+        val script = File("../tools/release/build_dictionary_pack.py").readText()
+
+        listOf("zi", "jichu", "lianxiang", "cuoyin", "duoyin", "shici", "diming", "yixue", "huaxue", "yaopin", "mingren", "yiren", "wuzhong", "renming").forEach {
+            assertTrue("missing table $it", script.contains("\"$it\""))
+        }
+        assertTrue(script.contains("\"--min-freq\""))
+        assertTrue(script.contains("\"1\""))
+        assertTrue(script.contains("\"--keytype\""))
+        assertTrue(script.contains("aegis_dict_pack_debug"))
+        assertTrue(script.contains("dict-latest"))
+        assertTrue(script.contains("intermediate four-component pack"))
+        assertTrue(script.contains("finalize_main"))
+        assertTrue(script.contains("lm_command(tool_bin, lm_path, t2s_dir, source)"))
+        assertTrue(script.contains("aegis_lm.bin"))
+        assertFalse(script.contains(".idx"))
+        assertFalse(script.contains("prefix-index"))
+        assertFalse(script.contains("AEGP"))
+        assertTrue(script.contains("pack_state"))
+        assertTrue(script.contains("aegis-build-info.json"))
+        assertTrue(script.contains("aegis-dictionary-update.json"))
+        assertTrue(script.contains("sha256_file(zip_path)"))
+        assertTrue(script.contains("input_yaml_sha256"))
+        assertFalse(script.contains("gh release"))
+        assertFalse(script.contains("same GitHub release as the APK"))
+        assertFalse(script.contains("upload_url"))
+        assertFalse(script.contains("GITHUB_TOKEN"))
+        assertFalse(script.contains("GH_TOKEN"))
+    }
 
     @Test
     fun retiredDictionaryBuildersStayOutsideTheToolDistribution() {

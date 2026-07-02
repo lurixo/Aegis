@@ -10,7 +10,9 @@ import re
 import shutil
 import struct
 import subprocess
+import sys
 import tempfile
+import urllib.request
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -52,6 +54,8 @@ PACK_ENTRIES = [NOTICE_NAME] + [item[0] for item in OUTPUTS] + [LM_ENTRY]
 DANGEROUS_NEW_ENTRY_SUBSTRINGS = ("dict", "t9", "jianpin")
 GRAMMAR_NAME = "wanxiang-lts-zh-hans.gram"
 GRAMMAR_REPO_HTTPS = "https://github.com/amzxyz/RIME-LMDG"
+GRAMMAR_RELEASE_API = "https://api.github.com/repos/amzxyz/RIME-LMDG/releases/tags/LTS"
+
 
 def attribution_text(repo_https, source_tag, source_branch, source_commit):
     """The pack's third-party attribution, deterministic (no timestamps — only the pinned source
@@ -283,6 +287,23 @@ def grammar_reference(release):
         },
     }
 
+
+def load_grammar_reference(args):
+    if args.grammar_release_json:
+        release = json.loads(Path(args.grammar_release_json).read_text())
+    else:
+        request = urllib.request.Request(
+            args.grammar_release_api,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "Aegis-resource-builder",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=30) as response:
+            release = json.load(response)
+    return grammar_reference(release)
+
+
 def ensure_source_checkout(args, work_dir):
     if args.source_dir:
         source = Path(args.source_dir).resolve()
@@ -325,6 +346,22 @@ def ensure_source_checkout(args, work_dir):
         cwd=work_dir,
     )
     return source
+
+
+def lm_command(tool_bin, output_path, t2s_dir, source):
+    input_paths = [source / "dicts" / f"{table}.dict.yaml" for table in TABLES]
+    return [
+        str(tool_bin),
+        "lm",
+        "--out",
+        str(output_path),
+        "--min-bigram",
+        str(LM_MIN_BIGRAM),
+        "--t2s-data",
+        str(t2s_dir),
+        *[str(path) for path in input_paths],
+    ]
+
 
 def write_zip(zip_path, entries):
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
@@ -761,3 +798,151 @@ def finalize_main(argv):
             f"sha256={sha256_file(pack)} size={pack.stat().st_size}"
         )
         return 0
+
+
+def main(argv):
+    if argv and argv[0] == "finalize":
+        return finalize_main(argv[1:])
+    require_safe_new_entry_names()
+    parser = argparse.ArgumentParser(description="Build the latest Aegis full dictionary release pack.")
+    parser.add_argument("--release-tag", required=True, help="GitHub release tag that will host the dictionary asset (use dict-latest for the rolling production dictionary pack).")
+    parser.add_argument("--output-dir", default="build/release-dictionary", help="Directory for generated artifacts.")
+    parser.add_argument("--source-dir", help="Existing rime-wanxiang checkout to use instead of cloning.")
+    parser.add_argument("--source-repo", default="https://github.com/amzxyz/rime-wanxiang.git")
+    parser.add_argument("--source-repo-https", default="https://github.com/amzxyz/rime-wanxiang")
+    parser.add_argument("--source-branch", default="wanxiang")
+    parser.add_argument("--source-tag", help="Upstream release tag to pin (records source.tag and clones this tag instead of the branch HEAD). Prefer the latest stable tag that carries the dicts/ tables.")
+    parser.add_argument("--asset-name", help="Dictionary ZIP asset name. Defaults to a name derived from the release tag.")
+    parser.add_argument("--grammar-release-api", default=GRAMMAR_RELEASE_API)
+    parser.add_argument("--grammar-release-json")
+    args = parser.parse_args(argv)
+
+    repo_root = Path(__file__).resolve().parents[2]
+    output_dir = (repo_root / args.output_dir).resolve()
+    work_dir = output_dir / "work"
+    staging_dir = output_dir / "staging"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    if staging_dir.exists():
+        shutil.rmtree(staging_dir)
+    staging_dir.mkdir(parents=True)
+
+    source = ensure_source_checkout(args, work_dir)
+    input_paths = [source / "dicts" / f"{table}.dict.yaml" for table in TABLES]
+    missing = [str(path) for path in input_paths if not path.exists()]
+    if missing:
+        raise SystemExit("missing source tables:\n" + "\n".join(missing))
+
+    tool_environment = fixed_tool_environment()
+    verify_toolchain(repo_root, tool_environment)
+    tool_distribution = repo_root / TOOL_DISTRIBUTION_RELATIVE
+    if tool_distribution.exists():
+        if tool_distribution.is_symlink() or not tool_distribution.is_dir():
+            raise SystemExit(f"unsafe existing tool distribution path: {tool_distribution}")
+        shutil.rmtree(tool_distribution)
+    run(
+        [str(repo_root / "gradlew"), ":tools:installDist"],
+        cwd=repo_root,
+        env=tool_environment,
+    )
+    tool_bin = repo_root / TOOL_EXECUTABLE_RELATIVE
+    tooling = current_tooling_identity(repo_root, tool_environment)
+
+    t2s_dir = repo_root / "tools" / "t2s-data"
+    if not t2s_dir.exists():
+        raise SystemExit(f"t2s data dir missing: {t2s_dir}")
+
+    bin_infos = []
+    for zip_entry, runtime_name, key_type in OUTPUTS:
+        out_path = staging_dir / zip_entry
+        run(
+            [
+                str(tool_bin),
+                "--out",
+                str(out_path),
+                "--min-freq",
+                "1",
+                "--keytype",
+                key_type,
+                "--t2s-data",
+                str(t2s_dir),
+                *[str(path) for path in input_paths],
+            ],
+            cwd=repo_root,
+            env=tool_environment,
+        )
+        bin_infos.append(
+            component_info(
+                zip_entry,
+                runtime_name,
+                "dictionary",
+                out_path,
+                key_type=key_type,
+            )
+        )
+
+    lm_path = staging_dir / LM_ENTRY
+    run(
+        lm_command(tool_bin, lm_path, t2s_dir, source),
+        cwd=repo_root,
+        env=tool_environment,
+    )
+    require_aegl_v1(lm_path)
+    bin_infos.append(
+        component_info(
+            LM_ENTRY,
+            LM_RUNTIME_NAME,
+            "language_model",
+            lm_path,
+            format="AEGL v1",
+            min_bigram=LM_MIN_BIGRAM,
+        )
+    )
+
+    asset_name = args.asset_name or default_asset_name(args.release_tag)
+    zip_path = output_dir / asset_name
+    source_commit = output(["git", "rev-parse", "HEAD"], cwd=source)
+    notice_path = staging_dir / NOTICE_NAME
+    notice_path.write_bytes(
+        attribution_text(args.source_repo_https, args.source_tag, args.source_branch, source_commit).encode("utf-8")
+    )
+    zip_entries = [(NOTICE_NAME, notice_path)] + [
+        (name, staging_dir / name) for name in PACK_ENTRIES[1:]
+    ]
+    write_zip(zip_path, zip_entries)
+    require_pack_entries(zip_path, PACK_ENTRIES)
+
+    source_infos = [
+        {
+            "table": table,
+            "path": f"dicts/{table}.dict.yaml",
+            "sha256": sha256_file(path),
+            "size_bytes": path.stat().st_size,
+        }
+        for table, path in zip(TABLES, input_paths)
+    ]
+    info = build_info(
+        args,
+        repo_root,
+        source_commit,
+        asset_name,
+        zip_path,
+        bin_infos,
+        source_infos,
+        load_grammar_reference(args),
+        pack_state="intermediate",
+        tooling=tooling,
+    )
+    (output_dir / "aegis-build-info.json").write_text(json.dumps(info, ensure_ascii=True, indent=2) + "\n")
+    (output_dir / "aegis-dictionary-update.json").write_text(json.dumps(update_payload(info), ensure_ascii=True, indent=2) + "\n")
+
+    print("\nArtifacts:")
+    print(zip_path)
+    print(output_dir / "aegis-build-info.json")
+    print(output_dir / "aegis-dictionary-update.json")
+    print("\nThis is an intermediate four-component pack and MUST NOT be published.")
+    print("After the automation overlay is injected, run this script's finalize subcommand.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
