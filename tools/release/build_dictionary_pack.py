@@ -2,15 +2,21 @@
 #
 # SPDX-License-Identifier: GPL-3.0-only
 
+import argparse
 import hashlib
+import json
 import os
 import re
 import shutil
 import struct
 import subprocess
+import tempfile
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+
+from verify_toolchain import fixed_tool_environment, verify_toolchain
+
 
 TABLES = [
     "zi",
@@ -37,7 +43,11 @@ OUTPUTS = [
 
 NOTICE_NAME = "NOTICE.txt"
 LM_ENTRY = "aegis_lm.bin"
+LM_RUNTIME_NAME = "aegis_lm.bin"
 LM_MIN_BIGRAM = 1
+TOOL_DISTRIBUTION_RELATIVE = Path("tools/build/install/tools")
+TOOL_EXECUTABLE_RELATIVE = TOOL_DISTRIBUTION_RELATIVE / "bin/tools"
+TOOL_LIBRARY_RELATIVE = TOOL_DISTRIBUTION_RELATIVE / "lib/tools.jar"
 PACK_ENTRIES = [NOTICE_NAME] + [item[0] for item in OUTPUTS] + [LM_ENTRY]
 DANGEROUS_NEW_ENTRY_SUBSTRINGS = ("dict", "t9", "jianpin")
 GRAMMAR_NAME = "wanxiang-lts-zh-hans.gram"
@@ -95,6 +105,57 @@ def sha256_file(path):
             digest.update(chunk)
     return digest.hexdigest()
 
+
+def sha256_bytes(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def tool_distribution_identity(repo_root):
+    distribution = repo_root / TOOL_DISTRIBUTION_RELATIVE
+    if distribution.is_symlink() or not distribution.is_dir():
+        raise SystemExit(f"fixed tool distribution is unavailable: {distribution}")
+    files = []
+    for path in sorted(distribution.rglob("*")):
+        if path.is_symlink():
+            raise SystemExit(f"fixed tool distribution contains a symlink: {path}")
+        if path.is_dir():
+            continue
+        if not path.is_file():
+            raise SystemExit(f"fixed tool distribution contains a special file: {path}")
+        files.append(
+            {
+                "path": str(path.relative_to(repo_root)),
+                "mode": path.stat().st_mode & 0o777,
+                "size_bytes": path.stat().st_size,
+                "sha256": sha256_file(path),
+            }
+        )
+    paths = {row["path"] for row in files}
+    required = {str(TOOL_EXECUTABLE_RELATIVE), str(TOOL_LIBRARY_RELATIVE)}
+    if not required.issubset(paths):
+        raise SystemExit(f"fixed tool distribution is incomplete: {sorted(required - paths)}")
+    launcher = repo_root / TOOL_EXECUTABLE_RELATIVE
+    if not os.access(launcher, os.X_OK):
+        raise SystemExit(f"fixed tool launcher is not executable: {launcher}")
+    return {
+        "path": str(TOOL_DISTRIBUTION_RELATIVE),
+        "entry_count": len(files),
+        "files": files,
+    }
+
+
+def current_tooling_identity(repo_root, environment=None):
+    return {
+        **verify_toolchain(repo_root, environment),
+        "distribution": tool_distribution_identity(repo_root),
+    }
+
+
+def tooling_identity_sha256(identity):
+    encoded = json.dumps(identity, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    return sha256_bytes(encoded.encode("utf-8"))
+
+
 def require_safe_new_entry_names():
     names = [LM_ENTRY]
     if len(names) != len(set(names)):
@@ -104,6 +165,36 @@ def require_safe_new_entry_names():
         dangerous = [part for part in DANGEROUS_NEW_ENTRY_SUBSTRINGS if part in lowered]
         if dangerous:
             raise ValueError(f"unsafe downloadable component entry {name!r}: contains {dangerous}")
+
+
+def component_info(zip_entry, runtime_name, kind, path, **extra):
+    return {
+        "zip_entry": zip_entry,
+        "runtime_name": runtime_name,
+        "kind": kind,
+        "sha256": sha256_file(path),
+        "size_bytes": path.stat().st_size,
+        **extra,
+    }
+
+
+def require_pack_entries(pack, expected):
+    with zipfile.ZipFile(pack) as archive:
+        names = archive.namelist()
+        if names != list(expected):
+            raise ValueError(f"pack entries/order mismatch: {names}; expected {list(expected)}")
+        for name in expected:
+            info = archive.getinfo(name)
+            if info.file_size <= 0:
+                raise ValueError(f"pack entry is empty: {name}")
+            if info.date_time != (1980, 1, 1, 0, 0, 0):
+                raise ValueError(f"pack entry timestamp is not deterministic: {name}")
+            if info.compress_type != zipfile.ZIP_DEFLATED:
+                raise ValueError(f"pack entry compression is not deterministic: {name}")
+            if info.external_attr >> 16 != 0o100644:
+                raise ValueError(f"pack entry mode is not deterministic: {name}")
+        return {name: archive.read(name) for name in expected}
+
 
 def path_in_repo(repo_root, relative):
     target = Path(os.path.normpath(repo_root / relative))
@@ -438,3 +529,235 @@ def require_aegl_v1(path):
         "bigram_count": num_bigrams,
         "total_unigram_count": total_unigrams,
     }
+
+
+def write_json_atomic(path, payload):
+    path = Path(path)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output_file:
+            output_file.write(json.dumps(payload, ensure_ascii=True, indent=2) + "\n")
+            output_file.flush()
+            os.fsync(output_file.fileno())
+        replace_file_durable(temporary_name, path)
+    finally:
+        if os.path.exists(temporary_name):
+            os.unlink(temporary_name)
+
+
+def fsync_directory(path):
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def replace_file_durable(source, destination):
+    source = Path(source)
+    destination = Path(destination)
+    with source.open("rb") as source_file:
+        os.fsync(source_file.fileno())
+    os.replace(source, destination)
+    fsync_directory(destination.parent)
+
+
+def pack_asset_identity(pack):
+    return (pack.name, pack.stat().st_size, sha256_file(pack))
+
+
+def validate_update_document(build_info_json, update_json):
+    if update_json != update_payload(build_info_json):
+        raise ValueError("update-json metadata mismatch")
+
+
+def validate_intermediate_metadata(pack, build_info_json, update_json):
+    if build_info_json.get("schema_name") != "aegis.resource-build-info":
+        raise ValueError("build-info schema mismatch")
+    resources = build_info_json.get("resources") or []
+    if len(resources) != 1 or resources[0].get("kind") != "dictionary":
+        raise ValueError("build-info dictionary resource mismatch")
+    resource = resources[0]
+    build = resource.get("build") or {}
+    if build.get("pack_state") != "intermediate":
+        raise ValueError("finalization only accepts an intermediate pack")
+    if (build.get("zip_packaging") or {}).get("file_order") != PACK_ENTRIES:
+        raise ValueError("intermediate build-info file order mismatch")
+    asset = resource.get("physical_asset") or {}
+    identity = pack_asset_identity(pack)
+    if (asset.get("name"), asset.get("size_bytes"), asset.get("sha256")) != identity:
+        raise ValueError("intermediate build-info asset identity mismatch")
+    validate_update_document(build_info_json, update_json)
+    component_rows = build.get("output_bins") or []
+    if [item.get("zip_entry") for item in component_rows] != PACK_ENTRIES[1:]:
+        raise ValueError("intermediate component metadata order/set mismatch")
+    components = {item["zip_entry"]: item for item in component_rows}
+    return resource, components
+
+
+def verify_component_metadata(payloads, components, names):
+    for name in names:
+        data = payloads[name]
+        metadata = components.get(name) or {}
+        if (metadata.get("size_bytes"), metadata.get("sha256")) != (
+            len(data),
+            sha256_bytes(data),
+        ):
+            raise ValueError(f"component metadata mismatch: {name}")
+
+
+def collect_final_output_infos(staged):
+    output_infos = [
+        component_info(
+            zip_entry,
+            runtime_name,
+            "dictionary",
+            staged[zip_entry],
+            key_type=key_type,
+        )
+        for zip_entry, runtime_name, key_type in OUTPUTS
+    ]
+    output_infos.append(
+        component_info(
+            LM_ENTRY,
+            LM_RUNTIME_NAME,
+            "language_model",
+            staged[LM_ENTRY],
+            format="AEGL v1",
+            min_bigram=LM_MIN_BIGRAM,
+        )
+    )
+    return output_infos
+
+
+def frozen_builder_commit(resource):
+    builder_commit = (resource.get("build") or {}).get("builder_commit")
+    if not re.fullmatch(r"[0-9a-f]{40}", builder_commit or ""):
+        raise ValueError("build-info builder commit is not a fixed object id")
+    return builder_commit
+
+
+def apply_final_metadata(resource, pack, output_infos, builder_commit):
+    build = resource["build"]
+    tooling = build.get("tooling")
+    if not isinstance(tooling, dict):
+        raise ValueError("fixed finalizer tooling identity is missing")
+    build["pack_state"] = "final"
+    build["output_bins"] = output_infos
+    build["zip_packaging"]["file_order"] = PACK_ENTRIES
+    build["finalization"] = {
+        "builder_commit": builder_commit,
+        "builder_path": "tools/release/build_dictionary_pack.py",
+        "tooling_identity_sha256": tooling_identity_sha256(tooling),
+    }
+    asset = resource["physical_asset"]
+    asset["sha256"] = sha256_file(pack)
+    asset["size_bytes"] = pack.stat().st_size
+    return asset
+
+
+def validate_final_metadata(pack, build_info_json, update_json, output_infos):
+    if build_info_json.get("schema_name") != "aegis.resource-build-info":
+        raise ValueError("build-info schema mismatch")
+    resources = build_info_json.get("resources") or []
+    if len(resources) != 1 or resources[0].get("kind") != "dictionary":
+        raise ValueError("build-info dictionary resource mismatch")
+    resource = resources[0]
+    build = resource.get("build") or {}
+    if build.get("pack_state") != "final":
+        raise ValueError("final build-info pack state mismatch")
+    if (build.get("zip_packaging") or {}).get("file_order") != PACK_ENTRIES:
+        raise ValueError("final build-info file order mismatch")
+    finalization = build.get("finalization") or {}
+    if (
+        finalization.get("builder_path") != "tools/release/build_dictionary_pack.py"
+        or finalization.get("builder_commit") != frozen_builder_commit(resource)
+        or finalization.get("tooling_identity_sha256")
+        != tooling_identity_sha256(build.get("tooling") or {})
+    ):
+        raise ValueError("finalization metadata mismatch")
+    if build.get("output_bins") != output_infos:
+        raise ValueError("final component metadata mismatch")
+    asset = resource.get("physical_asset") or {}
+    identity = pack_asset_identity(pack)
+    if (asset.get("name"), asset.get("size_bytes"), asset.get("sha256")) != identity:
+        raise ValueError("final build-info asset identity mismatch")
+    validate_update_document(build_info_json, update_json)
+    return resource
+
+
+def finalize_main(argv):
+    parser = argparse.ArgumentParser(description="Finalize an injected Aegis dictionary pack.")
+    parser.add_argument("--pack", required=True)
+    parser.add_argument("--build-info", required=True)
+    parser.add_argument("--update-json", required=True)
+    args = parser.parse_args(argv)
+
+    require_safe_new_entry_names()
+    repo_root = Path(__file__).resolve().parents[2]
+    pack = Path(args.pack).resolve()
+    build_info_path = Path(args.build_info).resolve()
+    update_json_path = Path(args.update_json).resolve()
+    for required in (pack, build_info_path, update_json_path):
+        if not required.is_file():
+            raise SystemExit(f"finalization input missing: {required}")
+
+    payloads = require_pack_entries(pack, PACK_ENTRIES)
+    if "derived character unigram and bigram statistics" not in payloads[NOTICE_NAME].decode("utf-8"):
+        raise SystemExit("pack NOTICE does not attribute the language model")
+    build_info_json = json.loads(build_info_path.read_text(encoding="utf-8"))
+    update_json = json.loads(update_json_path.read_text(encoding="utf-8"))
+    resources = build_info_json.get("resources") or []
+    if len(resources) != 1 or resources[0].get("kind") != "dictionary":
+        raise ValueError("build-info dictionary resource mismatch")
+    builder_commit = frozen_builder_commit(resources[0])
+    current_builder_commit = output(["git", "rev-parse", "HEAD"], cwd=repo_root)
+    if current_builder_commit != builder_commit:
+        raise ValueError(
+            "current finalizer commit differs from the frozen builder"
+        )
+    build = resources[0].get("build") or {}
+    frozen_tooling = build.get("tooling")
+    if not isinstance(frozen_tooling, dict):
+        raise ValueError("fixed finalizer tooling identity is missing")
+    tool_environment = fixed_tool_environment()
+    if current_tooling_identity(repo_root, tool_environment) != frozen_tooling:
+        raise ValueError("current finalizer tooling differs from the frozen builder tooling")
+    frozen_tree_dirt = build.get("builder_tree_dirt")
+    if (
+        not isinstance(frozen_tree_dirt, list)
+        or build.get("builder_tree_dirty") is not bool(frozen_tree_dirt)
+        or tree_dirt(repo_root) != frozen_tree_dirt
+    ):
+        raise ValueError("current finalizer tree differs from the frozen builder tree")
+
+    with tempfile.TemporaryDirectory(prefix="aegis-pack-finalize-", dir=pack.parent) as directory:
+        staging = Path(directory)
+        staged = {}
+        for name, data in payloads.items():
+            path = staging / name
+            path.write_bytes(data)
+            staged[name] = path
+        require_aegl_v1(staged[LM_ENTRY])
+        output_infos = collect_final_output_infos(staged)
+
+        pack_state = build.get("pack_state")
+        if pack_state == "intermediate":
+            resource, existing_components = validate_intermediate_metadata(
+                pack, build_info_json, update_json
+            )
+            verify_component_metadata(payloads, existing_components, PACK_ENTRIES[1:])
+            asset = apply_final_metadata(resource, pack, output_infos, builder_commit)
+            write_json_atomic(build_info_path, build_info_json)
+            write_json_atomic(update_json_path, update_payload(build_info_json))
+            print(f"finalized {pack}: sha256={asset['sha256']} size={asset['size_bytes']}")
+            return 0
+        if pack_state != "final":
+            raise ValueError(f"invalid build-info pack state: {pack_state!r}")
+
+        validate_final_metadata(pack, build_info_json, update_json, output_infos)
+        print(
+            f"already finalized {pack}: "
+            f"sha256={sha256_file(pack)} size={pack.stat().st_size}"
+        )
+        return 0

@@ -4,7 +4,10 @@
 #
 
 import base64
+import contextlib
 import hashlib
+import io
+import json
 import struct
 import subprocess
 import sys
@@ -22,6 +25,12 @@ import build_dictionary_pack as bp
 
 REPO = "https://github.com/amzxyz/rime-wanxiang"
 COMMIT = "7db7c588fd5ea90c13e4bf1814d7dd7fa8a2effc"
+BUILDER_COMMIT = subprocess.check_output(
+    ["git", "rev-parse", "HEAD"],
+    cwd=Path(__file__).resolve().parents[2],
+    text=True,
+).strip()
+
 
 def minimal_language_model() -> bytes:
     return (
@@ -234,6 +243,306 @@ class LanguageModelProtocolTest(unittest.TestCase):
                 with self.subTest(message=message):
                     with self.assertRaisesRegex(ValueError, message):
                         self.require(root, bytes(data))
+
+class FinalizePackTest(unittest.TestCase):
+    def tooling_identity(self):
+        return {"schema_version": 1, "fixture": "fixed-tooling"}
+
+    def invoke(self, args, tooling=None):
+        with mock.patch.object(
+            bp,
+            "current_tooling_identity",
+            return_value=self.tooling_identity() if tooling is None else tooling,
+        ), mock.patch.object(
+            bp,
+            "run",
+            side_effect=AssertionError("finalization must not run an external tool"),
+        ):
+            return bp.finalize_main(args)
+
+    def write_intermediate(self, root: Path):
+        root.mkdir(parents=True)
+        staging = root / "staging"
+        staging.mkdir()
+        files = {}
+        notice = staging / bp.NOTICE_NAME
+        notice.write_text(bp.attribution_text(REPO, "v17.0.3", "wanxiang", COMMIT), encoding="utf-8")
+        files[bp.NOTICE_NAME] = notice
+        for index, (zip_entry, _runtime, _key_type) in enumerate(bp.OUTPUTS, start=1):
+            path = staging / zip_entry
+            path.write_bytes(b"AEGD" + index.to_bytes(4, "little") + bytes(range(64)))
+            files[zip_entry] = path
+        lm = staging / bp.LM_ENTRY
+        lm.write_bytes(minimal_language_model())
+        files[bp.LM_ENTRY] = lm
+        pack = root / "aegis_dict_pack_dict-latest.zip"
+        bp.write_zip(pack, [(name, files[name]) for name in bp.PACK_ENTRIES])
+
+        components = []
+        for zip_entry, runtime_name, key_type in bp.OUTPUTS:
+            components.append(
+                bp.component_info(
+                    zip_entry,
+                    runtime_name,
+                    "dictionary",
+                    files[zip_entry],
+                    key_type=key_type,
+                )
+            )
+        components.append(
+            bp.component_info(
+                bp.LM_ENTRY,
+                bp.LM_RUNTIME_NAME,
+                "language_model",
+                lm,
+                format="AEGL v1",
+            )
+        )
+        asset = {
+            "name": pack.name,
+            "sha256": bp.sha256_file(pack),
+            "size_bytes": pack.stat().st_size,
+        }
+        repo_root = Path(bp.__file__).resolve().parents[2]
+        builder_tree_dirt = bp.tree_dirt(repo_root)
+        build_info = {
+            "schema_name": "aegis.resource-build-info",
+            "resources": [
+                {
+                    "kind": "dictionary",
+                    "physical_asset": asset,
+                    "source": {
+                        "repo": REPO,
+                        "ref_type": "tag",
+                        "tag": "v17.0.3",
+                        "branch": None,
+                        "commit": COMMIT,
+                    },
+                    "build": {
+                        "pack_state": "intermediate",
+                        "builder_commit": BUILDER_COMMIT,
+                        "builder_tree_dirty": bool(builder_tree_dirt),
+                        "builder_tree_dirt": builder_tree_dirt,
+                        "tooling": self.tooling_identity(),
+                        "output_bins": components,
+                        "zip_packaging": {"file_order": bp.PACK_ENTRIES},
+                    },
+                }
+            ],
+        }
+        update = bp.update_payload(build_info)
+        build_info_path = root / "aegis-build-info.json"
+        update_path = root / "aegis-dictionary-update.json"
+        build_info_path.write_text(json.dumps(build_info), encoding="utf-8")
+        update_path.write_text(json.dumps(update), encoding="utf-8")
+        return pack, build_info_path, update_path
+
+    def finalize(self, root: Path):
+        pack, build_info, update = self.write_intermediate(root)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(
+                0,
+                self.invoke(
+                    [
+                        "--pack",
+                        str(pack),
+                        "--build-info",
+                        str(build_info),
+                        "--update-json",
+                        str(update),
+                    ]
+                ),
+            )
+        return pack, build_info, update
+
+    def finalize_args(self, pack: Path, build_info: Path, update: Path):
+        return [
+            "--pack",
+            str(pack),
+            "--build-info",
+            str(build_info),
+            "--update-json",
+            str(update),
+        ]
+
+    def test_finalization_produces_four_bound_components_and_final_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pack, build_info_path, update_path = self.finalize(root / "one")
+            with zipfile.ZipFile(pack) as archive:
+                self.assertEqual(bp.PACK_ENTRIES, archive.namelist())
+                entries = {name: archive.read(name) for name in archive.namelist()}
+            build_info = json.loads(build_info_path.read_text(encoding="utf-8"))
+            resource = build_info["resources"][0]
+            self.assertEqual("final", resource["build"]["pack_state"])
+            self.assertEqual(bp.PACK_ENTRIES, resource["build"]["zip_packaging"]["file_order"])
+            components = resource["build"]["output_bins"]
+            self.assertEqual(bp.PACK_ENTRIES[1:], [item["zip_entry"] for item in components])
+            for item in components:
+                self.assertEqual(hashlib.sha256(entries[item["zip_entry"]]).hexdigest(), item["sha256"])
+                self.assertEqual(len(entries[item["zip_entry"]]), item["size_bytes"])
+            self.assertEqual(
+                ["dictionary", "dictionary", "dictionary", "language_model"],
+                [item["kind"] for item in components],
+            )
+            self.assertNotIn(
+                "prefix_index_format", resource["build"]["finalization"]
+            )
+            self.assertEqual(
+                bp.tooling_identity_sha256(self.tooling_identity()),
+                resource["build"]["finalization"]["tooling_identity_sha256"],
+            )
+            update = json.loads(update_path.read_text(encoding="utf-8"))
+            self.assertEqual(bp.sha256_file(pack), update["asset"]["sha256"])
+            self.assertEqual(pack.stat().st_size, update["asset"]["size_bytes"])
+
+    def test_two_independent_finalizations_are_byte_reproducible(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first, _, _ = self.finalize(root / "one")
+            second, _, _ = self.finalize(root / "two")
+            self.assertEqual(first.read_bytes(), second.read_bytes())
+
+    def test_finalization_leaves_the_published_bytes_untouched(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pack, build_info, update = self.write_intermediate(root / "one")
+            before = pack.read_bytes()
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(0, self.invoke(self.finalize_args(pack, build_info, update)))
+            self.assertEqual(before, pack.read_bytes())
+            self.assertEqual(bp.PACK_ENTRIES, zipfile.ZipFile(pack).namelist())
+
+    def test_recovers_when_interrupted_after_only_build_info_is_final(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pack, build_info, update = self.write_intermediate(root / "one")
+            args = self.finalize_args(pack, build_info, update)
+            real_write = bp.write_json_atomic
+            writes = 0
+
+            def interrupt_second_write(path, payload):
+                nonlocal writes
+                writes += 1
+                if writes == 2:
+                    raise RuntimeError("simulated interruption before update metadata")
+                real_write(path, payload)
+
+            with mock.patch.object(bp, "write_json_atomic", side_effect=interrupt_second_write):
+                with self.assertRaisesRegex(RuntimeError, "simulated interruption"):
+                    self.invoke(args)
+            self.assertEqual(
+                "final",
+                json.loads(build_info.read_text(encoding="utf-8"))["resources"][0]["build"]["pack_state"],
+            )
+            self.assertEqual(
+                bp.sha256_file(pack),
+                json.loads(update.read_text(encoding="utf-8"))["asset"]["sha256"],
+            )
+            before = (pack.read_bytes(), build_info.read_bytes(), update.read_bytes())
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(0, self.invoke(args))
+            self.assertEqual(
+                before,
+                (pack.read_bytes(), build_info.read_bytes(), update.read_bytes()),
+            )
+
+    def test_a_complete_finalization_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pack, build_info, update = self.finalize(root / "one")
+            before = (pack.read_bytes(), build_info.read_bytes(), update.read_bytes())
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(
+                    0,
+                    self.invoke(self.finalize_args(pack, build_info, update)),
+                )
+            self.assertEqual(
+                before,
+                (pack.read_bytes(), build_info.read_bytes(), update.read_bytes()),
+            )
+
+    def test_a_final_pack_with_unknown_update_drift_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pack, build_info, update = self.finalize(root / "one")
+            document = json.loads(update.read_text(encoding="utf-8"))
+            document["source"]["commit"] = "0" * 40
+            update.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "update-json metadata mismatch"):
+                self.invoke(self.finalize_args(pack, build_info, update))
+
+    def test_finalization_rejects_a_pack_flagged_final_it_never_finalized(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pack, build_info_path, update_path = self.write_intermediate(root / "one")
+            document = json.loads(build_info_path.read_text(encoding="utf-8"))
+            document["resources"][0]["build"]["pack_state"] = "final"
+            build_info_path.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "finalization metadata mismatch"):
+                self.invoke(self.finalize_args(pack, build_info_path, update_path))
+
+    def test_finalization_rejects_an_unknown_pack_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pack, build_info_path, update_path = self.write_intermediate(root / "one")
+            document = json.loads(build_info_path.read_text(encoding="utf-8"))
+            document["resources"][0]["build"]["pack_state"] = "published"
+            build_info_path.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "invalid build-info pack state"):
+                self.invoke(self.finalize_args(pack, build_info_path, update_path))
+
+    def test_finalization_rejects_a_builder_head_different_from_frozen_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pack, build_info_path, update_path = self.write_intermediate(root / "one")
+            document = json.loads(build_info_path.read_text(encoding="utf-8"))
+            document["resources"][0]["build"]["builder_commit"] = "0" * 40
+            build_info_path.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "differs from the frozen"):
+                self.invoke(
+                    self.finalize_args(pack, build_info_path, update_path)
+                )
+
+    def test_finalization_rejects_builder_tree_drift_after_the_intermediate_pack(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pack, build_info_path, update_path = self.write_intermediate(root / "one")
+            with mock.patch.object(
+                bp,
+                "tree_dirt",
+                return_value=[{"status": " M", "path": "unexpected"}],
+            ):
+                with self.assertRaisesRegex(ValueError, "tree differs"):
+                    self.invoke(
+                        self.finalize_args(pack, build_info_path, update_path)
+                    )
+
+    def test_finalization_rejects_tooling_drift(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pack, build_info, update = self.write_intermediate(root / "one")
+            with self.assertRaisesRegex(ValueError, "tooling differs"):
+                self.invoke(
+                    self.finalize_args(pack, build_info, update),
+                    tooling={"schema_version": 1, "fixture": "different"},
+                )
+
+    def test_cli_rejects_an_arbitrary_tool_override(self):
+        with self.assertRaises(SystemExit):
+            bp.finalize_main(
+                [
+                    "--pack",
+                    "/nonexistent/pack",
+                    "--build-info",
+                    "/nonexistent/build-info",
+                    "--update-json",
+                    "/nonexistent/update",
+                    "--tool-bin",
+                    "/tmp/arbitrary-tool",
+                ]
+            )
+
 
 class GrammarReferenceTest(unittest.TestCase):
     def release(self, tag="LTS", url=None, release_url=None):
