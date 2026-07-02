@@ -38,7 +38,7 @@ import java.time.Duration
 
 /**
  * REAL interaction tests for the self-drawn [KeyboardView] (A3) — Robolectric dispatches actual
- * MotionEvents on the JVM so the touch/scroll bugs that only surface at runtime (backspace, follow-finger
+ * MotionEvents on the JVM so touch/scroll regressions (backspace, follow-finger
  * scroll, left-column hit-testing) are caught in CI, never again only on real hardware.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -97,7 +97,7 @@ class KeyboardViewInteractionTest {
 
     @Test fun scroll_then_tap_picks_a_later_punctuation() {
         // Follow-finger: drag UP by 3 cells, then tap the TOP row — it must now pick a LATER punctuation,
-        // proving the list actually scrolled (and that a small drag is enough — fixes 滑不动/不跟手).
+        // Chinese IME behavior note.
         var picked: Key? = null
         val v = nineView(Layouts.ninePunctuation(), composing = false).apply { onKey = { picked = it } }
         val x = v.cx()
@@ -107,7 +107,7 @@ class KeyboardViewInteractionTest {
         v.tap(x, v.colCellY(0)) // tap the top row after scrolling
         assertNotNull(picked)
         assertNotEquals("after scrolling, the top row is no longer the first punctuation", "，", picked?.label)
-        // item index 3 in ，。？！…：；~.-@自定义 is ！
+        // Chinese IME behavior note.
         assertEquals("！", picked?.label)
     }
 
@@ -127,7 +127,7 @@ class KeyboardViewInteractionTest {
     }
 
     @Test fun a_fast_flick_flings_to_the_bottom_in_one_gesture() {
-        // U7/U17: the core requirement — a single quick flick must hand off to a
+        // Chinese IME behavior note.
         // momentum fling whose final resting position is the very bottom of the list.
         val v = longComboView()
         assertTrue("the list overflows so there is somewhere to scroll", v.maxScrollForTest() > 0f)
@@ -140,7 +140,7 @@ class KeyboardViewInteractionTest {
     }
 
     @Test fun tapping_during_a_fling_stops_it_without_picking() {
-        // U7/U17 (易误触): tapping a moving list halts the fling and must NOT commit whatever is under the
+        // Chinese IME behavior note.
         // finger — otherwise stopping a scroll mis-types a combo.
         val v = longComboView()
         var picked: Key? = null
@@ -236,7 +236,7 @@ class KeyboardViewInteractionTest {
 
     @Test fun nine_key_is_slightly_taller_than_the_base_row_height() {
         // I3: the 9-key gets a small per-row bump; verify it is taller than the un-bumped 4-row base, but
-        // only modestly ("别过").
+        // Chinese IME behavior note.
         val v = nineView(Layouts.ninePunctuation(), composing = false)
         val rows = 4
         val baseHeight = rows * 52f * density + (rows + 1) * 6f * density // pre-I3 measure
@@ -288,7 +288,7 @@ class KeyboardViewInteractionTest {
     }
 
     @Test fun a_flick_that_eases_off_at_the_very_end_still_flings() {
-        // ROOT CAUSE of "要滑很长才到底": the old two-sample velocity read ~0 when the finger decelerated in
+        // Chinese IME behavior note.
         // the last few ms before lifting, so a genuine flick produced no momentum. The windowed estimate
         // uses the whole flick, so a brief soft finish (< the velocity window) still flings.
         val v = longComboView()
@@ -322,7 +322,7 @@ class KeyboardViewInteractionTest {
     }
 
     @Test fun reversing_after_overscroll_tracks_the_finger_immediately() {
-        // I5 真做对: dragging PAST the bottom clamp must not bank an overshoot — reversing moves the content
+        // Chinese IME behavior note.
         // right away (no dead zone). Incremental-delta drag makes this hold; the old absolute map failed it.
         val v = longComboView()
         val max = v.maxScrollForTest()

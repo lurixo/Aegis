@@ -29,9 +29,9 @@ import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.ime.theme.ImeType
 
 /**
- * debug.16 Option A: the inline text-input bar shown above the candidate strip while editing a 常用语 / a
+  * Chinese IME behavior note.
  * category name. The Aegis keyboard stays visible below; its output is redirected (by [PanelTextInput]) into
- * this bar's buffer rather than the target app. Shows a title, the live buffer + a caret, and 取消 / 确定.
+  * Chinese IME behavior note.
  */
 class EditBarView(context: Context) : LinearLayout(context) {
 
@@ -48,7 +48,7 @@ class EditBarView(context: Context) : LinearLayout(context) {
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
         setPadding(dp(12), 0, dp(6), 0)
     }
-    // debug.18: a long 常用语 / category name used to be truncated to ONE line (illegible). The field now
+    // Chinese IME behavior note.
     // grows to at most 4 wrapped lines and scrolls vertically beyond that, claiming the drag (disallow-intercept)
     // so an ancestor can't steal it while it can still scroll.
     private val field = object : TextView(context) {
@@ -63,7 +63,7 @@ class EditBarView(context: Context) : LinearLayout(context) {
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         setPadding(dp(12), dp(6), dp(12), dp(6))
         minHeight = dp(36) // keep the single-line rounded-rect look for short content
-        // cap the VIEWPORT at 4 lines via maxHeight (NOT maxLines — maxLines truncates the layout so the
+        // Chinese IME behavior note.
         // overflow can't be scrolled to). The full text still lays out; ScrollingMovementMethod scrolls it.
         maxHeight = lineHeight * 4 + paddingTop + paddingBottom
     }
@@ -94,18 +94,20 @@ class EditBarView(context: Context) : LinearLayout(context) {
         setBackgroundColor(p.keyboardBg)
         title.setTextColor(p.keyHint)
         field.setTextColor(p.keyLabel)
-        field.background = GradientDrawable().apply { setColor(p.keySurface); cornerRadius = ImeShapes.inputRadiusDp * density } // debug.17: 圆角矩形, not a pill
+        field.background = GradientDrawable().apply { setColor(p.keySurface); cornerRadius = ImeShapes.inputRadiusDp * density } // Chinese IME behavior note.
         cancel.setTextColor(p.keyLabelSecondary)
         confirm.setTextColor(p.candidateFirst)
+        Motion.applyTapFeedback(cancel, p.keyLabelSecondary)
+        Motion.applyTapFeedback(confirm, p.candidateFirst)
     }
 
-    /** The bar title (e.g. 编辑常用语 / 新建分类 / 重命名分类). */
+    /** Chinese IME behavior note. */
     fun setTitle(t: String) { title.text = t }
 
     /** Mirror the capture buffer; a trailing caret marks the (end-of-text) cursor. */
     fun setText(t: String) {
         field.text = "$t▏"
-        // keep the growing end (the caret) in view once the content overflows the 4 visible lines.
+        // Chinese IME behavior note.
         field.post {
             val l = field.layout ?: return@post
             val overflow = l.height - (field.height - field.paddingTop - field.paddingBottom)

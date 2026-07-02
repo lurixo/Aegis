@@ -29,10 +29,10 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 /**
- * debug.18 FIX-2, end-to-end on BOTH keyboards (the 26-key has the same problem too — yes, and it's fixed by the
- * same shared layer). The 9-key locks each reading from the left column; the 26-key types literal 隔音符. Both
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  * funnel into the SAME [PinyinDecoder.decodeCovered] with the same (letters, interior cuts), so both grids are
- * boundary-aligned & atomic: no 西安 from a locked xian, no extension-area flood, the target words kept.
+  * Chinese IME behavior note.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -62,7 +62,15 @@ class BothKeyboardsAtomicFixTest {
         return c.candidateWords()
     }
 
-    /** Drive the 26-key with literal 隔音符 between [readings]. */
+    private fun nineKeyPartialLocked(locked: String, activeTail: String): Pair<String, List<String>> {
+        val c = controller()
+        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        c.type(t9(locked)); c.pick(locked)
+        c.type(t9(activeTail))
+        return c.preeditForTest() to c.candidateWords()
+    }
+
+    /** Chinese IME behavior note. */
     private fun alphaSeparated(readings: List<String>): List<String> {
         val c = controller()
         c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
@@ -92,6 +100,14 @@ class BothKeyboardsAtomicFixTest {
         assertEquals("both keyboards funnel to the SAME atomic decode for $readings", han(nine), han(alpha))
     }
 
+    private fun alphaDrilled(reading: String): List<String> {
+        val c = controller()
+        c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+        c.type(reading)
+        c.onPickReadingIndex(0)
+        return c.candidateWords()
+    }
+
     @Test fun ciku_bothKeyboards() = bothMatch(listOf("ci", "ku"), 2, topWord = "词库", sentence = null)
 
     @Test fun jiujian_bothKeyboards() = bothMatch(listOf("jiu", "jian"), 2, topWord = "九键", sentence = null)
@@ -105,5 +121,28 @@ class BothKeyboardsAtomicFixTest {
         for (r in listOf(listOf("ci", "ku"), listOf("diu", "zi"), listOf("bu", "shi", "xian"), listOf("jiu", "jian"))) {
             assertEquals("identical decoded grid for $r", han(nineKeyLocked(r)), han(alphaSeparated(r)))
         }
+    }
+
+    @Test fun single_selected_xiang_stays_on_the_selected_reading() {
+        val cases = listOf(
+            "9-key locked xiang" to nineKeyLocked(listOf("xiang")),
+            "26-key drilled xiang" to alphaDrilled("xiang"),
+        )
+        for ((label, words) in cases) {
+            assertTrue("$label: common xiang homophones stay prominent", words.take(7).containsAll(listOf("向", "想", "相", "像", "香")))
+            assertFalse("$label: no xian word leak", "西安" in words)
+            assertFalse("$label: no xi prefix leak", "西" in words)
+            assertFalse("$label: no xia prefix leak", "下" in words)
+        }
+    }
+
+    @Test fun nineKey_partiallyLockedXiangThenKuCode_staysOnTheSelectedReading() {
+        val (preedit, words) = nineKeyPartialLocked("xiang", "ku")
+
+        assertTrue("preedit keeps selected xiang and a live tail, was $preedit", preedit.startsWith("xiang'"))
+        assertTrue("common xiang homophones stay prominent", words.take(7).containsAll(listOf("向", "想", "相", "像", "香")))
+        assertFalse("partial locked xiang must not leak xian candidates", "西安" in words)
+        assertFalse("partial locked xiang must not leak xi prefix singles", "西" in words)
+        assertFalse("partial locked xiang must not leak xia prefix singles", "下" in words)
     }
 }

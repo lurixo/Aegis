@@ -28,7 +28,8 @@ data class Cand(val word: String, val coveredLen: Int)
 /** A segmented syllable of the input: its [reading] (pinyin letters, for display) and the half-open
  *  input-unit span [[start], [end]) it consumes — letters on the 26-key decoder, digits on the T9
  *  decoder. Exposed (with [PinyinDecoder.homophonesAt]) so the UI can navigate syllable positions and
- *  list every 同音字 of each (UI-1 9-key trailing column / UI-2 26-key pinyin column). */
+  * Chinese IME behavior note.
+  */
 data class Syllable(val reading: String, val start: Int, val end: Int)
 
 /**
@@ -61,7 +62,7 @@ class PinyinDecoder(
      * E4 hot-toggle (debug.16): swap the active fuzzy rule set without rebuilding the decoder — fuzzy is pure
      * query-time variant expansion ([edgesFor] → [Fuzzy.variants]), not a prebuilt index. [edgeN] is widened
      * iff there is now a reason to keep more than one edge per cell, so a non-empty rule set's fuzzy variants
-     * are not crowded out by the single exact match (matters only when there is no lm / 简拼 dict).
+      * Chinese IME behavior note.
      */
     fun setFuzzyRules(rules: Set<String>) {
         fuzzyRules = rules
@@ -70,27 +71,49 @@ class PinyinDecoder(
 
     private class Edge(val word: String, val freq: Int, val penalty: Double)
 
-    /** Lattice edges for a substring, by descending preference: exact, then fuzzy, then 简拼 initials. */
+    private fun inputAliases(key: String): List<String> = INPUT_ALIASES[key].orEmpty()
+
+    private fun addExactEdges(
+        key: String,
+        penalty: Double,
+        out: MutableList<Edge>,
+        seen: MutableSet<String>,
+    ): Boolean {
+        for (wf in preferredExact(dict, key)) {
+            if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, penalty))
+            if (out.size >= edgeN) return true
+        }
+        return false
+    }
+
+    private fun inputAliasWordFreqs(input: String): List<BinaryDict.WordFreq> {
+        val out = ArrayList<BinaryDict.WordFreq>()
+        val seen = HashSet<String>()
+        for (alias in inputAliases(input)) {
+            for (wf in dict.exact(alias)) if (seen.add(wf.word)) out.add(wf)
+        }
+        return preferredWordFreqs(out)
+    }
+
+    /** Lattice edges for a substring, by descending preference: exact, aliases, fuzzy, then jianpin initials. */
     private fun edgesFor(sub: String): List<Edge> {
         val out = ArrayList<Edge>(edgeN)
         val seen = HashSet<String>()
-        for (wf in dict.exact(sub)) {
-            if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, 0.0))
-            if (out.size >= edgeN) return out
-        }
+        if (addExactEdges(sub, 0.0, out, seen)) return out
+        for (alias in inputAliases(sub)) if (addExactEdges(alias, ALIAS_PENALTY, out, seen)) return out
         if (fuzzyRules.isNotEmpty()) {
             // Per-rule fuzzy: enumerate the confusion class of `sub` and match each against the exact
             // dict (no monolithic fuzzy index, so individual rules can be turned off — E4).
             for (variant in Fuzzy.variants(sub, fuzzyRules)) {
                 if (variant == sub) continue
-                for (wf in dict.exact(variant)) {
+                for (wf in preferredExact(dict, variant)) {
                     if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, FUZZY_PENALTY))
                     if (out.size >= edgeN) return out
                 }
             }
         }
         initialsDict?.let { id ->
-            for (wf in id.exact(sub)) {
+            for (wf in preferredExact(id, sub)) {
                 if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, INITIALS_PENALTY))
                 if (out.size >= edgeN) break
             }
@@ -114,7 +137,20 @@ class PinyinDecoder(
 
     /** Whole-input dict words (exact key = input) ordered by [wordModelScore] — model, not raw freq. */
     private fun rerankedWholeInput(input: String, ctxCp: Int, ctxWord: String): List<String> =
-        dict.exact(input).sortedByDescending { wordModelScore(it.word, it.freq, ctxCp, ctxWord) }.map { it.word }
+        dict.exact(input)
+            .sortedWith(
+                compareByDescending<BinaryDict.WordFreq> { wordModelScore(it.word, it.freq, ctxCp, ctxWord) }
+                    .thenBy { supplementarySingleTieRank(it.word) },
+            )
+            .map { it.word }
+
+    private fun rerankedInputAliases(input: String, ctxCp: Int, ctxWord: String): List<String> =
+        inputAliasWordFreqs(input)
+            .sortedWith(
+                compareByDescending<BinaryDict.WordFreq> { wordModelScore(it.word, it.freq, ctxCp, ctxWord) - ALIAS_PENALTY }
+                    .thenBy { supplementarySingleTieRank(it.word) },
+            )
+            .map { it.word }
 
     /**
      * Parse the editor text before the cursor into (last Han code point, trailing Han run) for
@@ -138,7 +174,7 @@ class PinyinDecoder(
         return lastCp to s.substring(start)
     }
 
-    private fun isHan(cp: Int): Boolean = cp in 0x3400..0x9FFF || cp in 0xF900..0xFAFF || cp in 0x20000..0x2FFFF
+    private fun isHan(cp: Int): Boolean = Character.isIdeographic(cp)
 
     /**
      * debug.18 (FIX-1): a "single character" by CODE POINTS, not UTF-16 units. A CJK extension char
@@ -148,15 +184,27 @@ class PinyinDecoder(
      */
     private fun isSingleChar(w: String): Boolean = w.codePointCount(0, w.length) == 1
 
+    private fun supplementarySingleTieRank(word: String): Int =
+        if (isSingleChar(word) && Character.isSupplementaryCodePoint(word.codePointAt(0))) 1 else 0
+
+    private fun preferredWordFreqs(words: List<BinaryDict.WordFreq>): List<BinaryDict.WordFreq> =
+        words.sortedWith(compareByDescending<BinaryDict.WordFreq> { it.freq }.thenBy { supplementarySingleTieRank(it.word) })
+
+    private fun preferredExact(source: BinaryDict, key: String): List<BinaryDict.WordFreq> =
+        preferredWordFreqs(source.exact(key))
+
+    private fun prefixWords(source: BinaryDict, input: String, limit: Int): List<String> =
+        source.prefixByFreq(input, limit).map { it.word }
+
     /**
-     * debug.17 隔音符 normalisation. A [SEP] ' in the buffer is a user-forced syllable boundary, never a key
+      * Chinese IME behavior note.
      * character — but the dict keyspace is pure a-z/2-9, so a stray ' silently broke segmentation, dict lookup
-     * AND the lattice (the post-' tail was dropped → 丢字). [normalizeSeparators] strips every ' to a clean
+      * Chinese IME behavior note.
      * buffer and records:
      *  - [Norm.cuts]: clean-index forced boundaries (one per interior ');
      *  - [Norm.origLen]: clean-coverage-length → ORIGINAL coverage length, eating a trailing ' so a partial
      *    commit consumes the separator (the remaining buffer is a clean syllable, never "'ci");
-     *  - [Norm.cleanIndexOfOrig]: original-index → clean-index, to remap any caller-supplied 分词 cuts.
+      * Chinese IME behavior note.
      * Returns null when there is no ' at all — callers then take the original (zero-overhead) path unchanged.
      */
     private class Norm(val clean: String, val cuts: Set<Int>, val origLen: IntArray, private val cleanLenAtOrig: IntArray) {
@@ -193,7 +241,7 @@ class PinyinDecoder(
      *  the committed text before the cursor, conditioning the first word (③ context-aware). */
     fun decode(input: String, limit: Int, context: CharSequence = ""): List<String> {
         if (input.isEmpty()) return emptyList()
-        // debug.17: a 隔音符 ' is a hard syllable boundary, never a buffer character — strip it to pure pinyin
+        // Chinese IME behavior note.
         // and turn its position into a forced cut, so the lattice / dict see valid keys. Without this the whole
         // post-' tail was silently dropped (decode("chai'ci") returned []). No separator → unchanged fast path.
         val norm = normalizeSeparators(input)
@@ -204,15 +252,16 @@ class PinyinDecoder(
         val out = LinkedHashSet<String>()
         bestSentence(clean, cuts, ctxCp = ctxCp, ctxWord = ctxWord)?.let { out.add(it) }
         out.addAll(rerankedWholeInput(clean, ctxCp, ctxWord)) // ★top-N rerank, context-conditioned
-        out.addAll(dict.query(clean, limit))
+        out.addAll(rerankedInputAliases(clean, ctxCp, ctxWord))
+        out.addAll(prefixWords(dict, clean, limit))
         if (out.size < limit && fuzzyRules.isNotEmpty()) {
             for (variant in Fuzzy.variants(clean, fuzzyRules)) {
                 if (variant == clean) continue
-                out.addAll(dict.query(variant, limit))
+                out.addAll(prefixWords(dict, variant, limit))
                 if (out.size >= limit) break
             }
         }
-        if (out.size < limit) initialsDict?.let { out.addAll(it.query(clean, limit)) }
+        if (out.size < limit) initialsDict?.let { out.addAll(prefixWords(it, clean, limit)) }
         return if (out.size <= limit) out.toList() else out.toList().subList(0, limit)
     }
 
@@ -235,11 +284,32 @@ class PinyinDecoder(
             .map { Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length }) }
     }
 
+    /**
+     * Boundary-aligned decode for readings the user explicitly selected. This is stricter than normal
+     * [decodeCovered]: even with a single syllable and no interior cut, the selected reading is atomic, so
+     * shorter prefix readings remain available only through the normal free-typing path.
+     */
+    fun decodeCoveredAtomic(input: String, limit: Int, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> {
+        if (input.isEmpty()) return emptyList()
+        val (ctxCp, ctxWord) = parseContext(context)
+        val norm = normalizeSeparators(input)
+        val clean = norm?.clean ?: input
+        if (clean.isEmpty()) return emptyList()
+        val passedClean = if (norm == null) cuts else cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
+        val interior = ((norm?.cuts ?: emptySet()) + passedClean).filter { it in 1 until clean.length }.toSet()
+        val decoded = decodeAtomic(clean, limit, interior, ctxCp, ctxWord)
+        return if (norm == null) {
+            decoded
+        } else {
+            decoded.map { Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length }) }
+        }
+    }
+
     private fun decodeCoveredClean(input: String, limit: Int, cuts: Set<Int>, context: CharSequence): List<Cand> {
         val (ctxCp, ctxWord) = parseContext(context)
         val interior = cuts.filter { it in 1 until input.length }.toSortedSet()
         // debug.18 (FIX-2): a buffer carrying FORCED syllable boundaries — 9-key locked readings OR a 26-key
-        // 隔音符/分词 (both arrive here as interior `cuts`) — decodes BOUNDARY-ALIGNED & atomic. Shared by both
+        // Chinese IME behavior note.
         // keyboards (26-key chai'ci and 9-key locked chai|ci funnel through the SAME decodeCovered → here).
         if (interior.isNotEmpty()) return decodeAtomic(input, limit, interior, ctxCp, ctxWord)
 
@@ -253,24 +323,25 @@ class PinyinDecoder(
         }
         bestSentence(input, emptySet(), ctxCp, ctxWord)?.let { cover[it] = input.length }
         addCompletions(rerankedWholeInput(input, ctxCp, ctxWord)) // ★top-N rerank, context-conditioned
-        addCompletions(dict.query(input, completionCap))
+        addCompletions(rerankedInputAliases(input, ctxCp, ctxWord))
+        addCompletions(prefixWords(dict, input, completionCap))
         if (fuzzyRules.isNotEmpty()) {
             for (variant in Fuzzy.variants(input, fuzzyRules)) {
                 if (variant == input) continue
-                addCompletions(dict.query(variant, completionCap))
+                addCompletions(prefixWords(dict, variant, completionCap))
                 if (cover.size >= completionCap) break
             }
         }
-        initialsDict?.let { addCompletions(it.query(input, completionCap)) }
+        initialsDict?.let { addCompletions(prefixWords(it, input, completionCap)) }
         // Multi-char prefix WORDS straight from the main dict (freq-ordered), independent of the lattice
-        // edge cap, so leading short words (你说 你们 …) surface even without an LM (★G).
+        // Chinese IME behavior note.
         // Leading single chars are intentionally NOT emitted here — they are served by the lossless layer
-        // below, so the PREFIX_PER_LEN cap can never truncate a syllable's 同音字 (the debug.13 loss bug).
+        // Chinese IME behavior note.
         for (q in input.length downTo 1) {
             if (cover.size >= limit) break
             var added = 0
-            for (wf in dict.exact(input.substring(0, q))) {
-                if (isSingleChar(wf.word)) continue // FIX-1: ★单字 (incl. U+20000+) → lossless layer, never capped here
+            for (wf in preferredExact(dict, input.substring(0, q))) {
+                if (isSingleChar(wf.word)) continue // Chinese IME behavior note.
                 if (cover.putIfAbsent(wf.word, q) == null && ++added >= PREFIX_PER_LEN) break
             }
         }
@@ -282,12 +353,12 @@ class PinyinDecoder(
 
     /**
      * debug.18 (FIX-2) BOUNDARY-ALIGNED ATOMIC decode for a buffer whose syllable boundaries are FORCED
-     * (9-key locks / 26-key 隔音符). The boundary set B = the syllable ends honouring the cuts (each
+      * Chinese IME behavior note.
      * cut-segment is segmented independently, so a declared syllable like `xian` stays ONE syllable and is
-     * NEVER internally re-split into `xi|an` → no spurious 西安). Every lattice edge [p,q] has p,q ∈ B; an
-     * edge spanning exactly one syllable yields only single chars (so the 2-char 西安 keyed by the single
-     * syllable `xian` is DROPPED), an edge spanning ≥2 syllables yields multi-char words (实现 / 九键 / 词库).
-     * Order: ① best sentence, ③ leading multi-syllable words (freq), ② the leading-syllable 同音字 (lossless,
+      * Chinese IME behavior note.
+      * Chinese IME behavior note.
+      * Chinese IME behavior note.
+      * Chinese IME behavior note.
      * incl. U+20000+ rares at the freq tail), ④ the remaining top-N alternative whole sentences.
      */
     private fun decodeAtomic(input: String, limit: Int, interior: Set<Int>, ctxCp: Int, ctxWord: String): List<Cand> {
@@ -306,16 +377,16 @@ class PinyinDecoder(
         // ③ leading multi-syllable words [0, B[j]] (cover the first j syllables), freq-descending.
         val leadWords = ArrayList<Pair<String, Int>>() // (word, coveredLen) sortable by the carried freq
         val leadFreq = HashMap<String, Int>()
-        for (j in 2..nSyl) for (wf in dict.exact(input.substring(0, B[j]))) if (!isSingleChar(wf.word)) {
+        for (j in 2..nSyl) for (wf in preferredExact(dict, input.substring(0, B[j]))) if (!isSingleChar(wf.word)) {
             if (leadFreq.put(wf.word, wf.freq) == null) leadWords.add(wf.word to B[j])
         }
         leadWords.sortedByDescending { leadFreq[it.first] ?: 0 }.forEach { cover.putIfAbsent(it.first, it.second) }
 
         val out = ArrayList<Cand>(minOf(cover.size, limit) + 40)
         for ((w, len) in cover) { out.add(Cand(w, len)); if (out.size >= limit) break }
-        // ② lossless first-syllable 同音字 (freq-ordered, U+20000+ rares at the tail). The first syllable IS the
+        // Chinese IME behavior note.
         // user-DECLARED unit [0, B[1]] — unlike the unlocked layer it is NOT re-split into sub-prefixes (a locked
-        // `xian` lists 现… only, never the `xi`→西 / `xia`→下 sub-readings the user did not ask for).
+        // Chinese IME behavior note.
         val seen = HashSet<String>(out.size * 2); for (c in out) seen.add(c.word)
         for (w in homophonesOf(input.substring(0, B[1]))) if (seen.add(w)) out.add(Cand(w, B[1]))
         for (s in sentences.drop(1)) if (seen.add(s)) out.add(Cand(s, input.length)) // ④ alternative sentences
@@ -340,7 +411,7 @@ class PinyinDecoder(
             val src = dp[i].sortedByDescending { it.score }.take(BEAM_W)
             for (j in i + 1..nSyl) {
                 val seg = input.substring(B[i], B[j])
-                val raw = dict.exact(seg)
+                val raw = preferredExact(dict, seg)
                 val edges = (if (j == i + 1) raw.filter { isSingleChar(it.word) } else raw.filterNot { isSingleChar(it.word) })
                     .take(SENTENCE_EDGE_N)
                 for (wf in edges) {
@@ -366,9 +437,9 @@ class PinyinDecoder(
     }
 
     /**
-     * ★单字无损层 (debug.13): append the COMPLETE homophone set of every leading syllable the buffer could
+      * Chinese IME behavior note.
      * start with (within [span], longest first), on a budget SEPARATE from the word/phrase candidates — so no
-     * number of words crowds a 同音字 out and no per-length cap can trim it, regardless of how the buffer
+      * Chinese IME behavior note.
      * segments. 2nd+ syllables are served per-position by [homophonesAt] for the navigable UI (UI-1/UI-2).
      */
     private fun appendLeadingSingles(input: String, span: Int, out: ArrayList<Cand>) {
@@ -388,7 +459,7 @@ class PinyinDecoder(
      */
     fun syllables(input: String): List<Syllable> {
         if (input.isEmpty()) return emptyList()
-        // debug.17: a 隔音符 ' was breaking segmentation outright (syllables("chai'ci") returned only [chai],
+        // Chinese IME behavior note.
         // dropping "ci"). Strip separators, segment the clean buffer, then remap each span back to the original
         // ' -inclusive index — the syllable END eats a trailing separator so its coverage is contiguous.
         normalizeSeparators(input)?.let { n ->
@@ -420,7 +491,7 @@ class PinyinDecoder(
 
     /**
      * The COMPLETE single-char homophone set of syllable [index] of [input], frequency-ordered and
-     * UNCAPPED — the ★单字无损 layer for per-syllable UI navigation. Empty when [index] is out of range or
+      * Chinese IME behavior note.
      * the syllable is unknown. On the T9 decoder the key is the syllable's digit group, so the set spans
      * every reading of that group (T9 is inherently ambiguous).
      */
@@ -439,7 +510,9 @@ class PinyinDecoder(
     /** Every single-char entry for an exact syllable key, frequency-ordered, uncapped. */
     private fun homophonesOf(key: String): List<String> {
         val out = ArrayList<String>()
-        for (wf in dict.exact(key)) if (isSingleChar(wf.word)) out.add(wf.word) // FIX-1: incl. U+20000+ singles
+        val seen = HashSet<String>()
+        for (wf in preferredExact(dict, key)) if (isSingleChar(wf.word) && seen.add(wf.word)) out.add(wf.word) // FIX-1: incl. U+20000+ singles
+        for (wf in inputAliasWordFreqs(key)) if (isSingleChar(wf.word) && seen.add(wf.word)) out.add(wf.word)
         return out
     }
 
@@ -486,7 +559,7 @@ class PinyinDecoder(
             for (p in 0 until q) {
                 val from = dp[p]
                 if (from.isEmpty()) continue
-                if (cuts.any { it > p && it < q }) continue // ★分词: no word may cross a forced syllable boundary
+                if (cuts.any { it > p && it < q }) continue // Chinese IME behavior note.
                 val edges = edgesFor(input.substring(p, q))
                 if (edges.isEmpty()) continue
                 for (e in edges) {
@@ -535,12 +608,13 @@ class PinyinDecoder(
     }
 
     private companion object {
-        const val SEP = '\''          // 隔音符: a user-forced hard syllable boundary in the buffer (debug.17)
+        const val SEP = '\'' // Chinese IME behavior note.
         const val BOS = -1            // sentence-start sentinel (real code points are >= 0)
         const val EDGE_N = 20         // candidate words considered per lattice edge when an LM is present (C3)
         const val DEFAULT_LAMBDA = 1.0
         const val FUZZY_PENALTY = 3.0     // log-domain cost so exact matches outrank fuzzy ones
-        const val INITIALS_PENALTY = 5.0  // 简拼 is the most ambiguous → lowest preference
+        const val ALIAS_PENALTY = 3.5
+        const val INITIALS_PENALTY = 5.0 // Chinese IME behavior note.
         const val DEFAULT_OCTAGRAM_WEIGHT = 0.3 // scales the large positive octagram log-weights
         const val PREFIX_PER_LEN = 16 // max multi-char short words pulled per prefix length (★G; singles are lossless, separate) (C3)
         const val BEAM_W = 12         // debug.18: atomic sentence beam width per syllable node
@@ -549,5 +623,6 @@ class PinyinDecoder(
         const val CTX_WORD_MAX = 4    // trailing Han chars of context used as the octagram prev-word proxy
         const val DEFAULT_CONTEXT_WEIGHT = 2.0 // ③ weight of the committed-context boundary bigram (vs λ for
         // internal word boundaries); context is reliable preceding text, so it outvotes raw frequency more
+        val INPUT_ALIASES = mapOf("en" to listOf("ng"))
     }
 }

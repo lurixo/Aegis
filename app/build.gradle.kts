@@ -2,20 +2,19 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.compose.compiler)
 }
 
 android {
     namespace = "com.aegis.ime"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.aegis.ime"
         minSdk = 34
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "0.1.0-debug.44"
         // Ship arm64-v8a only (drops the other ABIs of the one transitive native lib).
         ndk { abiFilters += "arm64-v8a" }
     }
@@ -66,16 +65,12 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
 
-    // Clamp transitive AndroidX that the Compose BOM would otherwise raise to API-37-only
-    // releases, until AGP 9.1 + compileSdk 37 are stable.
     constraints {
         implementation(libs.androidx.lifecycle.runtime.compose) {
-            version { strictly("2.10.0") }
-            because("lifecycle 2.11.0 requires compileSdk 37 / AGP 9.1")
+            because("Keep lifecycle-runtime-compose aligned with the API 37 stable toolchain")
         }
         implementation(libs.androidx.core) {
-            version { strictly("1.18.0") }
-            because("core 1.19.0 requires compileSdk 37 / AGP 9.1")
+            because("Keep core aligned with core-ktx for the API 37 stable toolchain")
         }
     }
 }

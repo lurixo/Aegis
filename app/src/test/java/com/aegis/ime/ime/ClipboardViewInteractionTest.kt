@@ -24,7 +24,6 @@ import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.user.ClipSplitter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -35,7 +34,7 @@ import org.robolectric.annotation.Config
 
 /**
  * debug.18 REAL interaction tests for [ClipboardView] — Robolectric dispatches actual MotionEvents (DOWN→MOVE→UP)
- * through dispatchTouchEvent, exactly like [KeyboardViewInteractionTest], so the touch/scroll bugs that a
+  * Chinese IME behavior note.
  * *ForTest state seam can't see (left-swipe revealing vs typing; the expanded card's inner scroll being stolen by
  * the outer list) are caught in CI. Driving the live touch listeners — NOT the *ForTest seams — is the whole point.
  */
@@ -72,6 +71,7 @@ class ClipboardViewInteractionTest {
     private fun textViews(root: View): List<TextView> = allViews(root).filterIsInstance<TextView>()
     private fun bodyOf(root: View, text: String): TextView =
         textViews(root).first { it.text?.toString() == text }
+    private fun mainOf(v: ClipboardView): View = (v as ViewGroup).getChildAt(0)
     private fun overlayOf(v: ClipboardView): View = (v as ViewGroup).getChildAt(1)
     private fun labels(root: View): List<String> = textViews(root).mapNotNull { it.text?.toString() }
     private fun clickText(root: View, label: String): Boolean {
@@ -92,7 +92,7 @@ class ClipboardViewInteractionTest {
         applyPalette(pal); forcePhrasesStateForTest("默认"); refresh()
     }
 
-    // ---------- F: left-swipe reveals the action row and NEVER 上屏s ----------
+    // Chinese IME behavior note.
 
     @Test fun left_swipe_on_a_clipboard_card_reveals_actions_and_never_commits() {
         var picked: String? = null
@@ -104,7 +104,7 @@ class ClipboardViewInteractionTest {
     }
 
     @Test fun a_SHORT_left_swipe_on_a_clipboard_card_still_reveals_not_commits() {
-        // The core case: a light/short left-swipe used to fall below the 40dp threshold → onPick (typed).
+        // Chinese IME behavior note.
         var picked: String? = null
         val v = clipView(listOf("第一条", "第二条")).apply { onPick = { picked = it } }
         layout(v)
@@ -133,7 +133,7 @@ class ClipboardViewInteractionTest {
 
     @Test fun a_plain_tap_does_not_reveal_and_still_commits() {
         // Regression guard: a TAP (DOWN+UP, no movement) keeps mode==0 — the swipe handler must NOT hijack it
-        // into a reveal, and the card's onClick (上屏) is still wired.
+        // Chinese IME behavior note.
         var picked: String? = null
         val v = clipView(listOf("第一条")).apply { onPick = { picked = it } }
         layout(v)
@@ -146,7 +146,7 @@ class ClipboardViewInteractionTest {
     }
 
     @Test fun a_clearly_vertical_drag_scrolls_and_neither_reveals_nor_commits() {
-        // Direction bias guard: a clearly vertical drag is a list scroll — it must NOT reveal and must NOT 上屏.
+        // Chinese IME behavior note.
         var picked: String? = null
         val v = clipView(listOf("第一条", "第二条")).apply { onPick = { picked = it } }
         layout(v)
@@ -156,6 +156,34 @@ class ClipboardViewInteractionTest {
         send(body, MotionEvent.ACTION_UP, 40f, 212f, 32)
         assertNull("a vertical drag does not reveal", v.swipeRevealedForTest())
         assertNull("a vertical drag does not 上屏", picked)
+    }
+
+    @Test fun refresh_renders_new_history_items_without_reopening_panel() {
+        val history = mutableListOf("old")
+        val v = ClipboardView(ctx).apply {
+            historyProvider = { history.toList() }
+            applyPalette(pal)
+            refresh()
+        }
+        assertTrue("initial item is visible", "old" in labels(v))
+        history.add(0, "new")
+        v.refresh()
+        assertTrue("new item appears in the existing panel", "new" in labels(v))
+        assertTrue("existing item remains visible", "old" in labels(v))
+    }
+
+    @Test fun copy_block_callback_can_refresh_open_panel_without_reopening() {
+        val history = mutableListOf("old")
+        val v = ClipboardView(ctx).apply {
+            historyProvider = { history.toList() }
+            onCopyBlockToAegis = { block -> history.add(0, block); refresh() }
+            applyPalette(pal)
+            refresh()
+        }
+        v.showSplitForTest("复制 block")
+        assertTrue(clickText(overlayOf(v), "block"))
+        assertTrue("copied block appears in the still-open panel", "block" in labels(mainOf(v)))
+        assertTrue("previous history remains visible", "old" in labels(mainOf(v)))
     }
 
     // ---------- G: the expanded card's inner ScrollView scrolls; the outer list must not steal it ----------
@@ -186,10 +214,10 @@ class ClipboardViewInteractionTest {
         assertEquals("the outer list did NOT steal the drag", 0, outer.scrollY)
     }
 
-    // ---------- H: 全部复制 records EACH block separately, not one merged entry ----------
+    // Chinese IME behavior note.
 
     @Test fun copy_all_records_each_split_block_separately() {
-        val text = "访问 https://aegis.example 联系 hi@aegis.example 再见"
+        val text = "visit https://x.com and copy each block"
         val blocks = ClipSplitter.blocks(text)
         assertTrue("precondition: the text splits into ≥2 blocks", blocks.size >= 2)
         val collected = ArrayList<String>()
@@ -202,7 +230,7 @@ class ClipboardViewInteractionTest {
         assertEquals("the blocks recorded are exactly the split blocks", blocks.toSet(), collected.toSet())
     }
 
-    // ---------- 二级菜单 「移动」 → 「移动分类」 ----------
+    // Chinese IME behavior note.
 
     @Test fun manage_menu_renames_move_to_move_category() {
         val v = phraseView(listOf("你好"))
@@ -212,14 +240,16 @@ class ClipboardViewInteractionTest {
         assertFalse("the bare 「移动」 label is gone", ls.any { it == "移动" })
     }
 
-    // ---------- 清空剪贴板历史 carries the same trash icon as 清空分类 ----------
+    // ---------- debug.20: clipboard clear requires confirmation ----------
 
-    @Test fun clear_history_menu_item_has_a_leading_trash_icon() {
-        val v = clipView(listOf("第一条"))
+    @Test fun clear_history_top_icon_requires_confirmation() {
+        var clears = 0
+        val v = clipView(listOf("第一条")).apply { onClearHistory = { clears++ } }
         layout(v)
-        assertTrue("open the ⚙ menu", clickDesc(v, "设置"))
-        val item = textViews(overlayOf(v)).first { it.text?.toString() == "清空剪贴板历史" }
-        assertNotNull("清空剪贴板历史 now shows a leading icon (the same Glyphs.drawTrash as 清空分类)",
-            item.compoundDrawables[0])
+        assertTrue("tap the clear-history icon", clickDesc(v, "清空剪贴板历史"))
+        assertEquals("top icon does not clear immediately", 0, clears)
+        assertTrue(clickText(overlayOf(v), "清空"))
+        assertEquals("confirming clears history", 1, clears)
+        assertFalse("old settings gear is gone", allViews(v).any { it.contentDescription?.toString() == "设置" })
     }
 }

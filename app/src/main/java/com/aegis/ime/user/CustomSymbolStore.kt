@@ -18,9 +18,9 @@ package com.aegis.ime.user
 import android.content.SharedPreferences
 
 /**
- * The user's custom 9-key punctuation marks (A3 自定义) — an ordered, de-duplicated, capped list
+  * Chinese IME behavior note.
  * persisted in [SharedPreferences]. Surfaced in the punctuation column between the fixed marks and the
- * 自定义 entry; edited one symbol at a time via the 自定义 panel ("逐符可定义").
+  * Chinese IME behavior note.
  */
 class CustomSymbolStore(
     private val prefs: SharedPreferences,

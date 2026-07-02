@@ -86,4 +86,37 @@ class MotionRedrawTest {
         assertEquals("preedit jumps to shown under reduced motion", 1f, pv.alpha, 0f)
         assertTrue("first pinyin key must repaint the preedit even with animations off", invalidated[0])
     }
+
+    @Test fun pressFeedback_snaps_to_end_states_when_no_frame_loop_can_run() {
+        val v = CountingView(ctx)
+        val press = Motion.PressFeedback(v)
+
+        press.press()
+        assertEquals("detached press jumps to the pressed state", 1f, press.level, 0f)
+        assertTrue("press feedback invalidates the drawing surface", v.invalidations >= 1)
+
+        v.invalidations = 0
+        press.release()
+        assertEquals("detached release jumps back to rest", 0f, press.level, 0f)
+        assertTrue("release feedback invalidates the drawing surface", v.invalidations >= 1)
+    }
+
+    @Test fun revealIn_with_animations_off_restores_final_geometry_immediately() {
+        disableSystemAnimations()
+        val v = CountingView(ctx).apply {
+            visibility = View.GONE
+            alpha = 0.25f
+            translationX = 12f
+            translationY = 8f
+        }
+        v.invalidations = 0
+
+        Motion.revealIn(v, Motion.EnterFrom.BOTTOM)
+
+        assertEquals(View.VISIBLE, v.visibility)
+        assertEquals(1f, v.alpha, 0f)
+        assertEquals(0f, v.translationX, 0f)
+        assertEquals(0f, v.translationY, 0f)
+        assertTrue("reduced-motion reveal must still repaint the final state", v.invalidations >= 1)
+    }
 }

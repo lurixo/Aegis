@@ -21,7 +21,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * On-device clipboard history + canned phrases (issue #7 / C). Plain-text files in
+  * Chinese IME behavior note.
  * filesDir — newest first, de-duplicated, capped. Nothing leaves the device.
  *
  * C5: canned phrases are organised into named **categories** the user can create / rename / delete and
@@ -46,7 +46,7 @@ class ClipboardStore(private val dir: File) {
     private val saveGen = AtomicLong(0)
 
     // debug.17 F2: a saved phrase carries its text + an OPTIONAL display note. The note is only a display alias
-    // (列表有备注显示备注、无备注显示原文); committing (上屏) always uses [text]. Notes ride with the object
+    // Chinese IME behavior note.
     // through move/reorder/edit, and are persisted on an "N\t" line right after the phrase's "P\t" line.
     private class Phrase(var text: String, var note: String = "")
     private class Category(var name: String, val phrases: ArrayList<Phrase> = ArrayList())
@@ -56,7 +56,7 @@ class ClipboardStore(private val dir: File) {
         history.clear()
         purgeLegacyImageDir() // U22 removed: reclaim a pre-removal version's orphaned clipboard_images/ dir
         // U22 removed: an old clipboard.txt may still hold legacy "img:<path>" image entries — silently DROP
-        // them here (never render/paste, never show "图片已不存在"). Plain text history is unaffected.
+        // Chinese IME behavior note.
         runCatching {
             if (histFile.exists()) histFile.readLines().forEach { line ->
                 readEntry(line)?.let { e -> if (!isLegacyImageEntry(e)) history.add(e) }
@@ -89,7 +89,7 @@ class ClipboardStore(private val dir: File) {
         if (!phraseFile.exists()) {
             // First run: seed the default category with the starter phrases. An existing file is honoured
             // verbatim — emptying a category keeps the (now-empty) category — but a fully empty file falls
-            // through to the migration branch below and re-seeds an empty "默认" so there is always ≥1 usable
+            // Chinese IME behavior note.
             // category for the UI to target.
             phraseCats.add(Category(DEFAULT_CATEGORY, ArrayList(DEFAULT_PHRASES.map { Phrase(it) })))
             return
@@ -130,7 +130,7 @@ class ClipboardStore(private val dir: File) {
         scheduleSave()
     }
 
-    /** C7 多选删除: drop one / many history entries (and persist). No-op for entries not present. */
+    /** Chinese IME behavior note. */
     fun delete(text: String) { if (history.remove(text)) scheduleSave() }
     fun deleteAll(texts: Collection<String>) { if (history.removeAll(texts.toSet())) scheduleSave() }
     fun clearHistory() { if (history.isNotEmpty()) { history.clear(); scheduleSave() } }
@@ -145,7 +145,7 @@ class ClipboardStore(private val dir: File) {
     /** Category names, in display order. Always at least one after [load]. */
     fun categories(): List<String> = phraseCats.map { it.name }
 
-    /** Phrases in [category] (empty list if the category is unknown). Returns the original TEXT (上屏 uses this);
+    /**
      *  display notes are fetched separately via [noteFor]. */
     fun phrasesIn(category: String): List<String> = find(category)?.phrases?.map { it.text } ?: emptyList()
 
@@ -184,27 +184,31 @@ class ClipboardStore(private val dir: File) {
     }
 
     /**
-     * C5/C7 批量添加常用语: append [texts] to [category] (creating it if absent; trim, dedup, persist).
+     * C5/C7: add [texts] to the front of [category] (creating it if absent; trim, dedup, persist).
      * Returns the number actually added.
      */
     fun addPhrasesTo(category: String, texts: Collection<String>): Int {
         if (category.isBlank()) return 0 // never create a blank-named category
         val c = find(category) ?: Category(category).also { phraseCats.add(it) }
-        var added = 0
+        val seen = c.phrases.mapTo(HashSet()) { it.text }
+        val added = ArrayList<Phrase>()
         for (raw in texts) {
             val t = raw.trim()
-            if (t.isEmpty() || c.phrases.any { it.text == t }) continue
-            c.phrases.add(Phrase(t)); added++
+            if (t.isEmpty() || !seen.add(t)) continue
+            added.add(Phrase(t))
         }
-        if (added > 0) savePhrases()
-        return added
+        if (added.isNotEmpty()) {
+            c.phrases.addAll(0, added)
+            savePhrases()
+        }
+        return added.size
     }
 
     /** Back-compat: add to the first/default category. */
     fun addPhrases(texts: Collection<String>): Int =
         addPhrasesTo(phraseCats.firstOrNull()?.name ?: DEFAULT_CATEGORY, texts)
 
-    /** Remove a phrase from a specific category (常用语 management). */
+    /** Chinese IME behavior note. */
     fun deletePhraseFrom(category: String, text: String) {
         find(category)?.let { c -> if (c.phrases.removeAll { it.text == text }) savePhrases() }
     }
@@ -272,7 +276,7 @@ class ClipboardStore(private val dir: File) {
     }
 
     /**
-     * debug.16: batch-move [texts] from [fromCategory] to [toCategory] (C7 多选 移动到分类). Same rules as
+      * Chinese IME behavior note.
      * [movePhrase] per item — [toCategory] must exist, only phrases actually in the source move, dedup at the
      * target. No-op (returns 0) for an unknown/identical pair. Returns how many actually moved; persists once.
      */
@@ -301,6 +305,14 @@ class ClipboardStore(private val dir: File) {
         val n = c.phrases.size
         if (fromIndex !in 0 until n || toIndex !in 0 until n || fromIndex == toIndex) return false
         c.phrases.add(toIndex, c.phrases.removeAt(fromIndex))
+        savePhrases()
+        return true
+    }
+
+    fun reorderCategory(fromIndex: Int, toIndex: Int): Boolean {
+        val n = phraseCats.size
+        if (fromIndex !in 0 until n || toIndex !in 0 until n || fromIndex == toIndex) return false
+        phraseCats.add(toIndex, phraseCats.removeAt(fromIndex))
         savePhrases()
         return true
     }
@@ -377,7 +389,7 @@ class ClipboardStore(private val dir: File) {
         return sb.toString()
     }
 
-    // --- debug.17 E1/F2: phrase library import / export (SAF .txt; mirrors the 学习词库 merge/overwrite rules) ---
+    // Chinese IME behavior note.
 
     /** Export the WHOLE phrase library (categories + phrases + notes) as the C\t/P\t/N\t .txt text. */
     fun exportPhrasesText(): String = serializePhrases()
@@ -386,12 +398,12 @@ class ClipboardStore(private val dir: File) {
      * Import phrases from [text] (the C\t/P\t/N\t format produced by [exportPhrasesText]).
      *  - [merge]=true: accumulate — create missing categories, add new phrases (dedup by text per category),
      *    and fill in notes for imported phrases. Existing data is kept.
-     *  - [merge]=false (覆盖): REPLACE the whole library with the parsed set.
+      * Chinese IME behavior note.
      * NEVER silently clears: a file that parses to NO category/phrase leaves the store untouched and returns
-     * false (matches the 学习词库 "绝不静默清空" rule). Returns true iff something was imported + persisted.
+      * Chinese IME behavior note.
      */
     fun importPhrasesText(text: String, merge: Boolean): Boolean {
-        val parsed = parseCategories(text.split('\n'))
+        val parsed = parseCategories(text.lineSequence().toList())
         val hasContent = parsed.any { it.phrases.isNotEmpty() || it.name.isNotBlank() }
         if (!hasContent) return false // empty / unparseable → never wipe
         if (merge) {
@@ -455,9 +467,9 @@ class ClipboardStore(private val dir: File) {
         private const val BIG_LINE = "B\t"        // a big entry: B\t<sha256>  → content in clips/<sha256>.txt
         const val BIG_THRESHOLD = 64 * 1024       // chars; above this an entry is stored in its own side file
 
-        private const val MAX_HISTORY = 100000 // U9: effectively no 条数上限 (kept large only as a file-bloat backstop)
+        private const val MAX_HISTORY = 100000 // Chinese IME behavior note.
         private const val DEFAULT_CATEGORY = "默认"
-        // debug.14 item1: ship NO preset phrases — first run seeds only the empty "默认" category (kept so the
+        // Chinese IME behavior note.
         // UI always has ≥1 add target). An existing phrases.txt is still honoured verbatim (user data untouched).
         private val DEFAULT_PHRASES = emptyList<String>()
     }

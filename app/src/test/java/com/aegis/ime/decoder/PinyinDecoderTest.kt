@@ -17,6 +17,7 @@ package com.aegis.ime.decoder
 
 import com.aegis.ime.dict.BinaryDict
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
@@ -25,11 +26,25 @@ import java.io.File
 class PinyinDecoderTest {
 
     private val dictFile = File("src/main/assets/aegis_dict.bin")
+    private val t9File = File("src/main/assets/aegis_t9.bin")
 
     private fun decoder(): PinyinDecoder {
         assumeTrue("demo dict asset present", dictFile.exists())
         return PinyinDecoder(BinaryDict.fromFile(dictFile))
     }
+
+    private fun t9Decoder(): PinyinDecoder {
+        assumeTrue("T9 dict asset present", t9File.exists())
+        return PinyinDecoder(BinaryDict.fromFile(t9File))
+    }
+
+    private fun biangChar(): String = String(Character.toChars(0x30EDE))
+
+    private fun dictSingles(key: String): Set<String> =
+        BinaryDict.fromFile(dictFile).exact(key)
+            .filter { it.word.codePointCount(0, it.word.length) == 1 }
+            .map { it.word }
+            .toSet()
 
     @Test
     fun decodesSentences() {
@@ -40,5 +55,89 @@ class PinyinDecoderTest {
         assertEquals("我是中国人", top("woshizhongguoren"))
         assertEquals("北京大学", top("beijingdaxue"))
         assertEquals("输入法", top("shurufa"))
+    }
+
+    @Test
+    fun enCompatibilityAliasSurfacesNasalInterjection() {
+        val d = decoder()
+
+        assertTrue("en should offer 嗯 through the ng compatibility alias", "嗯" in d.decode("en", 30))
+        assertTrue(
+            "covered en candidates should include 嗯 covering the whole input",
+            d.decodeCovered("en", 30).any { it.word == "嗯" && it.coveredLen == 2 },
+        )
+        assertEquals(listOf("en"), d.syllables("en").map { it.reading })
+        assertTrue("en homophone drill should include the compatibility alias 嗯", "嗯" in d.homophonesAt("en", 0))
+    }
+
+    @Test
+    fun syllabicNasalReadingsStayCompleteSyllables() {
+        val d = decoder()
+
+        assertEquals(listOf("ng"), d.syllables("ng").map { it.reading })
+        assertTrue(
+            "ng should offer 嗯 and cover the complete reading",
+            d.decodeCovered("ng", 30).any { it.word == "嗯" && it.coveredLen == 2 },
+        )
+        assertTrue("ng homophones should include 嗯", "嗯" in d.homophonesAt("ng", 0))
+
+        assertEquals(listOf("n"), d.syllables("n").map { it.reading })
+        assertTrue(
+            "n should remain a source-backed syllabic nasal reading for 嗯",
+            d.decodeCovered("n", 30).any { it.word == "嗯" && it.coveredLen == 1 },
+        )
+    }
+
+    @Test
+    fun rareBiangReadingIsSegmentableAndNavigable() {
+        val rare = biangChar()
+        val d = decoder()
+        assumeTrue("dict has the biang rare character", rare in dictSingles("biang"))
+
+        assertEquals(listOf("biang"), d.syllables("biang").map { it.reading })
+        assertTrue("biang free typing recalls the rare character", d.decodeCovered("biang", 30).any { it.word == rare && it.coveredLen == 5 })
+        assertTrue("biang homophone drill includes the rare character", rare in d.homophonesAt("biang", 0))
+    }
+
+    @Test
+    fun t9BiangReadingIsLockableAndNavigable() {
+        val rare = biangChar()
+        val digits = T9Pinyin.toT9("biang")
+        assumeTrue("T9 dict asset present", t9File.exists())
+        val t9 = BinaryDict.fromFile(t9File)
+        assumeTrue("T9 dict has the biang rare character", t9.exact(digits).any { it.word == rare })
+
+        assertTrue("9-key reading list offers biang for $digits", "biang" in T9Pinyin.leftColumnReadings(digits, 24))
+        assertTrue("T9 free typing recalls the rare character", t9Decoder().decodeCovered(digits, 30).any { it.word == rare })
+        assertTrue("T9 homophone drill includes the rare character", rare in t9Decoder().homophonesAt(digits, 0))
+    }
+
+    @Test
+    fun jiangzhiAndSeparatedJiangZhiShareTheSameSyllablePath() {
+        val d = decoder()
+
+        assertEquals(listOf("jiang", "zhi"), d.syllables("jiangzhi").map { it.reading })
+        assertEquals(listOf("jiang", "zhi"), d.syllables("jiang'zhi").map { it.reading })
+
+        val jiang = dictSingles("jiang")
+        val zhi = dictSingles("zhi")
+        assumeTrue("dict has jiang homophones", jiang.isNotEmpty())
+        assumeTrue("dict has zhi homophones", zhi.isNotEmpty())
+
+        assertEquals("plain input drills the jiang syllable, not a shorter prefix", jiang, d.homophonesAt("jiangzhi", 0).toSet())
+        assertEquals("separated input drills the same jiang syllable", jiang, d.homophonesAt("jiang'zhi", 0).toSet())
+        assertEquals("plain input keeps the zhi tail navigable", zhi, d.homophonesAt("jiangzhi", 1).toSet())
+        assertEquals("separated input keeps the zhi tail navigable", zhi, d.homophonesAt("jiang'zhi", 1).toSet())
+    }
+
+    @Test
+    fun selectedXiangUsesOnlyTheChosenReadingInTheAssetDict() {
+        val d = decoder()
+        val words = d.decodeCoveredAtomic("xiang", 30).map { it.word }
+
+        assumeTrue("asset has common xiang homophones", words.containsAll(listOf("向", "想", "相")))
+        assertTrue("common xiang homophones stay prominent", words.take(8).containsAll(listOf("向", "想", "相")))
+        assertTrue("selected xiang must not leak xi prefix singles", "西" !in words)
+        assertTrue("selected xiang must not leak xian words", "西安" !in words)
     }
 }

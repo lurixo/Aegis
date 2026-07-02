@@ -33,7 +33,7 @@ import com.aegis.ime.layout.Layouts
  *
  * In CN + (ALPHA|NINE) letters/digits accumulate in [composing] and feed [engine]; on an empty
  * buffer the bar shows the inline calculator (for an arithmetic expression) else learned next-word
- * predictions for [lastWord] (C5, gated by the 联想 toggle). Committing a CN candidate teaches the
+  * Chinese IME behavior note.
  * engine ([CandidateEngine.learn]) so user-preferred words rise over time.
  */
 /** Shift key state: off, one-shot (next letter only), or caps-lock. */
@@ -42,28 +42,31 @@ private enum class ShiftState { OFF, ONCE, LOCK }
 /** Input mode derived from language + layout. Only full-pinyin CN buffers; everything else is DIRECT. */
 private enum class Mode { PINYIN, DIRECT }
 
-/** One reversible input step in the 9-key buffer (A9 退格=退回上一步): a typed digit, a left-column
- *  reading lock, or a forced 分词 cut. Backspace undoes exactly the most recent one. */
+/**
+  * Chinese IME behavior note.
+  */
 private enum class StepKind { DIGIT, LOCK, CUT }
 
 class KeyboardController(
     private val host: ImeHost,
     private var engine: CandidateEngine,
 ) {
+    private data class LearnEvent(val prevWord: String?, val word: String, val prefixEnd: Int)
+
     private var lang = Lang.CN
     private var shiftState = ShiftState.OFF
     private val shifted get() = shiftState != ShiftState.OFF
     private var layoutId = LayoutId.ALPHA
 
     /**
-     * B5: the CN startup keyboard — 全拼九键 by default, 全拼26键 optional (the user picks in the setup
+      * Chinese IME behavior note.
      * screen; the IME service pushes the pref via [setCnDefaultLayout]). EN is always 26-key; [reset]
      * applies this at the start of each input session.
      */
     private var cnDefaultLayout = LayoutId.NINE
 
     /**
-     * The CN keyboard to restore when toggling back from EN (EN is 26-key only). A 中英 round-trip must
+      * Chinese IME behavior note.
      * NOT silently demote a 9-key user to 26-key (B5): captured when leaving CN, seeded to the default
      * each input session, so it also preserves a manual 9↔26 toolbar switch across one EN excursion.
      */
@@ -78,7 +81,7 @@ class KeyboardController(
      * decoding the remainder — it does NOT reach the editor. The prefix is rendered at the LEFTMOST of the
      * candidate strip (the preedit tab) while the rest is still being chosen; the whole word lands in the
      * editor in ONE [ImeHost.commitText] only when it completes (full pick / flush / space). This replaces
-     * the old "选一个就上屏一个" behaviour that dribbled 就/见/左… into the app one syllable at a time.
+      * Chinese IME behavior note.
      */
     private val committedPrefix = StringBuilder()
 
@@ -91,32 +94,47 @@ class KeyboardController(
     private val lockedReadings = mutableListOf<String>()
     private var activeStart = 0
 
-    /** 分词/隔音: user-forced syllable boundaries — indices into [composing] where a word may
+    /**
      *  not span. The decoder, preedit and reading column all honour these. See [handleSegment]. */
     private val forcedCuts = sortedSetOf<Int>()
 
-    /** A9: reverse-order log of input steps in the current buffer so 退格 steps back exactly ONE — a typed
+    /**
      *  digit, a reading lock (left-column pick), or a forced cut — never dropping a whole locked syllable. */
     private val history = ArrayDeque<StepKind>()
 
+    private data class PreeditChoiceUndo(
+        val composing: String,
+        val committedPrefix: String,
+        val lockedReadings: List<String>,
+        val activeStart: Int,
+        val forcedCuts: Set<Int>,
+        val history: List<StepKind>,
+        val drillSyllable: Int,
+        val drillChoices: Map<Int, String>,
+        val deferredLearnEvents: List<LearnEvent>,
+        val lastWord: String?,
+        val inputEpoch: Long,
+    )
+
+    private val preeditChoiceUndo = ArrayDeque<PreeditChoiceUndo>()
+    private val deferredLearnEvents = ArrayDeque<LearnEvent>()
+    private var inputEpoch = 0L
+
     /**
-     * UI-2 (debug.13): on the 26-key EXPANDED screen the left column lists the buffer's syllables (分词);
-     * tapping syllable N drills into it — [drillSyllable] holds that index (−1 = not drilled) and the
-     * candidate grid then shows that syllable's COMPLETE 同音单字 set ([CandidateEngine.homophonesForReadingAt],
-     * uncapped). Any buffer change (type / 退格 / commit / 重输) clears it back to the normal candidate grid.
+     * UI-2 (debug.13/debug.19): on the 26-key expanded screen the left column shows only the first unresolved
+     * syllable. Tapping it sets [drillSyllable] to 0 and the candidate grid shows that syllable's complete
+     * homophone set ([CandidateEngine.homophonesForReadingAt], uncapped). Buffer changes clear it back to the
+     * normal candidate grid.
      */
     private var drillSyllable = -1
 
     /**
-     * ② (debug.18) 逐音节锁定回选: the 同音字 the user has chosen for each drilled syllable, keyed by its index in
-     * the LIVE segmentation ([currentSyllables]). A pick on a NON-leftmost syllable (ceshi → tap shi) records its
-     * choice here and DEFERS — nothing reaches the editor while a leading syllable is still unchosen, so ce is
-     * never auto-defaulted/skipped. Committed (and re-indexed) left-to-right by [commitChosenLeftPrefix]; cleared
-     * on every keyboard action / buffer reset, exactly like [drillSyllable]. Mirrors the 9-key lockedReadings flow.
+     * 26-key homophone choices keyed by the current segmentation index. debug.19 keeps the visible column
+     * left-to-right, so normal UI picks only index 0; the map remains for the shared left-prefix commit path.
      */
     private val drillChoices = HashMap<Int, String>()
 
-    /** A3 自定义: the user's custom punctuation marks (injected from prefs by the service). */
+    /** Chinese IME behavior note. */
     private var customSymbols: List<String> = emptyList()
 
     /** I2: the user's custom numpad operators (injected from prefs), appended to the operator scroll column. */
@@ -136,13 +154,14 @@ class KeyboardController(
     /** M-3/L-3: when the focused field is a password / opts out of personalized learning, never learn. */
     private var learningBlocked = false
 
-    /** D2: 联想 toggle. The IME pushes the user's pref_associations_on choice on every onStartInputView
+    /**
      *  (default OFF since debug.17); this initial true is only the pre-push fallback and is overridden before
      *  any input. When off, next-word predictions are not shown. */
     private var associationsEnabled = true
 
     /** E4 hot-toggle (debug.16): last fuzzy rule set the service pushed (null until first push). Re-applied on
-     *  every [setEngine] swap so a hot-reloaded engine cannot revert the live 模糊音 state. */
+      * Chinese IME behavior note.
+      */
     private var pushedFuzzyRules: Set<String>? = null
 
     /** Extras-panel hooks wired by the IME service (it owns the InputConnection + Context). */
@@ -151,8 +170,8 @@ class KeyboardController(
     var onShowEdit: () -> Unit = {}
     var onShowSymbols: () -> Unit = {}
     var onShowSettings: () -> Unit = {}
-    var onShowCustomSymbols: () -> Unit = {} // A3 自定义 entry tapped
-    var onShowCustomOperators: () -> Unit = {} // I2 numpad operator 自定义 entry tapped
+    var onShowCustomSymbols: () -> Unit = {} // Chinese IME behavior note.
+    var onShowCustomOperators: () -> Unit = {} // Chinese IME behavior note.
     var onClosePanel: () -> Unit = {}
 
     private var view: InputView? = null
@@ -167,13 +186,13 @@ class KeyboardController(
         engine = newEngine
         // E4 hot-toggle (debug.16): fuzzy rules live INSIDE the engine, so re-apply the last pushed set across a
         // swap — otherwise a hot-reloaded engine (built with a stale build-time snapshot) could silently revert
-        // the user's 模糊音 toggle. null = the service has not pushed yet, so keep the engine's own build-time rules.
+        // Chinese IME behavior note.
         pushedFuzzyRules?.let { newEngine.setFuzzyRules(it) }
         refreshCandidates()
         render()
     }
 
-    /** A3 自定义: set the user's custom punctuation marks (from prefs) and re-render the column. */
+    /** Chinese IME behavior note. */
     fun setCustomSymbols(symbols: List<String>) {
         customSymbols = symbols
         render()
@@ -188,27 +207,33 @@ class KeyboardController(
     /** M-3/L-3 privacy: when true (password / NO_PERSONALIZED_LEARNING field), commits are NOT learned. */
     fun setLearningBlocked(blocked: Boolean) { learningBlocked = blocked }
 
-    /** B5: choose the CN default keyboard (NINE / ALPHA). Applied on the next [reset]; EN ignores it. */
+    /** B5: choose the CN default keyboard (NINE / ALPHA). Applied live when safe and always on the next CN return. */
     fun setCnDefaultLayout(id: LayoutId) {
         if (cnDefaultLayout == id) return
         cnDefaultLayout = id
+        cnLayout = id
         // ③ debug.18: apply the new CN default keyboard IMMEDIATELY when we are already on a CN pinyin keyboard
         // with NOTHING pending. It used to only take effect on the next reset()/onStartInputView, so flipping the
-        // 9键/26键 setting required re-launching the IME. Gated to an EMPTY buffer so switchLayout's flush can
+        // Chinese IME behavior note.
         // never commit a half-typed word into the wrong field (a non-empty buffer defers the switch to the next
         // reset/onStartInputView). EN (lang==EN) and the number/symbol pages (layoutId∉{NINE,ALPHA}) are untouched.
         if (lang == Lang.CN && (layoutId == LayoutId.NINE || layoutId == LayoutId.ALPHA) &&
             composing.isEmpty() && committedPrefix.isEmpty()
         ) {
-            cnLayout = id
             switchLayout(id)
             refreshCandidates()
             render()
         }
     }
 
-    /** D2: 联想开关 — the IME service pushes pref_associations_on; off hides next-word predictions. */
-    fun setAssociationsEnabled(on: Boolean) { associationsEnabled = on }
+    /** Chinese IME behavior note. */
+    fun setAssociationsEnabled(on: Boolean) {
+        if (associationsEnabled == on) return
+        associationsEnabled = on
+        predictionCands = emptySet()
+        refreshCandidates()
+        render()
+    }
 
     /** E4 hot-toggle (debug.16): push a fuzzy-rule change to the live engine AND remember it, so [setEngine]
      *  re-applies it across a hot-reload swap (the controller is the source of truth, like associationsEnabled). */
@@ -224,11 +249,13 @@ class KeyboardController(
         activeStart = 0
         forcedCuts.clear()
         history.clear()
+        preeditChoiceUndo.clear()
+        deferredLearnEvents.clear()
         drillSyllable = -1 // UI-2: a fresh field starts on the normal grid, not a drilled syllable
-        drillChoices.clear() // ②: a fresh field drops any deferred 逐音节 selection
+        drillChoices.clear() // Chinese IME behavior note.
         // D1 (debug.12): reset() runs on every onStartInputView (field switch) and config change (rotation),
         // and onFinishInput does NOT flush — so an assembled-but-uncommitted prefix MUST be dropped here, or
-        // a partial pick ("就") left pending leaks into the next field (committed there or flushed into the
+        // Chinese IME behavior note.
         // wrong editor) = silent cross-field data contamination. Drop it (parity with clearComposingState).
         committedPrefix.setLength(0)
         shiftState = ShiftState.OFF
@@ -243,11 +270,14 @@ class KeyboardController(
     internal fun activeLayoutId(): LayoutId = layoutId
 
     fun onKey(key: Key) {
-        // UI-2: any keyboard action (type / 退格 / switch / commit) leaves a drilled syllable and returns the
-        // grid to the normal candidates — the drill is a transient view of one syllable's 同音字.
-        drillSyllable = -1
-        drillChoices.clear() // ②: any keyboard action abandons a deferred 逐音节 selection (drill/pick taps don't
-        //     reach here — they go through onPickReadingIndex/onPickCandidate — so a multi-tap回选 survives).
+        // Chinese IME behavior note.
+        // Chinese IME behavior note.
+        if (key.action != KeyAction.BACKSPACE) {
+            expirePreeditChoiceUndo()
+            drillSyllable = -1
+            drillChoices.clear() // Chinese IME behavior note.
+            // Chinese IME behavior note.
+        }
         when (key.action) {
             KeyAction.COMMIT -> handleCommit(key)
             KeyAction.BACKSPACE -> handleBackspace()
@@ -267,7 +297,7 @@ class KeyboardController(
             KeyAction.SWITCH_NUMBERS -> switchLayout(LayoutId.NUMBER)
             KeyAction.SWITCH_ALPHA -> switchLayout(LayoutId.ALPHA)
             KeyAction.SWITCH_NINE -> switchLayout(LayoutId.NINE)
-            // H-1: 返回 from the number/symbol/numpad page goes to the CN TEXT keyboard the user actually
+            // Chinese IME behavior note.
             // uses (9-key by default — B5) rather than hard-forcing 26-key, which trapped a 9-key user with
             // no in-field way back. EN stays 26-key (it has no 9-key).
             KeyAction.SWITCH_TEXT -> switchLayout(if (lang == Lang.CN) cnLayout else LayoutId.ALPHA)
@@ -275,22 +305,23 @@ class KeyboardController(
             KeyAction.PICK_READING -> handlePickReading(key)
             KeyAction.SEGMENT -> handleSegment()
             KeyAction.SHOW_EDIT -> onShowEdit()
-            KeyAction.CUSTOM_SYMBOL -> onShowCustomSymbols() // A3: open the 自定义 punctuation panel
-            KeyAction.CUSTOM_OPERATOR -> onShowCustomOperators() // I2: open the 自定义 operator panel
-            // D: 铅笔 ✎ → symbols panel. The pencil sits on the keyboard (reachable mid-composing), so flush
+            KeyAction.CUSTOM_SYMBOL -> onShowCustomSymbols() // Chinese IME behavior note.
+            KeyAction.CUSTOM_OPERATOR -> onShowCustomOperators() // Chinese IME behavior note.
+            // Chinese IME behavior note.
             // the pending pinyin first — otherwise the panel commits symbols straight to the editor while a
             // stale buffer lingers and its ⌫ deletes committed text out from under it (parity with switchLayout).
             KeyAction.SHOW_SYMBOLS -> { flushComposing(); onShowSymbols() }
             KeyAction.TOGGLE_LANG -> {
                 flushComposing()
-                shiftState = ShiftState.OFF // I4: switching 中英 clears caps lock / one-shot
+                shiftState = ShiftState.OFF // Chinese IME behavior note.
                 if (lang == Lang.CN) {
-                    // Leaving CN: remember the CN keyboard (issue #10: EN is 26-key only).
-                    cnLayout = layoutId
+                    // Leaving CN keeps the already-recorded CN restore target. Settings changes can arrive
+                    // while composing or while already in EN; do not overwrite that newer target with a stale
+                    // visible layout here.
                     lang = Lang.EN
                     layoutId = LayoutId.ALPHA
                 } else {
-                    // Returning to CN: restore the CN keyboard so a 中英 round-trip keeps the user's
+                    // Chinese IME behavior note.
                     // 9-key/26-key choice (B5) instead of demoting a 9-key user to 26-key.
                     lang = Lang.CN
                     layoutId = cnLayout
@@ -303,6 +334,7 @@ class KeyboardController(
 
     /** Candidate-strip toolbar shortcut (C2). Every kept entry opens a panel / screen — no layout switch. */
     fun onBarFunction(f: BarFunction) {
+        expirePreeditChoiceUndo()
         // F7 (debug.12): defensively land any in-progress pinyin before opening a panel/screen, so an entry can
         // never open over a live buffer (the assembled word would otherwise be left dangling for the panel to
         // commit at the wrong caret / lose on reset / delete around — S1). GUARDED like handleCommit(direct) /
@@ -334,10 +366,10 @@ class KeyboardController(
         if (reading.isEmpty()) return
         val digits = T9Pinyin.toT9(reading)
         // UI-1 (debug.13): when the active tail is exhausted (every syllable locked) the left column still
-        // shows the LAST syllable's readings — it must NOT vanish (末组音节依旧保留). A tap there RE-PICKS that
+        // Chinese IME behavior note.
         // last syllable: re-expose its digits, then lock the new reading. A shorter reading naturally
         // re-activates the leftover digits; an equal-length one just swaps the reading. The original LOCK
-        // step stays on [history], so 退格 still steps back exactly one syllable.
+        // Chinese IME behavior note.
         if (activeDigits().isEmpty() && lockedReadings.isNotEmpty()) {
             val lastDigits = T9Pinyin.toT9(lockedReadings.last())
             if (!lastDigits.startsWith(digits)) return // only re-pick a reading of the same trailing chunk
@@ -354,7 +386,7 @@ class KeyboardController(
     }
 
     /**
-     * 分词/隔音: force a syllable boundary at the current input position. The
+      * Chinese IME behavior note.
      * decoder won't let a word span it, the preedit splits there, and the reading column scopes to the
      * chunk — imposing a boundary WITHOUT forcing a particular reading (xi'an vs xian, long-string cuts).
      */
@@ -364,12 +396,12 @@ class KeyboardController(
     }
 
     /**
-     * Backspace up-swipe (C): if there is pending pinyin in the bar, clear it (重输) — works in EVERY
+      * Chinese IME behavior note.
      * layout. Returns true when consumed; otherwise the service does its field-level clear/restore (#5).
      */
     fun onBackspaceSwipe(up: Boolean): Boolean {
         // D3 (debug.12): a bare assembled prefix (composing already backspaced to empty, committedPrefix
-        // still pending) IS pending input — the up-swipe must 重输 (drop it via clearComposingState) and
+        // Chinese IME behavior note.
         // consume the gesture. The old `composing.isNotEmpty()`-only guard let it fall through to the
         // service's field-level clear, which selectAll+commitText("") WIPED THE WHOLE EDITOR FIELD and left
         // the prefix stranded. Sibling parity with handleSpace / handleEnter / handleCommit(direct).
@@ -383,7 +415,7 @@ class KeyboardController(
 
     fun onPickCandidate(index: Int) {
         if (index !in candidates.indices) return
-        // UI-2: a pick while a syllable is drilled is one of its 同音字 — 逐字 commit it (display was a bare
+        // Chinese IME behavior note.
         // single char; the leading-syllable defaults are supplied here), not a normal whole-word candidate.
         if (drillSyllable >= 0) {
             pickDrilledHomophone(candidates[index].word)
@@ -409,17 +441,24 @@ class KeyboardController(
             // U23: an associated emoji/symbol commits directly and is NOT learned as a pinyin word. S1(c):
             // flush any assembled prefix ahead of it so the emoji follows the confirmed word, not replaces it.
             cand in directCommitCands -> {
-                host.commitText(committedPrefix.toString() + cand.word)
+                val text = committedPrefix.toString() + cand.word
+                expirePreeditChoiceUndo()
+                host.commitText(text)
+                applyDeferredLearning()
                 clearComposingState(); lastWord = null
             }
             // C5: a next-word prediction commits directly and becomes the new [lastWord] so predictions
-            // chain (你好 → 世界 → …); it is reinforced as a bigram after the previous word, like a normal pick.
+            // Chinese IME behavior note.
             cand in predictionCands -> {
+                expirePreeditChoiceUndo()
                 host.commitText(cand.word)
                 if (!learningBlocked) engine.learn(lastWord, cand.word)
                 lastWord = cand.word
             }
-            else -> commitCandidate(cand)
+            else -> {
+                if (candidateStaysInPreedit(cand)) savePreeditChoiceUndo()
+                commitCandidate(cand)
+            }
         }
         refreshCandidates()
         render()
@@ -435,7 +474,7 @@ class KeyboardController(
         // Number row / symbol keys always go straight to the editor, even mid-pinyin (resolve first).
         if (key.direct) {
             // D2 (debug.12): also flush when only an assembled prefix remains (composing already backspaced
-            // away) so the punctuation/number follows the confirmed word ("就。"), never precedes it ("。就")
+            // Chinese IME behavior note.
             // or gets stranded for reset() to drop.
             if (composing.isNotEmpty() || committedPrefix.isNotEmpty()) flushComposing()
             host.commitText(applyCase(key.output))
@@ -455,14 +494,17 @@ class KeyboardController(
     }
 
     private fun handleBackspace() {
-        drillSyllable = -1 // UI-2: a delete (incl. the expand-screen 退格) returns the grid to normal candidates
-        drillChoices.clear() // ②: …and drops any deferred 逐音节 selection (covers the onPanelBackspace direct path)
+        if (restorePreeditChoiceUndo()) return
+        drillSyllable = -1 // Chinese IME behavior note.
+        drillChoices.clear() // Chinese IME behavior note.
         if (composing.isEmpty()) {
             // S1(c): an assembled-but-not-yet-committed word prefix lives inside the IME, NOT in the editor.
             // Peel its last confirmed character back here instead of deleting committed editor text the user
-            // can still see — only once the prefix is empty does 退格 reach the field.
+            // Chinese IME behavior note.
             if (committedPrefix.isNotEmpty()) {
-                committedPrefix.setLength(committedPrefix.length - 1)
+                val removeCount = Character.charCount(committedPrefix.codePointBefore(committedPrefix.length))
+                committedPrefix.setLength(committedPrefix.length - removeCount)
+                trimDeferredLearningToPrefix()
                 if (committedPrefix.isEmpty()) lastWord = null
                 return
             }
@@ -472,9 +514,9 @@ class KeyboardController(
             lastWord = null
             return
         }
-        // A9 退格=退回上一步: undo EXACTLY the most recent input step — a reading lock (left-column pick),
-        // a forced 分词 cut, or a single typed digit. Never wipe a whole locked syllable (the old code
-        // cleared every lock on any digit delete, so backspace dropped an entire 音节组合 — the bug).
+        // Chinese IME behavior note.
+        // Chinese IME behavior note.
+        // Chinese IME behavior note.
         when (history.removeLastOrNull()) {
             StepKind.LOCK -> if (lockedReadings.isNotEmpty()) {
                 val r = lockedReadings.removeAt(lockedReadings.lastIndex)
@@ -488,10 +530,12 @@ class KeyboardController(
                 if (activeStart > composing.length) activeStart = composing.length
             }
         }
+        if (composing.isEmpty() && committedPrefix.isNotEmpty()) flushComposing()
     }
 
     /** Rebuild [history] from the current (lock-free) buffer: a DIGIT per digit + a CUT at each boundary.
-     *  Used after a partial commit leaves a fresh remainder so 退格 still steps back correctly. */
+      * Chinese IME behavior note.
+      */
     private fun rebuildHistory() {
         history.clear()
         for (i in 1..composing.length) {
@@ -500,12 +544,12 @@ class KeyboardController(
         }
     }
 
-    /** 9-key "重输": drop the pending pinyin + candidates without touching committed text. */
+    /** Chinese IME behavior note. */
     private fun handleClearComposing() {
-        // debug.14 BUG1: 重输 also dismisses any next-word prediction sitting on the bar (it is a pending
-        // suggestion for [lastWord], not editor text). Null [lastWord] so the refresh that trails 重输 does
+        // Chinese IME behavior note.
+        // Chinese IME behavior note.
         // NOT immediately regenerate it — the old code left lastWord set, so predict() re-populated the strip
-        // and the "ghost" prediction could not be cleared by 重输. A later commit re-enables predictions.
+        // Chinese IME behavior note.
         lastWord = null
         clearComposingState()
     }
@@ -540,20 +584,17 @@ class KeyboardController(
      * (its reading is a prefix of the input), commit that part and keep composing the remaining digits.
      */
     private fun commitCandidate(cand: Cand) {
-        // M-3/L-3: never learn a word committed in a password / NO_PERSONALIZED_LEARNING field — it would
-        // be saved to userdb in plaintext and later resurface (via wordBoost) in ordinary fields (肩窥).
-        // Each picked chunk is still learned as a bigram so 就→见→左侧 adaptation survives (the deferral
-        // below changes only WHEN text reaches the editor, never what is learned).
-        if (!learningBlocked) engine.learn(lastWord, cand.word)
-        lastWord = cand.word
-        if (cand.coveredLen in 1 until composing.length) {
+        if (candidateStaysInPreedit(cand)) {
             // S1(c): a PARTIAL pick confirms cand.word as the next chunk of the word being assembled but does
             // NOT reach the editor yet — accumulate it in [committedPrefix] (shown at the strip's leftmost)
             // and keep decoding the remainder. The old code commitText()'d every pick, dribbling one
-            // syllable at a time into the app (the "选一个就上屏一个" bug).
+            // Chinese IME behavior note.
+            val prefixEnd = committedPrefix.length + cand.word.length
+            if (!learningBlocked) deferredLearnEvents.addLast(LearnEvent(lastWord, cand.word, prefixEnd))
+            lastWord = cand.word
             committedPrefix.append(cand.word)
             composing.delete(0, cand.coveredLen)
-            // ★E×分词: drop consumed cuts, shift the rest left by the consumed length.
+            // Chinese IME behavior note.
             val shifted = forcedCuts.filter { it > cand.coveredLen }.map { it - cand.coveredLen }
             forcedCuts.clear(); forcedCuts.addAll(shifted)
             // debug.14 BUG2: the pick consumed only the FIRST locked syllable(s) — KEEP the locks for the
@@ -573,20 +614,27 @@ class KeyboardController(
             }
             drillSyllable = -1 // UI-2: the remainder re-segments → drop the stale drill, show its candidates
             candidates = emptyList()
-            rebuildHistory() // A9: 退格 steps back per remaining digit …
+            rebuildHistory() // Chinese IME behavior note.
             repeat(lockedReadings.size) { history.addLast(StepKind.LOCK) } // … then per surviving locked syllable
         } else {
             // The pick completes the word: send the assembled prefix + this final chunk to the editor in ONE
-            // commit (整词完成才上屏), then reset.
+            // Chinese IME behavior note.
+            expirePreeditChoiceUndo()
             host.commitText(committedPrefix.toString() + cand.word)
+            applyDeferredLearning(cand.word)
+            lastWord = cand.word
             clearComposingState()
         }
     }
+
+    private fun candidateStaysInPreedit(cand: Cand): Boolean =
+        cand.coveredLen in 1 until composing.length
 
     private fun switchLayout(id: LayoutId) {
         flushComposing()
         shiftState = ShiftState.OFF // I4: a layout switch clears caps lock / one-shot
         layoutId = id
+        if (lang == Lang.CN && (id == LayoutId.NINE || id == LayoutId.ALPHA)) cnLayout = id
     }
 
     /**
@@ -594,14 +642,16 @@ class KeyboardController(
      * the decoded pinyin (no separators) on the 9-key. Drives both layout switches and Enter (#9).
      */
     private fun flushComposing() {
-        // S1(c): a forced flush (layout switch / Enter / 中英) must still land the confirmed prefix + the
+        // Chinese IME behavior note.
         // raw remainder as ONE commit, never lose the prefix and never dribble.
         val prefix = committedPrefix.toString()
         if (composing.isNotEmpty()) {
             host.commitText(prefix + rawComposingText())
+            applyDeferredLearning()
             clearComposingState()
         } else if (prefix.isNotEmpty()) {
             host.commitText(prefix)
+            applyDeferredLearning()
             clearComposingState()
         }
         lastWord = null
@@ -611,8 +661,9 @@ class KeyboardController(
     private fun activeDigits(): String =
         if (activeStart < composing.length) composing.substring(activeStart) else ""
 
-    /** Forced-cut offsets within the active tail, relative to [activeDigits] (★分词); includes a boundary
-     *  at the very end so the 隔音符 shows the moment 分词 is pressed. */
+    /**
+      * Chinese IME behavior note.
+      */
     private fun activeCuts(): List<Int> =
         forcedCuts.filter { it in (activeStart + 1)..composing.length }.map { it - activeStart }
 
@@ -674,9 +725,29 @@ class KeyboardController(
         activeStart = 0
         forcedCuts.clear()
         history.clear()
+        preeditChoiceUndo.clear()
+        deferredLearnEvents.clear()
         committedPrefix.setLength(0) // S1(c): drop any assembled-but-uncommitted prefix too
         drillSyllable = -1 // UI-2: clearing the buffer leaves no syllable to drill
-        drillChoices.clear() // ②: …and no deferred 逐音节 selection (commitChosenLeftPrefix re-seeds any carry-over)
+        drillChoices.clear() // Chinese IME behavior note.
+    }
+
+    private fun applyDeferredLearning(finalWord: String? = null) {
+        if (!learningBlocked) {
+            for (event in deferredLearnEvents) engine.learn(event.prevWord, event.word)
+            if (finalWord != null) engine.learn(lastWord, finalWord)
+        }
+        deferredLearnEvents.clear()
+    }
+
+    private fun trimDeferredLearningToPrefix() {
+        val baseLastWord = deferredLearnEvents.firstOrNull()?.prevWord
+        var removed = false
+        while (deferredLearnEvents.lastOrNull()?.prefixEnd?.let { it > committedPrefix.length } == true) {
+            deferredLearnEvents.removeLast()
+            removed = true
+        }
+        if (removed) lastWord = deferredLearnEvents.lastOrNull()?.word ?: baseLastWord
     }
 
     private fun refreshCandidates() {
@@ -686,9 +757,9 @@ class KeyboardController(
         predictionCands = emptySet()
         calcCand = null; calcExpr = ""; calcResult = ""
         candidates = when {
-            // UI-2: a syllable is drilled on the 26-key expand screen → show its COMPLETE 同音单字 set
+            // Chinese IME behavior note.
             // (uncapped) instead of the word grid. The single chars carry the syllable's coverage so picking
-            // one partial-commits exactly that syllable and keeps decoding the rest (left-to-right 逐字).
+            // Chinese IME behavior note.
             drillSyllable >= 0 && composing.isNotEmpty() && mode() == Mode.PINYIN ->
                 syllableHomophoneCandidates(drillSyllable)
             // While composing pinyin: inject associated emoji/symbols (haode→👌) just after the top word.
@@ -703,7 +774,7 @@ class KeyboardController(
 
     /**
      * C5/D2: empty-buffer candidates — the calculator takes priority (an arithmetic expression before the
-     * cursor offers "=result"); otherwise, when the 联想 toggle is on and the field allows personalization,
+      * Chinese IME behavior note.
      * learned next-word predictions for [lastWord]. Predictions cover 0 input units (committed directly).
      */
     private fun emptyBufferCandidates(): List<Cand> {
@@ -742,7 +813,7 @@ class KeyboardController(
         if (composing.isEmpty()) return emptyList()
         val raw = composing.toString()
         // ③ context-aware decoding: the committed text before the cursor conditions the first decoded
-        // word so cross-word context disambiguates same-code input (非常 + 943943 → 谢谢, not 这些).
+        // Chinese IME behavior note.
         val context = host.textBeforeCursor(CTX_SCAN_LEN)
         return when (mode()) {
             Mode.PINYIN -> if (lockedReadings.isNotEmpty()) {
@@ -753,27 +824,17 @@ class KeyboardController(
                 // LETTERS of fullLetters(); remap it to DIGITS of the live buffer so picking a
                 // prefix word still partial-commits correctly (★E), full coverage → whole buffer.
                 val bounds = readingLetterToDigit()
-                // F6 (debug.12): forward the user's 分词 boundaries that fall inside the still-active tail so
+                // Chinese IME behavior note.
                 // the locked-path decode honours them too. The unlocked path always passed forcedCuts to the
                 // decoder; this path dropped them, letting a decoded word span a boundary the user explicitly
                 // forced (the cut "disappeared" the moment a reading was locked). T9 maps each letter to
                 // exactly one digit, so |fullLetters| == |composing| and a forcedCut's digit index IS its
                 // letter offset in fullLetters — interior active cuts pass straight through, no translation.
-                // debug.17 (9-key 丢字): when EVERY syllable is locked (no active tail) the user has declared the
-                // COMPLETE segmentation, so feed those locked boundaries to the decoder as forced cuts. That drops
-                // the extending cross-boundary completions (柴磁地黄丸 = chaicidihuangwan) + reranked rare chars that
-                // otherwise flood a rich dict and bury 拆/拆词. A PARTIAL lock (still typing the tail) adds NO lock
-                // cut, so a legitimate multi-syllable word over the locked-syllable + tail (你的, while only 你 is
-                // locked) is NOT suppressed. letters↔digits is 1:1, so a lock boundary's letter offset is also its
-                // digit offset — the same index space as forcedCuts and the [bounds] coverage remap below.
                 val full = fullLetters()
-                val lockCuts = if (activeDigits().isEmpty()) {
-                    val cuts = ArrayList<Int>(lockedReadings.size); var acc = 0
-                    for (r in lockedReadings) { acc += r.length; if (acc < full.length) cuts.add(acc) }
-                    cuts
-                } else emptyList()
+                val lockCuts = ArrayList<Int>(lockedReadings.size); var acc = 0
+                for (r in lockedReadings) { acc += r.length; if (acc < full.length) lockCuts.add(acc) }
                 val readingCuts = (forcedCuts.filter { it in (activeStart + 1) until composing.length } + lockCuts).toSet()
-                engine.candidatesForReadingCovered(full, readingCuts, context)
+                engine.candidatesForLockedReadingCovered(full, readingCuts, context)
                     // F1 (debug.12, DATA LOSS): coveredLen is in LETTERS of fullLetters; remap it to DIGITS of
                     // the live buffer. A coverage NOT on a syllable boundary (e.g. a 2-letter word while the
                     // locked syllable is 3 letters) is absent from [bounds]; the old `?: composing.length`
@@ -787,7 +848,7 @@ class KeyboardController(
                 var c = engine.candidatesCovered(raw, isNine, forcedCuts, context)
                 // ★N: mid-syllable the full digit buffer may not segment yet — fall back to the
                 // longest decodable syllable prefix so the grid keeps the confirmed words
-                // (你/你说…) instead of going blank when a half-typed syllable trails.
+                // Chinese IME behavior note.
                 if (c.isEmpty() && isNine) {
                     val pfx = T9Pinyin.longestDecodablePrefix(raw)
                     if (pfx.length in 1 until raw.length) c = engine.candidatesCovered(pfx, true, context = context)
@@ -801,19 +862,68 @@ class KeyboardController(
     }
 
     /**
-     * UI-2: the syllables the live 26-key buffer segments into — the 分词 shown in the expand screen's left
+      * Chinese IME behavior note.
      * column. Uses the letters path ([CandidateEngine.syllablesForReading]); empty on an un-segmentable or
      * empty buffer. (The 9-key uses the reading-lock column instead, so this is only consulted on ALPHA.)
      */
     private fun currentSyllables(): List<Syllable> =
         if (composing.isEmpty()) emptyList() else engine.syllablesForReading(composing.toString())
 
+    private fun savePreeditChoiceUndo() {
+        preeditChoiceUndo.addLast(PreeditChoiceUndo(
+            composing = composing.toString(),
+            committedPrefix = committedPrefix.toString(),
+            lockedReadings = lockedReadings.toList(),
+            activeStart = activeStart,
+            forcedCuts = forcedCuts.toSet(),
+            history = history.toList(),
+            drillSyllable = drillSyllable,
+            drillChoices = drillChoices.toMap(),
+            deferredLearnEvents = deferredLearnEvents.toList(),
+            lastWord = lastWord,
+            inputEpoch = inputEpoch,
+        ))
+    }
+
+    private fun expirePreeditChoiceUndo() {
+        // A candidate-choice undo is only valid for the next Backspace after the pick.
+        inputEpoch++
+        preeditChoiceUndo.clear()
+    }
+
     /**
-     * UI-2: the COMPLETE 同音单字 set of the drilled [index]th syllable — each candidate is a SINGLE 同音字 (so
-     * the grid shows 号, not 你号), tagged with the syllable's coverage. The set is whatever
-     * [CandidateEngine.homophonesForReadingAt] returns — NOT re-capped here, so the lossless single-char layer
-     * (he=257 / yi=875…) reaches the grid in full. Picking one routes through [pickDrilledHomophone], which LOCKS
-     * it for that syllable and commits left-to-right (a non-leftmost pick defers; the display stays a bare char).
+     * Service panels and copy-bar actions mutate the target editor outside [onKey], so they must explicitly retire
+     * candidate-choice undo before touching the InputConnection. Candidate picks that stay in IME preedit keep their
+     * own undo; picks that commit to the editor retire it before touching editor text.
+     */
+    fun expireCandidateChoiceUndo() {
+        expirePreeditChoiceUndo()
+    }
+
+    private fun restorePreeditChoiceUndo(): Boolean {
+        val snap = preeditChoiceUndo.removeLastOrNull() ?: return false
+        if (snap.inputEpoch != inputEpoch) {
+            preeditChoiceUndo.clear()
+            return false
+        }
+        composing.setLength(0); composing.append(snap.composing)
+        committedPrefix.setLength(0); committedPrefix.append(snap.committedPrefix)
+        lockedReadings.clear(); lockedReadings.addAll(snap.lockedReadings)
+        activeStart = snap.activeStart
+        forcedCuts.clear(); forcedCuts.addAll(snap.forcedCuts)
+        history.clear(); for (step in snap.history) history.addLast(step)
+        drillSyllable = snap.drillSyllable
+        drillChoices.clear(); drillChoices.putAll(snap.drillChoices)
+        deferredLearnEvents.clear(); deferredLearnEvents.addAll(snap.deferredLearnEvents)
+        lastWord = snap.lastWord
+        candidates = emptyList()
+        return true
+    }
+
+    /**
+     * Complete single-character homophone set for the drilled syllable, tagged with that syllable's coverage.
+     * The controller does not re-cap [CandidateEngine.homophonesForReadingAt], so large homophone sets still
+     * reach the grid in full.
      */
     private fun syllableHomophoneCandidates(index: Int): List<Cand> {
         val syls = currentSyllables()
@@ -823,35 +933,32 @@ class KeyboardController(
     }
 
     /**
-     * UI-2 / ② (debug.18) 逐音节锁定回选: record the chosen 同音字 [charWord] of the drilled syllable in
-     * [drillChoices], then commit the editor ONLY for the maximal CONTIGUOUS left-prefix of already-chosen
-     * syllables (left-to-right, 逐字).
-     *
-     * fix: tapping a NON-leftmost syllable (ceshi → tap shi) and picking a char must NOT auto-default the
-     * leading syllable (ce) and dump the whole string into the editor — that SKIPPED ce's selection (the
-     * "整串直接上屏、跳过了 ce 的选词"). A pick whose leading syllable is still unchosen now DEFERS: the choice is
-     * locked here and NOTHING reaches the editor until ce is also chosen — exactly the 9-key left column's
-     * 逐音节锁定回选 semantics (lock a syllable, advance; never commit out of order, never skip a syllable).
+     * Record the chosen homophone for the drilled syllable, then commit only the contiguous chosen prefix.
+     * A partial preedit commit is snapshotted first so Backspace can return to this exact choice grid.
      */
     private fun pickDrilledHomophone(charWord: String) {
         if (composing.isEmpty()) { drillSyllable = -1; drillChoices.clear(); return } // defensive
-        if (drillSyllable !in currentSyllables().indices) { drillSyllable = -1; return }
-        drillChoices[drillSyllable] = charWord // 锁定该音节的选字; keep the focus on it (聚焦不变)
-        // Commit only the contiguous left run of chosen syllables; a gap (unchosen leading syllable) DEFERS.
+        val syls = currentSyllables()
+        if (drillSyllable !in syls.indices) { drillSyllable = -1; return }
+        val choices = HashMap(drillChoices)
+        choices[drillSyllable] = charWord
+        var k = 0
+        while (choices.containsKey(k) && k < syls.size) k++
+        val commitsToEditor = k > 0 && syls[k - 1].end >= composing.length
+        if (!commitsToEditor) savePreeditChoiceUndo()
+        drillChoices[drillSyllable] = charWord
         if (drillChoices.containsKey(0)) commitChosenLeftPrefix()
     }
 
     /**
-     * ② (debug.18): commit the maximal CONTIGUOUS left-prefix of chosen syllables (0..k−1 all in [drillChoices])
-     * as ONE ordered word, reusing [commitCandidate] so the partial-vs-full / prefix-assembly / 退格 bookkeeping is
-     * identical to a normal pick. Choices for syllables AFTER the committed run are carried over, re-indexed to the
-     * post-commit (re-segmented) buffer, so a deferred later pick survives the advance and is never lost.
+     * Commit the maximal contiguous left-prefix of chosen syllables (0..k-1 all in [drillChoices]) as one
+     * ordered word, reusing [commitCandidate] so partial/full commit bookkeeping stays identical to a normal pick.
      */
     private fun commitChosenLeftPrefix() {
         val syls = currentSyllables()
         var k = 0
         while (drillChoices.containsKey(k) && k < syls.size) k++
-        if (k == 0) return // leftmost syllable not chosen yet → defer (never skip it)
+        if (k == 0) return
         val word = (0 until k).joinToString("") { drillChoices[it] ?: "" }
         val coveredLen = syls[k - 1].end.coerceIn(1, composing.length)
         val carried = HashMap<Int, String>()
@@ -867,13 +974,13 @@ class KeyboardController(
     /** Preedit pinyin tab: the assembled confirmed prefix (S1c) at the LEFTMOST, then locked syllable
      *  readings + the decoded active tail (9-key), else typed letters. */
     private fun preeditText(): String {
-        // S1(c): the confirmed-but-uncommitted word prefix renders first (leftmost) — "就jianzuoce" building
+        // Chinese IME behavior note.
         // up — so multi-syllable phrases assemble in the strip instead of dribbling into the editor.
         val prefix = committedPrefix.toString()
         if (composing.isEmpty()) return prefix
         val tail = if (mode() == Mode.PINYIN && layoutId == LayoutId.NINE) {
             val locked = lockedReadings.joinToString("'")
-            // ★分词: render the active tail with its forced boundaries as 隔音符 ' (incl. a trailing one).
+            // Chinese IME behavior note.
             val rest = T9Pinyin.preedit(activeDigits(), activeCuts().toSet())
             when {
                 locked.isEmpty() -> rest
@@ -888,7 +995,7 @@ class KeyboardController(
      * 9-key left column (★E): readings of the ACTIVE (next-unconfirmed) syllable while
      * composing (tap → lock that syllable and advance, no commit), common punctuation when idle.
      *
-     * the column shows ONLY real readings (canonical syllables + 首键字母, via
+      * Chinese IME behavior note.
      * [T9Pinyin.leftColumnReadings]) and its length follows the option count: NEVER pad with empty
      * placeholder boxes, punctuation or junk letters, and never the
      * fixed 4 slots. [Layouts.nine] places exactly `left.size` peanut cells so the column shrinks to fit.
@@ -900,16 +1007,16 @@ class KeyboardController(
         if (composing.isEmpty()) return Layouts.ninePunctuation(customSymbols)
         val active = activeDigits()
         // UI-1 (debug.13): once every syllable is locked there is no NEXT syllable — but the column must NOT
-        // vanish (选完最后一组音节后,该组依旧保留). Keep showing the LAST locked syllable's
+        // Chinese IME behavior note.
         // readings so it stays visible + re-pickable (handlePickReading re-opens it). Never punctuation — that
-        // only appears at rest (the empty-buffer return above); the old "读音变标点" bug stays fixed.
+        // Chinese IME behavior note.
         if (active.isEmpty()) {
             if (lockedReadings.isEmpty()) return emptyList()
             val lastDigits = T9Pinyin.toT9(lockedReadings.last())
             return T9Pinyin.leftColumnReadings(lastDigits, NINE_LEFT_MAX)
                 .map { Key(it, output = it, action = KeyAction.PICK_READING, weight = w) }
         }
-        // ★分词: the active syllable is bounded by the first forced cut in the active region.
+        // Chinese IME behavior note.
         val firstCut = activeCuts().firstOrNull()
         val chunk = if (firstCut != null) active.substring(0, firstCut) else active
         // A3: the FULL combination list (the view scrolls through it) — no fixed cap.
@@ -926,8 +1033,9 @@ class KeyboardController(
             else -> Layouts.forId(layoutId, lang)
         }
         v.showKeyboard(layout, shifted, shiftState == ShiftState.LOCK, lang) // I4 locked + I2 numpad merged
-        // UI-2: pass the drilled syllable so the expand grid can highlight which 分词 chunk is selected.
-        v.showCandidates(candidates.map { it.word }, preeditText(), expandedReadings(), drillSyllable)
+        // Expanded left column selected state: 26-key drill, or the persisted last locked 9-key reading.
+        val readings = expandedReadings()
+        v.showCandidates(candidates.map { it.word }, preeditText(), readings, selectedExpandedReadingIndex(readings))
     }
 
     /** I4 test seam: the shift state name (OFF / ONCE / LOCK) driving the key glyph + uppercasing. */
@@ -935,13 +1043,20 @@ class KeyboardController(
 
     /**
      * Expand-screen left column. On the 9-key it is the active syllable's reading combinations (tap = lock,
-     * ★E). On the 26-key (UI-2) it is the buffer's 分词 — the segmented syllables — and a tap drills into one
-     * to list its 同音单字 (see [onPickReadingIndex]). Empty when there is nothing to offer.
+     * ★E). On the 26-key it exposes only the first unresolved segmented syllable; choosing it advances the
+     * buffer before the next unresolved syllable is shown. Empty when there is nothing to offer.
      */
     internal fun expandedReadings(): List<String> = when {
         layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty() ->
-            currentSyllables().map { it.reading } // UI-2: 26-key syllable column
+            currentSyllables().firstOrNull()?.let { listOf(it.reading) } ?: emptyList()
         else -> nineLeftColumn().filter { it.action == KeyAction.PICK_READING }.map { it.label }
+    }
+
+    private fun selectedExpandedReadingIndex(readings: List<String>): Int = when {
+        layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty() -> drillSyllable
+        layoutId == LayoutId.NINE && mode() == Mode.PINYIN && composing.isNotEmpty() &&
+            activeDigits().isEmpty() && lockedReadings.isNotEmpty() -> readings.indexOf(lockedReadings.last())
+        else -> -1
     }
 
     /** UI-2 test seam / render hook: which syllable (if any) is currently drilled in the 26-key expand grid. */
@@ -958,27 +1073,28 @@ class KeyboardController(
 
     /**
      * Expand-screen left-column tap at [index]. On the 26-key (UI-2) this DRILLS into that syllable — the
-     * grid switches to its complete 同音单字 set; on the 9-key it LOCKS the reading combination (★E), as before.
+      * Chinese IME behavior note.
      */
     fun onPickReadingIndex(index: Int) {
         if (layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty()) {
-            // UI-2: drill into syllable [index] — re-tapping a different syllable re-drills; the buffer is
-            // untouched (no lock/commit) so the user can browse any syllable's homophones freely.
-            if (index !in currentSyllables().indices) return
-            drillSyllable = index
+            if (index != 0 || currentSyllables().isEmpty()) return
+            expirePreeditChoiceUndo()
+            drillSyllable = 0
             refreshCandidates()
             render()
             return
         }
         val readings = expandedReadings()
         if (index !in readings.indices) return
+        expirePreeditChoiceUndo()
         handlePickReading(Key(readings[index], output = readings[index], action = KeyAction.PICK_READING))
         refreshCandidates()
         render()
     }
 
-    /** A2 expanded screen 退格: delete one composing unit, then refresh. No-op on an empty buffer so the
-     *  panel button never reaches back into committed editor text. */
+    /**
+     *  composing unit. No-op on an empty buffer so the panel button never reaches back into committed editor
+     *  text. */
     fun onPanelBackspace() {
         if (composing.isEmpty()) return
         handleBackspace()
@@ -986,18 +1102,18 @@ class KeyboardController(
         render()
     }
 
-    /** A2 expanded screen 重输: drop the pending pinyin + candidates (closes the screen via empty candidates). */
+    /** Chinese IME behavior note. */
     fun onPanelClear() {
         handleClearComposing()
         render()
     }
 
-    /** UI-2: the expand grid closed (返回 / chevron) — drop any drilled syllable so the strip shows the normal
+    /**
      *  word candidates again. No-op when nothing is drilled (every other panel close is unaffected). */
     fun clearDrill() {
         if (drillSyllable < 0 && drillChoices.isEmpty()) return
         drillSyllable = -1
-        drillChoices.clear() // ②: backing out of the expand grid drops any deferred 逐音节 selection
+        drillChoices.clear() // Chinese IME behavior note.
         refreshCandidates()
         render()
     }

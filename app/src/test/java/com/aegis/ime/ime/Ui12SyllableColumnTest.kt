@@ -17,10 +17,12 @@ package com.aegis.ime.ime
 
 import com.aegis.ime.decoder.Cand
 import com.aegis.ime.decoder.Syllable
+import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.engine.DictEngine
+import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import org.junit.Assert.assertEquals
@@ -34,11 +36,11 @@ import org.robolectric.annotation.Config
 import java.io.File
 
 /**
- * debug.13 E4 — UI-1 (九键左列末组音节选完保留不消失) and UI-2 (26键展开左侧音节选择列 → 全量同音单字).
+  * Chinese IME behavior note.
  *
  * UI-1 asserts the 9-key left column never vanishes after the LAST syllable is locked — it keeps that
- * syllable visible and re-pickable. UI-2 asserts the 26-key EXPAND screen's left column lists the 分词
- * syllables, drilling one surfaces its COMPLETE (uncapped) 同音单字 set, and picking one 逐字-commits.
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -46,9 +48,18 @@ class Ui12SyllableColumnTest {
 
     private class RecordingHost : ImeHost {
         val commits = mutableListOf<String>()
-        override fun commitText(text: CharSequence) { commits.add(text.toString()) }
-        override fun deleteBackward() {}
+        val text = StringBuilder()
+        override fun commitText(text: CharSequence) { commits.add(text.toString()); this.text.append(text) }
+        override fun deleteBackward() {
+            if (text.isNotEmpty()) text.delete(text.length - 1, text.length)
+        }
         override fun performEnter() {}
+        override fun textBeforeCursor(n: Int): CharSequence = text.substring(maxOf(0, text.length - n))
+        override fun replaceBeforeCursor(length: Int, text: CharSequence) {
+            val start = maxOf(0, this.text.length - length)
+            this.text.delete(start, this.text.length)
+            this.text.append(text)
+        }
     }
 
     private fun out(s: String) = Key(s, output = s)
@@ -117,7 +128,7 @@ class Ui12SyllableColumnTest {
     // engine's internal MAX_CANDIDATES=30, proving the controller passes the whole set through.
     private val niHomophones = listOf("你") + (1..39).map { ('一' + it).toString() }
     private val haoHomophones = listOf("号") + (1..49).map { ('伀' + it).toString() }
-    // ② (debug.18) repro fixture: ceshi → [ce, shi]. Distinct homophones so the 逐音节 picks are observable.
+    // Chinese IME behavior note.
     private val ceHomophones = listOf("测", "侧", "厕", "策", "册")
     private val shiHomophones = listOf("试", "是", "事", "时", "市")
 
@@ -126,10 +137,12 @@ class Ui12SyllableColumnTest {
             candidatesCovered(composing, t9).map { it.word }
         override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> = when {
             composing.isEmpty() -> emptyList()
+            composing == "ni" -> listOf(Cand("你", composing.length))
             composing == "ceshi" -> listOf(Cand("测试", composing.length), Cand("测", 2))
             else -> listOf(Cand("你好", composing.length), Cand("你", 2))
         }
         override fun syllablesForReading(letters: String): List<Syllable> = when (letters) {
+            "ni" -> listOf(Syllable("ni", 0, 2))
             "nihao" -> listOf(Syllable("ni", 0, 2), Syllable("hao", 2, 5))
             "ceshi" -> listOf(Syllable("ce", 0, 2), Syllable("shi", 2, 5))
             // single-syllable remainders after a leading partial commit (so the column still segments)
@@ -138,6 +151,7 @@ class Ui12SyllableColumnTest {
             else -> emptyList()
         }
         override fun homophonesForReadingAt(letters: String, index: Int): List<String> = when {
+            letters == "ni" && index == 0 -> niHomophones
             letters == "nihao" && index == 0 -> niHomophones
             letters == "nihao" && index == 1 -> haoHomophones
             letters == "ceshi" && index == 0 -> ceHomophones
@@ -148,6 +162,24 @@ class Ui12SyllableColumnTest {
         }
     }
 
+    private fun learningSyllabic(learns: MutableList<Pair<String?, String>>) = object : CandidateEngine {
+        override fun candidates(composing: String, t9: Boolean): List<String> =
+            candidatesCovered(composing, t9).map { it.word }
+        override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+            if (composing.isEmpty()) emptyList() else listOf(Cand("你好", composing.length), Cand("你", 2))
+        override fun syllablesForReading(letters: String): List<Syllable> = when (letters) {
+            "nihao" -> listOf(Syllable("ni", 0, 2), Syllable("hao", 2, 5))
+            "hao" -> listOf(Syllable("hao", 0, 3))
+            else -> emptyList()
+        }
+        override fun homophonesForReadingAt(letters: String, index: Int): List<String> = when {
+            letters == "nihao" && index == 0 -> niHomophones
+            letters == "hao" && index == 0 -> haoHomophones
+            else -> emptyList()
+        }
+        override fun learn(prevWord: String?, word: String) { learns.add(prevWord to word) }
+    }
+
     private fun alphaWithBuffer(letters: String): Pair<RecordingHost, KeyboardController> {
         val host = RecordingHost()
         val c = KeyboardController(host, syllabic)
@@ -156,9 +188,9 @@ class Ui12SyllableColumnTest {
         return host to c
     }
 
-    @Test fun expand_left_column_lists_the_segmented_syllables_on_26key() {
+    @Test fun expand_left_column_shows_only_the_first_unresolved_syllable_on_26key() {
         val (_, c) = alphaWithBuffer("nihao")
-        assertEquals("the 26-key expand column is the 分词", listOf("ni", "hao"), c.expandedReadings())
+        assertEquals("26-key starts with only the first unresolved syllable", listOf("ni"), c.expandedReadings())
         assertEquals("nothing drilled yet", -1, c.drilledSyllableForTest())
     }
 
@@ -167,75 +199,173 @@ class Ui12SyllableColumnTest {
         c.onPickReadingIndex(0) // drill 'ni'
         assertEquals("drilled syllable recorded", 0, c.drilledSyllableForTest())
         // The WHOLE 40-char set reaches the grid — the controller does not re-impose any cap (he=257 / yi=875
-        // 全出 at the device; here the synthetic 40 > the engine's MAX_CANDIDATES=30 proves no UI truncation).
+        // Chinese IME behavior note.
         assertEquals("every ni 同音字 surfaces, uncapped", niHomophones, c.candidateWords())
         assertTrue("more than the 30-cap", c.candidateWords().size > 30)
+    }
 
-        c.onPickReadingIndex(1) // re-drill 'hao'
-        assertEquals("re-drill switches the grid to the other syllable", haoHomophones, c.candidateWords())
-        assertEquals(1, c.drilledSyllableForTest())
+    @Test fun input_view_marks_the_drilled_reading_with_the_accent_color() {
+        val palette = ImePalette.STATIC_LIGHT
+        val iv = InputView(RuntimeEnvironment.getApplication()).apply { applyPalette(palette) }
+        val c = KeyboardController(RecordingHost(), syllabic)
+        iv.onPickReading = { i -> c.onPickReadingIndex(i) }
+        iv.onPickCandidate = { i -> c.onPickCandidate(i) }
+        iv.onExpandClosed = { c.clearDrill() }
+        c.attachView(iv)
+        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        "nihao".forEach { c.onKey(out(it.toString())) }
+
+        iv.showExpandedCandidates()
+        assertEquals("undrilled reading starts with the normal text color", palette.candidateText, iv.expandedReadingTextColorForTest(0))
+
+        c.onPickReadingIndex(0)
+
+        assertEquals("drilled reading is visibly marked with the theme accent color", palette.accentBottom, iv.expandedReadingTextColorForTest(0))
+    }
+
+    @Test fun input_view_marks_the_persisted_9key_locked_reading_with_the_accent_color() {
+        val palette = ImePalette.STATIC_LIGHT
+        val iv = InputView(RuntimeEnvironment.getApplication()).apply { applyPalette(palette) }
+        val c = KeyboardController(RecordingHost(), syllabic)
+        iv.onPickReading = { i -> c.onPickReadingIndex(i) }
+        iv.onPickCandidate = { i -> c.onPickCandidate(i) }
+        iv.onExpandClosed = { c.clearDrill() }
+        c.attachView(iv)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64".forEach { c.onKey(out(it.toString())) }
+        iv.showExpandedCandidates()
+
+        val before = c.expandedReadings().indexOf("ni")
+        assertTrue("precondition: ni is offered before locking, was ${c.expandedReadings()}", before >= 0)
+        assertEquals("unlocked 9-key reading starts with normal text color", palette.candidateText, iv.expandedReadingTextColorForTest(before))
+
+        c.onPickReadingIndex(before)
+
+        val afterReadings = c.expandedReadings()
+        val selected = afterReadings.indexOf("ni")
+        assertTrue("locked last syllable remains visible, was $afterReadings", selected >= 0)
+        assertEquals("persisted locked 9-key reading is marked with the theme accent color", palette.accentBottom, iv.expandedReadingTextColorForTest(selected))
+        afterReadings.indices.firstOrNull { it != selected }?.let {
+            assertEquals("unselected 9-key readings keep the normal text color", palette.candidateText, iv.expandedReadingTextColorForTest(it))
+        }
     }
 
     @Test fun picking_a_homophone_from_the_first_syllable_partial_commits_then_continues() {
         val (host, c) = alphaWithBuffer("nihao")
         c.onPickReadingIndex(0)                       // drill 'ni'
-        c.onPickCandidate(c.candidateWords().indexOf("你")) // pick 你 → 逐字 partial commit
+        c.onPickCandidate(c.candidateWords().indexOf("你")) // Chinese IME behavior note.
         assertTrue("a partial 逐字 pick does not reach the editor yet", host.commits.isEmpty())
         assertEquals("你", c.composingPrefix())
         assertEquals("the drill clears so the remainder shows normally", -1, c.drilledSyllableForTest())
+        assertEquals("the next unresolved syllable is now shown", listOf("hao"), c.expandedReadings())
 
-        c.onKey(act(KeyAction.ENTER))                 // flush 你 + remaining 'hao'
+        c.onKey(act(KeyAction.ENTER)) // Chinese IME behavior note.
         assertEquals(listOf("你hao"), host.commits)
     }
 
-    // ② (debug.18): picking a NON-leftmost syllable's 同音字 must NOT auto-default the leading syllable and
-    // dump the whole string into the editor (the "整串直接上屏、跳过了 ce 的选词"). It DEFERS until the
-    // leading syllable is also chosen — 逐音节锁定回选, exactly like the 9-key left column. (Was: asserted 你号.)
-    @Test fun drilling_a_later_syllable_defers_and_never_skips_the_leading_one() {
+    @Test fun non_leftmost_syllable_cannot_be_drilled_from_the_26key_column() {
         val (host, c) = alphaWithBuffer("nihao")
-        c.onPickReadingIndex(1)                            // drill 'hao' (the NON-leading syllable)
-        c.onPickCandidate(c.candidateWords().indexOf("号")) // pick 号 for hao
-        assertTrue("a later-syllable pick does NOT commit the whole string", host.commits.isEmpty())
-        assertEquals("the leading syllable 'ni' is NOT consumed/skipped", "", c.composingPrefix())
-        assertEquals("focus stays on the drilled syllable 'hao'", 1, c.drilledSyllableForTest())
-
-        c.onPickReadingIndex(0)                            // now resolve the leading syllable 'ni'
-        c.onPickCandidate(c.candidateWords().indexOf("你")) // pick 你 for ni
-        // both commit left-to-right, EACH the user's own pick (no auto-default).
-        assertEquals(listOf("你号"), host.commits)
+        assertEquals(listOf("ni"), c.expandedReadings())
+        c.onPickReadingIndex(1)
+        assertEquals("out-of-visible-range drill ignored", -1, c.drilledSyllableForTest())
+        assertEquals("normal candidates remain visible", "你好", c.candidateWords().firstOrNull())
+        assertTrue("nothing commits while trying to pick a hidden syllable", host.commits.isEmpty())
     }
 
-    // ② (debug.18) the exact repro: 26-key "ceshi" → tap left-column 'shi' → pick a candidate → 整串绝不上屏.
-    @Test fun ceshi_drilling_shi_never_skips_ce_or_commits_the_whole_string() {
+    @Test fun ceshi_starts_at_ce_and_advances_to_shi_after_ce_is_chosen() {
         val (host, c) = alphaWithBuffer("ceshi")
-        assertEquals("26-key 分词", listOf("ce", "shi"), c.expandedReadings())
-        c.onPickReadingIndex(1)                            // 点左列 shi
-        assertEquals("聚焦的是 shi 音节", 1, c.drilledSyllableForTest())
-        assertEquals("grid shows shi's 同音字", shiHomophones, c.candidateWords())
-        c.onPickCandidate(c.candidateWords().indexOf("试")) // 选一个候选 (试)
+        assertEquals("26-key shows only the first unresolved syllable", listOf("ce"), c.expandedReadings())
+        c.onPickReadingIndex(1)
+        assertEquals("shi is not visible yet", -1, c.drilledSyllableForTest())
 
-        assertTrue("整串未被直接提交", host.commits.isEmpty())
-        assertEquals("ce 未被跳过/未被默认提交 (nothing consumed)", "", c.composingPrefix())
-        assertEquals("聚焦仍在 shi、ce 仍按逐音节流程待处理", 1, c.drilledSyllableForTest())
-
-        // 逐音节推进: 再点首音节 ce 选字 → ce 与已锁定的 shi 各按用户选择、一起上屏。
         c.onPickReadingIndex(0)
         c.onPickCandidate(c.candidateWords().indexOf("测"))
-        assertEquals("both syllables commit in order, each the user's pick", listOf("测试"), host.commits)
+        assertTrue("the leading partial pick remains in preedit", host.commits.isEmpty())
+        assertEquals("测", c.composingPrefix())
+        assertEquals("after ce is chosen, shi becomes the visible unresolved syllable", listOf("shi"), c.expandedReadings())
     }
 
     // ② (debug.18) the leading-first path stays normal: tap the leading syllable, reselect its char, normal flow.
     @Test fun ceshi_drilling_ce_first_partial_commits_then_continues_to_shi() {
         val (host, c) = alphaWithBuffer("ceshi")
-        c.onPickReadingIndex(0)                            // 点首音节 ce
-        c.onPickCandidate(c.candidateWords().indexOf("测")) // 回选 测 → 逐字 partial commit
+        c.onPickReadingIndex(0) // Chinese IME behavior note.
+        c.onPickCandidate(c.candidateWords().indexOf("测")) // Chinese IME behavior note.
         assertTrue("a leading partial pick does not reach the editor yet", host.commits.isEmpty())
         assertEquals("测", c.composingPrefix())
         assertEquals("the drill clears so the remainder shows normally", -1, c.drilledSyllableForTest())
         assertEquals("the buffer advanced to the 'shi' syllable", listOf("shi"), c.expandedReadings())
 
-        c.onKey(act(KeyAction.ENTER))                      // flush 测 + remaining 'shi'
+        c.onKey(act(KeyAction.ENTER)) // Chinese IME behavior note.
         assertEquals(listOf("测shi"), host.commits)
+    }
+
+    @Test fun backspace_after_a_preedit_homophone_choice_restores_the_choice_grid() {
+        val (host, c) = alphaWithBuffer("nihao")
+        c.onPickReadingIndex(0)
+        assertEquals(0, c.drilledSyllableForTest())
+        assertEquals(niHomophones, c.candidateWords())
+
+        c.onPickCandidate(c.candidateWords().indexOf("你"))
+        assertTrue("the partial choice is still IME preedit", host.commits.isEmpty())
+        assertEquals("你", c.composingPrefix())
+        assertEquals(listOf("hao"), c.expandedReadings())
+
+        c.onKey(act(KeyAction.BACKSPACE))
+        assertTrue("undoing the preedit choice does not delete editor text", host.commits.isEmpty())
+        assertEquals("undoing the preedit choice leaves editor text alone", "", host.text.toString())
+        assertEquals("the original preedit is restored", "nihao", c.preeditForTest())
+        assertEquals("the chosen prefix is removed", "", c.composingPrefix())
+        assertEquals("the first syllable is offered again", listOf("ni"), c.expandedReadings())
+        assertEquals("the original syllable remains drilled", 0, c.drilledSyllableForTest())
+        assertEquals("the homophone grid is restored", niHomophones, c.candidateWords())
+
+        c.onPickCandidate(c.candidateWords().indexOf("你"))
+        assertEquals("the syllable can be chosen again", "你", c.composingPrefix())
+        assertEquals(listOf("hao"), c.expandedReadings())
+    }
+
+    @Test fun backspace_after_a_single_syllable_homophone_commit_deletes_editor_text() {
+        val (host, c) = alphaWithBuffer("ni")
+        c.onPickReadingIndex(0)
+        assertEquals(0, c.drilledSyllableForTest())
+        assertEquals(niHomophones, c.candidateWords())
+
+        c.onPickCandidate(c.candidateWords().indexOf("你"))
+        assertEquals(listOf("你"), host.commits)
+        assertEquals("你", host.text.toString())
+        assertEquals("", c.preeditForTest())
+
+        c.onKey(act(KeyAction.BACKSPACE))
+
+        assertEquals("the committed character is removed from the editor", "", host.text.toString())
+        assertEquals("full editor commits must not restore preedit", "", c.preeditForTest())
+        assertEquals("full editor commits must not restore the drilled syllable", -1, c.drilledSyllableForTest())
+        assertTrue("full editor commits must not restore the homophone grid", c.candidateWords().isEmpty())
+    }
+
+    @Test fun backspace_after_a_preedit_homophone_choice_discards_its_learning() {
+        val learns = mutableListOf<Pair<String?, String>>()
+        val host = RecordingHost()
+        val c = KeyboardController(host, learningSyllabic(learns))
+        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        "nihao".forEach { c.onKey(out(it.toString())) }
+
+        c.onPickReadingIndex(0)
+        c.onPickCandidate(c.candidateWords().indexOf("你"))
+        assertTrue("preedit-only choices must not learn before editor commit", learns.isEmpty())
+        assertEquals("你", c.composingPrefix())
+
+        c.onKey(act(KeyAction.BACKSPACE))
+        assertEquals("the undone prefix is removed", "", c.composingPrefix())
+        assertEquals("the original homophone grid is restored", niHomophones, c.candidateWords())
+
+        val replacement = niHomophones[1]
+        c.onPickCandidate(c.candidateWords().indexOf(replacement))
+        assertTrue("the replacement is still preedit-only until commit", learns.isEmpty())
+        c.onKey(act(KeyAction.ENTER))
+
+        assertEquals(listOf(replacement + "hao"), host.commits)
+        assertEquals("only the replacement choice is learned after it reaches the editor", listOf(null to replacement), learns)
     }
 
     @Test fun the_drill_clears_on_typing_or_backspace() {
@@ -260,7 +390,7 @@ class Ui12SyllableColumnTest {
         val (_, c) = alphaWithBuffer("nihao")
         c.onPickReadingIndex(0)
         assertEquals("drilled grid shows single-char homophones", niHomophones, c.candidateWords())
-        c.clearDrill() // the expand panel was closed (返回 / chevron)
+        c.clearDrill() // Chinese IME behavior note.
         assertEquals("drill cleared on close", -1, c.drilledSyllableForTest())
         assertEquals("strip returns to the normal word candidates", "你好", c.candidateWords().firstOrNull())
     }
@@ -279,7 +409,7 @@ class Ui12SyllableColumnTest {
         iv.showExpandedCandidates()        // open the A2 grid
         c.onPickReadingIndex(0)            // drill 'ni'
         assertEquals(0, c.drilledSyllableForTest())
-        iv.showPanel(null)                 // 返回 closes the grid → onExpandClosed → clearDrill
+        iv.showPanel(null) // Chinese IME behavior note.
         assertEquals("the close path drops the drill", -1, c.drilledSyllableForTest())
     }
 
@@ -301,21 +431,77 @@ class Ui12SyllableColumnTest {
         return DictEngine(BinaryDict.fromFile(p), BinaryDict.fromFile(t), CharBigramLM.fromFile(l))
     }
 
+    private fun isSingleChar(word: String): Boolean = word.codePointCount(0, word.length) == 1
+    private fun biangChar(): String = String(Character.toChars(0x30EDE))
+
     @Test fun real_dict_drill_surfaces_every_homophone_the_dict_holds() {
         val eng = realEngine(); assumeTrue("dict assets present", eng != null)
         val dict = BinaryDict.fromFile(File("src/main/assets/aegis_dict.bin"))
-        val heSet = dict.exact("he").filter { it.word.length == 1 }.map { it.word }.toSet()
+        val heSet = dict.exact("he").filter { isSingleChar(it.word) }.map { it.word }.toSet()
         assumeTrue("dict has a meaningful he set", heSet.size > 8)
 
         val c = KeyboardController(RecordingHost(), eng!!)
         c.onKey(act(KeyAction.SWITCH_ALPHA))
         "heshui".forEach { c.onKey(out(it.toString())) } // he(0..2) shui(2..6)
-        assertEquals("26-key 分词", listOf("he", "shui"), c.expandedReadings())
+        assertEquals("26-key shows only the first unresolved syllable", listOf("he"), c.expandedReadings())
 
         c.onPickReadingIndex(0) // drill 'he'
         val shown = c.candidateWords().toSet()
         assertTrue("the UI lists EVERY he 同音字 the dict holds (no re-cap)", shown.containsAll(heSet))
         assertTrue("…and more than the old 30-cap", c.candidateWords().size > 30 || heSet.size <= 30)
         assertTrue("和 reachable through the drill", "和" in shown)
+    }
+
+    @Test fun real_dict_biang_is_available_in_expanded_reading_paths() {
+        val eng = realEngine(); assumeTrue("dict assets present", eng != null)
+        val engine = eng!!
+        val rare = biangChar()
+        val alpha = KeyboardController(RecordingHost(), engine)
+        alpha.onKey(act(KeyAction.SWITCH_ALPHA))
+        "biang".forEach { alpha.onKey(out(it.toString())) }
+
+        assertEquals("26-key exposes biang as a selectable reading", listOf("biang"), alpha.expandedReadings())
+        alpha.onPickReadingIndex(0)
+        assertTrue("26-key biang drill includes the rare character", rare in alpha.candidateWords())
+
+        val nine = KeyboardController(RecordingHost(), engine)
+        nine.onKey(act(KeyAction.SWITCH_NINE))
+        T9Pinyin.toT9("biang").forEach { nine.onKey(out(it.toString())) }
+        val readings = nine.expandedReadings()
+        val biang = readings.indexOf("biang")
+        assertTrue("9-key exposes biang as a lockable reading, was $readings", biang >= 0)
+        nine.onPickReadingIndex(biang)
+        assertTrue("9-key locked biang includes the rare character", rare in nine.candidateWords())
+    }
+
+    @Test fun real_dict_jiangzhi_expand_and_reset_track_the_current_reading() {
+        val eng = realEngine(); assumeTrue("dict assets present", eng != null)
+        val c = KeyboardController(RecordingHost(), eng!!)
+        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        "jiangzhi".forEach { c.onKey(out(it.toString())) }
+
+        assertEquals("continuous input exposes jiang as the first unresolved syllable", listOf("jiang"), c.expandedReadings())
+        val normalCandidates = c.candidateWords()
+        c.onPickReadingIndex(0)
+        val jiangHomophones = eng.homophonesForReadingAt("jiangzhi", 0)
+        assertEquals("drill grid is keyed by jiang", jiangHomophones, c.candidateWords())
+
+        c.clearDrill()
+        assertEquals("closing the expanded grid restores word candidates", -1, c.drilledSyllableForTest())
+        assertEquals(normalCandidates, c.candidateWords())
+
+        c.onPickReadingIndex(0)
+        val drilledCandidates = c.candidateWords()
+        c.onPanelBackspace()
+        assertEquals("panel backspace clears stale drill state", -1, c.drilledSyllableForTest())
+        assertTrue("panel backspace must not leave the old homophone grid visible", c.candidateWords() != drilledCandidates)
+        c.onKey(out("i"))
+        assertEquals("retyping returns to the same jiang reading path", listOf("jiang"), c.expandedReadings())
+
+        c.onPanelClear()
+        "jiang'zhi".forEach { c.onKey(out(it.toString())) }
+        assertEquals("explicit separator preserves the same first syllable label", listOf("jiang"), c.expandedReadings())
+        c.onPickReadingIndex(0)
+        assertEquals("separator drill grid is keyed by the same jiang syllable", eng.homophonesForReadingAt("jiang'zhi", 0), c.candidateWords())
     }
 }

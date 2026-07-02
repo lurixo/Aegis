@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Used ONLY by the setup screen to optionally download the enhancement model.
+    <!-- Used ONLY by the setup screen to optionally download resource packs.
          The IME service itself never touches the network. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
@@ -25,14 +25,16 @@
             </intent-filter>
         </activity>
 
-        <!-- debug.17 E1: SAF bridge so the IME panel's ✎ 二级菜单 can import/export 常用语 (the IME service can't
-             host a document picker). Not exported; launched only by AegisInputMethodService. -->
+        <!-- Chinese IME behavior note. -->
         <activity
             android:name=".ui.PhraseTransferActivity"
+            android:autoRemoveFromRecents="true"
             android:exported="false"
-            android:theme="@style/Theme.Aegis"
             android:excludeFromRecents="true"
-            android:noHistory="true" />
+            android:finishOnTaskLaunch="true"
+            android:noHistory="false"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Aegis.Transparent" />
 
         <service
             android:name=".AegisInputMethodService"

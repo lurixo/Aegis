@@ -30,8 +30,8 @@ import org.junit.Test
  *
  *  F1 (data loss): after locking a reading, a candidate whose coverage is NOT on a syllable boundary used
  *      to be mislabelled as covering the WHOLE buffer — picking it committed the partial word AND cleared
- *      the rest of the still-typed digits (越界候选过度上屏丢数据). It must partial-commit only what it covers.
- *  F6: a forced 分词 boundary in the active tail was dropped the moment a reading was locked, because the
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  *      locked-path decode was called without the cuts the unlocked path always forwarded.
  */
 class Debug12FixATest {
@@ -45,9 +45,9 @@ class Debug12FixATest {
 
     /**
      * Stand-in decoder for the LOCKED path. Records the cuts it is handed (F6) and returns a full-cover
-     * sentence plus "X" (covers 4 letters — OFF the syllable boundaries, exercises the F1 remap). When a
-     * forced cut is present it suppresses the spanning sentence, mirroring `PinyinDecoder.decodeCovered`
-     * dropping whole-input completions across a forced boundary.
+     * sentence plus "X" (covers 4 letters — OFF the syllable boundaries, exercises the F1 remap). When the
+     * active-tail forced cut is present it suppresses the spanning sentence, while a locked-reading
+     * boundary still allows a multi-syllable word across the locked prefix and tail.
      */
     private class ProbeEngine : CandidateEngine {
         var lastReadingCuts: Set<Int> = setOf(-1) // sentinel: not "called with the empty set"
@@ -57,7 +57,7 @@ class Debug12FixATest {
             if (composing.isEmpty()) emptyList() else listOf(Cand("好", composing.length))
         override fun candidatesForReadingCovered(letters: String, cuts: Set<Int>, context: CharSequence): List<Cand> {
             lastReadingCuts = cuts
-            val spanning = if (cuts.isEmpty()) listOf(Cand("好的", letters.length)) else emptyList()
+            val spanning = if (4 !in cuts) listOf(Cand("好的", letters.length)) else emptyList()
             return spanning + listOf(Cand("X", 4))
         }
     }
@@ -94,13 +94,13 @@ class Debug12FixATest {
         val c = KeyboardController(RecordingHost(), probe)
         c.onKey(nine())
         "6433".forEach { c.onKey(digit(it)) }        // ni(64) de(33)
-        c.onKey(Key("", action = KeyAction.SEGMENT)) // 分词 → forced boundary at digit 4 (between "de" and "hao")
+        c.onKey(Key("", action = KeyAction.SEGMENT)) // Chinese IME behavior note.
         "426".forEach { c.onKey(digit(it)) }         // hao(426)
         c.onKey(pick("ni"))                          // lock syllable 1 (activeStart → 2)
 
         assertEquals(
             "the forced 分词 boundary inside the active tail is forwarded to the locked-path decode",
-            setOf(4), probe.lastReadingCuts,
+            setOf(2, 4), probe.lastReadingCuts,
         )
     }
 
@@ -169,13 +169,13 @@ class Debug12FixATest {
         val eng = LearnSpyEngine()
         val c = KeyboardController(RecordingHost(), eng) // default ALPHA + CN = pinyin buffer
         "hao".forEach { c.onKey(Key(it.toString(), output = it.toString())) }
-        c.onPickCandidate(c.candidateWords().indexOf("好")) // commit 好 → learn(null,好); lastWord=好
+        c.onPickCandidate(c.candidateWords().indexOf("好")) // Chinese IME behavior note.
         assertTrue("precondition: nothing pending after the commit", c.preeditForTest().isEmpty())
 
         c.onBarFunction(BarFunction.EMOJI)                 // idle tap → must be a no-op for the buffer/lastWord
 
         "hao".forEach { c.onKey(Key(it.toString(), output = it.toString())) }
-        c.onPickCandidate(c.candidateWords().indexOf("好")) // commit 好 again → must learn(好,好), not (null,好)
+        c.onPickCandidate(c.candidateWords().indexOf("好")) // Chinese IME behavior note.
         assertEquals(
             "an idle toolbar tap preserves the bigram predecessor",
             listOf<Pair<String?, String>>(null to "好", "好" to "好"), eng.learns,

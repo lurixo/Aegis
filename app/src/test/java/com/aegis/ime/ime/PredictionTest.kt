@@ -25,7 +25,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** C5 (next-word prediction on an empty buffer) + D2 (联想 toggle gate). */
+/** Chinese IME behavior note. */
 class PredictionTest {
 
     private class EditorHost : ImeHost {
@@ -41,13 +41,21 @@ class PredictionTest {
         val text get() = sb.toString()
     }
 
-    /** Commits 你好 for any pinyin; predicts 世界/啊 after 你好 (so predictions chain then dry up). */
+    /** Chinese IME behavior note. */
     private fun niHaoEngine() = object : CandidateEngine {
         override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
         override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence) =
             if (composing.isEmpty()) emptyList() else listOf(Cand("你好", composing.length))
         override fun predict(prevWord: String?): List<String> =
             if (prevWord == "你好") listOf("世界", "啊") else emptyList()
+    }
+
+    private fun echoPredictsItselfEngine() = object : CandidateEngine {
+        override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+        override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence) =
+            if (composing.isEmpty()) emptyList() else listOf(Cand("echo", composing.length))
+        override fun predict(prevWord: String?): List<String> =
+            if (prevWord == "echo") listOf("echo") else emptyList()
     }
 
     /** Always predicts — used to prove the calculator wins the empty-buffer slot. */
@@ -78,12 +86,30 @@ class PredictionTest {
         commitNiHao(c)
         c.onPickCandidate(c.candidateWords().indexOf("世界"))
         assertEquals("the prediction is committed after 你好", "你好世界", h.text)
-        // lastWord is now 世界; niHaoEngine predicts nothing after it → empty bar (chained, then dry).
+        // Chinese IME behavior note.
         assertTrue("no prediction after 世界", c.candidateWords().isEmpty())
     }
 
+    @Test fun picking_a_prediction_retires_previous_candidate_undo() {
+        val h = EditorHost()
+        val c = KeyboardController(h, echoPredictsItselfEngine())
+        "echo".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(c.candidateWords().indexOf("echo"))
+        assertEquals("echo", h.text)
+        assertEquals(listOf("echo"), c.candidateWords())
+
+        c.onPickCandidate(c.candidateWords().indexOf("echo"))
+        assertEquals("echoecho", h.text)
+        assertEquals("prediction chaining remains available", listOf("echo"), c.candidateWords())
+
+        c.onKey(Key("", action = KeyAction.BACKSPACE))
+
+        assertEquals("Backspace is a normal editor delete after a prediction pick", "echoech", h.text)
+        assertEquals("stale candidate undo must not restore the previous preedit", "", c.preeditForTest())
+    }
+
     @Test fun associations_ship_off_by_default() {
-        // debug.17: 联想 now ships OFF. A new install / never-toggled user (pref unset → ASSOCIATIONS_DEFAULT_ON)
+        // Chinese IME behavior note.
         // is what the IME pushes in onStartInputView, and must see NO next-word predictions until they opt in.
         assertFalse("联想 must ship OFF by default (debug.17)", ASSOCIATIONS_DEFAULT_ON)
         val h = EditorHost()
@@ -103,6 +129,40 @@ class PredictionTest {
         assertTrue("联想 off → no predictions", c.candidateWords().isEmpty())
     }
 
+    @Test fun association_toggle_off_clears_visible_predictions_immediately() {
+        val h = EditorHost()
+        val c = KeyboardController(h, niHaoEngine())
+        commitNiHao(c)
+        assertEquals(listOf("世界", "啊"), c.candidateWords())
+
+        c.setAssociationsEnabled(false)
+
+        assertTrue("turning associations off must clear already visible predictions", c.candidateWords().isEmpty())
+        c.onKey(Key("", action = KeyAction.SPACE))
+        assertEquals("space remains a literal editor space", "你好 ", h.text)
+        assertTrue("space after hot-off must not regenerate predictions", c.candidateWords().isEmpty())
+    }
+
+    @Test fun association_toggle_off_stays_empty_after_candidate_commit_space_punctuation_and_reset() {
+        val h = EditorHost()
+        val c = KeyboardController(h, niHaoEngine())
+        c.setAssociationsEnabled(false)
+        commitNiHao(c)
+        assertEquals("你好 still committed", "你好", h.text)
+        assertTrue("off after commit -> no prediction", c.candidateWords().isEmpty())
+
+        c.onKey(Key("", action = KeyAction.SPACE))
+        assertEquals("space commits normally", "你好 ", h.text)
+        assertTrue("space must not surface predictions while off", c.candidateWords().isEmpty())
+
+        c.onKey(Key("，", output = "，", direct = true))
+        assertEquals("punctuation commits normally", "你好 ，", h.text)
+        assertTrue("punctuation must not surface predictions while off", c.candidateWords().isEmpty())
+
+        c.reset()
+        assertTrue("reset must not restore predictions while off", c.candidateWords().isEmpty())
+    }
+
     @Test fun predictions_hidden_when_personalization_is_blocked() {
         val h = EditorHost()
         val c = KeyboardController(h, niHaoEngine())
@@ -112,26 +172,26 @@ class PredictionTest {
     }
 
     @Test fun reentry_dismisses_a_lingering_prediction() {
-        // debug.14 BUG1: a next-word prediction sits on the bar after a commit. 重输 must clear it and it must
+        // Chinese IME behavior note.
         // NOT immediately regenerate (the old code left lastWord set, so refreshCandidates re-populated it —
         // a "ghost" the user could not clear).
         val h = EditorHost()
         val c = KeyboardController(h, niHaoEngine())
         commitNiHao(c)
         assertEquals(listOf("世界", "啊"), c.candidateWords()) // prediction showing
-        c.onKey(Key("", action = KeyAction.CLEAR_COMPOSING)) // 重输
+        c.onKey(Key("", action = KeyAction.CLEAR_COMPOSING)) // Chinese IME behavior note.
         assertTrue("重输 clears the prediction and it does not regenerate", c.candidateWords().isEmpty())
     }
 
-    @Test fun backspace_dismisses_a_lingering_prediction() {
-        // debug.14 BUG1: 退格 also clears the lingering prediction (it nulls lastWord, so predict() returns
-        // nothing on the refresh that follows).
+    @Test fun backspace_after_a_committed_candidate_deletes_text_without_restoring_predictions() {
         val h = EditorHost()
         val c = KeyboardController(h, niHaoEngine())
         commitNiHao(c)
         assertEquals(listOf("世界", "啊"), c.candidateWords())
-        c.onKey(Key("", action = KeyAction.BACKSPACE)) // 退格
-        assertTrue("退格 clears the prediction", c.candidateWords().isEmpty())
+        c.onKey(Key("", action = KeyAction.BACKSPACE)) // Chinese IME behavior note.
+        assertEquals("Backspace deletes one committed editor character", "你", h.text)
+        assertEquals("full editor commits must not restore preedit", "", c.preeditForTest())
+        assertTrue("stale predictions must not return after normal Backspace", c.candidateWords().isEmpty())
     }
 
     @Test fun calculator_takes_priority_over_prediction() {

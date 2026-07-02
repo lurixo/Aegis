@@ -18,10 +18,10 @@ package com.aegis.ime.ime
 import com.aegis.ime.user.ClipSplitter
 
 /**
- * Pure brain for the taskbar "copy bar": after a clip is captured, the bar shows
- * `[📋 + 被复制内容] | 拆 | ×`. Its three sinks make the distinctions testable without Android:
- *  - [commit]      ⑤ tap the copied-content block → 上屏 (the ONLY path that inserts into the editor).
- *  - [copyToAegis] ③ tap a 拆词 block → write to the aegis ClipboardStore. NOT the system clipboard
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  *                    (never setPrimaryClip) and NOT the editor (never commitText).
  *  - [dismiss]     ④ tap × → leave the copy-bar state (back to the normal taskbar).
  */
@@ -48,19 +48,19 @@ class CopyBarController(
         blocks = emptyList()
     }
 
-    /** ② toggle 拆词: split the content into blocks via [ClipSplitter] (or fold back to the plain bar). */
+    /** Chinese IME behavior note. */
     fun toggleSplit() {
         val c = content ?: return
         if (splitMode) { splitMode = false; blocks = emptyList() } else { blocks = ClipSplitter.blocks(c); splitMode = true }
     }
 
-    /** ⑤ tap the content → 上屏 the whole entry, then leave the copy-bar (symmetric with [close]). */
+    /** Chinese IME behavior note. */
     fun tapContent() {
         content?.let { commit(it) }
         close()
     }
 
-    /** ③ tap a 拆词 block → copy it to the aegis clipboard. The bar STAYS open (pick several). */
+    /** Chinese IME behavior note. */
     fun tapBlock(block: String) {
         if (block.isNotEmpty()) copyToAegis(block)
     }

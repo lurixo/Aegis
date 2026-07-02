@@ -27,10 +27,10 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 /**
- * debug.18 (item14): the 符号 / 表情 panels' bottom bar must read 返回 (left) · 锁定 (centre) · ⌫ (right), with
- * 返回 and ⌫ EQUIDISTANT from the bar's edges. The bug was a ⌫ that floated mid-bar: it was attached as
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  * the LEFT compound drawable, which anchors to its button's left edge, so the gravity-END + right-padding meant
- * to push it right had no effect. The fix attaches ⌫ as the END (right) drawable, mirroring 返回's left inset.
+  * Chinese IME behavior note.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -42,7 +42,7 @@ class BottomBarSymmetryTest {
     private fun assertBackspaceHugsRightSymmetrically(back: TextView, backspace: TextView, name: String) {
         assertNull("$name: ⌫ must NOT be a LEFT compound drawable (that anchors it to the button's left edge)", backspace.compoundDrawables[0])
         assertNotNull("$name: ⌫ must be the END/right compound drawable so it hugs the right edge", backspace.compoundDrawables[2])
-        // 返回 hugs the left by its left padding; ⌫ hugs the right by an EQUAL right padding ⇒ equidistant.
+        // Chinese IME behavior note.
         assertTrue("$name: 返回 must have a left inset", back.paddingLeft > 0)
         assertEquals("$name: ⌫ right inset must mirror 返回's left inset", back.paddingLeft, backspace.paddingRight)
         // and the insets that would break the mirror must be zero.

@@ -50,7 +50,7 @@ data class ImePalette(
     val chipText: Int,
     val icon: Int,                  // toolbar / panel line icons
     val deletable: Int,             // removable-item accent (custom-symbol ✕)
-    val errorContainer: Int,        // destructive-action container (删除)
+    val errorContainer: Int, // Chinese IME behavior note.
     val onErrorContainer: Int,      // text on the destructive container
     val disabled: Int,
     val scrim: Int,

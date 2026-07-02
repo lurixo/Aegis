@@ -16,10 +16,12 @@
 package com.aegis.ime.ime
 
 import com.aegis.ime.decoder.Cand
+import com.aegis.ime.decoder.Syllable
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.LayoutId
+import com.aegis.ime.layout.SymbolCatalog
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -29,19 +31,65 @@ class KeyboardControllerTest {
 
     private class FakeHost : ImeHost {
         val commits = mutableListOf<String>()
+        val text = StringBuilder()
         var enters = 0
         var deletes = 0
-        override fun commitText(text: CharSequence) { commits.add(text.toString()) }
-        override fun deleteBackward() { deletes++ }
+        override fun commitText(text: CharSequence) { commits.add(text.toString()); this.text.append(text) }
+        override fun deleteBackward() {
+            deletes++
+            if (text.isNotEmpty()) text.delete(text.length - 1, text.length)
+        }
         override fun performEnter() { enters++ }
+        override fun textBeforeCursor(n: Int): CharSequence = text.substring(maxOf(0, text.length - n))
+        override fun replaceBeforeCursor(length: Int, text: CharSequence) {
+            val start = maxOf(0, this.text.length - length)
+            this.text.delete(start, this.text.length)
+            this.text.append(text)
+        }
+    }
+
+    private class SymbolPairingHost : ImeHost {
+        val commits = mutableListOf<String>()
+        val text = StringBuilder()
+        override fun commitText(text: CharSequence) {
+            commits.add(text.toString())
+            this.text.append(text)
+        }
+        override fun commitSymbol(symbol: CharSequence) {
+            for (part in SymbolCatalog.insertionFor(symbol.toString(), hasTextAfterCursor = false)) {
+                commitText(part)
+            }
+        }
+        override fun deleteBackward() {
+            if (text.isNotEmpty()) text.delete(text.length - 1, text.length)
+        }
+        override fun performEnter() {}
     }
 
     private val engine = object : CandidateEngine {
         override fun candidates(composing: String, t9: Boolean): List<String> = emptyList()
     }
 
+    private fun stagedNiHaoEngine() = object : CandidateEngine {
+        override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+        override fun candidatesCovered(
+            composing: String,
+            t9: Boolean,
+            cuts: Set<Int>,
+            context: CharSequence,
+        ): List<Cand> = when (composing) {
+            "64426" -> listOf(Cand("你", 2))
+            "426" -> listOf(Cand("好", composing.length))
+            else -> emptyList()
+        }
+    }
+
     private fun act(a: KeyAction) = Key("", action = a)
     private fun out(s: String) = Key(s, output = s)
+    private fun clearCandidateUndo(c: KeyboardController) {
+        c.onKey(out("2"))
+        c.onKey(act(KeyAction.BACKSPACE))
+    }
 
     /** E4 hot-toggle (debug.16): a fake engine that records the fuzzy rule set pushed to it. */
     private class FuzzyRecordingEngine : CandidateEngine {
@@ -53,7 +101,7 @@ class KeyboardControllerTest {
     @Test fun setEngine_reapplies_last_pushed_fuzzy_rules_across_a_hot_reload_swap() {
         // The lost-update guard: fuzzy rules live inside the engine, so a hot-reload swap must NOT revert them.
         val c = KeyboardController(FakeHost(), FuzzyRecordingEngine())
-        c.setFuzzyRules(setOf("zh")) // service pushes the user's 模糊音 choice (mirrors onStartInputView)
+        c.setFuzzyRules(setOf("zh")) // Chinese IME behavior note.
         val swapped = FuzzyRecordingEngine() // a freshly hot-reloaded engine that carries no rules of its own
         c.setEngine(swapped)
         assertEquals("engine swap must preserve the live fuzzy rules", setOf("zh"), swapped.rules)
@@ -113,18 +161,18 @@ class KeyboardControllerTest {
 
     @Test fun picking_a_partial_candidate_builds_a_prefix_and_defers_the_commit() {
         // S1(c) (debug.12): a candidate whose reading covers only part of the buffer must NOT dribble into
-        // the editor ("选一个就上屏一个"). It joins the assembled prefix (shown at the strip's leftmost) and
+        // Chinese IME behavior note.
         // decoding continues; the whole word lands in ONE commit only when it completes (here: ENTER flush).
         val h = FakeHost()
         val partial = object : CandidateEngine {
             override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
             override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
-                if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2)) // 你 covers the first 2 digits "64"
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2)) // Chinese IME behavior note.
         }
         val c = KeyboardController(h, partial)
         c.onKey(act(KeyAction.SWITCH_NINE))
         "64426".forEach { c.onKey(out(it.toString())) } // ni(64) hao(426)
-        c.onPickCandidate(0) // pick 你 → builds prefix "你", drops "64", keeps "426" — NOTHING committed yet
+        c.onPickCandidate(0) // Chinese IME behavior note.
         assertTrue("a partial pick must NOT commit to the editor", h.commits.isEmpty())
         assertEquals("你 is the assembled prefix", "你", c.composingPrefix())
         assertEquals("the prefix renders at the strip's leftmost", "你hao", c.preeditForTest())
@@ -132,9 +180,9 @@ class KeyboardControllerTest {
         assertEquals(listOf("你hao"), h.commits)
     }
 
-    @Test fun backspace_peels_the_assembled_prefix_before_touching_the_editor() {
-        // S1(c): after a partial pick the confirmed prefix lives in the IME, not the editor — 退格 peels the
-        // remainder digits then the prefix char, never calling deleteBackward on committed text.
+    @Test fun backspace_commits_the_assembled_prefix_when_the_remaining_reading_is_deleted() {
+        // A partial pick still stays inside the IME while reading remains. Once Backspace clears the final
+        // reading unit, the confirmed prefix lands in the editor instead of sitting above a blank taskbar.
         val h = FakeHost()
         val partial = object : CandidateEngine {
             override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
@@ -144,19 +192,40 @@ class KeyboardControllerTest {
         val c = KeyboardController(h, partial)
         c.onKey(act(KeyAction.SWITCH_NINE))
         "64426".forEach { c.onKey(out(it.toString())) } // ni(64) hao(426)
-        c.onPickCandidate(0) // prefix "你", remainder "426"
+        c.onPickCandidate(0) // Chinese IME behavior note.
         assertEquals("你", c.composingPrefix())
-        repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }   // peel 426 -> empty
-        assertEquals("prefix intact while the remainder peels", "你", c.composingPrefix())
-        c.onKey(act(KeyAction.BACKSPACE))                 // now peel the prefix char itself
-        assertEquals("prefix peeled away", "", c.composingPrefix())
-        assertEquals("never deleted committed editor text", 0, h.deletes)
-        assertTrue("nothing was ever committed", h.commits.isEmpty())
+        clearCandidateUndo(c)
+        repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }   // 426 -> empty, then commit the confirmed prefix
+        assertEquals("prefix committed when no reading remains", listOf("你"), h.commits)
+        assertEquals("preedit cleared after committing the prefix", "", c.preeditForTest())
+        assertEquals("prefix no longer stranded inside the IME", "", c.composingPrefix())
+        assertEquals("clearing reading did not delete editor text", 0, h.deletes)
     }
 
-    @Test fun space_on_a_bare_assembled_prefix_commits_it_once_without_a_literal_space() {
-        // S1(c): the remainder may be backspaced away leaving only the prefix — space commits that pending
-        // word in ONE commit and is consumed (no stray " " inserted).
+    @Test fun backspace_commits_a_supplementary_prefix_when_the_remaining_reading_is_deleted() {
+        val h = FakeHost()
+        val supplementaryHan = String(Character.toChars(0x20000))
+        assertEquals("test character must occupy a surrogate pair", 2, supplementaryHan.length)
+        val partial = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand(supplementaryHan, 2))
+        }
+        val c = KeyboardController(h, partial)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        assertEquals(supplementaryHan, c.composingPrefix())
+        clearCandidateUndo(c)
+        repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }
+
+        assertEquals("supplementary prefix committed as one string", listOf(supplementaryHan), h.commits)
+        assertEquals("preedit cleared after committing the prefix", "", c.preeditForTest())
+        assertEquals("prefix no longer stranded inside the IME", "", c.composingPrefix())
+        assertEquals("clearing reading did not delete editor text", 0, h.deletes)
+    }
+
+    @Test fun space_after_deleting_the_remaining_reading_follows_the_committed_prefix() {
         val h = FakeHost()
         val partial = object : CandidateEngine {
             override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
@@ -166,15 +235,16 @@ class KeyboardControllerTest {
         val c = KeyboardController(h, partial)
         c.onKey(act(KeyAction.SWITCH_NINE))
         "64426".forEach { c.onKey(out(it.toString())) }
-        c.onPickCandidate(0)                              // prefix "你", remainder "426"
-        repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }   // remainder gone, only the prefix remains
+        c.onPickCandidate(0) // Chinese IME behavior note.
+        clearCandidateUndo(c)
+        repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }   // remainder gone, prefix committed
         c.onKey(act(KeyAction.SPACE))
-        assertEquals(listOf("你"), h.commits)
+        assertEquals(listOf("你", " "), h.commits)
     }
 
     @Test fun field_switch_drops_an_assembled_prefix_no_cross_field_leak() {
         // D1 (debug.12, blocker): reset() (onStartInputView / rotation) must DROP a pending prefix so it
-        // cannot leak into the next field. Build "你", reset → the prefix is gone and a fresh commit in the
+        // Chinese IME behavior note.
         // new field never carries it.
         val h = FakeHost()
         val partial = object : CandidateEngine {
@@ -185,23 +255,21 @@ class KeyboardControllerTest {
         val c = KeyboardController(h, partial)
         c.onKey(act(KeyAction.SWITCH_NINE))
         "64426".forEach { c.onKey(out(it.toString())) }
-        c.onPickCandidate(0)                              // prefix "你" pending, nothing committed
+        c.onPickCandidate(0) // Chinese IME behavior note.
         assertEquals("你", c.composingPrefix())
         assertTrue("partial pick committed nothing", h.commits.isEmpty())
 
         c.reset()                                         // simulate onStartInputView (new field) / rotation
         assertEquals("the pending prefix is dropped on field switch", "", c.composingPrefix())
 
-        // In the "new field": flush a fresh buffer — the dropped 你 must NOT reappear prepended.
+        // Chinese IME behavior note.
         c.onKey(act(KeyAction.SWITCH_NINE))
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onKey(act(KeyAction.ENTER))
         assertEquals("no leaked 你 in the new field", listOf("nihao"), h.commits)
     }
 
-    @Test fun direct_key_on_a_bare_prefix_flushes_the_word_first_then_the_symbol() {
-        // D2 (debug.12): a punctuation/number (direct) tapped when only the prefix remains must commit the
-        // word THEN the symbol — "你" then "，", never "，你" and never a stranded prefix.
+    @Test fun direct_key_after_deleting_the_remaining_reading_follows_the_committed_prefix() {
         val h = FakeHost()
         val partial = object : CandidateEngine {
             override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
@@ -211,8 +279,9 @@ class KeyboardControllerTest {
         val c = KeyboardController(h, partial)
         c.onKey(act(KeyAction.SWITCH_NINE))
         "64426".forEach { c.onKey(out(it.toString())) }
-        c.onPickCandidate(0)                              // prefix "你", remainder "426"
-        repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }   // remainder gone, only prefix "你" remains
+        c.onPickCandidate(0) // Chinese IME behavior note.
+        clearCandidateUndo(c)
+        repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }   // remainder gone, prefix committed
         c.onKey(Key("，", output = "，", direct = true))   // idle-column punctuation (direct)
         assertEquals(listOf("你", "，"), h.commits)
     }
@@ -252,6 +321,47 @@ class KeyboardControllerTest {
         assertEquals(listOf("ni", "，"), h.commits)
     }
 
+    @Test fun english_direct_apostrophe_is_plain_text_between_letters() {
+        val h = SymbolPairingHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        "don".forEach { c.onKey(out(it.toString())) }
+        c.onKey(Key("'", output = "'", direct = true))
+        c.onKey(out("t"))
+        assertEquals(listOf("d", "o", "n", "'", "t"), h.commits)
+        assertEquals("don't", h.text.toString())
+    }
+
+    @Test fun direct_pairable_symbol_flushes_pinyin_then_commits_plain_text() {
+        val h = SymbolPairingHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(out("n"))
+        c.onKey(Key("\"", output = "\"", direct = true))
+        assertEquals(listOf("n", "\""), h.commits)
+        assertEquals("n\"", h.text.toString())
+    }
+
+    @Test fun direct_pairable_symbols_from_keyboard_commit_plain_text() {
+        val h = SymbolPairingHost()
+        val c = KeyboardController(h, engine)
+        for (symbol in listOf("\"", "[", "(", "`")) {
+            c.onKey(Key(symbol, output = symbol, direct = true))
+        }
+        assertEquals(listOf("\"", "[", "(", "`"), h.commits)
+        assertEquals("\"[(`", h.text.toString())
+    }
+
+    @Test fun direct_mode_pairable_symbols_commit_plain_text() {
+        val h = SymbolPairingHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        for (symbol in listOf("'", "\"", "[")) {
+            c.onKey(Key(symbol, output = symbol))
+        }
+        assertEquals(listOf("'", "\"", "["), h.commits)
+        assertEquals("'\"[", h.text.toString())
+    }
+
     // ---- I4: shift one-shot (single tap) vs caps lock (double tap → SHIFT_LOCK), reset on switch ----
 
     @Test fun single_shift_tap_is_one_shot_uppercase_then_back_to_lowercase() {
@@ -280,11 +390,11 @@ class KeyboardControllerTest {
     }
 
     @Test fun shift_is_inert_in_cn_full_pinyin_26_key() {
-        // I4: ⇧ sits on the shared 26-key, but shift is meaningless for full-pinyin — tapping it in
-        // CN 全拼26键 must NOT arm (which would stick the keycaps uppercase while the pinyin stays lowercase).
+        // Shift sits on the shared 26-key, but it is meaningless for full-pinyin input; tapping it in
+        // Chinese mode should stay inert.
         val h = FakeHost()
         val c = KeyboardController(h, engine)
-        c.onKey(act(KeyAction.SWITCH_ALPHA)) // CN 全拼26键 → mode = PINYIN
+        c.onKey(act(KeyAction.SWITCH_ALPHA)) // Chinese IME behavior note.
         c.onKey(act(KeyAction.SHIFT))
         assertEquals("shift stays OFF in CN pinyin", "OFF", c.shiftStateName())
         c.onKey(act(KeyAction.SHIFT_LOCK))
@@ -300,7 +410,7 @@ class KeyboardControllerTest {
         assertEquals("OFF", c.shiftStateName())
         c.onKey(act(KeyAction.SWITCH_ALPHA)); c.onKey(act(KeyAction.SHIFT_LOCK))
         assertEquals("LOCK", c.shiftStateName())
-        c.onKey(act(KeyAction.TOGGLE_LANG))    // 中英 toggle clears it too
+        c.onKey(act(KeyAction.TOGGLE_LANG)) // Chinese IME behavior note.
         assertEquals("OFF", c.shiftStateName())
     }
 
@@ -336,7 +446,7 @@ class KeyboardControllerTest {
         val c = KeyboardController(FakeHost(), engine)
         c.onKey(act(KeyAction.SWITCH_NINE))
         assertEquals(
-            com.aegis.ime.layout.Layouts.ninePunctuation().map { it.label }, // ，。？！…：；~.-@自定义
+            com.aegis.ime.layout.Layouts.ninePunctuation().map { it.label }, // Chinese IME behavior note.
             c.nineLeftColumn().map { it.label },
         )
     }
@@ -384,7 +494,7 @@ class KeyboardControllerTest {
 
     @Test fun nine_left_column_ni_full_scroll_list_matches_reference() {
         // A3: the scrollable column now carries the FULL combo list for ni'shuo'de'bu'dui — real readings
-        // ni & mi PLUS the first-key letters m/n/o (expected candidate layout "mi ni o m n"), clean, no blanks.
+        // Chinese IME behavior note.
         val col = nineColumnFor("64744336488").map { it.label }
         assertTrue("ni present, was $col", "ni" in col)
         assertTrue("mi present, was $col", "mi" in col)
@@ -393,7 +503,7 @@ class KeyboardControllerTest {
         assertTrue("clean a-z only, was $col", col.all { s -> s.all { it in 'a'..'z' } })
     }
 
-    // ---- A2 expanded selection screen (combo selector + 退格 / 重输) ----
+    // Chinese IME behavior note.
 
     @Test fun expanded_readings_empty_at_rest_combos_while_composing() {
         val c = KeyboardController(FakeHost(), engine)
@@ -425,6 +535,47 @@ class KeyboardControllerTest {
         assertTrue("hao gone after one backspace", "hao" !in c.expandedReadings())
     }
 
+    @Test fun panel_backspace_after_a_partial_candidate_pick_restores_the_previous_preedit() {
+        val h = FakeHost()
+        val partial = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
+        }
+        val c = KeyboardController(h, partial)
+        "nihao".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        assertEquals("你hao", c.preeditForTest())
+
+        c.onPanelBackspace()
+
+        assertEquals("panel backspace undoes the preedit-only pick", "nihao", c.preeditForTest())
+        assertEquals("", c.composingPrefix())
+        assertEquals("partial pick has not reached the editor", 0, h.commits.size)
+        c.onKey(act(KeyAction.BACKSPACE))
+        assertEquals("candidate undo is consumed after it restores the previous preedit", "niha", c.preeditForTest())
+    }
+
+    @Test fun panel_backspace_with_empty_composing_after_a_full_pick_does_not_delete_editor_text() {
+        val h = FakeHost()
+        val full = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你好", composing.length))
+        }
+        val c = KeyboardController(h, full)
+        "nihao".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        assertEquals("你好", h.text.toString())
+        assertEquals("", c.preeditForTest())
+
+        c.onPanelBackspace()
+
+        assertEquals("empty panel backspace must not touch committed editor text", "你好", h.text.toString())
+        assertEquals("empty panel backspace must not call raw deleteBackward", 0, h.deletes)
+        assertEquals("", c.preeditForTest())
+    }
+
     @Test fun panel_clear_drops_composing() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
@@ -448,8 +599,221 @@ class KeyboardControllerTest {
         val c = KeyboardController(FakeHost(), full)
         c.onKey(act(KeyAction.SWITCH_NINE))
         "426".forEach { c.onKey(out(it.toString())) }
-        c.onPickCandidate(0) // commit 你好 → buffer empties
+        c.onPickCandidate(0) // Chinese IME behavior note.
         assertTrue("no candidates linger after commit (no ghost)", c.candidateWords().isEmpty())
+    }
+
+    @Test fun backspace_after_a_partial_candidate_pick_restores_the_previous_preedit() {
+        val h = FakeHost()
+        val partial = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
+        }
+        val c = KeyboardController(h, partial)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        assertEquals("你hao", c.preeditForTest())
+        assertTrue("partial pick has not reached the editor", h.commits.isEmpty())
+
+        c.onKey(act(KeyAction.BACKSPACE))
+
+        assertEquals("ni'hao", c.preeditForTest())
+        assertEquals("", c.composingPrefix())
+        assertTrue("undoing the pick must not touch editor text", h.commits.isEmpty())
+    }
+
+    @Test fun backspace_after_a_full_candidate_pick_deletes_editor_text_without_restoring_preedit() {
+        val h = FakeHost()
+        val full = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你好", composing.length))
+        }
+        val c = KeyboardController(h, full)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        assertEquals(listOf("你好"), h.commits)
+        assertEquals("你好", h.text.toString())
+        assertEquals("", c.preeditForTest())
+
+        c.onKey(act(KeyAction.BACKSPACE))
+
+        assertEquals("Backspace deletes one committed editor character", "你", h.text.toString())
+        assertEquals("full editor commits must not restore preedit", "", c.preeditForTest())
+        assertTrue("full editor commits must not restore candidate grid", c.candidateWords().isEmpty())
+        assertEquals("full editor commits use normal raw deleteBackward", 1, h.deletes)
+    }
+
+    @Test fun backspace_after_a_drilled_26_key_partial_pick_restores_the_previous_preedit() {
+        val h = FakeHost()
+        val shuru = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(
+                composing: String,
+                t9: Boolean,
+                cuts: Set<Int>,
+                context: CharSequence,
+            ): List<Cand> = when (composing) {
+                "shuru" -> listOf(Cand("输入", composing.length), Cand("输", 3))
+                "ru" -> listOf(Cand("入", composing.length))
+                else -> emptyList()
+            }
+            override fun syllablesForReading(letters: String): List<Syllable> = when (letters) {
+                "shuru" -> listOf(Syllable("shu", 0, 3), Syllable("ru", 3, 5))
+                "ru" -> listOf(Syllable("ru", 0, 2))
+                else -> emptyList()
+            }
+            override fun homophonesForReadingAt(letters: String, index: Int): List<String> = when {
+                letters == "shuru" && index == 0 -> listOf("输", "书")
+                letters == "ru" && index == 0 -> listOf("入")
+                else -> emptyList()
+            }
+        }
+        val c = KeyboardController(h, shuru)
+        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        "shuru".forEach { c.onKey(out(it.toString())) }
+        assertEquals("shuru", c.preeditForTest())
+        assertEquals(listOf("shu"), c.expandedReadings())
+
+        c.onPickReadingIndex(0)
+        assertEquals(listOf("输", "书"), c.candidateWords())
+        c.onPickCandidate(c.candidateWords().indexOf("输"))
+        assertEquals("输ru", c.preeditForTest())
+        assertTrue("the first-syllable pick has not reached the editor", h.commits.isEmpty())
+
+        c.onKey(act(KeyAction.BACKSPACE))
+
+        assertEquals("shuru", c.preeditForTest())
+        assertEquals("", c.composingPrefix())
+        assertTrue("undoing the partial pick must not touch editor text", h.commits.isEmpty())
+        assertEquals("the original syllable drill is restored", 0, c.drilledSyllableForTest())
+        assertEquals("the first-syllable homophone grid is restored", listOf("输", "书"), c.candidateWords())
+    }
+
+    @Test fun panel_backspace_after_an_apostrophe_separated_26_key_partial_pick_restores_the_previous_preedit() {
+        val h = FakeHost()
+        val shuru = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(
+                composing: String,
+                t9: Boolean,
+                cuts: Set<Int>,
+                context: CharSequence,
+            ): List<Cand> = when (composing) {
+                "shu'ru" -> listOf(Cand("输入", composing.length), Cand("输", 4))
+                "ru" -> listOf(Cand("入", composing.length))
+                else -> emptyList()
+            }
+            override fun syllablesForReading(letters: String): List<Syllable> = when (letters) {
+                "shu'ru" -> listOf(Syllable("shu", 0, 4), Syllable("ru", 4, 6))
+                "ru" -> listOf(Syllable("ru", 0, 2))
+                else -> emptyList()
+            }
+            override fun homophonesForReadingAt(letters: String, index: Int): List<String> = when {
+                letters == "shu'ru" && index == 0 -> listOf("输", "书")
+                letters == "ru" && index == 0 -> listOf("入")
+                else -> emptyList()
+            }
+        }
+        val c = KeyboardController(h, shuru)
+        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        "shu'ru".forEach { c.onKey(out(it.toString())) }
+        assertEquals("shu'ru", c.preeditForTest())
+        assertEquals(listOf("shu"), c.expandedReadings())
+
+        c.onPickReadingIndex(0)
+        assertEquals(listOf("输", "书"), c.candidateWords())
+        c.onPickCandidate(c.candidateWords().indexOf("输"))
+        assertEquals("输ru", c.preeditForTest())
+        assertTrue("the apostrophe-separated first-syllable pick has not reached the editor", h.commits.isEmpty())
+
+        c.onPanelBackspace()
+
+        assertEquals("shu'ru", c.preeditForTest())
+        assertEquals("", c.composingPrefix())
+        assertTrue("undoing the partial pick must not touch editor text", h.commits.isEmpty())
+        assertEquals("the original apostrophe-separated syllable drill is restored", 0, c.drilledSyllableForTest())
+        assertEquals("the first-syllable homophone grid is restored", listOf("输", "书"), c.candidateWords())
+    }
+
+    @Test fun backspace_after_new_composing_input_keeps_committed_candidate_text() {
+        val h = FakeHost()
+        val full = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你好", composing.length))
+        }
+        val c = KeyboardController(h, full)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        assertEquals("你好", h.text.toString())
+
+        c.onKey(out("6"))
+        c.onKey(act(KeyAction.BACKSPACE))
+
+        assertEquals("backspace must keep the already committed candidate", "你好", h.text.toString())
+        assertEquals("backspace removes only the new composing input", "", c.preeditForTest())
+        assertEquals(listOf("你好"), h.commits)
+    }
+
+    @Test fun full_candidate_commit_expires_older_partial_candidate_snapshots() {
+        val h = FakeHost()
+        val c = KeyboardController(h, stagedNiHaoEngine())
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0) // partial pick: stack now has an older no-editor snapshot
+        assertEquals("你hao", c.preeditForTest())
+        c.onPickCandidate(0) // full pick: the final editor commit retires the older partial snapshot
+        assertEquals("你好", h.text.toString())
+
+        h.text.append("!") // External editor mutation without controller expiry still behaves like editor text.
+        c.onKey(act(KeyAction.BACKSPACE))
+        assertEquals("first Backspace deletes the external text", "你好", h.text.toString())
+        assertEquals("", c.preeditForTest())
+
+        c.onKey(act(KeyAction.BACKSPACE))
+        assertEquals("older stale snapshots must not resurrect preedit", "你", h.text.toString())
+        assertEquals("", c.preeditForTest())
+    }
+
+    @Test fun external_editor_mutation_expiry_prevents_candidate_undo_on_next_backspace() {
+        val h = FakeHost()
+        val c = KeyboardController(h, stagedNiHaoEngine())
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        c.onPickCandidate(0)
+        assertEquals("你好", h.text.toString())
+
+        c.expireCandidateChoiceUndo()
+        h.commitText("!")
+        c.onKey(act(KeyAction.BACKSPACE))
+
+        assertEquals("Backspace deletes the external commit instead of restoring preedit", "你好", h.text.toString())
+        assertEquals("", c.preeditForTest())
+    }
+
+    @Test fun opening_a_toolbar_panel_expires_candidate_undo() {
+        val h = FakeHost()
+        val c = KeyboardController(h, stagedNiHaoEngine())
+        var emojiPanelOpens = 0
+        c.onShowEmoji = { emojiPanelOpens++ }
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        c.onPickCandidate(0)
+        assertEquals("你好", h.text.toString())
+
+        c.onBarFunction(BarFunction.EMOJI)
+        c.onKey(act(KeyAction.BACKSPACE))
+
+        assertEquals(1, emojiPanelOpens)
+        assertEquals("toolbar interaction must retire candidate undo before Backspace", "你", h.text.toString())
+        assertEquals("", c.preeditForTest())
     }
 
     // ---- M-3/L-3: password / NO_PERSONALIZED_LEARNING fields must not learn committed words ----
@@ -467,7 +831,7 @@ class KeyboardControllerTest {
         c.setLearningBlocked(true) // password / NO_PERSONALIZED_LEARNING field
         c.onKey(act(KeyAction.SWITCH_NINE))
         "426".forEach { c.onKey(out(it.toString())) }
-        c.onPickCandidate(0) // commit 密码
+        c.onPickCandidate(0) // Chinese IME behavior note.
         assertTrue("a blocked field must never learn the committed word", learned.isEmpty())
     }
 
@@ -480,7 +844,7 @@ class KeyboardControllerTest {
         assertEquals(listOf("密码"), learned)
     }
 
-    // ---- ★A9 退格 = 退回上一步 (a left-column pick is a step; never drop a whole syllable) ----
+    // Chinese IME behavior note.
 
     @Test fun backspace_steps_back_a_locked_reading_not_the_whole_syllable() {
         val c = KeyboardController(FakeHost(), engine)
@@ -538,7 +902,7 @@ class KeyboardControllerTest {
     }
 
     @Test fun lang_round_trip_returns_to_the_cn_default_keyboard() {
-        // B5 regression: 中英 there-and-back must NOT demote a 9-key user to 26-key.
+        // Chinese IME behavior note.
         val c = KeyboardController(FakeHost(), engine)
         c.reset() // CN, 9-key default
         assertEquals(LayoutId.NINE, c.activeLayoutId())
@@ -549,7 +913,7 @@ class KeyboardControllerTest {
     }
 
     @Test fun lang_round_trip_preserves_a_manual_cn_26_key_choice() {
-        // If the user manually switched CN to 26-key, a 中英 round-trip keeps 26-key (captured on leave).
+        // Chinese IME behavior note.
         val c = KeyboardController(FakeHost(), engine)
         c.reset() // CN 9-key
         c.onKey(act(KeyAction.SWITCH_ALPHA)) // manual CN -> 26-key
@@ -562,7 +926,7 @@ class KeyboardControllerTest {
     // ---- ③ debug.18: changing the CN default keyboard takes effect IMMEDIATELY (no IME re-launch) ----
 
     @Test fun changing_the_cn_default_keyboard_hot_applies_without_a_relaunch() {
-        // The bug: flipping the 9键/26键 setting only took effect on the next reset()/onStartInputView, so it
+        // Chinese IME behavior note.
         // needed re-launching the IME. Now the live layout switches the instant the pref is pushed.
         val c = KeyboardController(FakeHost(), engine)
         c.reset() // CN, 9-key default
@@ -584,6 +948,8 @@ class KeyboardControllerTest {
         assertEquals(LayoutId.ALPHA, c.activeLayoutId())
         c.setCnDefaultLayout(LayoutId.NINE)   // cnDefaultLayout really flips ALPHA→NINE WHILE in EN
         assertEquals("EN stays 26-key regardless of the CN default flip", LayoutId.ALPHA, c.activeLayoutId())
+        c.onKey(act(KeyAction.TOGGLE_LANG))   // EN -> CN
+        assertEquals("returning to CN uses the latest setting without an IME relaunch", LayoutId.NINE, c.activeLayoutId())
     }
 
     // ---- H-1: a default-9-key user must be able to return to the 9-key from the number/symbol pages ----
@@ -594,7 +960,7 @@ class KeyboardControllerTest {
         assertEquals(LayoutId.NINE, c.activeLayoutId())
         c.onKey(act(KeyAction.SWITCH_NUMPAD)) // 123 → numpad
         assertEquals(LayoutId.NUMPAD, c.activeLayoutId())
-        c.onKey(act(KeyAction.SWITCH_TEXT))   // 返回
+        c.onKey(act(KeyAction.SWITCH_TEXT)) // Chinese IME behavior note.
         assertEquals("返回 lands back on the 9-key default, not 26-key (H-1)", LayoutId.NINE, c.activeLayoutId())
     }
 
@@ -603,7 +969,7 @@ class KeyboardControllerTest {
         c.reset()
         c.onKey(act(KeyAction.SWITCH_SYMBOLS)) // @# → symbols
         assertEquals(LayoutId.SYMBOL, c.activeLayoutId())
-        c.onKey(act(KeyAction.SWITCH_TEXT))    // 返回
+        c.onKey(act(KeyAction.SWITCH_TEXT)) // Chinese IME behavior note.
         assertEquals(LayoutId.NINE, c.activeLayoutId())
     }
 
@@ -613,7 +979,7 @@ class KeyboardControllerTest {
         c.reset()
         c.onKey(act(KeyAction.TOGGLE_LANG))    // → EN (26-key)
         c.onKey(act(KeyAction.SWITCH_NUMBERS)) // 123 → number page
-        c.onKey(act(KeyAction.SWITCH_TEXT))    // 返回
+        c.onKey(act(KeyAction.SWITCH_TEXT)) // Chinese IME behavior note.
         assertEquals(LayoutId.ALPHA, c.activeLayoutId())
     }
 
@@ -630,7 +996,7 @@ class KeyboardControllerTest {
     }
 
     @Test fun backspace_up_swipe_clears_pending_pinyin_in_any_layout() {
-        // C: up-swipe on backspace clears the 任务栏 (pending pinyin) and is consumed before the field clear.
+        // Chinese IME behavior note.
         val h = FakeHost()
         val c = KeyboardController(h, engine)
         c.onKey(act(KeyAction.SWITCH_NINE))
@@ -643,10 +1009,7 @@ class KeyboardControllerTest {
         assertEquals(false, c.onBackspaceSwipe(true))
     }
 
-    @Test fun up_swipe_on_a_bare_assembled_prefix_clears_it_and_consumes_the_gesture() {
-        // D3 (debug.12): an up-swipe with ONLY the prefix pending (remainder backspaced away) must 重输
-        // (drop the prefix) and be CONSUMED — never fall through to the service's whole-field clear, which
-        // would wipe the editor AND strand the prefix.
+    @Test fun up_swipe_with_an_assembled_prefix_and_remaining_reading_clears_it_and_consumes_the_gesture() {
         val h = FakeHost()
         val partial = object : CandidateEngine {
             override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
@@ -656,11 +1019,12 @@ class KeyboardControllerTest {
         val c = KeyboardController(h, partial)
         c.onKey(act(KeyAction.SWITCH_NINE))
         "64426".forEach { c.onKey(out(it.toString())) }
-        c.onPickCandidate(0)                              // prefix "你", remainder "426"
-        repeat(3) { c.onKey(act(KeyAction.BACKSPACE)) }   // remainder gone, only prefix "你" remains
+        c.onPickCandidate(0) // Chinese IME behavior note.
+        clearCandidateUndo(c)
         assertEquals("你", c.composingPrefix())
         assertTrue("up-swipe must consume the gesture (重输), not fall through to the field wipe", c.onBackspaceSwipe(true))
         assertEquals("the pending prefix is dropped", "", c.composingPrefix())
+        assertEquals("the pending reading is dropped", "", c.preeditForTest())
         assertTrue("nothing committed, field untouched", h.commits.isEmpty())
         assertEquals("never deleted committed editor text", 0, h.deletes)
     }

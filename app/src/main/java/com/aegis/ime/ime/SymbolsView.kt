@@ -38,17 +38,17 @@ import com.aegis.ime.layout.SymbolCatalog
 
 /**
  * Categorized symbols panel (D, reached from the keyboard ✎ pencil key). A left rail of category tabs
- * (常用 / 中文 / 英文 / 货币 / 网络 / 数学 / 希腊 / 箭头 / 角标 / 序号 / 音标 / 拼音) drives a scrollable grid.
- * Tapping a symbol commits it; by default it then returns to the keyboard (U3), unless 锁定 (P3) is on, in
- * which case the panel stays for continuous symbol entry. 常用 cells carry an origin badge (P2: 中/英/…).
- * Bottom bar = 返回 · 锁定 · ⌫. The "常用" tab is fed live from [recentProvider]; the rest from [SymbolCatalog].
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  */
 class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
 
     var onSymbol: (String) -> Unit = {}
     var onBackspace: () -> Unit = {}
     var onBack: () -> Unit = {}
-    /** Live "常用" feed (most-recently-used symbols, newest first). */
+    /** Chinese IME behavior note. */
     var recentProvider: () -> List<String> = { emptyList() }
 
     private val density = resources.displayMetrics.density
@@ -58,8 +58,8 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         listOf(SymbolCatalog.RECENT_TITLE) + SymbolCatalog.categories.map { it.title }
     private var selected = 0
     private var locked = false // P3: when on, tapping a symbol does NOT close the panel
-    // debug.16: whether the chip bar is currently a 网址补全 (URL-completion) bar — true on the 网络 tab and for
-    // url-like recents in 常用. Non-url multi-char tokens (e.g. 数学 三角函数 sin/arcsin) ride the GRID, not this.
+    // Chinese IME behavior note.
+    // Chinese IME behavior note.
     private var showingUrlCompletions = false
 
     private var palette = ImePalette.STATIC_LIGHT
@@ -69,8 +69,8 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         columnCount = COLUMNS
         val p = dp(4); setPadding(p, p, p, p)
     }
-    // P5: a 网址补全 chip bar above the glyph grid, holding multi-char completions (shown only on tabs that
-    // have any — 网络, and 常用 if a completion was used; GONE elsewhere). The grid is nested with it in
+    // Chinese IME behavior note.
+    // Chinese IME behavior note.
     // gridHolder so the single GONE↔VISIBLE swap keeps every all-glyph category pixel-identical.
     private val netBar = LinearLayout(context).apply { orientation = VERTICAL; visibility = View.GONE }
     private val gridHolder = LinearLayout(context).apply {
@@ -81,6 +81,11 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     private val gridScroll = ScrollView(context).apply { addView(gridHolder); isFillViewport = true }
     private val backBtn = barButton("返回") { onBack() }
     private val lockBtn = barButton("锁定") { toggleLock() }       // P3
+    private val lockSlot = FrameLayout(context).apply {
+        isClickable = true
+        Motion.applyTapFeedback(this, palette.keyLabelSecondary)
+        setOnClickListener { toggleLock() }
+    }
     private val lockGlyph = LockDrawable(density)                 // P-C: self-drawn monochrome lock (was emoji)
     private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) } // debug.17: ⌫ self-drawn, no char
     private val backspaceBtn = barButton("") { onBackspace() }
@@ -93,12 +98,12 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     init {
         orientation = VERTICAL
         setBackgroundColor(palette.keyboardBg) // P-A: panel floor == the strip/keyboard floor (no top seam)
-        lockBtn.setCompoundDrawablesWithIntrinsicBounds(lockGlyph, null, null, null) // P-C: lock glyph left of 锁定
-        lockBtn.compoundDrawablePadding = dp(4)
+        lockBtn.setCompoundDrawablesWithIntrinsicBounds(lockGlyph, null, null, null) // Chinese IME behavior note.
+        lockBtn.compoundDrawablePadding = dp(2)
         // debug.18 (item14): ⌫ glyph as the END (right) compound drawable, not LEFT — a left drawable anchors to
         // the button's left edge so the gravity-END + right-padding below were ineffective (⌫ floated mid-bar).
-        // As an end drawable it hugs the right edge (right-padding mirrors 返回's left-padding → the two are
-        // equidistant from the bar's left/right edges, 锁定 centred between them).
+        // Chinese IME behavior note.
+        // Chinese IME behavior note.
         backspaceBtn.setCompoundDrawablesWithIntrinsicBounds(null, null, backspaceGlyph, null)
         backspaceGlyph.tint(palette.keyLabelSecondary)
 
@@ -122,7 +127,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     fun resetLock() { locked = false; updateLockFace() }
 
     /**
-     * P7 (#19): on dismissal, fall back to defaults — the 常用 tab, the lock cleared (P3), and both scrolls
+      * Chinese IME behavior note.
      * at the top — so reopening never lands on the last category / scroll position.
      */
     override fun resetToDefault() {
@@ -137,9 +142,12 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         palette = p
         setBackgroundColor(p.keyboardBg) // P-A: see init
         railScroll.setBackgroundColor(p.railBg)
-        bottomBarView.setBackgroundColor(p.keyboardBg) // P-A: 返回 bar = the unified floor
+        bottomBarView.setBackgroundColor(p.keyboardBg) // Chinese IME behavior note.
         (bottomBarView as LinearLayout).let { bar ->
-            for (i in 0 until bar.childCount) (bar.getChildAt(i) as? TextView)?.setTextColor(p.keyLabelSecondary)
+            for (i in 0 until bar.childCount) (bar.getChildAt(i) as? TextView)?.let {
+                it.setTextColor(p.keyLabelSecondary)
+                Motion.applyTapFeedback(it, p.keyLabelSecondary)
+            }
         }
         backspaceGlyph.tint(p.keyLabelSecondary)
         updateLockFace() // restore the lock-state colour after the bulk recolour
@@ -152,36 +160,37 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
             val tab = rail.getChildAt(i) as TextView
             val on = i == index
             tab.setTextColor(if (on) palette.candidateFirst else palette.keyLabelSecondary)
-            tab.setBackgroundColor(if (on) palette.keySurface else 0x00000000)
+            tab.background = railTabBackground(on)
             tab.setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+            Motion.applyTapFeedback(tab, if (on) palette.candidateFirst else palette.keyLabelSecondary, radiusDp = ImeShapes.chipRadiusDp)
         }
         grid.removeAllViews()
         netBar.removeAllViews()
         val symbols = symbolsFor(index)
         if (symbols.isEmpty()) { netBar.visibility = View.GONE; grid.addView(emptySpan()); return }
         // P5 + debug.16: only URL completions render as content-sized chips so they NEVER truncate in the single-
-        // glyph grid. The 网址补全 chip treatment is scoped to the 网络 tab (and url-like recents in 常用);
-        // OTHER multi-char tokens — e.g. 数学 三角函数 (sin/arcsin/…) — are ordinary insertable cells committed
+        // Chinese IME behavior note.
+        // Chinese IME behavior note.
         // straight to the editor on tap, NOT advertised as URL completions. Single glyphs keep the unchanged grid
         // path, so every all-glyph category stays pixel-identical.
         val isNet = index != 0 && SymbolCatalog.categories.getOrNull(index - 1)?.id == "net"
         val completions = symbols.filter { it.length > 1 }
         // debug.17 A: ONLY genuine URL completions ride the content-sized chip bar — and ONLY the url-like ones,
         // even on a tab that also holds a non-url multi-char token. Everything else (single glyphs AND non-url
-        // multi-char tokens like 数学 三角函数 sin/arcsin) rides the 7-column grid as an equal-width cell (text
+        // Chinese IME behavior note.
         // auto-shrinks to fit), in natural catalogue order — so arcsin never becomes a wide tile that breaks the
-        // grid, NOT EVEN when 常用 mixes a multi-char mark with a url completion (an edge case).
+        // Chinese IME behavior note.
         val urlCompletions = if (completions.isNotEmpty() && (isNet || completions.any { isUrlLike(it) }))
             completions.filter { isUrlLike(it) } else emptyList()
         showingUrlCompletions = urlCompletions.isNotEmpty()
         if (showingUrlCompletions) {
             netBar.visibility = View.VISIBLE
-            // debug.17 A2: the "网址补全" caption header was dropped — the completion chips speak for themselves.
+            // Chinese IME behavior note.
             addCompletionChips(urlCompletions)
         } else {
             netBar.visibility = View.GONE
         }
-        // P2: only the 常用 tab (index 0) shows an origin badge on its cells.
+        // Chinese IME behavior note.
         for (s in symbols) if (s !in urlCompletions) grid.addView(cell(s, badge = if (index == 0) badgeFor(s) else null))
     }
 
@@ -211,7 +220,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         setPadding(dp(4), 0, dp(4), 0)
     }
 
-    /** A 网址补全 chip: reuses the glyph tile's visual language (keySurface + 8dp corners) but hugs its text,
+    /**
      *  single-line with ellipsize off, so a long completion can never wrap mid-token or clip. */
     private fun netChip(symbol: String): View = TextView(context).apply {
         text = symbol
@@ -224,6 +233,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         background = GradientDrawable().apply { setColor(palette.keySurface); cornerRadius = ImeShapes.keyRadiusDp * density }
         val ph = dp(14); setPadding(ph, dp(8), ph, dp(8))
         isClickable = true
+        Motion.applyTapFeedback(this, palette.keyLabel)
         setOnClickListener { onSymbol(symbol); if (!locked) onBack() }
     }
 
@@ -233,15 +243,15 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         return v.measuredWidth
     }
 
-    /** debug.16: a multi-char token that is a URL fragment (http:// https:// www. :// …) — gets the 网址补全
-     *  treatment. Non-url multi-char tokens like 数学 三角函数 (sin/arcsin) contain none of / : . so they ride the
+    /**
+      * Chinese IME behavior note.
      *  grid as ordinary cells, not the url chip bar. */
     private fun isUrlLike(s: String): Boolean = s.any { it == '/' || it == ':' || it == '.' }
 
     private fun symbolsFor(index: Int): List<String> =
         if (index == 0) recentProvider() else SymbolCatalog.categories[index - 1].symbols
 
-    /** P2: short origin badge for a 常用 symbol (中文→"中", 英文→"英", …); null if it's not in any category. */
+    /** Chinese IME behavior note. */
     private fun badgeFor(symbol: String): String? = SymbolCatalog.categoryTitleOf(symbol)?.take(1)
 
     private fun railTab(index: Int, title: String): TextView = TextView(context).apply {
@@ -249,19 +259,28 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
         setPadding(0, dp(13), 0, dp(13))
+        background = railTabBackground(index == selected)
         isClickable = true
+        Motion.applyTapFeedback(this, if (index == selected) palette.candidateFirst else palette.keyLabelSecondary, radiusDp = ImeShapes.chipRadiusDp)
         setOnClickListener { showCategory(index) }
     }
 
+    private fun railTabBackground(on: Boolean): GradientDrawable? =
+        if (!on) null else GradientDrawable().apply {
+            setColor(palette.keySurface)
+            cornerRadius = ImeShapes.chipRadiusDp * density
+        }
+
     /**
-     * One symbol key-tile (U11). [badge] (P2) draws a small origin tag at the bottom-right for 常用 cells.
-     * U3/P3: a tap commits the symbol and — unless 锁定 is on — closes the panel back to the keyboard.
+      * Chinese IME behavior note.
+      * Chinese IME behavior note.
      */
     private fun cell(symbol: String, badge: String?): View {
         val tile = FrameLayout(context).apply {
             minimumHeight = dp(44)
             background = GradientDrawable().apply { setColor(palette.keySurface); cornerRadius = ImeShapes.keyRadiusDp * density }
             isClickable = true
+            Motion.applyTapFeedback(this, palette.keyLabel)
             setOnClickListener { onSymbol(symbol); if (!locked) onBack() }
             layoutParams = GridLayout.LayoutParams().apply {
                 width = 0
@@ -277,7 +296,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
                 gravity = Gravity.CENTER
                 maxLines = 1
                 if (symbol.length > 1) {
-                    // debug.17 A: a multi-char token (e.g. 数学 三角函数 arcsin) auto-shrinks to fit the equal-width
+                    // Chinese IME behavior note.
                     // cell, so it never truncates and never needs a wide tile that breaks the grid.
                     TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(this, 9, ImeType.display.toInt(), 1, TypedValue.COMPLEX_UNIT_SP)
                 } else {
@@ -321,17 +340,20 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun openCategoryForTest(index: Int) = showCategory(index)
     internal fun toggleLockForTest() = toggleLock()
     internal fun gridScrollYForTest(): Int = gridScroll.scrollY
-    // debug.18 (item14): the bottom-bar 返回 / ⌫ buttons, so a test can assert ⌫ hugs the right edge symmetrically.
+    // Chinese IME behavior note.
     internal fun backBtnForTest(): TextView = backBtn
     internal fun backspaceBtnForTest(): TextView = backspaceBtn
+    internal fun lockBtnForTest(): TextView = lockBtn
+    internal fun lockSlotForTest(): View = lockSlot
+    internal fun railTabForTest(index: Int): TextView = rail.getChildAt(index) as TextView
 
-    // P5 net-layout test seams. "net bar" = the 网址补全 (URL-completion) chip bar. Non-url multi-char tokens
-    // (e.g. 数学 三角函数 sin/arcsin) ride the GRID instead, leaving this bar hidden.
+    // Chinese IME behavior note.
+    // Chinese IME behavior note.
     internal fun netBarVisibleForTest(): Boolean = showingUrlCompletions
     /** Whether the chip (net) bar is showing at all — currently only URL completions ever populate it. */
     internal fun chipBarVisibleForTest(): Boolean = netBar.visibility == View.VISIBLE
     internal fun gridCellCountForTest(): Int = grid.childCount
-    /** debug.17 A: the symbol text of each grid cell (the first TextView in each tile) — incl. multi-char cells like 数学 arcsin. */
+    /** Chinese IME behavior note. */
     internal fun gridCellTextsForTest(): List<String> {
         val out = ArrayList<String>()
         for (i in 0 until grid.childCount) {
@@ -360,17 +382,20 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         lockGlyph.tint(tint)
         lockBtn.text = "锁定"
         lockBtn.setTextColor(tint)
+        Motion.applyTapFeedback(lockBtn, tint)
+        Motion.applyTapFeedback(lockSlot, tint)
         lockBtn.setTypeface(null, if (locked) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
     }
 
     private fun bottomBar(): View = LinearLayout(context).apply {
         orientation = HORIZONTAL
         setBackgroundColor(palette.keyboardBg) // P-A: same as the unified floor
-        // debug.17: 返回 hugs the LEFT edge, 锁定(+lock) centres, ⌫ hugs the RIGHT edge (was three centred thirds).
+        // Chinese IME behavior note.
         backBtn.gravity = Gravity.START or Gravity.CENTER_VERTICAL; backBtn.setPadding(dp(20), 0, 0, 0)
         backspaceBtn.gravity = Gravity.END or Gravity.CENTER_VERTICAL; backspaceBtn.setPadding(0, 0, dp(20), 0)
+        lockSlot.addView(lockBtn, FrameLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT, Gravity.CENTER))
         addView(backBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        addView(lockBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f)) // P3: 锁定 between 返回 and ⌫
+        addView(lockSlot, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         addView(backspaceBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
     }
 
@@ -380,10 +405,11 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         setTextColor(palette.keyLabelSecondary)
         isClickable = true
+        Motion.applyTapFeedback(this, palette.keyLabelSecondary)
         setOnClickListener { onClick() }
     }
 
-    /** P-C: a palette-tinted padlock [Drawable] for the 锁定 key's compound icon — [closed]/[tint] are pushed
+    /**
      *  by [updateLockFace]. Self-drawn (Glyphs.drawLock) so it stays monochrome and theme-correct in dark mode. */
     private class LockDrawable(private val density: Float) : Drawable() {
         var closed = false
@@ -395,12 +421,11 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         fun tint(color: Int) { paint.color = color; invalidateSelf() }
         override fun draw(canvas: Canvas) {
             val b = bounds
-            // debug.17: lock 放大 (sFactor 0.40→0.52, box 18→22dp, stroke 2dp) so its height ≈ the bar's text height.
-            Glyphs.drawLock(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) * 0.52f, closed)
+            Glyphs.drawLock(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) * 0.48f, closed)
         }
         init { paint.strokeWidth = 2f * density } // the bar's stroke weight (matches EmojiView's lock)
-        override fun getIntrinsicWidth() = (22 * density).toInt()
-        override fun getIntrinsicHeight() = (22 * density).toInt()
+        override fun getIntrinsicWidth() = (18 * density).toInt()
+        override fun getIntrinsicHeight() = (18 * density).toInt()
         override fun setAlpha(alpha: Int) {}
         override fun setColorFilter(colorFilter: ColorFilter?) {}
         @Deprecated("Deprecated in Java")

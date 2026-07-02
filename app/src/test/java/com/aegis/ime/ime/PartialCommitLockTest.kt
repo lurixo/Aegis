@@ -30,7 +30,7 @@ import java.io.File
 
 /**
  * debug.14 BUG2: on the 9-key, after the user LOCKS the syllable readings (you'gai'lv'chu'xian) and then
- * partial-commits the single char of the FIRST syllable (有), the locks of the syllables NOT consumed must
+  * Chinese IME behavior note.
  * survive — the remaining preedit stays "gai'lv'chu'xian", not a fresh T9-default re-decode "hai'lu'chu'xiao".
  */
 class PartialCommitLockTest {
@@ -88,20 +88,20 @@ class PartialCommitLockTest {
         listOf("you", "gai", "lv", "chu", "xian").forEach { lock(c, it) }
         assertEquals("locked preedit", "you'gai'lv'chu'xian", c.preeditForTest())
 
-        // Partial-commit the single char 有 of the FIRST syllable.
+        // Chinese IME behavior note.
         val yi = c.candidateWords().indexOf("有")
         assumeTrue("有 offered as a candidate for the locked buffer", yi >= 0)
         c.onPickCandidate(yi)
 
-        // 有 goes into the assembled prefix; the REMAINING syllables keep their locked readings.
+        // Chinese IME behavior note.
         assertEquals("有", c.composingPrefix())
         assertEquals("remaining stays the locked gai'lv'chu'xian (not hai'lu'chu'xiao)",
             "有gai'lv'chu'xian", c.preeditForTest())
     }
 
     /**
-     * The 26-key UI-2 path: expand → drill into the first syllable → pick its 同音字
-     * 有. This shares [commitCandidate] with the 9-key, but the 26-key buffer is LETTERS (no reading locks, no
+      * Chinese IME behavior note.
+      * Chinese IME behavior note.
      * T9 re-decode), so the remainder stays gai'lv'chu'xian by construction. This test proves the drill path
      * is covered — the remaining letter segmentation is preserved, never the T9-default hai/lu/xiao.
      */
@@ -111,19 +111,19 @@ class PartialCommitLockTest {
             File(assets + "aegis_dict.bin").exists() && File(assets + "aegis_lm.bin").exists())
         val c = alphaController()
         "yougailvchuxian".forEach { c.onKey(Key(it.toString(), output = it.toString())) }
-        // UI-2 expand column = the buffer's 分词; drill into syllable 0 (you).
-        assertEquals(listOf("you", "gai", "lv", "chu", "xian"), c.expandedReadings())
+        // The 26-key expand column advances one unresolved syllable at a time.
+        assertEquals(listOf("you"), c.expandedReadings())
         c.onPickReadingIndex(0)
         assertEquals("drilled into syllable 0", 0, c.drilledSyllableForTest())
 
-        // The grid now shows you's 同音单字; pick 有.
+        // Chinese IME behavior note.
         val yi = c.candidateWords().indexOf("有")
         assumeTrue("有 offered as a 同音字 of the drilled syllable", yi >= 0)
         c.onPickCandidate(yi)
 
         assertEquals("有", c.composingPrefix())
-        // 26-key preedit is raw letters (no 隔音符): the remaining stays gai/lv/chu/xian, never hai/lu/xiao.
+        // Chinese IME behavior note.
         assertEquals("有gailvchuxian", c.preeditForTest())
-        assertEquals("remaining segmentation preserved", listOf("gai", "lv", "chu", "xian"), c.expandedReadings())
+        assertEquals("remaining segmentation preserved", listOf("gai"), c.expandedReadings())
     }
 }

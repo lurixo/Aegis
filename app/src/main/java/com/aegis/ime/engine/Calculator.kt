@@ -16,14 +16,14 @@
 package com.aegis.ime.engine
 
 /**
- * U25 计算器: detect a trailing arithmetic expression in the text before the cursor and evaluate it, so
+  * Chinese IME behavior note.
  * the result can be offered as a candidate. Pure + side-effect free. Operators + − × ÷ (and their ASCII
  * forms * /), parentheses, decimals, a leading unary minus, and a postfix percent (% = ÷100, F3) are
  * supported, with normal precedence; a single trailing '=' (F3) terminates the expression for evaluation.
  *
  * Deliberately conservative — [detect] only fires on a maximal trailing run of expression characters that
  * (a) actually contains a binary operator and (b) parses, so plain numbers / phone numbers / pinyin / a
- * bare percentage ("50%") never produce a result ("仅识别为算式时才算"); '%' computes only inside an
+  * Chinese IME behavior note.
  * operator-bearing expression like "200×15%".
  */
 object Calculator {

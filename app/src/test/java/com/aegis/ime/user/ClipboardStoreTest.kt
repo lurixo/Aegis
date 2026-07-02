@@ -175,10 +175,24 @@ class ClipboardStoreTest {
         assertEquals(before + 2, reloaded.phrases().size)
     }
 
+    @Test fun added_phrases_land_at_front_preserving_batch_order() {
+        val s = ClipboardStore(newDir()).apply { load(); addPhrasesTo("默认", listOf("old")) }
+        assertEquals(2, s.addPhrasesTo("默认", listOf("new1", "new2", "old")))
+        assertEquals(listOf("new1", "new2", "old"), s.phrasesIn("默认"))
+    }
+
+    @Test fun phrase_dedup_is_scoped_to_the_target_category() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("工作"); addCategory("私人") }
+        assertEquals(1, s.addPhrasesTo("工作", listOf("谢谢", "谢谢")))
+        assertEquals(1, s.addPhrasesTo("私人", listOf("谢谢")))
+        assertEquals(listOf("谢谢"), s.phrasesIn("工作"))
+        assertEquals(listOf("谢谢"), s.phrasesIn("私人"))
+    }
+
     // ---- C5 categories ----
 
     @Test fun first_run_has_an_empty_default_category() {
-        // debug.14 item1: NO preset phrases — the "默认" category exists (so the UI has an add target) but is empty.
+        // Chinese IME behavior note.
         val s = ClipboardStore(newDir()).apply { load() }
         assertEquals(listOf("默认"), s.categories())
         assertTrue("no default phrases are seeded", s.phrasesIn("默认").isEmpty())
@@ -342,7 +356,7 @@ class ClipboardStoreTest {
     }
 
     @Test fun new_category_with_pending_clip_lands_the_clip_in_it() {
-        // Mirrors confirmInlineInput's ADD_CATEGORY-with-pending step (剪贴板 添加常用语→新建分类→确认).
+        // Chinese IME behavior note.
         val dir = newDir()
         val s = ClipboardStore(dir).apply { load(); addCategory("默认") }
         val name = "工作".trim()
@@ -353,7 +367,7 @@ class ClipboardStoreTest {
     }
 
     @Test fun new_category_with_pending_move_lands_item_in_it() {
-        // Mirrors confirmInlineInput's ADD_CATEGORY-with-pending-move step (移动到分类→新建分类→确认).
+        // Chinese IME behavior note.
         val s = ClipboardStore(newDir()).apply { load(); addCategory("默认"); addPhrasesTo("默认", listOf("你好", "在吗")) }
         val name = "工作".trim()
         s.addCategory(name); s.movePhrasesTo("默认", listOf("你好"), name) // create then land the carried move
@@ -370,7 +384,25 @@ class ClipboardStoreTest {
         assertEquals(listOf("a", "b"), s.phrasesIn("甲"))
     }
 
-    // ---------- debug.17 F2: phrase notes (display alias; 上屏 uses the original text) ----------
+    @Test fun reorder_category_moves_category_and_persists() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply { load(); addCategory("甲"); addCategory("乙"); addCategory("丙") }
+        assertTrue(s.reorderCategory(3, 1))
+        assertEquals(listOf("默认", "丙", "甲", "乙"), s.categories())
+        assertTrue(s.reorderCategory(0, 3))
+        assertEquals(listOf("丙", "甲", "乙", "默认"), s.categories())
+        assertEquals(listOf("丙", "甲", "乙", "默认"), ClipboardStore(dir).apply { load() }.categories())
+    }
+
+    @Test fun reorder_category_rejects_bad_indices_and_noops() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addCategory("乙") }
+        assertFalse(s.reorderCategory(0, 0))
+        assertFalse(s.reorderCategory(-1, 1))
+        assertFalse(s.reorderCategory(0, 3))
+        assertEquals(listOf("默认", "甲", "乙"), s.categories())
+    }
+
+    // Chinese IME behavior note.
 
     @Test fun note_persists_and_phrasesIn_still_returns_original_text() {
         val dir = newDir()
@@ -434,6 +466,19 @@ class ClipboardStoreTest {
         assertEquals("unknown → 0", 0, s.clearPhrasesIn("无"))
     }
 
+    @Test fun clearPhrasesIn_only_empties_the_named_category() {
+        val s = ClipboardStore(newDir()).apply {
+            load()
+            addCategory("甲")
+            addCategory("乙")
+            addPhrasesTo("甲", listOf("a"))
+            addPhrasesTo("乙", listOf("b"))
+        }
+        assertEquals(1, s.clearPhrasesIn("甲"))
+        assertTrue(s.phrasesIn("甲").isEmpty())
+        assertEquals(listOf("b"), s.phrasesIn("乙"))
+    }
+
     // ---------- debug.17 E1: import / export (round-trip + merge/overwrite + never-clear) ----------
 
     @Test fun export_import_roundtrip_preserves_categories_phrases_notes() {
@@ -450,9 +495,28 @@ class ClipboardStoreTest {
         assertEquals(listOf("晚安"), dst.phrasesIn("私人"))
     }
 
+    @Test fun export_text_is_stable_and_import_accepts_crlf_files() {
+        val src = ClipboardStore(newDir()).apply {
+            load()
+            addCategory("Work")
+            addPhrasesTo("Work", listOf("line1\nline2", "slash\\value"))
+            setPhraseNote("Work", "line1\nline2", "note\\next")
+        }
+        val text = src.exportPhrasesText()
+        assertTrue("export includes category markers", text.contains("C\tWork\n"))
+        assertTrue("export includes escaped phrase lines", text.contains("P\tline1\\nline2\n"))
+        assertTrue("export includes escaped note lines", text.contains("N\tnote\\\\next\n"))
+
+        val crlf = text.replace("\n", "\r\n")
+        val dst = ClipboardStore(newDir()).apply { load() }
+        assertTrue(dst.importPhrasesText(crlf, merge = false))
+        assertEquals(listOf("line1\nline2", "slash\\value"), dst.phrasesIn("Work"))
+        assertEquals("note\\next", dst.noteFor("Work", "line1\nline2"))
+    }
+
     @Test fun import_merge_accumulates_and_dedupes() {
         val s = ClipboardStore(newDir()).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("已收到")) }
-        val incoming = "C\t工作\nP\t已收到\nP\t稍等\nC\t新组\nP\t你好\n" // 已收到 dup, 稍等 new, 新组 new
+        val incoming = "C\t工作\nP\t已收到\nP\t稍等\nC\t新组\nP\t你好\n" // Chinese IME behavior note.
         assertTrue(s.importPhrasesText(incoming, merge = true))
         assertEquals("dedup 已收到, add 稍等", listOf("已收到", "稍等"), s.phrasesIn("工作"))
         assertEquals(listOf("你好"), s.phrasesIn("新组"))

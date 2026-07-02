@@ -30,8 +30,8 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 /**
- * P5: the 网络 tab renders the multi-char URL completions (http:// https:// www. ://) as content-sized chips
- * in a 网址补全 bar — shown IN FULL, never truncated — above the single-glyph helpers, which still go through
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  * the uniform 7-column grid. Every other tab keeps the plain grid with no net bar.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -40,7 +40,7 @@ class NetCategoryLayoutTest {
 
     private val ctx = RuntimeEnvironment.getApplication()
     private val light = ImePalette.STATIC_LIGHT
-    // +1 for the leading dynamic 常用 tab that sits before the static catalogue.
+    // Chinese IME behavior note.
     private val netIndex = SymbolCatalog.categories.indexOfFirst { it.id == "net" } + 1
     private val mathIndex = SymbolCatalog.categories.indexOfFirst { it.id == "math" } + 1
 
@@ -61,15 +61,15 @@ class NetCategoryLayoutTest {
     }
 
     @Test fun a_completion_surfaced_in_recents_is_chipped_not_truncated_in_the_grid() {
-        // The 常用 tab renders recents; a URL completion that was used before must also render as a full chip,
-        // not as a clipped glyph cell — otherwise the P5 fix would be incomplete for 常用.
+        // Chinese IME behavior note.
+        // Chinese IME behavior note.
         val sv = SymbolsView(ctx)
         sv.recentProvider = { listOf("https://", ".", "。") }
         sv.applyPalette(light)
-        sv.openCategoryForTest(0) // 常用
+        sv.openCategoryForTest(0) // Chinese IME behavior note.
 
         assertTrue("net bar shown for the recents completion", sv.netBarVisibleForTest())
-        assertTrue("https:// chipped in 常用", "https://" in sv.netChipTextsForTest())
+        assertTrue("https:// remains available as a full recents chip", "https://" in sv.netChipTextsForTest())
         assertEquals("the single glyphs stay in the grid", 2, sv.gridCellCountForTest())
     }
 
@@ -88,13 +88,13 @@ class NetCategoryLayoutTest {
         sv.openCategoryForTest(netIndex)
         assertTrue(sv.netBarVisibleForTest())
 
-        sv.openCategoryForTest(1) // 中文
+        sv.openCategoryForTest(1) // Chinese IME behavior note.
         assertFalse("net bar hidden after leaving 网络", sv.netBarVisibleForTest())
         assertTrue("中文 grid populated", sv.gridCellCountForTest() > 0)
     }
 
-    // ---- debug.17: 中文 carries ONLY single-cell marks — the single 短横 — / 三点 … ride the 7-column grid;
-    //      the wide 双破折号 —— / 双省略号 …… were dropped, so there is no multi-char tile and never a url bar ----
+    // Chinese IME behavior note.
+    // Chinese IME behavior note.
 
     private fun textLeaves(v: View): List<TextView> = when (v) {
         is TextView -> listOf(v)
@@ -114,8 +114,8 @@ class NetCategoryLayoutTest {
     @Test fun chinese_marks_are_single_cell_grid_cells_with_no_chip_bar() {
         val sv = SymbolsView(ctx)
         sv.applyPalette(light)
-        sv.openCategoryForTest(1) // 中文
-        // debug.17: 中文 carries ONLY single-cell marks — the single — / … ride the grid; the wide —— / …… were
+        sv.openCategoryForTest(1) // Chinese IME behavior note.
+        // Chinese IME behavior note.
         // dropped, so there is no multi-char tile and no chip bar at all.
         val cells = sv.gridCellTextsForTest()
         assertTrue("single — / … are grid cells", "—" in cells && "…" in cells)
@@ -130,7 +130,7 @@ class NetCategoryLayoutTest {
         var committed: String? = null
         sv.onSymbol = { committed = it }
         sv.applyPalette(light)
-        sv.openCategoryForTest(1) // 中文
+        sv.openCategoryForTest(1) // Chinese IME behavior note.
         assertTrue("— cell present + clickable", clickByText(sv, "—"))
         assertEquals("clicking the — cell inserts the single em-dash", "—", committed)
         committed = null
@@ -139,12 +139,12 @@ class NetCategoryLayoutTest {
     }
 
     @Test fun common_tab_mixing_a_url_and_a_chinese_mark_chips_only_the_url() {
-        // debug.17 A (an edge case): 常用 recents holding BOTH a url completion AND a 中文 mark must chip
+        // Chinese IME behavior note.
         // ONLY the url — the —— rides the grid as an ordinary cell, never re-promoted to a wide chip.
         val sv = SymbolsView(ctx)
         sv.recentProvider = { listOf("https://", "——", "。") }
         sv.applyPalette(light)
-        sv.openCategoryForTest(0) // 常用
+        sv.openCategoryForTest(0) // Chinese IME behavior note.
         assertEquals("only the url is chipped", listOf("https://"), sv.netChipTextsForTest())
         assertTrue("the url bar shows (a real url completion is present)", sv.netBarVisibleForTest())
         val cells = sv.gridCellTextsForTest()

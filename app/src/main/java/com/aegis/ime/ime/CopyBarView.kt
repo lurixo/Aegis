@@ -31,15 +31,15 @@ import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
- * Taskbar "copy bar": occupies the candidate-strip row after a clip is captured, showing
- * `[📋 + 被复制内容] | 拆 | ×`. Tapping the content 上屏s the whole entry; 拆 splits it into blocks; tapping
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  * a block copies it to the aegis clipboard (not the editor, not the system clipboard); × leaves. Logic is
  * in the pure [CopyBarController]; this view only renders it and forwards taps. Existing flat styles — F
  * (MD3) restyles later.
  */
 class CopyBarView(context: Context) : LinearLayout(context) {
 
-    var onCommit: (String) -> Unit = {}     // ⑤ content → 上屏
+    var onCommit: (String) -> Unit = {} // Chinese IME behavior note.
     var onCopyBlock: (String) -> Unit = {}  // ③ block → aegis clipboard
     var onDismiss: () -> Unit = {}          // ④ × → leave
 
@@ -91,7 +91,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
             if (ctl.blocks.isEmpty()) chips.addView(TextView(context).apply {
                 text = "无可拆分内容"; setTextColor(palette.keyHint)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label); setPadding(dp(8), 0, dp(8), 0)
-            }) // non-clickable placeholder (must NOT carry the content's 上屏 tap)
+            }) // Chinese IME behavior note.
             for (b in ctl.blocks) chips.addView(chip(b) { ctl.tapBlock(b) })
             addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, lp(0, WC, 1f))
             addView(pill("收") { ctl.toggleSplit(); render() }, lp(WC, WC))
@@ -100,7 +100,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
     }
 
     // P-B (debug.13): a self-drawn, palette-tinted clipboard glyph — the SAME icon as the candidate toolbar's
-    // 剪贴板 button (Glyphs.drawClipboard) — instead of a multi-colour emoji that ignored the theme (wrong in dark).
+    // Chinese IME behavior note.
     private fun icon(): View = object : View(context) {
         private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
@@ -111,11 +111,14 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         }
         override fun onDraw(canvas: Canvas) =
             Glyphs.drawClipboard(canvas, p, width / 2f, height / 2f, 9f * density) // match the toolbar icon scale
-    }.apply { setOnClickListener { ctl.tapContent() } } // the whole left block (glyph + 内容) 上屏s
+    }.apply {
+        Motion.applyTapFeedback(this, palette.icon)
+        setOnClickListener { ctl.tapContent() }
+    } // Chinese IME behavior note.
 
     private fun content(s: String): TextView = TextView(context).apply {
         // E5: bound the displayed preview — a million-char clip would jank the TextView even with maxLines=1.
-        // The tap (ctl.tapContent → onCommit) always 上屏s the FULL clip (ctl.content), never this preview.
+        // Chinese IME behavior note.
         text = if (s.length > DISPLAY_CAP) s.substring(0, DISPLAY_CAP) else s
         maxLines = 1
         ellipsize = android.text.TextUtils.TruncateAt.END
@@ -123,7 +126,8 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         setTextColor(palette.candidateText)
         setPadding(dp(8), 0, dp(8), 0)
         gravity = Gravity.CENTER_VERTICAL
-        setOnClickListener { ctl.tapContent() } // ⑤ 上屏 (CopyBarController fires commit; InputView hides the bar)
+        Motion.applyTapFeedback(this, palette.candidateText)
+        setOnClickListener { ctl.tapContent() } // Chinese IME behavior note.
     }
 
     private fun chip(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
@@ -133,6 +137,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         setTextColor(palette.chipText) // U-polish: onSecondaryContainer pairs with the chipBg container
         setPadding(dp(12), dp(5), dp(12), dp(5))
         background = GradientDrawable().apply { setColor(palette.chipBg); cornerRadius = ImeShapes.chipRadiusDp * density }
+        Motion.applyTapFeedback(this, palette.chipText)
         setOnClickListener { onClick() }
         layoutParams = LinearLayout.LayoutParams(WC, WC).apply { rightMargin = dp(6) }
     }
@@ -143,6 +148,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
         setTextColor(palette.icon)
         setPadding(dp(10), 0, dp(10), 0)
+        Motion.applyTapFeedback(this, palette.icon)
         setOnClickListener { onClick() }
     }
 
@@ -152,6 +158,6 @@ class CopyBarView(context: Context) : LinearLayout(context) {
 
     private companion object {
         const val WC = LinearLayout.LayoutParams.WRAP_CONTENT
-        const val DISPLAY_CAP = 2000 // E5: max chars shown in the copy-bar preview (上屏 stays full)
+        const val DISPLAY_CAP = 2000 // Chinese IME behavior note.
     }
 }

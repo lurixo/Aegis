@@ -33,18 +33,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
+import com.aegis.ime.R
 
 /**
- * Cross-session contract (debug.13 D1): the "联想" (next-word prediction) on/off flag, in prefs "aegis".
+  * Chinese IME behavior note.
  * KeyboardController (D2) reads the SAME key to gate showing predictions — this card only
  * exposes the toggle and persists it. Default OFF since debug.17 (see [ASSOCIATIONS_DEFAULT_ON]).
  */
 internal const val PREF_ASSOCIATIONS_ON = "pref_associations_on"
 
 /**
- * debug.17: 联想 now ships OFF — a new install, or any user who never flipped the toggle, gets no next-word
+  * Chinese IME behavior note.
  * predictions. This is the single source of truth for that default: both this card and the IME service read
  * [PREF_ASSOCIATIONS_ON] with this default, so a user's explicit choice is still honoured (the stored pref
  * always wins). Flipped to false from the original debug.13 default of true.
@@ -52,7 +54,7 @@ internal const val PREF_ASSOCIATIONS_ON = "pref_associations_on"
 internal const val ASSOCIATIONS_DEFAULT_ON = false
 
 /**
- * D1 (debug.13) — the 联想 settings toggle. UI + pref only; the read-side effect (KeyboardController showing
+  * Chinese IME behavior note.
  * next-word predictions) is wired (D2) against [PREF_ASSOCIATIONS_ON]. Default off (debug.17).
  */
 @Composable
@@ -71,9 +73,9 @@ internal fun AssociationToggleCard() {
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text("联想", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.association_title), style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "打字时在候选栏显示下一词预测/联想。默认关,可开。",
+                    stringResource(R.string.association_description),
                     style = MaterialTheme.typography.bodySmall,
                 )
             }

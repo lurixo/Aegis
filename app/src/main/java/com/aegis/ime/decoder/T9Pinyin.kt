@@ -46,13 +46,13 @@ object T9Pinyin {
         '2' to 'a', '3' to 'd', '4' to 'g', '5' to 'j', '6' to 'm', '7' to 'p', '8' to 't', '9' to 'w',
     )
 
-    /** Letters printed on each T9 key — the 首键字母 fallback options for the left column. */
+    /** Chinese IME behavior note. */
     private val KEY_LETTERS: Map<Char, String> = mapOf(
         '2' to "abc", '3' to "def", '4' to "ghi", '5' to "jkl",
         '6' to "mno", '7' to "pqrs", '8' to "tuv", '9' to "wxyz",
     )
 
-    /** Canonical toneless Mandarin syllables (ported from tools `Pinyin.canonicalSyllables`). */
+    /** Toneless Mandarin syllables used by the runtime letter and T9 segmenters. */
     private val SYLLABLES: Set<String> = """
         a o e ai ei ao ou an en ang eng er
         yi ya yo ye yao you yan yin yang ying yong
@@ -79,11 +79,12 @@ object T9Pinyin {
         za ze zi zai zei zao zou zan zen zang zeng zong zu zuo zui zuan zun
         ca ce ci cai cao cou can cen cang ceng cong cu cuo cui cuan cun
         sa se si sai sao sou san sen sang seng song su suo sui suan sun
+        n ng m biang
     """.trim().split(Regex("\\s+")).toSet()
 
     /** Frequency-ish ordering so an ambiguous digit group resolves to its common reading first. */
     private val freqRank: Map<String, Int> = listOf(
-        "de", "shi", "yi", "bu", "le", "zai", "wo", "ni", "ta", "men", "zhe", "ge", "shang",
+        "de", "shi", "yi", "bu", "le", "zai", "wo", "ni", "ng", "ta", "men", "zhe", "ge", "shang",
         "you", "he", "zhong", "da", "wei", "dao", "shuo", "guo", "jiu", "hai", "er", "na", "hao",
         "hen", "xia", "lai", "qu", "kan", "xiang", "hui", "neng", "dui", "jia", "xue", "gong",
         "fang", "dian", "yong", "fa", "xin", "zi", "ren", "sheng", "cheng", "ming", "mei", "hua",
@@ -93,6 +94,7 @@ object T9Pinyin {
     ).withIndex().associate { (i, s) -> s to i }
 
     private const val DEFAULT_RANK = 1000
+    private const val UNKNOWN_LEN_BONUS = 220
     private const val LEN_BONUS = 480 // ★T/xuan: per-letter bonus so full syllables (xuan/yuan…) beat 2-letter prefixes
     private const val SYLLABLE_PENALTY = 50.0 // bias toward fewer, longer syllables
     private val maxDigits: Int = SYLLABLES.maxOf { toT9(it).length }
@@ -105,7 +107,7 @@ object T9Pinyin {
         m.mapValues { (_, v) -> v.sortedBy { freqRank[it] ?: DEFAULT_RANK } }
     }
 
-    private fun rankOf(s: String) = freqRank[s] ?: DEFAULT_RANK
+    private fun rankOf(s: String) = freqRank[s] ?: (DEFAULT_RANK - UNKNOWN_LEN_BONUS * s.length)
 
     /** Lowest-cost segmentation of [digits] into known syllables, or null if none fits exactly. */
     fun segment(digits: String): List<String>? {
@@ -182,7 +184,7 @@ object T9Pinyin {
     fun syllableReading(digitGroup: String): String = byDigits[digitGroup]?.firstOrNull() ?: ""
 
     /** All leading-prefix lengths of [letters] that are themselves known syllables (longest first) — every
-     *  leading syllable the buffer could start with, so the single-char layer can list each one's 同音字
+      * Chinese IME behavior note.
      *  regardless of how the whole buffer eventually segments (xian → both xian AND xi). */
     fun leadingSyllableLetterLens(letters: String): List<Int> {
         val out = ArrayList<Int>()
@@ -233,7 +235,7 @@ object T9Pinyin {
 
     /**
      * Preedit with explicit forced syllable boundaries [cuts] (positions in [digits]) rendered as the
-     * 隔音符 ' — including a TRAILING ' when a boundary sits at the very end, so pressing 分词 immediately
+      * Chinese IME behavior note.
      * shows the split (e.g. "ni'") even before the next syllable is typed.
      */
     fun preedit(digits: String, cuts: Set<Int>): String {
@@ -249,7 +251,7 @@ object T9Pinyin {
         }
         when {
             prev < digits.length -> { if (sb.isNotEmpty()) sb.append('\''); sb.append(preedit(digits.substring(prev))) }
-            digits.isNotEmpty() -> sb.append('\'') // boundary at the very end → trailing 隔音符
+            digits.isNotEmpty() -> sb.append('\'') // Chinese IME behavior note.
         }
         return sb.toString()
     }
@@ -282,9 +284,9 @@ object T9Pinyin {
     /**
      * The 9-key left-column readings for the active syllable. REAL options only,
      * deterministic, with NO padding: the canonical syllable readings that can begin [digits] (ranked by
-     * [firstSyllableOptions]), followed by the individual letters of the FIRST digit key (首键字母) not
+      * Chinese IME behavior note.
      * already present — letters that are themselves syllables (a/o/e…) ordered ahead of the rest, so e.g.
-     * "23"→[ce, a, b, c] and "64…"→[ni, mi, o, m, n]. A bare ambiguous key with no
+      * Chinese IME behavior note.
      * syllable still yields its letters ("9"→[w, x, y, z]), never an empty slot. The caller renders
      * EXACTLY this list (the column height follows the count) — it must never inject blanks or punctuation.
      */

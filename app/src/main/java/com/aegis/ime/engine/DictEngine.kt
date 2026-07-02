@@ -38,7 +38,7 @@ class DictEngine(
     initialsDict: BinaryDict? = null,
     octagram: OctagramReader? = null,
 ) : CandidateEngine {
-    // Fuzzy + 简拼 apply to 26-key only (T9 is already lossy); octagram context serves both.
+    // Chinese IME behavior note.
     private val decoder = pinyinDict?.let {
         PinyinDecoder(it, lm, userModel = userModel, fuzzyRules = fuzzyRules, initialsDict = initialsDict, octagram = octagram)
     }
@@ -66,11 +66,16 @@ class DictEngine(
         if (letters.isEmpty()) return emptyList()
         // The locked left-column path: letters are committed full pinyin (always 26-key alphabet),
         // so the letter [decoder] gives the rich best-sentence + completions + per-prefix words.
-        // F6: forward the user's forced 分词 boundaries so the decode honours them after a lock too.
+        // Chinese IME behavior note.
         return decoder?.decodeCovered(letters, MAX_CANDIDATES, cuts, context) ?: emptyList()
     }
 
-    // ★单字无损 / per-syllable navigation API (debug.13) — for UI-1 (9-key trailing column) and UI-2
+    override fun candidatesForLockedReadingCovered(letters: String, cuts: Set<Int>, context: CharSequence): List<Cand> {
+        if (letters.isEmpty()) return emptyList()
+        return decoder?.decodeCoveredAtomic(letters, MAX_CANDIDATES, cuts, context) ?: emptyList()
+    }
+
+    // Chinese IME behavior note.
     // (26-key pinyin column). Single-char homophones come straight from the decoder uncapped.
     override fun syllables(composing: String, t9: Boolean): List<Syllable> {
         if (composing.isEmpty()) return emptyList()

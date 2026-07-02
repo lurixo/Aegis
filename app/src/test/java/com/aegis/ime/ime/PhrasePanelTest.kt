@@ -15,6 +15,8 @@
 
 package com.aegis.ime.ime
 
+import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
@@ -30,8 +32,8 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 /**
- * debug.16 (常用语 tab) full rewrite: expanded-card action row (编辑 / 移动 / 删除), drag-to-reorder state
- * machine, and the tab-aware select mode (编辑常用语 + batch 移动到分类 / 删除). The 剪贴板 history tab is
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  * unaffected. Overlay menus live in ClipboardView child 1, so chooser interactions are scoped there to avoid
  * hitting same-named category chips in the bottom bar.
  */
@@ -54,7 +56,7 @@ class PhrasePanelTest {
         val tv = textViews(root).firstOrNull { it.text?.toString() == label && it.hasOnClickListeners() } ?: return false
         tv.performClick(); return true
     }
-    // icon收尾: self-drawn icon buttons have NO text — locate by contentDescription.
+    // Chinese IME behavior note.
     private fun allViews(root: View): List<View> {
         val out = ArrayList<View>()
         fun walk(x: View) { out.add(x); if (x is ViewGroup) for (i in 0 until x.childCount) walk(x.getChildAt(i)) }
@@ -65,20 +67,32 @@ class PhrasePanelTest {
         v.performClick(); return true
     }
     /** Click an action-row cell [label]: an icon+label TextView (has a leading compound drawable), so it is not
-     *  confused with the same-named tab pill (icon收尾 made the action's label "常用语" collide with the 常用语 tab). */
+      * Chinese IME behavior note.
+      */
     private fun clickAction(root: View, label: String): Boolean {
         val tv = textViews(root).firstOrNull { it.text?.toString() == label && it.hasOnClickListeners() && it.compoundDrawables.any { d -> d != null } } ?: return false
         tv.performClick(); return true
     }
+    private fun send(root: View, action: Int, y: Float) =
+        root.dispatchTouchEvent(MotionEvent.obtain(0, 16, action, 20f, y, 0))
+    private fun layout(v: View, w: Int = 480, h: Int = 320) {
+        v.measure(
+            View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY),
+        )
+        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+    }
+    private fun maxAutoScrollStepPx(): Int = (8 * ctx.resources.displayMetrics.density).toInt().coerceAtLeast(1)
 
-    private fun phraseView(): ClipboardView = ClipboardView(ctx).apply {
+    private fun phraseView(): ClipboardView = phraseView(listOf("你好", "在吗", "稍等"))
+    private fun phraseView(phrases: List<String>): ClipboardView = ClipboardView(ctx).apply {
         categoriesProvider = { listOf("默认", "工作", "私人") }
-        phrasesInProvider = { c -> if (c == "默认") listOf("你好", "在吗", "稍等") else emptyList() }
+        phrasesInProvider = { c -> if (c == "默认") phrases else emptyList() }
         applyPalette(pal)
         forcePhrasesStateForTest("默认"); refresh()
     }
 
-    // ---- expanded card action row = 编辑 / 移动 / 删除 ----
+    // Chinese IME behavior note.
 
     @Test fun expanded_phrase_card_action_row_is_edit_move_delete() {
         val v = phraseView().apply { expandForTest("你好") }
@@ -94,6 +108,18 @@ class PhrasePanelTest {
         }
         val ls = labels(v)
         assertTrue(ls.any { it.contains("常用语") }); assertTrue(ls.any { it.contains("拆词") }); assertTrue(ls.any { it.contains("删除") })
+    }
+
+    @Test fun expanded_clipboard_action_row_wraps_actions_inside_left_center_right_slots() {
+        val v = ClipboardView(ctx).apply {
+            historyProvider = { listOf("abc") }; applyPalette(pal); refresh(); expandForTest("abc")
+        }
+        val actions = textViews(v)
+            .filter { it.text?.toString() in setOf("常用语", "拆词", "删除") && it.compoundDrawables.any { d -> d != null } }
+        assertEquals(3, actions.size)
+        val gravities = actions.map { (it.layoutParams as android.widget.FrameLayout.LayoutParams).gravity }
+        assertEquals(listOf(Gravity.START, Gravity.CENTER, Gravity.END), gravities)
+        assertTrue(actions.all { it.layoutParams.width == ViewGroup.LayoutParams.WRAP_CONTENT })
     }
 
     @Test fun edit_action_invokes_onEditPhrase() {
@@ -132,6 +158,196 @@ class PhrasePanelTest {
         v.dragDropForTest()
         assertFalse(v.isDraggingForTest())
         assertEquals(Triple("默认", 0, 2), r)
+    }
+
+    @Test fun drag_move_reorders_phrase_rows_live_before_drop() {
+        var r: Triple<String, Int, Int>? = null
+        val v = phraseView().apply { onReorderPhrase = { c, f, t -> r = Triple(c, f, t) } }
+        assertEquals(listOf("你好", "在吗", "稍等"), v.listRowTextsForTest())
+        v.dragStartForTest(0)
+        v.dragMoveToForTest(2)
+        assertEquals("row order updates while dragging", listOf("在吗", "稍等", "你好"), v.listRowTextsForTest())
+        assertNull("drop callback has not fired yet", r)
+        v.dragDropForTest()
+        assertEquals(Triple("默认", 0, 2), r)
+    }
+
+    @Test fun drag_visual_translation_tracks_finger_before_drop() {
+        val v = phraseView()
+        v.dragStartAtForTest(0, 20f)
+        v.dragMoveAtForTest(0, 76f)
+        assertEquals("dragged row follows the finger before any drop", 56f, v.dragTranslationYForTest(), 0.01f)
+        v.dragMoveAtForTest(2, 140f)
+        assertEquals("row order updates while the drag is still active", listOf("在吗", "稍等", "你好"), v.listRowTextsForTest())
+        assertTrue("drop callback has not reset the lifted row yet", v.dragTranslationYForTest() != 0f)
+        v.dragDropForTest()
+    }
+
+    @Test fun active_drag_does_not_reparent_the_touched_row_while_preview_reorders() {
+        val v = phraseView()
+        val row = v.listRowViewForTest(0)
+        v.dragStartAtForTest(0, 20f)
+        v.dragMoveToForTest(2)
+        assertTrue("dragged row remains the same physical child until pointer up", row === v.listRowViewForTest(0))
+        assertEquals("visual order still previews the pending drop", listOf("在吗", "稍等", "你好"), v.listRowTextsForTest())
+        v.dragCancelForTest()
+    }
+
+    @Test fun active_drag_can_move_back_to_the_original_slot_before_drop() {
+        val v = phraseView()
+        layout(v)
+        val top = v.listScrollRawTopForTest().toFloat()
+        v.dragStartAtForTest(0, top + 24f)
+        v.dragUpdateForTest(top + 220f)
+        assertEquals(listOf("在吗", "稍等", "你好"), v.listRowTextsForTest())
+        v.dragUpdateForTest(top + 12f)
+        assertEquals(listOf("你好", "在吗", "稍等"), v.listRowTextsForTest())
+        v.dragCancelForTest()
+    }
+
+    @Test fun active_drag_stays_captured_after_live_row_reorder_until_pointer_up() {
+        var r: Triple<String, Int, Int>? = null
+        val v = phraseView().apply { onReorderPhrase = { c, f, t -> r = Triple(c, f, t) } }
+        v.dragStartAtForTest(0, 20f)
+        v.dragMoveAtForTest(1, 90f)
+        assertTrue(v.isDraggingForTest())
+        assertTrue(send(v, MotionEvent.ACTION_MOVE, 120f))
+        assertTrue("drag remains live after the row moved under the finger", v.isDraggingForTest())
+        assertNull(r)
+        assertTrue(send(v, MotionEvent.ACTION_UP, 120f))
+        assertFalse(v.isDraggingForTest())
+        assertEquals(Triple("默认", 0, 1), r)
+    }
+
+    @Test fun active_drag_auto_scrolls_at_edges_and_keeps_rows_live_until_drop() {
+        val phrases = (0 until 30).map { "P" + it.toString().padStart(2, '0') }
+        val drops = ArrayList<Triple<String, Int, Int>>()
+        val v = phraseView(phrases).apply {
+            onReorderPhrase = { c, f, t -> drops.add(Triple(c, f, t)) }
+            enterSortModeForTest()
+        }
+        layout(v)
+        val top = v.listScrollRawTopForTest().toFloat()
+        val bottom = v.listScrollRawBottomForTest().toFloat()
+        v.dragStartAtForTest(0, top + 24f)
+
+        v.dragUpdateForTest(bottom - 2f)
+        val indexAfterEdgeMove = v.listRowTextsForTest().indexOf("P00")
+        assertTrue("bottom edge starts the auto-scroll loop", v.isDragAutoScrollScheduledForTest())
+        assertTrue("drag remains captured at the bottom edge", v.isDraggingForTest())
+        val scrollBeforeDown = v.listScrollYForTest()
+        repeat(24) { v.runDragAutoScrollFrameForTest() }
+        val indexAfterScroll = v.listRowTextsForTest().indexOf("P00")
+        assertTrue("the list scrolls down while the drag stays active", v.listScrollYForTest() > scrollBeforeDown)
+        assertTrue(
+            "row order keeps updating as edge scrolling changes the target",
+            indexAfterScroll > indexAfterEdgeMove,
+        )
+        assertTrue(v.isDraggingForTest())
+        assertTrue("drop callback has not fired during live scrolling", drops.isEmpty())
+
+        v.dragUpdateForTest(top + 2f)
+        assertTrue("top edge keeps the auto-scroll loop active", v.isDragAutoScrollScheduledForTest())
+        val scrollBeforeUp = v.listScrollYForTest()
+        repeat(12) { v.runDragAutoScrollFrameForTest() }
+        assertTrue("the list scrolls back up while the same drag is active", v.listScrollYForTest() < scrollBeforeUp)
+
+        v.dragUpdateForTest((top + bottom) / 2f)
+        assertFalse("leaving the edge stops auto-scroll without dropping", v.isDragAutoScrollScheduledForTest())
+        assertTrue(v.isDraggingForTest())
+        val finalIndex = v.listRowTextsForTest().indexOf("P00")
+        v.dragDropForTest()
+        assertFalse(v.isDraggingForTest())
+        assertEquals(listOf(Triple("默认", 0, finalIndex)), drops)
+    }
+
+    @Test fun drag_auto_scroll_step_is_capped_for_control() {
+        val phrases = (0 until 40).map { "P" + it.toString().padStart(2, '0') }
+        val v = phraseView(phrases).apply { enterSortModeForTest() }
+        layout(v)
+        val top = v.listScrollRawTopForTest().toFloat()
+        val bottom = v.listScrollRawBottomForTest().toFloat()
+        v.dragStartAtForTest(0, top + 24f)
+        v.dragUpdateForTest(bottom + 1000f)
+
+        val before = v.listScrollYForTest()
+        assertTrue(v.runDragAutoScrollFrameForTest())
+        val step = v.listScrollYForTest() - before
+        assertTrue("edge auto-scroll should stay slow and controllable", step in 1..maxAutoScrollStepPx())
+        v.dragCancelForTest()
+    }
+
+    @Test fun action_cancel_cleans_phrase_drag_without_reorder_callback() {
+        var r: Triple<String, Int, Int>? = null
+        val v = phraseView().apply { onReorderPhrase = { c, f, t -> r = Triple(c, f, t) } }
+        v.dragStartAtForTest(0, 20f)
+        v.dragMoveAtForTest(2, 140f)
+        assertTrue(v.isDraggingForTest())
+        assertTrue(send(v, MotionEvent.ACTION_CANCEL, 140f))
+        assertFalse(v.isDraggingForTest())
+        assertNull("cancel is cleanup, not a persisted drop", r)
+        assertEquals("cancel restores the original visual order", listOf("你好", "在吗", "稍等"), v.listRowTextsForTest())
+    }
+
+    @Test fun drag_move_reorders_category_rows_live_before_drop() {
+        var r: Pair<Int, Int>? = null
+        val v = phraseView().apply { onReorderCategory = { f, t -> r = f to t } }
+        v.enterCategorySortModeForTest()
+        assertEquals(listOf("默认", "工作", "私人"), v.listRowTextsForTest())
+        v.dragStartForTest(0)
+        v.dragMoveToForTest(2)
+        assertEquals("category rows update while dragging", listOf("工作", "私人", "默认"), v.listRowTextsForTest())
+        assertNull("drop callback has not fired yet", r)
+        v.dragDropForTest()
+        assertEquals(0 to 2, r)
+    }
+
+    @Test fun active_category_drag_auto_scrolls_at_edges_and_drops_once() {
+        val cats = (0 until 30).map { "C" + it.toString().padStart(2, '0') }
+        val drops = ArrayList<Pair<Int, Int>>()
+        val v = ClipboardView(ctx).apply {
+            categoriesProvider = { cats }
+            phrasesInProvider = { emptyList() }
+            onReorderCategory = { f, t -> drops.add(f to t) }
+            applyPalette(pal)
+            forcePhrasesStateForTest(cats.first())
+            refresh()
+            enterCategorySortModeForTest()
+        }
+        layout(v)
+        val top = v.listScrollRawTopForTest().toFloat()
+        val bottom = v.listScrollRawBottomForTest().toFloat()
+        v.dragStartAtForTest(0, top + 24f)
+
+        v.dragUpdateForTest(bottom - 2f)
+        val indexAfterEdgeMove = v.listRowTextsForTest().indexOf("C00")
+        assertTrue("bottom edge starts category auto-scroll", v.isDragAutoScrollScheduledForTest())
+        val scrollBeforeDown = v.listScrollYForTest()
+        repeat(24) { v.runDragAutoScrollFrameForTest() }
+        val indexAfterScroll = v.listRowTextsForTest().indexOf("C00")
+        assertTrue("category list scrolls down while dragging", v.listScrollYForTest() > scrollBeforeDown)
+        assertTrue("category row order updates during edge scroll", indexAfterScroll > indexAfterEdgeMove)
+        assertTrue(v.isDraggingForTest())
+        assertTrue("drop callback waits for pointer up", drops.isEmpty())
+
+        v.dragUpdateForTest((top + bottom) / 2f)
+        val finalIndex = v.listRowTextsForTest().indexOf("C00")
+        v.dragDropForTest()
+        assertFalse(v.isDraggingForTest())
+        assertEquals(listOf(0 to finalIndex), drops)
+    }
+
+    @Test fun action_cancel_cleans_category_drag_without_reorder_callback() {
+        var r: Pair<Int, Int>? = null
+        val v = phraseView().apply { onReorderCategory = { f, t -> r = f to t } }
+        v.enterCategorySortModeForTest()
+        v.dragStartAtForTest(0, 20f)
+        v.dragMoveAtForTest(2, 140f)
+        assertTrue(v.isDraggingForTest())
+        assertTrue(send(v, MotionEvent.ACTION_CANCEL, 140f))
+        assertFalse(v.isDraggingForTest())
+        assertNull("category cancel is cleanup, not a persisted drop", r)
+        assertEquals("category cancel restores the original visual order", listOf("默认", "工作", "私人"), v.listRowTextsForTest())
     }
 
     @Test fun rowAt_skips_the_dragged_row_so_downward_drag_finds_a_lower_target() {
@@ -199,8 +415,8 @@ class PhrasePanelTest {
     }
 
     // ---- debug.16 Option A: inline category management triggers ----
-    // (debug.17 re-routed these: top ＋ → 添加常用语; categoryBar ✎ → 二级菜单 whose 添加分类 → onAddCategory.
-    //  Full coverage is in Debug17PanelTest; this guards that 新建分类 is still reachable from the ✎ menu.)
+    // Chinese IME behavior note.
+    // Chinese IME behavior note.
 
     @Test fun categorybar_pencil_menu_add_category_still_triggers_onAddCategory() {
         var adds = 0
@@ -226,22 +442,23 @@ class PhrasePanelTest {
 
     @Test fun top_bar_icons_are_uniform_size() {
         val v = phraseView()
-        // icon收尾: all top icons are self-drawn Views (no text), located by contentDescription, in one icon slot
-        // (返回 / ＋添加常用语 / ☰多选 / 🗑清空分类 on the 常用语 tab).
+        // Chinese IME behavior note.
+        // Chinese IME behavior note.
         val wanted = setOf("返回", "添加常用语", "多选", "清空分类")
         val icons = allViews(v).filter { it.contentDescription?.toString() in wanted && it.hasOnClickListeners() }
         assertEquals("all 4 phrase-tab top icons present", 4, icons.size)
         assertTrue("返回 is no longer a '‹' text glyph", textViews(v).none { it.text?.toString() == "‹" })
         assertEquals("all top icons share one width (item7)", 1, icons.map { it.layoutParams.width }.toSet().size)
         assertEquals("all top icons share one height (item7)", 1, icons.map { it.layoutParams.height }.toSet().size)
+        assertTrue("top icons are transparent controls, not rounded chips", icons.all { it.background == null })
     }
 
-    // ---- debug.16 fix: 剪贴板 添加常用语 → 新建分类 must carry the clip into the new category ----
+    // Chinese IME behavior note.
 
     private fun clipboardView(history: List<String>, cats: List<String>): ClipboardView = ClipboardView(ctx).apply {
         historyProvider = { history }
         categoriesProvider = { cats }
-        applyPalette(pal); refresh() // default tab = 剪贴板
+        applyPalette(pal); refresh() // Chinese IME behavior note.
     }
 
     @Test fun clipboard_add_to_new_category_carries_the_clip() {
@@ -249,7 +466,7 @@ class PhrasePanelTest {
         val v = clipboardView(listOf("hello"), listOf("默认")).apply { onAddCategoryThenAdd = { carried = it } }
         v.expandForTest("hello")
         assertTrue(clickAction(v, "常用语"))           // open the category chooser
-        assertTrue(click(overlayOf(v), "＋ 新建分类…"))   // pick 新建分类
+        assertTrue(click(overlayOf(v), "＋ 新建分类…")) // Chinese IME behavior note.
         assertEquals("the clip rides the inline new-category flow", listOf("hello"), carried)
     }
 
@@ -270,9 +487,9 @@ class PhrasePanelTest {
         assertEquals("默认" to listOf("hello"), saved)
     }
 
-    // ---- debug.16 symmetric fix: 移动到分类 → 新建分类 must carry the move (only reachable with no other category) ----
+    // Chinese IME behavior note.
 
-    /** A 常用语-tab view with a SINGLE category, so the move chooser has no other target → offers 新建分类. */
+    /** Chinese IME behavior note. */
     private fun singleCatPhraseView(): ClipboardView = ClipboardView(ctx).apply {
         categoriesProvider = { listOf("默认") }
         phrasesInProvider = { c -> if (c == "默认") listOf("你好", "在吗") else emptyList() }

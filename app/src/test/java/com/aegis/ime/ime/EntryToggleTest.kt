@@ -25,7 +25,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 /**
- * P4 (#4): an entry icon (符号 / 表情 / 文字编辑 / 剪贴板) toggles. Re-tapping the icon that opened a panel
+  * Chinese IME behavior note.
  * closes it (back to the keyboard) instead of rebuilding the same panel. The service's entry handlers do
  * `if (iv.isPanelShowing(thePanel)) { iv.showPanel(null); return }`; this pins [InputView.isPanelShowing]
  * and the toggle behaviour it drives, on a real [InputView].
@@ -67,7 +67,7 @@ class EntryToggleTest {
         val emoji = View(ctx)
         val clipboard = View(ctx)
         iv.showPanel(emoji)
-        // Tapping 剪贴板 while 表情 is open: isPanelShowing(clipboard) is false, so the handler switches.
+        // Chinese IME behavior note.
         assertFalse(iv.isPanelShowing(clipboard))
         iv.showPanel(clipboard)
         assertTrue(iv.panelShown)

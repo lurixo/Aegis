@@ -21,7 +21,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * debug.16 选区 BUG 修复 (#55 item2): the edit-panel D-pad must EXTEND a selection, not just walk the caret.
+  * Chinese IME behavior note.
  * The host keeps an anchor fixed and steps the moving end via [SelectionMath.step]; the span between them is
  * what gets selected. These lock the pure math (host-side setSelection(anchor, moving) is the thin wrapper).
  */
@@ -35,7 +35,7 @@ class SelectionMathTest {
     }
 
     @Test fun startSelectThenRight_actuallySelects() {
-        // 开始选择 (caret at 2) → → → selects the two chars to the right; the regression was an EMPTY selection.
+        // Chinese IME behavior note.
         val t = "abcdef"
         assertTrue("一次 → 后必须有选区 (非空)", span(t, 2, Move.RIGHT).isNotEmpty())
         assertEquals("cd", span(t, 2, Move.RIGHT, Move.RIGHT))
@@ -56,7 +56,7 @@ class SelectionMathTest {
     }
 
     @Test fun homeEndJumpToParagraphEdges() {
-        // 段首/段尾 = paragraph (\n-delimited) boundaries, NOT the whole field. Caret in the middle line.
+        // Chinese IME behavior note.
         val t = "abc\ndefgh\nij" //  abc | defgh | ij   (\n at 3 and 9)
         val mid = 6 // 'f' inside "defgh"
         assertEquals("段首 → start of THIS paragraph", 4, SelectionMath.step(t, mid, Move.HOME))

@@ -41,20 +41,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
+import com.aegis.ime.R
 import com.aegis.ime.dict.ModelDownload
 import java.io.File
 
 /**
- * B2 (debug.13) — 全量词库包下载管理. Mirrors [GramDownloadCard] (the model card) but targets the FULL
- * dictionary pack via [ModelDownload]'s dict surface (DICT_URL / dictZipFile / DICT_VALIDATOR_PREF), so the
- * two cards download + check for updates INDEPENDENTLY (B5: each HEADs its own URL). The bundled seed
- * dictionary works offline without this; the pack just widens candidate coverage.
+ * Full dictionary pack download management. Mirrors [GramDownloadCard] (the model card) but targets the full
+ * dictionary pack via [ModelDownload]'s dict release-discovery surface, so the two cards download and check for
+ * updates independently. The bundled seed dictionary works offline without this; the pack just widens candidate
+ * coverage.
  *
- * debug.14 Bug1: the 来源链接 points at the UPSTREAM dictionary repo (amzxyz/rime-wanxiang), symmetric with the
- * model card. debug.14 Bug2: 更新 is an EXPLICIT 检测更新 button with a visible "正在检查更新…" step and a clear
- * result (有更新 → 立即更新 / 无更新 → 提示) — no more passive, permanently-disabled grey button.
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  *
  * [preview] (test-only, default null) seeds the rendered state so the render harness can snapshot the
  * present / checking / result states without a network HEAD or real downloaded files.
@@ -65,81 +67,87 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
     val zip = ModelDownload.dictZipFile(context.filesDir)
     val location = zip.parentFile?.absolutePath ?: zip.absolutePath
-    fun doneLabel(): String {
+    fun doneStatus(): LocalizedText {
         val mb = ModelDownload.DICT_PACK_FILES.sumOf { File(context.filesDir, "downloaded/$it").length() } / 1048576
-        return "✅ 已下载并启用：全量词库（约 $mb MB，仅存本机；切换/重启 Aegis 后加载更全词库）"
+        return LocalizedText.ResourceLong(R.string.dict_status_enabled, mb)
     }
-    val notDownloadedLabel = "⚠ 全量词库未下载 —— 可选下载约 98 MB 压缩包（解压约 243 MB；内置高频种子词库已可离线使用）"
+    val notDownloadedStatus = LocalizedText.Resource(R.string.dict_status_not_downloaded)
 
     var present by remember { mutableStateOf(preview?.present ?: ModelDownload.isDictDownloaded(context.filesDir)) }
-    var status by remember { mutableStateOf(preview?.status ?: if (present) doneLabel() else notDownloadedLabel) }
+    var status by remember {
+        mutableStateOf(preview?.status?.let(LocalizedText::Raw) ?: if (present) doneStatus() else notDownloadedStatus)
+    }
     var progress by remember { mutableStateOf(0f) }
     var downloading by remember { mutableStateOf(false) }
     var checking by remember { mutableStateOf(preview?.checking ?: false) }
 
     val handler = remember { Handler(Looper.getMainLooper()) }
 
-    fun startDownload() {
+    fun currentInstallMetadata() = ModelDownload.DictionaryInstallMetadata(
+        sha256 = prefs.getString(ModelDownload.DICT_SHA256_PREF, null),
+        publishedAt = prefs.getString(ModelDownload.DICT_RELEASE_PUBLISHED_PREF, null),
+    )
+
+    fun startDownload(asset: ModelDownload.DictionaryAsset? = null) {
         downloading = true
         progress = 0f
-        status = "下载中…"
+        status = LocalizedText.Resource(R.string.download_status_downloading)
         var lastPct = -1
         Thread {
-            val result = ModelDownload.download(ModelDownload.DICT_URL, zip) { done, total ->
+            val selected = asset ?: ModelDownload.resolveDictionaryDownloadAsset(ModelDownload.DictionaryInstallMetadata())
+            val result = ModelDownload.download(selected.url, zip) { done, total ->
                 if (total > 0) {
                     val pct = (done * 100 / total).toInt()
                     if (pct != lastPct) { lastPct = pct; handler.post { progress = pct / 100f } }
                 }
             }
             // Verify sha256 + extract the 3 .bin (off the main thread). A mismatch/corruption is rejected here.
-            if (result.ok) handler.post { status = "校验并解压…" }
-            val installed = result.ok && ModelDownload.installDictPack(context.filesDir)
+            if (result.ok) handler.post { status = LocalizedText.Resource(R.string.dict_status_verifying_extracting) }
+            val installed = result.ok && ModelDownload.installDictPack(context.filesDir, selected.sha256)
             handler.post {
                 downloading = false
                 present = ModelDownload.isDictDownloaded(context.filesDir)
                 when {
                     installed -> {
-                        prefs.edit { putString(ModelDownload.DICT_VALIDATOR_PREF, result.validator) }
-                        status = doneLabel()
+                        prefs.edit {
+                            putString(ModelDownload.DICT_VALIDATOR_PREF, result.validator)
+                            putString(ModelDownload.DICT_SHA256_PREF, selected.sha256)
+                            putString(ModelDownload.DICT_ASSET_NAME_PREF, selected.assetName)
+                            putString(ModelDownload.DICT_ASSET_URL_PREF, selected.url)
+                            putString(ModelDownload.DICT_RELEASE_TAG_PREF, selected.releaseTag)
+                            putString(ModelDownload.DICT_RELEASE_PUBLISHED_PREF, selected.publishedAt)
+                        }
+                        status = doneStatus()
                     }
-                    !result.ok -> status = "下载失败"
-                    else -> status = "校验或解压失败（文件可能损坏,请重试）"
+                    !result.ok -> status = LocalizedText.Resource(R.string.dict_status_download_failed)
+                    else -> status = LocalizedText.Resource(R.string.dict_status_install_failed)
                 }
             }
         }.apply { isDaemon = true }.start()
     }
 
-    // Bug2: explicit update check with a VISIBLE in-progress step and a definite result. HEAD the dict URL,
-    // compare to the recorded validator; an update downloads immediately (有更新→正在更新), otherwise it says so.
+    // Explicit update check with a visible in-progress step and a definite result.
     fun checkUpdate() {
         checking = true
         Thread {
-            // runCatching wraps the WHOLE check so the post below always runs (checking always resets). A
-            // failed/blocked HEAD (or any unexpected failure) yields a null remote → OFFLINE (handled below),
-            // never a phantom "update".
-            val checked = runCatching {
-                ModelDownload.remoteValidator(ModelDownload.DICT_URL) to
-                    prefs.getString(ModelDownload.DICT_VALIDATOR_PREF, null)
-            }.getOrNull()
-            val remote = checked?.first
-            val local = checked?.second
+            val checked = ModelDownload.checkDictionaryUpdate(currentInstallMetadata())
             handler.post {
                 checking = false
-                // F1: present is read live — if the user tapped 删除 during the (blocking) HEAD it is now false
+                // F1: present is read live — if the user tapped delete during the blocking release check it is now false
                 // → updateAction returns null and we discard the stale result, never re-downloading what was deleted.
-                when (ModelDownload.updateAction(present, local, remote)) {
+                when (if (present) checked.state else null) {
                     null -> {} // deleted mid-check → no-op
-                    ModelDownload.UpdateCheck.OFFLINE -> { // F2: offline — not 有更新, not 无更新
-                        status = "无法检查更新（网络不可用）"
-                        Toast.makeText(context, "无法检查更新（网络不可用）", Toast.LENGTH_SHORT).show()
+                    ModelDownload.UpdateCheck.OFFLINE -> { // Chinese IME behavior note.
+                        status = LocalizedText.Resource(R.string.download_toast_update_offline)
+                        Toast.makeText(context, R.string.download_toast_update_offline, Toast.LENGTH_SHORT).show()
                     }
                     ModelDownload.UpdateCheck.UP_TO_DATE -> {
-                        status = "已是最新，无更新（全量词库已是最新版本）"
-                        Toast.makeText(context, "已是最新，无更新", Toast.LENGTH_SHORT).show()
+                        status = LocalizedText.Resource(R.string.dict_status_update_current)
+                        Toast.makeText(context, R.string.download_toast_up_to_date, Toast.LENGTH_SHORT).show()
                     }
                     ModelDownload.UpdateCheck.UPDATE -> {
-                        Toast.makeText(context, "发现更新，开始更新", Toast.LENGTH_SHORT).show()
-                        startDownload()
+                        Toast.makeText(context, R.string.download_toast_update_found, Toast.LENGTH_SHORT).show()
+                        startDownload(checked.asset)
                     }
                 }
             }
@@ -151,14 +159,13 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("全量词库包（14 表 freq≥1）", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.dict_card_title), style = MaterialTheme.typography.titleMedium)
             Text(
-                "可选下载约 243 MB 的全量词库（字/基础/联想/错音/多音/诗词/地名/医学/化学/药品/名人/异体/物种/人名）。" +
-                    "内置高频种子词库无需下载即可离线使用；下载后中文候选覆盖更全。仅存本机，输入全程离线。",
+                stringResource(R.string.dict_card_description),
                 style = MaterialTheme.typography.bodySmall,
             )
             Text(
-                "存放位置：$location（应用私有目录,文件管理器不可见,仅本机、可删除）。",
+                stringResource(R.string.download_storage_format, location),
                 style = MaterialTheme.typography.bodySmall,
             )
             // Bug1: tappable link to the UPSTREAM dictionary source repo (symmetric with the model card).
@@ -173,38 +180,45 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
                 },
                 contentPadding = PaddingValues(0.dp),
             ) {
-                Text("词库来源：amzxyz/rime-wanxiang ↗", style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.dict_source_link), style = MaterialTheme.typography.bodySmall)
             }
             if (downloading) {
                 LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
             }
             Text(
-                if (checking) "正在检查更新…" else status,
+                if (checking) stringResource(R.string.download_status_checking_update) else status.asString(),
                 style = MaterialTheme.typography.bodySmall,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
                     enabled = !downloading && !present,
                     onClick = { startDownload() },
-                ) { Text("下载") }
+                ) { Text(stringResource(R.string.download_button)) }
                 if (present) {
                     // Bug2: always tappable while present (no passive grey button); the check itself decides.
                     Button(
                         enabled = !downloading && !checking,
                         onClick = { checkUpdate() },
-                    ) { Text("检测更新") }
+                    ) { Text(stringResource(R.string.check_dict_update_button)) }
                 }
                 OutlinedButton(
                     // F1: also disabled while a check is in flight, so a delete can't race the HEAD callback.
                     enabled = !downloading && !checking && present,
                     onClick = {
                         ModelDownload.purgeDict(context.filesDir)
-                        prefs.edit { remove(ModelDownload.DICT_VALIDATOR_PREF) }
+                        prefs.edit {
+                            remove(ModelDownload.DICT_VALIDATOR_PREF)
+                            remove(ModelDownload.DICT_SHA256_PREF)
+                            remove(ModelDownload.DICT_ASSET_NAME_PREF)
+                            remove(ModelDownload.DICT_ASSET_URL_PREF)
+                            remove(ModelDownload.DICT_RELEASE_TAG_PREF)
+                            remove(ModelDownload.DICT_RELEASE_PUBLISHED_PREF)
+                        }
                         present = false
                         progress = 0f
-                        status = "⚠ 全量词库已删除（内置种子词库仍可用）"
+                        status = LocalizedText.Resource(R.string.dict_status_deleted)
                     },
-                ) { Text("删除") }
+                ) { Text(stringResource(R.string.delete_button)) }
             }
         }
     }

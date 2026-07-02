@@ -55,7 +55,7 @@ object Pinyin {
 
     /**
      * Collapse a toneless pinyin string to a fuzzy canonical form so common confusions match:
-     * 平翘舌 zh/ch/sh -> z/c/s and 前后鼻音 ang/eng/ing -> an/en/in. Applied identically at dict
+      * Chinese IME behavior note.
      * build time (to keys) and at query time (to input) — see app `Fuzzy`. Keep the two in sync.
      */
     fun fuzzyNormalize(s: String): String {
@@ -95,6 +95,6 @@ object Pinyin {
         za ze zi zai zei zao zou zan zen zang zeng zong zu zuo zui zuan zun
         ca ce ci cai cao cou can cen cang ceng cong cu cuo cui cuan cun
         sa se si sai sao sou san sen sang seng song su suo sui suan sun
-        n ng m hm hng
+        n ng m hm hng biang
     """.trim().split(Regex("\\s+")).toSet()
 }

@@ -16,7 +16,7 @@
 package com.aegis.ime.ime
 
 /**
- * Pure UI state for the clipboard panel (C7): which tab is active, whether multi-select (编辑剪贴板) is on,
+  * Chinese IME behavior note.
  * the selected entries, and which card is expanded. Extracted from [ClipboardView] so the state-machine
  * rules (switching tab clears the selection, select-all toggles, greyed-when-empty) are unit-testable on
  * the JVM with plain junit — no Android / Robolectric.

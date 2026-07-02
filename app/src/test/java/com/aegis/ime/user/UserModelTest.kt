@@ -32,7 +32,7 @@ class UserModelTest {
         m.record("你好", "世界", 1002)
         m.record("你好", "啊", 1003)
         assertTrue("seen word gets positive boost", m.wordBoost("你好") > 0.0)
-        // 世界 (count 2) predicted before 啊 (count 1)
+        // Chinese IME behavior note.
         assertEquals(listOf("世界", "啊"), m.successors("你好", 8))
         assertTrue(m.dirty)
     }
@@ -53,7 +53,7 @@ class UserModelTest {
 
     @Test
     fun importOverwriteReplaces() {
-        // The 覆盖 path UserDictCard runs: load the import fresh and save it over the live userdb.
+        // Chinese IME behavior note.
         val userDb = File.createTempFile("userdb", ".txt")
         UserModel().apply { record(null, "旧", 1); record("旧", "话", 1) }.save(userDb)
         val importFile = File.createTempFile("imp", ".txt")

@@ -16,15 +16,15 @@
 package com.aegis.ime.ime
 
 /**
- * debug.16 文字编辑面板 选区数学 (pure, Android-free → unit-testable).
+  * Chinese IME behavior note.
  *
  * The edit panel's D-pad extends a selection by keeping an ANCHOR fixed and moving the OTHER end. Each press
  * nudges the moving cursor one step; the host then `setSelection(anchor, newMoving)`, painting the span between
  * them. This is the reliable cross-editor way to select: injecting shift+DPAD key events from an IME is widely
- * ignored, which is why "开始选择 + 方向键" used to move the caret but select nothing.
+  * Chinese IME behavior note.
  *
  * Lines/paragraphs are `\n`-delimited (hard newlines — the IME has no access to the editor's visual wrap):
- *  - HOME/END jump to the start/end of the current paragraph (段首/段尾).
+  * Chinese IME behavior note.
  *  - UP/DOWN keep the column while crossing into the previous/next paragraph; off the first/last paragraph they
  *    fall to the very start / very end.
  */

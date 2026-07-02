@@ -114,7 +114,7 @@ class LayoutsTest {
     }
 
     @Test fun nine_resting_left_column_is_the_full_punctuation_list() {
-        // A3 resting state: the scroll column is the full punctuation list in the defined order, ending 自定义.
+        // Chinese IME behavior note.
         val sc = Layouts.nine(Lang.CN, Layouts.ninePunctuation()).scrollColumn!!
         assertEquals(
             listOf("，", "。", "？", "！", "…", "：", "；", "~", ".", "-", "@", "自定义"),
@@ -124,7 +124,7 @@ class LayoutsTest {
     }
 
     @Test fun nine_punctuation_inserts_custom_marks_before_the_自定义_entry() {
-        // A3 自定义: user marks slot in between the fixed list and the 自定义 entry, and commit directly (★D).
+        // Chinese IME behavior note.
         val sc = Layouts.nine(Lang.CN, Layouts.ninePunctuation(listOf("、", "《"))).scrollColumn!!
         assertEquals(
             listOf("，", "。", "？", "！", "…", "：", "；", "~", ".", "-", "@", "、", "《", "自定义"),
@@ -168,8 +168,8 @@ class LayoutsTest {
     @Test fun qwerty_has_no_nine_switch_key_and_pen_opens_symbols() {
         val actions = keysOf(qwerty).map { it.action }
         assertTrue("9-key switch is via the startup setting, not a key", KeyAction.SWITCH_NINE !in actions)
-        // D / debug.18 ⑫: the 符号 key opens the symbols panel (text-edit moved to the toolbar 文字编辑 entry);
-        // it now shows the TEXT label「符号」instead of the self-drawn ✎ pencil icon.
+        // Chinese IME behavior note.
+        // Chinese IME behavior note.
         assertTrue("pen / symbols entry present", KeyAction.SHOW_SYMBOLS in actions)
         val pen = keysOf(qwerty).first { it.action == KeyAction.SHOW_SYMBOLS }
         assertEquals("符号", pen.label)
@@ -177,7 +177,7 @@ class LayoutsTest {
 
     @Test fun qwerty_pen_width_matches_the_adjacent_function_keys() {
         // U-polish (pen-width): the 26-key bottom-row ✎ (symbols) must be as wide as the neighbouring 123 /
-        // 中英 function keys — "左下符号键视觉一致", not narrower than the rest of the function band.
+        // Chinese IME behavior note.
         val bottom = qwerty.rows.last().keys
         val pen = bottom.first { it.action == KeyAction.SHOW_SYMBOLS }
         val num = bottom.first { it.action == KeyAction.SWITCH_NUMBERS }

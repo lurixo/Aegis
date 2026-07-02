@@ -8,4 +8,27 @@
              Compose draws. DayNight-aware via the attr, so dark mode stays dark. -->
         <item name="android:windowBackground">?android:attr/colorBackground</item>
     </style>
+
+    <style name="Theme.Aegis.Transparent" parent="Theme.Aegis">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:windowAnimationStyle">@style/Animation.Aegis.None</item>
+    </style>
+
+    <style name="Animation.Aegis.None" parent="@android:style/Animation">
+        <item name="android:activityOpenEnterAnimation">@anim/aegis_no_animation</item>
+        <item name="android:activityOpenExitAnimation">@anim/aegis_no_animation</item>
+        <item name="android:activityCloseEnterAnimation">@anim/aegis_no_animation</item>
+        <item name="android:activityCloseExitAnimation">@anim/aegis_no_animation</item>
+        <item name="android:taskOpenEnterAnimation">@anim/aegis_no_animation</item>
+        <item name="android:taskOpenExitAnimation">@anim/aegis_no_animation</item>
+        <item name="android:taskCloseEnterAnimation">@anim/aegis_no_animation</item>
+        <item name="android:taskCloseExitAnimation">@anim/aegis_no_animation</item>
+        <item name="android:taskToFrontEnterAnimation">@anim/aegis_no_animation</item>
+        <item name="android:taskToFrontExitAnimation">@anim/aegis_no_animation</item>
+        <item name="android:taskToBackEnterAnimation">@anim/aegis_no_animation</item>
+        <item name="android:taskToBackExitAnimation">@anim/aegis_no_animation</item>
+    </style>
 </resources>

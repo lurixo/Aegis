@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Aegis</string>
+    <string name="ime_label">Aegis 输入法</string>
+    <string name="subtype_zh">Aegis 输入法</string>
+    <string name="subtype_en">Aegis English</string>
+    <string name="phrase_manager_title">常用语管理</string>
+
+    <string name="setup_title">Aegis 输入法</string>
+    <string name="setup_summary">离线中文 / 英文输入法。自建拼音引擎（全拼 + 九宫格 T9），模糊拼音、简拼、中英混输、英文补全纠错、离线自学习；可选下载万象大模型增强。全程离线，输入不联网。</string>
+    <string name="setup_first_run_title">首次使用</string>
+    <string name="setup_first_run_body">下方可选下载【增强模型】与【全量词库】（都不是必须的）。内置种子词库与基础语法已能离线打字，想要更准/更全时再下载即可。</string>
+    <string name="setup_first_run_ack">知道了</string>
+    <string name="setup_steps_title">启用步骤</string>
+    <string name="setup_enable_button">1 · 在系统设置中启用 Aegis</string>
+    <string name="setup_switch_button">2 · 切换到 Aegis 输入法</string>
+    <string name="setup_try_field_label">3 · 在此试打</string>
+
+    <string name="download_button">下载</string>
+    <string name="check_model_update_button">检测模型更新</string>
+    <string name="check_dict_update_button">检测词库更新</string>
+    <string name="delete_button">删除</string>
+    <string name="download_status_downloading">下载中…</string>
+    <string name="download_status_checking_update">正在检查更新…</string>
+    <string name="download_toast_update_offline">无法检查更新（网络不可用）</string>
+    <string name="download_toast_up_to_date">已是最新，无更新</string>
+    <string name="download_toast_update_found">发现更新，开始更新</string>
+    <string name="download_storage_format">存放位置：%1$s（应用私有目录，文件管理器不可见，仅本机、可删除）。</string>
+
+    <string name="gram_card_title">增强模型（万象离线大模型）</string>
+    <string name="gram_card_description">可选下载 ~401 MB。下载后中文候选明显更准（内部评测 top-1 +约 9 分）；仅存本机，输入过程仍全程离线。</string>
+    <string name="gram_source_link">模型来源：amzxyz/RIME-LMDG ↗</string>
+    <string name="gram_status_enabled">✅ 已启用：增强语法生效中（已下载 %1$d MB，仅存本机；切换到 Aegis 后加载）</string>
+    <string name="gram_status_not_downloaded">⚠ 增强语法未启用 —— 需下载约 401 MB 模型后才生效</string>
+    <string name="gram_status_download_failed">下载失败</string>
+    <string name="gram_status_update_current">已是最新，无更新（增强模型已是最新版本）</string>
+    <string name="gram_status_deleted">⚠ 增强语法未启用（已删除；重启输入法后释放已加载的内存模型）</string>
+
+    <string name="dict_card_title">全量词库包（14 表 freq≥1）</string>
+    <string name="dict_card_description">可选下载约 243 MB 的全量词库（字/基础/联想/错音/多音/诗词/地名/医学/化学/药品/名人/异体/物种/人名）。内置高频种子词库无需下载即可离线使用；下载后中文候选覆盖更全。仅存本机，输入全程离线。</string>
+    <string name="dict_source_link">词库来源：amzxyz/rime-wanxiang ↗</string>
+    <string name="dict_status_enabled">✅ 已下载并启用：全量词库（约 %1$d MB，仅存本机；切换/重启 Aegis 后加载更全词库）</string>
+    <string name="dict_status_not_downloaded">⚠ 全量词库未下载 —— 可选下载约 98 MB 压缩包（解压约 243 MB；内置高频种子词库已可离线使用）</string>
+    <string name="dict_status_verifying_extracting">校验并解压…</string>
+    <string name="dict_status_install_failed">校验或解压失败（文件可能损坏，请重试）</string>
+    <string name="dict_status_download_failed">下载失败</string>
+    <string name="dict_status_update_current">已是最新，无更新（全量词库已是最新版本）</string>
+    <string name="dict_status_deleted">⚠ 全量词库已删除（内置种子词库仍可用）</string>
+
+    <string name="fuzzy_card_title">输入设置 · 模糊拼音</string>
+    <string name="fuzzy_master_title">模糊拼音（总开关）</string>
+    <string name="fuzzy_master_description">容忍常见拼音混淆；可逐项单独开关。下次切换到 Aegis 生效。</string>
+    <string name="fuzzy_rule_zh_title">zh → z</string>
+    <string name="fuzzy_rule_zh_desc">翘舌/平舌：知=资、长=藏</string>
+    <string name="fuzzy_rule_ch_title">ch → c</string>
+    <string name="fuzzy_rule_ch_desc">翘舌/平舌：吃=疵</string>
+    <string name="fuzzy_rule_sh_title">sh → s</string>
+    <string name="fuzzy_rule_sh_desc">翘舌/平舌：是=四</string>
+    <string name="fuzzy_rule_ang_title">ang → an</string>
+    <string name="fuzzy_rule_ang_desc">前后鼻音：刚=干、唱=灿</string>
+    <string name="fuzzy_rule_eng_title">eng → en</string>
+    <string name="fuzzy_rule_eng_desc">前后鼻音：冷=（len）</string>
+    <string name="fuzzy_rule_ing_title">ing → in</string>
+    <string name="fuzzy_rule_ing_desc">前后鼻音：心=星、林=灵</string>
+    <string name="fuzzy_rule_n_l_title">n ↔ l</string>
+    <string name="fuzzy_rule_n_l_desc">声母混淆：南=兰、你=李</string>
+    <string name="fuzzy_rule_f_h_title">f ↔ h</string>
+    <string name="fuzzy_rule_f_h_desc">声母混淆：饭=换、福=湖</string>
+    <string name="fuzzy_rule_l_r_title">l ↔ r</string>
+    <string name="fuzzy_rule_l_r_desc">声母混淆：蓝=然、路=入</string>
+    <string name="fuzzy_rule_k_g_title">k ↔ g</string>
+    <string name="fuzzy_rule_k_g_desc">声母混淆：看=干、开=该</string>
+
+    <string name="association_title">联想</string>
+    <string name="association_description">打字时在候选栏显示下一词预测/联想。默认关，可开。</string>
+
+    <string name="layout_card_title">全拼键盘</string>
+    <string name="layout_card_description">中文默认使用哪种键盘（英文始终为 26 键）。</string>
+    <string name="layout_nine">全拼九键</string>
+    <string name="layout_alpha">全拼 26 键</string>
+
+    <string name="user_dict_title">学习词库</string>
+    <string name="user_dict_description">Aegis 会离线学习你常用的词与下一个词，存为【学习词库】（只存本机）。这与你下载的【主词库】（拼音大词库）是两份独立的库 —— 这里的导入/覆盖只动学习词库，绝不影响主词库。导入会在下次切换到 Aegis 时生效。</string>
+    <string name="user_dict_default_path_format">默认词库：%1$s（应用私有目录，文件管理器不可见 → 用“导出”取出副本，默认文件名 aegis-userdb.txt）。</string>
+    <string name="user_dict_export_button">导出学习词库</string>
+    <string name="user_dict_import_button">导入学习词库</string>
+    <string name="user_dict_toast_import_merged">已合并导入学习词库</string>
+    <string name="user_dict_toast_import_overwritten">已覆盖导入学习词库</string>
+    <string name="user_dict_toast_import_failed">导入失败：文件无法读取或无有效词条，词库未改动</string>
+    <string name="user_dict_import_dialog_title">导入学习词库</string>
+    <string name="user_dict_import_dialog_body">这里导入/导出的是【学习词库】（userdb.txt — 本机学习到的词与词频），不是你下载的【主词库】（拼音大词库）。「合并」把导入内容累加到现有学习词库（去重、词频相加，保留历史）；「覆盖」用导入文件整体替换【学习词库】（不影响已下载的主词库）。</string>
+    <string name="user_dict_import_merge">合并（推荐）</string>
+    <string name="user_dict_import_overwrite">覆盖</string>
+
+    <string name="app_version_card_title">应用版本</string>
+    <string name="app_version_card_description">Aegis 应用发布标签。它与学习词库、主词库和模型文件版本相互独立。</string>
+
+    <string name="phrase_transfer_toast_export_ok">已导出常用语</string>
+    <string name="phrase_transfer_toast_export_failed">导出失败</string>
+    <string name="phrase_transfer_toast_import_read_failed">导入失败：文件无法读取，常用语未改动</string>
+    <string name="phrase_transfer_toast_import_merged">已合并导入常用语</string>
+    <string name="phrase_transfer_toast_import_overwritten">已覆盖导入常用语</string>
+    <string name="phrase_transfer_toast_import_invalid">导入失败：无有效内容，常用语未改动</string>
+</resources>

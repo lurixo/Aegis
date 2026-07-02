@@ -29,7 +29,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 /**
- * debug.18: the inline 常用语 / category-name input field (EditBarView) used to be ONE line (long content was
+  * Chinese IME behavior note.
  * truncated/illegible). It must now grow to at most 4 wrapped lines and scroll vertically beyond that.
  */
 @RunWith(RobolectricTestRunner::class)

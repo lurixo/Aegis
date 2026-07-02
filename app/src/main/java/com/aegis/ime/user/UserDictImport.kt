@@ -17,14 +17,14 @@ package com.aegis.ime.user
 
 import java.io.File
 
-/** Pure (JVM-testable) apply step for 学习词库 import, separated from the SAF/Compose plumbing. */
+/** Chinese IME behavior note. */
 object UserDictImport {
 
     /**
-     * Apply [importFile] onto [userDb] as a merge (counts accumulate) or 覆盖 (wholesale replace).
+      * Chinese IME behavior note.
      *
      * Returns true on success. **Never silently wipes** [userDb]: if [importFile] is missing/empty,
-     * or — for 覆盖 — parses to no entries, it returns false and leaves [userDb] untouched. (Merge
+      * Chinese IME behavior note.
      * loads the existing dict first, so it is wipe-safe even with a junk import.)
      */
     fun apply(importFile: File, userDb: File, merge: Boolean, now: Long): Boolean {
@@ -36,7 +36,7 @@ object UserDictImport {
             true
         } else {
             val incoming = UserModel().apply { load(importFile) }
-            if (incoming.isEmpty()) return false // 覆盖 with no entries would erase the dictionary
+            if (incoming.isEmpty()) return false // Chinese IME behavior note.
             incoming.save(userDb)
             true
         }

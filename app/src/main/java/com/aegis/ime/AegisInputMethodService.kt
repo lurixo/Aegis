@@ -76,9 +76,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private val customSymbolStore by lazy { CustomSymbolStore(getSharedPreferences("aegis", MODE_PRIVATE)) }
     private var customOperatorView: CustomSymbolPanel? = null // I2: numpad operator customization (own panel)
     private val customOperatorStore by lazy { CustomSymbolStore(getSharedPreferences("aegis", MODE_PRIVATE), "custom_operators") }
-    // debug.16 items1/2: the 自定义 panels add straight from the symbol keyboard's sets (no clipboard paste).
-    // Pinyin column → SymbolCatalog 中文, minus the marks already fixed on the 9-key column. Numpad column →
-    // SymbolCatalog 数学, minus the built-in default operators (so a tap can't create a duplicate).
+    // Chinese IME behavior note.
+    // Chinese IME behavior note.
+    // Chinese IME behavior note.
     private val zhSymbolPalette: List<String> by lazy {
         SymbolCatalog.categories.first { it.id == "zh" }.symbols.filter { it !in Layouts.nineFixedPunctuation }
     }
@@ -86,28 +86,28 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         SymbolCatalog.categories.first { it.id == "math" }.symbols.filter { it !in Layouts.defaultNumpadOperators }
     }
     private var selecting = false
-    // debug.16 选区扩展: while selecting, the D-pad keeps [selAnchor] fixed and walks [selMoving]; -1 = inactive.
+    // Chinese IME behavior note.
     private var selAnchor = -1
     private var selMoving = -1
     private var deletedSnapshot: CharSequence? = null // for the backspace up/down restore gesture (#5)
     // debug.16 Option A: inline text-input. While [panelInput] is active the keyboard's output is redirected into
-    // its buffer (not the target app); on 确定 the buffered text runs the pending [inputPurpose] action.
+    // Chinese IME behavior note.
     private val panelInput = com.aegis.ime.ime.PanelTextInput()
     private enum class InputPurpose { EDIT_PHRASE, ADD_PHRASE, EDIT_NOTE, ADD_CATEGORY, RENAME_CATEGORY }
     private var inputPurpose: InputPurpose? = null
     private var inputCat = "" // EDIT_PHRASE: owning category; RENAME_CATEGORY: (unused)
     private var inputOld = "" // EDIT_PHRASE: the phrase being edited; RENAME_CATEGORY: the old category name
-    private var pendingPhraseAdds: List<String> = emptyList() // ADD_CATEGORY via 剪贴板「添加常用语→新建分类」: clips to add once the category exists
-    private var pendingMoveFrom = "" // ADD_CATEGORY via「移动到分类→新建分类」: source category of the carried move
+    private var pendingPhraseAdds: List<String> = emptyList() // Chinese IME behavior note.
+    private var pendingMoveFrom = "" // Chinese IME behavior note.
     private var pendingMoveTexts: List<String> = emptyList() //  ...and the items to move into the new category
     private val clipboardStore by lazy { ClipboardStore(filesDir).also { it.load() } }
     private val symbolUsageStore by lazy { SymbolUsageStore(filesDir).also { it.load() } }
-    // E2: emoji MRU ("最近") — its OWN usage file (filesDir/emoji/) so it never mixes with the 符号 常用 list.
+    // Chinese IME behavior note.
     private val emojiUsageStore by lazy { SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).also { it.load() } }
     // C1 privacy: pause clipboard capture while a password / PIN / 2FA field is focused (set per onStartInput).
     @Volatile private var secureField = false
-    // U21: the most-recent captured clip — kept so the 复制条 survives an app switch / IME re-show (restored
-    // in onStartInputView). Cleared when the user leaves the bar (× or 上屏).
+    // Chinese IME behavior note.
+    // Chinese IME behavior note.
     private var lastCopy: String? = null
     @Volatile private var userDbLoaded = false // M-2: the initial userdb load has completed
     // debug.16 (engine hot-reload): the downloaded-asset signature the LIVE engine was built from (empty until
@@ -145,21 +145,39 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     // Aegis is the active input method.
     private val clipChangedListener = android.content.ClipboardManager.OnPrimaryClipChangedListener { onSystemClipChanged() }
 
-    // ③ debug.18: a live 9键/26键 setting flip (LayoutChoiceCard writes cn_layout in the SAME process) reaches the
+    // Chinese IME behavior note.
     // RUNNING IME without a re-launch — re-read the pref and hot-apply the CN default keyboard the instant it
     // changes (the controller's setCnDefaultLayout then switches the live layout in place). Was: only re-read in
     // onStartInputView, so a settings change needed a field refocus / IME re-launch to take effect.
     private val layoutPrefListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
         if (key == "cn_layout") {
             val id = if (prefs.getString("cn_layout", "nine") == "alpha") LayoutId.ALPHA else LayoutId.NINE
-            Handler(Looper.getMainLooper()).post { controller.setCnDefaultLayout(id) }
+            Handler(Looper.getMainLooper()).post {
+                if (::controller.isInitialized) controller.setCnDefaultLayout(id)
+            }
+        }
+    }
+
+    private val associationPrefListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
+        if (key == com.aegis.ime.ui.PREF_ASSOCIATIONS_ON) {
+            val on = prefs.getBoolean(
+                com.aegis.ime.ui.PREF_ASSOCIATIONS_ON,
+                com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON,
+            )
+            Handler(Looper.getMainLooper()).post {
+                if (::controller.isInitialized) controller.setAssociationsEnabled(on)
+            }
         }
     }
 
     override fun onCreate() {
         super.onCreate()
         runCatching { clipboardManager.addPrimaryClipChangedListener(clipChangedListener) }
-        runCatching { getSharedPreferences("aegis", MODE_PRIVATE).registerOnSharedPreferenceChangeListener(layoutPrefListener) } // ③
+        runCatching {
+            val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
+            prefs.registerOnSharedPreferenceChangeListener(layoutPrefListener)
+            prefs.registerOnSharedPreferenceChangeListener(associationPrefListener)
+        } // ③
         // Start with an empty engine (ASCII typing works immediately); load the ~70 MB dictionaries
         // and the user model off the main thread and swap the real engine in when ready.
         controller = KeyboardController(this, DictEngine(null, null, null))
@@ -209,7 +227,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     /**
      * debug.16 (fuzzy hot-toggle): the fuzzy rule-key set selected by the current prefs (master "fuzzy" +
      * each per-rule "fuzzy_<rule>"). Shared by [buildEngine] (so a rebuilt engine carries the current rules)
-     * and onStartInputView's hot push, so flipping a 模糊音 toggle takes effect on the next field focus without
+      * Chinese IME behavior note.
      * a cold start or an engine rebuild. The pure selection lives in [Fuzzy.activeRules] (unit-tested).
      */
     private fun currentFuzzyRules(): Set<String> {
@@ -263,8 +281,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             runCatching { userModel.reload(userDbFile); userDbMtime = userDbFile.lastModified() }
         }
         // debug.16: pick up a freshly-downloaded / updated model or dict pack the same way — rebuild the engine
-        // off the main thread and hot-swap it in, so a download takes effect on the next field focus (切走再回
-        // 来) instead of requiring an IME cold start. No-op when nothing downloaded changed.
+        // Chinese IME behavior note.
+        // Chinese IME behavior note.
         maybeReloadEngine()
     }
 
@@ -279,7 +297,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     /** Prefer a downloaded enhancement pack (optional full dict / .gram tier) over the bundled asset. */
     private fun downloadedOverride(name: String): File? =
-        File(File(filesDir, "downloaded"), name).takeIf { it.exists() && it.length() > 0 }
+        EngineAssets.downloadedOverride(File(filesDir, "downloaded"), name)
 
     // A downloaded override that exists but fails to parse (e.g. a truncated extract) must NOT sink the whole
     // load — fall back to the bundled asset rather than returning null (which would yield zero candidates).
@@ -311,23 +329,29 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onPickCandidate = { index -> controller.onPickCandidate(index) }
             onPickReading = { index -> controller.onPickReadingIndex(index) } // A2 expanded: pick combination
             onFunction = { f -> controller.onBarFunction(f) }
-            // C: up-swipe clears the pending pinyin (重输) in any layout first; only if there's nothing
+            // Chinese IME behavior note.
             // composing does it fall back to the editor-field clear/restore (#5).
             onBackspaceSwipe = { up ->
                 if (!controller.onBackspaceSwipe(up)) {
-                    if (panelInput.active) { if (up) panelInput.begin("") } // inline edit: up-swipe = 重输 the BUFFER, never the app
+                    if (panelInput.active) { if (up) panelInput.begin("") } // Chinese IME behavior note.
                     else handleBackspaceSwipe(up)
                 }
             }
-            onPanelBackspace = { controller.onPanelBackspace() } // A2 expanded: 退格
-            onPanelClear = { controller.onPanelClear() }          // A2 expanded: 重输
+            onPanelBackspace = { controller.onPanelBackspace() } // Chinese IME behavior note.
+            onPanelClear = { controller.onPanelClear() } // Chinese IME behavior note.
             onExpandClosed = { controller.clearDrill() }          // UI-2: drop the drilled syllable on close
             onCollapse = { requestHideSelf(0) } // idle toolbar ⌄ collapses the keyboard
-            onCopyCommit = { t -> commitLargeText(t) } // 复制条 ⑤: 上屏 (到当前字段; E5: chunked for huge clips)
-            onCopyBlock = { b -> copyBlockToAegis(b) }                        // 复制条 ③: 写 aegis 剪贴板(不上屏/不写系统)
-            onCopyDismiss = { lastCopy = null }                              // U21: ④/⑤ 离开 → 不再恢复该复制条
-            onEditConfirm = { confirmInlineInput() }                         // debug.16: inline edit 确定
-            onEditCancel = { cancelInlineInput() }                           // debug.16: inline edit 取消
+            onCopyCommit = { t -> commitLargeText(t) } // Chinese IME behavior note.
+            onCopyBlock = { b ->
+                controller.expireCandidateChoiceUndo()
+                copyBlockToAegis(b)
+            } // Chinese IME behavior note.
+            onCopyDismiss = {
+                controller.expireCandidateChoiceUndo()
+                lastCopy = null
+            } // Chinese IME behavior note.
+            onEditConfirm = { confirmInlineInput() } // Chinese IME behavior note.
+            onEditCancel = { cancelInlineInput() } // Chinese IME behavior note.
         }
         inputView = view
         panelInput.onChange = { txt -> view.setEditText(txt) }               // debug.16: mirror buffer → edit bar
@@ -341,12 +365,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         super.onStartInputView(info, restarting)
         abortInlineInput() // debug.16 red line: a new input session must never inherit an active capture buffer
         inputView?.showPanel(null)
-        // U21: restore the most-recent 复制条 across an app switch / IME re-show (reverses the old
+        // Chinese IME behavior note.
         // "start clean" behaviour). VISIBILITY is decoupled from secureField — an already-captured
         // clip is restored in EVERY field type, incl. terminal / visible-password fields like Termius that
         // report textVisiblePassword (which previously hid it); only × dismisses it. secureField still gates
         // CAPTURE of new clips below (onSystemClipChanged / captureClip), the real privacy boundary. ⑤
-        // "点内容→上屏" targets the current field (acceptable behaviour). The !! is safe: true ⇒ lc != null.
+        // Chinese IME behavior note.
         val lc = lastCopy
         if (com.aegis.ime.user.ClipboardPolicy.shouldRestoreCopyBar(lc, secureField)) {
             inputView?.showCopyBar(lc!!)
@@ -357,14 +381,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
         val cnLayout = prefs.getString("cn_layout", "nine")
         controller.setCnDefaultLayout(if (cnLayout == "alpha") LayoutId.ALPHA else LayoutId.NINE)
-        // D2: 联想开关 — show learned next-word predictions only when the toggle is on. debug.17: default OFF;
+        // Chinese IME behavior note.
         // the stored pref still wins, so a user who explicitly enabled it keeps it. Single source of truth for
         // the key + default lives in AssociationToggleCard.
         controller.setAssociationsEnabled(
             prefs.getBoolean(com.aegis.ime.ui.PREF_ASSOCIATIONS_ON, com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON),
         )
-        // debug.16: 模糊音 hot-toggle — re-read the fuzzy prefs each focus and push them to the live engine
-        // (query-time variant expansion, no rebuild), so a 模糊音 change takes effect on 切走再回来 without a
+        // Chinese IME behavior note.
+        // Chinese IME behavior note.
         // cold start. The engine hot-reload path (#49) carries the same rules via buildEngine → currentFuzzyRules.
         controller.setFuzzyRules(currentFuzzyRules())
         controller.reset()
@@ -399,7 +423,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     /** Text-editing panel (#4): maps the D-pad / selection / clipboard actions onto the editor. */
     private fun showEditPanel() {
         val iv = inputView ?: return
-        if (iv.isPanelShowing(editPanelView)) { iv.showPanel(null); return } // P4(#4): re-tap 文字编辑 入口 = 返回
+        if (iv.isPanelShowing(editPanelView)) { iv.showPanel(null); return } // Chinese IME behavior note.
         stopSelecting()
         val ep = editPanelView ?: EditPanelView(this).also {
             it.onAction = { a -> handleEdit(a) }
@@ -412,9 +436,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun handleEdit(action: EditAction) {
-        // debug.16: during an inline 常用语/分类 edit the buffer is the document — the text-edit panel must never
+        // Chinese IME behavior note.
         // mutate the target app underneath. (BACK still closes the panel.)
         if (panelInput.active && action != EditAction.BACK) return
+        controller.expireCandidateChoiceUndo()
         when (action) {
             EditAction.UP -> nav(KeyEvent.KEYCODE_DPAD_UP, SelectionMath.Move.UP)
             EditAction.DOWN -> nav(KeyEvent.KEYCODE_DPAD_DOWN, SelectionMath.Move.DOWN)
@@ -432,7 +457,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
     }
 
-    /** 开始选择/结束选择 toggle. Entering capture: anchor at the current selection start, moving at its end (so
+    /**
      *  a pre-existing selection extends from the right end). Leaving: drop the anchor. */
     private fun toggleSelecting() {
         selecting = !selecting
@@ -448,9 +473,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun stopSelecting() { selecting = false; selAnchor = -1; selMoving = -1 }
 
     /**
-     * D-pad / 段首段尾 navigation. While selecting, EXTEND the selection: keep [selAnchor] fixed, step [selMoving]
+      * Chinese IME behavior note.
      * one unit and `setSelection(anchor, moving)` — the cross-editor-reliable way (an IME's injected shift+DPAD
-     * is widely ignored, which is the "开始选择后方向键不选中" bug). Not selecting: the original plain
+      * Chinese IME behavior note.
      * cursor key event, unchanged (keeps the editor's own visual-wrap navigation). Editors that expose no
      * extracted text fall back to a best-effort shift+key.
      */
@@ -483,6 +508,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun handleBackspaceSwipe(up: Boolean) {
         if (panelInput.active) return // debug.16: the swipe-clear must NOT wipe the target field during inline edit
         val ic = currentInputConnection ?: return
+        controller.expireCandidateChoiceUndo()
         if (up) {
             val all = ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)?.text
             if (!all.isNullOrEmpty()) {
@@ -498,10 +524,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     /** Show the emoji panel in place of the keyboard; emoji commit straight to the editor. */
     private fun showEmojiPanel() {
         val iv = inputView ?: return
-        if (iv.isPanelShowing(emojiView)) { iv.showPanel(null); return } // P4(#4): re-tap 表情 入口 = 返回
+        if (iv.isPanelShowing(emojiView)) { iv.showPanel(null); return } // Chinese IME behavior note.
         val ev = emojiView ?: EmojiView(this).also {
-            it.recentProvider = { emojiUsageStore.recent() } // E2: 最近 (MRU) tab
-            it.onEmoji = { e -> emojiUsageStore.record(e); commitText(e) } // E2: record usage (debug.16: via gated commitText)
+            it.recentProvider = { emojiUsageStore.recent() } // Chinese IME behavior note.
+            it.onEmoji = { e -> emojiUsageStore.record(e); commitExternalText(e) } // E2: record usage (debug.16: via gated commitText)
             it.onBackspace = { panelBackspace() } // F2: selection-aware (else eats the char before a selection)
             it.onBack = { inputView?.showPanel(null) }
             emojiView = it
@@ -516,51 +542,55 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     /** Show the clipboard / canned-phrases panel; tapping an entry commits it. */
     private fun showClipboardPanel() {
         val iv = inputView ?: return
-        if (iv.isPanelShowing(clipboardView)) { iv.showPanel(null); return } // P4(#4): re-tap 剪贴板 入口 = 返回
+        if (iv.isPanelShowing(clipboardView)) { iv.showPanel(null); return } // Chinese IME behavior note.
         captureClip() // read the current clip only on explicit user intent (avoids spurious access)
         val cv = clipboardView ?: ClipboardView(this).also {
             it.historyProvider = { clipboardStore.history() }
-            it.categoriesProvider = { clipboardStore.categories() }                       // C5 分类
+            it.categoriesProvider = { clipboardStore.categories() } // Chinese IME behavior note.
             it.phrasesInProvider = { cat -> clipboardStore.phrasesIn(cat) }
             it.phraseNoteProvider = { cat, text -> clipboardStore.noteFor(cat, text) } // debug.17 F2: display note
             it.onPick = { t -> commitLargeText(t); inputView?.showPanel(null) } // E5: chunked for huge clips
-            it.onCopyBlockToAegis = { b -> copyBlockToAegis(b) }                          // ③ 拆词块写 aegis 剪贴板(不上屏/不写系统)
+            it.onCopyBlockToAegis = { b -> copyBlockToAegis(b) } // Chinese IME behavior note.
+            it.onCopyBlocksToAegis = { blocks -> copyBlocksToAegis(blocks) }
             it.onBack = { inputView?.showPanel(null) }
-            it.onDeleteClips = { list -> clipboardStore.deleteAll(list) }                 // C7 多选删除
+            it.onDeleteClips = { list -> clipboardStore.deleteAll(list) } // Chinese IME behavior note.
             it.onDeletePhrasesFrom = { cat, list -> list.forEach { clipboardStore.deletePhraseFrom(cat, it) } }
-            it.onSaveAsPhrasesTo = { cat, list -> clipboardStore.addPhrasesTo(cat, list) } // C7 批量添加常用语
-            it.onEditPhrase = { cat, text -> beginInlineEdit(cat, text) }                  // debug.16 Option A: 编辑 → inline buffer
-            it.onMovePhrase = { from, text, to -> clipboardStore.movePhrase(from, text, to) } // debug.16: 移动常用语分类
-            it.onMovePhrasesTo = { from, list, to -> clipboardStore.movePhrasesTo(from, list, to) } // debug.16: 批量移动
-            it.onReorderPhrase = { cat, fromIdx, toIdx -> clipboardStore.reorderPhrase(cat, fromIdx, toIdx) } // debug.16: 拖动重排
-            it.onAddPhrase = { cat -> beginInlineAddPhrase(cat) }                         // debug.17: 顶部 ＋ → 当前分类内联新增常用语
-            it.onAddCategory = { beginInlineAddCategory() }                               // debug.16/17: ＋分类(now ✎二级菜单) → inline buffer
-            it.onAddCategoryThenAdd = { texts -> beginInlineAddCategory(texts) }          // debug.16: 剪贴板 添加常用语→新建分类 (carry clips)
-            it.onAddCategoryThenMove = { from, texts -> beginInlineAddCategory(pendingMove = from to texts) } // debug.16: 移动到分类→新建分类 (carry move)
-            it.onRenameCategory = { old -> beginInlineRenameCategory(old) }               // debug.16: 分类改名 → inline buffer
-            it.onDeleteCategory = { name -> clipboardStore.deleteCategory(name) }         // debug.16: 删除分类 (no typing)
-            it.onEditNote = { cat, text -> beginInlineEditNote(cat, text) }               // debug.17 F2: 备注 → inline buffer
-            it.onClearCategory = { cat -> clipboardStore.clearPhrasesIn(cat) }            // debug.17 E2: 清空当前分类
-            it.onExportPhrases = { launchPhraseTransfer(export = true) }                  // debug.17 E1: SAF 导出
-            it.onImportPhrases = { launchPhraseTransfer(export = false) }                 // debug.17 E1: SAF 导入
+            it.onSaveAsPhrasesTo = { cat, list ->
+                val added = clipboardStore.addPhrasesTo(cat, list)
+                if (list.size == 1) toast(if (added > 0) "常用语已添加成功" else "常用语已存在")
+            } // C7 batch add phrases
+            it.onEditPhrase = { cat, text -> beginInlineEdit(cat, text) } // Chinese IME behavior note.
+            it.onMovePhrase = { from, text, to -> clipboardStore.movePhrase(from, text, to) } // Chinese IME behavior note.
+            it.onMovePhrasesTo = { from, list, to -> clipboardStore.movePhrasesTo(from, list, to) } // Chinese IME behavior note.
+            it.onReorderPhrase = { cat, fromIdx, toIdx -> clipboardStore.reorderPhrase(cat, fromIdx, toIdx) } // Chinese IME behavior note.
+            it.onReorderCategory = { fromIdx, toIdx -> clipboardStore.reorderCategory(fromIdx, toIdx) }
+            it.onAddPhrase = { cat -> beginInlineAddPhrase(cat) } // Chinese IME behavior note.
+            it.onAddCategory = { beginInlineAddCategory() } // Chinese IME behavior note.
+            it.onAddCategoryThenAdd = { texts -> beginInlineAddCategory(texts) } // Chinese IME behavior note.
+            it.onAddCategoryThenMove = { from, texts -> beginInlineAddCategory(pendingMove = from to texts) } // Chinese IME behavior note.
+            it.onRenameCategory = { old -> beginInlineRenameCategory(old) } // Chinese IME behavior note.
+            it.onDeleteCategory = { name -> clipboardStore.deleteCategory(name) } // Chinese IME behavior note.
+            it.onEditNote = { cat, text -> beginInlineEditNote(cat, text) } // Chinese IME behavior note.
+            it.onClearCategory = { cat -> clipboardStore.clearPhrasesIn(cat) } // Chinese IME behavior note.
+            it.onExportPhrases = { launchPhraseTransfer(export = true) } // Chinese IME behavior note.
+            it.onImportPhrasesWithMode = { merge -> launchPhraseTransfer(export = false, merge = merge) } // debug.17 E1: SAF import
             it.onClearHistory = { clipboardStore.clearHistory() }
-            it.historyEnabledProvider = { historyEnabled() }                               // C1 记录开关
+            it.historyEnabledProvider = { historyEnabled() } // Chinese IME behavior note.
             it.onSetHistoryEnabled = { on -> setHistoryEnabled(on) }
             clipboardView = it
         }
-        cv.resetToDefault() // P7(#19): always open on the 剪贴板 tab, normal mode (also recreation-proof — see
+        cv.resetToDefault() // Chinese IME behavior note.
                             // showEmojiPanel). Reset BEFORE applyPalette so its refresh() builds the clean state.
-        cv.applyPalette(imePalette)
         clipboardStore.reloadPhrases() // pick up category/phrase edits made in the manager Activity
-        cv.refresh()
+        cv.applyPalette(imePalette)
         iv.showPanel(cv)
     }
 
-    /** A3 自定义: edit the user's custom punctuation marks; changes persist + refresh the 9-key column live. */
+    /** Chinese IME behavior note. */
     private fun showCustomSymbolPanel() {
         val iv = inputView ?: return
         val panel = customSymbolView ?: CustomSymbolPanel(this).also {
-            it.addPalette = zhSymbolPalette // debug.16 item1: tap-add from 符号键盘 中文 (no clipboard paste)
+            it.addPalette = zhSymbolPalette // Chinese IME behavior note.
             it.current = { customSymbolStore.list() }
             it.onAdd = { s -> customSymbolStore.add(s); controller.setCustomSymbols(customSymbolStore.list()); it.refresh() }
             it.onRemove = { s -> customSymbolStore.remove(s); controller.setCustomSymbols(customSymbolStore.list()); it.refresh() }
@@ -572,12 +602,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         iv.showPanel(panel)
     }
 
-    /** I2 自定义: edit the user's custom numpad operators; changes persist + refresh the operator column live. */
+    /** Chinese IME behavior note. */
     private fun showCustomOperatorPanel() {
         val iv = inputView ?: return
         val panel = customOperatorView ?: CustomSymbolPanel(this).also {
             it.backTitle = "‹ 自定义运算符"
-            it.addPalette = mathOperatorPalette // debug.16 item2: tap-add from 符号键盘 数学 (no clipboard paste)
+            it.addPalette = mathOperatorPalette // Chinese IME behavior note.
             it.current = { customOperatorStore.list() }
             it.onAdd = { s -> customOperatorStore.add(s); controller.setCustomOperators(customOperatorStore.list()); it.refresh() }
             it.onRemove = { s -> customOperatorStore.remove(s); controller.setCustomOperators(customOperatorStore.list()); it.refresh() }
@@ -588,21 +618,21 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         iv.showPanel(panel)
     }
 
-    /** D: categorized symbols panel (reached from the keyboard ✎ pencil key). U3: a tap 上屏s + closes the panel. */
+    /** Chinese IME behavior note. */
     private fun showSymbolsPanel() {
         val iv = inputView ?: return
-        if (iv.isPanelShowing(symbolsView)) { iv.showPanel(null); return } // P4(#4): re-tap 符号 入口 = 返回
+        if (iv.isPanelShowing(symbolsView)) { iv.showPanel(null); return } // Chinese IME behavior note.
         val sv = symbolsView ?: SymbolsView(this).also {
             it.recentProvider = { symbolUsageStore.recent() }
-            // U3/P3: 点符号 = 上屏 + 记入常用;是否回键盘由 SymbolsView 的锁定态决定(锁定则连续输入)。
-            it.onSymbol = { s -> symbolUsageStore.record(s); commitText(s) } // debug.16: via gated commitText
+            // Chinese IME behavior note.
+            it.onSymbol = { s -> symbolUsageStore.record(s); commitExternalSymbol(s) } // debug.16: via gated symbol commit
             it.onBackspace = { panelBackspace() } // F2: selection-aware (else eats the char before a selection)
             it.onBack = { inputView?.showPanel(null) }
             symbolsView = it
         }
-        sv.resetToDefault() // P3/P7(#19): always (re)open unlocked on the 常用 tab (also recreation-proof — see
-                            // showEmojiPanel). Reset BEFORE applyPalette so it re-renders the default 常用 grid.
-        sv.applyPalette(imePalette) // also re-renders the active category (picks up the latest 常用 MRU)
+        sv.resetToDefault() // Chinese IME behavior note.
+                            // Chinese IME behavior note.
+        sv.applyPalette(imePalette) // Chinese IME behavior note.
         iv.showPanel(sv)
     }
 
@@ -616,34 +646,32 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
     }
 
-    /** debug.17 E1: launch the SAF bridge Activity to export / import the 常用语 library (the IME service is not
+    /** debug.17 E1: launch the SAF bridge Activity to export / import the phrase library (the IME service is not
      *  an Activity, so SAF document pickers must run in a real Activity). It reads/writes the SAME ClipboardStore
      *  files in filesDir; the panel re-reads phrases when it next opens. */
-    private fun launchPhraseTransfer(export: Boolean) {
+    private fun launchPhraseTransfer(export: Boolean, merge: Boolean = true) {
         runCatching {
             startActivity(
-                android.content.Intent(this, com.aegis.ime.ui.PhraseTransferActivity::class.java)
-                    .putExtra(com.aegis.ime.ui.PhraseTransferActivity.EXTRA_EXPORT, export)
-                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                com.aegis.ime.ui.PhraseTransferActivity.launchIntent(this, export, merge),
             )
             inputView?.showPanel(null) // close the panel so the picker is unobstructed
         }
     }
 
-    // --- debug.16 Option A: inline text input (edit a 常用语 / add+rename a category) ---
+    // Chinese IME behavior note.
 
     private fun beginInlineEdit(category: String, phrase: String) {
         inputPurpose = InputPurpose.EDIT_PHRASE; inputCat = category; inputOld = phrase
         startInlineInput("编辑常用语", phrase)
     }
 
-    /** debug.17: 顶部 ＋(常用语tab) — add a NEW phrase under [category] via the same Option A inline buffer. */
+    /** Chinese IME behavior note. */
     private fun beginInlineAddPhrase(category: String) {
         inputPurpose = InputPurpose.ADD_PHRASE; inputCat = category; inputOld = ""
         startInlineInput("添加常用语", "")
     }
 
-    /** debug.17 F2: edit the display 备注 for phrase [text] in [category] — pre-filled with the current note; an
+    /**
      *  empty buffer clears it. Reuses the same Option A gated buffer (never reaches the target app). */
     private fun beginInlineEditNote(category: String, text: String) {
         inputPurpose = InputPurpose.EDIT_NOTE; inputCat = category; inputOld = text
@@ -655,8 +683,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         pendingMove: Pair<String, List<String>>? = null,
     ) {
         inputPurpose = InputPurpose.ADD_CATEGORY; inputCat = ""; inputOld = ""
-        pendingPhraseAdds = pendingAdds                    // 添加常用语→新建分类: clip(s) to add once created
-        pendingMoveFrom = pendingMove?.first ?: ""         // 移动到分类→新建分类: carry the move through the create
+        pendingPhraseAdds = pendingAdds // Chinese IME behavior note.
+        pendingMoveFrom = pendingMove?.first ?: "" // Chinese IME behavior note.
         pendingMoveTexts = pendingMove?.second ?: emptyList()
         startInlineInput("新建分类", "")
     }
@@ -680,17 +708,17 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val text = panelInput.text()
         when (inputPurpose) {
             InputPurpose.EDIT_PHRASE -> clipboardStore.editPhrase(inputCat, inputOld, text)
-            InputPurpose.ADD_PHRASE -> { val t = text.trim(); if (t.isNotEmpty()) clipboardStore.addPhrasesTo(inputCat, listOf(t)) } // inputCat stays → reopen there
+            InputPurpose.ADD_PHRASE -> { val t = text.trim(); if (t.isNotEmpty()) addSinglePhraseWithToast(inputCat, t) } // inputCat stays → reopen there
             InputPurpose.EDIT_NOTE -> clipboardStore.setPhraseNote(inputCat, inputOld, text) // F2: empty buffer clears the note
             InputPurpose.ADD_CATEGORY -> {
                 val name = text.trim()
                 if (name.isNotEmpty()) {
                     clipboardStore.addCategory(name) // creates it (no-op if it already exists)
-                    // 剪贴板「添加常用语→新建分类」: the carried clip(s) now land in the just-created category.
+                    // Chinese IME behavior note.
                     if (pendingPhraseAdds.isNotEmpty()) clipboardStore.addPhrasesTo(name, pendingPhraseAdds)
-                    // 剪贴板「移动到分类→新建分类」: move the carried item(s) into the just-created category.
+                    // Chinese IME behavior note.
                     if (pendingMoveTexts.isNotEmpty()) clipboardStore.movePhrasesTo(pendingMoveFrom, pendingMoveTexts, name)
-                    inputCat = name // reopen the 常用语 tab on the new category
+                    inputCat = name // Chinese IME behavior note.
                 }
             }
             InputPurpose.RENAME_CATEGORY -> { val n = text.trim(); if (clipboardStore.renameCategory(inputOld, n)) inputCat = n }
@@ -699,16 +727,21 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         endInlineInput()
     }
 
+    private fun addSinglePhraseWithToast(category: String, text: String) {
+        val added = clipboardStore.addPhrasesTo(category, listOf(text))
+        toast(if (added > 0) "常用语已添加成功" else "常用语已存在")
+    }
+
     private fun cancelInlineInput() = endInlineInput()
 
-    /** Stop the redirect (keyboard output returns to the target app), hide the bar, reopen the 常用语 panel. */
+    /** Chinese IME behavior note. */
     private fun endInlineInput() {
         val reopenCat = inputCat // EDIT_PHRASE/ADD/RENAME: the category to land back on
         panelInput.end()
         inputView?.showEditBar(false)
         inputPurpose = null; inputCat = ""; inputOld = ""; pendingPhraseAdds = emptyList(); pendingMoveFrom = ""; pendingMoveTexts = emptyList()
-        showClipboardPanel()                       // reopen + reloadPhrases + refresh (lands on the 剪贴板 tab)
-        clipboardView?.showPhraseTab(reopenCat)    // ...then switch to the 常用语 tab the user was editing on
+        showClipboardPanel() // Chinese IME behavior note.
+        clipboardView?.showPhraseTab(reopenCat) // Chinese IME behavior note.
     }
 
     /** Tear down an in-progress inline edit WITHOUT reopening any panel — for IME teardown / a new input
@@ -732,8 +765,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     /**
-     * 复制条: a system clipboard change while Aegis is active → record it AND raise the
-     * taskbar copy-bar with that content (① 复制后). Same C1 privacy gate as [captureClip]. Fires on the
+      * Chinese IME behavior note.
+      * Chinese IME behavior note.
      * main thread (listener registered without a handler), so touching [inputView] here is safe.
      */
     private fun onSystemClipChanged() {
@@ -756,6 +789,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     /** Record a captured text clip + raise the copy-bar (unless composing). Shared by the text + URI paths. */
     private fun recordTextClip(t: String) {
         clipboardStore.record(t)
+        refreshOpenClipboardPanel()
         lastCopy = t // U21: remember it so it survives an app switch / IME re-show
         if (inputView?.isComposing() != true) inputView?.showCopyBar(t) // don't clobber live candidates
     }
@@ -763,25 +797,40 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
     /**
-     * ③ 拆词块 → aegis 剪贴板: write the block to [clipboardStore] (NOT the system clipboard, NOT the
+      * Chinese IME behavior note.
      * editor) and confirm with a light toast so the tap doesn't feel like a no-op. Shared by the copy-bar
-     * and the clipboard panel's 拆词 chips.
+      * Chinese IME behavior note.
      */
     private fun copyBlockToAegis(block: String) {
-        clipboardStore.record(block)
-        Toast.makeText(this, "已存入剪贴板", Toast.LENGTH_SHORT).show()
+        copyBlocksToAegis(listOf(block))
     }
 
-    // C1/C2 clipboard controls (wired to the panel ⚙ menu).
+    private fun copyBlocksToAegis(blocks: List<String>) {
+        if (blocks.isEmpty()) return
+        for (block in blocks) clipboardStore.record(block)
+        refreshOpenClipboardPanel()
+        toast("已存入剪贴板")
+    }
+
+    private fun refreshOpenClipboardPanel() {
+        val cv = clipboardView ?: return
+        if (inputView?.isPanelShowing(cv) == true) cv.refresh()
+    }
+
+    // C1/C2 clipboard controls wired to the clipboard panel controls.
     private fun historyEnabled() = getSharedPreferences("aegis", MODE_PRIVATE).getBoolean("clip_history", true)
     private fun setHistoryEnabled(on: Boolean) =
         getSharedPreferences("aegis", MODE_PRIVATE).edit().putBoolean("clip_history", on).apply()
-    // debug.16: 清空系统剪贴板 removed — clearPrimaryClip is silently ignored by some OEM clipboards
-    // (Samsung/Vivo), so the action couldn't be made reliable; only 清空剪贴板历史 (aegis history) remains.
+    // Chinese IME behavior note.
+    // Chinese IME behavior note.
 
     override fun onDestroy() {
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
-        runCatching { getSharedPreferences("aegis", MODE_PRIVATE).unregisterOnSharedPreferenceChangeListener(layoutPrefListener) } // ③
+        runCatching {
+            val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
+            prefs.unregisterOnSharedPreferenceChangeListener(layoutPrefListener)
+            prefs.unregisterOnSharedPreferenceChangeListener(associationPrefListener)
+        } // ③
         super.onDestroy()
     }
 
@@ -789,18 +838,53 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     // debug.16 Option A: every ImeHost output checks [panelInput] FIRST. While inline-editing it consumes the
     // output into the buffer and returns; otherwise (the normal case) it falls through to the editor UNCHANGED.
+    private fun commitExternalText(text: CharSequence) {
+        if (panelInput.commit(text)) return
+        controller.expireCandidateChoiceUndo()
+        currentInputConnection?.commitText(text, 1)
+    }
+
     override fun commitText(text: CharSequence) {
         if (panelInput.commit(text)) return
         currentInputConnection?.commitText(text, 1)
     }
 
+    private fun commitExternalSymbol(symbol: CharSequence) {
+        if (panelInput.commit(symbol)) return
+        controller.expireCandidateChoiceUndo()
+        commitSymbolToEditor(symbol)
+    }
+
+    override fun commitSymbol(symbol: CharSequence) {
+        if (panelInput.commit(symbol)) return
+        commitSymbolToEditor(symbol)
+    }
+
+    private fun commitSymbolToEditor(symbol: CharSequence) {
+        val ic = currentInputConnection ?: return
+        val s = symbol.toString()
+        val insertion = SymbolCatalog.insertionFor(
+            s,
+            hasTextAfterCursor = !ic.getTextAfterCursor(1, 0).isNullOrEmpty(),
+        )
+        if (insertion.size == 1) {
+            ic.commitText(insertion[0], 1)
+            return
+        }
+        ic.beginBatchEdit()
+        ic.commitText(insertion[0], 1)
+        ic.commitText(insertion[1], 0)
+        ic.endBatchEdit()
+    }
+
     /**
      * E5: commit a clipboard entry that may be huge (million-char paste) in binder-safe chunks — a single
-     * commitText over ~1 MB throws TransactionTooLargeException. Used by the 复制条 ⑤ and a 剪贴板 entry tap.
+      * Chinese IME behavior note.
      * (A third-party editor may still refuse an oversized paste of its own accord — that's outside the IME.)
      */
     private fun commitLargeText(text: CharSequence) {
         if (panelInput.commit(text)) return // debug.16: a clip tapped during inline edit goes into the buffer, not the app
+        controller.expireCandidateChoiceUndo()
         val ic = currentInputConnection ?: return
         ic.beginBatchEdit()
         com.aegis.ime.ime.LargeCommit.commit(text) { ic.commitText(it, 1) }
@@ -816,6 +900,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     override fun deleteCodePointBackward() {
         if (panelInput.backspace()) return
         currentInputConnection?.deleteSurroundingTextInCodePoints(1, 0)
+    }
+
+    override fun panelBackspace() {
+        if (panelInput.backspace()) return
+        controller.expireCandidateChoiceUndo()
+        if (hasSelection()) deleteSelection() else deleteCodePointBackward()
     }
 
     override fun textBeforeCursor(n: Int): CharSequence =

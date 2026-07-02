@@ -18,9 +18,9 @@ package com.aegis.ime.user
 import java.io.File
 
 /**
- * Backs the "常用" symbol category (D): most-recently-used first, de-duplicated, capped, persisted to
+  * Chinese IME behavior note.
  * filesDir. Re-using a symbol moves it back to the front, so repeatedly-used glyphs stay near the top
- * while newly-used ones surface immediately ("历史 + 时间自动排序", recency-ordered). Single-token symbols
+  * Chinese IME behavior note.
  * only — no newlines — so a plain line-per-entry file is enough.
  */
 class SymbolUsageStore(private val dir: File) {
@@ -31,7 +31,7 @@ class SymbolUsageStore(private val dir: File) {
     fun load() {
         used.clear()
         // U2: de-dup on load too — a pre-existing file with duplicate lines (from any older bug) is cleaned
-        // so 常用 never shows the same symbol twice. record() already de-dups; this guards the read path.
+        // Chinese IME behavior note.
         val seen = HashSet<String>()
         runCatching { if (file.exists()) file.readLines().forEach { if (it.isNotEmpty() && seen.add(it)) used.add(it) } }
         while (used.size > MAX) used.removeAt(used.size - 1) // honour the cap even for a hand-edited file

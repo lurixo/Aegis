@@ -23,7 +23,7 @@ import org.junit.Test
 class SymbolCatalogTest {
 
     @Test fun category_titles_match_the_expected_order() {
-        // 常用 is dynamic (not in the static catalogue); the rest follow the expected order.
+        // Chinese IME behavior note.
         assertEquals(
             listOf("中文", "英文", "货币", "网络", "数学", "希腊", "箭头", "角标", "序号", "音标", "拼音"),
             SymbolCatalog.categories.map { it.title },
@@ -39,19 +39,37 @@ class SymbolCatalogTest {
     }
 
     @Test fun category_title_lookup_drives_the_common_origin_badge() {
-        // P2(#6): 常用 symbols get an origin badge via reverse lookup (first-listed category wins).
+        // Chinese IME behavior note.
         assertEquals("中文", SymbolCatalog.categoryTitleOf("，"))
         assertEquals("英文", SymbolCatalog.categoryTitleOf(","))   // ascii comma is an English mark
         assertEquals("货币", SymbolCatalog.categoryTitleOf("¥"))
         assertEquals("数学", SymbolCatalog.categoryTitleOf("±"))
         assertEquals(null, SymbolCatalog.categoryTitleOf("😀")) // 😀 not in any static category
-        // the badge is the title's first char (中 / 英 …)
+        // Chinese IME behavior note.
         assertEquals("中", SymbolCatalog.categoryTitleOf("，")?.take(1))
         assertEquals("英", SymbolCatalog.categoryTitleOf(",")?.take(1))
     }
 
+    @Test fun paired_symbol_insertion_uses_the_full_pair_only_at_the_end() {
+        assertEquals(listOf("（", "）"), SymbolCatalog.insertionFor("（", hasTextAfterCursor = false))
+        assertEquals(listOf("（"), SymbolCatalog.insertionFor("（", hasTextAfterCursor = true))
+        assertEquals(listOf("\"", "\""), SymbolCatalog.insertionFor("\"", hasTextAfterCursor = false))
+        assertEquals(listOf("'", "'"), SymbolCatalog.insertionFor("'", hasTextAfterCursor = false))
+        assertEquals(listOf("[", "]"), SymbolCatalog.insertionFor("[", hasTextAfterCursor = false))
+        assertEquals(listOf("`", "`"), SymbolCatalog.insertionFor("`", hasTextAfterCursor = false))
+        assertEquals(listOf("'"), SymbolCatalog.insertionFor("'", hasTextAfterCursor = true))
+        assertEquals(listOf("["), SymbolCatalog.insertionFor("[", hasTextAfterCursor = true))
+        assertEquals(listOf("，"), SymbolCatalog.insertionFor("，", hasTextAfterCursor = false))
+    }
+
+    @Test fun paired_symbol_left_marks_are_present_in_the_catalogue() {
+        for (left in listOf("（", "《", "「", "【", "“", "‘", "(", "[", "{", "<", "\"", "'", "`")) {
+            assertTrue("paired left mark $left must be reachable from the symbol catalogue", SymbolCatalog.categoryTitleOf(left) != null)
+        }
+    }
+
     @Test fun currency_category_sits_between_english_and_net_with_common_symbols() {
-        // U24: 货币 between 英文 and 网络.
+        // Chinese IME behavior note.
         val ids = SymbolCatalog.categories.map { it.id }
         assertEquals(ids.indexOf("en") + 1, ids.indexOf("currency"))
         assertEquals(ids.indexOf("currency") + 1, ids.indexOf("net"))
@@ -60,7 +78,7 @@ class SymbolCatalogTest {
     }
 
     @Test fun net_drops_domain_suffixes_but_keeps_url_completions() {
-        // P5: 域名后缀 (.com/.cn/.net/.org) removed; URL completions stay (SymbolsView renders them as chips).
+        // Chinese IME behavior note.
         val net = SymbolCatalog.categories.first { it.id == "net" }.symbols
         for (suffix in listOf(".com", ".cn", ".net", ".org")) assertTrue("$suffix should be removed", suffix !in net)
         for (c in listOf("http://", "https://", "www.", "://")) assertTrue("missing completion $c", c in net)
@@ -75,7 +93,7 @@ class SymbolCatalogTest {
 
     @Test fun pinyin_covers_every_base_vowel_in_all_four_tones() {
         val pinyin = SymbolCatalog.categories.first { it.id == "pinyin" }.symbols.toSet()
-        // 拼音 āōēīūǖ 全声调 — each base vowel across tones 1-4.
+        // Chinese IME behavior note.
         val toned = listOf(
             "ā", "á", "ǎ", "à",
             "ō", "ó", "ǒ", "ò",
@@ -94,7 +112,7 @@ class SymbolCatalogTest {
     }
 
     @Test fun net_category_is_url_helpers_not_kaomoji() {
-        // 网络 = `. / @ - _ http:// https://` (URL helpers), not kaomoji/decoration.
+        // Chinese IME behavior note.
         val net = SymbolCatalog.categories.first { it.id == "net" }.symbols
         for (u in listOf(".", "/", "@", "-", "_", "http://", "https://")) assertTrue("missing $u", u in net)
         assertTrue(
@@ -103,13 +121,13 @@ class SymbolCatalogTest {
         )
     }
 
-    // ---- debug.16 item4: the symbol keyboard's 中文 / 英文 / 数学 sets gain the commonly-missing marks ----
+    // Chinese IME behavior note.
 
     private fun cat(id: String) = SymbolCatalog.categories.first { it.id == id }.symbols
 
     @Test fun chineseUsesSingleCellDashAndEllipsisOnly() {
-        // debug.17: the wide 双破折号 —— / 双省略号 …… were dropped — 中文 keeps ONLY the single-cell 单短横 — and
-        // 三点 …, so the tab carries NO multi-char tile at all (the wide-tile layout problem is gone at the source).
+        // Chinese IME behavior note.
+        // Chinese IME behavior note.
         assertTrue("中文 single — / … present", cat("zh").containsAll(listOf("—", "…")))
         assertTrue("中文 双破折号 —— dropped", "——" !in cat("zh"))
         assertTrue("中文 双省略号 …… dropped", "……" !in cat("zh"))
@@ -123,12 +141,12 @@ class SymbolCatalogTest {
             "sin", "cos", "tan", "cot", "sec", "csc", "arcsin", "arccos", "arctan", "sinh", "cosh", "tanh")))
         assertTrue("数学 计量单位", cat("math").containsAll(listOf(
             "℃", "℉", "㎏", "㎜", "㎝", "㎞", "㎡", "㎥", "㎎", "㎖")))
-        // these units also live in 角标; the FIRST listing (数学, earlier in the list) wins the 常用 origin badge.
+        // Chinese IME behavior note.
         assertEquals("数学", SymbolCatalog.categoryTitleOf("℃"))
     }
 
     @Test fun greekCategorySitsBetweenMathAndArrow() {
-        // debug.17 item 3: 希腊 inserted between 数学 and 箭头, the COMPLETE lowercase α…ω (incl. final sigma ς)
+        // Chinese IME behavior note.
         // and uppercase Α…Ω — locked in full so a future accidental omission (e.g. ξ / υ) fails the test.
         val ids = SymbolCatalog.categories.map { it.id }
         assertEquals("希腊 right after 数学", ids.indexOf("math") + 1, ids.indexOf("greek"))
@@ -159,8 +177,8 @@ class SymbolCatalogTest {
     }
 
     @Test fun nineFixedPunctuationStaysInSyncWithTheColumn() {
-        // The pinyin 自定义 中文 palette (debug.16 item1) excludes exactly these fixed marks, so they must equal
-        // what the 9-key punctuation column always shows (the fixed marks, then 自定义).
+        // Chinese IME behavior note.
+        // Chinese IME behavior note.
         assertEquals(Layouts.nineFixedPunctuation + "自定义", Layouts.ninePunctuation().map { it.label })
     }
 }

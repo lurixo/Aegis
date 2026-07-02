@@ -61,7 +61,7 @@ object ClipboardPolicy {
         !secureField && historyEnabled
 
     /**
-     * 复制条 display: should the most-recently-captured 复制条 be RESTORED when a field (re)starts?
+      * Chinese IME behavior note.
      * iff there is a pending clip — DECOUPLED from [isSensitive]/secureField on purpose. Showing a clip that
      * was captured ELSEWHERE is a paste convenience available in EVERY field type, including terminal /
      * username fields that report `textVisiblePassword` (Termius, Termux, JuiceSSH…) and even real password

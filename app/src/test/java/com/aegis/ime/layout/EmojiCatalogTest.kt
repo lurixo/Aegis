@@ -19,11 +19,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** E2 表情 categories: a near-complete emoji keyboard, each category non-empty and de-duplicated. */
+/** Chinese IME behavior note. */
 class EmojiCatalogTest {
 
     @Test fun has_the_expected_categories_in_order() {
-        // debug.14: 旗帜 moved up to between 手势 and 动物 (the rest keep their relative order).
+        // Chinese IME behavior note.
         assertEquals(
             listOf("黄脸", "手势", "旗帜", "动物", "植物", "食物", "旅行", "活动", "物品", "符号"),
             EmojiCatalog.categories.map { it.title },

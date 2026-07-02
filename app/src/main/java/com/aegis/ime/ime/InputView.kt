@@ -35,19 +35,19 @@ class InputView(context: Context) : LinearLayout(context) {
     var onPickReading: (Int) -> Unit = {}   // A2 expanded screen: pick a pinyin combination (left column)
     var onFunction: (BarFunction) -> Unit = {}
     var onBackspaceSwipe: (Boolean) -> Unit = {}
-    var onPanelBackspace: () -> Unit = {}   // A2 expanded screen: 退格
-    var onPanelClear: () -> Unit = {}       // A2 expanded screen: 重输
+    var onPanelBackspace: () -> Unit = {} // Chinese IME behavior note.
+    var onPanelClear: () -> Unit = {} // Chinese IME behavior note.
     var onExpandClosed: () -> Unit = {}     // UI-2: the expand grid closed → drop any drilled-syllable state
     var onCollapse: () -> Unit = {}
-    var onCopyCommit: (String) -> Unit = {} // 复制条 ⑤: 上屏 the copied content
-    var onCopyBlock: (String) -> Unit = {}  // 复制条 ③: 拆词 block → aegis clipboard
-    var onCopyDismiss: () -> Unit = {}      // U21: 复制条 ④/⑤ left → host forgets the persisted clip
-    var onEditConfirm: () -> Unit = {}      // debug.16: inline edit bar 确定
-    var onEditCancel: () -> Unit = {}       // debug.16: inline edit bar 取消
+    var onCopyCommit: (String) -> Unit = {} // Chinese IME behavior note.
+    var onCopyBlock: (String) -> Unit = {} // Chinese IME behavior note.
+    var onCopyDismiss: () -> Unit = {} // Chinese IME behavior note.
+    var onEditConfirm: () -> Unit = {} // Chinese IME behavior note.
+    var onEditCancel: () -> Unit = {} // Chinese IME behavior note.
 
     private val preeditView = PreeditView(context)
     private val candidateView = CandidateView(context)
-    private val copyBarView = CopyBarView(context) // 复制条: shares the candidate-strip row
+    private val copyBarView = CopyBarView(context) // Chinese IME behavior note.
     private val editBarView = EditBarView(context) // debug.16: inline text-input bar (above the candidate strip)
     private val keyboardView = KeyboardView(context)
     private val panelContainer = FrameLayout(context)
@@ -55,7 +55,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private val body = LinearLayout(context) // grey-filled body: candidate bar + keyboard / panel
     private var lastCandidates: List<String> = emptyList()
     private var lastReadings: List<String> = emptyList()
-    private var lastSelectedReading = -1 // UI-2: which expand-screen syllable (分词) is drilled, −1 = none
+    private var lastSelectedReading = -1 // Chinese IME behavior note.
     private var composingNow = false // U21: whether the candidate strip is showing candidates / preedit
     private var currentPanel: View? = null // which panel is showing (B-1: only the A2 grid auto-closes)
     private var palette = ImePalette.STATIC_LIGHT
@@ -76,7 +76,14 @@ class InputView(context: Context) : LinearLayout(context) {
     fun palette(): ImePalette = palette
 
     /** debug.16: show/hide the inline text-input bar (keyboard + candidate strip stay visible below it). */
-    fun showEditBar(active: Boolean) { editBarView.visibility = if (active) VISIBLE else GONE }
+    fun showEditBar(active: Boolean) {
+        if (active) {
+            Motion.revealIn(editBarView, Motion.EnterFrom.TOP, distanceDp = 6f, duration = Motion.STATE_CHANGE)
+        } else {
+            editBarView.visibility = GONE
+            Motion.reset(editBarView)
+        }
+    }
     fun isEditBarShowing(): Boolean = editBarView.visibility == VISIBLE
     fun setEditTitle(t: String) { editBarView.setTitle(t) }
     fun setEditText(t: String) { editBarView.setText(t) }
@@ -84,10 +91,10 @@ class InputView(context: Context) : LinearLayout(context) {
     init {
         orientation = VERTICAL
         // the root is TRANSPARENT so the preedit band at the very top shows the app through it
-        // — only the floating pinyin tab pokes above the candidate bar. The
+        // Chinese IME behavior note.
         // keyboard-grey fill (for the inset gutters behind the gesture bar / cutout) lives on [body], which
         // is also where the window-insets padding is applied. Before this the whole top was a tall opaque
-        // grey band, which read as "顶部背景过高".
+        // Chinese IME behavior note.
         candidateView.onPick = { index -> onPickCandidate(index) }
         candidateView.onFunction = { f -> onFunction(f) }
         candidateView.onExpand = { showExpandedCandidates() }
@@ -102,7 +109,7 @@ class InputView(context: Context) : LinearLayout(context) {
         gridView.onClear = { onPanelClear() }
         keyboardView.onKey = { key -> onKey(key) }
         keyboardView.onBackspaceSwipe = { up -> onBackspaceSwipe(up) }
-        // 复制条: content → 上屏; block → aegis clipboard; both ⑤ and ④ leave via onDismiss.
+        // Chinese IME behavior note.
         copyBarView.onCommit = { t -> onCopyCommit(t) }
         copyBarView.onCopyBlock = { b -> onCopyBlock(b) }
         copyBarView.onDismiss = { hideCopyBar(); onCopyDismiss() }
@@ -121,7 +128,7 @@ class InputView(context: Context) : LinearLayout(context) {
         editBarView.visibility = GONE // debug.16: shown above the candidate strip only while inline-editing
         body.addView(editBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
         body.addView(candidateView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
-        copyBarView.visibility = GONE // 复制条 occupies the same 44dp row as the candidate strip when shown
+        copyBarView.visibility = GONE // Chinese IME behavior note.
         body.addView(copyBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
         body.addView(keyboardView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         panelContainer.visibility = GONE
@@ -179,6 +186,9 @@ class InputView(context: Context) : LinearLayout(context) {
         // half-faded keyboard / panel / preedit.
         Motion.reset(keyboardView)
         Motion.reset(preeditView)
+        Motion.reset(candidateView)
+        Motion.reset(copyBarView)
+        Motion.reset(editBarView)
         currentPanel?.let { Motion.reset(it) }
     }
 
@@ -194,17 +204,15 @@ class InputView(context: Context) : LinearLayout(context) {
         keyboardView.setLayout(layout, shifted, locked, lang)
     }
 
-    /** 复制条: show the captured clip on the taskbar row (replacing the normal toolbar). */
+    /** Chinese IME behavior note. */
     fun showCopyBar(text: String) {
         copyBarView.show(text)
-        copyBarView.visibility = VISIBLE
-        candidateView.visibility = GONE
+        Motion.swapIn(copyBarView, candidateView)
     }
 
     /** Leave the copy-bar state → restore the normal candidate strip / toolbar. */
     fun hideCopyBar() {
-        copyBarView.visibility = GONE
-        candidateView.visibility = VISIBLE
+        Motion.swapIn(candidateView, copyBarView)
     }
 
     val copyBarShown: Boolean get() = copyBarView.visibility == VISIBLE
@@ -228,7 +236,7 @@ class InputView(context: Context) : LinearLayout(context) {
         // re-show (no typing) keeps it. × / ⑤ already clear it via onCopyDismiss.
         if (copyBarShown && composingNow) { hideCopyBar(); onCopyDismiss() }
         // B-1/M-1/L-1: ONLY the A2 expanded candidate grid reacts to a render here — it live-refreshes and
-        // closes when composing ends. Every OTHER panel (emoji / clipboard / symbols / 自定义 / edit) must
+        // Chinese IME behavior note.
         // SURVIVE the render() that trails each onKey / setCustomSymbols / setEngine; the old code closed ANY
         // visible panel the moment the preedit emptied, so a panel opened then immediately auto-closed.
         if (currentPanel === gridView) {
@@ -247,6 +255,9 @@ class InputView(context: Context) : LinearLayout(context) {
     /** Candidates actually rendered in the strip right now (test hook, U1 regression guard). */
     internal fun shownCandidateCount(): Int = candidateView.itemCount()
 
+    internal fun expandedReadingTextColorForTest(index: Int): Int? =
+        gridView.readingTextColorForTest(index)
+
     /** U14 test seam: the candidate-bar chevron glyph (⌃ while the A2 grid is open, else ⌄). */
     internal fun barChevronGlyph(): String = candidateView.chevronGlyph()
 
@@ -254,11 +265,11 @@ class InputView(context: Context) : LinearLayout(context) {
     fun showPanel(panel: View?) {
         val outgoing = currentPanel
         // P7 (#19): the panel we're leaving returns to its default state, so the next open always starts
-        // fresh (default tab/category/scroll, no lock/overlay). Every close funnels through here — 返回, a
+        // Chinese IME behavior note.
         // commit, the P4 re-tap toggle, and onStartInputView's showPanel(null) — so one hook covers them all.
         (outgoing as? ResettablePanel)?.takeIf { it !== panel }?.resetToDefault()
         // UI-2: leaving the expand grid drops any drilled-syllable state so the strip returns to the normal
-        // word candidates instead of staying stuck on one syllable's 同音字 (the panel close is not a keystroke,
+        // Chinese IME behavior note.
         // so nothing else would reset it).
         if (outgoing === gridView && panel !== gridView) onExpandClosed()
         panelContainer.removeAllViews()
@@ -274,7 +285,7 @@ class InputView(context: Context) : LinearLayout(context) {
         } else {
             // U19: occupy EXACTLY the keyboard's current footprint so opening a panel never grows or shrinks
             // the IME window. The old fixed 250dp expanded the short 9-key (panel taller) and shrank the tall
-            // 26-key (panel shorter) — "九键向上扩展 / 26键向下缩放". Matching the live keyboard height keeps it
+            // Chinese IME behavior note.
             // constant on every layout; panels scroll internally if their content needs more room.
             setPanelHeight(keyboardView.height.takeIf { it > 0 } ?: dp(250))
             (panel.parent as? ViewGroup)?.removeView(panel)
@@ -284,7 +295,7 @@ class InputView(context: Context) : LinearLayout(context) {
             )
             panelContainer.visibility = VISIBLE
             keyboardView.visibility = GONE
-            Motion.fadeIn(panel) // U-anim: MD3 fade-through (incoming half). Alpha only — the slot height is pinned above.
+            Motion.revealIn(panel, Motion.EnterFrom.BOTTOM) // The slot height is pinned above.
         }
     }
 

@@ -17,21 +17,22 @@ package com.aegis.ime.layout
 
 /**
  * Static symbol catalogue for the D symbols panel (SymbolsView). Pure data — no Android deps, so the
- * category contents are unit-testable. The dynamic "常用" category (recent + frequency) is NOT here;
+  * Chinese IME behavior note.
  * the view prepends it from the usage store. Order:
- * 常用 / 中文 / 英文 / 货币 / 网络 / 数学 / 希腊 / 箭头 / 角标 / 序号 / 音标 / 拼音.
+  * Chinese IME behavior note.
  */
 object SymbolCatalog {
 
     data class Category(val id: String, val title: String, val symbols: List<String>)
+    data class Pairing(val left: String, val right: String)
 
-    /** The "常用" tab is dynamic; this id lets the view slot it in at the front. */
+    /** Chinese IME behavior note. */
     const val RECENT_ID = "recent"
     const val RECENT_TITLE = "常用"
 
     val categories: List<Category> = listOf(
-        // P1(#5): comma before period in both 中文 and 英文. debug.17: 破折号/省略号 are the single-cell 单短横 —
-        // and 三点 … ONLY — the wide 双破折号 —— / 双省略号 …… were dropped so 中文 carries NO multi-char tile (the
+        // Chinese IME behavior note.
+        // Chinese IME behavior note.
         // wide-tile layout problem is removed at the source). Plus full-width marks.
         Category("zh", "中文", tokens("， 。 、 ； ： ？ ！ “ ” ‘ ’ （ ） 《 》 〈 〉 「 」 『 』 【 】 〔 〕 〖 〗 … — ～ · ※ ° ‖ ￥ 〃 ＿ ﹏ ﹋ ＃ ＆ ＊ ＠ ％ ＋ ＝ ｜ ＜ ＞ ／ ＼ ｀")),
         // debug.16 item4: add en-dash – (was only em-dash —) and the ™©®¶ marks (previously only on the legacy
@@ -41,40 +42,67 @@ object SymbolCatalog {
             "<", ">", "/", "\\", "|", "@", "#", "$", "%", "^", "&", "*", "-", "_", "+", "=", "~",
             "…", "•", "·", "—", "–", "°", "§", "¶", "™", "©", "®",
         )),
-        // U24: 货币 — between 英文 and 网络.
+        // Chinese IME behavior note.
         Category("currency", "货币", tokens("$ ¥ € £ ₩ ₹ ₽ ₺ ฿ ₫ ₴ ₦ ¢ ₱ ₪ ₸ ₮ ₭ ₲ ₡ ₵ ₿ ﷼ ₠ ₣ ₤ ₥ 元 円 圆")),
-        // 网络 = URL-building helpers (NOT kaomoji/decoration). debug.12 P5: domain
+        // Chinese IME behavior note.
         // suffixes (.com/.cn/.net/.org) removed; the multi-char completions (http:// https:// www. ://) are
         // rendered as full-width chips by SymbolsView so they no longer truncate in the single-glyph grid.
         Category("net", "网络", listOf(
             ".", "/", "@", "-", "_", "http://", "https://", "www.", "://", ":", "#", "?", "&", "=", "%",
         )),
-        // debug.16 item4: add ∴∵ (所以/因为), 全等/相似 ≅∽, 圈运算 ⊕⊗⊙, 重积分 ∬∭, 数集 ℝℕℤℚℂ.
-        // debug.17: + 三角函数 (sin…arctan…tanh — multi-char, ride the grid as auto-shrink equal-width cells) and
-        // 计量单位 (℃ ㎏ ㎡ …, also listed in 角标 — the first listing here wins the 常用 origin badge; intentionally
-        // NOT deduped out of 角标).
+        // Chinese IME behavior note.
+        // Chinese IME behavior note.
+        // Chinese IME behavior note.
+        // Chinese IME behavior note.
         Category("math", "数学", tokens("+ − × ÷ = ≠ ≈ ≡ ± ∓ ≤ ≥ ∞ √ ∛ ∑ ∏ ∫ ∬ ∭ ∮ ∂ ∇ ∆ ％ ‰ ∝ ∴ ∵ ∠ ⊥ ∥ ° ′ ″ π θ φ λ μ Σ Ω ½ ⅓ ¼ ¾ ⅔ ∈ ∉ ⊂ ⊃ ⊆ ⊇ ∪ ∩ ∅ ∀ ∃ ≅ ∽ ⊕ ⊗ ⊙ ℝ ℕ ℤ ℚ ℂ sin cos tan cot sec csc arcsin arccos arctan sinh cosh tanh ℃ ℉ ㎏ ㎜ ㎝ ㎞ ㎡ ㎥ ㎎ ㎖")),
-        // debug.17: 希腊字母 — lowercase α…ω (incl. final sigma ς) then uppercase Α…Ω, slotted between 数学 and 箭头.
+        // Chinese IME behavior note.
         Category("greek", "希腊", tokens("α β γ δ ε ζ η θ ι κ λ μ ν ξ ο π ρ σ ς τ υ φ χ ψ ω Α Β Γ Δ Ε Ζ Η Θ Ι Κ Λ Μ Ν Ξ Ο Π Ρ Σ Τ Υ Φ Χ Ψ Ω")),
         Category("arrow", "箭头", tokens("← → ↑ ↓ ↔ ↕ ↖ ↗ ↘ ↙ ⇐ ⇒ ⇑ ⇓ ⇔ ⇕ ↩ ↪ ↺ ↻ ➜ ➤ ➔ ⟶ ⟵ » « ‹ › ⬅ ➡ ⬆ ⬇ ⤴ ⤵")),
         Category("supsub", "角标", tokens("⁰ ¹ ² ³ ⁴ ⁵ ⁶ ⁷ ⁸ ⁹ ⁺ ⁻ ⁼ ⁽ ⁾ ⁿ ⁱ ₀ ₁ ₂ ₃ ₄ ₅ ₆ ₇ ₈ ₉ ₊ ₋ ₌ ₍ ₎ ₐ ₑ ₒ ₓ ℃ ℉ ㎡ ㎥ ㎏ ㎜ ㎝ ㎞ ㎎ ㎖")),
         Category("ordinal", "序号", tokens("① ② ③ ④ ⑤ ⑥ ⑦ ⑧ ⑨ ⑩ ⑪ ⑫ ⑬ ⑭ ⑮ ⑯ ⑰ ⑱ ⑲ ⑳ ⒈ ⒉ ⒊ ⒋ ⒌ ⒍ ⒎ ⒏ ⒐ ⒑ ⑴ ⑵ ⑶ ⑷ ⑸ ⑹ ⑺ ⑻ ⑼ ⑽ Ⅰ Ⅱ Ⅲ Ⅳ Ⅴ Ⅵ Ⅶ Ⅷ Ⅸ Ⅹ ⅰ ⅱ ⅲ ⅳ ⅴ ㈠ ㈡ ㈢ ㈣ ㈤ ㈥ ㈦ ㈧ ㈨ ㈩ Ⓐ Ⓑ Ⓒ ⓐ ⓑ ⓒ")),
         Category("ipa", "音标", tokens("i ɪ e ɛ æ ə ɜ ʌ ɑ ɒ ɔ o ʊ u y ø θ ð ʃ ʒ ŋ ʤ ʧ ç x ɣ ʔ ɹ ɫ ɲ ˈ ˌ ː ˑ")),
-        // 拼音: every base vowel ā ō ē ī ū ǖ across all four tones (拼音 āōēīūǖ 全声调).
+        // Chinese IME behavior note.
         Category("pinyin", "拼音", tokens("a ā á ǎ à o ō ó ǒ ò e ē é ě è ê i ī í ǐ ì u ū ú ǔ ù ü ǖ ǘ ǚ ǜ n ń ň ǹ ḿ")),
     )
 
     /**
      * P2(#6): the category a symbol belongs to (its FIRST listing in [categories] order) — used for the
-     * 常用 origin badge (中文→"中", 英文→"英", …). null when the symbol isn't in any static category.
+      * Chinese IME behavior note.
      */
     fun categoryTitleOf(symbol: String): String? = symbolToCategory[symbol]
+
+    fun pairingFor(symbol: String): Pairing? = pairedSymbols[symbol]?.let { Pairing(symbol, it) }
+
+    fun insertionFor(symbol: String, hasTextAfterCursor: Boolean): List<String> {
+        val pair = pairingFor(symbol)
+        return if (pair != null && !hasTextAfterCursor) listOf(pair.left, pair.right) else listOf(symbol)
+    }
 
     private val symbolToCategory: Map<String, String> by lazy {
         val m = LinkedHashMap<String, String>()
         for (c in categories) for (s in c.symbols) m.putIfAbsent(s, c.title)
         m
     }
+
+    private val pairedSymbols: Map<String, String> = linkedMapOf(
+        "（" to "）",
+        "《" to "》",
+        "〈" to "〉",
+        "「" to "」",
+        "『" to "』",
+        "【" to "】",
+        "〔" to "〕",
+        "〖" to "〗",
+        "“" to "”",
+        "‘" to "’",
+        "(" to ")",
+        "[" to "]",
+        "{" to "}",
+        "<" to ">",
+        "\"" to "\"",
+        "'" to "'",
+        "`" to "`",
+    )
 
     private fun tokens(s: String): List<String> = s.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
 }

@@ -22,12 +22,12 @@ import java.io.File
  * debug.12 input-core regression — the EXACT scenario (multi-syllable jiujianzuoce, real dict,
  * real [InputView]), NOT a happy-case. Locks the three confirmed bugs so they cannot return:
  *
- *  S1(c) "选一个就上屏一个": a partial candidate pick must NOT dribble into the editor — it builds an
+  * Chinese IME behavior note.
  *        IME-internal confirmed prefix (shown at the strip's leftmost) and decoding continues; the whole
  *        word lands in ONE commit only when complete.
- *  left column "读音变标点": locking syllables must keep the strip rich and the left column on real
+  * Chinese IME behavior note.
  *        readings (then empty once all are locked) — never fall back to punctuation while composing.
- *  S2 selection backspace: 退格 with an active selection deletes the SELECTION itself, not the char before.
+  * Chinese IME behavior note.
  *
  * jiujianzuoce digits: jiu=548 jian=5426 zuo=986 ce=23 → "548542698623".
  */
@@ -87,8 +87,9 @@ class Debug12InputCoreTest {
     }
 
     private fun digit(d: Char) = Key(d.toString(), output = d.toString())
+    private fun isSingleChar(word: String): Boolean = word.codePointCount(0, word.length) == 1
 
-    /** No left-column key may ever be punctuation while composing (the "读音变标点" bug). Empty is fine
+    /**
      *  (all syllables locked); real readings are PICK_READING; punctuation keys are not. */
     private fun leftColumnHasNoPunctuation(c: KeyboardController): Boolean =
         c.nineLeftColumn().all { it.action == KeyAction.PICK_READING }
@@ -121,7 +122,7 @@ class Debug12InputCoreTest {
             assertTrue("no punctuation in the left column after locking '$r'", leftColumnHasNoPunctuation(c))
         }
         // UI-1 (debug.13): all four locked → the left column does NOT vanish (the old behaviour). It keeps
-        // the LAST syllable ('ce') visible + re-pickable, and is never punctuation (the 读音变标点 bug stays gone).
+        // Chinese IME behavior note.
         assertTrue("left column persists after locking every syllable", c.expandedReadings().isNotEmpty())
         assertTrue("the persisted column still offers the last syllable 'ce', was ${c.expandedReadings()}", "ce" in c.expandedReadings())
         assertTrue("the persisted column is never punctuation", leftColumnHasNoPunctuation(c))
@@ -137,12 +138,12 @@ class Debug12InputCoreTest {
         digits.forEach { c.onKey(digit(it)) }
 
         // Pick a single-character candidate (a PARTIAL pick — it covers only the first syllable).
-        val partialIdx = c.candidateWords().indexOfFirst { it.length == 1 }
+        val partialIdx = c.candidateWords().indexOfFirst { isSingleChar(it) }
         assertTrue("a single-char partial candidate is offered, was ${c.candidateWords().take(8)}", partialIdx >= 0)
         val firstChar = c.candidateWords()[partialIdx]
         c.onPickCandidate(partialIdx)
 
-        // THE S1(c) BUG: this used to commitText(firstChar) immediately ("选一个就上屏一个"). It must not.
+        // Chinese IME behavior note.
         assertTrue("a partial pick must NOT commit to the editor, commits=${host.commits}", host.commits.isEmpty())
         assertEquals("the pick is held as the assembled prefix", firstChar, c.composingPrefix())
         assertTrue(

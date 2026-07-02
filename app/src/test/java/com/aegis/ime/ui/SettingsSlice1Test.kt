@@ -16,6 +16,8 @@
 package com.aegis.ime.ui
 
 import androidx.core.content.edit
+import com.aegis.ime.R
+import com.aegis.ime.dict.EngineAssets
 import com.aegis.ime.dict.ModelDownload
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -32,7 +34,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 /**
- * debug.13 slice-1 logic guards: the dict-pack download surface added to [ModelDownload] (B2) and the 联想
+  * Chinese IME behavior note.
  * toggle pref (D1). The Compose layout itself (model card above dict card, the toggle Switch) is verified by
  * render/eyeball; this pins the non-UI contracts the cards depend on.
  */
@@ -47,7 +49,7 @@ class SettingsSlice1Test {
     @Test fun dict_surface_is_independent_of_the_gram_surface() {
         assertNotEquals(ModelDownload.DICT_NAME, ModelDownload.GRAM_NAME)
         assertNotEquals(ModelDownload.DICT_VALIDATOR_PREF, ModelDownload.VALIDATOR_PREF)
-        assertNotEquals(ModelDownload.DICT_URL, ModelDownload.GRAM_URL)
+        assertNotEquals(ModelDownload.FALLBACK_DICT_ASSET.url, ModelDownload.GRAM_URL)
         assertNotEquals(
             ModelDownload.dictZipFile(ctx.filesDir).absolutePath,
             ModelDownload.destFile(ctx.filesDir).absolutePath,
@@ -56,13 +58,40 @@ class SettingsSlice1Test {
         assertEquals(ModelDownload.destFile(ctx.filesDir).parentFile, ModelDownload.dictZipFile(ctx.filesDir).parentFile)
     }
 
-    // ---- debug.14 Bug1: the dict 来源链接 is the UPSTREAM repo, symmetric with the model card ----
+    // Chinese IME behavior note.
 
     @Test fun dict_repo_link_points_at_the_upstream_wanxiang_repo() {
         assertEquals("https://github.com/amzxyz/rime-wanxiang", ModelDownload.DICT_REPO_URL)
         // not the release-asset download URL, and not the model repo
-        assertNotEquals(ModelDownload.DICT_URL, ModelDownload.DICT_REPO_URL)
+        assertNotEquals(ModelDownload.FALLBACK_DICT_ASSET.url, ModelDownload.DICT_REPO_URL)
         assertNotEquals(ModelDownload.REPO_URL, ModelDownload.DICT_REPO_URL)
+    }
+
+    @Test fun resource_update_sources_are_not_app_update_wiring() {
+        assertEquals(
+            "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/${ModelDownload.GRAM_NAME}",
+            ModelDownload.GRAM_URL,
+        )
+        assertEquals("https://github.com/amzxyz/RIME-LMDG", ModelDownload.REPO_URL)
+        assertEquals(
+            "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.13/${ModelDownload.FALLBACK_DICT_NAME}",
+            ModelDownload.FALLBACK_DICT_ASSET.url,
+        )
+        assertEquals("https://api.github.com/repos/lurixo/Aegis/releases?per_page=100", ModelDownload.DICT_RELEASES_API_URL)
+        assertEquals("https://github.com/amzxyz/rime-wanxiang", ModelDownload.DICT_REPO_URL)
+        assertFalse("model updates must not point at the Aegis app repo", ModelDownload.REPO_URL.contains("lurixo/Aegis"))
+        assertFalse("dictionary source link must not point at the Aegis app repo", ModelDownload.DICT_REPO_URL.contains("lurixo/Aegis"))
+        assertFalse("resource downloads must not be APK self-update assets", ModelDownload.GRAM_URL.endsWith(".apk"))
+        assertFalse("resource downloads must not be APK self-update assets", ModelDownload.FALLBACK_DICT_ASSET.url.endsWith(".apk"))
+        assertFalse("resource discovery must not be an APK endpoint", ModelDownload.DICT_RELEASES_API_URL.endsWith(".apk"))
+    }
+
+    @Test fun resource_update_labels_are_specific_to_model_and_dictionary() {
+        assertEquals("Check model updates", ctx.getString(R.string.check_model_update_button))
+        assertEquals("Check dictionary updates", ctx.getString(R.string.check_dict_update_button))
+        assertFalse(ctx.getString(R.string.gram_status_update_current).contains("app", ignoreCase = true))
+        assertFalse(ctx.getString(R.string.dict_status_update_current).contains("app", ignoreCase = true))
+        assertTrue(ctx.getString(R.string.app_version_card_description).contains("separate"))
     }
 
     // ---- B2 (slice-3): the dict pack is a ZIP → sha256-verify → unzip 3 .bin → rename ----
@@ -84,6 +113,11 @@ class SettingsSlice1Test {
         val produced = ModelDownload.extractDictPack(zip, dir)
         assertEquals(ModelDownload.DICT_PACK_FILES.toSet(), produced)
         assertTrue("3 bins present", ModelDownload.isDictDownloaded(ctx.filesDir))
+        assertTrue("installed dict files are tracked for engine reload", ModelDownload.DICT_PACK_FILES.all { it in EngineAssets.ASSET_NAMES })
+        assertEquals(
+            File(dir, "aegis_dict.bin").absolutePath,
+            EngineAssets.downloadedOverride(dir, "aegis_dict.bin")?.absolutePath,
+        )
         assertEquals("DICT".repeat(400), File(dir, "aegis_dict.bin").readText())
     }
 
@@ -111,7 +145,7 @@ class SettingsSlice1Test {
     }
 
     @Test fun updateAvailable_semantics_reused_for_the_dict_card() {
-        // B5: same rule as the model — only an exact validator match suppresses 更新.
+        // Chinese IME behavior note.
         assertTrue("never recorded → offer", ModelDownload.updateAvailable(null, "etag-1"))
         assertFalse("identical → suppress", ModelDownload.updateAvailable("etag-1", "etag-1"))
         assertTrue("differ → offer", ModelDownload.updateAvailable("etag-1", "etag-2"))
@@ -129,13 +163,13 @@ class SettingsSlice1Test {
     }
 
     @Test fun a_check_resolving_after_delete_is_discarded_and_never_redownloads() {
-        // F1: present=false (user tapped 删除 during the in-flight HEAD) → null = no-op, even when remote≠local
+        // Chinese IME behavior note.
         // (which would otherwise have started a re-download of the just-deleted pack).
         assertNull("deleted mid-check → discard", ModelDownload.updateAction(false, null, "etag-2"))
         assertNull("deleted mid-check, differing validators → still discard", ModelDownload.updateAction(false, "etag-1", "etag-2"))
     }
 
-    // ---- D1/debug.17: 联想 toggle pref — default OFF, persists an explicit choice ----
+    // Chinese IME behavior note.
 
     @Test fun associations_pref_defaults_off_and_round_trips() {
         val prefs = ctx.getSharedPreferences("aegis", android.content.Context.MODE_PRIVATE)

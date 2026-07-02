@@ -15,37 +15,30 @@
 
 package com.aegis.ime.ui
 
+import android.app.Activity.OVERRIDE_TRANSITION_CLOSE
+import android.app.Activity.OVERRIDE_TRANSITION_OPEN
+import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
+import com.aegis.ime.R
 import com.aegis.ime.user.ClipboardStore
 
 /**
- * debug.17 E1: SAF bridge for 常用语 (canned-phrase) import / export. The IME service is not an Activity, so it
- * cannot host SAF document pickers — the clipboard panel's ✎ 二级菜单 launches this transparent helper instead.
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  * It reads/writes the SAME [ClipboardStore] files in filesDir (the panel re-reads phrases on its next open), and
- * follows the same rules as the 学习词库 import ([UserDictCard]): 合并 (accumulate, dedupe) vs 覆盖 (replace), and
+  * Chinese IME behavior note.
  * NEVER silently clears — an empty/unreadable file leaves the phrase library untouched.
  */
 class PhraseTransferActivity : ComponentActivity() {
 
-    private val store by lazy { ClipboardStore(filesDir).also { it.load() } }
-    private var pendingImport by mutableStateOf<String?>(null) // imported text awaiting the 合并/覆盖 choice
-
     private val exportLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) {
-            val ok = runCatching {
-                contentResolver.openOutputStream(uri)?.use { it.write(store.exportPhrasesText().toByteArray()) }
-            }.isSuccess
-            toast(if (ok) "已导出常用语" else "导出失败")
+            val ok = PhraseTransferIo.exportPhrases(filesDir) { contentResolver.openOutputStream(uri) }
+            toast(if (ok) R.string.phrase_transfer_toast_export_ok else R.string.phrase_transfer_toast_export_failed)
         }
         finish()
     }
@@ -53,39 +46,61 @@ class PhraseTransferActivity : ComponentActivity() {
     private val importLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) { finish(); return@registerForActivityResult }
         val text = runCatching { contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() } }.getOrNull()
-        if (text == null) { toast("导入失败：文件无法读取,常用语未改动"); finish() } else pendingImport = text
+        if (text == null) {
+            toast(R.string.phrase_transfer_toast_import_read_failed)
+            finish()
+        } else {
+            applyImport(text, merge = intent.getBooleanExtra(EXTRA_IMPORT_MERGE, true))
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent {
-            val text = pendingImport
-            if (text != null) {
-                AlertDialog(
-                    onDismissRequest = { finish() },
-                    title = { Text("导入常用语") },
-                    text = { Text("「合并」把导入内容累加到现有常用语（按分类去重）；「覆盖」用导入文件整体替换常用语库。空文件不会清空。") },
-                    confirmButton = { TextButton(onClick = { applyImport(text, merge = true) }) { Text("合并（推荐）") } },
-                    dismissButton = { TextButton(onClick = { applyImport(text, merge = false) }) { Text("覆盖") } },
-                )
-            }
-        }
+        suppressBridgeTransitions()
         if (intent.getBooleanExtra(EXTRA_EXPORT, false)) exportLauncher.launch("aegis-phrases.txt")
         else importLauncher.launch(arrayOf("text/plain"))
     }
 
+    override fun finish() {
+        super.finish()
+        suppressBridgeTransitions()
+    }
+
     private fun applyImport(text: String, merge: Boolean) {
-        val ok = runCatching { store.importPhrasesText(text, merge) }.getOrDefault(false)
+        val ok = runCatching {
+            ClipboardStore(filesDir).also { it.load() }.importPhrasesText(text, merge)
+        }.getOrDefault(false)
         toast(
-            if (ok) (if (merge) "已合并导入常用语" else "已覆盖导入常用语")
-            else "导入失败：无有效内容,常用语未改动",
+            if (ok) {
+                if (merge) R.string.phrase_transfer_toast_import_merged
+                else R.string.phrase_transfer_toast_import_overwritten
+            } else {
+                R.string.phrase_transfer_toast_import_invalid
+            },
         )
         finish()
     }
 
-    private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    private fun toast(resId: Int) = Toast.makeText(this, resId, Toast.LENGTH_SHORT).show()
+
+    private fun suppressBridgeTransitions() {
+        overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, 0, 0)
+        overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0)
+    }
 
     companion object {
         const val EXTRA_EXPORT = "export" // true = export, false = import
+        const val EXTRA_IMPORT_MERGE = "import_merge"
+
+        internal val LAUNCH_FLAGS: Int =
+            Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or
+                Intent.FLAG_ACTIVITY_NO_ANIMATION
+
+        internal fun launchIntent(context: Context, export: Boolean, merge: Boolean = true): Intent =
+            Intent(context, PhraseTransferActivity::class.java)
+                .putExtra(EXTRA_EXPORT, export)
+                .putExtra(EXTRA_IMPORT_MERGE, merge)
+                .addFlags(LAUNCH_FLAGS)
     }
 }

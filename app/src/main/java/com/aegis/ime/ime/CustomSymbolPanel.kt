@@ -29,7 +29,7 @@ import android.widget.TextView
 import com.aegis.ime.layout.SymbolCatalog
 
 /**
- * 自定义 punctuation panel (A3): edit the user's custom 9-key marks one symbol at a time ("逐符可定义").
+  * Chinese IME behavior note.
  * Tap a palette symbol to ADD it to the column; tap an added symbol (✕) to REMOVE it. The host wires
  * [onAdd]/[onRemove] to the persistent store and [current] to read it back; [onBack] closes the panel.
  */
@@ -54,15 +54,17 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         setPadding(dp(12), dp(10), dp(12), dp(10))
         isClickable = true
         setTextColor(colors.keyLabel)
+        Motion.applyTapFeedback(this, colors.keyLabel)
     }
     private val sectionLabels = mutableListOf<TextView>()
 
-    /** Header title — defaults to the A3 punctuation panel; the I2 operator panel overrides it ("‹ 自定义运算符"). */
+    /** Chinese IME behavior note. */
     var backTitle: String = "‹ 自定义标点"
         set(v) { field = v; backText.text = v }
 
-    /** The add-suggestion palette: the pinyin panel supplies SymbolCatalog 中文, the numpad panel SymbolCatalog
-     *  数学 (debug.16 items1/2) — a tap adds straight from the symbol keyboard's set (no clipboard paste). */
+    /**
+      * Chinese IME behavior note.
+      */
     var addPalette: List<String> = SymbolCatalog.categories.flatMap { it.symbols }.distinct()
         set(v) { field = v; refresh() }
 
@@ -70,7 +72,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         orientation = VERTICAL
         setBackgroundColor(colors.keyboardBg) // P-A: panel floor == the strip/keyboard floor (no top seam)
         backText.setOnClickListener { onBack() }
-        headerBar.setBackgroundColor(colors.keyboardBg) // P-A: 返回 row on the unified floor
+        headerBar.setBackgroundColor(colors.keyboardBg) // Chinese IME behavior note.
         headerBar.addView(backText)
         headerBar.addView(View(context), LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
         addView(headerBar)
@@ -91,8 +93,9 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     fun applyPalette(p: ImePalette) {
         colors = p
         setBackgroundColor(p.keyboardBg) // P-A: see init
-        headerBar.setBackgroundColor(p.keyboardBg) // P-A: 返回 row on the unified floor
+        headerBar.setBackgroundColor(p.keyboardBg) // Chinese IME behavior note.
         backText.setTextColor(p.keyLabel)
+        Motion.applyTapFeedback(backText, p.keyLabel)
         sectionLabels.forEach { it.setTextColor(p.keyLabelSecondary) }
         refresh()
     }
@@ -138,6 +141,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         setTextColor(if (removable) colors.deletable else colors.keyLabel)
         background = GradientDrawable().apply { setColor(this@CustomSymbolPanel.colors.keySurface); cornerRadius = ImeShapes.keyRadiusDp * density } // U-polish: round like every other tile
         isClickable = true
+        Motion.applyTapFeedback(this, if (removable) colors.deletable else colors.keyLabel)
         setOnClickListener { onClick() }
     }
 }

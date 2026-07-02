@@ -16,8 +16,8 @@
 package com.aegis.ime.dict
 
 /**
- * Fuzzy pinyin (模糊拼音). Each confusion rule has its own toggle, so the user can keep, say, 前后鼻音
- * but drop 平翘舌 (E4). Because a single pre-built index bakes in *all* rules at once, per-rule
+  * Chinese IME behavior note.
+  * Chinese IME behavior note.
  * matching is done by query-time variant expansion against the **exact** dictionary instead: for an
  * input we enumerate every spelling it is confusable with under the *enabled* rules and look each up.
  *
@@ -27,15 +27,15 @@ object Fuzzy {
 
     /**
      * A confusion rule. [long]/[short] are the two confusable spellings (e.g. "zh"↔"z", "ang"↔"an").
-     * When [initial] is true the rule is a single-letter 声母 confusion (n↔l, f↔h, l↔r, k↔g) that is
-     * toggled ONLY at the 声母 (first character) — see [variants]; the multi-letter 平翘舌/前后鼻音 rules
+      * Chinese IME behavior note.
+      * Chinese IME behavior note.
      * ([initial] = false) are position-free and collapse/expand by substring.
      */
     data class Rule(val key: String, val long: String, val short: String, val initial: Boolean = false)
 
     /**
-     * The supported rules — 平翘舌 zh/ch/sh↔z/c/s, 前后鼻音 ang/eng/ing↔an/en/in (position-free), and the
-     * single-letter 声母 confusions n↔l, f↔h, l↔r, k↔g (C4, [initial] = true). The 声母 rules are expanded
+      * Chinese IME behavior note.
+      * Chinese IME behavior note.
      * independently at the first character only (nan↔lan, fan↔han, lan↔ran, kan↔gan); they are NOT folded
      * into the whole-string collapse, because their letters overlap (n_l's short 'l' is l_r's long 'l')
      * and a global collapse would chain n→l→r and destroy the whole confusion class (★HIGH, debug.13).
@@ -56,13 +56,13 @@ object Fuzzy {
 
     private val ALL_KEYS: Set<String> = RULES.mapTo(LinkedHashSet()) { it.key }
 
-    /** Keys of the position-free 平翘舌/前后鼻音 rules — the disjoint set that is safe to collapse wholesale. */
+    /** Chinese IME behavior note. */
     private val FINAL_KEYS: Set<String> = RULES.filter { !it.initial }.mapTo(LinkedHashSet()) { it.key }
 
     /** SharedPreferences key (prefs "aegis") for a rule's per-item toggle, e.g. "fuzzy_zh". */
     fun prefKey(ruleKey: String): String = "fuzzy_$ruleKey"
 
-    /** Master default: fuzzy ships OFF (it can degrade input quality, so it is opt-in). */
+    /** Master default: fuzzy ships OFF because it can degrade input quality, so it remains opt-in. */
     const val DEFAULT_ON: Boolean = false
 
     /**
@@ -80,16 +80,16 @@ object Fuzzy {
     private const val MAX_FUZZY_LEN = 40  // never expand fuzzy for buffers longer than this
 
     /**
-     * Canonical (short) form under the position-free 平翘舌/前后鼻音 rules — kept identical to
-     * tools/Pinyin.fuzzyNormalize (which has no 声母 rules). The single-letter 声母 rules are NOT applied
+      * Chinese IME behavior note.
+      * Chinese IME behavior note.
      * here: their letters overlap, so folding them in would chain n→l→r and is meaningless as a canonical.
      */
     fun normalize(s: String): String = collapse(s, FINAL_KEYS)
 
     /**
      * Forward-collapse [s] to its canonical (short) form under the [enabled] rules, applied in RULES order.
-     * Only safe for rules whose long/short letters are disjoint (the 平翘舌/前后鼻音 set); passing the
-     * overlapping 声母 rules would chain (n→l→r), which is exactly why [variants] never collapses those.
+      * Chinese IME behavior note.
+      * Chinese IME behavior note.
      */
     fun collapse(s: String, enabled: Set<String>): String {
         var r = s
@@ -101,10 +101,10 @@ object Fuzzy {
      * Every spelling confusable with [s] under the [enabled] rules (includes [s] itself), for lookup in the
      * exact dict. Two independent stages so the rule families don't corrupt each other (★HIGH, debug.13):
      *
-     *  1. 平翘舌/前后鼻音 (position-free, disjoint letters): collapse to the canonical short form, then expand
+      * Chinese IME behavior note.
      *     each site back to both spellings. Collapsing first sidesteps the an⊂ang / en⊂eng / in⊂ing nesting
      *     trap; because these rules' letters are disjoint the collapse never chains.
-     *  2. 声母 (single-letter n/l·f/h·l/r·k/g): a first-character-only closure, each rule applied independently
+      * Chinese IME behavior note.
      *     and unioned — NEVER collapsed through a shared letter. So nan→lan→ran resolves while -n/-ng finals
      *     and interior syllables stay untouched (no `lal/rar` garbage, no regression of stage 1).
      *
@@ -117,7 +117,7 @@ object Fuzzy {
         val finalRules = active.filter { !it.initial }
         val initialRules = active.filter { it.initial }
 
-        // Stage 1 — 平翘舌/前后鼻音: collapse-then-expand over the disjoint multi-letter rules only.
+        // Chinese IME behavior note.
         val finalKeys = finalRules.mapTo(HashSet()) { it.key }
         var finals: LinkedHashSet<String> = linkedSetOf(collapse(s, finalKeys))
         for (rule in finalRules) {
@@ -135,13 +135,13 @@ object Fuzzy {
         base.add(s)
         for (v in finals) { if (base.size >= cap) break; base.add(v) }
 
-        // Stage 2 — 声母: independent first-character closure (skipped when no 声母 rule is enabled).
+        // Chinese IME behavior note.
         return if (initialRules.isEmpty()) base.toList()
         else initialClosure(base, initialRules, cap).toList()
     }
 
     /**
-     * Close [base] under the single-letter 声母 [rules], swapping ONLY the first character (声母首位) in both
+      * Chinese IME behavior note.
      * directions. Each rule is applied independently and unioned — never collapsed through a shared letter —
      * so nan→lan→ran resolves while finals and interior syllables are left alone. BFS to a fixpoint, bounded
      * by [cap]; every original spelling in [base] survives (the closure only adds).
