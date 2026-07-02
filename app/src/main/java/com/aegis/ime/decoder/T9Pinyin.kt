@@ -68,6 +68,8 @@ object T9Pinyin {
         n ng m biang
     """.trim().split(Regex("\\s+")).toSet()
 
+    private val NASAL_CODAS: Set<String> = setOf("ng", "n", "m")
+
     private val freqRank: Map<String, Int> = listOf(
         "de", "shi", "yi", "bu", "le", "zai", "wo", "ni", "ng", "ta", "men", "zhe", "ge", "shang",
         "you", "he", "zhong", "da", "wei", "dao", "shuo", "guo", "jiu", "hai", "er", "na", "hao",
@@ -130,6 +132,9 @@ object T9Pinyin {
                 if (cost[j] == Double.POSITIVE_INFINITY) continue
                 val sub = letters.substring(j, i)
                 if (sub !in SYLLABLES) continue
+                if (sub in NASAL_CODAS && j > 0 &&
+                    (lo until j).any { k -> cost[k] != Double.POSITIVE_INFINITY && letters.substring(k, i) in SYLLABLES }
+                ) continue
                 val c = cost[j] + rankOf(sub) + SYLLABLE_PENALTY
                 if (c < cost[i]) { cost[i] = c; pick[i] = sub; back[i] = j }
             }

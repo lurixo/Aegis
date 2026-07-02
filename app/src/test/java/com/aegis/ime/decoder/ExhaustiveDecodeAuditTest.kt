@@ -45,6 +45,8 @@ class ExhaustiveDecodeAuditTest {
     private fun sample(s: Collection<String>, n: Int = 8): String =
         s.take(n).joinToString(" ") + if (s.size > n) " …(${s.size})" else ""
 
+    private val COLLOQUIAL_WHITELIST: Map<String, Set<String>> = mapOf("en" to setOf("嗯"))
+
     @Suppress("UNCHECKED_CAST")
     private fun runtimeSyllables(): List<String> {
         val f = T9Pinyin::class.java.getDeclaredField("SYLLABLES")
@@ -66,6 +68,16 @@ class ExhaustiveDecodeAuditTest {
     private fun fullEnabled(): Boolean =
         (System.getenv("AEGIS_AUDIT_FULL") ?: System.getProperty("aegis.audit.full")) == "1"
 
+    private val NASALS = setOf("ng", "n", "m")
+    private val syllableSet: Set<String> by lazy { runtimeSyllables().toSet() }
+    private fun classify(f: Fail): String {
+        if (f.layout != "26key" || f.inv != "I1") return "other"
+        val exp = f.expectedReading.split("+"); val shown = f.shownReading.split("+")
+        if (exp.drop(1).any { it in NASALS }) return "expected-merge"
+        for (i in 1 until shown.size) if (shown[i] in NASALS && (shown[i - 1] + shown[i]) in syllableSet) return "nasal-split"
+        return "other-reflow"
+    }
+
     private fun writeTsv(file: File, fails: List<Fail>) {
         file.bufferedWriter().use { w ->
             w.write("input\tlayout\tinvariant\texpectedReading\tshownReading\texpectedCharsSample\tshownCharsSample\tdetail\n")
@@ -79,6 +91,7 @@ class ExhaustiveDecodeAuditTest {
         val fails = ArrayList<Fail>()
         for (s in syls) {
             val oracle = dictSingles(s)
+            val allowed = COLLOQUIAL_WHITELIST[s] ?: emptySet()
             val digits = T9Pinyin.toT9(s)
 
             val seg26 = d.syllables(s).map { it.reading }
@@ -98,7 +111,7 @@ class ExhaustiveDecodeAuditTest {
             }
 
             val homo = d.homophonesAt(s, 0).toSet()
-            val homoLeak = homo - oracle
+            val homoLeak = homo - oracle - allowed
             if (homoLeak.isNotEmpty()) {
                 fails += Fail(s, "26key", "I2", s, seg26.firstOrNull() ?: "-",
                     sample(oracle), sample(homoLeak), "homophonesAt(S,0) has chars not reading S")
@@ -109,14 +122,14 @@ class ExhaustiveDecodeAuditTest {
             }
 
             val atom26 = allSingles(d.decodeCoveredAtomic(s, 30))
-            val leak26 = atom26 - oracle
+            val leak26 = atom26 - oracle - allowed
             if (leak26.isNotEmpty()) {
                 fails += Fail(s, "26key", "I3", s, seg26.joinToString("+"),
                     sample(oracle), sample(leak26), "decodeCoveredAtomic(S) singles not reading S")
             }
             if (lock != null) {
                 val lockedSingles = allSingles(d.decodeCoveredAtomic(lock.letters, 30))
-                val leak9 = lockedSingles - oracle
+                val leak9 = lockedSingles - oracle - allowed
                 if (leak9.isNotEmpty()) {
                     fails += Fail(s, "9key", "I3", s, lock.display,
                         sample(oracle), sample(leak9),
@@ -150,10 +163,7 @@ class ExhaustiveDecodeAuditTest {
             }
         })
 
-        assertTrue("audit must flag deng I1 on 26-key (reading label shows de, not deng)",
-            fails.any { it.input == "deng" && it.layout == "26key" && it.inv == "I1" })
-        assertTrue("audit must flag deng I3 on 9-key (locking deng yields de-chars)",
-            fails.any { it.input == "deng" && it.layout == "9key" && it.inv == "I3" })
+        assertTrue("n=1 offenders must be 0 after the fix; remaining: ${failedInputs.sorted()}", fails.isEmpty())
         assertTrue("report written", File(outDir(), "levelA_n1.tsv").length() > 0)
     }
 
@@ -187,12 +197,16 @@ class ExhaustiveDecodeAuditTest {
         }
         writeTsv(File(outDir(), "levelA_n2.tsv"), fails)
         val distinct = fails.map { it.input }.toSet().size
+        val nasal = fails.count { classify(it) == "nasal-split" }
+        val reflow = fails.count { classify(it) == "other-reflow" }
+        val merge = fails.count { classify(it) == "expected-merge" }
         File(outDir(), "levelA_n2_summary.txt").writeText(
             "Level A — n=2 all ordered pairs\npairs tested: $total\noffending pairs: $distinct\ntotal violations: ${fails.size}\n" +
                 "I1 26key: ${fails.count { it.inv == "I1" && it.layout == "26key" }}\n" +
-                "I1 9key:  ${fails.count { it.inv == "I1" && it.layout == "9key" }}\n"
+                "I1 9key:  ${fails.count { it.inv == "I1" && it.layout == "9key" }}\n" +
+                "nasal-split: $nasal\nother-reflow: $reflow\nexpected-merge: $merge\n"
         )
-        assertTrue("n=2 report written", File(outDir(), "levelA_n2.tsv").exists())
+        assertTrue("n=2 nasal-split must be 0 after the fix (got $nasal)", nasal == 0)
     }
 
     @Test fun coveringN3_writesReport() {
@@ -215,11 +229,14 @@ class ExhaustiveDecodeAuditTest {
             }
         }
         writeTsv(File(outDir(), "levelA_n3.tsv"), fails)
+        val nasal = fails.count { classify(it) == "nasal-split" }
+        val reflow = fails.count { classify(it) == "other-reflow" }
+        val merge = fails.count { classify(it) == "expected-merge" }
         File(outDir(), "levelA_n3_summary.txt").writeText(
             "Level A — n=3 complete-covering sweep (~415² triples; n>=4 NOT enumerated)\n" +
                 "triples tested: ${syls.size.toLong() * syls.size}\noffending triples: ${fails.map { it.input }.toSet().size}\n" +
-                "total violations: ${fails.size}\n"
+                "total violations: ${fails.size}\nnasal-split: $nasal\nother-reflow: $reflow\nexpected-merge: $merge\n"
         )
-        assertTrue("n=3 report written", File(outDir(), "levelA_n3.tsv").exists())
+        assertTrue("n=3 nasal-split must be 0 after the fix (got $nasal)", nasal == 0)
     }
 }
