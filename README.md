@@ -44,6 +44,32 @@ tools/build/install/tools/bin/tools --out <jp>   --min-freq 400 --keytype initia
 tools/build/install/tools/bin/tools lm --out <lm> <14 wanxiang .dict.yaml ...>
 ```
 
+## Release dictionary pack
+
+Each app release should publish the APK and the current full dictionary pack in the same GitHub
+release. The app discovers dictionary updates from `lurixo/Aegis` release assets, preferring the
+latest pre-release dictionary ZIP by `published_at`, then falling back to normal releases. The
+source/provenance link remains `https://github.com/amzxyz/rime-wanxiang`; the physical download is
+the Aegis-converted binary ZIP release asset.
+
+```
+tools/release/build_dictionary_pack.py --release-tag v0.1.0-debug.44
+```
+
+The command clones `amzxyz/rime-wanxiang` branch `wanxiang` unless `--source-dir` is provided, builds
+the 14 verified tables with `tools/DictBuilder` at `--min-freq 1` and no per-key cap, and writes:
+
+- `build/release-dictionary/aegis_dict_pack_debug44.zip`
+- `build/release-dictionary/aegis-build-info.json`
+- `build/release-dictionary/aegis-dictionary-update.json`
+
+Upload those generated files to the same GitHub release as the APK. The checked-in
+`aegis-build-info.json` records the verified debug.13 pack trail and its remaining provenance gaps;
+future release-generated build info should replace stale constants with the freshly built asset
+name, URL, size, SHA-256, source commit, input YAML hashes, and output bin hashes. A dictionary pack
+is not a fully reproducible public supply-chain artifact until the release also has the exact input
+hashes, deterministic recipe, and signature or attestation needed to prove it.
+
 ## Architecture
 
 - `app/.../ime` — IME service, self-drawn keyboard/candidate views, input state machine.

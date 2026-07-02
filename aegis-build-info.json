@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "schema_name": "aegis.resource-build-info",
+  "generated_at": "2026-07-02T00:00:00Z",
+  "app": {
+    "project": "Aegis",
+    "repository": "https://github.com/lurixo/Aegis",
+    "release_tag": "v0.1.0-debug.13",
+    "version_name": "0.1.0-debug.13"
+  },
+  "resources": [
+    {
+      "kind": "dictionary",
+      "physical_asset": {
+        "name": "aegis_dict_pack_debug13.zip",
+        "url": "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.13/aegis_dict_pack_debug13.zip",
+        "release_tag": "v0.1.0-debug.13",
+        "release_url": "https://github.com/lurixo/Aegis/releases/tag/v0.1.0-debug.13",
+        "prerelease": true,
+        "published_at": "2026-06-28T18:46:56Z",
+        "sha256": "d048435631623513a9d6a6ccb877a6ba06fb15a293ade72bb101d1e0d4feaa60",
+        "size_bytes": 98214288
+      },
+      "source": {
+        "repo": "https://github.com/amzxyz/rime-wanxiang",
+        "branch": "wanxiang",
+        "commit": "0d4eec1e7631dd55de27d2fc281a48639fec6e67",
+        "license": "CC-BY-4.0",
+        "tables": [
+          "zi",
+          "jichu",
+          "lianxiang",
+          "cuoyin",
+          "duoyin",
+          "shici",
+          "diming",
+          "yixue",
+          "huaxue",
+          "yaopin",
+          "mingren",
+          "yiren",
+          "wuzhong",
+          "renming"
+        ],
+        "input_yaml_sha256_status": "missing_for_debug13_public_artifact"
+      },
+      "build": {
+        "builder_path": "tools/src/main/kotlin/com/aegis/tools/DictBuilder.kt",
+        "builder_commit": "0eb6605e2ac35783f9fee7af7ab35e3c32cdcb71",
+        "full_pack_parameters": {
+          "min_freq": 1,
+          "max_per_key": null,
+          "commands": [
+            "--out aegis_dict_full.bin --min-freq 1 --keytype letter",
+            "--out aegis_t9_full.bin --min-freq 1 --keytype digit",
+            "--out aegis_jianpin_full.bin --min-freq 1 --keytype initials"
+          ]
+        },
+        "seed_parameters": {
+          "min_freq": 400,
+          "max_per_key": null,
+          "commands": [
+            "--out aegis_dict.bin --min-freq 400 --keytype letter",
+            "--out aegis_t9.bin --min-freq 400 --keytype digit",
+            "--out aegis_jianpin.bin --min-freq 400 --keytype initials"
+          ]
+        },
+        "output_bins": [
+          {
+            "zip_entry": "aegis_dict_full.bin",
+            "runtime_name": "aegis_dict.bin",
+            "sha256": "8cafd661bbb209339a8b3cbda93b8aa880cdadb3e08360f051362d27ff66fee4",
+            "size_bytes": 98323087
+          },
+          {
+            "zip_entry": "aegis_t9_full.bin",
+            "runtime_name": "aegis_t9.bin",
+            "sha256": "a8667f20084ebd23e090000aacdace1346a2a14c4b9c3af221a1c514f617bf00",
+            "size_bytes": 94245937
+          },
+          {
+            "zip_entry": "aegis_jianpin_full.bin",
+            "runtime_name": "aegis_jianpin.bin",
+            "sha256": "64005260593e2f514e1789f00f29245206cc66dc05257eb4a78b72bba5e88943",
+            "size_bytes": 62396958
+          }
+        ]
+      },
+      "provenance_conclusion": "debug.13 downloadable full dictionary pack traces to rime-wanxiang 14 tables via Aegis DictBuilder and matching debug.13 manifests/hashes; it is not yet a fully reproducible supply-chain artifact because input YAML hashes, deterministic build recipe, and signing/attestation are missing.",
+      "attestation": {
+        "status": "not_attested",
+        "tag_signature": "none_verified",
+        "reproducibility_status": "partial_trace_not_fully_reproducible",
+        "missing": [
+          "input YAML SHA-256 values for the debug.13 public artifact",
+          "deterministic build recipe and ZIP normalization details for the debug.13 public artifact",
+          "signature or attestation"
+        ]
+      }
+    }
+  ],
+  "external_resource_references": [
+    {
+      "kind": "grammar_model",
+      "physical_asset": {
+        "name": "wanxiang-lts-zh-hans.gram",
+        "url": "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/wanxiang-lts-zh-hans.gram",
+        "release_tag": "LTS",
+        "release_url": "https://github.com/amzxyz/RIME-LMDG/releases/tag/LTS",
+        "prerelease": false,
+        "published_at": null,
+        "sha256": null,
+        "size_bytes": 420538412
+      },
+      "source": {
+        "repo": "https://github.com/amzxyz/RIME-LMDG",
+        "branch": null,
+        "commit": null
+      },
+      "attestation": {
+        "status": "external_resource_not_attested_by_aegis"
+      }
+    }
+  ]
+}

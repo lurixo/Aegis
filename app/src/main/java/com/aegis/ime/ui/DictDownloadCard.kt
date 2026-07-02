@@ -70,26 +70,39 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
 
     val handler = remember { Handler(Looper.getMainLooper()) }
 
-    fun startDownload() {
+    fun currentInstallMetadata() = ModelDownload.DictionaryInstallMetadata(
+        sha256 = prefs.getString(ModelDownload.DICT_SHA256_PREF, null),
+        publishedAt = prefs.getString(ModelDownload.DICT_RELEASE_PUBLISHED_PREF, null),
+    )
+
+    fun startDownload(asset: ModelDownload.DictionaryAsset? = null) {
         downloading = true
         progress = 0f
         status = LocalizedText.Resource(R.string.download_status_downloading)
         var lastPct = -1
         Thread {
-            val result = ModelDownload.download(ModelDownload.DICT_URL, zip) { done, total ->
+            val selected = asset ?: ModelDownload.resolveDictionaryDownloadAsset(ModelDownload.DictionaryInstallMetadata())
+            val result = ModelDownload.download(selected.url, zip) { done, total ->
                 if (total > 0) {
                     val pct = (done * 100 / total).toInt()
                     if (pct != lastPct) { lastPct = pct; handler.post { progress = pct / 100f } }
                 }
             }
             if (result.ok) handler.post { status = LocalizedText.Resource(R.string.dict_status_verifying_extracting) }
-            val installed = result.ok && ModelDownload.installDictPack(context.filesDir)
+            val installed = result.ok && ModelDownload.installDictPack(context.filesDir, selected.sha256)
             handler.post {
                 downloading = false
                 present = ModelDownload.isDictDownloaded(context.filesDir)
                 when {
                     installed -> {
-                        prefs.edit { putString(ModelDownload.DICT_VALIDATOR_PREF, result.validator) }
+                        prefs.edit {
+                            putString(ModelDownload.DICT_VALIDATOR_PREF, result.validator)
+                            putString(ModelDownload.DICT_SHA256_PREF, selected.sha256)
+                            putString(ModelDownload.DICT_ASSET_NAME_PREF, selected.assetName)
+                            putString(ModelDownload.DICT_ASSET_URL_PREF, selected.url)
+                            putString(ModelDownload.DICT_RELEASE_TAG_PREF, selected.releaseTag)
+                            putString(ModelDownload.DICT_RELEASE_PUBLISHED_PREF, selected.publishedAt)
+                        }
                         status = doneStatus()
                     }
                     !result.ok -> status = LocalizedText.Resource(R.string.dict_status_download_failed)
@@ -102,15 +115,10 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
     fun checkUpdate() {
         checking = true
         Thread {
-            val checked = runCatching {
-                ModelDownload.remoteValidator(ModelDownload.DICT_URL) to
-                    prefs.getString(ModelDownload.DICT_VALIDATOR_PREF, null)
-            }.getOrNull()
-            val remote = checked?.first
-            val local = checked?.second
+            val checked = ModelDownload.checkDictionaryUpdate(currentInstallMetadata())
             handler.post {
                 checking = false
-                when (ModelDownload.updateAction(present, local, remote)) {
+                when (if (present) checked.state else null) {
                     null -> {}
                     ModelDownload.UpdateCheck.OFFLINE -> {
                         status = LocalizedText.Resource(R.string.download_toast_update_offline)
@@ -122,7 +130,7 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
                     }
                     ModelDownload.UpdateCheck.UPDATE -> {
                         Toast.makeText(context, R.string.download_toast_update_found, Toast.LENGTH_SHORT).show()
-                        startDownload()
+                        startDownload(checked.asset)
                     }
                 }
             }
@@ -178,7 +186,14 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
                     enabled = !downloading && !checking && present,
                     onClick = {
                         ModelDownload.purgeDict(context.filesDir)
-                        prefs.edit { remove(ModelDownload.DICT_VALIDATOR_PREF) }
+                        prefs.edit {
+                            remove(ModelDownload.DICT_VALIDATOR_PREF)
+                            remove(ModelDownload.DICT_SHA256_PREF)
+                            remove(ModelDownload.DICT_ASSET_NAME_PREF)
+                            remove(ModelDownload.DICT_ASSET_URL_PREF)
+                            remove(ModelDownload.DICT_RELEASE_TAG_PREF)
+                            remove(ModelDownload.DICT_RELEASE_PUBLISHED_PREF)
+                        }
                         present = false
                         progress = 0f
                         status = LocalizedText.Resource(R.string.dict_status_deleted)
