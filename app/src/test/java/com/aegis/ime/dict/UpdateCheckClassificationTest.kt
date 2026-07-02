@@ -20,6 +20,7 @@ import com.sun.net.httpserver.HttpServer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -152,8 +153,29 @@ class UpdateCheckClassificationTest {
     }
 
 
+    @Test
+    fun fetchTextThrowsTypedStatusOnNonSuccessAndReturnsBodyOn2xx() {
+        val body = runFetch(200, "hello-body")
+        assertTrue(body.isSuccess)
+        assertEquals("hello-body", body.getOrNull())
+
+        val failed = runFetch(403, GITHUB_ERROR_OBJECT)
+        val error = failed.exceptionOrNull()
+        assertTrue("non-2xx must surface as HttpStatusException", error is ModelDownload.HttpStatusException)
+        assertEquals(403, (error as ModelDownload.HttpStatusException).code)
+        assertEquals(ModelDownload.CheckFailure.SERVER, ModelDownload.classifyRequestFailure(error))
+    }
+
+
     private fun probeHead(handle: (HttpExchange) -> Unit): ModelDownload.ValidatorProbe =
         withServer(handle) { base -> ModelDownload.remoteValidatorProbe(base + "gram") }
+
+    private fun runFetch(status: Int, body: String): Result<String> =
+        withServer({ exchange ->
+            val bytes = body.toByteArray()
+            exchange.sendResponseHeaders(status, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        }) { base -> runCatching { ModelDownload.fetchText(base + "api") } }
 
     private fun <T> withServer(handle: (HttpExchange) -> Unit, use: (baseUrl: String) -> T): T {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
@@ -170,5 +192,10 @@ class UpdateCheckClassificationTest {
         } finally {
             server.stop(0)
         }
+    }
+
+    private companion object {
+        const val GITHUB_ERROR_OBJECT =
+            """{"message":"API rate limit exceeded for 1.2.3.4","documentation_url":"https://docs.github.com/rest#rate-limiting"}"""
     }
 }

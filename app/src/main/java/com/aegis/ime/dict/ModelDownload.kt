@@ -133,4 +133,22 @@ object ModelDownload {
 
     private fun trustworthyValidator(value: String?): String? =
         value?.trim()?.takeIf { it.isNotEmpty() && !it.startsWith("size:", ignoreCase = true) }
+
+    internal fun fetchText(url: String): String {
+        var conn: HttpURLConnection? = null
+        return try {
+            conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                instanceFollowRedirects = true
+                connectTimeout = 20_000
+                readTimeout = 20_000
+                setRequestProperty("Accept", "application/vnd.github+json")
+                setRequestProperty("User-Agent", "Aegis-resource-updater")
+            }
+            if (conn.responseCode !in 200..299) throw HttpStatusException(conn.responseCode)
+            conn.inputStream.bufferedReader().use { it.readText() }
+        } finally {
+            conn?.disconnect()
+        }
+    }
 }
