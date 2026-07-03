@@ -40,12 +40,18 @@ class BuildInfoJsonTest {
 
         assertEquals(1, buildInfo.getInt("schema_version"))
         assertEquals("dictionary", dictionary.getString("kind"))
-        assertEquals("aegis_dict_pack_debug13.zip", asset.getString("name"))
-        assertEquals(ModelDownload.FALLBACK_DICT_ASSET.url, asset.getString("url"))
-        assertEquals(ModelDownload.FALLBACK_DICT_SHA256, asset.getString("sha256"))
-        assertEquals(98_214_288L, asset.getLong("size_bytes"))
-        assertEquals("v0.1.0-debug.13", asset.getString("release_tag"))
+        // The manifest describes this release's dictionary pack; the shipped ModelDownload fallback
+        // constant points at a different pack, so the two asset shas differ (asserted below).
+        assertEquals("aegis_dict_pack_debug46.zip", asset.getString("name"))
+        assertEquals(
+            "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.46/aegis_dict_pack_debug46.zip",
+            asset.getString("url"),
+        )
+        assertEquals("afda5d50c3ba9f7e254f79051613160f3b311b63218eb4c3f9582e3dbc1d3f86", asset.getString("sha256"))
+        assertEquals(98_164_388L, asset.getLong("size_bytes"))
+        assertEquals("v0.1.0-debug.46", asset.getString("release_tag"))
         assertTrue(asset.getBoolean("prerelease"))
+        assertNotEquals(ModelDownload.FALLBACK_DICT_SHA256, asset.getString("sha256"))
         assertEquals(ModelDownload.DICT_REPO_URL, source.getString("repo"))
         assertNotEquals("source URL and physical download URL must stay separate", source.getString("repo"), asset.getString("url"))
     }
@@ -69,6 +75,23 @@ class BuildInfoJsonTest {
         assertTrue(build.getJSONObject("full_pack_parameters").isNull("max_per_key"))
         assertEquals(400, build.getJSONObject("seed_parameters").getInt("min_freq"))
         assertTrue(build.getJSONObject("seed_parameters").isNull("max_per_key"))
+
+        // The pack merges traditional and variant forms into simplified; the seed recipe keeps the
+        // syllable-completeness top-up. The builder ran on a clean tree and every input table's
+        // SHA-256 is recorded.
+        val fullCommands = build.getJSONObject("full_pack_parameters").getJSONArray("commands")
+        for (i in 0 until fullCommands.length()) {
+            assertTrue(fullCommands.getString(i).contains("--t2s-data tools/t2s-data"))
+        }
+        assertEquals(3, build.getJSONObject("seed_parameters").getInt("keep_syllable_singles"))
+        assertEquals("tools/t2s-data", build.getJSONObject("t2s_data").getString("path"))
+        assertTrue(build.getJSONObject("t2s_data").getString("license").contains("Apache-2.0"))
+        assertFalse(build.getBoolean("builder_tree_dirty"))
+        val yamlShas = source.getJSONArray("input_yaml_sha256")
+        assertEquals(14, yamlShas.length())
+        for (i in 0 until yamlShas.length()) {
+            assertTrue(yamlShas.getJSONObject(i).getString("sha256").matches(Regex("[0-9a-f]{64}")))
+        }
     }
 
     @Test
@@ -87,11 +110,14 @@ class BuildInfoJsonTest {
             assertTrue(bin.getLong("size_bytes") > 1024L)
         }
         assertEquals("not_attested", attestation.getString("status"))
-        assertEquals("partial_trace_not_fully_reproducible", attestation.getString("reproducibility_status"))
-        assertTrue(missing.contains("input YAML SHA-256"))
-        assertTrue(missing.contains("deterministic build recipe"))
+        // Input YAML hashes and the deterministic zip recipe are recorded; what stays missing is a
+        // signature and an independent external rebuild.
+        assertEquals("build_inputs_recorded_but_unsigned", attestation.getString("reproducibility_status"))
         assertTrue(missing.contains("signature or attestation"))
-        assertFalse(dictionary.getString("provenance_conclusion").contains("fully reproducible supply-chain artifact is complete"))
+        assertTrue(missing.contains("independent external rebuild"))
+        val zip = dictionary.getJSONObject("build").getJSONObject("zip_packaging")
+        assertEquals("1980-01-01T00:00:00Z", zip.getString("timestamp_utc"))
+        assertEquals("zip_deflated_level_9", zip.getString("compression"))
     }
 
     @Test
