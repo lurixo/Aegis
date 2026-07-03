@@ -323,12 +323,22 @@ class PinyinDecoder(
 
     private fun appendLeadingSingles(input: String, span: Int, out: ArrayList<Cand>) {
         val head = input.substring(0, span)
-        val lens = if (input[0] in '2'..'9') T9Pinyin.leadingSyllableDigitLens(head)
+        val isT9 = input[0] in '2'..'9'
+        val lens = if (isT9) T9Pinyin.leadingSyllableDigitLens(head)
         else T9Pinyin.leadingSyllableLetterLens(head)
         if (lens.isEmpty()) return
         val seen = HashSet<String>(out.size * 2)
         for (c in out) seen.add(c.word)
         for (k in lens) for (w in homophonesOf(input.substring(0, k))) if (seen.add(w)) out.add(Cand(w, k))
+        for (k in lens) {
+            if (k >= input.length) continue
+            if (out.any { it.coveredLen == k }) continue
+            val rest = input.substring(k)
+            val restSeg = if (isT9) T9Pinyin.segment(rest) else T9Pinyin.segmentLetters(rest)
+            val first = restSeg?.firstOrNull() ?: continue
+            if (first == "n" || first == "ng" || first == "m") continue
+            for (w in homophonesOf(input.substring(0, k))) out.add(Cand(w, k))
+        }
     }
 
     fun syllables(input: String): List<Syllable> {
