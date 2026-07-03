@@ -143,6 +143,25 @@ class ExhaustiveDecodeAuditTest {
                     sample(oracle), h, "homophone drill contains a mapped-away form")
             }
 
+            for (target in PinyinDecoder.INPUT_ALIASES[s].orEmpty()) {
+                val topAlias = dict.exact(target).filter { isSingleChar(it.word) }.maxByOrNull { it.freq }?.word ?: continue
+                val topNative = dict.exact(s).filter { isSingleChar(it.word) }.maxByOrNull { it.freq }?.word
+                val strip = d.decodeCovered(s, 30).map { it.word }
+                val ai = strip.indexOf(topAlias)
+                if (ai < 0) {
+                    fails += Fail(s, "26key", "TEN-alias-presence", s, "-",
+                        topAlias, sample(strip.take(12).toSet()), "alias target's top single ($target->$topAlias) missing from candidates")
+                } else if (topNative != null && strip.indexOf(topNative) !in 0 until ai) {
+                    fails += Fail(s, "26key", "TEN-alias-presence", s, "-",
+                        "$topNative<$topAlias", "$topAlias@$ai,$topNative@${strip.indexOf(topNative)}",
+                        "borrowed reading outranks the input's own top native char")
+                }
+                if (topAlias !in homo) {
+                    fails += Fail(s, "26key", "TEN-alias-presence", s, "-",
+                        topAlias, sample(homo), "alias target's top single missing from homophonesAt(S,0)")
+                }
+            }
+
             val atom26 = allSingles(d.decodeCoveredAtomic(s, 30))
             val leak26 = atom26 - oracle - allowed
             if (leak26.isNotEmpty()) {

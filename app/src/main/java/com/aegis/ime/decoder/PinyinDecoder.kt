@@ -35,6 +35,7 @@ class PinyinDecoder(
     private val octagram: com.aegis.ime.dict.OctagramReader? = null,
     private val octagramWeight: Double = DEFAULT_OCTAGRAM_WEIGHT,
     private val contextWeight: Double = DEFAULT_CONTEXT_WEIGHT,
+    private val aliasDict: BinaryDict? = null,
 ) {
     private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
     private var edgeN = if (lm != null || fuzzyRules.isNotEmpty() || initialsDict != null) EDGE_N else 1
@@ -46,15 +47,20 @@ class PinyinDecoder(
 
     private class Edge(val word: String, val freq: Int, val penalty: Double)
 
-    private fun inputAliases(key: String): List<String> = INPUT_ALIASES[key].orEmpty()
+    private fun inputAliases(key: String): List<String> =
+        if (key.isNotEmpty() && key[0] in '2'..'9') T9_INPUT_ALIASES[key].orEmpty()
+        else INPUT_ALIASES[key].orEmpty()
+
+    private val aliasSource: BinaryDict get() = aliasDict ?: dict
 
     private fun addExactEdges(
+        source: BinaryDict,
         key: String,
         penalty: Double,
         out: MutableList<Edge>,
         seen: MutableSet<String>,
     ): Boolean {
-        for (wf in preferredExact(dict, key)) {
+        for (wf in preferredExact(source, key)) {
             if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, penalty))
             if (out.size >= edgeN) return true
         }
@@ -65,7 +71,7 @@ class PinyinDecoder(
         val out = ArrayList<BinaryDict.WordFreq>()
         val seen = HashSet<String>()
         for (alias in inputAliases(input)) {
-            for (wf in dict.exact(alias)) if (seen.add(wf.word)) out.add(wf)
+            for (wf in aliasSource.exact(alias)) if (seen.add(wf.word)) out.add(wf)
         }
         return preferredWordFreqs(out)
     }
@@ -73,8 +79,14 @@ class PinyinDecoder(
     private fun edgesFor(sub: String): List<Edge> {
         val out = ArrayList<Edge>(edgeN)
         val seen = HashSet<String>()
-        if (addExactEdges(sub, 0.0, out, seen)) return out
-        for (alias in inputAliases(sub)) if (addExactEdges(alias, ALIAS_PENALTY, out, seen)) return out
+        val exactFull = addExactEdges(dict, sub, 0.0, out, seen)
+        for (alias in inputAliases(sub)) {
+            var added = 0
+            for (wf in preferredExact(aliasSource, alias)) {
+                if (seen.add(wf.word)) { out.add(Edge(wf.word, wf.freq, ALIAS_PENALTY)); if (++added >= edgeN) break }
+            }
+        }
+        if (exactFull || out.size >= edgeN) return out
         if (fuzzyRules.isNotEmpty()) {
             for (variant in Fuzzy.variants(sub, fuzzyRules)) {
                 if (variant == sub) continue
@@ -100,21 +112,24 @@ class PinyinDecoder(
             (if (lm != null && ctxCp != BOS) contextWeight * lm.logCond(ctxCp, word.codePointAt(0)) else 0.0) +
             (if (octagram != null && ctxWord.isNotEmpty()) octagramWeight * (octagram.rawScore(ctxWord + word) ?: 0.0) else 0.0)
 
-    private fun rerankedWholeInput(input: String, ctxCp: Int, ctxWord: String): List<String> =
-        dict.exact(input)
+    private fun rerankedWholeInputAndAliases(input: String, ctxCp: Int, ctxWord: String): List<String> {
+        val own = dict.exact(input)
+        val alias = inputAliasWordFreqs(input)
+        val scored = ArrayList<Pair<BinaryDict.WordFreq, Double>>(own.size + alias.size)
+        for (wf in own) scored.add(wf to wordModelScore(wf.word, wf.freq, ctxCp, ctxWord))
+        if (alias.isNotEmpty()) {
+            val ownWords = own.mapTo(HashSet()) { it.word }
+            for (wf in alias) {
+                if (wf.word !in ownWords) scored.add(wf to (wordModelScore(wf.word, wf.freq, ctxCp, ctxWord) - ALIAS_PENALTY))
+            }
+        }
+        return scored
             .sortedWith(
-                compareByDescending<BinaryDict.WordFreq> { wordModelScore(it.word, it.freq, ctxCp, ctxWord) }
-                    .thenBy { supplementarySingleTieRank(it.word) },
+                compareByDescending<Pair<BinaryDict.WordFreq, Double>> { it.second }
+                    .thenBy { supplementarySingleTieRank(it.first.word) },
             )
-            .map { it.word }
-
-    private fun rerankedInputAliases(input: String, ctxCp: Int, ctxWord: String): List<String> =
-        inputAliasWordFreqs(input)
-            .sortedWith(
-                compareByDescending<BinaryDict.WordFreq> { wordModelScore(it.word, it.freq, ctxCp, ctxWord) - ALIAS_PENALTY }
-                    .thenBy { supplementarySingleTieRank(it.word) },
-            )
-            .map { it.word }
+            .map { it.first.word }
+    }
 
     private fun parseContext(context: CharSequence): Pair<Int, String> {
         val s = context.toString()
@@ -185,8 +200,7 @@ class PinyinDecoder(
         val (ctxCp, ctxWord) = parseContext(context)
         val out = LinkedHashSet<String>()
         bestSentence(clean, cuts, ctxCp = ctxCp, ctxWord = ctxWord)?.let { out.add(it) }
-        out.addAll(rerankedWholeInput(clean, ctxCp, ctxWord))
-        out.addAll(rerankedInputAliases(clean, ctxCp, ctxWord))
+        out.addAll(rerankedWholeInputAndAliases(clean, ctxCp, ctxWord))
         out.addAll(prefixWords(dict, clean, limit))
         if (out.size < limit && fuzzyRules.isNotEmpty()) {
             for (variant in Fuzzy.variants(clean, fuzzyRules)) {
@@ -235,8 +249,7 @@ class PinyinDecoder(
             for (w in words) { if (cover.size >= completionCap) return; cover.putIfAbsent(w, input.length) }
         }
         bestSentence(input, emptySet(), ctxCp, ctxWord)?.let { cover[it] = input.length }
-        addCompletions(rerankedWholeInput(input, ctxCp, ctxWord))
-        addCompletions(rerankedInputAliases(input, ctxCp, ctxWord))
+        addCompletions(rerankedWholeInputAndAliases(input, ctxCp, ctxWord))
         addCompletions(prefixWords(dict, input, completionCap))
         if (fuzzyRules.isNotEmpty()) {
             for (variant in Fuzzy.variants(input, fuzzyRules)) {
@@ -530,7 +543,7 @@ class PinyinDecoder(
         return parts.joinToString("")
     }
 
-    private companion object {
+    internal companion object {
         const val SEP = '\''
         const val BOS = -1
         const val EDGE_N = 20
@@ -547,5 +560,7 @@ class PinyinDecoder(
         const val MAX_SYLLABLE_KEY_LEN = 6
         const val DEFAULT_CONTEXT_WEIGHT = 2.0
         val INPUT_ALIASES = mapOf("en" to listOf("ng"))
+        val T9_INPUT_ALIASES: Map<String, List<String>> =
+            INPUT_ALIASES.entries.associate { (k, v) -> T9Pinyin.toT9(k) to v }
     }
 }
