@@ -36,7 +36,7 @@ class DictEngine(
         PinyinDecoder(it, lm, userModel = userModel, fuzzyRules = fuzzyRules, initialsDict = initialsDict, octagram = octagram)
     }
     private val t9Decoder = t9Dict?.let {
-        PinyinDecoder(it, lm, userModel = userModel, octagram = octagram)
+        PinyinDecoder(it, lm, userModel = userModel, octagram = octagram, aliasDict = pinyinDict)
     }
 
     override fun candidates(composing: String, t9: Boolean): List<String> =
