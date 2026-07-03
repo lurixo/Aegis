@@ -18,6 +18,7 @@ package com.aegis.ime.decoder
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.Fuzzy
+import com.aegis.ime.dict.TghGrading
 import com.aegis.ime.engine.T9_FUZZY_PENALTY
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -570,6 +571,7 @@ class ExhaustiveDecodeAuditExtTest {
         )
         else PinyinDecoder(t9Dict, lm, aliasDict = dict)
 
+    private val E6_RARE = 100
     private val E6_COMMON = 1000
 
     private val LOCKED_CONTEXTS = listOf("", "我", "我们")
@@ -609,6 +611,127 @@ class ExhaustiveDecodeAuditExtTest {
 
     private val jianpin: BinaryDict by lazy { BinaryDict.fromFile(jianpinFile) }
     private val E6_PREFIX_SCAN = 8192
+
+    private fun e6Check(
+        source: BinaryDict,
+        decoder: PinyinDecoder,
+        input: String,
+        layered: Pair<List<Cand>, Int>,
+    ): List<String> {
+        val (cands, remainderStart) = layered
+        val rows = ArrayList<String>()
+        fun rare(c: Cand) = decoder.rareSingle(
+            c.word,
+            homophoneFreqsOf(source, decoder, input.substring(0, c.coveredLen.coerceIn(1, input.length))),
+        )
+        val exactWords = source.exact(input).filterNot { isSingleChar(it.word) }.mapTo(HashSet()) { it.word }
+        val buckets = LinkedHashMap<Int, MutableList<Pair<String, Int?>>>()
+        val atLonger = HashMap<String, Int>()
+        for ((pos, c) in cands.withIndex()) {
+            if (pos == 0) continue
+            if ((atLonger[c.word] ?: -1) > c.coveredLen) continue
+            atLonger[c.word] = maxOf(atLonger[c.word] ?: -1, c.coveredLen)
+            val key = input.substring(0, c.coveredLen.coerceIn(1, input.length))
+            buckets.getOrPut(c.coveredLen) { ArrayList() }.add(c.word to e6RawFreq(source, key, c.word))
+        }
+        for ((cov, ws) in buckets) {
+            val key = input.substring(0, cov.coerceIn(1, input.length))
+            var commonAfter: String? = null
+            for (i in ws.indices.reversed()) {
+                val (w, f) = ws[i]
+                if (f != null && f <= E6_RARE && commonAfter != null && w !in exactWords) {
+                    rows.add("$input\tcov$cov\tO2\t$w@$f before ${commonAfter}")
+                }
+                if (f != null && f >= E6_COMMON) commonAfter = w
+            }
+            val readingFreq = source.exact(key).filter { isSingleChar(it.word) }.associate { it.word to it.freq }
+            val heads = homophoneFreqsOf(source, decoder, key)
+            val previousInBucket = HashMap<Long, Int>()
+            for ((w, _) in ws) {
+                val f = readingFreq[w] ?: continue
+                val frequency = heads[w] ?: continue
+                val bucket = orderingBucket(decoder.homophoneLayer(w, frequency), w)
+                val prev = previousInBucket[bucket]
+                if (prev != null && f > prev) {
+                    rows.add(
+                        "$input\tcov$cov\tO1\t$w@$f after a lower-freq same-reading single " +
+                            "in layer ${bucket / 8} band ${bucket % 8}",
+                    )
+                }
+                previousInBucket[bucket] = f
+            }
+        }
+        val firstRare = cands.indexOfFirst { rare(it) }
+        if (firstRare >= 0) {
+            val lastWord = cands.indexOfLast { !isSingleChar(it.word) }
+            if (lastWord > firstRare) {
+                rows.add("$input\ttail\tR1\t${cands[lastWord].word} sits at $lastWord after the rare run at $firstRare")
+            }
+            val broken = (firstRare until cands.size).firstOrNull { !rare(cands[it]) }
+            if (broken != null) rows.add("$input\ttail\tR2\t${cands[broken].word} breaks the closing rare run at $broken")
+        }
+        val scanFrom = maxOf(remainderStart, 1)
+        var commonAfter: String? = null
+        for (i in cands.indices.reversed()) {
+            if (i < scanFrom) break
+            val c = cands[i]
+            val key = input.substring(0, c.coveredLen.coerceIn(1, input.length))
+            val f = e6RawFreq(source, key, c.word)
+            if (f != null && f <= E6_RARE && commonAfter != null) {
+                rows.add("$input\ttail\tO2G\t${c.word}@$f(cov${c.coveredLen}) before $commonAfter")
+            }
+            if (f != null && f >= E6_COMMON) commonAfter = "${c.word}(cov${c.coveredLen})"
+        }
+        return rows
+    }
+
+    @Test fun e6_orderingInvariant_allSyllables_bothKeyspaces() {
+        assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
+        val syls = runtimeSyllables()
+        val dL = e6Decoder(letters = true)
+        val dT = e6Decoder(letters = false)
+        val rows = ArrayList<String>()
+        for (s in syls) {
+            rows.addAll(e6Check(dict, dL, s, dL.decodeCoveredLayered(s, 30)))
+            val dig = T9Pinyin.toT9(s)
+            rows.addAll(e6Check(t9Dict, dT, dig, dT.decodeCoveredLayered(dig, 30)))
+        }
+        val pairs = listOf(
+            "en" to "de", "fo" to "le", "dong" to "shi", "chua" to "de", "den" to "hao",
+            "m" to "le", "rua" to "ma", "nou" to "shi", "kei" to "de", "cen" to "hao",
+            "ni" to "hao", "wo" to "de", "xian" to "zai", "liang" to "ge", "die" to "de",
+        )
+        for ((s1, s2) in pairs) {
+            rows.addAll(e6Check(dict, dL, s1 + s2, dL.decodeCoveredLayered(s1 + s2, 30)))
+            val dig = T9Pinyin.toT9(s1 + s2)
+            rows.addAll(e6Check(t9Dict, dT, dig, dT.decodeCoveredLayered(dig, 30)))
+        }
+        File(outDir(), "ext_e6.tsv").writeText(
+            "# $runStamp\ninput\tbucket\tinvariant\tdetail\n" + rows.joinToString("\n") + if (rows.isNotEmpty()) "\n" else ""
+        )
+        File(outDir(), "ext_e6_summary.txt").writeText(
+            "# $runStamp\nE6 — ordering invariant (rare must not precede common; hard gate)\n" +
+                "syllables: ${syls.size} x 2 keyspaces + ${pairs.size} pairs x 2\nviolations: ${rows.size}\n"
+        )
+        assertTrue("E6 ordering violations must be zero: ${rows.take(8)}", rows.isEmpty())
+    }
+
+    private val homophoneFreqMap = HashMap<String, Map<String, Double>>()
+
+    private fun homophoneFreqsOf(source: BinaryDict, decoder: PinyinDecoder, key: String): Map<String, Double> =
+        homophoneFreqMap.getOrPut((if (source === dict) "L:" else "D:") + key) { decoder.homophoneFreqs(key).toMap() }
+
+    private fun corpusBand(word: String): Int {
+        val rank = lm.unigramRank(word.codePointAt(0))
+        return when {
+            rank <= TghGrading.LEVEL1_COUNT -> 0
+            rank <= TghGrading.LEVEL1_COUNT + TghGrading.LEVEL2_COUNT -> 1
+            rank <= TghGrading.ENTRY_COUNT -> 2
+            else -> 3
+        }
+    }
+
+    private fun orderingBucket(layer: Int, word: String): Long = layer.toLong() * 8L + corpusBand(word)
 
     private val assemblyFrequencyMethod by lazy {
         PinyinDecoder::class.java.getDeclaredMethod(
