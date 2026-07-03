@@ -533,6 +533,34 @@ class ExhaustiveDecodeAuditExtTest {
             fails.isEmpty())
     }
 
+    @Test fun e5_orderAdvisory_allSyllables() {
+        assumeTrue(FullDictTestAssets.available(dictFile, lmFile, jianpinFile))
+        val syls = runtimeSyllables()
+        val d = letterDecoder()
+        val rows = ArrayList<String>()
+        for (s in syls) {
+            val top5 = dict.exact(s).filter { isSingleChar(it.word) }
+                .sortedByDescending { it.freq }.take(5).map { it.word }
+            val first = d.decodeCovered(s, 30).firstOrNull()?.word ?: "<none>"
+            if (top5.isNotEmpty() && first !in top5 && first !in allowed(s)) {
+                val f = e6RawFreq(dict, s, first)
+                val verdict = when {
+                    f == null -> "composed-sentence"
+                    f >= E6_COMMON -> "compliant: common candidate ahead of the syllable's own singles (常用先于生僻)"
+                    else -> "band ($f): neither clearly rare nor clearly common — no E6 constraint"
+                }
+                rows.add("$s\t$first\t${top5.joinToString(" ")}\t$verdict")
+            }
+        }
+        File(outDir(), "ext_e5_advisory.tsv").writeText(
+            "# $runStamp\nsyllable\ttopCandidate\tdictTop5\ttc2Verdict\n" + rows.joinToString("\n") + if (rows.isNotEmpty()) "\n" else ""
+        )
+        File(outDir(), "ext_e5_summary.txt").writeText(
+            "# $runStamp\nE5 — order advisory (report-only)\nsyllables: ${syls.size}\nadvisories: ${rows.size}\n"
+        )
+        assertTrue("E5 advisory written", File(outDir(), "ext_e5_advisory.tsv").exists())
+    }
+
     private val lm: CharBigramLM by lazy { CharBigramLM.fromFile(lmFile) }
 
     private fun e6Decoder(letters: Boolean): PinyinDecoder =
@@ -542,7 +570,45 @@ class ExhaustiveDecodeAuditExtTest {
         )
         else PinyinDecoder(t9Dict, lm, aliasDict = dict)
 
+    private val E6_COMMON = 1000
+
     private val LOCKED_CONTEXTS = listOf("", "我", "我们")
+
+    private class E6View(val exact: Map<String, Int>, val alias: Map<String, Int>, val prefix: Map<String, Int>) {
+        val entries = exact.size + alias.size + prefix.size
+    }
+    private val E6_VIEW_ENTRY_BUDGET = 4_000_000
+    private var e6ViewEntries = 0
+    private val e6KeyView = LinkedHashMap<String, E6View>(16, 0.75f, true)
+    private fun e6RawFreq(source: BinaryDict, key: String, word: String): Int? {
+        val cacheKey = (if (source === dict) "L:" else "D:") + key
+        val view = e6KeyView[cacheKey] ?: run {
+            fun collect(entries: List<BinaryDict.WordFreq>): Map<String, Int> {
+                val m = HashMap<String, Int>()
+                for (wf in entries) if (wf.freq > (m[wf.word] ?: -1)) m[wf.word] = wf.freq
+                return m
+            }
+            val aliasEntries = (if (key.firstOrNull() in '2'..'9') PinyinDecoder.T9_INPUT_ALIASES[key].orEmpty()
+            else PinyinDecoder.INPUT_ALIASES[key].orEmpty()).flatMap { dict.exact(it) }
+            val prefixEntries = source.prefixByFreq(key, E6_PREFIX_SCAN) +
+                jianpin.prefixByFreq(key, E6_PREFIX_SCAN)
+            E6View(collect(source.exact(key)), collect(aliasEntries), collect(prefixEntries))
+                .also {
+                    e6KeyView[cacheKey] = it
+                    e6ViewEntries += it.entries
+                    val eldest = e6KeyView.entries.iterator()
+                    while (e6ViewEntries > E6_VIEW_ENTRY_BUDGET && eldest.hasNext()) {
+                        val removed = eldest.next()
+                        e6ViewEntries -= removed.value.entries
+                        eldest.remove()
+                    }
+                }
+        }
+        return view.exact[word] ?: view.alias[word] ?: view.prefix[word]
+    }
+
+    private val jianpin: BinaryDict by lazy { BinaryDict.fromFile(jianpinFile) }
+    private val E6_PREFIX_SCAN = 8192
 
     private val assemblyFrequencyMethod by lazy {
         PinyinDecoder::class.java.getDeclaredMethod(
