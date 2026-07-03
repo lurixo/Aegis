@@ -1,25 +1,24 @@
 {
   "schema_version": 1,
   "schema_name": "aegis.resource-build-info",
-  "generated_at": "2026-07-02T00:00:00Z",
+  "generated_at": "2026-07-03T13:12:30Z",
   "app": {
     "project": "Aegis",
     "repository": "https://github.com/lurixo/Aegis",
-    "release_tag": "v0.1.0-debug.13",
-    "version_name": "0.1.0-debug.13"
+    "release_tag": "v0.1.0-debug.46"
   },
   "resources": [
     {
       "kind": "dictionary",
       "physical_asset": {
-        "name": "aegis_dict_pack_debug13.zip",
-        "url": "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.13/aegis_dict_pack_debug13.zip",
-        "release_tag": "v0.1.0-debug.13",
-        "release_url": "https://github.com/lurixo/Aegis/releases/tag/v0.1.0-debug.13",
+        "name": "aegis_dict_pack_debug46.zip",
+        "url": "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.46/aegis_dict_pack_debug46.zip",
+        "release_tag": "v0.1.0-debug.46",
+        "release_url": "https://github.com/lurixo/Aegis/releases/tag/v0.1.0-debug.46",
         "prerelease": true,
-        "published_at": "2026-06-28T18:46:56Z",
-        "sha256": "d048435631623513a9d6a6ccb877a6ba06fb15a293ade72bb101d1e0d4feaa60",
-        "size_bytes": 98214288
+        "published_at": null,
+        "sha256": "afda5d50c3ba9f7e254f79051613160f3b311b63218eb4c3f9582e3dbc1d3f86",
+        "size_bytes": 98164388
       },
       "source": {
         "repo": "https://github.com/amzxyz/rime-wanxiang",
@@ -42,59 +41,163 @@
           "wuzhong",
           "renming"
         ],
-        "input_yaml_sha256_status": "missing_for_debug13_public_artifact"
+        "input_yaml_sha256": [
+          {
+            "table": "zi",
+            "path": "dicts/zi.dict.yaml",
+            "sha256": "9b5a657b57fb612450bb50f437a52c7a1f7ff5a7f0962f37e0a7795314c9c4e3",
+            "size_bytes": 607399
+          },
+          {
+            "table": "jichu",
+            "path": "dicts/jichu.dict.yaml",
+            "sha256": "e658ee8623f51fe7ba0958cbe7c1d2ccf958c73e2e97b9d0f85d6f9f00789c52",
+            "size_bytes": 45070692
+          },
+          {
+            "table": "lianxiang",
+            "path": "dicts/lianxiang.dict.yaml",
+            "sha256": "de07b2bac90343a6ecdca3b43d6fc442f0c4fd5afb8d05628ab875d7de963f23",
+            "size_bytes": 7808770
+          },
+          {
+            "table": "cuoyin",
+            "path": "dicts/cuoyin.dict.yaml",
+            "sha256": "b9359ec262362e25d48a7c9349abeeb03249a4c2ff18ef856d2b7e50a0ac8301",
+            "size_bytes": 6364
+          },
+          {
+            "table": "duoyin",
+            "path": "dicts/duoyin.dict.yaml",
+            "sha256": "f9bdf5b1d88936955de135b6ca4455cf7f16faa05181a80beedd46a7e1c7a4cf",
+            "size_bytes": 173936
+          },
+          {
+            "table": "shici",
+            "path": "dicts/shici.dict.yaml",
+            "sha256": "171a66175de02053350330d9f663512e1e29d1bc09e6c3adeef605bf6ca66255",
+            "size_bytes": 16750740
+          },
+          {
+            "table": "diming",
+            "path": "dicts/diming.dict.yaml",
+            "sha256": "76e5932d32250002468a3a216cb4a5b72da85ed8e6a278212e051009677819e4",
+            "size_bytes": 2660576
+          },
+          {
+            "table": "yixue",
+            "path": "dicts/yixue.dict.yaml",
+            "sha256": "40f709fce4e70d3d90bb6eec2fe18b732941898d6ca4137f347f50a8f79eefe6",
+            "size_bytes": 825306
+          },
+          {
+            "table": "huaxue",
+            "path": "dicts/huaxue.dict.yaml",
+            "sha256": "1765d755c51c7b5d05e03281788f1d2b77857a1d5cfd856b0e303214c89655fb",
+            "size_bytes": 790433
+          },
+          {
+            "table": "yaopin",
+            "path": "dicts/yaopin.dict.yaml",
+            "sha256": "b2ae54cf21a48794e5fa7bc602d82e905c21c158a1b14185e502fbe3dd4a2172",
+            "size_bytes": 566554
+          },
+          {
+            "table": "mingren",
+            "path": "dicts/mingren.dict.yaml",
+            "sha256": "d2330a152216a65b40fed6585cd718099068722689c5c51c9f349e10641deaa5",
+            "size_bytes": 148062
+          },
+          {
+            "table": "yiren",
+            "path": "dicts/yiren.dict.yaml",
+            "sha256": "6a20273bafb817cf1ec304181cc37143aa532e80bf15fd83bf15eae01a18e2e3",
+            "size_bytes": 242535
+          },
+          {
+            "table": "wuzhong",
+            "path": "dicts/wuzhong.dict.yaml",
+            "sha256": "6fe546e17f31c563cdbf8297bb84d53a5df6adf1c1a845837b7b7b0143c44ea3",
+            "size_bytes": 2023417
+          },
+          {
+            "table": "renming",
+            "path": "dicts/renming.dict.yaml",
+            "sha256": "0d7f74db445fa4481153de147a463aab2ec78814111e65aeecd5e0ad0befc518",
+            "size_bytes": 553523
+          }
+        ]
       },
       "build": {
         "builder_path": "tools/src/main/kotlin/com/aegis/tools/DictBuilder.kt",
-        "builder_commit": "0eb6605e2ac35783f9fee7af7ab35e3c32cdcb71",
+        "builder_commit": "78945f4fcda669289d8382ef6f00c4ff59a5c3aa",
+        "builder_tree_dirty": false,
         "full_pack_parameters": {
           "min_freq": 1,
           "max_per_key": null,
           "commands": [
-            "--out aegis_dict_full.bin --min-freq 1 --keytype letter",
-            "--out aegis_t9_full.bin --min-freq 1 --keytype digit",
-            "--out aegis_jianpin_full.bin --min-freq 1 --keytype initials"
+            "--out aegis_dict_full.bin --min-freq 1 --keytype letter --t2s-data tools/t2s-data",
+            "--out aegis_t9_full.bin --min-freq 1 --keytype digit --t2s-data tools/t2s-data",
+            "--out aegis_jianpin_full.bin --min-freq 1 --keytype initials --t2s-data tools/t2s-data"
           ]
         },
         "seed_parameters": {
           "min_freq": 400,
           "max_per_key": null,
+          "keep_syllable_singles": 3,
+          "keep_syllable_singles_keytypes": [
+            "letter",
+            "digit"
+          ],
           "commands": [
-            "--out aegis_dict.bin --min-freq 400 --keytype letter",
-            "--out aegis_t9.bin --min-freq 400 --keytype digit",
-            "--out aegis_jianpin.bin --min-freq 400 --keytype initials"
+            "--out aegis_dict.bin --min-freq 400 --keep-syllable-singles 3 --keytype letter --t2s-data tools/t2s-data",
+            "--out aegis_t9.bin --min-freq 400 --keep-syllable-singles 3 --keytype digit --t2s-data tools/t2s-data",
+            "--out aegis_jianpin.bin --min-freq 400 --keytype initials --t2s-data tools/t2s-data"
           ]
+        },
+        "t2s_data": {
+          "path": "tools/t2s-data",
+          "provenance": "tools/t2s-data/PROVENANCE.md",
+          "license": "Apache-2.0 for the OpenCC tables (tools/t2s-data/LICENSE-OpenCC)",
+          "effect": "traditional and variant forms merge into their simplified image with frequency merging"
         },
         "output_bins": [
           {
             "zip_entry": "aegis_dict_full.bin",
             "runtime_name": "aegis_dict.bin",
-            "sha256": "8cafd661bbb209339a8b3cbda93b8aa880cdadb3e08360f051362d27ff66fee4",
-            "size_bytes": 98323087
+            "sha256": "fb92ed366ee0f859874cab10100d78e4c4f099d45172d225710f20c6cd3236ac",
+            "size_bytes": 98262253
           },
           {
             "zip_entry": "aegis_t9_full.bin",
             "runtime_name": "aegis_t9.bin",
-            "sha256": "a8667f20084ebd23e090000aacdace1346a2a14c4b9c3af221a1c514f617bf00",
-            "size_bytes": 94245937
+            "sha256": "4fcffb27c5e88d1bd00689b4492427b8ed66a37c1000f2e9e2f200a70e9becb8",
+            "size_bytes": 94185249
           },
           {
             "zip_entry": "aegis_jianpin_full.bin",
             "runtime_name": "aegis_jianpin.bin",
-            "sha256": "64005260593e2f514e1789f00f29245206cc66dc05257eb4a78b72bba5e88943",
-            "size_bytes": 62396958
+            "sha256": "79c095f83a8a7dda51a6fab578ddcd228c2dfedfc6984e8d2786e2336c36236d",
+            "size_bytes": 62337098
           }
-        ]
+        ],
+        "zip_packaging": {
+          "file_order": [
+            "aegis_dict_full.bin",
+            "aegis_t9_full.bin",
+            "aegis_jianpin_full.bin"
+          ],
+          "timestamp_utc": "1980-01-01T00:00:00Z",
+          "unix_mode": "0644",
+          "compression": "zip_deflated_level_9"
+        }
       },
-      "provenance_conclusion": "debug.13 downloadable full dictionary pack traces to rime-wanxiang 14 tables via Aegis DictBuilder and matching debug.13 manifests/hashes; it is not yet a fully reproducible supply-chain artifact because input YAML hashes, deterministic build recipe, and signing/attestation are missing.",
       "attestation": {
         "status": "not_attested",
-        "tag_signature": "none_verified",
-        "reproducibility_status": "partial_trace_not_fully_reproducible",
+        "reproducibility_status": "build_inputs_recorded_but_unsigned",
         "missing": [
-          "input YAML SHA-256 values for the debug.13 public artifact",
-          "deterministic build recipe and ZIP normalization details for the debug.13 public artifact",
-          "signature or attestation"
+          "signature or attestation",
+          "independent external rebuild verification"
         ]
       }
     }
