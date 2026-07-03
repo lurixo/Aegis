@@ -194,6 +194,29 @@ class ExhaustiveDecodeAuditTest {
                     sample(oracle), h, "homophone drill contains a mapped-away form")
             }
 
+            // ---- alias PRESENCE (upgraded from allowlist-only). The allowlist said 嗯 MAY
+            // surface for en; the required behaviour is that it DOES. For every aliased
+            // syllable, the alias target's top single must appear in the candidate strip and the
+            // homophone drill, ranked after the input's own top native char (借读不得插到本音字前). ----
+            for (target in PinyinDecoder.INPUT_ALIASES[s].orEmpty()) {
+                val topAlias = dict.exact(target).filter { isSingleChar(it.word) }.maxByOrNull { it.freq }?.word ?: continue
+                val topNative = dict.exact(s).filter { isSingleChar(it.word) }.maxByOrNull { it.freq }?.word
+                val strip = d.decodeCovered(s, 30).map { it.word }
+                val ai = strip.indexOf(topAlias)
+                if (ai < 0) {
+                    fails += Fail(s, "26key", "TEN-alias-presence", s, "-",
+                        topAlias, sample(strip.take(12).toSet()), "alias target's top single ($target->$topAlias) missing from candidates")
+                } else if (topNative != null && strip.indexOf(topNative) !in 0 until ai) {
+                    fails += Fail(s, "26key", "TEN-alias-presence", s, "-",
+                        "$topNative<$topAlias", "$topAlias@$ai,$topNative@${strip.indexOf(topNative)}",
+                        "borrowed reading outranks the input's own top native char")
+                }
+                if (topAlias !in homo) {
+                    fails += Fail(s, "26key", "TEN-alias-presence", s, "-",
+                        topAlias, sample(homo), "alias target's top single missing from homophonesAt(S,0)")
+                }
+            }
+
             // ---- I3 26-key: locked/atomic decode chars read S ----
             val atom26 = allSingles(d.decodeCoveredAtomic(s, 30))
             val leak26 = atom26 - oracle - allowed

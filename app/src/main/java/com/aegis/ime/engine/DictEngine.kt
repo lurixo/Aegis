@@ -43,7 +43,9 @@ class DictEngine(
         PinyinDecoder(it, lm, userModel = userModel, fuzzyRules = fuzzyRules, initialsDict = initialsDict, octagram = octagram)
     }
     private val t9Decoder = t9Dict?.let {
-        PinyinDecoder(it, lm, userModel = userModel, octagram = octagram)
+        // The letter dict doubles as the T9 decoder's alias-reading resolver: digit key 36 (en) consults
+        // letter key "ng", so ONLY the aliased reading's words join — never the whole digit-64 group (米…).
+        PinyinDecoder(it, lm, userModel = userModel, octagram = octagram, aliasDict = pinyinDict)
     }
 
     override fun candidates(composing: String, t9: Boolean): List<String> =

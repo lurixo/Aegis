@@ -54,6 +54,7 @@ class PinyinDecoder(
     private val octagram: com.aegis.ime.dict.OctagramReader? = null,
     private val octagramWeight: Double = DEFAULT_OCTAGRAM_WEIGHT,
     private val contextWeight: Double = DEFAULT_CONTEXT_WEIGHT,
+    private val aliasDict: BinaryDict? = null,
 ) {
     private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
     private var edgeN = if (lm != null || fuzzyRules.isNotEmpty() || initialsDict != null) EDGE_N else 1
@@ -71,15 +72,25 @@ class PinyinDecoder(
 
     private class Edge(val word: String, val freq: Int, val penalty: Double)
 
-    private fun inputAliases(key: String): List<String> = INPUT_ALIASES[key].orEmpty()
+    /** INPUT_ALIASES keyed by the decoder's own key space: the T9 decoder sees digit substrings, so the
+     *  alias source reading is matched by its digit group (en -> "36"); targets stay LETTER keys. */
+    private fun inputAliases(key: String): List<String> =
+        if (key.isNotEmpty() && key[0] in '2'..'9') T9_INPUT_ALIASES[key].orEmpty()
+        else INPUT_ALIASES[key].orEmpty()
+
+    /** Where alias target keys are looked up: the T9 decoder's own dict is digit-keyed, so it resolves the
+     *  letter-keyed alias targets against [aliasDict] (the 26-key dict) — dict.exact("ng") there is exactly
+     *  the ng-reading words, never the whole digit-64 group (米…). The letter decoder resolves in itself. */
+    private val aliasSource: BinaryDict get() = aliasDict ?: dict
 
     private fun addExactEdges(
+        source: BinaryDict,
         key: String,
         penalty: Double,
         out: MutableList<Edge>,
         seen: MutableSet<String>,
     ): Boolean {
-        for (wf in preferredExact(dict, key)) {
+        for (wf in preferredExact(source, key)) {
             if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, penalty))
             if (out.size >= edgeN) return true
         }
@@ -90,7 +101,7 @@ class PinyinDecoder(
         val out = ArrayList<BinaryDict.WordFreq>()
         val seen = HashSet<String>()
         for (alias in inputAliases(input)) {
-            for (wf in dict.exact(alias)) if (seen.add(wf.word)) out.add(wf)
+            for (wf in aliasSource.exact(alias)) if (seen.add(wf.word)) out.add(wf)
         }
         return preferredWordFreqs(out)
     }
@@ -99,8 +110,18 @@ class PinyinDecoder(
     private fun edgesFor(sub: String): List<Edge> {
         val out = ArrayList<Edge>(edgeN)
         val seen = HashSet<String>()
-        if (addExactEdges(sub, 0.0, out, seen)) return out
-        for (alias in inputAliases(sub)) if (addExactEdges(alias, ALIAS_PENALTY, out, seen)) return out
+        val exactFull = addExactEdges(dict, sub, 0.0, out, seen)
+        // Alias words are floor-guaranteed edges: an exact layer that fills all [edgeN] slots by itself
+        // (the full dict's exact("en") can) must not starve them out of the lattice — they are the only
+        // way 嗯 reaches an "en" edge at all. Each alias key contributes at most edgeN words and only
+        // en->ng exists, so an edge list stays O(edgeN); the path score carries ALIAS_PENALTY as before.
+        for (alias in inputAliases(sub)) {
+            var added = 0
+            for (wf in preferredExact(aliasSource, alias)) {
+                if (seen.add(wf.word)) { out.add(Edge(wf.word, wf.freq, ALIAS_PENALTY)); if (++added >= edgeN) break }
+            }
+        }
+        if (exactFull || out.size >= edgeN) return out
         if (fuzzyRules.isNotEmpty()) {
             // Per-rule fuzzy: enumerate the confusion class of `sub` and match each against the exact
             // dict (no monolithic fuzzy index, so individual rules can be turned off — E4).
@@ -135,22 +156,32 @@ class PinyinDecoder(
             (if (lm != null && ctxCp != BOS) contextWeight * lm.logCond(ctxCp, word.codePointAt(0)) else 0.0) +
             (if (octagram != null && ctxWord.isNotEmpty()) octagramWeight * (octagram.rawScore(ctxWord + word) ?: 0.0) else 0.0)
 
-    /** Whole-input dict words (exact key = input) ordered by [wordModelScore] — model, not raw freq. */
-    private fun rerankedWholeInput(input: String, ctxCp: Int, ctxWord: String): List<String> =
-        dict.exact(input)
+    /**
+     * Whole-input dict words (exact key = input) plus the input's alias-key words in ONE
+     * [wordModelScore] order — model, not raw freq. Alias entries score with ALIAS_PENALTY, which in
+     * the log domain is a ÷e^3.5 frequency discount: 嗯@434,765 lands under en's common natives
+     * (恩摁) but above the rare tail — and a long exact list can no longer starve alias words out of
+     * [decode]'s limit or [decodeCoveredClean]'s completion budget (they used to be appended AFTER
+     * every exact word). A no-alias input takes the exact-only path, same elements, same comparator.
+     */
+    private fun rerankedWholeInputAndAliases(input: String, ctxCp: Int, ctxWord: String): List<String> {
+        val own = dict.exact(input)
+        val alias = inputAliasWordFreqs(input)
+        val scored = ArrayList<Pair<BinaryDict.WordFreq, Double>>(own.size + alias.size)
+        for (wf in own) scored.add(wf to wordModelScore(wf.word, wf.freq, ctxCp, ctxWord))
+        if (alias.isNotEmpty()) {
+            val ownWords = own.mapTo(HashSet()) { it.word }
+            for (wf in alias) {
+                if (wf.word !in ownWords) scored.add(wf to (wordModelScore(wf.word, wf.freq, ctxCp, ctxWord) - ALIAS_PENALTY))
+            }
+        }
+        return scored
             .sortedWith(
-                compareByDescending<BinaryDict.WordFreq> { wordModelScore(it.word, it.freq, ctxCp, ctxWord) }
-                    .thenBy { supplementarySingleTieRank(it.word) },
+                compareByDescending<Pair<BinaryDict.WordFreq, Double>> { it.second }
+                    .thenBy { supplementarySingleTieRank(it.first.word) },
             )
-            .map { it.word }
-
-    private fun rerankedInputAliases(input: String, ctxCp: Int, ctxWord: String): List<String> =
-        inputAliasWordFreqs(input)
-            .sortedWith(
-                compareByDescending<BinaryDict.WordFreq> { wordModelScore(it.word, it.freq, ctxCp, ctxWord) - ALIAS_PENALTY }
-                    .thenBy { supplementarySingleTieRank(it.word) },
-            )
-            .map { it.word }
+            .map { it.first.word }
+    }
 
     /**
      * Parse the editor text before the cursor into (last Han code point, trailing Han run) for
@@ -251,8 +282,7 @@ class PinyinDecoder(
         val (ctxCp, ctxWord) = parseContext(context)
         val out = LinkedHashSet<String>()
         bestSentence(clean, cuts, ctxCp = ctxCp, ctxWord = ctxWord)?.let { out.add(it) }
-        out.addAll(rerankedWholeInput(clean, ctxCp, ctxWord)) // ★top-N rerank, context-conditioned
-        out.addAll(rerankedInputAliases(clean, ctxCp, ctxWord))
+        out.addAll(rerankedWholeInputAndAliases(clean, ctxCp, ctxWord)) // ★top-N rerank, context-conditioned
         out.addAll(prefixWords(dict, clean, limit))
         if (out.size < limit && fuzzyRules.isNotEmpty()) {
             for (variant in Fuzzy.variants(clean, fuzzyRules)) {
@@ -322,8 +352,7 @@ class PinyinDecoder(
             for (w in words) { if (cover.size >= completionCap) return; cover.putIfAbsent(w, input.length) }
         }
         bestSentence(input, emptySet(), ctxCp, ctxWord)?.let { cover[it] = input.length }
-        addCompletions(rerankedWholeInput(input, ctxCp, ctxWord)) // ★top-N rerank, context-conditioned
-        addCompletions(rerankedInputAliases(input, ctxCp, ctxWord))
+        addCompletions(rerankedWholeInputAndAliases(input, ctxCp, ctxWord)) // ★top-N rerank, context-conditioned
         addCompletions(prefixWords(dict, input, completionCap))
         if (fuzzyRules.isNotEmpty()) {
             for (variant in Fuzzy.variants(input, fuzzyRules)) {
@@ -707,7 +736,8 @@ class PinyinDecoder(
         return parts.joinToString("")
     }
 
-    private companion object {
+    // internal (not private) so tests can assert the alias tables' exact shape (only en→ng exists)
+    internal companion object {
         const val SEP = '\'' // Chinese IME behavior note.
         const val BOS = -1            // sentence-start sentinel (real code points are >= 0)
         const val EDGE_N = 20         // candidate words considered per lattice edge when an LM is present (C3)
@@ -725,5 +755,9 @@ class PinyinDecoder(
         const val DEFAULT_CONTEXT_WEIGHT = 2.0 // ③ weight of the committed-context boundary bigram (vs λ for
         // internal word boundaries); context is reliable preceding text, so it outvotes raw frequency more
         val INPUT_ALIASES = mapOf("en" to listOf("ng"))
+        /** The same aliases as the T9 decoder sees them: source reading keyed by its digit group
+         *  (toT9("en") = "36"); targets stay letter keys, resolved against [aliasDict]. */
+        val T9_INPUT_ALIASES: Map<String, List<String>> =
+            INPUT_ALIASES.entries.associate { (k, v) -> T9Pinyin.toT9(k) to v }
     }
 }
