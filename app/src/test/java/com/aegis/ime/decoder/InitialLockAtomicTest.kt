@@ -170,4 +170,12 @@ class InitialLockAtomicTest {
             for (i in syllables.indices) assertEquals(tag, without.homophonesAt(input, i, cuts), withTable.homophonesAt(input, i, cuts))
         }
     }
+
+    @Test fun withoutTheJianpinTableALockedInitialKeepsTheOldEmptyResult() {
+        assets()
+        val d = plainDecoder()
+        assertEquals(emptyList<Cand>(), d.decodeCoveredAtomic("jyi", 30, setOf(1)))
+        assertEquals(emptyList<Cand>(), d.decodeCoveredAtomic("j", 30))
+        assertEquals(listOf("yi"), d.syllables("jyi", setOf(1)).map { it.reading })
+    }
 }
