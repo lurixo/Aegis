@@ -31,10 +31,10 @@ class ExhaustiveDecodeAuditExtTest {
     private val jianpinFile = File("src/main/assets/aegis_jianpin.bin")
 
     private fun letterDecoder(fuzzy: Set<String> = emptySet()): PinyinDecoder {
-        val initials = if (jianpinFile.exists()) BinaryDict.fromFile(jianpinFile) else null
+        assumeTrue("jianpin asset present", jianpinFile.exists())
         return PinyinDecoder(
             BinaryDict.fromFile(dictFile), CharBigramLM.fromFile(lmFile),
-            fuzzyRules = fuzzy, initialsDict = initials,
+            fuzzyRules = fuzzy, initialsDict = BinaryDict.fromFile(jianpinFile),
         )
     }
     private fun t9Decoder(): PinyinDecoder =
@@ -58,7 +58,23 @@ class ExhaustiveDecodeAuditExtTest {
     private fun runtimeSyllables(): List<String> {
         val f = T9Pinyin::class.java.getDeclaredField("SYLLABLES")
         f.isAccessible = true
-        return (f.get(T9Pinyin) as Set<String>).toList().sorted()
+        val syls = (f.get(T9Pinyin) as Set<String>).toList().sorted()
+        assertTrue("runtime SYLLABLES set looks like ~415 (drift guard): ${syls.size}", syls.size in 400..430)
+        return syls
+    }
+
+    private val reverseSingles: Map<String, Set<String>> by lazy {
+        val m = HashMap<String, MutableSet<String>>()
+        for (s in runtimeSyllables()) for (ch in dictSingles(s)) m.getOrPut(ch) { HashSet() }.add(s)
+        m
+    }
+
+    private val runStamp: String by lazy {
+        val rev = runCatching {
+            ProcessBuilder("git", "rev-parse", "--short", "HEAD").redirectErrorStream(true)
+                .start().inputStream.bufferedReader().readText().trim()
+        }.getOrDefault("unknown")
+        "run=${System.currentTimeMillis()} git=$rev"
     }
 
     private data class Fail(
@@ -75,6 +91,7 @@ class ExhaustiveDecodeAuditExtTest {
 
     private fun writeTsv(file: File, fails: List<Fail>) {
         file.bufferedWriter().use { w ->
+            w.write("# $runStamp\n")
             w.write("input\tlayout\tcheck\texpected\tshown\tdetail\n")
             for (f in fails) w.write("${f.input}\t${f.layout}\t${f.check}\t${f.expected}\t${f.shown}\t${f.detail}\n")
         }
@@ -83,9 +100,10 @@ class ExhaustiveDecodeAuditExtTest {
     private fun summary(file: File, title: String, covered: String, fails: List<Fail>) {
         val byCheck = fails.groupingBy { it.check }.eachCount().toSortedMap()
         File(outDir(), file.name).writeText(buildString {
+            appendLine("# $runStamp")
             appendLine(title)
             appendLine(covered)
-            appendLine("total violations: ${fails.size}; distinct inputs: ${fails.map { it.input }.toSet().size}")
+            appendLine("total rows (violations + classified findings): ${fails.size}; distinct inputs: ${fails.map { it.input }.toSet().size}")
             byCheck.forEach { (k, v) -> appendLine("  $k: $v") }
         })
     }
@@ -120,13 +138,26 @@ class ExhaustiveDecodeAuditExtTest {
                 val dictWords = dict.exact(input).map { it.word }.toSet()
                 for (c in cands) {
                     if (c.coveredLen != input.length || c.word.codePointCount(0, c.word.length) != 2) continue
-                    if (c.word in dictWords) continue
                     val cp0 = String(Character.toChars(c.word.codePointAt(0)))
                     val cp1 = String(Character.toChars(c.word.codePointBefore(c.word.length)))
-                    if (cp0 !in o1) fails += Fail(input, "9key", "E1-chars-S1",
-                        sample(o1), "${c.word}[0]=$cp0", "sentence char 0 not reading S1")
-                    if (cp1 !in o2) fails += Fail(input, "9key", "E1-chars-S2",
-                        sample(o2), "${c.word}[1]=$cp1", "sentence char 1 not reading S2")
+                    val bad = ArrayList<Pair<String, String>>()
+                    if (cp0 !in o1) bad.add(cp0 to "S1=$s1")
+                    if (cp1 !in o2) bad.add(cp1 to "S2=$s2")
+                    if (bad.isEmpty()) continue
+                    if (c.word in dictWords) {
+                        val crossEvidence = bad.filter { (cp, _) -> !reverseSingles[cp].isNullOrEmpty() }
+                        val cls = if (crossEvidence.isNotEmpty()) "E1-cross-parse-dict-word" else "E1-dictword-oracle-gap"
+                        val det = bad.joinToString("; ") { (cp, which) ->
+                            "$cp vs $which (standalone readings: ${reverseSingles[cp]?.sorted()?.joinToString(",") ?: "none"})"
+                        }
+                        fails += Fail(input, "9key", cls, "$s1+$s2", c.word,
+                            "dict word for the boundary-less key surfaces under the lock: $det")
+                    } else {
+                        if (cp0 !in o1) fails += Fail(input, "9key", "E1-chars-S1",
+                            sample(o1), "${c.word}[0]=$cp0", "sentence char 0 not reading S1")
+                        if (cp1 !in o2) fails += Fail(input, "9key", "E1-chars-S2",
+                            sample(o2), "${c.word}[1]=$cp1", "sentence char 1 not reading S2")
+                    }
                 }
                 val homo2 = d.homophonesAt("$s1'$s2", 1).toSet()
                 val leak2 = homo2 - dictSingles(s2) - allowed(s2)
@@ -317,10 +348,10 @@ class ExhaustiveDecodeAuditExtTest {
             }
         }
         File(outDir(), "ext_e5_advisory.tsv").writeText(
-            "syllable\ttopCandidate\tdictTop5\n" + rows.joinToString("\n") + if (rows.isNotEmpty()) "\n" else ""
+            "# $runStamp\nsyllable\ttopCandidate\tdictTop5\n" + rows.joinToString("\n") + if (rows.isNotEmpty()) "\n" else ""
         )
         File(outDir(), "ext_e5_summary.txt").writeText(
-            "E5 — order advisory (report-only)\nsyllables: ${syls.size}\nadvisories: ${rows.size}\n"
+            "# $runStamp\nE5 — order advisory (report-only)\nsyllables: ${syls.size}\nadvisories: ${rows.size}\n"
         )
         assertTrue("E5 advisory written", File(outDir(), "ext_e5_advisory.tsv").exists())
     }
