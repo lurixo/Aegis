@@ -147,8 +147,26 @@ class NgDedupFixTest {
                 File(p, "fullconfig_known_gaps.tsv")
                     .writeText("input\tgap\tdetail\n" + fullGaps.joinToString("\n") + if (fullGaps.isNotEmpty()) "\n" else "")
             }
-            if (fullGaps.isNotEmpty()) println("[full-config] known gaps recorded: ${fullGaps.size} (嗯-missing-at-cov1 under the full pack)")
+            if (fullGaps.isNotEmpty()) println("[full-config] gaps recorded: ${fullGaps.size}")
         }
+        assertTrue("full-config 嗯-at-coverage-1 gaps must be zero after the rescue: ${fullGaps.take(6)}", fullGaps.isEmpty())
         assertTrue("full-config targeted check failed: ${bad.take(8)}", bad.isEmpty())
+
+        val bloat = ArrayList<String>()
+        for (s in listOf("liang", "shuo", "zhuo", "xian", "ng", "n", "deng", "ma")) {
+            val perWord = HashMap<String, MutableSet<Int>>()
+            for (c in d.decodeCovered(s, 30)) if (isSingleChar(c.word)) {
+                perWord.getOrPut(c.word) { HashSet() }.add(c.coveredLen)
+            }
+            val dup = perWord.filterValues { it.size > 1 }
+            if (dup.isNotEmpty()) bloat.add("$s: ${dup.entries.take(3)}")
+        }
+        val liang = d.decodeCovered("liang", 30).filter { it.word == "俩" }
+        if (liang.map { it.coveredLen }.toSet().size > 1) bloat.add("liang re-emits 俩 at two coverages")
+        for ((pair, cap) in listOf("nga" to 40, "ngou" to 40)) {
+            val cov1 = d.decodeCovered(pair, 40).count { it.coveredLen == 1 }
+            if (cov1 > cap) bloat.add("$pair coverage-1 tail exploded: $cov1")
+        }
+        assertTrue("full-config anti-bloat failed: $bloat", bloat.isEmpty())
     }
 }

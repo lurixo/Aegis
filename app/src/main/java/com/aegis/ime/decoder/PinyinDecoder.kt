@@ -388,14 +388,16 @@ class PinyinDecoder(
         val seen = HashSet<String>(out.size * 2)
         for (c in out) seen.add(c.word)
         for (k in lens) for (w in homophonesOf(input.substring(0, k))) if (seen.add(w)) out.add(Cand(w, k))
+        if (lens.firstOrNull() == input.length) return
         for (k in lens) {
             if (k >= input.length) continue
-            if (out.any { it.coveredLen == k }) continue
             val rest = input.substring(k)
             val restSeg = if (isT9) T9Pinyin.segment(rest) else T9Pinyin.segmentLetters(rest)
             val first = restSeg?.firstOrNull() ?: continue
             if (first == "n" || first == "ng" || first == "m") continue
-            for (w in homophonesOf(input.substring(0, k))) out.add(Cand(w, k))
+            val present = HashSet<String>()
+            for (c in out) if (c.coveredLen == k) present.add(c.word)
+            for (w in homophonesOf(input.substring(0, k))) if (present.add(w)) out.add(Cand(w, k))
         }
     }
 
