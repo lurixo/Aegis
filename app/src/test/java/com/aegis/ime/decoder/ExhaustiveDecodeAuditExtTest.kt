@@ -214,6 +214,42 @@ class ExhaustiveDecodeAuditExtTest {
         assertTrue("E1 report written", File(outDir(), "ext_e1.tsv").exists())
     }
 
+    @Test fun e2_laterSyllableHomophones_allPairs() {
+        assumeTrue("full sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
+        assumeTrue(FullDictTestAssets.available(dictFile, lmFile, jianpinFile))
+        val syls = runtimeSyllables()
+        val d = letterDecoder()
+        val fails = ArrayList<Fail>()
+        var exactSeg = 0L
+        var done = 0
+        for (s1 in syls) {
+            for (s2 in syls) {
+                val input = s1 + s2
+                val seg = d.syllables(input)
+                if (seg.map { it.reading } == listOf(s1, s2)) exactSeg++
+                for ((i, s) in seg.withIndex()) {
+                    val oracle = dictSingles(s.reading)
+                    val homo = d.homophonesAt(input, i).toSet()
+                    val leak = homo - oracle - allowed(s.reading)
+                    if (leak.isNotEmpty()) {
+                        fails += Fail(input, "26key", "E2-pos$i-leak", sample(oracle), sample(leak),
+                            "homophonesAt(pair,$i) has chars not reading displayed '${s.reading}'")
+                    }
+                    if (oracle.isNotEmpty() && homo.isEmpty()) {
+                        fails += Fail(input, "26key", "E2-pos$i-empty", sample(oracle), "<empty>",
+                            "homophonesAt(pair,$i) empty though dict.exact('${s.reading}') non-empty")
+                    }
+                }
+            }
+            done += syls.size
+            if (done % (syls.size * 100) == 0) println("[E2] ~$done/${syls.size * syls.size}")
+        }
+        writeTsv(File(outDir(), "ext_e2.tsv"), fails)
+        summary(File(outDir(), "ext_e2_summary.txt"), "E2 — later-syllable homophones vs displayed reading",
+            "pairs covered: ${syls.size.toLong() * syls.size}; pairs segmenting exactly [S1,S2]: $exactSeg", fails)
+        assertTrue("E2 — later-syllable homophones must match the displayed reading: ${fails.take(8)}", fails.isEmpty())
+    }
+
     private fun t9FuzzyDecoder(fuzzy: Set<String> = emptySet()): PinyinDecoder {
         assumeTrue(
             "T9 dict + 26-key dict + LM assets present",
