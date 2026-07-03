@@ -74,10 +74,27 @@ class ExhaustiveDecodeUiAuditExtTest {
         val d = File(p); d.mkdirs(); return d
     }
 
+    private val runStamp: String by lazy {
+        val rev = runCatching {
+            ProcessBuilder("git", "rev-parse", "--short", "HEAD").redirectErrorStream(true)
+                .start().inputStream.bufferedReader().readText().trim()
+        }.getOrDefault("unknown")
+        "run=${System.currentTimeMillis()} git=$rev"
+    }
+
+    private val reverseSingles: Map<String, Set<String>> by lazy {
+        val f = T9Pinyin::class.java.getDeclaredField("SYLLABLES").apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST") val syls = (f.get(T9Pinyin) as Set<String>)
+        val m = HashMap<String, MutableSet<String>>()
+        for (s in syls) for (ch in dictSingles(s)) m.getOrPut(ch) { HashSet() }.add(s)
+        m
+    }
+
     @Test fun e1b_sequentialLock_subsetPairs() {
         assumeTrue(assetsPresent())
         val pool = classA1 + controls
         val fails = ArrayList<String>()
+        val classified = ArrayList<String>()
         for (s1 in pool) for (s2 in pool) {
             val c = controller()
             c.onKey(Key("", action = KeyAction.SWITCH_NINE))
@@ -96,22 +113,32 @@ class ExhaustiveDecodeUiAuditExtTest {
             val leak1 = words.filter { isSingleChar(it) && it !in o1 }
             if (leak1.isNotEmpty()) fails.add("$s1+$s2\tchars-S1\t${leak1.take(6)}")
             val dictWords = dict.exact(s1 + s2).map { it.word }.toSet()
-            val leak2 = words.filter { it.codePointCount(0, it.length) == 2 && it !in dictWords }.mapNotNull { w ->
+            for (w in words) {
+                if (w.codePointCount(0, w.length) != 2) continue
                 val cp1 = String(Character.toChars(w.codePointBefore(w.length)))
-                if (cp1 !in o2) "$w[1]=$cp1" else null
+                if (cp1 in o2) continue
+                if (w in dictWords) {
+                    val cls = if (!reverseSingles[cp1].isNullOrEmpty()) "cross-parse-dict-word" else "dictword-oracle-gap"
+                    classified.add("$s1+$s2\t$cls\t$w [1]=$cp1 (standalone: ${reverseSingles[cp1]?.sorted()?.joinToString(",") ?: "none"})")
+                } else {
+                    fails.add("$s1+$s2\tchars-S2\t$w[1]=$cp1")
+                }
             }
-            if (leak2.isNotEmpty()) fails.add("$s1+$s2\tchars-S2\t${leak2.take(6)}")
             if (dictSingles(s1).isNotEmpty() && words.none { isSingleChar(it) && it in o1 }) {
                 fails.add("$s1+$s2\tno-S1-char\tno correct S1 single shown")
             }
         }
+        val rows = fails.map { "$it" } + classified
         File(outDir(), "ext_e1b.tsv").writeText(
-            "pair\tissue\tdetail\n" + fails.joinToString("\n") + if (fails.isNotEmpty()) "\n" else ""
+            "# $runStamp\npair\tissue\tdetail\n" + rows.joinToString("\n") + if (rows.isNotEmpty()) "\n" else ""
         )
         File(outDir(), "ext_e1b_summary.txt").writeText(
-            "E1-B — 9-key sequential double-lock (controller)\npairs covered: ${pool.size * pool.size}\nviolations: ${fails.size}\n"
+            "# $runStamp\nE1-B — 9-key sequential double-lock (controller)\npairs covered: ${pool.size * pool.size}\n" +
+                "true violations: ${fails.size}\nclassified cross-parse-dict-word rows: " +
+                "${classified.count { "\tcross-parse-dict-word\t" in it }}\n" +
+                "classified dictword-oracle-gap rows: ${classified.count { "\tdictword-oracle-gap\t" in it }}\n"
         )
-        assertTrue("E1-B sequential-lock violations: ${fails.take(8)}", fails.isEmpty())
+        assertTrue("E1-B sequential-lock TRUE violations: ${fails.take(8)}", fails.isEmpty())
     }
 
     @Test fun e23b_drillPartialCommitRedrill_subsetPairs() {
@@ -146,10 +173,10 @@ class ExhaustiveDecodeUiAuditExtTest {
             }
         }
         File(outDir(), "ext_e23b.tsv").writeText(
-            "pair\tissue\tdetail\n" + fails.joinToString("\n") + if (fails.isNotEmpty()) "\n" else ""
+            "# $runStamp\npair\tissue\tdetail\n" + fails.joinToString("\n") + if (fails.isNotEmpty()) "\n" else ""
         )
         File(outDir(), "ext_e23b_summary.txt").writeText(
-            "E2/E3-B — 26-key drill + partial commit + re-drill (controller)\ncases covered: ${cases.distinct().size}\nviolations: ${fails.size}\n"
+            "# $runStamp\nE2/E3-B — 26-key drill + partial commit + re-drill (controller)\ncases covered: ${cases.distinct().size}\nviolations: ${fails.size}\n"
         )
         assertTrue("E2/E3-B drill/partial-commit violations: ${fails.take(8)}", fails.isEmpty())
     }
