@@ -1,0 +1,156 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Copyright (C) 2026 lurixo
+//
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 3.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+// PARTICULAR PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
+
+package com.aegis.ime.ime
+
+import com.aegis.ime.decoder.T9Pinyin
+import com.aegis.ime.dict.BinaryDict
+import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.engine.CandidateEngine
+import com.aegis.ime.engine.DictEngine
+import com.aegis.ime.layout.Key
+import com.aegis.ime.layout.KeyAction
+import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
+import java.io.File
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
+class ExhaustiveDecodeUiAuditExtTest {
+
+    private val ctx = RuntimeEnvironment.getApplication()
+    private val assets = File("src/main/assets")
+    private fun assetsPresent() = File(assets, "aegis_dict.bin").exists() && File(assets, "aegis_t9.bin").exists()
+
+    private class Host : ImeHost {
+        override fun commitText(text: CharSequence) {}
+        override fun deleteBackward() {}
+        override fun performEnter() {}
+    }
+
+    private val engine: DictEngine by lazy {
+        DictEngine(
+            BinaryDict.fromFile(File(assets, "aegis_dict.bin")),
+            BinaryDict.fromFile(File(assets, "aegis_t9.bin")),
+            CharBigramLM.fromFile(File(assets, "aegis_lm.bin")),
+        )
+    }
+    private fun controller(e: CandidateEngine = engine): KeyboardController =
+        KeyboardController(Host(), e).apply { attachView(InputView(ctx)) }
+    private fun type(c: KeyboardController, s: String) = s.forEach { c.onKey(Key(it.toString(), output = it.toString())) }
+    private fun pick(c: KeyboardController, reading: String) =
+        c.onKey(Key(reading, output = reading, action = KeyAction.PICK_READING))
+    private fun isSingleChar(w: String): Boolean = w.codePointCount(0, w.length) == 1
+
+    private val dict by lazy { BinaryDict.fromFile(File(assets, "aegis_dict.bin")) }
+    private fun dictSingles(key: String): Set<String> =
+        dict.exact(key).filter { isSingleChar(it.word) }.map { it.word }.toSet()
+
+    private fun allowed(reading: String): Set<String> =
+        if (reading == "en") setOf("嗯") else emptySet()
+
+    private val classA1 = listOf("dang", "deng", "geng", "heng", "keng", "leng", "nang", "ning", "tang", "xing", "ying")
+    private val controls = listOf("hao", "ni", "shui", "ma")
+
+    private fun outDir(): File {
+        val p = System.getenv("AEGIS_AUDIT_DIR") ?: System.getProperty("aegis.audit.dir") ?: "build/decode-audit"
+        val d = File(p); d.mkdirs(); return d
+    }
+
+    @Test fun e1b_sequentialLock_subsetPairs() {
+        assumeTrue(assetsPresent())
+        val pool = classA1 + controls
+        val fails = ArrayList<String>()
+        for (s1 in pool) for (s2 in pool) {
+            val c = controller()
+            c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+            type(c, T9Pinyin.toT9(s1))
+            if (s1 !in c.expandedReadings()) { fails.add("$s1+$s2\toption-S1\t${c.expandedReadings().take(8)}"); continue }
+            pick(c, s1)
+            type(c, T9Pinyin.toT9(s2))
+            if (s2 !in c.expandedReadings()) { fails.add("$s1+$s2\toption-S2\t${c.expandedReadings().take(8)}"); continue }
+            pick(c, s2)
+            if (c.preeditForTest() != "$s1'$s2") {
+                fails.add("$s1+$s2\tlabel\tpreedit='${c.preeditForTest()}'")
+            }
+            val o1 = dictSingles(s1) + allowed(s1)
+            val o2 = dictSingles(s2) + allowed(s2)
+            val words = c.candidateWords()
+            val leak1 = words.filter { isSingleChar(it) && it !in o1 }
+            if (leak1.isNotEmpty()) fails.add("$s1+$s2\tchars-S1\t${leak1.take(6)}")
+            val dictWords = dict.exact(s1 + s2).map { it.word }.toSet()
+            val leak2 = words.filter { it.codePointCount(0, it.length) == 2 && it !in dictWords }.mapNotNull { w ->
+                val cp1 = String(Character.toChars(w.codePointBefore(w.length)))
+                if (cp1 !in o2) "$w[1]=$cp1" else null
+            }
+            if (leak2.isNotEmpty()) fails.add("$s1+$s2\tchars-S2\t${leak2.take(6)}")
+            if (dictSingles(s1).isNotEmpty() && words.none { isSingleChar(it) && it in o1 }) {
+                fails.add("$s1+$s2\tno-S1-char\tno correct S1 single shown")
+            }
+        }
+        File(outDir(), "ext_e1b.tsv").writeText(
+            "pair\tissue\tdetail\n" + fails.joinToString("\n") + if (fails.isNotEmpty()) "\n" else ""
+        )
+        File(outDir(), "ext_e1b_summary.txt").writeText(
+            "E1-B — 9-key sequential double-lock (controller)\npairs covered: ${pool.size * pool.size}\nviolations: ${fails.size}\n"
+        )
+        assertTrue("E1-B sequential-lock violations: ${fails.take(8)}", fails.isEmpty())
+    }
+
+    @Test fun e23b_drillPartialCommitRedrill_subsetPairs() {
+        assumeTrue(assetsPresent())
+        val cases = classA1.flatMap { a -> listOf("hao" to a, "ni" to a, a to "hao", a to "ni") } + ("deng" to "deng")
+        val fails = ArrayList<String>()
+        for ((s1, s2) in cases.distinct()) {
+            val c = controller()
+            c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+            type(c, s1 + s2)
+            if (c.expandedReadings() != listOf(s1)) {
+                fails.add("$s1+$s2\tlabel-S1\t${c.expandedReadings()}"); continue
+            }
+            c.onPickReadingIndex(0)
+            val o1 = dictSingles(s1) + allowed(s1)
+            val grid1 = c.candidateWords()
+            val leak1 = grid1.filter { it !in o1 }
+            if (leak1.isNotEmpty()) fails.add("$s1+$s2\tdrill1-leak\t${leak1.take(6)}")
+            val idx = grid1.indexOfFirst { it in dictSingles(s1) }
+            if (idx < 0) { fails.add("$s1+$s2\tdrill1-empty\tno S1 char to pick"); continue }
+            c.onPickCandidate(idx)
+            if (c.expandedReadings() != listOf(s2)) {
+                fails.add("$s1+$s2\tlabel-S2\t${c.expandedReadings()} prefix='${c.composingPrefix()}'"); continue
+            }
+            c.onPickReadingIndex(0)
+            val o2 = dictSingles(s2) + allowed(s2)
+            val grid2 = c.candidateWords()
+            val leak2 = grid2.filter { it !in o2 }
+            if (leak2.isNotEmpty()) fails.add("$s1+$s2\tdrill2-leak\t${leak2.take(6)}")
+            if (dictSingles(s2).isNotEmpty() && grid2.none { it in dictSingles(s2) }) {
+                fails.add("$s1+$s2\tdrill2-empty\tno S2 chars after partial commit")
+            }
+        }
+        File(outDir(), "ext_e23b.tsv").writeText(
+            "pair\tissue\tdetail\n" + fails.joinToString("\n") + if (fails.isNotEmpty()) "\n" else ""
+        )
+        File(outDir(), "ext_e23b_summary.txt").writeText(
+            "E2/E3-B — 26-key drill + partial commit + re-drill (controller)\ncases covered: ${cases.distinct().size}\nviolations: ${fails.size}\n"
+        )
+        assertTrue("E2/E3-B drill/partial-commit violations: ${fails.take(8)}", fails.isEmpty())
+    }
+}
