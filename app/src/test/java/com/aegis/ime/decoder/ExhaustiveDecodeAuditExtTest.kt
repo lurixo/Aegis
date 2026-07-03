@@ -367,6 +367,63 @@ class ExhaustiveDecodeAuditExtTest {
         )
     }
 
+    @Test fun e4_fuzzyOn_allSyllables_andRuleIsolation() {
+        assumeTrue(FullDictTestAssets.available(dictFile, lmFile, jianpinFile))
+        val syls = runtimeSyllables()
+        val allKeys = Fuzzy.RULES.map { it.key }.toSet()
+        val fails = ArrayList<Fail>()
+
+        val dBase = letterDecoder()
+        val baseline = HashMap<String, Set<Pair<String, Int>>>()
+        fun baseSingles(s: String): Set<Pair<String, Int>> = baseline.getOrPut(s) {
+            dBase.decodeCovered(s, 30).filter { isSingleChar(it.word) }.mapTo(HashSet()) { it.word to it.coveredLen }
+        }
+
+        val sylList = syls
+        fun checkOne(d: PinyinDecoder, s: String, rules: Set<String>, tag: String) {
+            val seg = d.syllables(s).map { it.reading }
+            if (seg != listOf(s)) {
+                fails += Fail(s, "26key", "$tag-label", s, seg.joinToString("+"),
+                    "fuzzy rewrote the shown reading (rules=${rules.joinToString(",")})")
+            }
+            val base = baseSingles(s)
+            for (c in d.decodeCovered(s, 30)) {
+                if (!isSingleChar(c.word) || (c.word to c.coveredLen) in base) continue
+                val key = s.substring(0, c.coveredLen.coerceIn(1, s.length))
+                val okSet = Fuzzy.variants(key, rules).flatMapTo(HashSet()) { v ->
+                    sylList.filter { it.startsWith(v) }.flatMap { dictSingles(it) }
+                } + allowed(key)
+                if (c.word !in okSet) {
+                    fails += Fail(s, "26key", "$tag-chars", "variants('$key')", "${c.word}@${c.coveredLen}",
+                        "fuzzy ADDED a single outside the variant class of its covered span (rules=${rules.joinToString(",")})")
+                }
+            }
+            val drillLeak = d.homophonesAt(s, 0).toSet() - dBase.homophonesAt(s, 0).toSet()
+            if (drillLeak.isNotEmpty()) {
+                fails += Fail(s, "26key", "$tag-drill", sample(dictSingles(s)), sample(drillLeak),
+                    "fuzzy leaked into homophonesAt (must stay identical to fuzzy-off)")
+            }
+        }
+
+        val dAll = letterDecoder(fuzzy = allKeys)
+        for (s in syls) checkOne(dAll, s, allKeys, "E4-all")
+
+        val sentinels = listOf(
+            "dang", "deng", "geng", "heng", "keng", "leng", "nang", "ning", "tang", "xing", "ying", "en",
+            "ding", "dong", "gang", "hang", "tong", "ping", "qing", "ling", "zheng", "fang", "feng", "bing", "ming",
+        )
+        for (rule in allKeys) {
+            val dOne = letterDecoder(fuzzy = setOf(rule))
+            for (s in sentinels) checkOne(dOne, s, setOf(rule), "E4-$rule")
+        }
+
+        writeTsv(File(outDir(), "ext_e4.tsv"), fails)
+        summary(File(outDir(), "ext_e4_summary.txt"), "E4 — fuzzy ON",
+            "all-rules: ${syls.size} syllables; isolation: ${allKeys.size} rules x ${sentinels.size} sentinels", fails)
+        assertTrue("E4 must be clean (label fixed under fuzzy, chars within variant class): ${fails.take(6)}",
+            fails.isEmpty())
+    }
+
     private fun t9FuzzyDecoder(fuzzy: Set<String> = emptySet()): PinyinDecoder {
         assumeTrue(
             "T9 dict + 26-key dict + LM assets present",
