@@ -19,6 +19,7 @@ import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.user.UserModel
+import kotlin.math.exp
 import kotlin.math.ln
 
 data class Cand(val word: String, val coveredLen: Int)
@@ -245,31 +246,33 @@ class PinyinDecoder(
 
         val cover = LinkedHashMap<String, Int>()
         val completionCap = maxOf(1, limit * 2 / 3)
-        fun addCompletions(words: List<String>) {
-            for (w in words) { if (cover.size >= completionCap) return; cover.putIfAbsent(w, input.length) }
-        }
         bestSentence(input, emptySet(), ctxCp, ctxWord)?.let { cover[it] = input.length }
-        addCompletions(rerankedWholeInputAndAliases(input, ctxCp, ctxWord))
-        addCompletions(prefixWords(dict, input, completionCap))
+        val pool = ArrayList<Pair<BinaryDict.WordFreq, Double>>()
+        val offered = HashSet<String>()
+        fun offer(wf: BinaryDict.WordFreq, penalty: Double) {
+            if (offered.add(wf.word)) pool.add(wf to (wordModelScore(wf.word, wf.freq, ctxCp, ctxWord) - penalty))
+        }
+        dict.exact(input).forEach { offer(it, 0.0) }
+        inputAliasWordFreqs(input).forEach { offer(it, ALIAS_PENALTY) }
+        dict.prefixByFreq(input, completionCap).forEach { offer(it, 0.0) }
         if (fuzzyRules.isNotEmpty()) {
             for (variant in Fuzzy.variants(input, fuzzyRules)) {
                 if (variant == input) continue
-                addCompletions(prefixWords(dict, variant, completionCap))
-                if (cover.size >= completionCap) break
+                dict.prefixByFreq(variant, completionCap).forEach { offer(it, FUZZY_PENALTY) }
             }
         }
-        initialsDict?.let { addCompletions(prefixWords(it, input, completionCap)) }
-        for (q in input.length downTo 1) {
-            if (cover.size >= limit) break
-            var added = 0
-            for (wf in preferredExact(dict, input.substring(0, q))) {
-                if (isSingleChar(wf.word)) continue
-                if (cover.putIfAbsent(wf.word, q) == null && ++added >= PREFIX_PER_LEN) break
-            }
+        initialsDict?.let { id -> id.prefixByFreq(input, completionCap).forEach { offer(it, INITIALS_PENALTY) } }
+        pool.sortWith(
+            compareByDescending<Pair<BinaryDict.WordFreq, Double>> { it.second }
+                .thenBy { supplementarySingleTieRank(it.first.word) },
+        )
+        for ((wf, _) in pool) {
+            if (cover.size >= completionCap) break
+            cover.putIfAbsent(wf.word, input.length)
         }
         val out = ArrayList<Cand>(minOf(cover.size, limit) + 20)
         for ((w, len) in cover) { out.add(Cand(w, len)); if (out.size >= limit) break }
-        appendLeadingSingles(input, input.length, out)
+        appendLeadingSingles(input, input.length, out, limit)
         return out
     }
 
@@ -392,15 +395,39 @@ class PinyinDecoder(
         return ordered.toList()
     }
 
-    private fun appendLeadingSingles(input: String, span: Int, out: ArrayList<Cand>) {
+    private fun appendLeadingSingles(input: String, span: Int, out: ArrayList<Cand>, limit: Int) {
         val head = input.substring(0, span)
         val isT9 = input[0] in '2'..'9'
         val lens = if (isT9) T9Pinyin.leadingSyllableDigitLens(head)
         else T9Pinyin.leadingSyllableLetterLens(head)
-        if (lens.isEmpty()) return
+        val lensSet = lens.toSet()
         val seen = HashSet<String>(out.size * 2)
         for (c in out) seen.add(c.word)
-        for (k in lens) for (w in homophonesOf(input.substring(0, k))) if (seen.add(w)) out.add(Cand(w, k))
+        var wordBudget = maxOf(0, limit - out.size)
+        for (q in span downTo 1) {
+            val merged = ArrayList<Pair<String, Double>>()
+            if (wordBudget > 0) {
+                var added = 0
+                for (wf in preferredExact(dict, input.substring(0, q))) {
+                    if (isSingleChar(wf.word) || wf.word in seen) continue
+                    merged.add(wf.word to wf.freq.toDouble())
+                    if (++added >= PREFIX_PER_LEN) break
+                }
+            }
+            if (q in lensSet) {
+                for ((w, f) in homophoneFreqs(input.substring(0, q))) if (w !in seen) merged.add(w to f)
+            }
+            if (merged.isEmpty()) continue
+            merged.sortWith(
+                compareByDescending<Pair<String, Double>> { it.second }
+                    .thenBy { supplementarySingleTieRank(it.first) },
+            )
+            for ((w, _) in merged) {
+                if (!seen.add(w)) continue
+                if (!isSingleChar(w)) { if (wordBudget <= 0) continue; wordBudget-- }
+                out.add(Cand(w, q))
+            }
+        }
         if (lens.firstOrNull() == input.length) return
         for (k in lens) {
             if (k >= input.length) continue
@@ -449,11 +476,21 @@ class PinyinDecoder(
         return homophonesOf(clean.substring(s.start, s.end))
     }
 
-    private fun homophonesOf(key: String): List<String> {
-        val out = ArrayList<String>()
+    private fun homophonesOf(key: String): List<String> = homophoneFreqs(key).map { it.first }
+
+    private fun homophoneFreqs(key: String): List<Pair<String, Double>> {
+        val out = ArrayList<Pair<String, Double>>()
         val seen = HashSet<String>()
-        for (wf in preferredExact(dict, key)) if (isSingleChar(wf.word) && seen.add(wf.word)) out.add(wf.word)
-        for (wf in inputAliasWordFreqs(key)) if (isSingleChar(wf.word) && seen.add(wf.word)) out.add(wf.word)
+        for (wf in preferredExact(dict, key)) {
+            if (isSingleChar(wf.word) && seen.add(wf.word)) out.add(wf.word to wf.freq.toDouble())
+        }
+        for (wf in inputAliasWordFreqs(key)) {
+            if (isSingleChar(wf.word) && seen.add(wf.word)) out.add(wf.word to wf.freq * ALIAS_FREQ_DISCOUNT)
+        }
+        out.sortWith(
+            compareByDescending<Pair<String, Double>> { it.second }
+                .thenBy { supplementarySingleTieRank(it.first) },
+        )
         return out
     }
 
@@ -558,6 +595,7 @@ class PinyinDecoder(
         const val ATOMIC_BEAM_N = 8
         const val CTX_WORD_MAX = 4
         const val MAX_SYLLABLE_KEY_LEN = 6
+        val ALIAS_FREQ_DISCOUNT = exp(-ALIAS_PENALTY)
         const val DEFAULT_CONTEXT_WEIGHT = 2.0
         val INPUT_ALIASES = mapOf("en" to listOf("ng"))
         val T9_INPUT_ALIASES: Map<String, List<String>> =
