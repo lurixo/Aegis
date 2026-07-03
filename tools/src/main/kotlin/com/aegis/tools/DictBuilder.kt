@@ -34,6 +34,7 @@ fun main(rawArgs: Array<String>) {
     val keyType = args.optional("--keytype") ?: "letter"
     val maxPerKey = args.optional("--max-per-key")?.toInt() ?: Int.MAX_VALUE
     val keepSyllableSingles = args.optional("--keep-syllable-singles")?.toInt() ?: 0
+    val t2s = args.optional("--t2s-data")?.let { T2SMerge.load(File(it)) }
     val syllablesOut = args.optional("--syllables")?.let { File(it) }
     val coverageOut = args.optional("--coverage")?.let { File(it) }
 
@@ -50,7 +51,7 @@ fun main(rawArgs: Array<String>) {
     tmpRecords.bufferedWriter().use { w ->
         for (file in inputs) {
             println("parsing ${file.name} ...")
-            file.bufferedReader().use { r -> parseDict(r, w, minFreq, keyType, syllableCounts, completeness) { kind ->
+            file.bufferedReader().use { r -> parseDict(r, w, minFreq, keyType, syllableCounts, completeness, t2s) { kind ->
                 when (kind) {
                     Skip.ROW -> totalRows++
                     Skip.KEPT -> kept++
@@ -63,6 +64,15 @@ fun main(rawArgs: Array<String>) {
     }
     println("parsed rows=$totalRows kept=$kept skippedNonAscii=$skippedNonAscii skippedLowFreq=$skippedLowFreq")
 
+    if (t2s != null) {
+        val tmpByWord = File.createTempFile("aegis-dict-byword-", ".tsv").apply { deleteOnExit() }
+        val tmpMerged = File.createTempFile("aegis-dict-merged-", ".tsv").apply { deleteOnExit() }
+        externalSortByKeyWord(tmpRecords, tmpByWord)
+        val mergedCount = mergeAdjacentDuplicates(tmpByWord, tmpMerged)
+        println("t2s merge: $mergedCount duplicate (key, word) rows folded (frequencies summed)")
+        tmpMerged.copyTo(tmpRecords, overwrite = true)
+        println("t2s: converted words=${t2s.convertedWords} phraseHits=${t2s.phraseHits} charHits=${t2s.charHits} readingOverrides=${t2s.overrideHits} misaligned=${t2s.misaligned}")
+    }
     externalSort(tmpRecords, tmpSorted)
     println("sorted -> ${tmpSorted.length()} bytes")
 
@@ -82,6 +92,7 @@ private fun parseDict(
     keyType: String,
     syllableCounts: HashMap<String, Long>,
     completeness: SyllableCompleteness?,
+    t2s: T2SMerge?,
     tally: (Skip) -> Unit,
 ) {
     var inData = false
@@ -95,10 +106,12 @@ private fun parseDict(
         val cols = line.split('\t')
         if (cols.size < 2) continue
         tally(Skip.ROW)
-        val word = cols[0]
+        val rawWord = cols[0]
         val pinyin = cols[1]
         val freq = cols.getOrNull(2)?.trim()?.toIntOrNull() ?: 1
         val syllables = Pinyin.stripTones(pinyin).split(' ').filter { it.isNotEmpty() }
+        val word = t2s?.convert(rawWord, syllables) ?: rawWord
+        val srcTag = if (t2s != null && word != rawWord) rawWord else ""
         if (syllables.isEmpty() || syllables.any { !Pinyin.isAsciiSyllable(it) }) {
             tally(Skip.NON_ASCII); continue
         }
@@ -114,7 +127,9 @@ private fun parseDict(
             "initials" -> syllables.joinToString("") { it.substring(0, 1) }
             else -> letterKey
         }
-        w.write(key); w.write("\t"); w.write(word); w.write("\t"); w.write(freq.toString()); w.write("\n")
+        w.write(key); w.write("\t"); w.write(word); w.write("\t"); w.write(freq.toString())
+        if (srcTag.isNotEmpty()) { w.write("\t"); w.write(srcTag) }
+        w.write("\n")
         tally(Skip.KEPT)
     }
 }
@@ -156,6 +171,52 @@ private class SyllableCompleteness(private val target: Int) {
         }
         println("syllable completeness: filled $syllablesToppedUp empty syllables with $entries single-char entries (top-$target)")
     }
+}
+
+internal fun externalSortByKeyWord(input: File, output: File) {
+    val pb = ProcessBuilder("sort", "-t", "\t", "-k1,1", "-k2,2")
+        .redirectInput(input).redirectOutput(output)
+        .redirectError(ProcessBuilder.Redirect.INHERIT)
+    pb.environment()["LC_ALL"] = "C"
+    check(pb.start().waitFor() == 0) { "sort (key,word) failed" }
+}
+
+internal fun mergeAdjacentDuplicates(input: File, output: File): Long {
+    var folded = 0L
+    input.bufferedReader().use { r ->
+        output.bufferedWriter().use { w ->
+            var curKey: String? = null
+            var curWord: String? = null
+            var untaggedMax = 0L
+            var haveUntagged = false
+            val perSource = HashMap<String, Long>()
+            var rows = 0
+            fun flush() {
+                if (curKey != null) {
+                    var f = if (haveUntagged) untaggedMax else 0L
+                    for (v in perSource.values) f += v
+                    w.write(curKey); w.write("\t"); w.write(curWord); w.write("\t")
+                    w.write(f.coerceAtMost(Int.MAX_VALUE.toLong()).toString()); w.write("\n")
+                    if (rows > 1) folded += rows - 1
+                }
+                untaggedMax = 0L; haveUntagged = false; perSource.clear(); rows = 0
+            }
+            while (true) {
+                val line = r.readLine() ?: break
+                val c = line.split("\t")
+                if (c.size < 3) continue
+                val key = c[0]; val word = c[1]
+                val freq = c[2].toLongOrNull() ?: continue
+                val src = c.getOrNull(3) ?: ""
+                if (key != curKey || word != curWord) { flush(); curKey = key; curWord = word }
+                rows++
+                if (src.isEmpty()) { haveUntagged = true; if (freq > untaggedMax) untaggedMax = freq }
+                else perSource.merge(src, freq, ::maxOf)
+            }
+            flush()
+        }
+    }
+    return folded
 }
 
 internal fun externalSort(input: File, output: File) {
