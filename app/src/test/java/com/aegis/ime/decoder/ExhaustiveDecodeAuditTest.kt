@@ -82,6 +82,21 @@ class ExhaustiveDecodeAuditTest {
     }
 
     // ---- failure sink ----
+    /** Permanent no-traditional gate: traditional/variant source forms the build maps away (tc1_mapped_forms.txt,
+     *  derived from tools/t2s-data — see its PROVENANCE.md). Candidates must never contain one. */
+    private val mappedForms: Set<String> by lazy {
+        javaClass.classLoader!!.getResourceAsStream("tc1_mapped_forms.txt")!!
+            .bufferedReader().readLines().filter { it.isNotBlank() && !it.startsWith("#") }.toSet()
+    }
+    private fun containsMappedForm(word: String): Boolean {
+        var i = 0
+        while (i < word.length) {
+            if (String(Character.toChars(word.codePointAt(i))) in mappedForms) return true
+            i += Character.charCount(word.codePointAt(i))
+        }
+        return false
+    }
+
     private data class Fail(
         val input: String, val layout: String, val inv: String,
         val expectedReading: String, val shownReading: String,
@@ -169,6 +184,16 @@ class ExhaustiveDecodeAuditTest {
                     sample(oracle), "<empty>", "homophonesAt(S,0) empty though dict.exact(S) non-empty")
             }
 
+            // ---- no-traditional gate: no candidate may contain a mapped-away trad/variant form ----
+            for (c in d.decodeCovered(s, 30)) if (containsMappedForm(c.word)) {
+                fails += Fail(s, "26key", "TC1-traditional-leak", s, c.word,
+                    sample(oracle), c.word, "candidate contains a traditional/variant form the build maps away")
+            }
+            for (h in homo) if (containsMappedForm(h)) {
+                fails += Fail(s, "26key", "TC1-traditional-leak", s, h,
+                    sample(oracle), h, "homophone drill contains a mapped-away form")
+            }
+
             // ---- I3 26-key: locked/atomic decode chars read S ----
             val atom26 = allSingles(d.decodeCoveredAtomic(s, 30))
             val leak26 = atom26 - oracle - allowed
@@ -218,6 +243,8 @@ class ExhaustiveDecodeAuditTest {
         // ---- regression assertion: after the nasal-split fix, NO single syllable may violate any
         // invariant on either layout (a lone valid syllable has no legitimate romanization ambiguity),
         // so deng -> [deng] with deng-chars, en no longer leaks 嗯, and the offender set is empty. ----
+        val tradLeaks = fails.filter { it.inv == "TC1-traditional-leak" }
+        assertTrue("no-traditional gate: traditional/variant forms leaked into candidates: ${tradLeaks.take(6)}", tradLeaks.isEmpty())
         assertTrue("n=1 offenders must be 0 after the fix; remaining: ${failedInputs.sorted()}", fails.isEmpty())
         assertTrue("report written", File(outDir(), "levelA_n1.tsv").length() > 0)
     }
