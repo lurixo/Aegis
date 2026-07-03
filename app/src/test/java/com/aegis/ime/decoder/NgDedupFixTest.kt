@@ -90,6 +90,19 @@ class NgDedupFixTest {
             offenders.isEmpty())
     }
 
+    @Test fun dumpN1CandidateLists() {
+        val path = System.getenv("AEGIS_DUMP_N1")
+        assumeTrue("dump only when AEGIS_DUMP_N1 is set", !path.isNullOrEmpty())
+        val d = decoder()
+        File(path!!).bufferedWriter().use { w ->
+            for (s in runtimeSyllables()) {
+                val cands = d.decodeCovered(s, 30).joinToString(" ") { "${it.word}@${it.coveredLen}" }
+                w.write("$s\t$cands\n")
+            }
+        }
+        assertTrue(File(path).length() > 0)
+    }
+
     @Test fun fullDictAndGram_nPlusGInitial_targetedCheck() {
         val dir = System.getenv("AEGIS_FULLDICT_DIR")
         assumeTrue("full-dict check only when AEGIS_FULLDICT_DIR is set", !dir.isNullOrEmpty())
