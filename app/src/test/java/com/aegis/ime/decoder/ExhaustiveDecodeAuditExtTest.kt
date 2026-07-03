@@ -19,6 +19,7 @@ import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.engine.T9_FUZZY_PENALTY
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -40,6 +41,10 @@ class ExhaustiveDecodeAuditExtTest {
             BinaryDict.fromFile(dictFile), CharBigramLM.fromFile(lmFile),
             fuzzyRules = fuzzy, initialsDict = BinaryDict.fromFile(jianpinFile),
         )
+    }
+    private fun t9Decoder(): PinyinDecoder {
+        assumeTrue("T9 dict + LM assets present", FullDictTestAssets.available(t9File, lmFile))
+        return PinyinDecoder(BinaryDict.fromFile(t9File), CharBigramLM.fromFile(lmFile))
     }
 
     private val dict: BinaryDict by lazy { BinaryDict.fromFile(dictFile) }
@@ -117,6 +122,38 @@ class ExhaustiveDecodeAuditExtTest {
     }
     private fun fullEnabled(): Boolean =
         (System.getenv("AEGIS_AUDIT_FULL") ?: System.getProperty("aegis.audit.full")) == "1"
+
+    private fun heavyEnabled(): Boolean =
+        (System.getenv("AEGIS_AUDIT_HEAVY") ?: System.getProperty("aegis.audit.heavy")) == "1"
+
+    private fun reviewedE3NonDictlessBaseline(): List<String> {
+        val name = "e3-reviewed-nondictless-baseline.tsv"
+        val lines = requireNotNull(javaClass.getResourceAsStream("/$name")) {
+            "missing $name"
+        }.bufferedReader().use { it.readLines() }
+        assertEquals(
+            "$name version and gate",
+            "# aegis-e3-reviewed-v1; gate=ExhaustiveDecodeAuditExtTest.e3_partialCommitContinue_allPairs",
+            lines.firstOrNull(),
+        )
+        assertEquals("$name columns", "layout\tinput\tcheck", lines.getOrNull(1))
+        val keys = lines.drop(2)
+        assertTrue("$name must not contain blank rows", keys.none { it.isBlank() })
+        keys.forEachIndexed { index, key ->
+            val fields = key.split('\t')
+            assertEquals("$name row ${index + 3} field count", 3, fields.size)
+            val (layout, input, check) = fields
+            assertTrue("$name row ${index + 3} input", input.matches(Regex("[a-z]+")))
+            when (check) {
+                "E3-noentry-letters" -> assertEquals("$name row ${index + 3} layout", "26key", layout)
+                "E3-noentry-t9" -> assertEquals("$name row ${index + 3} layout", "9key", layout)
+                else -> throw AssertionError("$name row ${index + 3} has unsupported check $check")
+            }
+        }
+        assertEquals("$name must be sorted", keys.sorted(), keys)
+        assertEquals("$name must not contain duplicate keys", keys.size, keys.toSet().size)
+        return keys
+    }
 
     private fun writeTsv(file: File, fails: List<Fail>) {
         file.bufferedWriter().use { w ->
@@ -248,6 +285,86 @@ class ExhaustiveDecodeAuditExtTest {
         summary(File(outDir(), "ext_e2_summary.txt"), "E2 — later-syllable homophones vs displayed reading",
             "pairs covered: ${syls.size.toLong() * syls.size}; pairs segmenting exactly [S1,S2]: $exactSeg", fails)
         assertTrue("E2 — later-syllable homophones must match the displayed reading: ${fails.take(8)}", fails.isEmpty())
+    }
+
+    @Test fun e3_partialCommitContinue_allPairs() {
+        assumeTrue("scheduled sweep gated: set AEGIS_AUDIT_HEAVY=1", heavyEnabled())
+        assumeTrue(FullDictTestAssets.available(dictFile, lmFile, t9File, jianpinFile))
+        val syls = runtimeSyllables()
+        val d = letterDecoder()
+        val t9 = t9Decoder()
+        val fails = ArrayList<Fail>()
+
+        for (s2 in syls) {
+            val seg = d.syllables(s2).map { it.reading }
+            if (seg != listOf(s2)) {
+                fails += Fail(s2, "26key", "E3-remainder-label", s2, seg.joinToString("+"),
+                    "remaining buffer S2 mis-segments")
+            }
+            val homo = d.homophonesAt(s2, 0).toSet()
+            val leak = homo - dictSingles(s2) - allowed(s2)
+            if (leak.isNotEmpty()) {
+                fails += Fail(s2, "26key", "E3-remainder-chars", sample(dictSingles(s2)), sample(leak),
+                    "remaining buffer chars not reading S2")
+            }
+            val col = T9Pinyin.leftColumnReadings(T9Pinyin.toT9(s2), 26)
+            if (s2 !in col) {
+                fails += Fail(s2, "9key", "E3-remainder-option", s2, sample(col),
+                    "9-key reading options for the remaining digits omit S2")
+            }
+        }
+
+        var done = 0
+        for (s1 in syls) {
+            val letterLen = s1.length
+            val digitLen = T9Pinyin.toT9(s1).length
+            val o1Letters = dictSingles(s1)
+            val o1T9 = t9Singles(T9Pinyin.toT9(s1))
+            for (s2 in syls) {
+                val lc = d.decodeCovered(s1 + s2, 30)
+                val hitL = lc.firstOrNull { it.coveredLen == letterLen }
+                if (hitL == null) {
+                    val cls = if (o1Letters.isEmpty()) "E3-noentry-dictless" else "E3-noentry-letters"
+                    fails += Fail(s1 + s2, "26key", cls, "cand covering ${letterLen}", "<none>",
+                        "no decodeCovered candidate covers exactly S1")
+                } else if (isSingleChar(hitL.word) && hitL.word !in o1Letters + allowed(s1)) {
+                    fails += Fail(s1 + s2, "26key", "E3-entry-char", sample(o1Letters), hitL.word,
+                        "top S1-covering single does not read S1")
+                }
+                val digits = T9Pinyin.toT9(s1 + s2)
+                val tc = t9.decodeCovered(digits, 30)
+                val hitT = tc.firstOrNull { it.coveredLen == digitLen }
+                if (hitT == null) {
+                    val cls = if (o1T9.isEmpty()) "E3-noentry-dictless" else "E3-noentry-t9"
+                    fails += Fail(s1 + s2, "9key", cls, "cand covering $digitLen digits", "<none>",
+                        "no T9 decodeCovered candidate covers exactly S1's digits")
+                } else if (isSingleChar(hitT.word) && hitT.word !in o1T9) {
+                    fails += Fail(s1 + s2, "9key", "E3-entry-char", sample(o1T9), hitT.word,
+                        "top S1-digit-covering single not in the digit group's dict set")
+                }
+            }
+            done += syls.size
+            if (done % (syls.size * 50) == 0) println("[E3] ~$done/${syls.size * syls.size}")
+        }
+        writeTsv(File(outDir(), "ext_e3.tsv"), fails)
+        summary(File(outDir(), "ext_e3_summary.txt"), "E3 — partial commit then continue",
+            "pairs covered: ${syls.size.toLong() * syls.size} on letters AND T9; remainder integrity per distinct S2 (${syls.size})", fails)
+        val dictlessFindings = fails.filter { it.check == "E3-noentry-dictless" }
+        val reviewedFindings = fails.filter {
+            it.check == "E3-noentry-letters" || it.check == "E3-noentry-t9"
+        }
+        val violations = fails - dictlessFindings.toSet() - reviewedFindings.toSet()
+        assertTrue("E3 unclassified violations: ${violations.take(8)}", violations.isEmpty())
+        assertEquals(
+            "E3 reviewed non-dictless baseline changed; review every added, removed, or reclassified finding",
+            reviewedE3NonDictlessBaseline(),
+            reviewedFindings.map { "${it.layout}\t${it.input}\t${it.check}" }.sorted(),
+        )
+        assertTrue("E3 report written", File(outDir(), "ext_e3.tsv").exists())
+        println(
+            "E3 gate: ${dictlessFindings.size} dictionary-coverage findings reported; " +
+                "${reviewedFindings.size} exact reviewed non-dictless findings matched",
+        )
     }
 
     private fun t9FuzzyDecoder(fuzzy: Set<String> = emptySet()): PinyinDecoder {
