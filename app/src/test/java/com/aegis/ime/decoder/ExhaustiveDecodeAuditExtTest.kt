@@ -407,6 +407,7 @@ class ExhaustiveDecodeAuditExtTest {
             dBase.decodeCovered(s, 30).filter { isSingleChar(it.word) }.mapTo(HashSet()) { it.word to it.coveredLen }
         }
 
+        val sylList = syls
         fun checkOne(d: PinyinDecoder, s: String, rules: Set<String>, tag: String) {
             val seg = d.syllables(s).map { it.reading }
             if (seg != listOf(s)) {
@@ -417,7 +418,15 @@ class ExhaustiveDecodeAuditExtTest {
             for (c in d.decodeCovered(s, 30)) {
                 if (!isSingleChar(c.word) || (c.word to c.coveredLen) in base) continue
                 val key = s.substring(0, c.coveredLen.coerceIn(1, s.length))
-                val okSet = Fuzzy.variants(key, rules).flatMapTo(HashSet()) { dictSingles(it) } + allowed(key)
+                // A variant vouches its own singles AND its prefix-completions' singles: with f_h on,
+                // typing "fa" legitimately completes the variant "ha" to 好(hao) — the fuzzy analogue
+                // of the vouched non-fuzzy prefix completion (按 covering the typed "a"). The unified
+                // completion pool lets such singles surface where the old source-layered budget starved
+                // them, so the ok-set includes every syllable EXTENDING a variant. Leak detection is
+                // intact: a char reading a non-extension (等=deng for fuzzy "fa") is still flagged.
+                val okSet = Fuzzy.variants(key, rules).flatMapTo(HashSet()) { v ->
+                    sylList.filter { it.startsWith(v) }.flatMap { dictSingles(it) }
+                } + allowed(key)
                 if (c.word !in okSet) {
                     fails += Fail(s, "26key", "$tag-chars", "variants('$key')", "${c.word}@${c.coveredLen}",
                         "fuzzy ADDED a single outside the variant class of its covered span (rules=${rules.joinToString(",")})")
@@ -451,7 +460,12 @@ class ExhaustiveDecodeAuditExtTest {
             fails.isEmpty())
     }
 
-    // ================= E5 · candidate-order sanity (advisory only — never fails) =================
+    // ================= E5 · candidate-order table (report-only, re-defined by the ordering invariant) =================
+    // The old E5 heuristic ("#1 candidate not in the dict's top-5 singles") is NOT the user's ordering
+    // principle: a common word/expansion outranking a RARE syllable's singles is the CORRECT direction
+    // (常用先于生僻 — den→第二年, m→吗, full-pack chua→出啊 are all compliant). The heuristic rows are
+    // kept as a table but each is now ADJUDICATED under the E6 rule; the enforcement lives in
+    // [e6_orderingInvariant] (hard gate). This test never fails.
     @Test fun e5_orderAdvisory_allSyllables() {
         assumeTrue(dictFile.exists() && lmFile.exists())
         val syls = runtimeSyllables()
@@ -462,15 +476,162 @@ class ExhaustiveDecodeAuditExtTest {
                 .sortedByDescending { it.freq }.take(5).map { it.word }
             val first = d.decodeCovered(s, 30).firstOrNull()?.word ?: "<none>"
             if (top5.isNotEmpty() && first !in top5 && first !in allowed(s)) {
-                rows.add("$s\t$first\t${top5.joinToString(" ")}")
+                val f = e6RawFreq(dict, s, first)
+                val verdict = when {
+                    f == null -> "composed-sentence"
+                    f >= E6_COMMON -> "compliant: common candidate ahead of the syllable's own singles (常用先于生僻)"
+                    else -> "band ($f): neither clearly rare nor clearly common — no E6 constraint"
+                }
+                rows.add("$s\t$first\t${top5.joinToString(" ")}\t$verdict")
             }
         }
         File(outDir(), "ext_e5_advisory.tsv").writeText(
-            "# $runStamp\nsyllable\ttopCandidate\tdictTop5\n" + rows.joinToString("\n") + if (rows.isNotEmpty()) "\n" else ""
+            "# $runStamp\nsyllable\ttopCandidate\tdictTop5\ttc2Verdict\n" + rows.joinToString("\n") + if (rows.isNotEmpty()) "\n" else ""
         )
         File(outDir(), "ext_e5_summary.txt").writeText(
             "# $runStamp\nE5 — order advisory (report-only)\nsyllables: ${syls.size}\nadvisories: ${rows.size}\n"
         )
         assertTrue("E5 advisory written", File(outDir(), "ext_e5_advisory.tsv").exists())
+    }
+
+    // ================= E6 · ordering invariant — HARD GATE =================
+    //
+    // Invariant: 生僻不得排在非生僻之前. Scope = the COLD-START BASE ORDER of the user-visible strip
+    // ([PinyinDecoder.decodeCovered]) — empty committed context, no [UserModel], no octagram. The
+    // char-bigram LM is constructed (production edgeN) but is inert with no preceding context; bigram/
+    // octagram/user-learning reranking is legitimate CONTEXT/EVIDENCE behaviour and is exempt from the
+    // invariant (e.g. the wanxiang octagram lifts 皮袄 for "piao" by corpus collocation weight — that is
+    // model evidence of commonness, not a rarity inversion).
+    //
+    // Rarity criterion, derived from the merged (simplified-only) frequency distribution (letter dict):
+    //   RARE   = matched raw freq <= E6_RARE (100)  — below the seed build floor (--min-freq 400): the
+    //            seed carries such entries only via the completeness fills; on the full pack freq<=100
+    //            is the 47.8% long tail users perceive as 生僻;
+    //   COMMON = matched raw freq >= E6_COMMON (1000) — around the seed's p90 (p75=828, p90=1318); the
+    //            10x band between the two avoids litigating near-ties (band entries are unconstrained).
+    //
+    // O1: within a coverage bucket, the input-reading singles (∈ exact(bucketKey)) must be in
+    //     non-increasing matched-key frequency order (归并后频次降序).
+    // O2: within a coverage bucket, no RARE candidate may precede any COMMON candidate (字或词).
+    // Exemptions, precise: list position 0 (the pinned best whole-input interpretation — the commit
+    // default, not a ranked alternative; a lone rare syllable like chua rightly shows 欻 there) and
+    // candidates whose frequency is unresolvable from the bucket key's exact/prefix/alias/jianpin views
+    // (= composed sentences, which are not dictionary words at all). The alias singles (嗯 for en/36)
+    // count at their RAW frequency for rarity but sit at the penalty-discounted position — always above
+    // the rare tail, so both O1 (they are not input-reading singles) and O2 stay satisfied.
+    //
+    // Coverage: all 415 runtime syllables on BOTH key spaces (26-key letters; 9-key digit strings with
+    // the production aliasDict wiring) + an n=2 pair sample; the full-pack config re-runs this whole
+    // class via the asset-swap mechanism (audit reads src/main/assets).
+    private fun e6Decoder(letters: Boolean): PinyinDecoder =
+        if (letters) PinyinDecoder(
+            dict, CharBigramLM.fromFile(lmFile),
+            initialsDict = if (jianpinFile.exists()) BinaryDict.fromFile(jianpinFile) else null,
+        )
+        else PinyinDecoder(t9Dict, CharBigramLM.fromFile(lmFile), aliasDict = dict)
+
+    private val E6_RARE = 100
+    private val E6_COMMON = 1000
+
+    /** Matched frequency of [word] for bucket [key] — the frequency of the INSTANCE the ranking used,
+     *  not the word's global commonness. Resolution order mirrors the decoder's own source priority:
+     *  1. the exact-key entry (a heteronym ranks by the READING it matched: the full pack keys 错
+     *     under digit 28 at freq 1 for its rare cù reading — in the 28 tier it IS a rare candidate,
+     *     exactly like 欸 under "ai"; judging it by the global cuò frequency would demand rarity
+     *     inversions the reading-frequency order O1 itself prescribes);
+     *  2. the alias target's exact entry (raw frequency — the discount is a position, not a rarity);
+     *  3. the main-dict prefix view, then the jianpin prefix view (completion words like 恩怨 for
+     *     "en": their matched instance is the prefix entry).
+     *  null = no view knows the word (a composed sentence) — exempt.
+     *  Views are cached per bucket key: one prefix scan per key, not per candidate. */
+    private class E6View(val exact: Map<String, Int>, val alias: Map<String, Int>, val prefix: Map<String, Int>)
+    private val e6KeyView = HashMap<String, E6View>()
+    private fun e6RawFreq(source: BinaryDict, key: String, word: String): Int? {
+        val view = e6KeyView.getOrPut((if (source === dict) "L:" else "D:") + key) {
+            fun collect(entries: List<BinaryDict.WordFreq>): Map<String, Int> {
+                val m = HashMap<String, Int>()
+                for (wf in entries) if (wf.freq > (m[wf.word] ?: -1)) m[wf.word] = wf.freq
+                return m
+            }
+            val aliasEntries = (if (key.firstOrNull() in '2'..'9') PinyinDecoder.T9_INPUT_ALIASES[key].orEmpty()
+            else PinyinDecoder.INPUT_ALIASES[key].orEmpty()).flatMap { dict.exact(it) }
+            val prefixEntries = source.prefixByFreq(key, E6_PREFIX_SCAN) +
+                (if (jianpinFile.exists()) jianpin.prefixByFreq(key, E6_PREFIX_SCAN) else emptyList())
+            E6View(collect(source.exact(key)), collect(aliasEntries), collect(prefixEntries))
+        }
+        return view.exact[word] ?: view.alias[word] ?: view.prefix[word]
+    }
+
+    private val jianpin: BinaryDict by lazy { BinaryDict.fromFile(jianpinFile) }
+    private val E6_PREFIX_SCAN = 8192
+
+    /** E6 verdicts for one decoded list. Returns violation rows ("O1"/"O2" + detail). */
+    private fun e6Check(source: BinaryDict, input: String, cands: List<Cand>): List<String> {
+        val rows = ArrayList<String>()
+        val buckets = LinkedHashMap<Int, MutableList<Pair<String, Int?>>>()
+        val atLonger = HashMap<String, Int>() // word -> longest coverage seen so far (list order)
+        for ((pos, c) in cands.withIndex()) {
+            if (pos == 0) continue // pinned best whole-input interpretation
+            // Rescue re-emissions are exempt: a word already shown at a LONGER coverage re-appears
+            // at its shorter coverage in the trailing recovery zone so it stays PICKABLE there (the
+            // dedup key is word+coverage) — that zone restores reachability, it is not a ranking claim.
+            if ((atLonger[c.word] ?: -1) > c.coveredLen) continue
+            atLonger[c.word] = maxOf(atLonger[c.word] ?: -1, c.coveredLen)
+            val key = input.substring(0, c.coveredLen.coerceIn(1, input.length))
+            buckets.getOrPut(c.coveredLen) { ArrayList() }.add(c.word to e6RawFreq(source, key, c.word))
+        }
+        for ((cov, ws) in buckets) {
+            val key = input.substring(0, cov.coerceIn(1, input.length))
+            // O2: no rare before a later common
+            var commonAfter: String? = null
+            for (i in ws.indices.reversed()) {
+                val (w, f) = ws[i]
+                if (f != null && f <= E6_RARE && commonAfter != null) {
+                    rows.add("$input\tcov$cov\tO2\t$w@$f before ${commonAfter}")
+                }
+                if (f != null && f >= E6_COMMON) commonAfter = w
+            }
+            // O1: input-reading singles in non-increasing matched-key frequency order
+            val readingFreq = source.exact(key).filter { isSingleChar(it.word) }.associate { it.word to it.freq }
+            var prev = Int.MAX_VALUE
+            for ((w, _) in ws) {
+                val f = readingFreq[w] ?: continue
+                if (f > prev) rows.add("$input\tcov$cov\tO1\t$w@$f after a lower-freq same-reading single")
+                prev = f
+            }
+        }
+        return rows
+    }
+
+    @Test fun e6_orderingInvariant_allSyllables_bothKeyspaces() {
+        assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
+        val syls = runtimeSyllables()
+        val dL = e6Decoder(letters = true)
+        val dT = e6Decoder(letters = false)
+        val rows = ArrayList<String>()
+        for (s in syls) {
+            rows.addAll(e6Check(dict, s, dL.decodeCovered(s, 30)))
+            val dig = T9Pinyin.toT9(s)
+            rows.addAll(e6Check(t9Dict, dig, dT.decodeCovered(dig, 30)))
+        }
+        // n=2 sample: 36-led digit pairs (alias surface) + rare-syllable-led letter pairs + controls
+        val pairs = listOf(
+            "en" to "de", "fo" to "le", "dong" to "shi", "chua" to "de", "den" to "hao",
+            "m" to "le", "rua" to "ma", "nou" to "shi", "kei" to "de", "cen" to "hao",
+            "ni" to "hao", "wo" to "de", "xian" to "zai", "liang" to "ge", "die" to "de",
+        )
+        for ((s1, s2) in pairs) {
+            rows.addAll(e6Check(dict, s1 + s2, dL.decodeCovered(s1 + s2, 30)))
+            val dig = T9Pinyin.toT9(s1 + s2)
+            rows.addAll(e6Check(t9Dict, dig, dT.decodeCovered(dig, 30)))
+        }
+        File(outDir(), "ext_e6.tsv").writeText(
+            "# $runStamp\ninput\tbucket\tinvariant\tdetail\n" + rows.joinToString("\n") + if (rows.isNotEmpty()) "\n" else ""
+        )
+        File(outDir(), "ext_e6_summary.txt").writeText(
+            "# $runStamp\nE6 — ordering invariant (rare must not precede common; hard gate)\n" +
+                "syllables: ${syls.size} x 2 keyspaces + ${pairs.size} pairs x 2\nviolations: ${rows.size}\n"
+        )
+        assertTrue("E6 ordering violations must be zero: ${rows.take(8)}", rows.isEmpty())
     }
 }

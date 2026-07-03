@@ -19,6 +19,7 @@ import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.user.UserModel
+import kotlin.math.exp
 import kotlin.math.ln
 
 /** A candidate word plus how many leading input units (digits/letters) it consumes — for ★E
@@ -343,40 +344,49 @@ class PinyinDecoder(
         // keyboards (26-key chai'ci and 9-key locked chai|ci funnel through the SAME decodeCovered → here).
         if (interior.isNotEmpty()) return decodeAtomic(input, limit, interior, ctxCp, ctxWord)
 
-        // ---- no forced boundary: the original whole-input completion + per-prefix word path (unchanged) ----
+        // ---- no forced boundary: whole-input completions + per-prefix word path ----
         val cover = LinkedHashMap<String, Int>()
         // Reserve part of the budget for leading single-chars/short words so full-input completions
         // (which can alone fill `limit`) never starve the ★G mixed grid.
         val completionCap = maxOf(1, limit * 2 / 3)
-        fun addCompletions(words: List<String>) {
-            for (w in words) { if (cover.size >= completionCap) return; cover.putIfAbsent(w, input.length) }
-        }
         bestSentence(input, emptySet(), ctxCp, ctxWord)?.let { cover[it] = input.length }
-        addCompletions(rerankedWholeInputAndAliases(input, ctxCp, ctxWord)) // ★top-N rerank, context-conditioned
-        addCompletions(prefixWords(dict, input, completionCap))
+        // O2 ordering invariant (生僻不得先于常用): completions from ALL sources rank in ONE
+        // cold-start model-score order — wordModelScore minus the source's documented penalty (exact
+        // and main-dict prefix 0, alias ALIAS_PENALTY, fuzzy FUZZY_PENALTY, jianpin INITIALS_PENALTY).
+        // The old source-layered append (whole exact bucket first, then prefix words, …) let a rare
+        // exact single precede common prefix expansions inside one coverage bucket (欻@16 before 传统;
+        // the full pack's freq-1 tails before 恩怨). One score order sinks the rare tail below every
+        // common word, while equal-penalty candidates keep their previous relative (frequency) order.
+        // Nothing becomes unreachable: singles pushed past the cap re-enter through the lossless
+        // homophone tier, multi-char exact-key words through the per-prefix word layer below.
+        val pool = ArrayList<Pair<BinaryDict.WordFreq, Double>>()
+        val offered = HashSet<String>()
+        fun offer(wf: BinaryDict.WordFreq, penalty: Double) {
+            if (offered.add(wf.word)) pool.add(wf to (wordModelScore(wf.word, wf.freq, ctxCp, ctxWord) - penalty))
+        }
+        dict.exact(input).forEach { offer(it, 0.0) }
+        inputAliasWordFreqs(input).forEach { offer(it, ALIAS_PENALTY) }
+        dict.prefixByFreq(input, completionCap).forEach { offer(it, 0.0) }
         if (fuzzyRules.isNotEmpty()) {
             for (variant in Fuzzy.variants(input, fuzzyRules)) {
                 if (variant == input) continue
-                addCompletions(prefixWords(dict, variant, completionCap))
-                if (cover.size >= completionCap) break
+                dict.prefixByFreq(variant, completionCap).forEach { offer(it, FUZZY_PENALTY) }
             }
         }
-        initialsDict?.let { addCompletions(prefixWords(it, input, completionCap)) }
-        // Multi-char prefix WORDS straight from the main dict (freq-ordered), independent of the lattice
-        // Chinese IME behavior note.
-        // Leading single chars are intentionally NOT emitted here — they are served by the lossless layer
-        // Chinese IME behavior note.
-        for (q in input.length downTo 1) {
-            if (cover.size >= limit) break
-            var added = 0
-            for (wf in preferredExact(dict, input.substring(0, q))) {
-                if (isSingleChar(wf.word)) continue // Chinese IME behavior note.
-                if (cover.putIfAbsent(wf.word, q) == null && ++added >= PREFIX_PER_LEN) break
-            }
+        initialsDict?.let { id -> id.prefixByFreq(input, completionCap).forEach { offer(it, INITIALS_PENALTY) } }
+        pool.sortWith(
+            compareByDescending<Pair<BinaryDict.WordFreq, Double>> { it.second }
+                .thenBy { supplementarySingleTieRank(it.first.word) },
+        )
+        for ((wf, _) in pool) {
+            if (cover.size >= completionCap) break
+            cover.putIfAbsent(wf.word, input.length)
         }
         val out = ArrayList<Cand>(minOf(cover.size, limit) + 20)
         for ((w, len) in cover) { out.add(Cand(w, len)); if (out.size >= limit) break }
-        appendLeadingSingles(input, input.length, out)
+        // The per-prefix multi-char words and the lossless singles tiers are ONE remainder layer now
+        // (merged per coverage inside appendLeadingSingles) — see the ordering note there.
+        appendLeadingSingles(input, input.length, out, limit)
         return out
     }
 
@@ -547,15 +557,46 @@ class PinyinDecoder(
       * Chinese IME behavior note.
      * segments. 2nd+ syllables are served per-position by [homophonesAt] for the navigable UI (UI-1/UI-2).
      */
-    private fun appendLeadingSingles(input: String, span: Int, out: ArrayList<Cand>) {
+    private fun appendLeadingSingles(input: String, span: Int, out: ArrayList<Cand>, limit: Int) {
         val head = input.substring(0, span)
         val isT9 = input[0] in '2'..'9'
         val lens = if (isT9) T9Pinyin.leadingSyllableDigitLens(head)
         else T9Pinyin.leadingSyllableLetterLens(head)
-        if (lens.isEmpty()) return
+        val lensSet = lens.toSet()
         val seen = HashSet<String>(out.size * 2)
         for (c in out) seen.add(c.word)
-        for (k in lens) for (w in homophonesOf(input.substring(0, k))) if (seen.add(w)) out.add(Cand(w, k))
+        // Ordering (O2): per-prefix multi-char WORDS and the lossless singles tier are merged into ONE
+        // frequency order per coverage (longest prefix first). They used to be two layers — all
+        // per-prefix words, then all singles tiers — which let a rare whole-key cross-parse word
+        // (帝鳄@50 under "die") precede the common singles the completion cap had spilled over
+        // (蝶/爹), and left the alias singles (嗯 for en, at the discounted frequency f·e^-ALIAS_PENALTY
+        // set by [homophoneFreqs]) stranded behind the frequency-1 tail. Words keep the old budget
+        // (PREFIX_PER_LEN per coverage, [limit] overall); the singles tiers stay uncapped (lossless).
+        var wordBudget = maxOf(0, limit - out.size)
+        for (q in span downTo 1) {
+            val merged = ArrayList<Pair<String, Double>>()
+            if (wordBudget > 0) {
+                var added = 0
+                for (wf in preferredExact(dict, input.substring(0, q))) {
+                    if (isSingleChar(wf.word) || wf.word in seen) continue
+                    merged.add(wf.word to wf.freq.toDouble())
+                    if (++added >= PREFIX_PER_LEN) break
+                }
+            }
+            if (q in lensSet) {
+                for ((w, f) in homophoneFreqs(input.substring(0, q))) if (w !in seen) merged.add(w to f)
+            }
+            if (merged.isEmpty()) continue
+            merged.sortWith(
+                compareByDescending<Pair<String, Double>> { it.second }
+                    .thenBy { supplementarySingleTieRank(it.first) },
+            )
+            for ((w, _) in merged) {
+                if (!seen.add(w)) continue
+                if (!isSingleChar(w)) { if (wordBudget <= 0) continue; wordBudget-- }
+                out.add(Cand(w, q))
+            }
+        }
         // A leading tier's words can be swallowed by a longer tier's word-text dedup (dict.exact("n") ⊆
         // dict.exact("ng"): typing "nga" left 嗯 only at coverage 2, so 嗯-as-n could not be picked before
         // "ga"; on the full pack the tier PARTIALLY survives — 𠮾 stays at coverage 1 while 嗯 is swallowed).
@@ -637,11 +678,29 @@ class PinyinDecoder(
     }
 
     /** Every single-char entry for an exact syllable key, frequency-ordered, uncapped. */
-    private fun homophonesOf(key: String): List<String> {
-        val out = ArrayList<String>()
+    private fun homophonesOf(key: String): List<String> = homophoneFreqs(key).map { it.first }
+
+    /**
+     * Every single-char entry for an exact syllable key with its ranking frequency: own-key entries at
+     * their dict frequency (FIX-1: incl. U+20000+ singles), alias-key entries (嗯 for en/36) at the
+     * penalty-DISCOUNTED frequency f·e^-ALIAS_PENALTY, all in one descending order. Ordering (O2): the old
+     * append-alias-at-the-tail left the common 嗯 behind the native frequency-1 tail; the discounted
+     * merge puts it after the common natives (恩/摁) but above the rares — the same relative position
+     * the completion pool's score order gives it.
+     */
+    private fun homophoneFreqs(key: String): List<Pair<String, Double>> {
+        val out = ArrayList<Pair<String, Double>>()
         val seen = HashSet<String>()
-        for (wf in preferredExact(dict, key)) if (isSingleChar(wf.word) && seen.add(wf.word)) out.add(wf.word) // FIX-1: incl. U+20000+ singles
-        for (wf in inputAliasWordFreqs(key)) if (isSingleChar(wf.word) && seen.add(wf.word)) out.add(wf.word)
+        for (wf in preferredExact(dict, key)) {
+            if (isSingleChar(wf.word) && seen.add(wf.word)) out.add(wf.word to wf.freq.toDouble())
+        }
+        for (wf in inputAliasWordFreqs(key)) {
+            if (isSingleChar(wf.word) && seen.add(wf.word)) out.add(wf.word to wf.freq * ALIAS_FREQ_DISCOUNT)
+        }
+        out.sortWith(
+            compareByDescending<Pair<String, Double>> { it.second }
+                .thenBy { supplementarySingleTieRank(it.first) },
+        )
         return out
     }
 
@@ -752,6 +811,7 @@ class PinyinDecoder(
         const val ATOMIC_BEAM_N = 8   // debug.18: alternative whole sentences kept from the atomic beam
         const val CTX_WORD_MAX = 4    // trailing Han chars of context used as the octagram prev-word proxy
         const val MAX_SYLLABLE_KEY_LEN = 6 // longest single-syllable dict key (letters and T9 digits alike)
+        val ALIAS_FREQ_DISCOUNT = exp(-ALIAS_PENALTY) // ALIAS_PENALTY expressed as a frequency factor (÷e^3.5)
         const val DEFAULT_CONTEXT_WEIGHT = 2.0 // ③ weight of the committed-context boundary bigram (vs λ for
         // internal word boundaries); context is reliable preceding text, so it outvotes raw frequency more
         val INPUT_ALIASES = mapOf("en" to listOf("ng"))
