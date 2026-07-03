@@ -33,6 +33,7 @@ fun main(rawArgs: Array<String>) {
     val minFreq = args.optional("--min-freq")?.toInt() ?: 0
     val keyType = args.optional("--keytype") ?: "letter"
     val maxPerKey = args.optional("--max-per-key")?.toInt() ?: Int.MAX_VALUE
+    val keepSyllableSingles = args.optional("--keep-syllable-singles")?.toInt() ?: 0
     val syllablesOut = args.optional("--syllables")?.let { File(it) }
     val coverageOut = args.optional("--coverage")?.let { File(it) }
 
@@ -45,10 +46,11 @@ fun main(rawArgs: Array<String>) {
     var skippedNonAscii = 0L
     var skippedLowFreq = 0L
 
+    val completeness = if (keepSyllableSingles > 0) SyllableCompleteness(keepSyllableSingles) else null
     tmpRecords.bufferedWriter().use { w ->
         for (file in inputs) {
             println("parsing ${file.name} ...")
-            file.bufferedReader().use { r -> parseDict(r, w, minFreq, keyType, syllableCounts) { kind ->
+            file.bufferedReader().use { r -> parseDict(r, w, minFreq, keyType, syllableCounts, completeness) { kind ->
                 when (kind) {
                     Skip.ROW -> totalRows++
                     Skip.KEPT -> kept++
@@ -57,6 +59,7 @@ fun main(rawArgs: Array<String>) {
                 }
             } }
         }
+        completeness?.emitTopUps(w, keyType)
     }
     println("parsed rows=$totalRows kept=$kept skippedNonAscii=$skippedNonAscii skippedLowFreq=$skippedLowFreq")
 
@@ -78,6 +81,7 @@ private fun parseDict(
     minFreq: Int,
     keyType: String,
     syllableCounts: HashMap<String, Long>,
+    completeness: SyllableCompleteness?,
     tally: (Skip) -> Unit,
 ) {
     var inData = false
@@ -98,7 +102,11 @@ private fun parseDict(
         if (syllables.isEmpty() || syllables.any { !Pinyin.isAsciiSyllable(it) }) {
             tally(Skip.NON_ASCII); continue
         }
-        if (freq < minFreq) { tally(Skip.LOW_FREQ); continue }
+        if (freq < minFreq) {
+            completeness?.offerBelowThreshold(syllables, word, freq)
+            tally(Skip.LOW_FREQ); continue
+        }
+        completeness?.noteKept(syllables, word)
         for (s in syllables) syllableCounts.merge(s, 1L, Long::plus)
         val letterKey = syllables.joinToString("")
         val key = when (keyType) {
@@ -108,6 +116,45 @@ private fun parseDict(
         }
         w.write(key); w.write("\t"); w.write(word); w.write("\t"); w.write(freq.toString()); w.write("\n")
         tally(Skip.KEPT)
+    }
+}
+
+private class SyllableCompleteness(private val target: Int) {
+    private fun isSingleChar(w: String) = w.codePointCount(0, w.length) == 1
+    private val keptBySyllable = HashMap<String, HashSet<String>>()
+    private val belowBySyllable = HashMap<String, HashMap<String, Int>>()
+
+    fun noteKept(syllables: List<String>, word: String) {
+        if (syllables.size != 1 || !isSingleChar(word)) return
+        keptBySyllable.getOrPut(syllables[0]) { HashSet() }.add(word)
+    }
+
+    fun offerBelowThreshold(syllables: List<String>, word: String, freq: Int) {
+        if (syllables.size != 1 || !isSingleChar(word)) return
+        belowBySyllable.getOrPut(syllables[0]) { HashMap() }.merge(word, freq, ::maxOf)
+    }
+
+    fun emitTopUps(w: BufferedWriter, keyType: String) {
+        var syllablesToppedUp = 0
+        var entries = 0
+        for ((syllable, below) in belowBySyllable.entries.sortedBy { it.key }) {
+            if (!keptBySyllable[syllable].isNullOrEmpty()) continue
+            val key = when (keyType) {
+                "digit" -> Pinyin.toT9(syllable)
+                "initials" -> syllable.substring(0, 1)
+                else -> syllable
+            }
+            val picks = below.entries.asSequence()
+                .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+                .take(target)
+            var any = false
+            for ((word, freq) in picks) {
+                w.write(key); w.write("\t"); w.write(word); w.write("\t"); w.write(freq.toString()); w.write("\n")
+                entries++; any = true
+            }
+            if (any) syllablesToppedUp++
+        }
+        println("syllable completeness: filled $syllablesToppedUp empty syllables with $entries single-char entries (top-$target)")
     }
 }
 

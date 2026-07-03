@@ -64,7 +64,7 @@ class ExhaustiveDecodeUiAuditExtTest {
         dict.exact(key).filter { isSingleChar(it.word) }.map { it.word }.toSet()
 
     private fun allowed(reading: String): Set<String> =
-        if (reading == "en") setOf("嗯") else emptySet()
+        if (reading == "en") dictSingles("ng") else emptySet()
 
     private val classA1 = listOf("dang", "deng", "geng", "heng", "keng", "leng", "nang", "ning", "tang", "xing", "ying")
     private val controls = listOf("hao", "ni", "shui", "ma")

@@ -29,7 +29,10 @@ Requires JDK 17+, Android SDK (platform 36, build-tools 36.0.0).
 
 The bundled dictionaries (`app/src/main/assets/aegis_*.bin`) are the **seed** pack — prebuilt from all
 14 wanxiang tables (`zi jichu lianxiang cuoyin duoyin shici diming yixue huaxue yaopin mingren yiren
-wuzhong renming`) at `--min-freq 400` by the `:tools` module, keeping the APK ~64 MB. The **full** pack
+wuzhong renming`) at `--min-freq 400` by the `:tools` module, keeping the APK ~64 MB. The seed build adds
+`--keep-syllable-singles 3`: a syllable whose single chars ALL fall below the trim threshold keeps its
+top-3 single chars (by source frequency) anyway, keeping rare-but-valid syllables
+(cen/chua/den/kei/m/nou/rua) typeable; syllables with any surviving single char are left untouched. The **full** pack
 (the same 14 tables at `--min-freq 1`, no per-key cap) is built the same way and hosted as a downloadable
 asset; at runtime a downloaded `aegis_*.bin` under `filesDir/downloaded/` overrides the seed
 (`AegisInputMethodService.downloadedOverride`). No per-key cap is applied to any tier (jianpin long tails are
@@ -38,8 +41,8 @@ kept in full).
 ```
 ./gradlew :tools:installDist
 # seed pack (bundled): --min-freq 400; full pack (download): --min-freq 1
-tools/build/install/tools/bin/tools --out <dict> --min-freq 400 --keytype letter   <14 wanxiang .dict.yaml ...>
-tools/build/install/tools/bin/tools --out <t9>   --min-freq 400 --keytype digit    <14 ...>
+tools/build/install/tools/bin/tools --out <dict> --min-freq 400 --keytype letter   --keep-syllable-singles 3 <14 wanxiang .dict.yaml ...>
+tools/build/install/tools/bin/tools --out <t9>   --min-freq 400 --keytype digit    --keep-syllable-singles 3 <14 ...>
 tools/build/install/tools/bin/tools --out <jp>   --min-freq 400 --keytype initials <14 ...>
 tools/build/install/tools/bin/tools lm --out <lm> <14 wanxiang .dict.yaml ...>
 ```

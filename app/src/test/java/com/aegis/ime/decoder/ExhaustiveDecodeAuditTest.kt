@@ -45,7 +45,7 @@ class ExhaustiveDecodeAuditTest {
     private fun sample(s: Collection<String>, n: Int = 8): String =
         s.take(n).joinToString(" ") + if (s.size > n) " …(${s.size})" else ""
 
-    private val COLLOQUIAL_WHITELIST: Map<String, Set<String>> = mapOf("en" to setOf("嗯"))
+    private val COLLOQUIAL_WHITELIST: Map<String, Set<String>> by lazy { mapOf("en" to dictSingles("ng")) }
 
     @Suppress("UNCHECKED_CAST")
     private fun runtimeSyllables(): List<String> {
