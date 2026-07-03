@@ -57,10 +57,12 @@ class ExhaustiveDecodeAuditExtTest {
     private val jianpinFile = File("src/main/assets/aegis_jianpin.bin")
 
     private fun letterDecoder(fuzzy: Set<String> = emptySet()): PinyinDecoder {
-        val initials = if (jianpinFile.exists()) BinaryDict.fromFile(jianpinFile) else null
+        // jianpin is part of the decoder configuration under audit: skip loudly when absent instead of
+        // silently sweeping with a different configuration.
+        assumeTrue("jianpin asset present", jianpinFile.exists())
         return PinyinDecoder(
             BinaryDict.fromFile(dictFile), CharBigramLM.fromFile(lmFile),
-            fuzzyRules = fuzzy, initialsDict = initials,
+            fuzzyRules = fuzzy, initialsDict = BinaryDict.fromFile(jianpinFile),
         )
     }
     private fun t9Decoder(): PinyinDecoder =
@@ -85,7 +87,28 @@ class ExhaustiveDecodeAuditExtTest {
     private fun runtimeSyllables(): List<String> {
         val f = T9Pinyin::class.java.getDeclaredField("SYLLABLES")
         f.isAccessible = true
-        return (f.get(T9Pinyin) as Set<String>).toList().sorted()
+        val syls = (f.get(T9Pinyin) as Set<String>).toList().sorted()
+        // drift guard (aligned with the audit): the runtime universe must stay ~415
+        assertTrue("runtime SYLLABLES set looks like ~415 (drift guard): ${syls.size}", syls.size in 400..430)
+        return syls
+    }
+
+    /** Reverse single-char index: char -> the syllables it has a STANDALONE dict.exact entry under.
+     *  Distinguishes a true cross-parse char (standalone entry under a different syllable, e.g. 反=fan)
+     *  from a char the seed dict only carries inside words (no standalone entry anywhere, e.g. 猩). */
+    private val reverseSingles: Map<String, Set<String>> by lazy {
+        val m = HashMap<String, MutableSet<String>>()
+        for (s in runtimeSyllables()) for (ch in dictSingles(s)) m.getOrPut(ch) { HashSet() }.add(s)
+        m
+    }
+
+    /** Run provenance embedded in every TSV/summary so a stale-artifact mixup is detectable. */
+    private val runStamp: String by lazy {
+        val rev = runCatching {
+            ProcessBuilder("git", "rev-parse", "--short", "HEAD").redirectErrorStream(true)
+                .start().inputStream.bufferedReader().readText().trim()
+        }.getOrDefault("unknown")
+        "run=${System.currentTimeMillis()} git=$rev"
     }
 
     private data class Fail(
@@ -102,6 +125,7 @@ class ExhaustiveDecodeAuditExtTest {
 
     private fun writeTsv(file: File, fails: List<Fail>) {
         file.bufferedWriter().use { w ->
+            w.write("# $runStamp\n")
             w.write("input\tlayout\tcheck\texpected\tshown\tdetail\n")
             for (f in fails) w.write("${f.input}\t${f.layout}\t${f.check}\t${f.expected}\t${f.shown}\t${f.detail}\n")
         }
@@ -110,9 +134,10 @@ class ExhaustiveDecodeAuditExtTest {
     private fun summary(file: File, title: String, covered: String, fails: List<Fail>) {
         val byCheck = fails.groupingBy { it.check }.eachCount().toSortedMap()
         File(outDir(), file.name).writeText(buildString {
+            appendLine("# $runStamp")
             appendLine(title)
             appendLine(covered)
-            appendLine("total violations: ${fails.size}; distinct inputs: ${fails.map { it.input }.toSet().size}")
+            appendLine("total rows (violations + classified findings): ${fails.size}; distinct inputs: ${fails.map { it.input }.toSet().size}")
             byCheck.forEach { (k, v) -> appendLine("  $k: $v") }
         })
     }
@@ -152,19 +177,37 @@ class ExhaustiveDecodeAuditExtTest {
                         "locked-decode first-unit singles not reading S1")
                 }
                 // full-coverage 2-codepoint candidates: each codepoint must read its locked syllable.
-                // A candidate that IS a dict word keyed exactly under S1+S2 is vouched for by the dict
-                // itself (its chars may lack standalone single entries, e.g. 猩猩) — skip per-cp there;
-                // the per-cp check targets beam-ASSEMBLED sentences, where a wrong segment key shows up.
+                // A candidate that violates that but IS a dict word keyed under the boundary-less string
+                // S1+S2 is NOT exempted — it is counted as its own class: the dict-word channel surfaces
+                // the whole key regardless of the lock cut (locking fang+an still offers 反感 = fan+gan),
+                // which is real, user-visible behaviour reported in its own class. Within that class, a failing
+                // char with a STANDALONE entry under another syllable (反=fan) is hard cross-parse
+                // evidence; a char with no standalone entry anywhere (猩) is an oracle gap of the seed
+                // dict (its true reading may well match). Non-dict-word (beam-assembled) candidates that
+                // fail remain TRUE violations.
                 val dictWords = dict.exact(input).map { it.word }.toSet()
                 for (c in cands) {
                     if (c.coveredLen != input.length || c.word.codePointCount(0, c.word.length) != 2) continue
-                    if (c.word in dictWords) continue
                     val cp0 = String(Character.toChars(c.word.codePointAt(0)))
                     val cp1 = String(Character.toChars(c.word.codePointBefore(c.word.length)))
-                    if (cp0 !in o1) fails += Fail(input, "9key", "E1-chars-S1",
-                        sample(o1), "${c.word}[0]=$cp0", "sentence char 0 not reading S1")
-                    if (cp1 !in o2) fails += Fail(input, "9key", "E1-chars-S2",
-                        sample(o2), "${c.word}[1]=$cp1", "sentence char 1 not reading S2")
+                    val bad = ArrayList<Pair<String, String>>() // (cp, which)
+                    if (cp0 !in o1) bad.add(cp0 to "S1=$s1")
+                    if (cp1 !in o2) bad.add(cp1 to "S2=$s2")
+                    if (bad.isEmpty()) continue
+                    if (c.word in dictWords) {
+                        val crossEvidence = bad.filter { (cp, _) -> !reverseSingles[cp].isNullOrEmpty() }
+                        val cls = if (crossEvidence.isNotEmpty()) "E1-cross-parse-dict-word" else "E1-dictword-oracle-gap"
+                        val det = bad.joinToString("; ") { (cp, which) ->
+                            "$cp vs $which (standalone readings: ${reverseSingles[cp]?.sorted()?.joinToString(",") ?: "none"})"
+                        }
+                        fails += Fail(input, "9key", cls, "$s1+$s2", c.word,
+                            "dict word for the boundary-less key surfaces under the lock: $det")
+                    } else {
+                        if (cp0 !in o1) fails += Fail(input, "9key", "E1-chars-S1",
+                            sample(o1), "${c.word}[0]=$cp0", "sentence char 0 not reading S1")
+                        if (cp1 !in o2) fails += Fail(input, "9key", "E1-chars-S2",
+                            sample(o2), "${c.word}[1]=$cp1", "sentence char 1 not reading S2")
+                    }
                 }
                 // the newly locked segment's homophone drill must read S2
                 val homo2 = d.homophonesAt("$s1'$s2", 1).toSet()
@@ -375,10 +418,10 @@ class ExhaustiveDecodeAuditExtTest {
             }
         }
         File(outDir(), "ext_e5_advisory.tsv").writeText(
-            "syllable\ttopCandidate\tdictTop5\n" + rows.joinToString("\n") + if (rows.isNotEmpty()) "\n" else ""
+            "# $runStamp\nsyllable\ttopCandidate\tdictTop5\n" + rows.joinToString("\n") + if (rows.isNotEmpty()) "\n" else ""
         )
         File(outDir(), "ext_e5_summary.txt").writeText(
-            "E5 — order advisory (report-only)\nsyllables: ${syls.size}\nadvisories: ${rows.size}\n"
+            "# $runStamp\nE5 — order advisory (report-only)\nsyllables: ${syls.size}\nadvisories: ${rows.size}\n"
         )
         assertTrue("E5 advisory written", File(outDir(), "ext_e5_advisory.tsv").exists())
     }

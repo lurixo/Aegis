@@ -89,12 +89,31 @@ class ExhaustiveDecodeUiAuditExtTest {
         val d = File(p); d.mkdirs(); return d
     }
 
+    /** Run provenance embedded in every TSV/summary so a stale-artifact mixup is detectable. */
+    private val runStamp: String by lazy {
+        val rev = runCatching {
+            ProcessBuilder("git", "rev-parse", "--short", "HEAD").redirectErrorStream(true)
+                .start().inputStream.bufferedReader().readText().trim()
+        }.getOrDefault("unknown")
+        "run=${System.currentTimeMillis()} git=$rev"
+    }
+
+    /** char -> syllables it has a STANDALONE single entry under (cross-parse evidence vs oracle gap). */
+    private val reverseSingles: Map<String, Set<String>> by lazy {
+        val f = T9Pinyin::class.java.getDeclaredField("SYLLABLES").apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST") val syls = (f.get(T9Pinyin) as Set<String>)
+        val m = HashMap<String, MutableSet<String>>()
+        for (s in syls) for (ch in dictSingles(s)) m.getOrPut(ch) { HashSet() }.add(s)
+        m
+    }
+
     // ============ E1-B · 9-key sequential locking through two real PICK_READING taps ============
     // Subset: (classA1 + controls)² = 15² = 225 ordered pairs — every Class-A1 syllable in BOTH positions.
     @Test fun e1b_sequentialLock_subsetPairs() {
         assumeTrue(assetsPresent())
         val pool = classA1 + controls
-        val fails = ArrayList<String>() // pair \t issue \t detail
+        val fails = ArrayList<String>()      // pair \t issue \t detail — TRUE violations (hard-asserted empty)
+        val classified = ArrayList<String>() // cross-parse dict-word channel rows (reported, not hard-asserted)
         for (s1 in pool) for (s2 in pool) {
             val c = controller()
             c.onKey(Key("", action = KeyAction.SWITCH_NINE))
@@ -115,26 +134,39 @@ class ExhaustiveDecodeUiAuditExtTest {
             val words = c.candidateWords()
             val leak1 = words.filter { isSingleChar(it) && it !in o1 }
             if (leak1.isNotEmpty()) fails.add("$s1+$s2\tchars-S1\t${leak1.take(6)}")
-            // skip candidates that are dict words keyed exactly under S1+S2 (the dict vouches for their
-            // reading; their chars may lack standalone single entries, e.g. 猩猩) — per-cp checks target
-            // beam-assembled sentences where a wrong segment key would surface.
+            // 2-cp candidates whose trailing char does not read the locked S2: a candidate that is a dict
+            // word keyed under the boundary-less S1+S2 is NOT exempted — it is the cross-parse dict-word
+            // channel (the whole key surfaces regardless of the lock; user-visible), recorded as its own
+            // class. Chars with a standalone entry under another syllable are hard
+            // cross-parse evidence; chars with none anywhere are seed-dict oracle gaps. Non-dict-word
+            // (beam-assembled) failures remain TRUE violations.
             val dictWords = dict.exact(s1 + s2).map { it.word }.toSet()
-            val leak2 = words.filter { it.codePointCount(0, it.length) == 2 && it !in dictWords }.mapNotNull { w ->
+            for (w in words) {
+                if (w.codePointCount(0, w.length) != 2) continue
                 val cp1 = String(Character.toChars(w.codePointBefore(w.length)))
-                if (cp1 !in o2) "$w[1]=$cp1" else null
+                if (cp1 in o2) continue
+                if (w in dictWords) {
+                    val cls = if (!reverseSingles[cp1].isNullOrEmpty()) "cross-parse-dict-word" else "dictword-oracle-gap"
+                    classified.add("$s1+$s2\t$cls\t$w [1]=$cp1 (standalone: ${reverseSingles[cp1]?.sorted()?.joinToString(",") ?: "none"})")
+                } else {
+                    fails.add("$s1+$s2\tchars-S2\t$w[1]=$cp1")
+                }
             }
-            if (leak2.isNotEmpty()) fails.add("$s1+$s2\tchars-S2\t${leak2.take(6)}")
             if (dictSingles(s1).isNotEmpty() && words.none { isSingleChar(it) && it in o1 }) {
                 fails.add("$s1+$s2\tno-S1-char\tno correct S1 single shown")
             }
         }
+        val rows = fails.map { "$it" } + classified
         File(outDir(), "ext_e1b.tsv").writeText(
-            "pair\tissue\tdetail\n" + fails.joinToString("\n") + if (fails.isNotEmpty()) "\n" else ""
+            "# $runStamp\npair\tissue\tdetail\n" + rows.joinToString("\n") + if (rows.isNotEmpty()) "\n" else ""
         )
         File(outDir(), "ext_e1b_summary.txt").writeText(
-            "E1-B — 9-key sequential double-lock (controller)\npairs covered: ${pool.size * pool.size}\nviolations: ${fails.size}\n"
+            "# $runStamp\nE1-B — 9-key sequential double-lock (controller)\npairs covered: ${pool.size * pool.size}\n" +
+                "true violations: ${fails.size}\nclassified cross-parse-dict-word rows: " +
+                "${classified.count { "\tcross-parse-dict-word\t" in it }}\n" +
+                "classified dictword-oracle-gap rows: ${classified.count { "\tdictword-oracle-gap\t" in it }}\n"
         )
-        assertTrue("E1-B sequential-lock violations: ${fails.take(8)}", fails.isEmpty())
+        assertTrue("E1-B sequential-lock TRUE violations: ${fails.take(8)}", fails.isEmpty())
     }
 
     // ===== E2/E3-B · 26-key drill + partial commit + re-drill through real controller events =====
@@ -176,10 +208,10 @@ class ExhaustiveDecodeUiAuditExtTest {
             }
         }
         File(outDir(), "ext_e23b.tsv").writeText(
-            "pair\tissue\tdetail\n" + fails.joinToString("\n") + if (fails.isNotEmpty()) "\n" else ""
+            "# $runStamp\npair\tissue\tdetail\n" + fails.joinToString("\n") + if (fails.isNotEmpty()) "\n" else ""
         )
         File(outDir(), "ext_e23b_summary.txt").writeText(
-            "E2/E3-B — 26-key drill + partial commit + re-drill (controller)\ncases covered: ${cases.distinct().size}\nviolations: ${fails.size}\n"
+            "# $runStamp\nE2/E3-B — 26-key drill + partial commit + re-drill (controller)\ncases covered: ${cases.distinct().size}\nviolations: ${fails.size}\n"
         )
         assertTrue("E2/E3-B drill/partial-commit violations: ${fails.take(8)}", fails.isEmpty())
     }
