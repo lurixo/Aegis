@@ -99,6 +99,35 @@ class ExhaustiveDecodeUiAuditExtTest {
         "run=${System.currentTimeMillis()} git=$rev"
     }
 
+    /** Lock-boundary word-level admissibility (same rule as the decoder, independently reimplemented): "aligned" /
+     *  "crossing" (all recoverable syllabifications straddle a cut — must be filtered) / "unverifiable". */
+    private fun lockVerdict(word: String, key: String, cuts: Set<Int>): String {
+        val cps = ArrayList<String>(4)
+        var ci = 0
+        while (ci < word.length) {
+            val cp = word.codePointAt(ci); cps.add(String(Character.toChars(cp))); ci += Character.charCount(cp)
+        }
+        val n = key.length
+        val m = cps.size
+        fun parses(respect: Boolean): Boolean {
+            val dp = Array(n + 1) { BooleanArray(m + 1) }
+            dp[0][0] = true
+            for (p in 0 until n) for (i in 0 until m) {
+                if (!dp[p][i]) continue
+                for (q in p + 1..minOf(n, p + 6)) {
+                    if (respect && cuts.any { it in (p + 1) until q }) continue
+                    if (cps[i] in dictSingles(key.substring(p, q))) dp[q][i + 1] = true
+                }
+            }
+            return dp[n][m]
+        }
+        return when {
+            parses(true) -> "aligned"
+            parses(false) -> "crossing"
+            else -> "unverifiable"
+        }
+    }
+
     /** char -> syllables it has a STANDALONE single entry under (cross-parse evidence vs oracle gap). */
     private val reverseSingles: Map<String, Set<String>> by lazy {
         val f = T9Pinyin::class.java.getDeclaredField("SYLLABLES").apply { isAccessible = true }
@@ -147,8 +176,14 @@ class ExhaustiveDecodeUiAuditExtTest {
                 val cp1 = String(Character.toChars(w.codePointBefore(w.length)))
                 if (cp1 in o2) continue
                 if (w in dictWords) {
-                    val cls = if (!reverseSingles[cp1].isNullOrEmpty()) "cross-parse-dict-word" else "dictword-oracle-gap"
-                    classified.add("$s1+$s2\t$cls\t$w [1]=$cp1 (standalone: ${reverseSingles[cp1]?.sorted()?.joinToString(",") ?: "none"})")
+                    // Lock boundary: a provably boundary-crossing dict word at the controller seam is a TRUE
+                    // violation (the decoder filter must have removed it); unverifiable words stay a
+                    // disclosed class.
+                    when (lockVerdict(w, s1 + s2, setOf(s1.length))) {
+                        "crossing" -> fails.add("$s1+$s2\tcrossing-escaped\t$w [1]=$cp1")
+                        "unverifiable" -> classified.add("$s1+$s2\tdictword-unverifiable\t$w [1]=$cp1 (standalone: ${reverseSingles[cp1]?.sorted()?.joinToString(",") ?: "none"})")
+                        else -> fails.add("$s1+$s2\taligned-but-mismatch\t$w [1]=$cp1")
+                    }
                 } else {
                     fails.add("$s1+$s2\tchars-S2\t$w[1]=$cp1")
                 }
@@ -163,9 +198,8 @@ class ExhaustiveDecodeUiAuditExtTest {
         )
         File(outDir(), "ext_e1b_summary.txt").writeText(
             "# $runStamp\nE1-B — 9-key sequential double-lock (controller)\npairs covered: ${pool.size * pool.size}\n" +
-                "true violations: ${fails.size}\nclassified cross-parse-dict-word rows: " +
-                "${classified.count { "\tcross-parse-dict-word\t" in it }}\n" +
-                "classified dictword-oracle-gap rows: ${classified.count { "\tdictword-oracle-gap\t" in it }}\n"
+                "true violations: ${fails.size}\nclassified dictword-unverifiable rows: " +
+                "${classified.count { "\tdictword-unverifiable\t" in it }}\n"
         )
         assertTrue("E1-B sequential-lock TRUE violations: ${fails.take(8)}", fails.isEmpty())
     }

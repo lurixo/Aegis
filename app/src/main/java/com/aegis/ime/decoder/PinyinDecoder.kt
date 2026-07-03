@@ -371,13 +371,17 @@ class PinyinDecoder(
         val B = bset.toList()
         val nSyl = B.size - 1
 
+        val singlesCache = HashMap<String, Set<String>>()
         val cover = LinkedHashMap<String, Int>()
-        val sentences = atomicSentences(input, B, ctxCp, ctxWord)
+        val sentences = atomicSentences(input, B, interior, ctxCp, ctxWord, singlesCache)
         sentences.firstOrNull()?.let { cover[it] = input.length }            // ① best sentence
-        // ③ leading multi-syllable words [0, B[j]] (cover the first j syllables), freq-descending.
+        // ③ leading multi-syllable words [0, B[j]] (cover the first j syllables), freq-descending. A user
+        // lock is a HARD boundary: a whole dict word fetched by the boundary-less key must not cross a
+        // forced cut (locking fang+an must not offer 反感 = fan+gan) — see [admissibleUnderCuts].
         val leadWords = ArrayList<Pair<String, Int>>() // (word, coveredLen) sortable by the carried freq
         val leadFreq = HashMap<String, Int>()
         for (j in 2..nSyl) for (wf in preferredExact(dict, input.substring(0, B[j]))) if (!isSingleChar(wf.word)) {
+            if (!admissibleUnderCuts(wf.word, 0, B[j], interior, input, singlesCache)) continue
             if (leadFreq.put(wf.word, wf.freq) == null) leadWords.add(wf.word to B[j])
         }
         leadWords.sortedByDescending { leadFreq[it.first] ?: 0 }.forEach { cover.putIfAbsent(it.first, it.second) }
@@ -393,6 +397,68 @@ class PinyinDecoder(
         return out
     }
 
+    /**
+     * Lock-boundary admissibility of a multi-char dict word occupying [spanStart, spanEnd) of [input]
+     * against the user's forced [cuts] (a lock is a HARD boundary). The dict stores no per-word
+     * syllabification, so it is recovered by reverse lookup — a DP over (key position, word codepoint)
+     * where one step consumes a key substring `s` with the word's codepoint in `dict.exact(s)`'s singles:
+     *  - some syllabification exists that straddles NO cut inside the span → admissible (方案 under
+     *    fang|an: 方∈exact(fang), 案∈exact(an), boundary on the cut);
+     *  - syllabifications exist but ALL straddle a cut → provably cross-parse → filtered (反感 under
+     *    fang|an: its only recoverable split fan+gan puts a boundary at 3 ≠ cut 4);
+     *  - NO syllabification is recoverable at all (a char without any standalone single entry, 猩 of
+     *    猩猩, or a heteronym reading absent from the singles bucket, 石=dàn of 百石) → the crossing is
+     *    unprovable offline → kept.
+     * With no cut inside the span this is a constant-time no-op, so single-syllable locks and the free
+     * typing path are untouched. Spans are short (≤ a few syllables) and lookups are cached per decode.
+     */
+    private fun admissibleUnderCuts(
+        word: String,
+        spanStart: Int,
+        spanEnd: Int,
+        cuts: Set<Int>,
+        input: String,
+        singlesCache: HashMap<String, Set<String>>,
+    ): Boolean {
+        var hasInner = false
+        for (c in cuts) if (c > spanStart && c < spanEnd) { hasInner = true; break }
+        if (!hasInner) return true
+        val key = input.substring(spanStart, spanEnd)
+        val n = key.length
+        val cps = ArrayList<String>(4)
+        var ci = 0
+        while (ci < word.length) {
+            val cp = word.codePointAt(ci)
+            cps.add(String(Character.toChars(cp)))
+            ci += Character.charCount(cp)
+        }
+        val m = cps.size
+        fun singles(k: String): Set<String> = singlesCache.getOrPut(k) {
+            val out = HashSet<String>()
+            for (wf in dict.exact(k)) if (isSingleChar(wf.word)) out.add(wf.word)
+            out
+        }
+        fun parses(respectCuts: Boolean): Boolean {
+            val dp = Array(n + 1) { BooleanArray(m + 1) }
+            dp[0][0] = true
+            for (p in 0 until n) for (i in 0 until m) {
+                if (!dp[p][i]) continue
+                var q = p + 1
+                while (q <= n && q - p <= MAX_SYLLABLE_KEY_LEN) {
+                    var straddles = false
+                    if (respectCuts) {
+                        for (c in cuts) if (c > spanStart + p && c < spanStart + q) { straddles = true; break }
+                    }
+                    if (!straddles && cps[i] in singles(key.substring(p, q))) dp[q][i + 1] = true
+                    q++
+                }
+            }
+            return dp[n][m]
+        }
+        if (parses(respectCuts = true)) return true
+        return !parses(respectCuts = false) // no recoverable syllabification at all: unprovable, keep
+    }
+
     private class APath(val text: String, val lastCp: Int, val lastWord: String, val score: Double)
 
     /**
@@ -402,7 +468,14 @@ class PinyinDecoder(
      * octagram + user boost), with the committed context conditioning the first word. Every returned sentence
      * covers all [B] syllables, so its codePointCount equals the syllable count.
      */
-    private fun atomicSentences(input: String, B: List<Int>, ctxCp: Int, ctxWord: String): List<String> {
+    private fun atomicSentences(
+        input: String,
+        B: List<Int>,
+        interior: Set<Int>,
+        ctxCp: Int,
+        ctxWord: String,
+        singlesCache: HashMap<String, Set<String>>,
+    ): List<String> {
         val nSyl = B.size - 1
         val dp = Array(B.size) { ArrayList<APath>() }
         dp[0].add(APath("", ctxCp, ctxWord, 0.0))
@@ -412,7 +485,10 @@ class PinyinDecoder(
             for (j in i + 1..nSyl) {
                 val seg = input.substring(B[i], B[j])
                 val raw = preferredExact(dict, seg)
-                val edges = (if (j == i + 1) raw.filter { isSingleChar(it.word) } else raw.filterNot { isSingleChar(it.word) })
+                // multi-syllable word edges spanning a forced cut must respect the lock boundary too
+                val edges = (if (j == i + 1) raw.filter { isSingleChar(it.word) }
+                else raw.filterNot { isSingleChar(it.word) }
+                    .filter { admissibleUnderCuts(it.word, B[i], B[j], interior, input, singlesCache) })
                     .take(SENTENCE_EDGE_N)
                 for (wf in edges) {
                     val w = wf.word
@@ -640,6 +716,7 @@ class PinyinDecoder(
         const val SENTENCE_EDGE_N = 6 // debug.18: single chars / words considered per atomic lattice cell (the FULL homophone set still reaches the grid via the lossless layer)
         const val ATOMIC_BEAM_N = 8   // debug.18: alternative whole sentences kept from the atomic beam
         const val CTX_WORD_MAX = 4    // trailing Han chars of context used as the octagram prev-word proxy
+        const val MAX_SYLLABLE_KEY_LEN = 6 // longest single-syllable dict key (letters and T9 digits alike)
         const val DEFAULT_CONTEXT_WEIGHT = 2.0 // ③ weight of the committed-context boundary bigram (vs λ for
         // internal word boundaries); context is reliable preceding text, so it outvotes raw frequency more
         val INPUT_ALIASES = mapOf("en" to listOf("ng"))
