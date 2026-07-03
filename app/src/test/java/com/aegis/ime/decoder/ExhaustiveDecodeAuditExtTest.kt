@@ -80,7 +80,10 @@ class ExhaustiveDecodeAuditExtTest {
         s.take(n).joinToString(" ") + if (s.size > n) " …(${s.size})" else ""
 
     /** Same allowlist as the audit: known colloquial cross-readings. */
-    private val COLLOQUIAL_WHITELIST: Map<String, Set<String>> = mapOf("en" to setOf("嗯"))
+    /** The deliberate `en -> ng` input alias forwards the WHOLE `ng` key: whatever single chars the
+     *  dict carries under `ng` (嗯, and any completeness top-ups like 㕶) legitimately surface for `en`.
+     *  The allowlist therefore mirrors the alias target's live single set instead of pinning one char. */
+    private val COLLOQUIAL_WHITELIST: Map<String, Set<String>> by lazy { mapOf("en" to dictSingles("ng")) }
     private fun allowed(reading: String): Set<String> = COLLOQUIAL_WHITELIST[reading] ?: emptySet()
 
     @Suppress("UNCHECKED_CAST")

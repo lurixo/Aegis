@@ -77,9 +77,10 @@ class ExhaustiveDecodeUiAuditExtTest {
     private fun dictSingles(key: String): Set<String> =
         dict.exact(key).filter { isSingleChar(it.word) }.map { it.word }.toSet()
 
-    /** Same allowlist as the audit (en→嗯 is expected behaviour). */
+    /** Same allowlist as the audit: the deliberate en -> ng alias forwards the whole `ng` key,
+     *  so `en` legitimately surfaces whatever singles the dict carries under `ng`. */
     private fun allowed(reading: String): Set<String> =
-        if (reading == "en") setOf("嗯") else emptySet()
+        if (reading == "en") dictSingles("ng") else emptySet()
 
     private val classA1 = listOf("dang", "deng", "geng", "heng", "keng", "leng", "nang", "ning", "tang", "xing", "ying")
     private val controls = listOf("hao", "ni", "shui", "ma")

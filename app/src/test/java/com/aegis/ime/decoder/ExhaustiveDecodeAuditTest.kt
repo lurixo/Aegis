@@ -67,7 +67,10 @@ class ExhaustiveDecodeAuditTest {
      * 嗯 (formal reading ng/n) is mainstream IME behaviour (Sogou / MS Pinyin), retained via PinyinDecoder's
      * en->ng alias; it is NOT the deng-class bug, so it is whitelisted rather than treated as an offender.
      */
-    private val COLLOQUIAL_WHITELIST: Map<String, Set<String>> = mapOf("en" to setOf("嗯"))
+    /** The deliberate `en -> ng` input alias forwards the WHOLE `ng` key: whatever single chars the
+     *  dict carries under `ng` (嗯, and any completeness top-ups like 㕶) legitimately surface for `en`.
+     *  The allowlist therefore mirrors the alias target's live single set instead of pinning one char. */
+    private val COLLOQUIAL_WHITELIST: Map<String, Set<String>> by lazy { mapOf("en" to dictSingles("ng")) }
 
     // ---- runtime syllable set via reflection (NOT tools' 418 superset) ----
     @Suppress("UNCHECKED_CAST")

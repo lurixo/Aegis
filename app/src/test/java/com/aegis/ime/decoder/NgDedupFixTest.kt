@@ -88,6 +88,11 @@ class NgDedupFixTest {
                 covers.isEmpty() -> bad.add("$input: no candidate covering exactly 'n'")
                 !covers.all { it.word in nChars } ->
                     bad.add("$input: n-covering chars not reading n: ${covers.map { it.word }}")
+                // SEMANTIC assertion: the common interjection 嗯 itself must be pickable at
+                // coverage 1 — a subset check alone is blind to 嗯 being displaced by a rare homophone
+                // (𠮾-only would pass ⊆ dict.exact("n") while breaking the user-visible capability).
+                covers.none { it.word == "嗯" } ->
+                    bad.add("$input: 嗯 missing from coverage-1 candidates: ${covers.map { it.word }}")
                 // the remainder must still decode as the g-initial syllable
                 d.syllables(g).map { it.reading } != listOf(g) ->
                     bad.add("$input: remainder '$g' mis-segments")
@@ -145,12 +150,21 @@ class NgDedupFixTest {
         val nChars = singlesOf(fullDict, "n")
         assertTrue("full dict has n singles", nChars.isNotEmpty())
         val bad = ArrayList<String>()
+        val fullGaps = ArrayList<String>()
         for (g in gInitials) {
             val input = "n$g"
             val covers = d.decodeCovered(input, 30).filter { it.coveredLen == 1 && isSingleChar(it.word) }
             if (covers.isEmpty()) bad.add("$input: no n-covering candidate (full dict)")
             else if (!covers.all { it.word in nChars })
                 bad.add("$input: full-dict n-covering chars not reading n: ${covers.map { it.word }.take(4)}")
+            // KNOWN GAP (recorded, not failed): under the FULL pack, dict.exact("n") natively holds rare
+            // homophones (㕶/𠮾) beyond 嗯, so tier "n" partially survives the word-text dedup and the
+            // dominated-tier rescue's empty-tier gate never fires — 嗯 itself is not offered at coverage 1
+            // (a rare char is). Pre-existing decoder behaviour, out of this ticket's build-rule scope; the
+            // root fix is true word+coverage dedup in the rescue. Recorded to
+            // AEGIS_AUDIT_DIR for the report rather than asserted.
+            else if (covers.none { it.word == "嗯" })
+                fullGaps.add("$input	嗯-missing-at-cov1	cov1=${covers.map { "${it.word}" }}")
         }
         // bloat guard under the full config as well
         for (s in runtimeSyllables()) {
@@ -160,6 +174,15 @@ class NgDedupFixTest {
             }
             val dup = perWord.filterValues { it.size > 1 }
             if (dup.isNotEmpty()) bad.add("$s: full-config duplicate coverages ${dup.entries.take(2)}")
+        }
+        run {
+            val p = System.getenv("AEGIS_AUDIT_DIR") ?: System.getProperty("aegis.audit.dir")
+            if (!p.isNullOrEmpty()) {
+                File(p).mkdirs()
+                File(p, "fullconfig_known_gaps.tsv")
+                    .writeText("input\tgap\tdetail\n" + fullGaps.joinToString("\n") + if (fullGaps.isNotEmpty()) "\n" else "")
+            }
+            if (fullGaps.isNotEmpty()) println("[full-config] known gaps recorded: ${fullGaps.size} (嗯-missing-at-cov1 under the full pack)")
         }
         assertTrue("full-config targeted check failed: ${bad.take(8)}", bad.isEmpty())
     }
