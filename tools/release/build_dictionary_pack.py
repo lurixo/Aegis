@@ -144,14 +144,27 @@ def build_info(args, repo_root, source, asset_name, zip_path, bin_infos, source_
                         "min_freq": 1,
                         "max_per_key": None,
                         "commands": [
-                            "--out aegis_dict_full.bin --min-freq 1 --keytype letter",
-                            "--out aegis_t9_full.bin --min-freq 1 --keytype digit",
-                            "--out aegis_jianpin_full.bin --min-freq 1 --keytype initials",
+                            "--out aegis_dict_full.bin --min-freq 1 --keytype letter --t2s-data tools/t2s-data",
+                            "--out aegis_t9_full.bin --min-freq 1 --keytype digit --t2s-data tools/t2s-data",
+                            "--out aegis_jianpin_full.bin --min-freq 1 --keytype initials --t2s-data tools/t2s-data",
                         ],
                     },
                     "seed_parameters": {
                         "min_freq": 400,
                         "max_per_key": None,
+                        "keep_syllable_singles": 3,
+                        "keep_syllable_singles_keytypes": ["letter", "digit"],
+                        "commands": [
+                            "--out aegis_dict.bin --min-freq 400 --keep-syllable-singles 3 --keytype letter --t2s-data tools/t2s-data",
+                            "--out aegis_t9.bin --min-freq 400 --keep-syllable-singles 3 --keytype digit --t2s-data tools/t2s-data",
+                            "--out aegis_jianpin.bin --min-freq 400 --keytype initials --t2s-data tools/t2s-data",
+                        ],
+                    },
+                    "t2s_data": {
+                        "path": "tools/t2s-data",
+                        "provenance": "tools/t2s-data/PROVENANCE.md",
+                        "license": "Apache-2.0 for the OpenCC tables (tools/t2s-data/LICENSE-OpenCC)",
+                        "effect": "traditional and variant forms merge into their simplified image with frequency merging",
                     },
                     "output_bins": bin_infos,
                     "zip_packaging": {
@@ -168,6 +181,29 @@ def build_info(args, repo_root, source, asset_name, zip_path, bin_infos, source_
                         "signature or attestation",
                         "independent external rebuild verification",
                     ],
+                },
+            }
+        ],
+        "external_resource_references": [
+            {
+                "kind": "grammar_model",
+                "physical_asset": {
+                    "name": "wanxiang-lts-zh-hans.gram",
+                    "url": "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/wanxiang-lts-zh-hans.gram",
+                    "release_tag": "LTS",
+                    "release_url": "https://github.com/amzxyz/RIME-LMDG/releases/tag/LTS",
+                    "prerelease": False,
+                    "published_at": None,
+                    "sha256": None,
+                    "size_bytes": 420538412,
+                },
+                "source": {
+                    "repo": "https://github.com/amzxyz/RIME-LMDG",
+                    "branch": None,
+                    "commit": None,
+                },
+                "attestation": {
+                    "status": "external_resource_not_attested_by_aegis",
                 },
             }
         ],
@@ -219,6 +255,12 @@ def main(argv):
     run([str(repo_root / "gradlew"), ":tools:installDist"], cwd=repo_root)
     tool_bin = repo_root / "tools" / "build" / "install" / "tools" / "bin" / "tools"
 
+    # Traditional and variant forms merge into their simplified image during the build; the
+    # adjudicated conversion data lives in tools/t2s-data (see tools/t2s-data/PROVENANCE.md).
+    t2s_dir = repo_root / "tools" / "t2s-data"
+    if not t2s_dir.exists():
+        raise SystemExit(f"t2s data dir missing: {t2s_dir}")
+
     bin_infos = []
     for zip_entry, runtime_name, key_type in OUTPUTS:
         out_path = staging_dir / zip_entry
@@ -231,6 +273,8 @@ def main(argv):
                 "1",
                 "--keytype",
                 key_type,
+                "--t2s-data",
+                str(t2s_dir),
                 *[str(path) for path in input_paths],
             ],
             cwd=repo_root,
