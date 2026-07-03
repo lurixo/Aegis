@@ -267,12 +267,14 @@ class PinyinDecoder(
         val B = bset.toList()
         val nSyl = B.size - 1
 
+        val singlesCache = HashMap<String, Set<String>>()
         val cover = LinkedHashMap<String, Int>()
-        val sentences = atomicSentences(input, B, ctxCp, ctxWord)
+        val sentences = atomicSentences(input, B, interior, ctxCp, ctxWord, singlesCache)
         sentences.firstOrNull()?.let { cover[it] = input.length }
         val leadWords = ArrayList<Pair<String, Int>>()
         val leadFreq = HashMap<String, Int>()
         for (j in 2..nSyl) for (wf in preferredExact(dict, input.substring(0, B[j]))) if (!isSingleChar(wf.word)) {
+            if (!admissibleUnderCuts(wf.word, 0, B[j], interior, input, singlesCache)) continue
             if (leadFreq.put(wf.word, wf.freq) == null) leadWords.add(wf.word to B[j])
         }
         leadWords.sortedByDescending { leadFreq[it.first] ?: 0 }.forEach { cover.putIfAbsent(it.first, it.second) }
@@ -285,9 +287,63 @@ class PinyinDecoder(
         return out
     }
 
+    private fun admissibleUnderCuts(
+        word: String,
+        spanStart: Int,
+        spanEnd: Int,
+        cuts: Set<Int>,
+        input: String,
+        singlesCache: HashMap<String, Set<String>>,
+    ): Boolean {
+        var hasInner = false
+        for (c in cuts) if (c > spanStart && c < spanEnd) { hasInner = true; break }
+        if (!hasInner) return true
+        val key = input.substring(spanStart, spanEnd)
+        val n = key.length
+        val cps = ArrayList<String>(4)
+        var ci = 0
+        while (ci < word.length) {
+            val cp = word.codePointAt(ci)
+            cps.add(String(Character.toChars(cp)))
+            ci += Character.charCount(cp)
+        }
+        val m = cps.size
+        fun singles(k: String): Set<String> = singlesCache.getOrPut(k) {
+            val out = HashSet<String>()
+            for (wf in dict.exact(k)) if (isSingleChar(wf.word)) out.add(wf.word)
+            out
+        }
+        fun parses(respectCuts: Boolean): Boolean {
+            val dp = Array(n + 1) { BooleanArray(m + 1) }
+            dp[0][0] = true
+            for (p in 0 until n) for (i in 0 until m) {
+                if (!dp[p][i]) continue
+                var q = p + 1
+                while (q <= n && q - p <= MAX_SYLLABLE_KEY_LEN) {
+                    var straddles = false
+                    if (respectCuts) {
+                        for (c in cuts) if (c > spanStart + p && c < spanStart + q) { straddles = true; break }
+                    }
+                    if (!straddles && cps[i] in singles(key.substring(p, q))) dp[q][i + 1] = true
+                    q++
+                }
+            }
+            return dp[n][m]
+        }
+        if (parses(respectCuts = true)) return true
+        return !parses(respectCuts = false)
+    }
+
     private class APath(val text: String, val lastCp: Int, val lastWord: String, val score: Double)
 
-    private fun atomicSentences(input: String, B: List<Int>, ctxCp: Int, ctxWord: String): List<String> {
+    private fun atomicSentences(
+        input: String,
+        B: List<Int>,
+        interior: Set<Int>,
+        ctxCp: Int,
+        ctxWord: String,
+        singlesCache: HashMap<String, Set<String>>,
+    ): List<String> {
         val nSyl = B.size - 1
         val dp = Array(B.size) { ArrayList<APath>() }
         dp[0].add(APath("", ctxCp, ctxWord, 0.0))
@@ -297,7 +353,9 @@ class PinyinDecoder(
             for (j in i + 1..nSyl) {
                 val seg = input.substring(B[i], B[j])
                 val raw = preferredExact(dict, seg)
-                val edges = (if (j == i + 1) raw.filter { isSingleChar(it.word) } else raw.filterNot { isSingleChar(it.word) })
+                val edges = (if (j == i + 1) raw.filter { isSingleChar(it.word) }
+                else raw.filterNot { isSingleChar(it.word) }
+                    .filter { admissibleUnderCuts(it.word, B[i], B[j], interior, input, singlesCache) })
                     .take(SENTENCE_EDGE_N)
                 for (wf in edges) {
                     val w = wf.word
@@ -484,6 +542,7 @@ class PinyinDecoder(
         const val SENTENCE_EDGE_N = 6
         const val ATOMIC_BEAM_N = 8
         const val CTX_WORD_MAX = 4
+        const val MAX_SYLLABLE_KEY_LEN = 6
         const val DEFAULT_CONTEXT_WEIGHT = 2.0
         val INPUT_ALIASES = mapOf("en" to listOf("ng"))
     }

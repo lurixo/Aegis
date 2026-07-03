@@ -69,6 +69,33 @@ class ExhaustiveDecodeAuditExtTest {
         m
     }
 
+    private fun lockVerdict(word: String, key: String, cuts: Set<Int>): String {
+        val cps = ArrayList<String>(4)
+        var ci = 0
+        while (ci < word.length) {
+            val cp = word.codePointAt(ci); cps.add(String(Character.toChars(cp))); ci += Character.charCount(cp)
+        }
+        val n = key.length
+        val m = cps.size
+        fun parses(respect: Boolean): Boolean {
+            val dp = Array(n + 1) { BooleanArray(m + 1) }
+            dp[0][0] = true
+            for (p in 0 until n) for (i in 0 until m) {
+                if (!dp[p][i]) continue
+                for (q in p + 1..minOf(n, p + 6)) {
+                    if (respect && cuts.any { it in (p + 1) until q }) continue
+                    if (cps[i] in dictSingles(key.substring(p, q))) dp[q][i + 1] = true
+                }
+            }
+            return dp[n][m]
+        }
+        return when {
+            parses(true) -> "aligned"
+            parses(false) -> "crossing"
+            else -> "unverifiable"
+        }
+    }
+
     private val runStamp: String by lazy {
         val rev = runCatching {
             ProcessBuilder("git", "rev-parse", "--short", "HEAD").redirectErrorStream(true)
@@ -145,13 +172,17 @@ class ExhaustiveDecodeAuditExtTest {
                     if (cp1 !in o2) bad.add(cp1 to "S2=$s2")
                     if (bad.isEmpty()) continue
                     if (c.word in dictWords) {
-                        val crossEvidence = bad.filter { (cp, _) -> !reverseSingles[cp].isNullOrEmpty() }
-                        val cls = if (crossEvidence.isNotEmpty()) "E1-cross-parse-dict-word" else "E1-dictword-oracle-gap"
                         val det = bad.joinToString("; ") { (cp, which) ->
                             "$cp vs $which (standalone readings: ${reverseSingles[cp]?.sorted()?.joinToString(",") ?: "none"})"
                         }
-                        fails += Fail(input, "9key", cls, "$s1+$s2", c.word,
-                            "dict word for the boundary-less key surfaces under the lock: $det")
+                        when (lockVerdict(c.word, input, setOf(cut))) {
+                            "crossing" -> fails += Fail(input, "9key", "E1-crossing-escaped", "$s1+$s2", c.word,
+                                "boundary-crossing dict word escaped the lock filter: $det")
+                            "unverifiable" -> fails += Fail(input, "9key", "E1-dictword-unverifiable", "$s1+$s2", c.word,
+                                "dict word with no offline-recoverable syllabification (kept by design): $det")
+                            else -> fails += Fail(input, "9key", "E1-aligned-but-mismatch", "$s1+$s2", c.word,
+                                "aligned dict word with a char outside the locked oracle (unexpected): $det")
+                        }
                     } else {
                         if (cp0 !in o1) fails += Fail(input, "9key", "E1-chars-S1",
                             sample(o1), "${c.word}[0]=$cp0", "sentence char 0 not reading S1")
@@ -176,6 +207,8 @@ class ExhaustiveDecodeAuditExtTest {
         writeTsv(File(outDir(), "ext_e1.tsv"), fails)
         summary(File(outDir(), "ext_e1_summary.txt"), "E1 — 9-key sequential locking",
             "pairs covered: ${syls.size.toLong() * syls.size} (all ordered 415²)", fails)
+        val escaped = fails.filter { it.check == "E1-crossing-escaped" || it.check == "E1-aligned-but-mismatch" }
+        assertTrue("lock-boundary filter escaped on ${escaped.size} pairs: ${escaped.take(5)}", escaped.isEmpty())
         assertTrue("E1 report written", File(outDir(), "ext_e1.tsv").exists())
     }
 
