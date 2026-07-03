@@ -325,6 +325,7 @@ class ExhaustiveDecodeAuditExtTest {
             dBase.decodeCovered(s, 30).filter { isSingleChar(it.word) }.mapTo(HashSet()) { it.word to it.coveredLen }
         }
 
+        val sylList = syls
         fun checkOne(d: PinyinDecoder, s: String, rules: Set<String>, tag: String) {
             val seg = d.syllables(s).map { it.reading }
             if (seg != listOf(s)) {
@@ -335,7 +336,9 @@ class ExhaustiveDecodeAuditExtTest {
             for (c in d.decodeCovered(s, 30)) {
                 if (!isSingleChar(c.word) || (c.word to c.coveredLen) in base) continue
                 val key = s.substring(0, c.coveredLen.coerceIn(1, s.length))
-                val okSet = Fuzzy.variants(key, rules).flatMapTo(HashSet()) { dictSingles(it) } + allowed(key)
+                val okSet = Fuzzy.variants(key, rules).flatMapTo(HashSet()) { v ->
+                    sylList.filter { it.startsWith(v) }.flatMap { dictSingles(it) }
+                } + allowed(key)
                 if (c.word !in okSet) {
                     fails += Fail(s, "26key", "$tag-chars", "variants('$key')", "${c.word}@${c.coveredLen}",
                         "fuzzy ADDED a single outside the variant class of its covered span (rules=${rules.joinToString(",")})")
@@ -377,15 +380,115 @@ class ExhaustiveDecodeAuditExtTest {
                 .sortedByDescending { it.freq }.take(5).map { it.word }
             val first = d.decodeCovered(s, 30).firstOrNull()?.word ?: "<none>"
             if (top5.isNotEmpty() && first !in top5 && first !in allowed(s)) {
-                rows.add("$s\t$first\t${top5.joinToString(" ")}")
+                val f = e6RawFreq(dict, s, first)
+                val verdict = when {
+                    f == null -> "composed-sentence"
+                    f >= E6_COMMON -> "compliant: common candidate ahead of the syllable's own singles (常用先于生僻)"
+                    else -> "band ($f): neither clearly rare nor clearly common — no E6 constraint"
+                }
+                rows.add("$s\t$first\t${top5.joinToString(" ")}\t$verdict")
             }
         }
         File(outDir(), "ext_e5_advisory.tsv").writeText(
-            "# $runStamp\nsyllable\ttopCandidate\tdictTop5\n" + rows.joinToString("\n") + if (rows.isNotEmpty()) "\n" else ""
+            "# $runStamp\nsyllable\ttopCandidate\tdictTop5\ttc2Verdict\n" + rows.joinToString("\n") + if (rows.isNotEmpty()) "\n" else ""
         )
         File(outDir(), "ext_e5_summary.txt").writeText(
             "# $runStamp\nE5 — order advisory (report-only)\nsyllables: ${syls.size}\nadvisories: ${rows.size}\n"
         )
         assertTrue("E5 advisory written", File(outDir(), "ext_e5_advisory.tsv").exists())
+    }
+
+    private fun e6Decoder(letters: Boolean): PinyinDecoder =
+        if (letters) PinyinDecoder(
+            dict, CharBigramLM.fromFile(lmFile),
+            initialsDict = if (jianpinFile.exists()) BinaryDict.fromFile(jianpinFile) else null,
+        )
+        else PinyinDecoder(t9Dict, CharBigramLM.fromFile(lmFile), aliasDict = dict)
+
+    private val E6_RARE = 100
+    private val E6_COMMON = 1000
+
+    private class E6View(val exact: Map<String, Int>, val alias: Map<String, Int>, val prefix: Map<String, Int>)
+    private val e6KeyView = HashMap<String, E6View>()
+    private fun e6RawFreq(source: BinaryDict, key: String, word: String): Int? {
+        val view = e6KeyView.getOrPut((if (source === dict) "L:" else "D:") + key) {
+            fun collect(entries: List<BinaryDict.WordFreq>): Map<String, Int> {
+                val m = HashMap<String, Int>()
+                for (wf in entries) if (wf.freq > (m[wf.word] ?: -1)) m[wf.word] = wf.freq
+                return m
+            }
+            val aliasEntries = (if (key.firstOrNull() in '2'..'9') PinyinDecoder.T9_INPUT_ALIASES[key].orEmpty()
+            else PinyinDecoder.INPUT_ALIASES[key].orEmpty()).flatMap { dict.exact(it) }
+            val prefixEntries = source.prefixByFreq(key, E6_PREFIX_SCAN) +
+                (if (jianpinFile.exists()) jianpin.prefixByFreq(key, E6_PREFIX_SCAN) else emptyList())
+            E6View(collect(source.exact(key)), collect(aliasEntries), collect(prefixEntries))
+        }
+        return view.exact[word] ?: view.alias[word] ?: view.prefix[word]
+    }
+
+    private val jianpin: BinaryDict by lazy { BinaryDict.fromFile(jianpinFile) }
+    private val E6_PREFIX_SCAN = 8192
+
+    private fun e6Check(source: BinaryDict, input: String, cands: List<Cand>): List<String> {
+        val rows = ArrayList<String>()
+        val buckets = LinkedHashMap<Int, MutableList<Pair<String, Int?>>>()
+        val atLonger = HashMap<String, Int>()
+        for ((pos, c) in cands.withIndex()) {
+            if (pos == 0) continue
+            if ((atLonger[c.word] ?: -1) > c.coveredLen) continue
+            atLonger[c.word] = maxOf(atLonger[c.word] ?: -1, c.coveredLen)
+            val key = input.substring(0, c.coveredLen.coerceIn(1, input.length))
+            buckets.getOrPut(c.coveredLen) { ArrayList() }.add(c.word to e6RawFreq(source, key, c.word))
+        }
+        for ((cov, ws) in buckets) {
+            val key = input.substring(0, cov.coerceIn(1, input.length))
+            var commonAfter: String? = null
+            for (i in ws.indices.reversed()) {
+                val (w, f) = ws[i]
+                if (f != null && f <= E6_RARE && commonAfter != null) {
+                    rows.add("$input\tcov$cov\tO2\t$w@$f before ${commonAfter}")
+                }
+                if (f != null && f >= E6_COMMON) commonAfter = w
+            }
+            val readingFreq = source.exact(key).filter { isSingleChar(it.word) }.associate { it.word to it.freq }
+            var prev = Int.MAX_VALUE
+            for ((w, _) in ws) {
+                val f = readingFreq[w] ?: continue
+                if (f > prev) rows.add("$input\tcov$cov\tO1\t$w@$f after a lower-freq same-reading single")
+                prev = f
+            }
+        }
+        return rows
+    }
+
+    @Test fun e6_orderingInvariant_allSyllables_bothKeyspaces() {
+        assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
+        val syls = runtimeSyllables()
+        val dL = e6Decoder(letters = true)
+        val dT = e6Decoder(letters = false)
+        val rows = ArrayList<String>()
+        for (s in syls) {
+            rows.addAll(e6Check(dict, s, dL.decodeCovered(s, 30)))
+            val dig = T9Pinyin.toT9(s)
+            rows.addAll(e6Check(t9Dict, dig, dT.decodeCovered(dig, 30)))
+        }
+        val pairs = listOf(
+            "en" to "de", "fo" to "le", "dong" to "shi", "chua" to "de", "den" to "hao",
+            "m" to "le", "rua" to "ma", "nou" to "shi", "kei" to "de", "cen" to "hao",
+            "ni" to "hao", "wo" to "de", "xian" to "zai", "liang" to "ge", "die" to "de",
+        )
+        for ((s1, s2) in pairs) {
+            rows.addAll(e6Check(dict, s1 + s2, dL.decodeCovered(s1 + s2, 30)))
+            val dig = T9Pinyin.toT9(s1 + s2)
+            rows.addAll(e6Check(t9Dict, dig, dT.decodeCovered(dig, 30)))
+        }
+        File(outDir(), "ext_e6.tsv").writeText(
+            "# $runStamp\ninput\tbucket\tinvariant\tdetail\n" + rows.joinToString("\n") + if (rows.isNotEmpty()) "\n" else ""
+        )
+        File(outDir(), "ext_e6_summary.txt").writeText(
+            "# $runStamp\nE6 — ordering invariant (rare must not precede common; hard gate)\n" +
+                "syllables: ${syls.size} x 2 keyspaces + ${pairs.size} pairs x 2\nviolations: ${rows.size}\n"
+        )
+        assertTrue("E6 ordering violations must be zero: ${rows.take(8)}", rows.isEmpty())
     }
 }
