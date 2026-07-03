@@ -527,23 +527,28 @@ class PinyinDecoder(
         val seen = HashSet<String>(out.size * 2)
         for (c in out) seen.add(c.word)
         for (k in lens) for (w in homophonesOf(input.substring(0, k))) if (seen.add(w)) out.add(Cand(w, k))
-        // A leading tier can be deduplicated away entirely when its homophone set is a subset of a longer
-        // tier's (dict.exact("n") ⊆ dict.exact("ng"): typing "nga" left nothing covering exactly "n", so
-        // 嗯-as-n could not be picked before "ga"). Re-emit such a tier at its own coverage — dedup key is
-        // (word, coverage), not word text. Three gates keep this from bloating candidate lists: the tier
-        // must have NO candidate at its coverage at all; the rest of the buffer must segment into whole
-        // syllables; and that segmentation must not START with a bare nasal (n/ng/m) — a bare-nasal rest
-        // is the same exotic re-split of a whole syllable that segmentation itself avoids (a lone "liang"
-        // must not re-offer its 俩=lia reading with an "ng" rest; a full-dict 多音字 keyed under both "lia"
-        // and "liang" would otherwise surface at two coverages).
+        // A leading tier's words can be swallowed by a longer tier's word-text dedup (dict.exact("n") ⊆
+        // dict.exact("ng"): typing "nga" left 嗯 only at coverage 2, so 嗯-as-n could not be picked before
+        // "ga"; on the full pack the tier PARTIALLY survives — 𠮾 stays at coverage 1 while 嗯 is swallowed).
+        // Re-emit every swallowed word at its own coverage — the dedup key is (word, coverage), not word
+        // text. Three gates keep this from bloating candidate lists:
+        //  ①′ the whole buffer is not itself a single syllable — a lone typed syllable keeps its exact
+        //     list (its prefix readings, e.g. 数=shu inside a lone "shuo", are served by the free-typing
+        //     layers, not re-emitted);
+        //  ②  the rest of the buffer segments into whole syllables (mid-syllable fragments never trigger);
+        //  ③  that segmentation does not START with a bare nasal (n/ng/m) — a bare-nasal rest is the same
+        //     exotic re-split of a whole syllable that segmentation itself avoids (a "liang" buffer must
+        //     not re-offer its 俩=lia reading with an "ng" rest).
+        if (lens.firstOrNull() == input.length) return
         for (k in lens) {
             if (k >= input.length) continue
-            if (out.any { it.coveredLen == k }) continue
             val rest = input.substring(k)
             val restSeg = if (isT9) T9Pinyin.segment(rest) else T9Pinyin.segmentLetters(rest)
             val first = restSeg?.firstOrNull() ?: continue
             if (first == "n" || first == "ng" || first == "m") continue
-            for (w in homophonesOf(input.substring(0, k))) out.add(Cand(w, k))
+            val present = HashSet<String>()
+            for (c in out) if (c.coveredLen == k) present.add(c.word)
+            for (w in homophonesOf(input.substring(0, k))) if (present.add(w)) out.add(Cand(w, k))
         }
     }
 

@@ -157,12 +157,9 @@ class NgDedupFixTest {
             if (covers.isEmpty()) bad.add("$input: no n-covering candidate (full dict)")
             else if (!covers.all { it.word in nChars })
                 bad.add("$input: full-dict n-covering chars not reading n: ${covers.map { it.word }.take(4)}")
-            // KNOWN GAP (recorded, not failed): under the FULL pack, dict.exact("n") natively holds rare
-            // homophones (㕶/𠮾) beyond 嗯, so tier "n" partially survives the word-text dedup and the
-            // dominated-tier rescue's empty-tier gate never fires — 嗯 itself is not offered at coverage 1
-            // (a rare char is). Pre-existing decoder behaviour, out of this ticket's build-rule scope; the
-            // root fix is true word+coverage dedup in the rescue. Recorded to
-            // AEGIS_AUDIT_DIR for the report rather than asserted.
+            // The rescue is per-word (word+coverage dedup), so a partially surviving tier no longer
+            // hides swallowed words — 嗯 itself must be offered at coverage 1 under the FULL pack too.
+            // Rows recorded here are hard failures now.
             else if (covers.none { it.word == "嗯" })
                 fullGaps.add("$input	嗯-missing-at-cov1	cov1=${covers.map { "${it.word}" }}")
         }
@@ -182,8 +179,28 @@ class NgDedupFixTest {
                 File(p, "fullconfig_known_gaps.tsv")
                     .writeText("input\tgap\tdetail\n" + fullGaps.joinToString("\n") + if (fullGaps.isNotEmpty()) "\n" else "")
             }
-            if (fullGaps.isNotEmpty()) println("[full-config] known gaps recorded: ${fullGaps.size} (嗯-missing-at-cov1 under the full pack)")
+            if (fullGaps.isNotEmpty()) println("[full-config] gaps recorded: ${fullGaps.size}")
         }
+        assertTrue("full-config 嗯-at-coverage-1 gaps must be zero after the rescue: ${fullGaps.take(6)}", fullGaps.isEmpty())
         assertTrue("full-config targeted check failed: ${bad.take(8)}", bad.isEmpty())
+
+        // anti-bloat under the FULL pack: representative syllables carry no word at two coverages and the
+        // coverage-1 tails stay bounded; the gate-③ target (俩 inside a "liang" buffer) must not re-emit.
+        val bloat = ArrayList<String>()
+        for (s in listOf("liang", "shuo", "zhuo", "xian", "ng", "n", "deng", "ma")) {
+            val perWord = HashMap<String, MutableSet<Int>>()
+            for (c in d.decodeCovered(s, 30)) if (isSingleChar(c.word)) {
+                perWord.getOrPut(c.word) { HashSet() }.add(c.coveredLen)
+            }
+            val dup = perWord.filterValues { it.size > 1 }
+            if (dup.isNotEmpty()) bloat.add("$s: ${dup.entries.take(3)}")
+        }
+        val liang = d.decodeCovered("liang", 30).filter { it.word == "俩" }
+        if (liang.map { it.coveredLen }.toSet().size > 1) bloat.add("liang re-emits 俩 at two coverages")
+        for ((pair, cap) in listOf("nga" to 40, "ngou" to 40)) {
+            val cov1 = d.decodeCovered(pair, 40).count { it.coveredLen == 1 }
+            if (cov1 > cap) bloat.add("$pair coverage-1 tail exploded: $cov1")
+        }
+        assertTrue("full-config anti-bloat failed: $bloat", bloat.isEmpty())
     }
 }
