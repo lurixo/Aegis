@@ -15,29 +15,48 @@
 
 package com.aegis.ime.user
 
+import com.aegis.ime.layout.SymbolCatalog
 import java.io.File
 
 class SymbolUsageStore(private val dir: File) {
 
+    data class Entry(val symbol: String, val origin: String?)
+
     private val file get() = File(dir, "symbol_usage.txt")
-    private val used = ArrayList<String>()
+    private val used = ArrayList<Entry>()
 
     fun load() {
         used.clear()
         val seen = HashSet<String>()
-        runCatching { if (file.exists()) file.readLines().forEach { if (it.isNotEmpty() && seen.add(it)) used.add(it) } }
+        runCatching {
+            if (file.exists()) file.readLines().forEach { line ->
+                if (line.isEmpty()) return@forEach
+                val tab = line.indexOf('\t')
+                val symbol = if (tab >= 0) line.substring(0, tab) else line
+                val origin = if (tab >= 0) line.substring(tab + 1).ifEmpty { null } else null
+                if (symbol.isNotEmpty() && seen.add(SymbolCatalog.foldFullWidth(symbol))) used.add(Entry(symbol, origin))
+            }
+        }
         while (used.size > MAX) used.removeAt(used.size - 1)
     }
 
-    fun record(symbol: String) {
+    fun record(symbol: String, origin: String? = null) {
         if (symbol.isEmpty()) return
-        used.remove(symbol)
-        used.add(0, symbol)
+        val key = SymbolCatalog.foldFullWidth(symbol)
+        used.removeAll { SymbolCatalog.foldFullWidth(it.symbol) == key }
+        used.add(0, Entry(symbol, origin))
         while (used.size > MAX) used.removeAt(used.size - 1)
-        runCatching { file.writeText(used.joinToString("\n")) }
+        runCatching { file.writeText(used.joinToString("\n") { if (it.origin == null) it.symbol else "${it.symbol}\t${it.origin}" }) }
     }
 
-    fun recent(n: Int = MAX): List<String> = used.take(n)
+    fun recent(n: Int = MAX): List<String> = used.take(n).map { it.symbol }
+
+    fun recentEntries(n: Int = MAX): List<Entry> = used.take(n)
+
+    fun originOf(symbol: String): String? {
+        val key = SymbolCatalog.foldFullWidth(symbol)
+        return used.firstOrNull { SymbolCatalog.foldFullWidth(it.symbol) == key }?.origin
+    }
 
     private companion object { const val MAX = 30 }
 }
