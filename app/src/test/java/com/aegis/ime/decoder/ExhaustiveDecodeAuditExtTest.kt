@@ -431,7 +431,8 @@ class ExhaustiveDecodeAuditExtTest {
     private val jianpin: BinaryDict by lazy { BinaryDict.fromFile(jianpinFile) }
     private val E6_PREFIX_SCAN = 8192
 
-    private fun e6Check(source: BinaryDict, input: String, cands: List<Cand>): List<String> {
+    private fun e6Check(source: BinaryDict, input: String, layered: Pair<List<Cand>, Int>): List<String> {
+        val (cands, remainderStart) = layered
         val rows = ArrayList<String>()
         val buckets = LinkedHashMap<Int, MutableList<Pair<String, Int?>>>()
         val atLonger = HashMap<String, Int>()
@@ -460,6 +461,18 @@ class ExhaustiveDecodeAuditExtTest {
                 prev = f
             }
         }
+        val scanFrom = maxOf(remainderStart, 1)
+        var commonAfter: String? = null
+        for (i in cands.indices.reversed()) {
+            if (i < scanFrom) break
+            val c = cands[i]
+            val key = input.substring(0, c.coveredLen.coerceIn(1, input.length))
+            val f = e6RawFreq(source, key, c.word)
+            if (f != null && f <= E6_RARE && commonAfter != null) {
+                rows.add("$input\ttail\tO2G\t${c.word}@$f(cov${c.coveredLen}) before $commonAfter")
+            }
+            if (f != null && f >= E6_COMMON) commonAfter = "${c.word}(cov${c.coveredLen})"
+        }
         return rows
     }
 
@@ -470,9 +483,9 @@ class ExhaustiveDecodeAuditExtTest {
         val dT = e6Decoder(letters = false)
         val rows = ArrayList<String>()
         for (s in syls) {
-            rows.addAll(e6Check(dict, s, dL.decodeCovered(s, 30)))
+            rows.addAll(e6Check(dict, s, dL.decodeCoveredLayered(s, 30)))
             val dig = T9Pinyin.toT9(s)
-            rows.addAll(e6Check(t9Dict, dig, dT.decodeCovered(dig, 30)))
+            rows.addAll(e6Check(t9Dict, dig, dT.decodeCoveredLayered(dig, 30)))
         }
         val pairs = listOf(
             "en" to "de", "fo" to "le", "dong" to "shi", "chua" to "de", "den" to "hao",
@@ -480,9 +493,9 @@ class ExhaustiveDecodeAuditExtTest {
             "ni" to "hao", "wo" to "de", "xian" to "zai", "liang" to "ge", "die" to "de",
         )
         for ((s1, s2) in pairs) {
-            rows.addAll(e6Check(dict, s1 + s2, dL.decodeCovered(s1 + s2, 30)))
+            rows.addAll(e6Check(dict, s1 + s2, dL.decodeCoveredLayered(s1 + s2, 30)))
             val dig = T9Pinyin.toT9(s1 + s2)
-            rows.addAll(e6Check(t9Dict, dig, dT.decodeCovered(dig, 30)))
+            rows.addAll(e6Check(t9Dict, dig, dT.decodeCoveredLayered(dig, 30)))
         }
         File(outDir(), "ext_e6.tsv").writeText(
             "# $runStamp\ninput\tbucket\tinvariant\tdetail\n" + rows.joinToString("\n") + if (rows.isNotEmpty()) "\n" else ""
@@ -520,6 +533,7 @@ class ExhaustiveDecodeAuditExtTest {
         }
         val tag = sylKeys.joinToString("+")
         var rareSingleSeen: String? = null
+        var anySingleSeen: String? = null
         val singleBucket = ArrayList<Pair<String, Int>>()
         val emittedFirstSingles = HashSet<String>()
         for ((pos, c) in cands.withIndex()) {
@@ -528,6 +542,10 @@ class ExhaustiveDecodeAuditExtTest {
             if (pos == 0) continue
             val ncp = ncp0
             val ks = coveredSyls(c.coveredLen)
+            if (ncp == 1 && anySingleSeen == null) anySingleSeen = "${c.word}@pos$pos"
+            if (ncp >= 2 && anySingleSeen != null) {
+                rows.add("$tag\tW\t${c.word} (multi-char) after single $anySingleSeen")
+            }
             if (ncp == 1 && ks == 1) {
                 val native = nativeSingleFreq(source, sylKeys[0], c.word)
                 if (native != null) singleBucket.add(c.word to native)
@@ -602,7 +620,7 @@ class ExhaustiveDecodeAuditExtTest {
         writeTsv(File(outDir(), "ext_e7.tsv"), rows.map { r ->
             val p = r.split("\t"); Fail(p.getOrElse(0) { "" }, "locked", p.getOrElse(1) { "" }, "", "", p.getOrElse(2) { "" })
         })
-        summary(File(outDir(), "ext_e7_summary.txt"), "E7 — locked/atomic ordering invariant (O1+O2, hard gate)",
+        summary(File(outDir(), "ext_e7_summary.txt"), "E7 — locked/atomic ordering invariant (O1+O2+W, hard gate)",
             "pairs (both keyspaces): $pairsChecked; triples: $triplesChecked",
             rows.map { r -> val p = r.split("\t"); Fail(p.getOrElse(0) { "" }, "locked", p.getOrElse(1) { "" }, "", "", p.getOrElse(2) { "" }) })
         assertTrue("E7 locked ordering violations must be zero (${rows.size}): ${rows.take(8)}", rows.isEmpty())
@@ -670,14 +688,14 @@ class ExhaustiveDecodeAuditExtTest {
         val dT = userDecoder(letters = false, um)
         val rows = ArrayList<String>()
         for (s in runtimeSyllables()) {
-            rows.addAll(e6Check(dict, s, dL.decodeCovered(s, 30)))
+            rows.addAll(e6Check(dict, s, dL.decodeCoveredLayered(s, 30)))
             val dig = T9Pinyin.toT9(s)
-            rows.addAll(e6Check(t9Dict, dig, dT.decodeCovered(dig, 30)))
+            rows.addAll(e6Check(t9Dict, dig, dT.decodeCoveredLayered(dig, 30)))
         }
         for (gw in words) {
-            rows.addAll(e6Check(dict, gw.reading, dL.decodeCovered(gw.reading, 30)))
+            rows.addAll(e6Check(dict, gw.reading, dL.decodeCoveredLayered(gw.reading, 30)))
             val dig = T9Pinyin.toT9(gw.reading)
-            rows.addAll(e6Check(t9Dict, dig, dT.decodeCovered(dig, 30)))
+            rows.addAll(e6Check(t9Dict, dig, dT.decodeCoveredLayered(dig, 30)))
         }
         return rows
     }
