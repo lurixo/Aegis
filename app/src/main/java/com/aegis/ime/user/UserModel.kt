@@ -22,9 +22,14 @@ class UserModel {
     private val count = HashMap<String, Int>()
     private val lastUsed = HashMap<String, Long>()
     private val bigram = HashMap<String, HashMap<String, Int>>()
+    private val readings = HashMap<String, LinkedHashSet<String>>()
 
     @Volatile
     var dirty: Boolean = false
+        private set
+
+    @Volatile
+    var version: Long = 0L
         private set
 
     @Synchronized
@@ -37,6 +42,83 @@ class UserModel {
             m[word] = (m[word] ?: 0) + 1
         }
         dirty = true
+        version++
+    }
+
+    @Synchronized
+    fun recordWord(reading: String, word: String, now: Long, incrementCount: Boolean) {
+        val r = sanitizeReading(reading)
+        if (word.isEmpty() || r.isEmpty() || !isStorableWord(word)) return
+        readings.getOrPut(r) { LinkedHashSet() }.add(word)
+        if (incrementCount) {
+            count[word] = (count[word] ?: 0) + 1
+            lastUsed[word] = now
+        } else if (word !in count) {
+            count[word] = 1
+            lastUsed[word] = now
+        }
+        dirty = true
+        version++
+    }
+
+    @Synchronized
+    fun addManualWord(reading: String, word: String, now: Long) {
+        val w = word.trim()
+        if (w.isEmpty() || !isStorableWord(w)) return
+        val r = sanitizeReading(reading)
+        if (r.isNotEmpty()) readings.getOrPut(r) { LinkedHashSet() }.add(w)
+        count[w] = (count[w] ?: 0) + 1
+        lastUsed[w] = now
+        dirty = true
+        version++
+    }
+
+    @Synchronized
+    fun removeWord(reading: String, word: String) {
+        val r = sanitizeReading(reading)
+        val set = readings[r] ?: return
+        if (!set.remove(word)) return
+        if (set.isEmpty()) readings.remove(r)
+        if (readings.values.none { word in it }) {
+            count.remove(word)
+            lastUsed.remove(word)
+            bigram.remove(word)
+            for (m in bigram.values) m.remove(word)
+        }
+        dirty = true
+        version++
+    }
+
+    @Synchronized
+    fun removeWord(word: String) {
+        if (word.isEmpty()) return
+        var changed = false
+        if (count.remove(word) != null) changed = true
+        if (lastUsed.remove(word) != null) changed = true
+        val emptyReadings = ArrayList<String>()
+        for ((r, ws) in readings) if (ws.remove(word)) { changed = true; if (ws.isEmpty()) emptyReadings.add(r) }
+        for (r in emptyReadings) readings.remove(r)
+        if (bigram.remove(word) != null) changed = true
+        for (m in bigram.values) if (m.remove(word) != null) changed = true
+        if (changed) { dirty = true; version++ }
+    }
+
+    data class Entry(val reading: String, val word: String, val count: Int)
+
+    @Synchronized
+    fun userWordEntries(): List<Entry> {
+        val out = ArrayList<Entry>()
+        for ((r, ws) in readings) for (w in ws) out.add(Entry(r, w, count[w] ?: 0))
+        return out.sortedWith(compareByDescending<Entry> { it.count }.thenBy { it.reading }.thenBy { it.word })
+    }
+
+    @Synchronized
+    fun readingSnapshot(): Map<String, List<String>> {
+        val out = HashMap<String, List<String>>(readings.size)
+        for ((r, ws) in readings) {
+            out[r] = ws.sortedByDescending { count[it] ?: 0 }
+        }
+        return out
     }
 
     @Synchronized
@@ -52,7 +134,7 @@ class UserModel {
     }
 
     @Synchronized
-    fun isEmpty(): Boolean = count.isEmpty()
+    fun isEmpty(): Boolean = count.isEmpty() && readings.isEmpty()
 
 
     @Synchronized
@@ -61,6 +143,7 @@ class UserModel {
             w.write("aegis-userdb 1\n")
             for ((word, c) in count) w.write("W\t$word\t$c\t${lastUsed[word] ?: 0}\n")
             for ((prev, m) in bigram) for ((word, c) in m) w.write("B\t$prev\t$word\t$c\n")
+            for ((reading, ws) in readings) for (word in ws) w.write("R\t$reading\t$word\n")
         }
         dirty = false
     }
@@ -70,11 +153,16 @@ class UserModel {
         count.clear()
         lastUsed.clear()
         bigram.clear()
+        readings.clear()
         loadLocked(file)
+        version++
     }
 
     @Synchronized
-    fun load(file: File) = loadLocked(file)
+    fun load(file: File) {
+        loadLocked(file)
+        version++
+    }
 
     private fun loadLocked(file: File) {
         if (!file.exists()) return
@@ -89,6 +177,10 @@ class UserModel {
                     }
                     p.size == 4 && p[0] == "B" ->
                         bigram.getOrPut(p[1]) { HashMap() }[p[2]] = p[3].toIntOrNull() ?: continue
+                    p.size == 3 && p[0] == "R" -> {
+                        val r = sanitizeReading(p[1])
+                        if (r.isNotEmpty() && p[2].isNotEmpty()) readings.getOrPut(r) { LinkedHashSet() }.add(p[2])
+                    }
                 }
             }
         }
@@ -106,10 +198,19 @@ class UserModel {
             val dst = bigram.getOrPut(prev) { HashMap() }
             for ((word, c) in m) dst[word] = (dst[word] ?: 0) + c
         }
-        if (!other.isEmpty()) dirty = true
+        for ((reading, ws) in other.readings) readings.getOrPut(reading) { LinkedHashSet() }.addAll(ws)
+        if (!other.isEmpty()) { dirty = true; version++ }
     }
 
     private companion object {
-        const val BOOST_WEIGHT = 1.0
+        const val BOOST_WEIGHT = 2.5
+
+        fun isStorableWord(word: String): Boolean = word.none { it == '\t' || it == '\n' || it == '\r' }
+
+        fun sanitizeReading(reading: String): String {
+            val sb = StringBuilder(reading.length)
+            for (ch in reading.lowercase()) if (ch in 'a'..'z') sb.append(ch)
+            return sb.toString()
+        }
     }
 }

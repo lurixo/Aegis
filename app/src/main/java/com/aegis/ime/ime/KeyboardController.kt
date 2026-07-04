@@ -37,7 +37,7 @@ class KeyboardController(
     private val host: ImeHost,
     private var engine: CandidateEngine,
 ) {
-    private data class LearnEvent(val prevWord: String?, val word: String, val prefixEnd: Int)
+    private data class LearnEvent(val prevWord: String?, val word: String, val prefixEnd: Int, val reading: String)
 
     private var lang = Lang.CN
     private var shiftState = ShiftState.OFF
@@ -402,7 +402,8 @@ class KeyboardController(
     private fun commitCandidate(cand: Cand) {
         if (candidateStaysInPreedit(cand)) {
             val prefixEnd = committedPrefix.length + cand.word.length
-            if (!learningBlocked) deferredLearnEvents.addLast(LearnEvent(lastWord, cand.word, prefixEnd))
+            val chunkReading = consumedReading(cand.coveredLen)
+            if (!learningBlocked) deferredLearnEvents.addLast(LearnEvent(lastWord, cand.word, prefixEnd, chunkReading))
             lastWord = cand.word
             committedPrefix.append(cand.word)
             composing.delete(0, cand.coveredLen)
@@ -424,11 +425,35 @@ class KeyboardController(
             repeat(lockedReadings.size) { history.addLast(StepKind.LOCK) }
         } else {
             expirePreeditChoiceUndo()
-            host.commitText(committedPrefix.toString() + cand.word)
+            val assembled = committedPrefix.isNotEmpty()
+            val finalReading = consumedReading(cand.coveredLen)
+            val wholeWord = committedPrefix.toString() + cand.word
+            val wholeReading = deferredLearnEvents.joinToString("") { it.reading } + finalReading
+            host.commitText(wholeWord)
             applyDeferredLearning(cand.word)
+            maybeLearnAssembledWord(wholeWord, wholeReading, assembled)
             lastWord = cand.word
             clearComposingState()
         }
+    }
+
+    private fun consumedReading(coveredLen: Int): String {
+        val letters = rawComposingText()
+        return letters.take(coveredLen.coerceIn(0, letters.length)).replace("'", "")
+    }
+
+    private fun maybeLearnAssembledWord(word: String, reading: String, assembled: Boolean) {
+        if (learningBlocked) return
+        if (word.codePointCount(0, word.length) < 2) return
+        if (reading.length < 2 || reading.any { it !in 'a'..'z' }) return
+        if (T9Pinyin.segmentLetters(reading) == null) return
+        var i = 0
+        while (i < word.length) {
+            val cp = word.codePointAt(i)
+            if (!Character.isIdeographic(cp)) return
+            i += Character.charCount(cp)
+        }
+        engine.learnWord(reading, word, assembled)
     }
 
     private fun candidateStaysInPreedit(cand: Cand): Boolean =
@@ -448,8 +473,10 @@ class KeyboardController(
             applyDeferredLearning()
             clearComposingState()
         } else if (prefix.isNotEmpty()) {
+            val wholeReading = deferredLearnEvents.joinToString("") { it.reading }
             host.commitText(prefix)
             applyDeferredLearning()
+            maybeLearnAssembledWord(prefix, wholeReading, assembled = true)
             clearComposingState()
         }
         lastWord = null

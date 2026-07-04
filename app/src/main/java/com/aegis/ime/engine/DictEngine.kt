@@ -89,6 +89,12 @@ class DictEngine(
         userModel?.record(prevWord, word, System.currentTimeMillis())
     }
 
+    override fun learnWord(reading: String, word: String, assembled: Boolean) {
+        val um = userModel ?: return
+        if (decoder?.hasDictWord(reading, word) == true) return
+        um.recordWord(reading, word, System.currentTimeMillis(), incrementCount = assembled)
+    }
+
     override fun setFuzzyRules(rules: Set<String>) {
         decoder?.setFuzzyRules(rules)
     }

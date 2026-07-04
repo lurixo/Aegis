@@ -44,5 +44,7 @@ interface CandidateEngine {
 
     fun learn(prevWord: String?, word: String) {}
 
+    fun learnWord(reading: String, word: String, assembled: Boolean) {}
+
     fun setFuzzyRules(rules: Set<String>) {}
 }

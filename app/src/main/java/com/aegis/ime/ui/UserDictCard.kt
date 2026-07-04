@@ -21,12 +21,18 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -34,11 +40,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.aegis.ime.R
+import com.aegis.ime.user.UserDictEdit
 import com.aegis.ime.user.UserDictImport
 import java.io.File
 
@@ -49,7 +58,15 @@ internal fun UserDictCard() {
     val importMergedToast = stringResource(R.string.user_dict_toast_import_merged)
     val importOverwrittenToast = stringResource(R.string.user_dict_toast_import_overwritten)
     val importFailedToast = stringResource(R.string.user_dict_toast_import_failed)
+    val addedToast = stringResource(R.string.user_dict_toast_added)
+    val addFailedToast = stringResource(R.string.user_dict_toast_add_failed)
+    val deletedToast = stringResource(R.string.user_dict_toast_deleted)
     var pendingImport by remember { mutableStateOf<Uri?>(null) }
+
+    var entries by remember { mutableStateOf(UserDictEdit.list(userDb)) }
+    var newWord by remember { mutableStateOf("") }
+    var newReading by remember { mutableStateOf("") }
+    fun reload() { entries = UserDictEdit.list(userDb) }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/plain"),
@@ -76,6 +93,7 @@ internal fun UserDictCard() {
             UserDictImport.apply(tmp, userDb, merge, System.currentTimeMillis())
                 .also { tmp.delete() }
         }.getOrDefault(false)
+        if (ok) reload()
         Toast.makeText(
             context,
             if (ok) {
@@ -89,6 +107,26 @@ internal fun UserDictCard() {
             },
             Toast.LENGTH_SHORT,
         ).show()
+    }
+
+    fun readingHasLetter(s: String): Boolean = s.any { it in 'a'..'z' || it in 'A'..'Z' }
+
+    fun addWord() {
+        val word = newWord.trim()
+        if (word.isEmpty() || !readingHasLetter(newReading)) {
+            Toast.makeText(context, addFailedToast, Toast.LENGTH_SHORT).show()
+            return
+        }
+        UserDictEdit.add(userDb, word, newReading, System.currentTimeMillis())
+        newWord = ""; newReading = ""
+        reload()
+        Toast.makeText(context, addedToast, Toast.LENGTH_SHORT).show()
+    }
+
+    fun deleteWord(reading: String, word: String) {
+        UserDictEdit.remove(userDb, reading, word)
+        reload()
+        Toast.makeText(context, deletedToast, Toast.LENGTH_SHORT).show()
     }
 
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -113,6 +151,56 @@ internal fun UserDictCard() {
                 onClick = { importLauncher.launch(arrayOf("text/plain")) },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(stringResource(R.string.user_dict_import_button)) }
+
+            HorizontalDivider()
+
+            Text(stringResource(R.string.user_dict_manual_title), style = MaterialTheme.typography.titleSmall)
+            Text(
+                stringResource(R.string.user_dict_manual_description),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            OutlinedTextField(
+                value = newWord,
+                onValueChange = { newWord = it },
+                label = { Text(stringResource(R.string.user_dict_word_hint)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = newReading,
+                onValueChange = { newReading = it },
+                label = { Text(stringResource(R.string.user_dict_reading_hint)) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Button(onClick = { addWord() }, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.user_dict_add_button))
+            }
+
+            if (entries.isEmpty()) {
+                Text(
+                    stringResource(R.string.user_dict_manual_empty),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            } else {
+                for (entry in entries) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            stringResource(R.string.user_dict_entry_format, entry.word, entry.reading),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(onClick = { deleteWord(entry.reading, entry.word) }) {
+                            Text(stringResource(R.string.user_dict_delete_button))
+                        }
+                    }
+                }
+            }
         }
     }
 
