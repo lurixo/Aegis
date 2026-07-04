@@ -102,7 +102,12 @@ class KeyboardLossMatrixTest {
         c.onKey(Key("", action = KeyAction.SWITCH_NINE))
         type(c, "2424"); pick(c, "chai")
         assertTrue("拆 reachable for a single locked chai", "拆" in c.candidateWords())
-        assertEquals("拆 leads its homophones (freq order)", "拆", c.candidateWords().first { isSingleChar(it) })
+        val injected = com.aegis.ime.engine.InputAssociations.lookup("chai")
+        assertEquals(
+            "拆 leads its homophones (freq order)",
+            "拆",
+            c.candidateWords().first { isSingleChar(it) && it !in injected },
+        )
     }
 
     @Test fun nineKey_lockedBoundariesAreForwardedAsDecodeCuts() {

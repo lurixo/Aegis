@@ -17,9 +17,9 @@ package com.aegis.ime.engine
 
 object InputAssociations {
 
-    const val MAX_PER_QUERY = 2
+    const val MAX_PER_QUERY = 3
 
-    private val table: Map<String, List<String>> = mapOf(
+    private val legacy: List<Pair<String, List<String>>> = listOf(
         "haode" to listOf("👌"),
         "hao" to listOf("👍"),
         "zan" to listOf("👍"),
@@ -70,8 +70,24 @@ object InputAssociations {
         "ouyuan" to listOf("€"),
     )
 
+    private val table: Map<String, List<String>> by lazy {
+        val m = LinkedHashMap<String, MutableList<String>>()
+        fun add(key: String, glyphs: List<String>) {
+            val list = m.getOrPut(key) { mutableListOf() }
+            for (g in glyphs) if (g !in list) list.add(g)
+        }
+        for ((key, glyphs) in legacy) add(key, glyphs)
+        for (row in SymbolAssociations.rows()) for (key in row.keyList) add(key, row.glyphList)
+        for (row in EmojiAssociations.rows()) for (key in row.keyList) add(key, listOf(row.emoji))
+        m.mapValuesTo(LinkedHashMap(m.size * 2)) { (_, glyphs) -> glyphs.toList() }
+    }
+
+    private fun normalize(pinyin: String): String = pinyin.replace("'", "").lowercase()
+
     fun lookup(pinyin: String): List<String> {
         if (pinyin.isEmpty()) return emptyList()
-        return table[pinyin.lowercase()].orEmpty().take(MAX_PER_QUERY)
+        return table[normalize(pinyin)].orEmpty().take(MAX_PER_QUERY)
     }
+
+    internal fun entriesForTest(): Map<String, List<String>> = table
 }
