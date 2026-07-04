@@ -26,6 +26,8 @@ object UserDictHot {
 
         fun importUserDict(importFile: File, merge: Boolean, now: Long): Boolean
 
+        fun reloadDictionary(): Boolean
+
         fun entries(): List<UserModel.Entry>
 
         fun wordCount(): Int? = null
@@ -50,4 +52,7 @@ object UserDictHot {
 
         fun flushForRestore(): Boolean = flush()
     }
+
+    @Volatile
+    var host: Host? = null
 }
