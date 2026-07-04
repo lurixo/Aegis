@@ -91,6 +91,17 @@
     <string name="user_dict_import_dialog_body">This imports/exports the learning dictionary (userdb.txt - words and frequencies learned on this device), not the downloaded main dictionary. Merge adds imported entries to the current learning dictionary with dedupe and accumulated frequencies. Overwrite replaces the learning dictionary with the imported file. Neither option changes the downloaded main dictionary.</string>
     <string name="user_dict_import_merge">Merge (recommended)</string>
     <string name="user_dict_import_overwrite">Overwrite</string>
+    <string name="user_dict_manual_title">Your words</string>
+    <string name="user_dict_manual_description">Add a word and its pinyin so it is offered whenever you type that pinyin, or delete a word to drop it from suggestions. Words you assemble character by character are added here automatically. Changes take effect next time you switch to Aegis.</string>
+    <string name="user_dict_word_hint">Word</string>
+    <string name="user_dict_reading_hint">Pinyin (letters)</string>
+    <string name="user_dict_add_button">Add</string>
+    <string name="user_dict_delete_button">Delete</string>
+    <string name="user_dict_manual_empty">No custom words yet.</string>
+    <string name="user_dict_entry_format">%1$s · %2$s</string>
+    <string name="user_dict_toast_added">Word added</string>
+    <string name="user_dict_toast_add_failed">Enter a word and its pinyin (letters only)</string>
+    <string name="user_dict_toast_deleted">Word deleted</string>
 
     <string name="app_version_card_title">App release</string>
     <string name="app_version_card_description">Aegis app release label. This is separate from the learning dictionary, main dictionary, and model files.</string>
