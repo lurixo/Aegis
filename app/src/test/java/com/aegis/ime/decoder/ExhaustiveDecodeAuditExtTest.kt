@@ -491,4 +491,135 @@ class ExhaustiveDecodeAuditExtTest {
         )
         assertTrue("E6 ordering violations must be zero: ${rows.take(8)}", rows.isEmpty())
     }
+
+    private val nativeSinglesMap = HashMap<String, Map<String, Int>>()
+    private fun nativeSinglesOf(source: BinaryDict, key: String): Map<String, Int> =
+        nativeSinglesMap.getOrPut((if (source === dict) "L:" else "D:") + key) {
+            val m = HashMap<String, Int>()
+            for (wf in source.exact(key)) if (isSingleChar(wf.word)) m.putIfAbsent(wf.word, wf.freq)
+            m
+        }
+    private fun nativeSingleFreq(source: BinaryDict, key: String, ch: String): Int? = nativeSinglesOf(source, key)[ch]
+
+    private fun lockedOrderViolations(
+        source: BinaryDict,
+        sylKeys: List<String>,
+        cands: List<Cand>,
+        checkLossless: Boolean,
+    ): List<String> {
+        val rows = ArrayList<String>()
+        val cum = IntArray(sylKeys.size + 1)
+        for (i in sylKeys.indices) cum[i + 1] = cum[i] + sylKeys[i].length
+        fun coveredSyls(cov: Int): Int { for (j in sylKeys.indices) if (cum[j + 1] == cov) return j + 1; return -1 }
+        fun codepoints(w: String): List<String> {
+            val o = ArrayList<String>(); var i = 0
+            while (i < w.length) { val c = w.codePointAt(i); o.add(String(Character.toChars(c))); i += Character.charCount(c) }
+            return o
+        }
+        val tag = sylKeys.joinToString("+")
+        var rareSingleSeen: String? = null
+        val singleBucket = ArrayList<Pair<String, Int>>()
+        val emittedFirstSingles = HashSet<String>()
+        for ((pos, c) in cands.withIndex()) {
+            val ncp0 = c.word.codePointCount(0, c.word.length)
+            if (ncp0 == 1 && coveredSyls(c.coveredLen) == 1) emittedFirstSingles.add(c.word)
+            if (pos == 0) continue
+            val ncp = ncp0
+            val ks = coveredSyls(c.coveredLen)
+            if (ncp == 1 && ks == 1) {
+                val native = nativeSingleFreq(source, sylKeys[0], c.word)
+                if (native != null) singleBucket.add(c.word to native)
+                val matched = e6RawFreq(source, sylKeys[0], c.word)
+                if (matched != null && matched <= E6_RARE) rareSingleSeen = "${c.word}@$matched"
+            } else if (ncp >= 2 && ks >= 1) {
+                val chars = codepoints(c.word)
+                var mn = Int.MAX_VALUE
+                var resolvable = true
+                for (i in 0 until minOf(ncp, ks)) {
+                    val f = e6RawFreq(source, sylKeys.getOrElse(i) { "" }, chars[i])
+                    if (f == null) { resolvable = false; break }
+                    if (f < mn) mn = f
+                }
+                if (resolvable && mn >= E6_COMMON && rareSingleSeen != null) {
+                    rows.add("$tag\tO2\t${c.word}(rarestChar=$mn) after rare single $rareSingleSeen")
+                }
+            }
+        }
+        var prev = Int.MAX_VALUE
+        for ((w, f) in singleBucket) {
+            if (f > prev) rows.add("$tag\tO1\t$w@$f after a lower-freq same-reading single")
+            prev = f
+        }
+        if (checkLossless) for (w in nativeSinglesOf(source, sylKeys[0]).keys) {
+            if (w !in emittedFirstSingles) rows.add("$tag\tL\t$w native single of ${sylKeys[0]} dropped from the locked grid")
+        }
+        return rows
+    }
+
+    private fun lockedLetter(d: PinyinDecoder, s1: String, vararg rest: String): List<String> {
+        val syls = listOf(s1, *rest)
+        val input = syls.joinToString("")
+        val cuts = HashSet<Int>(); var acc = 0
+        for (k in 0 until syls.size - 1) { acc += syls[k].length; cuts.add(acc) }
+        return lockedOrderViolations(dict, syls, d.decodeCoveredAtomic(input, 30, cuts), checkLossless = true)
+    }
+
+    private fun lockedDigit(d: PinyinDecoder, s1: String, vararg rest: String): List<String> {
+        val syls = listOf(s1, *rest).map { T9Pinyin.toT9(it) }
+        val input = syls.joinToString("")
+        val cuts = HashSet<Int>(); var acc = 0
+        for (k in 0 until syls.size - 1) { acc += syls[k].length; cuts.add(acc) }
+        return lockedOrderViolations(t9Dict, syls, d.decodeCoveredAtomic(input, 30, cuts), checkLossless = false)
+    }
+
+    @Test fun e7_lockedOrderingInvariant_allPairs_bothKeyspaces() {
+        assumeTrue("heavy sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
+        assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
+        val syls = runtimeSyllables()
+        val dL = e6Decoder(letters = true)
+        val dT = e6Decoder(letters = false)
+        val rows = ArrayList<String>()
+        var pairsChecked = 0L
+        var done = 0
+        for (s1 in syls) {
+            for (s2 in syls) {
+                rows.addAll(lockedLetter(dL, s1, s2))
+                rows.addAll(lockedDigit(dT, s1, s2))
+                pairsChecked++
+            }
+            done += syls.size
+            if (done % (syls.size * 50) == 0) println("[E7] ~$done/${syls.size * syls.size}")
+        }
+        var triplesChecked = 0L
+        val tails = listOf("shi" to "jian", "de" to "shi", "hao" to "de", "zhong" to "guo")
+        for (s1 in syls) for ((a, b) in tails) {
+            rows.addAll(lockedLetter(dL, s1, a, b))
+            rows.addAll(lockedDigit(dT, s1, a, b))
+            triplesChecked++
+        }
+        writeTsv(File(outDir(), "ext_e7.tsv"), rows.map { r ->
+            val p = r.split("\t"); Fail(p.getOrElse(0) { "" }, "locked", p.getOrElse(1) { "" }, "", "", p.getOrElse(2) { "" })
+        })
+        summary(File(outDir(), "ext_e7_summary.txt"), "E7 — locked/atomic ordering invariant (O1+O2, hard gate)",
+            "pairs (both keyspaces): $pairsChecked; triples: $triplesChecked",
+            rows.map { r -> val p = r.split("\t"); Fail(p.getOrElse(0) { "" }, "locked", p.getOrElse(1) { "" }, "", "", p.getOrElse(2) { "" }) })
+        assertTrue("E7 locked ordering violations must be zero (${rows.size}): ${rows.take(8)}", rows.isEmpty())
+    }
+
+    @Test fun e7b_lockedOrderingInvariant_representative_alwaysOn() {
+        assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
+        val dL = e6Decoder(letters = true)
+        val dT = e6Decoder(letters = false)
+        val firstSyllables = listOf(
+            "ce", "ci", "chai", "shi", "xian", "ni", "wo", "bu", "de", "hao", "ma", "zhong", "guo",
+            "fo", "den", "chua", "rua", "nou", "kei", "cen", "m", "die", "liang", "en", "jiu",
+        )
+        val tails = listOf("shi", "de", "hao", "jian")
+        val rows = ArrayList<String>()
+        for (s1 in firstSyllables) for (s2 in tails) {
+            rows.addAll(lockedLetter(dL, s1, s2))
+            rows.addAll(lockedDigit(dT, s1, s2))
+        }
+        assertTrue("E7b locked ordering violations must be zero (${rows.size}): ${rows.take(8)}", rows.isEmpty())
+    }
 }
