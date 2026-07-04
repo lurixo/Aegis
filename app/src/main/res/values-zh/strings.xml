@@ -146,7 +146,19 @@
     <string name="layout_panel_title">键盘布局</string>
     <string name="settings_panel_title">设置</string>
 
+    <string name="user_dict_toast_write_failed">保存失败，改动可能未写入</string>
+    <string name="user_learn_unreadable">学习数据读不出来</string>
+    <string name="user_learn_unreadable_kept">学习数据读不出来，内存中的数据仍保留但无法写回；可点「清空自动学习」重来</string>
+    <string name="user_dict_auto_count_format">自动学习：%1$d 个词</string>
+    <string name="user_dict_auto_pairs_only">还没有粘成的词，但已记下下一词搭配</string>
+    <string name="user_dict_auto_clear_button">清空自动学习</string>
+    <string name="user_dict_auto_clear_dialog_title">清空自动学习</string>
+    <string name="user_dict_auto_clear_dialog_body">将删除本机全部自动学习的词与搭配，不可撤销</string>
+    <string name="user_dict_auto_clear_confirm">清空</string>
+    <string name="user_dict_auto_clear_cancel">取消</string>
+    <string name="user_dict_toast_auto_cleared">已清空自动学习</string>
     <string name="auto_learn_title">自动学习</string>
+    <string name="auto_learn_description">把你逐字拼出的词记下来并作为候选</string>
 
     <string name="settings_backup_title">数据备份</string>
     <string name="settings_backup_desc">将全部数据导出或导入为加密文件</string>

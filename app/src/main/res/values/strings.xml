@@ -146,7 +146,19 @@
     <string name="layout_panel_title">Keyboard layout</string>
     <string name="settings_panel_title">Settings</string>
 
+    <string name="user_dict_toast_write_failed">Could not save; the change may not have reached storage</string>
+    <string name="user_learn_unreadable">The learned data could not be read</string>
+    <string name="user_learn_unreadable_kept">The learned data could not be read — what is in memory is kept but cannot be written back; use Clear auto-learning to start over</string>
+    <string name="user_dict_auto_count_format">Auto-learned words: %1$d</string>
+    <string name="user_dict_auto_pairs_only">No word has been glued together yet, but next-word pairs have been recorded</string>
+    <string name="user_dict_auto_clear_button">Clear auto-learning</string>
+    <string name="user_dict_auto_clear_dialog_title">Clear auto-learning</string>
+    <string name="user_dict_auto_clear_dialog_body">Deletes every automatically learned word and pair on this device — this cannot be undone</string>
+    <string name="user_dict_auto_clear_confirm">Clear</string>
+    <string name="user_dict_auto_clear_cancel">Cancel</string>
+    <string name="user_dict_toast_auto_cleared">Auto-learning cleared</string>
     <string name="auto_learn_title">Auto learning</string>
+    <string name="auto_learn_description">Learn the words you assemble and offer them as candidates</string>
 
     <string name="app_release_label_format" translatable="false">Aegis v%1$s</string>
 

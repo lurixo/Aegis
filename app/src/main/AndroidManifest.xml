@@ -10,6 +10,13 @@
         android:enableOnBackInvokedCallback="true"
         android:localeConfig="@xml/locales_config">
         <activity
+            android:name=".ui.InputSettingsActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|uiMode|density|navigation|locale|layoutDirection|fontScale"
+            android:label="@string/settings_group_input_title"
+            android:theme="@style/Theme.Aegis"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
             android:name=".ui.KeyboardSettingsActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|uiMode|density|navigation|locale|layoutDirection|fontScale"

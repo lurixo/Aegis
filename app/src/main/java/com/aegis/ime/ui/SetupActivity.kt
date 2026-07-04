@@ -183,6 +183,16 @@ internal fun SettingsPageColumn(title: String, onBack: () -> Unit, content: @Com
 }
 
 @Composable
+internal fun InputSettingsPage(resumeSignal: Int, onBack: () -> Unit) {
+    SettingsPageColumn(stringResource(R.string.settings_group_input_title), onBack) {
+        DefaultLangCard()
+        FuzzySettingsCard()
+        AssociationToggleCard()
+        AutoLearnToggleCard(resumeSignal)
+    }
+}
+
+@Composable
 internal fun KeyboardSettingsPage(onBack: () -> Unit) {
     SettingsPageColumn(stringResource(R.string.settings_group_keyboard_title), onBack) {
         LayoutChoiceCard()
