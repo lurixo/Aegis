@@ -50,7 +50,14 @@ class UserDictEndToEndTest {
     private fun letterDict(): BinaryDict = EngineFixture.build(rows)
     private fun t9Dict(): BinaryDict = EngineFixture.build(rows.map { EngineFixture.Row(T9Pinyin.toT9(it.key), it.word, it.freq) })
 
-    private fun engine(um: UserModel) = DictEngine(letterDict(), t9Dict(), null, um)
+    private val lmFile = java.io.File("src/main/assets/aegis_lm.bin")
+    private val lm: com.aegis.ime.dict.CharBigramLM by lazy { com.aegis.ime.dict.CharBigramLM.fromFile(lmFile) }
+
+    @org.junit.Before fun requireLm() {
+        org.junit.Assume.assumeTrue("real LM asset present (production engine wiring)", lmFile.exists())
+    }
+
+    private fun engine(um: UserModel) = DictEngine(letterDict(), t9Dict(), lm, um)
     private fun out(s: String) = Key(s, output = s)
     private fun controller(um: UserModel): Pair<KeyboardController, EditorHost> {
         val h = EditorHost()
