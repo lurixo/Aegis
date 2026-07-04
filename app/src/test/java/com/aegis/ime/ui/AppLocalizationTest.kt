@@ -39,6 +39,13 @@ class AppLocalizationTest {
         assertEquals("检测模型更新", ctx.getString(R.string.check_model_update_button))
         assertEquals("检测词库更新", ctx.getString(R.string.check_dict_update_button))
         assertEquals("应用版本", ctx.getString(R.string.app_version_card_title))
+        assertEquals("输入设置", ctx.getString(R.string.settings_group_input_title))
+        assertEquals("词库与下载", ctx.getString(R.string.settings_group_dicts_title))
+        assertEquals("用户词库", ctx.getString(R.string.settings_group_userdict_title))
+        assertEquals("关于与启用", ctx.getString(R.string.settings_group_about_title))
+        assertEquals("返回", ctx.getString(R.string.settings_back))
+        assertEquals("搜索：词或拼音", ctx.getString(R.string.user_dict_search_hint))
+        assertEquals("没有匹配的词。", ctx.getString(R.string.user_dict_search_no_match))
     }
 
     @Test
@@ -53,6 +60,13 @@ class AppLocalizationTest {
         assertEquals("Check model updates", ctx.getString(R.string.check_model_update_button))
         assertEquals("Check dictionary updates", ctx.getString(R.string.check_dict_update_button))
         assertEquals("App release", ctx.getString(R.string.app_version_card_title))
+        assertEquals("Input settings", ctx.getString(R.string.settings_group_input_title))
+        assertEquals("Dictionaries & downloads", ctx.getString(R.string.settings_group_dicts_title))
+        assertEquals("User dictionary", ctx.getString(R.string.settings_group_userdict_title))
+        assertEquals("About & enable", ctx.getString(R.string.settings_group_about_title))
+        assertEquals("Back", ctx.getString(R.string.settings_back))
+        assertEquals("Search word or pinyin", ctx.getString(R.string.user_dict_search_hint))
+        assertEquals("No matching words.", ctx.getString(R.string.user_dict_search_no_match))
     }
 
     @Test
@@ -67,5 +81,8 @@ class AppLocalizationTest {
         assertEquals("Check model updates", ctx.getString(R.string.check_model_update_button))
         assertEquals("Check dictionary updates", ctx.getString(R.string.check_dict_update_button))
         assertEquals("App release", ctx.getString(R.string.app_version_card_title))
+        assertEquals("Input settings", ctx.getString(R.string.settings_group_input_title))
+        assertEquals("User dictionary", ctx.getString(R.string.settings_group_userdict_title))
+        assertEquals("Search word or pinyin", ctx.getString(R.string.user_dict_search_hint))
     }
 }

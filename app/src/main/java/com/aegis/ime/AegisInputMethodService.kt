@@ -30,7 +30,6 @@ import android.widget.Toast
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.EngineAssets
-import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.dict.OctagramReader
 import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.ime.ClipboardView
@@ -44,12 +43,13 @@ import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.ime.SelectionMath
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.SymbolsView
-import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.SymbolCatalog
 import com.aegis.ime.user.ClipboardStore
 import com.aegis.ime.user.CustomSymbolStore
+import com.aegis.ime.user.LiveUserDictHost
 import com.aegis.ime.user.SymbolUsageStore
+import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserModel
 import java.io.File
 
@@ -120,34 +120,37 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private val clipboardManager by lazy { getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager }
     private val clipChangedListener = android.content.ClipboardManager.OnPrimaryClipChangedListener { onSystemClipChanged() }
 
-    private val layoutPrefListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
-        if (key == "cn_layout") {
-            val id = if (prefs.getString("cn_layout", "nine") == "alpha") LayoutId.ALPHA else LayoutId.NINE
+    private val settingsHotApply = SettingsHotApply(
+        onCnLayout = { id ->
             Handler(Looper.getMainLooper()).post {
                 if (::controller.isInitialized) controller.setCnDefaultLayout(id)
             }
-        }
-    }
-
-    private val associationPrefListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
-        if (key == com.aegis.ime.ui.PREF_ASSOCIATIONS_ON) {
-            val on = prefs.getBoolean(
-                com.aegis.ime.ui.PREF_ASSOCIATIONS_ON,
-                com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON,
-            )
+        },
+        onAssociations = { on ->
             Handler(Looper.getMainLooper()).post {
                 if (::controller.isInitialized) controller.setAssociationsEnabled(on)
             }
-        }
+        },
+        onFuzzyRules = { rules ->
+            Handler(Looper.getMainLooper()).post {
+                if (::controller.isInitialized) controller.setFuzzyRules(rules)
+            }
+        },
+        onEngineAssetsChanged = {
+            Handler(Looper.getMainLooper()).post { maybeReloadEngine() }
+        },
+    )
+
+    private val liveUserDictHost by lazy {
+        LiveUserDictHost(userModel, userDbFile) { userDbMtime = it }
     }
 
     override fun onCreate() {
         super.onCreate()
         runCatching { clipboardManager.addPrimaryClipChangedListener(clipChangedListener) }
         runCatching {
-            val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
-            prefs.registerOnSharedPreferenceChangeListener(layoutPrefListener)
-            prefs.registerOnSharedPreferenceChangeListener(associationPrefListener)
+            getSharedPreferences("aegis", MODE_PRIVATE)
+                .registerOnSharedPreferenceChangeListener(settingsHotApply)
         }
         controller = KeyboardController(this, DictEngine(null, null, null))
         controller.onShowEmoji = { showEmojiPanel() }
@@ -163,8 +166,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         Thread {
             runCatching { userModel.load(userDbFile); userDbMtime = userDbFile.lastModified() }
             userDbLoaded = true
+            UserDictHot.host = liveUserDictHost
             val engine = buildEngine()
-            Handler(Looper.getMainLooper()).post { controller.setEngine(engine) }
+            Handler(Looper.getMainLooper()).post {
+                controller.setEngine(engine)
+                maybeReloadEngine()
+            }
         }.apply { name = "aegis-dict-load"; isDaemon = true }.start()
     }
 
@@ -182,10 +189,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         return engine
     }
 
-    private fun currentFuzzyRules(): Set<String> {
-        val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
-        return Fuzzy.activeRules(prefs.getBoolean("fuzzy", Fuzzy.DEFAULT_ON)) { prefs.getBoolean(Fuzzy.prefKey(it), true) }
-    }
+    private fun currentFuzzyRules(): Set<String> =
+        SettingsHotApply.fuzzyRules(getSharedPreferences("aegis", MODE_PRIVATE))
 
     private fun maybeReloadEngine() {
         if (engineSig.isEmpty() || engineReloading) return
@@ -195,11 +200,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         engineReloading = true
         try {
             Thread {
-                runCatching {
+                val ok = runCatching {
                     val engine = buildEngine()
                     Handler(Looper.getMainLooper()).post { controller.setEngine(engine) }
-                }.onFailure { Log.e("Aegis", "engine hot-reload failed", it) }
+                }.onFailure { Log.e("Aegis", "engine hot-reload failed", it) }.isSuccess
                 engineReloading = false
+                if (ok) Handler(Looper.getMainLooper()).post { maybeReloadEngine() }
             }.apply { name = "aegis-dict-reload"; isDaemon = true }.start()
         } catch (t: Throwable) {
             Log.e("Aegis", "engine hot-reload thread start failed", t)
@@ -300,11 +306,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             inputView?.hideCopyBar()
         }
         val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
-        val cnLayout = prefs.getString("cn_layout", "nine")
-        controller.setCnDefaultLayout(if (cnLayout == "alpha") LayoutId.ALPHA else LayoutId.NINE)
-        controller.setAssociationsEnabled(
-            prefs.getBoolean(com.aegis.ime.ui.PREF_ASSOCIATIONS_ON, com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON),
-        )
+        controller.setCnDefaultLayout(SettingsHotApply.cnLayout(prefs))
+        controller.setAssociationsEnabled(SettingsHotApply.associationsOn(prefs))
         controller.setFuzzyRules(currentFuzzyRules())
         controller.reset()
         applyPaletteEverywhere()
@@ -675,10 +678,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun onDestroy() {
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
+        if (UserDictHot.host === liveUserDictHost) UserDictHot.host = null
         runCatching {
-            val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
-            prefs.unregisterOnSharedPreferenceChangeListener(layoutPrefListener)
-            prefs.unregisterOnSharedPreferenceChangeListener(associationPrefListener)
+            getSharedPreferences("aegis", MODE_PRIVATE)
+                .unregisterOnSharedPreferenceChangeListener(settingsHotApply)
         }
         super.onDestroy()
     }

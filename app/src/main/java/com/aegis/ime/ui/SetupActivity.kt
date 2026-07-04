@@ -30,6 +30,8 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -40,6 +42,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -54,6 +57,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -63,10 +67,16 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import com.aegis.ime.R
 import com.aegis.ime.ui.theme.AegisTheme
 
@@ -82,7 +92,7 @@ class SetupActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    SetupScreen(resumeSignal = resumeSignal)
+                    SettingsNavGraph(resumeSignal = resumeSignal)
                 }
             }
         }
@@ -94,10 +104,190 @@ class SetupActivity : ComponentActivity() {
     }
 }
 
+internal object SettingsRoutes {
+    const val HOME = "home"
+    const val INPUT = "input"
+    const val DICTS = "dicts"
+    const val USER_DICT = "userdict"
+    const val ABOUT = "about"
+
+    val GROUPS = listOf(INPUT, DICTS, USER_DICT, ABOUT)
+}
+
 @Composable
-private fun SetupScreen(resumeSignal: Int = 0) {
+internal fun SettingsNavGraph(
+    resumeSignal: Int = 0,
+    navController: NavHostController = rememberNavController(),
+) {
+    val openGroup: (String) -> Unit = { route ->
+        if (navController.currentDestination?.route == SettingsRoutes.HOME) {
+            navController.navigate(route) { launchSingleTop = true }
+        }
+    }
+    val back: () -> Unit = {
+        if (navController.previousBackStackEntry != null) navController.popBackStack()
+    }
+    NavHost(navController = navController, startDestination = SettingsRoutes.HOME) {
+        composable(SettingsRoutes.HOME) {
+            SettingsHomePage(onOpenGroup = openGroup)
+        }
+        composable(SettingsRoutes.INPUT) {
+            InputSettingsPage(onBack = back)
+        }
+        composable(SettingsRoutes.DICTS) {
+            DictSettingsPage(onBack = back)
+        }
+        composable(SettingsRoutes.USER_DICT) {
+            UserDictPage(onBack = back)
+        }
+        composable(SettingsRoutes.ABOUT) {
+            AboutPage(resumeSignal = resumeSignal, onBack = back)
+        }
+    }
+}
+
+@Composable
+private fun SettingsHomePage(onOpenGroup: (String) -> Unit) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
+
+    var showDownloadHint by remember { mutableStateOf(!prefs.getBoolean("dl_hint_dismissed", false)) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .settingsScrollInsets(
+                scrollState = rememberScrollState(),
+                insets = WindowInsets.safeDrawing,
+            )
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Text(stringResource(R.string.setup_title), style = MaterialTheme.typography.headlineMedium)
+        Text(
+            stringResource(R.string.setup_summary),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+
+        if (showDownloadHint) {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(stringResource(R.string.setup_first_run_title), style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        stringResource(R.string.setup_first_run_body),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    TextButton(
+                        onClick = {
+                            showDownloadHint = false
+                            prefs.edit { putBoolean("dl_hint_dismissed", true) }
+                        },
+                    ) { Text(stringResource(R.string.setup_first_run_ack)) }
+                }
+            }
+        }
+
+        SettingsGroupCard(
+            titleRes = R.string.settings_group_input_title,
+            descRes = R.string.settings_group_input_desc,
+            onClick = { onOpenGroup(SettingsRoutes.INPUT) },
+        )
+        SettingsGroupCard(
+            titleRes = R.string.settings_group_dicts_title,
+            descRes = R.string.settings_group_dicts_desc,
+            onClick = { onOpenGroup(SettingsRoutes.DICTS) },
+        )
+        SettingsGroupCard(
+            titleRes = R.string.settings_group_userdict_title,
+            descRes = R.string.settings_group_userdict_desc,
+            onClick = { onOpenGroup(SettingsRoutes.USER_DICT) },
+        )
+        SettingsGroupCard(
+            titleRes = R.string.settings_group_about_title,
+            descRes = R.string.settings_group_about_desc,
+            onClick = { onOpenGroup(SettingsRoutes.ABOUT) },
+        )
+    }
+}
+
+@Composable
+private fun SettingsGroupCard(titleRes: Int, descRes: Int, onClick: () -> Unit) {
+    Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(stringResource(titleRes), style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(descRes), style = MaterialTheme.typography.bodySmall)
+            }
+            Text(
+                "›",
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+internal fun SettingsPageHeader(title: String, onBack: () -> Unit) {
+    val backLabel = stringResource(R.string.settings_back)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        IconButton(
+            onClick = onBack,
+            modifier = Modifier.semantics { contentDescription = backLabel },
+        ) {
+            Text("‹", style = MaterialTheme.typography.headlineMedium)
+        }
+        Text(title, style = MaterialTheme.typography.headlineSmall)
+    }
+}
+
+@Composable
+private fun SettingsPageColumn(title: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .settingsScrollInsets(
+                scrollState = rememberScrollState(),
+                insets = WindowInsets.safeDrawing,
+            )
+            .padding(horizontal = 24.dp)
+            .padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        SettingsPageHeader(title, onBack)
+        content()
+    }
+}
+
+@Composable
+private fun InputSettingsPage(onBack: () -> Unit) {
+    SettingsPageColumn(stringResource(R.string.settings_group_input_title), onBack) {
+        LayoutChoiceCard()
+        FuzzySettingsCard()
+        AssociationToggleCard()
+    }
+}
+
+@Composable
+private fun DictSettingsPage(onBack: () -> Unit) {
+    SettingsPageColumn(stringResource(R.string.settings_group_dicts_title), onBack) {
+        DictDownloadCard()
+        GramDownloadCard()
+    }
+}
+
+@Composable
+private fun AboutPage(resumeSignal: Int, onBack: () -> Unit) {
+    val context = LocalContext.current
     var typed by remember { mutableStateOf("") }
     var tryFieldFocused by remember { mutableStateOf(false) }
     var tryFieldImeRequest by remember { mutableIntStateOf(0) }
@@ -148,50 +338,8 @@ private fun SetupScreen(resumeSignal: Int = 0) {
         )
     }
 
-    var showDownloadHint by remember { mutableStateOf(!prefs.getBoolean("dl_hint_dismissed", false)) }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .settingsScrollInsets(
-                scrollState = rememberScrollState(),
-                insets = WindowInsets.safeDrawing,
-            )
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Text(stringResource(R.string.setup_title), style = MaterialTheme.typography.headlineMedium)
-        Text(
-            stringResource(R.string.setup_summary),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-
-        if (showDownloadHint) {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(stringResource(R.string.setup_first_run_title), style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        stringResource(R.string.setup_first_run_body),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    TextButton(
-                        onClick = {
-                            showDownloadHint = false
-                            prefs.edit { putBoolean("dl_hint_dismissed", true) }
-                        },
-                    ) { Text(stringResource(R.string.setup_first_run_ack)) }
-                }
-            }
-        }
-
-        GramDownloadCard()
-        DictDownloadCard()
-        FuzzySettingsCard()
-        AssociationToggleCard()
-        LayoutChoiceCard()
+    SettingsPageColumn(stringResource(R.string.settings_group_about_title), onBack) {
+        AppVersionCard()
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(
@@ -238,9 +386,6 @@ private fun SetupScreen(resumeSignal: Int = 0) {
                     if (!it.isFocused) activeTryFieldImeRequest = 0
                 },
         )
-
-        UserDictCard()
-        AppVersionCard()
     }
 }
 

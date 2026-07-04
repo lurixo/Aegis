@@ -16,6 +16,16 @@
     <string name="setup_switch_button">2 · 切换到 Aegis 输入法</string>
     <string name="setup_try_field_label">3 · 在此试打</string>
 
+    <string name="settings_group_input_title">输入设置</string>
+    <string name="settings_group_input_desc">键盘模式、模糊拼音、联想</string>
+    <string name="settings_group_dicts_title">词库与下载</string>
+    <string name="settings_group_dicts_desc">全量词库包、增强模型</string>
+    <string name="settings_group_userdict_title">用户词库</string>
+    <string name="settings_group_userdict_desc">搜索、增删自造词、导入导出</string>
+    <string name="settings_group_about_title">关于与启用</string>
+    <string name="settings_group_about_desc">应用版本、启用 Aegis、试打字</string>
+    <string name="settings_back">返回</string>
+
     <string name="download_button">下载</string>
     <string name="check_model_update_button">检测模型更新</string>
     <string name="check_dict_update_button">检测词库更新</string>
@@ -30,16 +40,16 @@
     <string name="gram_card_title">增强模型（万象离线大模型）</string>
     <string name="gram_card_description">可选下载 ~401 MB。下载后中文候选明显更准（内部评测 top-1 +约 9 分）；仅存本机，输入过程仍全程离线。</string>
     <string name="gram_source_link">模型来源：amzxyz/RIME-LMDG ↗</string>
-    <string name="gram_status_enabled">✅ 已启用：增强语法生效中（已下载 %1$d MB，仅存本机；切换到 Aegis 后加载）</string>
+    <string name="gram_status_enabled">✅ 已启用：增强语法生效中（已下载 %1$d MB，仅存本机；下载完成后自动加载）</string>
     <string name="gram_status_not_downloaded">⚠ 增强语法未启用 —— 需下载约 401 MB 模型后才生效</string>
     <string name="gram_status_download_failed">下载失败</string>
     <string name="gram_status_update_current">已是最新，无更新（增强模型已是最新版本）</string>
-    <string name="gram_status_deleted">⚠ 增强语法未启用（已删除；重启输入法后释放已加载的内存模型）</string>
+    <string name="gram_status_deleted">⚠ 增强语法未启用（已删除；已加载的内存模型会自动卸载）</string>
 
     <string name="dict_card_title">全量词库包（14 表 freq≥1）</string>
     <string name="dict_card_description">可选下载约 243 MB 的全量词库（字/基础/联想/错音/多音/诗词/地名/医学/化学/药品/名人/异体/物种/人名）。内置高频种子词库无需下载即可离线使用；下载后中文候选覆盖更全。仅存本机，输入全程离线。</string>
     <string name="dict_source_link">词库来源：amzxyz/rime-wanxiang ↗</string>
-    <string name="dict_status_enabled">✅ 已下载并启用：全量词库（约 %1$d MB，仅存本机；切换/重启 Aegis 后加载更全词库）</string>
+    <string name="dict_status_enabled">✅ 已下载并启用：全量词库（约 %1$d MB，仅存本机；下载完成后自动加载更全词库）</string>
     <string name="dict_status_not_downloaded">⚠ 全量词库未下载 —— 可选下载约 98 MB 压缩包（解压约 243 MB；内置高频种子词库已可离线使用）</string>
     <string name="dict_status_verifying_extracting">校验并解压…</string>
     <string name="dict_status_install_failed">校验或解压失败（文件可能损坏，请重试）</string>
@@ -47,9 +57,9 @@
     <string name="dict_status_update_current">已是最新，无更新（全量词库已是最新版本）</string>
     <string name="dict_status_deleted">⚠ 全量词库已删除（内置种子词库仍可用）</string>
 
-    <string name="fuzzy_card_title">输入设置 · 模糊拼音</string>
+    <string name="fuzzy_card_title">模糊拼音</string>
     <string name="fuzzy_master_title">模糊拼音（总开关）</string>
-    <string name="fuzzy_master_description">容忍常见拼音混淆；可逐项单独开关。下次切换到 Aegis 生效。</string>
+    <string name="fuzzy_master_description">容忍常见拼音混淆；可逐项单独开关。改动立即生效。</string>
     <string name="fuzzy_rule_zh_title">zh → z</string>
     <string name="fuzzy_rule_zh_desc">翘舌/平舌：知=资、长=藏</string>
     <string name="fuzzy_rule_ch_title">ch → c</string>
@@ -80,7 +90,7 @@
     <string name="layout_alpha">全拼 26 键</string>
 
     <string name="user_dict_title">学习词库</string>
-    <string name="user_dict_description">Aegis 会离线学习你常用的词与下一个词，存为【学习词库】（只存本机）。这与你下载的【主词库】（拼音大词库）是两份独立的库 —— 这里的导入/覆盖只动学习词库，绝不影响主词库。导入会在下次切换到 Aegis 时生效。</string>
+    <string name="user_dict_description">Aegis 会离线学习你常用的词与下一个词，存为【学习词库】（只存本机）。这与你下载的【主词库】（拼音大词库）是两份独立的库 —— 这里的导入/覆盖只动学习词库，绝不影响主词库。导入立即生效。</string>
     <string name="user_dict_default_path_format">默认词库：%1$s（应用私有目录，文件管理器不可见 → 用“导出”取出副本，默认文件名 aegis-userdb.txt）。</string>
     <string name="user_dict_export_button">导出学习词库</string>
     <string name="user_dict_import_button">导入学习词库</string>
@@ -92,7 +102,9 @@
     <string name="user_dict_import_merge">合并（推荐）</string>
     <string name="user_dict_import_overwrite">覆盖</string>
     <string name="user_dict_manual_title">我的词</string>
-    <string name="user_dict_manual_description">添加一个词和它的拼音，下次输入该拼音时就会作为候选出现；也可删除某个词，让它不再出现在候选里。逐字拼出的词会自动加到这里。改动会在下次切换到 Aegis 时生效。</string>
+    <string name="user_dict_manual_description">添加一个词和它的拼音，输入该拼音时就会作为候选出现；也可删除某个词，让它不再出现在候选里。逐字拼出的词会自动加到这里。改动立即生效。</string>
+    <string name="user_dict_search_hint">搜索：词或拼音</string>
+    <string name="user_dict_search_no_match">没有匹配的词。</string>
     <string name="user_dict_word_hint">词</string>
     <string name="user_dict_reading_hint">拼音（字母）</string>
     <string name="user_dict_add_button">添加</string>
