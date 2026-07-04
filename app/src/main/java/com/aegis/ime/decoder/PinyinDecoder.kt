@@ -288,13 +288,21 @@ class PinyinDecoder(
         return if (out.size <= limit) out.toList() else out.toList().subList(0, limit)
     }
 
-    fun decodeCovered(input: String, limit: Int, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> {
-        if (input.isEmpty()) return emptyList()
+    fun decodeCovered(input: String, limit: Int, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =
+        decodeCoveredLayered(input, limit, cuts, context).first
+
+    internal fun decodeCoveredLayered(
+        input: String,
+        limit: Int,
+        cuts: Set<Int> = emptySet(),
+        context: CharSequence = "",
+    ): Pair<List<Cand>, Int> {
+        if (input.isEmpty()) return emptyList<Cand>() to 0
         val norm = normalizeSeparators(input) ?: return decodeCoveredClean(input, limit, cuts, context)
-        if (norm.clean.isEmpty()) return emptyList()
+        if (norm.clean.isEmpty()) return emptyList<Cand>() to 0
         val passedClean = cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
-        return decodeCoveredClean(norm.clean, limit, norm.cuts + passedClean, context)
-            .map { Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length }) }
+        val (cands, remainderStart) = decodeCoveredClean(norm.clean, limit, norm.cuts + passedClean, context)
+        return cands.map { Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length }) } to remainderStart
     }
 
     fun decodeCoveredAtomic(input: String, limit: Int, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> {
@@ -313,10 +321,10 @@ class PinyinDecoder(
         }
     }
 
-    private fun decodeCoveredClean(input: String, limit: Int, cuts: Set<Int>, context: CharSequence): List<Cand> {
+    private fun decodeCoveredClean(input: String, limit: Int, cuts: Set<Int>, context: CharSequence): Pair<List<Cand>, Int> {
         val (ctxCp, ctxWord) = parseContext(context)
         val interior = cuts.filter { it in 1 until input.length }.toSortedSet()
-        if (interior.isNotEmpty()) return decodeAtomic(input, limit, interior, ctxCp, ctxWord)
+        if (interior.isNotEmpty()) return decodeAtomic(input, limit, interior, ctxCp, ctxWord).let { it to it.size }
 
         val cover = LinkedHashMap<String, Int>()
         val completionCap = maxOf(1, limit * 2 / 3)
@@ -351,8 +359,9 @@ class PinyinDecoder(
             val present = out.mapTo(HashSet()) { it.word }
             for (uw in userWordsFor(input)) if (present.add(uw)) out.add(Cand(uw, input.length))
         }
-        appendLeadingSingles(input, input.length, out, limit)
-        return out
+        val remainderStart = out.size
+        appendLeadingSingles(input, input.length, out, limit, ctxCp, ctxWord)
+        return out to remainderStart
     }
 
     private fun decodeAtomic(input: String, limit: Int, interior: Set<Int>, ctxCp: Int, ctxWord: String): List<Cand> {
@@ -409,7 +418,8 @@ class PinyinDecoder(
         for ((text, _) in sentences) offerTail(text, input.length, nSyl, 1.0)
         for ((w, _) in homophoneFreqs(input.substring(0, B[1]))) offerTail(w, B[1], 1, 0.0)
         val tailRanked = tailCand.values.sortedWith(
-            compareByDescending<Cand> { tailScore[it.word] ?: Double.NEGATIVE_INFINITY }
+            compareBy<Cand> { isSingleChar(it.word) }
+                .thenByDescending { tailScore[it.word] ?: Double.NEGATIVE_INFINITY }
                 .thenBy { it.word.codePointCount(0, it.word.length) }
                 .thenBy { supplementarySingleTieRank(it.word) },
         )
@@ -520,7 +530,7 @@ class PinyinDecoder(
         return ordered
     }
 
-    private fun appendLeadingSingles(input: String, span: Int, out: ArrayList<Cand>, limit: Int) {
+    private fun appendLeadingSingles(input: String, span: Int, out: ArrayList<Cand>, limit: Int, ctxCp: Int, ctxWord: String) {
         val head = input.substring(0, span)
         val isT9 = input[0] in '2'..'9'
         val lens = if (isT9) T9Pinyin.leadingSyllableDigitLens(head)
@@ -528,33 +538,23 @@ class PinyinDecoder(
         val lensSet = lens.toSet()
         val seen = HashSet<String>(out.size * 2)
         for (c in out) seen.add(c.word)
+        val entries = ArrayList<Entry>()
         var wordBudget = maxOf(0, limit - out.size)
         for (q in span downTo 1) {
-            val merged = ArrayList<Pair<String, Double>>()
             if (wordBudget > 0) {
                 var added = 0
                 for (wf in preferredExact(dict, input.substring(0, q))) {
-                    if (isSingleChar(wf.word) || wf.word in seen) continue
-                    merged.add(wf.word to wf.freq.toDouble())
+                    if (isSingleChar(wf.word) || !seen.add(wf.word)) continue
+                    entries.add(Entry(wf.word, q, wordModelScore(wf.word, wf.freq, ctxCp, ctxWord), single = false))
                     if (++added >= PREFIX_PER_LEN) break
                 }
             }
             if (q in lensSet) {
-                for ((w, f) in homophoneFreqs(input.substring(0, q))) if (w !in seen) merged.add(w to f)
-            }
-            if (merged.isEmpty()) continue
-            merged.sortWith(
-                compareByDescending<Pair<String, Double>> { it.second }
-                    .thenBy { supplementarySingleTieRank(it.first) },
-            )
-            for ((w, _) in merged) {
-                if (!seen.add(w)) continue
-                if (!isSingleChar(w)) { if (wordBudget <= 0) continue; wordBudget-- }
-                out.add(Cand(w, q))
+                for ((w, f) in homophoneFreqs(input.substring(0, q))) if (seen.add(w))
+                    entries.add(Entry(w, q, wordModelScore(w, f, ctxCp, ctxWord), single = true))
             }
         }
-        if (lens.firstOrNull() == input.length) return
-        for (k in lens) {
+        if (lens.firstOrNull() != input.length) for (k in lens) {
             if (k >= input.length) continue
             val rest = input.substring(k)
             val restSeg = if (isT9) T9Pinyin.segment(rest) else T9Pinyin.segmentLetters(rest)
@@ -562,9 +562,21 @@ class PinyinDecoder(
             if (first == "n" || first == "ng" || first == "m") continue
             val present = HashSet<String>()
             for (c in out) if (c.coveredLen == k) present.add(c.word)
-            for (w in homophonesOf(input.substring(0, k))) if (present.add(w)) out.add(Cand(w, k))
+            for (e in entries) if (e.cov == k) present.add(e.word)
+            for ((w, f) in homophoneFreqs(input.substring(0, k))) if (present.add(w))
+                entries.add(Entry(w, k, wordModelScore(w, f, ctxCp, ctxWord), single = true))
+        }
+        entries.sortWith(
+            compareByDescending<Entry> { it.score }
+                .thenBy { supplementarySingleTieRank(it.word) },
+        )
+        for (e in entries) {
+            if (!e.single) { if (wordBudget <= 0) continue; wordBudget-- }
+            out.add(Cand(e.word, e.cov))
         }
     }
+
+    private class Entry(val word: String, val cov: Int, val score: Double, val single: Boolean)
 
     fun syllables(input: String): List<Syllable> {
         if (input.isEmpty()) return emptyList()
