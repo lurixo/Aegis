@@ -96,15 +96,36 @@ class PinyinDecoderUserWordTest {
             list.indexOf("佽是") > 0)
     }
 
+    @Test fun freshUserWord_doesNotHijackPosition0_whenNaturalBestIsASentence() {
+        // The natural best for "cishi" is a composed two-syllable sentence (top ci + top shi). A freshly created
+        // common-character user word 此是 (count 1) must NOT seize candidate #0 — the commit default stays the
+        // natural interpretation; the word is still recalled lower in the list, and only accumulated usage lifts it.
+        val natural = words(letter().decodeCovered("cishi", 30)).first()
+        val m = um("cishi" to "此是")
+        val withUser = words(letter(m).decodeCovered("cishi", 30))
+        assertEquals("a fresh user word must not hijack the commit default", natural, withUser.first())
+        assertTrue("the natural best is a multi-character sentence (the hijack-prone case)", natural.codePointCount(0, natural.length) >= 2)
+        assertTrue("but the user word is still recalled", "此是" in withUser)
+    }
+
+    @Test fun heavilyUsedUserWord_mayFairlyReachPosition0() {
+        // The complement: with enough accumulated usage the boost overcomes the sentence and the user word rises
+        // to #0 — the intended "used a lot ⇒ becomes the default", now boost-driven instead of structural.
+        val natural = words(letter().decodeCovered("cishi", 30)).first()
+        val heavy = UserModel().apply { repeat(60) { recordWord("cishi", "此是", it.toLong(), incrementCount = true) } }
+        assertEquals("a heavily used user word becomes the commit default", "此是", words(letter(heavy).decodeCovered("cishi", 30)).first())
+        assertTrue("(sanity) the natural best differs from the user word", natural != "此是")
+    }
+
     @Test fun usage_boost_lifts_a_reused_self_created_word() {
-        // A rare-character self-created word (佽 is a rare ci single) starts low, below the common candidates;
-        // heavy use must lift it STRICTLY higher, isolating the boost's effect from the base commonness.
-        val light = UserModel().apply { recordWord("cishi", "佽试", 0L, incrementCount = true) }
-        val heavy = UserModel().apply { repeat(30) { recordWord("cishi", "佽试", it.toLong(), incrementCount = true) } }
-        val lightRank = words(letter(light).decodeCovered("cishi", 30)).indexOf("佽试")
-        val heavyRank = words(letter(heavy).decodeCovered("cishi", 30)).indexOf("佽试")
+        // A fresh self-created word is not the default (#0 is the natural sentence); heavy use must lift it
+        // STRICTLY higher — the boost is what promotes it, not a structural whole-input-edge advantage.
+        val light = um("cishi" to "此是")
+        val heavy = UserModel().apply { repeat(60) { recordWord("cishi", "此是", it.toLong(), incrementCount = true) } }
+        val lightRank = words(letter(light).decodeCovered("cishi", 30)).indexOf("此是")
+        val heavyRank = words(letter(heavy).decodeCovered("cishi", 30)).indexOf("此是")
         assertTrue("both recall the word", lightRank >= 0 && heavyRank >= 0)
-        assertTrue("lightly used rare-character word is not already at the top (common candidates precede it)", lightRank > 0)
+        assertTrue("a fresh word is not the commit default (a natural candidate precedes it)", lightRank > 0)
         assertTrue("heavy use lifts the self-created word strictly higher ($heavyRank < $lightRank)", heavyRank < lightRank)
     }
 }

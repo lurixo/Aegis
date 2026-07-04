@@ -855,12 +855,13 @@ class ExhaustiveDecodeAuditExtTest {
     private fun populatedModel(words: List<GenWord>): UserModel =
         UserModel().apply { for (gw in words) recordWord(gw.reading, gw.word, 1L, incrementCount = true) }
 
+    // Cached heavy assets so a per-case decoder build (E9 constructs one per user model) does not re-read the LM.
+    private val lmModel: CharBigramLM by lazy { CharBigramLM.fromFile(lmFile) }
+    private val jianpinDict: BinaryDict? by lazy { if (jianpinFile.exists()) BinaryDict.fromFile(jianpinFile) else null }
+
     private fun userDecoder(letters: Boolean, um: UserModel): PinyinDecoder =
-        if (letters) PinyinDecoder(
-            dict, CharBigramLM.fromFile(lmFile), userModel = um,
-            initialsDict = if (jianpinFile.exists()) BinaryDict.fromFile(jianpinFile) else null,
-        )
-        else PinyinDecoder(t9Dict, CharBigramLM.fromFile(lmFile), userModel = um, aliasDict = dict)
+        if (letters) PinyinDecoder(dict, lmModel, userModel = um, initialsDict = jianpinDict)
+        else PinyinDecoder(t9Dict, lmModel, userModel = um, aliasDict = dict)
 
     /** Free-typing ordering (E6 oracle) over every generated reading — where injection is actually exercised —
      *  plus every single syllable (where a multi-syllable user word can never match, so the result must equal
@@ -949,6 +950,128 @@ class ExhaustiveDecodeAuditExtTest {
             if (gw.word !in dL.decodeCoveredAtomic(gw.reading, 30, cuts).map { it.word }) misses.add("locked:${gw.reading}=${gw.word}")
         }
         assertTrue("every merged self-created word must be recalled (${misses.size} misses): ${misses.take(8)}", misses.isEmpty())
+    }
+
+    // ================= E9 · POSITION-0 GUARD (the commit default must not be hijacked) — HARD GATE =================
+    //
+    // E6/E7/E8 all EXEMPT list position 0 (`e6Check`/`lockedOrderViolations` do `if (pos == 0) continue`), so an
+    // injection that is fully O1/O2/L-safe can still seize #0 — the commit default — from the natural best
+    // interpretation. A whole-input user word is a SINGLE lattice edge; without word-normalisation it pays one
+    // lnTotal while an N-word natural sentence pays N, so even a fresh (count 1) common-character user word would
+    // structurally out-score the sentence and take #0. This audit closes that blind spot: it MECHANICALLY
+    // enumerates readings whose NATURAL best (no user model) is a multi-character composed SENTENCE (not a
+    // whole-word dict entry — the hijack-prone case, e.g. shide/nihaoma/ceguo/shishi where the natural best is
+    // 是的/你好吗/测过/试试), builds a DIFFERING common-character self-created word for each, and asserts a
+    // FRESH word (count 1 — assembled once, never re-chosen) does NOT displace the natural #0 on either
+    // keyspace. It also checks the intended complement — that enough accumulated usage CAN fairly lift a user
+    // word to #0 — so the guard is not satisfied by suppressing recall. No reading is hardcoded; the example
+    // readings above merely fall inside the enumerated set.
+
+    private fun singlesByFreq(key: String): List<String> =
+        dict.exact(key).filter { isSingleChar(it.word) }.sortedByDescending { it.freq }.map { it.word }
+
+    private data class HijackCase(val reading: String, val naturalBest: String, val userWord: String)
+
+    /** Readings (s1+tail) whose natural letter #0 is a 2-character composed sentence, paired with a common-char
+     *  self-created word that DIFFERS from that sentence and is not itself a dict entry for the reading. */
+    private fun position0Cases(dL: PinyinDecoder, syls: List<String>, tails: List<String>): List<HijackCase> {
+        val out = ArrayList<HijackCase>()
+        for (s1 in syls) {
+            val c1 = singlesByFreq(s1).firstOrNull() ?: continue
+            for (s2 in tails) {
+                val r = s1 + s2
+                val nat = dL.decodeCovered(r, 30).firstOrNull()?.word ?: continue
+                if (nat.codePointCount(0, nat.length) != 2) continue          // natural best is a 2-char sentence
+                if (dict.exact(r).any { it.word == nat }) continue            // ... composed, not a whole-word entry
+                // a common s2 single that makes the user word differ from the natural best
+                val c2 = singlesByFreq(s2).firstOrNull { c1 + it != nat } ?: continue
+                val uw = c1 + c2
+                if (uw == nat || dict.exact(r).any { it.word == uw }) continue // must be a genuine self-created word
+                out.add(HijackCase(r, nat, uw))
+            }
+        }
+        return out
+    }
+
+    // A FRESHLY created self-created word (count == 1: assembled once, never re-chosen) must not be the commit
+    // default — that is the structural "assembled once ⇒ free #0" hijack the word-normalisation removes. Higher
+    // counts are the boost-driven fair-rise case, asserted separately, so they are deliberately NOT gated here.
+    /** Three-syllable analogue (s1+mid+tail) whose natural letter #0 is a 3-character composed sentence — the
+     *  你好吗-class case. The single-edge hijack is worse the more syllables an edge spans (it still pays one
+     *  lnTotal against three), so covering N=3 proves the word-normalisation is N-agnostic. */
+    private fun position0Cases3(dL: PinyinDecoder, syls: List<String>, mids: List<String>, tails: List<String>): List<HijackCase> {
+        val out = ArrayList<HijackCase>()
+        for (s1 in syls) {
+            val c1 = singlesByFreq(s1).firstOrNull() ?: continue
+            for (mid in mids) {
+                val c2 = singlesByFreq(mid).firstOrNull() ?: continue
+                for (tail in tails) {
+                    val r = s1 + mid + tail
+                    val nat = dL.decodeCovered(r, 30).firstOrNull()?.word ?: continue
+                    if (nat.codePointCount(0, nat.length) != 3) continue
+                    if (dict.exact(r).any { it.word == nat }) continue
+                    val c3 = singlesByFreq(tail).firstOrNull { c1 + c2 + it != nat } ?: continue
+                    val uw = c1 + c2 + c3
+                    if (uw == nat || dict.exact(r).any { it.word == uw }) continue
+                    out.add(HijackCase(r, nat, uw))
+                }
+            }
+        }
+        return out
+    }
+
+    private fun runPosition0Guard(cases: List<HijackCase>): List<String> {
+        val dT = e6Decoder(letters = false)
+        val fails = ArrayList<String>()
+        for (cse in cases) {
+            val digits = T9Pinyin.toT9(cse.reading)
+            val natT = dT.decodeCovered(digits, 30).firstOrNull()?.word
+            val um = UserModel().apply { recordWord(cse.reading, cse.userWord, 1L, incrementCount = true) } // count == 1
+            val topL = userDecoder(letters = true, um).decodeCovered(cse.reading, 30).firstOrNull()?.word
+            if (topL != cse.naturalBest) {
+                fails.add("letters ${cse.reading} c=1: #0=$topL uw=${cse.userWord} expected=${cse.naturalBest}")
+            }
+            val topT = userDecoder(letters = false, um).decodeCovered(digits, 30).firstOrNull()?.word
+            if (topT != natT) {
+                fails.add("t9 ${cse.reading} c=1: #0=$topT uw=${cse.userWord} expected=$natT")
+            }
+        }
+        return fails
+    }
+
+    @Test fun e9_userWords_doNotHijackPosition0_representative_alwaysOn() {
+        assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
+        val dL = e6Decoder(letters = true)
+        val cases2 = position0Cases(dL, runtimeSyllables(), listOf("de", "shi", "guo"))
+        val cases3 = position0Cases3(dL, runtimeSyllables(), listOf("hao"), listOf("ma", "de")) // 你好吗-class (N=3)
+        val cases = cases2 + cases3
+        assertTrue("generator must find 2- and 3-syllable-sentence readings: ${cases2.size}/${cases3.size}",
+            cases2.size > 50 && cases3.isNotEmpty())
+        val fails = runPosition0Guard(cases)
+        assertTrue("a fresh/low-use self-created word must not hijack the natural #0 (${fails.size}): ${fails.take(8)}", fails.isEmpty())
+
+        // Complement: with enough usage a user word CAN fairly become the default, so the guard is not merely
+        // suppressing recall. Prove the mechanism works on at least one enumerated reading.
+        val reached = cases.count { cse ->
+            val um = UserModel().apply { repeat(80) { recordWord(cse.reading, cse.userWord, it.toLong(), incrementCount = true) } }
+            userDecoder(letters = true, um).decodeCovered(cse.reading, 30).firstOrNull()?.word == cse.userWord
+        }
+        assertTrue("heavy usage must be able to lift a user word to #0 (fair rise); reached=$reached", reached > 0)
+    }
+
+    @Test fun e9_userWords_doNotHijackPosition0_full() {
+        assumeTrue("heavy sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
+        assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
+        val dL = e6Decoder(letters = true)
+        val cases2 = position0Cases(dL, runtimeSyllables(),
+            listOf("de", "shi", "guo", "le", "men", "hao", "ma", "zi", "ren"))
+        val cases3 = position0Cases3(dL, runtimeSyllables(), listOf("hao", "shi", "guo"), listOf("ma", "de", "le"))
+        val cases = cases2 + cases3
+        val fails = runPosition0Guard(cases)
+        writeTsv(File(outDir(), "ext_e9.tsv"), fails.map { Fail("", "pos0", "hijack", "", "", it) })
+        summary(File(outDir(), "ext_e9_summary.txt"), "E9 — position-0 (commit default) hijack guard",
+            "2-syllable readings: ${cases2.size}; 3-syllable readings: ${cases3.size}; fresh count 1 x both keyspaces", fails.map { Fail("", "pos0", "hijack", "", "", it) })
+        assertTrue("E9 position-0 hijack violations must be zero (${fails.size}): ${fails.take(8)}", fails.isEmpty())
     }
 
     /** TEN: the en→嗯 alias presence still holds with self-created words merged (en is a single syllable, which

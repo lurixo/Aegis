@@ -201,8 +201,19 @@ class PinyinDecoder(
         // this reading must reach the sentence lattice even when the exact dict layer would fill every slot by
         // itself. Its edge frequency is its characters' shared commonness; the path score adds the usage boost
         // in [bestSentence], so a repeatedly used self-created word can win the sentence.
+        //
+        // WORD-NORMALISE the whole-input edge: a single edge spanning N syllables otherwise pays only ONE
+        // lnTotal normalisation (in [bestSentence]'s ln(freq) - lnTotal term) while the natural N-word sentence
+        // pays N — one per word edge — so even a fresh (count == 1, boost-negligible) common-character user word
+        // would STRUCTURALLY out-score the best sentence and seize the commit default (#0). Charging (N-1) extra
+        // lnTotal makes the edge cost ln(freq) - N·lnTotal, competing length-fairly with an N-word sentence; a
+        // user word then reaches #0 only once accumulated usage boost outweighs the sentence, which is the
+        // intended "used a lot ⇒ rises" behaviour rather than a one-off assembly hijacking the default.
         for (uw in userWordsFor(sub)) {
-            if (seen.add(uw)) out.add(Edge(uw, userWordFreq(uw, sub).toInt().coerceAtLeast(1), 0.0))
+            if (seen.add(uw)) {
+                val n = uw.codePointCount(0, uw.length)
+                out.add(Edge(uw, userWordFreq(uw, sub).toInt().coerceAtLeast(1), (n - 1).coerceAtLeast(0) * lnTotal))
+            }
         }
         val exactFull = addExactEdges(dict, sub, 0.0, out, seen)
         // Alias words are floor-guaranteed edges: an exact layer that fills all [edgeN] slots by itself
