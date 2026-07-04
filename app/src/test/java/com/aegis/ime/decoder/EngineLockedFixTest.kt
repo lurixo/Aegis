@@ -257,7 +257,12 @@ class EngineLockedFixTest {
     @Test fun ciku_keepsTheWordAndCommonChars() {
         assertCleanAtomic(listOf("ci", "ku"), "词库")
         val w = words(locked(listOf("ci", "ku")))
-        assertTrue("common ci 同音字 follow the word", w.take(6).containsAll(listOf("次", "此")))
+        // Locked layering: every multi-char candidate precedes every single; the common ci 同音字 in turn
+        // lead the single layer (frequency order), so they are still immediately at hand after the words.
+        val firstSingle = w.indexOfFirst { it.codePointCount(0, it.length) == 1 }
+        assertTrue("a single layer exists", firstSingle >= 0)
+        assertTrue("the word layer precedes the single layer", w.drop(firstSingle).none { it.codePointCount(0, it.length) > 1 })
+        assertEquals("common ci 同音字 lead the single layer", listOf("次", "此"), w.drop(firstSingle).take(2))
     }
 
     @Test fun jiujian_keepsTheWord() {
@@ -282,7 +287,11 @@ class EngineLockedFixTest {
         assertFalse("no extension-area single in the top 10", w.take(10).any { isSupp(it) })
         assertFalse("NO candidate contains 西安", w.any { it.contains("西安") })
         assertTrue("不实现 present", "不实现" in w)
-        assertTrue("common bu 同音字 follow the best sentence", w.take(6).containsAll(listOf("不", "部")))
+        // Locked layering: words precede singles; the common bu 同音字 lead the single layer.
+        val firstSingle = w.indexOfFirst { it.codePointCount(0, it.length) == 1 }
+        assertTrue("a single layer exists", firstSingle >= 0)
+        assertTrue("the word layer precedes the single layer", w.drop(firstSingle).none { it.codePointCount(0, it.length) > 1 })
+        assertEquals("common bu 同音字 lead the single layer", listOf("不", "部"), w.drop(firstSingle).take(2))
         assertTrue("现 navigable at the last syllable", "现" in d.homophonesAt("bushixian", 2))
         pureSentences(c, "bushixian".length).forEach {
             assertEquals("every pure sentence spans 3 syllables", 3, it.codePointCount(0, it.length))
@@ -321,11 +330,10 @@ class EngineLockedFixTest {
         val w = words(d.decodeCoveredAtomic("xiangku", 30, setOf("xiang".length)))
 
         assertTrue("cross-boundary word remains available", "想哭" in w.take(3))
-        // The locked grid now ranks the first-syllable homophones and the composed two-char candidates in ONE
-        // commonness order (the old "every single, then the composed candidates dead last" layering is gone), so
-        // a common composed candidate (this fixture makes the ku-chars as frequent as the xiang-chars) can sit
-        // between two xiang homophones. The homophones stay prominent — the top singles still LEAD the single-
-        // character tail and every common homophone remains reachable — while no shorter reading leaks in.
+        // Locked layering: the word layer (pinned best, exact words, composed candidates) is complete before
+        // the first single — words and singles never interleave. The homophones stay prominent — the top
+        // singles still LEAD the single-character tail and every common homophone remains reachable — while
+        // no shorter reading leaks in.
         assertEquals("the top xiang homophones lead the single-character tail", listOf("向", "想", "相"),
             w.filter { it.codePointCount(0, it.length) == 1 }.take(3))
         assertTrue("all common xiang homophones remain reachable", w.containsAll(listOf("向", "想", "相", "像", "香")))

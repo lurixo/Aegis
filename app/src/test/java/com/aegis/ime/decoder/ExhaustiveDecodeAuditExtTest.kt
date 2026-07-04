@@ -515,6 +515,23 @@ class ExhaustiveDecodeAuditExtTest {
     // O1: within a coverage bucket, the input-reading singles (∈ exact(bucketKey)) must be in
     //     non-increasing matched-key frequency order (归并后频次降序).
     // O2: within a coverage bucket, no RARE candidate may precede any COMMON candidate (字或词).
+    // O2G (cross-coverage): the remainder layer — everything from the decoder-reported layer
+    //     boundary ([PinyinDecoder.decodeCoveredLayered]) onward — is ONE global commonness order,
+    //     so no RARE candidate may precede a later COMMON candidate there REGARDLESS of coverage
+    //     bucket (a longer-coverage group's rare tail must not ride ahead of a shorter group's
+    //     common singles, the expanded-grid inversion). The anchor is the TRUE boundary, not an
+    //     inference from coverage values: the remainder layer itself emits whole-input-coverage
+    //     candidates (a lone syllable's spilled singles), so a coverage-based anchor would silently
+    //     exempt exactly the group a front-loading regression would misplace. The completion pool
+    //     ahead of the boundary is exempt: completions legitimately outrank shorter-coverage
+    //     leftovers, and the pool has its own O2 bucket gate. Re-emitted (word, shorter-coverage)
+    //     duplicates rank INSIDE the same global order now, so O2G does not exempt them (the
+    //     per-bucket rescue exemption below remains for the bucket gates only). Alias singles keep
+    //     the bucket-gate convention: rarity is judged at the RAW alias frequency while production
+    //     positions them at the e^-ALIAS_PENALTY discount, so an alias single raw-COMMON by less
+    //     than e^3.5 over the COMMON line sits below where its raw frequency suggests; the live
+    //     alias surface (en→ng: 嗯) is orders of magnitude above that band and the full-scale
+    //     sweeps would surface any future alias that is not.
     // Exemptions, precise: list position 0 (the pinned best whole-input interpretation — the commit
     // default, not a ranked alternative; a lone rare syllable like chua rightly shows 欻 there) and
     // candidates whose frequency is unresolvable from the bucket key's exact/prefix/alias/jianpin views
@@ -568,7 +585,8 @@ class ExhaustiveDecodeAuditExtTest {
     private val E6_PREFIX_SCAN = 8192
 
     /** E6 verdicts for one decoded list. Returns violation rows ("O1"/"O2" + detail). */
-    private fun e6Check(source: BinaryDict, input: String, cands: List<Cand>): List<String> {
+    private fun e6Check(source: BinaryDict, input: String, layered: Pair<List<Cand>, Int>): List<String> {
+        val (cands, remainderStart) = layered
         val rows = ArrayList<String>()
         val buckets = LinkedHashMap<Int, MutableList<Pair<String, Int?>>>()
         val atLonger = HashMap<String, Int>() // word -> longest coverage seen so far (list order)
@@ -602,6 +620,20 @@ class ExhaustiveDecodeAuditExtTest {
                 prev = f
             }
         }
+        // O2G: cross-coverage rare-before-common over the remainder layer (see the invariant note above),
+        // anchored at the decoder-reported layer boundary. Position 0 stays exempt as everywhere in E6.
+        val scanFrom = maxOf(remainderStart, 1)
+        var commonAfter: String? = null
+        for (i in cands.indices.reversed()) {
+            if (i < scanFrom) break
+            val c = cands[i]
+            val key = input.substring(0, c.coveredLen.coerceIn(1, input.length))
+            val f = e6RawFreq(source, key, c.word)
+            if (f != null && f <= E6_RARE && commonAfter != null) {
+                rows.add("$input\ttail\tO2G\t${c.word}@$f(cov${c.coveredLen}) before $commonAfter")
+            }
+            if (f != null && f >= E6_COMMON) commonAfter = "${c.word}(cov${c.coveredLen})"
+        }
         return rows
     }
 
@@ -612,9 +644,9 @@ class ExhaustiveDecodeAuditExtTest {
         val dT = e6Decoder(letters = false)
         val rows = ArrayList<String>()
         for (s in syls) {
-            rows.addAll(e6Check(dict, s, dL.decodeCovered(s, 30)))
+            rows.addAll(e6Check(dict, s, dL.decodeCoveredLayered(s, 30)))
             val dig = T9Pinyin.toT9(s)
-            rows.addAll(e6Check(t9Dict, dig, dT.decodeCovered(dig, 30)))
+            rows.addAll(e6Check(t9Dict, dig, dT.decodeCoveredLayered(dig, 30)))
         }
         // n=2 sample: 36-led digit pairs (alias surface) + rare-syllable-led letter pairs + controls
         val pairs = listOf(
@@ -623,9 +655,9 @@ class ExhaustiveDecodeAuditExtTest {
             "ni" to "hao", "wo" to "de", "xian" to "zai", "liang" to "ge", "die" to "de",
         )
         for ((s1, s2) in pairs) {
-            rows.addAll(e6Check(dict, s1 + s2, dL.decodeCovered(s1 + s2, 30)))
+            rows.addAll(e6Check(dict, s1 + s2, dL.decodeCoveredLayered(s1 + s2, 30)))
             val dig = T9Pinyin.toT9(s1 + s2)
-            rows.addAll(e6Check(t9Dict, dig, dT.decodeCovered(dig, 30)))
+            rows.addAll(e6Check(t9Dict, dig, dT.decodeCoveredLayered(dig, 30)))
         }
         File(outDir(), "ext_e6.tsv").writeText(
             "# $runStamp\ninput\tbucket\tinvariant\tdetail\n" + rows.joinToString("\n") + if (rows.isNotEmpty()) "\n" else ""
@@ -656,6 +688,10 @@ class ExhaustiveDecodeAuditExtTest {
     // O2: no RARE single (matched reading frequency ≤ E6_RARE) precedes a COMMON multi-character candidate
     //     (≥2 codepoints whose RAREST covered reading-character frequency ≥ E6_COMMON). List position 0 (the
     //     pinned best interpretation / commit default) is exempt, exactly as in E6.
+    // W (word layer first — the locked-path layering rule): NO multi-character candidate may rank after ANY
+    //     single. The locked grid is words (pinned best, exact-word tier, composed alternatives), THEN the
+    //     lossless single layer — the two never interleave. This subsumes O2's direction (a common word after
+    //     a rare single is first of all a word after a single) and holds for common and rare words alike.
     // L (lossless, oracle INDEPENDENT of the production ranking metric): every native single of s1 (∈ exact(s1))
     //     must be emitted somewhere in the locked grid — the first-syllable homophone layer stays whole. This
     //     is a raw set-membership check against the dictionary, so — unlike O2, whose commonness partition is a
@@ -673,7 +709,7 @@ class ExhaustiveDecodeAuditExtTest {
         }
     private fun nativeSingleFreq(source: BinaryDict, key: String, ch: String): Int? = nativeSinglesOf(source, key)[ch]
 
-    /** O1+O2 (+ optionally L) violation rows for one locked decode. [sylKeys] are the locked syllables in the
+    /** O1+O2+W (+ optionally L) violation rows for one locked decode. [sylKeys] are the locked syllables in the
      *  decoder's own keyspace; codepoint i of a multi-char candidate reads covered syllable i. [checkLossless]
      *  is set only for the letter keyspace: there a valid syllable chunk stays atomic under a lock so
      *  sylKeys[0] IS the decoder's first syllable. On the T9 keyspace an ambiguous digit group (e.g. 3364 =
@@ -697,6 +733,7 @@ class ExhaustiveDecodeAuditExtTest {
         }
         val tag = sylKeys.joinToString("+")
         var rareSingleSeen: String? = null
+        var anySingleSeen: String? = null
         val singleBucket = ArrayList<Pair<String, Int>>() // (char, native freq), list order
         val emittedFirstSingles = HashSet<String>()
         for ((pos, c) in cands.withIndex()) {
@@ -705,6 +742,11 @@ class ExhaustiveDecodeAuditExtTest {
             if (pos == 0) continue // pinned best interpretation (commit default)
             val ncp = ncp0
             val ks = coveredSyls(c.coveredLen)
+            // W: the word layer must be COMPLETE before the first single (no interleaving at all)
+            if (ncp == 1 && anySingleSeen == null) anySingleSeen = "${c.word}@pos$pos"
+            if (ncp >= 2 && anySingleSeen != null) {
+                rows.add("$tag\tW\t${c.word} (multi-char) after single $anySingleSeen")
+            }
             if (ncp == 1 && ks == 1) {
                 val native = nativeSingleFreq(source, sylKeys[0], c.word) // O1 counts input-reading singles only
                 if (native != null) singleBucket.add(c.word to native)
@@ -782,7 +824,7 @@ class ExhaustiveDecodeAuditExtTest {
         writeTsv(File(outDir(), "ext_e7.tsv"), rows.map { r ->
             val p = r.split("\t"); Fail(p.getOrElse(0) { "" }, "locked", p.getOrElse(1) { "" }, "", "", p.getOrElse(2) { "" })
         })
-        summary(File(outDir(), "ext_e7_summary.txt"), "E7 — locked/atomic ordering invariant (O1+O2, hard gate)",
+        summary(File(outDir(), "ext_e7_summary.txt"), "E7 — locked/atomic ordering invariant (O1+O2+W, hard gate)",
             "pairs (both keyspaces): $pairsChecked; triples: $triplesChecked",
             rows.map { r -> val p = r.split("\t"); Fail(p.getOrElse(0) { "" }, "locked", p.getOrElse(1) { "" }, "", "", p.getOrElse(2) { "" }) })
         assertTrue("E7 locked ordering violations must be zero (${rows.size}): ${rows.take(8)}", rows.isEmpty())
@@ -791,7 +833,7 @@ class ExhaustiveDecodeAuditExtTest {
     // Always-on companion (NOT gated): the 415² sweep above runs only under AEGIS_AUDIT_FULL, so a default CI
     // run would leave the locked path with no ordering gate. This representative subset — first syllables that
     // carry a long rare tail (where the rare-before-common inversion surfaces) plus common controls, each locked
-    // against common tails, on both keyspaces — runs every build and asserts O1+O2+L = 0.
+    // against common tails, on both keyspaces — runs every build and asserts O1+O2+W+L = 0.
     @Test fun e7b_lockedOrderingInvariant_representative_alwaysOn() {
         assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
         val dL = e6Decoder(letters = true)
@@ -874,14 +916,14 @@ class ExhaustiveDecodeAuditExtTest {
         val dT = userDecoder(letters = false, um)
         val rows = ArrayList<String>()
         for (s in runtimeSyllables()) {
-            rows.addAll(e6Check(dict, s, dL.decodeCovered(s, 30)))
+            rows.addAll(e6Check(dict, s, dL.decodeCoveredLayered(s, 30)))
             val dig = T9Pinyin.toT9(s)
-            rows.addAll(e6Check(t9Dict, dig, dT.decodeCovered(dig, 30)))
+            rows.addAll(e6Check(t9Dict, dig, dT.decodeCoveredLayered(dig, 30)))
         }
         for (gw in words) {
-            rows.addAll(e6Check(dict, gw.reading, dL.decodeCovered(gw.reading, 30)))
+            rows.addAll(e6Check(dict, gw.reading, dL.decodeCoveredLayered(gw.reading, 30)))
             val dig = T9Pinyin.toT9(gw.reading)
-            rows.addAll(e6Check(t9Dict, dig, dT.decodeCovered(dig, 30)))
+            rows.addAll(e6Check(t9Dict, dig, dT.decodeCoveredLayered(dig, 30)))
         }
         return rows
     }

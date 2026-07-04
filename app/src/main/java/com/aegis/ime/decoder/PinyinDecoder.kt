@@ -410,21 +410,40 @@ class PinyinDecoder(
 
     /**
      * Candidates tagged with coverage length (★E/★G): best full sentence + full-input completions
-     * (all covering the whole input), then per-prefix words enumerated longest-prefix-first so
-     * multi-syllable words rank above their leading single chars. Each [Cand.coveredLen] is how many
+     * (all covering the whole input), then the whole remainder layer — per-prefix words and the
+     * lossless singles of every coverage — in one global commonness order (see
+     * [appendLeadingSingles]). Each [Cand.coveredLen] is how many
      * leading input units that word consumes, so picking it can partially commit and continue the rest.
      * [decode] is intentionally left unchanged so the accuracy eval path is unaffected.
      */
-    fun decodeCovered(input: String, limit: Int, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> {
-        if (input.isEmpty()) return emptyList()
+    fun decodeCovered(input: String, limit: Int, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =
+        decodeCoveredLayered(input, limit, cuts, context).first
+
+    /**
+     * [decodeCovered] plus the index where the remainder layer ([appendLeadingSingles] output) begins.
+     * The ordering audit anchors its cross-coverage gate at this TRUE boundary: coverage values cannot
+     * recover it, because the remainder layer itself emits whole-input-coverage candidates (a lone
+     * syllable's spilled singles/words), indistinguishable from completion-pool entries by
+     * [Cand.coveredLen] alone — an inferred anchor would silently exempt exactly the group a
+     * front-loading regression would misplace. On the forced-boundary (atomic) route there is no
+     * pool/remainder split, so the boundary is the list size. A test seam, not UI API:
+     * [decodeCovered] delegates here, so production behaviour is identical by construction.
+     */
+    internal fun decodeCoveredLayered(
+        input: String,
+        limit: Int,
+        cuts: Set<Int> = emptySet(),
+        context: CharSequence = "",
+    ): Pair<List<Cand>, Int> {
+        if (input.isEmpty()) return emptyList<Cand>() to 0
         // debug.17: ' = hard syllable boundary → strip to pure pinyin + forced cut, then remap each candidate's
         // coverage back to the original ' -inclusive index (so a partial commit eats the separator too, leaving
         // a clean tail). No separator → the original clean path runs verbatim (zero behaviour change).
         val norm = normalizeSeparators(input) ?: return decodeCoveredClean(input, limit, cuts, context)
-        if (norm.clean.isEmpty()) return emptyList()
+        if (norm.clean.isEmpty()) return emptyList<Cand>() to 0
         val passedClean = cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
-        return decodeCoveredClean(norm.clean, limit, norm.cuts + passedClean, context)
-            .map { Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length }) }
+        val (cands, remainderStart) = decodeCoveredClean(norm.clean, limit, norm.cuts + passedClean, context)
+        return cands.map { Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length }) } to remainderStart
     }
 
     /**
@@ -448,13 +467,13 @@ class PinyinDecoder(
         }
     }
 
-    private fun decodeCoveredClean(input: String, limit: Int, cuts: Set<Int>, context: CharSequence): List<Cand> {
+    private fun decodeCoveredClean(input: String, limit: Int, cuts: Set<Int>, context: CharSequence): Pair<List<Cand>, Int> {
         val (ctxCp, ctxWord) = parseContext(context)
         val interior = cuts.filter { it in 1 until input.length }.toSortedSet()
         // debug.18 (FIX-2): a buffer carrying FORCED syllable boundaries — 9-key locked readings OR a 26-key
         // Chinese IME behavior note.
         // keyboards (26-key chai'ci and 9-key locked chai|ci funnel through the SAME decodeCovered → here).
-        if (interior.isNotEmpty()) return decodeAtomic(input, limit, interior, ctxCp, ctxWord)
+        if (interior.isNotEmpty()) return decodeAtomic(input, limit, interior, ctxCp, ctxWord).let { it to it.size }
 
         // ---- no forced boundary: whole-input completions + per-prefix word path ----
         val cover = LinkedHashMap<String, Int>()
@@ -508,9 +527,10 @@ class PinyinDecoder(
             for (uw in userWordsFor(input)) if (present.add(uw)) out.add(Cand(uw, input.length))
         }
         // The per-prefix multi-char words and the lossless singles tiers are ONE remainder layer now
-        // (merged per coverage inside appendLeadingSingles) — see the ordering note there.
-        appendLeadingSingles(input, input.length, out, limit)
-        return out
+        // (merged across ALL coverages inside appendLeadingSingles) — see the ordering note there.
+        val remainderStart = out.size
+        appendLeadingSingles(input, input.length, out, limit, ctxCp, ctxWord)
+        return out to remainderStart
     }
 
     /**
@@ -521,7 +541,8 @@ class PinyinDecoder(
       * Chinese IME behavior note.
       * Chinese IME behavior note.
       * Chinese IME behavior note.
-     * incl. U+20000+ rares at the freq tail), ④ the remaining top-N alternative whole sentences.
+     * incl. U+20000+ rares at the freq tail). The ③/④ layers are assembled words-first: the top-N
+     * alternative whole sentences (④) all precede the first-syllable singles (③) — see [tailRanked].
      */
     private fun decodeAtomic(input: String, limit: Int, interior: Set<Int>, ctxCp: Int, ctxWord: String): List<Cand> {
         // B = the forced boundaries (always honoured) PLUS the syllable boundaries WITHIN each cut-segment. The
@@ -558,19 +579,17 @@ class PinyinDecoder(
             if (leadFreq.put(uw, f) == null) leadCov[uw] = input.length
         }
 
-        // ③ first-syllable single homophones + the composed alternative sentences, merged into ONE cold-start
-        // [wordModelScore] order (the O2 invariant on the locked path). Before, these were two source layers —
-        // EVERY first-syllable single (rare tail and all), THEN the alternative sentences appended dead last —
-        // so a rare single could precede a common multi-character candidate. They now share ONE frequency: a
-        // candidate is as common as its RAREST covered reading-character. Per-syllable reading frequencies (the
-        // same [homophoneFreqs] the singles use, alias discount folded in) make the score length-neutral, so a
-        // candidate of common characters ranks alongside its common single while a rare single sinks below the
-        // common words and sentences. Length-neutrality is the point: a raw covered-log-probability adds a
-        // ln-total penalty per character, so a two-character candidate scores below a single of the same leading
-        // frequency and the common two-char candidates stay stuck beneath the mid-rare singles. Equal-reading
-        // singles keep frequency-descending order (O1). The rare single long tail sinks to the back but stays
+        // ③ first-syllable single homophones + the composed alternative sentences: the word/single split is
+        // the primary key (every multi-character candidate before every single — see the [tailRanked] note),
+        // and INSIDE each layer one cold-start [wordModelScore] order (the O2 invariant on the locked path).
+        // Candidates share ONE frequency scale: a candidate is as common as its RAREST covered
+        // reading-character. Per-syllable reading frequencies (the same [homophoneFreqs] the singles use,
+        // alias discount folded in) make the score length-neutral, which keeps the word layer's own order
+        // meaningful: a raw covered-log-probability would add a ln-total penalty per character and crush
+        // every longer composition regardless of its characters' commonness. Equal-reading singles keep
+        // frequency-descending order (O1). The rare single long tail sinks to the back but stays
         // LOSSLESS — the first-syllable single layer is emitted whole, exactly as the non-atomic
-        // [appendLeadingSingles] keeps it (a redundant lock then decodes identically to free typing).
+        // [appendLeadingSingles] keeps it.
         val sylCharFreq = Array(nSyl) { i ->
             val m = HashMap<String, Double>()
             for ((w, f) in homophoneFreqs(input.substring(B[i], B[i + 1]))) m.putIfAbsent(w, f)
@@ -602,9 +621,15 @@ class PinyinDecoder(
         }
         for ((text, _) in sentences) offerTail(text, input.length, nSyl, 1.0)   // composed alternatives
         for ((w, _) in homophoneFreqs(input.substring(0, B[1]))) offerTail(w, B[1], 1, 0.0) // first-syllable singles
+        // Layering (locked path): every multi-character candidate precedes every single —
+        // the word/single split is the PRIMARY sort key, not a tiebreaker, so words and singles never
+        // interleave. Within the word layer the composed alternatives keep the commonness score order
+        // above; within the single layer the score reduces to the reading frequency (O1, frequency
+        // descending) with the rare tail last — still LOSSLESS, sunk not dropped.
         val tailRanked = tailCand.values.sortedWith(
-            compareByDescending<Cand> { tailScore[it.word] ?: Double.NEGATIVE_INFINITY }
-                .thenBy { it.word.codePointCount(0, it.word.length) }       // a single before its equal-score composition
+            compareBy<Cand> { isSingleChar(it.word) }
+                .thenByDescending { tailScore[it.word] ?: Double.NEGATIVE_INFINITY }
+                .thenBy { it.word.codePointCount(0, it.word.length) }       // shorter first on an equal-score tie
                 .thenBy { supplementarySingleTieRank(it.word) },
         )
 
@@ -742,11 +767,12 @@ class PinyinDecoder(
 
     /**
       * Chinese IME behavior note.
-     * start with (within [span], longest first), on a budget SEPARATE from the word/phrase candidates — so no
+     * start with (within [span]), all coverages merged into one global commonness order (see the note
+     * inside), singles on a budget SEPARATE from the word/phrase candidates — so no
       * Chinese IME behavior note.
      * segments. 2nd+ syllables are served per-position by [homophonesAt] for the navigable UI (UI-1/UI-2).
      */
-    private fun appendLeadingSingles(input: String, span: Int, out: ArrayList<Cand>, limit: Int) {
+    private fun appendLeadingSingles(input: String, span: Int, out: ArrayList<Cand>, limit: Int, ctxCp: Int, ctxWord: String) {
         val head = input.substring(0, span)
         val isT9 = input[0] in '2'..'9'
         val lens = if (isT9) T9Pinyin.leadingSyllableDigitLens(head)
@@ -754,43 +780,41 @@ class PinyinDecoder(
         val lensSet = lens.toSet()
         val seen = HashSet<String>(out.size * 2)
         for (c in out) seen.add(c.word)
-        // Ordering (O2): per-prefix multi-char WORDS and the lossless singles tier are merged into ONE
-        // frequency order per coverage (longest prefix first). They used to be two layers — all
-        // per-prefix words, then all singles tiers — which let a rare whole-key cross-parse word
-        // (帝鳄@50 under "die") precede the common singles the completion cap had spilled over
-        // (蝶/爹), and left the alias singles (嗯 for en, at the discounted frequency f·e^-ALIAS_PENALTY
-        // set by [homophoneFreqs]) stranded behind the frequency-1 tail. Words keep the old budget
-        // (PREFIX_PER_LEN per coverage, [limit] overall); the singles tiers stay uncapped (lossless).
+        // Ordering (O2, WHOLE remainder layer): per-prefix multi-char WORDS, the lossless singles tiers
+        // of EVERY coverage, and the swallowed-word re-emissions below all rank in ONE GLOBAL
+        // [wordModelScore] order — the same commonness semantics as the completion pool (singles score
+        // on their [homophoneFreqs] frequency, alias discount folded in; prefix words on their exact-key
+        // frequency, penalty 0). They used to be one frequency order PER coverage, longest prefix first,
+        // which kept rare-before-common fixed only INSIDE a bucket: a longer-coverage group's rare tail
+        // still preceded a shorter group's common singles wholesale (the T9 digit-group tails made this
+        // the expanded-grid norm), and the re-emissions were appended dead last. One score order sinks
+        // every rare tail below every common candidate regardless of coverage; equal-score candidates
+        // keep the old longest-coverage-first, frequency-descending relative order (stable sort over the
+        // q-descending collection). Words keep the old budget (PREFIX_PER_LEN per coverage, [limit]
+        // overall — now granted to the best-scoring words instead of the longest-covering); the singles
+        // tiers stay uncapped (LOSSLESS: the long tail sinks by score, nothing is dropped).
+        val entries = ArrayList<Entry>()
         var wordBudget = maxOf(0, limit - out.size)
         for (q in span downTo 1) {
-            val merged = ArrayList<Pair<String, Double>>()
             if (wordBudget > 0) {
                 var added = 0
                 for (wf in preferredExact(dict, input.substring(0, q))) {
-                    if (isSingleChar(wf.word) || wf.word in seen) continue
-                    merged.add(wf.word to wf.freq.toDouble())
+                    if (isSingleChar(wf.word) || !seen.add(wf.word)) continue
+                    entries.add(Entry(wf.word, q, wordModelScore(wf.word, wf.freq, ctxCp, ctxWord), single = false))
                     if (++added >= PREFIX_PER_LEN) break
                 }
             }
             if (q in lensSet) {
-                for ((w, f) in homophoneFreqs(input.substring(0, q))) if (w !in seen) merged.add(w to f)
-            }
-            if (merged.isEmpty()) continue
-            merged.sortWith(
-                compareByDescending<Pair<String, Double>> { it.second }
-                    .thenBy { supplementarySingleTieRank(it.first) },
-            )
-            for ((w, _) in merged) {
-                if (!seen.add(w)) continue
-                if (!isSingleChar(w)) { if (wordBudget <= 0) continue; wordBudget-- }
-                out.add(Cand(w, q))
+                for ((w, f) in homophoneFreqs(input.substring(0, q))) if (seen.add(w))
+                    entries.add(Entry(w, q, wordModelScore(w, f, ctxCp, ctxWord), single = true))
             }
         }
         // A leading tier's words can be swallowed by a longer tier's word-text dedup (dict.exact("n") ⊆
         // dict.exact("ng"): typing "nga" left 嗯 only at coverage 2, so 嗯-as-n could not be picked before
         // "ga"; on the full pack the tier PARTIALLY survives — 𠮾 stays at coverage 1 while 嗯 is swallowed).
         // Re-emit every swallowed word at its own coverage — the dedup key is (word, coverage), not word
-        // text. Three gates keep this from bloating candidate lists:
+        // text — ranked INSIDE the same global score order (by its own key's [homophoneFreqs] frequency)
+        // instead of stranded behind the whole tail. Three gates keep this from bloating candidate lists:
         //  ①′ the whole buffer is not itself a single syllable — a lone typed syllable keeps its exact
         //     list (its prefix readings, e.g. 数=shu inside a lone "shuo", are served by the free-typing
         //     layers, not re-emitted);
@@ -798,8 +822,7 @@ class PinyinDecoder(
         //  ③  that segmentation does not START with a bare nasal (n/ng/m) — a bare-nasal rest is the same
         //     exotic re-split of a whole syllable that segmentation itself avoids (a "liang" buffer must
         //     not re-offer its 俩=lia reading with an "ng" rest).
-        if (lens.firstOrNull() == input.length) return
-        for (k in lens) {
+        if (lens.firstOrNull() != input.length) for (k in lens) {
             if (k >= input.length) continue
             val rest = input.substring(k)
             val restSeg = if (isT9) T9Pinyin.segment(rest) else T9Pinyin.segmentLetters(rest)
@@ -807,9 +830,22 @@ class PinyinDecoder(
             if (first == "n" || first == "ng" || first == "m") continue
             val present = HashSet<String>()
             for (c in out) if (c.coveredLen == k) present.add(c.word)
-            for (w in homophonesOf(input.substring(0, k))) if (present.add(w)) out.add(Cand(w, k))
+            for (e in entries) if (e.cov == k) present.add(e.word)
+            for ((w, f) in homophoneFreqs(input.substring(0, k))) if (present.add(w))
+                entries.add(Entry(w, k, wordModelScore(w, f, ctxCp, ctxWord), single = true))
+        }
+        entries.sortWith(
+            compareByDescending<Entry> { it.score }
+                .thenBy { supplementarySingleTieRank(it.word) },
+        )
+        for (e in entries) {
+            if (!e.single) { if (wordBudget <= 0) continue; wordBudget-- }
+            out.add(Cand(e.word, e.cov))
         }
     }
+
+    /** One remainder-layer candidate awaiting the global score sort of [appendLeadingSingles]. */
+    private class Entry(val word: String, val cov: Int, val score: Double, val single: Boolean)
 
     /**
      * Segment [input] into its syllables (best-cost split; letters on the 26-key decoder, digits on the
