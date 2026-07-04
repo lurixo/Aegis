@@ -141,6 +141,30 @@ class LiveUserDictHostSaveQueueTest {
         for (i in 0 until 20) assertTrue("词$i must survive the collapse", reloaded.wordBoost("词$i") > 0.0)
     }
 
+    @Test fun an_export_waits_for_a_queued_write_and_finds_it_on_disk() {
+        val h = host()
+        UserDictHot.host = h
+        val release = blocked(h)
+        val worker = helper()
+        try {
+            model.record(null, "待写", 1L)
+            h.scheduleSave()
+            assertFalse("the queued write has not reached the file yet", db.exists())
+
+            val export = worker.submit<Boolean> { UserDictEdit.flushBeforeExport() }
+            Thread.sleep(50)
+            assertFalse("an export must not proceed past a queued user dictionary write", export.isDone)
+
+            release.countDown()
+            assertTrue("the flush must report success", export.get(5, TimeUnit.SECONDS))
+            assertTrue("the queued write must be on disk before the export reads it", db.exists())
+            assertTrue(onDisk().wordBoost("待写") > 0.0)
+        } finally {
+            release.countDown()
+            UserDictHot.host = null
+        }
+    }
+
     @Test fun a_change_made_while_a_write_is_queued_is_still_written() {
         val h = host()
         val release = blocked(h)

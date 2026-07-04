@@ -16,6 +16,7 @@
 package com.aegis.ime.user
 
 import java.io.File
+import java.io.OutputStream
 
 object UserDictEdit {
 
@@ -65,6 +66,30 @@ object UserDictEdit {
             entries.map { m.addTombstone(it.word, "") }.all { it } &&
                 runCatching { m.save(userDb) }.isSuccess
         }.getOrDefault(false)
+    }
+
+    fun applyImport(userDb: File, importFile: File, merge: Boolean, now: Long): Boolean {
+        UserDictHot.host?.let { return it.importUserDict(importFile, merge, now) }
+        return UserDictImport.apply(importFile, userDb, merge, now)
+    }
+
+    fun flushBeforeExport(): Boolean =
+        UserDictHot.host?.let { it.flush() || !it.dictionaryReadable() || !it.learnedReadable() } ?: true
+
+    enum class ExportResult { WRITTEN, NOTHING_TO_EXPORT, NOT_WRITTEN }
+
+    fun hasDictionaryToExport(userDb: File): Boolean = userDb.isFile
+
+    fun exportDictionary(userDb: File, out: OutputStream?): ExportResult {
+        if (out == null) return ExportResult.NOT_WRITTEN
+        if (!hasDictionaryToExport(userDb)) {
+            runCatching { out.close() }
+            return ExportResult.NOTHING_TO_EXPORT
+        }
+        val copied = runCatching {
+            out.use { sink -> userDb.inputStream().use { source -> UserDictExport.copyWithoutTombstones(source, sink) } }
+        }.isSuccess
+        return if (copied) ExportResult.WRITTEN else ExportResult.NOT_WRITTEN
     }
 
     fun list(userDb: File): List<UserModel.Entry> {
