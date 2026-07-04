@@ -38,6 +38,38 @@ class InputAssociationsDataTest {
         }
     }
 
+    @Test fun reported_full_half_duplicates_now_surface_only_the_full_width_form() {
+        val renminbi = InputAssociations.lookup("renminbi")
+        assertTrue("renminbi offers the full-width ￥ (got $renminbi)", "￥" in renminbi)
+        assertTrue("half-width ¥ (U+00A5) must NOT be a renminbi candidate (got $renminbi)", "¥" !in renminbi)
+        val wenhao = InputAssociations.lookup("wenhao")
+        assertTrue("wenhao offers the full-width ？ (got $wenhao)", "？" in wenhao)
+        assertTrue("half-width ? (U+003F) must NOT be a wenhao candidate (got $wenhao)", "?" !in wenhao)
+        assertTrue("¥ stays reachable via riyuan (日元)", "¥" in InputAssociations.lookup("riyuan"))
+    }
+
+    @Test fun every_symbol_row_glyph_surfaces_for_every_name() {
+        for (row in SymbolAssociations.rows()) {
+            for (key in row.keyList) {
+                val hit = InputAssociations.lookup(key)
+                for (g in row.glyphList) {
+                    assertTrue("'$g' (${row.name.ifEmpty { row.keys }}) must appear for '$key', got $hit", g in hit)
+                }
+            }
+        }
+    }
+
+    @Test fun glyphs_carry_no_han_characters_beyond_the_allowlist() {
+        val allowed = setOf("円", "元", "圆", "壹", "贰", "叁", "肆", "伍", "陆", "柒", "捌", "玖", "拾", "佰", "仟", "万", "亿", "貳", "參", "陸", "萬", "億")
+        for ((key, glyphs) in InputAssociations.entriesForTest()) {
+            for (g in glyphs) {
+                if (g in allowed) continue
+                val hasHan = g.codePoints().anyMatch { Character.isIdeographic(it) }
+                assertTrue("key '$key' carries a Han-character glyph '$g' — allowlist it deliberately or drop it", !hasHan)
+            }
+        }
+    }
+
 
     @Test fun separated_and_connected_input_forms_are_equivalent_for_every_key() {
         for (key in InputAssociations.entriesForTest().keys) {
