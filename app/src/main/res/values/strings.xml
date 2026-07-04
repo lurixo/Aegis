@@ -146,6 +146,8 @@
     <string name="layout_panel_title">Keyboard layout</string>
     <string name="settings_panel_title">Settings</string>
 
+    <string name="auto_learn_title">Auto learning</string>
+
     <string name="app_release_label_format" translatable="false">Aegis v%1$s</string>
 
     <string name="settings_backup_title">Data backup</string>

@@ -146,6 +146,8 @@
     <string name="layout_panel_title">键盘布局</string>
     <string name="settings_panel_title">设置</string>
 
+    <string name="auto_learn_title">自动学习</string>
+
     <string name="settings_backup_title">数据备份</string>
     <string name="settings_backup_desc">将全部数据导出或导入为加密文件</string>
     <string name="restore_gate_rollback_failed">恢复没做完，撤销失败，点这里</string>

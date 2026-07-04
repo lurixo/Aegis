@@ -183,6 +183,18 @@ internal fun SettingsPageColumn(title: String, onBack: () -> Unit, content: @Com
 }
 
 @Composable
+internal fun KeyboardSettingsPage(onBack: () -> Unit) {
+    SettingsPageColumn(stringResource(R.string.settings_group_keyboard_title), onBack) {
+        LayoutChoiceCard()
+        LetterCaseCard()
+        KeySoundCard()
+        KeyVibrationToggleCard()
+        KeyPreviewCard()
+        UiLanguageCard()
+    }
+}
+
+@Composable
 internal fun DictSettingsPage(onBack: () -> Unit) {
     SettingsPageColumn(stringResource(R.string.settings_group_dicts_title), onBack) {
         GramDownloadCard()
