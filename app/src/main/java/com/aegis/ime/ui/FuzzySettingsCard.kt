@@ -44,8 +44,10 @@ import com.aegis.ime.dict.Fuzzy
 /**
   * Chinese IME behavior note.
  * the per-rule switches (sub-keyed "fuzzy_<rule>") feed the decoder's per-rule variant matching and
- * are the same prefs the startup screen (J②) drives, so the two stay in sync. Takes effect next time
- * the user switches to Aegis (the engine reads these on (re)load).
+ * are the same prefs the startup screen (J②) drives, so the two stay in sync. debug.47: takes effect
+ * IMMEDIATELY — the IME service's SettingsHotApply listener pushes every "fuzzy*" pref change into the
+ * live engine (KeyboardController.setFuzzyRules), so the next keystroke already decodes with the new
+ * rules; no refocus or IME switch needed.
  */
 @Composable
 internal fun FuzzySettingsCard() {

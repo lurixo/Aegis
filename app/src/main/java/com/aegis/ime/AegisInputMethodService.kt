@@ -30,7 +30,6 @@ import android.widget.Toast
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.EngineAssets
-import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.dict.OctagramReader
 import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.ime.ClipboardView
@@ -44,12 +43,13 @@ import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.ime.SelectionMath
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.SymbolsView
-import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.SymbolCatalog
 import com.aegis.ime.user.ClipboardStore
 import com.aegis.ime.user.CustomSymbolStore
+import com.aegis.ime.user.LiveUserDictHost
 import com.aegis.ime.user.SymbolUsageStore
+import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserModel
 import java.io.File
 
@@ -145,39 +145,47 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     // Aegis is the active input method.
     private val clipChangedListener = android.content.ClipboardManager.OnPrimaryClipChangedListener { onSystemClipChanged() }
 
-    // Chinese IME behavior note.
-    // RUNNING IME without a re-launch — re-read the pref and hot-apply the CN default keyboard the instant it
-    // changes (the controller's setCnDefaultLayout then switches the live layout in place). Was: only re-read in
-    // onStartInputView, so a settings change needed a field refocus / IME re-launch to take effect.
-    private val layoutPrefListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
-        if (key == "cn_layout") {
-            val id = if (prefs.getString("cn_layout", "nine") == "alpha") LayoutId.ALPHA else LayoutId.NINE
+    // ③ → debug.47: EVERY settings change hot-applies to the RUNNING IME the moment it lands — never "wait
+    // for the next field focus". SettingsHotApply maps each pref key to its live action (CN layout,
+    // predictions, fuzzy rules, downloaded-pack changes); the user dictionary hot path is UserDictHot below.
+    // Callbacks hop to the main thread and guard on controller initialization, like the two per-key
+    // listeners this replaces.
+    private val settingsHotApply = SettingsHotApply(
+        onCnLayout = { id ->
             Handler(Looper.getMainLooper()).post {
                 if (::controller.isInitialized) controller.setCnDefaultLayout(id)
             }
-        }
-    }
-
-    private val associationPrefListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
-        if (key == com.aegis.ime.ui.PREF_ASSOCIATIONS_ON) {
-            val on = prefs.getBoolean(
-                com.aegis.ime.ui.PREF_ASSOCIATIONS_ON,
-                com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON,
-            )
+        },
+        onAssociations = { on ->
             Handler(Looper.getMainLooper()).post {
                 if (::controller.isInitialized) controller.setAssociationsEnabled(on)
             }
-        }
+        },
+        onFuzzyRules = { rules ->
+            Handler(Looper.getMainLooper()).post {
+                if (::controller.isInitialized) controller.setFuzzyRules(rules)
+            }
+        },
+        onEngineAssetsChanged = {
+            Handler(Looper.getMainLooper()).post { maybeReloadEngine() }
+        },
+    )
+
+    // debug.47: live user-dictionary host for the settings page — same process, same UserModel instance the
+    // decoder reads, so an add/delete/import is visible on the next keystroke and dirty (unsaved learning)
+    // merges instead of being lost. Registered only after the initial userdb load (else a save could wipe
+    // the not-yet-loaded learning); the mtime callback keeps onStartInput's reload watermark current.
+    private val liveUserDictHost by lazy {
+        LiveUserDictHost(userModel, userDbFile) { userDbMtime = it }
     }
 
     override fun onCreate() {
         super.onCreate()
         runCatching { clipboardManager.addPrimaryClipChangedListener(clipChangedListener) }
         runCatching {
-            val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
-            prefs.registerOnSharedPreferenceChangeListener(layoutPrefListener)
-            prefs.registerOnSharedPreferenceChangeListener(associationPrefListener)
-        } // ③
+            getSharedPreferences("aegis", MODE_PRIVATE)
+                .registerOnSharedPreferenceChangeListener(settingsHotApply)
+        } // ③/debug.47: one listener for every hot-applied setting
         // Start with an empty engine (ASCII typing works immediately); load the ~70 MB dictionaries
         // and the user model off the main thread and swap the real engine in when ready.
         controller = KeyboardController(this, DictEngine(null, null, null))
@@ -194,8 +202,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         Thread {
             runCatching { userModel.load(userDbFile); userDbMtime = userDbFile.lastModified() }
             userDbLoaded = true // M-2: gate onStartInput's reload until the initial load is done
+            UserDictHot.host = liveUserDictHost // debug.47: settings edits now go into the LIVE model
             val engine = buildEngine() // debug.16: also records engineSig for the hot-reload check
-            Handler(Looper.getMainLooper()).post { controller.setEngine(engine) }
+            Handler(Looper.getMainLooper()).post {
+                controller.setEngine(engine)
+                // debug.47: a pack downloaded/deleted while the initial build ran fired the pref listener
+                // into the engineSig-empty no-op — re-check once now that the signature is committed.
+                maybeReloadEngine()
+            }
         }.apply { name = "aegis-dict-load"; isDaemon = true }.start()
     }
 
@@ -228,12 +242,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
      * debug.16 (fuzzy hot-toggle): the fuzzy rule-key set selected by the current prefs (master "fuzzy" +
      * each per-rule "fuzzy_<rule>"). Shared by [buildEngine] (so a rebuilt engine carries the current rules)
       * Chinese IME behavior note.
-     * a cold start or an engine rebuild. The pure selection lives in [Fuzzy.activeRules] (unit-tested).
+     * a cold start or an engine rebuild. Single-sourced with the hot-apply listener via
+     * [SettingsHotApply.fuzzyRules]; the pure selection lives in [Fuzzy.activeRules] (unit-tested).
      */
-    private fun currentFuzzyRules(): Set<String> {
-        val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
-        return Fuzzy.activeRules(prefs.getBoolean("fuzzy", Fuzzy.DEFAULT_ON)) { prefs.getBoolean(Fuzzy.prefKey(it), true) }
-    }
+    private fun currentFuzzyRules(): Set<String> =
+        SettingsHotApply.fuzzyRules(getSharedPreferences("aegis", MODE_PRIVATE))
 
     /**
      * debug.16 (engine hot-reload): if a downloaded model/dict pack changed (new download / update / delete)
@@ -253,11 +266,16 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         engineReloading = true
         try {
             Thread {
-                runCatching {
+                val ok = runCatching {
                     val engine = buildEngine() // updates engineSig to the snapshot it loaded
                     Handler(Looper.getMainLooper()).post { controller.setEngine(engine) }
-                }.onFailure { Log.e("Aegis", "engine hot-reload failed", it) }
+                }.onFailure { Log.e("Aegis", "engine hot-reload failed", it) }.isSuccess
                 engineReloading = false
+                // debug.47: a pack change landing while this rebuild ran was swallowed by the re-entrancy
+                // guard above — re-check once after a successful swap (signature equality makes it a no-op
+                // when nothing else changed). A FAILED build keeps the old signature and retries on the next
+                // onStartInput, as before — no tight retry loop on a persistently unreadable pack.
+                if (ok) Handler(Looper.getMainLooper()).post { maybeReloadEngine() }
             }.apply { name = "aegis-dict-reload"; isDaemon = true }.start()
         } catch (t: Throwable) {
             // The thread could not be started (e.g. native-thread exhaustion under memory pressure). Clear the
@@ -378,15 +396,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             inputView?.hideCopyBar()
         }
         // B5: honour the user's CN default-keyboard choice (9-key unless they picked 26-key); EN stays 26-key.
+        // debug.47: read through the same SettingsHotApply resolvers the hot-apply listener uses, so the
+        // "belt" (this re-read on focus) and the "suspenders" (the live listener) can never disagree.
         val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
-        val cnLayout = prefs.getString("cn_layout", "nine")
-        controller.setCnDefaultLayout(if (cnLayout == "alpha") LayoutId.ALPHA else LayoutId.NINE)
+        controller.setCnDefaultLayout(SettingsHotApply.cnLayout(prefs))
         // Chinese IME behavior note.
         // the stored pref still wins, so a user who explicitly enabled it keeps it. Single source of truth for
         // the key + default lives in AssociationToggleCard.
-        controller.setAssociationsEnabled(
-            prefs.getBoolean(com.aegis.ime.ui.PREF_ASSOCIATIONS_ON, com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON),
-        )
+        controller.setAssociationsEnabled(SettingsHotApply.associationsOn(prefs))
         // Chinese IME behavior note.
         // Chinese IME behavior note.
         // cold start. The engine hot-reload path (#49) carries the same rules via buildEngine → currentFuzzyRules.
@@ -827,10 +844,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun onDestroy() {
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
+        // debug.47: withdraw the live user-dict host (only if it is still ours) so the settings page falls
+        // back to the file path instead of writing through a dead service's model.
+        if (UserDictHot.host === liveUserDictHost) UserDictHot.host = null
         runCatching {
-            val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
-            prefs.unregisterOnSharedPreferenceChangeListener(layoutPrefListener)
-            prefs.unregisterOnSharedPreferenceChangeListener(associationPrefListener)
+            getSharedPreferences("aegis", MODE_PRIVATE)
+                .unregisterOnSharedPreferenceChangeListener(settingsHotApply)
         } // ③
         super.onDestroy()
     }

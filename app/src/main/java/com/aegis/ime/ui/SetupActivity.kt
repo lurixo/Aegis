@@ -30,6 +30,8 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -40,6 +42,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -54,6 +57,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -63,14 +67,26 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import com.aegis.ime.R
 import com.aegis.ime.ui.theme.AegisTheme
 
-/** Landing screen: enable the IME, switch to it, and a field to try typing. */
+/**
+ * Settings entry point. debug.47: one Activity, grouped navigation — a home screen with four group
+ * entries (input settings / dictionaries & downloads / user dictionary / about & enable) and a sub-page
+ * per group, instead of the former single scrolling column of eleven cards. Every page keeps the
+ * edge-to-edge [settingsScrollInsets] contract; the try-typing field (About page) keeps the IME-show
+ * retry machinery.
+ */
 class SetupActivity : ComponentActivity() {
     private var resumeSignal by mutableIntStateOf(0)
 
@@ -83,7 +99,7 @@ class SetupActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    SetupScreen(resumeSignal = resumeSignal)
+                    SettingsNavGraph(resumeSignal = resumeSignal)
                 }
             }
         }
@@ -95,10 +111,212 @@ class SetupActivity : ComponentActivity() {
     }
 }
 
+/** Route names of the settings graph — single-sourced for the navigation tests. */
+internal object SettingsRoutes {
+    const val HOME = "home"
+    const val INPUT = "input"
+    const val DICTS = "dicts"
+    const val USER_DICT = "userdict"
+    const val ABOUT = "about"
+
+    /** Every group sub-page reachable from home (order = home-screen order). */
+    val GROUPS = listOf(INPUT, DICTS, USER_DICT, ABOUT)
+}
+
 @Composable
-private fun SetupScreen(resumeSignal: Int = 0) {
+internal fun SettingsNavGraph(
+    resumeSignal: Int = 0,
+    navController: NavHostController = rememberNavController(),
+) {
+    // Double-tap guards: the outgoing page stays tappable during the NavHost transition, so a rapid
+    // second tap would otherwise land too. Opening is gated on still being on HOME (drops both the
+    // same-card double-tap and a two-finger tap on two cards); back is gated on a previous entry
+    // existing, so it can never pop the HOME start destination and leave an empty NavHost.
+    val openGroup: (String) -> Unit = { route ->
+        if (navController.currentDestination?.route == SettingsRoutes.HOME) {
+            navController.navigate(route) { launchSingleTop = true }
+        }
+    }
+    val back: () -> Unit = {
+        if (navController.previousBackStackEntry != null) navController.popBackStack()
+    }
+    NavHost(navController = navController, startDestination = SettingsRoutes.HOME) {
+        composable(SettingsRoutes.HOME) {
+            SettingsHomePage(onOpenGroup = openGroup)
+        }
+        composable(SettingsRoutes.INPUT) {
+            InputSettingsPage(onBack = back)
+        }
+        composable(SettingsRoutes.DICTS) {
+            DictSettingsPage(onBack = back)
+        }
+        composable(SettingsRoutes.USER_DICT) {
+            UserDictPage(onBack = back)
+        }
+        composable(SettingsRoutes.ABOUT) {
+            AboutPage(resumeSignal = resumeSignal, onBack = back)
+        }
+    }
+}
+
+/** Home: app intro, the one-time download hint, and the four group entries. */
+@Composable
+private fun SettingsHomePage(onOpenGroup: (String) -> Unit) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
+
+    // B3: a one-time, non-blocking first-run hint that the optional downloads exist (the seed dict + base
+    // grammar already work offline, so this never blocks typing). Dismissed for good once acknowledged.
+    var showDownloadHint by remember { mutableStateOf(!prefs.getBoolean("dl_hint_dismissed", false)) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            // debug.16: pad the scroll VIEWPORT with the full safe-drawing insets (system bars + cutout + IME)
+            // OUTSIDE the scroll, so the viewport shrinks to the keyboard top — keeping content below the status
+            // Chinese IME behavior note.
+            .settingsScrollInsets(
+                scrollState = rememberScrollState(),
+                insets = WindowInsets.safeDrawing,
+            )
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Text(stringResource(R.string.setup_title), style = MaterialTheme.typography.headlineMedium)
+        Text(
+            stringResource(R.string.setup_summary),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+
+        // B3 (debug.13): one-time, non-blocking hint that the optional downloads exist — never a dialog.
+        if (showDownloadHint) {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(stringResource(R.string.setup_first_run_title), style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        stringResource(R.string.setup_first_run_body),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    TextButton(
+                        onClick = {
+                            showDownloadHint = false
+                            prefs.edit { putBoolean("dl_hint_dismissed", true) }
+                        },
+                    ) { Text(stringResource(R.string.setup_first_run_ack)) }
+                }
+            }
+        }
+
+        SettingsGroupCard(
+            titleRes = R.string.settings_group_input_title,
+            descRes = R.string.settings_group_input_desc,
+            onClick = { onOpenGroup(SettingsRoutes.INPUT) },
+        )
+        SettingsGroupCard(
+            titleRes = R.string.settings_group_dicts_title,
+            descRes = R.string.settings_group_dicts_desc,
+            onClick = { onOpenGroup(SettingsRoutes.DICTS) },
+        )
+        SettingsGroupCard(
+            titleRes = R.string.settings_group_userdict_title,
+            descRes = R.string.settings_group_userdict_desc,
+            onClick = { onOpenGroup(SettingsRoutes.USER_DICT) },
+        )
+        SettingsGroupCard(
+            titleRes = R.string.settings_group_about_title,
+            descRes = R.string.settings_group_about_desc,
+            onClick = { onOpenGroup(SettingsRoutes.ABOUT) },
+        )
+    }
+}
+
+/** One home-screen group entry: title + a summary of what the sub-page holds. */
+@Composable
+private fun SettingsGroupCard(titleRes: Int, descRes: Int, onClick: () -> Unit) {
+    Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(stringResource(titleRes), style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(descRes), style = MaterialTheme.typography.bodySmall)
+            }
+            Text(
+                "›",
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** Shared sub-page header: back arrow + page title. The "‹" glyph is the app's own back idiom (IME panels). */
+@Composable
+internal fun SettingsPageHeader(title: String, onBack: () -> Unit) {
+    val backLabel = stringResource(R.string.settings_back)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        IconButton(
+            onClick = onBack,
+            modifier = Modifier.semantics { contentDescription = backLabel },
+        ) {
+            Text("‹", style = MaterialTheme.typography.headlineMedium)
+        }
+        Text(title, style = MaterialTheme.typography.headlineSmall)
+    }
+}
+
+/** Shared sub-page scaffold: header + content in the same inset-aware scroller as the home screen. */
+@Composable
+private fun SettingsPageColumn(title: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            // Same contract as home: safe-drawing insets OUTSIDE the scroll (viewport shrinks to the IME top).
+            .settingsScrollInsets(
+                scrollState = rememberScrollState(),
+                insets = WindowInsets.safeDrawing,
+            )
+            .padding(horizontal = 24.dp)
+            .padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        SettingsPageHeader(title, onBack)
+        content()
+    }
+}
+
+/** 输入设置: keyboard mode, fuzzy pinyin, next-word suggestions. */
+@Composable
+private fun InputSettingsPage(onBack: () -> Unit) {
+    SettingsPageColumn(stringResource(R.string.settings_group_input_title), onBack) {
+        LayoutChoiceCard()
+        FuzzySettingsCard()
+        AssociationToggleCard()
+        // Hook point: the upcoming touch-feedback settings (key vibration / key-press preview toggles)
+        // belong to this group — add their card(s) here, below the association toggle.
+    }
+}
+
+/** 词库与下载: the full dictionary pack and the enhancement model. */
+@Composable
+private fun DictSettingsPage(onBack: () -> Unit) {
+    SettingsPageColumn(stringResource(R.string.settings_group_dicts_title), onBack) {
+        DictDownloadCard()
+        GramDownloadCard()
+    }
+}
+
+/** 关于与启用: app release, enable/switch steps, and the try-typing field. */
+@Composable
+private fun AboutPage(resumeSignal: Int, onBack: () -> Unit) {
+    val context = LocalContext.current
     var typed by remember { mutableStateOf("") }
     var tryFieldFocused by remember { mutableStateOf(false) }
     var tryFieldImeRequest by remember { mutableIntStateOf(0) }
@@ -149,60 +367,8 @@ private fun SetupScreen(resumeSignal: Int = 0) {
         )
     }
 
-    // B3: a one-time, non-blocking first-run hint that the optional downloads exist (the seed dict + base
-    // grammar already work offline, so this never blocks typing). Dismissed for good once acknowledged.
-    var showDownloadHint by remember { mutableStateOf(!prefs.getBoolean("dl_hint_dismissed", false)) }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            // debug.16: pad the scroll VIEWPORT with the full safe-drawing insets (system bars + cutout + IME)
-            // OUTSIDE the scroll, so the viewport shrinks to the keyboard top — keeping content below the status
-            // Chinese IME behavior note.
-            .settingsScrollInsets(
-                scrollState = rememberScrollState(),
-                insets = WindowInsets.safeDrawing,
-            )
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Text(stringResource(R.string.setup_title), style = MaterialTheme.typography.headlineMedium)
-        Text(
-            stringResource(R.string.setup_summary),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-
-        // B3 (debug.13): one-time, non-blocking hint that the optional downloads exist — never a dialog.
-        if (showDownloadHint) {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(stringResource(R.string.setup_first_run_title), style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        stringResource(R.string.setup_first_run_body),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    TextButton(
-                        onClick = {
-                            showDownloadHint = false
-                            prefs.edit { putBoolean("dl_hint_dismissed", true) }
-                        },
-                    ) { Text(stringResource(R.string.setup_first_run_ack)) }
-                }
-            }
-        }
-
-        // Chinese IME behavior note.
-        // The cards are each in their own file so the B-order work and the model/dict/fuzzy work don't collide.
-        GramDownloadCard() // Chinese IME behavior note.
-        DictDownloadCard() // Chinese IME behavior note.
-        FuzzySettingsCard()
-        AssociationToggleCard() // Chinese IME behavior note.
-        LayoutChoiceCard()
-        // Chinese IME behavior note.
-        // Chinese IME behavior note.
+    SettingsPageColumn(stringResource(R.string.settings_group_about_title), onBack) {
+        AppVersionCard()
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(
@@ -249,9 +415,6 @@ private fun SetupScreen(resumeSignal: Int = 0) {
                     if (!it.isFocused) activeTryFieldImeRequest = 0
                 },
         )
-
-        UserDictCard()
-        AppVersionCard()
     }
 }
 

@@ -110,4 +110,30 @@ class SettingsRenderTest {
             }
         }
     }
+
+    /** debug.47: the grouped-navigation home (four group entries) — the new settings landing screen. */
+    @Test fun settings_home_renders() {
+        for (dark in listOf(false, true)) {
+            val t = if (dark) "dark" else "light"
+            snapCompose("settings_home_$t.png", dark) {
+                SettingsNavGraph()
+            }
+        }
+    }
+
+    /** debug.47: the user-dictionary page (pinned search + lazy list) with a few seeded entries. */
+    @Test fun user_dict_page_renders() {
+        val db = File(ctx.filesDir, "userdb.txt")
+        db.writeText("aegis-userdb 1\nR\tnihao\t你好\nR\tceshi\t测试\nR\thaode\t好的\n")
+        try {
+            for (dark in listOf(false, true)) {
+                val t = if (dark) "dark" else "light"
+                snapCompose("userdict_page_$t.png", dark) {
+                    UserDictPage(onBack = {})
+                }
+            }
+        } finally {
+            db.delete()
+        }
+    }
 }
