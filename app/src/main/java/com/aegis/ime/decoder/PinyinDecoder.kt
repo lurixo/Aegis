@@ -151,7 +151,14 @@ class PinyinDecoder(
      * a fresh buffer behaves exactly as before. This is the ③ context-aware same-code disambiguation.
      */
     private fun wordModelScore(word: String, freq: Int, ctxCp: Int, ctxWord: String): Double =
-        (ln(freq.toDouble()) - lnTotal) +
+        wordModelScore(word, freq.toDouble(), ctxCp, ctxWord)
+
+    /** [wordModelScore] over a (possibly penalty-discounted) frequency — the log-domain unigram term
+     *  ln(freq)−lnTotal already folds a source penalty in when the caller passes f·e^−penalty (e.g. the
+     *  alias-discounted single frequencies from [homophoneFreqs]). Same boosts/context terms as the
+     *  Int overload; single-syllable candidates score on the same scale as the whole-buffer sentences. */
+    private fun wordModelScore(word: String, freq: Double, ctxCp: Int, ctxWord: String): Double =
+        (ln(freq) - lnTotal) +
             (userModel?.wordBoost(word) ?: 0.0) +
             (octagram?.let { octagramWeight * (it.rawScore(word) ?: 0.0) } ?: 0.0) +
             (if (lm != null && ctxCp != BOS) contextWeight * lm.logCond(ctxCp, word.codePointAt(0)) else 0.0) +
@@ -411,28 +418,82 @@ class PinyinDecoder(
         val nSyl = B.size - 1
 
         val singlesCache = HashMap<String, Set<String>>()
-        val cover = LinkedHashMap<String, Int>()
         val sentences = atomicSentences(input, B, interior, ctxCp, ctxWord, singlesCache)
-        sentences.firstOrNull()?.let { cover[it] = input.length }            // ① best sentence
-        // ③ leading multi-syllable words [0, B[j]] (cover the first j syllables), freq-descending. A user
-        // lock is a HARD boundary: a whole dict word fetched by the boundary-less key must not cross a
-        // forced cut (locking fang+an must not offer 反感 = fan+gan) — see [admissibleUnderCuts].
-        val leadWords = ArrayList<Pair<String, Int>>() // (word, coveredLen) sortable by the carried freq
-        val leadFreq = HashMap<String, Int>()
+
+        val best = sentences.firstOrNull()?.first                  // ① pinned best interpretation (commit default)
+
+        // ② leading / whole-buffer exact dictionary WORDS for [0, B[j]] (the whole-key exact multi-syllable
+        // words that read as the normal top of the strip), frequency-descending. A user lock is a HARD
+        // boundary: a whole dict word fetched by the boundary-less key must not cross a forced cut (locking
+        // fang+an must not offer 反感 = fan+gan) — see [admissibleUnderCuts].
+        val leadFreq = LinkedHashMap<String, Int>()
+        val leadCov = HashMap<String, Int>()
         for (j in 2..nSyl) for (wf in preferredExact(dict, input.substring(0, B[j]))) if (!isSingleChar(wf.word)) {
             if (!admissibleUnderCuts(wf.word, 0, B[j], interior, input, singlesCache)) continue
-            if (leadFreq.put(wf.word, wf.freq) == null) leadWords.add(wf.word to B[j])
+            if (leadFreq.put(wf.word, wf.freq) == null) leadCov[wf.word] = B[j]
         }
-        leadWords.sortedByDescending { leadFreq[it.first] ?: 0 }.forEach { cover.putIfAbsent(it.first, it.second) }
 
-        val out = ArrayList<Cand>(minOf(cover.size, limit) + 40)
-        for ((w, len) in cover) { out.add(Cand(w, len)); if (out.size >= limit) break }
-        // Chinese IME behavior note.
-        // user-DECLARED unit [0, B[1]] — unlike the unlocked layer it is NOT re-split into sub-prefixes (a locked
-        // Chinese IME behavior note.
-        val seen = HashSet<String>(out.size * 2); for (c in out) seen.add(c.word)
-        for (w in homophonesOf(input.substring(0, B[1]))) if (seen.add(w)) out.add(Cand(w, B[1]))
-        for (s in sentences.drop(1)) if (seen.add(s)) out.add(Cand(s, input.length)) // ④ alternative sentences
+        // ③ first-syllable single homophones + the composed alternative sentences, merged into ONE cold-start
+        // [wordModelScore] order (the O2 invariant on the locked path). Before, these were two source layers —
+        // EVERY first-syllable single (rare tail and all), THEN the alternative sentences appended dead last —
+        // so a rare single could precede a common multi-character candidate. They now share ONE frequency: a
+        // candidate is as common as its RAREST covered reading-character. Per-syllable reading frequencies (the
+        // same [homophoneFreqs] the singles use, alias discount folded in) make the score length-neutral, so a
+        // candidate of common characters ranks alongside its common single while a rare single sinks below the
+        // common words and sentences. Length-neutrality is the point: a raw covered-log-probability adds a
+        // ln-total penalty per character, so a two-character candidate scores below a single of the same leading
+        // frequency and the common two-char candidates stay stuck beneath the mid-rare singles. Equal-reading
+        // singles keep frequency-descending order (O1). The rare single long tail sinks to the back but stays
+        // LOSSLESS — the first-syllable single layer is emitted whole, exactly as the non-atomic
+        // [appendLeadingSingles] keeps it (a redundant lock then decodes identically to free typing).
+        val sylCharFreq = Array(nSyl) { i ->
+            val m = HashMap<String, Double>()
+            for ((w, f) in homophoneFreqs(input.substring(B[i], B[i + 1]))) m.putIfAbsent(w, f)
+            m
+        }
+        // Rarest covered reading-character frequency: codepoint i reads covered syllable i (a returned sentence
+        // covers all syllables with one codepoint each). A codepoint absent from its syllable's single set (a
+        // heteronym reading) falls back to [carried].
+        fun commonnessFreq(word: String, coveredSyls: Int, carried: Double): Double {
+            var mn = Double.MAX_VALUE
+            var ci = 0
+            var si = 0
+            while (ci < word.length && si < coveredSyls) {
+                val cp = word.codePointAt(ci)
+                val f = sylCharFreq.getOrNull(si)?.get(String(Character.toChars(cp))) ?: carried
+                if (f < mn) mn = f
+                ci += Character.charCount(cp)
+                si++
+            }
+            return if (mn == Double.MAX_VALUE) carried else mn
+        }
+        val tailScore = HashMap<String, Double>()
+        val tailCand = LinkedHashMap<String, Cand>()
+        fun offerTail(word: String, coveredLen: Int, coveredSyls: Int, carried: Double) {
+            if (word == best || word in leadFreq) return          // pinned or already a prominent exact word
+            val score = wordModelScore(word, commonnessFreq(word, coveredSyls, carried), ctxCp, ctxWord)
+            val prev = tailScore[word]
+            if (prev == null || score > prev) { tailScore[word] = score; tailCand[word] = Cand(word, coveredLen) }
+        }
+        for ((text, _) in sentences) offerTail(text, input.length, nSyl, 1.0)   // composed alternatives
+        for ((w, _) in homophoneFreqs(input.substring(0, B[1]))) offerTail(w, B[1], 1, 0.0) // first-syllable singles
+        val tailRanked = tailCand.values.sortedWith(
+            compareByDescending<Cand> { tailScore[it.word] ?: Double.NEGATIVE_INFINITY }
+                .thenBy { it.word.codePointCount(0, it.word.length) }       // a single before its equal-score composition
+                .thenBy { supplementarySingleTieRank(it.word) },
+        )
+
+        val out = ArrayList<Cand>(1 + leadFreq.size + tailRanked.size)
+        val seen = HashSet<String>()
+        best?.let { if (seen.add(it)) out.add(Cand(it, input.length)) }
+        // The exact-word tier is bounded by [limit] (as the non-atomic completion tier is); the first-syllable
+        // single layer below stays LOSSLESS (uncapped), matching [appendLeadingSingles] — the composed
+        // alternatives it is merged with are already bounded by the [ATOMIC_BEAM_N] beam.
+        for ((w, _) in leadFreq.entries.sortedByDescending { it.value }) {
+            if (out.size >= limit) break
+            if (seen.add(w)) out.add(Cand(w, leadCov.getValue(w)))
+        }
+        for (c in tailRanked) if (seen.add(c.word)) out.add(c)
         return out
     }
 
@@ -514,7 +575,7 @@ class PinyinDecoder(
         ctxCp: Int,
         ctxWord: String,
         singlesCache: HashMap<String, Set<String>>,
-    ): List<String> {
+    ): List<Pair<String, Double>> {
         val nSyl = B.size - 1
         val dp = Array(B.size) { ArrayList<APath>() }
         dp[0].add(APath("", ctxCp, ctxWord, 0.0))
@@ -546,9 +607,12 @@ class PinyinDecoder(
             }
         }
         if (dp[nSyl].isEmpty()) return emptyList()
-        val ordered = LinkedHashSet<String>()
-        for (p in dp[nSyl].sortedByDescending { it.score }) { ordered.add(p.text); if (ordered.size >= ATOMIC_BEAM_N) break }
-        return ordered.toList()
+        val ordered = ArrayList<Pair<String, Double>>(ATOMIC_BEAM_N)
+        val seen = HashSet<String>()
+        for (p in dp[nSyl].sortedByDescending { it.score }) {
+            if (seen.add(p.text)) { ordered.add(p.text to p.score); if (ordered.size >= ATOMIC_BEAM_N) break }
+        }
+        return ordered
     }
 
     /**

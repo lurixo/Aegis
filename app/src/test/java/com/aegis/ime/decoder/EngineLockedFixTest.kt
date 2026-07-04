@@ -321,7 +321,14 @@ class EngineLockedFixTest {
         val w = words(d.decodeCoveredAtomic("xiangku", 30, setOf("xiang".length)))
 
         assertTrue("cross-boundary word remains available", "想哭" in w.take(3))
-        assertTrue("xiang homophones remain prominent", w.take(8).containsAll(listOf("向", "想", "相", "像", "香")))
+        // The locked grid now ranks the first-syllable homophones and the composed two-char candidates in ONE
+        // commonness order (the old "every single, then the composed candidates dead last" layering is gone), so
+        // a common composed candidate (this fixture makes the ku-chars as frequent as the xiang-chars) can sit
+        // between two xiang homophones. The homophones stay prominent — the top singles still LEAD the single-
+        // character tail and every common homophone remains reachable — while no shorter reading leaks in.
+        assertEquals("the top xiang homophones lead the single-character tail", listOf("向", "想", "相"),
+            w.filter { it.codePointCount(0, it.length) == 1 }.take(3))
+        assertTrue("all common xiang homophones remain reachable", w.containsAll(listOf("向", "想", "相", "像", "香")))
         assertFalse("selected xiang must not leak xian candidates", "西安" in w)
         assertFalse("selected xiang must not leak xi prefix singles", "西" in w)
         assertFalse("selected xiang must not leak xia prefix singles", "下" in w)

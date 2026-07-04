@@ -634,4 +634,176 @@ class ExhaustiveDecodeAuditExtTest {
         )
         assertTrue("E6 ordering violations must be zero: ${rows.take(8)}", rows.isEmpty())
     }
+
+    // ================= E7 · LOCKED/ATOMIC ordering invariant — HARD GATE =================
+    //
+    // E6 only ever drove the free-typing path ([PinyinDecoder.decodeCovered]); the LOCKED path
+    // ([decodeCoveredAtomic], which both keyboards funnel a committed reading through — see
+    // BothKeyboardsAtomicFixTest) had its own hand-rolled source layering (first-syllable singles, then the
+    // composed alternative sentences dead last), so a rare single preceded a common multi-character candidate
+    // there while E6 stayed green. E7 extends the SAME O1/O2 rare-before-common gate to that locked decode.
+    //
+    // Enumeration (mechanical, NOT sampled): ALL 415² ordered syllable PAIRS — every first syllable ×
+    // every second syllable — the exhaustive lockable 2-syllable set, on BOTH keyspaces (26-key letters and
+    // 9-key digit strings with the production aliasDict wiring). An n=3 sweep locks every first syllable
+    // against representative common tails so the invariant is exercised past two syllables for the whole
+    // syllable universe. The full-pack config re-runs this entire class through the asset-swap mechanism.
+    //
+    // O1: within the first-syllable single bucket, the input-reading singles (∈ exact(s1)) are non-increasing
+    //     in matched frequency (alias singles — the en→ng alias — are not input-reading singles, exempt as in E6).
+    // O2: no RARE single (matched reading frequency ≤ E6_RARE) precedes a COMMON multi-character candidate
+    //     (≥2 codepoints whose RAREST covered reading-character frequency ≥ E6_COMMON). List position 0 (the
+    //     pinned best interpretation / commit default) is exempt, exactly as in E6.
+    // L (lossless, oracle INDEPENDENT of the production ranking metric): every native single of s1 (∈ exact(s1))
+    //     must be emitted somewhere in the locked grid — the first-syllable homophone layer stays whole. This
+    //     is a raw set-membership check against the dictionary, so — unlike O2, whose commonness partition is a
+    //     monotone function of the same per-syllable frequency the production sort uses — it catches a mis-sized
+    //     budget / dropped tail that a pure ranking re-derivation could not.
+    // Native single char -> frequency per (source, key), memoised: the exhaustive sweep asks the same 415 first
+    // syllables 415 times each and probes hundreds of single candidates per pair, so one scan of exact(key) is
+    // reused instead of re-iterating it per candidate (which is a full-pack hot path over thousand-entry keys).
+    private val nativeSinglesMap = HashMap<String, Map<String, Int>>()
+    private fun nativeSinglesOf(source: BinaryDict, key: String): Map<String, Int> =
+        nativeSinglesMap.getOrPut((if (source === dict) "L:" else "D:") + key) {
+            val m = HashMap<String, Int>()
+            for (wf in source.exact(key)) if (isSingleChar(wf.word)) m.putIfAbsent(wf.word, wf.freq)
+            m
+        }
+    private fun nativeSingleFreq(source: BinaryDict, key: String, ch: String): Int? = nativeSinglesOf(source, key)[ch]
+
+    /** O1+O2 (+ optionally L) violation rows for one locked decode. [sylKeys] are the locked syllables in the
+     *  decoder's own keyspace; codepoint i of a multi-char candidate reads covered syllable i. [checkLossless]
+     *  is set only for the letter keyspace: there a valid syllable chunk stays atomic under a lock so
+     *  sylKeys[0] IS the decoder's first syllable. On the T9 keyspace an ambiguous digit group (e.g. 3364 =
+     *  deng/feng) can re-segment inside the chunk, so sylKeys[0] is not the emitted first-syllable key and the
+     *  set-membership L check does not apply — and the locked path is letter-only in production anyway (both
+     *  keyboards funnel a committed reading through the letter decodeCoveredAtomic; see BothKeyboardsAtomicFixTest). */
+    private fun lockedOrderViolations(
+        source: BinaryDict,
+        sylKeys: List<String>,
+        cands: List<Cand>,
+        checkLossless: Boolean,
+    ): List<String> {
+        val rows = ArrayList<String>()
+        val cum = IntArray(sylKeys.size + 1)
+        for (i in sylKeys.indices) cum[i + 1] = cum[i] + sylKeys[i].length
+        fun coveredSyls(cov: Int): Int { for (j in sylKeys.indices) if (cum[j + 1] == cov) return j + 1; return -1 }
+        fun codepoints(w: String): List<String> {
+            val o = ArrayList<String>(); var i = 0
+            while (i < w.length) { val c = w.codePointAt(i); o.add(String(Character.toChars(c))); i += Character.charCount(c) }
+            return o
+        }
+        val tag = sylKeys.joinToString("+")
+        var rareSingleSeen: String? = null
+        val singleBucket = ArrayList<Pair<String, Int>>() // (char, native freq), list order
+        val emittedFirstSingles = HashSet<String>()
+        for ((pos, c) in cands.withIndex()) {
+            val ncp0 = c.word.codePointCount(0, c.word.length)
+            if (ncp0 == 1 && coveredSyls(c.coveredLen) == 1) emittedFirstSingles.add(c.word) // for L (incl. pos 0)
+            if (pos == 0) continue // pinned best interpretation (commit default)
+            val ncp = ncp0
+            val ks = coveredSyls(c.coveredLen)
+            if (ncp == 1 && ks == 1) {
+                val native = nativeSingleFreq(source, sylKeys[0], c.word) // O1 counts input-reading singles only
+                if (native != null) singleBucket.add(c.word to native)
+                val matched = e6RawFreq(source, sylKeys[0], c.word) // rarity by matched (raw) frequency
+                if (matched != null && matched <= E6_RARE) rareSingleSeen = "${c.word}@$matched"
+            } else if (ncp >= 2 && ks >= 1) {
+                val chars = codepoints(c.word)
+                var mn = Int.MAX_VALUE
+                var resolvable = true
+                for (i in 0 until minOf(ncp, ks)) {
+                    val f = e6RawFreq(source, sylKeys.getOrElse(i) { "" }, chars[i])
+                    if (f == null) { resolvable = false; break }
+                    if (f < mn) mn = f
+                }
+                if (resolvable && mn >= E6_COMMON && rareSingleSeen != null) {
+                    rows.add("$tag\tO2\t${c.word}(rarestChar=$mn) after rare single $rareSingleSeen")
+                }
+            }
+        }
+        var prev = Int.MAX_VALUE
+        for ((w, f) in singleBucket) {
+            if (f > prev) rows.add("$tag\tO1\t$w@$f after a lower-freq same-reading single")
+            prev = f
+        }
+        // L: every native single of the first syllable must survive into the grid (lossless first-syllable layer)
+        if (checkLossless) for (w in nativeSinglesOf(source, sylKeys[0]).keys) {
+            if (w !in emittedFirstSingles) rows.add("$tag\tL\t$w native single of ${sylKeys[0]} dropped from the locked grid")
+        }
+        return rows
+    }
+
+    private fun lockedLetter(d: PinyinDecoder, s1: String, vararg rest: String): List<String> {
+        val syls = listOf(s1, *rest)
+        val input = syls.joinToString("")
+        val cuts = HashSet<Int>(); var acc = 0
+        for (k in 0 until syls.size - 1) { acc += syls[k].length; cuts.add(acc) }
+        return lockedOrderViolations(dict, syls, d.decodeCoveredAtomic(input, 30, cuts), checkLossless = true)
+    }
+
+    private fun lockedDigit(d: PinyinDecoder, s1: String, vararg rest: String): List<String> {
+        val syls = listOf(s1, *rest).map { T9Pinyin.toT9(it) }
+        val input = syls.joinToString("")
+        val cuts = HashSet<Int>(); var acc = 0
+        for (k in 0 until syls.size - 1) { acc += syls[k].length; cuts.add(acc) }
+        return lockedOrderViolations(t9Dict, syls, d.decodeCoveredAtomic(input, 30, cuts), checkLossless = false)
+    }
+
+    @Test fun e7_lockedOrderingInvariant_allPairs_bothKeyspaces() {
+        assumeTrue("heavy sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
+        assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
+        val syls = runtimeSyllables()
+        val dL = e6Decoder(letters = true)
+        val dT = e6Decoder(letters = false)
+        val rows = ArrayList<String>()
+        var pairsChecked = 0L
+        var done = 0
+        // n=2: ALL 415² ordered pairs, both keyspaces
+        for (s1 in syls) {
+            for (s2 in syls) {
+                rows.addAll(lockedLetter(dL, s1, s2))
+                rows.addAll(lockedDigit(dT, s1, s2))
+                pairsChecked++
+            }
+            done += syls.size
+            if (done % (syls.size * 50) == 0) println("[E7] ~$done/${syls.size * syls.size}")
+        }
+        // n=3: every first syllable against representative common tails (past two syllables, whole universe)
+        var triplesChecked = 0L
+        val tails = listOf("shi" to "jian", "de" to "shi", "hao" to "de", "zhong" to "guo")
+        for (s1 in syls) for ((a, b) in tails) {
+            rows.addAll(lockedLetter(dL, s1, a, b))
+            rows.addAll(lockedDigit(dT, s1, a, b))
+            triplesChecked++
+        }
+        writeTsv(File(outDir(), "ext_e7.tsv"), rows.map { r ->
+            val p = r.split("\t"); Fail(p.getOrElse(0) { "" }, "locked", p.getOrElse(1) { "" }, "", "", p.getOrElse(2) { "" })
+        })
+        summary(File(outDir(), "ext_e7_summary.txt"), "E7 — locked/atomic ordering invariant (O1+O2, hard gate)",
+            "pairs (both keyspaces): $pairsChecked; triples: $triplesChecked",
+            rows.map { r -> val p = r.split("\t"); Fail(p.getOrElse(0) { "" }, "locked", p.getOrElse(1) { "" }, "", "", p.getOrElse(2) { "" }) })
+        assertTrue("E7 locked ordering violations must be zero (${rows.size}): ${rows.take(8)}", rows.isEmpty())
+    }
+
+    // Always-on companion (NOT gated): the 415² sweep above runs only under AEGIS_AUDIT_FULL, so a default CI
+    // run would leave the locked path with no ordering gate. This representative subset — first syllables that
+    // carry a long rare tail (where the rare-before-common inversion surfaces) plus common controls, each locked
+    // against common tails, on both keyspaces — runs every build and asserts O1+O2+L = 0.
+    @Test fun e7b_lockedOrderingInvariant_representative_alwaysOn() {
+        assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
+        val dL = e6Decoder(letters = true)
+        val dT = e6Decoder(letters = false)
+        val firstSyllables = listOf(
+            "ce", "ci", "chai", "shi", "xian", "ni", "wo", "bu", "de", "hao", "ma", "zhong", "guo",
+            "fo", "den", "chua", "rua", "nou", "kei", "cen", "m", "die", "liang", "en", "jiu",
+        )
+        val tails = listOf("shi", "de", "hao", "jian")
+        val rows = ArrayList<String>()
+        for (s1 in firstSyllables) for (s2 in tails) {
+            rows.addAll(lockedLetter(dL, s1, s2))
+            rows.addAll(lockedDigit(dT, s1, s2))
+        }
+        assertTrue("E7b locked ordering violations must be zero (${rows.size}): ${rows.take(8)}", rows.isEmpty())
+    }
 }
