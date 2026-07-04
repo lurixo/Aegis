@@ -209,6 +209,12 @@ class DecodeSettleTest {
 
     private fun type(c: KeyboardController, s: String) = s.forEach { c.onKey(Key(it.toString(), output = it.toString())) }
 
+    private fun pick(c: KeyboardController, word: String) {
+        val i = c.candidateWords().indexOf(word)
+        assertTrue("candidate $word present in ${c.candidateWords()}", i >= 0)
+        c.onPickCandidate(i)
+    }
+
     private fun fastTypingWithSpacesMatchesSync(nine: Boolean) {
         assumeFullAssets()
         val script = listOf("nihao", "shijie", "women", "zhongguoren", "jintiantianqi", "xian")
@@ -336,6 +342,72 @@ class DecodeSettleTest {
     @Test fun space_without_a_running_worker_commits_like_sync_on_26key() = spaceFallbackWithoutAnyWorker(nine = false)
 
     @Test fun space_without_a_running_worker_commits_like_sync_on_9key() = spaceFallbackWithoutAnyWorker(nine = true)
+
+    private fun assembledWordIsLearnedOnTheWorker(nine: Boolean) {
+        val um = UserModel()
+        val queues = QueueLane()
+        val host = Editor()
+        val engine = Tracking(fixtureEngine(um))
+        val c = controller(host, engine, queues.lane, nine)
+        type(c, keys(nine, "cishi")); queues.drain()
+        pick(c, "此"); queues.drain()
+        pick(c, "是")
+        assertEquals("此是", host.text.toString())
+        assertEquals("the dictionary is not consulted on the main thread", 0, engine.spelledOnMain.get())
+        assertTrue("the word is learned only once the worker runs", um.readingSnapshot().values.none { "此是" in it })
+        queues.drain()
+        assertEquals(listOf("此是"), engine.learned.toList())
+        assertTrue(um.readingSnapshot().values.any { "此是" in it })
+        assertEquals("the dictionary is consulted once, by the queued job", 1, engine.spelledOnMain.get() + engine.spelledOffMain.get())
+        type(c, keys(nine, "cishi")); queues.drain()
+        assertTrue("the next decode already sees the learned word: ${c.candidateWords()}", "此是" in c.candidateWords())
+        assertEquals("learned exactly once", listOf("此是"), engine.learned.toList())
+    }
+
+    @Test fun an_assembled_word_is_learned_on_the_worker_on_26key() = assembledWordIsLearnedOnTheWorker(nine = false)
+
+    @Test fun an_assembled_word_is_learned_on_the_worker_on_9key() = assembledWordIsLearnedOnTheWorker(nine = true)
+
+    private fun pendingLearningIsNeitherLostNorRepeated(nine: Boolean) {
+        val syncModel = UserModel()
+        val syncHost = Editor()
+        val syncEngine = Tracking(fixtureEngine(syncModel))
+        val sync = controller(syncHost, syncEngine, null, nine)
+        type(sync, keys(nine, "cishi")); pick(sync, "此"); pick(sync, "是")
+        type(sync, keys(nine, "cishi")); sync.onKey(space)
+
+        val um = UserModel()
+        val queues = QueueLane(settleMillis = 20L)
+        val host = Editor()
+        val engine = Tracking(fixtureEngine(um))
+        val c = controller(host, engine, queues.lane, nine)
+        type(c, keys(nine, "cishi")); queues.drain()
+        pick(c, "此"); queues.drain()
+        pick(c, "是")
+        type(c, keys(nine, "cishi"))
+        c.onKey(space)
+        assertEquals("the fallback decode learned first, exactly as the synchronous path did", syncHost.commits, host.commits)
+        assertEquals("the pending word was learned before the fallback decode", listOf("此是"), engine.learned.toList())
+        queues.drain()
+        assertEquals("every commit is learned exactly once", syncEngine.learned.toList(), engine.learned.toList())
+        assertEquals(syncModel.userWordEntries(), um.userWordEntries())
+
+        val resetModel = UserModel()
+        val resetQueues = QueueLane()
+        val resetEngine = Tracking(fixtureEngine(resetModel))
+        val r = controller(Editor(), resetEngine, resetQueues.lane, nine)
+        type(r, keys(nine, "cishi")); resetQueues.drain()
+        pick(r, "此"); resetQueues.drain()
+        pick(r, "是")
+        r.reset()
+        assertEquals("leaving the field finishes pending learning", listOf("此是"), resetEngine.learned.toList())
+        resetQueues.drain()
+        assertEquals(listOf("此是"), resetEngine.learned.toList())
+    }
+
+    @Test fun pending_learning_is_neither_lost_nor_repeated_on_26key() = pendingLearningIsNeitherLostNorRepeated(nine = false)
+
+    @Test fun pending_learning_is_neither_lost_nor_repeated_on_9key() = pendingLearningIsNeitherLostNorRepeated(nine = true)
 
     private fun userWordsArePreparedAfterPredictionsAreDelivered(nine: Boolean) {
         val queues = QueueLane()

@@ -16,10 +16,12 @@
 package com.aegis.ime.ime
 
 import com.aegis.ime.decoder.EngineFixture
+import com.aegis.ime.decoder.PinyinDecoder
 import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.layout.Key
+import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.user.UserModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -68,6 +70,54 @@ class UserDictEndToEndTest {
     }
 
     private fun switchAlpha(c: KeyboardController) = c.switchTextLayoutForTest(nine = false)
+    private fun switchNine(c: KeyboardController) = c.switchTextLayoutForTest(nine = true)
+    private fun clear(c: KeyboardController) = c.onKey(Key("", action = KeyAction.CLEAR_COMPOSING))
+
+    @Test fun assemble_selfCreatedWord_on26key_thenRecall() {
+        val um = UserModel()
+        val (c, h) = controller(um)
+        switchAlpha(c)
+        "cishi".forEach { c.onKey(out(it.toString())) }
+        pick(c, "此")
+        pick(c, "是")
+        assertEquals("此是", h.text)
+        assertEquals("stored under its reading", listOf("此是"), um.readingSnapshot()["cishi"])
+        assertTrue("stored word is boosted", um.wordBoost("此是") > 0.0)
+
+        clear(c)
+        "cishi".forEach { c.onKey(out(it.toString())) }
+        assertTrue("self-created 此是 recalled on the second typing", "此是" in c.candidateWords())
+    }
+
+    @Test fun assemble_threeCharWord_on26key() {
+        val um = UserModel()
+        val (c, h) = controller(um)
+        switchAlpha(c)
+        "cikuhao".forEach { c.onKey(out(it.toString())) }
+        pick(c, "词")
+        pick(c, "库")
+        pick(c, "好")
+        assertEquals("词库好", h.text)
+        assertEquals("3-char self-created word stored", listOf("词库好"), um.readingSnapshot()["cikuhao"])
+    }
+
+    @Test fun assemble_selfCreatedWord_on9key() {
+        val um = UserModel()
+        val (c, h) = controller(um)
+        switchNine(c)
+        val digits = T9Pinyin.toT9("cishi")
+        digits.forEach { c.onKey(out(it.toString())) }
+        pick(c, "此")
+        pick(c, "是")
+        assertEquals("此是", h.text)
+        val storedUnderTheseDigits = um.readingSnapshot().entries
+            .firstOrNull { T9Pinyin.toT9(it.key) == digits && "此是" in it.value }
+        assertTrue("9-key assembly stores 此是 under a reading matching the typed digits", storedUnderTheseDigits != null)
+
+        clear(c)
+        digits.forEach { c.onKey(out(it.toString())) }
+        assertTrue("recalled on 9-key", "此是" in c.candidateWords())
+    }
 
     @Test fun selfCreatedWord_survivesRestart() {
         val um1 = UserModel()
@@ -84,6 +134,31 @@ class UserDictEndToEndTest {
         switchAlpha(c2)
         "cishi".forEach { c2.onKey(out(it.toString())) }
         assertTrue("self-created word survives a restart", "此是" in c2.candidateWords())
+    }
+
+    @Test fun exact_dictionary_word_is_saved_once_and_recalled_after_reload() {
+        val um = UserModel()
+        val (c, h) = controller(um)
+        switchAlpha(c)
+        "ci".forEach { c.onKey(out(it.toString())) }
+        pick(c, "次")
+        assertEquals("次", h.text)
+        assertTrue("no recall entry for a lone character", um.readingSnapshot().isEmpty())
+
+        clear(c)
+        "ciku".forEach { c.onKey(out(it.toString())) }
+        pick(c, "词库")
+        assertEquals("次词库", h.text)
+        assertEquals(listOf("词库"), um.readingSnapshot()["ciku"])
+        assertEquals(1, um.userWordEntries().single { it.word == "词库" }.count)
+
+        val file = File.createTempFile("userdb-exact", ".txt").also { it.deleteOnExit() }
+        um.save(file)
+        val loaded = UserModel().apply { load(file) }
+        assertEquals(listOf("词库"), loaded.readingSnapshot()["ciku"])
+        val fallback = EngineFixture.build(listOf(EngineFixture.Row("bie", "别", 100)))
+        val recalled = PinyinDecoder(fallback, lm, userModel = loaded).decodeCovered("ciku", 30).map { it.word }
+        assertTrue("词库" in recalled)
     }
 
     @Test fun same_word_only_and_same_reading_only_remain_distinct_learning_records() {

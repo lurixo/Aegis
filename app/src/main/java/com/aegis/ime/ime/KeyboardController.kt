@@ -92,6 +92,8 @@ class KeyboardController(
         }
     }
 
+    private val pendingLearning = java.util.concurrent.ConcurrentLinkedQueue<() -> Unit>()
+
     private var lang = Lang.CN
     private var shiftState = ShiftState.OFF
     private val shifted get() = shiftState != ShiftState.OFF
@@ -253,6 +255,7 @@ class KeyboardController(
     fun reset(preserveLayout: Boolean = false) {
         userLearning?.observeBreak()
         decodeLane?.markSatisfiedSynchronously()
+        drainLearning()
         beforeCursor = null
         composing.setLength(0)
         literalIndices.clear()
@@ -740,10 +743,13 @@ class KeyboardController(
             committedPrefix.append(cand.word)
             consumeComposingPrefix(cand.coveredLen)
         } else {
+            val assembled = committedPrefix.isNotEmpty()
             val finalReading = cand.correctedReading ?: consumedReading(cand.coveredLen)
             val wholeWord = committedPrefix.toString() + cand.word
+            val wholeReading = deferredLearnEvents.joinToString("") { it.reading } + finalReading
             host.commitText(wholeWord)
             applyDeferredLearning(cand.word, finalReading)
+            maybeLearnAssembledWord(wholeWord, wholeReading, assembled)
             lastWord = cand.word
             clearComposingState()
         }
@@ -752,6 +758,41 @@ class KeyboardController(
     private fun consumedReading(coveredLen: Int): String {
         val letters = rawComposingText()
         return letters.take(coveredLen.coerceIn(0, letters.length)).replace("'", "")
+    }
+
+    private fun maybeLearnAssembledWord(word: String, reading: String, assembled: Boolean) {
+        if (learningBlocked) return
+        if (word.codePointCount(0, word.length) < 2) return
+        if (reading.length < 2 || reading.any { it !in 'a'..'z' }) return
+        if (T9Pinyin.segmentLetters(reading) == null) return
+        var i = 0
+        while (i < word.length) {
+            val cp = word.codePointAt(i)
+            if (!Character.isIdeographic(cp)) return
+            i += Character.charCount(cp)
+        }
+        val target = engine
+        learnOnWorker {
+            val spelled = target.spelledReading(word, reading)
+            if (spelled.isNotEmpty()) target.learnWord(spelled, word, assembled)
+        }
+    }
+
+    private fun learnOnWorker(job: () -> Unit) {
+        val lane = decodeLane
+        if (lane == null) {
+            job()
+            return
+        }
+        pendingLearning.add(job)
+        lane.execute(::drainLearning)
+    }
+
+    private fun drainLearning() = synchronized(pendingLearning) {
+        while (true) {
+            val job = pendingLearning.poll() ?: break
+            job()
+        }
     }
 
     private fun candidateStaysInPreedit(cand: Cand): Boolean =
@@ -777,8 +818,10 @@ class KeyboardController(
             applyDeferredLearning()
             clearComposingState()
         } else if (prefix.isNotEmpty()) {
+            val wholeReading = deferredLearnEvents.joinToString("") { it.reading }
             host.commitText(prefix)
             applyDeferredLearning()
+            maybeLearnAssembledWord(prefix, wholeReading, assembled = true)
             clearComposingState()
         }
         lastWord = null
@@ -919,6 +962,7 @@ class KeyboardController(
         }
         if (settled) return
         lane.markSatisfiedSynchronously()
+        drainLearning()
         applyDecodeResult(computeDecode(buildDecodeRequest()))
     }
 
