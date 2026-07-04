@@ -16,17 +16,25 @@
 package com.aegis.ime.decoder
 
 import com.aegis.ime.dict.BinaryDict
+import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.user.UserModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
+import java.io.File
 
 /**
  * A self-created word — one the user built character by character that the dictionary does not carry — must be
  * recalled from the [UserModel] the next time its reading is typed, on both keyspaces (26-key letters, 9-key
  * digits) and on the locked path, ranked reasonably by its characters' shared commonness plus usage, and it
  * must be perfectly inert when there is no user model (so every ordering audit is unaffected).
+ *
+ * Decoders here are wired like production: the real char-bigram LM is always loaded (an LM-less decoder tells a
+ * very different ranking story — the natural sentence loses its bigram support and rise counts shrink by orders
+ * of magnitude). The controlled dictionary keeps the words synthetic; production-scale rise magnitudes are
+ * asserted by the production-config rise-curve audit, not here.
  */
 class PinyinDecoderUserWordTest {
 
@@ -42,12 +50,19 @@ class PinyinDecoderUserWordTest {
     private val dict: BinaryDict = EngineFixture.build(rows)
     private val t9Dict: BinaryDict = EngineFixture.build(rows.map { EngineFixture.Row(T9Pinyin.toT9(it.key), it.word, it.freq) })
 
+    private val lmFile = File("src/main/assets/aegis_lm.bin")
+    private val lm: CharBigramLM by lazy { CharBigramLM.fromFile(lmFile) }
+
+    @Before fun requireLm() {
+        org.junit.Assume.assumeTrue("real LM asset present (production decoder wiring)", lmFile.exists())
+    }
+
     private fun words(c: List<Cand>) = c.map { it.word }
     private fun um(vararg entries: Pair<String, String>): UserModel =
         UserModel().apply { for ((r, w) in entries) recordWord(r, w, 1L, incrementCount = true) }
 
-    private fun letter(um: UserModel? = null) = PinyinDecoder(dict, userModel = um)
-    private fun t9(um: UserModel? = null) = PinyinDecoder(t9Dict, userModel = um, aliasDict = dict)
+    private fun letter(um: UserModel? = null) = PinyinDecoder(dict, lm, userModel = um)
+    private fun t9(um: UserModel? = null) = PinyinDecoder(t9Dict, lm, userModel = um, aliasDict = dict)
 
     @Test fun selfCreatedWord_recalled_on_letters() {
         val m = um("cishi" to "此是")
@@ -110,18 +125,31 @@ class PinyinDecoderUserWordTest {
 
     @Test fun heavilyUsedUserWord_mayFairlyReachPosition0() {
         // The complement: with enough accumulated usage the boost overcomes the sentence and the user word rises
-        // to #0 — the intended "used a lot ⇒ becomes the default", now boost-driven instead of structural.
+        // to #0 — boost-driven, never structural. The count needed depends on the dictionary's total-frequency
+        // scale, so this fixture asserts the SHAPE (monotone rise, eventually seizes) — the production-config
+        // rise-curve audit asserts the production magnitudes (hundreds-level for canonical defaults).
         val natural = words(letter().decodeCovered("cishi", 30)).first()
-        val heavy = UserModel().apply { repeat(60) { recordWord("cishi", "此是", it.toLong(), incrementCount = true) } }
-        assertEquals("a heavily used user word becomes the commit default", "此是", words(letter(heavy).decodeCovered("cishi", 30)).first())
         assertTrue("(sanity) the natural best differs from the user word", natural != "此是")
+        var minCount = -1
+        var prevRank = Int.MAX_VALUE
+        var n = 1
+        while (n <= 8192) {
+            val m = UserModel().apply { repeat(n) { recordWord("cishi", "此是", it.toLong(), incrementCount = true) } }
+            val rank = words(letter(m).decodeCovered("cishi", 30)).indexOf("此是")
+            assertTrue("recalled at every count (n=$n rank=$rank)", rank >= 0)
+            assertTrue("rank never worsens as use accumulates (n=$n: $rank > $prevRank)", rank <= prevRank)
+            prevRank = rank
+            if (rank == 0 && minCount < 0) minCount = n
+            n *= 2
+        }
+        assertTrue("with enough accumulated use the word becomes the commit default (minCount=$minCount)", minCount > 0)
     }
 
     @Test fun usage_boost_lifts_a_reused_self_created_word() {
         // A fresh self-created word is not the default (#0 is the natural sentence); heavy use must lift it
         // STRICTLY higher — the boost is what promotes it, not a structural whole-input-edge advantage.
         val light = um("cishi" to "此是")
-        val heavy = UserModel().apply { repeat(60) { recordWord("cishi", "此是", it.toLong(), incrementCount = true) } }
+        val heavy = UserModel().apply { repeat(2048) { recordWord("cishi", "此是", it.toLong(), incrementCount = true) } }
         val lightRank = words(letter(light).decodeCovered("cishi", 30)).indexOf("此是")
         val heavyRank = words(letter(heavy).decodeCovered("cishi", 30)).indexOf("此是")
         assertTrue("both recall the word", lightRank >= 0 && heavyRank >= 0)
