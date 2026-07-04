@@ -42,14 +42,16 @@ class BuildInfoJsonTest {
         assertEquals("dictionary", dictionary.getString("kind"))
         // The manifest describes this release's dictionary pack; the shipped ModelDownload fallback
         // constant points at a different pack, so the two asset shas differ (asserted below).
-        assertEquals("aegis_dict_pack_debug46.zip", asset.getString("name"))
+        assertEquals("aegis_dict_pack_debug47.zip", asset.getString("name"))
         assertEquals(
-            "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.46/aegis_dict_pack_debug46.zip",
+            "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.47/aegis_dict_pack_debug47.zip",
             asset.getString("url"),
         )
+        // sha256/size are byte-identical to the previous pack: same source commit, same builder
+        // parameters, deterministic zip recipe, clean tree — the dictionary content did not change.
         assertEquals("afda5d50c3ba9f7e254f79051613160f3b311b63218eb4c3f9582e3dbc1d3f86", asset.getString("sha256"))
         assertEquals(98_164_388L, asset.getLong("size_bytes"))
-        assertEquals("v0.1.0-debug.46", asset.getString("release_tag"))
+        assertEquals("v0.1.0-debug.47", asset.getString("release_tag"))
         assertTrue(asset.getBoolean("prerelease"))
         assertNotEquals(ModelDownload.FALLBACK_DICT_SHA256, asset.getString("sha256"))
         assertEquals(ModelDownload.DICT_REPO_URL, source.getString("repo"))
