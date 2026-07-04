@@ -20,6 +20,7 @@ import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.dict.TghGrading
 import com.aegis.ime.engine.T9_FUZZY_PENALTY
+import com.aegis.ime.user.UserModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -1347,5 +1348,141 @@ class ExhaustiveDecodeAuditExtTest {
             }
         }
         assertTrue("E10b assembled mass violations must be zero (${rows.size}): ${rows.take(8)}", rows.isEmpty())
+    }
+
+    private data class GenWord(val syllables: List<String>, val word: String) {
+        val reading: String get() = syllables.joinToString("")
+    }
+
+    private fun topSingle(s: String): String? =
+        dict.exact(s).filter { isSingleChar(it.word) }.maxByOrNull { it.freq }?.word
+
+    private fun generatedUserWords(syls: List<String>, tails: List<String>): List<GenWord> {
+        val out = ArrayList<GenWord>()
+        val c2Shi = topSingle("shi")
+        val c3Jian = topSingle("jian")
+        for (s1 in syls) {
+            val c1 = topSingle(s1) ?: continue
+            for (s2 in tails) {
+                val c2 = topSingle(s2) ?: continue
+                val word = c1 + c2
+                if (dict.exact(s1 + s2).none { it.word == word }) out.add(GenWord(listOf(s1, s2), word))
+            }
+            if (c2Shi != null && c3Jian != null) {
+                val word3 = c1 + c2Shi + c3Jian
+                if (dict.exact(s1 + "shi" + "jian").none { it.word == word3 }) {
+                    out.add(GenWord(listOf(s1, "shi", "jian"), word3))
+                }
+            }
+        }
+        return out
+    }
+
+    private fun populatedModel(words: List<GenWord>): UserModel =
+        UserModel().apply { for (gw in words) recordWord(gw.reading, gw.word, 1L, incrementCount = true) }
+
+    private val lmModel: CharBigramLM by lazy { CharBigramLM.fromFile(lmFile) }
+    private val jianpinDict: BinaryDict by lazy { BinaryDict.fromFile(jianpinFile) }
+
+    private fun userDecoder(letters: Boolean, um: UserModel): PinyinDecoder =
+        if (letters) PinyinDecoder(dict, lmModel, userModel = um, initialsDict = jianpinDict)
+        else PinyinDecoder(t9Dict, lmModel, userModel = um, aliasDict = dict)
+
+    private fun runFreeTypingOrdering(words: List<GenWord>): List<String> {
+        val um = populatedModel(words)
+        val dL = userDecoder(letters = true, um)
+        val dT = userDecoder(letters = false, um)
+        val rows = ArrayList<String>()
+        for (s in runtimeSyllables()) {
+            rows.addAll(e6Check(dict, dL, s, dL.decodeCoveredLayered(s, 30)))
+            val dig = T9Pinyin.toT9(s)
+            rows.addAll(e6Check(t9Dict, dT, dig, dT.decodeCoveredLayered(dig, 30)))
+        }
+        for (gw in words) {
+            rows.addAll(e6Check(dict, dL, gw.reading, dL.decodeCoveredLayered(gw.reading, 30)))
+            val dig = T9Pinyin.toT9(gw.reading)
+            rows.addAll(e6Check(t9Dict, dT, dig, dT.decodeCoveredLayered(dig, 30)))
+        }
+        return rows
+    }
+
+    @Test fun e8_userWords_freeTypingOrdering_representative_alwaysOn() {
+        assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
+        val words = generatedUserWords(runtimeSyllables(), listOf("shi", "en"))
+        assertTrue("generator produced a diverse word set", words.size > 200)
+        val rows = runFreeTypingOrdering(words)
+        assertTrue("E8 free-typing ordering with user words merged must be zero (${rows.size}): ${rows.take(8)}", rows.isEmpty())
+    }
+
+    @Test fun e8_userWords_freeTypingOrdering_full() {
+        assumeTrue("full sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
+        assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
+        val words = generatedUserWords(runtimeSyllables(), listOf("shi", "de", "hao", "jian", "guo", "cong", "en"))
+        val rows = runFreeTypingOrdering(words)
+        writeTsv(File(outDir(), "ext_e8.tsv"), rows.map { Fail("", "user", "O", "", "", it) })
+        summary(File(outDir(), "ext_e8_summary.txt"), "E8 — self-created words merged, free-typing ordering",
+            "generated words: ${words.size}; single syllables + generated readings x 2 keyspaces", rows.map { Fail("", "user", "O", "", "", it) })
+        assertTrue("E8 free-typing ordering violations must be zero (${rows.size}): ${rows.take(8)}", rows.isEmpty())
+    }
+
+    private fun runLockedOrdering(words: List<GenWord>): List<String> {
+        val um = populatedModel(words)
+        val dL = userDecoder(letters = true, um)
+        val rows = ArrayList<String>()
+        val boosted: (String) -> Boolean = { um.wordBoost(it) > 0.0 }
+        for (gw in words) {
+            val s = gw.syllables
+            for (context in LOCKED_CONTEXTS) {
+                rows.addAll(lockedLetter(dL, context, s[0], *s.drop(1).toTypedArray(), userBoost = boosted))
+                rows.addAll(lockedNineKey(dL, context, s[0], *s.drop(1).toTypedArray(), userBoost = boosted))
+            }
+        }
+        return rows
+    }
+
+    @Test fun e8_userWords_lockedOrdering_representative_alwaysOn() {
+        assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
+        val words = generatedUserWords(runtimeSyllables(), listOf("shi", "en"))
+        val rows = runLockedOrdering(words)
+        assertTrue("E8 locked ordering with user words merged must be zero (${rows.size}): ${rows.take(8)}", rows.isEmpty())
+    }
+
+    @Test fun e8_userWords_lockedOrdering_full() {
+        assumeTrue("full sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
+        assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
+        val words = generatedUserWords(runtimeSyllables(), listOf("shi", "de", "hao", "jian", "guo", "cong", "en"))
+        val rows = runLockedOrdering(words)
+        assertTrue("E8 locked ordering violations must be zero (${rows.size}): ${rows.take(8)}", rows.isEmpty())
+    }
+
+    @Test fun e8_userWords_recall_bothKeyspaces_andLocked() {
+        assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
+        val words = generatedUserWords(runtimeSyllables(), listOf("shi", "en"))
+        val um = populatedModel(words)
+        val dL = userDecoder(letters = true, um)
+        val dT = userDecoder(letters = false, um)
+        val misses = ArrayList<String>()
+        for (gw in words) {
+            if (gw.word !in dL.decodeCovered(gw.reading, 30).map { it.word }) misses.add("letters:${gw.reading}=${gw.word}")
+            val dig = T9Pinyin.toT9(gw.reading)
+            if (gw.word !in dT.decodeCovered(dig, 30).map { it.word }) misses.add("t9:$dig=${gw.word}")
+            val cuts = HashSet<Int>(); var acc = 0
+            for (k in 0 until gw.syllables.size - 1) { acc += gw.syllables[k].length; cuts.add(acc) }
+            if (gw.word !in dL.decodeCoveredAtomic(gw.reading, 30, cuts).map { it.word }) misses.add("locked:${gw.reading}=${gw.word}")
+        }
+        assertTrue("every merged self-created word must be recalled (${misses.size} misses): ${misses.take(8)}", misses.isEmpty())
+    }
+
+    @Test fun e8_userWords_doNotDisturbAliasPresence() {
+        assumeTrue(FullDictTestAssets.available(dictFile, lmFile, jianpinFile))
+        val um = populatedModel(generatedUserWords(runtimeSyllables(), listOf("shi", "en")))
+        val dL = userDecoder(letters = true, um)
+        for ((s, targets) in PinyinDecoder.INPUT_ALIASES) {
+            for (target in targets) {
+                val topAlias = dict.exact(target).filter { isSingleChar(it.word) }.maxByOrNull { it.freq }?.word ?: continue
+                assertTrue("alias target $topAlias for $s still surfaces with user words merged",
+                    topAlias in dL.decodeCovered(s, 30).map { it.word })
+            }
+        }
     }
 }
