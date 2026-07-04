@@ -86,6 +86,39 @@ class AssociationsAndCalcTest {
     }
 
 
+    @Test fun u23_sheshidu_offers_celsius_right_after_the_word() {
+        val h = EditorHost()
+        val c = KeyboardController(h, spyEngine(h.learned))
+        "sheshidu".forEach { c.onKey(out(it.toString())) }
+        assertEquals("the word stays on top", "好的", c.candidateWords().first())
+        assertEquals("℃ is spliced in right after it", "℃", c.candidateWords()[1])
+    }
+
+    @Test fun u23_meijin_offers_the_dollar_sign() {
+        val h = EditorHost()
+        val c = KeyboardController(h, spyEngine(h.learned))
+        "meijin".forEach { c.onKey(out(it.toString())) }
+        assertTrue("meijin → \$", "\$" in c.candidateWords())
+    }
+
+    @Test fun u23_weixiao_offers_the_smile_emoji_from_the_index() {
+        val h = EditorHost()
+        val c = KeyboardController(h, spyEngine(h.learned))
+        "weixiao".forEach { c.onKey(out(it.toString())) }
+        assertTrue("weixiao → 🙂", "🙂" in c.candidateWords())
+    }
+
+    @Test fun u23_picking_a_unit_symbol_commits_directly_and_does_not_learn_it() {
+        val h = EditorHost()
+        val c = KeyboardController(h, spyEngine(h.learned))
+        "sheshidu".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(c.candidateWords().indexOf("℃"))
+        assertEquals("℃ committed to the editor", "℃", h.text)
+        assertFalse("a symbol must not be learned as a pinyin word", "℃" in h.learned)
+        assertTrue("buffer cleared after the symbol commit", c.candidateWords().isEmpty())
+    }
+
+
     @Test fun u25_a_trailing_expression_shows_its_result() {
         val h = EditorHost()
         val c = KeyboardController(h, emptyEngine)

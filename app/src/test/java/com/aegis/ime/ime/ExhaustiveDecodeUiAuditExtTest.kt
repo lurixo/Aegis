@@ -20,6 +20,7 @@ import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.engine.DictEngine
+import com.aegis.ime.engine.InputAssociations
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import org.junit.Assert.assertTrue
@@ -136,7 +137,15 @@ class ExhaustiveDecodeUiAuditExtTest {
             }
             val o1 = dictSingles(s1) + allowed(s1)
             val o2 = dictSingles(s2) + allowed(s2)
-            val words = c.candidateWords()
+            val injected = InputAssociations.lookup(s1 + s2)
+            val raw = c.candidateWords()
+            val words = when {
+                injected.isEmpty() -> raw
+                raw.size > injected.size && raw.subList(1, 1 + injected.size) == injected ->
+                    listOf(raw.first()) + raw.drop(1 + injected.size)
+                raw.take(injected.size) == injected -> raw.drop(injected.size)
+                else -> { fails.add("$s1+$s2\tsplice-contract\t${raw.take(6)} vs injected=$injected"); raw }
+            }
             val leak1 = words.filter { isSingleChar(it) && it !in o1 }
             if (leak1.isNotEmpty()) fails.add("$s1+$s2\tchars-S1\t${leak1.take(6)}")
             val dictWords = dict.exact(s1 + s2).map { it.word }.toSet()
