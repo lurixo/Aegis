@@ -45,6 +45,20 @@ object SymbolCatalog {
 
     fun categoryTitleOf(symbol: String): String? = symbolToCategory[symbol]
 
+    fun foldFullWidth(s: String): String {
+        var changed = false
+        val out = StringBuilder(s.length)
+        for (ch in s) {
+            val c = ch.code
+            when {
+                c in 0xFF01..0xFF5E -> { out.append((c - 0xFEE0).toChar()); changed = true }
+                c == 0x3000 -> { out.append(' '); changed = true }
+                else -> out.append(ch)
+            }
+        }
+        return if (changed) out.toString() else s
+    }
+
     fun pairingFor(symbol: String): Pairing? = pairedSymbols[symbol]?.let { Pairing(symbol, it) }
 
     fun insertionFor(symbol: String, hasTextAfterCursor: Boolean): List<String> {

@@ -159,6 +159,54 @@ class SymbolCatalogTest {
             cat("math").containsAll(listOf("×", "÷", "±", "≈", "≠", "≤", "≥", "√", "∞", "∑")))
     }
 
+    private fun expectedFold(s: String): String = buildString {
+        for (ch in s) {
+            val c = ch.code
+            append(
+                when {
+                    c in 0xFF01..0xFF5E -> (c - 0xFEE0).toChar()
+                    c == 0x3000 -> ' '
+                    else -> ch
+                },
+            )
+        }
+    }
+
+    private fun allSymbols(): List<String> = SymbolCatalog.categories.flatMap { it.symbols }
+
+    @Test fun foldFullWidth_matches_the_narrow_reference_for_every_catalogue_symbol() {
+        for (s in allSymbols()) {
+            assertEquals("fold mismatch for $s", expectedFold(s), SymbolCatalog.foldFullWidth(s))
+        }
+    }
+
+    @Test fun every_fullwidth_catalogue_mark_folds_onto_a_halfwidth_twin_that_also_exists() {
+        val fulls = LinkedHashSet<Char>()
+        for (s in allSymbols()) {
+            if (s.length != 1) continue
+            val c = s[0].code
+            if (c in 0xFF01..0xFF5E) {
+                val half = (c - 0xFEE0).toChar().toString()
+                assertEquals("$s must fold to its ASCII twin", half, SymbolCatalog.foldFullWidth(s))
+                assertTrue("the twin $half of $s must exist in the catalogue", SymbolCatalog.categoryTitleOf(half) != null)
+                fulls.add(s[0])
+            }
+        }
+        assertEquals("every distinct full/half-width pair in the catalogue is covered", 22, fulls.size)
+    }
+
+    @Test fun foldFullWidth_never_collapses_a_symbol_outside_the_fullwidth_block() {
+        for (s in allSymbols()) {
+            val inBlock = s.any { it.code in 0xFF01..0xFF5E || it.code == 0x3000 }
+            if (!inBlock) assertEquals("$s must not be folded", s, SymbolCatalog.foldFullWidth(s))
+        }
+        for ((a, b) in listOf("–" to "—", "·" to "•", "×" to "x")) {
+            assertEquals(a, SymbolCatalog.foldFullWidth(a))
+            assertEquals(b, SymbolCatalog.foldFullWidth(b))
+        }
+        assertEquals("ideographic space folds to a normal space", " ", SymbolCatalog.foldFullWidth("　"))
+    }
+
     @Test fun nineFixedPunctuationStaysInSyncWithTheColumn() {
         assertEquals(Layouts.nineFixedPunctuation + "自定义", Layouts.ninePunctuation().map { it.label })
     }

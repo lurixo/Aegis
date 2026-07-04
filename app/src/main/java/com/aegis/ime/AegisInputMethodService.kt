@@ -509,7 +509,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (iv.isPanelShowing(symbolsView)) { iv.showPanel(null); return }
         val sv = symbolsView ?: SymbolsView(this).also {
             it.recentProvider = { symbolUsageStore.recent() }
-            it.onSymbol = { s -> symbolUsageStore.record(s); commitExternalSymbol(s) }
+            it.recentOriginOf = { s -> symbolUsageStore.originOf(s) }
+            it.onSymbol = { s, origin -> symbolUsageStore.record(s, origin); commitExternalSymbol(s) }
             it.onBackspace = { panelBackspace() }
             it.onBack = { inputView?.showPanel(null) }
             symbolsView = it
