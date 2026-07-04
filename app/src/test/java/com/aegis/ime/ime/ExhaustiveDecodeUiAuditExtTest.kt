@@ -20,6 +20,7 @@ import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.engine.DictEngine
+import com.aegis.ime.engine.InputAssociations
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import org.junit.Assert.assertTrue
@@ -161,7 +162,21 @@ class ExhaustiveDecodeUiAuditExtTest {
             // 2-cp candidates covering both units -> each codepoint must read its locked syllable.
             val o1 = dictSingles(s1) + allowed(s1)
             val o2 = dictSingles(s2) + allowed(s2)
-            val words = c.candidateWords()
+            // U23: the association overlay splices its glyphs for the locked reading too
+            // (deng+hao → =, xing+xing → ⭐). That channel is separately audited whole-table in
+            // AssociationsReplayTest; THIS audit targets decoder-derived candidates. Remove the
+            // injection by POSITION (the controller splices lookup() right after the top candidate,
+            // or alone on an empty base) — never by value, so a decoder-derived candidate that merely
+            // EQUALS a glyph (e.g. a hanzi like 円) still hits the leak checks below.
+            val injected = InputAssociations.lookup(s1 + s2)
+            val raw = c.candidateWords()
+            val words = when {
+                injected.isEmpty() -> raw
+                raw.size > injected.size && raw.subList(1, 1 + injected.size) == injected ->
+                    listOf(raw.first()) + raw.drop(1 + injected.size)
+                raw.take(injected.size) == injected -> raw.drop(injected.size)
+                else -> { fails.add("$s1+$s2\tsplice-contract\t${raw.take(6)} vs injected=$injected"); raw }
+            }
             val leak1 = words.filter { isSingleChar(it) && it !in o1 }
             if (leak1.isNotEmpty()) fails.add("$s1+$s2\tchars-S1\t${leak1.take(6)}")
             // 2-cp candidates whose trailing char does not read the locked S2: a candidate that is a dict

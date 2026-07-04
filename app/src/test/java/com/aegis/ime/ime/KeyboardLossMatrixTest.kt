@@ -123,7 +123,15 @@ class KeyboardLossMatrixTest {
         c.onKey(Key("", action = KeyAction.SWITCH_NINE))
         type(c, "2424"); pick(c, "chai")
         assertTrue("拆 reachable for a single locked chai", "拆" in c.candidateWords())
-        assertEquals("拆 leads its homophones (freq order)", "拆", c.candidateWords().first { isSingleChar(it) })
+        // U23: should a future association row ever key 'chai', its spliced glyph would be a
+        // single code point sitting before the homophones — exclude the injection channel so this stays
+        // an assertion about DECODER frequency order.
+        val injected = com.aegis.ime.engine.InputAssociations.lookup("chai")
+        assertEquals(
+            "拆 leads its homophones (freq order)",
+            "拆",
+            c.candidateWords().first { isSingleChar(it) && it !in injected },
+        )
     }
 
     /**
