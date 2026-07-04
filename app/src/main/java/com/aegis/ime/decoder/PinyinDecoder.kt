@@ -145,7 +145,10 @@ class PinyinDecoder(
         val out = ArrayList<Edge>(edgeN)
         val seen = HashSet<String>()
         for (uw in userWordsFor(sub)) {
-            if (seen.add(uw)) out.add(Edge(uw, userWordFreq(uw, sub).toInt().coerceAtLeast(1), 0.0))
+            if (seen.add(uw)) {
+                val n = uw.codePointCount(0, uw.length)
+                out.add(Edge(uw, userWordFreq(uw, sub).toInt().coerceAtLeast(1), (n - 1).coerceAtLeast(0) * lnTotal))
+            }
         }
         val exactFull = addExactEdges(dict, sub, 0.0, out, seen)
         for (alias in inputAliases(sub)) {
