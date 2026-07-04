@@ -25,6 +25,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.TimeUnit
 
 class UserStoreReadLaneTest {
@@ -69,6 +70,12 @@ class UserStoreReadLaneTest {
             learning.observeBreak()
         }
     }
+
+    private fun writeLaneOf(host: LiveUserDictHost): ExecutorService =
+        LiveUserDictHost::class.java.getDeclaredField("io").run {
+            isAccessible = true
+            get(host) as ExecutorService
+        }
 
     private fun onItsOwnThread(name: String, work: () -> Unit): Thread =
         Thread(work, name).apply { isDaemon = true }.also { it.start() }
@@ -142,6 +149,31 @@ class UserStoreReadLaneTest {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
         while (typed.count > 0L && typist.state != Thread.State.BLOCKED && System.nanoTime() < deadline) {
             Thread.yield()
+        }
+    }
+
+    @Test fun handing_a_read_to_the_write_lane_does_not_wait_for_the_lane() {
+        val host = LiveUserDictHost(UserModel(), temp.newFile("userdb.txt"))
+        try {
+            val occupied = CountDownLatch(1)
+            writeLaneOf(host).execute { occupied.countDown(); releaseRead.await() }
+            assertTrue("precondition: the lane really is busy", occupied.await(10, TimeUnit.SECONDS))
+
+            val ran = CountDownLatch(1)
+            val returned = CountDownLatch(1)
+            onItsOwnThread("aegis-test-caller") { host.handOff { ran.countDown() }; returned.countDown() }
+
+            assertTrue(
+                "handing work to a busy lane must return at once; waiting parks whoever is queueing behind the writes",
+                returned.await(10, TimeUnit.SECONDS),
+            )
+            assertEquals("and it must not run the work on the caller's thread instead", 1L, ran.count)
+
+            releaseRead.countDown()
+            assertTrue("the handed-off work must still land", ran.await(10, TimeUnit.SECONDS))
+        } finally {
+            releaseRead.countDown()
+            host.stopSaving()
         }
     }
 

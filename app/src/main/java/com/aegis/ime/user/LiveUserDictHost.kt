@@ -1,0 +1,247 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Copyright (C) 2026 lurixo
+//
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 3.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+// PARTICULAR PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
+
+package com.aegis.ime.user
+
+import java.io.File
+import java.io.IOException
+import java.util.concurrent.Callable
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
+
+class LiveUserDictHost(
+    private val model: UserModel,
+    private val userDb: File,
+    private val userLearning: UserLearning? = null,
+    private val userLearnFile: File? = null,
+    private val onSaved: (userDbMtime: Long?, userLearnMtime: Long?) -> Unit = { _, _ -> },
+    private val onWordsReplaced: () -> Unit = {},
+) : UserDictHot.Host {
+
+    @Volatile
+    private var writer: Thread? = null
+
+    @Volatile
+    var writing: Boolean = false
+        private set
+
+    private val io = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "aegis-userdict-io").apply { isDaemon = true }.also { writer = it }
+    }
+
+    override fun addWord(reading: String, word: String, now: Long): Boolean {
+        if (LiveUserData.restoreInProgress) return false
+        if (word.isBlank() || !model.readable) return false
+        if (!model.addManualWord(reading, word, now)) return false
+        return save().dictionary
+    }
+
+    override fun removeWord(reading: String, word: String): Boolean {
+        if (LiveUserData.restoreInProgress) return false
+        if (word.isBlank() || !model.readable) return false
+        if (!learnedReadable()) return false
+        model.removeWord(reading, word)
+        userLearning?.removeWord(word)
+        val written = save()
+        if (written.learning) return written.dictionary
+        return written.dictionary && owe(word, "")
+    }
+
+    override fun importUserDict(importFile: File, merge: Boolean, now: Long): Boolean {
+        if (!importFile.exists() || importFile.length() == 0L) return false
+        if (merge && !model.readable) return false
+        try {
+            if (merge) {
+                if (!model.importFrom(importFile, now)) return false
+            } else {
+                val incoming = UserModel().apply { replaceWordsFrom(importFile) }
+                if (incoming.isEmpty()) return false
+                model.replaceWordsFrom(importFile)
+            }
+        } catch (_: IllegalArgumentException) {
+            return false
+        } catch (_: IOException) {
+            return false
+        }
+        onWordsReplaced()
+        return save().dictionary
+    }
+
+    override fun entries(): List<UserModel.Entry> = model.userWordEntries()
+
+    override fun wordCount(): Int = model.distinctWordCount()
+
+    override fun forgottenCount(): Int = model.forgottenCount
+
+    override fun dictionaryReadable(): Boolean = model.readable
+
+    override fun learnedEntries(): List<UserLearning.Formed> = userLearning?.formedEntries().orEmpty()
+
+    override fun hasLearnedData(): Boolean = userLearning?.isEmpty() == false
+
+    override fun learnedReadable(): Boolean = userLearning?.readable != false
+
+    override fun removeLearned(word: String, reading: String): Boolean {
+        if (LiveUserData.restoreInProgress) return false
+        val learning = userLearning
+        if (learning != null && !learning.readable) return false
+        learning?.removeFormed(word, reading)
+        val written = saveLearning()
+        if (written.result.learning) return true
+        val owed = owe(word, reading)
+        strikeOffOnceTheWriteLands(written.stillToRun, listOf(word to reading))
+        return owed
+    }
+
+    private fun owe(word: String, reading: String): Boolean =
+        model.addTombstone(word, reading) && save().dictionary
+
+    override fun clearLearned(): Boolean {
+        if (LiveUserData.restoreInProgress) return false
+        userLearning?.clear()
+        val written = saveLearning()
+        if (!written.result.learning) {
+            strikeOffOnceTheWriteLands(written.stillToRun, model.tombstones())
+            return false
+        }
+        if (!model.hasTombstones()) return true
+        model.dropTombstones(model.tombstones())
+        return save().dictionary
+    }
+
+    private fun strikeOffOnceTheWriteLands(pending: Future<PersistResult>?, owed: List<Pair<String, String>>) {
+        val learning = userLearning
+        if (pending == null || learning == null || owed.isEmpty()) return
+        handOff {
+            if (learning.dirty && !landed(pending)) return@handOff
+            if (model.dropTombstones(owed)) persistHere(writeUserDb = true)
+        }
+    }
+
+    private fun landed(pending: Future<PersistResult>): Boolean =
+        pending.isDone && runCatching { pending.get() }.getOrNull()?.learning == true
+
+    override fun flush(): Boolean {
+        if (!anythingUnsaved()) return true
+        return onWriterThread(PersistResult.FAILED) { persistUnsaved() }.both
+    }
+
+    override fun flushDictionary(): Boolean {
+        if (!anythingUnsaved()) return true
+        return onWriterThread(PersistResult.FAILED) { persistUnsaved(forRestore = true) }.dictionary
+    }
+
+    override fun flushForRestore(): Boolean {
+        if (!anythingUnsaved()) return true
+        return onWriterThread(PersistResult.FAILED) { persistUnsaved(forRestore = true) }.both
+    }
+
+    fun scheduleSave() {
+        val queued = runCatching { io.execute { persistUnsaved() } }.isSuccess
+        if (!queued) persistUnsaved()
+    }
+
+    fun handOff(work: () -> Unit): Boolean = runCatching { io.execute(work) }.isSuccess
+
+    fun repairReadings(repairs: List<UserModel.ReadingRepair>): Boolean = handOff {
+        if (!LiveUserData.restoreInProgress && model.readable && model.repairReadings(repairs)) scheduleSave()
+    }
+
+    fun stopSaving() {
+        runCatching { io.shutdown() }
+    }
+
+    private fun anythingUnsaved(): Boolean = model.dirty || userLearning?.dirty == true
+
+    private fun persistUnsaved(forRestore: Boolean = false): PersistResult = when {
+        !forRestore && LiveUserData.restoreInProgress -> PersistResult.FAILED
+        anythingUnsaved() -> persistHere(writeUserDb = model.dirty)
+        else -> PersistResult.DONE
+    }
+
+    private fun save(): PersistResult =
+        onWriterThread(PersistResult.FAILED) { persistHere(writeUserDb = true) }
+
+    private fun saveLearning(): Awaited<PersistResult> =
+        awaitOnWriterThread(PersistResult.FAILED) { persistHere(writeUserDb = false) }
+
+    private fun <T> onWriterThread(failed: T, work: () -> T): T = awaitOnWriterThread(failed, work).result
+
+    private fun <T> awaitOnWriterThread(failed: T, work: () -> T): Awaited<T> {
+        val queued = Callable(work)
+        if (Thread.currentThread() === writer) return Awaited(queued.call(), null)
+        val pending = runCatching { io.submit(queued) }.getOrNull() ?: return Awaited(queued.call(), null)
+        return try {
+            Awaited(pending.get(WRITE_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS), null)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            Awaited(failed, pending)
+        } catch (_: ExecutionException) {
+            Awaited(failed, null)
+        } catch (_: TimeoutException) {
+            Awaited(failed, pending)
+        }
+    }
+
+    private class Awaited<T>(val result: T, val stillToRun: Future<T>?)
+
+    private fun persistHere(writeUserDb: Boolean): PersistResult {
+        val outer = writing
+        writing = true
+        try {
+            return writeNow(writeUserDb)
+        } finally {
+            writing = outer
+        }
+    }
+
+    private fun writeNow(writeUserDb: Boolean): PersistResult {
+        var savedUserDbMtime: Long? = null
+        var savedUserLearnMtime: Long? = null
+        val userDbWritten = !writeUserDb || runCatching {
+            model.save(userDb)
+            savedUserDbMtime = userDb.lastModified()
+        }.isSuccess
+        val learningWritten = runCatching { savedUserLearnMtime = saveDirtyLearning() }.isSuccess
+        if (savedUserDbMtime != null || savedUserLearnMtime != null) {
+            onSaved(savedUserDbMtime, savedUserLearnMtime)
+        }
+        return PersistResult(dictionary = userDbWritten, learning = learningWritten)
+    }
+
+    private fun saveDirtyLearning(): Long? {
+        val learning = userLearning ?: return null
+        val file = userLearnFile ?: return null
+        if (!learning.dirty) return null
+        learning.save(file)
+        return file.lastModified()
+    }
+
+    private data class PersistResult(val dictionary: Boolean, val learning: Boolean) {
+        val both: Boolean get() = dictionary && learning
+
+        companion object {
+            val DONE = PersistResult(dictionary = true, learning = true)
+            val FAILED = PersistResult(dictionary = false, learning = false)
+        }
+    }
+
+    private companion object {
+        const val WRITE_TIMEOUT_MILLIS = 5_000L
+    }
+}
