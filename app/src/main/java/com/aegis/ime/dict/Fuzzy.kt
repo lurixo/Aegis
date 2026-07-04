@@ -48,6 +48,7 @@ object Fuzzy {
     private const val MAX_FUZZY_LEN = 40
     private val initials = listOf("zh", "ch", "sh") + "bpmfdtnlgkhjqxrzcsyw".map { it.toString() }
 
+    fun prefKey(ruleKey: String): String = "fuzzy_$ruleKey"
     fun activeRules(masterOn: Boolean, enabled: (String) -> Boolean): Set<String> =
         if (!masterOn) emptySet() else RULES.filter { enabled(it.key) }.mapTo(LinkedHashSet()) { it.key }
 
