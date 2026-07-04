@@ -104,6 +104,14 @@ class DictEngine(
         userModel?.record(prevWord, word, System.currentTimeMillis())
     }
 
+    override fun learnWord(reading: String, word: String, assembled: Boolean) {
+        val um = userModel ?: return
+        // Store only a word the main dictionary does not already provide for this reading — a genuine
+        // self-created word. A word the dict already carries is recalled from it, so storing it is noise.
+        if (decoder?.hasDictWord(reading, word) == true) return
+        um.recordWord(reading, word, System.currentTimeMillis(), incrementCount = assembled)
+    }
+
     // E4 hot-toggle (debug.16): forward to the 26-key decoder only; T9 is already lossy and never used fuzzy.
     override fun setFuzzyRules(rules: Set<String>) {
         decoder?.setFuzzyRules(rules)

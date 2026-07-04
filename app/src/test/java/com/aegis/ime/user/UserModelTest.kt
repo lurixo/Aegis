@@ -81,4 +81,95 @@ class UserModelTest {
         assertEquals(listOf("条"), a.successors("词", 8))
         f.delete()
     }
+
+    @Test
+    fun recordWord_indexesReadingAndBoosts() {
+        val m = UserModel()
+        m.recordWord("ceshi", "测试", 10, incrementCount = true)
+        assertEquals("reading -> word is indexed", listOf("测试"), m.readingSnapshot()["ceshi"])
+        assertTrue("a recorded self-created word is boosted", m.wordBoost("测试") > 0.0)
+        assertFalse("model with a recall entry is not empty", m.isEmpty())
+    }
+
+    @Test
+    fun recordWord_incrementCountFalse_stillGivesABoostButDoesNotDoubleCount() {
+        val m = UserModel()
+        m.record(null, "测试", 10) // the commit path already counted it once
+        val boostAfterOne = m.wordBoost("测试")
+        m.recordWord("ceshi", "测试", 11, incrementCount = false) // add recall without re-counting
+        assertEquals("recall entry added", listOf("测试"), m.readingSnapshot()["ceshi"])
+        assertEquals("count not double-bumped", boostAfterOne, m.wordBoost("测试"), 1e-9)
+    }
+
+    @Test
+    fun readingEntries_persistAcrossSaveLoad() {
+        val m = UserModel()
+        m.recordWord("ceshi", "测试", 1, incrementCount = true)
+        m.recordWord("beijing", "北京", 2, incrementCount = true)
+        val f = File.createTempFile("userdb-r", ".txt")
+        m.save(f)
+        val loaded = UserModel().apply { load(f) }
+        assertEquals(listOf("测试"), loaded.readingSnapshot()["ceshi"])
+        assertEquals(listOf("北京"), loaded.readingSnapshot()["beijing"])
+        assertEquals("boost survives the round trip", m.wordBoost("测试"), loaded.wordBoost("测试"), 1e-9)
+        f.delete()
+    }
+
+    @Test
+    fun importMerges_readingEntries() {
+        val userDb = UserModel().apply { recordWord("ceshi", "测试", 1, incrementCount = true) }
+        val other = UserModel().apply { recordWord("ceyong", "测用", 2, incrementCount = true) }
+        val f = File.createTempFile("imp-r", ".txt")
+        other.save(f)
+        userDb.importFrom(f, 3)
+        assertEquals(listOf("测试"), userDb.readingSnapshot()["ceshi"])
+        assertEquals("imported recall entry merged", listOf("测用"), userDb.readingSnapshot()["ceyong"])
+        f.delete()
+    }
+
+    @Test
+    fun addManualWord_thenRemove_reflectsInEntriesAndRecall() {
+        val m = UserModel()
+        m.addManualWord("ceshi", "测试", 100)
+        m.addManualWord("BEI'jing", "北京", 101) // reading is sanitized to pure lowercase letters
+        assertEquals(listOf("北京"), m.readingSnapshot()["beijing"])
+        assertTrue("manual word boosted", m.wordBoost("测试") > 0.0)
+        val entries = m.userWordEntries().map { it.word }
+        assertTrue("both manual words listed", entries.containsAll(listOf("测试", "北京")))
+
+        m.removeWord("测试")
+        assertEquals("removed word gone from recall", null, m.readingSnapshot()["ceshi"])
+        assertEquals("removed word no longer boosted", 0.0, m.wordBoost("测试"), 0.0)
+        assertFalse("removed word not listed", m.userWordEntries().any { it.word == "测试" })
+    }
+
+    @Test
+    fun blankReadingManualAdd_boostsButDoesNotIndexRecall() {
+        val m = UserModel()
+        m.addManualWord("   ", "孤词", 1)
+        assertTrue("still boosted", m.wordBoost("孤词") > 0.0)
+        assertTrue("no recall entry without a reading", m.readingSnapshot().isEmpty())
+    }
+
+    @Test
+    fun wordsWithDelimiterCharsAreRejected_soTheFileFormatCannotCorrupt() {
+        val m = UserModel()
+        m.recordWord("ceshi", "测\t试", 1, incrementCount = true) // TAB is the field delimiter
+        m.addManualWord("beijing", "北\n京", 2) // newline is the record delimiter
+        assertTrue("delimiter-bearing words are not stored", m.readingSnapshot().isEmpty())
+        assertEquals("and carry no boost", 0.0, m.wordBoost("测\t试"), 0.0)
+    }
+
+    @Test
+    fun readingScopedRemove_keepsOtherReadingsOfSameWord() {
+        val m = UserModel()
+        m.recordWord("chang", "长", 1, incrementCount = true)
+        m.recordWord("zhang", "长", 2, incrementCount = true)
+        m.removeWord("chang", "长")
+        assertEquals("only the named reading drops", null, m.readingSnapshot()["chang"])
+        assertEquals("the other reading survives", listOf("长"), m.readingSnapshot()["zhang"])
+        assertTrue("boost kept while a reading still recalls it", m.wordBoost("长") > 0.0)
+        m.removeWord("zhang", "长")
+        assertEquals("boost gone once no reading recalls it", 0.0, m.wordBoost("长"), 0.0)
+    }
 }

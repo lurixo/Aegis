@@ -91,6 +91,17 @@
     <string name="user_dict_import_dialog_body">这里导入/导出的是【学习词库】（userdb.txt — 本机学习到的词与词频），不是你下载的【主词库】（拼音大词库）。「合并」把导入内容累加到现有学习词库（去重、词频相加，保留历史）；「覆盖」用导入文件整体替换【学习词库】（不影响已下载的主词库）。</string>
     <string name="user_dict_import_merge">合并（推荐）</string>
     <string name="user_dict_import_overwrite">覆盖</string>
+    <string name="user_dict_manual_title">我的词</string>
+    <string name="user_dict_manual_description">添加一个词和它的拼音，下次输入该拼音时就会作为候选出现；也可删除某个词，让它不再出现在候选里。逐字拼出的词会自动加到这里。改动会在下次切换到 Aegis 时生效。</string>
+    <string name="user_dict_word_hint">词</string>
+    <string name="user_dict_reading_hint">拼音（字母）</string>
+    <string name="user_dict_add_button">添加</string>
+    <string name="user_dict_delete_button">删除</string>
+    <string name="user_dict_manual_empty">还没有自定义的词。</string>
+    <string name="user_dict_entry_format">%1$s · %2$s</string>
+    <string name="user_dict_toast_added">已添加</string>
+    <string name="user_dict_toast_add_failed">请输入词和它的拼音（仅字母）</string>
+    <string name="user_dict_toast_deleted">已删除</string>
 
     <string name="app_version_card_title">应用版本</string>
     <string name="app_version_card_description">Aegis 应用发布标签。它与学习词库、主词库和模型文件版本相互独立。</string>

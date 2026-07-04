@@ -60,6 +60,14 @@ class PinyinDecoder(
     private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
     private var edgeN = if (lm != null || fuzzyRules.isNotEmpty() || initialsDict != null) EDGE_N else 1
 
+    // --- self-created (user) word recall -------------------------------------------------------------
+    // A snapshot of the user model's reading -> words map, indexed in BOTH the letter and the T9-digit
+    // keyspaces so either decoder matches its own input key. Rebuilt only when [UserModel.version] moves,
+    // so free typing pays a single hash lookup per key and nothing at all on an un-adapted install.
+    private var userIndexVersion = Long.MIN_VALUE
+    private var userLetterIndex: Map<String, List<String>> = emptyMap()
+    private var userDigitIndex: Map<String, List<String>> = emptyMap()
+
     /**
      * E4 hot-toggle (debug.16): swap the active fuzzy rule set without rebuilding the decoder — fuzzy is pure
      * query-time variant expansion ([edgesFor] → [Fuzzy.variants]), not a prebuilt index. [edgeN] is widened
@@ -107,10 +115,95 @@ class PinyinDecoder(
         return preferredWordFreqs(out)
     }
 
-    /** Lattice edges for a substring, by descending preference: exact, aliases, fuzzy, then jianpin initials. */
+    /** Whether the main dictionary already carries [word] under exact key [reading] — lets the engine skip
+     *  storing a self-created word the dictionary can already recall. Readings are stored as canonical
+     *  letters, so only this (letter) decoder's dict is meaningful; the T9 decoder never records words. */
+    fun hasDictWord(reading: String, word: String): Boolean =
+        reading.isNotEmpty() && dict.exact(reading).any { it.word == word }
+
+    /** Rebuild the per-keyspace recall index iff the user model changed since it was last read. */
+    private fun refreshUserIndex() {
+        val um = userModel ?: return
+        val v = um.version
+        if (v == userIndexVersion) return
+        val letter = HashMap<String, MutableList<String>>()
+        val digit = HashMap<String, MutableList<String>>()
+        for ((reading, words) in um.readingSnapshot()) {
+            if (reading.isEmpty()) continue
+            val dk = T9Pinyin.toT9(reading)
+            for (w in words) {
+                letter.getOrPut(reading) { ArrayList() }.let { if (w !in it) it.add(w) }
+                digit.getOrPut(dk) { ArrayList() }.let { if (w !in it) it.add(w) }
+            }
+        }
+        userLetterIndex = letter
+        userDigitIndex = digit
+        userIndexVersion = v
+    }
+
+    /** Self-created words whose stored reading is exactly the whole input key [key] (letters or T9 digits,
+     *  chosen by the first character, mirroring [inputAliases]), most-used first; empty when there is no user
+     *  model or no match — so every caller is a no-op on an un-adapted install and behaves exactly as before. */
+    private fun userWordsFor(key: String): List<String> {
+        if (userModel == null || key.isEmpty()) return emptyList()
+        refreshUserIndex()
+        return (if (key[0] in '2'..'9') userDigitIndex[key] else userLetterIndex[key]) ?: emptyList()
+    }
+
+    /** Synthetic ranking frequency for a self-created word under reading key [readingKey]: the frequency of
+     *  its RAREST covered reading-character, floored at 1 (the same length-neutral commonness metric the locked
+     *  decode ranks by, so a word of common characters ranks among the common words and a rare-charactered one
+     *  sinks — never ordered as a rare candidate ahead of a common one, nor as a common one behind a rarer
+     *  word). The character↔syllable alignment is recovered by a maximin DP over EVERY syllabification of the
+     *  reading (each codepoint a single of its span), NOT a single greedy split — so a concatenation-ambiguity
+     *  reading (xi+an → "xian", which greedily segments into one syllable) still credits each character its own
+     *  reading-frequency instead of mis-crediting a merged key's common single. No recoverable alignment (a
+     *  heteronym reading with no standalone single) falls back to the floor. */
+    private fun userWordFreq(word: String, readingKey: String): Double {
+        if (readingKey.isEmpty()) return 1.0
+        val cps = ArrayList<String>(4)
+        var ci = 0
+        while (ci < word.length) { val cp = word.codePointAt(ci); cps.add(String(Character.toChars(cp))); ci += Character.charCount(cp) }
+        val n = readingKey.length
+        val m = cps.size
+        if (m == 0) return 1.0
+        val cache = HashMap<String, Map<String, Int>>()
+        fun singleFreqs(key: String): Map<String, Int> = cache.getOrPut(key) {
+            val map = HashMap<String, Int>()
+            for (wf in preferredExact(dict, key)) if (isSingleChar(wf.word)) map.putIfAbsent(wf.word, wf.freq)
+            map
+        }
+        // dp[p][i] = best achievable (max over parses of the min covered single-freq) parsing readingKey[0,p)
+        // into the first i codepoints; NEGATIVE_INFINITY = unreachable.
+        val dp = Array(n + 1) { DoubleArray(m + 1) { Double.NEGATIVE_INFINITY } }
+        dp[0][0] = Double.MAX_VALUE
+        for (p in 0 until n) for (i in 0 until m) {
+            if (dp[p][i] == Double.NEGATIVE_INFINITY) continue
+            var q = p + 1
+            while (q <= n && q - p <= MAX_SYLLABLE_KEY_LEN) {
+                val f = singleFreqs(readingKey.substring(p, q))[cps[i]]
+                if (f != null) {
+                    val v = minOf(dp[p][i], f.toDouble())
+                    if (v > dp[q][i + 1]) dp[q][i + 1] = v
+                }
+                q++
+            }
+        }
+        val best = dp[n][m]
+        return if (best == Double.NEGATIVE_INFINITY || best == Double.MAX_VALUE) 1.0 else best.coerceAtLeast(1.0)
+    }
+
+    /** Lattice edges for a substring, by descending preference: user words, exact, aliases, fuzzy, jianpin. */
     private fun edgesFor(sub: String): List<Edge> {
         val out = ArrayList<Edge>(edgeN)
         val seen = HashSet<String>()
+        // Self-created words are floor-guaranteed edges (like alias words): a word the user built for exactly
+        // this reading must reach the sentence lattice even when the exact dict layer would fill every slot by
+        // itself. Its edge frequency is its characters' shared commonness; the path score adds the usage boost
+        // in [bestSentence], so a repeatedly used self-created word can win the sentence.
+        for (uw in userWordsFor(sub)) {
+            if (seen.add(uw)) out.add(Edge(uw, userWordFreq(uw, sub).toInt().coerceAtLeast(1), 0.0))
+        }
         val exactFull = addExactEdges(dict, sub, 0.0, out, seen)
         // Alias words are floor-guaranteed edges: an exact layer that fills all [edgeN] slots by itself
         // (the full dict's exact("en") can) must not starve them out of the lattice — they are the only
@@ -291,6 +384,7 @@ class PinyinDecoder(
         val out = LinkedHashSet<String>()
         bestSentence(clean, cuts, ctxCp = ctxCp, ctxWord = ctxWord)?.let { out.add(it) }
         out.addAll(rerankedWholeInputAndAliases(clean, ctxCp, ctxWord)) // ★top-N rerank, context-conditioned
+        out.addAll(userWordsFor(clean)) // self-created words recalled for their exact reading
         out.addAll(prefixWords(dict, clean, limit))
         if (out.size < limit && fuzzyRules.isNotEmpty()) {
             for (variant in Fuzzy.variants(clean, fuzzyRules)) {
@@ -374,6 +468,10 @@ class PinyinDecoder(
         dict.exact(input).forEach { offer(it, 0.0) }
         inputAliasWordFreqs(input).forEach { offer(it, ALIAS_PENALTY) }
         dict.prefixByFreq(input, completionCap).forEach { offer(it, 0.0) }
+        // Self-created words for this exact reading rank with the common completions by their characters'
+        // shared commonness (+ usage boost inside the model score), so they surface without preceding a
+        // common word; a genuine self-created word is not in the dict, so [offer]'s dedup never doubles it.
+        for (uw in userWordsFor(input)) offer(BinaryDict.WordFreq(uw, userWordFreq(uw, input).toInt().coerceAtLeast(1)), 0.0)
         if (fuzzyRules.isNotEmpty()) {
             for (variant in Fuzzy.variants(input, fuzzyRules)) {
                 if (variant == input) continue
@@ -391,6 +489,13 @@ class PinyinDecoder(
         }
         val out = ArrayList<Cand>(minOf(cover.size, limit) + 20)
         for ((w, len) in cover) { out.add(Cand(w, len)); if (out.size >= limit) break }
+        // Recall floor: a self-created word for this exact reading must appear even if the completion cap
+        // spilled it; add any still-missing one here — above the leading-singles tier, so it never precedes
+        // a common word yet is always reachable.
+        if (userModel != null) {
+            val present = out.mapTo(HashSet()) { it.word }
+            for (uw in userWordsFor(input)) if (present.add(uw)) out.add(Cand(uw, input.length))
+        }
         // The per-prefix multi-char words and the lossless singles tiers are ONE remainder layer now
         // (merged per coverage inside appendLeadingSingles) — see the ordering note there.
         appendLeadingSingles(input, input.length, out, limit)
@@ -431,6 +536,15 @@ class PinyinDecoder(
         for (j in 2..nSyl) for (wf in preferredExact(dict, input.substring(0, B[j]))) if (!isSingleChar(wf.word)) {
             if (!admissibleUnderCuts(wf.word, 0, B[j], interior, input, singlesCache)) continue
             if (leadFreq.put(wf.word, wf.freq) == null) leadCov[wf.word] = B[j]
+        }
+        // A self-created word whose reading is exactly this locked buffer joins the prominent leading-word
+        // tier (above the single/sentence tail), ranked by its characters' shared commonness — recall on the
+        // locked path without disturbing the rare-before-common order or the lossless single layer below.
+        for (uw in userWordsFor(input)) {
+            if (uw == best || uw in leadFreq || uw.codePointCount(0, uw.length) < 2) continue
+            if (!admissibleUnderCuts(uw, 0, input.length, interior, input, singlesCache)) continue
+            val f = userWordFreq(uw, input).toInt().coerceAtLeast(1)
+            if (leadFreq.put(uw, f) == null) leadCov[uw] = input.length
         }
 
         // ③ first-syllable single homophones + the composed alternative sentences, merged into ONE cold-start

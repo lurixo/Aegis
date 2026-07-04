@@ -92,6 +92,15 @@ interface CandidateEngine {
     /** Record that the user committed [word] after [prevWord] (for adaptation). */
     fun learn(prevWord: String?, word: String) {}
 
+    /**
+     * Record a self-created [word] under its full pinyin [reading] (letters) so it can be recalled and
+     * boosted the next time that reading is typed. [assembled] is true when the word was built up from
+     * separate character picks (so the whole form was not already counted by [learn]); false when it was
+     * committed whole in one pick. Implementations may drop a word the main dictionary already carries for
+     * [reading]. Default no-op.
+     */
+    fun learnWord(reading: String, word: String, assembled: Boolean) {}
+
     /** E4 hot-toggle (debug.16): update the active fuzzy rule set at query time (no rebuild). Default no-op. */
     fun setFuzzyRules(rules: Set<String>) {}
 }

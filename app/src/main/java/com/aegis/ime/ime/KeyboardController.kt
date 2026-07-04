@@ -51,7 +51,7 @@ class KeyboardController(
     private val host: ImeHost,
     private var engine: CandidateEngine,
 ) {
-    private data class LearnEvent(val prevWord: String?, val word: String, val prefixEnd: Int)
+    private data class LearnEvent(val prevWord: String?, val word: String, val prefixEnd: Int, val reading: String)
 
     private var lang = Lang.CN
     private var shiftState = ShiftState.OFF
@@ -590,7 +590,10 @@ class KeyboardController(
             // and keep decoding the remainder. The old code commitText()'d every pick, dribbling one
             // Chinese IME behavior note.
             val prefixEnd = committedPrefix.length + cand.word.length
-            if (!learningBlocked) deferredLearnEvents.addLast(LearnEvent(lastWord, cand.word, prefixEnd))
+            // Capture this chunk's reading BEFORE the buffer is consumed; the deferred events' readings
+            // concatenate to the assembled word's full reading when it completes (they trim with backspace).
+            val chunkReading = consumedReading(cand.coveredLen)
+            if (!learningBlocked) deferredLearnEvents.addLast(LearnEvent(lastWord, cand.word, prefixEnd, chunkReading))
             lastWord = cand.word
             committedPrefix.append(cand.word)
             composing.delete(0, cand.coveredLen)
@@ -620,11 +623,49 @@ class KeyboardController(
             // The pick completes the word: send the assembled prefix + this final chunk to the editor in ONE
             // Chinese IME behavior note.
             expirePreeditChoiceUndo()
-            host.commitText(committedPrefix.toString() + cand.word)
+            // Reconstruct the whole word + its full reading BEFORE applyDeferredLearning clears the events.
+            // [assembled] = built from ≥2 picks (the whole form was never counted by the per-chunk learning).
+            val assembled = committedPrefix.isNotEmpty()
+            val finalReading = consumedReading(cand.coveredLen)
+            val wholeWord = committedPrefix.toString() + cand.word
+            val wholeReading = deferredLearnEvents.joinToString("") { it.reading } + finalReading
+            host.commitText(wholeWord)
             applyDeferredLearning(cand.word)
+            maybeLearnAssembledWord(wholeWord, wholeReading, assembled)
             lastWord = cand.word
             clearComposingState()
         }
+    }
+
+    /** The pinyin letters of the first [coveredLen] input units of the live buffer (letters on the 26-key,
+     *  the decoded reading on the 9-key where one digit maps to one letter), separators stripped — the reading
+     *  of a chunk about to be committed. */
+    private fun consumedReading(coveredLen: Int): String {
+        val letters = rawComposingText()
+        return letters.take(coveredLen.coerceIn(0, letters.length)).replace("'", "")
+    }
+
+    /**
+     * Persist a self-created word so its reading can recall it later: a multi-character word the user built up
+     * character by character (or a composed best-sentence committed whole) that the main dictionary may not
+     * carry. Inclusion criteria guard against noise — ≥2 characters, all Han (never punctuation), and a valid
+     * pure-pinyin reading. The engine drops it if the dictionary already provides it for that reading, so only
+     * genuine self-created words are stored. Never runs while learning is blocked (password / opt-out fields).
+     */
+    private fun maybeLearnAssembledWord(word: String, reading: String, assembled: Boolean) {
+        if (learningBlocked) return
+        if (word.codePointCount(0, word.length) < 2) return
+        if (reading.length < 2 || reading.any { it !in 'a'..'z' }) return
+        // The reading must be a full pinyin sequence (segments into whole syllables). This rejects a jianpin
+        // initials pick ("nh" for 你好) so a dictionary word is not stored under a bogus initials reading.
+        if (T9Pinyin.segmentLetters(reading) == null) return
+        var i = 0
+        while (i < word.length) {
+            val cp = word.codePointAt(i)
+            if (!Character.isIdeographic(cp)) return
+            i += Character.charCount(cp)
+        }
+        engine.learnWord(reading, word, assembled)
     }
 
     private fun candidateStaysInPreedit(cand: Cand): Boolean =
@@ -650,8 +691,13 @@ class KeyboardController(
             applyDeferredLearning()
             clearComposingState()
         } else if (prefix.isNotEmpty()) {
+            // A word assembled character by character and then committed by Space/Enter/layout-switch/panel
+            // (not a final candidate pick) is still a completed self-created word — learn it, same as the pick
+            // path. Capture the reading before applyDeferredLearning clears the deferred events.
+            val wholeReading = deferredLearnEvents.joinToString("") { it.reading }
             host.commitText(prefix)
             applyDeferredLearning()
+            maybeLearnAssembledWord(prefix, wholeReading, assembled = true)
             clearComposingState()
         }
         lastWord = null

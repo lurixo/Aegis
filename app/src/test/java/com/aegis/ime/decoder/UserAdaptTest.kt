@@ -19,6 +19,7 @@ import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.user.UserModel
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
@@ -44,5 +45,32 @@ class UserAdaptTest {
 
         val withUser = PinyinDecoder(dict, lm, userModel = um).decode("shi", 5)
         assertEquals("user-preferred word ranks first", target, withUser.firstOrNull())
+    }
+
+    /**
+     * ③ frequency curve: the strengthened boost makes a repeatedly chosen same-reading homophone rise within
+     * a HANDFUL of uses (perceptible), not the ~200 the original unit weight needed. Measured on the real dict:
+     * find the fewest uses that lift a non-default candidate to the front, and assert it is well under the old
+     * regime. Cold start (no user model) is untouched — the boost is 0 for an unseen word.
+     */
+    @Test
+    fun boostIsPerceptibleWithinAFewUses() {
+        assumeTrue(dictFile.exists() && lmFile.exists())
+        val dict = BinaryDict.fromFile(dictFile)
+        val lm = CharBigramLM.fromFile(lmFile)
+        val base = PinyinDecoder(dict, lm).decode("shi", 5)
+        assumeTrue("need >=2 candidates", base.size >= 2)
+        val target = base[1]
+
+        // Search well past the "handful" bound: if the curve had regressed to the old unit weight the target
+        // would need ~200 uses and would NOT be found within this range, so the assertion is not tautological.
+        var uses = -1
+        for (n in 1..100) {
+            val um = UserModel()
+            repeat(n) { um.record(null, target, it.toLong()) }
+            if (PinyinDecoder(dict, lm, userModel = um).decode("shi", 5).firstOrNull() == target) { uses = n; break }
+        }
+        assertTrue("a chosen homophone should reach the front within a few dozen uses (got $uses), far under the old ~200",
+            uses in 1..40)
     }
 }
