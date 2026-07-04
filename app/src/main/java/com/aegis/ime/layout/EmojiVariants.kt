@@ -68,6 +68,9 @@ object EmojiVariants {
         else -> listOf(base)
     }
 
+    fun skinForms(form: String): List<String> =
+        if (form in skinCapable) listOf(form) + SKIN_TONES.map { applyTone(form, it) } else listOf(form)
+
     private fun tokenSet(s: String): Set<String> =
         s.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.toSet()
 }

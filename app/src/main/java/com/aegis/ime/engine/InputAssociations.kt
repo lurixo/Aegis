@@ -76,6 +76,7 @@ object InputAssociations {
         }
         for ((key, glyphs) in legacy) add(key, glyphs)
         for (row in SymbolAssociations.rows()) for (key in row.keyList) add(key, row.glyphList)
+        for (row in EmojiAssociations.rows()) for (key in row.keyList) add(key, listOf(row.emoji))
         m.mapValuesTo(LinkedHashMap(m.size * 2)) { (_, glyphs) -> glyphs.toList() }
     }
 

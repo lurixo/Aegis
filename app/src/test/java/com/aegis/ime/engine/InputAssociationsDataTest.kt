@@ -48,6 +48,23 @@ class InputAssociationsDataTest {
         assertTrue("¥ stays reachable via riyuan (日元)", "¥" in InputAssociations.lookup("riyuan"))
     }
 
+    @Test fun every_emoji_row_has_aligned_names_and_keys() {
+        for (row in EmojiAssociations.rows()) {
+            val names = row.names.split('/')
+            assertTrue("${row.emoji}: empty names/keys", names.isNotEmpty() && row.keyList.isNotEmpty())
+            assertEquals("${row.emoji}: names(${row.names}) and keys(${row.keys}) must align 1:1", names.size, row.keyList.size)
+            assertTrue("${row.emoji}: blank name", names.none { it.isBlank() })
+        }
+    }
+
+    @Test fun every_emoji_surfaces_for_every_name() {
+        for (row in EmojiAssociations.rows()) {
+            for (key in row.keyList) {
+                assertTrue("${row.emoji} (${row.names}) must appear for '$key'", row.emoji in InputAssociations.lookup(key))
+            }
+        }
+    }
+
     @Test fun every_symbol_row_glyph_surfaces_for_every_name() {
         for (row in SymbolAssociations.rows()) {
             for (key in row.keyList) {
@@ -68,6 +85,22 @@ class InputAssociationsDataTest {
                 assertTrue("key '$key' carries a Han-character glyph '$g' — allowlist it deliberately or drop it", !hasHan)
             }
         }
+    }
+
+
+    @Test fun user_required_examples_hit() {
+        assertTrue("sheshidu → ℃", "℃" in InputAssociations.lookup("sheshidu"))
+        assertTrue("meijin → \$", "\$" in InputAssociations.lookup("meijin"))
+        assertTrue("weixiao → 🙂", "🙂" in InputAssociations.lookup("weixiao"))
+        assertTrue("aixin → ❤️", "❤️" in InputAssociations.lookup("aixin"))
+        assertTrue("niu → 🐮", "🐮" in InputAssociations.lookup("niu"))
+        assertTrue("niu → 🐂", "🐂" in InputAssociations.lookup("niu"))
+        assertTrue("huashidu → ℉", "℉" in InputAssociations.lookup("huashidu"))
+        assertTrue("pingfangmi → ㎡", "㎡" in InputAssociations.lookup("pingfangmi"))
+        assertTrue("bitebi → ₿", "₿" in InputAssociations.lookup("bitebi"))
+        assertTrue("aerfa → α", "α" in InputAssociations.lookup("aerfa"))
+        assertTrue("youjiantou → →", "→" in InputAssociations.lookup("youjiantou"))
+        assertTrue("quanyi → ①", "①" in InputAssociations.lookup("quanyi"))
     }
 
 
@@ -142,6 +175,30 @@ class InputAssociationsDataTest {
         "meiyuan" to listOf("\$"),
         "ouyuan" to listOf("€"),
     )
+
+    @Test fun trimmed_noise_keys_no_longer_surface_their_glyph() {
+        val forbidden = listOf(
+            "hao" to "🦪", "chi" to "📏", "gao" to "⛏️", "dong" to "🕳️", "fei" to "🫁",
+            "huan" to "🦡", "dou" to "🫘", "suan" to "🧄", "dasuan" to "🧄", "jiandan" to "🍳",
+            "cai" to "👎", "dan" to "🥚", "dao" to "🔪", "dian" to "⚡", "bi" to "🖊️",
+            "bing" to "🧊", "jiang" to "🫚", "jiao" to "🦶", "li" to "🍐", "mi" to "㊙️",
+            "pai" to "🥧", "cheng" to "⚖️", "mao" to "⚓", "hua" to "🖼️", "lei" to "😫",
+            "lei" to "🌩️", "wu" to "🌫️", "wu" to "🌁", "xin" to "✉️", "shu" to "🌳",
+            "ye" to "✌️", "qing" to "☀️", "san" to "☂️", "quan" to "⭕", "suo" to "🔒",
+            "jin" to "🈲", "cha" to "❌", "jian" to "➖", "wan" to "🥣", "yao" to "💊",
+            "qiang" to "🔫", "tong" to "🪣", "ya" to "🦷", "xue" to "🩸",
+            "biye" to "✌️", "youhua" to "🖼️", "yali" to "🍐", "zhichi" to "📏", "zhishi" to "🧀",
+            "zuowei" to "💺", "touzi" to "🎲", "zhijin" to "🧻", "shuzi" to "🪮", "keji" to "✈️",
+            "yifen" to "🍝", "jiazhi" to "🦿", "xiaoshi" to "🫥", "youyu" to "😔", "shiyan" to "🧂",
+            "ziyuan" to "🟣",
+        )
+        for ((key, glyph) in forbidden) {
+            assertTrue(
+                "'$key' must no longer surface '$glyph' (it is a bare/colliding key whose mainstream reading is unrelated)",
+                glyph !in InputAssociations.lookup(key),
+            )
+        }
+    }
 
     @Test fun all_48_legacy_entries_keep_their_glyphs_first_in_order() {
         assertEquals(48, legacyTable.size)
