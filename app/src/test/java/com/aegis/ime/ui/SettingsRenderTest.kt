@@ -100,4 +100,28 @@ class SettingsRenderTest {
             }
         }
     }
+
+    @Test fun settings_home_renders() {
+        for (dark in listOf(false, true)) {
+            val t = if (dark) "dark" else "light"
+            snapCompose("settings_home_$t.png", dark) {
+                SettingsNavGraph()
+            }
+        }
+    }
+
+    @Test fun user_dict_page_renders() {
+        val db = File(ctx.filesDir, "userdb.txt")
+        db.writeText("aegis-userdb 1\nR\tnihao\t你好\nR\tceshi\t测试\nR\thaode\t好的\n")
+        try {
+            for (dark in listOf(false, true)) {
+                val t = if (dark) "dark" else "light"
+                snapCompose("userdict_page_$t.png", dark) {
+                    UserDictPage(onBack = {})
+                }
+            }
+        } finally {
+            db.delete()
+        }
+    }
 }

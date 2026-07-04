@@ -21,6 +21,7 @@ object UserDictEdit {
 
     fun add(userDb: File, word: String, reading: String, now: Long): Boolean {
         if (word.isBlank()) return false
+        UserDictHot.host?.let { return it.addWord(reading, word, now) }
         val m = UserModel().apply { if (userDb.exists()) load(userDb) }
         m.addManualWord(reading, word, now)
         m.save(userDb)
@@ -29,12 +30,24 @@ object UserDictEdit {
 
     fun remove(userDb: File, reading: String, word: String): Boolean {
         if (word.isBlank()) return false
+        UserDictHot.host?.let { return it.removeWord(reading, word) }
         val m = UserModel().apply { if (userDb.exists()) load(userDb) }
         m.removeWord(reading, word)
         m.save(userDb)
         return true
     }
 
-    fun list(userDb: File): List<UserModel.Entry> =
-        UserModel().apply { if (userDb.exists()) load(userDb) }.userWordEntries()
+    fun applyImport(userDb: File, importFile: File, merge: Boolean, now: Long): Boolean {
+        UserDictHot.host?.let { return it.importUserDict(importFile, merge, now) }
+        return UserDictImport.apply(importFile, userDb, merge, now)
+    }
+
+    fun flushBeforeExport() {
+        UserDictHot.host?.flush()
+    }
+
+    fun list(userDb: File): List<UserModel.Entry> {
+        UserDictHot.host?.let { return it.entries() }
+        return UserModel().apply { if (userDb.exists()) load(userDb) }.userWordEntries()
+    }
 }

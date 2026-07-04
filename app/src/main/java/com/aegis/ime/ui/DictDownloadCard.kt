@@ -45,6 +45,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import com.aegis.ime.R
+import com.aegis.ime.SettingsHotApply
 import com.aegis.ime.dict.ModelDownload
 import java.io.File
 
@@ -103,6 +104,7 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
                             putString(ModelDownload.DICT_RELEASE_TAG_PREF, selected.releaseTag)
                             putString(ModelDownload.DICT_RELEASE_PUBLISHED_PREF, selected.publishedAt)
                         }
+                        SettingsHotApply.noteEnginePackChanged(prefs)
                         status = doneStatus()
                     }
                     !result.ok -> status = LocalizedText.Resource(R.string.dict_status_download_failed)
@@ -194,6 +196,7 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
                             remove(ModelDownload.DICT_RELEASE_TAG_PREF)
                             remove(ModelDownload.DICT_RELEASE_PUBLISHED_PREF)
                         }
+                        SettingsHotApply.noteEnginePackChanged(prefs)
                         present = false
                         progress = 0f
                         status = LocalizedText.Resource(R.string.dict_status_deleted)

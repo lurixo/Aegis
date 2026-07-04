@@ -45,6 +45,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import com.aegis.ime.R
+import com.aegis.ime.SettingsHotApply
 import com.aegis.ime.dict.ModelDownload
 
 internal data class DownloadCardPreview(val present: Boolean, val checking: Boolean = false, val status: String? = null)
@@ -85,6 +86,7 @@ internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
                 present = dest.exists() && dest.length() > 1024
                 if (result.ok) {
                     prefs.edit { putString(ModelDownload.VALIDATOR_PREF, result.validator) }
+                    SettingsHotApply.noteEnginePackChanged(prefs)
                     status = doneStatus()
                 } else {
                     status = LocalizedText.Resource(R.string.gram_status_download_failed)
@@ -176,6 +178,7 @@ internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
                     onClick = {
                         ModelDownload.purge(context.filesDir)
                         prefs.edit { remove(ModelDownload.VALIDATOR_PREF) }
+                        SettingsHotApply.noteEnginePackChanged(prefs)
                         present = false
                         progress = 0f
                         status = LocalizedText.Resource(R.string.gram_status_deleted)
