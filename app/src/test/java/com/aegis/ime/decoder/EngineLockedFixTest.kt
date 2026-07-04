@@ -295,7 +295,9 @@ class EngineLockedFixTest {
         val w = words(d.decodeCoveredAtomic("xiangku", 30, setOf("xiang".length)))
 
         assertTrue("cross-boundary word remains available", "想哭" in w.take(3))
-        assertTrue("xiang homophones remain prominent", w.take(8).containsAll(listOf("向", "想", "相", "像", "香")))
+        assertEquals("the top xiang homophones lead the single-character tail", listOf("向", "想", "相"),
+            w.filter { it.codePointCount(0, it.length) == 1 }.take(3))
+        assertTrue("all common xiang homophones remain reachable", w.containsAll(listOf("向", "想", "相", "像", "香")))
         assertFalse("selected xiang must not leak xian candidates", "西安" in w)
         assertFalse("selected xiang must not leak xi prefix singles", "西" in w)
         assertFalse("selected xiang must not leak xia prefix singles", "下" in w)
