@@ -624,8 +624,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (iv.isPanelShowing(symbolsView)) { iv.showPanel(null); return } // Chinese IME behavior note.
         val sv = symbolsView ?: SymbolsView(this).also {
             it.recentProvider = { symbolUsageStore.recent() }
-            // Chinese IME behavior note.
-            it.onSymbol = { s -> symbolUsageStore.record(s); commitExternalSymbol(s) } // debug.16: via gated symbol commit
+            it.recentOriginOf = { s -> symbolUsageStore.originOf(s) }
+            // Record the tap with the category it came from, then commit through the gated symbol path.
+            it.onSymbol = { s, origin -> symbolUsageStore.record(s, origin); commitExternalSymbol(s) }
             it.onBackspace = { panelBackspace() } // F2: selection-aware (else eats the char before a selection)
             it.onBack = { inputView?.showPanel(null) }
             symbolsView = it

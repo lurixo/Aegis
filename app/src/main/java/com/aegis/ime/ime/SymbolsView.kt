@@ -45,14 +45,26 @@ import com.aegis.ime.layout.SymbolCatalog
  */
 class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
 
-    var onSymbol: (String) -> Unit = {}
+    /** Emits the tapped symbol together with the category it was tapped from (its origin), so the recent tab
+     *  can remember and badge the true source. Origin is null for taps whose source is unknown. */
+    var onSymbol: (String, String?) -> Unit = { _, _ -> }
     var onBackspace: () -> Unit = {}
     var onBack: () -> Unit = {}
-    /** Chinese IME behavior note. */
+    /** Supplies the most-recently-used symbols (newest first) shown under the 常用 tab. */
     var recentProvider: () -> List<String> = { emptyList() }
+    /** True-origin lookup for a recent symbol's badge; falls back to the first-catalogue category when null. */
+    var recentOriginOf: (String) -> String? = { null }
 
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
+
+    // A single fixed tile height for every symbol cell. It scales with the display text size (so it still grows
+    // at large font scale) but is identical for all tiles, so a fallback glyph's larger line height can no
+    // longer stretch its own rounded cell taller than its neighbours'.
+    private val cellHeightPx: Int = run {
+        val displayPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, ImeType.display, resources.displayMetrics)
+        maxOf(dp(44), (displayPx * 1.35f).toInt() + dp(14))
+    }
 
     private val titles: List<String> =
         listOf(SymbolCatalog.RECENT_TITLE) + SymbolCatalog.categories.map { it.title }
@@ -91,8 +103,24 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     private val backspaceBtn = barButton("") { onBackspace() }
     private val bottomBarView = bottomBar()
 
-    private companion object {
+    internal companion object {
         const val COLUMNS = 7
+        /** How much smaller a wide fallback glyph is drawn, relative to [ImeType.display]. */
+        const val WIDE_GLYPH_SCALE = 0.82f
+
+        /**
+         * Glyphs that fall back to a CJK/wide font and otherwise render visibly taller and heavier than the
+         * Latin/Greek tiles: the enclosed & squared CJK compatibility forms (㈠…㈩, ㎏ ㎝ ㎡ ㎥ …), the
+         * letter-like unit signs ℃ ℉, and the double-struck number-set letters ℂ ℍ ℕ ℙ ℚ ℝ ℤ. Such a glyph
+         * is drawn one step smaller so every rounded cell in a row reads at the same optical weight and height.
+         */
+        fun wideMetricGlyph(ch: Char): Boolean {
+            val c = ch.code
+            return c in 0x3200..0x33FF ||            // Enclosed CJK Letters/Months + CJK Compatibility (㈠…, ㎏…)
+                c == 0x2103 || c == 0x2109 ||        // ℃ ℉
+                // double-struck ℂ ℍ ℕ ℙ ℚ ℝ ℤ
+                c == 0x2102 || c == 0x210D || c == 0x2115 || c == 0x2119 || c == 0x211A || c == 0x211D || c == 0x2124
+        }
     }
 
     init {
@@ -234,7 +262,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         val ph = dp(14); setPadding(ph, dp(8), ph, dp(8))
         isClickable = true
         Motion.applyTapFeedback(this, palette.keyLabel)
-        setOnClickListener { onSymbol(symbol); if (!locked) onBack() }
+        setOnClickListener { onSymbol(symbol, originForCurrent(symbol)); if (!locked) onBack() }
     }
 
     private fun measureW(v: View): Int {
@@ -251,8 +279,15 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     private fun symbolsFor(index: Int): List<String> =
         if (index == 0) recentProvider() else SymbolCatalog.categories[index - 1].symbols
 
-    /** Chinese IME behavior note. */
-    private fun badgeFor(symbol: String): String? = SymbolCatalog.categoryTitleOf(symbol)?.take(1)
+    /** The origin category of the currently visible tab for [symbol]: on the 常用 tab it is the symbol's own
+     *  stored origin (so re-using it preserves the real source); on a catalogue tab it is that tab's title. */
+    private fun originForCurrent(symbol: String): String? =
+        if (selected == 0) recentOriginOf(symbol) else SymbolCatalog.categories.getOrNull(selected - 1)?.title
+
+    /** The 常用 badge: the symbol's stored true origin, falling back to its first-catalogue category (older
+     *  entries with no recorded origin), first character only. */
+    private fun badgeFor(symbol: String): String? =
+        (recentOriginOf(symbol) ?: SymbolCatalog.categoryTitleOf(symbol))?.take(1)
 
     private fun railTab(index: Int, title: String): TextView = TextView(context).apply {
         text = title
@@ -277,16 +312,18 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
      */
     private fun cell(symbol: String, badge: String?): View {
         val tile = FrameLayout(context).apply {
-            minimumHeight = dp(44)
+            minimumHeight = cellHeightPx
             background = GradientDrawable().apply { setColor(palette.keySurface); cornerRadius = ImeShapes.keyRadiusDp * density }
             isClickable = true
             Motion.applyTapFeedback(this, palette.keyLabel)
-            setOnClickListener { onSymbol(symbol); if (!locked) onBack() }
+            setOnClickListener { onSymbol(symbol, originForCurrent(symbol)); if (!locked) onBack() }
             layoutParams = GridLayout.LayoutParams().apply {
                 width = 0
-                height = LayoutParams.WRAP_CONTENT
+                // Fixed height == minimumHeight, filled both ways: every tile in a row is exactly cellHeightPx,
+                // so the rounded cell is the same size regardless of the glyph's font metrics.
+                height = cellHeightPx
                 columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
-                setGravity(Gravity.FILL_HORIZONTAL)
+                setGravity(Gravity.FILL)
                 val m = dp(3); setMargins(m, m, m, m)
             }
         }
@@ -295,17 +332,22 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
                 text = symbol
                 gravity = Gravity.CENTER
                 maxLines = 1
+                // Drop the font-driven vertical padding so a heavy fallback font can't inflate the glyph box,
+                // and centre the glyph inside the fixed-height tile.
+                includeFontPadding = false
                 if (symbol.length > 1) {
-                    // Chinese IME behavior note.
-                    // cell, so it never truncates and never needs a wide tile that breaks the grid.
+                    // Multi-char completions (trig names, url helpers) auto-shrink to a single line inside the
+                    // cell, so they never truncate and never need a wide tile that breaks the grid.
                     TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(this, 9, ImeType.display.toInt(), 1, TypedValue.COMPLEX_UNIT_SP)
                 } else {
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.display)
+                    // Wide fallback glyphs (CJK squared units, double-struck sets, ℃/℉) are drawn one step
+                    // smaller so they no longer look bolder or taller than the ordinary Latin/Greek tiles.
+                    val sizeSp = if (wideMetricGlyph(symbol[0])) ImeType.display * WIDE_GLYPH_SCALE else ImeType.display
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp)
                 }
                 setTextColor(palette.keyLabel)
-                val pv = dp(10); setPadding(0, pv, 0, pv)
             },
-            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER),
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER),
         )
         if (badge != null) tile.addView(
             TextView(context).apply {
@@ -373,6 +415,24 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         }
         return out
     }
+
+    // Symbol-cell render seams (uniform tile height / per-glyph text size / badge origin).
+    internal fun cellHeightForTest(): Int = cellHeightPx
+    internal fun gridTileHeightsForTest(): List<Int> =
+        (0 until grid.childCount).map { grid.getChildAt(it).layoutParams.height }
+    private fun tileFor(symbol: String): android.view.ViewGroup? {
+        for (i in 0 until grid.childCount) {
+            val tile = grid.getChildAt(i) as? android.view.ViewGroup ?: continue
+            val tv = (0 until tile.childCount).map { tile.getChildAt(it) }.filterIsInstance<TextView>().firstOrNull()
+            if (tv?.text?.toString() == symbol) return tile
+        }
+        return null
+    }
+    internal fun gridGlyphForTest(symbol: String): TextView? =
+        tileFor(symbol)?.let { t -> (0 until t.childCount).map { t.getChildAt(it) }.filterIsInstance<TextView>().firstOrNull() }
+    internal fun gridBadgeForTest(symbol: String): String? =
+        tileFor(symbol)?.let { t -> (0 until t.childCount).map { t.getChildAt(it) }.filterIsInstance<TextView>().getOrNull(1)?.text?.toString() }
+    internal fun tapCellForTest(symbol: String): Boolean = tileFor(symbol)?.performClick() ?: false
 
     /** P3/P-C: the lock key shows its on/off state via the self-drawn padlock (closed + accent when locked,
      *  open + muted when not) — a monochrome glyph that tracks the palette, not a multi-colour emoji. */

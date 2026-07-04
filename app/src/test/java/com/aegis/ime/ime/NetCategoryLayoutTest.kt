@@ -128,7 +128,7 @@ class NetCategoryLayoutTest {
     @Test fun tapping_a_chinese_mark_cell_commits_that_exact_string() {
         val sv = SymbolsView(ctx)
         var committed: String? = null
-        sv.onSymbol = { committed = it }
+        sv.onSymbol = { s, _ -> committed = s }
         sv.applyPalette(light)
         sv.openCategoryForTest(1) // Chinese IME behavior note.
         assertTrue("— cell present + clickable", clickByText(sv, "—"))

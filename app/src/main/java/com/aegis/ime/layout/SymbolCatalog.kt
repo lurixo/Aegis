@@ -71,6 +71,28 @@ object SymbolCatalog {
      */
     fun categoryTitleOf(symbol: String): String? = symbolToCategory[symbol]
 
+    /**
+     * Full/half-width normalization for the "常用" de-dup key ONLY (never for display). Folds the full-width
+     * ASCII block (U+FF01–U+FF5E) onto ASCII (U+0021–U+007E) and the ideographic space (U+3000) onto a normal
+     * space, so a full-width and half-width form of the SAME character collapse to one recent entry (e.g. ％→%,
+     * ！→!, ，→,). It is deliberately narrow: it does NOT touch square units (㎡ ㎏ ℃), roman numerals (Ⅰ),
+     * enclosed numbers (①), super/subscripts, fractions, or cross-character look-alikes (– vs —, · vs •,
+     * × vs x), all of which an unrestricted NFKC pass would wrongly merge.
+     */
+    fun foldFullWidth(s: String): String {
+        var changed = false
+        val out = StringBuilder(s.length)
+        for (ch in s) {
+            val c = ch.code
+            when {
+                c in 0xFF01..0xFF5E -> { out.append((c - 0xFEE0).toChar()); changed = true }
+                c == 0x3000 -> { out.append(' '); changed = true }
+                else -> out.append(ch)
+            }
+        }
+        return if (changed) out.toString() else s
+    }
+
     fun pairingFor(symbol: String): Pairing? = pairedSymbols[symbol]?.let { Pairing(symbol, it) }
 
     fun insertionFor(symbol: String, hasTextAfterCursor: Boolean): List<String> {
