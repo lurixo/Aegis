@@ -15,13 +15,17 @@
 
 package com.aegis.ime.ime
 
+import android.animation.ValueAnimator
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -69,6 +73,14 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     private val backspaceBtn = barButton("") { onBackspace() }
     private val bottomBarView = bottomBar()
 
+    private val emojiPool = ArrayList<TextView>()
+    private var emptyHintView: TextView? = null
+    private val colorAnimators = HashMap<TextView, ValueAnimator>()
+    private val emojiClick = View.OnClickListener { v ->
+        val e = (v as TextView).text.toString()
+        onEmoji(e); if (!locked) onBack()
+    }
+
     init {
         orientation = VERTICAL
         setBackgroundColor(palette.keyboardBg)
@@ -103,6 +115,8 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
             }
         }
         backspaceGlyph.tint(p.keyLabelSecondary)
+        for (cell in emojiPool) retintRipple(cell, p.keyLabel)
+        emptyHintView?.setTextColor(p.keyHint)
         updateLockFace()
         showCategory(selected)
     }
@@ -137,23 +151,41 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun lockBtnForTest(): TextView = lockBtn
     internal fun lockSlotForTest(): View = lockSlot
     internal fun railTabForTest(index: Int): TextView = rail.getChildAt(index) as TextView
+    internal fun emojiCellsAllocatedForTest(): Int = emojiPool.size
+    internal fun gridCellCountForTest(): Int = grid.childCount
+    internal fun gridCellTextsForTest(): List<String> =
+        (0 until grid.childCount).mapNotNull { (grid.getChildAt(it) as? TextView)?.text?.toString() }
+    internal fun tapCellForTest(index: Int): Boolean = (grid.getChildAt(index) as? TextView)?.performClick() ?: false
 
     private fun showCategory(index: Int) {
+        val tabChanged = index != selected
+        val prev = selected
         selected = index
         for (i in 0 until rail.childCount) {
             val tab = rail.getChildAt(i) as TextView
             val on = i == index
-            tab.setTextColor(if (on) palette.candidateFirst else palette.keyLabelSecondary)
             tab.background = railTabBackground(on)
-            tab.setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
-            Motion.applyTapFeedback(tab, if (on) palette.candidateFirst else palette.keyLabelSecondary, radiusDp = ImeShapes.chipRadiusDp)
+            tab.setTypeface(null, if (on) Typeface.BOLD else Typeface.NORMAL)
+            val color = if (on) palette.candidateFirst else palette.keyLabelSecondary
+            if (tabChanged && (i == index || i == prev)) crossfadeTabColor(tab, color) else tab.setTextColor(color)
+            retintRipple(tab, color)
         }
-        grid.removeAllViews()
-        val emoji = if (index == 0) recentProvider() else EmojiCatalog.categories[index - 1].emoji
-        if (emoji.isEmpty()) grid.addView(emptyHint()) else for (e in emoji) grid.addView(emojiCell(e))
+        Motion.fadeThrough(gridScroll) { bindGrid(index) }
     }
 
-    private fun emptyHint(): TextView = TextView(context).apply {
+    private fun bindGrid(index: Int) {
+        grid.removeAllViews()
+        val emoji = if (index == 0) recentProvider() else EmojiCatalog.categories[index - 1].emoji
+        if (emoji.isEmpty()) { grid.addView(obtainEmptyHint()); return }
+        for (i in emoji.indices) {
+            val cell = obtainEmojiCell(i)
+            if (cell.text != emoji[i]) cell.text = emoji[i]
+            cell.tag = i
+            grid.addView(cell)
+        }
+    }
+
+    private fun obtainEmptyHint(): TextView = emptyHintView ?: TextView(context).apply {
         text = "最近使用的表情会显示在这里"
         gravity = Gravity.CENTER
         setTextColor(palette.keyHint)
@@ -164,6 +196,17 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
             columnSpec = GridLayout.spec(0, COLUMNS, 1f)
             setGravity(Gravity.FILL_HORIZONTAL)
         }
+    }.also { emptyHintView = it }
+
+    private fun crossfadeTabColor(tab: TextView, color: Int) {
+        colorAnimators.remove(tab)?.cancel()
+        Motion.crossfadeColor(tab, tab.currentTextColor, color) { tab.setTextColor(it) }?.let { colorAnimators[tab] = it }
+    }
+
+    private fun retintRipple(v: View, color: Int) {
+        val fg = v.foreground
+        if (fg is RippleDrawable) fg.setColor(ColorStateList.valueOf(Motion.withAlpha(color, 0x24)))
+        else Motion.applyTapFeedback(v, color, radiusDp = ImeShapes.chipRadiusDp)
     }
 
     private fun railTab(index: Int, title: String): TextView = TextView(context).apply {
@@ -183,21 +226,25 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
             cornerRadius = ImeShapes.chipRadiusDp * density
         }
 
-    private fun emojiCell(emoji: String): TextView = TextView(context).apply {
-        text = emoji
-        gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.display)
-        val p = dp(8)
-        setPadding(0, p, 0, p)
-        isClickable = true
-        Motion.applyTapFeedback(this, palette.keyLabel)
-        setOnClickListener { onEmoji(emoji); if (!locked) onBack() }
-        layoutParams = GridLayout.LayoutParams().apply {
-            width = 0
-            height = LayoutParams.WRAP_CONTENT
-            columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
-            setGravity(Gravity.FILL_HORIZONTAL)
+    private fun obtainEmojiCell(index: Int): TextView {
+        if (index < emojiPool.size) return emojiPool[index]
+        val tv = TextView(context).apply {
+            gravity = Gravity.CENTER
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.display)
+            val p = dp(8)
+            setPadding(0, p, 0, p)
+            isClickable = true
+            Motion.applyTapFeedback(this, palette.keyLabel)
+            setOnClickListener(emojiClick)
+            layoutParams = GridLayout.LayoutParams().apply {
+                width = 0
+                height = LayoutParams.WRAP_CONTENT
+                columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
+                setGravity(Gravity.FILL_HORIZONTAL)
+            }
         }
+        emojiPool.add(tv)
+        return tv
     }
 
     private fun bottomBar(): View = LinearLayout(context).apply {

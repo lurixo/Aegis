@@ -25,6 +25,7 @@ import android.view.inputmethod.InputMethodManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.ScrollState
@@ -79,6 +80,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.aegis.ime.R
 import com.aegis.ime.ui.theme.AegisTheme
+import com.aegis.ime.ui.theme.SettingsMotion
 
 class SetupActivity : ComponentActivity() {
     private var resumeSignal by mutableIntStateOf(0)
@@ -127,7 +129,14 @@ internal fun SettingsNavGraph(
     val back: () -> Unit = {
         if (navController.previousBackStackEntry != null) navController.popBackStack()
     }
-    NavHost(navController = navController, startDestination = SettingsRoutes.HOME) {
+    NavHost(
+        navController = navController,
+        startDestination = SettingsRoutes.HOME,
+        enterTransition = { SettingsMotion.forwardEnter(this) },
+        exitTransition = { SettingsMotion.forwardExit(this) },
+        popEnterTransition = { SettingsMotion.backEnter(this) },
+        popExitTransition = { SettingsMotion.backExit(this) },
+    ) {
         composable(SettingsRoutes.HOME) {
             SettingsHomePage(onOpenGroup = openGroup)
         }
@@ -169,7 +178,11 @@ private fun SettingsHomePage(onOpenGroup: (String) -> Unit) {
             style = MaterialTheme.typography.bodyMedium,
         )
 
-        if (showDownloadHint) {
+        AnimatedVisibility(
+            visible = showDownloadHint,
+            enter = SettingsMotion.revealEnter(),
+            exit = SettingsMotion.collapseExit(),
+        ) {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier.padding(16.dp),
