@@ -145,4 +145,41 @@ class AssociationsReplayTest {
         c.onPickCandidate(0)
         assertEquals("picking the top word still works normally", "词", host.text.toString())
     }
+
+
+    @Test fun the_injection_dedup_collapses_a_constructed_full_half_pair_keeping_the_first() {
+        assertEquals("￥/¥ → ￥", listOf("￥"), dedupeFullHalfGlyphs(listOf("￥", "¥")))
+        assertEquals("¥/￥ → ¥ (first-seen wins)", listOf("¥"), dedupeFullHalfGlyphs(listOf("¥", "￥")))
+        assertEquals("？/? → ？", listOf("？"), dedupeFullHalfGlyphs(listOf("？", "?")))
+        assertEquals(
+            "a top word then a twin-pair keeps the word and only the first width",
+            listOf("词", "＃"), dedupeFullHalfGlyphs(listOf("词", "＃", "#")),
+        )
+    }
+
+    @Test fun the_injection_dedup_leaves_cross_character_lookalikes_intact() {
+        assertEquals(listOf("。", "."), dedupeFullHalfGlyphs(listOf("。", ".")))
+        assertEquals(listOf("−", "-"), dedupeFullHalfGlyphs(listOf("−", "-")))
+        assertEquals(listOf("•", "·"), dedupeFullHalfGlyphs(listOf("•", "·")))
+        assertEquals(listOf("×", "x"), dedupeFullHalfGlyphs(listOf("×", "x")))
+    }
+
+    @Test fun the_injection_dedup_is_a_noop_on_every_real_association_key() {
+        for ((key, _) in InputAssociations.entriesForTest()) {
+            val hit = InputAssociations.lookup(key)
+            assertEquals("dedup altered lookup('$key') — data re-introduced a full/half twin", hit, dedupeFullHalfGlyphs(hit))
+        }
+    }
+
+    @Test fun renminbi_and_wenhao_offer_only_the_full_width_form_end_to_end() {
+        val c1 = KeyboardController(RecordingHost(), OneWordEngine())
+        "renminbi".forEach { c1.onKey(out(it.toString())) }
+        assertTrue("￥ is offered for renminbi", "￥" in c1.candidateWords())
+        assertTrue("half-width ¥ must NOT be offered for renminbi (got ${c1.candidateWords()})", "¥" !in c1.candidateWords())
+
+        val c2 = KeyboardController(RecordingHost(), OneWordEngine())
+        "wenhao".forEach { c2.onKey(out(it.toString())) }
+        assertTrue("？ is offered for wenhao", "？" in c2.candidateWords())
+        assertTrue("half-width ? must NOT be offered for wenhao (got ${c2.candidateWords()})", "?" !in c2.candidateWords())
+    }
 }

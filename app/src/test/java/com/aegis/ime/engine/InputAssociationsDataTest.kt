@@ -40,11 +40,35 @@ class InputAssociationsDataTest {
         }
     }
 
-    @Test fun every_entry_has_glyphs_and_no_duplicates() {
+    @Test fun every_entry_has_glyphs_and_no_full_half_width_twins() {
         for ((key, glyphs) in InputAssociations.entriesForTest()) {
             assertTrue("key '$key' has no glyphs", glyphs.isNotEmpty())
-            assertEquals("key '$key' repeats a glyph: $glyphs", glyphs.size, glyphs.toSet().size)
+            val folded = glyphs.map { SymbolCatalog.foldFullWidth(it) }
+            assertEquals(
+                "key '$key' lists full/half-width twins of one character: $glyphs (folds=$folded)",
+                folded.size, folded.toSet().size,
+            )
         }
+    }
+
+    @Test fun no_symbol_row_lists_a_full_half_width_twin_of_one_character() {
+        for (row in SymbolAssociations.rows()) {
+            val folded = row.glyphList.map { SymbolCatalog.foldFullWidth(it) }
+            assertEquals(
+                "row '${row.name.ifEmpty { row.keys }}' lists full/half-width twins: ${row.glyphList} (folds=$folded)",
+                folded.size, folded.toSet().size,
+            )
+        }
+    }
+
+    @Test fun reported_full_half_duplicates_now_surface_only_the_full_width_form() {
+        val renminbi = InputAssociations.lookup("renminbi")
+        assertTrue("renminbi offers the full-width ￥ (got $renminbi)", "￥" in renminbi)
+        assertTrue("half-width ¥ (U+00A5) must NOT be a renminbi candidate (got $renminbi)", "¥" !in renminbi)
+        val wenhao = InputAssociations.lookup("wenhao")
+        assertTrue("wenhao offers the full-width ？ (got $wenhao)", "？" in wenhao)
+        assertTrue("half-width ? (U+003F) must NOT be a wenhao candidate (got $wenhao)", "?" !in wenhao)
+        assertTrue("¥ stays reachable via riyuan (日元)", "¥" in InputAssociations.lookup("riyuan"))
     }
 
 
