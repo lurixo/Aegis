@@ -40,14 +40,14 @@ class BuildInfoJsonTest {
 
         assertEquals(1, buildInfo.getInt("schema_version"))
         assertEquals("dictionary", dictionary.getString("kind"))
-        assertEquals("aegis_dict_pack_debug50.zip", asset.getString("name"))
+        assertEquals("aegis_dict_pack_debug51.zip", asset.getString("name"))
         assertEquals(
-            "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.50/aegis_dict_pack_debug50.zip",
+            "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.51/aegis_dict_pack_debug51.zip",
             asset.getString("url"),
         )
-        assertEquals("6bd777fb063d352c830d89a519fc1922902d2196ce4ceee6b30f475e38aeb85d", asset.getString("sha256"))
-        assertEquals(97_925_579L, asset.getLong("size_bytes"))
-        assertEquals("v0.1.0-debug.50", asset.getString("release_tag"))
+        assertEquals("bf97e78955cef642066cc17d5ed1458c1ea7f7637507f165797bd8719a2a87fd", asset.getString("sha256"))
+        assertEquals(97_926_380L, asset.getLong("size_bytes"))
+        assertEquals("v0.1.0-debug.51", asset.getString("release_tag"))
         assertTrue(asset.getBoolean("prerelease"))
         assertNotEquals(ModelDownload.FALLBACK_DICT_SHA256, asset.getString("sha256"))
         assertEquals(ModelDownload.DICT_REPO_URL, source.getString("repo"))
@@ -113,6 +113,8 @@ class BuildInfoJsonTest {
         val zip = dictionary.getJSONObject("build").getJSONObject("zip_packaging")
         assertEquals("1980-01-01T00:00:00Z", zip.getString("timestamp_utc"))
         assertEquals("zip_deflated_level_9", zip.getString("compression"))
+        assertEquals("NOTICE.txt", zip.getJSONArray("file_order").getString(0))
+        assertEquals("NOTICE.txt", dictionary.getJSONObject("source").getString("attribution_file_in_pack"))
     }
 
     @Test
