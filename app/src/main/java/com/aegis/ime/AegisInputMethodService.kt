@@ -37,6 +37,7 @@ import com.aegis.ime.ime.CustomSymbolPanel
 import com.aegis.ime.ime.EditAction
 import com.aegis.ime.ime.EditPanelView
 import com.aegis.ime.ime.EmojiView
+import com.aegis.ime.ime.DecodeLane
 import com.aegis.ime.ime.ImeHost
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
@@ -56,6 +57,16 @@ import java.io.File
 class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private lateinit var controller: KeyboardController
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val decodeWorker: java.util.concurrent.ExecutorService =
+        java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread(r, "aegis-decode").apply { isDaemon = true }
+        }
+    private val decodeLane = DecodeLane(
+        worker = decodeWorker,
+        main = java.util.concurrent.Executor { r -> mainHandler.post(r) },
+    )
+    @Volatile private var panelTextSnapshot: String? = null
     private val userModel = UserModel()
     private val userDbFile by lazy { File(filesDir, "userdb.txt") }
     @Volatile private var userDbMtime = 0L
@@ -139,6 +150,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         onEngineAssetsChanged = {
             Handler(Looper.getMainLooper()).post { maybeReloadEngine() }
         },
+        onKeyHaptics = { on -> mainHandler.post { inputView?.setKeyHaptics(on) } },
+        onKeyPreview = { on -> mainHandler.post { inputView?.setKeyPreview(on) } },
     )
 
     private val liveUserDictHost by lazy {
@@ -152,7 +165,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             getSharedPreferences("aegis", MODE_PRIVATE)
                 .registerOnSharedPreferenceChangeListener(settingsHotApply)
         }
-        controller = KeyboardController(this, DictEngine(null, null, null))
+        controller = KeyboardController(this, DictEngine(null, null, null), decodeLane)
         controller.onShowEmoji = { showEmojiPanel() }
         controller.onShowClipboard = { showClipboardPanel() }
         controller.onShowEdit = { showEditPanel() }
@@ -164,6 +177,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.setCustomSymbols(customSymbolStore.list())
         controller.setCustomOperators(customOperatorStore.list())
         Thread {
+            runCatching { com.aegis.ime.engine.InputAssociations.lookup("nihao") }
             runCatching { userModel.load(userDbFile); userDbMtime = userDbFile.lastModified() }
             userDbLoaded = true
             UserDictHot.host = liveUserDictHost
@@ -288,10 +302,16 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onEditCancel = { cancelInlineInput() }
         }
         inputView = view
-        panelInput.onChange = { txt -> view.setEditText(txt) }
+        panelInput.onChange = { txt ->
+            panelTextSnapshot = txt
+            view.setEditText(txt)
+        }
         controller.attachView(view)
         imePalette = computePalette()
         view.applyPalette(imePalette)
+        val fbPrefs = getSharedPreferences("aegis", MODE_PRIVATE)
+        view.setKeyHaptics(SettingsHotApply.keyHaptics(fbPrefs))
+        view.setKeyPreview(SettingsHotApply.keyPreview(fbPrefs))
         return view
     }
 
@@ -309,6 +329,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.setCnDefaultLayout(SettingsHotApply.cnLayout(prefs))
         controller.setAssociationsEnabled(SettingsHotApply.associationsOn(prefs))
         controller.setFuzzyRules(currentFuzzyRules())
+        inputView?.setKeyHaptics(SettingsHotApply.keyHaptics(prefs))
+        inputView?.setKeyPreview(SettingsHotApply.keyPreview(prefs))
         controller.reset()
         applyPaletteEverywhere()
     }
@@ -613,6 +635,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun endInlineInput() {
         val reopenCat = inputCat
         panelInput.end()
+        panelTextSnapshot = null
         inputView?.showEditBar(false)
         inputPurpose = null; inputCat = ""; inputOld = ""; pendingPhraseAdds = emptyList(); pendingMoveFrom = ""; pendingMoveTexts = emptyList()
         showClipboardPanel()
@@ -622,6 +645,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun abortInlineInput() {
         if (!panelInput.active && inputPurpose == null) return
         panelInput.end()
+        panelTextSnapshot = null
         inputView?.showEditBar(false)
         inputPurpose = null; inputCat = ""; inputOld = ""; pendingPhraseAdds = emptyList(); pendingMoveFrom = ""; pendingMoveTexts = emptyList()
     }
@@ -677,6 +701,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         getSharedPreferences("aegis", MODE_PRIVATE).edit().putBoolean("clip_history", on).apply()
 
     override fun onDestroy() {
+        runCatching { decodeWorker.shutdownNow() }
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
         if (UserDictHot.host === liveUserDictHost) UserDictHot.host = null
         runCatching {
@@ -751,8 +776,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (hasSelection()) deleteSelection() else deleteCodePointBackward()
     }
 
-    override fun textBeforeCursor(n: Int): CharSequence =
-        panelInput.textBefore(n) ?: currentInputConnection?.getTextBeforeCursor(n, 0) ?: ""
+    override fun textBeforeCursor(n: Int): CharSequence {
+        panelTextSnapshot?.let { s -> return s.substring(maxOf(0, s.length - n)) }
+        return runCatching { currentInputConnection?.getTextBeforeCursor(n, 0) }.getOrNull() ?: ""
+    }
 
     override fun replaceBeforeCursor(length: Int, text: CharSequence) {
         if (panelInput.replaceBefore(length, text)) return

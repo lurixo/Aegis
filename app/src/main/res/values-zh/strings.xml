@@ -84,6 +84,11 @@
     <string name="association_title">联想</string>
     <string name="association_description">打字时在候选栏显示下一词预测/联想。默认关，可开。</string>
 
+    <string name="key_vibration_title">按键振动</string>
+    <string name="key_vibration_description">每次按键轻微振动。默认关，遵循系统触感设置。</string>
+    <string name="key_preview_title">按键预览</string>
+    <string name="key_preview_description">按下时显示放大的按键气泡。默认开。</string>
+
     <string name="layout_card_title">全拼键盘</string>
     <string name="layout_card_description">中文默认使用哪种键盘（英文始终为 26 键）。</string>
     <string name="layout_nine">全拼九键</string>

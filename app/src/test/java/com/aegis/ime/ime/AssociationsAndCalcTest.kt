@@ -18,6 +18,7 @@ package com.aegis.ime.ime
 import com.aegis.ime.decoder.Cand
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.Key
+import com.aegis.ime.layout.KeyAction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -116,6 +117,25 @@ class AssociationsAndCalcTest {
         assertEquals("℃ committed to the editor", "℃", h.text)
         assertFalse("a symbol must not be learned as a pinyin word", "℃" in h.learned)
         assertTrue("buffer cleared after the symbol commit", c.candidateWords().isEmpty())
+    }
+
+    private fun emptySpyEngine(learned: MutableList<String>) = object : CandidateEngine {
+        override fun candidates(composing: String, t9: Boolean): List<String> = emptyList()
+        override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> = emptyList()
+        override fun learn(prevWord: String?, word: String) { learned.add(word) }
+    }
+
+    @Test fun space_on_a_first_position_injected_glyph_commits_it_without_learning() {
+        val h = EditorHost()
+        val c = KeyboardController(h, emptySpyEngine(h.learned))
+        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        "542".forEach { c.onKey(out(it.toString())) }
+        c.onKey(Key("jia", output = "jia", action = KeyAction.PICK_READING))
+        assertEquals("precondition: the glyph is the first (only) candidate", "+", c.candidateWords().firstOrNull())
+        c.onKey(Key("空格", output = " ", action = KeyAction.SPACE))
+        assertEquals("the glyph is committed to the editor", "+", h.text)
+        assertFalse("the injected glyph must NOT be learned as a pinyin word", "+" in h.learned)
+        assertTrue("buffer cleared after committing the glyph", c.candidateWords().isEmpty())
     }
 
 

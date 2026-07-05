@@ -156,6 +156,9 @@ class InputView(context: Context) : LinearLayout(context) {
         keyboardView.setLayout(layout, shifted, locked, lang)
     }
 
+    fun setKeyHaptics(on: Boolean) { keyboardView.hapticEnabled = on }
+    fun setKeyPreview(on: Boolean) { keyboardView.previewEnabled = on }
+
     fun showCopyBar(text: String) {
         copyBarView.show(text)
         Motion.swapIn(copyBarView, candidateView)
