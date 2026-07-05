@@ -1,24 +1,24 @@
 {
   "schema_version": 1,
   "schema_name": "aegis.resource-build-info",
-  "generated_at": "2026-07-05T15:16:26Z",
+  "generated_at": "2026-07-05T19:58:11Z",
   "app": {
     "project": "Aegis",
     "repository": "https://github.com/lurixo/Aegis",
-    "release_tag": "v0.1.0-debug.50"
+    "release_tag": "v0.1.0-debug.51"
   },
   "resources": [
     {
       "kind": "dictionary",
       "physical_asset": {
-        "name": "aegis_dict_pack_debug50.zip",
-        "url": "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.50/aegis_dict_pack_debug50.zip",
-        "release_tag": "v0.1.0-debug.50",
-        "release_url": "https://github.com/lurixo/Aegis/releases/tag/v0.1.0-debug.50",
+        "name": "aegis_dict_pack_debug51.zip",
+        "url": "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.51/aegis_dict_pack_debug51.zip",
+        "release_tag": "v0.1.0-debug.51",
+        "release_url": "https://github.com/lurixo/Aegis/releases/tag/v0.1.0-debug.51",
         "prerelease": true,
         "published_at": null,
-        "sha256": "6bd777fb063d352c830d89a519fc1922902d2196ce4ceee6b30f475e38aeb85d",
-        "size_bytes": 97925579
+        "sha256": "bf97e78955cef642066cc17d5ed1458c1ea7f7637507f165797bd8719a2a87fd",
+        "size_bytes": 97926380
       },
       "source": {
         "repo": "https://github.com/amzxyz/rime-wanxiang",
@@ -27,6 +27,7 @@
         "branch": null,
         "commit": "7db7c588fd5ea90c13e4bf1814d7dd7fa8a2effc",
         "license": "CC-BY-4.0",
+        "attribution_file_in_pack": "NOTICE.txt",
         "tables": [
           "zi",
           "jichu",
@@ -132,7 +133,7 @@
       },
       "build": {
         "builder_path": "tools/src/main/kotlin/com/aegis/tools/DictBuilder.kt",
-        "builder_commit": "41e8b5468ef246cc64c49805772c441e651eeb94",
+        "builder_commit": "0f212de28e2dd73bda8b706133e4d3776ebe9603",
         "builder_tree_dirty": false,
         "full_pack_parameters": {
           "min_freq": 1,
@@ -185,6 +186,7 @@
         ],
         "zip_packaging": {
           "file_order": [
+            "NOTICE.txt",
             "aegis_dict_full.bin",
             "aegis_t9_full.bin",
             "aegis_jianpin_full.bin"

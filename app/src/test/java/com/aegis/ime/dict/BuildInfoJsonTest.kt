@@ -42,17 +42,18 @@ class BuildInfoJsonTest {
         assertEquals("dictionary", dictionary.getString("kind"))
         // The manifest describes this release's dictionary pack; the shipped ModelDownload fallback
         // constant points at a different pack, so the two asset shas differ (asserted below).
-        assertEquals("aegis_dict_pack_debug50.zip", asset.getString("name"))
+        assertEquals("aegis_dict_pack_debug51.zip", asset.getString("name"))
         assertEquals(
-            "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.50/aegis_dict_pack_debug50.zip",
+            "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.51/aegis_dict_pack_debug51.zip",
             asset.getString("url"),
         )
-        // sha256/size reflect a fresh rebuild from the advanced source (upstream stable tag v16.0.1):
-        // the dictionary content changed from the frozen debug.13 pack, so these differ from the prior
-        // pack. Deterministic zip recipe (timestamp 1980, mode 0644, level 9, fixed order) still applies.
-        assertEquals("6bd777fb063d352c830d89a519fc1922902d2196ce4ceee6b30f475e38aeb85d", asset.getString("sha256"))
-        assertEquals(97_925_579L, asset.getLong("size_bytes"))
-        assertEquals("v0.1.0-debug.50", asset.getString("release_tag"))
+        // The 3 dictionary bins are byte-identical to the debug.50 pack (same source v16.0.1 / 7db7c588, same
+        // builder); the sha256/size differ from debug.50 ONLY because the pack now bundles a NOTICE.txt
+        // attribution file (CC BY 4.0) as its first entry. Deterministic zip recipe (timestamp 1980, mode
+        // 0644, level 9, fixed order with NOTICE.txt first) still applies.
+        assertEquals("bf97e78955cef642066cc17d5ed1458c1ea7f7637507f165797bd8719a2a87fd", asset.getString("sha256"))
+        assertEquals(97_926_380L, asset.getLong("size_bytes"))
+        assertEquals("v0.1.0-debug.51", asset.getString("release_tag"))
         assertTrue(asset.getBoolean("prerelease"))
         assertNotEquals(ModelDownload.FALLBACK_DICT_SHA256, asset.getString("sha256"))
         assertEquals(ModelDownload.DICT_REPO_URL, source.getString("repo"))
@@ -125,6 +126,10 @@ class BuildInfoJsonTest {
         val zip = dictionary.getJSONObject("build").getJSONObject("zip_packaging")
         assertEquals("1980-01-01T00:00:00Z", zip.getString("timestamp_utc"))
         assertEquals("zip_deflated_level_9", zip.getString("compression"))
+        // The pack bundles the CC BY 4.0 attribution as its FIRST entry; the manifest records it in both the
+        // file_order and the source block, so the attribution's presence is pinned alongside the pack sha.
+        assertEquals("NOTICE.txt", zip.getJSONArray("file_order").getString(0))
+        assertEquals("NOTICE.txt", dictionary.getJSONObject("source").getString("attribution_file_in_pack"))
     }
 
     @Test
