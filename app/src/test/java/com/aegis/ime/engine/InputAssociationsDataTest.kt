@@ -226,6 +226,30 @@ class InputAssociationsDataTest {
         "ouyuan" to listOf("€"),
     )
 
+    @Test fun trimmed_noise_keys_no_longer_surface_their_glyph() {
+        val forbidden = listOf(
+            "hao" to "🦪", "chi" to "📏", "gao" to "⛏️", "dong" to "🕳️", "fei" to "🫁",
+            "huan" to "🦡", "dou" to "🫘", "suan" to "🧄", "dasuan" to "🧄", "jiandan" to "🍳",
+            "cai" to "👎", "dan" to "🥚", "dao" to "🔪", "dian" to "⚡", "bi" to "🖊️",
+            "bing" to "🧊", "jiang" to "🫚", "jiao" to "🦶", "li" to "🍐", "mi" to "㊙️",
+            "pai" to "🥧", "cheng" to "⚖️", "mao" to "⚓", "hua" to "🖼️", "lei" to "😫",
+            "lei" to "🌩️", "wu" to "🌫️", "wu" to "🌁", "xin" to "✉️", "shu" to "🌳",
+            "ye" to "✌️", "qing" to "☀️", "san" to "☂️", "quan" to "⭕", "suo" to "🔒",
+            "jin" to "🈲", "cha" to "❌", "jian" to "➖", "wan" to "🥣", "yao" to "💊",
+            "qiang" to "🔫", "tong" to "🪣", "ya" to "🦷", "xue" to "🩸",
+            "biye" to "✌️", "youhua" to "🖼️", "yali" to "🍐", "zhichi" to "📏", "zhishi" to "🧀",
+            "zuowei" to "💺", "touzi" to "🎲", "zhijin" to "🧻", "shuzi" to "🪮", "keji" to "✈️",
+            "yifen" to "🍝", "jiazhi" to "🦿", "xiaoshi" to "🫥", "youyu" to "😔", "shiyan" to "🧂",
+            "ziyuan" to "🟣",
+        )
+        for ((key, glyph) in forbidden) {
+            assertTrue(
+                "'$key' must no longer surface '$glyph' (it is a bare/colliding key whose mainstream reading is unrelated)",
+                glyph !in InputAssociations.lookup(key),
+            )
+        }
+    }
+
     @Test fun all_48_legacy_entries_keep_their_glyphs_first_in_order() {
         assertEquals(48, legacyTable.size)
         for ((key, glyphs) in legacyTable) {
