@@ -107,17 +107,17 @@ class JankRemediationTest {
     }
 
 
-    @Test fun clipboard_mode_change_fades_through_only_on_a_real_mode_change() {
+    @Test fun clipboard_mode_change_rebuilds_in_place_only_on_a_real_mode_change() {
         val v = clip(listOf("a", "b"))
         val m0 = v.modeTransitionsForTest()
         v.enterSelectForTest()
-        assertEquals("entering select fades once", m0 + 1, v.modeTransitionsForTest())
+        assertEquals("entering select is counted once", m0 + 1, v.modeTransitionsForTest())
         v.exitSelectForTest()
-        assertEquals("leaving select fades once", m0 + 2, v.modeTransitionsForTest())
+        assertEquals("leaving select is counted once", m0 + 2, v.modeTransitionsForTest())
         v.enterSelectForTest()
         val m = v.modeTransitionsForTest()
         v.listRowViewForTest(0)?.performClick()
-        assertEquals("a same-mode refresh must not fade", m, v.modeTransitionsForTest())
+        assertEquals("a same-mode refresh is not counted", m, v.modeTransitionsForTest())
     }
 
     @Test fun recycled_select_rows_repaint_on_a_light_to_dark_palette_change() {

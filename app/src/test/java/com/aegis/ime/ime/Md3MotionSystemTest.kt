@@ -120,13 +120,13 @@ class Md3MotionSystemTest {
         return kv
     }
 
-    @Test fun keyboard_fades_on_a_mode_change_but_not_on_a_same_id_re_render() {
+    @Test fun keyboard_mode_change_is_detected_but_a_same_id_re_render_is_not() {
         val kv = laidOutKeyboard()
         val before = kv.modeSwitchesForTest()
         kv.setLayout(Layouts.forId(LayoutId.ALPHA, Lang.CN), isShifted = true, isLocked = false, language = Lang.CN)
-        assertEquals("a same-id re-render must not fade the keyboard", before, kv.modeSwitchesForTest())
+        assertEquals("a same-id re-render is not a mode change", before, kv.modeSwitchesForTest())
         kv.setLayout(Layouts.forId(LayoutId.SYMBOL, Lang.CN), isShifted = false, isLocked = false, language = Lang.CN)
-        assertEquals("a real mode change fades once", before + 1, kv.modeSwitchesForTest())
+        assertEquals("a real mode change is counted once", before + 1, kv.modeSwitchesForTest())
         kv.setLayout(Layouts.forId(LayoutId.NUMBER, Lang.CN), isShifted = false, isLocked = false, language = Lang.CN)
         assertEquals(before + 2, kv.modeSwitchesForTest())
     }

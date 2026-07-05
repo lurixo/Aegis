@@ -65,6 +65,7 @@ class InputView(context: Context) : LinearLayout(context) {
     fun applyPalette(p: ImePalette) {
         palette = p
         body.setBackgroundColor(p.keyboardBg)
+        panelContainer.setBackgroundColor(p.keyboardBg)
         preeditView.applyPalette(p)
         candidateView.applyPalette(p)
         copyBarView.applyPalette(p)
@@ -118,6 +119,7 @@ class InputView(context: Context) : LinearLayout(context) {
         body.addView(copyBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
         body.addView(keyboardView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         panelContainer.visibility = GONE
+        panelContainer.setBackgroundColor(palette.keyboardBg)
         body.addView(panelContainer, LayoutParams(LayoutParams.MATCH_PARENT, dp(250)))
         addView(body, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
 
@@ -275,6 +277,9 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun panelHeightPx(): Int = panelContainer.layoutParams.height
 
     internal fun keyboardHeightPx(): Int = keyboardView.height
+
+    internal fun panelFloorColorForTest(): Int? =
+        (panelContainer.background as? android.graphics.drawable.ColorDrawable)?.color
 
     val panelShown: Boolean get() = panelContainer.visibility == VISIBLE
 

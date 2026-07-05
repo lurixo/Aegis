@@ -209,7 +209,7 @@ class KeyboardView(context: Context) : View(context) {
         if (width > 0) relayout()
         requestLayout()
         invalidate()
-        if (modeChanged && width > 0) { modeSwitches++; Motion.fadeIn(this, Motion.MODE_SWITCH) }
+        if (modeChanged && width > 0) { modeSwitches++ }
     }
 
     internal fun modeSwitchesForTest(): Int = modeSwitches

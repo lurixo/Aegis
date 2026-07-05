@@ -136,7 +136,7 @@ class PanelRecyclingTest {
     }
 
 
-    @Test fun clipboard_tab_switch_fades_only_on_a_real_tab_change() {
+    @Test fun clipboard_tab_switch_rebuilds_in_place_only_on_a_real_tab_change() {
         val v = ClipboardView(ctx).apply {
             historyProvider = { listOf("clip-a", "clip-b") }
             categoriesProvider = { listOf("默认") }
@@ -146,12 +146,12 @@ class PanelRecyclingTest {
         }
         val t0 = v.tabTransitionsForTest()
         v.refresh()
-        assertEquals("a plain refresh must not fade", t0, v.tabTransitionsForTest())
+        assertEquals("a plain refresh is not a tab change", t0, v.tabTransitionsForTest())
         v.switchTabForTest(toClipboard = false)
-        assertEquals("a real tab switch fades once", t0 + 1, v.tabTransitionsForTest())
+        assertEquals("a real tab switch is counted once", t0 + 1, v.tabTransitionsForTest())
         v.switchTabForTest(toClipboard = false)
-        assertEquals("re-selecting the current tab must not fade", t0 + 1, v.tabTransitionsForTest())
+        assertEquals("re-selecting the current tab is not counted", t0 + 1, v.tabTransitionsForTest())
         v.switchTabForTest(toClipboard = true)
-        assertEquals("switching back fades once more", t0 + 2, v.tabTransitionsForTest())
+        assertEquals("switching back is counted once more", t0 + 2, v.tabTransitionsForTest())
     }
 }
