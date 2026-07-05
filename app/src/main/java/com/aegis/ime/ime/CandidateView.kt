@@ -44,6 +44,7 @@ class CandidateView(context: Context) : View(context) {
     private var hitCount = 0
     private var contentWidth = 0f
     private var scrollX = 0f
+    private var contentTransitions = 0
 
     private val functions = BarFunction.entries
     private val funcRects = ArrayList<RectF>().also { l -> repeat(functions.size) { l.add(RectF()) } }
@@ -112,13 +113,24 @@ class CandidateView(context: Context) : View(context) {
 
     fun setContent(candidates: List<String>, composingText: String) {
         if (candidates == items && composingText == composing) return
+        val roleChanged = stripRole(items.isEmpty(), composing) != stripRole(candidates.isEmpty(), composingText)
         items = candidates.toList()
         composing = composingText
         fling.forceFinish()
         scrollX = 0f
         layoutCells()
         invalidate()
+        if (roleChanged) { contentTransitions++; Motion.fadeIn(this, Motion.FADE_IN) }
     }
+
+    private fun stripRole(itemsEmpty: Boolean, composingText: String): Int =
+        when {
+            !itemsEmpty -> ROLE_CANDIDATES
+            composingText.isEmpty() -> ROLE_FUNCTIONS
+            else -> ROLE_BLANK
+        }
+
+    internal fun contentTransitionsForTest(): Int = contentTransitions
 
     internal fun itemCount(): Int = items.size
 
@@ -338,5 +350,11 @@ class CandidateView(context: Context) : View(context) {
     override fun performClick(): Boolean {
         super.performClick()
         return true
+    }
+
+    private companion object {
+        private const val ROLE_CANDIDATES = 0
+        private const val ROLE_FUNCTIONS = 1
+        private const val ROLE_BLANK = 2
     }
 }

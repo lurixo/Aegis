@@ -45,10 +45,18 @@ object Motion {
     const val MEDIUM1 = 250L
     const val MEDIUM2 = 300L
 
+    const val MEDIUM3 = 350L
+    const val LONG1 = 400L
+
     const val PRESS_IN = SHORT1
     const val PRESS_OUT = SHORT2
     const val STATE_CHANGE = SHORT4
     const val REVEAL = MEDIUM1
+
+    const val FADE_OUT = SHORT2
+    const val FADE_IN = SHORT3
+
+    const val MODE_SWITCH = MEDIUM2
 
     fun enabled(ctx: Context): Boolean =
         runCatching {
@@ -147,6 +155,46 @@ object Motion {
             reset(it)
         }
         revealIn(incoming)
+    }
+
+    fun fadeThrough(view: View, outDuration: Long = FADE_OUT, inDuration: Long = FADE_IN, swap: () -> Unit) {
+        view.animate().cancel()
+        if (!view.isAttachedToWindow || !enabled(view.context)) {
+            swap()
+            showImmediately(view)
+            return
+        }
+        view.animate()
+            .alpha(0f)
+            .setDuration(outDuration)
+            .setInterpolator(STANDARD_ACCEL)
+            .setListener(object : AnimatorListenerAdapter() {
+                private var cancelled = false
+
+                override fun onAnimationCancel(animation: Animator) {
+                    cancelled = true
+                }
+
+                override fun onAnimationEnd(animation: Animator) {
+                    view.animate().setListener(null)
+                    if (cancelled) return
+                    swap()
+                    view.alpha = 0f
+                    view.animate().alpha(1f).setDuration(inDuration).setInterpolator(EMPHASIZED_DECEL).start()
+                }
+            })
+            .start()
+    }
+
+    fun crossfadeColor(view: View, from: Int, to: Int, duration: Long = STATE_CHANGE, apply: (Int) -> Unit): ValueAnimator? {
+        if (from == to) { apply(to); return null }
+        if (!view.isAttachedToWindow || !enabled(view.context)) { apply(to); return null }
+        return ValueAnimator.ofArgb(from, to).apply {
+            this.duration = duration
+            interpolator = STANDARD
+            addUpdateListener { apply(it.animatedValue as Int) }
+            start()
+        }
     }
 
     private fun showImmediately(view: View) {

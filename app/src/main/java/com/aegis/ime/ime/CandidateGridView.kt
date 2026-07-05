@@ -15,17 +15,22 @@
 
 package com.aegis.ime.ime
 
+import android.animation.ValueAnimator
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.Typeface
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.RippleDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -62,6 +67,17 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private var renderedSelected = Int.MIN_VALUE
     private var candidateRebuilds = 0
     private var readingRebuilds = 0
+
+    private val chipPool = ArrayList<TextView>()
+    private val rowPool = ArrayList<LinearLayout>()
+    private val readingPool = ArrayList<TextView>()
+    private val chipWidths = ArrayList<Int>()
+    private var chipsAllocated = 0
+    private var chipReparents = 0
+    private var readingsAllocated = 0
+    private val readingColorAnimators = HashMap<TextView, ValueAnimator>()
+    private val chipClick = OnClickListener { v -> onPick(v.tag as Int) }
+    private val readingClick = OnClickListener { v -> onPickReading(v.tag as Int) }
 
     init {
         orientation = HORIZONTAL
@@ -104,14 +120,22 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             Motion.applyTapFeedback(it, p.keyLabelSecondary)
         }
         backspaceGlyph.tint(p.keyLabelSecondary)
-        for (i in 0 until readingColumn.childCount) (readingColumn.getChildAt(i) as? TextView)?.let {
-            val on = i == renderedSelected
-            val color = if (on) p.accentBottom else p.candidateText
-            it.setTextColor(color)
-            Motion.applyTapFeedback(it, color)
+        for (chip in chipPool) { chip.setTextColor(p.candidateText); retintRipple(chip, p.candidateText) }
+        for (i in readingPool.indices) {
+            val color = readingColor(i == renderedSelected)
+            readingPool[i].setTextColor(color)
+            retintRipple(readingPool[i], color)
         }
         renderedCandidates = null
         renderedReadings = null
+    }
+
+    private fun readingColor(on: Boolean): Int = if (on) palette.accentBottom else palette.candidateText
+
+    private fun retintRipple(v: View, color: Int) {
+        val fg = v.foreground
+        if (fg is RippleDrawable) fg.setColor(ColorStateList.valueOf(Motion.withAlpha(color, 0x24)))
+        else Motion.applyTapFeedback(v, color)
     }
 
     private fun rowAlignedLp(rowIndex: Int) =
@@ -158,28 +182,55 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
 
     fun setReadings(readings: List<String>, selected: Int = -1) {
         if (readings == renderedReadings && selected == renderedSelected) return
+        val listChanged = readings != renderedReadings
+        val prevSelected = renderedSelected
         renderedReadings = readings.toList()
         renderedSelected = selected
         readingRebuilds++
-        readingColumn.removeAllViews()
-        for ((i, r) in readings.withIndex()) {
-            val on = i == selected
-            readingColumn.addView(
-                TextView(context).apply {
-                    text = r
-                    gravity = Gravity.CENTER
-                    setPadding(0, dp(10), 0, dp(10))
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
-                    val color = if (on) palette.accentBottom else palette.candidateText
-                    setTextColor(color)
-                    setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
-                    isClickable = true
-                    Motion.applyTapFeedback(this, color)
-                    setOnClickListener { onPickReading(i) }
-                },
-                LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT),
-            )
+        for (i in readings.indices) {
+            val tile = obtainReading(i)
+            tile.tag = i
+            if (tile.text != readings[i]) tile.text = readings[i]
+            tile.visibility = View.VISIBLE
         }
+        for (i in readings.size until readingColumn.childCount) readingColumn.getChildAt(i).visibility = View.GONE
+        if (listChanged) {
+            for (i in readings.indices) styleReading(i, on = i == selected, animate = false)
+        } else {
+            if (prevSelected in readings.indices && prevSelected != selected) styleReading(prevSelected, on = false, animate = true)
+            if (selected in readings.indices) styleReading(selected, on = true, animate = true)
+        }
+    }
+
+    private fun obtainReading(index: Int): TextView {
+        if (index < readingPool.size) return readingPool[index]
+        val tv = TextView(context).apply {
+            gravity = Gravity.CENTER
+            setPadding(0, dp(10), 0, dp(10))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
+            setTextColor(palette.candidateText)
+            isClickable = true
+            Motion.applyTapFeedback(this, palette.candidateText)
+            setOnClickListener(readingClick)
+        }
+        readingPool.add(tv)
+        readingColumn.addView(tv, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        readingsAllocated++
+        return tv
+    }
+
+    private fun styleReading(index: Int, on: Boolean, animate: Boolean) {
+        val tile = readingColumn.getChildAt(index) as? TextView ?: return
+        val target = readingColor(on)
+        readingColorAnimators.remove(tile)?.cancel()
+        if (animate) {
+            Motion.crossfadeColor(tile, tile.currentTextColor, target) { tile.setTextColor(it) }
+                ?.let { readingColorAnimators[tile] = it }
+        } else {
+            tile.setTextColor(target)
+        }
+        tile.setTypeface(null, if (on) Typeface.BOLD else Typeface.NORMAL)
+        retintRipple(tile, target)
     }
 
     fun setCandidates(candidates: List<String>) {
@@ -188,36 +239,120 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         renderedCandidates = candidates.toList()
         renderedCandidateWidth = maxRowW
         candidateRebuilds++
-        gridColumn.removeAllViews()
         val cellPad = dp(14)
-        var row = newRow()
-        var rowW = 0
+        while (chipWidths.size < candidates.size) chipWidths.add(0)
         for ((i, c) in candidates.withIndex()) {
-            val cellW = (measurePaint.measureText(c) + cellPad * 2).toInt()
-            if (rowW + cellW > maxRowW && row.childCount > 0) {
-                gridColumn.addView(row)
-                row = newRow(); rowW = 0
-            }
-            row.addView(chip(c, i), LayoutParams(cellW, dp(46)))
-            rowW += cellW
+            val chip = obtainChip(i)
+            if (chip.text != c) chip.text = c
+            chip.tag = i
+            chipWidths[i] = (measurePaint.measureText(c) + cellPad * 2).toInt()
         }
-        if (row.childCount > 0) gridColumn.addView(row)
+        val rowEnds = ArrayList<Int>()
+        var rowW = 0
+        var start = 0
+        for (i in candidates.indices) {
+            val w = chipWidths[i]
+            if (rowW + w > maxRowW && i > start) { rowEnds.add(i); start = i; rowW = 0 }
+            rowW += w
+        }
+        if (candidates.isNotEmpty()) rowEnds.add(candidates.size)
+        while (gridColumn.childCount < rowEnds.size) gridColumn.addView(obtainRow(gridColumn.childCount))
+        while (gridColumn.childCount > rowEnds.size) gridColumn.removeViewAt(gridColumn.childCount - 1)
+        var from = 0
+        for ((r, end) in rowEnds.withIndex()) {
+            bindRow(gridColumn.getChildAt(r) as LinearLayout, from, end)
+            from = end
+        }
+    }
+
+    private fun obtainChip(index: Int): TextView {
+        if (index < chipPool.size) return chipPool[index]
+        val tv = TextView(context).apply {
+            gravity = Gravity.CENTER
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
+            setTextColor(palette.candidateText)
+            isClickable = true
+            Motion.applyTapFeedback(this, palette.candidateText)
+            setOnClickListener(chipClick)
+        }
+        chipPool.add(tv)
+        chipsAllocated++
+        return tv
+    }
+
+    private fun obtainRow(rowIndex: Int): LinearLayout {
+        if (rowIndex < rowPool.size) return rowPool[rowIndex]
+        val row = newRow()
+        rowPool.add(row)
+        return row
+    }
+
+    private fun bindRow(row: LinearLayout, start: Int, end: Int) {
+        val n = end - start
+        if (row.childCount == n) {
+            var same = true
+            for (k in 0 until n) if (row.getChildAt(k) !== chipPool[start + k]) { same = false; break }
+            if (same) {
+                for (k in 0 until n) {
+                    val chip = chipPool[start + k]
+                    val lp = chip.layoutParams as LayoutParams
+                    if (lp.width != chipWidths[start + k]) { lp.width = chipWidths[start + k]; chip.layoutParams = lp }
+                }
+                return
+            }
+        }
+        row.removeAllViews()
+        for (k in 0 until n) {
+            val i = start + k
+            val chip = chipPool[i]
+            (chip.parent as? ViewGroup)?.takeIf { it !== row }?.removeView(chip)
+            row.addView(chip, LayoutParams(chipWidths[i], dp(46)))
+            chipReparents++
+        }
     }
 
     private fun newRow(): LinearLayout = LinearLayout(context).apply { orientation = HORIZONTAL }
 
-    private fun chip(text: String, index: Int): View = TextView(context).apply {
-        this.text = text
-        gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
-        setTextColor(palette.candidateText)
-        isClickable = true
-        Motion.applyTapFeedback(this, palette.candidateText)
-        setOnClickListener { onPick(index) }
-    }
-
     internal fun candidateRebuildsForTest(): Int = candidateRebuilds
     internal fun readingRebuildsForTest(): Int = readingRebuilds
+    internal fun chipsAllocatedForTest(): Int = chipsAllocated
+    internal fun chipReparentsForTest(): Int = chipReparents
+    internal fun readingsAllocatedForTest(): Int = readingsAllocated
+    internal fun renderedCandidateTextsForTest(): List<String> {
+        val out = ArrayList<String>()
+        for (r in 0 until gridColumn.childCount) {
+            val row = gridColumn.getChildAt(r) as LinearLayout
+            for (k in 0 until row.childCount) out.add((row.getChildAt(k) as TextView).text.toString())
+        }
+        return out
+    }
+    internal fun renderedReadingTextsForTest(): List<String> {
+        val out = ArrayList<String>()
+        for (i in 0 until readingColumn.childCount) {
+            val t = readingColumn.getChildAt(i) as TextView
+            if (t.visibility == View.VISIBLE) out.add(t.text.toString())
+        }
+        return out
+    }
+    internal fun tapCandidateForTest(flat: Int): Boolean {
+        var seen = 0
+        for (r in 0 until gridColumn.childCount) {
+            val row = gridColumn.getChildAt(r) as LinearLayout
+            for (k in 0 until row.childCount) {
+                if (seen == flat) return row.getChildAt(k).performClick()
+                seen++
+            }
+        }
+        return false
+    }
+    internal fun tapReadingForTest(index: Int): Boolean =
+        (readingColumn.getChildAt(index) as? TextView)?.takeIf { it.visibility == View.VISIBLE }?.performClick() ?: false
+    internal fun readingTypefaceBoldForTest(index: Int): Boolean =
+        (readingColumn.getChildAt(index) as? TextView)?.typeface?.isBold ?: false
+    internal fun firstChipForegroundForTest(): Drawable? =
+        chipPool.firstOrNull()?.foreground
+    internal fun activeReadingColorAnimatorsForTest(): Int =
+        readingColorAnimators.values.count { it.isRunning }
     internal fun returnButtonForTest(): TextView = rightColumn.getChildAt(0) as TextView
     internal fun backspaceButtonForTest(): TextView = rightColumn.getChildAt(1) as TextView
     internal fun clearButtonForTest(): TextView = rightColumn.getChildAt(2) as TextView

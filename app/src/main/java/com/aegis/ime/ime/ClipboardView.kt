@@ -109,6 +109,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private var sortMode = false
     private var categorySortMode = false
     private val splitSelected = mutableSetOf<String>()
+    private var renderedTab: ClipboardPanelState.Tab? = null
+    private var tabTransitions = 0
 
     fun showPhraseTab(category: String) {
         st.switchTab(ClipboardPanelState.Tab.PHRASE)
@@ -190,6 +192,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     internal fun isClipboardTabForTest(): Boolean = st.tab == ClipboardPanelState.Tab.CLIPBOARD
     internal fun phraseCatForTest(): String = phraseCat
+    internal fun switchTabForTest(toClipboard: Boolean) {
+        st.switchTab(if (toClipboard) ClipboardPanelState.Tab.CLIPBOARD else ClipboardPanelState.Tab.PHRASE)
+        refresh()
+    }
     internal fun forcePhrasesStateForTest(cat: String) { st.switchTab(ClipboardPanelState.Tab.PHRASE); phraseCat = cat }
     internal fun enterSelectForTest(selected: List<String> = emptyList()) { st.enterSelect(); st.selected.addAll(selected); refresh() }
     internal fun showMoveChooserForTest(current: String) { chooseMoveCategoryThen(current, emptyList()) { target -> onMovePhrase(current, "", target) } }
@@ -258,15 +264,22 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
 
     fun refresh() {
-        invalidateListRender()
-        main.removeAllViews()
-        when {
-            st.selectMode -> buildSelectMode()
-            categorySortMode -> buildCategorySortMode()
-            sortMode -> buildSortMode()
-            else -> buildNormal()
+        val tabChanged = renderedTab != null && renderedTab != st.tab
+        renderedTab = st.tab
+        val rebuild = {
+            invalidateListRender()
+            main.removeAllViews()
+            when {
+                st.selectMode -> buildSelectMode()
+                categorySortMode -> buildCategorySortMode()
+                sortMode -> buildSortMode()
+                else -> buildNormal()
+            }
         }
+        if (tabChanged) { tabTransitions++; Motion.fadeThrough(main, swap = rebuild) } else rebuild()
     }
+
+    internal fun tabTransitionsForTest(): Int = tabTransitions
 
     private fun cancelPendingListAppend() {
         pendingListAppend?.let { removeCallbacks(it) }

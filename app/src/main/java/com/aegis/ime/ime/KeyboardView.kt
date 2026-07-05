@@ -46,6 +46,7 @@ class KeyboardView(context: Context) : View(context) {
     var onBackspaceSwipe: (Boolean) -> Unit = {}
 
     private var layout: KeyboardLayout = Layouts.forId(LayoutId.ALPHA, Lang.CN)
+    private var modeSwitches = 0
     private var shifted = false
     private var shiftLocked = false
     private var lang = Lang.CN
@@ -171,6 +172,7 @@ class KeyboardView(context: Context) : View(context) {
 
     fun setLayout(newLayout: KeyboardLayout, isShifted: Boolean, isLocked: Boolean, language: Lang) {
         val sameColumn = newLayout.scrollColumn?.items?.map { it.label } == layout.scrollColumn?.items?.map { it.label }
+        val modeChanged = newLayout.id != layout.id
         layout = newLayout
         shifted = isShifted
         shiftLocked = isLocked
@@ -180,7 +182,10 @@ class KeyboardView(context: Context) : View(context) {
         if (width > 0) relayout()
         requestLayout()
         invalidate()
+        if (modeChanged && width > 0) { modeSwitches++; Motion.fadeIn(this, Motion.MODE_SWITCH) }
     }
+
+    internal fun modeSwitchesForTest(): Int = modeSwitches
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)

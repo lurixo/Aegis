@@ -15,13 +15,17 @@
 
 package com.aegis.ime.ime
 
+import android.animation.ValueAnimator
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -84,6 +88,14 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     private val backspaceBtn = barButton("") { onBackspace() }
     private val bottomBarView = bottomBar()
 
+    private val tilePool = ArrayList<FrameLayout>()
+    private var emptySpanView: TextView? = null
+    private val colorAnimators = HashMap<TextView, ValueAnimator>()
+    private val symbolClick = View.OnClickListener { v ->
+        val s = ((v as FrameLayout).getChildAt(0) as TextView).text.toString()
+        onSymbol(s, originForCurrent(s)); if (!locked) onBack()
+    }
+
     internal companion object {
         const val COLUMNS = 7
         const val WIDE_GLYPH_SCALE = 0.82f
@@ -140,24 +152,38 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
             }
         }
         backspaceGlyph.tint(p.keyLabelSecondary)
+        for (tile in tilePool) {
+            retintRipple(tile, p.keyLabel)
+            (tile.background as? GradientDrawable)?.setColor(p.keySurface)
+            (tile.getChildAt(0) as TextView).setTextColor(p.keyLabel)
+            (tile.getChildAt(1) as TextView).setTextColor(p.keyLabelSecondary)
+        }
+        emptySpanView?.setTextColor(p.keyHint)
         updateLockFace()
         showCategory(selected)
     }
 
     private fun showCategory(index: Int) {
+        val tabChanged = index != selected
+        val prev = selected
         selected = index
         for (i in 0 until rail.childCount) {
             val tab = rail.getChildAt(i) as TextView
             val on = i == index
-            tab.setTextColor(if (on) palette.candidateFirst else palette.keyLabelSecondary)
             tab.background = railTabBackground(on)
-            tab.setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
-            Motion.applyTapFeedback(tab, if (on) palette.candidateFirst else palette.keyLabelSecondary, radiusDp = ImeShapes.chipRadiusDp)
+            tab.setTypeface(null, if (on) Typeface.BOLD else Typeface.NORMAL)
+            val color = if (on) palette.candidateFirst else palette.keyLabelSecondary
+            if (tabChanged && (i == index || i == prev)) crossfadeTabColor(tab, color) else tab.setTextColor(color)
+            retintRipple(tab, color, ImeShapes.chipRadiusDp)
         }
+        Motion.fadeThrough(gridScroll) { bindGrid(index) }
+    }
+
+    private fun bindGrid(index: Int) {
         grid.removeAllViews()
         netBar.removeAllViews()
         val symbols = symbolsFor(index)
-        if (symbols.isEmpty()) { netBar.visibility = View.GONE; grid.addView(emptySpan()); return }
+        if (symbols.isEmpty()) { netBar.visibility = View.GONE; grid.addView(obtainEmptySpan()); return }
         val isNet = index != 0 && SymbolCatalog.categories.getOrNull(index - 1)?.id == "net"
         val completions = symbols.filter { it.length > 1 }
         val urlCompletions = if (completions.isNotEmpty() && (isNet || completions.any { isUrlLike(it) }))
@@ -169,7 +195,23 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         } else {
             netBar.visibility = View.GONE
         }
-        for (s in symbols) if (s !in urlCompletions) grid.addView(cell(s, badge = if (index == 0) badgeFor(s) else null))
+        var slot = 0
+        for (s in symbols) if (s !in urlCompletions) {
+            val tile = obtainTile(slot); slot++
+            bindTile(tile, s, badge = if (index == 0) badgeFor(s) else null)
+            grid.addView(tile)
+        }
+    }
+
+    private fun crossfadeTabColor(tab: TextView, color: Int) {
+        colorAnimators.remove(tab)?.cancel()
+        Motion.crossfadeColor(tab, tab.currentTextColor, color) { tab.setTextColor(it) }?.let { colorAnimators[tab] = it }
+    }
+
+    private fun retintRipple(v: View, color: Int, radiusDp: Float = ImeShapes.keyRadiusDp) {
+        val fg = v.foreground
+        if (fg is RippleDrawable) fg.setColor(ColorStateList.valueOf(Motion.withAlpha(color, 0x24)))
+        else Motion.applyTapFeedback(v, color, radiusDp = radiusDp)
     }
 
     private fun addCompletionChips(completions: List<String>) {
@@ -244,13 +286,26 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
             cornerRadius = ImeShapes.chipRadiusDp * density
         }
 
-    private fun cell(symbol: String, badge: String?): View {
+    private fun obtainTile(index: Int): FrameLayout {
+        if (index < tilePool.size) return tilePool[index]
+        val glyph = TextView(context).apply {
+            gravity = Gravity.CENTER
+            maxLines = 1
+            includeFontPadding = false
+            setTextColor(palette.keyLabel)
+        }
+        val badge = TextView(context).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.caption)
+            setTextColor(palette.keyLabelSecondary)
+            setPadding(0, 0, dp(4), dp(2))
+            visibility = View.GONE
+        }
         val tile = FrameLayout(context).apply {
             minimumHeight = cellHeightPx
             background = GradientDrawable().apply { setColor(palette.keySurface); cornerRadius = ImeShapes.keyRadiusDp * density }
             isClickable = true
             Motion.applyTapFeedback(this, palette.keyLabel)
-            setOnClickListener { onSymbol(symbol, originForCurrent(symbol)); if (!locked) onBack() }
+            setOnClickListener(symbolClick)
             layoutParams = GridLayout.LayoutParams().apply {
                 width = 0
                 height = cellHeightPx
@@ -258,34 +313,32 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
                 setGravity(Gravity.FILL)
                 val m = dp(3); setMargins(m, m, m, m)
             }
+            addView(glyph, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER))
+            addView(badge, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END))
         }
-        tile.addView(
-            TextView(context).apply {
-                text = symbol
-                gravity = Gravity.CENTER
-                maxLines = 1
-                includeFontPadding = false
-                if (symbol.length > 1) {
-                    TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(this, 9, ImeType.display.toInt(), 1, TypedValue.COMPLEX_UNIT_SP)
-                } else {
-                    val sizeSp = if (wideMetricGlyph(symbol[0])) ImeType.display * WIDE_GLYPH_SCALE else ImeType.display
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp)
-                }
-                setTextColor(palette.keyLabel)
-            },
-            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER),
-        )
-        if (badge != null) tile.addView(
-            TextView(context).apply {
-                text = badge
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.caption)
-                setTextColor(palette.keyLabelSecondary)
-                setPadding(0, 0, dp(4), dp(2))
-            },
-            FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END),
-        )
+        tilePool.add(tile)
         return tile
     }
+
+    private fun bindTile(tile: FrameLayout, symbol: String, badge: String?) {
+        bindGlyph(tile.getChildAt(0) as TextView, symbol)
+        val badgeView = tile.getChildAt(1) as TextView
+        if (badge != null) { badgeView.text = badge; badgeView.visibility = View.VISIBLE } else badgeView.visibility = View.GONE
+    }
+
+    private fun bindGlyph(tv: TextView, symbol: String) {
+        tv.text = symbol
+        if (symbol.length > 1) {
+            TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(tv, 9, ImeType.display.toInt(), 1, TypedValue.COMPLEX_UNIT_SP)
+        } else {
+            TextViewCompat.setAutoSizeTextTypeWithDefaults(tv, TextView.AUTO_SIZE_TEXT_TYPE_NONE)
+            val sizeSp = if (wideMetricGlyph(symbol[0])) ImeType.display * WIDE_GLYPH_SCALE else ImeType.display
+            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp)
+        }
+        tv.setTextColor(palette.keyLabel)
+    }
+
+    private fun obtainEmptySpan(): TextView = emptySpanView ?: emptySpan().also { emptySpanView = it }
 
     private fun emptySpan(): TextView = TextView(context).apply {
         text = "最近使用的符号会显示在这里"
@@ -350,8 +403,12 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun gridGlyphForTest(symbol: String): TextView? =
         tileFor(symbol)?.let { t -> (0 until t.childCount).map { t.getChildAt(it) }.filterIsInstance<TextView>().firstOrNull() }
     internal fun gridBadgeForTest(symbol: String): String? =
-        tileFor(symbol)?.let { t -> (0 until t.childCount).map { t.getChildAt(it) }.filterIsInstance<TextView>().getOrNull(1)?.text?.toString() }
+        tileFor(symbol)?.let { t ->
+            (0 until t.childCount).map { t.getChildAt(it) }.filterIsInstance<TextView>().getOrNull(1)
+                ?.takeIf { it.visibility == View.VISIBLE }?.text?.toString()
+        }
     internal fun tapCellForTest(symbol: String): Boolean = tileFor(symbol)?.performClick() ?: false
+    internal fun tilesAllocatedForTest(): Int = tilePool.size
 
     private fun updateLockFace() {
         val tint = if (locked) palette.candidateFirst else palette.keyLabelSecondary
