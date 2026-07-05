@@ -15,23 +15,18 @@
 
 package com.aegis.ime.ime
 
-interface ImeHost {
-    fun commitText(text: CharSequence)
-    fun commitSymbol(symbol: CharSequence) { commitText(symbol) }
-    fun deleteBackward()
-    fun performEnter()
+import android.icu.text.BreakIterator
 
-    fun textBeforeCursor(n: Int): CharSequence = ""
+object GraphemeText {
 
-    fun replaceBeforeCursor(length: Int, text: CharSequence) {}
+    const val WINDOW = 64
 
-    fun hasSelection(): Boolean = false
-
-    fun deleteSelection() { commitText("") }
-
-    fun deleteGraphemeBackward() { deleteBackward() }
-
-    fun panelBackspace() {
-        if (hasSelection()) deleteSelection() else deleteGraphemeBackward()
+    fun lastClusterLength(text: CharSequence): Int {
+        if (text.isEmpty()) return 0
+        val it = BreakIterator.getCharacterInstance()
+        it.setText(text.toString())
+        val end = it.last()
+        val start = it.previous()
+        return if (start == BreakIterator.DONE) end else end - start
     }
 }

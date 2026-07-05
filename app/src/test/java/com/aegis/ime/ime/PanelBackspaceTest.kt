@@ -27,7 +27,7 @@ class PanelBackspaceTest {
         override fun performEnter() {}
         override fun hasSelection(): Boolean = selection
         override fun deleteSelection() { calls.add("deleteSelection") }
-        override fun deleteCodePointBackward() { calls.add("deleteCodePoint") }
+        override fun deleteGraphemeBackward() { calls.add("deleteGrapheme") }
     }
 
     @Test fun panel_backspace_deletes_the_selection_when_one_exists() {
@@ -36,9 +36,9 @@ class PanelBackspaceTest {
         assertEquals(listOf("deleteSelection"), h.calls)
     }
 
-    @Test fun panel_backspace_removes_a_code_point_when_there_is_no_selection() {
+    @Test fun panel_backspace_removes_a_grapheme_cluster_when_there_is_no_selection() {
         val h = RecordingHost(selection = false)
         h.panelBackspace()
-        assertEquals(listOf("deleteCodePoint"), h.calls)
+        assertEquals(listOf("deleteGrapheme"), h.calls)
     }
 }
