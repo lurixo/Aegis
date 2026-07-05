@@ -238,9 +238,10 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
             if (tabChanged && (i == index || i == prev)) crossfadeTabColor(tab, color) else tab.setTextColor(color)
             retintRipple(tab, color)
         }
-        // Content transition: MD3 fade-through (tab switch is a real, infrequent content change — never a
-        // per-keystroke path), swapping the recycled cells at the trough.
-        Motion.fadeThrough(gridScroll) { bindGrid(index) }
+        // Flicker fix: swap the recycled cells IN PLACE (no fade-through). The old MD3 fade-through faded the
+        // whole grid to alpha 0 at its trough, blinking the grid area to the bare panel floor on every category
+        // switch; the pooled cells rebind within one layout pass, so the content changes with no blank frame.
+        bindGrid(index)
     }
 
     /** Rebind the recycled emoji cells for [index] (allocate only past the pool high-water mark). */

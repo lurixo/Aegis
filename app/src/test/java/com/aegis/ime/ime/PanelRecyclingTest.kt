@@ -150,22 +150,25 @@ class PanelRecyclingTest {
 
     // ---- ClipboardView tab switch (MD3 fade-through, exactly once per real switch) ----------------------
 
-    @Test fun clipboard_tab_switch_fades_only_on_a_real_tab_change() {
+    @Test fun clipboard_tab_switch_rebuilds_in_place_only_on_a_real_tab_change() {
+        // Flicker fix: a 剪贴板↔常用语 tab switch rebuilds the list IN PLACE (the old whole-panel fade-through
+        // blinked the clipboard surface to the bare floor on every switch). The counter still fires exactly once
+        // per REAL tab change and never on a plain refresh or a re-select of the current tab.
         val v = ClipboardView(ctx).apply {
             historyProvider = { listOf("clip-a", "clip-b") }
             categoriesProvider = { listOf("默认") }
             phrasesInProvider = { c -> if (c == "默认") listOf("phrase-a") else emptyList() }
             applyPalette(light)
-            refresh() // first render seeds renderedTab (CLIPBOARD) — no transition
+            refresh() // first render seeds renderedTab (CLIPBOARD) — not a tab change
         }
         val t0 = v.tabTransitionsForTest()
-        v.refresh() // same tab → no fade
-        assertEquals("a plain refresh must not fade", t0, v.tabTransitionsForTest())
+        v.refresh() // same tab → not counted
+        assertEquals("a plain refresh is not a tab change", t0, v.tabTransitionsForTest())
         v.switchTabForTest(toClipboard = false) // 剪贴板 → 常用语
-        assertEquals("a real tab switch fades once", t0 + 1, v.tabTransitionsForTest())
-        v.switchTabForTest(toClipboard = false) // already 常用语 → switchTab is a no-op → no fade
-        assertEquals("re-selecting the current tab must not fade", t0 + 1, v.tabTransitionsForTest())
+        assertEquals("a real tab switch is counted once", t0 + 1, v.tabTransitionsForTest())
+        v.switchTabForTest(toClipboard = false) // already 常用语 → switchTab is a no-op → not counted
+        assertEquals("re-selecting the current tab is not counted", t0 + 1, v.tabTransitionsForTest())
         v.switchTabForTest(toClipboard = true) // 常用语 → 剪贴板
-        assertEquals("switching back fades once more", t0 + 2, v.tabTransitionsForTest())
+        assertEquals("switching back is counted once more", t0 + 2, v.tabTransitionsForTest())
     }
 }

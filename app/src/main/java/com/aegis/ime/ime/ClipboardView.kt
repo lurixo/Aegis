@@ -362,12 +362,13 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 else -> buildNormal()
             }
         }
-        // MD3 fade-through on a real 剪贴板↔常用语 tab switch OR a mode change (normal↔select↔sort↔category-sort)
-        // — the same motion language as the settings expand/collapse. An ordinary refresh within one tab+mode
-        // (add / delete / select toggle / drag drop) still rebuilds instantly.
+        // Flicker fix: rebuild the list IN PLACE on every refresh, including a 剪贴板↔常用语 tab switch or a mode
+        // change. The old MD3 fade-through faded the WHOLE panel (tabs + list) to alpha 0 at its trough, blinking
+        // the entire clipboard surface to the bare panel floor on every tab switch; an in-place rebuild swaps the
+        // content within one layout pass with no blank frame. (The counters still track the tab/mode changes.)
         if (tabChanged) tabTransitions++
         if (modeChanged) modeTransitions++
-        if (tabChanged || modeChanged) Motion.fadeThrough(main, swap = rebuild) else rebuild()
+        rebuild()
     }
 
     /** normal=0 / select=1 / sort=2 / category-sort=3 — the current list mode (for the fade-through trigger). */

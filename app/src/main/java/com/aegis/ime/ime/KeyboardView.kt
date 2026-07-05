@@ -268,10 +268,10 @@ class KeyboardView(context: Context) : View(context) {
         // A3: reset the left column to the top whenever its CONTENT changes (new syllable / rest↔compose),
         // but keep the scroll offset on a pure re-render of the same list.
         val sameColumn = newLayout.scrollColumn?.items?.map { it.label } == layout.scrollColumn?.items?.map { it.label }
-        // MD3 mode-switch (9键↔26键↔数字↔符号): an incoming fade-through. Gated to a real layout-id change on an
-        // already-laid-out keyboard, so the per-keystroke re-renders (same id) and the first cold show (width==0,
-        // handled by the panel/keyboard reveal) never fade — only a genuine mode change does. Alpha only: the
-        // content + hit rects are applied synchronously below FIRST, so touch stays exact through the fade.
+        // Mode-switch (9键↔26键↔数字↔符号): the new layout is applied + redrawn IN PLACE (relayout/invalidate below),
+        // opaque, with no alpha fade. The old fade-in started the whole keyboard from alpha 0, which blinked the key
+        // field away to the bare keyboard floor for a frame on every mode switch (the switch flash); a self-drawn
+        // keyboard re-rasterises the new keys in one frame, so an in-place redraw swaps them with no blank frame.
         val modeChanged = newLayout.id != layout.id
         layout = newLayout
         shifted = isShifted
@@ -287,7 +287,9 @@ class KeyboardView(context: Context) : View(context) {
         if (width > 0) relayout()
         requestLayout()
         invalidate()
-        if (modeChanged && width > 0) { modeSwitches++; Motion.fadeIn(this, Motion.MODE_SWITCH) }
+        // Count the mode change (test seam), but do NOT fade the keyboard in from alpha 0 — the redraw above is
+        // opaque and instantaneous, so the mode switch no longer blinks the key field to the bare floor.
+        if (modeChanged && width > 0) { modeSwitches++ }
     }
 
     /** Test seam: how many live keyboard mode switches have run the MD3 fade (same-id re-renders must NOT bump it). */

@@ -73,6 +73,9 @@ class InputView(context: Context) : LinearLayout(context) {
     fun applyPalette(p: ImePalette) {
         palette = p
         body.setBackgroundColor(p.keyboardBg)
+        // Flicker fix: the panel slot carries an opaque keyboard-colour floor so a panel switch/open never
+        // drops to a transparent frame revealing the host app behind the IME (the white/black switch flash).
+        panelContainer.setBackgroundColor(p.keyboardBg)
         preeditView.applyPalette(p)
         candidateView.applyPalette(p)
         copyBarView.applyPalette(p)
@@ -143,6 +146,7 @@ class InputView(context: Context) : LinearLayout(context) {
         body.addView(copyBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
         body.addView(keyboardView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         panelContainer.visibility = GONE
+        panelContainer.setBackgroundColor(palette.keyboardBg) // opaque floor (see applyPalette) — no transparent switch frame
         body.addView(panelContainer, LayoutParams(LayoutParams.MATCH_PARENT, dp(250)))
         addView(body, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
 
@@ -380,6 +384,11 @@ class InputView(context: Context) : LinearLayout(context) {
 
     /** U19 test seam: the live keyboard height (px) the panel must match. */
     internal fun keyboardHeightPx(): Int = keyboardView.height
+
+    /** Flicker-fix test seam: the panel slot's opaque floor colour (0 if it were left background-less). A panel
+     *  open/switch must never expose a transparent frame revealing the host app behind the IME window. */
+    internal fun panelFloorColorForTest(): Int? =
+        (panelContainer.background as? android.graphics.drawable.ColorDrawable)?.color
 
     val panelShown: Boolean get() = panelContainer.visibility == VISIBLE
 

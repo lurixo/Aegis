@@ -130,16 +130,19 @@ class Md3MotionSystemTest {
         return kv
     }
 
-    @Test fun keyboard_fades_on_a_mode_change_but_not_on_a_same_id_re_render() {
+    @Test fun keyboard_mode_change_is_detected_but_a_same_id_re_render_is_not() {
+        // Flicker fix: a mode change now redraws the new layout IN PLACE (opaque, no alpha-0 fade — the old fade
+        // blinked the key field to the bare floor for a frame). The counter still fires exactly once per REAL mode
+        // change (never on a same-id re-render), which is what gates the in-place redraw.
         val kv = laidOutKeyboard()
         val before = kv.modeSwitchesForTest()
-        // Same id (ALPHA→ALPHA), e.g. a per-keystroke re-render or a shift toggle — must NOT fade.
+        // Same id (ALPHA→ALPHA), e.g. a per-keystroke re-render or a shift toggle — not a mode change.
         kv.setLayout(Layouts.forId(LayoutId.ALPHA, Lang.CN), isShifted = true, isLocked = false, language = Lang.CN)
-        assertEquals("a same-id re-render must not fade the keyboard", before, kv.modeSwitchesForTest())
-        // Real mode change ALPHA→SYMBOL → one fade.
+        assertEquals("a same-id re-render is not a mode change", before, kv.modeSwitchesForTest())
+        // Real mode change ALPHA→SYMBOL → counted once.
         kv.setLayout(Layouts.forId(LayoutId.SYMBOL, Lang.CN), isShifted = false, isLocked = false, language = Lang.CN)
-        assertEquals("a real mode change fades once", before + 1, kv.modeSwitchesForTest())
-        // SYMBOL→NUMBER → another fade.
+        assertEquals("a real mode change is counted once", before + 1, kv.modeSwitchesForTest())
+        // SYMBOL→NUMBER → another mode change.
         kv.setLayout(Layouts.forId(LayoutId.NUMBER, Lang.CN), isShifted = false, isLocked = false, language = Lang.CN)
         assertEquals(before + 2, kv.modeSwitchesForTest())
     }
