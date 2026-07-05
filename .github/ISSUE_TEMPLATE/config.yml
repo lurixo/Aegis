@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/lurixo/Aegis/security/advisories/new
+    about: A keyboard sees what you type — please report security issues privately here, not as a public issue.

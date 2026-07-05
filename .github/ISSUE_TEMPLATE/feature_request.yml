@@ -1,0 +1,44 @@
+name: Feature request
+description: Suggest an idea or improvement for Aegis
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion! Please describe the problem you want to solve, not only the solution — it helps us find the best fit.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: The use case or the pain point you are hitting today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What you would like Aegis to do.
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Optional — which part of Aegis does this touch?
+      multiple: true
+      options:
+        - Input / decoding
+        - Keyboard layout / gestures
+        - Emoji / symbols / clipboard
+        - Settings
+        - Dictionary / language data
+        - Other
+    validations:
+      required: false
