@@ -51,6 +51,8 @@ internal fun aegisColorScheme(context: Context, darkTheme: Boolean): ColorScheme
     dynamicLightColorScheme(context)
 }.copy(background = settingsBackgroundColor(context, darkTheme))
 
+internal fun settingsBackgroundArgb(context: Context): Int = context.getColor(R.color.settings_window_background)
+
 internal fun settingsBackgroundArgb(context: Context, darkTheme: Boolean): Int {
     val configuration = Configuration(context.resources.configuration)
     val nightMode = if (darkTheme) {
