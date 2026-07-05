@@ -51,6 +51,12 @@
     <string name="key_haptic_soft_description">缓起缓落，柔和绵长</string>
     <string name="key_haptic_system_description">使用设备默认的按键触感</string>
 
+    <string name="letter_case_title">字母大小写</string>
+    <string name="letter_case_description">仅改变字母显示</string>
+    <string name="letter_case_auto">自动（跟随 Shift）</string>
+    <string name="letter_case_upper">始终大写</string>
+    <string name="letter_case_lower">始终小写</string>
+
     <string name="default_lang_title">默认输入语言</string>
     <string name="default_lang_description">键盘在新应用中打开时使用的语言</string>
     <string name="default_lang_cn">中文</string>

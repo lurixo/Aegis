@@ -51,6 +51,12 @@
     <string name="key_haptic_soft_description">A smooth rise and a gentle fade</string>
     <string name="key_haptic_system_description">The device’s standard keyboard feedback</string>
 
+    <string name="letter_case_title">Letter case</string>
+    <string name="letter_case_description">Display only</string>
+    <string name="letter_case_auto">Auto (follow Shift)</string>
+    <string name="letter_case_upper">Always uppercase</string>
+    <string name="letter_case_lower">Always lowercase</string>
+
     <string name="default_lang_title">Default input language</string>
     <string name="default_lang_description">Language the keyboard starts with in a new app</string>
     <string name="default_lang_cn">Chinese</string>
