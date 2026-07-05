@@ -39,6 +39,8 @@ class PredictiveBackTest {
 
     private val ctx = RuntimeEnvironment.getApplication()
 
+    private fun src(path: String) = File(path).readText()
+
 
     @Test fun manifest_enables_the_on_back_invoked_callback() {
         val manifest: Document = DocumentBuilderFactory.newInstance()
@@ -82,39 +84,44 @@ class PredictiveBackTest {
     }
 
 
-    @Test fun back_progress_nudges_the_top_overlay_and_cancel_restores_it() {
+    @Test fun back_closes_the_panel_back_to_the_keyboard() {
         val iv = InputView(ctx)
-        val panel = View(ctx)
-        iv.showPanel(panel)
-        assertTrue(iv.predictiveBackBegin())
-        iv.predictiveBackProgress(1f)
-        assertTrue("the panel fades as the gesture progresses", panel.alpha < 1f)
-        assertTrue("and slides a little toward its dismissal edge (down)", panel.translationY > 0f)
-        iv.predictiveBackCancel()
-        assertEquals("cancel restores full opacity", 1f, panel.alpha, 0f)
-        assertEquals("cancel restores the position", 0f, panel.translationY, 0f)
-        assertTrue("and the panel is still open (the gesture was abandoned)", iv.panelShown)
+        iv.showPanel(View(ctx))
+        assertTrue("a panel was open", iv.panelShown)
+        assertTrue("Back reports it closed the top overlay", iv.closeTopOverlay())
+        assertFalse("Back on an open panel returns to the keyboard (panel closed)", iv.panelShown)
+        assertFalse("no overlay remains", iv.hasOverlay())
     }
 
-    @Test fun back_commit_closes_the_top_overlay_only() {
+    @Test fun back_peels_exactly_one_overlay_layer() {
         val iv = InputView(ctx)
         iv.showCopyBar("x")
         iv.showPanel(View(ctx))
-        assertTrue(iv.predictiveBackBegin())
-        iv.predictiveBackCommit()
-        assertFalse("commit closed the panel (the top overlay)", iv.panelShown)
+        assertTrue(iv.closeTopOverlay())
+        assertFalse("Back closed the panel (the top overlay)", iv.panelShown)
         assertTrue("but the copy bar underneath survives — Back peels one layer", iv.copyBarShown)
+        assertTrue("a second Back closes the copy bar", iv.closeTopOverlay())
+        assertFalse("now nothing is left open", iv.hasOverlay())
     }
 
-    @Test fun back_commit_on_the_edit_bar_runs_its_cancel_path() {
+    @Test fun back_on_the_edit_bar_runs_its_cancel_path() {
         val iv = InputView(ctx)
         var cancelled = false
         iv.onEditCancel = { cancelled = true; iv.showEditBar(false) }
         iv.showEditBar(true)
-        assertTrue(iv.predictiveBackBegin())
-        iv.predictiveBackCommit()
-        assertTrue("committing Back on the edit bar runs its normal cancel", cancelled)
+        assertTrue(iv.closeTopOverlay())
+        assertTrue("Back on the edit bar runs its normal cancel", cancelled)
         assertFalse(iv.isEditBarShowing())
+    }
+
+    @Test fun back_with_no_overlay_reports_nothing_to_close_so_the_framework_hides_the_ime() {
+        val iv = InputView(ctx)
+        assertFalse("bare keyboard → no overlay", iv.hasOverlay())
+        assertFalse(
+            "with no overlay, closeTopOverlay does nothing and returns false — the service leaves the " +
+                "framework default Back (hide the IME) in charge (it never registered the callback)",
+            iv.closeTopOverlay(),
+        )
     }
 
 
@@ -141,5 +148,26 @@ class PredictiveBackTest {
         iv.showEditBar(true)
         iv.showEditBar(false)
         assertEquals("each overlay open/close pings the service so it can (un)register the back callback", 6, notifications)
+    }
+
+
+    @Test fun no_ime_side_predictive_follow_finger_residue_remains() {
+        val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
+        val inputView = src("src/main/java/com/aegis/ime/ime/InputView.kt")
+        for (banned in listOf("OnBackAnimationCallback", "onBackStarted", "onBackProgressed", "onBackCancelled", "BackEvent")) {
+            assertFalse("the service must have no follow-finger residue: $banned", svc.contains(banned))
+        }
+        assertTrue("the service registers a plain OnBackInvokedCallback", svc.contains("OnBackInvokedCallback"))
+        assertTrue("the plain callback closes the top overlay", svc.contains("closeTopOverlay()"))
+        for (banned in listOf(
+            "predictiveBackBegin",
+            "predictiveBackProgress",
+            "predictiveBackCommit",
+            "predictiveBackCancel",
+            "PREDICTIVE_FADE",
+        )) {
+            assertFalse("InputView must not keep the removed follow-finger member: $banned", inputView.contains(banned))
+        }
+        assertTrue("InputView exposes the plain close-one-layer Back", inputView.contains("fun closeTopOverlay()"))
     }
 }

@@ -248,8 +248,6 @@ class InputView(context: Context) : LinearLayout(context) {
     }
 
     private enum class BackKind { NONE, PANEL, COPY_BAR, EDIT_BAR }
-    private var backKind = BackKind.NONE
-    private var backView: View? = null
 
     fun hasOverlay(): Boolean = currentPanel != null || copyBarActive || editBarActive
 
@@ -260,41 +258,11 @@ class InputView(context: Context) : LinearLayout(context) {
         else -> BackKind.NONE to null
     }
 
-    fun predictiveBackBegin(): Boolean {
-        val (kind, view) = topOverlay()
-        backKind = kind
-        backView = view
-        return kind != BackKind.NONE
-    }
-
-    fun predictiveBackProgress(progress: Float) {
-        val v = backView ?: return
-        val f = progress.coerceIn(0f, 1f)
-        v.alpha = 1f - PREDICTIVE_FADE * f
-        val shift = Motion.REVEAL_SHIFT_DP * resources.displayMetrics.density * f
-        v.translationY = when (backKind) {
-            BackKind.EDIT_BAR -> -shift
-            BackKind.PANEL, BackKind.COPY_BAR -> shift
-            BackKind.NONE -> 0f
-        }
-    }
-
-    fun predictiveBackCommit() {
-        backView?.let { Motion.reset(it) }
-        when (backKind) {
-            BackKind.EDIT_BAR -> onEditCancel()
-            BackKind.PANEL -> showPanel(null)
-            BackKind.COPY_BAR -> { hideCopyBar(); onCopyDismiss() }
-            BackKind.NONE -> {}
-        }
-        backKind = BackKind.NONE
-        backView = null
-    }
-
-    fun predictiveBackCancel() {
-        backView?.let { Motion.reset(it) }
-        backKind = BackKind.NONE
-        backView = null
+    fun closeTopOverlay(): Boolean = when (topOverlay().first) {
+        BackKind.EDIT_BAR -> { onEditCancel(); true }
+        BackKind.PANEL -> { showPanel(null); true }
+        BackKind.COPY_BAR -> { hideCopyBar(); onCopyDismiss(); true }
+        BackKind.NONE -> false
     }
 
     internal fun backTargetKindForTest(): String = topOverlay().first.name
@@ -322,8 +290,6 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun cachedNavBottomForTest(): Int = lastNavBottomPx
 
     private companion object {
-        private const val PREDICTIVE_FADE = 0.4f
-
         private var lastNavBottomPx = 0
     }
 }

@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ui.theme
 
+import android.content.Context
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -30,6 +31,8 @@ import androidx.compose.animation.slideOutHorizontally
 import com.aegis.ime.ime.Motion
 
 internal object SettingsMotion {
+    fun animationsEnabled(context: Context): Boolean = Motion.enabled(context)
+
     val DURATION_NAV = Motion.MODE_SWITCH.toInt()
     val DURATION_FADE_IN = Motion.FADE_IN.toInt()
     val DURATION_FADE_OUT = Motion.FADE_OUT.toInt()
