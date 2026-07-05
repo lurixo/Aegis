@@ -229,9 +229,13 @@ class TranslateBarView(context: Context) : LinearLayout(context) {
         field.setSelection(field.text.length)
     }
 
+    fun releaseField() { field.clearFocus() }
+
     fun isModeDialogShowing(): Boolean = dialog != null
 
     fun dismissModeDialog() = dismissDialog()
+
+    internal fun modeAnchor(): View = modeButton
 
     override fun onDetachedFromWindow() {
         dismissDialog()
