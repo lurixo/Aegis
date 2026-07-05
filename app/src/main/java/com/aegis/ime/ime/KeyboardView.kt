@@ -41,6 +41,7 @@ import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.ScrollColumn
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
+import com.aegis.ime.ui.LetterCase
 
 class KeyboardView(context: Context) : View(context) {
 
@@ -119,6 +120,13 @@ class KeyboardView(context: Context) : View(context) {
     private val gap = KEY_GAP_DP * density
     private val edgeInset = ImeShapes.edgeInsetDp * density
     private val keyRadius = ImeShapes.keyRadiusDp * density
+
+    var caseMode: LetterCase = LetterCase.AUTO
+        set(value) {
+            if (field == value) return
+            field = value
+            invalidate()
+        }
 
     private var palette = ImePalette.STATIC_LIGHT
 
@@ -740,10 +748,18 @@ class KeyboardView(context: Context) : View(context) {
     private fun displayLabel(key: Key): String {
         key.labelRes?.let { return context.getString(it) }
         if (key.action == KeyAction.COMMIT && key.label.length == 1 && key.label[0] in 'a'..'z') {
-            return if (shifted) key.label.uppercase() else key.label
+            return when (caseMode) {
+                LetterCase.UPPER -> key.label.uppercase()
+                LetterCase.LOWER -> key.label.lowercase()
+                LetterCase.AUTO -> if (shifted) key.label.uppercase() else key.label
+            }
         }
         if (isNineLetterBlock(key)) {
-            return key.label
+            return when (caseMode) {
+                LetterCase.UPPER -> key.label.uppercase()
+                LetterCase.LOWER -> key.label.lowercase()
+                LetterCase.AUTO -> key.label
+            }
         }
         return key.label
     }

@@ -24,6 +24,7 @@ import com.aegis.ime.layout.KeyboardLayout
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
+import com.aegis.ime.ui.LetterCase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -163,6 +164,29 @@ class KeyboardContentSwapTest {
 
             assertEquals("an unchanged storm applies nothing", applies, kv.layoutAppliesForTest())
             assertEquals(modes, kv.modeSwitchesForTest())
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun case_mode_change_renders_the_new_faces_in_the_same_call() {
+        animationsOn()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val kv = KeyboardView(ctx).apply {
+                setLayout(Layouts.forId(LayoutId.ALPHA, Lang.EN), false, false, Lang.EN)
+            }
+            attach(controller.get(), kv)
+            assertEquals("a", letterFace(kv, "a"))
+
+            kv.caseMode = LetterCase.UPPER
+            assertEquals("the new case renders in the same call", "A", letterFace(kv, "a"))
+
+            kv.caseMode = LetterCase.UPPER
+            assertEquals("re-setting the same case mode keeps the face", "A", letterFace(kv, "a"))
+
+            kv.caseMode = LetterCase.LOWER
+            assertEquals("a", letterFace(kv, "a"))
         } finally {
             controller.pause().stop().destroy()
         }
