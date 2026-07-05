@@ -39,21 +39,23 @@ import androidx.core.content.edit
 import com.aegis.ime.R
 
 /**
- * ⑤ touch-feedback toggles (key vibration + the magnified key-press preview), added to the 0047 input-settings group.
+ * ⑤/① touch-feedback toggles (key vibration + the magnified key-press preview), in the input-settings group.
  *
- * Both are the single source of truth for their pref key + default; the IME service reads the SAME keys via
+ * Each constant is the single source of truth for its pref key + default; the IME service reads the SAME keys via
  * [com.aegis.ime.SettingsHotApply] and hot-applies them the moment the switch flips (immediately), and the
  * KeyboardView reads the pushed value. Defaults chosen against commercial IMEs:
  *  - [PREF_KEY_HAPTICS] default OFF: opt-in, and it respects the system haptic master (we never force a
  *    vibration on a user who disabled touch feedback system-wide). This matches the app's conservative,
  *    battery-respecting defaults (the association toggle is likewise off).
- *  - [PREF_KEY_PREVIEW] default ON: the enlarged press bubble is a standard soft-keyboard affordance
- *    (Gboard / iOS show it by default for letter keys) — it confirms which key was hit without covering it.
+ *  - ① the press preview is now SPLIT into a 9-key ([PREF_KEY_PREVIEW_NINE]) and a 26-key ([PREF_KEY_PREVIEW_ALPHA])
+ *    toggle, BOTH default OFF: the two keyboards are used differently (glance-heavy T9 vs touch-typed 26-key),
+ *    so the user asked to enable the bubble per keyboard, and defaulting off keeps a quiet, uncluttered look.
  */
 internal const val PREF_KEY_HAPTICS = "pref_key_haptics"
 internal const val KEY_HAPTICS_DEFAULT = false
-internal const val PREF_KEY_PREVIEW = "pref_key_preview"
-internal const val KEY_PREVIEW_DEFAULT = true
+internal const val PREF_KEY_PREVIEW_NINE = "pref_key_preview_nine"
+internal const val PREF_KEY_PREVIEW_ALPHA = "pref_key_preview_alpha"
+internal const val KEY_PREVIEW_DEFAULT = false
 
 /** A labelled toggle card persisting [prefKey] with [default]; used for both feedback switches. */
 @Composable
@@ -90,6 +92,12 @@ private fun FeedbackToggleCard(prefKey: String, default: Boolean, titleRes: Int,
 internal fun KeyVibrationToggleCard() =
     FeedbackToggleCard(PREF_KEY_HAPTICS, KEY_HAPTICS_DEFAULT, R.string.key_vibration_title, R.string.key_vibration_description)
 
+/** ① 9-key press-preview toggle (default off). */
 @Composable
-internal fun KeyPreviewToggleCard() =
-    FeedbackToggleCard(PREF_KEY_PREVIEW, KEY_PREVIEW_DEFAULT, R.string.key_preview_title, R.string.key_preview_description)
+internal fun KeyPreviewNineToggleCard() =
+    FeedbackToggleCard(PREF_KEY_PREVIEW_NINE, KEY_PREVIEW_DEFAULT, R.string.key_preview_nine_title, R.string.key_preview_nine_description)
+
+/** ① 26-key press-preview toggle (default off). */
+@Composable
+internal fun KeyPreviewAlphaToggleCard() =
+    FeedbackToggleCard(PREF_KEY_PREVIEW_ALPHA, KEY_PREVIEW_DEFAULT, R.string.key_preview_alpha_title, R.string.key_preview_alpha_description)

@@ -62,7 +62,7 @@ class KeyFeedbackTest {
     // ---- preview ----
 
     @Test fun pressing_a_letter_shows_its_enlarged_preview_when_enabled() {
-        val v = alphaView().apply { previewEnabled = true }
+        val v = alphaView().apply { previewAlphaEnabled = true }
         val (x, y) = v.centerOfLabelForTest("q")!!
         v.down(x, y)
         assertTrue("preview armed on a letter press", v.previewActiveForTest())
@@ -73,7 +73,7 @@ class KeyFeedbackTest {
     }
 
     @Test fun no_preview_when_the_toggle_is_off() {
-        val v = alphaView().apply { previewEnabled = false }
+        val v = alphaView().apply { previewAlphaEnabled = false }
         val (x, y) = v.centerOfLabelForTest("q")!!
         v.down(x, y)
         assertFalse("preview stays hidden when disabled", v.previewActiveForTest())
@@ -81,7 +81,7 @@ class KeyFeedbackTest {
     }
 
     @Test fun functional_keys_are_exempt_from_the_preview() {
-        val v = alphaView().apply { previewEnabled = true }
+        val v = alphaView().apply { previewAlphaEnabled = true }
         for (action in listOf(KeyAction.BACKSPACE, KeyAction.SHIFT, KeyAction.ENTER, KeyAction.SPACE)) {
             val (x, y) = v.centerOfActionForTest(action) ?: continue
             v.down(x, y)
@@ -91,7 +91,7 @@ class KeyFeedbackTest {
     }
 
     @Test fun sliding_off_the_pressed_key_retracts_the_preview() {
-        val v = alphaView().apply { previewEnabled = true }
+        val v = alphaView().apply { previewAlphaEnabled = true }
         val (x, y) = v.centerOfLabelForTest("q")!!
         val (wx, wy) = v.centerOfLabelForTest("w")!!
         v.down(x, y)

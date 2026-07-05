@@ -38,6 +38,7 @@ import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.ScrollColumn
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
+import com.aegis.ime.ui.LetterCase
 
 /**
  * Self-drawn (View + Canvas) typing grid — the perf-sensitive surface deliberately kept off
@@ -111,6 +112,29 @@ class KeyboardView(context: Context) : View(context) {
         }
     }
 
+    // ③ long-press on a 26-key EN letter (held still past [LONG_PRESS_MS]) opens the case/symbol box: the single
+    // press preview is replaced by three cells and the gesture enters "box mode" (all further moves pick a cell).
+    // A fast flick or a slide off the key before the timer fires cancels it, so the existing flick / retarget win.
+    private val longPressRunnable = Runnable {
+        val dk = downKey ?: return@Runnable
+        val dp = downPlaced ?: return@Runnable
+        if (lang != Lang.EN || !isAlphaLetter(dk)) return@Runnable
+        hidePreview() // the 3-cell box replaces the single bubble
+        caseBoxKey = dk
+        previewRect.set(dp.rect)
+        caseBoxActive = true
+        caseBoxMoved = false
+        caseBoxSelected = -1
+        previewFeedback.press() // EXISTING Motion vocabulary drives the box's scale/alpha appear
+        invalidate()
+    }
+
+    /** Cancel any pending auto-repeat AND any pending long-press box timer (removing a non-posted runnable is a no-op). */
+    private fun cancelKeyHold() {
+        repeatHandler.removeCallbacks(repeatRunnable)
+        repeatHandler.removeCallbacks(longPressRunnable)
+    }
+
     // ③ mis-touch tightening: auto-repeat is restricted to BACKSPACE only — the one hold-to-repeat every IME
     // (Gboard / Sogou / iOS) provides. Letters, digits and symbols (COMMIT) no longer repeat: a slightly-long
     // press used to flood "aaaa" / "2222", a common mis-fire that no mainstream soft keyboard produces. SPACE
@@ -122,6 +146,11 @@ class KeyboardView(context: Context) : View(context) {
     private fun isAlphaLetter(key: Key) =
         layout.id == LayoutId.ALPHA && key.action == KeyAction.COMMIT &&
             key.label.length == 1 && key.label[0] in 'a'..'z'
+
+    /** ④ A 9-key T9 digit key (COMMIT in the NINE grid: the 8 ABC…WXYZ blocks) — the target whose vertical
+     *  swipe must resolve to a single click on the pressed key, not a drift to a neighbour / the function row. */
+    private fun isNineDigit(key: Key) =
+        layout.id == LayoutId.NINE && key.action == KeyAction.COMMIT
 
     private val density = resources.displayMetrics.density
     private val rowHeight = 52f * density
@@ -139,16 +168,29 @@ class KeyboardView(context: Context) : View(context) {
     private val gap = 6f * density
     private val keyRadius = ImeShapes.keyRadiusDp * density // F2: rounded-rect keys (≤16dp, never pill)
 
-    // ⑤ touch-feedback toggles (pushed from prefs via InputView, hot-applied). Each defaults per the 0047 card constants;
-    // haptics defaults OFF (opt-in, respects the system haptic master), the enlarged press preview defaults ON
-    // (a standard soft-keyboard affordance). See KeyFeedbackCards.
+    // ⑤ touch-feedback toggles (pushed from prefs via InputView, hot-applied). Haptics defaults OFF (opt-in,
+    // respects the system haptic master). See KeyFeedbackCards.
     var hapticEnabled = false
-    var previewEnabled = true
+    // ① The magnified press preview is split per keyboard WORLD, each defaulting OFF: the 9-key (T9 + its
+    // NUMPAD number pad) and the 26-key (qwerty + its NUMBER / SYMBOL pages). A sub-page inherits the toggle of
+    // the keyboard it is reached from, so every layout id maps to exactly one switch. See [previewEnabledForCurrentLayout].
+    var previewNineEnabled = false
+    var previewAlphaEnabled = false
+    // ② Letter-case display setting (AUTO = follow shift / always UPPER / always LOWER). Affects only the
+    // on-key + preview label via [displayLabel]; never the committed character or the shift logic.
+    var caseMode: LetterCase = LetterCase.AUTO
     // ⑤ The magnified press-preview bubble: the currently-pressed previewable key + its on-screen rect, plus a
     // Motion.PressFeedback (EXISTING Motion vocabulary — Motion.kt untouched) driving its scale/alpha appear.
     private var previewKey: Key? = null
     private val previewRect = RectF()
     private val previewFeedback = Motion.PressFeedback(this)
+    // ③ 26-key long-press case/symbol box: three cells [UPPER][key.sub][lower] above the held EN letter. The
+    // finger slides left/middle/right (past [caseBoxSlop]) to pick a cell; no slide = the normal letter.
+    private var caseBoxKey: Key? = null
+    private var caseBoxActive = false
+    private var caseBoxSelected = -1 // 0 = upper, 1 = symbol, 2 = lower; -1 = none (no slide → default lower)
+    private var caseBoxMoved = false
+    private val caseBoxSlop = 12f * density
 
     // F1: all colours come from the Monet palette (default = static light = the previous hand-tuned look).
     // AegisInputMethodService pushes the live, dark-aware palette via [applyPalette].
@@ -417,6 +459,7 @@ class KeyboardView(context: Context) : View(context) {
      * with the top edge instead (self-drawn, so it stays inside the KeyboardView — no PopupWindow).
      */
     private fun drawPreview(canvas: Canvas) {
+        if (caseBoxActive) { drawCaseBox(canvas); return } // ③ the long-press box replaces the single bubble
         val key = previewKey ?: return
         val level = previewFeedback.level
         if (level <= 0f) return
@@ -436,14 +479,66 @@ class KeyboardView(context: Context) : View(context) {
         canvas.drawRoundRect(tmpRect, keyRadius, keyRadius, previewOutlinePaint)
         previewFillPaint.alpha = 255 // restore the shared paint's opacity
         previewOutlinePaint.alpha = 255
-        val label = displayLabel(key)
         previewLabelPaint.alpha = alpha
+        // ① fit the label: a 9-key block ("ABC" … "WXYZ"), 分词 or a punctuation mark is wider than a single
+        // 26-key letter — shrink it to the bubble instead of clipping, so the whole block shows (与键面一致).
+        drawFittedPreviewLabel(canvas, displayLabel(key), tmpRect)
+        previewLabelPaint.alpha = 255
+        canvas.restore()
+    }
+
+    /** ① Draw [label] centred in [box], shrinking the shared preview paint if the label overruns the bubble. */
+    private fun drawFittedPreviewLabel(canvas: Canvas, label: String, box: RectF) {
+        if (label.isEmpty()) return
+        val base = previewLabelPaint.textSize
+        val avail = box.width() - 12f * density
+        val w = previewLabelPaint.measureText(label)
+        if (w > avail && avail > 0f) previewLabelPaint.textSize = (base * avail / w).coerceAtLeast(14f * density)
         canvas.drawText(
             label,
-            tmpRect.centerX(),
-            tmpRect.centerY() - (previewLabelPaint.descent() + previewLabelPaint.ascent()) / 2f,
+            box.centerX(),
+            box.centerY() - (previewLabelPaint.descent() + previewLabelPaint.ascent()) / 2f,
             previewLabelPaint,
         )
+        previewLabelPaint.textSize = base // restore (the paint is shared across draws)
+    }
+
+    /**
+     * ③ The 26-key long-press box: three cells [UPPER][key.sub symbol][lower] above the held letter. The
+     * currently-selected cell (chosen by the finger's x once it slides past the slop) is filled with the accent
+     * colour; with no slide nothing is highlighted and a lift commits the normal letter. Self-drawn (no PopupWindow),
+     * scaling/fading in via the EXISTING Motion.PressFeedback level — Motion.kt untouched.
+     */
+    private fun drawCaseBox(canvas: Canvas) {
+        val key = caseBoxKey ?: return
+        val level = previewFeedback.level
+        if (level <= 0f) return
+        val cellW = caseBoxCellW()
+        val cellH = previewRect.height() * 1.12f
+        val left = caseBoxLeft()
+        var top = previewRect.top - cellH - 4f * density
+        if (top < 0f) top = 0f
+        val alpha = (255 * level).toInt().coerceIn(0, 255)
+        val scale = 0.86f + 0.14f * level
+        val labels = caseBoxLabels(key)
+        canvas.save()
+        canvas.scale(scale, scale, left + cellW * 1.5f, top + cellH)
+        for (i in 0..2) {
+            val cellLeft = left + i * cellW
+            tmpRect.set(cellLeft, top, cellLeft + cellW, top + cellH)
+            previewFillPaint.color = if (i == caseBoxSelected) palette.accentBottom else palette.keySurface
+            previewFillPaint.alpha = alpha
+            canvas.drawRoundRect(tmpRect, keyRadius, keyRadius, previewFillPaint)
+            previewOutlinePaint.alpha = alpha
+            canvas.drawRoundRect(tmpRect, keyRadius, keyRadius, previewOutlinePaint)
+            previewLabelPaint.color = if (i == caseBoxSelected) palette.accentLabel else palette.keyLabel
+            previewLabelPaint.alpha = alpha
+            drawFittedPreviewLabel(canvas, labels[i], tmpRect)
+        }
+        previewFillPaint.color = palette.keySurface // restore shared paints
+        previewFillPaint.alpha = 255
+        previewOutlinePaint.alpha = 255
+        previewLabelPaint.color = palette.keyLabel
         previewLabelPaint.alpha = 255
         canvas.restore()
     }
@@ -531,6 +626,14 @@ class KeyboardView(context: Context) : View(context) {
     internal fun previewLabelForTest(): String? = previewKey?.let { displayLabel(it) }
     internal fun previewActiveForTest(): Boolean = previewKey != null
 
+    /** ② test seam: the case-aware label a key would draw (on-key face + preview bubble share this). */
+    internal fun displayLabelForTest(key: Key): String = displayLabel(key)
+
+    /** ③ case-box test seams: whether the box is open, its three cell labels, and the selected index (-1 = none). */
+    internal fun caseBoxActiveForTest(): Boolean = caseBoxActive
+    internal fun caseBoxLabelsForTest(): List<String>? = caseBoxKey?.let { caseBoxLabels(it) }
+    internal fun caseBoxSelectedForTest(): Int = caseBoxSelected
+
     /** Test seam: the on-screen centre of the first key with [action] (for robust tap targeting). */
     internal fun centerOfActionForTest(action: KeyAction): Pair<Float, Float>? {
         if (placed.isEmpty()) relayout()
@@ -545,12 +648,27 @@ class KeyboardView(context: Context) : View(context) {
         return p.rect.centerX() to p.rect.centerY()
     }
 
+    /**
+     * ② The label drawn on a key face and in the preview bubble. For a single a–z COMMIT letter the letter-case
+     * setting decides its case: AUTO follows shift (lowercase at rest, uppercase when shifted — the original
+     * behaviour), UPPER shows it always uppercase, LOWER always lowercase. DISPLAY ONLY — the committed character
+     * and the shift logic are untouched (so "always uppercase" never corrupts CN pinyin, which types lowercase).
+     * The 9-key "ABC" block labels (length > 1) and every non-letter key are unaffected.
+     */
     private fun displayLabel(key: Key): String {
-        if (shifted && key.action == KeyAction.COMMIT && key.label.length == 1 && key.label[0] in 'a'..'z') {
-            return key.label.uppercase()
+        if (key.action == KeyAction.COMMIT && key.label.length == 1 && key.label[0] in 'a'..'z') {
+            return when (caseMode) {
+                LetterCase.UPPER -> key.label.uppercase()
+                LetterCase.LOWER -> key.label.lowercase()
+                LetterCase.AUTO -> if (shifted) key.label.uppercase() else key.label
+            }
         }
         return key.label // debug.17: ✎ / ⌫ no longer drawn as text — drawLabel renders them via Glyphs
     }
+
+    /** ③ The three case-box cell labels for [key]: [UPPER, key.sub-or-"", lower]. */
+    private fun caseBoxLabels(key: Key): List<String> =
+        listOf(key.label.uppercase(), key.sub ?: "", key.label.lowercase())
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         // A3: a gesture that starts in the left scroll column is a single-touch scroll/pick, fully isolated
@@ -622,10 +740,14 @@ class KeyboardView(context: Context) : View(context) {
         setPressedKey(downKey)
         downX = x; downY = y
         repeating = false; swiped = false; vSwipeDir = 0
+        caseBoxActive = false; caseBoxKey = null; caseBoxSelected = -1; caseBoxMoved = false
         val dp = downPlaced
         val dk = downKey
         if (dk != null && dp != null) {
             if (isRepeatable(dk)) repeatHandler.postDelayed(repeatRunnable, REPEAT_DELAY_MS)
+            // ③ a 26-key EN letter held still opens the case/symbol box (mutually exclusive with auto-repeat,
+            // which is BACKSPACE-only). A flick / slide-off before the timer fires cancels it (see cancelKeyHold).
+            else if (lang == Lang.EN && isAlphaLetter(dk)) repeatHandler.postDelayed(longPressRunnable, LONG_PRESS_MS)
             // ⑤ tactile + visual press feedback, each gated by its own setting.
             if (hapticEnabled) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             showPreview(dk, dp.rect)
@@ -634,14 +756,23 @@ class KeyboardView(context: Context) : View(context) {
         }
     }
 
-    /** ⑤ Only content keys get an enlarged preview; every functional key (space / backspace / shift / enter /
-     *  symbols / lang-toggle / segment / 123 …) is a non-COMMIT action and is exempt, so the preview never
-     *  pops on a control key. */
-    private fun isPreviewable(key: Key) = key.action == KeyAction.COMMIT
+    /** ① Content keys get an enlarged preview: every COMMIT key PLUS the 9-key 分词 (SEGMENT) key — a
+     *  frequently-tapped composing action the user asked to confirm. Every OTHER functional key
+     *  (space / backspace / shift / enter / symbols / lang-toggle / 123 / @# / 重输 …) stays exempt. */
+    private fun isPreviewable(key: Key) =
+        key.action == KeyAction.COMMIT || key.action == KeyAction.SEGMENT
 
-    /** ⑤ Arm the magnified preview for [key] over its [rect] (no-op when disabled or not a content key). */
+    /** ① The press-preview toggle governing the CURRENT layout: the 9-key world (T9 + its NUMPAD) reads the
+     *  9-key switch; the 26-key world (qwerty + its NUMBER / SYMBOL pages) reads the 26-key switch. */
+    private fun previewEnabledForCurrentLayout(): Boolean = when (layout.id) {
+        LayoutId.NINE, LayoutId.NUMPAD -> previewNineEnabled
+        LayoutId.ALPHA, LayoutId.NUMBER, LayoutId.SYMBOL -> previewAlphaEnabled
+    }
+
+    /** ⑤ Arm the magnified preview for [key] over its [rect] (no-op when the layout's toggle is off or the key
+     *  is not a content key). Shared by the key grid AND the left scroll column (① punctuation / operators). */
     private fun showPreview(key: Key, rect: RectF) {
-        if (!previewEnabled || !isPreviewable(key)) { hidePreview(); return }
+        if (!previewEnabledForCurrentLayout() || !isPreviewable(key)) { hidePreview(); return }
         previewKey = key
         previewRect.set(rect)
         previewFeedback.press() // EXISTING Motion vocabulary drives the scale/alpha appear
@@ -658,33 +789,81 @@ class KeyboardView(context: Context) : View(context) {
         invalidate()
     }
 
-    /** ② Active-pointer move to [x],[y]: backspace/letter vertical-swipe detection or follow-finger retarget. */
+    /** ③ Retract the long-press case box (release / cancel / new gesture). Clears its state SYNCHRONOUSLY. */
+    private fun clearCaseBox() {
+        if (!caseBoxActive && caseBoxKey == null) return
+        caseBoxActive = false
+        caseBoxKey = null
+        caseBoxSelected = -1
+        caseBoxMoved = false
+        previewFeedback.reset()
+        invalidate()
+    }
+
+    /** ③ Case-box geometry (shared by [drawCaseBox] and [caseBoxSelectionAt] so hit-test == render). */
+    private fun caseBoxCellW(): Float = previewRect.width() * 1.15f
+    private fun caseBoxLeft(): Float {
+        val boxW = caseBoxCellW() * 3f
+        return previewRect.centerX().coerceIn(boxW / 2f, width - boxW / 2f) - boxW / 2f
+    }
+
+    /** ③ Which of the three cells the finger's [x] is over (0 = upper, 1 = symbol, 2 = lower). */
+    private fun caseBoxSelectionAt(x: Float): Int =
+        ((x - caseBoxLeft()) / caseBoxCellW()).toInt().coerceIn(0, 2)
+
+    /** ② Active-pointer move to [x],[y]: case-box selection, backspace/letter vertical-swipe detection,
+     *  9-key vertical-as-click pinning, or follow-finger retarget. */
     private fun handlePrimaryMove(x: Float, y: Float) {
         val dk = downKey
         when {
+            caseBoxActive -> {
+                // ③ box mode: the finger slides left / middle / right (past the slop) to pick a cell; a
+                // no-slide lift commits the normal letter. Vertical / horizontal are treated the same — the
+                // cell is chosen by x once any slide is registered (so sliding up into the box selects too).
+                if (abs(x - downX) > caseBoxSlop || abs(y - downY) > caseBoxSlop) caseBoxMoved = true
+                val newSel = if (caseBoxMoved) caseBoxSelectionAt(x) else -1
+                if (newSel != caseBoxSelected) { caseBoxSelected = newSel; invalidate() }
+            }
             dk != null && dk.action == KeyAction.BACKSPACE -> {
                 // Vertical drag on backspace = a swipe gesture, not a key press.
                 val dy = y - downY
                 if (!swiped && abs(dy) > swipeThreshold && abs(dy) > abs(x - downX)) {
                     swiped = true
-                    repeatHandler.removeCallbacks(repeatRunnable)
+                    cancelKeyHold()
                 }
             }
             dk != null && lang == Lang.EN && isAlphaLetter(dk) -> {
                 // A vertical flick on a 26-key letter commits its super-script symbol (up) or the letter
                 // (down); a horizontal slide still retargets to the neighbour (★V slide-to-correct).
-                // Gated to EN so it never flushes a half-typed CN pinyin buffer.
+                // Gated to EN so it never flushes a half-typed CN pinyin buffer. A fast flick (before the
+                // ③ long-press timer fires) cancels the box; a slow hold opens it (handled above).
                 val dy = y - downY
                 if (!swiped && abs(dy) > swipeThreshold && abs(dy) > abs(x - downX)) {
                     swiped = true
                     vSwipeDir = if (dy < 0) -1 else 1
-                    repeatHandler.removeCallbacks(repeatRunnable)
+                    cancelKeyHold()
                     hidePreview() // ⑤ a flick is not a plain press → drop the preview
                 } else if (!swiped) {
                     val k = currentTarget(x, y)
                     if (k !== pressed) {
                         setPressedKey(k)
-                        if (k !== downKey) { repeatHandler.removeCallbacks(repeatRunnable); hidePreview() }
+                        if (k !== downKey) { cancelKeyHold(); hidePreview() }
+                    }
+                }
+            }
+            dk != null && isNineDigit(dk) -> {
+                // ④ 9-key digit: a vertical drag = a single click on the pressed key. Pin the pressed key so a
+                // vertical swipe never drifts to a neighbour (up 5→2) or the function row (down); a horizontal
+                // slide to a neighbour still retargets ("point at the right key", 指哪打哪).
+                val dx = x - downX
+                val dy = y - downY
+                if (abs(dy) > abs(dx)) {
+                    if (pressed !== downKey) setPressedKey(downKey) // re-pin after any earlier horizontal drift
+                } else {
+                    val k = currentTarget(x, y)
+                    if (k !== pressed) {
+                        setPressedKey(k)
+                        if (k !== downKey) { cancelKeyHold(); hidePreview() }
                     }
                 }
             }
@@ -693,20 +872,34 @@ class KeyboardView(context: Context) : View(context) {
                 if (k !== pressed) {
                     setPressedKey(k)
                     // ⑤ slid off the pressed key → the preview would now mislead (it shows the down key); hide it.
-                    if (k !== downKey) { repeatHandler.removeCallbacks(repeatRunnable); hidePreview() }
+                    if (k !== downKey) { cancelKeyHold(); hidePreview() }
                 }
             }
         }
     }
 
-    /** ② Commit the active pointer's gesture at its release point [x],[y] (tap / backspace-swipe / letter-flick). */
+    /** ② Commit the active pointer's gesture at its release point [x],[y] (tap / backspace-swipe / letter-flick /
+     *  ③ case-box pick / ④ 9-key vertical-as-click). */
     private fun finishPrimary(x: Float, y: Float, eventTime: Long) {
-        repeatHandler.removeCallbacks(repeatRunnable)
-        hidePreview() // ⑤ retract the press preview on release
+        cancelKeyHold()
         val dk = downKey
+        // ④ the 9-key vertical-as-click target: [pressed] is pinned to the down key on a vertical drag and set
+        // to the retargeted neighbour on a horizontal slide. Capture it before releasePressedKey() nulls it.
+        val stickyPressed = pressed
+        hidePreview() // ⑤ retract the press preview on release
         releasePressedKey()
         when {
             // !repeating: a long-press that already auto-fired must not ALSO emit a swipe/tap on lift.
+            dk != null && caseBoxActive -> {
+                // ③ commit the selected cell: upper / symbol / lower (all direct); no slide → the normal letter.
+                performClick()
+                when (caseBoxSelected) {
+                    0 -> onKey(Key(dk.label.uppercase(), output = dk.label.uppercase(), direct = true))
+                    1 -> dk.sub?.let { s -> onKey(Key(s, output = s, direct = true)) } ?: emitKey(dk, eventTime)
+                    2 -> onKey(Key(dk.label.lowercase(), output = dk.label.lowercase(), direct = true))
+                    else -> emitKey(dk, eventTime) // no slide → normal letter (respects shift / case setting)
+                }
+            }
             dk != null && dk.action == KeyAction.BACKSPACE && swiped && !repeating ->
                 onBackspaceSwipe(y - downY < 0)
             dk != null && lang == Lang.EN && isAlphaLetter(dk) && swiped && !repeating -> {
@@ -716,17 +909,24 @@ class KeyboardView(context: Context) : View(context) {
                 if (vSwipeDir < 0 && dk.sub != null) onKey(Key(dk.sub, output = dk.sub, direct = true))
                 else onKey(dk)
             }
+            dk != null && isNineDigit(dk) && !repeating -> {
+                // ④ commit the PINNED key (down key on a vertical drag; retargeted neighbour on a horizontal slide),
+                // never the key the finger happened to drift onto vertically.
+                performClick(); emitKey(stickyPressed ?: dk, eventTime)
+            }
             !repeating ->
                 currentTarget(x, y)?.let { performClick(); emitKey(it, eventTime) }
         }
         downKey = null
         downPlaced = null
+        clearCaseBox()
     }
 
     /** ② Abandon the active gesture without emitting (ACTION_CANCEL). */
     private fun cancelPrimary() {
-        repeatHandler.removeCallbacks(repeatRunnable)
+        cancelKeyHold()
         hidePreview() // ⑤ retract the press preview on cancel
+        clearCaseBox()
         releasePressedKey()
         downKey = null
         downPlaced = null
@@ -764,12 +964,17 @@ class KeyboardView(context: Context) : View(context) {
                 scrollPressedIndex = if (fling.stopArmed) -1 else scrollIndexAt(event.y)
                 scrollVisualPressedIndex = scrollPressedIndex
                 if (scrollPressedIndex >= 0) scrollPress.press() else scrollPress.release()
+                // ① the left scroll column (9-key punctuation / numpad operators) now previews the pressed cell,
+                // gated by the same per-layout toggle + isPreviewable rule as the key grid (so 自定义 / composing
+                // combos stay exempt). showPreview copies the rect, so the shared tmpRect is safe to reuse.
+                showScrollPreview()
                 invalidate()
             }
             MotionEvent.ACTION_MOVE -> {
                 fling.addSample(event.eventTime, event.y)
                 if (!scrolling && abs(event.y - scrollDownY) > scrollSlop) {
                     scrolling = true; scrollPressedIndex = -1; scrollPress.release()
+                    hidePreview() // a drag became a scroll → the pressed-cell preview would mislead
                 }
                 if (scrolling) {
                     // 1:1 drag via INCREMENTAL deltas: content moves exactly as far as the finger, and a
@@ -791,15 +996,28 @@ class KeyboardView(context: Context) : View(context) {
                 }
                 scrollPressedIndex = -1; inScrollDown = false; scrolling = false
                 scrollPress.release()
+                hidePreview() // ① retract the pressed-cell preview on pick / release
                 invalidate()
             }
             MotionEvent.ACTION_CANCEL -> {
                 scrollPressedIndex = -1; inScrollDown = false; scrolling = false
                 scrollPress.release()
+                hidePreview()
                 invalidate()
             }
         }
         return true
+    }
+
+    /** ① Arm the press preview for the currently-pressed scroll-column cell (no-op when nothing is pressed;
+     *  showPreview applies the per-layout toggle + isPreviewable gate). */
+    private fun showScrollPreview() {
+        val sc = scrollColumn ?: return
+        val idx = scrollPressedIndex
+        if (idx !in sc.items.indices || scrollCellH <= 0f) return
+        val top = scrollRegion.top - scrollY + idx * scrollCellH
+        tmpRect.set(scrollRegion.left, top, scrollRegion.right, top + scrollCellH)
+        showPreview(sc.items[idx], tmpRect)
     }
 
     // U7/U17 test seams (Robolectric drives MotionEvents; the OverScroller computes its final target
@@ -892,6 +1110,9 @@ class KeyboardView(context: Context) : View(context) {
     private companion object {
         const val REPEAT_DELAY_MS = 400L    // hold this long before auto-repeat starts
         const val REPEAT_INTERVAL_MS = 55L  // then fire this often
+        // ③ hold a 26-key EN letter this long (still) to open the case/symbol box. Shorter than REPEAT_DELAY_MS
+        // (a menu should feel snappier) yet far above a normal tap's ~<150ms, so a plain tap never opens it.
+        const val LONG_PRESS_MS = 300L
     }
 }
 

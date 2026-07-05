@@ -185,9 +185,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         onEngineAssetsChanged = {
             Handler(Looper.getMainLooper()).post { maybeReloadEngine() }
         },
-        // ⑤ touch-feedback toggles (0048): push the flip straight into the live KeyboardView (applies immediately).
+        // ⑤/①/② touch-feedback + display toggles: push the flip straight into the live KeyboardView (applies immediately).
         onKeyHaptics = { on -> mainHandler.post { inputView?.setKeyHaptics(on) } },
-        onKeyPreview = { on -> mainHandler.post { inputView?.setKeyPreview(on) } },
+        onKeyPreviewNine = { on -> mainHandler.post { inputView?.setKeyPreviewNine(on) } },
+        onKeyPreviewAlpha = { on -> mainHandler.post { inputView?.setKeyPreviewAlpha(on) } },
+        onLetterCase = { mode -> mainHandler.post { inputView?.setLetterCase(mode) } },
     )
 
     // debug.47: live user-dictionary host for the settings page — same process, same UserModel instance the
@@ -403,10 +405,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.attachView(view)
         imePalette = computePalette()
         view.applyPalette(imePalette) // F1: dynamic Monet colours (dark-aware) come alive here
-        // ⑤ seed the touch-feedback toggles from prefs so a freshly (re)created view has the right state.
+        // ⑤/①/② seed the toggles from prefs so a freshly (re)created view has the right state.
         val fbPrefs = getSharedPreferences("aegis", MODE_PRIVATE)
         view.setKeyHaptics(SettingsHotApply.keyHaptics(fbPrefs))
-        view.setKeyPreview(SettingsHotApply.keyPreview(fbPrefs))
+        view.setKeyPreviewNine(SettingsHotApply.keyPreviewNine(fbPrefs))
+        view.setKeyPreviewAlpha(SettingsHotApply.keyPreviewAlpha(fbPrefs))
+        view.setLetterCase(SettingsHotApply.letterCase(fbPrefs))
         return view
     }
 
@@ -439,9 +443,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         // Chinese IME behavior note.
         // cold start. The engine hot-reload path (#49) carries the same rules via buildEngine → currentFuzzyRules.
         controller.setFuzzyRules(currentFuzzyRules())
-        // ⑤ belt (mirrors the hot-apply suspenders): re-read the touch-feedback toggles on every focus.
+        // ⑤/①/② belt (mirrors the hot-apply suspenders): re-read the toggles + case setting on every focus.
         inputView?.setKeyHaptics(SettingsHotApply.keyHaptics(prefs))
-        inputView?.setKeyPreview(SettingsHotApply.keyPreview(prefs))
+        inputView?.setKeyPreviewNine(SettingsHotApply.keyPreviewNine(prefs))
+        inputView?.setKeyPreviewAlpha(SettingsHotApply.keyPreviewAlpha(prefs))
+        inputView?.setLetterCase(SettingsHotApply.letterCase(prefs))
         controller.reset()
         applyPaletteEverywhere() // F1: pick up a theme change that happened between input sessions
     }

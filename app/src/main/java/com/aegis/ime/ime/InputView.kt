@@ -204,9 +204,12 @@ class InputView(context: Context) : LinearLayout(context) {
         keyboardView.setLayout(layout, shifted, locked, lang)
     }
 
-    /** ⑤ touch-feedback toggles (hot-applied from prefs by the IME service): key-press vibration + the magnified preview. */
+    /** ⑤/① touch-feedback toggles (hot-applied from prefs by the IME service): key-press vibration + the
+     *  magnified preview (split 9-key / 26-key) + ② the letter-case display setting. */
     fun setKeyHaptics(on: Boolean) { keyboardView.hapticEnabled = on }
-    fun setKeyPreview(on: Boolean) { keyboardView.previewEnabled = on }
+    fun setKeyPreviewNine(on: Boolean) { keyboardView.previewNineEnabled = on }
+    fun setKeyPreviewAlpha(on: Boolean) { keyboardView.previewAlphaEnabled = on }
+    fun setLetterCase(mode: com.aegis.ime.ui.LetterCase) { keyboardView.caseMode = mode }
 
     /** Chinese IME behavior note. */
     fun showCopyBar(text: String) {

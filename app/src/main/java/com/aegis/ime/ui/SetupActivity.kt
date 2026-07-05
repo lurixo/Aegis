@@ -312,11 +312,14 @@ private fun SettingsPageColumn(title: String, onBack: () -> Unit, content: @Comp
 private fun InputSettingsPage(onBack: () -> Unit) {
     SettingsPageColumn(stringResource(R.string.settings_group_input_title), onBack) {
         LayoutChoiceCard()
+        // ② letter-case display (auto / always upper / always lower), hot-applied.
+        LetterCaseCard()
         FuzzySettingsCard()
         AssociationToggleCard()
-        // ⑤ touch-feedback toggles (0048): key-press vibration + the magnified press preview, hot-applied.
+        // ⑤ key-press vibration + ① the magnified press preview (split 9-key / 26-key), hot-applied.
         KeyVibrationToggleCard()
-        KeyPreviewToggleCard()
+        KeyPreviewNineToggleCard()
+        KeyPreviewAlphaToggleCard()
     }
 }
 
@@ -324,8 +327,9 @@ private fun InputSettingsPage(onBack: () -> Unit) {
 @Composable
 private fun DictSettingsPage(onBack: () -> Unit) {
     SettingsPageColumn(stringResource(R.string.settings_group_dicts_title), onBack) {
-        DictDownloadCard()
+        // ⑤ the enhancement model card sits above the full dictionary card (user request).
         GramDownloadCard()
+        DictDownloadCard()
     }
 }
 
