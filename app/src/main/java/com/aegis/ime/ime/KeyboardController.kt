@@ -50,6 +50,14 @@ private enum class StepKind { DIGIT, LOCK, CUT }
 class KeyboardController(
     private val host: ImeHost,
     private var engine: CandidateEngine,
+    /**
+     * ① When non-null, candidate decoding runs on this lane (off the key-handling thread, latest-wins)
+     * instead of synchronously inline. Null (the default, and every unit test that does not opt in) keeps
+     * the original synchronous behaviour, so the decode function and its output are unchanged — the lane
+     * only changes WHEN/on-which-thread the identical computation runs. The IME service injects a real
+     * single-thread lane; the equivalence audit injects a deterministic one.
+     */
+    private val decodeLane: DecodeLane? = null,
 ) {
     private data class LearnEvent(val prevWord: String?, val word: String, val prefixEnd: Int, val reading: String)
 
@@ -74,6 +82,12 @@ class KeyboardController(
     private val composing = StringBuilder()
     private var candidates: List<Cand> = emptyList()
     private var lastWord: String? = null
+
+    /** ① Serialises every [computeDecode] call so the worker-thread decode and a main-thread
+     *  [ensureDecodeApplied] can never run the (non-thread-safe, lazily-rebuilt user-recall-index) decoder at
+     *  once. Uncontended on the synchronous path and in normal async typing (only the worker decodes); briefly
+     *  contended only when a space-commit forces a live decode while one is already in flight. */
+    private val decodeLock = Any()
 
     /**
      * S1(c) (debug.12): the CONFIRMED prefix of the multi-syllable word currently being assembled. A
@@ -243,6 +257,10 @@ class KeyboardController(
     }
 
     fun reset() {
+        // ① drop any in-flight async decode from the previous field, so its late result can never repopulate
+        // stale candidates over the freshly-reset (empty) buffer (reset runs on field switch with NO trailing
+        // refreshCandidates to correct it).
+        decodeLane?.markSatisfiedSynchronously()
         composing.setLength(0)
         candidates = emptyList()
         lockedReadings.clear()
@@ -563,9 +581,25 @@ class KeyboardController(
             lastWord = null
             return
         }
+        // ① candidates may be an async decode still in flight — resolve it synchronously so space always
+        // commits the CURRENT best candidate, never a stale one (identical to the pending result by construction).
+        ensureDecodeApplied()
         val pick = candidates.firstOrNull()
-        if (pick != null) commitCandidate(pick)
-        else { host.commitText(committedPrefix.toString() + rawComposingText()); clearComposingState() }
+        when {
+            // ⑥ the top candidate can be an INJECTED glyph, not a pinyin word (theoretical edge: a 9-key locked
+            // reading with zero dictionary candidates, or an engine hot-swap window — injectAssociations then
+            // returns the glyphs as the whole list, so candidates[0] is a glyph). Commit it directly with the
+            // same one-line guard onPickCandidate uses, so the pinyin learning path never records a glyph "word".
+            pick != null && pick in directCommitCands -> {
+                val text = committedPrefix.toString() + pick.word
+                expirePreeditChoiceUndo()
+                host.commitText(text)
+                applyDeferredLearning()
+                clearComposingState(); lastWord = null
+            }
+            pick != null -> commitCandidate(pick)
+            else -> { host.commitText(committedPrefix.toString() + rawComposingText()); clearComposingState() }
+        }
     }
 
     private fun handleEnter() {
@@ -765,6 +799,10 @@ class KeyboardController(
     }
 
     private fun clearComposingState() {
+        // ① drop any in-flight async decode for the buffer being torn down, so a late result can never
+        // repopulate stale candidates (belt for the callers with no trailing refreshCandidates, e.g. the
+        // backspace-swipe clear; the refresh-following callers additionally overwrite it).
+        decodeLane?.markSatisfiedSynchronously()
         composing.setLength(0)
         candidates = emptyList()
         lockedReadings.clear()
@@ -796,115 +834,207 @@ class KeyboardController(
         if (removed) lastWord = deferredLearnEvents.lastOrNull()?.word ?: baseLastWord
     }
 
+    /**
+     * ① Recompute the candidate strip. The heavy work — the decode plus the cross-process text-before-cursor
+     * read — is factored into a PURE [computeDecode] over an immutable [DecodeRequest] snapshot, so it can run
+     * either synchronously (no lane) or off the key-handling thread on [decodeLane] (latest-wins). Both paths
+     * call the SAME function over the SAME snapshot, so the candidate list is identical — only WHEN it lands
+     * differs. The snapshot is captured here on the caller (main) thread from cheap in-memory state; the async
+     * apply re-renders when its result arrives (the preedit tab already updated instantly from state).
+     */
     private fun refreshCandidates() {
-        val base = baseCandidates()
-        // U23/U25/C5 reset; recomputed below so a stale association/calc/prediction cand never lingers.
-        directCommitCands = emptySet()
-        predictionCands = emptySet()
-        calcCand = null; calcExpr = ""; calcResult = ""
-        candidates = when {
-            // Chinese IME behavior note.
-            // (uncapped) instead of the word grid. The single chars carry the syllable's coverage so picking
-            // Chinese IME behavior note.
-            drillSyllable >= 0 && composing.isNotEmpty() && mode() == Mode.PINYIN ->
-                syllableHomophoneCandidates(drillSyllable)
-            // While composing pinyin: inject associated emoji/symbols (haode→👌) just after the top word.
-            composing.isNotEmpty() && mode() == Mode.PINYIN -> injectAssociations(base)
-            // Empty buffer with NO word being assembled: the inline calculator (if the text before the cursor
-            // is an expression) else learned next-word predictions (C5/D2). S1(c): suppress while a confirmed
-            // prefix is still building (the strip shows it in the preedit tab; these would bypass + lose it).
-            composing.isEmpty() && committedPrefix.isEmpty() -> emptyBufferCandidates()
-            else -> base
+        val req = buildDecodeRequest()
+        val lane = decodeLane
+        if (lane == null) {
+            applyDecodeResult(computeDecode(req)) // synchronous: unchanged from the original behaviour
+        } else {
+            lane.submit(
+                compute = { computeDecode(req) },
+                apply = { result -> applyDecodeResult(result); render() },
+            )
         }
     }
 
     /**
-     * C5/D2: empty-buffer candidates — the calculator takes priority (an arithmetic expression before the
-      * Chinese IME behavior note.
-     * learned next-word predictions for [lastWord]. Predictions cover 0 input units (committed directly).
+     * ① Force any in-flight async decode to be resolved NOW, so a synchronous reader of [candidates]
+     * (e.g. [handleSpace] committing the top candidate) never sees a stale list. Computes the current
+     * snapshot inline and applies it; since that is the identical function the pending worker is running,
+     * the result matches, and [DecodeLane.markSatisfiedSynchronously] drops the redundant async re-fire.
+     * No-op in the synchronous configuration (candidates are already current). */
+    private fun ensureDecodeApplied() {
+        val lane = decodeLane ?: return
+        if (!lane.pending) return
+        applyDecodeResult(computeDecode(buildDecodeRequest()))
+        lane.markSatisfiedSynchronously()
+    }
+
+    /**
+     * ① Immutable snapshot of everything [computeDecode] needs, captured on the main thread from cheap
+     * in-memory state (the pure letters↔digits derivations — [fullLetters]/[readingLetterToDigit] — are
+     * microsecond reads). The worker then does only the engine decode and the text-before-cursor read.
      */
-    private fun emptyBufferCandidates(): List<Cand> {
-        val calc = calcCandidates()
-        if (calc.isNotEmpty()) return calc
-        if (!associationsEnabled || learningBlocked) return emptyList()
-        val preds = engine.predict(lastWord).map { Cand(it, 0) }
-        predictionCands = preds.toSet()
-        return preds
-    }
+    private class DecodeRequest(
+        val engine: CandidateEngine,
+        val host: ImeHost,
+        val composingEmpty: Boolean,
+        val committedPrefixEmpty: Boolean,
+        val mode: Mode,
+        val layoutId: LayoutId,
+        val drillSyllable: Int,
+        val raw: String,
+        val rawComposing: String,
+        val composingLen: Int,
+        val lockedNonEmpty: Boolean,
+        val full: String,
+        val readingCuts: Set<Int>,
+        val bounds: Map<Int, Int>,
+        val isNine: Boolean,
+        val forcedCuts: Set<Int>,
+        val associationsEnabled: Boolean,
+        val learningBlocked: Boolean,
+        val lastWord: String?,
+    )
 
-    /** U23: splice the pinyin-associated emoji/symbols in after the best candidate, capped, no displacement. */
-    private fun injectAssociations(base: List<Cand>): List<Cand> {
-        val glyphs = InputAssociations.lookup(rawComposingText())
-        if (glyphs.isEmpty()) return base
-        val extra = glyphs.map { Cand(it, composing.length) }
-        directCommitCands = extra.toSet()
-        return when {
-            base.isEmpty() -> extra
-            else -> listOf(base.first()) + extra + base.drop(1)
+    /** ① The six candidate-strip fields [computeDecode] produces; [applyDecodeResult] installs them atomically. */
+    private class DecodeResult(
+        val candidates: List<Cand>,
+        val directCommitCands: Set<Cand>,
+        val predictionCands: Set<Cand>,
+        val calcCand: Cand?,
+        val calcExpr: String,
+        val calcResult: String,
+    )
+
+    private fun buildDecodeRequest(): DecodeRequest {
+        val locked = mode() == Mode.PINYIN && composing.isNotEmpty() && lockedReadings.isNotEmpty()
+        val full = if (locked) fullLetters() else ""
+        val readingCuts = if (locked) {
+            // Chinese IME behavior note: carry the locked-syllable + forced cuts so no decoded word spans a
+            // boundary the user fixed. T9 maps each letter to one digit, so a forcedCut's digit index IS its
+            // letter offset in fullLetters — interior active cuts pass through untranslated.
+            val lockCuts = ArrayList<Int>(lockedReadings.size); var acc = 0
+            for (r in lockedReadings) { acc += r.length; if (acc < full.length) lockCuts.add(acc) }
+            (forcedCuts.filter { it in (activeStart + 1) until composing.length } + lockCuts).toSet()
+        } else {
+            emptySet()
         }
+        return DecodeRequest(
+            engine = engine,
+            host = host,
+            composingEmpty = composing.isEmpty(),
+            committedPrefixEmpty = committedPrefix.isEmpty(),
+            mode = mode(),
+            layoutId = layoutId,
+            drillSyllable = drillSyllable,
+            raw = composing.toString(),
+            rawComposing = rawComposingText(),
+            composingLen = composing.length,
+            lockedNonEmpty = locked,
+            full = full,
+            readingCuts = readingCuts,
+            bounds = if (locked) readingLetterToDigit() else emptyMap(),
+            isNine = layoutId == LayoutId.NINE,
+            forcedCuts = forcedCuts.toSet(),
+            associationsEnabled = associationsEnabled,
+            learningBlocked = learningBlocked,
+            lastWord = lastWord,
+        )
     }
 
-    /** U25/I1: if the editor text before the cursor ends in an arithmetic expression, offer "=result" — a
-     *  pick APPENDS "=result" after the expression (1+1 → 1+1=2), it does not replace the expression. */
-    private fun calcCandidates(): List<Cand> {
-        val match = Calculator.detect(host.textBeforeCursor(CALC_SCAN_LEN)) ?: return emptyList()
-        // F3/I1: the candidate shows exactly what a pick appends — "=2" normally, or just "2" when the user
-        // already typed the trailing '=' on the numpad ("1+1=" → "1+1=2", never "1+1==2").
-        val cand = Cand(match.append, 0)
-        calcCand = cand; calcExpr = match.expr; calcResult = match.result
-        return listOf(cand)
+    /** ① Install the decode output onto the six candidate-strip fields (main thread; all six set together so a
+     *  reader — render / onPickCandidate — always sees one coherent decode). */
+    private fun applyDecodeResult(r: DecodeResult) {
+        candidates = r.candidates
+        directCommitCands = r.directCommitCands
+        predictionCands = r.predictionCands
+        calcCand = r.calcCand
+        calcExpr = r.calcExpr
+        calcResult = r.calcResult
     }
 
-    private fun baseCandidates(): List<Cand> {
-        if (composing.isEmpty()) return emptyList()
-        val raw = composing.toString()
-        // ③ context-aware decoding: the committed text before the cursor conditions the first decoded
-        // Chinese IME behavior note.
-        val context = host.textBeforeCursor(CTX_SCAN_LEN)
-        return when (mode()) {
-            Mode.PINYIN -> if (lockedReadings.isNotEmpty()) {
-                // ★E / U1: syllable(s) locked via the left column. Use the RICH covered decode
-                // (best sentence + completions + per-prefix words) over the combined full pinyin
-                // — NOT the narrow best-sentence-only decode(), which collapsed the grid to a
-                // single candidate the moment a reading was locked. coveredLen comes back in
-                // LETTERS of fullLetters(); remap it to DIGITS of the live buffer so picking a
-                // prefix word still partial-commits correctly (★E), full coverage → whole buffer.
-                val bounds = readingLetterToDigit()
-                // Chinese IME behavior note.
-                // the locked-path decode honours them too. The unlocked path always passed forcedCuts to the
-                // decoder; this path dropped them, letting a decoded word span a boundary the user explicitly
-                // forced (the cut "disappeared" the moment a reading was locked). T9 maps each letter to
-                // exactly one digit, so |fullLetters| == |composing| and a forcedCut's digit index IS its
-                // letter offset in fullLetters — interior active cuts pass straight through, no translation.
-                val full = fullLetters()
-                val lockCuts = ArrayList<Int>(lockedReadings.size); var acc = 0
-                for (r in lockedReadings) { acc += r.length; if (acc < full.length) lockCuts.add(acc) }
-                val readingCuts = (forcedCuts.filter { it in (activeStart + 1) until composing.length } + lockCuts).toSet()
-                engine.candidatesForLockedReadingCovered(full, readingCuts, context)
-                    // F1 (debug.12, DATA LOSS): coveredLen is in LETTERS of fullLetters; remap it to DIGITS of
-                    // the live buffer. A coverage NOT on a syllable boundary (e.g. a 2-letter word while the
-                    // locked syllable is 3 letters) is absent from [bounds]; the old `?: composing.length`
-                    // fallback then mislabelled it as FULL coverage, so commitCandidate took the "whole word
-                    // done" branch — committing the partial word AND clearing the rest of the buffer, so the
-                    // still-typed tail silently vanished. Letters↔digits is 1:1, so fall back to the coverage
-                    // length itself (clamped): an off-boundary pick now partial-commits exactly what it covers.
-                    .map { Cand(it.word, bounds[it.coveredLen] ?: it.coveredLen.coerceAtMost(composing.length)) }
-            } else {
-                val isNine = layoutId == LayoutId.NINE
-                var c = engine.candidatesCovered(raw, isNine, forcedCuts, context)
-                // ★N: mid-syllable the full digit buffer may not segment yet — fall back to the
-                // longest decodable syllable prefix so the grid keeps the confirmed words
-                // Chinese IME behavior note.
-                if (c.isEmpty() && isNine) {
-                    val pfx = T9Pinyin.longestDecodablePrefix(raw)
-                    if (pfx.length in 1 until raw.length) c = engine.candidatesCovered(pfx, true, context = context)
+    /**
+     * ① PURE candidate computation over an immutable [DecodeRequest] — the same control flow as the former
+     * `refreshCandidates`/`baseCandidates`/`emptyBufferCandidates`/`injectAssociations`/`calcCandidates`, but
+     * reading only the snapshot (+ its captured engine/host), never live controller fields, so it is safe to
+     * run on the worker thread. Deterministic given (request, engine, text-before-cursor).
+     */
+    private fun computeDecode(req: DecodeRequest): DecodeResult = synchronized(decodeLock) {
+        var directCommit: Set<Cand> = emptySet()
+        var prediction: Set<Cand> = emptySet()
+        var calcC: Cand? = null; var calcE = ""; var calcR = ""
+        val base = computeBase(req)
+        val out = when {
+            // 26-key drill: the drilled syllable's complete single-char homophone set (uncapped) — the single
+            // chars carry the syllable's coverage so picking one partial-commits it (★U1/UI-2).
+            req.drillSyllable >= 0 && !req.composingEmpty && req.mode == Mode.PINYIN -> computeDrill(req)
+            // While composing pinyin: inject associated emoji/symbols (haode→👌) just after the top word.
+            !req.composingEmpty && req.mode == Mode.PINYIN -> {
+                val glyphs = InputAssociations.lookup(req.rawComposing)
+                if (glyphs.isEmpty()) {
+                    base
+                } else {
+                    val extra = glyphs.map { Cand(it, req.composingLen) }
+                    directCommit = extra.toSet()
+                    if (base.isEmpty()) extra else listOf(base.first()) + extra + base.drop(1)
                 }
-                if (layoutId == LayoutId.ALPHA && c.none { it.word == raw }) c + Cand(raw, raw.length) else c
             }
-            // ★S: DIRECT mode has no composing buffer; the empty-buffer candidates (calculator + next-word
-            // prediction) are produced by [emptyBufferCandidates] in refreshCandidates, not here.
-            Mode.DIRECT -> emptyList()
+            // Empty buffer, no assembled prefix: the inline calculator (an expression before the cursor) else
+            // learned next-word predictions (C5/D2). Suppressed while a confirmed prefix builds (else -> base=∅).
+            req.composingEmpty && req.committedPrefixEmpty -> {
+                val match = Calculator.detect(req.host.textBeforeCursor(CALC_SCAN_LEN))
+                when {
+                    match != null -> {
+                        // F3/I1: the candidate shows exactly what a pick appends — "=2", or bare "2" when the
+                        // user already typed the trailing '=' on the numpad ("1+1=" → "1+1=2", never "1+1==2").
+                        val cand = Cand(match.append, 0)
+                        calcC = cand; calcE = match.expr; calcR = match.result
+                        listOf(cand)
+                    }
+                    !req.associationsEnabled || req.learningBlocked -> emptyList()
+                    else -> {
+                        val preds = req.engine.predict(req.lastWord).map { Cand(it, 0) }
+                        prediction = preds.toSet()
+                        preds
+                    }
+                }
+            }
+            else -> base
         }
+        DecodeResult(out, directCommit, prediction, calcC, calcE, calcR)
+    }
+
+    /** ① The decode itself (former [baseCandidates]); empty for an empty buffer or a DIRECT-mode field. */
+    private fun computeBase(req: DecodeRequest): List<Cand> {
+        if (req.composingEmpty || req.mode != Mode.PINYIN) return emptyList()
+        // ③ context-aware decoding: the committed text before the cursor conditions the first decoded
+        // character (moved off the key-handling thread here — this is the per-keystroke cross-process read).
+        val context = req.host.textBeforeCursor(CTX_SCAN_LEN)
+        return if (req.lockedNonEmpty) {
+            // ★E/U1: syllable(s) locked via the left column — the RICH covered decode over the combined full
+            // pinyin (best sentence + completions + per-prefix words). coveredLen comes back in LETTERS of
+            // fullLetters; remap to DIGITS of the live buffer via [DecodeRequest.bounds]. An off-boundary
+            // coverage (absent from bounds) falls back to the coverage length itself (letters↔digits is 1:1),
+            // so it partial-commits exactly what it covers instead of being mislabelled as a full commit (F1).
+            req.engine.candidatesForLockedReadingCovered(req.full, req.readingCuts, context)
+                .map { Cand(it.word, req.bounds[it.coveredLen] ?: it.coveredLen.coerceAtMost(req.composingLen)) }
+        } else {
+            var c = req.engine.candidatesCovered(req.raw, req.isNine, req.forcedCuts, context)
+            // ★N: mid-syllable the full digit buffer may not segment yet — fall back to the longest decodable
+            // syllable prefix so the grid keeps the confirmed words instead of going blank.
+            if (c.isEmpty() && req.isNine) {
+                val pfx = T9Pinyin.longestDecodablePrefix(req.raw)
+                if (pfx.length in 1 until req.raw.length) c = req.engine.candidatesCovered(pfx, true, context = context)
+            }
+            if (req.layoutId == LayoutId.ALPHA && c.none { it.word == req.raw }) c + Cand(req.raw, req.raw.length) else c
+        }
+    }
+
+    /** ① The 26-key drilled syllable's uncapped single-char homophone set (former [syllableHomophoneCandidates]). */
+    private fun computeDrill(req: DecodeRequest): List<Cand> {
+        val syls = req.engine.syllablesForReading(req.raw)
+        if (req.drillSyllable !in syls.indices) return emptyList()
+        val coveredLen = syls[req.drillSyllable].end.coerceIn(1, req.composingLen)
+        return req.engine.homophonesForReadingAt(req.raw, req.drillSyllable).map { Cand(it, coveredLen) }
     }
 
     /**
@@ -964,18 +1094,6 @@ class KeyboardController(
         lastWord = snap.lastWord
         candidates = emptyList()
         return true
-    }
-
-    /**
-     * Complete single-character homophone set for the drilled syllable, tagged with that syllable's coverage.
-     * The controller does not re-cap [CandidateEngine.homophonesForReadingAt], so large homophone sets still
-     * reach the grid in full.
-     */
-    private fun syllableHomophoneCandidates(index: Int): List<Cand> {
-        val syls = currentSyllables()
-        if (index !in syls.indices) return emptyList()
-        val coveredLen = syls[index].end.coerceIn(1, composing.length)
-        return engine.homophonesForReadingAt(composing.toString(), index).map { Cand(it, coveredLen) }
     }
 
     /**
@@ -1110,6 +1228,22 @@ class KeyboardController(
 
     /** Current candidate words (test seam — locks ★S: no ghost suggestion lingers on an empty buffer). */
     internal fun candidateWords(): List<String> = candidates.map { it.word }
+
+    /**
+     * ① Full decode-state fingerprint (candidates + coverage + the direct-commit / prediction / calc tags) —
+     * the async-equivalence hard gate compares this string between the synchronous and the lane-driven
+     * controller so "同一输入序列 → 逐项等价候选" is asserted item-by-item over ALL six decode outputs, not
+     * just the visible words.
+     */
+    internal fun decodeStateForTest(): String = buildString {
+        append("C:")
+        for (c in candidates) append(c.word).append('/').append(c.coveredLen).append(',')
+        append("|D:")
+        for (c in directCommitCands) append(c.word).append(',')
+        append("|P:")
+        for (c in predictionCands) append(c.word).append(',')
+        append("|calc:").append(calcCand?.word ?: "").append('/').append(calcExpr).append('/').append(calcResult)
+    }
 
     /** S1(c) test seam: the confirmed-but-not-yet-committed word prefix assembled from partial picks. */
     internal fun composingPrefix(): String = committedPrefix.toString()

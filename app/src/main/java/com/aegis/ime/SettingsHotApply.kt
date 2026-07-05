@@ -45,6 +45,9 @@ internal class SettingsHotApply(
     private val onAssociations: (Boolean) -> Unit,
     private val onFuzzyRules: (Set<String>) -> Unit,
     private val onEngineAssetsChanged: () -> Unit,
+    // ⑤ touch-feedback toggles (0048): key vibration + the magnified press preview, applied live.
+    private val onKeyHaptics: (Boolean) -> Unit = {},
+    private val onKeyPreview: (Boolean) -> Unit = {},
 ) : SharedPreferences.OnSharedPreferenceChangeListener {
 
     override fun onSharedPreferenceChanged(prefs: SharedPreferences, key: String?) {
@@ -53,6 +56,8 @@ internal class SettingsHotApply(
             key == CN_LAYOUT_PREF -> onCnLayout(cnLayout(prefs))
             key == com.aegis.ime.ui.PREF_ASSOCIATIONS_ON -> onAssociations(associationsOn(prefs))
             key == FUZZY_MASTER_PREF || key in FUZZY_RULE_PREF_KEYS -> onFuzzyRules(fuzzyRules(prefs))
+            key == com.aegis.ime.ui.PREF_KEY_HAPTICS -> onKeyHaptics(keyHaptics(prefs))
+            key == com.aegis.ime.ui.PREF_KEY_PREVIEW -> onKeyPreview(keyPreview(prefs))
             key in ENGINE_ASSET_PREF_KEYS -> onEngineAssetsChanged()
         }
     }
@@ -100,6 +105,14 @@ internal class SettingsHotApply(
         /** The prediction toggle as the prefs resolve it (single-sourced default). */
         fun associationsOn(prefs: SharedPreferences): Boolean =
             prefs.getBoolean(com.aegis.ime.ui.PREF_ASSOCIATIONS_ON, com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON)
+
+        /** ⑤ The key-vibration toggle as the prefs resolve it (single-sourced default in KeyFeedbackCards). */
+        fun keyHaptics(prefs: SharedPreferences): Boolean =
+            prefs.getBoolean(com.aegis.ime.ui.PREF_KEY_HAPTICS, com.aegis.ime.ui.KEY_HAPTICS_DEFAULT)
+
+        /** ⑤ The key-press-preview toggle as the prefs resolve it (single-sourced default in KeyFeedbackCards). */
+        fun keyPreview(prefs: SharedPreferences): Boolean =
+            prefs.getBoolean(com.aegis.ime.ui.PREF_KEY_PREVIEW, com.aegis.ime.ui.KEY_PREVIEW_DEFAULT)
 
         /** The active fuzzy rule-key set as the prefs resolve it (master + per-rule; pure [Fuzzy.activeRules]). */
         fun fuzzyRules(prefs: SharedPreferences): Set<String> =

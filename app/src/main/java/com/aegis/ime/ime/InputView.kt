@@ -204,6 +204,10 @@ class InputView(context: Context) : LinearLayout(context) {
         keyboardView.setLayout(layout, shifted, locked, lang)
     }
 
+    /** ⑤ touch-feedback toggles (hot-applied from prefs by the IME service): key-press vibration + the magnified preview. */
+    fun setKeyHaptics(on: Boolean) { keyboardView.hapticEnabled = on }
+    fun setKeyPreview(on: Boolean) { keyboardView.previewEnabled = on }
+
     /** Chinese IME behavior note. */
     fun showCopyBar(text: String) {
         copyBarView.show(text)

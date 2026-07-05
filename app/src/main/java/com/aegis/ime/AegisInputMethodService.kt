@@ -37,6 +37,7 @@ import com.aegis.ime.ime.CustomSymbolPanel
 import com.aegis.ime.ime.EditAction
 import com.aegis.ime.ime.EditPanelView
 import com.aegis.ime.ime.EmojiView
+import com.aegis.ime.ime.DecodeLane
 import com.aegis.ime.ime.ImeHost
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
@@ -63,6 +64,21 @@ import java.io.File
 class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private lateinit var controller: KeyboardController
+    private val mainHandler = Handler(Looper.getMainLooper())
+    // ① Off-UI-thread candidate decoding. A SINGLE-thread serial worker runs each decode (input order
+    // preserved, coalesced) and posts the result back to the main thread through [decodeLane]; the
+    // key-handling thread only snapshots cheap state and echoes the preedit instantly ("跟手").
+    private val decodeWorker: java.util.concurrent.ExecutorService =
+        java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread(r, "aegis-decode").apply { isDaemon = true }
+        }
+    private val decodeLane = DecodeLane(
+        worker = decodeWorker,
+        main = java.util.concurrent.Executor { r -> mainHandler.post(r) },
+    )
+    // ① Main-thread-maintained snapshot of the inline-edit buffer, so the decode worker's
+    // [textBeforeCursor] never reads the live StringBuilder off-thread. Null ⇔ not inline-editing.
+    @Volatile private var panelTextSnapshot: String? = null
     private val userModel = UserModel()
     private val userDbFile by lazy { File(filesDir, "userdb.txt") }
     @Volatile private var userDbMtime = 0L
@@ -169,6 +185,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         onEngineAssetsChanged = {
             Handler(Looper.getMainLooper()).post { maybeReloadEngine() }
         },
+        // ⑤ touch-feedback toggles (0048): push the flip straight into the live KeyboardView (applies immediately).
+        onKeyHaptics = { on -> mainHandler.post { inputView?.setKeyHaptics(on) } },
+        onKeyPreview = { on -> mainHandler.post { inputView?.setKeyPreview(on) } },
     )
 
     // debug.47: live user-dictionary host for the settings page — same process, same UserModel instance the
@@ -188,7 +207,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         } // ③/debug.47: one listener for every hot-applied setting
         // Start with an empty engine (ASCII typing works immediately); load the ~70 MB dictionaries
         // and the user model off the main thread and swap the real engine in when ready.
-        controller = KeyboardController(this, DictEngine(null, null, null))
+        controller = KeyboardController(this, DictEngine(null, null, null), decodeLane)
         controller.onShowEmoji = { showEmojiPanel() }
         controller.onShowClipboard = { showClipboardPanel() }
         controller.onShowEdit = { showEditPanel() }
@@ -200,6 +219,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.setCustomSymbols(customSymbolStore.list()) // A3: seed the punctuation column with saved marks
         controller.setCustomOperators(customOperatorStore.list()) // I2: seed the numpad operator column
         Thread {
+            // ⑦ Warm the InputAssociations table off the main thread (same background pattern as the dictionary
+            // load below) so the FIRST keystroke never pays its lazy one-time map build (~40ms on low-end ART,
+            // 2–5×). The object's map is constructed on first access, so a single throwaway lookup here triggers
+            // it now; the result is discarded. (Only the warm-up CALL is added — the table data is 0049's file.)
+            runCatching { com.aegis.ime.engine.InputAssociations.lookup("nihao") }
             runCatching { userModel.load(userDbFile); userDbMtime = userDbFile.lastModified() }
             userDbLoaded = true // M-2: gate onStartInput's reload until the initial load is done
             UserDictHot.host = liveUserDictHost // debug.47: settings edits now go into the LIVE model
@@ -372,10 +396,17 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onEditCancel = { cancelInlineInput() } // Chinese IME behavior note.
         }
         inputView = view
-        panelInput.onChange = { txt -> view.setEditText(txt) }               // debug.16: mirror buffer → edit bar
+        panelInput.onChange = { txt ->
+            panelTextSnapshot = txt // ① keep the off-thread decode's context read main-thread-safe
+            view.setEditText(txt)   // debug.16: mirror buffer → edit bar
+        }
         controller.attachView(view)
         imePalette = computePalette()
         view.applyPalette(imePalette) // F1: dynamic Monet colours (dark-aware) come alive here
+        // ⑤ seed the touch-feedback toggles from prefs so a freshly (re)created view has the right state.
+        val fbPrefs = getSharedPreferences("aegis", MODE_PRIVATE)
+        view.setKeyHaptics(SettingsHotApply.keyHaptics(fbPrefs))
+        view.setKeyPreview(SettingsHotApply.keyPreview(fbPrefs))
         return view
     }
 
@@ -408,6 +439,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         // Chinese IME behavior note.
         // cold start. The engine hot-reload path (#49) carries the same rules via buildEngine → currentFuzzyRules.
         controller.setFuzzyRules(currentFuzzyRules())
+        // ⑤ belt (mirrors the hot-apply suspenders): re-read the touch-feedback toggles on every focus.
+        inputView?.setKeyHaptics(SettingsHotApply.keyHaptics(prefs))
+        inputView?.setKeyPreview(SettingsHotApply.keyPreview(prefs))
         controller.reset()
         applyPaletteEverywhere() // F1: pick up a theme change that happened between input sessions
     }
@@ -756,6 +790,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun endInlineInput() {
         val reopenCat = inputCat // EDIT_PHRASE/ADD/RENAME: the category to land back on
         panelInput.end()
+        panelTextSnapshot = null // ① inline edit over → decode context reverts to the editor
         inputView?.showEditBar(false)
         inputPurpose = null; inputCat = ""; inputOld = ""; pendingPhraseAdds = emptyList(); pendingMoveFrom = ""; pendingMoveTexts = emptyList()
         showClipboardPanel() // Chinese IME behavior note.
@@ -767,6 +802,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun abortInlineInput() {
         if (!panelInput.active && inputPurpose == null) return
         panelInput.end()
+        panelTextSnapshot = null // ① inline edit torn down → decode context reverts to the editor
         inputView?.showEditBar(false)
         inputPurpose = null; inputCat = ""; inputOld = ""; pendingPhraseAdds = emptyList(); pendingMoveFrom = ""; pendingMoveTexts = emptyList()
     }
@@ -843,6 +879,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     // Chinese IME behavior note.
 
     override fun onDestroy() {
+        runCatching { decodeWorker.shutdownNow() } // ① stop the decode worker with the service
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
         // debug.47: withdraw the live user-dict host (only if it is still ours) so the settings page falls
         // back to the file path instead of writing through a dead service's model.
@@ -928,8 +965,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (hasSelection()) deleteSelection() else deleteCodePointBackward()
     }
 
-    override fun textBeforeCursor(n: Int): CharSequence =
-        panelInput.textBefore(n) ?: currentInputConnection?.getTextBeforeCursor(n, 0) ?: ""
+    override fun textBeforeCursor(n: Int): CharSequence {
+        // ① Reachable on the decode worker thread (context read) as well as the main thread (calc re-validate
+        // on pick). The inline-edit buffer is read from the main-thread-maintained @Volatile snapshot — never
+        // the live StringBuilder off-thread. The editor read is a blocking IPC that is safe off the main thread;
+        // it is wrapped so a transient null/failure during teardown just yields empty context (benign — ranking).
+        panelTextSnapshot?.let { s -> return s.substring(maxOf(0, s.length - n)) }
+        return runCatching { currentInputConnection?.getTextBeforeCursor(n, 0) }.getOrNull() ?: ""
+    }
 
     override fun replaceBeforeCursor(length: Int, text: CharSequence) {
         if (panelInput.replaceBefore(length, text)) return

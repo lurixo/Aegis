@@ -84,6 +84,11 @@
     <string name="association_title">Next-word suggestions</string>
     <string name="association_description">Show next-word predictions in the candidate bar while typing. Off by default; you can enable it.</string>
 
+    <string name="key_vibration_title">Key vibration</string>
+    <string name="key_vibration_description">Vibrate briefly on each key press. Off by default; respects the system haptic setting.</string>
+    <string name="key_preview_title">Key press preview</string>
+    <string name="key_preview_description">Show an enlarged bubble of the key you press. On by default.</string>
+
     <string name="layout_card_title">Full Pinyin keyboard</string>
     <string name="layout_card_description">Default keyboard for Chinese input (English always uses 26 keys).</string>
     <string name="layout_nine">Full Pinyin T9</string>

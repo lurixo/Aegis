@@ -22,6 +22,7 @@ import android.graphics.RectF
 import android.os.Handler
 import android.os.Looper
 import android.util.TypedValue
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -91,6 +92,11 @@ class KeyboardView(context: Context) : View(context) {
     private var downPlaced: Placed? = null
     private var downX = 0f
     private var downY = 0f
+    // ② Multi-touch: the pointer id that currently owns the key gesture (press / swipe / repeat / retarget).
+    // A single active pointer keeps every rich gesture intact; a SECOND finger landing before the first lifts
+    // rolls the current key through (commits it, type-through) and hands the gesture to the new finger — so
+    // fast rolling never drops a key or misattributes it (the old code ignored POINTER_DOWN/UP entirely).
+    private var activePointerId = MotionEvent.INVALID_POINTER_ID
     private var repeating = false
     private var swiped = false
     private var vSwipeDir = 0 // B2 26-key letter flick: -1 = up (symbol), +1 = down (letter), 0 = none
@@ -104,11 +110,12 @@ class KeyboardView(context: Context) : View(context) {
         }
     }
 
-    // debug.18 ④: long-press auto-repeat for ANY output-producing key — every COMMIT key (letters EN/CN,
-    // Chinese IME behavior note.
-    // Chinese IME behavior note.
-    private fun isRepeatable(key: Key) = key.action == KeyAction.COMMIT ||
-        key.action == KeyAction.BACKSPACE || key.action == KeyAction.SPACE || key.action == KeyAction.ENTER
+    // ③ mis-touch tightening: auto-repeat is restricted to BACKSPACE only — the one hold-to-repeat every IME
+    // (Gboard / Sogou / iOS) provides. Letters, digits and symbols (COMMIT) no longer repeat: a slightly-long
+    // press used to flood "aaaa" / "2222", a common mis-fire that no mainstream soft keyboard produces. SPACE
+    // and ENTER are likewise not repeated (holding them to spam spaces / newlines is never intended, and hold
+    // gestures there read as deliberate, not as a repeat request). This reverses the debug.18 ④ over-broad rule.
+    private fun isRepeatable(key: Key) = key.action == KeyAction.BACKSPACE
 
     /** A 26-key letter key (single a–z label, COMMIT) — the target of the B2 swipe / long-press gestures. */
     private fun isAlphaLetter(key: Key) =
@@ -117,6 +124,12 @@ class KeyboardView(context: Context) : View(context) {
 
     private val density = resources.displayMetrics.density
     private val rowHeight = 52f * density
+    // ③ mis-touch tightening. snapCap: farthest a tap may sit from a key and still snap to it — half a key height,
+    // enough to bridge the 6dp/12dp inter-key gaps but not a full key away into the gutter / nav-bar region.
+    private val snapCap = rowHeight * 0.5f
+    // retargetHysteresis: how far PAST the pressed key's edge the finger must move before a slide retargets to
+    // the neighbour, so a finger resting on the shared seam never flickers between the two keys.
+    private val retargetHysteresis = 4f * density
     // I3/numpad-align: the 4-row pages (9-key + numpad/number/symbol) get a small per-row bump so they share
     // ONE height and switching between them (e.g. 9-key ⇄ 123) never resizes the IME; the 5-row 26-key keeps
     // the base. debug.17 C (F3): trimmed 7→2dp/row so the 9-key (and its 4-row siblings) sit ~20dp lower overall
@@ -124,6 +137,17 @@ class KeyboardView(context: Context) : View(context) {
     private val shortPageRowExtra = 2f * density
     private val gap = 6f * density
     private val keyRadius = ImeShapes.keyRadiusDp * density // F2: rounded-rect keys (≤16dp, never pill)
+
+    // ⑤ touch-feedback toggles (pushed from prefs via InputView, hot-applied). Each defaults per the 0047 card constants;
+    // haptics defaults OFF (opt-in, respects the system haptic master), the enlarged press preview defaults ON
+    // (a standard soft-keyboard affordance). See KeyFeedbackCards.
+    var hapticEnabled = false
+    var previewEnabled = true
+    // ⑤ The magnified press-preview bubble: the currently-pressed previewable key + its on-screen rect, plus a
+    // Motion.PressFeedback (EXISTING Motion vocabulary — Motion.kt untouched) driving its scale/alpha appear.
+    private var previewKey: Key? = null
+    private val previewRect = RectF()
+    private val previewFeedback = Motion.PressFeedback(this)
 
     // F1: all colours come from the Monet palette (default = static light = the previous hand-tuned look).
     // AegisInputMethodService pushes the live, dark-aware palette via [applyPalette].
@@ -157,9 +181,16 @@ class KeyboardView(context: Context) : View(context) {
     // A3 scroll column: a tonal track + a slim scrollbar thumb when the list overflows.
     private val scrollTrackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.railBg }
     private val scrollbarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withAlpha(palette.icon, 0x55) }
-    private val scrollLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(17f) }
+    // ④ LEFT align (was CENTER): drawScrollColumn positions each mark by its real INK box so it is optically
+    // centred; with LEFT align the draw origin is computed directly from getTextBounds on both axes.
+    private val scrollLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.LEFT; textSize = sp(17f) }
+    private val inkBounds = android.graphics.Rect() // ④ reused ink-measurement rect for the scroll column
     // debug.17: STROKE paint for the self-drawn key glyphs (⌫ / ⇧ / ✎) — colour is set per draw (state-aware).
     private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2f * density; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+    // ⑤ press-preview bubble: an elevated key surface + outline + a magnified label.
+    private val previewFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySurface }
+    private val previewOutlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = density; color = palette.separator }
+    private val previewLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(30f) }
 
     /** F1: push a new (Monet, dark-aware) palette; re-colours every Paint and repaints. */
     fun applyPalette(p: ImePalette) {
@@ -178,6 +209,9 @@ class KeyboardView(context: Context) : View(context) {
         scrollTrackPaint.color = p.railBg
         scrollbarPaint.color = withAlpha(p.icon, 0x55)
         scrollLabelPaint.color = p.keyLabel
+        previewFillPaint.color = p.keySurface
+        previewOutlinePaint.color = p.separator
+        previewLabelPaint.color = p.keyLabel
         invalidate()
     }
 
@@ -321,7 +355,15 @@ class KeyboardView(context: Context) : View(context) {
             paint.textSize = baseTextSize
             val w = paint.measureText(label)
             if (w > avail && avail > 0f) paint.textSize = (baseTextSize * avail / w).coerceAtLeast(minTextSize)
-            canvas.drawText(label, scrollRegion.centerX(), (top + bottom) / 2f - (paint.descent() + paint.ascent()) / 2, paint)
+            // ④ INK centring on BOTH axes. getTextBounds gives the glyph's real ink box (relative to a LEFT-align
+            // origin at the baseline); place its centre on the cell centre. Font line-box centring (the old
+            // (descent+ascent)/2) pushed full-width CJK punctuation (，。？！ — ink sits in the lower-left of the
+            // em square) visibly down-left; ink centring makes every mark optically centred in its cell. Same
+            // code path draws the 9-key pinyin column AND the numpad operator column, so both are fixed at once.
+            paint.getTextBounds(label, 0, label.length, inkBounds)
+            val cellCx = scrollRegion.centerX()
+            val cellCy = (top + bottom) / 2f
+            canvas.drawText(label, cellCx - inkBounds.exactCenterX(), cellCy - inkBounds.exactCenterY(), paint)
             if (i < sc.items.size - 1 && bottom < scrollRegion.bottom) {
                 canvas.drawLine(scrollRegion.left + 6 * density, bottom, scrollRegion.right - 6 * density, bottom, sepLinePaint)
             }
@@ -353,6 +395,47 @@ class KeyboardView(context: Context) : View(context) {
 
         // A3 scrollable left column (pinyin combos / punctuation), drawn over its own region.
         drawScrollColumn(canvas)
+
+        // ⑤ magnified press preview, drawn last so it sits over the keys.
+        drawPreview(canvas)
+    }
+
+    /**
+     * ⑤ The enlarged press-preview bubble: an elevated key surface centred above the pressed key, holding a
+     * magnified copy of its label, scaling/fading in via the EXISTING Motion.PressFeedback level. Positioned
+     * ABOVE the key; for a top-row key whose bubble would clip past the view top it is clamped to sit flush
+     * with the top edge instead (self-drawn, so it stays inside the KeyboardView — no PopupWindow).
+     */
+    private fun drawPreview(canvas: Canvas) {
+        val key = previewKey ?: return
+        val level = previewFeedback.level
+        if (level <= 0f) return
+        val bw = previewRect.width() * 1.32f
+        val bh = previewRect.height() * 1.12f
+        val cx = previewRect.centerX().coerceIn(bw / 2f, width - bw / 2f)
+        var top = previewRect.top - bh - 4f * density
+        if (top < 0f) top = 0f // top row: clamp flush to the view top rather than clipping past it
+        tmpRect.set(cx - bw / 2f, top, cx + bw / 2f, top + bh)
+        val alpha = (255 * level).toInt().coerceIn(0, 255)
+        val scale = 0.86f + 0.14f * level
+        canvas.save()
+        canvas.scale(scale, scale, tmpRect.centerX(), tmpRect.bottom)
+        previewFillPaint.alpha = alpha
+        canvas.drawRoundRect(tmpRect, keyRadius, keyRadius, previewFillPaint)
+        previewOutlinePaint.alpha = alpha
+        canvas.drawRoundRect(tmpRect, keyRadius, keyRadius, previewOutlinePaint)
+        previewFillPaint.alpha = 255 // restore the shared paint's opacity
+        previewOutlinePaint.alpha = 255
+        val label = displayLabel(key)
+        previewLabelPaint.alpha = alpha
+        canvas.drawText(
+            label,
+            tmpRect.centerX(),
+            tmpRect.centerY() - (previewLabelPaint.descent() + previewLabelPaint.ascent()) / 2f,
+            previewLabelPaint,
+        )
+        previewLabelPaint.alpha = 255
+        canvas.restore()
     }
 
     /** F2: a flat MD3 tonal key — accent = solid primary fill; normal = tonal fill + thin outline. */
@@ -434,10 +517,21 @@ class KeyboardView(context: Context) : View(context) {
     /** I4 test seam: the shift key's current visual state (OFF / ONCE / LOCK). */
     internal fun shiftRenderState(): String = if (shiftLocked) "LOCK" else if (shifted) "ONCE" else "OFF"
 
+    /** ⑤ test seams: the magnified preview's current label (null when hidden) and whether it is armed. */
+    internal fun previewLabelForTest(): String? = previewKey?.let { displayLabel(it) }
+    internal fun previewActiveForTest(): Boolean = previewKey != null
+
     /** Test seam: the on-screen centre of the first key with [action] (for robust tap targeting). */
     internal fun centerOfActionForTest(action: KeyAction): Pair<Float, Float>? {
         if (placed.isEmpty()) relayout()
         val p = placed.firstOrNull { it.key.action == action } ?: return null
+        return p.rect.centerX() to p.rect.centerY()
+    }
+
+    /** ② Test seam: the on-screen centre of the first key whose label == [label] (multi-touch targeting). */
+    internal fun centerOfLabelForTest(label: String): Pair<Float, Float>? {
+        if (placed.isEmpty()) relayout()
+        val p = placed.firstOrNull { it.key.label == label } ?: return null
         return p.rect.centerX() to p.rect.centerY()
     }
 
@@ -449,88 +543,183 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        // A3: a gesture that starts in the left scroll column is handled as scroll/pick, fully isolated
-        // from key presses (so it never triggers the keyboard's tap / backspace-swipe paths). A fresh DOWN
-        // outside the region clears any stuck latch (defensive: a lost UP/CANCEL must not swallow the tap).
+        // A3: a gesture that starts in the left scroll column is a single-touch scroll/pick, fully isolated
+        // from key presses (it never triggers the keyboard's tap / backspace-swipe paths and owns the whole
+        // event stream until its UP/CANCEL). A fresh DOWN outside the region clears any stuck latch (defensive:
+        // a lost UP/CANCEL must not swallow the tap). A held-scroll-finger + a simultaneous key-tap is a known
+        // pre-existing limitation of that single-touch model — properly supporting it would need a second
+        // tracked pointer in the scroll path, out of scope here; the multi-touch key ROLLING the ② work targets
+        // happens on the key grid (inScrollDown false), handled by the per-pointer branches below.
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
             inScrollDown = scrollColumn != null && scrollRegion.contains(event.x, event.y)
         }
         if (inScrollDown) return handleScrollTouch(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                downPlaced = placedAt(event.x, event.y)
-                downKey = downPlaced?.key
-                setPressedKey(downKey)
-                downX = event.x; downY = event.y
-                repeating = false; swiped = false; vSwipeDir = 0
-                downKey?.let { if (isRepeatable(it)) repeatHandler.postDelayed(repeatRunnable, REPEAT_DELAY_MS) }
+                activePointerId = event.getPointerId(0)
+                beginPrimary(event.x, event.y)
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                // ② A second finger landed before the first lifted (rolling). Commit the CURRENT active key
+                // (type-through) at the active pointer's last position, then hand the gesture to the new finger
+                // so its key is tracked from its own down point — neither key is dropped. Only finish when there
+                // IS an active gesture: if activePointerId is INVALID (the active finger already lifted while
+                // another finger still rests), downKey/downX/downY are STALE and finishing would spuriously
+                // re-emit the previous key — so we skip straight to beginning the new finger.
+                val newIdx = event.actionIndex
+                if (activePointerId != MotionEvent.INVALID_POINTER_ID) {
+                    val ai = event.findPointerIndex(activePointerId)
+                    if (ai >= 0) finishPrimary(event.getX(ai), event.getY(ai), event.eventTime)
+                    else finishPrimary(downX, downY, event.eventTime)
+                }
+                activePointerId = event.getPointerId(newIdx)
+                beginPrimary(event.getX(newIdx), event.getY(newIdx))
             }
             MotionEvent.ACTION_MOVE -> {
-                val dk = downKey
-                when {
-                    dk != null && dk.action == KeyAction.BACKSPACE -> {
-                        // Vertical drag on backspace = a swipe gesture, not a key press.
-                        val dy = event.y - downY
-                        if (!swiped && abs(dy) > swipeThreshold && abs(dy) > abs(event.x - downX)) {
-                            swiped = true
-                            repeatHandler.removeCallbacks(repeatRunnable)
-                        }
-                    }
-                    dk != null && lang == Lang.EN && isAlphaLetter(dk) -> {
-                        // Chinese IME behavior note.
-                        // letter (down); a horizontal slide still retargets to the neighbour (★V slide-to-correct).
-                        // Gated to EN so it never flushes a half-typed CN pinyin buffer.
-                        val dy = event.y - downY
-                        if (!swiped && abs(dy) > swipeThreshold && abs(dy) > abs(event.x - downX)) {
-                            swiped = true
-                            vSwipeDir = if (dy < 0) -1 else 1
-                            repeatHandler.removeCallbacks(repeatRunnable)
-                        } else if (!swiped) {
-                            val k = currentTarget(event.x, event.y)
-                            if (k !== pressed) {
-                                setPressedKey(k)
-                                if (k !== downKey) repeatHandler.removeCallbacks(repeatRunnable)
-                            }
-                        }
-                    }
-                    else -> {
-                        val k = currentTarget(event.x, event.y)
-                        if (k !== pressed) {
-                            setPressedKey(k)
-                            if (k !== downKey) repeatHandler.removeCallbacks(repeatRunnable)
-                        }
-                    }
+                // Only the active pointer drives the gesture; other fingers (already rolled through) are inert.
+                val ai = event.findPointerIndex(activePointerId)
+                if (ai >= 0) handlePrimaryMove(event.getX(ai), event.getY(ai))
+            }
+            MotionEvent.ACTION_POINTER_UP -> {
+                // If the ACTIVE finger lifted, commit its key. A non-active finger (already rolled through when
+                // the active one landed) is inert — ignoring its lift is what prevents a double/misattributed emit.
+                if (event.getPointerId(event.actionIndex) == activePointerId) {
+                    val ai = event.actionIndex
+                    finishPrimary(event.getX(ai), event.getY(ai), event.eventTime)
+                    activePointerId = MotionEvent.INVALID_POINTER_ID
                 }
             }
             MotionEvent.ACTION_UP -> {
-                repeatHandler.removeCallbacks(repeatRunnable)
-                val dk = downKey
-                releasePressedKey()
-                when {
-                    // !repeating: a long-press that already auto-fired must not ALSO emit a swipe/tap on lift.
-                    dk != null && dk.action == KeyAction.BACKSPACE && swiped && !repeating ->
-                        onBackspaceSwipe(event.y - downY < 0)
-                    dk != null && lang == Lang.EN && isAlphaLetter(dk) && swiped && !repeating -> {
-                        // B2: up-flick commits the super-script symbol straight to the editor (direct);
-                        // down-flick commits the letter itself.
-                        performClick()
-                        if (vSwipeDir < 0 && dk.sub != null) onKey(Key(dk.sub, output = dk.sub, direct = true))
-                        else onKey(dk)
-                    }
-                    !repeating ->
-                        currentTarget(event.x, event.y)?.let { performClick(); emitKey(it, event.eventTime) }
+                if (activePointerId != MotionEvent.INVALID_POINTER_ID) {
+                    val ai = event.findPointerIndex(activePointerId)
+                    if (ai >= 0) finishPrimary(event.getX(ai), event.getY(ai), event.eventTime)
+                    else finishPrimary(downX, downY, event.eventTime)
                 }
-                downKey = null
-                downPlaced = null
+                activePointerId = MotionEvent.INVALID_POINTER_ID
             }
             MotionEvent.ACTION_CANCEL -> {
-                repeatHandler.removeCallbacks(repeatRunnable)
-                releasePressedKey()
-                downKey = null
-                downPlaced = null
+                cancelPrimary()
+                activePointerId = MotionEvent.INVALID_POINTER_ID
             }
         }
         return true
+    }
+
+    /** ② Begin (or re-begin, on a roll) the key gesture for the active pointer that went down at [x],[y]. */
+    private fun beginPrimary(x: Float, y: Float) {
+        downPlaced = placedAt(x, y)
+        downKey = downPlaced?.key
+        setPressedKey(downKey)
+        downX = x; downY = y
+        repeating = false; swiped = false; vSwipeDir = 0
+        val dp = downPlaced
+        val dk = downKey
+        if (dk != null && dp != null) {
+            if (isRepeatable(dk)) repeatHandler.postDelayed(repeatRunnable, REPEAT_DELAY_MS)
+            // ⑤ tactile + visual press feedback, each gated by its own setting.
+            if (hapticEnabled) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            showPreview(dk, dp.rect)
+        } else {
+            hidePreview()
+        }
+    }
+
+    /** ⑤ Only content keys get an enlarged preview; every functional key (space / backspace / shift / enter /
+     *  symbols / lang-toggle / segment / 123 …) is a non-COMMIT action and is exempt, so the preview never
+     *  pops on a control key. */
+    private fun isPreviewable(key: Key) = key.action == KeyAction.COMMIT
+
+    /** ⑤ Arm the magnified preview for [key] over its [rect] (no-op when disabled or not a content key). */
+    private fun showPreview(key: Key, rect: RectF) {
+        if (!previewEnabled || !isPreviewable(key)) { hidePreview(); return }
+        previewKey = key
+        previewRect.set(rect)
+        previewFeedback.press() // EXISTING Motion vocabulary drives the scale/alpha appear
+        invalidate()
+    }
+
+    /** ⑤ Retract the preview (release / cancel / slide off the pressed key). Clears [previewKey] and resets the
+     *  feedback level SYNCHRONOUSLY: drawPreview early-returns on a null key, so an animated release() could
+     *  never render its fade anyway — reset() avoids ~PRESS_OUT of no-op repaint frames. */
+    private fun hidePreview() {
+        if (previewKey == null) return
+        previewKey = null
+        previewFeedback.reset()
+        invalidate()
+    }
+
+    /** ② Active-pointer move to [x],[y]: backspace/letter vertical-swipe detection or follow-finger retarget. */
+    private fun handlePrimaryMove(x: Float, y: Float) {
+        val dk = downKey
+        when {
+            dk != null && dk.action == KeyAction.BACKSPACE -> {
+                // Vertical drag on backspace = a swipe gesture, not a key press.
+                val dy = y - downY
+                if (!swiped && abs(dy) > swipeThreshold && abs(dy) > abs(x - downX)) {
+                    swiped = true
+                    repeatHandler.removeCallbacks(repeatRunnable)
+                }
+            }
+            dk != null && lang == Lang.EN && isAlphaLetter(dk) -> {
+                // A vertical flick on a 26-key letter commits its super-script symbol (up) or the letter
+                // (down); a horizontal slide still retargets to the neighbour (★V slide-to-correct).
+                // Gated to EN so it never flushes a half-typed CN pinyin buffer.
+                val dy = y - downY
+                if (!swiped && abs(dy) > swipeThreshold && abs(dy) > abs(x - downX)) {
+                    swiped = true
+                    vSwipeDir = if (dy < 0) -1 else 1
+                    repeatHandler.removeCallbacks(repeatRunnable)
+                    hidePreview() // ⑤ a flick is not a plain press → drop the preview
+                } else if (!swiped) {
+                    val k = currentTarget(x, y)
+                    if (k !== pressed) {
+                        setPressedKey(k)
+                        if (k !== downKey) { repeatHandler.removeCallbacks(repeatRunnable); hidePreview() }
+                    }
+                }
+            }
+            else -> {
+                val k = currentTarget(x, y)
+                if (k !== pressed) {
+                    setPressedKey(k)
+                    // ⑤ slid off the pressed key → the preview would now mislead (it shows the down key); hide it.
+                    if (k !== downKey) { repeatHandler.removeCallbacks(repeatRunnable); hidePreview() }
+                }
+            }
+        }
+    }
+
+    /** ② Commit the active pointer's gesture at its release point [x],[y] (tap / backspace-swipe / letter-flick). */
+    private fun finishPrimary(x: Float, y: Float, eventTime: Long) {
+        repeatHandler.removeCallbacks(repeatRunnable)
+        hidePreview() // ⑤ retract the press preview on release
+        val dk = downKey
+        releasePressedKey()
+        when {
+            // !repeating: a long-press that already auto-fired must not ALSO emit a swipe/tap on lift.
+            dk != null && dk.action == KeyAction.BACKSPACE && swiped && !repeating ->
+                onBackspaceSwipe(y - downY < 0)
+            dk != null && lang == Lang.EN && isAlphaLetter(dk) && swiped && !repeating -> {
+                // B2: up-flick commits the super-script symbol straight to the editor (direct);
+                // down-flick commits the letter itself.
+                performClick()
+                if (vSwipeDir < 0 && dk.sub != null) onKey(Key(dk.sub, output = dk.sub, direct = true))
+                else onKey(dk)
+            }
+            !repeating ->
+                currentTarget(x, y)?.let { performClick(); emitKey(it, eventTime) }
+        }
+        downKey = null
+        downPlaced = null
+    }
+
+    /** ② Abandon the active gesture without emitting (ACTION_CANCEL). */
+    private fun cancelPrimary() {
+        repeatHandler.removeCallbacks(repeatRunnable)
+        hidePreview() // ⑤ retract the press preview on cancel
+        releasePressedKey()
+        downKey = null
+        downPlaced = null
     }
 
     private fun setPressedKey(key: Key?) {
@@ -614,9 +803,14 @@ class KeyboardView(context: Context) : View(context) {
     internal fun flingVelocityForTest(): Float = fling.velocity()
 
     /**
-     * ★V follow-finger hit-test: exact containment first, else snap to the NEAREST key (by clamped
-     * edge distance, capped at ~one key height) so taps landing in the inter-key gaps are no longer
-     * dropped. Kills the 6dp row / 12dp 9-key dead bands behind "indeterminate aim / no response".
+     * ★V follow-finger hit-test: exact containment first, else snap to the NEAREST key (by clamped edge
+     * distance) so taps landing in the inter-key gaps are no longer dropped. Kills the 6dp row / 12dp 9-key
+     * dead bands behind "indeterminate aim / no response".
+     *
+     * ③ mis-touch tightening: the snap cap is HALF a key height (was a full key height, 52dp). The gaps it must bridge are
+     * 6dp (26-key) / 12dp (9-key), so ~26dp still bridges them with margin; but a tap that lands more than
+     * half a key away from every key — deep in the gutter, or below the bottom row toward the nav bar — is now
+     * DROPPED instead of being pulled onto the nearest edge key (the old full-key cap fired those mis-touches).
      */
     private fun placedAt(x: Float, y: Float): Placed? {
         var nearest: Placed? = null
@@ -636,22 +830,28 @@ class KeyboardView(context: Context) : View(context) {
             val d = dx * dx + dy * dy
             if (d < best) { best = d; nearest = p }
         }
-        val cap = rowHeight // don't snap taps that fall well outside the keyboard
+        val cap = snapCap // ③ half a key height (see field): tighter than the old full-key snap
         return if (best <= cap * cap) nearest else null
     }
 
     /**
      * ★V "commit the key the finger went DOWN on": a normal tap yields [downKey] even if the finger
-     * micro-rolls before lift (the old code committed whatever was under the finger at ACTION_UP, so a
-     * tiny slide off key A produced neighbor B). Only a deliberate slide past half the pressed key's
-     * width retargets to the key now under the finger (preserves slide-to-correct).
+     * micro-rolls before lift (the old code committed whatever was under the finger at ACTION_UP, so a tiny
+     * slide off key A produced neighbour B).
+     *
+     * ③ mis-touch tightening: retargeting is now BOUNDARY-based, not distance-based. The committed key stays [downKey]
+     * until the finger actually LEAVES that key's rectangle (by more than a small hysteresis margin) — then it
+     * retargets to the key now under the finger (preserves slide-to-correct). The old "half the key's width"
+     * radius let a slide that never left the pressed key still flip to a neighbour near the shared edge; a
+     * boundary test matches the physical intuition "you're on the key you're over" and adds a hysteresis band
+     * so a finger resting exactly on the seam does not flicker between the two keys.
      */
     private fun currentTarget(x: Float, y: Float): Key? {
         val dp = downPlaced ?: return placedAt(x, y)?.key
-        val t = 0.5f * dp.rect.width()
-        val dx = x - downX
-        val dy = y - downY
-        return if (dx * dx + dy * dy <= t * t) dp.key else placedAt(x, y)?.key ?: dp.key
+        val m = retargetHysteresis
+        val insideDownKey = x >= dp.rect.left - m && x <= dp.rect.right + m &&
+            y >= dp.rect.top - m && y <= dp.rect.bottom + m
+        return if (insideDownKey) dp.key else placedAt(x, y)?.key ?: dp.key
     }
 
     /**

@@ -18,6 +18,7 @@ package com.aegis.ime.ime
 import com.aegis.ime.decoder.Cand
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.Key
+import com.aegis.ime.layout.KeyAction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -124,6 +125,31 @@ class AssociationsAndCalcTest {
         assertEquals("℃ committed to the editor", "℃", h.text)
         assertFalse("a symbol must not be learned as a pinyin word", "℃" in h.learned)
         assertTrue("buffer cleared after the symbol commit", c.candidateWords().isEmpty())
+    }
+
+    /** An engine with ZERO dictionary candidates that still records learn() — the ⑥ edge where a glyph is first. */
+    private fun emptySpyEngine(learned: MutableList<String>) = object : CandidateEngine {
+        override fun candidates(composing: String, t9: Boolean): List<String> = emptyList()
+        override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> = emptyList()
+        override fun learn(prevWord: String?, word: String) { learned.add(word) }
+    }
+
+    @Test fun space_on_a_first_position_injected_glyph_commits_it_without_learning() {
+        // ⑥ edge (the spec's "9-key locked reading with zero dictionary candidates"): on the 9-key, lock the reading "jia" while the engine
+        // returns ZERO candidates for it. injectAssociations then makes the glyph "+" the WHOLE list, so
+        // candidates[0] is a directCommit glyph. Space must commit it directly (not via the pinyin learn path),
+        // so adaptation is never polluted. (On the 26-key the raw-letters fallback keeps a word first, so this
+        // edge only surfaces on the 9-key locked path.)
+        val h = EditorHost()
+        val c = KeyboardController(h, emptySpyEngine(h.learned))
+        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        "542".forEach { c.onKey(out(it.toString())) } // T9 digits for j-i-a
+        c.onKey(Key("jia", output = "jia", action = KeyAction.PICK_READING)) // lock the reading → rawComposing = "jia"
+        assertEquals("precondition: the glyph is the first (only) candidate", "+", c.candidateWords().firstOrNull())
+        c.onKey(Key("空格", output = " ", action = KeyAction.SPACE))
+        assertEquals("the glyph is committed to the editor", "+", h.text)
+        assertFalse("the injected glyph must NOT be learned as a pinyin word", "+" in h.learned)
+        assertTrue("buffer cleared after committing the glyph", c.candidateWords().isEmpty())
     }
 
     // ---------- U25 ----------

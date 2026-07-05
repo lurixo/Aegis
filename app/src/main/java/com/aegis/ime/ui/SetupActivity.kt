@@ -299,8 +299,9 @@ private fun InputSettingsPage(onBack: () -> Unit) {
         LayoutChoiceCard()
         FuzzySettingsCard()
         AssociationToggleCard()
-        // Hook point: the upcoming touch-feedback settings (key vibration / key-press preview toggles)
-        // belong to this group — add their card(s) here, below the association toggle.
+        // ⑤ touch-feedback toggles (0048): key-press vibration + the magnified press preview, hot-applied.
+        KeyVibrationToggleCard()
+        KeyPreviewToggleCard()
     }
 }
 

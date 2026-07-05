@@ -377,31 +377,36 @@ class KeyboardViewInteractionTest {
             measuredH(Layouts.forId(com.aegis.ime.layout.LayoutId.ALPHA, Lang.CN)) > nineH)
     }
 
-    // ---- ④ debug.18: long-press auto-repeat for ANY output key, not just English letters ----
+    // ---- ③ mis-touch tightening: auto-repeat restricted to BACKSPACE; letters/digits no longer flood on a long press ----
 
-    /** Hold [v]'s first COMMIT key for [holdMs] of looper time and return every emitted key. */
-    private fun KeyboardView.holdFirstCommit(holdMs: Long): List<String> {
+    /** Hold [v]'s first key with [action] for [holdMs] of looper time and return every emitted key. */
+    private fun KeyboardView.holdFirstAction(action: KeyAction, holdMs: Long): List<String> {
         val emitted = mutableListOf<String>()
         onKey = { emitted.add(it.output) }
-        val (x, y) = centerOfActionForTest(KeyAction.COMMIT)!!
+        val (x, y) = centerOfActionForTest(action)!!
         send(MotionEvent.ACTION_DOWN, x, y, 0)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(holdMs)) // > 400ms delay + several 55ms intervals
         send(MotionEvent.ACTION_UP, x, y, holdMs)
         return emitted
     }
 
-    @Test fun a_held_9key_digit_auto_repeats() {
-        // The headline ④ case: digits/letters/symbols (all COMMIT) now repeat on hold, like the English letters.
-        val emitted = nineView(Layouts.ninePunctuation(), composing = false).holdFirstCommit(700)
-        assertTrue("a held 9-key digit auto-repeats (got ${emitted.size})", emitted.size >= 3)
-        assertEquals("every repeat is the SAME held key", 1, emitted.toSet().size)
+    @Test fun a_held_9key_digit_does_NOT_auto_repeat() {
+        // ③: digits/letters/symbols (COMMIT) no longer repeat on hold — a long press yields exactly ONE emit,
+        // matching every commercial IME (no accidental "2222" flood).
+        val emitted = nineView(Layouts.ninePunctuation(), composing = false).holdFirstAction(KeyAction.COMMIT, 700)
+        assertEquals("a held 9-key digit emits exactly once (no repeat)", 1, emitted.size)
     }
 
-    @Test fun a_held_english_letter_still_auto_repeats() {
-        // Regression guard: the pre-existing English-letter long-press repeat keeps working under the new rule.
-        val emitted = alphaView().holdFirstCommit(700)
-        assertTrue("a held English letter auto-repeats (got ${emitted.size})", emitted.size >= 3)
-        assertEquals(1, emitted.toSet().size)
+    @Test fun a_held_english_letter_does_NOT_auto_repeat() {
+        // ③: same for English letters — the debug.18 letter-repeat is intentionally removed.
+        val emitted = alphaView().holdFirstAction(KeyAction.COMMIT, 700)
+        assertEquals("a held English letter emits exactly once (no repeat)", 1, emitted.size)
+    }
+
+    @Test fun a_held_backspace_still_auto_repeats() {
+        // ③: BACKSPACE is the one key that KEEPS hold-to-repeat (hold to delete), like every commercial IME.
+        val emitted = alphaView().holdFirstAction(KeyAction.BACKSPACE, 700)
+        assertTrue("a held backspace auto-repeats (got ${emitted.size})", emitted.size >= 3)
     }
 
     @Test fun a_quick_tap_emits_exactly_once_no_repeat() {
