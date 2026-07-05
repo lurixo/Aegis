@@ -38,7 +38,7 @@
     <string name="download_storage_format">Storage: %1$s (app-private directory, hidden from file managers; local only and removable).</string>
 
     <string name="gram_card_title">Enhancement model (Wanxiang offline model)</string>
-    <string name="gram_card_description">Optional ~401 MB download. Chinese candidates become noticeably more accurate after download (internal evaluation top-1 + about 9 points). Stored locally only; input remains fully offline.</string>
+    <string name="gram_card_description">Optional ~401 MB download. Chinese candidates become noticeably more accurate after download. Stored locally only; input remains fully offline.</string>
     <string name="gram_source_link">Model source: amzxyz/RIME-LMDG ↗</string>
     <string name="gram_status_enabled">✅ Enabled: enhanced grammar is active (downloaded %1$d MB, local only; loaded automatically after download)</string>
     <string name="gram_status_not_downloaded">⚠ Enhanced grammar is not enabled - download the ~401 MB model to enable it</string>
@@ -86,8 +86,16 @@
 
     <string name="key_vibration_title">Key vibration</string>
     <string name="key_vibration_description">Vibrate briefly on each key press. Off by default; respects the system haptic setting.</string>
-    <string name="key_preview_title">Key press preview</string>
-    <string name="key_preview_description">Show an enlarged bubble of the key you press. On by default.</string>
+    <string name="key_preview_nine_title">9-key press preview</string>
+    <string name="key_preview_nine_description">Show an enlarged bubble of the key you press on the 9-key. Off by default.</string>
+    <string name="key_preview_alpha_title">26-key press preview</string>
+    <string name="key_preview_alpha_description">Show an enlarged bubble of the key you press on the 26-key. Off by default.</string>
+
+    <string name="letter_case_title">Letter case</string>
+    <string name="letter_case_description">How letters are shown on the keyboard. Display only — typing and the Shift key are unchanged.</string>
+    <string name="letter_case_auto">Auto (follow Shift)</string>
+    <string name="letter_case_upper">Always uppercase</string>
+    <string name="letter_case_lower">Always lowercase</string>
 
     <string name="layout_card_title">Full Pinyin keyboard</string>
     <string name="layout_card_description">Default keyboard for Chinese input (English always uses 26 keys).</string>

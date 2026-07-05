@@ -24,9 +24,13 @@ import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON
 import com.aegis.ime.ui.KEY_HAPTICS_DEFAULT
 import com.aegis.ime.ui.KEY_PREVIEW_DEFAULT
+import com.aegis.ime.ui.LETTER_CASE_DEFAULT
+import com.aegis.ime.ui.LetterCase
 import com.aegis.ime.ui.PREF_ASSOCIATIONS_ON
 import com.aegis.ime.ui.PREF_KEY_HAPTICS
-import com.aegis.ime.ui.PREF_KEY_PREVIEW
+import com.aegis.ime.ui.PREF_KEY_PREVIEW_ALPHA
+import com.aegis.ime.ui.PREF_KEY_PREVIEW_NINE
+import com.aegis.ime.ui.PREF_LETTER_CASE
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -50,7 +54,9 @@ class SettingsHotApplyTest {
     private val fuzzySets = mutableListOf<Set<String>>()
     private var engineAssetChanges = 0
     private val keyHaptics = mutableListOf<Boolean>()
-    private val keyPreviews = mutableListOf<Boolean>()
+    private val keyPreviewsNine = mutableListOf<Boolean>()
+    private val keyPreviewsAlpha = mutableListOf<Boolean>()
+    private val letterCases = mutableListOf<LetterCase>()
 
     private val listener = SettingsHotApply(
         onCnLayout = { cnLayouts += it },
@@ -58,7 +64,9 @@ class SettingsHotApplyTest {
         onFuzzyRules = { fuzzySets += it },
         onEngineAssetsChanged = { engineAssetChanges++ },
         onKeyHaptics = { keyHaptics += it },
-        onKeyPreview = { keyPreviews += it },
+        onKeyPreviewNine = { keyPreviewsNine += it },
+        onKeyPreviewAlpha = { keyPreviewsAlpha += it },
+        onLetterCase = { letterCases += it },
     )
 
     @Before fun register() {
@@ -79,7 +87,8 @@ class SettingsHotApplyTest {
     }
 
     private fun totalActions() =
-        cnLayouts.size + associations.size + fuzzySets.size + engineAssetChanges + keyHaptics.size + keyPreviews.size
+        cnLayouts.size + associations.size + fuzzySets.size + engineAssetChanges + keyHaptics.size +
+            keyPreviewsNine.size + keyPreviewsAlpha.size + letterCases.size
 
     private val allRuleKeys = Fuzzy.RULES.mapTo(LinkedHashSet()) { it.key }
 
@@ -114,20 +123,40 @@ class SettingsHotApplyTest {
         assertEquals("no other channel may fire", 2, totalActions())
     }
 
-    @Test fun key_preview_toggle_hot_applies_both_directions_immediately() {
-        put { putBoolean(PREF_KEY_PREVIEW, false) }
-        put { putBoolean(PREF_KEY_PREVIEW, true) }
-        assertEquals(listOf(false, true), keyPreviews)
-        assertEquals(2, totalActions())
+    @Test fun the_two_preview_toggles_hot_apply_independently_and_immediately() {
+        put { putBoolean(PREF_KEY_PREVIEW_NINE, true) }
+        assertEquals(listOf(true), keyPreviewsNine)
+        assertEquals("the 26-key channel must not fire", emptyList<Boolean>(), keyPreviewsAlpha)
+        put { putBoolean(PREF_KEY_PREVIEW_ALPHA, true) }
+        assertEquals(listOf(true), keyPreviewsAlpha)
+        put { putBoolean(PREF_KEY_PREVIEW_NINE, false) }
+        put { putBoolean(PREF_KEY_PREVIEW_ALPHA, false) }
+        assertEquals(listOf(true, false), keyPreviewsNine)
+        assertEquals(listOf(true, false), keyPreviewsAlpha)
+        assertEquals(4, totalActions())
+    }
+
+    @Test fun letter_case_hot_applies_all_three_tiers_immediately() {
+        put { putString(PREF_LETTER_CASE, "upper") }
+        put { putString(PREF_LETTER_CASE, "lower") }
+        put { putString(PREF_LETTER_CASE, "auto") }
+        assertEquals(listOf(LetterCase.UPPER, LetterCase.LOWER, LetterCase.AUTO), letterCases)
+        assertEquals("no other channel may fire", 3, totalActions())
     }
 
     @Test fun touch_feedback_pref_removal_resolves_to_production_defaults() {
         put { putBoolean(PREF_KEY_HAPTICS, !KEY_HAPTICS_DEFAULT) }
         put { remove(PREF_KEY_HAPTICS) }
         assertEquals(listOf(!KEY_HAPTICS_DEFAULT, KEY_HAPTICS_DEFAULT), keyHaptics)
-        put { putBoolean(PREF_KEY_PREVIEW, !KEY_PREVIEW_DEFAULT) }
-        put { remove(PREF_KEY_PREVIEW) }
-        assertEquals(listOf(!KEY_PREVIEW_DEFAULT, KEY_PREVIEW_DEFAULT), keyPreviews)
+        put { putBoolean(PREF_KEY_PREVIEW_NINE, !KEY_PREVIEW_DEFAULT) }
+        put { remove(PREF_KEY_PREVIEW_NINE) }
+        assertEquals(listOf(!KEY_PREVIEW_DEFAULT, KEY_PREVIEW_DEFAULT), keyPreviewsNine)
+        put { putBoolean(PREF_KEY_PREVIEW_ALPHA, !KEY_PREVIEW_DEFAULT) }
+        put { remove(PREF_KEY_PREVIEW_ALPHA) }
+        assertEquals(listOf(!KEY_PREVIEW_DEFAULT, KEY_PREVIEW_DEFAULT), keyPreviewsAlpha)
+        put { putString(PREF_LETTER_CASE, "upper") }
+        put { remove(PREF_LETTER_CASE) }
+        assertEquals(listOf(LetterCase.UPPER, LetterCase.AUTO), letterCases)
     }
 
 
@@ -199,17 +228,20 @@ class SettingsHotApplyTest {
 
 
     @Test fun the_pref_backed_settings_surface_is_fully_enumerated() {
-        val enumerated = mutableSetOf("cn_layout", PREF_ASSOCIATIONS_ON, "fuzzy", PREF_KEY_HAPTICS, PREF_KEY_PREVIEW)
+        val enumerated = mutableSetOf(
+            "cn_layout", PREF_ASSOCIATIONS_ON, "fuzzy", PREF_KEY_HAPTICS,
+            PREF_KEY_PREVIEW_NINE, PREF_KEY_PREVIEW_ALPHA, PREF_LETTER_CASE,
+        )
         enumerated += Fuzzy.RULES.map { Fuzzy.prefKey(it.key) }
         enumerated += SettingsHotApply.ENGINE_ASSET_PREF_KEYS
-        assertEquals(5 + Fuzzy.RULES.size + 4, enumerated.size)
+        assertEquals(7 + Fuzzy.RULES.size + 4, enumerated.size)
         for (key in enumerated) {
             val before = totalActions()
             put { putString("probe_reset", key) }
             assertEquals(before, totalActions())
             when (key) {
                 "cn_layout" -> put { putString(key, "alpha") }
-                PREF_KEY_PREVIEW -> put { putBoolean(key, false) }
+                PREF_LETTER_CASE -> put { putString(key, "upper") }
                 else -> put { putBoolean(key, true) }
             }
             assertTrue("$key must hot-apply exactly one action", totalActions() == before + 1)

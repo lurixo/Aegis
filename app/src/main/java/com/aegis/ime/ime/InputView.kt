@@ -157,7 +157,9 @@ class InputView(context: Context) : LinearLayout(context) {
     }
 
     fun setKeyHaptics(on: Boolean) { keyboardView.hapticEnabled = on }
-    fun setKeyPreview(on: Boolean) { keyboardView.previewEnabled = on }
+    fun setKeyPreviewNine(on: Boolean) { keyboardView.previewNineEnabled = on }
+    fun setKeyPreviewAlpha(on: Boolean) { keyboardView.previewAlphaEnabled = on }
+    fun setLetterCase(mode: com.aegis.ime.ui.LetterCase) { keyboardView.caseMode = mode }
 
     fun showCopyBar(text: String) {
         copyBarView.show(text)
