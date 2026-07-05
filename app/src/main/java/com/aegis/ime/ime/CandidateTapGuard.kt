@@ -54,6 +54,8 @@ internal class CandidateTapGuard {
         return !pressedRisky || staleShown.getOrNull(index) == word
     }
 
+    internal fun pendingForTest(): Boolean = pendingSince != NEVER
+
     internal companion object {
         const val SETTLE_MILLIS = 200L
         const val STALE_VISIBLE_MILLIS = 120L

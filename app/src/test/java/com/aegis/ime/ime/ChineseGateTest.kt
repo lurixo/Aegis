@@ -34,6 +34,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import java.util.concurrent.Executor
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -144,6 +145,25 @@ class ChineseGateTest {
 
         assertEquals("an ordinary Chinese-to-Chinese swap keeps the preedit", preedit, c.preeditForTest())
         assertEquals("an ordinary Chinese-to-Chinese swap re-decodes the same input", candidates, c.candidateWords())
+        assertTrue(host.commits.isEmpty())
+    }
+
+    @Test fun completing_a_download_invalidates_the_inflight_decode_for_the_old_engine() {
+        val workerQueue = ArrayDeque<Runnable>()
+        val mainQueue = ArrayDeque<Runnable>()
+        val lane = DecodeLane(Executor { workerQueue.addLast(it) }, Executor { mainQueue.addLast(it) })
+        val host = Host()
+        val c = KeyboardController(host, DictEngine(null, null, null), lane)
+        c.switchTextLayoutForTest(nine = false)
+        type(c, "ni")
+        assertTrue(c.chineseGateActiveForTest())
+
+        c.setEngine(chineseCapableEngine())
+        while (workerQueue.isNotEmpty()) workerQueue.removeFirst().run()
+        while (mainQueue.isNotEmpty()) mainQueue.removeFirst().run()
+
+        assertEquals("late decode output cannot restore the cleared preedit", "", c.preeditForTest())
+        assertTrue("late decode output cannot restore stale candidates", c.candidateWords().isEmpty())
         assertTrue(host.commits.isEmpty())
     }
 

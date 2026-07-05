@@ -58,6 +58,7 @@ private fun mixedParts(raw: String, literals: Set<Int>): List<MixedPart> {
 class KeyboardController(
     editor: ImeHost,
     private var engine: CandidateEngine,
+    private val decodeLane: DecodeLane? = null,
 ) {
     private val host: ImeHost = editor
 
@@ -78,6 +79,10 @@ class KeyboardController(
 
     private var engineSupportsChinese: Boolean = engine.supportsChinese
 
+    private val decodeLock = Any()
+
+    private var settlingDecode = false
+
     private val committedPrefix = StringBuilder()
 
     private val lockedReadings = mutableListOf<String>()
@@ -89,6 +94,8 @@ class KeyboardController(
     private val history = ArrayDeque<StepKind>()
 
     private var drillSyllable = -1
+
+    private var candidatesSuperseded = false
 
     private val drillChoices = HashMap<Int, String>()
 
@@ -203,6 +210,7 @@ class KeyboardController(
     }
 
     fun reset(preserveLayout: Boolean = false) {
+        decodeLane?.markSatisfiedSynchronously()
         composing.setLength(0)
         literalIndices.clear()
         candidates = emptyList()
@@ -442,10 +450,12 @@ class KeyboardController(
     }
 
     fun onPickCandidate(index: Int) {
+        if (candidatesSuperseded) return
         if (index !in candidates.indices) return
         if (drillSyllable >= 0) {
             pickDrilledHomophone(candidates[index].word)
             refreshCandidates()
+            if (decodeLane?.pending == true) candidatesSuperseded = true
             render()
             return
         }
@@ -592,6 +602,7 @@ class KeyboardController(
             lastWord = null
             return
         }
+        ensureDecodeApplied()
         val pick = candidates.firstOrNull()
         when {
             pick != null && pick in compositeCands -> commitCompositeCandidate(pick)
@@ -774,6 +785,7 @@ class KeyboardController(
     }
 
     private fun clearComposingState() {
+        decodeLane?.markSatisfiedSynchronously()
         composing.setLength(0)
         literalIndices.clear()
         candidates = emptyList()
@@ -791,7 +803,30 @@ class KeyboardController(
 
     private fun refreshCandidates() {
         val req = buildDecodeRequest()
-        applyDecodeResult(computeDecode(req))
+        val lane = decodeLane
+        if (lane == null) {
+            applyDecodeResult(computeDecode(req))
+        } else {
+            lane.submit(
+                compute = { computeDecode(req) },
+                apply = { result -> applyDecodeResult(result); if (!settlingDecode) render() },
+                onError = { applyDecodeResult(emptyDecodeResult()); if (!settlingDecode) render() },
+            )
+        }
+    }
+
+    private fun ensureDecodeApplied() {
+        val lane = decodeLane ?: return
+        if (!lane.pending) return
+        settlingDecode = true
+        val settled = try {
+            lane.settle()
+        } finally {
+            settlingDecode = false
+        }
+        if (settled) return
+        lane.markSatisfiedSynchronously()
+        applyDecodeResult(computeDecode(buildDecodeRequest()))
     }
 
     private class DecodeRequest(
@@ -883,6 +918,7 @@ class KeyboardController(
     }
 
     private fun applyDecodeResult(r: DecodeResult) {
+        candidatesSuperseded = false
         candidates = r.candidates
         directCommitCands = r.directCommitCands
         compositeCands = r.compositeCands
@@ -891,7 +927,7 @@ class KeyboardController(
         englishCands = r.englishCands
     }
 
-    private fun computeDecode(req: DecodeRequest): DecodeResult {
+    private fun computeDecode(req: DecodeRequest): DecodeResult = synchronized(decodeLock) {
         var directCommit: Set<Cand> = emptySet()
         var composite: Set<Cand> = emptySet()
         var literal: Set<Cand> = emptySet()
@@ -935,7 +971,7 @@ class KeyboardController(
             }
             else -> base
         }
-        return DecodeResult(out, directCommit, composite, literal, prediction, english)
+        DecodeResult(out, directCommit, composite, literal, prediction, english)
     }
 
     private class MixedCandidates(
@@ -1222,6 +1258,7 @@ class KeyboardController(
             candidateProjection = CandidateProjectionPolicy.PINYIN.takeIf {
                 mode() == Mode.PINYIN && composing.isNotEmpty()
             },
+            candidatesPending = decodeLane?.pending == true,
         )
     }
 
@@ -1287,6 +1324,15 @@ class KeyboardController(
     internal fun drilledSyllableForTest(): Int = drillSyllable
 
     internal fun candidateWords(): List<String> = candidates.map { it.word }
+
+    internal fun decodeStateForTest(): String = buildString {
+        append("C:")
+        for (c in candidates) append(c.word).append('/').append(c.coveredLen).append(',')
+        append("|D:")
+        for (c in directCommitCands) append(c.word).append(',')
+        append("|P:")
+        for (c in predictionCands) append(c.word).append(',')
+    }
 
     internal fun composingPrefix(): String = committedPrefix.toString()
 

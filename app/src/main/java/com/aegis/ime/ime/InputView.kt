@@ -823,6 +823,7 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun candidateRestoreNoticeForTest(): String? = candidateView.restoreNoticeLabelForTest()
 
     internal fun candidateBarForTest(): CandidateView = candidateView
+    internal fun candidatesPendingForTest(): Boolean = candidateTapGuard.pendingForTest()
 
     internal fun showExpandedCandidates() {
         if (lastCandidates.isEmpty()) return
