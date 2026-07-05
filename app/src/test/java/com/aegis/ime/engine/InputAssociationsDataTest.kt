@@ -46,11 +46,46 @@ class InputAssociationsDataTest {
         }
     }
 
-    @Test fun every_entry_has_glyphs_and_no_duplicates() {
+    @Test fun every_entry_has_glyphs_and_no_full_half_width_twins() {
+        // Upgraded from exact-string de-dup to FOLDED-key de-dup: two glyphs that fold to the SAME character
+        // (a full-width mark and its half-width twin, e.g. ￥/¥, ？/?) count as a duplicate and are forbidden in
+        // one key's candidate list — the reported "both widths offered" bug. Cross-character look-alikes
+        // (。/. , −/-) fold to distinct keys and stay allowed. Whole merged table, no sampling.
         for ((key, glyphs) in InputAssociations.entriesForTest()) {
             assertTrue("key '$key' has no glyphs", glyphs.isNotEmpty())
-            assertEquals("key '$key' repeats a glyph: $glyphs", glyphs.size, glyphs.toSet().size)
+            val folded = glyphs.map { SymbolCatalog.foldFullWidth(it) }
+            assertEquals(
+                "key '$key' lists full/half-width twins of one character: $glyphs (folds=$folded)",
+                folded.size, folded.toSet().size,
+            )
         }
+    }
+
+    @Test fun no_symbol_row_lists_a_full_half_width_twin_of_one_character() {
+        // Full-table, per-Row, no sampling — assert at the DATA SOURCE that no Row places both widths of a
+        // character together, across BOTH folded blocks: the ASCII block (FF01–FF5E) and the currency/technical
+        // block (FFE0–FFE6, where renminbi ￥¥ lived). juhao 。/. and jianhao −/- fold to distinct keys → allowed.
+        for (row in SymbolAssociations.rows()) {
+            val folded = row.glyphList.map { SymbolCatalog.foldFullWidth(it) }
+            assertEquals(
+                "row '${row.name.ifEmpty { row.keys }}' lists full/half-width twins: ${row.glyphList} (folds=$folded)",
+                folded.size, folded.toSet().size,
+            )
+        }
+    }
+
+    @Test fun reported_full_half_duplicates_now_surface_only_the_full_width_form() {
+        // The two exact user reports: ren'min'bi offered ￥ AND ¥ (2nd+3rd candidate); wen'hao offered ？ AND ?.
+        // The contract is per-CHARACTER: the full-width mark stays, its half-width twin is gone. (An unrelated
+        // question-mark EMOJI ❓ is also keyed on wenhao — a different glyph, correctly left untouched.)
+        val renminbi = InputAssociations.lookup("renminbi")
+        assertTrue("renminbi offers the full-width ￥ (got $renminbi)", "￥" in renminbi)
+        assertTrue("half-width ¥ (U+00A5) must NOT be a renminbi candidate (got $renminbi)", "¥" !in renminbi)
+        val wenhao = InputAssociations.lookup("wenhao")
+        assertTrue("wenhao offers the full-width ？ (got $wenhao)", "？" in wenhao)
+        assertTrue("half-width ? (U+003F) must NOT be a wenhao candidate (got $wenhao)", "?" !in wenhao)
+        // the half-width yen is not lost — it stays reachable through its own key (日元), it just left renminbi.
+        assertTrue("¥ stays reachable via riyuan (日元)", "¥" in InputAssociations.lookup("riyuan"))
     }
 
     // ------------------------------------------------------------------ emoji coverage (count == catalog, 0 missing)

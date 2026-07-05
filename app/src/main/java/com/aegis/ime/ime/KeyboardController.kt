@@ -26,6 +26,7 @@ import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
+import com.aegis.ime.layout.SymbolCatalog
 
 /**
  * Input state machine. Owns the active layout, language, shift state and the composing buffer;
@@ -969,7 +970,7 @@ class KeyboardController(
             req.drillSyllable >= 0 && !req.composingEmpty && req.mode == Mode.PINYIN -> computeDrill(req)
             // While composing pinyin: inject associated emoji/symbols (haode→👌) just after the top word.
             !req.composingEmpty && req.mode == Mode.PINYIN -> {
-                val glyphs = InputAssociations.lookup(req.rawComposing)
+                val glyphs = dedupeFullHalfGlyphs(InputAssociations.lookup(req.rawComposing))
                 if (glyphs.isEmpty()) {
                     base
                 } else {
@@ -1306,4 +1307,18 @@ class KeyboardController(
         /** ③ how many committed chars before the cursor to feed the decoder as same-code context. */
         const val CTX_SCAN_LEN = 16
     }
+}
+
+/**
+ * Collapse full/half-width twins in an association glyph list to the first-seen form, so a locked buffer can
+ * never surface both widths of one character as adjacent candidates (the ￥/¥ · ？/? report). Order-preserving,
+ * keeps the first occurrence; keyed by [SymbolCatalog.foldFullWidth], so cross-character look-alikes that do
+ * NOT fold (。/. , −/- , •/· , ×/x) are left untouched. This is the sole full/half de-dup on the
+ * association-injection path — the data table already keeps one width per character, so on the shipped table
+ * this is a no-op safety net that also neutralizes any future data slip. Pure; unit-testable in isolation.
+ */
+internal fun dedupeFullHalfGlyphs(glyphs: List<String>): List<String> {
+    if (glyphs.size <= 1) return glyphs
+    val seen = HashSet<String>(glyphs.size * 2)
+    return glyphs.filter { seen.add(SymbolCatalog.foldFullWidth(it)) }
 }

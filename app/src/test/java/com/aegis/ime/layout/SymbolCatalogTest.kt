@@ -177,9 +177,11 @@ class SymbolCatalogTest {
             cat("math").containsAll(listOf("×", "÷", "±", "≈", "≠", "≤", "≥", "√", "∞", "∑")))
     }
 
-    // Mechanically-derived reference fold used by the exhaustive tests below: fold ONLY U+FF01–U+FF5E onto
-    // ASCII and U+3000 onto a normal space; leave everything else untouched. Kept independent from the
-    // production implementation so the tests check the SEMANTICS, not a copy of the code.
+    // Mechanically-derived reference fold used by the exhaustive tests below: fold U+FF01–U+FF5E onto ASCII,
+    // U+3000 onto a normal space, and the currency/technical block U+FFE0–U+FFE6 onto its half-width twin; leave
+    // everything else untouched. The ASCII/space branches are derived independently (offset arithmetic vs the
+    // production's per-code map); the exact FFE mapping is additionally pinned, code point by code point, by
+    // foldFullWidth_folds_the_fullwidth_currency_block_onto_its_halfwidth_twins below.
     private fun expectedFold(s: String): String = buildString {
         for (ch in s) {
             val c = ch.code
@@ -187,6 +189,13 @@ class SymbolCatalogTest {
                 when {
                     c in 0xFF01..0xFF5E -> (c - 0xFEE0).toChar()
                     c == 0x3000 -> ' '
+                    c == 0xFFE0 -> '¢'
+                    c == 0xFFE1 -> '£'
+                    c == 0xFFE2 -> '¬'
+                    c == 0xFFE3 -> '¯'
+                    c == 0xFFE4 -> '¦'
+                    c == 0xFFE5 -> '¥'
+                    c == 0xFFE6 -> '₩'
                     else -> ch
                 },
             )
@@ -206,27 +215,34 @@ class SymbolCatalogTest {
 
     @Test fun every_fullwidth_catalogue_mark_folds_onto_a_halfwidth_twin_that_also_exists() {
         // Enumerate the complete set of full/half-width same-char PAIRS straight from the catalogue and assert
-        // each full-width mark folds onto an ASCII code point (orig − 0xFEE0) that is itself a catalogue symbol.
+        // each full-width mark folds onto a half-width code point that is itself a catalogue symbol. Covers both
+        // the ASCII block (FF01–FF5E, offset −0xFEE0) and the currency/technical block (FFE0–FFE6, explicit map).
         val fulls = LinkedHashSet<Char>()   // ％ appears in two tabs; count distinct pairs
         for (s in allSymbols()) {
             if (s.length != 1) continue
             val c = s[0].code
-            if (c in 0xFF01..0xFF5E) {
-                val half = (c - 0xFEE0).toChar().toString()
-                assertEquals("$s must fold to its ASCII twin", half, SymbolCatalog.foldFullWidth(s))
+            val half: String? = when {
+                c in 0xFF01..0xFF5E -> (c - 0xFEE0).toChar().toString()
+                c in 0xFFE0..0xFFE6 -> expectedFold(s) // the explicit non-uniform FFE map (￥→¥ …)
+                else -> null
+            }
+            if (half != null) {
+                assertEquals("$s must fold to its half-width twin", half, SymbolCatalog.foldFullWidth(s))
                 assertTrue("the twin $half of $s must exist in the catalogue", SymbolCatalog.categoryTitleOf(half) != null)
                 fulls.add(s[0])
             }
         }
-        assertEquals("every distinct full/half-width pair in the catalogue is covered", 22, fulls.size)
+        // 22 distinct ASCII full-width marks + the full-width yen ￥ (U+FFE5, the renminbi fix) = 23.
+        assertEquals("every distinct full/half-width pair in the catalogue is covered", 23, fulls.size)
     }
 
     @Test fun foldFullWidth_never_collapses_a_symbol_outside_the_fullwidth_block() {
-        // Exhaustive negative: any catalogue symbol with NO U+FF01–U+FF5E / U+3000 character must be returned
-        // byte-for-byte — this is where an unrestricted NFKC pass would wrongly merge ㎡→m2, Ⅰ→I, ℃→°C, ①→1,
-        // ㈠→(一), ½→1⁄2, ²→2, ₂→2, and the look-alikes – — · • × x.
+        // Exhaustive negative: any catalogue symbol with NO character in a folded block (FF01–FF5E, U+3000, or
+        // the currency/technical block FFE0–FFE6) must be returned byte-for-byte — this is where an unrestricted
+        // NFKC pass would wrongly merge ㎡→m2, Ⅰ→I, ℃→°C, ①→1, ㈠→(一), ½→1⁄2, ²→2, ₂→2, and the look-alikes
+        // – — · • × x.
         for (s in allSymbols()) {
-            val inBlock = s.any { it.code in 0xFF01..0xFF5E || it.code == 0x3000 }
+            val inBlock = s.any { it.code in 0xFF01..0xFF5E || it.code == 0x3000 || it.code in 0xFFE0..0xFFE6 }
             if (!inBlock) assertEquals("$s must not be folded", s, SymbolCatalog.foldFullWidth(s))
         }
         // spot the cross-character look-alikes explicitly: neither side moves toward the other.
@@ -235,6 +251,25 @@ class SymbolCatalogTest {
             assertEquals(b, SymbolCatalog.foldFullWidth(b))
         }
         assertEquals("ideographic space folds to a normal space", " ", SymbolCatalog.foldFullWidth("　"))
+    }
+
+    @Test fun foldFullWidth_folds_the_fullwidth_currency_block_onto_its_halfwidth_twins() {
+        // FFE extension (the fix behind the renminbi ￥/¥ report): each U+FFE0–U+FFE6 mark folds to its specific
+        // half-width twin. The block has NO uniform offset (￢→¬ and ￦→₩ jump differently from ￥→¥), so this
+        // pins every mapping explicitly, code point by code point.
+        assertEquals("¢", SymbolCatalog.foldFullWidth("￠")) // U+FFE0 → U+00A2
+        assertEquals("£", SymbolCatalog.foldFullWidth("￡")) // U+FFE1 → U+00A3
+        assertEquals("¬", SymbolCatalog.foldFullWidth("￢")) // U+FFE2 → U+00AC
+        assertEquals("¯", SymbolCatalog.foldFullWidth("￣")) // U+FFE3 → U+00AF
+        assertEquals("¦", SymbolCatalog.foldFullWidth("￤")) // U+FFE4 → U+00A6
+        assertEquals("¥", SymbolCatalog.foldFullWidth("￥")) // U+FFE5 → U+00A5  (the renminbi fix)
+        assertEquals("₩", SymbolCatalog.foldFullWidth("￦")) // U+FFE6 → U+20A9
+        // in a mixed string only the FFE mark moves; the half-width twins are already folded (idempotent).
+        assertEquals("a¥b", SymbolCatalog.foldFullWidth("a￥b"))
+        for (half in listOf("¢", "£", "¬", "¯", "¦", "¥", "₩")) assertEquals(half, SymbolCatalog.foldFullWidth(half))
+        // boundaries: the code points just outside the block are untouched.
+        assertEquals("￟", SymbolCatalog.foldFullWidth("￟")) // just below FFE0
+        assertEquals("￧", SymbolCatalog.foldFullWidth("￧")) // just above FFE6
     }
 
     @Test fun nineFixedPunctuationStaysInSyncWithTheColumn() {

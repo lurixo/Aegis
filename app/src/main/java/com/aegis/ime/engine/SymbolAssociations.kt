@@ -38,7 +38,10 @@ internal object SymbolAssociations {
         val primaryKey: String get() = keys.substringBefore(' ')
     }
 
-    /** A catalog symbol deliberately not keyed: no natural Chinese word names it. Audited, never silent. */
+    /** A catalog symbol deliberately not reachable through a pinyin key — audited, never silent. Either no
+     *  natural Chinese word names it, or it is the half-width twin of a same-char full-width mark that the
+     *  association keeps instead (full/half de-dup: one width per character, so a locked buffer never lists
+     *  both, e.g. ￥/¥ · ？/?). The dropped half-width still types from the English symbol key/panel. */
     class Exemption(val reason: String, vararg glyphs: String) {
         val glyphList: List<String> = glyphs.toList()
     }
@@ -71,22 +74,28 @@ internal object SymbolAssociations {
         Exemption("国际音标符号/重音长音标记,无自然中文词名", "ɪ", "ɛ", "æ", "ə", "ɜ", "ʌ", "ɑ", "ɒ", "ɔ", "ʊ", "ø", "ð", "ʃ", "ʒ", "ŋ", "ʤ", "ʧ", "ç", "ɣ", "ʔ", "ɹ", "ɫ", "ɲ", "ˈ", "ˌ", "ː", "ˑ"),
         Exemption("拉丁字母本身(音标/拼音类目),26键直接可打", "i", "e", "o", "u", "y", "x", "a", "n"),
         Exemption("拼音字母及声调变体,键入其读音意图是打汉字", "ā", "á", "ǎ", "à", "ō", "ó", "ǒ", "ò", "ē", "é", "ě", "è", "ê", "ī", "í", "ǐ", "ì", "ū", "ú", "ǔ", "ù", "ü", "ǖ", "ǘ", "ǚ", "ǜ", "ń", "ň", "ǹ", "ḿ"),
+        // 半角 ASCII 标点:与全角孪生同字,拼音关联去重后只出全角(全角孪生走各自键 douhao/jinghao/aite… 命中),
+        // 半角仍从英文符号键/面板直出。同字全半角只留一份,候选不再重复(如 renminbi 曾同列 ￥¥)。
+        // 注:%＋＝＜＞ 及半角 ¥ 未在此列 —— 它们经各自独立键(baifen/jia/deng/jiankuohao/riyuan)仍可达,不是死路。
+        Exemption("半角 ASCII,同字全角孪生已由拼音关联保留,半角改从英文符号键/面板直出",
+            ",", ";", ":", "?", "!", "(", ")", "~", "_", "#", "*", "@", "|", "/", "\\", "`"),
     )
 
-    // ---- 中文标点(全角在前,半角为第二写法) ----
+    // ---- 中文标点(每个符号只留全角一份;同字半角孪生已去重,改从英文符号键/面板出,见 exemptions) ----
+    // 跨字符近似形不是同字重复,保持区分:juhao 。(U+3002)/. 、yinhao/danyinhao 弯引号“”‘’ 各带直引号 "'。
     private fun punctuationZh(): List<Row> = listOf(
-        Row("逗号", "douhao", "，", ","),
+        Row("逗号", "douhao", "，"),
         Row("句号", "juhao", "。", "."),
         Row("顿号", "dunhao", "、"),
-        Row("分号", "fenhao", "；", ";"),
-        Row("冒号", "maohao", "：", ":"),
-        Row("问号", "wenhao", "？", "?"),
-        Row("叹号/感叹号", "tanhao gantanhao", "！", "!"),
+        Row("分号", "fenhao", "；"),
+        Row("冒号", "maohao", "："),
+        Row("问号", "wenhao", "？"),
+        Row("叹号/感叹号", "tanhao gantanhao", "！"),
         Row("引号/双引号", "yinhao shuangyinhao", "“", "”", "\""),
         Row("单引号", "danyinhao", "‘", "’", "'"),
         Row("括号", "kuohao", "（", "）"),
-        Row("左括号", "zuokuohao", "（", "("),
-        Row("右括号", "youkuohao", "）", ")"),
+        Row("左括号", "zuokuohao", "（"),
+        Row("右括号", "youkuohao", "）"),
         Row("书名号", "shuminghao", "《", "》"),
         Row("单书名号", "danshuminghao", "〈", "〉"),
         Row("直角引号", "zhijiaoyinhao", "「", "」"),
@@ -96,23 +105,23 @@ internal object SymbolAssociations {
         Row("六角括号", "liujiaokuohao", "〔", "〕"),
         Row("省略号", "shenglvehao", "…"),
         Row("破折号", "pozhehao", "—"),
-        Row("波浪号", "bolanghao", "～", "~"),
+        Row("波浪号", "bolanghao", "～"),
         Row("间隔号", "jiangehao", "·"),
         Row("双竖线", "shuangshuxian", "‖"),
-        Row("下划线", "xiahuaxian", "_", "＿"),
+        Row("下划线", "xiahuaxian", "＿"),
         Row("波浪线", "bolangxian", "﹏", "﹋"),
-        Row("井号", "jinghao", "#", "＃"),
-        Row("星号", "xinghao", "*", "＊"),
-        Row("艾特", "aite", "@", "＠"),
-        Row("百分号", "baifenhao", "%", "％"),
-        Row("加号", "jiahao", "+", "＋"),
-        Row("等号", "denghao", "=", "＝"),
-        Row("竖线/管道符", "shuxian guandaofu", "|", "｜"),
-        Row("小于号", "xiaoyuhao", "<", "＜"),
-        Row("大于号", "dayuhao", ">", "＞"),
-        Row("斜杠/斜线", "xiegang xiexian", "/", "／"),
-        Row("反斜杠/反斜线", "fanxiegang fanxiexian", "\\", "＼"),
-        Row("反引号", "fanyinhao", "`", "｀"),
+        Row("井号", "jinghao", "＃"),
+        Row("星号", "xinghao", "＊"),
+        Row("艾特", "aite", "＠"),
+        Row("百分号", "baifenhao", "％"),
+        Row("加号", "jiahao", "＋"),
+        Row("等号", "denghao", "＝"),
+        Row("竖线/管道符", "shuxian guandaofu", "｜"),
+        Row("小于号", "xiaoyuhao", "＜"),
+        Row("大于号", "dayuhao", "＞"),
+        Row("斜杠/斜线", "xiegang xiexian", "／"),
+        Row("反斜杠/反斜线", "fanxiegang fanxiexian", "＼"),
+        Row("反引号", "fanyinhao", "｀"),
     )
 
     // ---- 英文/半角标点(中文类未覆盖的) ----
@@ -158,7 +167,7 @@ internal object SymbolAssociations {
         Row("里亚尔", "liyaer", "﷼"),
         Row("法郎", "falang", "₣"),
         Row("密尔", "mier", "₥"),
-        Row("人民币", "renminbi", "￥", "¥"),
+        Row("人民币", "renminbi", "￥"), // 全角 ￥(U+FFE5) 一份;半角 ¥(U+00A5) 走日元(riyuan)键,不在此列
     )
 
     // ---- 网络 ----

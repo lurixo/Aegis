@@ -161,4 +161,51 @@ class AssociationsReplayTest {
         c.onPickCandidate(0) // the word, not the glyph
         assertEquals("picking the top word still works normally", "词", host.text.toString())
     }
+
+    // ------------------------------------------------------------------ injection-path full/half de-dup (defense)
+
+    @Test fun the_injection_dedup_collapses_a_constructed_full_half_pair_keeping_the_first() {
+        // The computeDecode defense: even if the data ever re-mixed a full/half pair into one key, the injection
+        // folds it — a constructed pair collapses to the first-seen form, in BOTH orders (the data keeps the
+        // full-width form first, so the full-width survives on shipped data).
+        assertEquals("￥/¥ → ￥", listOf("￥"), dedupeFullHalfGlyphs(listOf("￥", "¥")))
+        assertEquals("¥/￥ → ¥ (first-seen wins)", listOf("¥"), dedupeFullHalfGlyphs(listOf("¥", "￥")))
+        assertEquals("？/? → ？", listOf("？"), dedupeFullHalfGlyphs(listOf("？", "?")))
+        assertEquals(
+            "a top word then a twin-pair keeps the word and only the first width",
+            listOf("词", "＃"), dedupeFullHalfGlyphs(listOf("词", "＃", "#")),
+        )
+    }
+
+    @Test fun the_injection_dedup_leaves_cross_character_lookalikes_intact() {
+        // 。/. , −/- , •/· , ×/x are DIFFERENT characters (they do not fold), so both must survive the de-dup.
+        assertEquals(listOf("。", "."), dedupeFullHalfGlyphs(listOf("。", ".")))
+        assertEquals(listOf("−", "-"), dedupeFullHalfGlyphs(listOf("−", "-")))
+        assertEquals(listOf("•", "·"), dedupeFullHalfGlyphs(listOf("•", "·")))
+        assertEquals(listOf("×", "x"), dedupeFullHalfGlyphs(listOf("×", "x")))
+    }
+
+    @Test fun the_injection_dedup_is_a_noop_on_every_real_association_key() {
+        // The shipped data keeps one width per character, so the defense never actually removes anything from a
+        // real lookup — proven over the WHOLE merged table (no sampling). A failure here means a data edit
+        // re-introduced a full/half twin (which the defense then correctly collapses).
+        for ((key, _) in InputAssociations.entriesForTest()) {
+            val hit = InputAssociations.lookup(key)
+            assertEquals("dedup altered lookup('$key') — data re-introduced a full/half twin", hit, dedupeFullHalfGlyphs(hit))
+        }
+    }
+
+    @Test fun renminbi_and_wenhao_offer_only_the_full_width_form_end_to_end() {
+        // The exact user report, driven through the real controller on the 26-key: after the whole pinyin is
+        // typed, the candidate strip carries the full-width mark and NOT its half-width twin.
+        val c1 = KeyboardController(RecordingHost(), OneWordEngine())
+        "renminbi".forEach { c1.onKey(out(it.toString())) }
+        assertTrue("￥ is offered for renminbi", "￥" in c1.candidateWords())
+        assertTrue("half-width ¥ must NOT be offered for renminbi (got ${c1.candidateWords()})", "¥" !in c1.candidateWords())
+
+        val c2 = KeyboardController(RecordingHost(), OneWordEngine())
+        "wenhao".forEach { c2.onKey(out(it.toString())) }
+        assertTrue("？ is offered for wenhao", "？" in c2.candidateWords())
+        assertTrue("half-width ? must NOT be offered for wenhao (got ${c2.candidateWords()})", "?" !in c2.candidateWords())
+    }
 }

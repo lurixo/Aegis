@@ -72,12 +72,15 @@ object SymbolCatalog {
     fun categoryTitleOf(symbol: String): String? = symbolToCategory[symbol]
 
     /**
-     * Full/half-width normalization for the "常用" de-dup key ONLY (never for display). Folds the full-width
-     * ASCII block (U+FF01–U+FF5E) onto ASCII (U+0021–U+007E) and the ideographic space (U+3000) onto a normal
-     * space, so a full-width and half-width form of the SAME character collapse to one recent entry (e.g. ％→%,
-     * ！→!, ，→,). It is deliberately narrow: it does NOT touch square units (㎡ ㎏ ℃), roman numerals (Ⅰ),
-     * enclosed numbers (①), super/subscripts, fractions, or cross-character look-alikes (– vs —, · vs •,
-     * × vs x), all of which an unrestricted NFKC pass would wrongly merge.
+     * Full/half-width normalization for the full/half de-dup key ONLY (never for display). Folds the full-width
+     * ASCII block (U+FF01–U+FF5E) onto ASCII (U+0021–U+007E), the ideographic space (U+3000) onto a normal
+     * space, and the full-width currency/technical block (U+FFE0–U+FFE6) onto its half-width twin, so a
+     * full-width and half-width form of the SAME character collapse to one key (e.g. ％→%, ！→!, ，→,, and
+     * — the reason FFE was added — ￥(U+FFE5)→¥(U+00A5) so the yen sign no longer appears in both widths).
+     * The FFE block has NO uniform offset (￢→¬, ￦→₩ jump differently), so it is an explicit per-code map.
+     * It is deliberately narrow: it does NOT touch square units (㎡ ㎏ ℃), roman numerals (Ⅰ), enclosed
+     * numbers (①), super/subscripts, fractions, or cross-character look-alikes (– vs —, · vs •, × vs x),
+     * all of which an unrestricted NFKC pass would wrongly merge.
      */
     fun foldFullWidth(s: String): String {
         var changed = false
@@ -87,6 +90,14 @@ object SymbolCatalog {
             when {
                 c in 0xFF01..0xFF5E -> { out.append((c - 0xFEE0).toChar()); changed = true }
                 c == 0x3000 -> { out.append(' '); changed = true }
+                // Full-width currency/technical block U+FFE0–U+FFE6 → half-width twin (non-uniform, explicit).
+                c == 0xFFE0 -> { out.append('¢'); changed = true } // ￠ → ¢
+                c == 0xFFE1 -> { out.append('£'); changed = true } // ￡ → £
+                c == 0xFFE2 -> { out.append('¬'); changed = true } // ￢ → ¬
+                c == 0xFFE3 -> { out.append('¯'); changed = true } // ￣ → ¯
+                c == 0xFFE4 -> { out.append('¦'); changed = true } // ￤ → ¦
+                c == 0xFFE5 -> { out.append('¥'); changed = true } // ￥ → ¥
+                c == 0xFFE6 -> { out.append('₩'); changed = true } // ￦ → ₩
                 else -> out.append(ch)
             }
         }
