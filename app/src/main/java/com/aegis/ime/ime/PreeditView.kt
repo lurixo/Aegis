@@ -71,7 +71,7 @@ open class PreeditView(context: Context) : View(context) { // open: MotionRedraw
         // fixed, so this never resizes the IME.
         val appearing = text.isEmpty() && s.isNotEmpty()
         text = s
-        if (appearing) Motion.fadeIn(this, Motion.SHORT4) else invalidate()
+        if (appearing) Motion.fadeIn(this) else invalidate() // the unified appear fade (FADE_IN), was SHORT4
     }
 
     /** U12: match the candidate strip's left inset (= `body` left padding) so the pinyin aligns with it. */

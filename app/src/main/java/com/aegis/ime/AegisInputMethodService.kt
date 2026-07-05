@@ -27,6 +27,9 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedTextRequest
 import android.widget.Toast
+import android.window.BackEvent
+import android.window.OnBackAnimationCallback
+import android.window.OnBackInvokedDispatcher
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.EngineAssets
@@ -84,6 +87,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     @Volatile private var userDbMtime = 0L
 
     private var inputView: InputView? = null
+
+    // ④ Predictive back: a single OnBackAnimationCallback, registered ONLY while an overlay is open so the
+    // framework's own IME-hide back (with its predictive animation) still owns the no-overlay case.
+    private var backCallback: OnBackAnimationCallback? = null
+    private var backRegistered = false
     private var emojiView: EmojiView? = null
     private var clipboardView: ClipboardView? = null
     private var symbolsView: SymbolsView? = null
@@ -396,6 +404,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             } // Chinese IME behavior note.
             onEditConfirm = { confirmInlineInput() } // Chinese IME behavior note.
             onEditCancel = { cancelInlineInput() } // Chinese IME behavior note.
+            // ④ predictive back: keep the overlay-back callback registered exactly while an overlay is open.
+            onOverlayChanged = { syncBackCallback() }
         }
         inputView = view
         panelInput.onChange = { txt ->
@@ -451,6 +461,43 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.reset()
         applyPaletteEverywhere() // F1: pick up a theme change that happened between input sessions
     }
+
+    /** ④ Build the overlay-back callback lazily: back gesture → follow the finger on the top overlay, and on
+     *  commit run that overlay's normal (symmetric) close, then re-sync so the callback lifts once the last
+     *  overlay is gone (and the next back hides the IME through the framework default). */
+    private fun buildBackCallback(): OnBackAnimationCallback = object : OnBackAnimationCallback {
+        override fun onBackStarted(backEvent: BackEvent) { inputView?.predictiveBackBegin() }
+        override fun onBackProgressed(backEvent: BackEvent) { inputView?.predictiveBackProgress(backEvent.progress) }
+        override fun onBackInvoked() { inputView?.predictiveBackCommit(); syncBackCallback() }
+        override fun onBackCancelled() { inputView?.predictiveBackCancel() }
+    }
+
+    /** Register/unregister the overlay-back callback to match the live overlay state. Idempotent; safe to call
+     *  from every overlay open/close (via InputView.onOverlayChanged) and from teardown. The dispatcher is
+     *  null until the input view is window-attached, so a too-early call simply no-ops. */
+    internal fun syncBackCallback() {
+        val iv = inputView ?: return
+        val dispatcher = iv.findOnBackInvokedDispatcher()
+        val want = iv.hasOverlay()
+        if (want && !backRegistered && dispatcher != null) {
+            val cb = backCallback ?: buildBackCallback().also { backCallback = it }
+            dispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, cb)
+            backRegistered = true
+        } else if (!want && backRegistered) {
+            backCallback?.let { dispatcher?.unregisterOnBackInvokedCallback(it) }
+            backRegistered = false
+        }
+    }
+
+    /** Drop the callback on teardown so a torn-down window never keeps back registered. */
+    private fun unregisterBackCallback() {
+        if (!backRegistered) return
+        backCallback?.let { inputView?.findOnBackInvokedDispatcher()?.unregisterOnBackInvokedCallback(it) }
+        backRegistered = false
+    }
+
+    /** ④ test seam: is the overlay-back callback currently registered? */
+    internal fun backCallbackRegisteredForTest(): Boolean = backRegistered
 
     /**
      * the preedit band at the top of the input view is transparent. Report the IME's
@@ -884,7 +931,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     // Chinese IME behavior note.
     // Chinese IME behavior note.
 
+    override fun onFinishInputView(finishingInput: Boolean) {
+        super.onFinishInputView(finishingInput)
+        unregisterBackCallback() // ④ the input view is going away → the overlay-back callback must not linger
+    }
+
     override fun onDestroy() {
+        unregisterBackCallback() // ④
         runCatching { decodeWorker.shutdownNow() } // ① stop the decode worker with the service
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
         // debug.47: withdraw the live user-dict host (only if it is still ours) so the settings page falls

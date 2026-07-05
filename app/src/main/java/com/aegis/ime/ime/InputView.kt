@@ -44,6 +44,9 @@ class InputView(context: Context) : LinearLayout(context) {
     var onCopyDismiss: () -> Unit = {} // Chinese IME behavior note.
     var onEditConfirm: () -> Unit = {} // Chinese IME behavior note.
     var onEditCancel: () -> Unit = {} // Chinese IME behavior note.
+    /** ④ Predictive back: fired whenever an overlay (panel / copy-bar / edit-bar) opens or closes, so the IME
+     *  service can (un)register its OnBackAnimationCallback exactly while an overlay is up. */
+    var onOverlayChanged: () -> Unit = {}
 
     private val preeditView = PreeditView(context)
     private val candidateView = CandidateView(context)
@@ -58,6 +61,12 @@ class InputView(context: Context) : LinearLayout(context) {
     private var lastSelectedReading = -1 // Chinese IME behavior note.
     private var composingNow = false // U21: whether the candidate strip is showing candidates / preedit
     private var currentPanel: View? = null // which panel is showing (B-1: only the A2 grid auto-closes)
+    // ④ LOGICAL overlay intent (flips the instant a close is requested, before the fade finishes) — the back
+    // callback (un)registers on this, NOT on the deferred copyBarShown/isEditBarShowing VISIBILITY, so an
+    // animated close of the last overlay never leaves Back swallowed for one press. Panel uses currentPanel,
+    // which is already logical/immediate.
+    private var copyBarActive = false
+    private var editBarActive = false
     private var palette = ImePalette.STATIC_LIGHT
 
     /** F1: fan the Monet palette out to the candidate strip / keyboard / preedit / copy-bar / expand grid. */
@@ -77,12 +86,14 @@ class InputView(context: Context) : LinearLayout(context) {
 
     /** debug.16: show/hide the inline text-input bar (keyboard + candidate strip stay visible below it). */
     fun showEditBar(active: Boolean) {
+        editBarActive = active
         if (active) {
-            Motion.revealIn(editBarView, Motion.EnterFrom.TOP, distanceDp = 6f, duration = Motion.STATE_CHANGE)
+            Motion.revealIn(editBarView, Motion.EnterFrom.TOP)
         } else {
-            editBarView.visibility = GONE
-            Motion.reset(editBarView)
+            // Symmetric exit: fade + slide back up (mirror of the reveal), was an instant GONE.
+            Motion.hide(editBarView, toward = Motion.EnterFrom.TOP)
         }
+        onOverlayChanged()
     }
     fun isEditBarShowing(): Boolean = editBarView.visibility == VISIBLE
     fun setEditTitle(t: String) { editBarView.setTitle(t) }
@@ -213,13 +224,17 @@ class InputView(context: Context) : LinearLayout(context) {
 
     /** Chinese IME behavior note. */
     fun showCopyBar(text: String) {
+        copyBarActive = true
         copyBarView.show(text)
         Motion.swapIn(copyBarView, candidateView)
+        onOverlayChanged()
     }
 
     /** Leave the copy-bar state → restore the normal candidate strip / toolbar. */
     fun hideCopyBar() {
+        copyBarActive = false
         Motion.swapIn(candidateView, copyBarView)
+        onOverlayChanged()
     }
 
     val copyBarShown: Boolean get() = copyBarView.visibility == VISIBLE
@@ -279,17 +294,32 @@ class InputView(context: Context) : LinearLayout(context) {
         // Chinese IME behavior note.
         // so nothing else would reset it).
         if (outgoing === gridView && panel !== gridView) onExpandClosed()
-        panelContainer.removeAllViews()
         currentPanel = panel
         // U14: the candidate-bar chevron points up + collapses only while the A2 grid is the open panel.
         candidateView.setExpanded(panel === gridView)
         if (panel == null) {
-            panelContainer.visibility = GONE
-            keyboardView.visibility = VISIBLE
-            // U-anim: fade the keyboard back in ONLY when swapping FROM a panel — not on a plain field focus
-            // (onStartInputView shows it with no outgoing panel). Alpha only: never the height / window.
-            if (outgoing != null) Motion.fadeIn(keyboardView)
+            // Symmetric exit (was an instant GONE): the leaving panel slides down + fades out — the mirror of
+            // its reveal — then the keyboard reclaims the slot and fades in. Sequential (never both visible at
+            // once) so the IME height stays constant. Motion.hide runs its end action synchronously under
+            // reduced motion / when detached, so the close is immediate there. No outgoing panel (plain field
+            // focus) → nothing to animate.
+            if (outgoing != null) {
+                Motion.hide(outgoing, toward = Motion.EnterFrom.BOTTOM) {
+                    if (currentPanel == null) { // a newer open didn't reclaim the slot meanwhile
+                        panelContainer.removeAllViews()
+                        panelContainer.visibility = GONE
+                        keyboardView.visibility = VISIBLE
+                        Motion.fadeIn(keyboardView)
+                    }
+                    Motion.reset(outgoing)
+                }
+            } else {
+                panelContainer.removeAllViews()
+                panelContainer.visibility = GONE
+                keyboardView.visibility = VISIBLE
+            }
         } else {
+            panelContainer.removeAllViews()
             // U19: occupy EXACTLY the keyboard's current footprint so opening a panel never grows or shrinks
             // the IME window. The old fixed 250dp expanded the short 9-key (panel taller) and shrank the tall
             // Chinese IME behavior note.
@@ -304,7 +334,72 @@ class InputView(context: Context) : LinearLayout(context) {
             keyboardView.visibility = GONE
             Motion.revealIn(panel, Motion.EnterFrom.BOTTOM) // The slot height is pinned above.
         }
+        onOverlayChanged()
     }
+
+    // ---- ④ Predictive back: the top open overlay follows the back gesture and dismisses on commit --------
+    // Precedence (top of the stack first): inline edit bar → extras panel → copy bar. With no overlay the
+    // service keeps the framework's default back (hide the IME) in charge, so it never swallows the gesture.
+    private enum class BackKind { NONE, PANEL, COPY_BAR, EDIT_BAR }
+    private var backKind = BackKind.NONE
+    private var backView: View? = null
+
+    /** True while any dismissable overlay is (logically) open — the service (un)registers its back callback on
+     *  this. Uses the logical flags, not the deferred visibility, so a closing overlay lifts the callback at
+     *  once (else an animated close of the last overlay would swallow the next Back for one press). */
+    fun hasOverlay(): Boolean = currentPanel != null || copyBarActive || editBarActive
+
+    private fun topOverlay(): Pair<BackKind, View?> = when {
+        editBarActive -> BackKind.EDIT_BAR to editBarView
+        currentPanel != null -> BackKind.PANEL to currentPanel
+        copyBarActive -> BackKind.COPY_BAR to copyBarView
+        else -> BackKind.NONE to null
+    }
+
+    /** Snapshot the overlay the back gesture will act on; false if there is none (let the IME hide instead). */
+    fun predictiveBackBegin(): Boolean {
+        val (kind, view) = topOverlay()
+        backKind = kind
+        backView = view
+        return kind != BackKind.NONE
+    }
+
+    /** Follow the finger: fade + nudge the top overlay a little toward its dismissal edge (progress 0..1). A
+     *  small [Motion.REVEAL_SHIFT_DP] slide + a partial fade — a hint, never a big move (anti-dizziness). */
+    fun predictiveBackProgress(progress: Float) {
+        val v = backView ?: return
+        val f = progress.coerceIn(0f, 1f)
+        v.alpha = 1f - PREDICTIVE_FADE * f
+        val shift = Motion.REVEAL_SHIFT_DP * resources.displayMetrics.density * f
+        v.translationY = when (backKind) {
+            BackKind.EDIT_BAR -> -shift          // slides back up (mirror of its top reveal)
+            BackKind.PANEL, BackKind.COPY_BAR -> shift // slide down toward exit
+            BackKind.NONE -> 0f
+        }
+    }
+
+    /** The gesture completed → run the top overlay's normal (symmetric) close via its existing path. */
+    fun predictiveBackCommit() {
+        backView?.let { Motion.reset(it) } // clear the follow-finger transform; the close animation owns it now
+        when (backKind) {
+            BackKind.EDIT_BAR -> onEditCancel()
+            BackKind.PANEL -> showPanel(null)
+            BackKind.COPY_BAR -> { hideCopyBar(); onCopyDismiss() }
+            BackKind.NONE -> {}
+        }
+        backKind = BackKind.NONE
+        backView = null
+    }
+
+    /** The gesture was abandoned → restore the overlay to rest. */
+    fun predictiveBackCancel() {
+        backView?.let { Motion.reset(it) }
+        backKind = BackKind.NONE
+        backView = null
+    }
+
+    /** ④ test seam: which overlay the next back gesture would act on (precedence resolver). */
+    internal fun backTargetKindForTest(): String = topOverlay().first.name
 
     /** U19: pin the panel slot to [px] (the keyboard footprint) so the IME height stays put on panel open. */
     private fun setPanelHeight(px: Int) {
@@ -339,6 +434,9 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun cachedNavBottomForTest(): Int = lastNavBottomPx
 
     private companion object {
+        /** ④ How far the top overlay fades as the back gesture reaches full progress (a restrained hint). */
+        private const val PREDICTIVE_FADE = 0.4f
+
         // S3: the last real navbar bottom inset, kept process-wide (survives the input-view re-inflation on a
         // theme switch) so a rebuilt InputView can restore the bottom raise immediately in its init, instead
         // of waiting for a window-insets re-dispatch the platform may skip for an unchanged inset value. A

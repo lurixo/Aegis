@@ -31,33 +31,46 @@ import com.aegis.ime.ime.theme.ImeShapes
 import kotlin.math.roundToInt
 
 /**
- * Small Material 3 motion vocabulary for the IME's View layer. Helpers here avoid layout-affecting properties
- * on the typing path and complete immediately when platform animators are disabled.
+ * The single Material-3 motion vocabulary for the IME's View layer (mirrored on the settings side by
+ * [com.aegis.ime.ui.theme.SettingsMotion]). See docs/MOTION_SPEC — Aegis motion is deliberately
+ * RESTRAINED: alpha-dominant, short, tiny spatial nudges only; never overshoot/bounce/spin/rotate and
+ * never a large translate/scale (those are the "晃眼/头晕" the design forbids). Every incoming transition
+ * has a symmetric outgoing partner ([revealIn]↔[hide], [swapIn], [fadeThrough]); high-frequency actions
+ * (keystroke/candidate update/preedit) get no layout/position animation, only the sub-100ms press layer.
+ * Helpers avoid layout-affecting properties on the typing path and jump straight to the end state when
+ * platform animators are disabled (system reduced-motion) or the view is detached.
  */
 object Motion {
-    /** MD3 easing tokens. */
+    // MD3 easings — every member is USED and HONEST (an "emphasized" curve whose points equalled STANDARD,
+    // and its unused accelerate twin, were removed; the emphasized family is the decel(in)/accel(out) pair).
+    /** Symmetric utility curve: colour cross-fades, the press-release state layer. */
     val STANDARD: Interpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
-    val STANDARD_ACCEL: Interpolator = PathInterpolator(0.3f, 0f, 1f, 1f)
+    /** Press-in state layer (a soft landing). */
     val STANDARD_DECEL: Interpolator = PathInterpolator(0f, 0f, 0f, 1f)
-    val EMPHASIZED: Interpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
-    val EMPHASIZED_ACCEL: Interpolator = PathInterpolator(0.3f, 0f, 0.8f, 0.15f)
+    /** Every INCOMING transition (reveal / fade-in / fade-through-in): MD3 emphasized-decelerate — a gentle
+     *  settle with no overshoot. */
     val EMPHASIZED_DECEL: Interpolator = PathInterpolator(0.05f, 0.7f, 0.1f, 1f)
+    /** Every OUTGOING transition (hide / fade-through-out): MD3 emphasized-accelerate — a quick, unobtrusive
+     *  exit. Single outgoing curve on both the IME and settings sides. */
+    val EMPHASIZED_ACCEL: Interpolator = PathInterpolator(0.3f, 0f, 0.8f, 0.15f)
 
-    /** MD3 duration tokens (ms). */
+    // Duration ladder (ms) — Aegis's restrained subset of the MD3 scale. MD3's medium/long tiers (250-500)
+    // exist for large expressive transitions this IME never performs, so the ladder tops out at SHORT4.
     const val SHORT1 = 50L
     const val SHORT2 = 100L
     const val SHORT3 = 150L
     const val SHORT4 = 200L
-    const val MEDIUM1 = 250L
-    const val MEDIUM2 = 300L
 
-    const val MEDIUM3 = 350L
-    const val LONG1 = 400L
-
+    // Semantic tokens — every animation references one of these, never a bare ms literal.
+    /** Press-down state layer (fast in). */
     const val PRESS_IN = SHORT1
+    /** Press-up state layer (slower out — MD3 state layers appear fast, fade slow). */
     const val PRESS_OUT = SHORT2
+    /** Colour / expand state change. */
     const val STATE_CHANGE = SHORT4
-    const val REVEAL = MEDIUM1
+    /** A surface revealing/dismissing (panel, edit-bar, overlay, action row): slide + fade. Same tier as a
+     *  state change — one "standard transition" duration across the whole IME. */
+    const val REVEAL = SHORT4
 
     /**
      * MD3 fade-through split (container-content swap): the outgoing content leaves on an accelerating
@@ -68,8 +81,14 @@ object Motion {
     const val FADE_OUT = SHORT2
     const val FADE_IN = SHORT3
 
-    /** Keyboard mode change (9键↔26键↔数字↔符号): an incoming fade-through — a larger, rarer transition. */
-    const val MODE_SWITCH = MEDIUM2
+    /** Keyboard mode change (9键↔26键↔数字↔符号): an alpha-only fade of the whole surface. Tightened to the
+     *  standard-transition tier (was 300ms — the single most attention-grabbing motion; §3② anti-dizziness). */
+    const val MODE_SWITCH = SHORT4
+
+    /** The ONE spatial nudge for every IME [revealIn]/[hide] slide (dp). A small, consistent shift regardless
+     *  of surface size — no scattered 6/8/10dp magic numbers. Full-screen settings pages use their own
+     *  width-proportional cue (see SettingsMotion), a distinct surface class. */
+    const val REVEAL_SHIFT_DP = 8f
 
     /** False when the user has turned system animations off — callers then jump straight to the end state. */
     fun enabled(ctx: Context): Boolean =
@@ -94,8 +113,9 @@ object Motion {
         )
     }
 
-    /** Fade [view] in from transparent. Alpha only, so IME height and hit regions remain unchanged. */
-    fun fadeIn(view: View, duration: Long = SHORT4) {
+    /** Fade [view] in from transparent (the "appear" fade — candidate role change, preedit tab, keyboard
+     *  mode switch, keyboard return from a panel). Alpha only, so IME height and hit regions never change. */
+    fun fadeIn(view: View, duration: Long = FADE_IN) {
         view.animate().cancel()
         if (!view.isAttachedToWindow || !enabled(view.context)) {
             showImmediately(view)
@@ -107,7 +127,10 @@ object Motion {
 
     enum class EnterFrom { NONE, START, END, TOP, BOTTOM }
 
-    fun revealIn(view: View, from: EnterFrom = EnterFrom.NONE, distanceDp: Float = 8f, duration: Long = REVEAL) {
+    /** Reveal [view] with a small directional slide + fade. [from] names the edge it enters from; the slide
+     *  distance is always [REVEAL_SHIFT_DP] and the duration [REVEAL] — callers pass only the direction so
+     *  every reveal across the IME is one tier. Its symmetric partner is [hide] with the matching `toward`. */
+    fun revealIn(view: View, from: EnterFrom = EnterFrom.NONE, distanceDp: Float = REVEAL_SHIFT_DP, duration: Long = REVEAL) {
         view.animate().cancel()
         view.visibility = View.VISIBLE
         val distance = distanceDp * view.resources.displayMetrics.density
@@ -135,17 +158,47 @@ object Motion {
             .start()
     }
 
-    fun hide(view: View, endVisibility: Int = View.GONE, duration: Long = SHORT3) {
+    /**
+     * The symmetric partner of [revealIn]/[fadeIn]: fade [view] out (and, when [toward] names an edge, slide
+     * it that way by [distanceDp] — the mirror of the reveal slide) on the outgoing curve, then set
+     * [endVisibility] and run [endAction] once. Under reduced motion / when detached it jumps straight to the
+     * end state (and still runs [endAction]) so callers close synchronously. Re-entrant: a newer call cancels
+     * this one without stealing its end state.
+     */
+    fun hide(
+        view: View,
+        endVisibility: Int = View.GONE,
+        toward: EnterFrom = EnterFrom.NONE,
+        distanceDp: Float = REVEAL_SHIFT_DP,
+        duration: Long = FADE_OUT,
+        endAction: (() -> Unit)? = null,
+    ) {
         view.animate().cancel()
         if (!view.isAttachedToWindow || !enabled(view.context)) {
             view.visibility = endVisibility
             reset(view)
+            endAction?.invoke()
             return
         }
+        val distance = distanceDp * view.resources.displayMetrics.density
         view.animate()
             .alpha(0f)
+            .translationX(
+                when (toward) {
+                    EnterFrom.START -> -distance
+                    EnterFrom.END -> distance
+                    else -> 0f
+                },
+            )
+            .translationY(
+                when (toward) {
+                    EnterFrom.TOP -> -distance
+                    EnterFrom.BOTTOM -> distance
+                    else -> 0f
+                },
+            )
             .setDuration(duration)
-            .setInterpolator(STANDARD_ACCEL)
+            .setInterpolator(EMPHASIZED_ACCEL)
             .setListener(object : AnimatorListenerAdapter() {
                 private var cancelled = false
 
@@ -154,22 +207,55 @@ object Motion {
                 }
 
                 override fun onAnimationEnd(animation: Animator) {
-                    if (!cancelled) {
-                        view.visibility = endVisibility
-                        reset(view)
-                    }
                     view.animate().setListener(null)
+                    if (cancelled) return // a newer hide/reveal took over; it owns the end state
+                    view.visibility = endVisibility
+                    reset(view)
+                    endAction?.invoke()
                 }
             })
             .start()
     }
 
-    fun swapIn(incoming: View, outgoing: View?) {
-        outgoing?.let {
-            it.visibility = View.GONE
-            reset(it)
+    /**
+     * Symmetric same-slot swap of two sibling views that must never both take height at once (the strip's
+     * candidate↔copy-bar role, held at a fixed height): fade [outgoing] out (accelerate, [outDuration]), then
+     * at the trough set it GONE and fade [incoming] in (decelerate, [inDuration]) — a fade-through across two
+     * views. Under reduced motion / detached it swaps immediately (outgoing GONE, incoming shown at full
+     * opacity) so callers can read the end state synchronously. Alpha only ⇒ the IME height never moves.
+     */
+    fun swapIn(incoming: View, outgoing: View?, outDuration: Long = FADE_OUT, inDuration: Long = FADE_IN) {
+        incoming.animate().cancel()
+        outgoing?.animate()?.cancel()
+        if (outgoing == null || !outgoing.isAttachedToWindow || !enabled(outgoing.context)) {
+            outgoing?.let { it.visibility = View.GONE; reset(it) }
+            showImmediately(incoming)
+            return
         }
-        revealIn(incoming)
+        outgoing.animate()
+            .alpha(0f)
+            .setDuration(outDuration)
+            .setInterpolator(EMPHASIZED_ACCEL)
+            .setListener(object : AnimatorListenerAdapter() {
+                private var cancelled = false
+
+                override fun onAnimationCancel(animation: Animator) {
+                    cancelled = true
+                }
+
+                override fun onAnimationEnd(animation: Animator) {
+                    outgoing.animate().setListener(null)
+                    if (cancelled) return // a newer swap took over
+                    outgoing.visibility = View.GONE
+                    reset(outgoing)
+                    incoming.visibility = View.VISIBLE
+                    incoming.alpha = 0f
+                    incoming.translationX = 0f
+                    incoming.translationY = 0f
+                    incoming.animate().alpha(1f).setDuration(inDuration).setInterpolator(EMPHASIZED_DECEL).start()
+                }
+            })
+            .start()
     }
 
     /**
@@ -190,7 +276,7 @@ object Motion {
         view.animate()
             .alpha(0f)
             .setDuration(outDuration)
-            .setInterpolator(STANDARD_ACCEL)
+            .setInterpolator(EMPHASIZED_ACCEL)
             .setListener(object : AnimatorListenerAdapter() {
                 private var cancelled = false
 
@@ -235,12 +321,14 @@ object Motion {
         view.invalidate()
     }
 
-    /** Cancel any running animation and reset [view] to its resting state. */
+    /** Cancel any running animation and reset [view] to its resting state (incl. translationZ, so a lifted
+     *  drag elevation never bleeds into a recycled row). */
     fun reset(view: View) {
         view.animate().cancel()
         view.alpha = 1f
         view.translationX = 0f
         view.translationY = 0f
+        view.translationZ = 0f
     }
 
     class PressFeedback(private val view: View, private val invalidate: () -> Unit = { view.invalidate() }) {

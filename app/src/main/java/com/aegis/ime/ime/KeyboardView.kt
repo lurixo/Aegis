@@ -196,9 +196,11 @@ class KeyboardView(context: Context) : View(context) {
     // AegisInputMethodService pushes the live, dark-aware palette via [applyPalette].
     private var palette = ImePalette.STATIC_LIGHT
 
-    init {
-        setLayerType(LAYER_TYPE_SOFTWARE, null) // kept; cheap (redraw only on key press)
-    }
+    // No software layer (jank fix): the keyboard draws only flat fills/strokes — no setShadowLayer/BlurMaskFilter
+    // anywhere here (unlike CandidateView/PreeditView, whose soft shadows genuinely need one). A software layer
+    // forced the WHOLE keyboard to re-rasterize into a CPU bitmap on every invalidate() — and press-highlight,
+    // preview bubble, case box and scroll-column drag all invalidate — so it was pure per-frame re-raster cost
+    // with no visual payoff. Drawing straight to the hardware canvas (default LAYER_TYPE_NONE) is cheaper here.
 
     private fun sp(value: Float) =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, resources.displayMetrics)

@@ -30,56 +30,60 @@ import androidx.compose.animation.slideOutHorizontally
 import com.aegis.ime.ime.Motion
 
 /**
- * MD3 motion tokens for the settings (Compose) side, kept in lock-step with the IME View layer's [Motion]
- * vocabulary: the DURATIONS are the very same tokens (single source in [Motion]) and the EASINGS mirror the
- * exact PathInterpolator control points as Compose [CubicBezierEasing]. So a duration/easing is never a
- * magic number on either side — both move on the same MD3 curves.
+ * The settings (Compose) side of the single Aegis motion vocabulary, in lock-step with the IME View layer's
+ * [Motion]: DURATIONS are the very same tokens (single source in [Motion]) and EASINGS mirror the exact
+ * emphasized control points as Compose [CubicBezierEasing]. So a duration/easing is never a magic number on
+ * either side, and both sides share ONE outgoing curve ([EmphasizedAccelerate]) and ONE incoming curve
+ * ([EmphasizedDecelerate]) — the honest emphasized family (a former `Emphasized`/`Standard` easing that
+ * merely duplicated the standard curve was removed).
  *
  * The settings graph is a hierarchy (a home screen → group sub-pages), so navigation uses the MD3
- * shared-axis X pattern (a short slide + fade-through); the forward/back direction is mirrored. Reveal/hide
- * of in-page content (the first-run hint) uses expand/shrink + fade on the state-change token.
+ * shared-axis X pattern (a short slide + fade); enter slides+fades on the decelerate curve, exit on the
+ * accelerate curve — mirrored on the back stack. Reveal/hide of in-page content (the first-run hint) uses
+ * expand/shrink + fade on the state-change token.
  */
 internal object SettingsMotion {
     // Durations = the IME-side MD3 tokens (Long ms → Int ms for Compose tween).
-    val DURATION_NAV = Motion.MODE_SWITCH.toInt()      // 300 — page navigation
+    val DURATION_NAV = Motion.MODE_SWITCH.toInt()      // 200 — page navigation (tightened with the IME tier)
     val DURATION_FADE_IN = Motion.FADE_IN.toInt()      // 150
     val DURATION_FADE_OUT = Motion.FADE_OUT.toInt()    // 100
     val DURATION_STATE = Motion.STATE_CHANGE.toInt()   // 200 — reveal / expand-collapse
 
-    // MD3 easings — identical control points to Motion's PathInterpolators.
-    val Standard: Easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
-    val Emphasized: Easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
-    val EmphasizedDecelerate: Easing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
-    val EmphasizedAccelerate: Easing = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
+    // MD3 emphasized easings — identical control points to Motion's incoming/outgoing PathInterpolators.
+    val EmphasizedDecelerate: Easing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f) // every enter (slide + fade in)
+    val EmphasizedAccelerate: Easing = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f) // every exit (slide + fade out)
 
-    /** Shared-axis X slide fraction: a short spatial cue (MD3 leans on the fade, not a full-screen slide). */
+    /** Shared-axis X slide: a full-screen page enters/leaves by 1/[SLIDE_FRACTION] of its width — a
+     *  width-proportional cue (MD3 leans on the fade, not a full slide). This is the settings surface's own
+     *  spatial token, distinct from the IME's fixed [Motion.REVEAL_SHIFT_DP] because a fixed 8dp is invisible
+     *  on a full page; both are named tokens, neither is a bare literal. */
     private const val SLIDE_FRACTION = 8
 
-    /** Forward navigation (home → sub-page): incoming enters from the end, fading in. */
+    /** Forward navigation (home → sub-page): incoming enters from the end, sliding + fading in (decelerate). */
     fun forwardEnter(scope: AnimatedContentTransitionScope<*>): EnterTransition =
         scope.run {
-            slideInHorizontally(tween(DURATION_NAV, easing = Emphasized)) { it / SLIDE_FRACTION } +
+            slideInHorizontally(tween(DURATION_NAV, easing = EmphasizedDecelerate)) { it / SLIDE_FRACTION } +
                 fadeIn(tween(DURATION_FADE_IN, easing = EmphasizedDecelerate))
         }
 
-    /** Forward navigation: the outgoing page leaves toward the start, fading out. */
+    /** Forward navigation: the outgoing page leaves toward the start, sliding + fading out (accelerate). */
     fun forwardExit(scope: AnimatedContentTransitionScope<*>): ExitTransition =
         scope.run {
-            slideOutHorizontally(tween(DURATION_NAV, easing = Emphasized)) { -it / SLIDE_FRACTION } +
+            slideOutHorizontally(tween(DURATION_NAV, easing = EmphasizedAccelerate)) { -it / SLIDE_FRACTION } +
                 fadeOut(tween(DURATION_FADE_OUT, easing = EmphasizedAccelerate))
         }
 
-    /** Back navigation (sub-page → home): incoming enters from the start, fading in (mirror of forward). */
+    /** Back navigation (sub-page → home): incoming enters from the start, sliding + fading in (mirror of forward). */
     fun backEnter(scope: AnimatedContentTransitionScope<*>): EnterTransition =
         scope.run {
-            slideInHorizontally(tween(DURATION_NAV, easing = Emphasized)) { -it / SLIDE_FRACTION } +
+            slideInHorizontally(tween(DURATION_NAV, easing = EmphasizedDecelerate)) { -it / SLIDE_FRACTION } +
                 fadeIn(tween(DURATION_FADE_IN, easing = EmphasizedDecelerate))
         }
 
-    /** Back navigation: the outgoing page leaves toward the end, fading out. */
+    /** Back navigation: the outgoing page leaves toward the end, sliding + fading out (accelerate). */
     fun backExit(scope: AnimatedContentTransitionScope<*>): ExitTransition =
         scope.run {
-            slideOutHorizontally(tween(DURATION_NAV, easing = Emphasized)) { it / SLIDE_FRACTION } +
+            slideOutHorizontally(tween(DURATION_NAV, easing = EmphasizedAccelerate)) { it / SLIDE_FRACTION } +
                 fadeOut(tween(DURATION_FADE_OUT, easing = EmphasizedAccelerate))
         }
 
