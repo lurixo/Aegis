@@ -1,0 +1,181 @@
+name: CI
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [dev]
+  schedule:
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+    inputs:
+      heavy:
+        description: Run the scheduled audit sweeps
+        type: boolean
+        default: false
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-heavy${{ (github.event_name == 'schedule' || github.event.inputs.heavy == 'true') && '1' || '0' }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build, test & lint
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    env:
+      AEGIS_FULLDICT_DIR: ${{ github.workspace }}/app/src/main/assets
+      AEGIS_LOCKED_BASELINE: ${{ github.workspace }}/app/src/test/resources/locked-sequence-2.tsv
+      AEGIS_ENGLISH: ${{ github.workspace }}/build/test-models/aegis_english.bin
+      AEGIS_GRAMMAR_LOCK: ${{ github.workspace }}/build/test-release-inputs/grammar-lock.json
+      AEGIS_BUILD_INFO: ${{ github.workspace }}/build/test-release-inputs/aegis-build-info.json
+      AEGIS_GRAM: ${{ github.workspace }}/build/test-model-cache/wanxiang-lts-zh-hans.gram
+      AEGIS_AUDIT_FULL: "1"
+      AEGIS_AUDIT_HEAVY: ${{ (github.event_name == 'schedule' || github.event.inputs.heavy == 'true') && '1' || '0' }}
+      AEGIS_BOOST_REPORT: "1"
+      AEGIS_BOOST_SMOKE: "1"
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Run the dictionary tooling tests
+        run: |
+          python3 tools/release/test_verify_toolchain.py
+          python3 tools/release/test_build_dictionary_pack.py
+          python3 tools/release/test_build_tgh_asset.py
+          python3 tools/release/test_fetch_test_dict.py
+          python3 tools/release/test_dictionary_verification.py
+
+      - name: Install the JDK the local gate runs on
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends openjdk-25-jdk-headless
+          home=/usr/lib/jvm/java-25-openjdk-amd64
+          if [[ ! -x "$home/bin/java" ]]; then
+            echo "the Ubuntu OpenJDK 25 package did not land in $home" >&2
+            exit 1
+          fi
+          echo "JAVA_HOME=$home" >> "$GITHUB_ENV"
+          echo "$home/bin" >> "$GITHUB_PATH"
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v6.3.0
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ""
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6.3.0
+
+      - name: Verify supported toolchain identities
+        run: |
+          mkdir -p build
+          python3 tools/release/verify_toolchain.py --repository . > build/toolchain-identity.json
+          cat build/toolchain-identity.json
+
+      - name: Fetch external dictionary release metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p build/test-release-inputs
+          for attempt in 1 2 3 4 5 6; do
+            if gh release download dict-latest --repo "$GITHUB_REPOSITORY" \
+              --pattern aegis-build-info.json --pattern aegis-dictionary-update.json \
+              --dir build/test-release-inputs --clobber; then
+              break
+            fi
+            if [[ "$attempt" -eq 6 ]]; then
+              echo "the dict-latest release metadata is unavailable after $attempt attempts" >&2
+              exit 1
+            fi
+            sleep $((attempt * 10))
+          done
+          python3 tools/fetch_test_dict.py --write-grammar-lock "$AEGIS_GRAMMAR_LOCK"
+
+      - name: Resolve the dictionary pack sha256
+        id: models
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          dict_sha256="$(python3 tools/fetch_test_dict.py --manifest-file build/test-release-inputs/aegis-dictionary-update.json --grammar-lock-file "$AEGIS_GRAMMAR_LOCK" --print-sha)"
+          grammar_sha256="$(python3 tools/fetch_test_dict.py --manifest-file build/test-release-inputs/aegis-dictionary-update.json --grammar-lock-file "$AEGIS_GRAMMAR_LOCK" --print-grammar-sha)"
+          if [[ ! "$dict_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "the dictionary pack sha256 is not a 64-hex digest: '$dict_sha256'" >&2
+            exit 1
+          fi
+          if [[ ! "$grammar_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "the grammar sha256 is not a 64-hex digest: '$grammar_sha256'" >&2
+            exit 1
+          fi
+          echo "dict_sha256=$dict_sha256" >> "$GITHUB_OUTPUT"
+          echo "grammar_sha256=$grammar_sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the full dictionary pack
+        uses: actions/cache@v6
+        with:
+          path: build/test-dict-cache
+          key: aegis-test-dict-${{ steps.models.outputs.dict_sha256 }}
+
+      - name: Cache the real grammar model
+        uses: actions/cache@v6
+        with:
+          path: build/test-model-cache
+          key: aegis-test-grammar-${{ steps.models.outputs.grammar_sha256 }}
+
+      - name: Fetch and verify the real test models
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 tools/fetch_test_dict.py --manifest-file build/test-release-inputs/aegis-dictionary-update.json --grammar-lock-file "$AEGIS_GRAMMAR_LOCK" --with-grammar
+
+      - name: Check the rare-character criterion
+        run: |
+          python3 tools/release/check_rare_criterion_gate.py \
+            --lm app/src/main/assets/aegis_lm.bin \
+            --authority app/src/main/assets-src/tongyong-guifan-hanzi-8105.tsv \
+            --json build/rare-criterion-gate.json
+
+      - name: Run unit tests with the real models and build debug
+        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug --rerun-tasks --no-build-cache --stacktrace
+
+      - name: Record the resolved Android SDK packages
+        run: sdkmanager --list_installed > build/android-sdk-packages.txt
+
+      - name: Run fresh Android Lint
+        run: ./gradlew :app:lintDebug --rerun-tasks --no-build-cache --stacktrace
+
+      - name: Build release with fresh R8
+        run: ./gradlew :app:assembleRelease --rerun-tasks --no-build-cache --stacktrace
+
+      - name: Verify external models stay out of APKs
+        run: ./gradlew :app:verifyExternalModelsNotPackaged --no-build-cache --stacktrace
+
+      - name: Verify release shrinker reports
+        run: |
+          test -s app/build/outputs/mapping/release/configuration.txt
+          test -s app/build/outputs/mapping/release/mapping.txt
+          test -s app/build/outputs/mapping/release/seeds.txt
+          test -s app/build/outputs/mapping/release/usage.txt
+
+      - name: Upload test & lint reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: reports
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/mapping/release/
+            build/rare-criterion-gate.json
+            build/toolchain-identity.json
+            build/android-sdk-packages.txt
+            build/test-release-inputs/
+          if-no-files-found: ignore
+          retention-days: 14
