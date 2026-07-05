@@ -57,10 +57,17 @@ class InputAssociationsDataTest {
 
     private fun catalogEmoji(): List<String> = EmojiCatalog.categories.flatMap { it.emoji }.distinct()
 
-    @Test fun every_catalog_emoji_has_exactly_one_row_in_catalog_order() {
-        val catalog = catalogEmoji()
+    @Test fun every_association_emoji_is_present_in_the_catalog() {
+        // The catalog grew to full Unicode v16 coverage (1361 → 1750 default cells), so it is now a
+        // SUPERSET of the pinyin-association table rather than equal to it — the added emoji are reachable
+        // through the panel without a pinyin keyword. The U23 emoji-association injection is unchanged
+        // (EmojiAssociations is untouched → every lookup is byte-identical); what must still hold is that no
+        // association points at an emoji the catalog dropped. Assert subset (0 dangling) + no invented dupes.
+        val catalog = catalogEmoji().toSet()
         val rows = EmojiAssociations.rows().map { it.emoji }
-        assertEquals("row count must equal the unique catalog emoji count (0 missing, 0 invented)", catalog, rows)
+        val dangling = rows.filter { it !in catalog }
+        assertTrue("association emoji missing from the catalog (dangling injection): $dangling", dangling.isEmpty())
+        assertEquals("no association emoji is listed twice", rows.size, rows.toSet().size)
     }
 
     @Test fun every_emoji_row_has_aligned_names_and_keys() {

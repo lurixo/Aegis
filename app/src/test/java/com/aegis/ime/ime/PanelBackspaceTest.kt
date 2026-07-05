@@ -22,8 +22,8 @@ import org.junit.Test
  * F2 (debug.12): the emoji / symbol panels' ⌫ used to call deleteSurroundingTextInCodePoints directly,
  * which — like the pre-S2 main key — is selection-START relative and ate the char BEFORE an active
  * selection (silent data loss). [ImeHost.panelBackspace] (the shared path both panels now use) must delete
- * the SELECTION when one exists, else remove one code point. Verified through the same fake-host seam the
- * S2 controller fix uses.
+ * the SELECTION when one exists, else remove one grapheme cluster. Verified through the same fake-host seam
+ * the S2 controller fix uses.
  */
 class PanelBackspaceTest {
 
@@ -34,19 +34,19 @@ class PanelBackspaceTest {
         override fun performEnter() {}
         override fun hasSelection(): Boolean = selection
         override fun deleteSelection() { calls.add("deleteSelection") }
-        override fun deleteCodePointBackward() { calls.add("deleteCodePoint") }
+        override fun deleteGraphemeBackward() { calls.add("deleteGrapheme") }
     }
 
     @Test fun panel_backspace_deletes_the_selection_when_one_exists() {
         val h = RecordingHost(selection = true)
         h.panelBackspace()
-        // Must delete the SELECTION — never the code point before it (that was the F2 data-loss bug).
+        // Must delete the SELECTION — never the cluster before it (that was the F2 data-loss bug).
         assertEquals(listOf("deleteSelection"), h.calls)
     }
 
-    @Test fun panel_backspace_removes_a_code_point_when_there_is_no_selection() {
+    @Test fun panel_backspace_removes_a_grapheme_cluster_when_there_is_no_selection() {
         val h = RecordingHost(selection = false)
         h.panelBackspace()
-        assertEquals(listOf("deleteCodePoint"), h.calls)
+        assertEquals(listOf("deleteGrapheme"), h.calls)
     }
 }

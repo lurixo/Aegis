@@ -49,10 +49,12 @@ class PanelTextInput {
         b.append(text); emit(); return true
     }
 
-    /** Delete the last code point (so a multi-code-point emoji deletes whole). @return true if consumed. */
+    /** Delete the last grapheme cluster (so an emoji — surrogate pair, flag, keycap, ZWJ sequence or VS16
+     *  form — deletes whole; a lone code-point deletion left half a cluster in the buffer, which the mirrored
+     *  edit bar then rendered as �). @return true if consumed. */
     fun backspace(): Boolean {
         val b = buf ?: return false
-        if (b.isNotEmpty()) { b.delete(b.offsetByCodePoints(b.length, -1), b.length); emit() }
+        if (b.isNotEmpty()) { b.delete(b.length - GraphemeText.lastClusterLength(b), b.length); emit() }
         return true
     }
 

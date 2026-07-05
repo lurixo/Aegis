@@ -41,6 +41,7 @@ import com.aegis.ime.ime.EditAction
 import com.aegis.ime.ime.EditPanelView
 import com.aegis.ime.ime.EmojiView
 import com.aegis.ime.ime.DecodeLane
+import com.aegis.ime.ime.GraphemeText
 import com.aegis.ime.ime.ImeHost
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
@@ -1009,19 +1010,30 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun deleteBackward() {
         if (panelInput.backspace()) return
-        currentInputConnection?.deleteSurroundingText(1, 0)
+        deleteLastEditorCluster()
     }
 
-    // F2: code-point-aware backspace so a multi-code-point emoji deletes whole (used by the panels' ⌫).
-    override fun deleteCodePointBackward() {
+    // Grapheme-cluster backspace so an emoji (surrogate pair / flag / keycap / ZWJ sequence / VS16 form)
+    // deletes whole instead of leaving half a surrogate that renders as � — used by the main key AND the
+    // panels' ⌫. A code-point deletion (the old deleteSurroundingTextInCodePoints) still split those clusters.
+    override fun deleteGraphemeBackward() {
         if (panelInput.backspace()) return
-        currentInputConnection?.deleteSurroundingTextInCodePoints(1, 0)
+        deleteLastEditorCluster()
+    }
+
+    /** Delete the last grapheme cluster of the editor text before the cursor (>=1 code unit). Plain ASCII /
+     *  Han is its own cluster, so this removes exactly one character there; an emoji cluster goes in one press. */
+    private fun deleteLastEditorCluster() {
+        val ic = currentInputConnection ?: return
+        val before = ic.getTextBeforeCursor(GraphemeText.WINDOW, 0) ?: ""
+        val n = GraphemeText.lastClusterLength(before)
+        ic.deleteSurroundingText(if (n > 0) n else 1, 0)
     }
 
     override fun panelBackspace() {
         if (panelInput.backspace()) return
         controller.expireCandidateChoiceUndo()
-        if (hasSelection()) deleteSelection() else deleteCodePointBackward()
+        if (hasSelection()) deleteSelection() else deleteGraphemeBackward()
     }
 
     override fun textBeforeCursor(n: Int): CharSequence {

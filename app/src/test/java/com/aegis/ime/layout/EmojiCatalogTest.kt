@@ -36,15 +36,30 @@ class EmojiCatalogTest {
         assertTrue("旗帜 before 动物", titles.indexOf("旗帜") < titles.indexOf("动物"))
     }
 
-    @Test fun is_a_near_complete_keyboard() {
-        // E2: ~1500+ across the categories (a near-complete standard emoji keyboard), not the old ~200.
-        assertTrue("only ${EmojiCatalog.categories.sumOf { it.emoji.size }} emoji", EmojiCatalog.categories.sumOf { it.emoji.size } >= 1000)
+    @Test fun is_a_full_coverage_keyboard_with_pinned_per_category_counts() {
+        // Rebuilt to full Unicode v16 coverage — the default (neutral / yellow) cells; skin-tone and
+        // man/woman variants live in EmojiVariants and surface via long-press, so they are NOT counted here.
+        // Exact counts pin the deliverable so a future edit cannot silently shrink a category.
+        val counts = EmojiCatalog.categories.associate { it.id to it.emoji.size }
+        assertEquals(
+            mapOf(
+                "face" to 130, "hand" to 230, "flag" to 270, "animal" to 130, "plant" to 76,
+                "food" to 131, "travel" to 140, "activity" to 85, "object" to 295, "symbol" to 263,
+            ),
+            counts,
+        )
+        assertEquals("total default cells", 1750, EmojiCatalog.categories.sumOf { it.emoji.size })
     }
 
-    @Test fun every_category_non_empty_and_no_duplicates() {
+    @Test fun every_category_non_empty_and_no_duplicates_within_or_across() {
+        val seen = HashMap<String, String>() // glyph → first category that held it
         for (c in EmojiCatalog.categories) {
             assertTrue("${c.title} empty", c.emoji.isNotEmpty())
             assertEquals("${c.title} has duplicates", c.emoji.size, c.emoji.toSet().size)
+            for (e in c.emoji) {
+                val prev = seen.put(e, c.title)
+                assertTrue("'$e' appears in both ${prev} and ${c.title}", prev == null)
+            }
         }
     }
 

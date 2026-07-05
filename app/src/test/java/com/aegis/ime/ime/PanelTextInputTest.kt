@@ -20,6 +20,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 /**
  * debug.16 Option A — the in-IME text-capture redirect. The host writes every ImeHost output as
@@ -28,7 +31,12 @@ import org.junit.Test
  * 🔴 RED LINE: normal typing must be 100% unaffected outside edit mode. That reduces to: when INACTIVE every
  * op returns false (→ the host's editor path runs), and after [end] it returns false AGAIN (the redirect is
  * fully torn down). [inactive_*] and [end_restores_*] are those guards.
+ *
+ * Robolectric-backed: [backspace] now deletes a whole grapheme cluster via [GraphemeText], which uses
+ * ICU's character break iterator, so the buffer's ⌫ removes a ZWJ / flag / keycap emoji cleanly.
  */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class PanelTextInputTest {
 
     @Test fun inactive_consumes_nothing_so_normal_typing_reaches_the_editor() {
@@ -64,11 +72,17 @@ class PanelTextInputTest {
         assertEquals("", p.text())
     }
 
-    @Test fun backspace_removes_a_whole_code_point() {
+    @Test fun backspace_removes_a_whole_grapheme_cluster() {
+        // Each of these emoji is a single cluster of 2+ UTF-16 code units; ⌫ must leave "a", never half of it.
+        for (emoji in listOf("😀", "🇨🇳", "0️⃣", "❤️", "👨‍👩‍👧‍👦", "👋🏽", "🏳️‍🌈")) {
+            val p = PanelTextInput()
+            p.begin("a$emoji")
+            assertTrue(p.backspace())
+            assertEquals("$emoji must delete whole, not half a surrogate", "a", p.text())
+        }
         val p = PanelTextInput()
-        p.begin("a😀") // "a" + 😀 (surrogate pair)
-        assertTrue(p.backspace())
-        assertEquals("a", p.text()) // the whole emoji is gone, not half a surrogate
+        p.begin("a😀")
+        assertTrue(p.backspace()); assertEquals("a", p.text())
         assertTrue(p.backspace()); assertEquals("", p.text())
         assertTrue("backspace on empty buffer still consumed", p.backspace())
     }

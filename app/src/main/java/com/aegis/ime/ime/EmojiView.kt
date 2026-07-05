@@ -38,11 +38,12 @@ import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.layout.EmojiCatalog
+import com.aegis.ime.layout.EmojiVariants
 
 /**
   * Chinese IME behavior note.
- * tappable emoji over a bottom bar with a back-to-keyboard button and a code-point-aware backspace.
- * Curated common set from [EmojiCatalog] — no network.
+ * tappable emoji over a bottom bar with a back-to-keyboard button and a grapheme-cluster-aware backspace.
+ * Full-coverage set from [EmojiCatalog]; long-press a cell to pick a skin-tone / gender variant — no network.
  */
 class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
 
@@ -67,6 +68,34 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         val p = dp(4); setPadding(p, p, p, p)
     }
     private val gridScroll = ScrollView(context).apply { addView(grid); isFillViewport = true }
+    // Long-press variant selector (skin tone / gender): an overlay hosted over the grid area only, so the
+    // rail and bottom bar stay reachable. The scrim dismisses on an outside tap; the card holds a gender row
+    // and a skin-tone row built on demand from [EmojiVariants]' combination rules (never a stored table).
+    private val gridFrame = FrameLayout(context)
+    private val variantGenderRow = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER }
+    private val variantSkinRow = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER }
+    private val variantCard = LinearLayout(context).apply {
+        orientation = VERTICAL
+        isClickable = true // absorb taps on the card so only the scrim dismisses
+        val p = dp(6); setPadding(p, p, p, p)
+    }
+    private val variantScrim = FrameLayout(context).apply {
+        isClickable = true
+        visibility = GONE
+        // A dismiss backdrop, not a button: it consumes every touch (so an outside tap dismisses AND never
+        // falls through to commit a grid emoji) — hence a touch listener, not an onClick with ripple feedback.
+        @Suppress("ClickableViewAccessibility")
+        setOnTouchListener { _, e ->
+            if (e.actionMasked == android.view.MotionEvent.ACTION_DOWN) dismissVariants()
+            true
+        }
+        addView(variantCard, FrameLayout.LayoutParams(
+            LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT,
+            Gravity.CENTER_HORIZONTAL or Gravity.TOP,
+        ).apply { topMargin = dp(10) })
+    }
+    private var variantBase = ""
+    private var variantGenderForm = ""
     // Chinese IME behavior note.
     // Chinese IME behavior note.
     private var locked = false
@@ -91,6 +120,13 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         val e = (v as TextView).text.toString()
         onEmoji(e); if (!locked) onBack() // debug.17: locked → stay open for multi-insert
     }
+    // Long-press an emoji that has skin-tone / gender variants → open the selector instead of committing.
+    // Returning true consumes the gesture so the follow-up tap does NOT also commit the base; a plain (short)
+    // tap is unaffected and still commits the default form. Cells with no variants fall through (return false).
+    private val emojiLongClick = View.OnLongClickListener { v ->
+        val e = (v as TextView).text.toString()
+        if (EmojiVariants.hasVariants(e)) { openVariants(e); true } else false
+    }
 
     init {
         orientation = VERTICAL
@@ -106,11 +142,15 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
 
         for ((i, t) in titles.withIndex()) rail.addView(railTab(i, t))
 
+        gridFrame.addView(gridScroll, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        gridFrame.addView(variantScrim, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        variantCard.addView(variantGenderRow)
+        variantCard.addView(variantSkinRow)
         val content = LinearLayout(context).apply {
             orientation = HORIZONTAL
             railScroll.setBackgroundColor(palette.railBg)
             addView(railScroll, LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
-            addView(gridScroll, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+            addView(gridFrame, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         }
         addView(content, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         addView(bottomBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(46)))
@@ -143,6 +183,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
      */
     override fun resetToDefault() {
         resetLock() // Chinese IME behavior note.
+        dismissVariants() // never reopen a panel with a stale variant card showing
         showCategory(0)
         gridScroll.scrollTo(0, 0)
         railScroll.scrollTo(0, 0)
@@ -182,6 +223,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun tapCellForTest(index: Int): Boolean = (grid.getChildAt(index) as? TextView)?.performClick() ?: false
 
     private fun showCategory(index: Int) {
+        dismissVariants() // a rail tab switch closes any open variant card
         val tabChanged = index != selected
         val prev = selected
         selected = index
@@ -264,8 +306,10 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
             val p = dp(8)
             setPadding(0, p, 0, p)
             isClickable = true
+            isLongClickable = true
             Motion.applyTapFeedback(this, palette.keyLabel)
             setOnClickListener(emojiClick)
+            setOnLongClickListener(emojiLongClick)
             layoutParams = GridLayout.LayoutParams().apply {
                 width = 0
                 height = LayoutParams.WRAP_CONTENT
@@ -276,6 +320,87 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         emojiPool.add(tv)
         return tv
     }
+
+    // ---- long-press skin-tone / gender variant selector -------------------------------------------------
+
+    /** Open the variant card for [base]. Gender row lets you pick neutral / man / woman; the skin-tone row
+     *  shows the five Fitzpatrick tones of the CURRENTLY selected gender form — so gender × tone compose. */
+    private fun openVariants(base: String) {
+        variantBase = base
+        variantGenderForm = base
+        styleVariantCard()
+        buildGenderRow(base)
+        buildSkinRow(base)
+        variantScrim.visibility = View.VISIBLE
+        variantScrim.bringToFront()
+    }
+
+    private fun dismissVariants() { variantScrim.visibility = View.GONE }
+
+    private fun commitVariant(form: String) {
+        onEmoji(form)               // record + commit, exactly like a normal pick
+        dismissVariants()
+        if (!locked) onBack()       // debug.17: locked → stay open for multi-insert
+    }
+
+    private fun buildGenderRow(base: String) {
+        val forms = EmojiVariants.genderForms(base)      // [base] or [neutral, man, woman]
+        variantGenderRow.removeAllViews()
+        if (forms.size <= 1) { variantGenderRow.visibility = View.GONE; return } // no gender axis → no row
+        variantGenderRow.visibility = View.VISIBLE
+        for (f in forms) variantGenderRow.addView(variantCell(f, selected = f == variantGenderForm) {
+            if (EmojiVariants.skinForms(f).size > 1) {   // this gender has a tone axis → select it, re-render tones
+                variantGenderForm = f
+                buildGenderRow(base)                     // refresh the selection highlight
+                buildSkinRow(f)
+            } else commitVariant(f)                      // no tone axis → commit straight away
+        })
+    }
+
+    private fun buildSkinRow(form: String) {
+        val tones = EmojiVariants.skinForms(form)        // [form] or [form, +5 tones]
+        variantSkinRow.removeAllViews()
+        if (tones.size <= 1) { variantSkinRow.visibility = View.GONE; return } // no tone axis → no row
+        variantSkinRow.visibility = View.VISIBLE
+        for (t in tones) variantSkinRow.addView(variantCell(t, selected = false) { commitVariant(t) })
+    }
+
+    private fun variantCell(glyph: String, selected: Boolean, onTap: () -> Unit): TextView =
+        TextView(context).apply {
+            text = glyph
+            gravity = Gravity.CENTER
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.display)
+            val p = dp(6); setPadding(p, p, p, p)
+            minWidth = dp(42)
+            isClickable = true
+            if (selected) background = GradientDrawable().apply {
+                setColor(palette.keySurface); cornerRadius = ImeShapes.chipRadiusDp * density
+            }
+            Motion.applyTapFeedback(this, palette.keyLabel, radiusDp = ImeShapes.chipRadiusDp)
+            setOnClickListener { onTap() }
+        }
+
+    private fun styleVariantCard() {
+        variantScrim.setBackgroundColor(Motion.withAlpha(palette.keyLabelSecondary, 0x40))
+        variantCard.background = GradientDrawable().apply {
+            setColor(palette.keyboardBg); cornerRadius = ImeShapes.cardRadiusDp * density
+        }
+        variantCard.elevation = dp(8).toFloat()
+    }
+
+    // P7 test seams (variant selector).
+    internal fun longPressCellForTest(index: Int): Boolean =
+        (grid.getChildAt(index) as? TextView)?.let { emojiLongClick.onLongClick(it) } ?: false
+    internal fun openVariantsForTest(emoji: String) = openVariants(emoji)
+    internal fun variantVisibleForTest(): Boolean = variantScrim.visibility == View.VISIBLE
+    internal fun variantGenderFormsForTest(): List<String> =
+        (0 until variantGenderRow.childCount).map { (variantGenderRow.getChildAt(it) as TextView).text.toString() }
+    internal fun variantSkinFormsForTest(): List<String> =
+        (0 until variantSkinRow.childCount).map { (variantSkinRow.getChildAt(it) as TextView).text.toString() }
+    internal fun tapVariantGenderForTest(index: Int): Boolean =
+        (variantGenderRow.getChildAt(index) as? TextView)?.performClick() ?: false
+    internal fun tapVariantSkinForTest(index: Int): Boolean =
+        (variantSkinRow.getChildAt(index) as? TextView)?.performClick() ?: false
 
     private fun bottomBar(): View = LinearLayout(context).apply {
         orientation = HORIZONTAL

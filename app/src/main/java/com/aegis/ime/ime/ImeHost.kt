@@ -38,18 +38,21 @@ interface ImeHost {
      */
     fun deleteSelection() { commitText("") }
 
-    /** Delete one whole code point before the cursor (so a multi-code-point emoji deletes cleanly instead of
-     *  leaving half a surrogate pair). Defaults to [deleteBackward]; the IME overrides it with a
-     *  code-point-aware deletion. Used by the emoji/symbol panels' ⌫ via [panelBackspace]. */
-    fun deleteCodePointBackward() { deleteBackward() }
+    /** Delete the whole grapheme cluster before the cursor (so an emoji — surrogate pair, flag, keycap, ZWJ
+     *  sequence or VS16 form — deletes cleanly instead of leaving half a surrogate that renders as �; plain
+     *  ASCII / Han text is its own cluster, so this still removes exactly one character). Defaults to
+     *  [deleteBackward]; the IME overrides it with a [GraphemeText]-based deletion. Used by the emoji/symbol
+     *  panels' ⌫ via [panelBackspace]. */
+    fun deleteGraphemeBackward() { deleteBackward() }
 
     /**
      * F2 (debug.12): the selection-aware ⌫ for the emoji / symbol panels. Their ⌫ buttons used to call
      * deleteSurroundingTextInCodePoints directly, which — like the pre-S2 main key — is selection-START
      * relative and silently ate the char BEFORE an active selection. Mirror the S2 fix: delete the SELECTION
-     * if there is one, else remove one code point. Shared by both panels so there is no third divergent path.
+     * if there is one, else remove one grapheme cluster (a code-point deletion still split ZWJ / flag /
+     * keycap clusters into a rendered �). Shared by both panels so there is no third divergent path.
      */
     fun panelBackspace() {
-        if (hasSelection()) deleteSelection() else deleteCodePointBackward()
+        if (hasSelection()) deleteSelection() else deleteGraphemeBackward()
     }
 }

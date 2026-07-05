@@ -20,9 +20,10 @@ package com.aegis.ime.engine
  * Chinese keyword(s) and their toneless full-pinyin keys. Pure data — only [InputAssociations] consumes it;
  * the emoji panel/catalog rendering is untouched.
  *
- * Contract (locked by InputAssociationsDataTest, no sampling): exactly one row per unique catalog emoji, in
- * catalog order (rows == catalog, so nothing can go missing or be invented); names and keys align 1:1; every
- * key is valid toneless full pinyin; every emoji actually surfaces within MAX_PER_QUERY for its PRIMARY
+ * Contract (locked by InputAssociationsDataTest, no sampling): one row per keyworded emoji, all present in the
+ * catalog (the catalog is a superset — it now also holds full-coverage emoji that carry no pinyin keyword — so
+ * every row's emoji resolves to a cell and none is invented); names and keys align 1:1; every key is valid
+ * toneless full pinyin; every emoji actually surfaces within MAX_PER_QUERY for its PRIMARY
  * (first) key. Non-primary aliases may be shared by several emoji (e.g. two 星星), where glyph rank follows
  * the merge order in [InputAssociations] (legacy first, then symbols, then this file in catalog order).
  *
