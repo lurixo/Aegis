@@ -42,16 +42,17 @@ class BuildInfoJsonTest {
         assertEquals("dictionary", dictionary.getString("kind"))
         // The manifest describes this release's dictionary pack; the shipped ModelDownload fallback
         // constant points at a different pack, so the two asset shas differ (asserted below).
-        assertEquals("aegis_dict_pack_debug48.zip", asset.getString("name"))
+        assertEquals("aegis_dict_pack_debug49.zip", asset.getString("name"))
         assertEquals(
-            "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.48/aegis_dict_pack_debug48.zip",
+            "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.49/aegis_dict_pack_debug49.zip",
             asset.getString("url"),
         )
-        // sha256/size are byte-identical to the previous pack: same source commit, same builder
-        // parameters, deterministic zip recipe, clean tree — the dictionary content did not change.
-        assertEquals("afda5d50c3ba9f7e254f79051613160f3b311b63218eb4c3f9582e3dbc1d3f86", asset.getString("sha256"))
-        assertEquals(98_164_388L, asset.getLong("size_bytes"))
-        assertEquals("v0.1.0-debug.48", asset.getString("release_tag"))
+        // sha256/size reflect a fresh rebuild from the advanced source (upstream stable tag v16.0.1):
+        // the dictionary content changed from the frozen debug.13 pack, so these differ from the prior
+        // pack. Deterministic zip recipe (timestamp 1980, mode 0644, level 9, fixed order) still applies.
+        assertEquals("6bd777fb063d352c830d89a519fc1922902d2196ce4ceee6b30f475e38aeb85d", asset.getString("sha256"))
+        assertEquals(97_925_579L, asset.getLong("size_bytes"))
+        assertEquals("v0.1.0-debug.49", asset.getString("release_tag"))
         assertTrue(asset.getBoolean("prerelease"))
         assertNotEquals(ModelDownload.FALLBACK_DICT_SHA256, asset.getString("sha256"))
         assertEquals(ModelDownload.DICT_REPO_URL, source.getString("repo"))
@@ -70,8 +71,12 @@ class BuildInfoJsonTest {
             listOf("zi", "jichu", "lianxiang", "cuoyin", "duoyin", "shici", "diming", "yixue", "huaxue", "yaopin", "mingren", "yiren", "wuzhong", "renming"),
             actualTables,
         )
-        assertEquals("wanxiang", source.getString("branch"))
-        assertEquals("0d4eec1e7631dd55de27d2fc281a48639fec6e67", source.getString("commit"))
+        // The source is now pinned to an upstream STABLE release tag (v16.0.1) instead of the rolling
+        // wanxiang dev branch: ref_type=tag, tag recorded, branch null.
+        assertEquals("tag", source.getString("ref_type"))
+        assertEquals("v16.0.1", source.getString("tag"))
+        assertTrue("branch is null when pinned to a tag", source.isNull("branch"))
+        assertEquals("7db7c588fd5ea90c13e4bf1814d7dd7fa8a2effc", source.getString("commit"))
         assertEquals("tools/src/main/kotlin/com/aegis/tools/DictBuilder.kt", build.getString("builder_path"))
         assertEquals(1, build.getJSONObject("full_pack_parameters").getInt("min_freq"))
         assertTrue(build.getJSONObject("full_pack_parameters").isNull("max_per_key"))
