@@ -1,0 +1,100 @@
+name: Bug report
+description: Report a problem with the Aegis keyboard
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a report. The more detail you give, the faster it can be reproduced and fixed.
+
+        **Please do not paste anything private you typed.** A short, neutral phrase that reproduces the problem is enough.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before you start
+      options:
+        - label: I searched existing issues and this has not already been reported.
+          required: true
+        - label: I am using the latest available release.
+          required: false
+  - type: input
+    id: app-version
+    attributes:
+      label: Aegis version
+      description: The release you installed (shown on the Releases page and in the app's About screen).
+      placeholder: "vX.Y.Z-debug.N"
+    validations:
+      required: true
+  - type: input
+    id: android-version
+    attributes:
+      label: Android version
+      description: "Settings → About phone → Android version."
+      placeholder: "e.g. Android 14"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device model
+      placeholder: "e.g. Pixel 7"
+    validations:
+      required: false
+  - type: dropdown
+    id: keyboard-mode
+    attributes:
+      label: Where does it happen?
+      description: Select every surface where you see the problem.
+      multiple: true
+      options:
+        - 26-key full pinyin
+        - 9-key (T9)
+        - Number layout
+        - Symbol panel
+        - Emoji selector
+        - Clipboard / phrases panel
+        - Edit panel
+        - Settings screen
+        - Not sure / other
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Is it related to any of these?
+      description: Optional — helps route the report.
+      multiple: true
+      options:
+        - Predictive back gesture
+        - Screen switch flicker / flash
+        - Animation / motion
+        - Candidate accuracy / decoding
+        - None of these
+    validations:
+      required: false
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What went wrong, and what did you expect to happen instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: A numbered list is ideal. Include the exact keys or gesture if relevant.
+      placeholder: |
+        1. Switch to the 9-key layout
+        2. Type a short phrase
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots / screen recording (optional)
+      description: A screen recording is especially helpful for a flicker, animation, or gesture issue. Drag files here to attach them.
+    validations:
+      required: false
