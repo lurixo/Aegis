@@ -244,6 +244,41 @@ class InputAssociationsDataTest {
         "ouyuan" to listOf("€"),
     )
 
+    /**
+     * Noise-key regression lock (U23 review round 2): a glyph must never be keyed on a bare single syllable
+     * (or an ultra-common word) whose everyday mainstream reading is unrelated to it — the "typing 好 shows
+     * 🦪 oyster" class. Each pair below was trimmed to an unambiguous multi-syllable key; this asserts the
+     * bare/colliding key no longer surfaces the glyph, so a future data edit cannot silently reintroduce it.
+     * (Animals on their recognised bare-syllable reading, legacy entries, and sole-name glyphs like flags are
+     * deliberately NOT here — see the submit note's kept-classes table.)
+     */
+    @Test fun trimmed_noise_keys_no_longer_surface_their_glyph() {
+        val forbidden = listOf(
+            // the nine reported high-frequency noise keys
+            "hao" to "🦪", "chi" to "📏", "gao" to "⛏️", "dong" to "🕳️", "fei" to "🫁",
+            "huan" to "🦡", "dou" to "🫘", "suan" to "🧄", "dasuan" to "🧄", "jiandan" to "🍳",
+            // same-class bare single-syllable keys found by the full-table dominant-reading scan
+            "cai" to "👎", "dan" to "🥚", "dao" to "🔪", "dian" to "⚡", "bi" to "🖊️",
+            "bing" to "🧊", "jiang" to "🫚", "jiao" to "🦶", "li" to "🍐", "mi" to "㊙️",
+            "pai" to "🥧", "cheng" to "⚖️", "mao" to "⚓", "hua" to "🖼️", "lei" to "😫",
+            "lei" to "🌩️", "wu" to "🌫️", "wu" to "🌁", "xin" to "✉️", "shu" to "🌳",
+            "ye" to "✌️", "qing" to "☀️", "san" to "☂️", "quan" to "⭕", "suo" to "🔒",
+            "jin" to "🈲", "cha" to "❌", "jian" to "➖", "wan" to "🥣", "yao" to "💊",
+            "qiang" to "🔫", "tong" to "🪣", "ya" to "🦷", "xue" to "🩸",
+            // same-class ultra-common two-syllable words (toneless homophone of the glyph's rarer word)
+            "biye" to "✌️", "youhua" to "🖼️", "yali" to "🍐", "zhichi" to "📏", "zhishi" to "🧀",
+            "zuowei" to "💺", "touzi" to "🎲", "zhijin" to "🧻", "shuzi" to "🪮", "keji" to "✈️",
+            "yifen" to "🍝", "jiazhi" to "🦿", "xiaoshi" to "🫥", "youyu" to "😔", "shiyan" to "🧂",
+            "ziyuan" to "🟣",
+        )
+        for ((key, glyph) in forbidden) {
+            assertTrue(
+                "'$key' must no longer surface '$glyph' (it is a bare/colliding key whose mainstream reading is unrelated)",
+                glyph !in InputAssociations.lookup(key),
+            )
+        }
+    }
+
     @Test fun all_48_legacy_entries_keep_their_glyphs_first_in_order() {
         assertEquals(48, legacyTable.size)
         for ((key, glyphs) in legacyTable) {
