@@ -1,20 +1,20 @@
 {
   "schema_version": 1,
   "schema_name": "aegis.resource-build-info",
-  "generated_at": "2026-07-04T14:46:40Z",
+  "generated_at": "2026-07-05T04:30:56Z",
   "app": {
     "project": "Aegis",
     "repository": "https://github.com/lurixo/Aegis",
-    "release_tag": "v0.1.0-debug.47"
+    "release_tag": "v0.1.0-debug.48"
   },
   "resources": [
     {
       "kind": "dictionary",
       "physical_asset": {
-        "name": "aegis_dict_pack_debug47.zip",
-        "url": "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.47/aegis_dict_pack_debug47.zip",
-        "release_tag": "v0.1.0-debug.47",
-        "release_url": "https://github.com/lurixo/Aegis/releases/tag/v0.1.0-debug.47",
+        "name": "aegis_dict_pack_debug48.zip",
+        "url": "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.48/aegis_dict_pack_debug48.zip",
+        "release_tag": "v0.1.0-debug.48",
+        "release_url": "https://github.com/lurixo/Aegis/releases/tag/v0.1.0-debug.48",
         "prerelease": true,
         "published_at": null,
         "sha256": "afda5d50c3ba9f7e254f79051613160f3b311b63218eb4c3f9582e3dbc1d3f86",
@@ -130,7 +130,7 @@
       },
       "build": {
         "builder_path": "tools/src/main/kotlin/com/aegis/tools/DictBuilder.kt",
-        "builder_commit": "c2034c39b9e4cb12ee993a68d8779b44d5f32215",
+        "builder_commit": "43540bf0720bb722861b405123014c3d4eddc1b8",
         "builder_tree_dirty": false,
         "full_pack_parameters": {
           "min_freq": 1,
