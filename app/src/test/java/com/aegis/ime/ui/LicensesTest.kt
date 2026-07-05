@@ -57,6 +57,7 @@ class LicensesTest {
         for (needle in listOf(
             "rime-wanxiang", "amzxyz", "CC BY 4.0", "creativecommons.org/licenses/by/4.0",
             "v16.0.1", "7db7c588",
+            "aegis_{dict,t9,jianpin,lm}.bin", "aegis_lm.bin", "character-bigram",
             "RIME-LMDG", "OpenCC", "BYVoid", "Apache-2.0",
             "Unicode", "unicode.org/license",
             "AndroidX", "Compose", "Material 3", "Kotlin",
