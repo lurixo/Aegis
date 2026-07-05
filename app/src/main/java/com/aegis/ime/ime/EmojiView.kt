@@ -302,6 +302,8 @@ class EmojiView(context: Context) :
     internal fun lockBtnForTest(): TextView = lockBtn
     internal fun lockSlotForTest(): View = lockSlot
     internal fun railTabForTest(index: Int): TextView = rail.getChildAt(index) as TextView
+    internal fun railTabFeedbackLevelForTest(index: Int): Float =
+        railFeedback[railTabForTest(index)]?.levelForTest() ?: 0f
     internal fun emojiCellsAllocatedForTest(): Int = currentPage.cells.size
     internal fun gridCellForTest(index: Int): TextView? = currentPage.grid.getChildAt(index) as? TextView
     internal fun gridCellFeedbackLevelForTest(index: Int): Float =

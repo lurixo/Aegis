@@ -17,6 +17,7 @@ package com.aegis.ime.ime
 
 import android.app.Activity
 import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.os.Looper
 import android.provider.Settings
 import android.view.View
@@ -42,6 +43,8 @@ class SwitchFlickerTest {
 
     private val ctx = RuntimeEnvironment.getApplication()
     private val light = ImePalette.STATIC_LIGHT
+
+    private fun floorColor(bg: android.graphics.drawable.Drawable?): Int? = (bg as? ColorDrawable)?.color
 
     @Test fun panel_slot_carries_an_opaque_keyboard_floor() {
         val iv = InputView(ctx)
@@ -173,6 +176,16 @@ class SwitchFlickerTest {
         return found.single()
     }
 
+    @Test fun every_panel_root_carries_an_opaque_floor() {
+        for ((name, bg) in listOf(
+            "emoji" to floorColor(EmojiView(ctx).apply { applyPalette(light) }.background),
+            "symbols" to floorColor(SymbolsView(ctx).apply { applyPalette(light) }.background),
+        )) {
+            assertEquals("$name panel floor colour", light.keyboardBg, bg)
+            assertEquals("$name panel floor must be opaque", 0xFF, Color.alpha(bg!!))
+        }
+    }
+
     private fun <T : View> attached(activity: Activity, view: T): T {
         val host = FrameLayout(activity)
         host.addView(view)
@@ -232,6 +245,36 @@ class SwitchFlickerTest {
         assertEquals("the original category stays at the top after motion settles", 0, viewport.scrollY)
     }
 
+    private fun <T : View> assertCategorySwitchStopsFling(
+        panel: T,
+        viewport: ScrollView,
+        first: Int,
+        second: Int,
+        open: T.(Int) -> Unit,
+    ) {
+        fun frame() {
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(16))
+            viewport.computeScroll()
+            layoutPanel(panel)
+        }
+
+        panel.open(first)
+        flushMotion()
+        layoutPanel(panel)
+        assertTrue("the fling source category must overflow", maxScroll(viewport) > 0)
+        viewport.scrollTo(0, 0)
+        viewport.fling(9000)
+        repeat(3) { frame() }
+        assertTrue("the source category fling must move before switching", viewport.scrollY > 0)
+
+        panel.open(second)
+        assertEquals("switching during a fling resets to the top", 0, viewport.scrollY)
+        repeat(30) {
+            frame()
+            assertEquals("the outgoing fling must not move the new category", 0, viewport.scrollY)
+        }
+    }
+
     @Test fun emoji_category_switches_start_at_the_top_without_resetting_same_category_refreshes() {
         for (scale in listOf(1f, 0f)) {
             Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, scale)
@@ -273,6 +316,35 @@ class SwitchFlickerTest {
             } finally {
                 controller.pause().stop().destroy()
             }
+        }
+    }
+
+    @Test fun switching_categories_stops_the_outgoing_grid_fling() {
+        Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val emoji = attached(activity, EmojiView(activity).apply { applyPalette(light) })
+            layoutPanel(emoji)
+            assertCategorySwitchStopsFling(
+                emoji,
+                emoji.gridViewportForTest() as ScrollView,
+                first = 2,
+                second = 3,
+                open = { openCategoryForTest(it) },
+            )
+
+            val symbols = attached(activity, SymbolsView(activity).apply { applyPalette(light) })
+            layoutPanel(symbols)
+            assertCategorySwitchStopsFling(
+                symbols,
+                symbols.gridViewportForTest() as ScrollView,
+                first = 5,
+                second = 9,
+                open = { openCategoryForTest(it) },
+            )
+        } finally {
+            controller.pause().stop().destroy()
         }
     }
 

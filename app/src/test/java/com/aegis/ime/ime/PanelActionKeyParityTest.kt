@@ -16,14 +16,21 @@
 package com.aegis.ime.ime
 
 import android.app.Activity
+import android.content.res.Configuration
 import android.graphics.Color
+import android.graphics.Rect
+import android.graphics.RectF
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.RippleDrawable
 import android.os.Looper
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
+import com.aegis.ime.layout.EmojiCatalog
 import com.aegis.ime.layout.SymbolCatalog
 import java.time.Duration
 import org.junit.After
@@ -80,6 +87,200 @@ class PanelActionKeyParityTest {
 
     private fun surface(view: View): ImeKeySurface = view.background as ImeKeySurface
 
+    private fun faceBounds(root: ViewGroup, view: View): RectF {
+        val outer = Rect(0, 0, view.width, view.height)
+        root.offsetDescendantRectToMyCoords(view, outer)
+        return surface(view).faceBoundsForTest(view.width, view.height).apply {
+            offset(outer.left.toFloat(), outer.top.toFloat())
+        }
+    }
+
+    private fun assertSharedPanelGeometry(
+        testContext: android.content.Context,
+        widthDp: Int,
+        palette: ImePalette,
+    ) {
+        val emoji = EmojiView(testContext).apply {
+            recentProvider = { listOf("🙂") }
+            applyPalette(palette)
+            refresh()
+        }
+        val symbols = SymbolsView(testContext).apply {
+            recentProvider = { listOf("+") }
+            applyPalette(palette)
+            refresh()
+        }
+        layout(emoji, widthDp)
+        layout(symbols, widthDp)
+        relayout(emoji, widthDp)
+        relayout(symbols, widthDp)
+        val emojiTab = emoji.railTabForTest(0)
+        val symbolTab = symbols.railTabForTest(0)
+        val emojiCell = requireNotNull(emoji.gridCellForTest(0))
+        val symbolCell = requireNotNull(symbols.gridCellForTest("+"))
+        val emojiCellFace = faceBounds(emoji, emojiCell)
+        val symbolCellFace = faceBounds(symbols, symbolCell)
+
+        assertEquals("panels choose the same column count", emoji.gridColumnCountForTest(), symbols.gridColumnCountForTest())
+        assertEquals("panels choose the same outer cell width", emojiCell.width, symbolCell.width)
+        assertEquals("panels choose the same row height", emoji.cellHeightForTest(), symbols.cellHeightForTest())
+        assertEquals("a grid holds four rows", 4, EmojiView.ROWS)
+        assertEquals("a grid holds four rows", 4, SymbolsView.ROWS)
+        val inset = (com.aegis.ime.ime.theme.ImeShapes.edgeInsetDp * emoji.resources.displayMetrics.density).toInt()
+        assertTrue("the action column is at least a fifth of the framed panel", emoji.actionColumnForTest().width >= (emoji.width - 2 * inset) / 5)
+        assertEquals(
+            "both panels give the action column the same width",
+            emoji.actionColumnForTest().width,
+            symbols.actionColumnForTest().width,
+        )
+        assertEquals(
+            "both panels give the category bar the same height",
+            emoji.categoryBarForTest().height,
+            symbols.categoryBarForTest().height,
+        )
+        for ((name, panel) in listOf("emoji" to emoji, "symbol" to symbols)) {
+            val column = if (panel is EmojiView) panel.actionColumnForTest() else (panel as SymbolsView).actionColumnForTest()
+            val bar = if (panel is EmojiView) panel.categoryBarForTest() else (panel as SymbolsView).categoryBarForTest()
+            val viewport = if (panel is EmojiView) panel.gridViewportForTest() else (panel as SymbolsView).gridViewportForTest()
+            assertEquals(
+                "the $name action column takes the function surface",
+                palette.functionSurface,
+                (column.background as ColorDrawable).color,
+            )
+            assertEquals(
+                "the $name category bar takes the function surface",
+                palette.functionSurface,
+                (bar.background as ColorDrawable).color,
+            )
+            assertEquals(
+                "the $name content viewport takes the panel surface",
+                palette.panelBg,
+                (viewport.background as ColorDrawable).color,
+            )
+        }
+        assertEquals("an emoji category fills the bar height", emoji.categoryBarForTest().height, emojiTab.height)
+        assertEquals("a symbol category fills the bar height", symbols.categoryBarForTest().height, symbolTab.height)
+        assertTrue("an emoji category is as wide as its own label", emojiTab.width > 0)
+        assertTrue("a symbol category is as wide as its own label", symbolTab.width > 0)
+        val cellInset = 0f
+        assertEquals("a cell face fills the emoji cell", emojiCell.width - cellInset, emojiCellFace.width(), 0f)
+        assertEquals("a cell face fills the emoji cell", emojiCell.height - cellInset, emojiCellFace.height(), 0f)
+        assertEquals("a cell face fills the symbol cell", symbolCell.width - cellInset, symbolCellFace.width(), 0f)
+        assertEquals("a cell face fills the symbol cell", symbolCell.height - cellInset, symbolCellFace.height(), 0f)
+        assertEquals(emojiCellFace.width(), symbolCellFace.width(), 0f)
+        assertEquals(surface(emojiTab).cornerRadiusPx, surface(symbolTab).cornerRadiusPx, 0f)
+        assertEquals(Color.TRANSPARENT, surface(emojiTab).faceColor)
+        assertEquals(Color.TRANSPARENT, surface(symbolTab).faceColor)
+        assertEquals(Color.TRANSPARENT, surface(emojiCell).faceColor)
+        assertEquals(Color.TRANSPARENT, surface(symbolCell).faceColor)
+
+        val emojiUnselected = emoji.railTabForTest(1)
+        val symbolUnselected = symbols.railTabForTest(1)
+        assertEquals(emojiTab.height, emojiUnselected.height)
+        assertEquals(symbolTab.height, symbolUnselected.height)
+        assertEquals(Color.TRANSPARENT, surface(emojiUnselected).faceColor)
+        assertEquals(Color.TRANSPARENT, surface(symbolUnselected).faceColor)
+    }
+
+    private data class TabGeometry(
+        val left: Int,
+        val top: Int,
+        val right: Int,
+        val bottom: Int,
+        val paddingLeft: Int,
+        val paddingTop: Int,
+        val paddingRight: Int,
+        val paddingBottom: Int,
+        val leftMargin: Int,
+        val topMargin: Int,
+        val rightMargin: Int,
+        val bottomMargin: Int,
+    )
+
+    private fun railTabs(first: TextView): List<TextView> {
+        val rail = first.parent as ViewGroup
+        return (0 until rail.childCount).map { rail.getChildAt(it) as TextView }
+    }
+
+    private fun geometry(tab: TextView): TabGeometry {
+        val margins = tab.layoutParams as ViewGroup.MarginLayoutParams
+        return TabGeometry(
+            tab.left,
+            tab.top,
+            tab.right,
+            tab.bottom,
+            tab.paddingLeft,
+            tab.paddingTop,
+            tab.paddingRight,
+            tab.paddingBottom,
+            margins.leftMargin,
+            margins.topMargin,
+            margins.rightMargin,
+            margins.bottomMargin,
+        )
+    }
+
+    private fun assertRailState(
+        name: String,
+        tabs: List<TextView>,
+        selected: Int,
+        palette: ImePalette,
+        bottomActions: List<View>,
+    ) {
+        assertEquals("$name keeps exactly one selected category", 1, tabs.count { it.isSelected })
+        assertEquals(
+            "$name underline follows the selection",
+            selected,
+            (tabs.first().parent as ImePanelCategoryRail).selectedIndex,
+        )
+        tabs.forEachIndexed { index, tab ->
+            assertEquals("$name category $index selected state", index == selected, tab.isSelected)
+            val surface = tab.background as? ImeKeySurface
+            assertNotNull("$name category $index uses the shared key surface", surface)
+            assertEquals(
+                "$name category $index resting face",
+                Color.TRANSPARENT,
+                requireNotNull(surface).faceColor,
+            )
+            assertFalse("$name category $index has no platform ripple", tab.foreground is RippleDrawable)
+        }
+        for ((index, action) in bottomActions.withIndex()) {
+            val surface = action.background as? ImeKeySurface
+            assertNotNull("$name bottom action $index keeps the shared key surface", surface)
+            assertEquals("$name bottom action $index has no resting key face", Color.TRANSPARENT, requireNotNull(surface).faceColor)
+            assertEquals("$name bottom action $index press highlight is square; the frame rounds the outer corner", 0f, surface.cornerRadiusPx, 0f)
+            assertEquals(
+                "$name bottom action $index press highlight fills its slot edge to edge",
+                RectF(0f, 0f, 40f, 30f),
+                surface.faceBoundsForTest(40, 30),
+            )
+            assertFalse("$name bottom action $index has no platform ripple", action.foreground is RippleDrawable)
+        }
+    }
+
+    private fun assertEveryRailSelection(
+        name: String,
+        panel: View,
+        tabs: List<TextView>,
+        palette: ImePalette,
+        bottomActions: List<View>,
+        select: (Int) -> Unit,
+    ) {
+        val initialGeometry = tabs.map(::geometry)
+        assertRailState(name, tabs, selected = 0, palette, bottomActions)
+        for (selected in (1 until tabs.size).toList() + 0) {
+            select(selected)
+            shadowOf(Looper.getMainLooper()).idle()
+            relayout(panel, 360)
+            assertRailState("$name selected $selected", tabs, selected, palette, bottomActions)
+            assertEquals(
+                "$name category geometry stays fixed when selecting $selected",
+                initialGeometry,
+                tabs.map(::geometry),
+            )
+        }
+    }
+
     private fun exercisePressLifecycle(
         name: String,
         tab: TextView,
@@ -110,6 +311,164 @@ class PanelActionKeyParityTest {
         assertFalse("$name cancellation clears pressed state", tab.isPressed)
     }
 
+    @Test fun emoji_and_symbol_grids_adapt_columns_to_keep_full_48dp_input_targets() {
+        for (width in listOf(280, 320, 360, 411, 480)) {
+            val emoji = EmojiView(context).apply {
+                recentProvider = { EmojiCatalog.categories.first().emoji.take(14) }
+                refresh()
+            }
+            layout(emoji, width)
+            val emojiCell = requireNotNull(emoji.gridCellForTest(0))
+            assertTrue("emoji $width dp cell width", emojiCell.width >= dp(48))
+            assertTrue("emoji $width dp cell height", emojiCell.height >= dp(48))
+            assertTrue(emoji.gridColumnCountForTest() in 1..7)
+
+            val symbols = SymbolsView(context).apply {
+                recentProvider = { (1..14).map { "symbol-$it" } }
+                refresh()
+            }
+            layout(symbols, width)
+            val symbolCell = requireNotNull(symbols.gridCellForTest("symbol-1"))
+            assertTrue("symbol $width dp cell width", symbolCell.width >= dp(48))
+            assertTrue("symbol $width dp cell height", symbolCell.height >= dp(48))
+            assertTrue(symbols.gridColumnCountForTest() in 1..7)
+        }
+    }
+
+    @Test fun sparse_emoji_and_symbol_rows_keep_the_same_cell_width_as_full_grids() {
+        for (width in listOf(280, 320, 360, 411, 480)) {
+            val fullEmoji = EmojiView(context).apply {
+                recentProvider = { EmojiCatalog.categories.first().emoji.take(14) }
+                refresh()
+            }
+            layout(fullEmoji, width)
+            val emojiWidth = requireNotNull(fullEmoji.gridCellForTest(0)).width
+            val emojiColumns = fullEmoji.gridColumnCountForTest()
+
+            for (count in listOf(1, (emojiColumns - 1).coerceAtLeast(1))) {
+                val sparse = EmojiView(context).apply {
+                    recentProvider = { EmojiCatalog.categories.first().emoji.take(count) }
+                    refresh()
+                }
+                layout(sparse, width)
+                assertEquals("emoji $width dp count=$count", emojiWidth, requireNotNull(sparse.gridCellForTest(0)).width)
+            }
+            val fullSymbols = SymbolsView(context).apply {
+                recentProvider = { (1..14).map { "symbol-$it" } }
+                refresh()
+            }
+            layout(fullSymbols, width)
+            val symbolWidth = requireNotNull(fullSymbols.gridCellForTest("symbol-1")).width
+            val symbolColumns = fullSymbols.gridColumnCountForTest()
+
+            for (count in listOf(1, (symbolColumns - 1).coerceAtLeast(1))) {
+                val sparse = SymbolsView(context).apply {
+                    recentProvider = { (1..count).map { "symbol-$it" } }
+                    refresh()
+                }
+                layout(sparse, width)
+                assertEquals(
+                    "symbol $width dp count=$count",
+                    symbolWidth,
+                    requireNotNull(sparse.gridCellForTest("symbol-1")).width,
+                )
+            }
+        }
+    }
+
+    @Test fun emoji_and_symbol_surfaces_share_exact_geometry_across_widths_palettes_and_font_scale() {
+        for (fontScale in listOf(0.85f, 1f, 1.35f)) {
+            val configuration = Configuration(context.resources.configuration).apply {
+                this.fontScale = fontScale
+            }
+            val scaledContext = context.createConfigurationContext(configuration)
+            for (palette in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
+                for (width in listOf(320, 360, 411, 480)) {
+                    assertSharedPanelGeometry(scaledContext, width, palette)
+                }
+            }
+        }
+    }
+
+    @Test
+    @Config(sdk = [34], qualifiers = "xxhdpi")
+    fun emoji_and_symbol_surfaces_share_exact_geometry_at_high_density() {
+        assertSharedPanelGeometry(context, 360, ImePalette.STATIC_LIGHT)
+        assertSharedPanelGeometry(context, 411, ImePalette.STATIC_DARK)
+    }
+
+    @Test fun every_emoji_and_symbol_category_starts_on_the_shared_face_geometry() {
+        for (palette in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
+            val emoji = EmojiView(context).apply {
+                recentProvider = { listOf("🙂") }
+                applyPalette(palette)
+                refresh()
+            }
+            layout(emoji, 360)
+            val metrics = ImePanelSurfaceMetrics.resolve(emoji.resources.displayMetrics.density)
+            var emojiFaceWidth: Float? = null
+            for (index in 0..EmojiCatalog.categories.size) {
+                emoji.openCategoryForTest(index)
+                shadowOf(Looper.getMainLooper()).idle()
+                relayout(emoji, 360)
+                assertEquals("emoji category $index starts at the top", 0, emoji.gridScrollYForTest())
+                val cell = requireNotNull(emoji.gridCellForTest(0))
+                val cellFace = faceBounds(emoji, cell)
+                val gap = (ImeShapes.toolbarCapsuleMarginDp * emoji.resources.displayMetrics.density).toInt().toFloat()
+                assertEquals("emoji category $index opens on the first row", gap, cellFace.top, 0f)
+                assertEquals(
+                    "an emoji cell face is one row tall",
+                    emoji.cellHeightForTest() - 0f,
+                    cellFace.height(),
+                    0f,
+                )
+                assertEquals(
+                    "an emoji cell face fills its cell",
+                    cell.width - 0f,
+                    cellFace.width(),
+                    0f,
+                )
+                emojiFaceWidth?.let { assertEquals("emoji category $index cell width", it, cellFace.width(), 0f) }
+                    ?: run { emojiFaceWidth = cellFace.width() }
+            }
+
+            val symbols = SymbolsView(context).apply {
+                recentProvider = { listOf("+") }
+                applyPalette(palette)
+                refresh()
+            }
+            layout(symbols, 360)
+            var symbolFaceWidth: Float? = null
+            for (index in 0..SymbolCatalog.categories.size) {
+                symbols.openCategoryForTest(index)
+                shadowOf(Looper.getMainLooper()).idle()
+                relayout(symbols, 360)
+                assertEquals("symbol category $index starts at the top", 0, symbols.gridScrollYForTest())
+                val texts = symbols.gridCellTextsForTest()
+                val lead = requireNotNull(symbols.gridCellForTest(texts.first()))
+                val leadFace = faceBounds(symbols, lead)
+                val cellFace = faceBounds(symbols, requireNotNull(symbols.gridCellForTest(texts.first { it.length == 1 })))
+                val gap = (ImeShapes.toolbarCapsuleMarginDp * symbols.resources.displayMetrics.density).toInt().toFloat()
+                assertEquals("symbol category $index opens on the first row", gap, leadFace.top, 0f)
+                assertEquals(
+                    "a symbol cell face is one row tall",
+                    symbols.cellHeightForTest() - 0f,
+                    leadFace.height(),
+                    0f,
+                )
+                assertEquals(
+                    "a symbol cell face fills its cell",
+                    lead.width - 0f,
+                    leadFace.width(),
+                    0f,
+                )
+                symbolFaceWidth?.let { assertEquals("symbol category $index cell width", it, cellFace.width(), 0f) }
+                    ?: run { symbolFaceWidth = cellFace.width() }
+            }
+            assertEquals(emojiFaceWidth, symbolFaceWidth)
+        }
+    }
+
     @Test fun multi_span_symbols_use_the_shared_base_face_width_and_gap() {
         val symbols = SymbolsView(context).apply {
             applyPalette(ImePalette.STATIC_LIGHT)
@@ -127,6 +486,177 @@ class PanelActionKeyParityTest {
         assertEquals("the wide face bridges the inner gap", singleFace.width() * 2 + faceInset, wideFace.width(), 0f)
         assertEquals(symbols.cellHeightForTest() - faceInset, singleFace.height(), 0f)
         assertEquals(symbols.cellHeightForTest() - faceInset, wideFace.height(), 0f)
+    }
+
+    @Test fun emoji_and_symbol_category_tabs_share_action_surfaces_selection_and_stable_geometry() {
+        for (palette in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
+            val emoji = EmojiView(context).apply { applyPalette(palette) }
+            layout(emoji, 360)
+            val emojiTabs = railTabs(emoji.railTabForTest(0))
+            assertEveryRailSelection(
+                "emoji",
+                emoji,
+                emojiTabs,
+                palette,
+                listOf(
+                    emoji.backBtnForTest(),
+                    emoji.clearBtnForTest(),
+                    emoji.lockBtnForTest(),
+                    emoji.backspaceBtnForTest(),
+                ),
+                emoji::openCategoryForTest,
+            )
+
+            val symbols = SymbolsView(context).apply { applyPalette(palette) }
+            layout(symbols, 360)
+            val symbolTabs = railTabs(symbols.railTabForTest(0))
+            assertEveryRailSelection(
+                "symbols",
+                symbols,
+                symbolTabs,
+                palette,
+                listOf(
+                    symbols.backBtnForTest(),
+                    symbols.clearBtnForTest(),
+                    symbols.lockBtnForTest(),
+                    symbols.backspaceBtnForTest(),
+                ),
+                symbols::openCategoryForTest,
+            )
+        }
+    }
+
+    @Test fun emoji_and_symbol_category_tabs_share_press_haptics_and_single_click_dispatch() {
+        var emojiRecentReads = 0
+        val emoji = EmojiView(context).apply {
+            hapticEnabled = true
+            recentProvider = {
+                emojiRecentReads++
+                listOf("🙂")
+            }
+        }
+        layout(emoji, 360)
+        val emojiTab = emoji.railTabForTest(1)
+        exercisePressLifecycle("emoji category", emojiTab) { emoji.railTabFeedbackLevelForTest(1) }
+        assertEquals(HapticFeedbackConstants.KEYBOARD_TAP, shadowOf(emojiTab).lastHapticFeedbackPerformed())
+        assertEquals("cancelled emoji category gestures do not switch", 0, emoji.selectedCategoryForTest())
+
+        emoji.openCategoryForTest(1)
+        shadowOf(Looper.getMainLooper()).idle()
+        emojiRecentReads = 0
+        val emojiRecent = emoji.railTabForTest(0)
+        emojiRecent.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, emojiRecent.width / 2f, emojiRecent.height / 2f, 50L))
+        emojiRecent.dispatchTouchEvent(event(MotionEvent.ACTION_UP, emojiRecent.width / 2f, emojiRecent.height / 2f, 60L))
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("emoji recent category is selected by one real click", 0, emoji.selectedCategoryForTest())
+        assertEquals("emoji click dispatches its category action once", 1, emojiRecentReads)
+
+        var symbolRecentReads = 0
+        val symbols = SymbolsView(context).apply {
+            hapticEnabled = true
+            recentProvider = {
+                symbolRecentReads++
+                listOf("+")
+            }
+        }
+        layout(symbols, 360)
+        val symbolTab = symbols.railTabForTest(1)
+        exercisePressLifecycle("symbol category", symbolTab) { symbols.railTabFeedbackLevelForTest(1) }
+        assertEquals(HapticFeedbackConstants.KEYBOARD_TAP, shadowOf(symbolTab).lastHapticFeedbackPerformed())
+        assertEquals("cancelled symbol category gestures do not switch", 0, symbols.selectedCategoryForTest())
+
+        symbols.openCategoryForTest(1)
+        shadowOf(Looper.getMainLooper()).idle()
+        symbolRecentReads = 0
+        val symbolRecent = symbols.railTabForTest(0)
+        symbolRecent.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, symbolRecent.width / 2f, symbolRecent.height / 2f, 70L))
+        symbolRecent.dispatchTouchEvent(event(MotionEvent.ACTION_UP, symbolRecent.width / 2f, symbolRecent.height / 2f, 80L))
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("symbol recent category is selected by one real click", 0, symbols.selectedCategoryForTest())
+        assertEquals("symbol click dispatches its category action once", 1, symbolRecentReads)
+    }
+
+    @Test fun emoji_and_symbol_category_haptics_follow_the_panel_toggle() {
+        val emoji = EmojiView(context).apply { hapticEnabled = false }
+        layout(emoji, 360)
+        val emojiTab = emoji.railTabForTest(1)
+        emojiTab.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, emojiTab.width / 2f, emojiTab.height / 2f))
+        assertEquals(-1, shadowOf(emojiTab).lastHapticFeedbackPerformed())
+        emojiTab.dispatchTouchEvent(event(MotionEvent.ACTION_CANCEL, emojiTab.width / 2f, emojiTab.height / 2f, 10L))
+
+        val symbols = SymbolsView(context).apply { hapticEnabled = false }
+        layout(symbols, 360)
+        val symbolTab = symbols.railTabForTest(1)
+        symbolTab.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, symbolTab.width / 2f, symbolTab.height / 2f, 20L))
+        assertEquals(-1, shadowOf(symbolTab).lastHapticFeedbackPerformed())
+        symbolTab.dispatchTouchEvent(event(MotionEvent.ACTION_CANCEL, symbolTab.width / 2f, symbolTab.height / 2f, 30L))
+    }
+
+    @Test fun emoji_and_symbol_input_cells_use_static_key_faces_haptics_and_edge_hit_cells() {
+        var emojiCommits = 0
+        val emoji = EmojiView(context).apply {
+            recentProvider = { listOf("🙂") }
+            onEmoji = { emojiCommits++ }
+            hapticEnabled = true
+            refresh()
+        }
+        layout(emoji, 360)
+        val emojiCell = requireNotNull(emoji.gridCellForTest(0))
+        assertNotNull(emojiCell.background)
+        assertFalse(emojiCell.background is RippleDrawable)
+        emojiCell.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, 0.5f, emojiCell.height / 2f))
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(Motion.PRESS_IN))
+        assertEquals(1f, emoji.gridCellFeedbackLevelForTest(0), 0f)
+        assertEquals(HapticFeedbackConstants.KEYBOARD_TAP, shadowOf(emojiCell).lastHapticFeedbackPerformed())
+        emojiCell.dispatchTouchEvent(event(MotionEvent.ACTION_UP, 0.5f, emojiCell.height / 2f, 20L))
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, emojiCommits)
+
+        var symbolCommits = 0
+        val symbols = SymbolsView(context).apply {
+            recentProvider = { listOf("+") }
+            onSymbol = { _, _ -> symbolCommits++ }
+            hapticEnabled = true
+            refresh()
+        }
+        layout(symbols, 360)
+        val symbolCell = requireNotNull(symbols.gridCellForTest("+"))
+        val margins = symbolCell.layoutParams as ViewGroup.MarginLayoutParams
+        assertEquals(0, margins.leftMargin)
+        assertEquals(0, margins.topMargin)
+        assertEquals(0, margins.rightMargin)
+        assertEquals(0, margins.bottomMargin)
+        assertNotNull(symbolCell.background)
+        assertFalse(symbolCell.background is RippleDrawable)
+        symbolCell.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, symbolCell.width - 0.5f, symbolCell.height / 2f, 30L))
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(Motion.PRESS_IN))
+        assertEquals(1f, symbols.gridCellFeedbackLevelForTest("+"), 0f)
+        assertEquals(HapticFeedbackConstants.KEYBOARD_TAP, shadowOf(symbolCell).lastHapticFeedbackPerformed())
+        symbolCell.dispatchTouchEvent(event(MotionEvent.ACTION_UP, symbolCell.width - 0.5f, symbolCell.height / 2f, 50L))
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, symbolCommits)
+    }
+
+    @Test fun emoji_and_symbol_backspace_controls_share_repeat_swipe_and_haptic_behavior() {
+        val emojiRepeats = ArrayList<Unit>()
+        val emojiSwipes = ArrayList<Boolean>()
+        val emoji = EmojiView(context).apply {
+            hapticEnabled = true
+            onBackspace = { emojiRepeats += Unit }
+            onBackspaceSwipe = { emojiSwipes += it }
+        }
+        layout(emoji, 360)
+        exerciseBackspace(emoji.backspaceBtnForTest(), emojiRepeats, emojiSwipes)
+
+        val symbolRepeats = ArrayList<Unit>()
+        val symbolSwipes = ArrayList<Boolean>()
+        val symbols = SymbolsView(context).apply {
+            hapticEnabled = true
+            onBackspace = { symbolRepeats += Unit }
+            onBackspaceSwipe = { symbolSwipes += it }
+        }
+        layout(symbols, 360)
+        exerciseBackspace(symbols.backspaceBtnForTest(), symbolRepeats, symbolSwipes)
     }
 
     @Test fun expanded_candidate_actions_use_the_same_static_face_and_haptic_policy() {
@@ -196,5 +726,21 @@ class PanelActionKeyParityTest {
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(0, picked)
         assertEquals(0, pickedReading)
+    }
+
+    private fun exerciseBackspace(button: View, repeats: MutableList<Unit>, swipes: MutableList<Boolean>) {
+        val x = button.width / 2f
+        val y = button.height / 2f
+        button.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, x, y))
+        assertEquals(HapticFeedbackConstants.KEYBOARD_TAP, shadowOf(button).lastHapticFeedbackPerformed())
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(BackspaceGesture.REPEAT_DELAY_MS))
+        assertEquals(1, repeats.size)
+        button.dispatchTouchEvent(event(MotionEvent.ACTION_UP, x, y, 450L))
+        assertEquals(1, repeats.size)
+
+        button.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, x, button.height * 0.8f, 500L))
+        button.dispatchTouchEvent(event(MotionEvent.ACTION_UP, x, button.height * 0.1f, 520L))
+        assertEquals(listOf(true), swipes)
+        assertEquals(1, repeats.size)
     }
 }

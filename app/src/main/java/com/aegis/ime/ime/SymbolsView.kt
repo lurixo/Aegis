@@ -716,6 +716,8 @@ class SymbolsView(context: Context) :
     internal fun lockBtnForTest(): TextView = lockBtn
     internal fun lockSlotForTest(): View = lockSlot
     internal fun railTabForTest(index: Int): TextView = rail.getChildAt(index) as TextView
+    internal fun railTabFeedbackLevelForTest(index: Int): Float =
+        railFeedback[railTabForTest(index)]?.levelForTest() ?: 0f
     internal fun clearDialogVisibleForTest(): Boolean = clearDialog.visibility == View.VISIBLE
     internal fun confirmClearForTest(): Boolean = clearDialog.confirmForTest()
     internal fun cancelClearForTest(): Boolean = clearDialog.cancelForTest()
