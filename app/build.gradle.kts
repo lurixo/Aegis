@@ -13,8 +13,14 @@ android {
         applicationId = "com.aegis.ime"
         minSdk = 34
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0-debug.50"
+        val releaseName = "0.1.0-debug.50"
+        val debugSeq = releaseName.substringAfterLast("-debug.").toIntOrNull()
+            ?: error("versionName '$releaseName' must end in '-debug.<N>' so versionCode can derive from it")
+        require(debugSeq >= 2) {
+            "derived versionCode ($debugSeq) must exceed the published versionCode 1 so installs count as updates"
+        }
+        versionCode = debugSeq
+        versionName = releaseName
         ndk { abiFilters += "arm64-v8a" }
     }
 
