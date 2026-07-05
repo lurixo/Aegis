@@ -19,7 +19,7 @@ android {
         // could never update across versions. Now a release edits ONLY the name and the code auto-increments
         // with it (debug.N -> versionCode N), monotonically. Every published build so far shipped versionCode 1,
         // so any derived code >= 2 is a strictly higher, valid update that never reuses a published number.
-        val releaseName = "0.1.0-debug.50"
+        val releaseName = "0.1.0-debug.51"
         val debugSeq = releaseName.substringAfterLast("-debug.").toIntOrNull()
             ?: error("versionName '$releaseName' must end in '-debug.<N>' so versionCode can derive from it")
         require(debugSeq >= 2) {
