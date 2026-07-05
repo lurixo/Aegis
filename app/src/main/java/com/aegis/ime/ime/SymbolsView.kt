@@ -176,7 +176,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
             if (tabChanged && (i == index || i == prev)) crossfadeTabColor(tab, color) else tab.setTextColor(color)
             retintRipple(tab, color, ImeShapes.chipRadiusDp)
         }
-        Motion.fadeThrough(gridScroll) { bindGrid(index) }
+        bindGrid(index)
     }
 
     private fun bindGrid(index: Int) {

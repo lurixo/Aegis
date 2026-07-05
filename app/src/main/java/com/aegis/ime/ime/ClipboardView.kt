@@ -310,7 +310,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         }
         if (tabChanged) tabTransitions++
         if (modeChanged) modeTransitions++
-        if (tabChanged || modeChanged) Motion.fadeThrough(main, swap = rebuild) else rebuild()
+        rebuild()
     }
 
     private fun currentRenderMode(): Int = when {
