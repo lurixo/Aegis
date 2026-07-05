@@ -19,8 +19,10 @@ import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.drawable.RippleDrawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
@@ -99,6 +101,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         TEXT_DARK = p.keyLabel; TEXT_SECONDARY = p.keyLabelSecondary; HINT = p.keyHint; CARD = p.keySurface
         BG = p.keyboardBg; SEP = p.separator
         main.setBackgroundColor(BG)
+        selectRowPool.clear(); sortRowPool.clear(); catSortRowPool.clear()
         refresh()
     }
 
@@ -111,6 +114,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private val splitSelected = mutableSetOf<String>()
     private var renderedTab: ClipboardPanelState.Tab? = null
     private var tabTransitions = 0
+    private var renderedMode = -1
+    private var modeTransitions = 0
 
     fun showPhraseTab(category: String) {
         st.switchTab(ClipboardPanelState.Tab.PHRASE)
@@ -143,6 +148,29 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private val listScroll = ScrollView(context).apply { addView(listColumn) }
     private var listRenderGeneration = 0
     private var pendingListAppend: Runnable? = null
+
+    private class SelectRowHolder(val row: LinearLayout, val radio: RadioGlyph, val label: TextView)
+    private class TextRowHolder(val row: LinearLayout, val label: TextView, val handle: View)
+    private val selectRowPool = ArrayList<SelectRowHolder>()
+    private val sortRowPool = ArrayList<TextRowHolder>()
+    private val catSortRowPool = ArrayList<TextRowHolder>()
+
+    private inner class RadioGlyph : View(context) {
+        private val paint = glyphPaint(TEXT_DARK)
+        private var on = false
+        fun bind(tint: Int, checked: Boolean) { paint.color = tint; on = checked; invalidate() }
+        override fun onDraw(c: Canvas) = Glyphs.drawRadio(c, paint, width / 2f, height / 2f, dp(8).toFloat(), on)
+    }
+
+    private fun retintRow(v: View, color: Int) {
+        val fg = v.foreground
+        if (fg is RippleDrawable) fg.setColor(ColorStateList.valueOf(Motion.withAlpha(color, 0x24)))
+        else Motion.applyTapFeedback(v, color)
+    }
+
+    internal fun selectRowsAllocatedForTest(): Int = selectRowPool.size
+    internal fun sortRowsAllocatedForTest(): Int = sortRowPool.size
+    internal fun catSortRowsAllocatedForTest(): Int = catSortRowPool.size
 
     private companion object {
         const val MP = ViewGroup.LayoutParams.MATCH_PARENT
@@ -198,6 +226,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
     internal fun forcePhrasesStateForTest(cat: String) { st.switchTab(ClipboardPanelState.Tab.PHRASE); phraseCat = cat }
     internal fun enterSelectForTest(selected: List<String> = emptyList()) { st.enterSelect(); st.selected.addAll(selected); refresh() }
+    internal fun exitSelectForTest() { exitSelect() }
     internal fun showMoveChooserForTest(current: String) { chooseMoveCategoryThen(current, emptyList()) { target -> onMovePhrase(current, "", target) } }
     internal fun dragStartForTest(index: Int) { if (categorySortMode) startCategoryDrag(index) else startDrag(index) }
     internal fun dragStartAtForTest(index: Int, rawY: Float) { if (categorySortMode) startCategoryDrag(index, rawY) else startDrag(index, rawY) }
@@ -265,7 +294,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     fun refresh() {
         val tabChanged = renderedTab != null && renderedTab != st.tab
+        val mode = currentRenderMode()
+        val modeChanged = renderedMode != -1 && renderedMode != mode
         renderedTab = st.tab
+        renderedMode = mode
         val rebuild = {
             invalidateListRender()
             main.removeAllViews()
@@ -276,10 +308,20 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 else -> buildNormal()
             }
         }
-        if (tabChanged) { tabTransitions++; Motion.fadeThrough(main, swap = rebuild) } else rebuild()
+        if (tabChanged) tabTransitions++
+        if (modeChanged) modeTransitions++
+        if (tabChanged || modeChanged) Motion.fadeThrough(main, swap = rebuild) else rebuild()
+    }
+
+    private fun currentRenderMode(): Int = when {
+        st.selectMode -> 1
+        categorySortMode -> 3
+        sortMode -> 2
+        else -> 0
     }
 
     internal fun tabTransitionsForTest(): Int = tabTransitions
+    internal fun modeTransitionsForTest(): Int = modeTransitions
 
     private fun cancelPendingListAppend() {
         pendingListAppend?.let { removeCallbacks(it) }
@@ -416,7 +458,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun addRevealedRow(parent: LinearLayout, row: View) {
         parent.addView(row)
-        row.post { Motion.revealIn(row, Motion.EnterFrom.TOP, distanceDp = 6f, duration = Motion.STATE_CHANGE) }
+        row.post { Motion.revealIn(row, Motion.EnterFrom.TOP) }
     }
 
     private fun actionRow(text: String): View = LinearLayout(context).apply {
@@ -730,6 +772,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         dragHandler.removeCallbacksAndMessages(null)
         cancelPendingListAppend()
         resetDragPreviewTranslations()
+        dragView?.let { it.translationZ = 0f; it.alpha = 1f }
         dragAutoScrollScheduled = false
         dragFrom = -1; dragCurrent = -1; dragVisualIndex = -1; dragTouchOffsetY = 0f; dragLastRawY = 0f; dragView = null; dragKind = DragKind.NONE
         super.onDetachedFromWindow()
@@ -765,28 +808,35 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         }
         main.addView(topBar, ll(MP, WC))
 
-        listColumn.removeAllViews()
         val entries = phrasesInProvider(cat)
-        if (entries.isEmpty()) listColumn.addView(emptyHint()) else for ((i, e) in entries.withIndex()) listColumn.addView(sortRow(e, i))
+        populateListRows(entries) { e, i -> sortRowFor(e, i) }
         main.addView(listScroll, ll(MP, 0, 1f))
     }
 
-    private fun sortRow(text: String, index: Int): View {
-        val col = LinearLayout(context).apply {
+    private fun sortRowFor(text: String, index: Int): View {
+        val h = if (index < sortRowPool.size) sortRowPool[index] else buildTextRow(sortRowPool, maxLines = 2)
+        Motion.reset(h.row)
+        h.label.text = preview(phraseDisplayText(text))
+        attachSortDrag(h.handle, h.row, index)
+        return h.row
+    }
+
+    private fun buildTextRow(pool: ArrayList<TextRowHolder>, maxLines: Int): TextRowHolder {
+        val label = TextView(context).apply {
+            this.maxLines = maxLines; ellipsize = android.text.TextUtils.TruncateAt.END
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(TEXT_DARK)
+            setPadding(dp(14), dp(12), dp(8), dp(12))
+        }
+        val handle = glyphView(TEXT_DARK, 9) { c, p, x, y, s -> Glyphs.drawList(c, p, x, y, s) }
+        val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             background = rounded(CARD, ImeShapes.cardRadiusDp)
             layoutParams = ll(MP, WC).apply { topMargin = dp(8) }
+            addView(label, ll(0, WC, 1f))
+            addView(handle, ll(dp(44), MP))
         }
-        col.addView(TextView(context).apply {
-            this.text = preview(phraseDisplayText(text)); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(TEXT_DARK)
-            setPadding(dp(14), dp(12), dp(8), dp(12))
-        }, ll(0, WC, 1f))
-        val handle = glyphView(TEXT_DARK, 9) { c, p, x, y, s -> Glyphs.drawList(c, p, x, y, s) }
-        col.addView(handle, ll(dp(44), MP))
-        attachSortDrag(handle, col, index)
-        return col
+        return TextRowHolder(row, label, handle).also { pool.add(it) }
     }
 
     private fun attachSortDrag(handle: View, card: View, index: Int) {
@@ -822,29 +872,18 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         }
         main.addView(topBar, ll(MP, WC))
 
-        listColumn.removeAllViews()
         val cats = categoriesProvider()
-        if (cats.isEmpty()) listColumn.addView(emptyHint()) else for ((i, name) in cats.withIndex()) listColumn.addView(categorySortRow(name, i))
+        populateListRows(cats) { name, i -> catSortRowFor(name, i) }
         main.addView(listScroll, ll(MP, 0, 1f))
     }
 
-    private fun categorySortRow(name: String, index: Int): View {
-        val row = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            background = rounded(CARD, ImeShapes.cardRadiusDp)
-            layoutParams = ll(MP, WC).apply { topMargin = dp(8) }
-        }
-        row.addView(TextView(context).apply {
-            text = name; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(TEXT_DARK)
-            setPadding(dp(14), dp(12), dp(8), dp(12))
-            setTypeface(null, if (name == currentCategory()) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
-        }, ll(0, WC, 1f))
-        val handle = glyphView(TEXT_DARK, 9) { c, p, x, y, s -> Glyphs.drawList(c, p, x, y, s) }
-        row.addView(handle, ll(dp(44), MP))
-        attachCategorySortDrag(handle, row, index)
-        return row
+    private fun catSortRowFor(name: String, index: Int): View {
+        val h = if (index < catSortRowPool.size) catSortRowPool[index] else buildTextRow(catSortRowPool, maxLines = 1)
+        Motion.reset(h.row)
+        h.label.text = name
+        h.label.setTypeface(null, if (name == currentCategory()) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+        attachCategorySortDrag(h.handle, h.row, index)
+        return h.row
     }
 
     private fun attachCategorySortDrag(handle: View, card: View, index: Int) {
@@ -984,8 +1023,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         }
         main.addView(topBar, ll(MP, WC))
 
-        listColumn.removeAllViews()
-        for (e in all) listColumn.addView(selectRow(e))
+        populateListRows(all) { e, i -> selectRowFor(e, i) }
         main.addView(listScroll, ll(MP, 0, 1f))
 
         val hasSel = st.hasSelection()
@@ -1011,21 +1049,34 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         main.addView(bottom, ll(MP, WC))
     }
 
-    private fun selectRow(text: String): View = LinearLayout(context).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        background = rounded(CARD, ImeShapes.cardRadiusDp)
-        layoutParams = ll(MP, WC).apply { topMargin = dp(8) }
+    private fun selectRowFor(text: String, index: Int): View {
+        val h = if (index < selectRowPool.size) selectRowPool[index] else buildSelectRow()
         val on = text in st.selected
-        Motion.applyTapFeedback(this, if (on) GREEN else TEXT_DARK)
-        addView(glyphView(if (on) GREEN else TEXT_DARK, 8) { c, p, x, y, s -> Glyphs.drawRadio(c, p, x, y, s, on) }, ll(dp(40), MP))
-        addView(TextView(context).apply {
-            this.text = if (st.tab == Tab.PHRASE) phraseDisplayText(text) else text
+        val tint = if (on) GREEN else TEXT_DARK
+        Motion.reset(h.row)
+        h.radio.bind(tint, on)
+        h.label.text = if (st.tab == Tab.PHRASE) phraseDisplayText(text) else text
+        retintRow(h.row, tint)
+        h.row.setOnClickListener { st.toggleSelect(text); refresh() }
+        return h.row
+    }
+
+    private fun buildSelectRow(): SelectRowHolder {
+        val radio = RadioGlyph()
+        val label = TextView(context).apply {
             maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(TEXT_DARK)
             setPadding(0, dp(12), dp(14), dp(12))
-        }, ll(0, WC, 1f))
-        setOnClickListener { st.toggleSelect(text); refresh() }
+        }
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = rounded(CARD, ImeShapes.cardRadiusDp)
+            layoutParams = ll(MP, WC).apply { topMargin = dp(8) }
+            addView(radio, ll(dp(40), MP))
+            addView(label, ll(0, WC, 1f))
+        }
+        return SelectRowHolder(row, radio, label).also { selectRowPool.add(it) }
     }
 
 
@@ -1041,7 +1092,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val lp = FrameLayout.LayoutParams(requestedWidth, WC, gravity).apply { leftMargin = margin; rightMargin = margin; topMargin = margin; bottomMargin = margin }
         overlay.addView(scroll, lp)
         overlay.visibility = VISIBLE
-        Motion.revealIn(scroll, Motion.EnterFrom.BOTTOM, distanceDp = 10f, duration = Motion.REVEAL)
+        Motion.revealIn(scroll, Motion.EnterFrom.BOTTOM)
         scroll.post {
             val maxH = (overlay.height * 0.82f).toInt()
             if (maxH in 1 until scroll.height) { lp.height = maxH; scroll.layoutParams = lp }

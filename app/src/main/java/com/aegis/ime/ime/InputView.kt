@@ -43,6 +43,7 @@ class InputView(context: Context) : LinearLayout(context) {
     var onCopyDismiss: () -> Unit = {}
     var onEditConfirm: () -> Unit = {}
     var onEditCancel: () -> Unit = {}
+    var onOverlayChanged: () -> Unit = {}
 
     private val preeditView = PreeditView(context)
     private val candidateView = CandidateView(context)
@@ -57,6 +58,8 @@ class InputView(context: Context) : LinearLayout(context) {
     private var lastSelectedReading = -1
     private var composingNow = false
     private var currentPanel: View? = null
+    private var copyBarActive = false
+    private var editBarActive = false
     private var palette = ImePalette.STATIC_LIGHT
 
     fun applyPalette(p: ImePalette) {
@@ -73,12 +76,13 @@ class InputView(context: Context) : LinearLayout(context) {
     fun palette(): ImePalette = palette
 
     fun showEditBar(active: Boolean) {
+        editBarActive = active
         if (active) {
-            Motion.revealIn(editBarView, Motion.EnterFrom.TOP, distanceDp = 6f, duration = Motion.STATE_CHANGE)
+            Motion.revealIn(editBarView, Motion.EnterFrom.TOP)
         } else {
-            editBarView.visibility = GONE
-            Motion.reset(editBarView)
+            Motion.hide(editBarView, toward = Motion.EnterFrom.TOP)
         }
+        onOverlayChanged()
     }
     fun isEditBarShowing(): Boolean = editBarView.visibility == VISIBLE
     fun setEditTitle(t: String) { editBarView.setTitle(t) }
@@ -162,12 +166,16 @@ class InputView(context: Context) : LinearLayout(context) {
     fun setLetterCase(mode: com.aegis.ime.ui.LetterCase) { keyboardView.caseMode = mode }
 
     fun showCopyBar(text: String) {
+        copyBarActive = true
         copyBarView.show(text)
         Motion.swapIn(copyBarView, candidateView)
+        onOverlayChanged()
     }
 
     fun hideCopyBar() {
+        copyBarActive = false
         Motion.swapIn(candidateView, copyBarView)
+        onOverlayChanged()
     }
 
     val copyBarShown: Boolean get() = copyBarView.visibility == VISIBLE
@@ -206,14 +214,26 @@ class InputView(context: Context) : LinearLayout(context) {
         val outgoing = currentPanel
         (outgoing as? ResettablePanel)?.takeIf { it !== panel }?.resetToDefault()
         if (outgoing === gridView && panel !== gridView) onExpandClosed()
-        panelContainer.removeAllViews()
         currentPanel = panel
         candidateView.setExpanded(panel === gridView)
         if (panel == null) {
-            panelContainer.visibility = GONE
-            keyboardView.visibility = VISIBLE
-            if (outgoing != null) Motion.fadeIn(keyboardView)
+            if (outgoing != null) {
+                Motion.hide(outgoing, toward = Motion.EnterFrom.BOTTOM) {
+                    if (currentPanel == null) {
+                        panelContainer.removeAllViews()
+                        panelContainer.visibility = GONE
+                        keyboardView.visibility = VISIBLE
+                        Motion.fadeIn(keyboardView)
+                    }
+                    Motion.reset(outgoing)
+                }
+            } else {
+                panelContainer.removeAllViews()
+                panelContainer.visibility = GONE
+                keyboardView.visibility = VISIBLE
+            }
         } else {
+            panelContainer.removeAllViews()
             setPanelHeight(keyboardView.height.takeIf { it > 0 } ?: dp(250))
             (panel.parent as? ViewGroup)?.removeView(panel)
             panelContainer.addView(
@@ -224,7 +244,60 @@ class InputView(context: Context) : LinearLayout(context) {
             keyboardView.visibility = GONE
             Motion.revealIn(panel, Motion.EnterFrom.BOTTOM)
         }
+        onOverlayChanged()
     }
+
+    private enum class BackKind { NONE, PANEL, COPY_BAR, EDIT_BAR }
+    private var backKind = BackKind.NONE
+    private var backView: View? = null
+
+    fun hasOverlay(): Boolean = currentPanel != null || copyBarActive || editBarActive
+
+    private fun topOverlay(): Pair<BackKind, View?> = when {
+        editBarActive -> BackKind.EDIT_BAR to editBarView
+        currentPanel != null -> BackKind.PANEL to currentPanel
+        copyBarActive -> BackKind.COPY_BAR to copyBarView
+        else -> BackKind.NONE to null
+    }
+
+    fun predictiveBackBegin(): Boolean {
+        val (kind, view) = topOverlay()
+        backKind = kind
+        backView = view
+        return kind != BackKind.NONE
+    }
+
+    fun predictiveBackProgress(progress: Float) {
+        val v = backView ?: return
+        val f = progress.coerceIn(0f, 1f)
+        v.alpha = 1f - PREDICTIVE_FADE * f
+        val shift = Motion.REVEAL_SHIFT_DP * resources.displayMetrics.density * f
+        v.translationY = when (backKind) {
+            BackKind.EDIT_BAR -> -shift
+            BackKind.PANEL, BackKind.COPY_BAR -> shift
+            BackKind.NONE -> 0f
+        }
+    }
+
+    fun predictiveBackCommit() {
+        backView?.let { Motion.reset(it) }
+        when (backKind) {
+            BackKind.EDIT_BAR -> onEditCancel()
+            BackKind.PANEL -> showPanel(null)
+            BackKind.COPY_BAR -> { hideCopyBar(); onCopyDismiss() }
+            BackKind.NONE -> {}
+        }
+        backKind = BackKind.NONE
+        backView = null
+    }
+
+    fun predictiveBackCancel() {
+        backView?.let { Motion.reset(it) }
+        backKind = BackKind.NONE
+        backView = null
+    }
+
+    internal fun backTargetKindForTest(): String = topOverlay().first.name
 
     private fun setPanelHeight(px: Int) {
         val lp = panelContainer.layoutParams
@@ -249,6 +322,8 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun cachedNavBottomForTest(): Int = lastNavBottomPx
 
     private companion object {
+        private const val PREDICTIVE_FADE = 0.4f
+
         private var lastNavBottomPx = 0
     }
 }

@@ -58,7 +58,7 @@ open class PreeditView(context: Context) : View(context) {
         if (s == text) return
         val appearing = text.isEmpty() && s.isNotEmpty()
         text = s
-        if (appearing) Motion.fadeIn(this, Motion.SHORT4) else invalidate()
+        if (appearing) Motion.fadeIn(this) else invalidate()
     }
 
     fun setLeftInset(px: Float) {

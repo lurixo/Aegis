@@ -27,6 +27,9 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedTextRequest
 import android.widget.Toast
+import android.window.BackEvent
+import android.window.OnBackAnimationCallback
+import android.window.OnBackInvokedDispatcher
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.EngineAssets
@@ -72,6 +75,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     @Volatile private var userDbMtime = 0L
 
     private var inputView: InputView? = null
+
+    private var backCallback: OnBackAnimationCallback? = null
+    private var backRegistered = false
     private var emojiView: EmojiView? = null
     private var clipboardView: ClipboardView? = null
     private var symbolsView: SymbolsView? = null
@@ -302,6 +308,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             }
             onEditConfirm = { confirmInlineInput() }
             onEditCancel = { cancelInlineInput() }
+            onOverlayChanged = { syncBackCallback() }
         }
         inputView = view
         panelInput.onChange = { txt ->
@@ -340,6 +347,35 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.reset()
         applyPaletteEverywhere()
     }
+
+    private fun buildBackCallback(): OnBackAnimationCallback = object : OnBackAnimationCallback {
+        override fun onBackStarted(backEvent: BackEvent) { inputView?.predictiveBackBegin() }
+        override fun onBackProgressed(backEvent: BackEvent) { inputView?.predictiveBackProgress(backEvent.progress) }
+        override fun onBackInvoked() { inputView?.predictiveBackCommit(); syncBackCallback() }
+        override fun onBackCancelled() { inputView?.predictiveBackCancel() }
+    }
+
+    internal fun syncBackCallback() {
+        val iv = inputView ?: return
+        val dispatcher = iv.findOnBackInvokedDispatcher()
+        val want = iv.hasOverlay()
+        if (want && !backRegistered && dispatcher != null) {
+            val cb = backCallback ?: buildBackCallback().also { backCallback = it }
+            dispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, cb)
+            backRegistered = true
+        } else if (!want && backRegistered) {
+            backCallback?.let { dispatcher?.unregisterOnBackInvokedCallback(it) }
+            backRegistered = false
+        }
+    }
+
+    private fun unregisterBackCallback() {
+        if (!backRegistered) return
+        backCallback?.let { inputView?.findOnBackInvokedDispatcher()?.unregisterOnBackInvokedCallback(it) }
+        backRegistered = false
+    }
+
+    internal fun backCallbackRegisteredForTest(): Boolean = backRegistered
 
     override fun onComputeInsets(outInsets: Insets) {
         super.onComputeInsets(outInsets)
@@ -706,7 +742,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun setHistoryEnabled(on: Boolean) =
         getSharedPreferences("aegis", MODE_PRIVATE).edit().putBoolean("clip_history", on).apply()
 
+    override fun onFinishInputView(finishingInput: Boolean) {
+        super.onFinishInputView(finishingInput)
+        unregisterBackCallback()
+    }
+
     override fun onDestroy() {
+        unregisterBackCallback()
         runCatching { decodeWorker.shutdownNow() }
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
         if (UserDictHot.host === liveUserDictHost) UserDictHot.host = null
