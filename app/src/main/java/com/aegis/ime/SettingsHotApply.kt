@@ -60,6 +60,11 @@ internal class SettingsHotApply(
             key == com.aegis.ime.ui.PREF_ASSOCIATIONS_ON -> onAssociations(associationsOn(prefs))
             key == FUZZY_MASTER_PREF || key in FUZZY_RULE_PREF_KEYS -> onFuzzyRules(fuzzyRules(prefs))
             key == com.aegis.ime.ui.PREF_KEY_HAPTICS -> onKeyHaptics(keyHaptics(prefs))
+            // ① the preview master gates BOTH worlds, so its flip re-pushes each resolved (master && sub) value.
+            key == com.aegis.ime.ui.PREF_KEY_PREVIEW_MASTER -> {
+                onKeyPreviewNine(keyPreviewNine(prefs))
+                onKeyPreviewAlpha(keyPreviewAlpha(prefs))
+            }
             key == com.aegis.ime.ui.PREF_KEY_PREVIEW_NINE -> onKeyPreviewNine(keyPreviewNine(prefs))
             key == com.aegis.ime.ui.PREF_KEY_PREVIEW_ALPHA -> onKeyPreviewAlpha(keyPreviewAlpha(prefs))
             key == com.aegis.ime.ui.PREF_LETTER_CASE -> onLetterCase(letterCase(prefs))
@@ -115,13 +120,19 @@ internal class SettingsHotApply(
         fun keyHaptics(prefs: SharedPreferences): Boolean =
             prefs.getBoolean(com.aegis.ime.ui.PREF_KEY_HAPTICS, com.aegis.ime.ui.KEY_HAPTICS_DEFAULT)
 
-        /** ① The 9-key press-preview toggle as the prefs resolve it (single-sourced default in KeyFeedbackCards). */
-        fun keyPreviewNine(prefs: SharedPreferences): Boolean =
-            prefs.getBoolean(com.aegis.ime.ui.PREF_KEY_PREVIEW_NINE, com.aegis.ime.ui.KEY_PREVIEW_DEFAULT)
+        /** ① The preview master switch as the prefs resolve it (single-sourced default in KeyFeedbackCards). */
+        fun keyPreviewMaster(prefs: SharedPreferences): Boolean =
+            prefs.getBoolean(com.aegis.ime.ui.PREF_KEY_PREVIEW_MASTER, com.aegis.ime.ui.KEY_PREVIEW_MASTER_DEFAULT)
 
-        /** ① The 26-key press-preview toggle as the prefs resolve it (single-sourced default in KeyFeedbackCards). */
+        /** ① The EFFECTIVE 9-key preview state: the master AND the 9-key sub-switch (single-sourced defaults). */
+        fun keyPreviewNine(prefs: SharedPreferences): Boolean =
+            keyPreviewMaster(prefs) &&
+                prefs.getBoolean(com.aegis.ime.ui.PREF_KEY_PREVIEW_NINE, com.aegis.ime.ui.KEY_PREVIEW_SUB_DEFAULT)
+
+        /** ① The EFFECTIVE 26-key preview state: the master AND the 26-key sub-switch (single-sourced defaults). */
         fun keyPreviewAlpha(prefs: SharedPreferences): Boolean =
-            prefs.getBoolean(com.aegis.ime.ui.PREF_KEY_PREVIEW_ALPHA, com.aegis.ime.ui.KEY_PREVIEW_DEFAULT)
+            keyPreviewMaster(prefs) &&
+                prefs.getBoolean(com.aegis.ime.ui.PREF_KEY_PREVIEW_ALPHA, com.aegis.ime.ui.KEY_PREVIEW_SUB_DEFAULT)
 
         /** ② The letter-case display setting as the prefs resolve it (single-sourced default in LetterCaseCard). */
         fun letterCase(prefs: SharedPreferences): com.aegis.ime.ui.LetterCase =

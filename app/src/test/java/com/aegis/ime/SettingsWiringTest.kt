@@ -111,15 +111,16 @@ class SettingsWiringTest {
         assertTrue("GramDownloadCard must render before DictDownloadCard", gram < dict)
     }
 
-    @Test fun the_input_page_wires_the_new_case_and_split_preview_cards() {
-        // ①/② the input settings page owns the three-tier case card and the two split preview cards;
-        // the old single preview card must be gone.
+    @Test fun the_input_page_wires_the_case_card_and_the_merged_preview_card() {
+        // ①/② the input settings page owns the three-tier case card and the ONE merged preview card
+        // (master + 9-key / 26-key subs); the old per-keyboard split cards must be gone.
         val setup = src("src/main/java/com/aegis/ime/ui/SetupActivity.kt")
         val inputPage = setup.substringAfter("fun InputSettingsPage").substringBefore("fun DictSettingsPage")
-        for (card in listOf("LetterCaseCard()", "KeyPreviewNineToggleCard()", "KeyPreviewAlphaToggleCard()")) {
+        for (card in listOf("LetterCaseCard()", "KeyPreviewCard()")) {
             assertTrue("input page must render $card", inputPage.contains(card))
         }
-        assertFalse("the old single preview card must be gone", setup.contains("KeyPreviewToggleCard("))
+        assertFalse("the old split 9-key preview card must be gone", setup.contains("KeyPreviewNineToggleCard("))
+        assertFalse("the old split 26-key preview card must be gone", setup.contains("KeyPreviewAlphaToggleCard("))
     }
 
     @Test fun the_gram_card_drops_the_unsourced_internal_evaluation_score() {

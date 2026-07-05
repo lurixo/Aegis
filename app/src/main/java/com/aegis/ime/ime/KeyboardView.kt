@@ -651,11 +651,15 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     /**
-     * ② The label drawn on a key face and in the preview bubble. For a single a–z COMMIT letter the letter-case
-     * setting decides its case: AUTO follows shift (lowercase at rest, uppercase when shifted — the original
-     * behaviour), UPPER shows it always uppercase, LOWER always lowercase. DISPLAY ONLY — the committed character
-     * and the shift logic are untouched (so "always uppercase" never corrupts CN pinyin, which types lowercase).
-     * The 9-key "ABC" block labels (length > 1) and every non-letter key are unaffected.
+     * ② The label drawn on a key face and in the preview bubble. The letter-case setting decides the case of the
+     * displayed LETTERS — DISPLAY ONLY: the committed character, the T9 digit [Key.output] and the shift logic are
+     * all untouched (so "always uppercase" never corrupts CN pinyin, which types lowercase):
+     *  - a single a–z COMMIT letter (26-key face): AUTO follows shift (lowercase at rest, uppercase when shifted —
+     *    the original behaviour), UPPER shows it always uppercase, LOWER always lowercase;
+     *  - a 9-key T9 letter block ("ABC"/"DEF"/… — authored uppercase, emits a digit, see [isNineLetterBlock]):
+     *    UPPER shows the block uppercase (ABC), LOWER shows it lowercase (abc), AUTO keeps the authored uppercase
+     *    block (the original 9-key look).
+     * Every other (non-letter) key is returned verbatim.
      */
     private fun displayLabel(key: Key): String {
         if (key.action == KeyAction.COMMIT && key.label.length == 1 && key.label[0] in 'a'..'z') {
@@ -665,8 +669,25 @@ class KeyboardView(context: Context) : View(context) {
                 LetterCase.AUTO -> if (shifted) key.label.uppercase() else key.label
             }
         }
+        if (isNineLetterBlock(key)) {
+            return when (caseMode) {
+                LetterCase.UPPER -> key.label.uppercase()
+                LetterCase.LOWER -> key.label.lowercase()
+                LetterCase.AUTO -> key.label // authored uppercase block — the original 9-key look
+            }
+        }
         return key.label // debug.17: ✎ / ⌫ no longer drawn as text — drawLabel renders them via Glyphs
     }
+
+    /**
+     * ② A 9-key T9 letter block: a COMMIT key whose face is 2+ authored A–Z letters ("ABC"…"WXYZ") that emits a
+     * single T9 digit (2–9) — the eight middle cells of [com.aegis.ime.layout.Layouts.nine]. This is the exact,
+     * self-contained shape (no digit key, no control key, no 26-key single letter qualifies), so the letter-case
+     * setting cases the WHOLE block for DISPLAY only while its [Key.output] digit / the decoder stay untouched.
+     */
+    private fun isNineLetterBlock(key: Key): Boolean =
+        key.action == KeyAction.COMMIT && key.label.length > 1 && key.label.all { it in 'A'..'Z' } &&
+            key.output.length == 1 && key.output[0] in '2'..'9'
 
     /** ③ The three case-box cell labels for [key]: [UPPER, key.sub-or-"", lower]. */
     private fun caseBoxLabels(key: Key): List<String> =

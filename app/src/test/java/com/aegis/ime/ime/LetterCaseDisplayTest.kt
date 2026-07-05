@@ -31,8 +31,9 @@ import org.robolectric.annotation.Config
 
 /**
  * ② The three-tier letter-case DISPLAY setting (AUTO follow-shift / always UPPER / always LOWER). Enumerates
- * all 26 letters × 3 tiers for both the on-key face and the preview bubble (they share displayLabel), and pins
- * that the setting is display-only: the committed character and the 9-key "ABC" block labels never change.
+ * all 26 single letters × 3 tiers for both the on-key face and the preview bubble (they share displayLabel), AND
+ * all 8 nine-key T9 letter blocks × 3 tiers (UPPER=ABC / LOWER=abc / AUTO=authored caps), and pins that the
+ * setting is display-only: neither the committed character nor a block's emitted T9 digit ever changes.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -101,13 +102,24 @@ class LetterCaseDisplayTest {
         }
     }
 
-    // ---- the 9-key "ABC" block labels are conventional caps, unaffected by the setting ----
+    // ---- the 9-key "ABC" letter blocks follow the case setting (display only): UPPER=ABC / LOWER=abc / AUTO=caps ----
 
-    @Test fun the_nine_key_block_labels_are_unaffected_by_the_case_setting() {
-        val block = Key("ABC", output = "2")
-        for (case in LetterCase.entries) {
-            val v = alphaView(shifted = false, case)
-            assertEquals("$case: the ABC block label is unchanged", "ABC", v.displayLabelForTest(block))
+    @Test fun every_nine_key_letter_block_follows_the_case_setting_display_only() {
+        // All 8 T9 blocks × three tiers, both shift states. AUTO keeps the authored uppercase (the original
+        // 9-key look); UPPER/LOWER case the WHOLE block. The emitted T9 digit (Key.output the decoder reads)
+        // is never re-cased by the display setting.
+        val blocks = listOf(
+            "ABC" to "2", "DEF" to "3", "GHI" to "4", "JKL" to "5",
+            "MNO" to "6", "PQRS" to "7", "TUV" to "8", "WXYZ" to "9",
+        )
+        for ((face, digit) in blocks) {
+            val block = Key(face, output = digit)
+            for (shifted in listOf(false, true)) {
+                assertEquals("$face UPPER (shift=$shifted)", face.uppercase(), alphaView(shifted, LetterCase.UPPER).displayLabelForTest(block))
+                assertEquals("$face LOWER (shift=$shifted)", face.lowercase(), alphaView(shifted, LetterCase.LOWER).displayLabelForTest(block))
+                assertEquals("$face AUTO (shift=$shifted) keeps the authored caps", face, alphaView(shifted, LetterCase.AUTO).displayLabelForTest(block))
+            }
+            assertEquals("$face: the emitted T9 digit is untouched by the display setting", digit, block.output)
         }
     }
 

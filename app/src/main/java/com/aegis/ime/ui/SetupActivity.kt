@@ -316,10 +316,9 @@ private fun InputSettingsPage(onBack: () -> Unit) {
         LetterCaseCard()
         FuzzySettingsCard()
         AssociationToggleCard()
-        // ⑤ key-press vibration + ① the magnified press preview (split 9-key / 26-key), hot-applied.
+        // ⑤ key-press vibration + ① the magnified press preview (one card: master + 9-key / 26-key subs), hot-applied.
         KeyVibrationToggleCard()
-        KeyPreviewNineToggleCard()
-        KeyPreviewAlphaToggleCard()
+        KeyPreviewCard()
     }
 }
 
