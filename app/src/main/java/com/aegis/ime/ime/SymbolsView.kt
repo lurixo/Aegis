@@ -15,13 +15,17 @@
 
 package com.aegis.ime.ime
 
+import android.animation.ValueAnimator
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -103,6 +107,17 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     private val backspaceBtn = barButton("") { onBackspace() }
     private val bottomBarView = bottomBar()
 
+    // --- view-recycling pool (jank fix): keep the symbol tiles alive across tab switches and rebind
+    // glyph/badge in place instead of removeAllViews + a fresh FrameLayout+TextView(+badge)+RippleDrawable per
+    // symbol on every showCategory. Each tile is FrameLayout{ glyph TextView, badge TextView (GONE when unused) }. ---
+    private val tilePool = ArrayList<FrameLayout>()
+    private var emptySpanView: TextView? = null
+    private val colorAnimators = HashMap<TextView, ValueAnimator>()
+    private val symbolClick = View.OnClickListener { v ->
+        val s = ((v as FrameLayout).getChildAt(0) as TextView).text.toString()
+        onSymbol(s, originForCurrent(s)); if (!locked) onBack()
+    }
+
     internal companion object {
         const val COLUMNS = 7
         /** How much smaller a wide fallback glyph is drawn, relative to [ImeType.display]. */
@@ -178,48 +193,78 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
             }
         }
         backspaceGlyph.tint(p.keyLabelSecondary)
+        // Re-tint the pooled tiles in place (no re-allocation) before the rebind below.
+        for (tile in tilePool) {
+            retintRipple(tile, p.keyLabel)
+            (tile.background as? GradientDrawable)?.setColor(p.keySurface)
+            (tile.getChildAt(0) as TextView).setTextColor(p.keyLabel)
+            (tile.getChildAt(1) as TextView).setTextColor(p.keyLabelSecondary)
+        }
+        emptySpanView?.setTextColor(p.keyHint)
         updateLockFace() // restore the lock-state colour after the bulk recolour
         showCategory(selected)
     }
 
     private fun showCategory(index: Int) {
+        val tabChanged = index != selected
+        val prev = selected
         selected = index
+        // Rail selected state: pill + weight snap; the colour cross-fades (MD3 state layers transition) on ONLY
+        // the two tabs whose selected state flipped, ripple re-tinted in place.
         for (i in 0 until rail.childCount) {
             val tab = rail.getChildAt(i) as TextView
             val on = i == index
-            tab.setTextColor(if (on) palette.candidateFirst else palette.keyLabelSecondary)
             tab.background = railTabBackground(on)
-            tab.setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
-            Motion.applyTapFeedback(tab, if (on) palette.candidateFirst else palette.keyLabelSecondary, radiusDp = ImeShapes.chipRadiusDp)
+            tab.setTypeface(null, if (on) Typeface.BOLD else Typeface.NORMAL)
+            val color = if (on) palette.candidateFirst else palette.keyLabelSecondary
+            if (tabChanged && (i == index || i == prev)) crossfadeTabColor(tab, color) else tab.setTextColor(color)
+            retintRipple(tab, color, ImeShapes.chipRadiusDp)
         }
-        grid.removeAllViews()
+        // Content transition: MD3 fade-through (tab switch is a real, infrequent content change), swapping the
+        // recycled tiles at the trough.
+        Motion.fadeThrough(gridScroll) { bindGrid(index) }
+    }
+
+    /** Rebind the recycled tiles for [index] (allocate only past the pool high-water mark). */
+    private fun bindGrid(index: Int) {
+        grid.removeAllViews() // detaches the pooled tiles (kept in tilePool) — no per-symbol re-allocation
         netBar.removeAllViews()
         val symbols = symbolsFor(index)
-        if (symbols.isEmpty()) { netBar.visibility = View.GONE; grid.addView(emptySpan()); return }
+        if (symbols.isEmpty()) { netBar.visibility = View.GONE; grid.addView(obtainEmptySpan()); return }
         // P5 + debug.16: only URL completions render as content-sized chips so they NEVER truncate in the single-
-        // Chinese IME behavior note.
-        // Chinese IME behavior note.
-        // straight to the editor on tap, NOT advertised as URL completions. Single glyphs keep the unchanged grid
-        // path, so every all-glyph category stays pixel-identical.
+        // line grid; every non-url multi-char token stays in the grid, auto-shrinking to fit. Single glyphs keep
+        // the unchanged grid path, so every all-glyph category stays pixel-identical.
         val isNet = index != 0 && SymbolCatalog.categories.getOrNull(index - 1)?.id == "net"
         val completions = symbols.filter { it.length > 1 }
         // debug.17 A: ONLY genuine URL completions ride the content-sized chip bar — and ONLY the url-like ones,
-        // even on a tab that also holds a non-url multi-char token. Everything else (single glyphs AND non-url
-        // Chinese IME behavior note.
-        // auto-shrinks to fit), in natural catalogue order — so arcsin never becomes a wide tile that breaks the
-        // Chinese IME behavior note.
+        // even on a tab that also holds a non-url multi-char token, in natural catalogue order.
         val urlCompletions = if (completions.isNotEmpty() && (isNet || completions.any { isUrlLike(it) }))
             completions.filter { isUrlLike(it) } else emptyList()
         showingUrlCompletions = urlCompletions.isNotEmpty()
         if (showingUrlCompletions) {
             netBar.visibility = View.VISIBLE
-            // Chinese IME behavior note.
             addCompletionChips(urlCompletions)
         } else {
             netBar.visibility = View.GONE
         }
-        // Chinese IME behavior note.
-        for (s in symbols) if (s !in urlCompletions) grid.addView(cell(s, badge = if (index == 0) badgeFor(s) else null))
+        var slot = 0
+        for (s in symbols) if (s !in urlCompletions) {
+            val tile = obtainTile(slot); slot++
+            bindTile(tile, s, badge = if (index == 0) badgeFor(s) else null)
+            grid.addView(tile)
+        }
+    }
+
+    private fun crossfadeTabColor(tab: TextView, color: Int) {
+        colorAnimators.remove(tab)?.cancel()
+        Motion.crossfadeColor(tab, tab.currentTextColor, color) { tab.setTextColor(it) }?.let { colorAnimators[tab] = it }
+    }
+
+    /** Update a pooled view's ripple tint WITHOUT allocating a new [RippleDrawable] (setColor mutates in place). */
+    private fun retintRipple(v: View, color: Int, radiusDp: Float = ImeShapes.keyRadiusDp) {
+        val fg = v.foreground
+        if (fg is RippleDrawable) fg.setColor(ColorStateList.valueOf(Motion.withAlpha(color, 0x24)))
+        else Motion.applyTapFeedback(v, color, radiusDp = radiusDp)
     }
 
     /** P5: lay the multi-char completions out as full, single-line chips, wrapping to a new row instead of
@@ -310,13 +355,30 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
       * Chinese IME behavior note.
       * Chinese IME behavior note.
      */
-    private fun cell(symbol: String, badge: String?): View {
+    /** A pooled tile: FrameLayout{ glyph TextView, badge TextView (parked GONE) }. Structure/margins/height are
+     *  fixed at creation; [bindTile] rebinds only glyph text/size + badge text/visibility. */
+    private fun obtainTile(index: Int): FrameLayout {
+        if (index < tilePool.size) return tilePool[index]
+        val glyph = TextView(context).apply {
+            gravity = Gravity.CENTER
+            maxLines = 1
+            // Drop the font-driven vertical padding so a heavy fallback font can't inflate the glyph box,
+            // and centre the glyph inside the fixed-height tile.
+            includeFontPadding = false
+            setTextColor(palette.keyLabel)
+        }
+        val badge = TextView(context).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.caption)
+            setTextColor(palette.keyLabelSecondary)
+            setPadding(0, 0, dp(4), dp(2))
+            visibility = View.GONE
+        }
         val tile = FrameLayout(context).apply {
             minimumHeight = cellHeightPx
             background = GradientDrawable().apply { setColor(palette.keySurface); cornerRadius = ImeShapes.keyRadiusDp * density }
             isClickable = true
             Motion.applyTapFeedback(this, palette.keyLabel)
-            setOnClickListener { onSymbol(symbol, originForCurrent(symbol)); if (!locked) onBack() }
+            setOnClickListener(symbolClick)
             layoutParams = GridLayout.LayoutParams().apply {
                 width = 0
                 // Fixed height == minimumHeight, filled both ways: every tile in a row is exactly cellHeightPx,
@@ -326,40 +388,39 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
                 setGravity(Gravity.FILL)
                 val m = dp(3); setMargins(m, m, m, m)
             }
+            addView(glyph, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER))
+            addView(badge, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END))
         }
-        tile.addView(
-            TextView(context).apply {
-                text = symbol
-                gravity = Gravity.CENTER
-                maxLines = 1
-                // Drop the font-driven vertical padding so a heavy fallback font can't inflate the glyph box,
-                // and centre the glyph inside the fixed-height tile.
-                includeFontPadding = false
-                if (symbol.length > 1) {
-                    // Multi-char completions (trig names, url helpers) auto-shrink to a single line inside the
-                    // cell, so they never truncate and never need a wide tile that breaks the grid.
-                    TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(this, 9, ImeType.display.toInt(), 1, TypedValue.COMPLEX_UNIT_SP)
-                } else {
-                    // Wide fallback glyphs (CJK squared units, double-struck sets, ℃/℉) are drawn one step
-                    // smaller so they no longer look bolder or taller than the ordinary Latin/Greek tiles.
-                    val sizeSp = if (wideMetricGlyph(symbol[0])) ImeType.display * WIDE_GLYPH_SCALE else ImeType.display
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp)
-                }
-                setTextColor(palette.keyLabel)
-            },
-            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER),
-        )
-        if (badge != null) tile.addView(
-            TextView(context).apply {
-                text = badge
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.caption)
-                setTextColor(palette.keyLabelSecondary)
-                setPadding(0, 0, dp(4), dp(2))
-            },
-            FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END),
-        )
+        tilePool.add(tile)
         return tile
     }
+
+    private fun bindTile(tile: FrameLayout, symbol: String, badge: String?) {
+        bindGlyph(tile.getChildAt(0) as TextView, symbol)
+        val badgeView = tile.getChildAt(1) as TextView
+        if (badge != null) { badgeView.text = badge; badgeView.visibility = View.VISIBLE } else badgeView.visibility = View.GONE
+    }
+
+    /** Bind [symbol] into a pooled glyph view, switching between auto-size (multi-char) and the wide/fixed size
+     *  (single glyph) each way — a reused view may have been either the previous time. */
+    private fun bindGlyph(tv: TextView, symbol: String) {
+        tv.text = symbol
+        if (symbol.length > 1) {
+            // Multi-char completions (trig names, url helpers) auto-shrink to a single line inside the cell,
+            // so they never truncate and never need a wide tile that breaks the grid.
+            TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(tv, 9, ImeType.display.toInt(), 1, TypedValue.COMPLEX_UNIT_SP)
+        } else {
+            // Turn auto-size OFF before the fixed size takes hold (a pooled view may have auto-sized last time).
+            TextViewCompat.setAutoSizeTextTypeWithDefaults(tv, TextView.AUTO_SIZE_TEXT_TYPE_NONE)
+            // Wide fallback glyphs (CJK squared units, double-struck sets, ℃/℉) are drawn one step smaller so
+            // they no longer look bolder or taller than the ordinary Latin/Greek tiles.
+            val sizeSp = if (wideMetricGlyph(symbol[0])) ImeType.display * WIDE_GLYPH_SCALE else ImeType.display
+            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp)
+        }
+        tv.setTextColor(palette.keyLabel)
+    }
+
+    private fun obtainEmptySpan(): TextView = emptySpanView ?: emptySpan().also { emptySpanView = it }
 
     private fun emptySpan(): TextView = TextView(context).apply {
         text = "最近使用的符号会显示在这里"
@@ -431,8 +492,13 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun gridGlyphForTest(symbol: String): TextView? =
         tileFor(symbol)?.let { t -> (0 until t.childCount).map { t.getChildAt(it) }.filterIsInstance<TextView>().firstOrNull() }
     internal fun gridBadgeForTest(symbol: String): String? =
-        tileFor(symbol)?.let { t -> (0 until t.childCount).map { t.getChildAt(it) }.filterIsInstance<TextView>().getOrNull(1)?.text?.toString() }
+        tileFor(symbol)?.let { t ->
+            (0 until t.childCount).map { t.getChildAt(it) }.filterIsInstance<TextView>().getOrNull(1)
+                ?.takeIf { it.visibility == View.VISIBLE }?.text?.toString()
+        }
     internal fun tapCellForTest(symbol: String): Boolean = tileFor(symbol)?.performClick() ?: false
+    /** Recycling seam: total tiles ever allocated (pool high-water mark) — bounded across tab switches. */
+    internal fun tilesAllocatedForTest(): Int = tilePool.size
 
     /** P3/P-C: the lock key shows its on/off state via the self-drawn padlock (closed + accent when locked,
      *  open + muted when not) — a monochrome glyph that tracks the palette, not a multi-colour emoji. */

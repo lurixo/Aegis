@@ -57,6 +57,7 @@ class CandidateView(context: Context) : View(context) {
     private var hitCount = 0
     private var contentWidth = 0f
     private var scrollX = 0f
+    private var contentTransitions = 0 // toolbar↔candidate role fades (not per-keystroke candidate updates)
 
     private val functions = BarFunction.entries
     private val funcRects = ArrayList<RectF>().also { l -> repeat(functions.size) { l.add(RectF()) } }
@@ -129,13 +130,31 @@ class CandidateView(context: Context) : View(context) {
 
     fun setContent(candidates: List<String>, composingText: String) {
         if (candidates == items && composingText == composing) return
+        // MD3 incoming fade ONLY when the strip changes visual ROLE (function toolbar ↔ candidate list) — a
+        // rare, meaningful transition. Candidate→candidate updates within composing stay instant so a typing
+        // burst never strobes the strip (spec: 候选条内容更新...不得为动画牺牲流畅). The content is applied
+        // synchronously FIRST (never deferred behind the fade — candidates must not lag the keystroke), then the
+        // strip fades the new role in; a same-role update just repaints.
+        val roleChanged = stripRole(items.isEmpty(), composing) != stripRole(candidates.isEmpty(), composingText)
         items = candidates.toList()
         composing = composingText
         fling.forceFinish() // debug.17 fix: kill any running fling so new content renders from offset 0, not the stale offset
         scrollX = 0f
         layoutCells()
         invalidate()
+        if (roleChanged) { contentTransitions++; Motion.fadeIn(this, Motion.FADE_IN) }
     }
+
+    /** The strip's visual role: candidate list, the idle function toolbar, or a blank composing gap. */
+    private fun stripRole(itemsEmpty: Boolean, composingText: String): Int =
+        when {
+            !itemsEmpty -> ROLE_CANDIDATES
+            composingText.isEmpty() -> ROLE_FUNCTIONS
+            else -> ROLE_BLANK
+        }
+
+    /** Test seam: how many toolbar↔candidate role transitions have run (candidate→candidate must NOT bump it). */
+    internal fun contentTransitionsForTest(): Int = contentTransitions
 
     /** Number of candidates currently rendered in the strip (test hook, U1 regression guard). */
     internal fun itemCount(): Int = items.size
@@ -371,5 +390,11 @@ class CandidateView(context: Context) : View(context) {
     override fun performClick(): Boolean {
         super.performClick()
         return true
+    }
+
+    private companion object {
+        private const val ROLE_CANDIDATES = 0
+        private const val ROLE_FUNCTIONS = 1
+        private const val ROLE_BLANK = 2
     }
 }

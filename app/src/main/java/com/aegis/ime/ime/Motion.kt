@@ -51,10 +51,25 @@ object Motion {
     const val MEDIUM1 = 250L
     const val MEDIUM2 = 300L
 
+    const val MEDIUM3 = 350L
+    const val LONG1 = 400L
+
     const val PRESS_IN = SHORT1
     const val PRESS_OUT = SHORT2
     const val STATE_CHANGE = SHORT4
     const val REVEAL = MEDIUM1
+
+    /**
+     * MD3 fade-through split (container-content swap): the outgoing content leaves on an accelerating
+     * curve over [FADE_OUT], the incoming content arrives on a decelerating curve over [FADE_IN]. Used
+     * for panel tab switches and the candidate strip's toolbar↔candidates role change — never per
+     * keystroke (see [CandidateView]), so it never strobes the typing path.
+     */
+    const val FADE_OUT = SHORT2
+    const val FADE_IN = SHORT3
+
+    /** Keyboard mode change (9键↔26键↔数字↔符号): an incoming fade-through — a larger, rarer transition. */
+    const val MODE_SWITCH = MEDIUM2
 
     /** False when the user has turned system animations off — callers then jump straight to the end state. */
     fun enabled(ctx: Context): Boolean =
@@ -155,6 +170,61 @@ object Motion {
             reset(it)
         }
         revealIn(incoming)
+    }
+
+    /**
+     * MD3 fade-through for a container whose CONTENT is swapped in place (panel tab switch, candidate strip
+     * role change): fade [view] out to transparent (accelerate, [outDuration]), run [swap] at the trough so
+     * the new content is applied while invisible, then fade the new content back in (decelerate, [inDuration]).
+     * Alpha only — the container keeps its bounds, so the IME height never moves. When platform animators are
+     * disabled or the view is detached the swap runs immediately at full opacity (reduced-motion → end state).
+     * Re-entrant: a call landing mid-transition cancels the previous one and its (now-stale) pending swap.
+     */
+    fun fadeThrough(view: View, outDuration: Long = FADE_OUT, inDuration: Long = FADE_IN, swap: () -> Unit) {
+        view.animate().cancel()
+        if (!view.isAttachedToWindow || !enabled(view.context)) {
+            swap()
+            showImmediately(view)
+            return
+        }
+        view.animate()
+            .alpha(0f)
+            .setDuration(outDuration)
+            .setInterpolator(STANDARD_ACCEL)
+            .setListener(object : AnimatorListenerAdapter() {
+                private var cancelled = false
+
+                override fun onAnimationCancel(animation: Animator) {
+                    cancelled = true
+                }
+
+                override fun onAnimationEnd(animation: Animator) {
+                    view.animate().setListener(null)
+                    if (cancelled) return // a newer fadeThrough took over; its swap wins
+                    swap()
+                    view.alpha = 0f
+                    view.animate().alpha(1f).setDuration(inDuration).setInterpolator(EMPHASIZED_DECEL).start()
+                }
+            })
+            .start()
+    }
+
+    /**
+     * Cross-fade a colour from [from] to [to] over an MD3 state-change, feeding each interpolated ARGB to
+     * [apply] (e.g. `TextView::setTextColor`). Used for the non-instant selected-state colour on the expanded
+     * grid's reading column and the panel rails (MD3 state layers transition, they don't snap). Returns the
+     * running [ValueAnimator] so the caller can cancel it before starting a newer one on the same target;
+     * returns null (after applying [to] once) when there is nothing to animate or animators are disabled.
+     */
+    fun crossfadeColor(view: View, from: Int, to: Int, duration: Long = STATE_CHANGE, apply: (Int) -> Unit): ValueAnimator? {
+        if (from == to) { apply(to); return null }
+        if (!view.isAttachedToWindow || !enabled(view.context)) { apply(to); return null }
+        return ValueAnimator.ofArgb(from, to).apply {
+            this.duration = duration
+            interpolator = STANDARD
+            addUpdateListener { apply(it.animatedValue as Int) }
+            start()
+        }
     }
 
     private fun showImmediately(view: View) {

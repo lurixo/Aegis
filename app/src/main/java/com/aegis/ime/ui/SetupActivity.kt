@@ -25,6 +25,7 @@ import android.view.inputmethod.InputMethodManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.ScrollState
@@ -79,6 +80,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.aegis.ime.R
 import com.aegis.ime.ui.theme.AegisTheme
+import com.aegis.ime.ui.theme.SettingsMotion
 
 /**
  * Settings entry point. debug.47: one Activity, grouped navigation — a home screen with four group
@@ -140,7 +142,15 @@ internal fun SettingsNavGraph(
     val back: () -> Unit = {
         if (navController.previousBackStackEntry != null) navController.popBackStack()
     }
-    NavHost(navController = navController, startDestination = SettingsRoutes.HOME) {
+    NavHost(
+        navController = navController,
+        startDestination = SettingsRoutes.HOME,
+        // MD3 shared-axis X: a short slide + fade-through, mirrored on the back stack (see [SettingsMotion]).
+        enterTransition = { SettingsMotion.forwardEnter(this) },
+        exitTransition = { SettingsMotion.forwardExit(this) },
+        popEnterTransition = { SettingsMotion.backEnter(this) },
+        popExitTransition = { SettingsMotion.backExit(this) },
+    ) {
         composable(SettingsRoutes.HOME) {
             SettingsHomePage(onOpenGroup = openGroup)
         }
@@ -188,8 +198,13 @@ private fun SettingsHomePage(onOpenGroup: (String) -> Unit) {
             style = MaterialTheme.typography.bodyMedium,
         )
 
-        // B3 (debug.13): one-time, non-blocking hint that the optional downloads exist — never a dialog.
-        if (showDownloadHint) {
+        // B3 (debug.13): one-time, non-blocking hint that the optional downloads exist — never a dialog. MD3
+        // expand/shrink + fade on the state-change token when it dismisses (spec: 展开折叠).
+        AnimatedVisibility(
+            visible = showDownloadHint,
+            enter = SettingsMotion.revealEnter(),
+            exit = SettingsMotion.collapseExit(),
+        ) {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier.padding(16.dp),

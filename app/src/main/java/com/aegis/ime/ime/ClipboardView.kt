@@ -125,6 +125,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private var categorySortMode = false
     // Chinese IME behavior note.
     private val splitSelected = mutableSetOf<String>()
+    // MD3: the tab (剪贴板 ↔ 常用语) rendered last, so a genuine tab switch fade-throughs the content while an
+    // ordinary refresh (add/delete/select) rebuilds instantly.
+    private var renderedTab: ClipboardPanelState.Tab? = null
+    private var tabTransitions = 0
 
     /**
       * Chinese IME behavior note.
@@ -223,6 +227,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     // P7 test seams.
     internal fun isClipboardTabForTest(): Boolean = st.tab == ClipboardPanelState.Tab.CLIPBOARD
     internal fun phraseCatForTest(): String = phraseCat
+    /** Drive the pill tab-switch path (switchTab + refresh) the way a pill tap does — for the MD3 fade test. */
+    internal fun switchTabForTest(toClipboard: Boolean) {
+        st.switchTab(if (toClipboard) ClipboardPanelState.Tab.CLIPBOARD else ClipboardPanelState.Tab.PHRASE)
+        refresh()
+    }
     internal fun forcePhrasesStateForTest(cat: String) { st.switchTab(ClipboardPanelState.Tab.PHRASE); phraseCat = cat }
     internal fun enterSelectForTest(selected: List<String> = emptyList()) { st.enterSelect(); st.selected.addAll(selected); refresh() }
     // debug.16 test seams: the move-target chooser + the drag-reorder state machine (touch plumbing is exercised separately).
@@ -293,15 +302,24 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
 
     fun refresh() {
-        invalidateListRender()
-        main.removeAllViews()
-        when {
-            st.selectMode -> buildSelectMode()
-            categorySortMode -> buildCategorySortMode()
-            sortMode -> buildSortMode()
-            else -> buildNormal()
+        val tabChanged = renderedTab != null && renderedTab != st.tab
+        renderedTab = st.tab
+        val rebuild = {
+            invalidateListRender()
+            main.removeAllViews()
+            when {
+                st.selectMode -> buildSelectMode()
+                categorySortMode -> buildCategorySortMode()
+                sortMode -> buildSortMode()
+                else -> buildNormal()
+            }
         }
+        // MD3 fade-through only on a real 剪贴板↔常用语 tab switch — an ordinary refresh stays instant.
+        if (tabChanged) { tabTransitions++; Motion.fadeThrough(main, swap = rebuild) } else rebuild()
     }
+
+    /** Test seam: how many 剪贴板↔常用语 tab-switch fades have run (a non-tab refresh must NOT bump it). */
+    internal fun tabTransitionsForTest(): Int = tabTransitions
 
     private fun cancelPendingListAppend() {
         pendingListAppend?.let { removeCallbacks(it) }

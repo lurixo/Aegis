@@ -52,6 +52,7 @@ class KeyboardView(context: Context) : View(context) {
     var onBackspaceSwipe: (Boolean) -> Unit = {}
 
     private var layout: KeyboardLayout = Layouts.forId(LayoutId.ALPHA, Lang.CN)
+    private var modeSwitches = 0 // live layout-id changes that ran the MD3 mode-switch fade
     private var shifted = false
     private var shiftLocked = false // I4: caps-lock (persistent) vs one-shot — drives the solid-arrow glyph
     private var lang = Lang.CN
@@ -223,6 +224,11 @@ class KeyboardView(context: Context) : View(context) {
         // A3: reset the left column to the top whenever its CONTENT changes (new syllable / rest↔compose),
         // but keep the scroll offset on a pure re-render of the same list.
         val sameColumn = newLayout.scrollColumn?.items?.map { it.label } == layout.scrollColumn?.items?.map { it.label }
+        // MD3 mode-switch (9键↔26键↔数字↔符号): an incoming fade-through. Gated to a real layout-id change on an
+        // already-laid-out keyboard, so the per-keystroke re-renders (same id) and the first cold show (width==0,
+        // handled by the panel/keyboard reveal) never fade — only a genuine mode change does. Alpha only: the
+        // content + hit rects are applied synchronously below FIRST, so touch stays exact through the fade.
+        val modeChanged = newLayout.id != layout.id
         layout = newLayout
         shifted = isShifted
         shiftLocked = isLocked // I4: drives the solid (locked) vs hollow (one-shot/off) shift glyph
@@ -237,7 +243,11 @@ class KeyboardView(context: Context) : View(context) {
         if (width > 0) relayout()
         requestLayout()
         invalidate()
+        if (modeChanged && width > 0) { modeSwitches++; Motion.fadeIn(this, Motion.MODE_SWITCH) }
     }
+
+    /** Test seam: how many live keyboard mode switches have run the MD3 fade (same-id re-renders must NOT bump it). */
+    internal fun modeSwitchesForTest(): Int = modeSwitches
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
