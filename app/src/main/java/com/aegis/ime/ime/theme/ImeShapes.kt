@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime.theme
 
+import android.util.DisplayMetrics
 import kotlin.math.roundToInt
 
 object ImeShapes {
@@ -28,6 +29,16 @@ object ImeShapes {
     const val edgeInsetDp = 4f
     const val surfaceTopRadiusDp = 8f
     const val floatRadiusDp = 12f
+    const val popupWidthDp = 320
+    const val popupMarginDp = 24
+    private const val popupMinWidthDp = 260
 
     fun gridLinePx(density: Float): Float = maxOf(1f, (density / 2f).roundToInt().toFloat())
+
+    fun popupWidthPx(metrics: DisplayMetrics, widthDp: Int = popupWidthDp, hostWidthPx: Int = 0): Int {
+        fun dp(value: Int) = (value * metrics.density).toInt()
+        val preferred = minOf(dp(widthDp), (metrics.widthPixels - dp(popupMarginDp) * 2).coerceAtLeast(dp(popupMinWidthDp)))
+        if (hostWidthPx <= 0) return preferred
+        return minOf(preferred, hostWidthPx - 2 * (edgeInsetDp * metrics.density).toInt()).coerceAtLeast(0)
+    }
 }

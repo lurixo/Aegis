@@ -62,6 +62,13 @@ class PopupInsetTest {
         assertEquals("$name ends two characters in", inset(), tv.paddingRight)
     }
 
+    @Test fun panel_confirmations_put_their_question_two_characters_in() {
+        val overlay = PanelConfirmationOverlay(ctx)
+        overlay.show("Clear recent items?", "Clear", "Cancel", pal) {}
+        layout(overlay)
+        assertPaddedTwoCharacters("panel confirmation question", text(overlay, "Clear recent items?"))
+    }
+
     @Test fun translate_mode_choices_sit_two_characters_in() {
         val bar = TranslateBarView(ctx).apply { applyPalette(pal) }
         layout(bar, 480, 200)

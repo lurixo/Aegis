@@ -1013,18 +1013,31 @@ class InputView(context: Context) : LinearLayout(context) {
         onOverlayChanged()
     }
 
-    private enum class BackKind { NONE, TRANSLATE_DIALOG, PANEL, EDIT_BAR, PREEDIT_EDIT }
+    private enum class BackKind { NONE, PANEL_CONFIRMATION, TRANSLATE_DIALOG, PANEL, EDIT_BAR, PREEDIT_EDIT }
 
     fun isPreeditEditing(): Boolean = preeditEditingNow
 
+    private fun visibleConfirmation(view: View? = currentPanel): PanelConfirmationOverlay? {
+        if (view == null || view.visibility != View.VISIBLE) return null
+        if (view is PanelConfirmationOverlay) return view
+        if (view !is ViewGroup) return null
+        for (index in 0 until view.childCount) {
+            visibleConfirmation(view.getChildAt(index))?.let { return it }
+        }
+        return null
+    }
+
     fun hasOverlay(): Boolean = when {
+        visibleConfirmation() != null -> true
         translateBarView.isModeDialogShowing() -> true
         copyBarActive && copyBarShown -> false
         else -> currentPanel != null || editBarActive || preeditEditingNow
     }
 
     private fun topOverlay(): Pair<BackKind, View?> {
+        val confirmation = visibleConfirmation()
         return when {
+            confirmation != null -> BackKind.PANEL_CONFIRMATION to confirmation
             translateBarView.isModeDialogShowing() -> BackKind.TRANSLATE_DIALOG to null
             copyBarActive && copyBarShown -> BackKind.NONE to null
             editBarActive -> BackKind.EDIT_BAR to editBarView
@@ -1038,6 +1051,7 @@ class InputView(context: Context) : LinearLayout(context) {
     fun closeTopOverlay(): Boolean {
         val (kind, view) = topOverlay()
         return when (kind) {
+            BackKind.PANEL_CONFIRMATION -> { (view as PanelConfirmationOverlay).dismiss(); true }
             BackKind.TRANSLATE_DIALOG -> { translateBarView.dismissModeDialog(); true }
             BackKind.EDIT_BAR -> { onEditCancel(); true }
             BackKind.PANEL -> { showPanel(null); true }

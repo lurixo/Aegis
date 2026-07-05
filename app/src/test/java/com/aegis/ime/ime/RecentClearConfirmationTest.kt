@@ -1,0 +1,249 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Copyright (C) 2026 lurixo
+//
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 3.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+// PARTICULAR PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
+
+package com.aegis.ime.ime
+
+import android.graphics.Rect
+import android.view.Gravity
+import android.view.InputDevice
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
+import android.widget.TextView
+import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
+import com.aegis.ime.ime.theme.ImeType
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
+class RecentClearConfirmationTest {
+
+    private val ctx = RuntimeEnvironment.getApplication()
+
+    private fun layout(view: View, width: Int = 480, height: Int = 320) {
+        view.measure(
+            View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY),
+        )
+        view.layout(0, 0, view.measuredWidth, view.measuredHeight)
+    }
+
+    private fun bounds(root: ViewGroup, descendant: View): Rect = Rect(0, 0, descendant.width, descendant.height).also {
+        root.offsetDescendantRectToMyCoords(descendant, it)
+    }
+
+    private fun event(action: Int, x: Float, y: Float, time: Long): MotionEvent =
+        MotionEvent.obtain(0, time, action, x, y, 0)
+
+    private fun pointerEvent(
+        actionMasked: Int,
+        actionIndex: Int,
+        ids: IntArray,
+        points: List<Pair<Float, Float>>,
+        time: Long,
+    ): MotionEvent {
+        val properties = Array(ids.size) { index ->
+            MotionEvent.PointerProperties().apply {
+                id = ids[index]
+                toolType = MotionEvent.TOOL_TYPE_FINGER
+            }
+        }
+        val coordinates = Array(ids.size) { index ->
+            MotionEvent.PointerCoords().apply {
+                x = points[index].first
+                y = points[index].second
+                pressure = 1f
+                size = 1f
+            }
+        }
+        val action = actionMasked or (actionIndex shl MotionEvent.ACTION_POINTER_INDEX_SHIFT)
+        return MotionEvent.obtain(
+            0,
+            time,
+            action,
+            ids.size,
+            properties,
+            coordinates,
+            0,
+            0,
+            1f,
+            1f,
+            0,
+            0,
+            InputDevice.SOURCE_TOUCHSCREEN,
+            0,
+        )
+    }
+
+    @Test fun confirmation_backdrop_is_clickable_only_while_visible() {
+        val overlay = PanelConfirmationOverlay(ctx)
+        var confirmations = 0
+
+        assertFalse(overlay.hasOnClickListeners())
+        assertFalse(overlay.isClickable)
+
+        overlay.show("Clear recent items?", "Clear", "Cancel", ImePalette.STATIC_LIGHT) { confirmations++ }
+        assertTrue(overlay.hasOnClickListeners())
+        assertTrue(overlay.isClickable)
+        assertTrue(overlay.performClick())
+
+        assertFalse(overlay.hasOnClickListeners())
+        assertFalse(overlay.isClickable)
+        assertEquals(0, confirmations)
+    }
+
+    @Test fun confirmation_actions_sit_at_the_card_edges_in_destructive_then_cancel_order() {
+        val inset = ImeType.popupInsetPx(ctx.resources.displayMetrics)
+        val density = ctx.resources.displayMetrics.density
+        for ((question, destructive, dismiss) in listOf(
+            Triple("Delete this item?", "Delete", "Cancel"),
+            Triple("清空常用表情？", "清空", "取消"),
+            Triple("从常用符号中删除「这是一个故意写得很长很长很长很长很长的符号说明」？", "删除", "取消"),
+        )) {
+            val overlay = PanelConfirmationOverlay(ctx)
+            overlay.show(question, destructive, dismiss, ImePalette.STATIC_LIGHT) {}
+            layout(overlay)
+
+            val confirm = requireNotNull(overlay.confirmActionForTest()) as TextView
+            val cancel = requireNotNull(overlay.cancelActionForTest()) as TextView
+            val card = requireNotNull(overlay.cardForTest()) as ViewGroup
+            val title = card.getChildAt(0) as TextView
+            val confirmBounds = bounds(overlay, confirm)
+            val cancelBounds = bounds(overlay, cancel)
+            val cardBounds = bounds(overlay, card)
+
+            assertEquals(question, title.text.toString())
+            assertEquals("$question: the question stays centered", Gravity.CENTER_HORIZONTAL, title.gravity and Gravity.HORIZONTAL_GRAVITY_MASK)
+            assertEquals(confirmBounds.top, cancelBounds.top)
+            assertEquals(confirmBounds.bottom, cancelBounds.bottom)
+            assertTrue(confirmBounds.centerX() < cancelBounds.centerX())
+            assertEquals("$destructive starts two characters in", cardBounds.left + inset, confirmBounds.left + confirm.totalPaddingLeft)
+            assertEquals("$dismiss ends two characters in", cardBounds.right - inset, cancelBounds.right - cancel.totalPaddingRight)
+            assertEquals("$question: the card keeps the one popup width", ImeShapes.popupWidthPx(ctx.resources.displayMetrics), card.width)
+            assertTrue("the actions stay apart instead of pairing up in the middle", cancelBounds.left - confirmBounds.right >= (48 * density).toInt())
+        }
+    }
+
+    @Test fun a_confirmation_in_a_frame_narrower_than_the_popup_width_keeps_the_edge_inset() {
+        val metrics = ctx.resources.displayMetrics
+        val edge = (ImeShapes.edgeInsetDp * metrics.density).toInt()
+        val narrow = ImeShapes.popupWidthPx(metrics)
+        val frame = android.widget.FrameLayout(ctx)
+        val overlay = PanelConfirmationOverlay(ctx)
+        frame.addView(overlay, android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+        ))
+        layout(frame, width = narrow)
+        overlay.show("清空常用表情？", "清空", "取消", ImePalette.STATIC_LIGHT) {}
+        layout(frame, width = narrow)
+        val card = bounds(frame, requireNotNull(overlay.cardForTest()))
+        assertEquals("the card narrows to the frame", narrow - 2 * edge, card.width())
+        assertEquals("the card keeps the edge inset on the left", edge, card.left)
+        assertEquals("the card keeps the edge inset on the right", narrow - edge, card.right)
+    }
+
+    @Test fun confirmation_backdrop_resets_outside_gestures_after_move_up_and_cancel() {
+        val overlay = PanelConfirmationOverlay(ctx)
+        overlay.show("Delete this item?", "Delete", "Cancel", ImePalette.STATIC_LIGHT) {}
+        layout(overlay)
+        val card = requireNotNull(overlay.cardForTest())
+        val cardBounds = bounds(overlay, card)
+        val insideX = cardBounds.exactCenterX()
+        val insideY = cardBounds.exactCenterY()
+
+        assertTrue(overlay.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, 2f, 2f, 0)))
+        assertTrue(overlay.outsideGestureActiveForTest())
+        assertTrue(overlay.dispatchTouchEvent(event(MotionEvent.ACTION_CANCEL, 2f, 2f, 10)))
+        assertFalse(overlay.outsideGestureActiveForTest())
+        assertEquals(View.VISIBLE, overlay.visibility)
+
+        assertTrue(overlay.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, 2f, 2f, 20)))
+        assertTrue(overlay.dispatchTouchEvent(event(MotionEvent.ACTION_MOVE, insideX, insideY, 30)))
+        assertTrue(overlay.dispatchTouchEvent(event(MotionEvent.ACTION_UP, insideX, insideY, 40)))
+        assertFalse(overlay.outsideGestureActiveForTest())
+        assertEquals("an outside gesture dragged into the card is not a tap", View.VISIBLE, overlay.visibility)
+
+        assertTrue(overlay.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, 2f, 2f, 50)))
+        assertTrue(overlay.dispatchTouchEvent(event(MotionEvent.ACTION_MOVE, 3f, 3f, 60)))
+        assertTrue(overlay.dispatchTouchEvent(event(MotionEvent.ACTION_UP, 3f, 3f, 70)))
+        assertFalse(overlay.outsideGestureActiveForTest())
+        assertEquals(View.GONE, overlay.visibility)
+    }
+
+    @Test fun confirmation_backdrop_cancels_a_multitouch_tap_and_hands_off_the_tracked_pointer() {
+        val overlay = PanelConfirmationOverlay(ctx)
+        overlay.show("Delete this item?", "Delete", "Cancel", ImePalette.STATIC_LIGHT) {}
+        layout(overlay)
+
+        assertTrue(overlay.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, 2f, 2f, 0)))
+        assertTrue(overlay.dispatchTouchEvent(pointerEvent(
+            MotionEvent.ACTION_POINTER_DOWN,
+            1,
+            intArrayOf(0, 7),
+            listOf(2f to 2f, 4f to 4f),
+            10,
+        )))
+        assertTrue(overlay.dispatchTouchEvent(pointerEvent(
+            MotionEvent.ACTION_POINTER_UP,
+            0,
+            intArrayOf(0, 7),
+            listOf(2f to 2f, 4f to 4f),
+            20,
+        )))
+        assertTrue("the remaining pointer stays owned until its terminal event", overlay.outsideGestureActiveForTest())
+        assertTrue(overlay.dispatchTouchEvent(pointerEvent(
+            MotionEvent.ACTION_UP,
+            0,
+            intArrayOf(7),
+            listOf(4f to 4f),
+            30,
+        )))
+        assertFalse(overlay.outsideGestureActiveForTest())
+        assertEquals("multi-touch is not mistaken for an outside tap", View.VISIBLE, overlay.visibility)
+
+        assertTrue(overlay.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, 2f, 2f, 40)))
+        assertTrue(overlay.dispatchTouchEvent(event(MotionEvent.ACTION_UP, 2f, 2f, 50)))
+        assertEquals(View.GONE, overlay.visibility)
+    }
+
+    @Test fun confirmation_backdrop_fast_reopen_drops_the_old_gesture_and_actions() {
+        val overlay = PanelConfirmationOverlay(ctx)
+        var first = 0
+        var second = 0
+        overlay.show("First?", "Delete", "Cancel", ImePalette.STATIC_LIGHT) { first++ }
+        layout(overlay)
+        val staleConfirm = requireNotNull(overlay.confirmActionForTest())
+        assertTrue(overlay.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, 2f, 2f, 0)))
+        assertTrue(overlay.outsideGestureActiveForTest())
+
+        overlay.show("Second?", "Delete", "Cancel", ImePalette.STATIC_LIGHT) { second++ }
+        layout(overlay)
+
+        assertFalse(overlay.outsideGestureActiveForTest())
+        assertFalse("the detached first action cannot fire", staleConfirm.performClick())
+        assertEquals(0, first)
+        assertTrue(overlay.confirmForTest())
+        assertEquals(1, second)
+    }
+}
