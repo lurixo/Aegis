@@ -38,6 +38,7 @@ import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.layout.EmojiCatalog
+import com.aegis.ime.layout.EmojiVariants
 
 class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
 
@@ -60,6 +61,29 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         val p = dp(4); setPadding(p, p, p, p)
     }
     private val gridScroll = ScrollView(context).apply { addView(grid); isFillViewport = true }
+    private val gridFrame = FrameLayout(context)
+    private val variantGenderRow = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER }
+    private val variantSkinRow = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER }
+    private val variantCard = LinearLayout(context).apply {
+        orientation = VERTICAL
+        isClickable = true
+        val p = dp(6); setPadding(p, p, p, p)
+    }
+    private val variantScrim = FrameLayout(context).apply {
+        isClickable = true
+        visibility = GONE
+        @Suppress("ClickableViewAccessibility")
+        setOnTouchListener { _, e ->
+            if (e.actionMasked == android.view.MotionEvent.ACTION_DOWN) dismissVariants()
+            true
+        }
+        addView(variantCard, FrameLayout.LayoutParams(
+            LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT,
+            Gravity.CENTER_HORIZONTAL or Gravity.TOP,
+        ).apply { topMargin = dp(10) })
+    }
+    private var variantBase = ""
+    private var variantGenderForm = ""
     private var locked = false
     private val backBtn = barButton("返回") { onBack() }
     private val lockBtn = barButton("锁定") { toggleLock() }
@@ -80,6 +104,10 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         val e = (v as TextView).text.toString()
         onEmoji(e); if (!locked) onBack()
     }
+    private val emojiLongClick = View.OnLongClickListener { v ->
+        val e = (v as TextView).text.toString()
+        if (EmojiVariants.hasVariants(e)) { openVariants(e); true } else false
+    }
 
     init {
         orientation = VERTICAL
@@ -92,11 +120,15 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
 
         for ((i, t) in titles.withIndex()) rail.addView(railTab(i, t))
 
+        gridFrame.addView(gridScroll, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        gridFrame.addView(variantScrim, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        variantCard.addView(variantGenderRow)
+        variantCard.addView(variantSkinRow)
         val content = LinearLayout(context).apply {
             orientation = HORIZONTAL
             railScroll.setBackgroundColor(palette.railBg)
             addView(railScroll, LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
-            addView(gridScroll, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+            addView(gridFrame, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         }
         addView(content, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         addView(bottomBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(46)))
@@ -123,6 +155,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
 
     override fun resetToDefault() {
         resetLock()
+        dismissVariants()
         showCategory(0)
         gridScroll.scrollTo(0, 0)
         railScroll.scrollTo(0, 0)
@@ -158,6 +191,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun tapCellForTest(index: Int): Boolean = (grid.getChildAt(index) as? TextView)?.performClick() ?: false
 
     private fun showCategory(index: Int) {
+        dismissVariants()
         val tabChanged = index != selected
         val prev = selected
         selected = index
@@ -234,8 +268,10 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
             val p = dp(8)
             setPadding(0, p, 0, p)
             isClickable = true
+            isLongClickable = true
             Motion.applyTapFeedback(this, palette.keyLabel)
             setOnClickListener(emojiClick)
+            setOnLongClickListener(emojiLongClick)
             layoutParams = GridLayout.LayoutParams().apply {
                 width = 0
                 height = LayoutParams.WRAP_CONTENT
@@ -246,6 +282,83 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         emojiPool.add(tv)
         return tv
     }
+
+
+    private fun openVariants(base: String) {
+        variantBase = base
+        variantGenderForm = base
+        styleVariantCard()
+        buildGenderRow(base)
+        buildSkinRow(base)
+        variantScrim.visibility = View.VISIBLE
+        variantScrim.bringToFront()
+    }
+
+    private fun dismissVariants() { variantScrim.visibility = View.GONE }
+
+    private fun commitVariant(form: String) {
+        onEmoji(form)
+        dismissVariants()
+        if (!locked) onBack()
+    }
+
+    private fun buildGenderRow(base: String) {
+        val forms = EmojiVariants.genderForms(base)
+        variantGenderRow.removeAllViews()
+        if (forms.size <= 1) { variantGenderRow.visibility = View.GONE; return }
+        variantGenderRow.visibility = View.VISIBLE
+        for (f in forms) variantGenderRow.addView(variantCell(f, selected = f == variantGenderForm) {
+            if (EmojiVariants.skinForms(f).size > 1) {
+                variantGenderForm = f
+                buildGenderRow(base)
+                buildSkinRow(f)
+            } else commitVariant(f)
+        })
+    }
+
+    private fun buildSkinRow(form: String) {
+        val tones = EmojiVariants.skinForms(form)
+        variantSkinRow.removeAllViews()
+        if (tones.size <= 1) { variantSkinRow.visibility = View.GONE; return }
+        variantSkinRow.visibility = View.VISIBLE
+        for (t in tones) variantSkinRow.addView(variantCell(t, selected = false) { commitVariant(t) })
+    }
+
+    private fun variantCell(glyph: String, selected: Boolean, onTap: () -> Unit): TextView =
+        TextView(context).apply {
+            text = glyph
+            gravity = Gravity.CENTER
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.display)
+            val p = dp(6); setPadding(p, p, p, p)
+            minWidth = dp(42)
+            isClickable = true
+            if (selected) background = GradientDrawable().apply {
+                setColor(palette.keySurface); cornerRadius = ImeShapes.chipRadiusDp * density
+            }
+            Motion.applyTapFeedback(this, palette.keyLabel, radiusDp = ImeShapes.chipRadiusDp)
+            setOnClickListener { onTap() }
+        }
+
+    private fun styleVariantCard() {
+        variantScrim.setBackgroundColor(Motion.withAlpha(palette.keyLabelSecondary, 0x40))
+        variantCard.background = GradientDrawable().apply {
+            setColor(palette.keyboardBg); cornerRadius = ImeShapes.cardRadiusDp * density
+        }
+        variantCard.elevation = dp(8).toFloat()
+    }
+
+    internal fun longPressCellForTest(index: Int): Boolean =
+        (grid.getChildAt(index) as? TextView)?.let { emojiLongClick.onLongClick(it) } ?: false
+    internal fun openVariantsForTest(emoji: String) = openVariants(emoji)
+    internal fun variantVisibleForTest(): Boolean = variantScrim.visibility == View.VISIBLE
+    internal fun variantGenderFormsForTest(): List<String> =
+        (0 until variantGenderRow.childCount).map { (variantGenderRow.getChildAt(it) as TextView).text.toString() }
+    internal fun variantSkinFormsForTest(): List<String> =
+        (0 until variantSkinRow.childCount).map { (variantSkinRow.getChildAt(it) as TextView).text.toString() }
+    internal fun tapVariantGenderForTest(index: Int): Boolean =
+        (variantGenderRow.getChildAt(index) as? TextView)?.performClick() ?: false
+    internal fun tapVariantSkinForTest(index: Int): Boolean =
+        (variantSkinRow.getChildAt(index) as? TextView)?.performClick() ?: false
 
     private fun bottomBar(): View = LinearLayout(context).apply {
         orientation = HORIZONTAL

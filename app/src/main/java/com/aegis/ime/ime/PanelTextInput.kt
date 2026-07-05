@@ -35,7 +35,7 @@ class PanelTextInput {
 
     fun backspace(): Boolean {
         val b = buf ?: return false
-        if (b.isNotEmpty()) { b.delete(b.offsetByCodePoints(b.length, -1), b.length); emit() }
+        if (b.isNotEmpty()) { b.delete(b.length - GraphemeText.lastClusterLength(b), b.length); emit() }
         return true
     }
 

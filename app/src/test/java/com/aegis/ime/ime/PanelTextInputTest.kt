@@ -20,7 +20,12 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class PanelTextInputTest {
 
     @Test fun inactive_consumes_nothing_so_normal_typing_reaches_the_editor() {
@@ -56,11 +61,16 @@ class PanelTextInputTest {
         assertEquals("", p.text())
     }
 
-    @Test fun backspace_removes_a_whole_code_point() {
+    @Test fun backspace_removes_a_whole_grapheme_cluster() {
+        for (emoji in listOf("😀", "🇨🇳", "0️⃣", "❤️", "👨‍👩‍👧‍👦", "👋🏽", "🏳️‍🌈")) {
+            val p = PanelTextInput()
+            p.begin("a$emoji")
+            assertTrue(p.backspace())
+            assertEquals("$emoji must delete whole, not half a surrogate", "a", p.text())
+        }
         val p = PanelTextInput()
         p.begin("a😀")
-        assertTrue(p.backspace())
-        assertEquals("a", p.text())
+        assertTrue(p.backspace()); assertEquals("a", p.text())
         assertTrue(p.backspace()); assertEquals("", p.text())
         assertTrue("backspace on empty buffer still consumed", p.backspace())
     }

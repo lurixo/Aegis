@@ -41,6 +41,7 @@ import com.aegis.ime.ime.EditAction
 import com.aegis.ime.ime.EditPanelView
 import com.aegis.ime.ime.EmojiView
 import com.aegis.ime.ime.DecodeLane
+import com.aegis.ime.ime.GraphemeText
 import com.aegis.ime.ime.ImeHost
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
@@ -810,18 +811,25 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun deleteBackward() {
         if (panelInput.backspace()) return
-        currentInputConnection?.deleteSurroundingText(1, 0)
+        deleteLastEditorCluster()
     }
 
-    override fun deleteCodePointBackward() {
+    override fun deleteGraphemeBackward() {
         if (panelInput.backspace()) return
-        currentInputConnection?.deleteSurroundingTextInCodePoints(1, 0)
+        deleteLastEditorCluster()
+    }
+
+    private fun deleteLastEditorCluster() {
+        val ic = currentInputConnection ?: return
+        val before = ic.getTextBeforeCursor(GraphemeText.WINDOW, 0) ?: ""
+        val n = GraphemeText.lastClusterLength(before)
+        ic.deleteSurroundingText(if (n > 0) n else 1, 0)
     }
 
     override fun panelBackspace() {
         if (panelInput.backspace()) return
         controller.expireCandidateChoiceUndo()
-        if (hasSelection()) deleteSelection() else deleteCodePointBackward()
+        if (hasSelection()) deleteSelection() else deleteGraphemeBackward()
     }
 
     override fun textBeforeCursor(n: Int): CharSequence {
