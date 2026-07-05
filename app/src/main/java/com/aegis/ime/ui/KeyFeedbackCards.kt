@@ -40,8 +40,9 @@ import com.aegis.ime.R
 
 internal const val PREF_KEY_HAPTICS = "pref_key_haptics"
 internal const val KEY_HAPTICS_DEFAULT = false
-internal const val PREF_KEY_PREVIEW = "pref_key_preview"
-internal const val KEY_PREVIEW_DEFAULT = true
+internal const val PREF_KEY_PREVIEW_NINE = "pref_key_preview_nine"
+internal const val PREF_KEY_PREVIEW_ALPHA = "pref_key_preview_alpha"
+internal const val KEY_PREVIEW_DEFAULT = false
 
 @Composable
 private fun FeedbackToggleCard(prefKey: String, default: Boolean, titleRes: Int, descRes: Int) {
@@ -78,5 +79,9 @@ internal fun KeyVibrationToggleCard() =
     FeedbackToggleCard(PREF_KEY_HAPTICS, KEY_HAPTICS_DEFAULT, R.string.key_vibration_title, R.string.key_vibration_description)
 
 @Composable
-internal fun KeyPreviewToggleCard() =
-    FeedbackToggleCard(PREF_KEY_PREVIEW, KEY_PREVIEW_DEFAULT, R.string.key_preview_title, R.string.key_preview_description)
+internal fun KeyPreviewNineToggleCard() =
+    FeedbackToggleCard(PREF_KEY_PREVIEW_NINE, KEY_PREVIEW_DEFAULT, R.string.key_preview_nine_title, R.string.key_preview_nine_description)
+
+@Composable
+internal fun KeyPreviewAlphaToggleCard() =
+    FeedbackToggleCard(PREF_KEY_PREVIEW_ALPHA, KEY_PREVIEW_DEFAULT, R.string.key_preview_alpha_title, R.string.key_preview_alpha_description)

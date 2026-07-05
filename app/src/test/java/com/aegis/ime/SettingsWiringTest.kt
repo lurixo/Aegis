@@ -83,6 +83,35 @@ class SettingsWiringTest {
         assertTrue(page.contains("windowInsetsPadding(WindowInsets.safeDrawing)"))
     }
 
+    @Test fun the_model_card_sits_above_the_dictionary_card_on_the_dicts_page() {
+        val setup = src("src/main/java/com/aegis/ime/ui/SetupActivity.kt")
+        val dictsPage = setup.substringAfter("fun DictSettingsPage").substringBefore("fun AboutPage")
+        val gram = dictsPage.indexOf("GramDownloadCard()")
+        val dict = dictsPage.indexOf("DictDownloadCard()")
+        assertTrue("both download cards must be on the dicts page", gram >= 0 && dict >= 0)
+        assertTrue("GramDownloadCard must render before DictDownloadCard", gram < dict)
+    }
+
+    @Test fun the_input_page_wires_the_new_case_and_split_preview_cards() {
+        val setup = src("src/main/java/com/aegis/ime/ui/SetupActivity.kt")
+        val inputPage = setup.substringAfter("fun InputSettingsPage").substringBefore("fun DictSettingsPage")
+        for (card in listOf("LetterCaseCard()", "KeyPreviewNineToggleCard()", "KeyPreviewAlphaToggleCard()")) {
+            assertTrue("input page must render $card", inputPage.contains(card))
+        }
+        assertFalse("the old single preview card must be gone", setup.contains("KeyPreviewToggleCard("))
+    }
+
+    @Test fun the_gram_card_drops_the_unsourced_internal_evaluation_score() {
+        val en = src("src/main/res/values/strings.xml")
+        val zh = src("src/main/res/values-zh/strings.xml")
+        assertFalse("EN gram card must not cite an internal evaluation score", en.contains("internal evaluation top-1"))
+        assertFalse("EN gram card must not cite an internal evaluation score", en.contains("about 9 points"))
+        assertFalse("ZH gram card must not cite an internal evaluation score", zh.contains("内部评测"))
+        assertFalse("ZH gram card must not cite an internal evaluation score", zh.contains("约 9 分"))
+        assertTrue("EN gram card keeps the optional/offline wording", en.contains("input remains fully offline"))
+        assertTrue("ZH gram card keeps the optional/offline wording", zh.contains("全程离线"))
+    }
+
     @Test fun no_ui_string_promises_a_delayed_settings_effect_any_more() {
         for (path in listOf("src/main/res/values/strings.xml", "src/main/res/values-zh/strings.xml")) {
             val text = src(path)

@@ -151,7 +151,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             Handler(Looper.getMainLooper()).post { maybeReloadEngine() }
         },
         onKeyHaptics = { on -> mainHandler.post { inputView?.setKeyHaptics(on) } },
-        onKeyPreview = { on -> mainHandler.post { inputView?.setKeyPreview(on) } },
+        onKeyPreviewNine = { on -> mainHandler.post { inputView?.setKeyPreviewNine(on) } },
+        onKeyPreviewAlpha = { on -> mainHandler.post { inputView?.setKeyPreviewAlpha(on) } },
+        onLetterCase = { mode -> mainHandler.post { inputView?.setLetterCase(mode) } },
     )
 
     private val liveUserDictHost by lazy {
@@ -311,7 +313,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         view.applyPalette(imePalette)
         val fbPrefs = getSharedPreferences("aegis", MODE_PRIVATE)
         view.setKeyHaptics(SettingsHotApply.keyHaptics(fbPrefs))
-        view.setKeyPreview(SettingsHotApply.keyPreview(fbPrefs))
+        view.setKeyPreviewNine(SettingsHotApply.keyPreviewNine(fbPrefs))
+        view.setKeyPreviewAlpha(SettingsHotApply.keyPreviewAlpha(fbPrefs))
+        view.setLetterCase(SettingsHotApply.letterCase(fbPrefs))
         return view
     }
 
@@ -330,7 +334,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.setAssociationsEnabled(SettingsHotApply.associationsOn(prefs))
         controller.setFuzzyRules(currentFuzzyRules())
         inputView?.setKeyHaptics(SettingsHotApply.keyHaptics(prefs))
-        inputView?.setKeyPreview(SettingsHotApply.keyPreview(prefs))
+        inputView?.setKeyPreviewNine(SettingsHotApply.keyPreviewNine(prefs))
+        inputView?.setKeyPreviewAlpha(SettingsHotApply.keyPreviewAlpha(prefs))
+        inputView?.setLetterCase(SettingsHotApply.letterCase(prefs))
         controller.reset()
         applyPaletteEverywhere()
     }

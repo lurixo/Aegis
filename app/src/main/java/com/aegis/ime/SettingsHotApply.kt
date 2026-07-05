@@ -26,7 +26,9 @@ internal class SettingsHotApply(
     private val onFuzzyRules: (Set<String>) -> Unit,
     private val onEngineAssetsChanged: () -> Unit,
     private val onKeyHaptics: (Boolean) -> Unit = {},
-    private val onKeyPreview: (Boolean) -> Unit = {},
+    private val onKeyPreviewNine: (Boolean) -> Unit = {},
+    private val onKeyPreviewAlpha: (Boolean) -> Unit = {},
+    private val onLetterCase: (com.aegis.ime.ui.LetterCase) -> Unit = {},
 ) : SharedPreferences.OnSharedPreferenceChangeListener {
 
     override fun onSharedPreferenceChanged(prefs: SharedPreferences, key: String?) {
@@ -36,7 +38,9 @@ internal class SettingsHotApply(
             key == com.aegis.ime.ui.PREF_ASSOCIATIONS_ON -> onAssociations(associationsOn(prefs))
             key == FUZZY_MASTER_PREF || key in FUZZY_RULE_PREF_KEYS -> onFuzzyRules(fuzzyRules(prefs))
             key == com.aegis.ime.ui.PREF_KEY_HAPTICS -> onKeyHaptics(keyHaptics(prefs))
-            key == com.aegis.ime.ui.PREF_KEY_PREVIEW -> onKeyPreview(keyPreview(prefs))
+            key == com.aegis.ime.ui.PREF_KEY_PREVIEW_NINE -> onKeyPreviewNine(keyPreviewNine(prefs))
+            key == com.aegis.ime.ui.PREF_KEY_PREVIEW_ALPHA -> onKeyPreviewAlpha(keyPreviewAlpha(prefs))
+            key == com.aegis.ime.ui.PREF_LETTER_CASE -> onLetterCase(letterCase(prefs))
             key in ENGINE_ASSET_PREF_KEYS -> onEngineAssetsChanged()
         }
     }
@@ -69,8 +73,14 @@ internal class SettingsHotApply(
         fun keyHaptics(prefs: SharedPreferences): Boolean =
             prefs.getBoolean(com.aegis.ime.ui.PREF_KEY_HAPTICS, com.aegis.ime.ui.KEY_HAPTICS_DEFAULT)
 
-        fun keyPreview(prefs: SharedPreferences): Boolean =
-            prefs.getBoolean(com.aegis.ime.ui.PREF_KEY_PREVIEW, com.aegis.ime.ui.KEY_PREVIEW_DEFAULT)
+        fun keyPreviewNine(prefs: SharedPreferences): Boolean =
+            prefs.getBoolean(com.aegis.ime.ui.PREF_KEY_PREVIEW_NINE, com.aegis.ime.ui.KEY_PREVIEW_DEFAULT)
+
+        fun keyPreviewAlpha(prefs: SharedPreferences): Boolean =
+            prefs.getBoolean(com.aegis.ime.ui.PREF_KEY_PREVIEW_ALPHA, com.aegis.ime.ui.KEY_PREVIEW_DEFAULT)
+
+        fun letterCase(prefs: SharedPreferences): com.aegis.ime.ui.LetterCase =
+            com.aegis.ime.ui.letterCaseOf(prefs.getString(com.aegis.ime.ui.PREF_LETTER_CASE, com.aegis.ime.ui.LETTER_CASE_DEFAULT))
 
         fun fuzzyRules(prefs: SharedPreferences): Set<String> =
             Fuzzy.activeRules(prefs.getBoolean(FUZZY_MASTER_PREF, Fuzzy.DEFAULT_ON)) {

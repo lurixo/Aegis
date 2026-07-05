@@ -285,18 +285,20 @@ private fun SettingsPageColumn(title: String, onBack: () -> Unit, content: @Comp
 private fun InputSettingsPage(onBack: () -> Unit) {
     SettingsPageColumn(stringResource(R.string.settings_group_input_title), onBack) {
         LayoutChoiceCard()
+        LetterCaseCard()
         FuzzySettingsCard()
         AssociationToggleCard()
         KeyVibrationToggleCard()
-        KeyPreviewToggleCard()
+        KeyPreviewNineToggleCard()
+        KeyPreviewAlphaToggleCard()
     }
 }
 
 @Composable
 private fun DictSettingsPage(onBack: () -> Unit) {
     SettingsPageColumn(stringResource(R.string.settings_group_dicts_title), onBack) {
-        DictDownloadCard()
         GramDownloadCard()
+        DictDownloadCard()
     }
 }
 
