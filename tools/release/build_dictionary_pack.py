@@ -73,6 +73,7 @@ def ensure_source_checkout(args, work_dir):
     source = work_dir / "rime-wanxiang"
     if source.exists():
         shutil.rmtree(source)
+    clone_ref = args.source_tag or args.source_branch
     run(
         [
             "git",
@@ -80,7 +81,7 @@ def ensure_source_checkout(args, work_dir):
             "--depth",
             "1",
             "--branch",
-            args.source_branch,
+            clone_ref,
             args.source_repo,
             str(source),
         ],
@@ -130,7 +131,9 @@ def build_info(args, repo_root, source, asset_name, zip_path, bin_infos, source_
                 },
                 "source": {
                     "repo": args.source_repo_https,
-                    "branch": args.source_branch,
+                    "ref_type": "tag" if args.source_tag else "branch",
+                    "tag": args.source_tag,
+                    "branch": None if args.source_tag else args.source_branch,
                     "commit": source_commit,
                     "license": "CC-BY-4.0",
                     "tables": TABLES,
@@ -218,6 +221,8 @@ def update_payload(build_info_json):
         "asset": dictionary["physical_asset"],
         "source": {
             "repo": dictionary["source"]["repo"],
+            "ref_type": dictionary["source"]["ref_type"],
+            "tag": dictionary["source"]["tag"],
             "branch": dictionary["source"]["branch"],
             "commit": dictionary["source"]["commit"],
         },
@@ -232,6 +237,7 @@ def main(argv):
     parser.add_argument("--source-repo", default="https://github.com/amzxyz/rime-wanxiang.git")
     parser.add_argument("--source-repo-https", default="https://github.com/amzxyz/rime-wanxiang")
     parser.add_argument("--source-branch", default="wanxiang")
+    parser.add_argument("--source-tag", help="Upstream release tag to pin (records source.tag and clones this tag instead of the branch HEAD). Prefer the latest stable tag that carries the dicts/ tables.")
     parser.add_argument("--asset-name", help="Dictionary ZIP asset name. Defaults to the debug.13 naming pattern.")
     parser.add_argument("--release", dest="prerelease", action="store_false", help="Mark generated metadata as a normal release.")
     parser.set_defaults(prerelease=True)
