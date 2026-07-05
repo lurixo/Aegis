@@ -40,9 +40,11 @@ import com.aegis.ime.R
 
 internal const val PREF_KEY_HAPTICS = "pref_key_haptics"
 internal const val KEY_HAPTICS_DEFAULT = false
+internal const val PREF_KEY_PREVIEW_MASTER = "pref_key_preview_master"
 internal const val PREF_KEY_PREVIEW_NINE = "pref_key_preview_nine"
 internal const val PREF_KEY_PREVIEW_ALPHA = "pref_key_preview_alpha"
-internal const val KEY_PREVIEW_DEFAULT = false
+internal const val KEY_PREVIEW_MASTER_DEFAULT = false
+internal const val KEY_PREVIEW_SUB_DEFAULT = true
 
 @Composable
 private fun FeedbackToggleCard(prefKey: String, default: Boolean, titleRes: Int, descRes: Int) {
@@ -79,9 +81,58 @@ internal fun KeyVibrationToggleCard() =
     FeedbackToggleCard(PREF_KEY_HAPTICS, KEY_HAPTICS_DEFAULT, R.string.key_vibration_title, R.string.key_vibration_description)
 
 @Composable
-internal fun KeyPreviewNineToggleCard() =
-    FeedbackToggleCard(PREF_KEY_PREVIEW_NINE, KEY_PREVIEW_DEFAULT, R.string.key_preview_nine_title, R.string.key_preview_nine_description)
+internal fun KeyPreviewCard() {
+    val context = LocalContext.current
+    val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
+    var master by remember { mutableStateOf(prefs.getBoolean(PREF_KEY_PREVIEW_MASTER, KEY_PREVIEW_MASTER_DEFAULT)) }
+    var nine by remember { mutableStateOf(prefs.getBoolean(PREF_KEY_PREVIEW_NINE, KEY_PREVIEW_SUB_DEFAULT)) }
+    var alpha by remember { mutableStateOf(prefs.getBoolean(PREF_KEY_PREVIEW_ALPHA, KEY_PREVIEW_SUB_DEFAULT)) }
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(stringResource(R.string.key_preview_title), style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.key_preview_description), style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(
+                    checked = master,
+                    onCheckedChange = {
+                        master = it
+                        prefs.edit { putBoolean(PREF_KEY_PREVIEW_MASTER, it) }
+                    },
+                )
+            }
+            KeyPreviewSubRow(R.string.key_preview_nine_label, checked = nine, enabled = master) {
+                nine = it
+                prefs.edit { putBoolean(PREF_KEY_PREVIEW_NINE, it) }
+            }
+            KeyPreviewSubRow(R.string.key_preview_alpha_label, checked = alpha, enabled = master) {
+                alpha = it
+                prefs.edit { putBoolean(PREF_KEY_PREVIEW_ALPHA, it) }
+            }
+        }
+    }
+}
 
 @Composable
-internal fun KeyPreviewAlphaToggleCard() =
-    FeedbackToggleCard(PREF_KEY_PREVIEW_ALPHA, KEY_PREVIEW_DEFAULT, R.string.key_preview_alpha_title, R.string.key_preview_alpha_description)
+private fun KeyPreviewSubRow(labelRes: Int, checked: Boolean, enabled: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(start = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(stringResource(labelRes), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        Switch(checked = checked, enabled = enabled, onCheckedChange = onCheckedChange)
+    }
+}

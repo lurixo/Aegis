@@ -94,11 +94,19 @@ class LetterCaseDisplayTest {
     }
 
 
-    @Test fun the_nine_key_block_labels_are_unaffected_by_the_case_setting() {
-        val block = Key("ABC", output = "2")
-        for (case in LetterCase.entries) {
-            val v = alphaView(shifted = false, case)
-            assertEquals("$case: the ABC block label is unchanged", "ABC", v.displayLabelForTest(block))
+    @Test fun every_nine_key_letter_block_follows_the_case_setting_display_only() {
+        val blocks = listOf(
+            "ABC" to "2", "DEF" to "3", "GHI" to "4", "JKL" to "5",
+            "MNO" to "6", "PQRS" to "7", "TUV" to "8", "WXYZ" to "9",
+        )
+        for ((face, digit) in blocks) {
+            val block = Key(face, output = digit)
+            for (shifted in listOf(false, true)) {
+                assertEquals("$face UPPER (shift=$shifted)", face.uppercase(), alphaView(shifted, LetterCase.UPPER).displayLabelForTest(block))
+                assertEquals("$face LOWER (shift=$shifted)", face.lowercase(), alphaView(shifted, LetterCase.LOWER).displayLabelForTest(block))
+                assertEquals("$face AUTO (shift=$shifted) keeps the authored caps", face, alphaView(shifted, LetterCase.AUTO).displayLabelForTest(block))
+            }
+            assertEquals("$face: the emitted T9 digit is untouched by the display setting", digit, block.output)
         }
     }
 
