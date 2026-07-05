@@ -1,0 +1,19 @@
+version: 2
+updates:
+  # Gradle dependencies (AGP, Kotlin, AndroidX, test libraries, …).
+  - package-ecosystem: gradle
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build
+
+  # Keep the GitHub Actions used by the CI workflow up to date.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: ci
