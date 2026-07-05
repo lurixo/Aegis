@@ -27,8 +27,7 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedTextRequest
 import android.widget.Toast
-import android.window.BackEvent
-import android.window.OnBackAnimationCallback
+import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
@@ -77,7 +76,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private var inputView: InputView? = null
 
-    private var backCallback: OnBackAnimationCallback? = null
+    private var backCallback: OnBackInvokedCallback? = null
     private var backRegistered = false
     private var emojiView: EmojiView? = null
     private var clipboardView: ClipboardView? = null
@@ -349,11 +348,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         applyPaletteEverywhere()
     }
 
-    private fun buildBackCallback(): OnBackAnimationCallback = object : OnBackAnimationCallback {
-        override fun onBackStarted(backEvent: BackEvent) { inputView?.predictiveBackBegin() }
-        override fun onBackProgressed(backEvent: BackEvent) { inputView?.predictiveBackProgress(backEvent.progress) }
-        override fun onBackInvoked() { inputView?.predictiveBackCommit(); syncBackCallback() }
-        override fun onBackCancelled() { inputView?.predictiveBackCancel() }
+    private fun buildBackCallback(): OnBackInvokedCallback = OnBackInvokedCallback {
+        inputView?.closeTopOverlay()
+        syncBackCallback()
     }
 
     internal fun syncBackCallback() {

@@ -26,6 +26,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.ScrollState
@@ -129,13 +131,14 @@ internal fun SettingsNavGraph(
     val back: () -> Unit = {
         if (navController.previousBackStackEntry != null) navController.popBackStack()
     }
+    val animate = SettingsMotion.animationsEnabled(LocalContext.current)
     NavHost(
         navController = navController,
         startDestination = SettingsRoutes.HOME,
-        enterTransition = { SettingsMotion.forwardEnter(this) },
-        exitTransition = { SettingsMotion.forwardExit(this) },
-        popEnterTransition = { SettingsMotion.backEnter(this) },
-        popExitTransition = { SettingsMotion.backExit(this) },
+        enterTransition = { if (animate) SettingsMotion.forwardEnter(this) else EnterTransition.None },
+        exitTransition = { if (animate) SettingsMotion.forwardExit(this) else ExitTransition.None },
+        popEnterTransition = { if (animate) SettingsMotion.backEnter(this) else EnterTransition.None },
+        popExitTransition = { if (animate) SettingsMotion.backExit(this) else ExitTransition.None },
     ) {
         composable(SettingsRoutes.HOME) {
             SettingsHomePage(onOpenGroup = openGroup)
