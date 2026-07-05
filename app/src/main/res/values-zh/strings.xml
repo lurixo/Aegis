@@ -36,6 +36,8 @@
     <string name="dict_gate_verifying">正在校验安装…</string>
     <string name="dict_gate_failed">下载失败，点按重试</string>
 
+    <string name="key_vibration_title">按键振动</string>
+    <string name="key_vibration_description">选择手感，点击体验</string>
     <string name="key_haptic_system">系统</string>
     <string name="key_haptic_soft">柔波</string>
     <string name="key_haptic_crisp">清脆</string>
@@ -43,6 +45,8 @@
     <string name="key_haptic_tick">颗粒</string>
     <string name="key_haptic_thud">回弹</string>
     <string name="key_haptic_double">双击</string>
+    <string name="key_haptic_strength_system_value">跟随系统</string>
+    <string name="key_haptic_strength">振动强度</string>
     <string name="key_haptic_double_description">两次敲击，间隔清晰</string>
     <string name="key_haptic_thud_description">重击后逐渐回弹，先强后轻</string>
     <string name="key_haptic_tick_description">三连短点，颗粒分明</string>
@@ -50,6 +54,8 @@
     <string name="key_haptic_crisp_description">短促单击，收尾利落</string>
     <string name="key_haptic_soft_description">缓起缓落，柔和绵长</string>
     <string name="key_haptic_system_description">使用设备默认的按键触感</string>
+    <string name="key_haptic_strength_value">%1$.1f%%</string>
+    <string name="key_haptic_system_strength_hint">系统方案跟随设备强度</string>
 
     <string name="letter_case_title">字母大小写</string>
     <string name="letter_case_description">仅改变字母显示</string>

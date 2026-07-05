@@ -36,11 +36,14 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +59,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import com.aegis.ime.ui.theme.AppIconMetrics
 import com.aegis.ime.ui.theme.AppShapes
@@ -163,6 +167,41 @@ internal fun AppNavigationRow(title: String, description: String, onClick: () ->
 }
 
 @Composable
+internal fun AppSettingRow(
+    title: String,
+    description: String? = null,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+    titleStyle: TextStyle = MaterialTheme.typography.titleMedium,
+    trailing: @Composable () -> Unit = {},
+) {
+    val rowModifier = if (onClick == null) modifier else modifier.clip(MaterialTheme.shapes.extraSmall).clickable(onClick = onClick)
+    Row(
+        modifier = rowModifier
+            .fillMaxWidth()
+            .heightIn(min = AppSpacing.rowMinHeight)
+            .padding(horizontal = AppSpacing.rowHorizontal, vertical = AppSpacing.compactGap),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(AppSpacing.contentGap),
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.textGap),
+        ) {
+            Text(title, style = titleStyle)
+            if (description != null) {
+                Text(
+                    description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        trailing()
+    }
+}
+
+@Composable
 internal fun AppChoiceGroup(content: @Composable ColumnScope.() -> Unit) {
     Column(modifier = Modifier.selectableGroup(), content = content)
 }
@@ -194,5 +233,22 @@ internal fun AppChoiceRow(
                 Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+    }
+}
+
+@Composable
+internal fun AegisSwitch(
+    checked: Boolean,
+    onCheckedChange: ((Boolean) -> Unit)?,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    CompositionLocalProvider(LocalRippleConfiguration provides null) {
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            modifier = modifier,
+            enabled = enabled,
+        )
     }
 }

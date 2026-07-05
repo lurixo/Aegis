@@ -36,6 +36,8 @@
     <string name="dict_gate_verifying">Verifying…</string>
     <string name="dict_gate_failed">Download failed — tap to retry</string>
 
+    <string name="key_vibration_title">Key vibration</string>
+    <string name="key_vibration_description">Choose a feel and tap to try it</string>
     <string name="key_haptic_system">System</string>
     <string name="key_haptic_soft">Smooth wave</string>
     <string name="key_haptic_crisp">Crisp</string>
@@ -43,6 +45,8 @@
     <string name="key_haptic_tick">Grain</string>
     <string name="key_haptic_thud">Bounce</string>
     <string name="key_haptic_double">Double tap</string>
+    <string name="key_haptic_strength_system_value">Follow system</string>
+    <string name="key_haptic_strength">Vibration strength</string>
     <string name="key_haptic_double_description">Two distinct taps with a clear pause</string>
     <string name="key_haptic_thud_description">A strong hit followed by fading rebounds</string>
     <string name="key_haptic_tick_description">Three rapid taps with a grainy texture</string>
@@ -50,6 +54,8 @@
     <string name="key_haptic_crisp_description">One sharp tap with a clean finish</string>
     <string name="key_haptic_soft_description">A smooth rise and a gentle fade</string>
     <string name="key_haptic_system_description">The device’s standard keyboard feedback</string>
+    <string name="key_haptic_strength_value">%1$.1f%%</string>
+    <string name="key_haptic_system_strength_hint">System uses the device strength</string>
 
     <string name="letter_case_title">Letter case</string>
     <string name="letter_case_description">Display only</string>
