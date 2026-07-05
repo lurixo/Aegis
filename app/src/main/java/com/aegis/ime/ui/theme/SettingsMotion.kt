@@ -35,8 +35,6 @@ internal object SettingsMotion {
     val DURATION_FADE_OUT = Motion.FADE_OUT.toInt()
     val DURATION_STATE = Motion.STATE_CHANGE.toInt()
 
-    val Standard: Easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
-    val Emphasized: Easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
     val EmphasizedDecelerate: Easing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
     val EmphasizedAccelerate: Easing = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
 
@@ -44,25 +42,25 @@ internal object SettingsMotion {
 
     fun forwardEnter(scope: AnimatedContentTransitionScope<*>): EnterTransition =
         scope.run {
-            slideInHorizontally(tween(DURATION_NAV, easing = Emphasized)) { it / SLIDE_FRACTION } +
+            slideInHorizontally(tween(DURATION_NAV, easing = EmphasizedDecelerate)) { it / SLIDE_FRACTION } +
                 fadeIn(tween(DURATION_FADE_IN, easing = EmphasizedDecelerate))
         }
 
     fun forwardExit(scope: AnimatedContentTransitionScope<*>): ExitTransition =
         scope.run {
-            slideOutHorizontally(tween(DURATION_NAV, easing = Emphasized)) { -it / SLIDE_FRACTION } +
+            slideOutHorizontally(tween(DURATION_NAV, easing = EmphasizedAccelerate)) { -it / SLIDE_FRACTION } +
                 fadeOut(tween(DURATION_FADE_OUT, easing = EmphasizedAccelerate))
         }
 
     fun backEnter(scope: AnimatedContentTransitionScope<*>): EnterTransition =
         scope.run {
-            slideInHorizontally(tween(DURATION_NAV, easing = Emphasized)) { -it / SLIDE_FRACTION } +
+            slideInHorizontally(tween(DURATION_NAV, easing = EmphasizedDecelerate)) { -it / SLIDE_FRACTION } +
                 fadeIn(tween(DURATION_FADE_IN, easing = EmphasizedDecelerate))
         }
 
     fun backExit(scope: AnimatedContentTransitionScope<*>): ExitTransition =
         scope.run {
-            slideOutHorizontally(tween(DURATION_NAV, easing = Emphasized)) { it / SLIDE_FRACTION } +
+            slideOutHorizontally(tween(DURATION_NAV, easing = EmphasizedAccelerate)) { it / SLIDE_FRACTION } +
                 fadeOut(tween(DURATION_FADE_OUT, easing = EmphasizedAccelerate))
         }
 

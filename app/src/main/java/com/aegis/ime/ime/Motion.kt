@@ -32,31 +32,26 @@ import kotlin.math.roundToInt
 
 object Motion {
     val STANDARD: Interpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
-    val STANDARD_ACCEL: Interpolator = PathInterpolator(0.3f, 0f, 1f, 1f)
     val STANDARD_DECEL: Interpolator = PathInterpolator(0f, 0f, 0f, 1f)
-    val EMPHASIZED: Interpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
-    val EMPHASIZED_ACCEL: Interpolator = PathInterpolator(0.3f, 0f, 0.8f, 0.15f)
     val EMPHASIZED_DECEL: Interpolator = PathInterpolator(0.05f, 0.7f, 0.1f, 1f)
+    val EMPHASIZED_ACCEL: Interpolator = PathInterpolator(0.3f, 0f, 0.8f, 0.15f)
 
     const val SHORT1 = 50L
     const val SHORT2 = 100L
     const val SHORT3 = 150L
     const val SHORT4 = 200L
-    const val MEDIUM1 = 250L
-    const val MEDIUM2 = 300L
-
-    const val MEDIUM3 = 350L
-    const val LONG1 = 400L
 
     const val PRESS_IN = SHORT1
     const val PRESS_OUT = SHORT2
     const val STATE_CHANGE = SHORT4
-    const val REVEAL = MEDIUM1
+    const val REVEAL = SHORT4
 
     const val FADE_OUT = SHORT2
     const val FADE_IN = SHORT3
 
-    const val MODE_SWITCH = MEDIUM2
+    const val MODE_SWITCH = SHORT4
+
+    const val REVEAL_SHIFT_DP = 8f
 
     fun enabled(ctx: Context): Boolean =
         runCatching {
@@ -80,7 +75,7 @@ object Motion {
         )
     }
 
-    fun fadeIn(view: View, duration: Long = SHORT4) {
+    fun fadeIn(view: View, duration: Long = FADE_IN) {
         view.animate().cancel()
         if (!view.isAttachedToWindow || !enabled(view.context)) {
             showImmediately(view)
@@ -92,7 +87,7 @@ object Motion {
 
     enum class EnterFrom { NONE, START, END, TOP, BOTTOM }
 
-    fun revealIn(view: View, from: EnterFrom = EnterFrom.NONE, distanceDp: Float = 8f, duration: Long = REVEAL) {
+    fun revealIn(view: View, from: EnterFrom = EnterFrom.NONE, distanceDp: Float = REVEAL_SHIFT_DP, duration: Long = REVEAL) {
         view.animate().cancel()
         view.visibility = View.VISIBLE
         val distance = distanceDp * view.resources.displayMetrics.density
@@ -120,17 +115,40 @@ object Motion {
             .start()
     }
 
-    fun hide(view: View, endVisibility: Int = View.GONE, duration: Long = SHORT3) {
+    fun hide(
+        view: View,
+        endVisibility: Int = View.GONE,
+        toward: EnterFrom = EnterFrom.NONE,
+        distanceDp: Float = REVEAL_SHIFT_DP,
+        duration: Long = FADE_OUT,
+        endAction: (() -> Unit)? = null,
+    ) {
         view.animate().cancel()
         if (!view.isAttachedToWindow || !enabled(view.context)) {
             view.visibility = endVisibility
             reset(view)
+            endAction?.invoke()
             return
         }
+        val distance = distanceDp * view.resources.displayMetrics.density
         view.animate()
             .alpha(0f)
+            .translationX(
+                when (toward) {
+                    EnterFrom.START -> -distance
+                    EnterFrom.END -> distance
+                    else -> 0f
+                },
+            )
+            .translationY(
+                when (toward) {
+                    EnterFrom.TOP -> -distance
+                    EnterFrom.BOTTOM -> distance
+                    else -> 0f
+                },
+            )
             .setDuration(duration)
-            .setInterpolator(STANDARD_ACCEL)
+            .setInterpolator(EMPHASIZED_ACCEL)
             .setListener(object : AnimatorListenerAdapter() {
                 private var cancelled = false
 
@@ -139,22 +157,48 @@ object Motion {
                 }
 
                 override fun onAnimationEnd(animation: Animator) {
-                    if (!cancelled) {
-                        view.visibility = endVisibility
-                        reset(view)
-                    }
                     view.animate().setListener(null)
+                    if (cancelled) return
+                    view.visibility = endVisibility
+                    reset(view)
+                    endAction?.invoke()
                 }
             })
             .start()
     }
 
-    fun swapIn(incoming: View, outgoing: View?) {
-        outgoing?.let {
-            it.visibility = View.GONE
-            reset(it)
+    fun swapIn(incoming: View, outgoing: View?, outDuration: Long = FADE_OUT, inDuration: Long = FADE_IN) {
+        incoming.animate().cancel()
+        outgoing?.animate()?.cancel()
+        if (outgoing == null || !outgoing.isAttachedToWindow || !enabled(outgoing.context)) {
+            outgoing?.let { it.visibility = View.GONE; reset(it) }
+            showImmediately(incoming)
+            return
         }
-        revealIn(incoming)
+        outgoing.animate()
+            .alpha(0f)
+            .setDuration(outDuration)
+            .setInterpolator(EMPHASIZED_ACCEL)
+            .setListener(object : AnimatorListenerAdapter() {
+                private var cancelled = false
+
+                override fun onAnimationCancel(animation: Animator) {
+                    cancelled = true
+                }
+
+                override fun onAnimationEnd(animation: Animator) {
+                    outgoing.animate().setListener(null)
+                    if (cancelled) return
+                    outgoing.visibility = View.GONE
+                    reset(outgoing)
+                    incoming.visibility = View.VISIBLE
+                    incoming.alpha = 0f
+                    incoming.translationX = 0f
+                    incoming.translationY = 0f
+                    incoming.animate().alpha(1f).setDuration(inDuration).setInterpolator(EMPHASIZED_DECEL).start()
+                }
+            })
+            .start()
     }
 
     fun fadeThrough(view: View, outDuration: Long = FADE_OUT, inDuration: Long = FADE_IN, swap: () -> Unit) {
@@ -167,7 +211,7 @@ object Motion {
         view.animate()
             .alpha(0f)
             .setDuration(outDuration)
-            .setInterpolator(STANDARD_ACCEL)
+            .setInterpolator(EMPHASIZED_ACCEL)
             .setListener(object : AnimatorListenerAdapter() {
                 private var cancelled = false
 
@@ -210,6 +254,7 @@ object Motion {
         view.alpha = 1f
         view.translationX = 0f
         view.translationY = 0f
+        view.translationZ = 0f
     }
 
     class PressFeedback(private val view: View, private val invalidate: () -> Unit = { view.invalidate() }) {

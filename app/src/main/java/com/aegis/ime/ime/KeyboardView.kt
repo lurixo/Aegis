@@ -145,9 +145,6 @@ class KeyboardView(context: Context) : View(context) {
 
     private var palette = ImePalette.STATIC_LIGHT
 
-    init {
-        setLayerType(LAYER_TYPE_SOFTWARE, null)
-    }
 
     private fun sp(value: Float) =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, resources.displayMetrics)
