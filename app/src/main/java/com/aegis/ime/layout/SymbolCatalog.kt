@@ -53,6 +53,13 @@ object SymbolCatalog {
             when {
                 c in 0xFF01..0xFF5E -> { out.append((c - 0xFEE0).toChar()); changed = true }
                 c == 0x3000 -> { out.append(' '); changed = true }
+                c == 0xFFE0 -> { out.append('¢'); changed = true }
+                c == 0xFFE1 -> { out.append('£'); changed = true }
+                c == 0xFFE2 -> { out.append('¬'); changed = true }
+                c == 0xFFE3 -> { out.append('¯'); changed = true }
+                c == 0xFFE4 -> { out.append('¦'); changed = true }
+                c == 0xFFE5 -> { out.append('¥'); changed = true }
+                c == 0xFFE6 -> { out.append('₩'); changed = true }
                 else -> out.append(ch)
             }
         }
