@@ -114,6 +114,7 @@ internal object SettingsRoutes {
     const val DICTS = "dicts"
     const val USER_DICT = "userdict"
     const val ABOUT = "about"
+    const val LICENSES = "licenses"
 
     val GROUPS = listOf(INPUT, DICTS, USER_DICT, ABOUT)
 }
@@ -130,6 +131,11 @@ internal fun SettingsNavGraph(
     }
     val back: () -> Unit = {
         if (navController.previousBackStackEntry != null) navController.popBackStack()
+    }
+    val openLicenses: () -> Unit = {
+        if (navController.currentDestination?.route == SettingsRoutes.ABOUT) {
+            navController.navigate(SettingsRoutes.LICENSES) { launchSingleTop = true }
+        }
     }
     val animate = SettingsMotion.animationsEnabled(LocalContext.current)
     NavHost(
@@ -153,7 +159,16 @@ internal fun SettingsNavGraph(
             UserDictPage(onBack = back)
         }
         composable(SettingsRoutes.ABOUT) {
-            AboutPage(resumeSignal = resumeSignal, onBack = back)
+            AboutPage(resumeSignal = resumeSignal, onBack = back, onOpenLicenses = openLicenses)
+        }
+        composable(SettingsRoutes.LICENSES) {
+            LicensesPage(onBack = {
+                if (navController.currentDestination?.route == SettingsRoutes.LICENSES &&
+                    navController.previousBackStackEntry != null
+                ) {
+                    navController.popBackStack()
+                }
+            })
         }
     }
 }
@@ -267,7 +282,7 @@ internal fun SettingsPageHeader(title: String, onBack: () -> Unit) {
 }
 
 @Composable
-private fun SettingsPageColumn(title: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+internal fun SettingsPageColumn(title: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -305,7 +320,7 @@ private fun DictSettingsPage(onBack: () -> Unit) {
 }
 
 @Composable
-private fun AboutPage(resumeSignal: Int, onBack: () -> Unit) {
+private fun AboutPage(resumeSignal: Int, onBack: () -> Unit, onOpenLicenses: () -> Unit) {
     val context = LocalContext.current
     var typed by remember { mutableStateOf("") }
     var tryFieldFocused by remember { mutableStateOf(false) }
@@ -404,6 +419,12 @@ private fun AboutPage(resumeSignal: Int, onBack: () -> Unit) {
                     tryFieldFocused = it.isFocused
                     if (!it.isFocused) activeTryFieldImeRequest = 0
                 },
+        )
+
+        SettingsGroupCard(
+            titleRes = R.string.settings_about_licenses_title,
+            descRes = R.string.settings_about_licenses_desc,
+            onClick = onOpenLicenses,
         )
     }
 }
