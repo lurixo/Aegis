@@ -22,6 +22,7 @@ import android.graphics.RectF
 import android.os.Handler
 import android.os.Looper
 import android.util.TypedValue
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -77,6 +78,7 @@ class KeyboardView(context: Context) : View(context) {
     private var downPlaced: Placed? = null
     private var downX = 0f
     private var downY = 0f
+    private var activePointerId = MotionEvent.INVALID_POINTER_ID
     private var repeating = false
     private var swiped = false
     private var vSwipeDir = 0
@@ -90,8 +92,7 @@ class KeyboardView(context: Context) : View(context) {
         }
     }
 
-    private fun isRepeatable(key: Key) = key.action == KeyAction.COMMIT ||
-        key.action == KeyAction.BACKSPACE || key.action == KeyAction.SPACE || key.action == KeyAction.ENTER
+    private fun isRepeatable(key: Key) = key.action == KeyAction.BACKSPACE
 
     private fun isAlphaLetter(key: Key) =
         layout.id == LayoutId.ALPHA && key.action == KeyAction.COMMIT &&
@@ -99,9 +100,17 @@ class KeyboardView(context: Context) : View(context) {
 
     private val density = resources.displayMetrics.density
     private val rowHeight = 52f * density
+    private val snapCap = rowHeight * 0.5f
+    private val retargetHysteresis = 4f * density
     private val shortPageRowExtra = 2f * density
     private val gap = 6f * density
     private val keyRadius = ImeShapes.keyRadiusDp * density
+
+    var hapticEnabled = false
+    var previewEnabled = true
+    private var previewKey: Key? = null
+    private val previewRect = RectF()
+    private val previewFeedback = Motion.PressFeedback(this)
 
     private var palette = ImePalette.STATIC_LIGHT
 
@@ -127,8 +136,12 @@ class KeyboardView(context: Context) : View(context) {
     private val pressHighlight = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withAlpha(palette.keyLabel, 0x22) }
     private val scrollTrackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.railBg }
     private val scrollbarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withAlpha(palette.icon, 0x55) }
-    private val scrollLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(17f) }
+    private val scrollLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.LEFT; textSize = sp(17f) }
+    private val inkBounds = android.graphics.Rect()
     private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2f * density; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+    private val previewFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySurface }
+    private val previewOutlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = density; color = palette.separator }
+    private val previewLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(30f) }
 
     fun applyPalette(p: ImePalette) {
         palette = p
@@ -146,6 +159,9 @@ class KeyboardView(context: Context) : View(context) {
         scrollTrackPaint.color = p.railBg
         scrollbarPaint.color = withAlpha(p.icon, 0x55)
         scrollLabelPaint.color = p.keyLabel
+        previewFillPaint.color = p.keySurface
+        previewOutlinePaint.color = p.separator
+        previewLabelPaint.color = p.keyLabel
         invalidate()
     }
 
@@ -266,7 +282,10 @@ class KeyboardView(context: Context) : View(context) {
             paint.textSize = baseTextSize
             val w = paint.measureText(label)
             if (w > avail && avail > 0f) paint.textSize = (baseTextSize * avail / w).coerceAtLeast(minTextSize)
-            canvas.drawText(label, scrollRegion.centerX(), (top + bottom) / 2f - (paint.descent() + paint.ascent()) / 2, paint)
+            paint.getTextBounds(label, 0, label.length, inkBounds)
+            val cellCx = scrollRegion.centerX()
+            val cellCy = (top + bottom) / 2f
+            canvas.drawText(label, cellCx - inkBounds.exactCenterX(), cellCy - inkBounds.exactCenterY(), paint)
             if (i < sc.items.size - 1 && bottom < scrollRegion.bottom) {
                 canvas.drawLine(scrollRegion.left + 6 * density, bottom, scrollRegion.right - 6 * density, bottom, sepLinePaint)
             }
@@ -295,6 +314,40 @@ class KeyboardView(context: Context) : View(context) {
         }
 
         drawScrollColumn(canvas)
+
+        drawPreview(canvas)
+    }
+
+    private fun drawPreview(canvas: Canvas) {
+        val key = previewKey ?: return
+        val level = previewFeedback.level
+        if (level <= 0f) return
+        val bw = previewRect.width() * 1.32f
+        val bh = previewRect.height() * 1.12f
+        val cx = previewRect.centerX().coerceIn(bw / 2f, width - bw / 2f)
+        var top = previewRect.top - bh - 4f * density
+        if (top < 0f) top = 0f
+        tmpRect.set(cx - bw / 2f, top, cx + bw / 2f, top + bh)
+        val alpha = (255 * level).toInt().coerceIn(0, 255)
+        val scale = 0.86f + 0.14f * level
+        canvas.save()
+        canvas.scale(scale, scale, tmpRect.centerX(), tmpRect.bottom)
+        previewFillPaint.alpha = alpha
+        canvas.drawRoundRect(tmpRect, keyRadius, keyRadius, previewFillPaint)
+        previewOutlinePaint.alpha = alpha
+        canvas.drawRoundRect(tmpRect, keyRadius, keyRadius, previewOutlinePaint)
+        previewFillPaint.alpha = 255
+        previewOutlinePaint.alpha = 255
+        val label = displayLabel(key)
+        previewLabelPaint.alpha = alpha
+        canvas.drawText(
+            label,
+            tmpRect.centerX(),
+            tmpRect.centerY() - (previewLabelPaint.descent() + previewLabelPaint.ascent()) / 2f,
+            previewLabelPaint,
+        )
+        previewLabelPaint.alpha = 255
+        canvas.restore()
     }
 
     private fun drawKey(canvas: Canvas, rect: RectF, accent: Boolean, pressLevel: Float) {
@@ -356,9 +409,18 @@ class KeyboardView(context: Context) : View(context) {
 
     internal fun shiftRenderState(): String = if (shiftLocked) "LOCK" else if (shifted) "ONCE" else "OFF"
 
+    internal fun previewLabelForTest(): String? = previewKey?.let { displayLabel(it) }
+    internal fun previewActiveForTest(): Boolean = previewKey != null
+
     internal fun centerOfActionForTest(action: KeyAction): Pair<Float, Float>? {
         if (placed.isEmpty()) relayout()
         val p = placed.firstOrNull { it.key.action == action } ?: return null
+        return p.rect.centerX() to p.rect.centerY()
+    }
+
+    internal fun centerOfLabelForTest(label: String): Pair<Float, Float>? {
+        if (placed.isEmpty()) relayout()
+        val p = placed.firstOrNull { it.key.label == label } ?: return null
         return p.rect.centerX() to p.rect.centerY()
     }
 
@@ -376,72 +438,141 @@ class KeyboardView(context: Context) : View(context) {
         if (inScrollDown) return handleScrollTouch(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                downPlaced = placedAt(event.x, event.y)
-                downKey = downPlaced?.key
-                setPressedKey(downKey)
-                downX = event.x; downY = event.y
-                repeating = false; swiped = false; vSwipeDir = 0
-                downKey?.let { if (isRepeatable(it)) repeatHandler.postDelayed(repeatRunnable, REPEAT_DELAY_MS) }
+                activePointerId = event.getPointerId(0)
+                beginPrimary(event.x, event.y)
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                val newIdx = event.actionIndex
+                if (activePointerId != MotionEvent.INVALID_POINTER_ID) {
+                    val ai = event.findPointerIndex(activePointerId)
+                    if (ai >= 0) finishPrimary(event.getX(ai), event.getY(ai), event.eventTime)
+                    else finishPrimary(downX, downY, event.eventTime)
+                }
+                activePointerId = event.getPointerId(newIdx)
+                beginPrimary(event.getX(newIdx), event.getY(newIdx))
             }
             MotionEvent.ACTION_MOVE -> {
-                val dk = downKey
-                when {
-                    dk != null && dk.action == KeyAction.BACKSPACE -> {
-                        val dy = event.y - downY
-                        if (!swiped && abs(dy) > swipeThreshold && abs(dy) > abs(event.x - downX)) {
-                            swiped = true
-                            repeatHandler.removeCallbacks(repeatRunnable)
-                        }
-                    }
-                    dk != null && lang == Lang.EN && isAlphaLetter(dk) -> {
-                        val dy = event.y - downY
-                        if (!swiped && abs(dy) > swipeThreshold && abs(dy) > abs(event.x - downX)) {
-                            swiped = true
-                            vSwipeDir = if (dy < 0) -1 else 1
-                            repeatHandler.removeCallbacks(repeatRunnable)
-                        } else if (!swiped) {
-                            val k = currentTarget(event.x, event.y)
-                            if (k !== pressed) {
-                                setPressedKey(k)
-                                if (k !== downKey) repeatHandler.removeCallbacks(repeatRunnable)
-                            }
-                        }
-                    }
-                    else -> {
-                        val k = currentTarget(event.x, event.y)
-                        if (k !== pressed) {
-                            setPressedKey(k)
-                            if (k !== downKey) repeatHandler.removeCallbacks(repeatRunnable)
-                        }
-                    }
+                val ai = event.findPointerIndex(activePointerId)
+                if (ai >= 0) handlePrimaryMove(event.getX(ai), event.getY(ai))
+            }
+            MotionEvent.ACTION_POINTER_UP -> {
+                if (event.getPointerId(event.actionIndex) == activePointerId) {
+                    val ai = event.actionIndex
+                    finishPrimary(event.getX(ai), event.getY(ai), event.eventTime)
+                    activePointerId = MotionEvent.INVALID_POINTER_ID
                 }
             }
             MotionEvent.ACTION_UP -> {
-                repeatHandler.removeCallbacks(repeatRunnable)
-                val dk = downKey
-                releasePressedKey()
-                when {
-                    dk != null && dk.action == KeyAction.BACKSPACE && swiped && !repeating ->
-                        onBackspaceSwipe(event.y - downY < 0)
-                    dk != null && lang == Lang.EN && isAlphaLetter(dk) && swiped && !repeating -> {
-                        performClick()
-                        if (vSwipeDir < 0 && dk.sub != null) onKey(Key(dk.sub, output = dk.sub, direct = true))
-                        else onKey(dk)
-                    }
-                    !repeating ->
-                        currentTarget(event.x, event.y)?.let { performClick(); emitKey(it, event.eventTime) }
+                if (activePointerId != MotionEvent.INVALID_POINTER_ID) {
+                    val ai = event.findPointerIndex(activePointerId)
+                    if (ai >= 0) finishPrimary(event.getX(ai), event.getY(ai), event.eventTime)
+                    else finishPrimary(downX, downY, event.eventTime)
                 }
-                downKey = null
-                downPlaced = null
+                activePointerId = MotionEvent.INVALID_POINTER_ID
             }
             MotionEvent.ACTION_CANCEL -> {
-                repeatHandler.removeCallbacks(repeatRunnable)
-                releasePressedKey()
-                downKey = null
-                downPlaced = null
+                cancelPrimary()
+                activePointerId = MotionEvent.INVALID_POINTER_ID
             }
         }
         return true
+    }
+
+    private fun beginPrimary(x: Float, y: Float) {
+        downPlaced = placedAt(x, y)
+        downKey = downPlaced?.key
+        setPressedKey(downKey)
+        downX = x; downY = y
+        repeating = false; swiped = false; vSwipeDir = 0
+        val dp = downPlaced
+        val dk = downKey
+        if (dk != null && dp != null) {
+            if (isRepeatable(dk)) repeatHandler.postDelayed(repeatRunnable, REPEAT_DELAY_MS)
+            if (hapticEnabled) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            showPreview(dk, dp.rect)
+        } else {
+            hidePreview()
+        }
+    }
+
+    private fun isPreviewable(key: Key) = key.action == KeyAction.COMMIT
+
+    private fun showPreview(key: Key, rect: RectF) {
+        if (!previewEnabled || !isPreviewable(key)) { hidePreview(); return }
+        previewKey = key
+        previewRect.set(rect)
+        previewFeedback.press()
+        invalidate()
+    }
+
+    private fun hidePreview() {
+        if (previewKey == null) return
+        previewKey = null
+        previewFeedback.reset()
+        invalidate()
+    }
+
+    private fun handlePrimaryMove(x: Float, y: Float) {
+        val dk = downKey
+        when {
+            dk != null && dk.action == KeyAction.BACKSPACE -> {
+                val dy = y - downY
+                if (!swiped && abs(dy) > swipeThreshold && abs(dy) > abs(x - downX)) {
+                    swiped = true
+                    repeatHandler.removeCallbacks(repeatRunnable)
+                }
+            }
+            dk != null && lang == Lang.EN && isAlphaLetter(dk) -> {
+                val dy = y - downY
+                if (!swiped && abs(dy) > swipeThreshold && abs(dy) > abs(x - downX)) {
+                    swiped = true
+                    vSwipeDir = if (dy < 0) -1 else 1
+                    repeatHandler.removeCallbacks(repeatRunnable)
+                    hidePreview()
+                } else if (!swiped) {
+                    val k = currentTarget(x, y)
+                    if (k !== pressed) {
+                        setPressedKey(k)
+                        if (k !== downKey) { repeatHandler.removeCallbacks(repeatRunnable); hidePreview() }
+                    }
+                }
+            }
+            else -> {
+                val k = currentTarget(x, y)
+                if (k !== pressed) {
+                    setPressedKey(k)
+                    if (k !== downKey) { repeatHandler.removeCallbacks(repeatRunnable); hidePreview() }
+                }
+            }
+        }
+    }
+
+    private fun finishPrimary(x: Float, y: Float, eventTime: Long) {
+        repeatHandler.removeCallbacks(repeatRunnable)
+        hidePreview()
+        val dk = downKey
+        releasePressedKey()
+        when {
+            dk != null && dk.action == KeyAction.BACKSPACE && swiped && !repeating ->
+                onBackspaceSwipe(y - downY < 0)
+            dk != null && lang == Lang.EN && isAlphaLetter(dk) && swiped && !repeating -> {
+                performClick()
+                if (vSwipeDir < 0 && dk.sub != null) onKey(Key(dk.sub, output = dk.sub, direct = true))
+                else onKey(dk)
+            }
+            !repeating ->
+                currentTarget(x, y)?.let { performClick(); emitKey(it, eventTime) }
+        }
+        downKey = null
+        downPlaced = null
+    }
+
+    private fun cancelPrimary() {
+        repeatHandler.removeCallbacks(repeatRunnable)
+        hidePreview()
+        releasePressedKey()
+        downKey = null
+        downPlaced = null
     }
 
     private fun setPressedKey(key: Key?) {
@@ -529,16 +660,16 @@ class KeyboardView(context: Context) : View(context) {
             val d = dx * dx + dy * dy
             if (d < best) { best = d; nearest = p }
         }
-        val cap = rowHeight
+        val cap = snapCap
         return if (best <= cap * cap) nearest else null
     }
 
     private fun currentTarget(x: Float, y: Float): Key? {
         val dp = downPlaced ?: return placedAt(x, y)?.key
-        val t = 0.5f * dp.rect.width()
-        val dx = x - downX
-        val dy = y - downY
-        return if (dx * dx + dy * dy <= t * t) dp.key else placedAt(x, y)?.key ?: dp.key
+        val m = retargetHysteresis
+        val insideDownKey = x >= dp.rect.left - m && x <= dp.rect.right + m &&
+            y >= dp.rect.top - m && y <= dp.rect.bottom + m
+        return if (insideDownKey) dp.key else placedAt(x, y)?.key ?: dp.key
     }
 
     private fun emitKey(key: Key, eventTime: Long) {

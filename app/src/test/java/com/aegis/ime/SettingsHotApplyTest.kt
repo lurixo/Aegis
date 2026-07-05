@@ -22,7 +22,11 @@ import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.dict.ModelDownload
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON
+import com.aegis.ime.ui.KEY_HAPTICS_DEFAULT
+import com.aegis.ime.ui.KEY_PREVIEW_DEFAULT
 import com.aegis.ime.ui.PREF_ASSOCIATIONS_ON
+import com.aegis.ime.ui.PREF_KEY_HAPTICS
+import com.aegis.ime.ui.PREF_KEY_PREVIEW
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -45,12 +49,16 @@ class SettingsHotApplyTest {
     private val associations = mutableListOf<Boolean>()
     private val fuzzySets = mutableListOf<Set<String>>()
     private var engineAssetChanges = 0
+    private val keyHaptics = mutableListOf<Boolean>()
+    private val keyPreviews = mutableListOf<Boolean>()
 
     private val listener = SettingsHotApply(
         onCnLayout = { cnLayouts += it },
         onAssociations = { associations += it },
         onFuzzyRules = { fuzzySets += it },
         onEngineAssetsChanged = { engineAssetChanges++ },
+        onKeyHaptics = { keyHaptics += it },
+        onKeyPreview = { keyPreviews += it },
     )
 
     @Before fun register() {
@@ -70,7 +78,8 @@ class SettingsHotApplyTest {
         drain()
     }
 
-    private fun totalActions() = cnLayouts.size + associations.size + fuzzySets.size + engineAssetChanges
+    private fun totalActions() =
+        cnLayouts.size + associations.size + fuzzySets.size + engineAssetChanges + keyHaptics.size + keyPreviews.size
 
     private val allRuleKeys = Fuzzy.RULES.mapTo(LinkedHashSet()) { it.key }
 
@@ -95,6 +104,30 @@ class SettingsHotApplyTest {
         put { putBoolean(PREF_ASSOCIATIONS_ON, true) }
         put { remove(PREF_ASSOCIATIONS_ON) }
         assertEquals(listOf(true, ASSOCIATIONS_DEFAULT_ON), associations)
+    }
+
+
+    @Test fun key_vibration_toggle_hot_applies_both_directions_immediately() {
+        put { putBoolean(PREF_KEY_HAPTICS, true) }
+        put { putBoolean(PREF_KEY_HAPTICS, false) }
+        assertEquals(listOf(true, false), keyHaptics)
+        assertEquals("no other channel may fire", 2, totalActions())
+    }
+
+    @Test fun key_preview_toggle_hot_applies_both_directions_immediately() {
+        put { putBoolean(PREF_KEY_PREVIEW, false) }
+        put { putBoolean(PREF_KEY_PREVIEW, true) }
+        assertEquals(listOf(false, true), keyPreviews)
+        assertEquals(2, totalActions())
+    }
+
+    @Test fun touch_feedback_pref_removal_resolves_to_production_defaults() {
+        put { putBoolean(PREF_KEY_HAPTICS, !KEY_HAPTICS_DEFAULT) }
+        put { remove(PREF_KEY_HAPTICS) }
+        assertEquals(listOf(!KEY_HAPTICS_DEFAULT, KEY_HAPTICS_DEFAULT), keyHaptics)
+        put { putBoolean(PREF_KEY_PREVIEW, !KEY_PREVIEW_DEFAULT) }
+        put { remove(PREF_KEY_PREVIEW) }
+        assertEquals(listOf(!KEY_PREVIEW_DEFAULT, KEY_PREVIEW_DEFAULT), keyPreviews)
     }
 
 
@@ -166,16 +199,17 @@ class SettingsHotApplyTest {
 
 
     @Test fun the_pref_backed_settings_surface_is_fully_enumerated() {
-        val enumerated = mutableSetOf("cn_layout", PREF_ASSOCIATIONS_ON, "fuzzy")
+        val enumerated = mutableSetOf("cn_layout", PREF_ASSOCIATIONS_ON, "fuzzy", PREF_KEY_HAPTICS, PREF_KEY_PREVIEW)
         enumerated += Fuzzy.RULES.map { Fuzzy.prefKey(it.key) }
         enumerated += SettingsHotApply.ENGINE_ASSET_PREF_KEYS
-        assertEquals(3 + Fuzzy.RULES.size + 4, enumerated.size)
+        assertEquals(5 + Fuzzy.RULES.size + 4, enumerated.size)
         for (key in enumerated) {
             val before = totalActions()
             put { putString("probe_reset", key) }
             assertEquals(before, totalActions())
             when (key) {
                 "cn_layout" -> put { putString(key, "alpha") }
+                PREF_KEY_PREVIEW -> put { putBoolean(key, false) }
                 else -> put { putBoolean(key, true) }
             }
             assertTrue("$key must hot-apply exactly one action", totalActions() == before + 1)

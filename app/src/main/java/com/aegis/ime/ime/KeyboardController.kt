@@ -36,6 +36,7 @@ private enum class StepKind { DIGIT, LOCK, CUT }
 class KeyboardController(
     private val host: ImeHost,
     private var engine: CandidateEngine,
+    private val decodeLane: DecodeLane? = null,
 ) {
     private data class LearnEvent(val prevWord: String?, val word: String, val prefixEnd: Int, val reading: String)
 
@@ -50,6 +51,8 @@ class KeyboardController(
     private val composing = StringBuilder()
     private var candidates: List<Cand> = emptyList()
     private var lastWord: String? = null
+
+    private val decodeLock = Any()
 
     private val committedPrefix = StringBuilder()
 
@@ -160,6 +163,7 @@ class KeyboardController(
     }
 
     fun reset() {
+        decodeLane?.markSatisfiedSynchronously()
         composing.setLength(0)
         candidates = emptyList()
         lockedReadings.clear()
@@ -385,9 +389,19 @@ class KeyboardController(
             lastWord = null
             return
         }
+        ensureDecodeApplied()
         val pick = candidates.firstOrNull()
-        if (pick != null) commitCandidate(pick)
-        else { host.commitText(committedPrefix.toString() + rawComposingText()); clearComposingState() }
+        when {
+            pick != null && pick in directCommitCands -> {
+                val text = committedPrefix.toString() + pick.word
+                expirePreeditChoiceUndo()
+                host.commitText(text)
+                applyDeferredLearning()
+                clearComposingState(); lastWord = null
+            }
+            pick != null -> commitCandidate(pick)
+            else -> { host.commitText(committedPrefix.toString() + rawComposingText()); clearComposingState() }
+        }
     }
 
     private fun handleEnter() {
@@ -528,6 +542,7 @@ class KeyboardController(
     }
 
     private fun clearComposingState() {
+        decodeLane?.markSatisfiedSynchronously()
         composing.setLength(0)
         candidates = emptyList()
         lockedReadings.clear()
@@ -560,70 +575,157 @@ class KeyboardController(
     }
 
     private fun refreshCandidates() {
-        val base = baseCandidates()
-        directCommitCands = emptySet()
-        predictionCands = emptySet()
-        calcCand = null; calcExpr = ""; calcResult = ""
-        candidates = when {
-            drillSyllable >= 0 && composing.isNotEmpty() && mode() == Mode.PINYIN ->
-                syllableHomophoneCandidates(drillSyllable)
-            composing.isNotEmpty() && mode() == Mode.PINYIN -> injectAssociations(base)
-            composing.isEmpty() && committedPrefix.isEmpty() -> emptyBufferCandidates()
+        val req = buildDecodeRequest()
+        val lane = decodeLane
+        if (lane == null) {
+            applyDecodeResult(computeDecode(req))
+        } else {
+            lane.submit(
+                compute = { computeDecode(req) },
+                apply = { result -> applyDecodeResult(result); render() },
+            )
+        }
+    }
+
+    private fun ensureDecodeApplied() {
+        val lane = decodeLane ?: return
+        if (!lane.pending) return
+        applyDecodeResult(computeDecode(buildDecodeRequest()))
+        lane.markSatisfiedSynchronously()
+    }
+
+    private class DecodeRequest(
+        val engine: CandidateEngine,
+        val host: ImeHost,
+        val composingEmpty: Boolean,
+        val committedPrefixEmpty: Boolean,
+        val mode: Mode,
+        val layoutId: LayoutId,
+        val drillSyllable: Int,
+        val raw: String,
+        val rawComposing: String,
+        val composingLen: Int,
+        val lockedNonEmpty: Boolean,
+        val full: String,
+        val readingCuts: Set<Int>,
+        val bounds: Map<Int, Int>,
+        val isNine: Boolean,
+        val forcedCuts: Set<Int>,
+        val associationsEnabled: Boolean,
+        val learningBlocked: Boolean,
+        val lastWord: String?,
+    )
+
+    private class DecodeResult(
+        val candidates: List<Cand>,
+        val directCommitCands: Set<Cand>,
+        val predictionCands: Set<Cand>,
+        val calcCand: Cand?,
+        val calcExpr: String,
+        val calcResult: String,
+    )
+
+    private fun buildDecodeRequest(): DecodeRequest {
+        val locked = mode() == Mode.PINYIN && composing.isNotEmpty() && lockedReadings.isNotEmpty()
+        val full = if (locked) fullLetters() else ""
+        val readingCuts = if (locked) {
+            val lockCuts = ArrayList<Int>(lockedReadings.size); var acc = 0
+            for (r in lockedReadings) { acc += r.length; if (acc < full.length) lockCuts.add(acc) }
+            (forcedCuts.filter { it in (activeStart + 1) until composing.length } + lockCuts).toSet()
+        } else {
+            emptySet()
+        }
+        return DecodeRequest(
+            engine = engine,
+            host = host,
+            composingEmpty = composing.isEmpty(),
+            committedPrefixEmpty = committedPrefix.isEmpty(),
+            mode = mode(),
+            layoutId = layoutId,
+            drillSyllable = drillSyllable,
+            raw = composing.toString(),
+            rawComposing = rawComposingText(),
+            composingLen = composing.length,
+            lockedNonEmpty = locked,
+            full = full,
+            readingCuts = readingCuts,
+            bounds = if (locked) readingLetterToDigit() else emptyMap(),
+            isNine = layoutId == LayoutId.NINE,
+            forcedCuts = forcedCuts.toSet(),
+            associationsEnabled = associationsEnabled,
+            learningBlocked = learningBlocked,
+            lastWord = lastWord,
+        )
+    }
+
+    private fun applyDecodeResult(r: DecodeResult) {
+        candidates = r.candidates
+        directCommitCands = r.directCommitCands
+        predictionCands = r.predictionCands
+        calcCand = r.calcCand
+        calcExpr = r.calcExpr
+        calcResult = r.calcResult
+    }
+
+    private fun computeDecode(req: DecodeRequest): DecodeResult = synchronized(decodeLock) {
+        var directCommit: Set<Cand> = emptySet()
+        var prediction: Set<Cand> = emptySet()
+        var calcC: Cand? = null; var calcE = ""; var calcR = ""
+        val base = computeBase(req)
+        val out = when {
+            req.drillSyllable >= 0 && !req.composingEmpty && req.mode == Mode.PINYIN -> computeDrill(req)
+            !req.composingEmpty && req.mode == Mode.PINYIN -> {
+                val glyphs = InputAssociations.lookup(req.rawComposing)
+                if (glyphs.isEmpty()) {
+                    base
+                } else {
+                    val extra = glyphs.map { Cand(it, req.composingLen) }
+                    directCommit = extra.toSet()
+                    if (base.isEmpty()) extra else listOf(base.first()) + extra + base.drop(1)
+                }
+            }
+            req.composingEmpty && req.committedPrefixEmpty -> {
+                val match = Calculator.detect(req.host.textBeforeCursor(CALC_SCAN_LEN))
+                when {
+                    match != null -> {
+                        val cand = Cand(match.append, 0)
+                        calcC = cand; calcE = match.expr; calcR = match.result
+                        listOf(cand)
+                    }
+                    !req.associationsEnabled || req.learningBlocked -> emptyList()
+                    else -> {
+                        val preds = req.engine.predict(req.lastWord).map { Cand(it, 0) }
+                        prediction = preds.toSet()
+                        preds
+                    }
+                }
+            }
             else -> base
         }
+        DecodeResult(out, directCommit, prediction, calcC, calcE, calcR)
     }
 
-    private fun emptyBufferCandidates(): List<Cand> {
-        val calc = calcCandidates()
-        if (calc.isNotEmpty()) return calc
-        if (!associationsEnabled || learningBlocked) return emptyList()
-        val preds = engine.predict(lastWord).map { Cand(it, 0) }
-        predictionCands = preds.toSet()
-        return preds
-    }
-
-    private fun injectAssociations(base: List<Cand>): List<Cand> {
-        val glyphs = InputAssociations.lookup(rawComposingText())
-        if (glyphs.isEmpty()) return base
-        val extra = glyphs.map { Cand(it, composing.length) }
-        directCommitCands = extra.toSet()
-        return when {
-            base.isEmpty() -> extra
-            else -> listOf(base.first()) + extra + base.drop(1)
-        }
-    }
-
-    private fun calcCandidates(): List<Cand> {
-        val match = Calculator.detect(host.textBeforeCursor(CALC_SCAN_LEN)) ?: return emptyList()
-        val cand = Cand(match.append, 0)
-        calcCand = cand; calcExpr = match.expr; calcResult = match.result
-        return listOf(cand)
-    }
-
-    private fun baseCandidates(): List<Cand> {
-        if (composing.isEmpty()) return emptyList()
-        val raw = composing.toString()
-        val context = host.textBeforeCursor(CTX_SCAN_LEN)
-        return when (mode()) {
-            Mode.PINYIN -> if (lockedReadings.isNotEmpty()) {
-                val bounds = readingLetterToDigit()
-                val full = fullLetters()
-                val lockCuts = ArrayList<Int>(lockedReadings.size); var acc = 0
-                for (r in lockedReadings) { acc += r.length; if (acc < full.length) lockCuts.add(acc) }
-                val readingCuts = (forcedCuts.filter { it in (activeStart + 1) until composing.length } + lockCuts).toSet()
-                engine.candidatesForLockedReadingCovered(full, readingCuts, context)
-                    .map { Cand(it.word, bounds[it.coveredLen] ?: it.coveredLen.coerceAtMost(composing.length)) }
-            } else {
-                val isNine = layoutId == LayoutId.NINE
-                var c = engine.candidatesCovered(raw, isNine, forcedCuts, context)
-                if (c.isEmpty() && isNine) {
-                    val pfx = T9Pinyin.longestDecodablePrefix(raw)
-                    if (pfx.length in 1 until raw.length) c = engine.candidatesCovered(pfx, true, context = context)
-                }
-                if (layoutId == LayoutId.ALPHA && c.none { it.word == raw }) c + Cand(raw, raw.length) else c
+    private fun computeBase(req: DecodeRequest): List<Cand> {
+        if (req.composingEmpty || req.mode != Mode.PINYIN) return emptyList()
+        val context = req.host.textBeforeCursor(CTX_SCAN_LEN)
+        return if (req.lockedNonEmpty) {
+            req.engine.candidatesForLockedReadingCovered(req.full, req.readingCuts, context)
+                .map { Cand(it.word, req.bounds[it.coveredLen] ?: it.coveredLen.coerceAtMost(req.composingLen)) }
+        } else {
+            var c = req.engine.candidatesCovered(req.raw, req.isNine, req.forcedCuts, context)
+            if (c.isEmpty() && req.isNine) {
+                val pfx = T9Pinyin.longestDecodablePrefix(req.raw)
+                if (pfx.length in 1 until req.raw.length) c = req.engine.candidatesCovered(pfx, true, context = context)
             }
-            Mode.DIRECT -> emptyList()
+            if (req.layoutId == LayoutId.ALPHA && c.none { it.word == req.raw }) c + Cand(req.raw, req.raw.length) else c
         }
+    }
+
+    private fun computeDrill(req: DecodeRequest): List<Cand> {
+        val syls = req.engine.syllablesForReading(req.raw)
+        if (req.drillSyllable !in syls.indices) return emptyList()
+        val coveredLen = syls[req.drillSyllable].end.coerceIn(1, req.composingLen)
+        return req.engine.homophonesForReadingAt(req.raw, req.drillSyllable).map { Cand(it, coveredLen) }
     }
 
     private fun currentSyllables(): List<Syllable> =
@@ -672,13 +774,6 @@ class KeyboardController(
         lastWord = snap.lastWord
         candidates = emptyList()
         return true
-    }
-
-    private fun syllableHomophoneCandidates(index: Int): List<Cand> {
-        val syls = currentSyllables()
-        if (index !in syls.indices) return emptyList()
-        val coveredLen = syls[index].end.coerceIn(1, composing.length)
-        return engine.homophonesForReadingAt(composing.toString(), index).map { Cand(it, coveredLen) }
     }
 
     private fun pickDrilledHomophone(charWord: String) {
@@ -773,6 +868,16 @@ class KeyboardController(
     internal fun drilledSyllableForTest(): Int = drillSyllable
 
     internal fun candidateWords(): List<String> = candidates.map { it.word }
+
+    internal fun decodeStateForTest(): String = buildString {
+        append("C:")
+        for (c in candidates) append(c.word).append('/').append(c.coveredLen).append(',')
+        append("|D:")
+        for (c in directCommitCands) append(c.word).append(',')
+        append("|P:")
+        for (c in predictionCands) append(c.word).append(',')
+        append("|calc:").append(calcCand?.word ?: "").append('/').append(calcExpr).append('/').append(calcResult)
+    }
 
     internal fun composingPrefix(): String = committedPrefix.toString()
 

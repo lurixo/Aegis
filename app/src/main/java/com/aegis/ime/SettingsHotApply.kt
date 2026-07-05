@@ -25,6 +25,8 @@ internal class SettingsHotApply(
     private val onAssociations: (Boolean) -> Unit,
     private val onFuzzyRules: (Set<String>) -> Unit,
     private val onEngineAssetsChanged: () -> Unit,
+    private val onKeyHaptics: (Boolean) -> Unit = {},
+    private val onKeyPreview: (Boolean) -> Unit = {},
 ) : SharedPreferences.OnSharedPreferenceChangeListener {
 
     override fun onSharedPreferenceChanged(prefs: SharedPreferences, key: String?) {
@@ -33,6 +35,8 @@ internal class SettingsHotApply(
             key == CN_LAYOUT_PREF -> onCnLayout(cnLayout(prefs))
             key == com.aegis.ime.ui.PREF_ASSOCIATIONS_ON -> onAssociations(associationsOn(prefs))
             key == FUZZY_MASTER_PREF || key in FUZZY_RULE_PREF_KEYS -> onFuzzyRules(fuzzyRules(prefs))
+            key == com.aegis.ime.ui.PREF_KEY_HAPTICS -> onKeyHaptics(keyHaptics(prefs))
+            key == com.aegis.ime.ui.PREF_KEY_PREVIEW -> onKeyPreview(keyPreview(prefs))
             key in ENGINE_ASSET_PREF_KEYS -> onEngineAssetsChanged()
         }
     }
@@ -61,6 +65,12 @@ internal class SettingsHotApply(
 
         fun associationsOn(prefs: SharedPreferences): Boolean =
             prefs.getBoolean(com.aegis.ime.ui.PREF_ASSOCIATIONS_ON, com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON)
+
+        fun keyHaptics(prefs: SharedPreferences): Boolean =
+            prefs.getBoolean(com.aegis.ime.ui.PREF_KEY_HAPTICS, com.aegis.ime.ui.KEY_HAPTICS_DEFAULT)
+
+        fun keyPreview(prefs: SharedPreferences): Boolean =
+            prefs.getBoolean(com.aegis.ime.ui.PREF_KEY_PREVIEW, com.aegis.ime.ui.KEY_PREVIEW_DEFAULT)
 
         fun fuzzyRules(prefs: SharedPreferences): Set<String> =
             Fuzzy.activeRules(prefs.getBoolean(FUZZY_MASTER_PREF, Fuzzy.DEFAULT_ON)) {
