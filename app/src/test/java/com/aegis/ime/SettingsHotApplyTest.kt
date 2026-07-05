@@ -23,16 +23,19 @@ import com.aegis.ime.dict.ModelDownload
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON
 import com.aegis.ime.ui.KEY_HAPTICS_DEFAULT
-import com.aegis.ime.ui.KEY_PREVIEW_DEFAULT
+import com.aegis.ime.ui.KEY_PREVIEW_MASTER_DEFAULT
+import com.aegis.ime.ui.KEY_PREVIEW_SUB_DEFAULT
 import com.aegis.ime.ui.LETTER_CASE_DEFAULT
 import com.aegis.ime.ui.LetterCase
 import com.aegis.ime.ui.PREF_ASSOCIATIONS_ON
 import com.aegis.ime.ui.PREF_KEY_HAPTICS
 import com.aegis.ime.ui.PREF_KEY_PREVIEW_ALPHA
+import com.aegis.ime.ui.PREF_KEY_PREVIEW_MASTER
 import com.aegis.ime.ui.PREF_KEY_PREVIEW_NINE
 import com.aegis.ime.ui.PREF_LETTER_CASE
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -123,17 +126,43 @@ class SettingsHotApplyTest {
         assertEquals("no other channel may fire", 2, totalActions())
     }
 
-    @Test fun the_two_preview_toggles_hot_apply_independently_and_immediately() {
-        put { putBoolean(PREF_KEY_PREVIEW_NINE, true) }
-        assertEquals(listOf(true), keyPreviewsNine)
-        assertEquals("the 26-key channel must not fire", emptyList<Boolean>(), keyPreviewsAlpha)
-        put { putBoolean(PREF_KEY_PREVIEW_ALPHA, true) }
-        assertEquals(listOf(true), keyPreviewsAlpha)
+    @Test fun the_preview_is_off_by_default_the_master_off_hides_the_default_on_subs() {
+        assertFalse("9-key preview is OFF by default", SettingsHotApply.keyPreviewNine(prefs))
+        assertFalse("26-key preview is OFF by default", SettingsHotApply.keyPreviewAlpha(prefs))
+        assertFalse("the master default is OFF", KEY_PREVIEW_MASTER_DEFAULT)
+        assertTrue("the sub default is ON, so flipping the master on previews immediately", KEY_PREVIEW_SUB_DEFAULT)
+    }
+
+    @Test fun the_effective_preview_is_master_and_sub_for_all_four_combinations() {
+        put { putBoolean(PREF_KEY_PREVIEW_MASTER, false); putBoolean(PREF_KEY_PREVIEW_NINE, true); putBoolean(PREF_KEY_PREVIEW_ALPHA, true) }
+        assertFalse("master off → 9-key off despite its sub on", SettingsHotApply.keyPreviewNine(prefs))
+        assertFalse("master off → 26-key off despite its sub on", SettingsHotApply.keyPreviewAlpha(prefs))
+        put { putBoolean(PREF_KEY_PREVIEW_MASTER, true) }
+        assertTrue("master on + 9-sub on → 9-key previews", SettingsHotApply.keyPreviewNine(prefs))
+        assertTrue("master on + 26-sub on → 26-key previews", SettingsHotApply.keyPreviewAlpha(prefs))
         put { putBoolean(PREF_KEY_PREVIEW_NINE, false) }
+        assertFalse("master on + 9-sub off → only 9-key drops", SettingsHotApply.keyPreviewNine(prefs))
+        assertTrue("master on + 26-sub on → 26-key still previews", SettingsHotApply.keyPreviewAlpha(prefs))
         put { putBoolean(PREF_KEY_PREVIEW_ALPHA, false) }
+        assertFalse("master on + both subs off → 9-key off", SettingsHotApply.keyPreviewNine(prefs))
+        assertFalse("master on + both subs off → 26-key off", SettingsHotApply.keyPreviewAlpha(prefs))
+    }
+
+    @Test fun the_preview_master_and_subs_hot_apply_immediately() {
+        put { putBoolean(PREF_KEY_PREVIEW_MASTER, true) }
+        assertEquals(listOf(true), keyPreviewsNine)
+        assertEquals(listOf(true), keyPreviewsAlpha)
+        put { putBoolean(PREF_KEY_PREVIEW_MASTER, false) }
         assertEquals(listOf(true, false), keyPreviewsNine)
         assertEquals(listOf(true, false), keyPreviewsAlpha)
-        assertEquals(4, totalActions())
+        put { putBoolean(PREF_KEY_PREVIEW_MASTER, true) }
+        put { putBoolean(PREF_KEY_PREVIEW_NINE, false) }
+        assertEquals(listOf(true, false, true, false), keyPreviewsNine)
+        assertEquals("the 26-key channel must not fire on a 9-key flip", listOf(true, false, true), keyPreviewsAlpha)
+        put { putBoolean(PREF_KEY_PREVIEW_ALPHA, false) }
+        assertEquals(listOf(true, false, true, false), keyPreviewsAlpha)
+        assertEquals(listOf(true, false, true, false), keyPreviewsNine)
+        assertEquals(8, totalActions())
     }
 
     @Test fun letter_case_hot_applies_all_three_tiers_immediately() {
@@ -148,12 +177,13 @@ class SettingsHotApplyTest {
         put { putBoolean(PREF_KEY_HAPTICS, !KEY_HAPTICS_DEFAULT) }
         put { remove(PREF_KEY_HAPTICS) }
         assertEquals(listOf(!KEY_HAPTICS_DEFAULT, KEY_HAPTICS_DEFAULT), keyHaptics)
-        put { putBoolean(PREF_KEY_PREVIEW_NINE, !KEY_PREVIEW_DEFAULT) }
+        put { putBoolean(PREF_KEY_PREVIEW_MASTER, true) }
+        put { remove(PREF_KEY_PREVIEW_MASTER) }
+        assertEquals(listOf(true, false), keyPreviewsNine)
+        assertEquals(listOf(true, false), keyPreviewsAlpha)
+        put { putBoolean(PREF_KEY_PREVIEW_MASTER, true); putBoolean(PREF_KEY_PREVIEW_NINE, false) }
         put { remove(PREF_KEY_PREVIEW_NINE) }
-        assertEquals(listOf(!KEY_PREVIEW_DEFAULT, KEY_PREVIEW_DEFAULT), keyPreviewsNine)
-        put { putBoolean(PREF_KEY_PREVIEW_ALPHA, !KEY_PREVIEW_DEFAULT) }
-        put { remove(PREF_KEY_PREVIEW_ALPHA) }
-        assertEquals(listOf(!KEY_PREVIEW_DEFAULT, KEY_PREVIEW_DEFAULT), keyPreviewsAlpha)
+        assertEquals("removing the 9-key sub restores its default-ON state (master on)", true, keyPreviewsNine.last())
         put { putString(PREF_LETTER_CASE, "upper") }
         put { remove(PREF_LETTER_CASE) }
         assertEquals(listOf(LetterCase.UPPER, LetterCase.AUTO), letterCases)
@@ -230,11 +260,11 @@ class SettingsHotApplyTest {
     @Test fun the_pref_backed_settings_surface_is_fully_enumerated() {
         val enumerated = mutableSetOf(
             "cn_layout", PREF_ASSOCIATIONS_ON, "fuzzy", PREF_KEY_HAPTICS,
-            PREF_KEY_PREVIEW_NINE, PREF_KEY_PREVIEW_ALPHA, PREF_LETTER_CASE,
+            PREF_KEY_PREVIEW_MASTER, PREF_KEY_PREVIEW_NINE, PREF_KEY_PREVIEW_ALPHA, PREF_LETTER_CASE,
         )
         enumerated += Fuzzy.RULES.map { Fuzzy.prefKey(it.key) }
         enumerated += SettingsHotApply.ENGINE_ASSET_PREF_KEYS
-        assertEquals(7 + Fuzzy.RULES.size + 4, enumerated.size)
+        assertEquals(8 + Fuzzy.RULES.size + 4, enumerated.size)
         for (key in enumerated) {
             val before = totalActions()
             put { putString("probe_reset", key) }
@@ -244,7 +274,8 @@ class SettingsHotApplyTest {
                 PREF_LETTER_CASE -> put { putString(key, "upper") }
                 else -> put { putBoolean(key, true) }
             }
-            assertTrue("$key must hot-apply exactly one action", totalActions() == before + 1)
+            val expected = if (key == PREF_KEY_PREVIEW_MASTER) 2 else 1
+            assertEquals("$key must hot-apply $expected action(s)", before + expected, totalActions())
         }
     }
 

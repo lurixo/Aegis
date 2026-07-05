@@ -514,8 +514,19 @@ class KeyboardView(context: Context) : View(context) {
                 LetterCase.AUTO -> if (shifted) key.label.uppercase() else key.label
             }
         }
+        if (isNineLetterBlock(key)) {
+            return when (caseMode) {
+                LetterCase.UPPER -> key.label.uppercase()
+                LetterCase.LOWER -> key.label.lowercase()
+                LetterCase.AUTO -> key.label
+            }
+        }
         return key.label
     }
+
+    private fun isNineLetterBlock(key: Key): Boolean =
+        key.action == KeyAction.COMMIT && key.label.length > 1 && key.label.all { it in 'A'..'Z' } &&
+            key.output.length == 1 && key.output[0] in '2'..'9'
 
     private fun caseBoxLabels(key: Key): List<String> =
         listOf(key.label.uppercase(), key.sub ?: "", key.label.lowercase())

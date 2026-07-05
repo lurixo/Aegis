@@ -289,8 +289,7 @@ private fun InputSettingsPage(onBack: () -> Unit) {
         FuzzySettingsCard()
         AssociationToggleCard()
         KeyVibrationToggleCard()
-        KeyPreviewNineToggleCard()
-        KeyPreviewAlphaToggleCard()
+        KeyPreviewCard()
     }
 }
 
