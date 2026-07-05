@@ -24,6 +24,7 @@ import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
+import com.aegis.ime.layout.SymbolCatalog
 
 private enum class ShiftState { OFF, ONCE, LOCK }
 
@@ -761,7 +762,7 @@ class KeyboardController(
                 mixed.candidates
             }
             !req.composingEmpty && req.mode == Mode.PINYIN -> {
-                val glyphs = InputAssociations.lookup(req.rawComposing)
+                val glyphs = dedupeFullHalfGlyphs(InputAssociations.lookup(req.rawComposing))
                 if (glyphs.isEmpty()) {
                     base
                 } else {
@@ -1043,4 +1044,10 @@ class KeyboardController(
         const val CALC_SCAN_LEN = 32
         const val CTX_SCAN_LEN = 16
     }
+}
+
+internal fun dedupeFullHalfGlyphs(glyphs: List<String>): List<String> {
+    if (glyphs.size <= 1) return glyphs
+    val seen = HashSet<String>(glyphs.size * 2)
+    return glyphs.filter { seen.add(SymbolCatalog.foldFullWidth(it)) }
 }
