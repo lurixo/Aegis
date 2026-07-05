@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ui.theme
 
+import android.content.Context
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -39,10 +40,19 @@ import com.aegis.ime.ime.Motion
  *
  * The settings graph is a hierarchy (a home screen → group sub-pages), so navigation uses the MD3
  * shared-axis X pattern (a short slide + fade); enter slides+fades on the decelerate curve, exit on the
- * accelerate curve — mirrored on the back stack. Reveal/hide of in-page content (the first-run hint) uses
- * expand/shrink + fade on the state-change token.
+ * accelerate curve — mirrored on the back stack. These mirrored pop transitions ([backEnter]/[backExit]) are
+ * also what the settings NavHost's built-in seekable predictive back seeks, so an edge-swipe under gesture
+ * navigation makes the current sub-page follow the finger out while the previous page peeks in (nav-compose
+ * 2.9.8 wires the PredictiveBackHandler + SeekableTransitionState internally; the app supplies these curves).
+ * Reveal/hide of in-page content (the first-run hint) uses expand/shrink + fade on the state-change token.
  */
 internal object SettingsMotion {
+    /** True when system animations are on — single source of truth is the IME-side [Motion.enabled] (reads
+     *  ANIMATOR_DURATION_SCALE). Under reduced motion the settings navigation, including the NavHost's seekable
+     *  predictive-back peek, collapses to an instant cut (直达): the caller swaps in [EnterTransition.None] /
+     *  [ExitTransition.None], which the built-in predictive back then has nothing to seek. */
+    fun animationsEnabled(context: Context): Boolean = Motion.enabled(context)
+
     // Durations = the IME-side MD3 tokens (Long ms → Int ms for Compose tween).
     val DURATION_NAV = Motion.MODE_SWITCH.toInt()      // 200 — page navigation (tightened with the IME tier)
     val DURATION_FADE_IN = Motion.FADE_IN.toInt()      // 150

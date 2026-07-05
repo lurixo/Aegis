@@ -44,8 +44,8 @@ class InputView(context: Context) : LinearLayout(context) {
     var onCopyDismiss: () -> Unit = {} // Chinese IME behavior note.
     var onEditConfirm: () -> Unit = {} // Chinese IME behavior note.
     var onEditCancel: () -> Unit = {} // Chinese IME behavior note.
-    /** ④ Predictive back: fired whenever an overlay (panel / copy-bar / edit-bar) opens or closes, so the IME
-     *  service can (un)register its OnBackAnimationCallback exactly while an overlay is up. */
+    /** Fired whenever an overlay (panel / copy-bar / edit-bar) opens or closes, so the IME service can
+     *  (un)register its plain overlay-close back callback exactly while an overlay is up. */
     var onOverlayChanged: () -> Unit = {}
 
     private val preeditView = PreeditView(context)
@@ -337,12 +337,12 @@ class InputView(context: Context) : LinearLayout(context) {
         onOverlayChanged()
     }
 
-    // ---- ④ Predictive back: the top open overlay follows the back gesture and dismisses on commit --------
-    // Precedence (top of the stack first): inline edit bar → extras panel → copy bar. With no overlay the
-    // service keeps the framework's default back (hide the IME) in charge, so it never swallows the gesture.
+    // ---- Overlay-close Back: Back peels the top open overlay back to the keyboard (no follow-finger) --------
+    // Precedence (top of the stack first): inline edit bar → extras panel → copy bar. With no overlay open the
+    // service leaves its back callback unregistered, so the framework's default Back (hide the IME) owns the
+    // case. The IME-side predictive follow-finger animation was removed (app-only predictive-back ruling); the
+    // close paths are the existing symmetric ones, so leaving an overlay still animates its normal exit.
     private enum class BackKind { NONE, PANEL, COPY_BAR, EDIT_BAR }
-    private var backKind = BackKind.NONE
-    private var backView: View? = null
 
     /** True while any dismissable overlay is (logically) open — the service (un)registers its back callback on
      *  this. Uses the logical flags, not the deferred visibility, so a closing overlay lifts the callback at
@@ -356,49 +356,17 @@ class InputView(context: Context) : LinearLayout(context) {
         else -> BackKind.NONE to null
     }
 
-    /** Snapshot the overlay the back gesture will act on; false if there is none (let the IME hide instead). */
-    fun predictiveBackBegin(): Boolean {
-        val (kind, view) = topOverlay()
-        backKind = kind
-        backView = view
-        return kind != BackKind.NONE
+    /** Back pressed while an overlay is up: close the top overlay (edit bar → panel → copy bar) through its
+     *  existing symmetric close path, peeling exactly one layer back toward the keyboard. Returns true if it
+     *  closed something; false when no overlay is open, so the service lets the framework hide the IME instead. */
+    fun closeTopOverlay(): Boolean = when (topOverlay().first) {
+        BackKind.EDIT_BAR -> { onEditCancel(); true }
+        BackKind.PANEL -> { showPanel(null); true }
+        BackKind.COPY_BAR -> { hideCopyBar(); onCopyDismiss(); true }
+        BackKind.NONE -> false
     }
 
-    /** Follow the finger: fade + nudge the top overlay a little toward its dismissal edge (progress 0..1). A
-     *  small [Motion.REVEAL_SHIFT_DP] slide + a partial fade — a hint, never a big move (anti-dizziness). */
-    fun predictiveBackProgress(progress: Float) {
-        val v = backView ?: return
-        val f = progress.coerceIn(0f, 1f)
-        v.alpha = 1f - PREDICTIVE_FADE * f
-        val shift = Motion.REVEAL_SHIFT_DP * resources.displayMetrics.density * f
-        v.translationY = when (backKind) {
-            BackKind.EDIT_BAR -> -shift          // slides back up (mirror of its top reveal)
-            BackKind.PANEL, BackKind.COPY_BAR -> shift // slide down toward exit
-            BackKind.NONE -> 0f
-        }
-    }
-
-    /** The gesture completed → run the top overlay's normal (symmetric) close via its existing path. */
-    fun predictiveBackCommit() {
-        backView?.let { Motion.reset(it) } // clear the follow-finger transform; the close animation owns it now
-        when (backKind) {
-            BackKind.EDIT_BAR -> onEditCancel()
-            BackKind.PANEL -> showPanel(null)
-            BackKind.COPY_BAR -> { hideCopyBar(); onCopyDismiss() }
-            BackKind.NONE -> {}
-        }
-        backKind = BackKind.NONE
-        backView = null
-    }
-
-    /** The gesture was abandoned → restore the overlay to rest. */
-    fun predictiveBackCancel() {
-        backView?.let { Motion.reset(it) }
-        backKind = BackKind.NONE
-        backView = null
-    }
-
-    /** ④ test seam: which overlay the next back gesture would act on (precedence resolver). */
+    /** test seam: which overlay the next Back would close (precedence resolver). */
     internal fun backTargetKindForTest(): String = topOverlay().first.name
 
     /** U19: pin the panel slot to [px] (the keyboard footprint) so the IME height stays put on panel open. */
@@ -434,9 +402,6 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun cachedNavBottomForTest(): Int = lastNavBottomPx
 
     private companion object {
-        /** ④ How far the top overlay fades as the back gesture reaches full progress (a restrained hint). */
-        private const val PREDICTIVE_FADE = 0.4f
-
         // S3: the last real navbar bottom inset, kept process-wide (survives the input-view re-inflation on a
         // theme switch) so a rebuilt InputView can restore the bottom raise immediately in its init, instead
         // of waiting for a window-insets re-dispatch the platform may skip for an unchanged inset value. A

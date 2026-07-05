@@ -26,6 +26,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.ScrollState
@@ -142,14 +144,21 @@ internal fun SettingsNavGraph(
     val back: () -> Unit = {
         if (navController.previousBackStackEntry != null) navController.popBackStack()
     }
+    // Reduced motion (system animations off): navigation goes straight to the destination (直达) — no slide or
+    // fade. nav-compose 2.9.8's NavHost drives the seekable predictive-back gesture off these same pop
+    // transitions, so gating them to None here makes the edge-swipe peek honour the setting too: the gesture
+    // still pops (never exits mid-stack), just without the follow-finger animation.
+    val animate = SettingsMotion.animationsEnabled(LocalContext.current)
     NavHost(
         navController = navController,
         startDestination = SettingsRoutes.HOME,
         // MD3 shared-axis X: a short slide + fade-through, mirrored on the back stack (see [SettingsMotion]).
-        enterTransition = { SettingsMotion.forwardEnter(this) },
-        exitTransition = { SettingsMotion.forwardExit(this) },
-        popEnterTransition = { SettingsMotion.backEnter(this) },
-        popExitTransition = { SettingsMotion.backExit(this) },
+        // The mirrored pop pair is what the built-in seekable predictive back seeks (current page follows the
+        // finger out, previous page peeks in) under gesture navigation.
+        enterTransition = { if (animate) SettingsMotion.forwardEnter(this) else EnterTransition.None },
+        exitTransition = { if (animate) SettingsMotion.forwardExit(this) else ExitTransition.None },
+        popEnterTransition = { if (animate) SettingsMotion.backEnter(this) else EnterTransition.None },
+        popExitTransition = { if (animate) SettingsMotion.backExit(this) else ExitTransition.None },
     ) {
         composable(SettingsRoutes.HOME) {
             SettingsHomePage(onOpenGroup = openGroup)
