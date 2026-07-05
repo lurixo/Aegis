@@ -794,6 +794,10 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     internal fun readingTileForTest(index: Int): TextView? = readingPool.getOrNull(index)
     internal fun firstChipBackgroundForTest(): Drawable? = firstChipForTest()?.background
     internal fun firstChipForegroundForTest(): Drawable? = firstChipForTest()?.foreground
+    internal fun firstChipFeedbackLevelForTest(): Float? =
+        firstChipForTest()?.let { chipFeedback[it]?.levelForTest() }
+    internal fun readingFeedbackLevelForTest(index: Int): Float? =
+        readingPool.getOrNull(index)?.let { readingFeedback[it]?.levelForTest() }
     internal fun activeReadingColorAnimatorsForTest(): Int =
         readingColorAnimators.values.count { it.isRunning }
     private fun returnButton(): TextView = rightColumn.getChildAt(0) as TextView
@@ -802,9 +806,11 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private fun singlesButton(): View = rightColumn.getChildAt(3)
     internal fun returnButtonForTest(): TextView = returnButton()
     internal fun actionSurfaceForTest(index: Int): ImeKeySurface = rightColumn.getChildAt(index).background as ImeKeySurface
+    internal fun returnFeedbackLevelForTest(): Float = returnFeedback.levelForTest()
     internal fun backspaceButtonForTest(): TextView = backspaceButton()
     internal fun backspaceFeedbackLevelForTest(): Float = backspaceFeedback.levelForTest()
     internal fun clearButtonForTest(): TextView = clearButton()
+    internal fun clearFeedbackLevelForTest(): Float = clearFeedback.levelForTest()
     internal fun singlesButtonForTest(): View = singlesButton()
     internal fun singlesOnlyForTest(): Boolean = singlesOnly
     internal fun singlesLabelForTest(): ImeSplitLabel = singlesKey.label

@@ -34,7 +34,10 @@ import kotlin.math.roundToInt
 
 enum class BarFunction { BRAND, EMOJI, LAYOUT, EDIT, CLIPBOARD, TRANSLATE }
 
-class CandidateView(context: Context) : View(context) {
+class CandidateView(context: Context) : View(context), KeyHapticsAware {
+
+    override var hapticEnabled = false
+
     var onPick: (Int) -> Unit = {}
     var onCandidatePress: (Long) -> Unit = {}
     var onFunction: (BarFunction) -> Unit = {}
@@ -399,6 +402,9 @@ class CandidateView(context: Context) : View(context) {
                     (items.isNotEmpty() && insideView(event.x, event.y) && event.x < expandRect().left)
                 if (gestureTarget?.kind == PressKind.CANDIDATE) onCandidatePress(event.downTime)
                 setPressedTarget(gestureTarget)
+                if (gestureTarget != null) {
+                    playImeKeyFeedback(hapticEnabled)
+                }
             }
             MotionEvent.ACTION_MOVE -> {
                 if (items.isNotEmpty() && stripGesture) {

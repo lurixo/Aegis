@@ -1,5 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="key_haptic_system">System</string>
+    <string name="key_haptic_soft">Smooth wave</string>
+    <string name="key_haptic_crisp">Crisp</string>
+    <string name="key_haptic_firm">Hammer</string>
+    <string name="key_haptic_tick">Grain</string>
+    <string name="key_haptic_thud">Bounce</string>
+    <string name="key_haptic_double">Double tap</string>
+    <string name="key_haptic_double_description">Two distinct taps with a clear pause</string>
+    <string name="key_haptic_thud_description">A strong hit followed by fading rebounds</string>
+    <string name="key_haptic_tick_description">Three rapid taps with a grainy texture</string>
+    <string name="key_haptic_firm_description">A deep, sustained impact</string>
+    <string name="key_haptic_crisp_description">One sharp tap with a clean finish</string>
+    <string name="key_haptic_soft_description">A smooth rise and a gentle fade</string>
+    <string name="key_haptic_system_description">The device’s standard keyboard feedback</string>
+
     <string name="kbd_space">Space</string>
     <string name="kbd_symbols">Symbols</string>
     <string name="kbd_back">Back</string>

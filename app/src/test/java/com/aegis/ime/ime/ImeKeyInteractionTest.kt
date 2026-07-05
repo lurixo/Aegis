@@ -15,12 +15,17 @@
 
 package com.aegis.ime.ime
 
+import android.graphics.drawable.RippleDrawable
 import android.os.Looper
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
+import android.view.View
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import java.time.Duration
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -44,6 +49,39 @@ class ImeKeyInteractionTest {
 
     private fun event(action: Int, x: Float, y: Float, time: Long = 0L): MotionEvent =
         MotionEvent.obtain(0, time, action, x, y, 0)
+
+    @Test fun view_keys_use_the_keyboard_press_timeline_and_haptic_policy_without_a_platform_ripple() {
+        var haptics = true
+        val view = View(context).apply {
+            isClickable = true
+            layout(0, 0, (100 * density).toInt(), (60 * density).toInt())
+        }
+        val feedback = ImeKeyFeedback(view, ImePalette.STATIC_LIGHT.keySurface, ImePalette.STATIC_LIGHT.keyLabel)
+        feedback.bind { haptics }
+
+        assertFalse(view.background is RippleDrawable)
+        assertNull(view.foreground)
+        view.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, view.width / 2f, view.height / 2f))
+        assertEquals(1f, feedback.levelForTest(), 0f)
+        assertTrue(view.isPressed)
+        assertEquals(HapticFeedbackConstants.KEYBOARD_TAP, shadowOf(view).lastHapticFeedbackPerformed())
+
+        view.dispatchTouchEvent(event(MotionEvent.ACTION_MOVE, -100f, -100f, 10L))
+        assertEquals(0f, feedback.levelForTest(), 0f)
+        assertFalse(view.isPressed)
+        view.dispatchTouchEvent(event(MotionEvent.ACTION_CANCEL, -100f, -100f, 20L))
+
+        haptics = false
+        val silentView = View(context).apply {
+            isClickable = true
+            layout(0, 0, (100 * density).toInt(), (60 * density).toInt())
+        }
+        ImeKeyFeedback(silentView, ImePalette.STATIC_LIGHT.keySurface, ImePalette.STATIC_LIGHT.keyLabel)
+            .bind { haptics }
+        silentView.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, silentView.width / 2f, silentView.height / 2f, 30L))
+        assertEquals(-1, shadowOf(silentView).lastHapticFeedbackPerformed())
+        silentView.dispatchTouchEvent(event(MotionEvent.ACTION_UP, silentView.width / 2f, silentView.height / 2f, 40L))
+    }
 
     @Test fun shared_backspace_touch_repeats_swipes_and_never_double_fires_the_release() {
         var taps = 0

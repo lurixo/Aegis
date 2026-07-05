@@ -143,6 +143,7 @@ class ImeKeyFeedback(
         tracking = true
         view.isPressed = true
         press.press()
+        view.playImeKeyFeedback(hapticsEnabled)
     }
 
     fun move(inside: Boolean) {

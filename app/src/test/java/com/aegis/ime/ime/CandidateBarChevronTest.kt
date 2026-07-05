@@ -22,6 +22,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.RectF
 import android.os.Looper
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
@@ -130,6 +131,36 @@ class CandidateBarChevronTest {
         val inside = (view.width - inset - density).toInt()
         assertTrue(resting.getPixel(inside, y) != expandPressed.getPixel(inside, y))
         view.dispatchTouchEvent(MotionEvent.obtain(20, 30, MotionEvent.ACTION_CANCEL, expand.centerX(), expand.centerY(), 0))
+    }
+
+    @Test fun candidate_bar_keeps_the_down_target_and_resets_feedback_on_exit_or_cancel() {
+        val picked = ArrayList<Int>()
+        val view = barView().apply {
+            hapticEnabled = true
+            onPick = { picked += it }
+        }
+        val first = requireNotNull(view.centerOfCandidateForTest(0))
+        val second = requireNotNull(view.centerOfCandidateForTest(1))
+
+        view.dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, first.first, first.second, 0))
+        assertEquals(HapticFeedbackConstants.KEYBOARD_TAP, Shadows.shadowOf(view).lastHapticFeedbackPerformed())
+        assertEquals("CANDIDATE", view.pressedTargetForTest())
+        view.dispatchTouchEvent(MotionEvent.obtain(0, 10, MotionEvent.ACTION_UP, second.first, second.second, 0))
+        assertTrue("lifting over another candidate must not pick either target", picked.isEmpty())
+        assertEquals(null, view.pressedTargetForTest())
+
+        view.dispatchTouchEvent(MotionEvent.obtain(20, 20, MotionEvent.ACTION_DOWN, first.first, first.second, 0))
+        view.dispatchTouchEvent(MotionEvent.obtain(20, 30, MotionEvent.ACTION_MOVE, first.first, -view.height.toFloat(), 0))
+        assertEquals("moving outside cancels the visible pressed state", null, view.pressedTargetForTest())
+        view.dispatchTouchEvent(MotionEvent.obtain(20, 40, MotionEvent.ACTION_MOVE, first.first, first.second, 0))
+        assertEquals("re-entering the original target restores only that target", "CANDIDATE", view.pressedTargetForTest())
+        view.dispatchTouchEvent(MotionEvent.obtain(20, 50, MotionEvent.ACTION_CANCEL, first.first, first.second, 0))
+        assertEquals("CANCEL clears all candidate feedback", null, view.pressedTargetForTest())
+        assertTrue(picked.isEmpty())
+
+        view.dispatchTouchEvent(MotionEvent.obtain(60, 60, MotionEvent.ACTION_DOWN, first.first, first.second, 0))
+        view.dispatchTouchEvent(MotionEvent.obtain(60, 70, MotionEvent.ACTION_UP, first.first, first.second, 0))
+        assertEquals(listOf(0), picked)
     }
 
     @Test fun expanded_state_chevron_reverses_and_collapses() {

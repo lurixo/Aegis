@@ -87,6 +87,8 @@ class InputView(context: Context) : LinearLayout(context) {
     private var pendingGridBind: Any? = null
     private var preeditEditingNow = false
     private var currentPanel: View? = null
+    private var keyHaptics = false
+    internal val keyHapticsEnabled: Boolean get() = keyHaptics
     private var editBarActive = false
     private var translateBarActive = false
     private var palette = ImePalette.STATIC_LIGHT
@@ -400,6 +402,20 @@ class InputView(context: Context) : LinearLayout(context) {
     fun showKeyboard(layout: KeyboardLayout, shifted: Boolean, locked: Boolean, lang: Lang) {
         keyboardView.setLayout(layout, shifted, locked, lang)
     }
+
+    internal var keyHapticStyle: KeyHaptic = KeyHaptic.CRISP
+        private set
+    internal fun setKeyHapticStyle(style: KeyHaptic) { keyHapticStyle = style }
+    internal var keyHapticStrength: Float = KEY_HAPTIC_STRENGTH_DEFAULT
+        private set
+    internal fun setKeyHapticStrength(strength: Float) { keyHapticStrength = keyHapticStrength(strength) }
+
+    fun setKeyHaptics(on: Boolean) {
+        keyHaptics = on
+        keyboardView.hapticEnabled = on
+        candidateView.hapticEnabled = on
+        (currentPanel as? KeyHapticsAware)?.hapticEnabled = on
+    }
     fun setKeyPreviewNine(on: Boolean) { keyboardView.previewNineEnabled = on }
     fun setKeyPreviewAlpha(on: Boolean) { keyboardView.previewAlphaEnabled = on }
 
@@ -494,6 +510,7 @@ class InputView(context: Context) : LinearLayout(context) {
         (outgoing as? ResettablePanel)?.takeIf { it !== panel }?.resetToDefault()
         if (outgoing === gridView && panel !== gridView) onExpandClosed()
         currentPanel = panel
+        (panel as? KeyHapticsAware)?.hapticEnabled = keyHaptics
         (panel as? CoversToolbar)?.setCoveredBarHeight(coveredBarHeightPx())
         if (panel !== gridView) pendingGridBind = null
         candidateView.setExpanded(panel === gridView)

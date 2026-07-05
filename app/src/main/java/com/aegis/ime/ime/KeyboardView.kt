@@ -27,6 +27,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.TypedValue
 import android.view.MotionEvent
+import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.ViewConfiguration
 import android.widget.OverScroller
@@ -117,6 +118,7 @@ class KeyboardView(context: Context) : View(context) {
         caseBoxActive = true
         caseBoxMoved = false
         caseBoxSelected = -1
+        performImeKeyHaptic(hapticEnabled, HapticFeedbackConstants.LONG_PRESS)
         invalidatePreview()
     }
 
@@ -149,6 +151,7 @@ class KeyboardView(context: Context) : View(context) {
     private val edgeInset = ImeShapes.edgeInsetDp * density
     private val keyRadius = ImeShapes.keyRadiusDp * density
 
+    var hapticEnabled = false
     var previewNineEnabled = false
         set(value) {
             field = value
@@ -872,6 +875,21 @@ class KeyboardView(context: Context) : View(context) {
         return width
     }
 
+    internal fun keyLabelPaintsUseNormalWeightForTest(): Boolean = listOf(
+        labelPaint,
+        specialLabelPaint,
+        accentLabelPaint,
+        subPaint,
+        langLabel.activePaint,
+        langLabel.idlePaint,
+        scrollLabelPaint,
+    ).all { it.typeface === android.graphics.Typeface.DEFAULT }
+
+    internal fun enterGlyphBoundsForTest(): RectF? {
+        val rect = boundsOfActionForTest(KeyAction.ENTER) ?: return null
+        return Glyphs.enterBounds(rect.centerX(), rect.centerY(), functionalGlyphScale(rect))
+    }
+
     internal fun caseBoxActiveForTest(): Boolean = caseBoxActive
     internal fun caseBoxLabelsForTest(): List<String>? = caseBoxKey?.let { caseBoxLabels(it) }
     internal fun caseBoxSelectedForTest(): Int = caseBoxSelected
@@ -1057,6 +1075,7 @@ class KeyboardView(context: Context) : View(context) {
             else if (previewEnabledForCurrentLayout() && (hasLongPressChoices(dk) || isRetypeKey(dk))) {
                 repeatHandler.postDelayed(longPressRunnable, LONG_PRESS_MS)
             }
+            playImeKeyFeedback(hapticEnabled)
             showPreview(dk, dp.rect)
         } else {
             hidePreview()
@@ -1155,6 +1174,7 @@ class KeyboardView(context: Context) : View(context) {
                 val newSel = if (caseBoxMoved) caseBoxSelectionAt(x, y) else -1
                 if (newSel != caseBoxSelected) {
                     caseBoxSelected = newSel
+                    if (newSel >= 0) performImeKeyHaptic(hapticEnabled, HapticFeedbackConstants.SEGMENT_FREQUENT_TICK)
                     invalidatePreview()
                 }
             }
@@ -1291,6 +1311,7 @@ class KeyboardView(context: Context) : View(context) {
         scrollPressedIndex = if (fling.stopArmed) -1 else scrollIndexAt(y)
         scrollVisualPressedIndex = scrollPressedIndex
         if (scrollPressedIndex >= 0) scrollPress.press() else scrollPress.release()
+        if (scrollPressedIndex >= 0) playImeKeyFeedback(hapticEnabled)
         showScrollPreview()
         invalidate()
     }

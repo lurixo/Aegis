@@ -1,5 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="key_haptic_system">系统</string>
+    <string name="key_haptic_soft">柔波</string>
+    <string name="key_haptic_crisp">清脆</string>
+    <string name="key_haptic_firm">重锤</string>
+    <string name="key_haptic_tick">颗粒</string>
+    <string name="key_haptic_thud">回弹</string>
+    <string name="key_haptic_double">双击</string>
+    <string name="key_haptic_double_description">两次敲击，间隔清晰</string>
+    <string name="key_haptic_thud_description">重击后逐渐回弹，先强后轻</string>
+    <string name="key_haptic_tick_description">三连短点，颗粒分明</string>
+    <string name="key_haptic_firm_description">饱满重击，触感厚实</string>
+    <string name="key_haptic_crisp_description">短促单击，收尾利落</string>
+    <string name="key_haptic_soft_description">缓起缓落，柔和绵长</string>
+    <string name="key_haptic_system_description">使用设备默认的按键触感</string>
+
     <string name="kbd_space">空格</string>
     <string name="kbd_symbols">符号</string>
     <string name="kbd_back">返回</string>
