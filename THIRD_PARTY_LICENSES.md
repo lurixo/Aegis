@@ -18,11 +18,14 @@ an independent project not affiliated with the RIME project.
   <https://creativecommons.org/licenses/by/4.0/>
 - **Source:** <https://github.com/amzxyz/rime-wanxiang> (tag `v16.0.1`, commit
   `7db7c588fd5ea90c13e4bf1814d7dd7fa8a2effc`)
-- **Used in:** the bundled seed `assets/aegis_{dict,t9,jianpin}.bin` and the optional downloadable full
-  dictionary pack, derived from the 14 tables (字 基础 联想 错音 多音 诗词 地名 医学 化学 药品 名人 异体 物种 人名).
+- **Used in:** the bundled `assets/aegis_{dict,t9,jianpin,lm}.bin` — the seed dictionaries plus the
+  APK's character-bigram context model `aegis_lm.bin` — and the optional downloadable full dictionary
+  pack (the three dictionary bins only). All are derived from the 14 tables
+  (字 基础 联想 错音 多音 诗词 地名 医学 化学 药品 名人 异体 物种 人名).
 - **Modifications:** tones stripped (ü→v), syllables concatenated into toneless keys, repacked into
   Aegis's own binary format; the bundled seed is frequency-filtered (`--min-freq 400`) for size, the
-  downloadable full pack keeps every entry (`--min-freq 1`).
+  downloadable full pack keeps every entry (`--min-freq 1`). `aegis_lm.bin` is compiled from the same
+  tables into a character-bigram language model in Aegis's format (used for context ranking).
 
 ## 2. wanxiang octagram grammar model — CC BY 4.0
 

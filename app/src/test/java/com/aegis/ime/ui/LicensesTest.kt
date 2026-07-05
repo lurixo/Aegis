@@ -64,6 +64,8 @@ class LicensesTest {
             // wanxiang dictionaries (CC BY 4.0) + the pinned source
             "rime-wanxiang", "amzxyz", "CC BY 4.0", "creativecommons.org/licenses/by/4.0",
             "v16.0.1", "7db7c588",
+            // every bundled wanxiang derivative is attributed, incl. the APK's character-bigram LM
+            "aegis_{dict,t9,jianpin,lm}.bin", "aegis_lm.bin", "character-bigram",
             // octagram model, OpenCC, Unicode, AndroidX/Kotlin
             "RIME-LMDG", "OpenCC", "BYVoid", "Apache-2.0",
             "Unicode", "unicode.org/license",
