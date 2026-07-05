@@ -7,6 +7,7 @@
     <application
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
+        android:enableOnBackInvokedCallback="true"
         android:localeConfig="@xml/locales_config">
         <service
             android:name=".AegisInputMethodService"

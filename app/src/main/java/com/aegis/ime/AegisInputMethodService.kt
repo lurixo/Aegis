@@ -31,6 +31,8 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
 import com.aegis.ime.ui.appLocaleTag
 import com.aegis.ime.backup.RestoreJournal
 import com.aegis.ime.dict.BinaryDict
@@ -90,6 +92,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     internal var appLocaleTags: (Context) -> String? = { appLocaleTag(it) }
 
+    private var backCallback: OnBackInvokedCallback? = null
+    private var backRegistered = false
     private var layoutPanelView: LayoutPanelView? = null
     private var selStart = -1
     private var selEnd = -1
@@ -449,6 +453,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun onCreateInputView(): View {
 
+        unregisterBackCallback()
         val view = InputView(imeUiContext()).apply {
             onKey = { key -> controller.onKey(key) }
             onPickCandidate = { index -> controller.onPickCandidate(index) }
@@ -458,6 +463,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onPanelClear = { controller.onPanelClear() }
             onExpandClosed = { controller.clearDrill() }
             onCollapse = { requestHideSelf(0) }
+            onOverlayChanged = { syncBackCallback() }
             onPreeditTap = { controller.onPreeditTap() }
             onPreeditCaret = { index -> controller.onPreeditCaret(index) }
             onPreeditEditDone = { controller.onPreeditEditDone() }
@@ -516,6 +522,51 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             resetControllerOnNextInputView = false
         }
         applyPaletteEverywhere()
+    }
+
+    private fun buildBackCallback(): OnBackInvokedCallback = OnBackInvokedCallback { closeTopOverlayOnBack() }
+
+    private fun closeTopOverlayOnBack() {
+        inputView?.closeTopOverlay()
+        syncBackCallback()
+    }
+
+    private fun overlayOwnsBack(): Boolean = isInputViewShown && inputView?.hasOverlay() == true
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_BACK && overlayOwnsBack()) {
+            event.startTracking()
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_BACK && overlayOwnsBack()) {
+            if (event.isTracking && !event.isCanceled) closeTopOverlayOnBack()
+            return true
+        }
+        return super.onKeyUp(keyCode, event)
+    }
+
+    internal fun syncBackCallback() {
+        val iv = inputView ?: return
+        val dispatcher = iv.findOnBackInvokedDispatcher()
+        val want = iv.hasOverlay()
+        if (want && !backRegistered && dispatcher != null) {
+            val cb = backCallback ?: buildBackCallback().also { backCallback = it }
+            dispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, cb)
+            backRegistered = true
+        } else if (!want && backRegistered) {
+            backCallback?.let { dispatcher?.unregisterOnBackInvokedCallback(it) }
+            backRegistered = false
+        }
+    }
+
+    private fun unregisterBackCallback() {
+        if (!backRegistered) return
+        backCallback?.let { inputView?.findOnBackInvokedDispatcher()?.unregisterOnBackInvokedCallback(it) }
+        backRegistered = false
     }
 
     override fun onComputeInsets(outInsets: Insets) {
@@ -583,6 +634,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
+        unregisterBackCallback()
         if (finishingInput) {
             clearEditorTransientState(resetController = true, preserveLayout = layoutSessionPackage != null)
             currentEditorTarget = null
@@ -590,6 +642,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             resetControllerOnNextInputView = false
             personalizationBlocked = false
         }
+    }
+
+    override fun onWindowShown() {
+        super.onWindowShown()
+
+        val shownView = inputView
+        shownView?.post { if (inputView === shownView) syncBackCallback() }
     }
 
     override fun onWindowHidden() {
@@ -608,6 +667,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         inputSessionActive = false
         resetControllerOnNextInputView = false
         personalizationBlocked = false
+        unregisterBackCallback()
         runCatching { decodeWorker.shutdownNow() }
         synchronized(decodeHintLock) {
             decodeHintOpened = true
