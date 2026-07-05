@@ -36,7 +36,7 @@ class AppVersionCardTest {
             .getPackageInfo(ctx.packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0))
             .versionName
 
-        assertEquals("0.1.0-debug.48", version)
+        assertEquals("0.1.0-debug.49", version)
         assertEquals("Aegis v$version", appReleaseLabel(ctx))
         assertFalse("release label must not show the stale debug.38 value", appReleaseLabel(ctx).contains("debug.38"))
     }
