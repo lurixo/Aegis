@@ -137,4 +137,22 @@
     <string name="phrase_transfer_toast_import_merged">已合并导入常用语</string>
     <string name="phrase_transfer_toast_import_overwritten">已覆盖导入常用语</string>
     <string name="phrase_transfer_toast_import_invalid">导入失败：无有效内容，常用语未改动</string>
+
+    <!-- 开源许可(设置 → 关于与启用) -->
+    <string name="settings_about_licenses_title">开源许可</string>
+    <string name="settings_about_licenses_desc">第三方组件及其许可</string>
+    <string name="licenses_page_title">开源许可</string>
+    <string name="licenses_intro">Aegis 自身代码为 GPL-3.0，并基于以下第三方成果构建；各项署名保留于此，可下载词库的 ZIP 内也附有相同说明。</string>
+    <string name="licenses_modified">已修改</string>
+    <string name="licenses_footer">完整许可全文见 Aegis 仓库的 THIRD_PARTY_LICENSES.md。</string>
+    <string name="license_wanxiang_name">rime-wanxiang 词库</string>
+    <string name="license_wanxiang_note">内置种子词库与可下载的完整词库。已去声调、拼接音节，重打包为 Aegis 二进制格式。</string>
+    <string name="license_octagram_name">万象 octagram 模型</string>
+    <string name="license_octagram_note">用于下一词排序的可选上下文模型，仅在明确开启时下载，不随 APK 打包。按原样使用。</string>
+    <string name="license_opencc_name">OpenCC 转换数据</string>
+    <string name="license_opencc_note">词库构建时应用的繁转简映射表。已为构建校订；仅作数据使用。</string>
+    <string name="license_emoji_name">Unicode / CLDR 表情数据</string>
+    <string name="license_emoji_note">表情符号字形、名称与排序。截取子集并映射中文关键词；仅作数据使用。</string>
+    <string name="license_androidx_name">AndroidX · Compose · Material 3 · Kotlin</string>
+    <string name="license_androidx_note">应用 UI 框架与 Kotlin 标准库，按未修改的依赖链接。</string>
 </resources>

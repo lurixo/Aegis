@@ -37,6 +37,46 @@ OUTPUTS = [
     ("aegis_jianpin_full.bin", "aegis_jianpin.bin", "initials"),
 ]
 
+# Attribution file bundled INSIDE every pack ZIP so the CC BY 4.0 credit for the rime-wanxiang source data
+# travels with the material to whoever downloads it. The name deliberately carries none of the runtime
+# keywords (dict / t9 / jianpin) the app maps entries by, so the app's extractor simply ignores it.
+NOTICE_NAME = "NOTICE.txt"
+
+
+def attribution_text(repo_https, source_tag, source_branch, source_commit):
+    """The pack's third-party attribution, deterministic (no timestamps — only the pinned source
+    coordinates vary), so the ZIP stays byte-reproducible. ASCII-only for maximum unzip compatibility.
+    Wording mirrors the repository README's acknowledgments."""
+    ref = f"tag {source_tag}" if source_tag else f"branch {source_branch}"
+    tables = " ".join(TABLES)
+    return (
+        "Aegis downloadable dictionary pack - third-party attribution\n"
+        "===========================================================\n"
+        "\n"
+        "This pack contains dictionary data DERIVED FROM the rime-wanxiang project.\n"
+        "\n"
+        "  Project:   rime-wanxiang\n"
+        "  Copyright: (C) amzxyz and the rime-wanxiang contributors\n"
+        "  License:   Creative Commons Attribution 4.0 International (CC BY 4.0)\n"
+        "             https://creativecommons.org/licenses/by/4.0/\n"
+        f"  Upstream:  {repo_https}\n"
+        f"             {ref}, commit {source_commit}\n"
+        "\n"
+        f"  Source tables (14): {tables}\n"
+        "\n"
+        "Modifications by Aegis:\n"
+        "  - tones stripped (the u-umlaut is written as v) and syllables concatenated\n"
+        "    into toneless keys;\n"
+        "  - repacked from the source .dict.yaml tables into Aegis's own binary format\n"
+        "    (aegis_dict.bin / aegis_t9.bin / aegis_jianpin.bin);\n"
+        "  - this full pack keeps every entry (min-freq 1); the seed bundled in the APK\n"
+        "    is frequency-filtered for size.\n"
+        "\n"
+        "CC BY 4.0 requires this attribution to accompany the material. Aegis's own code\n"
+        "is licensed GPL-3.0-only; this notice concerns the bundled third-party dictionary\n"
+        "data only. The repository's THIRD_PARTY_LICENSES.md carries the full license texts.\n"
+    )
+
 
 def run(cmd, cwd):
     print("+", " ".join(str(part) for part in cmd), flush=True)
@@ -101,10 +141,9 @@ def write_zip(zip_path, entries):
             zf.writestr(info, file_path.read_bytes())
 
 
-def build_info(args, repo_root, source, asset_name, zip_path, bin_infos, source_infos):
+def build_info(args, repo_root, source_commit, asset_name, zip_path, bin_infos, source_infos):
     release_url = f"https://github.com/lurixo/Aegis/releases/tag/{args.release_tag}"
     asset_url = f"https://github.com/lurixo/Aegis/releases/download/{args.release_tag}/{asset_name}"
-    source_commit = output(["git", "rev-parse", "HEAD"], cwd=source)
     builder_commit = output(["git", "rev-parse", "HEAD"], cwd=repo_root)
     dirty = output(["git", "status", "--short"], cwd=repo_root)
     generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -138,6 +177,7 @@ def build_info(args, repo_root, source, asset_name, zip_path, bin_infos, source_
                     "branch": None if args.source_tag else args.source_branch,
                     "commit": source_commit,
                     "license": "CC-BY-4.0",
+                    "attribution_file_in_pack": NOTICE_NAME,
                     "tables": TABLES,
                     "input_yaml_sha256": source_infos,
                 },
@@ -173,7 +213,7 @@ def build_info(args, repo_root, source, asset_name, zip_path, bin_infos, source_
                     },
                     "output_bins": bin_infos,
                     "zip_packaging": {
-                        "file_order": [item[0] for item in OUTPUTS],
+                        "file_order": [NOTICE_NAME] + [item[0] for item in OUTPUTS],
                         "timestamp_utc": "1980-01-01T00:00:00Z",
                         "unix_mode": "0644",
                         "compression": "zip_deflated_level_9",
@@ -298,7 +338,16 @@ def main(argv):
 
     asset_name = args.asset_name or default_asset_name(args.release_tag)
     zip_path = output_dir / asset_name
-    write_zip(zip_path, [(zip_entry, staging_dir / zip_entry) for zip_entry, _, _ in OUTPUTS])
+    # Bundle the CC BY 4.0 attribution for the source data INSIDE the pack (first entry) so the credit
+    # travels with what the user downloads. Deterministic (no timestamps), so the ZIP stays reproducible;
+    # the app's extractor ignores it (its name carries none of the dict/t9/jianpin runtime keywords).
+    source_commit = output(["git", "rev-parse", "HEAD"], cwd=source)
+    notice_path = staging_dir / NOTICE_NAME
+    notice_path.write_bytes(
+        attribution_text(args.source_repo_https, args.source_tag, args.source_branch, source_commit).encode("utf-8")
+    )
+    zip_entries = [(NOTICE_NAME, notice_path)] + [(zip_entry, staging_dir / zip_entry) for zip_entry, _, _ in OUTPUTS]
+    write_zip(zip_path, zip_entries)
 
     source_infos = [
         {
@@ -309,7 +358,7 @@ def main(argv):
         }
         for table, path in zip(TABLES, input_paths)
     ]
-    info = build_info(args, repo_root, source, asset_name, zip_path, bin_infos, source_infos)
+    info = build_info(args, repo_root, source_commit, asset_name, zip_path, bin_infos, source_infos)
     (output_dir / "aegis-build-info.json").write_text(json.dumps(info, ensure_ascii=True, indent=2) + "\n")
     (output_dir / "aegis-dictionary-update.json").write_text(json.dumps(update_payload(info), ensure_ascii=True, indent=2) + "\n")
 

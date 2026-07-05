@@ -34,11 +34,27 @@ class AppVersionCardTest {
     @Test fun app_release_label_uses_android_visible_package_version() {
         val version = ctx.packageManager
             .getPackageInfo(ctx.packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0))
-            .versionName
+            .versionName!!
 
-        assertEquals("0.1.0-debug.50", version)
+        // versionName is the single source of the release identity (versionCode derives from it), so a release
+        // edits ONLY that one string. Assert its FORMAT (so this test needs no per-release edit) and that the
+        // visible label is derived from the LIVE package version, never a stale hard-coded string (the debug.38
+        // label bug).
+        assertTrue("versionName must be 0.1.0-debug.<N>", version.matches(Regex("""0\.1\.0-debug\.\d+""")))
         assertEquals("Aegis v$version", appReleaseLabel(ctx))
         assertFalse("release label must not show the stale debug.38 value", appReleaseLabel(ctx).contains("debug.38"))
+    }
+
+    @Test fun version_code_is_derived_from_the_debug_sequence_and_is_updatable() {
+        // BLOCKER regression lock: versionCode must be DERIVED from versionName's -debug.N number (single
+        // source of truth, so the two can never drift apart again) and must exceed the previously published
+        // versionCode 1 so an install counts as an update. Asserted as an invariant parsed from the live
+        // versionName, so it survives future release bumps without a hard-coded number here.
+        val info = ctx.packageManager
+            .getPackageInfo(ctx.packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0))
+        val seq = info.versionName!!.substringAfterLast("-debug.").toInt()
+        assertEquals("versionCode must equal the debug sequence parsed from versionName", seq.toLong(), info.longVersionCode)
+        assertTrue("versionCode must exceed the published 1 so installs count as updates", info.longVersionCode >= 2L)
     }
 
     @Test fun app_release_label_resource_is_not_a_stale_hard_coded_version() {

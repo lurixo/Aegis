@@ -122,8 +122,9 @@ internal object SettingsRoutes {
     const val DICTS = "dicts"
     const val USER_DICT = "userdict"
     const val ABOUT = "about"
+    const val LICENSES = "licenses"
 
-    /** Every group sub-page reachable from home (order = home-screen order). */
+    /** Every group sub-page reachable from home (order = home-screen order). LICENSES is reached from ABOUT. */
     val GROUPS = listOf(INPUT, DICTS, USER_DICT, ABOUT)
 }
 
@@ -143,6 +144,13 @@ internal fun SettingsNavGraph(
     }
     val back: () -> Unit = {
         if (navController.previousBackStackEntry != null) navController.popBackStack()
+    }
+    // Open the licenses page from the About sub-page (gated on being on ABOUT, mirroring the openGroup guard,
+    // so a rapid double-tap can't stack two copies).
+    val openLicenses: () -> Unit = {
+        if (navController.currentDestination?.route == SettingsRoutes.ABOUT) {
+            navController.navigate(SettingsRoutes.LICENSES) { launchSingleTop = true }
+        }
     }
     // Reduced motion (system animations off): navigation goes straight to the destination (直达) — no slide or
     // fade. nav-compose 2.9.8's NavHost drives the seekable predictive-back gesture off these same pop
@@ -173,7 +181,19 @@ internal fun SettingsNavGraph(
             UserDictPage(onBack = back)
         }
         composable(SettingsRoutes.ABOUT) {
-            AboutPage(resumeSignal = resumeSignal, onBack = back)
+            AboutPage(resumeSignal = resumeSignal, onBack = back, onOpenLicenses = openLicenses)
+        }
+        composable(SettingsRoutes.LICENSES) {
+            // LICENSES is the first 2-levels-deep page (HOME → ABOUT → LICENSES). The shared [back] guard only
+            // blocks popping past HOME, so gate this page's back on still being ON licenses — a rapid double-tap
+            // then pops one level (to ABOUT) instead of skipping straight through to HOME.
+            LicensesPage(onBack = {
+                if (navController.currentDestination?.route == SettingsRoutes.LICENSES &&
+                    navController.previousBackStackEntry != null
+                ) {
+                    navController.popBackStack()
+                }
+            })
         }
     }
 }
@@ -298,7 +318,7 @@ internal fun SettingsPageHeader(title: String, onBack: () -> Unit) {
 
 /** Shared sub-page scaffold: header + content in the same inset-aware scroller as the home screen. */
 @Composable
-private fun SettingsPageColumn(title: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+internal fun SettingsPageColumn(title: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -341,9 +361,9 @@ private fun DictSettingsPage(onBack: () -> Unit) {
     }
 }
 
-/** 关于与启用: app release, enable/switch steps, and the try-typing field. */
+/** 关于与启用: app release, enable/switch steps, the try-typing field, and the open-source licenses entry. */
 @Composable
-private fun AboutPage(resumeSignal: Int, onBack: () -> Unit) {
+private fun AboutPage(resumeSignal: Int, onBack: () -> Unit, onOpenLicenses: () -> Unit) {
     val context = LocalContext.current
     var typed by remember { mutableStateOf("") }
     var tryFieldFocused by remember { mutableStateOf(false) }
@@ -442,6 +462,13 @@ private fun AboutPage(resumeSignal: Int, onBack: () -> Unit) {
                     tryFieldFocused = it.isFocused
                     if (!it.isFocused) activeTryFieldImeRequest = 0
                 },
+        )
+
+        // Open-source licenses (third-party attribution reaches the user). Same card idiom as the home groups.
+        SettingsGroupCard(
+            titleRes = R.string.settings_about_licenses_title,
+            descRes = R.string.settings_about_licenses_desc,
+            onClick = onOpenLicenses,
         )
     }
 }

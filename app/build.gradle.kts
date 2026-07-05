@@ -13,8 +13,20 @@ android {
         applicationId = "com.aegis.ime"
         minSdk = 34
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0-debug.50"
+        // versionName is the SINGLE human-edited source of the release identity; versionCode is DERIVED from
+        // its trailing debug sequence number so the two can never drift. The old bug: the name was bumped every
+        // release (…-debug.50) while versionCode stayed 1, which Android rejects as a non-update — so users
+        // could never update across versions. Now a release edits ONLY the name and the code auto-increments
+        // with it (debug.N -> versionCode N), monotonically. Every published build so far shipped versionCode 1,
+        // so any derived code >= 2 is a strictly higher, valid update that never reuses a published number.
+        val releaseName = "0.1.0-debug.50"
+        val debugSeq = releaseName.substringAfterLast("-debug.").toIntOrNull()
+            ?: error("versionName '$releaseName' must end in '-debug.<N>' so versionCode can derive from it")
+        require(debugSeq >= 2) {
+            "derived versionCode ($debugSeq) must exceed the published versionCode 1 so installs count as updates"
+        }
+        versionCode = debugSeq
+        versionName = releaseName
         // Ship arm64-v8a only (drops the other ABIs of the one transitive native lib).
         ndk { abiFilters += "arm64-v8a" }
     }
