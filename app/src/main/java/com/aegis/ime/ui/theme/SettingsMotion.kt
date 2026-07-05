@@ -25,6 +25,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
@@ -43,27 +45,34 @@ internal object SettingsMotion {
 
     private const val SLIDE_FRACTION = 8
 
+    private const val PEEK_SCALE_OUT = 0.88f
+    private const val PEEK_SCALE_IN = 0.92f
+
     fun forwardEnter(scope: AnimatedContentTransitionScope<*>): EnterTransition =
         scope.run {
             slideInHorizontally(tween(DURATION_NAV, easing = EmphasizedDecelerate)) { it / SLIDE_FRACTION } +
+                scaleIn(tween(DURATION_NAV, easing = EmphasizedDecelerate), initialScale = PEEK_SCALE_IN) +
                 fadeIn(tween(DURATION_FADE_IN, easing = EmphasizedDecelerate))
         }
 
     fun forwardExit(scope: AnimatedContentTransitionScope<*>): ExitTransition =
         scope.run {
             slideOutHorizontally(tween(DURATION_NAV, easing = EmphasizedAccelerate)) { -it / SLIDE_FRACTION } +
+                scaleOut(tween(DURATION_NAV, easing = EmphasizedAccelerate), targetScale = PEEK_SCALE_OUT) +
                 fadeOut(tween(DURATION_FADE_OUT, easing = EmphasizedAccelerate))
         }
 
     fun backEnter(scope: AnimatedContentTransitionScope<*>): EnterTransition =
         scope.run {
             slideInHorizontally(tween(DURATION_NAV, easing = EmphasizedDecelerate)) { -it / SLIDE_FRACTION } +
+                scaleIn(tween(DURATION_NAV, easing = EmphasizedDecelerate), initialScale = PEEK_SCALE_IN) +
                 fadeIn(tween(DURATION_FADE_IN, easing = EmphasizedDecelerate))
         }
 
     fun backExit(scope: AnimatedContentTransitionScope<*>): ExitTransition =
         scope.run {
             slideOutHorizontally(tween(DURATION_NAV, easing = EmphasizedAccelerate)) { it / SLIDE_FRACTION } +
+                scaleOut(tween(DURATION_NAV, easing = EmphasizedAccelerate), targetScale = PEEK_SCALE_OUT) +
                 fadeOut(tween(DURATION_FADE_OUT, easing = EmphasizedAccelerate))
         }
 
