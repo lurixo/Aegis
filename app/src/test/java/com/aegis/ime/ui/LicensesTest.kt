@@ -1,0 +1,148 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Copyright (C) 2026 lurixo
+//
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 3.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+// PARTICULAR PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
+
+package com.aegis.ime.ui
+
+import android.content.Intent
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import com.aegis.ime.R
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
+import java.io.File
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
+class LicensesTest {
+
+    @get:Rule
+    val compose = createAndroidComposeRule<LicensesActivity>()
+
+    private val ctx = RuntimeEnvironment.getApplication()
+    private fun s(id: Int) = ctx.getString(id)
+
+    private val licenseNameIds = listOf(
+        R.string.license_wanxiang_name,
+        R.string.license_octagram_name,
+        R.string.license_opencc_name,
+        R.string.license_emoji_name,
+        R.string.license_tgh_name,
+        R.string.license_androidx_name,
+        R.string.license_mechvibes_name,
+        R.string.license_silver_name,
+    )
+
+    private val dictionaryBins =
+        listOf("aegis_dict.bin", "aegis_t9.bin", "aegis_jianpin.bin", "aegis_lm.bin", "aegis_english.bin")
+
+    private val braceShorthand = Regex("""([\w./-]*)\{([^{}]*)\}([\w.-]*)""")
+
+    private fun unnamedDictionaryBins(doc: String): List<String> {
+        val expanded = braceShorthand.replace(doc) { m ->
+            val (prefix, body, suffix) = m.destructured
+            body.split(',').joinToString(" ") { prefix + it.trim() + suffix }
+        }
+        return dictionaryBins.filterNot { expanded.contains(it) }
+    }
+
+    @Test fun the_binary_coverage_check_fails_when_a_binary_goes_unnamed() {
+        assertEquals(
+            emptyList<String>(),
+            unnamedDictionaryBins("`aegis_{dict,t9,jianpin}.bin`, `assets/aegis_lm.bin` and `aegis_english.bin`"),
+        )
+        assertEquals(
+            emptyList<String>(),
+            unnamedDictionaryBins("aegis_dict.bin, aegis_t9.bin, aegis_jianpin.bin, aegis_lm.bin, aegis_english.bin"),
+        )
+        assertEquals(
+            emptyList<String>(),
+            unnamedDictionaryBins("all of `assets/aegis_{lm,dict,jianpin,t9,english}.bin` are derived"),
+        )
+        assertEquals(
+            listOf("aegis_t9.bin"),
+            unnamedDictionaryBins("`aegis_{dict,jianpin}.bin`, `assets/aegis_lm.bin` and `aegis_english.bin`"),
+        )
+        assertEquals(dictionaryBins, unnamedDictionaryBins("no binary is named here"))
+    }
+
+    @Test fun license_strings_exist_in_both_locales() {
+        val en = File("src/main/res/values/strings.xml").readText()
+        val zh = File("src/main/res/values-zh/strings.xml").readText()
+        for (key in listOf(
+            "settings_about_licenses_title", "settings_about_licenses_desc",
+            "licenses_page_title", "licenses_intro", "licenses_modified", "licenses_footer",
+            "license_wanxiang_name", "license_wanxiang_note",
+            "license_octagram_name", "license_octagram_note",
+            "license_opencc_name", "license_opencc_note",
+            "license_emoji_name", "license_emoji_note",
+            "license_tgh_name", "license_tgh_note",
+            "license_androidx_name", "license_androidx_note",
+        )) {
+            assertTrue("EN strings.xml must define '$key'", en.contains("name=\"$key\""))
+            assertTrue("ZH strings.xml must define '$key'", zh.contains("name=\"$key\""))
+        }
+    }
+
+    @Test fun licenses_page_lists_every_component_with_a_modified_mark_and_back_finishes() {
+        for (id in licenseNameIds) {
+            compose.onNodeWithText(s(id)).performScrollTo().assertIsDisplayed()
+        }
+        assertTrue(
+            "a component must show the Modified mark",
+            compose.onAllNodesWithText(s(R.string.licenses_modified), substring = true).fetchSemanticsNodes().isNotEmpty(),
+        )
+        compose.onNodeWithContentDescription(s(R.string.settings_back)).performClick()
+        compose.waitForIdle()
+        assertTrue("back arrow finishes the licenses Activity", compose.activity.isFinishing)
+    }
+
+    private val expectedLinks = listOf(
+        R.string.license_wanxiang_name to "https://github.com/amzxyz/rime-wanxiang",
+        R.string.license_octagram_name to "https://github.com/amzxyz/RIME-LMDG",
+        R.string.license_opencc_name to "https://github.com/BYVoid/OpenCC",
+        R.string.license_emoji_name to "https://www.unicode.org/license.txt",
+        R.string.license_tgh_name to "https://www.gov.cn/zwgk/2013-08/19/content_2469793.htm",
+        R.string.license_androidx_name to "https://developer.android.com/jetpack/androidx",
+    )
+
+    @Test fun each_component_card_taps_through_to_its_upstream_url_every_time() {
+        for ((nameId, url) in expectedLinks) {
+            repeat(2) { attempt ->
+                compose.onNodeWithText(s(nameId)).performScrollTo().performClick()
+                compose.waitForIdle()
+                val started = shadowOf(compose.activity).nextStartedActivity
+                assertEquals("$url attempt $attempt must open via a view intent", Intent.ACTION_VIEW, started?.action)
+                assertEquals("card opens its own upstream url on attempt $attempt", url, started?.dataString)
+                assertEquals(
+                    "an Activity-hosted link must stay in its caller task",
+                    0,
+                    requireNotNull(started).flags and Intent.FLAG_ACTIVITY_NEW_TASK,
+                )
+            }
+        }
+    }
+}

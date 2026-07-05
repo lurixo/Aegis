@@ -165,6 +165,27 @@
     <string name="restore_gate_rollback_failed">恢复没做完，撤销失败，点这里</string>
     <string name="restore_gate_rollback_impossible">恢复没做完，无法撤销，点这里</string>
 
+    <string name="settings_about_licenses_title">开源许可</string>
+    <string name="settings_about_licenses_desc">第三方组件及其许可</string>
+    <string name="licenses_page_title">开源许可</string>
+    <string name="licenses_intro">Aegis 自身代码为 GPL-3.0，并基于以下第三方成果构建</string>
+    <string name="licenses_modified">已修改</string>
+    <string name="licenses_footer">完整许可全文随源码发布</string>
+    <string name="license_wanxiang_name">rime-wanxiang 词库</string>
+    <string name="license_wanxiang_note">可下载的中文词库，重打包为 Aegis 二进制格式</string>
+    <string name="license_octagram_name">万象 octagram 模型</string>
+    <string name="license_octagram_note">可选的下一词排序模型，按原样使用</string>
+    <string name="license_opencc_name">OpenCC 转换数据</string>
+    <string name="license_opencc_note">词库构建时用的繁转简映射表</string>
+    <string name="license_emoji_name">Unicode / CLDR 表情数据</string>
+    <string name="license_emoji_note">表情符号字形、名称与排序，截取子集并映射中文关键词</string>
+    <string name="license_tgh_name">《通用规范汉字表》汉字分级</string>
+    <string name="license_tgh_note">随 APK 打包的汉字分级表，取自国家规范，属非官方转录</string>
+    <string name="license_androidx_name">AndroidX · Compose · Material 3 · Kotlin</string>
+    <string name="license_androidx_note">应用 UI 框架与 Kotlin 标准库，未作修改</string>
+    <string name="license_aegis_name">Aegis</string>
+    <string name="license_aegis_note">本应用自身，依据 GNU 通用公共许可证第 3 版发布，不提供任何担保</string>
+
     <string name="kbd_space">空格</string>
     <string name="kbd_symbols">符号</string>
     <string name="kbd_back">返回</string>
@@ -251,9 +272,13 @@
     <string name="key_sound_blue">Cherry MX 青轴</string>
     <string name="key_sound_brown">Cherry MX 茶轴</string>
     <string name="key_sound_red">Cherry MX 红轴</string>
+    <string name="license_mechvibes_name">Mechvibes 键盘录音</string>
+    <string name="license_mechvibes_note">Cherry MX 青轴、茶轴、红轴、黑轴与 NK Cream 按键录音（NK Cream 上游署名 Ryan）；紫轴、静音红轴、静音黑轴由茶轴、红轴、黑轴调音而来</string>
     <string name="key_sound_black">Cherry MX 黑轴</string>
     <string name="key_sound_cream">NK Cream 奶油轴</string>
     <string name="key_sound_silver">Cherry MX 银轴</string>
+    <string name="license_silver_name">Cherry MX 银轴录音</string>
+    <string name="license_silver_note">Akira 的按键录音，随音效包发布</string>
     <string name="key_sound_purple">Cherry MX 紫轴</string>
     <string name="key_sound_silent_red">Cherry MX 静音红轴</string>
     <string name="key_sound_silent_black">Cherry MX 静音黑轴</string>

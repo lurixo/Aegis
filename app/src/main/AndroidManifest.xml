@@ -30,6 +30,13 @@
             android:label="@string/settings_group_dicts_title"
             android:theme="@style/Theme.Aegis"
             android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".ui.LicensesActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|uiMode|density|navigation|locale|layoutDirection|fontScale"
+            android:label="@string/settings_about_licenses_title"
+            android:theme="@style/Theme.Aegis"
+            android:windowSoftInputMode="adjustResize" />
 
         <provider
             android:name=".user.ClipboardImageProvider"

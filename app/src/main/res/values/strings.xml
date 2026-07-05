@@ -167,6 +167,27 @@
     <string name="restore_gate_rollback_failed">Restore unfinished — undo failed, tap here</string>
     <string name="restore_gate_rollback_impossible">Restore unfinished — cannot undo, tap here</string>
 
+    <string name="settings_about_licenses_title">Open-source licenses</string>
+    <string name="settings_about_licenses_desc">Third-party components and their licenses</string>
+    <string name="licenses_page_title">Open-source licenses</string>
+    <string name="licenses_intro">Aegis\'s own code is GPL-3.0 and builds on the third-party works below</string>
+    <string name="licenses_modified">Modified</string>
+    <string name="licenses_footer">Full license texts ship with the source</string>
+    <string name="license_wanxiang_name">rime-wanxiang dictionaries</string>
+    <string name="license_wanxiang_note">The downloadable Chinese dictionary, repacked into Aegis\'s binary format</string>
+    <string name="license_octagram_name">wanxiang octagram model</string>
+    <string name="license_octagram_note">Optional next-word ranking model, used as published</string>
+    <string name="license_opencc_name">OpenCC conversion data</string>
+    <string name="license_opencc_note">The traditional-to-simplified tables used at dictionary build time</string>
+    <string name="license_emoji_name">Unicode / CLDR emoji data</string>
+    <string name="license_emoji_note">Emoji glyphs, names and ordering, a subset mapped to Chinese keywords</string>
+    <string name="license_tgh_name">通用规范汉字表 character grading</string>
+    <string name="license_tgh_note">The character grading table packaged in the APK, from the national standard — an unofficial transcription</string>
+    <string name="license_androidx_name">AndroidX · Compose · Material 3 · Kotlin</string>
+    <string name="license_androidx_note">The app UI toolkit and the Kotlin standard library, unmodified</string>
+    <string name="license_aegis_name">Aegis</string>
+    <string name="license_aegis_note">This app itself, released under the GNU General Public License version 3 with no warranty</string>
+
     <string name="kbd_space">Space</string>
     <string name="kbd_symbols">Symbols</string>
     <string name="kbd_back">Back</string>
@@ -253,9 +274,13 @@
     <string name="key_sound_blue">Cherry MX Blue</string>
     <string name="key_sound_brown">Cherry MX Brown</string>
     <string name="key_sound_red">Cherry MX Red</string>
+    <string name="license_mechvibes_name">Mechvibes keyboard recordings</string>
+    <string name="license_mechvibes_note">Key recordings for Cherry MX Blue, Brown, Red and Black plus NK Cream (credited to Ryan upstream); Purple, Silent Red and Silent Black are adapted from the Brown, Red and Black ones</string>
     <string name="key_sound_black">Cherry MX Black</string>
     <string name="key_sound_cream">NK Cream</string>
     <string name="key_sound_silver">Cherry MX Speed Silver</string>
+    <string name="license_silver_name">Cherry MX Speed Silver recordings</string>
+    <string name="license_silver_note">Key recordings by Akira, distributed with the sound pack</string>
     <string name="key_sound_purple">Cherry MX Purple</string>
     <string name="key_sound_silent_red">Cherry MX Silent Red</string>
     <string name="key_sound_silent_black">Cherry MX Silent Black</string>
