@@ -56,6 +56,10 @@
     <string name="key_haptic_system_description">使用设备默认的按键触感</string>
     <string name="key_haptic_strength_value">%1$.1f%%</string>
     <string name="key_haptic_system_strength_hint">系统方案跟随设备强度</string>
+    <string name="key_preview_title">按键预览</string>
+    <string name="key_preview_description">按下时显示放大的按键气泡</string>
+    <string name="key_preview_nine_label">9键</string>
+    <string name="key_preview_alpha_label">26键</string>
 
     <string name="letter_case_title">字母大小写</string>
     <string name="letter_case_description">仅改变字母显示</string>

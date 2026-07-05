@@ -17,6 +17,7 @@ package com.aegis.ime.ui
 
 import android.content.Context
 import android.os.SystemClock
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
@@ -42,6 +43,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
@@ -185,6 +187,62 @@ internal fun KeyVibrationToggleCard() {
                 }
             }
         }
+    }
+}
+
+@Composable
+internal fun KeyPreviewCard() {
+    val context = LocalContext.current
+    val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
+    var master by remember { mutableStateOf(prefs.flagOr(PREF_KEY_PREVIEW_MASTER, KEY_PREVIEW_MASTER_DEFAULT)) }
+    var nine by remember { mutableStateOf(prefs.flagOr(PREF_KEY_PREVIEW_NINE, KEY_PREVIEW_SUB_DEFAULT)) }
+    var alpha by remember { mutableStateOf(prefs.flagOr(PREF_KEY_PREVIEW_ALPHA, KEY_PREVIEW_SUB_DEFAULT)) }
+    val toggleMaster = {
+        master = !master
+        prefs.edit { putBoolean(PREF_KEY_PREVIEW_MASTER, master) }
+    }
+
+    AppSection {
+        AppSettingRow(
+            title = stringResource(R.string.key_preview_title),
+            description = stringResource(R.string.key_preview_description),
+            onClick = toggleMaster,
+            trailing = {
+                AegisSwitch(
+                    checked = master,
+                    onCheckedChange = { toggleMaster() },
+                )
+            },
+        )
+        if (master) {
+            AppSectionDivider()
+            KeyPreviewSubRow(R.string.key_preview_nine_label, checked = nine, enabled = true) {
+                nine = it
+                prefs.edit { putBoolean(PREF_KEY_PREVIEW_NINE, it) }
+            }
+            AppSectionDivider()
+            KeyPreviewSubRow(R.string.key_preview_alpha_label, checked = alpha, enabled = true) {
+                alpha = it
+                prefs.edit { putBoolean(PREF_KEY_PREVIEW_ALPHA, it) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun KeyPreviewSubRow(labelRes: Int, checked: Boolean, enabled: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = AppSpacing.rowMinHeight)
+            .clip(MaterialTheme.shapes.extraSmall)
+            .clickable(enabled = enabled) { onCheckedChange(!checked) }
+            .padding(horizontal = AppSpacing.rowHorizontal),
+        horizontalArrangement = Arrangement.spacedBy(AppSpacing.contentGap),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(stringResource(labelRes), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        AegisSwitch(checked = checked, enabled = enabled, onCheckedChange = onCheckedChange)
     }
 }
 

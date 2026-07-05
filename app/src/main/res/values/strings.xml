@@ -56,6 +56,10 @@
     <string name="key_haptic_system_description">The device’s standard keyboard feedback</string>
     <string name="key_haptic_strength_value">%1$.1f%%</string>
     <string name="key_haptic_system_strength_hint">System uses the device strength</string>
+    <string name="key_preview_title">Key press preview</string>
+    <string name="key_preview_description">Show an enlarged bubble of the key you press</string>
+    <string name="key_preview_nine_label">9-key</string>
+    <string name="key_preview_alpha_label">26-key</string>
 
     <string name="letter_case_title">Letter case</string>
     <string name="letter_case_description">Display only</string>
