@@ -42,6 +42,8 @@ object ModelDownload {
 
     fun isDownloaded(filesDir: File): Boolean = destFile(filesDir).let { it.exists() && it.length() > 1024 }
 
+    fun bytesToDisplayMb(bytes: Long): Long = Math.round(bytes / 1_000_000.0)
+
     data class DownloadResult(val ok: Boolean, val validator: String?)
 
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
