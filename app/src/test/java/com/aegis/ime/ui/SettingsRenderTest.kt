@@ -105,7 +105,7 @@ class SettingsRenderTest {
         for (dark in listOf(false, true)) {
             val t = if (dark) "dark" else "light"
             snapCompose("settings_home_$t.png", dark) {
-                SettingsNavGraph()
+                SettingsHomePage(onOpenGroup = {})
             }
         }
     }

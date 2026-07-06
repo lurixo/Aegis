@@ -26,8 +26,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.ScrollState
@@ -76,17 +74,14 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.navigation.NavHostController
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.aegis.ime.R
 import com.aegis.ime.ui.theme.AegisTheme
 import com.aegis.ime.ui.theme.SettingsMotion
 
 class SetupActivity : ComponentActivity() {
-    private var resumeSignal by mutableIntStateOf(0)
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -96,85 +91,54 @@ class SetupActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    SettingsNavGraph(resumeSignal = resumeSignal)
+                    val navOnce = rememberNavOnce()
+                    SettingsHomePage(onOpenGroup = { route ->
+                        navOnce { activityForGroup(route)?.let { startActivity(Intent(this@SetupActivity, it)) } }
+                    })
                 }
             }
         }
     }
-
-    override fun onResume() {
-        super.onResume()
-        resumeSignal += 1
-    }
 }
 
 internal object SettingsRoutes {
-    const val HOME = "home"
     const val INPUT = "input"
     const val DICTS = "dicts"
     const val USER_DICT = "userdict"
     const val ABOUT = "about"
-    const val LICENSES = "licenses"
 
     val GROUPS = listOf(INPUT, DICTS, USER_DICT, ABOUT)
 }
 
 @Composable
-internal fun SettingsNavGraph(
-    resumeSignal: Int = 0,
-    navController: NavHostController = rememberNavController(),
-) {
-    val openGroup: (String) -> Unit = { route ->
-        if (navController.currentDestination?.route == SettingsRoutes.HOME) {
-            navController.navigate(route) { launchSingleTop = true }
+internal fun rememberNavOnce(): (block: () -> Unit) -> Unit {
+    var navigating by remember { mutableStateOf(false) }
+    val owner = LocalLifecycleOwner.current
+    DisposableEffect(owner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) navigating = false
         }
+        owner.lifecycle.addObserver(observer)
+        onDispose { owner.lifecycle.removeObserver(observer) }
     }
-    val back: () -> Unit = {
-        if (navController.previousBackStackEntry != null) navController.popBackStack()
-    }
-    val openLicenses: () -> Unit = {
-        if (navController.currentDestination?.route == SettingsRoutes.ABOUT) {
-            navController.navigate(SettingsRoutes.LICENSES) { launchSingleTop = true }
-        }
-    }
-    val animate = SettingsMotion.animationsEnabled(LocalContext.current)
-    NavHost(
-        navController = navController,
-        startDestination = SettingsRoutes.HOME,
-        enterTransition = { if (animate) SettingsMotion.forwardEnter(this) else EnterTransition.None },
-        exitTransition = { if (animate) SettingsMotion.forwardExit(this) else ExitTransition.None },
-        popEnterTransition = { if (animate) SettingsMotion.backEnter(this) else EnterTransition.None },
-        popExitTransition = { if (animate) SettingsMotion.backExit(this) else ExitTransition.None },
-    ) {
-        composable(SettingsRoutes.HOME) {
-            SettingsHomePage(onOpenGroup = openGroup)
-        }
-        composable(SettingsRoutes.INPUT) {
-            InputSettingsPage(onBack = back)
-        }
-        composable(SettingsRoutes.DICTS) {
-            DictSettingsPage(onBack = back)
-        }
-        composable(SettingsRoutes.USER_DICT) {
-            UserDictPage(onBack = back)
-        }
-        composable(SettingsRoutes.ABOUT) {
-            AboutPage(resumeSignal = resumeSignal, onBack = back, onOpenLicenses = openLicenses)
-        }
-        composable(SettingsRoutes.LICENSES) {
-            LicensesPage(onBack = {
-                if (navController.currentDestination?.route == SettingsRoutes.LICENSES &&
-                    navController.previousBackStackEntry != null
-                ) {
-                    navController.popBackStack()
-                }
-            })
+    return { block ->
+        if (!navigating) {
+            navigating = true
+            block()
         }
     }
 }
 
+internal fun activityForGroup(route: String): Class<out ComponentActivity>? = when (route) {
+    SettingsRoutes.INPUT -> InputSettingsActivity::class.java
+    SettingsRoutes.DICTS -> DictSettingsActivity::class.java
+    SettingsRoutes.USER_DICT -> UserDictActivity::class.java
+    SettingsRoutes.ABOUT -> AboutActivity::class.java
+    else -> null
+}
+
 @Composable
-private fun SettingsHomePage(onOpenGroup: (String) -> Unit) {
+internal fun SettingsHomePage(onOpenGroup: (String) -> Unit) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
 
@@ -300,7 +264,7 @@ internal fun SettingsPageColumn(title: String, onBack: () -> Unit, content: @Com
 }
 
 @Composable
-private fun InputSettingsPage(onBack: () -> Unit) {
+internal fun InputSettingsPage(onBack: () -> Unit) {
     SettingsPageColumn(stringResource(R.string.settings_group_input_title), onBack) {
         LayoutChoiceCard()
         LetterCaseCard()
@@ -312,7 +276,7 @@ private fun InputSettingsPage(onBack: () -> Unit) {
 }
 
 @Composable
-private fun DictSettingsPage(onBack: () -> Unit) {
+internal fun DictSettingsPage(onBack: () -> Unit) {
     SettingsPageColumn(stringResource(R.string.settings_group_dicts_title), onBack) {
         GramDownloadCard()
         DictDownloadCard()
@@ -320,7 +284,7 @@ private fun DictSettingsPage(onBack: () -> Unit) {
 }
 
 @Composable
-private fun AboutPage(resumeSignal: Int, onBack: () -> Unit, onOpenLicenses: () -> Unit) {
+internal fun AboutPage(resumeSignal: Int, onBack: () -> Unit, onOpenLicenses: () -> Unit) {
     val context = LocalContext.current
     var typed by remember { mutableStateOf("") }
     var tryFieldFocused by remember { mutableStateOf(false) }

@@ -1,0 +1,108 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Copyright (C) 2026 lurixo
+//
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 3.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+// PARTICULAR PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
+
+package com.aegis.ime.ui
+
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import com.aegis.ime.R
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
+
+private fun ctxString(id: Int) = RuntimeEnvironment.getApplication().getString(id)
+
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
+class InputSettingsActivityTest {
+    @get:Rule val compose = createAndroidComposeRule<InputSettingsActivity>()
+
+    @Test fun holds_keyboard_mode_fuzzy_and_associations_and_back_finishes() {
+        compose.onNodeWithText(ctxString(R.string.layout_card_title)).assertExists()
+        compose.onNodeWithText(ctxString(R.string.fuzzy_card_title)).performScrollTo().assertExists()
+        compose.onNodeWithText(ctxString(R.string.association_title)).performScrollTo().assertExists()
+        compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).performScrollTo().performClick()
+        compose.waitForIdle()
+        assertTrue("back arrow finishes the Activity", compose.activity.isFinishing)
+    }
+}
+
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
+class DictSettingsActivityTest {
+    @get:Rule val compose = createAndroidComposeRule<DictSettingsActivity>()
+
+    @Test fun holds_the_dict_pack_and_model_cards_and_back_finishes() {
+        compose.onNodeWithText(ctxString(R.string.dict_card_title)).assertExists()
+        compose.onNodeWithText(ctxString(R.string.gram_card_title)).performScrollTo().assertExists()
+        compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).performScrollTo().performClick()
+        compose.waitForIdle()
+        assertTrue("back arrow finishes the Activity", compose.activity.isFinishing)
+    }
+}
+
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
+class AboutActivityTest {
+    @get:Rule val compose = createAndroidComposeRule<AboutActivity>()
+
+    @Test fun holds_version_enable_steps_and_the_try_field() {
+        compose.onNodeWithText(ctxString(R.string.app_version_card_title)).assertExists()
+        compose.onNodeWithText(ctxString(R.string.setup_steps_title)).performScrollTo().assertExists()
+        compose.onNodeWithText(ctxString(R.string.setup_try_field_label)).performScrollTo().assertExists()
+    }
+
+    @Test fun opening_licenses_starts_the_licenses_activity() {
+        compose.onNodeWithText(ctxString(R.string.settings_about_licenses_title)).performScrollTo().performClick()
+        compose.waitForIdle()
+        val started = shadowOf(compose.activity).nextStartedActivity
+        assertEquals(LicensesActivity::class.java.name, started?.component?.className)
+    }
+
+    @Test fun back_arrow_finishes_the_activity() {
+        compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).performScrollTo().performClick()
+        compose.waitForIdle()
+        assertTrue(compose.activity.isFinishing)
+    }
+}
+
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
+class LicensesActivityTest {
+    @get:Rule val compose = createAndroidComposeRule<LicensesActivity>()
+
+    @Test fun lists_components_and_back_finishes() {
+        compose.onNodeWithText(ctxString(R.string.license_wanxiang_name)).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText(ctxString(R.string.license_androidx_name)).performScrollTo().assertExists()
+        compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).performScrollTo().performClick()
+        compose.waitForIdle()
+        assertTrue("back arrow finishes the Activity", compose.activity.isFinishing)
+    }
+}

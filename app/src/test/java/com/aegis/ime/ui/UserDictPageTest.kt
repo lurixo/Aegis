@@ -16,15 +16,15 @@
 package com.aegis.ime.ui
 
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.test.core.app.ActivityScenario
 import com.aegis.ime.R
 import com.aegis.ime.user.UserDictEdit
 import com.aegis.ime.user.UserDictHot
@@ -47,10 +47,11 @@ import java.io.File
 class UserDictPageTest {
 
     @get:Rule
-    val compose = createAndroidComposeRule<SetupActivity>()
+    val compose = createEmptyComposeRule()
 
     private val ctx = RuntimeEnvironment.getApplication()
     private val db = File(ctx.filesDir, "userdb.txt")
+    private var scenario: ActivityScenario<UserDictActivity>? = null
     private fun s(id: Int) = ctx.getString(id)
     private fun row(word: String, reading: String) = ctx.getString(R.string.user_dict_entry_format, word, reading)
 
@@ -60,11 +61,12 @@ class UserDictPageTest {
     }
 
     @After fun cleanup() {
+        scenario?.close()
         db.delete()
     }
 
     private fun openUserDictPage() {
-        compose.onNodeWithText(s(R.string.settings_group_userdict_title)).performScrollTo().performClick()
+        scenario = ActivityScenario.launch(UserDictActivity::class.java)
         compose.onNodeWithTag("user_dict_search").assertExists()
     }
 
