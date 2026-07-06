@@ -93,7 +93,9 @@ class SetupActivity : ComponentActivity() {
                 ) {
                     val navOnce = rememberNavOnce()
                     SettingsHomePage(onOpenGroup = { route ->
-                        navOnce { activityForGroup(route)?.let { startActivity(Intent(this@SetupActivity, it)) } }
+                        activityForGroup(route)?.let { target ->
+                            navOnce { startActivity(Intent(this@SetupActivity, target)) }
+                        }
                     })
                 }
             }

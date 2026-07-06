@@ -18,6 +18,7 @@ package com.aegis.ime.ui
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -61,6 +62,21 @@ class DictSettingsActivityTest {
         compose.onNodeWithText(ctxString(R.string.dict_card_title)).assertExists()
         compose.onNodeWithText(ctxString(R.string.gram_card_title)).performScrollTo().assertExists()
         compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).performScrollTo().performClick()
+        compose.waitForIdle()
+        assertTrue("back arrow finishes the Activity", compose.activity.isFinishing)
+    }
+}
+
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
+class UserDictActivityTest {
+    @get:Rule val compose = createAndroidComposeRule<UserDictActivity>()
+
+    @Test fun holds_the_search_field_and_tools_and_back_finishes() {
+        compose.onNodeWithTag("user_dict_search").assertExists()
+        compose.onNodeWithText(ctxString(R.string.user_dict_export_button)).assertExists()
+        compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).performClick()
         compose.waitForIdle()
         assertTrue("back arrow finishes the Activity", compose.activity.isFinishing)
     }
