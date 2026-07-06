@@ -1,5 +1,9 @@
 # Aegis 输入法
 
+<p align="center">
+  <img src="docs/branding/banner.png" alt="Aegis — 简体中文与英文离线输入法" width="860">
+</p>
+
 [![许可证: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![最新发布](https://img.shields.io/github/v/release/lurixo/Aegis?include_prereleases&sort=semver)](https://github.com/lurixo/Aegis/releases)
 [![平台: Android 14+](https://img.shields.io/badge/Android-14%2B%20(API%2034)-3DDC84.svg)](#系统要求)
