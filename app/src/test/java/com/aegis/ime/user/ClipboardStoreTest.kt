@@ -158,9 +158,9 @@ class ClipboardStoreTest {
     }
 
     @Test fun added_phrases_land_at_front_preserving_batch_order() {
-        val s = ClipboardStore(newDir()).apply { load(); addPhrasesTo("默认", listOf("old")) }
-        assertEquals(2, s.addPhrasesTo("默认", listOf("new1", "new2", "old")))
-        assertEquals(listOf("new1", "new2", "old"), s.phrasesIn("默认"))
+        val s = ClipboardStore(newDir()).apply { load(); addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("old")) }
+        assertEquals(2, s.addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("new1", "new2", "old")))
+        assertEquals(listOf("new1", "new2", "old"), s.phrasesIn(ClipboardStore.DEFAULT_CATEGORY_ID))
     }
 
     @Test fun phrase_dedup_is_scoped_to_the_target_category() {
@@ -174,8 +174,8 @@ class ClipboardStoreTest {
 
     @Test fun first_run_has_an_empty_default_category() {
         val s = ClipboardStore(newDir()).apply { load() }
-        assertEquals(listOf("默认"), s.categories())
-        assertTrue("no default phrases are seeded", s.phrasesIn("默认").isEmpty())
+        assertEquals(listOf(ClipboardStore.DEFAULT_CATEGORY_ID), s.categories())
+        assertTrue("no default phrases are seeded", s.phrasesIn(ClipboardStore.DEFAULT_CATEGORY_ID).isEmpty())
         assertTrue("no phrases at all on first run", s.phrases().isEmpty())
     }
 
@@ -215,8 +215,17 @@ class ClipboardStoreTest {
         val dir = newDir()
         File(dir, "phrases.txt").writeText("你好\n谢谢\n多行\\n短语")
         val s = ClipboardStore(dir).apply { load() }
-        assertEquals(listOf("默认"), s.categories())
-        assertEquals(listOf("你好", "谢谢", "多行\n短语"), s.phrasesIn("默认"))
+        assertEquals(listOf(ClipboardStore.DEFAULT_CATEGORY_ID), s.categories())
+        assertEquals(listOf("你好", "谢谢", "多行\n短语"), s.phrasesIn(ClipboardStore.DEFAULT_CATEGORY_ID))
+    }
+
+    @Test fun legacy_default_category_name_migrates_to_the_stable_id() {
+        val dir = newDir()
+        File(dir, "phrases.txt").writeText("C\t默认\nP\t你好\nC\t工作\nP\t已收到")
+        val s = ClipboardStore(dir).apply { load() }
+        assertEquals(listOf(ClipboardStore.DEFAULT_CATEGORY_ID, "工作"), s.categories())
+        assertEquals(listOf("你好"), s.phrasesIn(ClipboardStore.DEFAULT_CATEGORY_ID))
+        assertEquals(listOf("已收到"), s.phrasesIn("工作"))
     }
 
 
@@ -360,10 +369,10 @@ class ClipboardStoreTest {
         val dir = newDir()
         val s = ClipboardStore(dir).apply { load(); addCategory("甲"); addCategory("乙"); addCategory("丙") }
         assertTrue(s.reorderCategory(3, 1))
-        assertEquals(listOf("默认", "丙", "甲", "乙"), s.categories())
+        assertEquals(listOf(ClipboardStore.DEFAULT_CATEGORY_ID, "丙", "甲", "乙"), s.categories())
         assertTrue(s.reorderCategory(0, 3))
-        assertEquals(listOf("丙", "甲", "乙", "默认"), s.categories())
-        assertEquals(listOf("丙", "甲", "乙", "默认"), ClipboardStore(dir).apply { load() }.categories())
+        assertEquals(listOf("丙", "甲", "乙", ClipboardStore.DEFAULT_CATEGORY_ID), s.categories())
+        assertEquals(listOf("丙", "甲", "乙", ClipboardStore.DEFAULT_CATEGORY_ID), ClipboardStore(dir).apply { load() }.categories())
     }
 
     @Test fun reorder_category_rejects_bad_indices_and_noops() {
@@ -371,7 +380,7 @@ class ClipboardStoreTest {
         assertFalse(s.reorderCategory(0, 0))
         assertFalse(s.reorderCategory(-1, 1))
         assertFalse(s.reorderCategory(0, 3))
-        assertEquals(listOf("默认", "甲", "乙"), s.categories())
+        assertEquals(listOf(ClipboardStore.DEFAULT_CATEGORY_ID, "甲", "乙"), s.categories())
     }
 
 

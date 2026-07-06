@@ -881,7 +881,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun catSortRowFor(name: String, index: Int): View {
         val h = if (index < catSortRowPool.size) catSortRowPool[index] else buildTextRow(catSortRowPool, maxLines = 1)
         Motion.reset(h.row)
-        h.label.text = name
+        h.label.text = displayCat(name)
         h.label.setTypeface(null, if (name == currentCategory()) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         attachCategorySortDrag(h.handle, h.row, index)
         return h.row
@@ -949,7 +949,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val cat = currentCategory()
         if (cat.isEmpty()) return
         val card = menuCard()
-        card.addView(menuTitle(context.getString(R.string.clip_clear_category_confirm, cat), color = TEXT_DARK))
+        card.addView(menuTitle(context.getString(R.string.clip_clear_category_confirm, displayCat(cat)), color = TEXT_DARK))
         card.addView(menuDivider())
         card.addView(menuItem(context.getString(R.string.clip_clear)) { hideOverlay(); onClearCategory(cat); refresh() })
         card.addView(menuDivider())
@@ -967,8 +967,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         showOverlay(card)
     }
 
+    private fun displayCat(name: String): String =
+        if (name == com.aegis.ime.user.ClipboardStore.DEFAULT_CATEGORY_ID) context.getString(R.string.clip_default_category) else name
+
     private fun catChip(name: String, on: Boolean): View = TextView(context).apply {
-        text = name
+        text = displayCat(name)
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
         setPadding(dp(14), dp(6), dp(14), dp(6))
@@ -983,9 +986,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun showCategoryMenu(name: String) {
         val card = menuCard()
-        card.addView(menuItem(context.getString(R.string.clip_rename_named, name)) { hideOverlay(); onRenameCategory(name) })
+        card.addView(menuItem(context.getString(R.string.clip_rename_named, displayCat(name))) { hideOverlay(); onRenameCategory(name) })
         card.addView(menuDivider())
-        card.addView(menuItem(context.getString(R.string.clip_delete_named, name)) { hideOverlay(); onDeleteCategory(name); if (phraseCat == name) phraseCat = ""; swipeRevealed = null; refresh() })
+        card.addView(menuItem(context.getString(R.string.clip_delete_named, displayCat(name))) { hideOverlay(); onDeleteCategory(name); if (phraseCat == name) phraseCat = ""; swipeRevealed = null; refresh() })
         showOverlay(card)
     }
 
@@ -1120,7 +1123,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            addView(menuItem(name) { hideOverlay(); action(name) }, ll(0, WC, 1f))
+            addView(menuItem(displayCat(name)) { hideOverlay(); action(name) }, ll(0, WC, 1f))
             addView(
                 glyphView(RED, 9) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }.apply {
                     contentDescription = context.getString(R.string.clip_delete_category)
@@ -1157,7 +1160,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         if (cats.isEmpty()) { after(); onAddCategoryThenAdd(pending); return }
         val card = menuCard()
         card.addView(menuTitle(context.getString(R.string.clip_choose_category)))
-        for (c in cats) { card.addView(menuDivider()); card.addView(menuItem(c) { hideOverlay(); onSaveAsPhrasesTo(c, pending); after(); refresh() }) }
+        for (c in cats) { card.addView(menuDivider()); card.addView(menuItem(displayCat(c)) { hideOverlay(); onSaveAsPhrasesTo(c, pending); after(); refresh() }) }
         card.addView(menuDivider())
         card.addView(menuItem(context.getString(R.string.clip_new_category)) { hideOverlay(); after(); onAddCategoryThenAdd(pending) })
         showOverlay(card)

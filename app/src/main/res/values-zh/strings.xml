@@ -265,6 +265,7 @@
     <string name="clip_nothing_to_split">无可拆分内容</string>
     <string name="clip_copy_all">全部复制</string>
     <string name="clip_clipboard">剪贴板</string>
+    <string name="clip_default_category">默认</string>
     <string name="clip_clipboard_empty">剪贴板为空</string>
     <string name="clip_clipboard_empty_hint">您复制/剪切的文本会显示在这里</string>
     <string name="clip_phrases_empty">该分类暂无常用语</string>
