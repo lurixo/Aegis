@@ -15,6 +15,8 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.R
+
 import android.animation.ValueAnimator
 import android.content.Context
 import android.content.res.ColorStateList
@@ -47,7 +49,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     var onBack: () -> Unit = {}
     var recentProvider: () -> List<String> = { emptyList() }
 
-    private val titles: List<String> = listOf(EmojiCatalog.RECENT_TITLE) + EmojiCatalog.categories.map { it.title }
+    private val titles: List<String> = listOf(context.getString(EmojiCatalog.RECENT_TITLE_RES)) + EmojiCatalog.categories.map { context.getString(it.titleRes) }
 
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
@@ -85,8 +87,8 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     private var variantBase = ""
     private var variantGenderForm = ""
     private var locked = false
-    private val backBtn = barButton("返回") { onBack() }
-    private val lockBtn = barButton("锁定") { toggleLock() }
+    private val backBtn = barButton(context.getString(R.string.panel_back)) { onBack() }
+    private val lockBtn = barButton(context.getString(R.string.panel_lock)) { toggleLock() }
     private val lockSlot = FrameLayout(context).apply {
         isClickable = true
         Motion.applyTapFeedback(this, palette.keyLabelSecondary)
@@ -220,7 +222,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     }
 
     private fun obtainEmptyHint(): TextView = emptyHintView ?: TextView(context).apply {
-        text = "最近使用的表情会显示在这里"
+        text = context.getString(R.string.emoji_empty_hint)
         gravity = Gravity.CENTER
         setTextColor(palette.keyHint)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)

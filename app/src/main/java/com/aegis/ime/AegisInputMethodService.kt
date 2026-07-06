@@ -29,6 +29,7 @@ import android.view.inputmethod.ExtractedTextRequest
 import android.widget.Toast
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
+import com.aegis.ime.R
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.EngineAssets
@@ -511,7 +512,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onDeletePhrasesFrom = { cat, list -> list.forEach { clipboardStore.deletePhraseFrom(cat, it) } }
             it.onSaveAsPhrasesTo = { cat, list ->
                 val added = clipboardStore.addPhrasesTo(cat, list)
-                if (list.size == 1) toast(if (added > 0) "常用语已添加成功" else "常用语已存在")
+                if (list.size == 1) toast(if (added > 0) getString(R.string.svc_phrase_added) else getString(R.string.svc_phrase_exists))
             }
             it.onEditPhrase = { cat, text -> beginInlineEdit(cat, text) }
             it.onMovePhrase = { from, text, to -> clipboardStore.movePhrase(from, text, to) }
@@ -557,7 +558,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun showCustomOperatorPanel() {
         val iv = inputView ?: return
         val panel = customOperatorView ?: CustomSymbolPanel(this).also {
-            it.backTitle = "‹ 自定义运算符"
+            it.backTitle = getString(R.string.svc_custom_operators_back)
             it.addPalette = mathOperatorPalette
             it.current = { customOperatorStore.list() }
             it.onAdd = { s -> customOperatorStore.add(s); controller.setCustomOperators(customOperatorStore.list()); it.refresh() }
@@ -606,17 +607,17 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun beginInlineEdit(category: String, phrase: String) {
         inputPurpose = InputPurpose.EDIT_PHRASE; inputCat = category; inputOld = phrase
-        startInlineInput("编辑常用语", phrase)
+        startInlineInput(getString(R.string.svc_edit_phrase), phrase)
     }
 
     private fun beginInlineAddPhrase(category: String) {
         inputPurpose = InputPurpose.ADD_PHRASE; inputCat = category; inputOld = ""
-        startInlineInput("添加常用语", "")
+        startInlineInput(getString(R.string.svc_add_phrase), "")
     }
 
     private fun beginInlineEditNote(category: String, text: String) {
         inputPurpose = InputPurpose.EDIT_NOTE; inputCat = category; inputOld = text
-        startInlineInput("备注", clipboardStore.noteFor(category, text))
+        startInlineInput(getString(R.string.svc_note), clipboardStore.noteFor(category, text))
     }
 
     private fun beginInlineAddCategory(
@@ -627,12 +628,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         pendingPhraseAdds = pendingAdds
         pendingMoveFrom = pendingMove?.first ?: ""
         pendingMoveTexts = pendingMove?.second ?: emptyList()
-        startInlineInput("新建分类", "")
+        startInlineInput(getString(R.string.svc_new_category), "")
     }
 
     private fun beginInlineRenameCategory(old: String) {
         inputPurpose = InputPurpose.RENAME_CATEGORY; inputCat = ""; inputOld = old
-        startInlineInput("重命名分类", old)
+        startInlineInput(getString(R.string.svc_rename_category), old)
     }
 
     private fun startInlineInput(title: String, initial: String) {
@@ -667,7 +668,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun addSinglePhraseWithToast(category: String, text: String) {
         val added = clipboardStore.addPhrasesTo(category, listOf(text))
-        toast(if (added > 0) "常用语已添加成功" else "常用语已存在")
+        toast(if (added > 0) getString(R.string.svc_phrase_added) else getString(R.string.svc_phrase_exists))
     }
 
     private fun cancelInlineInput() = endInlineInput()
@@ -728,7 +729,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (blocks.isEmpty()) return
         for (block in blocks) clipboardStore.record(block)
         refreshOpenClipboardPanel()
-        toast("已存入剪贴板")
+        toast(getString(R.string.svc_saved_to_clipboard))
     }
 
     private fun refreshOpenClipboardPanel() {

@@ -23,8 +23,8 @@ class SymbolCatalogTest {
 
     @Test fun category_titles_match_the_expected_order() {
         assertEquals(
-            listOf("中文", "英文", "货币", "网络", "数学", "希腊", "箭头", "角标", "序号", "音标", "拼音"),
-            SymbolCatalog.categories.map { it.title },
+            listOf("zh", "en", "currency", "net", "math", "greek", "arrow", "supsub", "ordinal", "ipa", "pinyin"),
+            SymbolCatalog.categories.map { it.id },
         )
     }
 
@@ -36,13 +36,13 @@ class SymbolCatalogTest {
     }
 
     @Test fun category_title_lookup_drives_the_common_origin_badge() {
-        assertEquals("中文", SymbolCatalog.categoryTitleOf("，"))
-        assertEquals("英文", SymbolCatalog.categoryTitleOf(","))
-        assertEquals("货币", SymbolCatalog.categoryTitleOf("¥"))
-        assertEquals("数学", SymbolCatalog.categoryTitleOf("±"))
-        assertEquals(null, SymbolCatalog.categoryTitleOf("😀"))
-        assertEquals("中", SymbolCatalog.categoryTitleOf("，")?.take(1))
-        assertEquals("英", SymbolCatalog.categoryTitleOf(",")?.take(1))
+        assertEquals("zh", SymbolCatalog.categoryIdOf("，"))
+        assertEquals("en", SymbolCatalog.categoryIdOf(","))
+        assertEquals("currency", SymbolCatalog.categoryIdOf("¥"))
+        assertEquals("math", SymbolCatalog.categoryIdOf("±"))
+        assertEquals(null, SymbolCatalog.categoryIdOf("😀"))
+        assertEquals("zh", SymbolCatalog.categoryIdOf("，"))
+        assertEquals("en", SymbolCatalog.categoryIdOf(","))
     }
 
     @Test fun paired_symbol_insertion_uses_the_full_pair_only_at_the_end() {
@@ -59,7 +59,7 @@ class SymbolCatalogTest {
 
     @Test fun paired_symbol_left_marks_are_present_in_the_catalogue() {
         for (left in listOf("（", "《", "「", "【", "“", "‘", "(", "[", "{", "<", "\"", "'", "`")) {
-            assertTrue("paired left mark $left must be reachable from the symbol catalogue", SymbolCatalog.categoryTitleOf(left) != null)
+            assertTrue("paired left mark $left must be reachable from the symbol catalogue", SymbolCatalog.categoryIdOf(left) != null)
         }
     }
 
@@ -79,8 +79,8 @@ class SymbolCatalogTest {
 
     @Test fun every_category_is_non_empty_and_has_no_duplicates() {
         for (c in SymbolCatalog.categories) {
-            assertTrue("${c.title} must not be empty", c.symbols.isNotEmpty())
-            assertEquals("${c.title} has duplicate symbols", c.symbols.size, c.symbols.toSet().size)
+            assertTrue("${c.id} must not be empty", c.symbols.isNotEmpty())
+            assertEquals("${c.id} has duplicate symbols", c.symbols.size, c.symbols.toSet().size)
         }
     }
 
@@ -128,7 +128,7 @@ class SymbolCatalogTest {
             "sin", "cos", "tan", "cot", "sec", "csc", "arcsin", "arccos", "arctan", "sinh", "cosh", "tanh")))
         assertTrue("数学 计量单位", cat("math").containsAll(listOf(
             "℃", "℉", "㎏", "㎜", "㎝", "㎞", "㎡", "㎥", "㎎", "㎖")))
-        assertEquals("数学", SymbolCatalog.categoryTitleOf("℃"))
+        assertEquals("math", SymbolCatalog.categoryIdOf("℃"))
     }
 
     @Test fun greekCategorySitsBetweenMathAndArrow() {
@@ -199,7 +199,7 @@ class SymbolCatalogTest {
             }
             if (half != null) {
                 assertEquals("$s must fold to its half-width twin", half, SymbolCatalog.foldFullWidth(s))
-                assertTrue("the twin $half of $s must exist in the catalogue", SymbolCatalog.categoryTitleOf(half) != null)
+                assertTrue("the twin $half of $s must exist in the catalogue", SymbolCatalog.categoryIdOf(half) != null)
                 fulls.add(s[0])
             }
         }
@@ -233,6 +233,7 @@ class SymbolCatalogTest {
     }
 
     @Test fun nineFixedPunctuationStaysInSyncWithTheColumn() {
-        assertEquals(Layouts.nineFixedPunctuation + "自定义", Layouts.ninePunctuation().map { it.label })
+        assertEquals(Layouts.nineFixedPunctuation, Layouts.ninePunctuation().dropLast(1).map { it.label })
+        assertEquals(com.aegis.ime.R.string.kbd_custom, Layouts.ninePunctuation().last().labelRes)
     }
 }

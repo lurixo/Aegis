@@ -137,8 +137,8 @@ class SymbolUsageStoreTest {
         for (cat in SymbolCatalog.categories) {
             for (sym in cat.symbols) {
                 val s = SymbolUsageStore(newDir()).apply { load() }
-                s.record(sym, cat.title)
-                assertEquals("origin of $sym recorded from ${cat.title}", cat.title, s.originOf(sym))
+                s.record(sym, cat.id)
+                assertEquals("origin of $sym recorded from ${cat.id}", cat.id, s.originOf(sym))
                 assertEquals(listOf(sym), s.recent())
                 cases++
             }

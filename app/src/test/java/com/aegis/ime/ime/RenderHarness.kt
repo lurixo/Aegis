@@ -344,9 +344,9 @@ class RenderHarness {
                 forcePhrasesStateForTest("默认"); refresh(); expandForTest("你好")
             }
             snap(v, h, "phrase_actions_$t.png")
-            assertTrue("$t: missing 编辑", v.hasTextLeaf("编辑"))
-            assertTrue("$t: missing 移动", v.hasTextLeaf("移动"))
-            assertTrue("$t: missing 删除", v.hasTextLeaf("删除"))
+            assertTrue("$t: missing 编辑", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_edit)))
+            assertTrue("$t: missing 移动", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_move)))
+            assertTrue("$t: missing 删除", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_delete)))
         }
     }
 
@@ -361,9 +361,9 @@ class RenderHarness {
                 enterSelectForTest(listOf("你好"))
             }
             snap(v, h, "phrase_select_$t.png")
-            assertTrue("$t: missing title 编辑常用语", v.hasTextLeaf("编辑常用语"))
-            assertTrue("$t: missing 移动到分类", v.hasTextLeaf("移动到分类"))
-            assertTrue("$t: missing 删除", v.hasTextLeaf("删除"))
+            assertTrue("$t: missing title 编辑常用语", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_edit_phrases)))
+            assertTrue("$t: missing 移动到分类", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_move_to_category)))
+            assertTrue("$t: missing 删除", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_delete)))
         }
     }
 
@@ -380,17 +380,17 @@ class RenderHarness {
             snap(v, h, "phrase_move_$t.png")
             assertTrue("$t: move chooser missing target 工作", v.hasTextLeaf("工作"))
             assertTrue("$t: move chooser missing target 私人", v.hasTextLeaf("私人"))
-            assertTrue("$t: move chooser missing ＋ 新建分类…", v.hasTextLeaf("＋ 新建分类…"))
+            assertTrue("$t: move chooser missing ＋ 新建分类…", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_new_category)))
         }
     }
 
     @Test fun edit_bar() {
         val h = (44 * density).toInt()
         for ((t, pal) in themes) {
-            val v = EditBarView(ctx).apply { applyPalette(pal); setTitle("编辑常用语"); setText("你好世界") }
+            val v = EditBarView(ctx).apply { applyPalette(pal); setTitle(ctx.getString(com.aegis.ime.R.string.clip_edit_phrases)); setText("你好世界") }
             snap(v, h, "edit_bar_$t.png")
-            assertTrue("$t: edit bar missing 确定", v.hasTextLeaf("确定"))
-            assertTrue("$t: edit bar missing 取消", v.hasTextLeaf("取消"))
+            assertTrue("$t: edit bar missing 确定", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.editbar_confirm)))
+            assertTrue("$t: edit bar missing 取消", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_cancel)))
         }
     }
 
@@ -412,7 +412,7 @@ class RenderHarness {
         for ((t, pal) in themes) {
             val idle = EditPanelView(ctx).apply { applyPalette(pal); setHasSelection(false) }
             snap(idle, h, "edit_panel_$t.png")
-            assertTrue("$t: header keeps the 文字编辑 label", idle.hasTextLeaf("文字编辑"))
+            assertTrue("$t: header keeps the 文字编辑 label", idle.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.edit_title)))
             assertActionGroupRightShifted(idle, h, pal, "edit_panel_$t")
             val active = EditPanelView(ctx).apply { applyPalette(pal); setSelecting(true); setHasSelection(true) }
             snap(active, h, "edit_panel_selecting_$t.png")
@@ -427,7 +427,7 @@ class RenderHarness {
                 applyPalette(pal); refresh(); revealSwipeForTest("第一条复制内容")
             }
             snap(v, h, "clip_swipe_$t.png")
-            assertTrue("$t: swipe row missing 拆词", v.hasTextLeaf("拆词"))
+            assertTrue("$t: swipe row missing 拆词", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_split_word)))
         }
     }
 
@@ -440,7 +440,7 @@ class RenderHarness {
                 applyPalette(pal); forcePhrasesStateForTest("默认"); refresh(); revealSwipeForTest("在吗")
             }
             snap(v, h, "phrase_swipe_$t.png")
-            assertTrue("$t: swipe row missing 置顶", v.hasTextLeaf("置顶"))
+            assertTrue("$t: swipe row missing 置顶", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_pin_top)))
         }
     }
 
@@ -453,8 +453,8 @@ class RenderHarness {
                 applyPalette(pal); forcePhrasesStateForTest("默认"); refresh(); enterSortModeForTest()
             }
             snap(v, h, "phrase_sort_$t.png")
-            assertTrue("$t: missing 拖动排序", v.hasTextLeaf("拖动排序"))
-            assertTrue("$t: missing 完成", v.hasTextLeaf("完成"))
+            assertTrue("$t: missing 拖动排序", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_drag_sort)))
+            assertTrue("$t: missing 完成", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_done)))
         }
     }
 
@@ -465,7 +465,7 @@ class RenderHarness {
                 historyProvider = { listOf("在铅笔下面abc") }; applyPalette(pal); refresh(); showSplitForTest("在铅笔下面abc")
             }
             snap(neutral, h, "split_neutral_$t.png")
-            assertTrue("$t: 全部复制 present", neutral.hasTextLeaf("全部复制"))
+            assertTrue("$t: 全部复制 present", neutral.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_copy_all)))
             val tapped = ClipboardView(ctx).apply {
                 historyProvider = { listOf("在铅笔下面abc") }; applyPalette(pal); refresh(); showSplitForTest("在铅笔下面abc")
             }
@@ -532,8 +532,8 @@ class RenderHarness {
                 applyPalette(pal); forcePhrasesStateForTest("默认"); refresh(); showPhraseManageMenuForTest()
             }
             snap(v, h, "phrase_manage_menu_$t.png")
-            assertTrue("$t: 导入常用语", v.hasTextLeaf("导入常用语"))
-            assertTrue("$t: 导出常用语", v.hasTextLeaf("导出常用语"))
+            assertTrue("$t: 导入常用语", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_import_phrases)))
+            assertTrue("$t: 导出常用语", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_export_phrases)))
         }
     }
 

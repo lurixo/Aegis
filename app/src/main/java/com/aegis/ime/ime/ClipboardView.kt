@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
@@ -367,14 +368,14 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8), dp(7), dp(8), dp(7))
             fun iconLp(spaced: Boolean = false) = ll(dp(36), dp(36)).apply { if (spaced) marginStart = dp(6) }
-            addView(glyphToolbarBtn(desc = "返回", glyphSizeDp = 8, onClick = { onBack() }) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }, iconLp())
+            addView(glyphToolbarBtn(desc = context.getString(R.string.clip_back), glyphSizeDp = 8, onClick = { onBack() }) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }, iconLp())
             addView(View(context), ll(0, dp(1), 1f))
             addView(pillTray(), ll(WC, dp(36)))
             addView(View(context), ll(0, dp(1), 1f))
-            if (st.tab == Tab.PHRASE) addView(glyphToolbarBtn(desc = "添加常用语", onClick = { onAddPhrase(currentCategory()) }) { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }, iconLp(true))
-            addView(glyphToolbarBtn(desc = "多选", onClick = { enterSelect() }) { c, p, x, y, s -> Glyphs.drawList(c, p, x, y, s) }, iconLp(true))
-            if (st.tab == Tab.PHRASE) addView(glyphToolbarBtn(desc = "清空分类", tint = TEXT_DARK, onClick = { confirmClearCurrentCategory() }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }, iconLp(true))
-            else addView(glyphToolbarBtn(desc = "清空剪贴板历史", tint = TEXT_DARK, onClick = { confirmClearHistory() }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }.apply {
+            if (st.tab == Tab.PHRASE) addView(glyphToolbarBtn(desc = context.getString(R.string.clip_add_phrase), onClick = { onAddPhrase(currentCategory()) }) { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }, iconLp(true))
+            addView(glyphToolbarBtn(desc = context.getString(R.string.clip_multi_select), onClick = { enterSelect() }) { c, p, x, y, s -> Glyphs.drawList(c, p, x, y, s) }, iconLp(true))
+            if (st.tab == Tab.PHRASE) addView(glyphToolbarBtn(desc = context.getString(R.string.clip_clear_category), tint = TEXT_DARK, onClick = { confirmClearCurrentCategory() }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }, iconLp(true))
+            else addView(glyphToolbarBtn(desc = context.getString(R.string.clip_clear_history), tint = TEXT_DARK, onClick = { confirmClearHistory() }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }.apply {
                 setOnLongClickListener { showHistoryRecordingMenu(); true }
             }, iconLp(true))
         }
@@ -439,7 +440,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
         }
         val chevron = glyphView(TEXT_DARK, 7) { c, p, x, y, s -> Glyphs.drawChevron(c, p, x, y, s, down = !expanded) }.apply {
-            contentDescription = if (expanded) "收起" else "展开"
+            contentDescription = if (expanded) context.getString(R.string.clip_collapse) else context.getString(R.string.clip_expand)
             Motion.applyTapFeedback(this, TEXT_DARK)
             setOnClickListener { swipeRevealed = null; st.toggleExpand(text); refresh() }
             if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
@@ -464,9 +465,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun actionRow(text: String): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         setPadding(dp(24), 0, dp(24), dp(10))
-        addView(actionSlot(Gravity.START, glyphAction("常用语", render = { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }) { chooseCategoryThen(listOf(text)) }), ll(0, WC, 1f))
-        addView(actionSlot(Gravity.CENTER, glyphAction("拆词", render = { c, p, x, y, s -> Glyphs.drawCut(c, p, x, y, s) }) { showSplit(text) }), ll(0, WC, 1f))
-        addView(actionSlot(Gravity.END, glyphAction("删除", render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { deleteOne(text) }), ll(0, WC, 1f))
+        addView(actionSlot(Gravity.START, glyphAction(context.getString(R.string.clip_phrases), render = { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }) { chooseCategoryThen(listOf(text)) }), ll(0, WC, 1f))
+        addView(actionSlot(Gravity.CENTER, glyphAction(context.getString(R.string.clip_split_word), render = { c, p, x, y, s -> Glyphs.drawCut(c, p, x, y, s) }) { showSplit(text) }), ll(0, WC, 1f))
+        addView(actionSlot(Gravity.END, glyphAction(context.getString(R.string.clip_delete), render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { deleteOne(text) }), ll(0, WC, 1f))
     }
 
     private fun actionSlot(gravity: Int, action: View): View = FrameLayout(context).apply {
@@ -477,19 +478,19 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         orientation = LinearLayout.HORIZONTAL
         setPadding(dp(8), 0, dp(8), dp(10))
         val cat = currentCategory()
-        addView(glyphAction("编辑", render = { c, p, x, y, s -> Glyphs.drawEditCaret(c, p, x, y, s) }) { onEditPhrase(cat, text) }, ll(0, WC, 1f))
-        addView(glyphAction("备注", render = { c, p, x, y, s -> Glyphs.drawTag(c, p, x, y, s) }) { onEditNote(cat, text) }, ll(0, WC, 1f))
-        addView(glyphAction("移动", render = { c, p, x, y, s -> Glyphs.drawArrow(c, p, x, y, s, Glyphs.Arrow.RIGHT) }) { chooseMoveCategoryThen(cat, listOf(text)) { target -> onMovePhrase(cat, text, target); refresh() } }, ll(0, WC, 1f))
-        addView(glyphAction("删除", render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { deleteOne(text) }, ll(0, WC, 1f))
+        addView(glyphAction(context.getString(R.string.clip_edit), render = { c, p, x, y, s -> Glyphs.drawEditCaret(c, p, x, y, s) }) { onEditPhrase(cat, text) }, ll(0, WC, 1f))
+        addView(glyphAction(context.getString(R.string.clip_note), render = { c, p, x, y, s -> Glyphs.drawTag(c, p, x, y, s) }) { onEditNote(cat, text) }, ll(0, WC, 1f))
+        addView(glyphAction(context.getString(R.string.clip_move), render = { c, p, x, y, s -> Glyphs.drawArrow(c, p, x, y, s, Glyphs.Arrow.RIGHT) }) { chooseMoveCategoryThen(cat, listOf(text)) { target -> onMovePhrase(cat, text, target); refresh() } }, ll(0, WC, 1f))
+        addView(glyphAction(context.getString(R.string.clip_delete), render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { deleteOne(text) }, ll(0, WC, 1f))
     }
 
     private fun phraseSwipeRow(text: String, index: Int): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         setPadding(dp(8), 0, dp(8), dp(10))
         val cat = currentCategory()
-        addView(glyphAction("编辑", render = { c, p, x, y, s -> Glyphs.drawEditCaret(c, p, x, y, s) }) { onEditPhrase(cat, text) }, ll(0, WC, 1f))
-        addView(glyphAction("置顶", render = { c, p, x, y, s -> Glyphs.drawArrow(c, p, x, y, s, Glyphs.Arrow.UP) }) { onReorderPhrase(cat, index, 0); swipeRevealed = null; refresh() }, ll(0, WC, 1f))
-        addView(glyphAction("删除", render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { deleteOne(text) }, ll(0, WC, 1f))
+        addView(glyphAction(context.getString(R.string.clip_edit), render = { c, p, x, y, s -> Glyphs.drawEditCaret(c, p, x, y, s) }) { onEditPhrase(cat, text) }, ll(0, WC, 1f))
+        addView(glyphAction(context.getString(R.string.clip_pin_top), render = { c, p, x, y, s -> Glyphs.drawArrow(c, p, x, y, s, Glyphs.Arrow.UP) }) { onReorderPhrase(cat, index, 0); swipeRevealed = null; refresh() }, ll(0, WC, 1f))
+        addView(glyphAction(context.getString(R.string.clip_delete), render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { deleteOne(text) }, ll(0, WC, 1f))
     }
 
 
@@ -791,7 +792,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), dp(8), dp(12), dp(8))
             addView(TextView(context).apply {
-                text = "拖动排序"
+                text = context.getString(R.string.clip_drag_sort)
                 setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 setTypeface(null, android.graphics.Typeface.BOLD)
             }, ll(0, WC, 1f))
@@ -800,7 +801,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 gravity = Gravity.CENTER; setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
             }, ll(0, WC, 1f))
             addView(TextView(context).apply {
-                text = "完成"; gravity = Gravity.END
+                text = context.getString(R.string.clip_done); gravity = Gravity.END
                 setTextColor(GREEN); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 Motion.applyTapFeedback(this, GREEN)
                 setOnClickListener { exitSortMode() }
@@ -859,12 +860,12 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), dp(8), dp(12), dp(8))
             addView(TextView(context).apply {
-                text = "拖动分类"
+                text = context.getString(R.string.clip_drag_category)
                 setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 setTypeface(null, android.graphics.Typeface.BOLD)
             }, ll(0, WC, 1f))
             addView(TextView(context).apply {
-                text = "完成"; gravity = Gravity.END
+                text = context.getString(R.string.clip_done); gravity = Gravity.END
                 setTextColor(GREEN); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 Motion.applyTapFeedback(this, GREEN)
                 setOnClickListener { exitCategorySortMode() }
@@ -909,11 +910,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         for (name in categoriesProvider()) chips.addView(catChip(name, name == cur))
         addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, ll(0, WC, 1f))
         addView(TextView(context).apply {
-            text = "编辑"
+            text = context.getString(R.string.clip_edit)
             gravity = Gravity.CENTER
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setTextColor(TEXT_DARK)
-            contentDescription = "管理常用语"
+            contentDescription = context.getString(R.string.clip_manage_phrases)
             Motion.applyTapFeedback(this, TEXT_DARK)
             setOnClickListener { showPhraseManageMenu() }
         }, ll(dp(48), dp(40)))
@@ -921,26 +922,26 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun showPhraseManageMenu() {
         val card = menuCard()
-        card.addView(menuItem("移动分类") { hideOverlay(); enterCategorySortMode() })
+        card.addView(menuItem(context.getString(R.string.clip_move_category)) { hideOverlay(); enterCategorySortMode() })
         card.addView(menuDivider())
-        card.addView(menuItem("添加分类") { hideOverlay(); onAddCategory() })
+        card.addView(menuItem(context.getString(R.string.clip_add_category)) { hideOverlay(); onAddCategory() })
         card.addView(menuDivider())
-        card.addView(menuItem("导入常用语") { showImportConfirm() })
+        card.addView(menuItem(context.getString(R.string.clip_import_phrases)) { showImportConfirm() })
         card.addView(menuDivider())
-        card.addView(menuItem("导出常用语") { hideOverlay(); onExportPhrases() })
+        card.addView(menuItem(context.getString(R.string.clip_export_phrases)) { hideOverlay(); onExportPhrases() })
         showOverlay(card)
     }
 
     private fun showImportConfirm() {
         val card = menuCard()
-        card.addView(menuTitle("导入常用语"))
-        card.addView(menuBody("「合并」把导入内容累加到现有常用语（按分类去重）；「覆盖」用导入文件整体替换常用语库。空文件不会清空。"))
+        card.addView(menuTitle(context.getString(R.string.clip_import_phrases)))
+        card.addView(menuBody(context.getString(R.string.clip_import_body)))
         card.addView(menuDivider())
-        card.addView(menuItem("覆盖") { hideOverlay(); onImportPhrasesWithMode(false) })
+        card.addView(menuItem(context.getString(R.string.clip_overwrite)) { hideOverlay(); onImportPhrasesWithMode(false) })
         card.addView(menuDivider())
-        card.addView(menuItem("合并（推荐）") { hideOverlay(); onImportPhrasesWithMode(true) })
+        card.addView(menuItem(context.getString(R.string.clip_merge_recommended)) { hideOverlay(); onImportPhrasesWithMode(true) })
         card.addView(menuDivider())
-        card.addView(menuItem("取消") { hideOverlay() })
+        card.addView(menuItem(context.getString(R.string.clip_cancel)) { hideOverlay() })
         showOverlay(card)
     }
 
@@ -948,21 +949,21 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val cat = currentCategory()
         if (cat.isEmpty()) return
         val card = menuCard()
-        card.addView(menuTitle("清空分类「$cat」的全部常用语?", color = TEXT_DARK))
+        card.addView(menuTitle(context.getString(R.string.clip_clear_category_confirm, cat), color = TEXT_DARK))
         card.addView(menuDivider())
-        card.addView(menuItem("清空") { hideOverlay(); onClearCategory(cat); refresh() })
+        card.addView(menuItem(context.getString(R.string.clip_clear)) { hideOverlay(); onClearCategory(cat); refresh() })
         card.addView(menuDivider())
-        card.addView(menuItem("取消") { hideOverlay() })
+        card.addView(menuItem(context.getString(R.string.clip_cancel)) { hideOverlay() })
         showOverlay(card)
     }
 
     private fun confirmClearHistory() {
         val card = menuCard()
-        card.addView(menuTitle("清空剪贴板历史?", color = TEXT_DARK))
+        card.addView(menuTitle(context.getString(R.string.clip_clear_history_confirm), color = TEXT_DARK))
         card.addView(menuDivider())
-        card.addView(menuItem("清空") { hideOverlay(); onClearHistory(); refresh() })
+        card.addView(menuItem(context.getString(R.string.clip_clear)) { hideOverlay(); onClearHistory(); refresh() })
         card.addView(menuDivider())
-        card.addView(menuItem("取消") { hideOverlay() })
+        card.addView(menuItem(context.getString(R.string.clip_cancel)) { hideOverlay() })
         showOverlay(card)
     }
 
@@ -982,9 +983,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun showCategoryMenu(name: String) {
         val card = menuCard()
-        card.addView(menuItem("重命名「$name」") { hideOverlay(); onRenameCategory(name) })
+        card.addView(menuItem(context.getString(R.string.clip_rename_named, name)) { hideOverlay(); onRenameCategory(name) })
         card.addView(menuDivider())
-        card.addView(menuItem("删除「$name」") { hideOverlay(); onDeleteCategory(name); if (phraseCat == name) phraseCat = ""; swipeRevealed = null; refresh() })
+        card.addView(menuItem(context.getString(R.string.clip_delete_named, name)) { hideOverlay(); onDeleteCategory(name); if (phraseCat == name) phraseCat = ""; swipeRevealed = null; refresh() })
         showOverlay(card)
     }
 
@@ -1000,7 +1001,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setPadding(dp(12), dp(8), dp(12), dp(8))
             val allSel = st.isAllSelected(all)
             addView(TextView(context).apply {
-                text = "全选"
+                text = context.getString(R.string.clip_select_all)
                 setTextColor(if (allSel) GREEN else TEXT_DARK)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 setCompoundDrawablesWithIntrinsicBounds(glyphIcon(if (allSel) GREEN else TEXT_DARK, 22) { c, p, x, y, s -> Glyphs.drawRadio(c, p, x, y, s, allSel) }, null, null, null)
@@ -1009,13 +1010,13 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 setOnClickListener { st.selectAll(all); refresh() }
             }, ll(0, WC, 1f))
             addView(TextView(context).apply {
-                text = if (st.tab == Tab.PHRASE) "编辑常用语" else "编辑剪贴板"
+                text = if (st.tab == Tab.PHRASE) context.getString(R.string.clip_edit_phrases) else context.getString(R.string.clip_edit_clipboard)
                 gravity = Gravity.CENTER
                 setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 setTypeface(null, android.graphics.Typeface.BOLD)
             }, ll(0, WC, 1f))
             addView(TextView(context).apply {
-                text = "取消"; gravity = Gravity.END
+                text = context.getString(R.string.clip_cancel); gravity = Gravity.END
                 setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 Motion.applyTapFeedback(this, TEXT_DARK)
                 setOnClickListener { exitSelect() }
@@ -1031,16 +1032,16 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(12), dp(8), dp(12), dp(8))
             if (st.tab == Tab.PHRASE) {
-                addView(pillButton("移动到分类", hasSel) {
+                addView(pillButton(context.getString(R.string.clip_move_to_category), hasSel) {
                     val from = currentCategory(); val victims = st.selected.toList()
                     chooseMoveCategoryThen(from, victims, after = { exitSelect() }) { target -> onMovePhrasesTo(from, victims, target); exitSelect() }
                 }, ll(0, dp(44), 1f).apply { rightMargin = dp(8) })
             } else {
-                addView(pillButton("添加常用语", hasSel) {
+                addView(pillButton(context.getString(R.string.clip_add_phrase), hasSel) {
                     chooseCategoryThen(st.selected.toList()) { exitSelect() }
                 }, ll(0, dp(44), 1f).apply { rightMargin = dp(8) })
             }
-            addView(pillButton("删除", hasSel) {
+            addView(pillButton(context.getString(R.string.clip_delete), hasSel) {
                 val victims = st.selected.toList()
                 if (st.tab == Tab.CLIPBOARD) onDeleteClips(victims) else onDeletePhrasesFrom(currentCategory(), victims)
                 exitSelect()
@@ -1103,14 +1104,14 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val targets = categoriesProvider().filter { it != current }
         val card = menuCard()
         if (targets.isEmpty()) {
-            card.addView(menuTitle("没有其它分类"))
+            card.addView(menuTitle(context.getString(R.string.clip_no_other_categories)))
             card.addView(menuDivider())
-            card.addView(menuItem("＋ 新建分类…") { hideOverlay(); after(); onAddCategoryThenMove(current, moveTexts) })
+            card.addView(menuItem(context.getString(R.string.clip_new_category)) { hideOverlay(); after(); onAddCategoryThenMove(current, moveTexts) })
         } else {
-            card.addView(menuTitle("移动到分类"))
+            card.addView(menuTitle(context.getString(R.string.clip_move_to_category)))
             for (c in targets) { card.addView(menuDivider()); card.addView(moveTargetRow(c, current, moveTexts, after, action)) }
             card.addView(menuDivider())
-            card.addView(menuItem("＋ 新建分类…") { hideOverlay(); after(); onAddCategoryThenMove(current, moveTexts) })
+            card.addView(menuItem(context.getString(R.string.clip_new_category)) { hideOverlay(); after(); onAddCategoryThenMove(current, moveTexts) })
         }
         showOverlay(card)
     }
@@ -1122,7 +1123,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             addView(menuItem(name) { hideOverlay(); action(name) }, ll(0, WC, 1f))
             addView(
                 glyphView(RED, 9) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }.apply {
-                    contentDescription = "删除分类"
+                    contentDescription = context.getString(R.string.clip_delete_category)
                     Motion.applyTapFeedback(this, RED)
                     setOnClickListener {
                         onDeleteCategory(name); if (phraseCat == name) phraseCat = ""; swipeRevealed = null
@@ -1136,18 +1137,18 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun showLongPressMenu(text: String) {
         val card = menuCard()
-        card.addView(menuItem("删除此条内容") { hideOverlay(); deleteOne(text) })
+        card.addView(menuItem(context.getString(R.string.clip_delete_item)) { hideOverlay(); deleteOne(text) })
         card.addView(menuDivider())
-        card.addView(menuItem("添加常用语") { hideOverlay(); chooseCategoryThen(listOf(text)) })
+        card.addView(menuItem(context.getString(R.string.clip_add_phrase)) { hideOverlay(); chooseCategoryThen(listOf(text)) })
         card.addView(menuDivider())
-        card.addView(menuItem("拆分选词") { hideOverlay(); showSplit(text) })
+        card.addView(menuItem(context.getString(R.string.clip_split_title)) { hideOverlay(); showSplit(text) })
         showOverlay(card)
     }
 
     private fun showHistoryRecordingMenu() {
         val card = menuCard()
         val on = historyEnabledProvider()
-        card.addView(menuItem(if (on) "剪贴板记录:开" else "剪贴板记录:关") { hideOverlay(); onSetHistoryEnabled(!on); refresh() })
+        card.addView(menuItem(if (on) context.getString(R.string.clip_history_recording_on) else context.getString(R.string.clip_history_recording_off)) { hideOverlay(); onSetHistoryEnabled(!on); refresh() })
         showOverlay(card)
     }
 
@@ -1155,10 +1156,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val cats = categoriesProvider()
         if (cats.isEmpty()) { after(); onAddCategoryThenAdd(pending); return }
         val card = menuCard()
-        card.addView(menuTitle("选择分类"))
+        card.addView(menuTitle(context.getString(R.string.clip_choose_category)))
         for (c in cats) { card.addView(menuDivider()); card.addView(menuItem(c) { hideOverlay(); onSaveAsPhrasesTo(c, pending); after(); refresh() }) }
         card.addView(menuDivider())
-        card.addView(menuItem("＋ 新建分类…") { hideOverlay(); after(); onAddCategoryThenAdd(pending) })
+        card.addView(menuItem(context.getString(R.string.clip_new_category)) { hideOverlay(); after(); onAddCategoryThenAdd(pending) })
         showOverlay(card)
     }
 
@@ -1169,14 +1170,14 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             background = GradientDrawable().apply { setColor(CARD); cornerRadius = ImeShapes.cardRadiusDp * density; setStroke(dp(1), SEP) }
         }
         panel.addView(TextView(context).apply {
-            this.text = "拆分选词"; setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+            this.text = context.getString(R.string.clip_split_title); setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setTypeface(null, android.graphics.Typeface.BOLD)
             setPadding(0, 0, 0, dp(10))
         })
         val chips = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
         val blocks = ClipSplitter.blocks(text)
         val chipViews = ArrayList<TextView>()
-        if (blocks.isEmpty()) chips.addView(TextView(context).apply { this.text = "无可拆分内容"; setTextColor(HINT) })
+        if (blocks.isEmpty()) chips.addView(TextView(context).apply { this.text = context.getString(R.string.clip_nothing_to_split); setTextColor(HINT) })
         for (b in blocks) {
             val chip = TextView(context).apply {
                 this.text = b
@@ -1198,12 +1199,12 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         panel.addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, ll(MP, WC))
         val footer = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         footer.addView(TextView(context).apply {
-            this.text = "返回"; setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+            this.text = context.getString(R.string.clip_back); setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setPadding(dp(8), dp(14), dp(16), dp(10)); Motion.applyTapFeedback(this, TEXT_DARK); setOnClickListener { hideOverlay() }
         }, ll(WC, WC))
         footer.addView(View(context), ll(0, dp(1), 1f))
         if (blocks.isNotEmpty()) footer.addView(TextView(context).apply {
-            this.text = "全部复制"; gravity = Gravity.END; setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+            this.text = context.getString(R.string.clip_copy_all); gravity = Gravity.END; setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setPadding(dp(16), dp(14), dp(8), dp(10))
             Motion.applyTapFeedback(this, TEXT_DARK)
             setOnClickListener {
@@ -1238,8 +1239,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun pillTray(): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
-        addView(pill("剪贴板", st.tab == Tab.CLIPBOARD) { if (st.switchTab(Tab.CLIPBOARD)) { swipeRevealed = null; sortMode = false; categorySortMode = false; refresh() } }, ll(dp(84), dp(34)))
-        addView(pill("常用语", st.tab == Tab.PHRASE) { if (st.switchTab(Tab.PHRASE)) { swipeRevealed = null; sortMode = false; categorySortMode = false; refresh() } }, ll(dp(84), dp(34)))
+        addView(pill(context.getString(R.string.clip_clipboard), st.tab == Tab.CLIPBOARD) { if (st.switchTab(Tab.CLIPBOARD)) { swipeRevealed = null; sortMode = false; categorySortMode = false; refresh() } }, ll(dp(84), dp(34)))
+        addView(pill(context.getString(R.string.clip_phrases), st.tab == Tab.PHRASE) { if (st.switchTab(Tab.PHRASE)) { swipeRevealed = null; sortMode = false; categorySortMode = false; refresh() } }, ll(dp(84), dp(34)))
     }
 
     private fun pill(label: String, on: Boolean, onClick: () -> Unit): TextView = TextView(context).apply {
@@ -1255,9 +1256,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun emptyHint(): View = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; setPadding(dp(16), dp(40), dp(16), dp(16))
         if (st.tab == Tab.CLIPBOARD) {
-            addView(hint("剪贴板为空", 16f, TEXT_DARK)); addView(hint("您复制/剪切的文本会显示在这里", 14f, HINT))
+            addView(hint(context.getString(R.string.clip_clipboard_empty), 16f, TEXT_DARK)); addView(hint(context.getString(R.string.clip_clipboard_empty_hint), 14f, HINT))
         } else {
-            addView(hint("该分类暂无常用语", 16f, TEXT_DARK)); addView(hint("点 ＋ 添加常用语,✎ 新建分类", 14f, HINT))
+            addView(hint(context.getString(R.string.clip_phrases_empty), 16f, TEXT_DARK)); addView(hint(context.getString(R.string.clip_phrases_empty_hint), 14f, HINT))
         }
     }
 

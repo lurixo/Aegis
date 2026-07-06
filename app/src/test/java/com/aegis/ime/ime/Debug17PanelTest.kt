@@ -83,7 +83,7 @@ class Debug17PanelTest {
         var addPhraseCat: String? = null
         var addCategoryFired = false
         val v = phraseView().apply { onAddPhrase = { addPhraseCat = it }; onAddCategory = { addCategoryFired = true } }
-        assertTrue("top ＋ present on 常用语 tab", clickDesc(v, "添加常用语"))
+        assertTrue("top ＋ present on 常用语 tab", clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_add_phrase)))
         assertEquals("＋ adds a phrase to the CURRENT category", "默认", addPhraseCat)
         assertFalse("＋ no longer creates a category", addCategoryFired)
     }
@@ -91,32 +91,32 @@ class Debug17PanelTest {
 
     @Test fun categorybar_pencil_opens_manage_menu() {
         val v = phraseView()
-        assertTrue(clickDesc(v, "管理常用语"))
+        assertTrue(clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_manage_phrases)))
         val ls = labels(overlayOf(v))
-        assertTrue("menu has 移动分类", "移动分类" in ls)
-        assertTrue("menu has 添加分类", "添加分类" in ls)
+        assertTrue("menu has 移动分类", ctx.getString(com.aegis.ime.R.string.clip_move_category) in ls)
+        assertTrue("menu has 添加分类", ctx.getString(com.aegis.ime.R.string.clip_add_category) in ls)
     }
 
     @Test fun manage_menu_move_category_enters_category_sort_mode() {
         val v = phraseView()
-        clickDesc(v, "管理常用语"); assertTrue(click(overlayOf(v), "移动分类"))
+        clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_manage_phrases)); assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_move_category)))
         assertTrue("移动分类 → category sort mode", v.isCategorySortModeForTest())
         assertFalse("does not enter phrase sort mode", v.isSortModeForTest())
         val ls = labels(v)
-        assertTrue("category sort header", "拖动分类" in ls); assertTrue("done button", "完成" in ls)
+        assertTrue("category sort header", ctx.getString(com.aegis.ime.R.string.clip_drag_category) in ls); assertTrue("done button", ctx.getString(com.aegis.ime.R.string.clip_done) in ls)
     }
 
     @Test fun manage_menu_add_category_triggers_inline_create() {
         var addCategoryFired = false
         val v = phraseView().apply { onAddCategory = { addCategoryFired = true } }
-        clickDesc(v, "管理常用语"); assertTrue(click(overlayOf(v), "添加分类"))
+        clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_manage_phrases)); assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_add_category)))
         assertTrue("添加分类 → inline 新建分类", addCategoryFired)
     }
 
     @Test fun sort_mode_done_exits() {
         val v = phraseView(); v.enterSortModeForTest()
         assertTrue(v.isSortModeForTest())
-        assertTrue(click(v, "完成")); assertFalse(v.isSortModeForTest())
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_done))); assertFalse(v.isSortModeForTest())
     }
 
     @Test fun sort_mode_drag_reorders_current_category() {
@@ -151,7 +151,7 @@ class Debug17PanelTest {
         v.enterCategorySortModeForTest()
         v.dragStartForTest(2); v.dragMoveToForTest(0); v.dragDropForTest()
         assertEquals(listOf("私人", "默认", "工作"), labels(v).filter { it in cats })
-        assertTrue(click(v, "完成"))
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_done)))
         val chipOrder = textViews(v)
             .filter { it.text?.toString() in cats && it.hasOnClickListeners() }
             .map { it.text.toString() }
@@ -164,11 +164,11 @@ class Debug17PanelTest {
         v.revealSwipeForTest("hello")
         assertEquals("hello", v.swipeRevealedForTest())
         val ls = labels(v)
-        assertTrue("添加常用语 action", ls.any { it.contains("常用语") })
-        assertTrue("拆词 action", ls.any { it.contains("拆词") })
-        assertTrue("删除 action", ls.any { it.contains("删除") })
-        assertTrue("NOT expanded (chevron shows 展开)", "展开" in descs(v))
-        assertFalse("not the expanded chevron", "收起" in descs(v))
+        assertTrue("添加常用语 action", ls.any { it.contains(ctx.getString(com.aegis.ime.R.string.clip_phrases)) })
+        assertTrue("拆词 action", ls.any { it.contains(ctx.getString(com.aegis.ime.R.string.clip_split_word)) })
+        assertTrue("删除 action", ls.any { it.contains(ctx.getString(com.aegis.ime.R.string.clip_delete)) })
+        assertTrue("NOT expanded (chevron shows 展开)", ctx.getString(com.aegis.ime.R.string.clip_expand) in descs(v))
+        assertFalse("not the expanded chevron", ctx.getString(com.aegis.ime.R.string.clip_collapse) in descs(v))
     }
 
     @Test fun clipboard_left_swipe_shows_four_line_body_without_expanding_chevron() {
@@ -178,16 +178,16 @@ class Debug17PanelTest {
         val body = textViews(v).first { it.text?.toString() == long }
         assertTrue("left-swipe wraps the body like expanded cards", body.parent is android.widget.ScrollView)
         assertTrue("body itself is not capped to two text lines", body.maxLines > 4)
-        assertTrue("chevron still reports collapsed state", "展开" in descs(v))
-        assertFalse("left-swipe is not chevron expansion", "收起" in descs(v))
+        assertTrue("chevron still reports collapsed state", ctx.getString(com.aegis.ime.R.string.clip_expand) in descs(v))
+        assertFalse("left-swipe is not chevron expansion", ctx.getString(com.aegis.ime.R.string.clip_collapse) in descs(v))
     }
 
     @Test fun clipboard_chevron_expand_still_works_and_clears_a_swipe() {
         val v = clipView()
         v.revealSwipeForTest("hello"); assertEquals("hello", v.swipeRevealedForTest())
-        assertTrue("chevron present", clickDesc(v, "展开"))
+        assertTrue("chevron present", clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_expand)))
         assertNull("⌄展开 supersedes the swipe reveal", v.swipeRevealedForTest())
-        assertTrue("now expanded", "收起" in descs(v))
+        assertTrue("now expanded", ctx.getString(com.aegis.ime.R.string.clip_collapse) in descs(v))
     }
 
     @Test fun clipboard_longpress_menu_unchanged() {
@@ -195,7 +195,7 @@ class Debug17PanelTest {
         val body = textViews(v).first { it.text?.toString() == "hello" }
         assertTrue("body keeps its long-press menu", body.performLongClick())
         val ls = labels(overlayOf(v))
-        assertTrue("拆分选词", "拆分选词" in ls); assertTrue("添加常用语", "添加常用语" in ls); assertTrue("删除此条内容", "删除此条内容" in ls)
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_split_title), ctx.getString(com.aegis.ime.R.string.clip_split_title) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_add_phrase), ctx.getString(com.aegis.ime.R.string.clip_add_phrase) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_delete_item), ctx.getString(com.aegis.ime.R.string.clip_delete_item) in ls)
     }
 
 
@@ -203,8 +203,8 @@ class Debug17PanelTest {
         val v = phraseView()
         v.revealSwipeForTest("在吗")
         val ls = labels(v)
-        assertTrue("编辑", "编辑" in ls); assertTrue("置顶", "置顶" in ls); assertTrue("删除", "删除" in ls)
-        assertFalse("swipe row is NOT the expand row (no 移动)", "移动" in ls)
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_edit), ctx.getString(com.aegis.ime.R.string.clip_edit) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_pin_top), ctx.getString(com.aegis.ime.R.string.clip_pin_top) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_delete), ctx.getString(com.aegis.ime.R.string.clip_delete) in ls)
+        assertFalse("swipe row is NOT the expand row (no 移动)", ctx.getString(com.aegis.ime.R.string.clip_move) in ls)
     }
 
     @Test fun phrase_left_swipe_shows_four_line_body_without_expanding_chevron() {
@@ -214,8 +214,8 @@ class Debug17PanelTest {
         val body = textViews(v).first { it.text?.toString() == long }
         assertTrue("left-swiped phrase body is four-line bounded", body.parent is android.widget.ScrollView)
         assertTrue("phrase body itself is not a two-line preview", body.maxLines > 4)
-        assertTrue("chevron still reports collapsed state", "展开" in descs(v))
-        assertFalse("left-swipe is not chevron expansion", "收起" in descs(v))
+        assertTrue("chevron still reports collapsed state", ctx.getString(com.aegis.ime.R.string.clip_expand) in descs(v))
+        assertFalse("left-swipe is not chevron expansion", ctx.getString(com.aegis.ime.R.string.clip_collapse) in descs(v))
     }
 
     @Test fun category_switch_clears_a_stale_swipe_reveal() {
@@ -245,15 +245,15 @@ class Debug17PanelTest {
         var reorder: Triple<String, Int, Int>? = null
         val v = phraseView().apply { onReorderPhrase = { c, f, t -> reorder = Triple(c, f, t) } }
         v.revealSwipeForTest("稍等")
-        assertTrue(click(v, "置顶"))
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_pin_top)))
         assertEquals("置顶 = reorder to index 0", Triple("默认", 2, 0), reorder)
     }
 
     @Test fun phrase_expand_row_is_unchanged_edit_move_delete() {
         val v = phraseView().apply { expandForTest("你好") }
         val ls = labels(v)
-        assertTrue("移动" in ls); assertTrue("编辑" in ls); assertTrue("删除" in ls)
-        assertFalse("expand row has no 置顶", "置顶" in ls)
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_move) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_edit) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_delete) in ls)
+        assertFalse("expand row has no 置顶", ctx.getString(com.aegis.ime.R.string.clip_pin_top) in ls)
     }
 
 
@@ -264,9 +264,9 @@ class Debug17PanelTest {
         }
         val row = groups(overlayOf(v)).firstOrNull { g ->
             val kids = (0 until g.childCount).map { g.getChildAt(it) }
-            kids.any { it is TextView && it.text?.toString() == name } && kids.any { it.contentDescription?.toString() == "删除分类" }
+            kids.any { it is TextView && it.text?.toString() == name } && kids.any { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_delete_category) }
         } ?: error("no chooser row for $name")
-        (0 until row.childCount).map { row.getChildAt(it) }.first { it.contentDescription?.toString() == "删除分类" }.performClick()
+        (0 until row.childCount).map { row.getChildAt(it) }.first { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_delete_category) }.performClick()
     }
 
     private fun moveChooserView(cats: MutableList<String>): ClipboardView = ClipboardView(ctx).apply {
@@ -317,10 +317,10 @@ class Debug17PanelTest {
 
     @Test fun move_chooser_offers_new_category_alongside_targets() {
         val v = phraseView()
-        v.expandForTest("你好"); assertTrue(click(v, "移动"))
+        v.expandForTest("你好"); assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_move)))
         val ls = labels(overlayOf(v))
         assertTrue("target 工作 present", "工作" in ls)
-        assertTrue("＋ 新建分类… available in the non-empty chooser too", "＋ 新建分类…" in ls)
+        assertTrue("＋ 新建分类… available in the non-empty chooser too", ctx.getString(com.aegis.ime.R.string.clip_new_category) in ls)
     }
 
     @Test fun split_blocks_start_neutral() {
@@ -363,7 +363,7 @@ class Debug17PanelTest {
         val chips = blockLabels.map { chip(overlayOf(v), it)!! }
         val defaultBg = bgColor(chips.first())
         val defaultText = chips.first().currentTextColor
-        assertTrue(click(overlayOf(v), "全部复制"))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_copy_all)))
         assertEquals("全部复制 copies each block separately", listOf("你", "好", "abc"), copied)
         assertEquals("all blocks marked", setOf("你", "好", "abc"), v.splitSelectedForTest())
         chips.forEach { block ->
@@ -378,7 +378,7 @@ class Debug17PanelTest {
         val batches = ArrayList<List<String>>()
         val v = clipView().apply { onCopyBlocksToAegis = { batches.add(it) } }
         v.showSplitForTest("你好abc")
-        assertTrue(click(overlayOf(v), "全部复制"))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_copy_all)))
         assertEquals(listOf(listOf("你", "好", "abc")), batches)
     }
 
@@ -386,8 +386,8 @@ class Debug17PanelTest {
         val v = clipView()
         v.showSplitForTest("你好abc")
         assertFalse("original preview removed", "你好abc" in labels(overlayOf(v)))
-        assertEquals(pal.keyLabel, textViews(overlayOf(v)).first { it.text?.toString() == "返回" }.currentTextColor)
-        assertEquals(pal.keyLabel, textViews(overlayOf(v)).first { it.text?.toString() == "全部复制" }.currentTextColor)
+        assertEquals(pal.keyLabel, textViews(overlayOf(v)).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_back) }.currentTextColor)
+        assertEquals(pal.keyLabel, textViews(overlayOf(v)).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_copy_all) }.currentTextColor)
     }
 
 
@@ -419,8 +419,8 @@ class Debug17PanelTest {
     @Test fun expanded_phrase_card_has_a_note_action() {
         var note: Pair<String, String>? = null
         val v = phraseView().apply { onEditNote = { c, t -> note = c to t }; expandForTest("你好") }
-        assertTrue("备注" in labels(v))
-        assertTrue(click(v, "备注"))
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_note) in labels(v))
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_note)))
         assertEquals("默认" to "你好", note)
     }
 
@@ -429,29 +429,29 @@ class Debug17PanelTest {
         val v = phraseView().apply { onImportPhrasesWithMode = { imports.add(it) }; onExportPhrases = { exp++ } }
         v.showPhraseManageMenuForTest()
         val ls = labels(overlayOf(v))
-        assertTrue("导入常用语" in ls); assertTrue("导出常用语" in ls)
-        assertTrue(click(overlayOf(v), "导入常用语"))
-        assertTrue("import opens the in-panel confirmation", "覆盖" in labels(overlayOf(v)) && "合并（推荐）" in labels(overlayOf(v)))
-        assertTrue(click(overlayOf(v), "合并（推荐）"))
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_import_phrases) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_export_phrases) in ls)
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_import_phrases)))
+        assertTrue("import opens the in-panel confirmation", ctx.getString(com.aegis.ime.R.string.clip_overwrite) in labels(overlayOf(v)) && ctx.getString(com.aegis.ime.R.string.clip_merge_recommended) in labels(overlayOf(v)))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_merge_recommended)))
         assertEquals(listOf(true), imports)
         v.showPhraseManageMenuForTest()
-        assertTrue(click(overlayOf(v), "导入常用语"))
-        assertTrue(click(overlayOf(v), "覆盖"))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_import_phrases)))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_overwrite)))
         assertEquals(listOf(true, false), imports)
         v.showPhraseManageMenuForTest()
-        assertTrue(click(overlayOf(v), "导出常用语")); assertEquals(1, exp)
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_export_phrases))); assertEquals(1, exp)
     }
 
     @Test fun import_confirmation_uses_normal_panel_colors() {
         val v = phraseView()
         v.showPhraseManageMenuForTest()
-        assertTrue(click(overlayOf(v), "导入常用语"))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_import_phrases)))
         val expected = setOf(
-            "导入常用语",
-            "「合并」把导入内容累加到现有常用语（按分类去重）；「覆盖」用导入文件整体替换常用语库。空文件不会清空。",
-            "覆盖",
-            "合并（推荐）",
-            "取消",
+            ctx.getString(com.aegis.ime.R.string.clip_import_phrases),
+            ctx.getString(com.aegis.ime.R.string.clip_import_body),
+            ctx.getString(com.aegis.ime.R.string.clip_overwrite),
+            ctx.getString(com.aegis.ime.R.string.clip_merge_recommended),
+            ctx.getString(com.aegis.ime.R.string.clip_cancel),
         )
         val views = textViews(overlayOf(v)).filter { it.text?.toString() in expected }
         assertEquals(expected.size, views.size)
@@ -461,76 +461,76 @@ class Debug17PanelTest {
     @Test fun phrase_tab_last_top_icon_clears_current_category_with_confirm() {
         var cleared: String? = null
         val v = phraseView().apply { onClearCategory = { cleared = it } }
-        assertTrue("phrase tab top bar carries the clear-category icon", "清空分类" in descs(mainOf(v)))
+        assertTrue("phrase tab top bar carries the clear-category icon", ctx.getString(com.aegis.ime.R.string.clip_clear_category) in descs(mainOf(v)))
         assertFalse("⚙ gear is NOT on the phrase tab", "设置" in descs(mainOf(v)))
         v.confirmClearForTest()
         val ls = labels(overlayOf(v))
-        assertTrue("confirm overlay (二次确认)", "清空" in ls && "取消" in ls)
+        assertTrue("confirm overlay (二次确认)", ctx.getString(com.aegis.ime.R.string.clip_clear) in ls && ctx.getString(com.aegis.ime.R.string.clip_cancel) in ls)
         assertNull("nothing cleared until confirmed", cleared)
-        assertTrue(click(overlayOf(v), "清空")); assertEquals("clears the CURRENT category", "默认", cleared)
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_clear))); assertEquals("clears the CURRENT category", "默认", cleared)
     }
 
     @Test fun clipboard_tab_top_right_icon_confirms_before_clearing_history() {
         var clears = 0
         val v = clipView().apply { onClearHistory = { clears++ } }
-        assertTrue("clipboard tab top bar carries clear-history", "清空剪贴板历史" in descs(mainOf(v)))
+        assertTrue("clipboard tab top bar carries clear-history", ctx.getString(com.aegis.ime.R.string.clip_clear_history) in descs(mainOf(v)))
         assertFalse("old settings gear is not present", "设置" in descs(mainOf(v)))
-        assertTrue(clickDesc(v, "清空剪贴板历史"))
+        assertTrue(clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_clear_history)))
         assertEquals("tap only opens confirmation", 0, clears)
-        assertTrue("confirmation offers clear", "清空" in labels(overlayOf(v)))
-        assertTrue(click(overlayOf(v), "清空"))
+        assertTrue("confirmation offers clear", ctx.getString(com.aegis.ime.R.string.clip_clear) in labels(overlayOf(v)))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_clear)))
         assertEquals("confirmed clear fires once", 1, clears)
     }
 
     @Test fun clipboard_clear_icon_long_press_keeps_recording_toggle_reachable() {
         val v = clipView()
-        assertTrue(longClickDesc(v, "清空剪贴板历史"))
-        assertTrue("history recording toggle remains reachable", labels(overlayOf(v)).any { it.startsWith("剪贴板记录:") })
+        assertTrue(longClickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_clear_history)))
+        assertTrue("history recording toggle remains reachable", labels(overlayOf(v)).any { it == ctx.getString(com.aegis.ime.R.string.clip_history_recording_on) || it == ctx.getString(com.aegis.ime.R.string.clip_history_recording_off) })
     }
 
     @Test fun clipboard_and_phrase_tab_row_uses_text_color_only() {
         val clip = clipView()
-        val tabs = textViews(clip).filter { it.text?.toString() in setOf("剪贴板", "常用语") }
+        val tabs = textViews(clip).filter { it.text?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_clipboard), ctx.getString(com.aegis.ime.R.string.clip_phrases)) }
         assertEquals(2, tabs.size)
         assertTrue(tabs.all { it.background == null })
-        assertEquals(pal.candidateFirst, tabs.first { it.text?.toString() == "剪贴板" }.currentTextColor)
-        assertEquals(pal.keyLabel, tabs.first { it.text?.toString() == "常用语" }.currentTextColor)
+        assertEquals(pal.candidateFirst, tabs.first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_clipboard) }.currentTextColor)
+        assertEquals(pal.keyLabel, tabs.first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_phrases) }.currentTextColor)
 
         val phrase = phraseView()
-        val phraseTabs = textViews(phrase).filter { it.text?.toString() in setOf("剪贴板", "常用语") }
-        assertEquals(pal.keyLabel, phraseTabs.first { it.text?.toString() == "剪贴板" }.currentTextColor)
-        assertEquals(pal.candidateFirst, phraseTabs.first { it.text?.toString() == "常用语" }.currentTextColor)
+        val phraseTabs = textViews(phrase).filter { it.text?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_clipboard), ctx.getString(com.aegis.ime.R.string.clip_phrases)) }
+        assertEquals(pal.keyLabel, phraseTabs.first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_clipboard) }.currentTextColor)
+        assertEquals(pal.candidateFirst, phraseTabs.first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_phrases) }.currentTextColor)
     }
 
     @Test fun phrase_category_row_uses_text_edit_button_without_chip_backgrounds() {
         val v = phraseView()
         val category = textViews(v).first { it.text?.toString() == "默认" && it.hasOnClickListeners() }
         val inactiveCategory = textViews(v).first { it.text?.toString() == "工作" && it.hasOnClickListeners() }
-        val manage = textViews(v).first { it.text?.toString() == "编辑" && it.contentDescription?.toString() == "管理常用语" }
+        val manage = textViews(v).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_edit) && it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_manage_phrases) }
         assertEquals(pal.candidateFirst, category.currentTextColor)
         assertEquals(pal.keyLabel, inactiveCategory.currentTextColor)
         assertEquals(pal.keyLabel, manage.currentTextColor)
         assertTrue(category.background == null)
         assertTrue(inactiveCategory.background == null)
         assertTrue(manage.background == null)
-        assertTrue(clickDesc(v, "管理常用语"))
+        assertTrue(clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_manage_phrases)))
     }
 
     @Test fun select_and_action_row_defaults_use_body_text_color() {
         val selected = clipView().apply { enterSelectForTest() }
-        assertEquals(pal.keyLabel, textViews(selected).first { it.text?.toString() == "全选" }.currentTextColor)
-        assertEquals(pal.keyLabel, textViews(selected).first { it.text?.toString() == "取消" }.currentTextColor)
+        assertEquals(pal.keyLabel, textViews(selected).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_select_all) }.currentTextColor)
+        assertEquals(pal.keyLabel, textViews(selected).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_cancel) }.currentTextColor)
 
         val expanded = clipView().apply { expandForTest("hello") }
         val actions = textViews(expanded)
-            .filter { it.text?.toString() in setOf("常用语", "拆词", "删除") && it.compoundDrawables.any { d -> d != null } }
+            .filter { it.text?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_phrases), ctx.getString(com.aegis.ime.R.string.clip_split_word), ctx.getString(com.aegis.ime.R.string.clip_delete)) && it.compoundDrawables.any { d -> d != null } }
         assertEquals(3, actions.size)
         assertTrue(actions.all { it.currentTextColor == pal.keyLabel })
     }
 
     @Test fun select_mode_action_buttons_match_split_block_colors_when_enabled() {
         val clip = clipView().apply { enterSelectForTest(listOf("hello")) }
-        for (label in listOf("添加常用语", "删除")) {
+        for (label in listOf(ctx.getString(com.aegis.ime.R.string.clip_add_phrase), ctx.getString(com.aegis.ime.R.string.clip_delete))) {
             val button = textViews(clip).first { it.text?.toString() == label }
             assertEquals("$label uses split block background", pal.accentBottom, bgColor(button))
             assertEquals("$label uses split block text", pal.accentLabel, button.currentTextColor)
@@ -538,7 +538,7 @@ class Debug17PanelTest {
         }
 
         val phrase = phraseView().apply { enterSelectForTest(listOf("你好")) }
-        for (label in listOf("移动到分类", "删除")) {
+        for (label in listOf(ctx.getString(com.aegis.ime.R.string.clip_move_to_category), ctx.getString(com.aegis.ime.R.string.clip_delete))) {
             val button = textViews(phrase).first { it.text?.toString() == label }
             assertEquals("$label uses split block background", pal.accentBottom, bgColor(button))
             assertEquals("$label uses split block text", pal.accentLabel, button.currentTextColor)
@@ -550,25 +550,25 @@ class Debug17PanelTest {
         val phrase = phraseView()
         phrase.confirmClearForTest()
         val phraseViews = textViews(overlayOf(phrase)).filter {
-            it.text?.toString() in setOf("清空分类「默认」的全部常用语?", "清空", "取消")
+            it.text?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_clear_category_confirm, "默认"), ctx.getString(com.aegis.ime.R.string.clip_clear), ctx.getString(com.aegis.ime.R.string.clip_cancel))
         }
         assertEquals(3, phraseViews.size)
         assertTrue(phraseViews.all { it.currentTextColor == pal.keyLabel })
-        val phraseActions = phraseViews.filter { it.text?.toString() in setOf("清空", "取消") }
+        val phraseActions = phraseViews.filter { it.text?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_clear), ctx.getString(com.aegis.ime.R.string.clip_cancel)) }
         assertEquals(2, phraseActions.size)
 
         val clip = clipView()
         clip.confirmClearHistoryForTest()
-        val clipViews = textViews(overlayOf(clip)).filter { it.text?.toString() in setOf("清空剪贴板历史?", "清空", "取消") }
+        val clipViews = textViews(overlayOf(clip)).filter { it.text?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_clear_history_confirm), ctx.getString(com.aegis.ime.R.string.clip_clear), ctx.getString(com.aegis.ime.R.string.clip_cancel)) }
         assertEquals(3, clipViews.size)
         assertTrue(clipViews.all { it.currentTextColor == pal.keyLabel })
-        val clipActions = clipViews.filter { it.text?.toString() in setOf("清空", "取消") }
+        val clipActions = clipViews.filter { it.text?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_clear), ctx.getString(com.aegis.ime.R.string.clip_cancel)) }
         assertEquals(2, clipActions.size)
     }
 
     @Test fun chooser_titles_use_body_text_color() {
         val move = phraseView().apply { showMoveChooserForTest("默认") }
-        assertEquals(pal.keyLabel, textViews(overlayOf(move)).first { it.text?.toString() == "移动到分类" }.currentTextColor)
+        assertEquals(pal.keyLabel, textViews(overlayOf(move)).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_move_to_category) }.currentTextColor)
 
         val singleTarget = ClipboardView(ctx).apply {
             categoriesProvider = { listOf("默认") }
@@ -576,13 +576,13 @@ class Debug17PanelTest {
             applyPalette(pal); forcePhrasesStateForTest("默认"); refresh()
             showMoveChooserForTest("默认")
         }
-        assertEquals(pal.keyLabel, textViews(overlayOf(singleTarget)).first { it.text?.toString() == "没有其它分类" }.currentTextColor)
+        assertEquals(pal.keyLabel, textViews(overlayOf(singleTarget)).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_no_other_categories) }.currentTextColor)
 
         val category = clipView().apply { expandForTest("hello") }
         textViews(category)
-            .first { tv -> tv.text?.toString() == "常用语" && tv.compoundDrawables.any { d -> d != null } }
+            .first { tv -> tv.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_phrases) && tv.compoundDrawables.any { d -> d != null } }
             .performClick()
-        assertEquals(pal.keyLabel, textViews(overlayOf(category)).first { it.text?.toString() == "选择分类" }.currentTextColor)
+        assertEquals(pal.keyLabel, textViews(overlayOf(category)).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_choose_category) }.currentTextColor)
     }
 
     @Test fun expanding_a_card_wraps_its_body_in_a_scrollview() {

@@ -15,6 +15,8 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.layout.KeyAction
+
 import android.view.MotionEvent
 import android.view.View
 import com.aegis.ime.layout.Key
@@ -73,14 +75,14 @@ class KeyboardMistouchTest {
 
     @Test fun a_tap_just_below_the_bottom_row_within_half_a_key_still_lands() {
         val v = nineView()
-        val (sx, sy) = v.centerOfLabelForTest("空格")!!
+        val (sx, sy) = v.centerOfActionForTest(KeyAction.SPACE)!!
         val bottom = sy + (rowHeight * 0.30f)
         assertNotNull("a tap ~0.3 key below the bottom row commits the bottom key", v.tapPick(sx, bottom))
     }
 
     @Test fun a_tap_well_below_the_keyboard_is_dropped() {
         val v = nineView()
-        val (sx, _) = v.centerOfLabelForTest("空格")!!
+        val (sx, _) = v.centerOfActionForTest(KeyAction.SPACE)!!
         val farBelow = v.height + rowHeight
         assertNull("a tap well past the bottom edge is dropped, not pulled onto an edge key", v.tapPick(sx, farBelow))
     }

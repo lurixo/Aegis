@@ -15,6 +15,8 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.R
+
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -465,8 +467,10 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     private fun drawLangToggle(canvas: Canvas, rect: RectF) {
-        val active = if (lang == Lang.CN) "中" else "英"
-        val small = if (lang == Lang.CN) "英" else "中"
+        val cn = context.getString(R.string.lang_cn)
+        val en = context.getString(R.string.lang_en)
+        val active = if (lang == Lang.CN) cn else en
+        val small = if (lang == Lang.CN) en else cn
         val baseline = rect.centerY() - (langActivePaint.descent() + langActivePaint.ascent()) / 2
         canvas.drawText(active, rect.centerX(), baseline, langActivePaint)
         canvas.drawText(small, rect.right - 5 * density, rect.bottom - 6 * density, langSmallPaint)
@@ -507,6 +511,7 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     private fun displayLabel(key: Key): String {
+        key.labelRes?.let { return context.getString(it) }
         if (key.action == KeyAction.COMMIT && key.label.length == 1 && key.label[0] in 'a'..'z') {
             return when (caseMode) {
                 LetterCase.UPPER -> key.label.uppercase()

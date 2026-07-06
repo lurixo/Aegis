@@ -15,6 +15,7 @@
 
 package com.aegis.ime.layout
 
+import com.aegis.ime.R
 import com.aegis.ime.layout.KeyAction.BACKSPACE
 import com.aegis.ime.layout.KeyAction.CLEAR_COMPOSING
 import com.aegis.ime.layout.KeyAction.CUSTOM_OPERATOR
@@ -49,7 +50,7 @@ object Layouts {
 
     fun ninePunctuation(custom: List<String> = emptyList()): List<Key> =
         nineFixedPunctuation.map { Key(it, direct = true) } +
-            custom.map { Key(it, direct = true) } + Key("自定义", action = CUSTOM_SYMBOL)
+            custom.map { Key(it, direct = true) } + Key(labelRes = R.string.kbd_custom, action = CUSTOM_SYMBOL)
 
     private fun row(vararg keys: Key) = KeyboardRow(keys.toList())
 
@@ -70,12 +71,12 @@ object Layouts {
         val comma = if (lang == Lang.CN) "，" else ","
         val period = if (lang == Lang.CN) "。" else "."
         val bottom = listOf(
-            Key("符号", action = SHOW_SYMBOLS, weight = 1.5f),
+            Key(labelRes = R.string.kbd_symbols, action = SHOW_SYMBOLS, weight = 1.5f),
             Key("123", action = SWITCH_NUMBERS, weight = 1.5f),
             Key(comma, direct = true),
-            Key("空格", output = " ", action = SPACE, weight = 3.5f),
+            Key(labelRes = R.string.kbd_space, output = " ", action = SPACE, weight = 3.5f),
             Key(period, direct = true),
-            Key("中英", action = TOGGLE_LANG, weight = 1.5f),
+            Key(action = TOGGLE_LANG, weight = 1.5f),
             Key("↵", action = ENTER, accent = true, weight = 1.6f),
         )
         return KeyboardLayout(
@@ -93,9 +94,9 @@ object Layouts {
         val xR = (NINE_LEFT_U + 3f) * u; val wR = NINE_RIGHT_U * u
         val cells = ArrayList<PlacedKey>()
         val leftColumn = ScrollColumn(left, xL, 0f, wL, 0.75f, cellHFrac = 0.75f / 4f)
-        cells.add(PlacedKey(Key("符号", action = SHOW_SYMBOLS), xL, 0.75f, wL, 0.25f))
+        cells.add(PlacedKey(Key(labelRes = R.string.kbd_symbols, action = SHOW_SYMBOLS), xL, 0.75f, wL, 0.25f))
         cells.add(PlacedKey(
-            if (composing) Key("分词", action = SEGMENT, bold = true) else Key("@#", action = SWITCH_SYMBOLS, bold = true),
+            if (composing) Key(labelRes = R.string.kbd_split, action = SEGMENT, bold = true) else Key("@#", action = SWITCH_SYMBOLS, bold = true),
             x1, 0f, wM, 0.25f,
         ))
         cells.add(PlacedKey(t9key("ABC", "2"), x2, 0f, wM, 0.25f))
@@ -107,10 +108,10 @@ object Layouts {
         cells.add(PlacedKey(t9key("TUV", "8"), x2, 0.5f, wM, 0.25f))
         cells.add(PlacedKey(t9key("WXYZ", "9"), x3, 0.5f, wM, 0.25f))
         cells.add(PlacedKey(Key("123", action = SWITCH_NUMPAD), x1, 0.75f, 0.8f * u, 0.25f))
-        cells.add(PlacedKey(Key("空格", output = " ", action = SPACE), x1 + 0.8f * u, 0.75f, 1.4f * u, 0.25f))
-        cells.add(PlacedKey(Key("中英", action = TOGGLE_LANG), x1 + 2.2f * u, 0.75f, 0.8f * u, 0.25f))
+        cells.add(PlacedKey(Key(labelRes = R.string.kbd_space, output = " ", action = SPACE), x1 + 0.8f * u, 0.75f, 1.4f * u, 0.25f))
+        cells.add(PlacedKey(Key(action = TOGGLE_LANG), x1 + 2.2f * u, 0.75f, 0.8f * u, 0.25f))
         cells.add(PlacedKey(Key("⌫", action = BACKSPACE), xR, 0f, wR, 0.25f))
-        cells.add(PlacedKey(Key("重输", action = CLEAR_COMPOSING), xR, 0.25f, wR, 0.25f))
+        cells.add(PlacedKey(Key(labelRes = R.string.kbd_redo, action = CLEAR_COMPOSING), xR, 0.25f, wR, 0.25f))
         cells.add(PlacedKey(Key("↵", action = ENTER, accent = true), xR, 0.5f, wR, 0.5f))
         return KeyboardLayout(LayoutId.NINE, cells = cells, rowCount = 4, scrollColumn = leftColumn)
     }
@@ -129,9 +130,9 @@ object Layouts {
                 Key("⌫", action = BACKSPACE, weight = 1.5f),
             ),
             row(
-                Key("返回", action = SWITCH_TEXT, weight = 1.6f),
+                Key(labelRes = R.string.kbd_back, action = SWITCH_TEXT, weight = 1.6f),
                 Key(","),
-                Key("空格", output = " ", action = SPACE, weight = 4f),
+                Key(labelRes = R.string.kbd_space, output = " ", action = SPACE, weight = 4f),
                 Key("."),
                 Key("↵", action = ENTER, accent = true, weight = 1.6f),
             ),
@@ -142,7 +143,7 @@ object Layouts {
 
     fun numpadOperators(custom: List<String> = emptyList()): List<Key> =
         (defaultNumpadOperators + custom).distinct().map { Key(it, direct = true) } +
-            Key("自定义", action = CUSTOM_OPERATOR)
+            Key(labelRes = R.string.kbd_custom, action = CUSTOM_OPERATOR)
 
     fun numpad(operators: List<Key> = numpadOperators()): KeyboardLayout {
         val u = 1f / NINE_TOTAL_U
@@ -158,9 +159,9 @@ object Layouts {
         cells.add(PlacedKey(Key("⌫", action = BACKSPACE), xR, 0f, wR, 0.25f))
         cells.add(PlacedKey(Key("."), xR, 0.25f, wR, 0.25f))
         cells.add(PlacedKey(Key("↵", action = ENTER, accent = true), xR, 0.5f, wR, 0.5f))
-        cells.add(PlacedKey(Key("返回", action = SWITCH_TEXT), x1, 0.75f, wM, 0.25f))
+        cells.add(PlacedKey(Key(labelRes = R.string.kbd_back, action = SWITCH_TEXT), x1, 0.75f, wM, 0.25f))
         cells.add(PlacedKey(Key("0"), x2, 0.75f, wM, 0.25f))
-        cells.add(PlacedKey(Key("空格", output = " ", action = SPACE), x3, 0.75f, wM, 0.25f))
+        cells.add(PlacedKey(Key(labelRes = R.string.kbd_space, output = " ", action = SPACE), x3, 0.75f, wM, 0.25f))
         return KeyboardLayout(LayoutId.NUMPAD, cells = cells, rowCount = 4, scrollColumn = opCol)
     }
 
@@ -181,9 +182,9 @@ object Layouts {
                 Key("⌫", action = BACKSPACE, weight = 1.5f),
             ),
             row(
-                Key("返回", action = SWITCH_TEXT, weight = 1.6f),
+                Key(labelRes = R.string.kbd_back, action = SWITCH_TEXT, weight = 1.6f),
                 Key("<"),
-                Key("空格", output = " ", action = SPACE, weight = 4f),
+                Key(labelRes = R.string.kbd_space, output = " ", action = SPACE, weight = 4f),
                 Key(">"),
                 Key("↵", action = ENTER, accent = true, weight = 1.6f),
             ),

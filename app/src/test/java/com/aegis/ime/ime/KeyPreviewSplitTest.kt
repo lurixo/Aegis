@@ -124,7 +124,7 @@ class KeyPreviewSplitTest {
 
     @Test fun the_segment_key_previews_while_composing() {
         val nine = nineView(composing = true).apply { previewNineEnabled = true }
-        assertEquals("分词 (SEGMENT) previews", true to "分词", nine.previewOnLabel("分词"))
+        assertEquals("SEGMENT key previews while composing", true, nine.previewOnAction(KeyAction.SEGMENT))
         val rest = nineView(composing = false).apply { previewNineEnabled = true }
         assertEquals(false to null, rest.previewOnLabel("@#"))
     }

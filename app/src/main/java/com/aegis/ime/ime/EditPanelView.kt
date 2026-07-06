@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
 import android.content.Context
 import android.graphics.Canvas
@@ -77,7 +78,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             addView(
-                textBtn("文字编辑", EditAction.BACK, sp = TITLE_SP).apply {
+                textBtn(context.getString(R.string.edit_title), EditAction.BACK, sp = TITLE_SP).apply {
                     gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), 0, dp(12), 0)
                     setCompoundDrawablesWithIntrinsicBounds(
                         icon(16, 0.56f) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) },
@@ -94,7 +95,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
 
         val mid = LinearLayout(context).apply { orientation = HORIZONTAL }
         val dpad = LinearLayout(context).apply { orientation = VERTICAL }
-        selectBtn = textBtn("开始选择", EditAction.START_SELECT, sp = 16f)
+        selectBtn = textBtn(context.getString(R.string.edit_start_select), EditAction.START_SELECT, sp = 16f)
         dpad.addView(dpadRow(null, arrowBtn(EditAction.UP, Glyphs.Arrow.UP), null), rowLp())
         dpad.addView(dpadRow(arrowBtn(EditAction.LEFT, Glyphs.Arrow.LEFT), selectBtn, arrowBtn(EditAction.RIGHT, Glyphs.Arrow.RIGHT)), rowLp())
         dpad.addView(dpadRow(null, arrowBtn(EditAction.DOWN, Glyphs.Arrow.DOWN), null), rowLp())
@@ -102,10 +103,10 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
 
         copyIcon = icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawCopy(c, p, x, y, s) }
         cutIcon = icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawCut(c, p, x, y, s) }
-        copyBtn = iconBtn("复制", EditAction.COPY, copyIcon)
-        cutBtn = iconBtn("剪切", EditAction.CUT, cutIcon)
+        copyBtn = iconBtn(context.getString(R.string.edit_copy), EditAction.COPY, copyIcon)
+        cutBtn = iconBtn(context.getString(R.string.edit_cut), EditAction.CUT, cutIcon)
         val rightCol = LinearLayout(context).apply { orientation = VERTICAL }
-        rightCol.addView(iconBtn("删除", EditAction.DELETE, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }), rowLp())
+        rightCol.addView(iconBtn(context.getString(R.string.edit_delete), EditAction.DELETE, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }), rowLp())
         rightCol.addView(copyBtn, rowLp())
         rightCol.addView(cutBtn, rowLp())
         mid.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
@@ -113,11 +114,11 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         addView(mid, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
 
         val bottom = LinearLayout(context).apply { orientation = HORIZONTAL }
-        bottom.addView(iconBtn("段首", EditAction.HOME, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawParagraphEdge(c, p, x, y, s, toStart = true) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        bottom.addView(iconBtn("全选", EditAction.SELECT_ALL, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawSelectAll(c, p, x, y, s) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        bottom.addView(iconBtn("段尾", EditAction.END, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawParagraphEdge(c, p, x, y, s, toStart = false) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        bottom.addView(iconBtn(context.getString(R.string.edit_paragraph_start), EditAction.HOME, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawParagraphEdge(c, p, x, y, s, toStart = true) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        bottom.addView(iconBtn(context.getString(R.string.edit_select_all), EditAction.SELECT_ALL, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawSelectAll(c, p, x, y, s) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        bottom.addView(iconBtn(context.getString(R.string.edit_paragraph_end), EditAction.END, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawParagraphEdge(c, p, x, y, s, toStart = false) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         bottom.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        bottom.addView(iconBtn("粘贴", EditAction.PASTE, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawClipboard(c, p, x, y, s) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        bottom.addView(iconBtn(context.getString(R.string.edit_paste), EditAction.PASTE, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawClipboard(c, p, x, y, s) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         addView(bottom, LayoutParams(LayoutParams.MATCH_PARENT, dp(56)))
 
         setHasSelection(false)
@@ -134,7 +135,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
     }
 
     fun setSelecting(selecting: Boolean) {
-        selectBtn.text = if (selecting) "结束选择" else "开始选择"
+        selectBtn.text = if (selecting) context.getString(R.string.edit_end_select) else context.getString(R.string.edit_start_select)
     }
 
     override fun resetToDefault() = setSelecting(false)

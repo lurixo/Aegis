@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
@@ -44,7 +45,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     private val paletteScroll = ScrollView(context).apply { addView(paletteRows) }
     private val headerBar = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
     private val backText = TextView(context).apply {
-        text = "‹ 自定义标点"
+        text = context.getString(R.string.csp_back_title)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         setPadding(dp(12), dp(10), dp(12), dp(10))
         isClickable = true
@@ -53,7 +54,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     }
     private val sectionLabels = mutableListOf<TextView>()
 
-    var backTitle: String = "‹ 自定义标点"
+    var backTitle: String = context.getString(R.string.csp_back_title)
         set(v) { field = v; backText.text = v }
 
     var addPalette: List<String> = SymbolCatalog.categories.flatMap { it.symbols }.distinct()
@@ -67,9 +68,9 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         headerBar.addView(backText)
         headerBar.addView(View(context), LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
         addView(headerBar)
-        addView(sectionLabel("已添加（点击移除）"))
+        addView(sectionLabel(context.getString(R.string.csp_added_tap_to_remove)))
         addView(addedScroll, LayoutParams(LayoutParams.MATCH_PARENT, dp(56)))
-        addView(sectionLabel("点击添加"))
+        addView(sectionLabel(context.getString(R.string.csp_tap_to_add)))
         addView(paletteScroll, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
     }
 

@@ -23,15 +23,15 @@ class EmojiCatalogTest {
 
     @Test fun has_the_expected_categories_in_order() {
         assertEquals(
-            listOf("黄脸", "手势", "旗帜", "动物", "植物", "食物", "旅行", "活动", "物品", "符号"),
-            EmojiCatalog.categories.map { it.title },
+            listOf("face", "hand", "flag", "animal", "plant", "food", "travel", "activity", "object", "symbol"),
+            EmojiCatalog.categories.map { it.id },
         )
     }
 
     @Test fun flags_sit_between_gestures_and_animals() {
-        val titles = EmojiCatalog.categories.map { it.title }
-        assertTrue("旗帜 after 手势", titles.indexOf("旗帜") > titles.indexOf("手势"))
-        assertTrue("旗帜 before 动物", titles.indexOf("旗帜") < titles.indexOf("动物"))
+        val ids = EmojiCatalog.categories.map { it.id }
+        assertTrue("flag after hand", ids.indexOf("flag") > ids.indexOf("hand"))
+        assertTrue("flag before animal", ids.indexOf("flag") < ids.indexOf("animal"))
     }
 
     @Test fun is_a_full_coverage_keyboard_with_pinned_per_category_counts() {
@@ -49,11 +49,11 @@ class EmojiCatalogTest {
     @Test fun every_category_non_empty_and_no_duplicates_within_or_across() {
         val seen = HashMap<String, String>()
         for (c in EmojiCatalog.categories) {
-            assertTrue("${c.title} empty", c.emoji.isNotEmpty())
-            assertEquals("${c.title} has duplicates", c.emoji.size, c.emoji.toSet().size)
+            assertTrue("${c.id} empty", c.emoji.isNotEmpty())
+            assertEquals("${c.id} has duplicates", c.emoji.size, c.emoji.toSet().size)
             for (e in c.emoji) {
-                val prev = seen.put(e, c.title)
-                assertTrue("'$e' appears in both ${prev} and ${c.title}", prev == null)
+                val prev = seen.put(e, c.id)
+                assertTrue("'$e' appears in both ${prev} and ${c.id}", prev == null)
             }
         }
     }
