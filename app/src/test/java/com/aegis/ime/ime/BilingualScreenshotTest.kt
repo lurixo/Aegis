@@ -169,9 +169,10 @@ class BilingualScreenshotTest {
                 categoriesProvider = { phraseCats }
                 phrasesInProvider = { c -> phrasesOf(c) }
                 applyPalette(pal)
+                forcePhrasesStateForTest(com.aegis.ime.user.ClipboardStore.DEFAULT_CATEGORY_ID)
                 refresh()
             },
-            (300 * density).toInt(), dir, "clipboard.png",
+            (360 * density).toInt(), dir, "clipboard.png",
         )
 
         snap(
@@ -192,7 +193,7 @@ class BilingualScreenshotTest {
             lang = Lang.EN,
             dir = File(baseDir, "en"),
             history = listOf("Meeting at 3pm", "https://example.com"),
-            phraseCats = listOf("Default", "Work"),
+            phraseCats = listOf(com.aegis.ime.user.ClipboardStore.DEFAULT_CATEGORY_ID, "Work"),
             phrasesOf = { c -> if (c == "Work") listOf("On my way", "Thanks!") else listOf("On my way", "Thanks!") },
             symbols = listOf(",", ".", "?"),
         )
@@ -209,7 +210,7 @@ class BilingualScreenshotTest {
             lang = Lang.CN,
             dir = File(baseDir, "zh"),
             history = listOf("第一条复制内容", "第二条内容"),
-            phraseCats = listOf("默认", "工作"),
+            phraseCats = listOf(com.aegis.ime.user.ClipboardStore.DEFAULT_CATEGORY_ID, "工作"),
             phrasesOf = { _ -> listOf("你好", "在吗") },
             symbols = listOf("，", "。", "？"),
         )

@@ -59,17 +59,18 @@ class ClipboardStore(private val dir: File) {
     private fun loadPhrases() {
         phraseCats.clear()
         if (!phraseFile.exists()) {
-            phraseCats.add(Category(DEFAULT_CATEGORY, ArrayList(DEFAULT_PHRASES.map { Phrase(it) })))
+            phraseCats.add(Category(DEFAULT_CATEGORY_ID, ArrayList(DEFAULT_PHRASES.map { Phrase(it) })))
             return
         }
         val lines = runCatching { phraseFile.readLines() }.getOrDefault(emptyList())
         if (lines.none { it.startsWith("C\t") }) {
-            val c = Category(DEFAULT_CATEGORY)
+            val c = Category(DEFAULT_CATEGORY_ID)
             lines.forEach { decode(it)?.let { p -> if (p.isNotBlank()) c.phrases.add(Phrase(p)) } }
             phraseCats.add(c)
             return
         }
         phraseCats.addAll(parseCategories(lines))
+        migrateLegacyDefault()
     }
 
     private fun parseCategories(lines: List<String>): List<Category> {
@@ -82,6 +83,12 @@ class ClipboardStore(private val dir: File) {
             line.startsWith("N\t") -> decode(line.substring(2))?.let { n -> last?.note = n }
         }
         return out
+    }
+
+    private fun migrateLegacyDefault() {
+        if (phraseCats.none { it.name == DEFAULT_CATEGORY_ID }) {
+            phraseCats.firstOrNull { it.name == LEGACY_DEFAULT_NAME }?.let { it.name = DEFAULT_CATEGORY_ID }
+        }
     }
 
     fun record(text: String?) {
@@ -150,7 +157,7 @@ class ClipboardStore(private val dir: File) {
     }
 
     fun addPhrases(texts: Collection<String>): Int =
-        addPhrasesTo(phraseCats.firstOrNull()?.name ?: DEFAULT_CATEGORY, texts)
+        addPhrasesTo(phraseCats.firstOrNull()?.name ?: DEFAULT_CATEGORY_ID, texts)
 
     fun deletePhraseFrom(category: String, text: String) {
         find(category)?.let { c -> if (c.phrases.removeAll { it.text == text }) savePhrases() }
@@ -304,7 +311,7 @@ class ClipboardStore(private val dir: File) {
         } else {
             phraseCats.clear()
             phraseCats.addAll(parsed)
-            if (phraseCats.none { it.name == DEFAULT_CATEGORY }) phraseCats.add(0, Category(DEFAULT_CATEGORY))
+            if (phraseCats.none { it.name == DEFAULT_CATEGORY_ID }) phraseCats.add(0, Category(DEFAULT_CATEGORY_ID))
         }
         savePhrases()
         return true
@@ -339,7 +346,8 @@ class ClipboardStore(private val dir: File) {
         const val BIG_THRESHOLD = 64 * 1024
 
         private const val MAX_HISTORY = 100000
-        private const val DEFAULT_CATEGORY = "默认"
+        const val DEFAULT_CATEGORY_ID = "default"
+        private const val LEGACY_DEFAULT_NAME = "默认"
         private val DEFAULT_PHRASES = emptyList<String>()
     }
 }

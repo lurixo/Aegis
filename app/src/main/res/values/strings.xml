@@ -266,6 +266,7 @@
     <string name="clip_nothing_to_split">Nothing to split</string>
     <string name="clip_copy_all">Copy all</string>
     <string name="clip_clipboard">Clipboard</string>
+    <string name="clip_default_category">Default</string>
     <string name="clip_clipboard_empty">Clipboard is empty</string>
     <string name="clip_clipboard_empty_hint">Text you copy or cut will appear here</string>
     <string name="clip_phrases_empty">No phrases in this category yet</string>
