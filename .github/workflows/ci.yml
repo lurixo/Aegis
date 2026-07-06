@@ -37,7 +37,7 @@ jobs:
 
       # Provide sdkmanager and accept the SDK licenses on the runner.
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       # The project builds against compileSdk / targetSdk = 37 (Android SDK Platform "37.0")
       # and AGP 9.2 resolves its own build-tools (36.0.0 here; buildToolsVersion is not pinned).
