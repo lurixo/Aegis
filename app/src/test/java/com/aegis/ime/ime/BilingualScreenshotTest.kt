@@ -37,7 +37,7 @@ import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
-import com.aegis.ime.ui.SettingsNavGraph
+import com.aegis.ime.ui.SettingsHomePage
 import com.aegis.ime.ui.theme.AegisTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -184,7 +184,7 @@ class BilingualScreenshotTest {
             (560 * density).toInt(), dir, "symbols.png",
         )
 
-        snapCompose(dir, "settings.png") { SettingsNavGraph() }
+        snapCompose(dir, "settings.png") { SettingsHomePage(onOpenGroup = {}) }
     }
 
     @Test fun bilingual_readme_screenshots() {
