@@ -17,10 +17,8 @@ package com.aegis.ime.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
 import com.aegis.ime.R
 import org.junit.Rule
 import org.junit.Test
@@ -44,14 +42,5 @@ class SettingsMotionTest {
         compose.onNodeWithText(s(R.string.setup_first_run_ack)).performClick()
         compose.waitForIdle()
         compose.onNodeWithText(s(R.string.setup_first_run_title)).assertDoesNotExist()
-    }
-
-    @Test fun shared_axis_navigation_settles_on_the_target_page_and_back_home() {
-        compose.onNodeWithText(s(R.string.settings_group_input_title)).performScrollTo().performClick()
-        compose.waitForIdle()
-        compose.onNodeWithText(s(R.string.fuzzy_card_title)).assertExists()
-        compose.onNodeWithContentDescription(s(R.string.settings_back)).performClick()
-        compose.waitForIdle()
-        compose.onNodeWithText(s(R.string.setup_summary)).assertIsDisplayed()
     }
 }

@@ -15,8 +15,6 @@
 
 package com.aegis.ime.ui.theme
 
-import android.content.Context
-import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.CubicBezierEasing
@@ -25,16 +23,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import com.aegis.ime.ime.Motion
 
 internal object SettingsMotion {
-    fun animationsEnabled(context: Context): Boolean = Motion.enabled(context)
-
     val DURATION_NAV = Motion.MODE_SWITCH.toInt()
     val DURATION_FADE_IN = Motion.FADE_IN.toInt()
     val DURATION_FADE_OUT = Motion.FADE_OUT.toInt()
@@ -42,39 +34,6 @@ internal object SettingsMotion {
 
     val EmphasizedDecelerate: Easing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
     val EmphasizedAccelerate: Easing = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
-
-    private const val SLIDE_FRACTION = 8
-
-    private const val PEEK_SCALE_OUT = 0.88f
-    private const val PEEK_SCALE_IN = 0.92f
-
-    fun forwardEnter(scope: AnimatedContentTransitionScope<*>): EnterTransition =
-        scope.run {
-            slideInHorizontally(tween(DURATION_NAV, easing = EmphasizedDecelerate)) { it / SLIDE_FRACTION } +
-                scaleIn(tween(DURATION_NAV, easing = EmphasizedDecelerate), initialScale = PEEK_SCALE_IN) +
-                fadeIn(tween(DURATION_FADE_IN, easing = EmphasizedDecelerate))
-        }
-
-    fun forwardExit(scope: AnimatedContentTransitionScope<*>): ExitTransition =
-        scope.run {
-            slideOutHorizontally(tween(DURATION_NAV, easing = EmphasizedAccelerate)) { -it / SLIDE_FRACTION } +
-                scaleOut(tween(DURATION_NAV, easing = EmphasizedAccelerate), targetScale = PEEK_SCALE_OUT) +
-                fadeOut(tween(DURATION_FADE_OUT, easing = EmphasizedAccelerate))
-        }
-
-    fun backEnter(scope: AnimatedContentTransitionScope<*>): EnterTransition =
-        scope.run {
-            slideInHorizontally(tween(DURATION_NAV, easing = EmphasizedDecelerate)) { -it / SLIDE_FRACTION } +
-                scaleIn(tween(DURATION_NAV, easing = EmphasizedDecelerate), initialScale = PEEK_SCALE_IN) +
-                fadeIn(tween(DURATION_FADE_IN, easing = EmphasizedDecelerate))
-        }
-
-    fun backExit(scope: AnimatedContentTransitionScope<*>): ExitTransition =
-        scope.run {
-            slideOutHorizontally(tween(DURATION_NAV, easing = EmphasizedAccelerate)) { it / SLIDE_FRACTION } +
-                scaleOut(tween(DURATION_NAV, easing = EmphasizedAccelerate), targetScale = PEEK_SCALE_OUT) +
-                fadeOut(tween(DURATION_FADE_OUT, easing = EmphasizedAccelerate))
-        }
 
     fun revealEnter(): EnterTransition =
         expandVertically(tween(DURATION_STATE, easing = EmphasizedDecelerate)) +

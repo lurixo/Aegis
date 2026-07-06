@@ -25,6 +25,42 @@
         </activity>
 
         <activity
+            android:name=".ui.InputSettingsActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|uiMode|density|navigation|locale|layoutDirection|fontScale"
+            android:label="@string/settings_group_input_title"
+            android:theme="@style/Theme.Aegis"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".ui.DictSettingsActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|uiMode|density|navigation|locale|layoutDirection|fontScale"
+            android:label="@string/settings_group_dicts_title"
+            android:theme="@style/Theme.Aegis"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".ui.UserDictActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|uiMode|density|navigation|locale|layoutDirection|fontScale"
+            android:label="@string/settings_group_userdict_title"
+            android:theme="@style/Theme.Aegis"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".ui.AboutActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|uiMode|density|navigation|locale|layoutDirection|fontScale"
+            android:label="@string/settings_group_about_title"
+            android:theme="@style/Theme.Aegis"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".ui.LicensesActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|uiMode|density|navigation|locale|layoutDirection|fontScale"
+            android:label="@string/settings_about_licenses_title"
+            android:theme="@style/Theme.Aegis"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".ui.PhraseTransferActivity"
             android:autoRemoveFromRecents="true"
             android:exported="false"

@@ -39,7 +39,7 @@ import java.io.File
 class LicensesTest {
 
     @get:Rule
-    val compose = createAndroidComposeRule<SetupActivity>()
+    val compose = createAndroidComposeRule<LicensesActivity>()
 
     private val ctx = RuntimeEnvironment.getApplication()
     private fun s(id: Int) = ctx.getString(id)
@@ -86,11 +86,7 @@ class LicensesTest {
         }
     }
 
-    @Test fun opening_licenses_from_about_lists_every_component_with_a_modified_mark_then_returns() {
-        compose.onNodeWithText(s(R.string.settings_group_about_title)).performScrollTo().performClick()
-        compose.waitForIdle()
-        compose.onNodeWithText(s(R.string.settings_about_licenses_title)).performScrollTo().performClick()
-        compose.waitForIdle()
+    @Test fun licenses_page_lists_every_component_with_a_modified_mark_and_back_finishes() {
         for (id in licenseNameIds) {
             compose.onNodeWithText(s(id)).performScrollTo().assertIsDisplayed()
         }
@@ -98,22 +94,8 @@ class LicensesTest {
             "a component must show the Modified mark",
             compose.onAllNodesWithText(s(R.string.licenses_modified), substring = true).fetchSemanticsNodes().isNotEmpty(),
         )
-        compose.onNodeWithContentDescription(s(R.string.settings_back)).performClick()
+        compose.onNodeWithContentDescription(s(R.string.settings_back)).performScrollTo().performClick()
         compose.waitForIdle()
-        compose.onNodeWithText(s(R.string.setup_steps_title)).assertExists()
-    }
-
-    @Test fun double_tapping_back_on_the_licenses_page_pops_only_one_level_to_about() {
-        compose.onNodeWithText(s(R.string.settings_group_about_title)).performScrollTo().performClick()
-        compose.waitForIdle()
-        compose.onNodeWithText(s(R.string.settings_about_licenses_title)).performScrollTo().performClick()
-        compose.waitForIdle()
-        compose.onNodeWithText(s(R.string.license_wanxiang_name)).assertExists()
-        compose.mainClock.autoAdvance = false
-        compose.onNodeWithContentDescription(s(R.string.settings_back)).performClick()
-        compose.onNodeWithContentDescription(s(R.string.settings_back)).performClick()
-        compose.mainClock.autoAdvance = true
-        compose.waitForIdle()
-        compose.onNodeWithText(s(R.string.setup_steps_title)).assertExists()
+        assertTrue("back arrow finishes the licenses Activity", compose.activity.isFinishing)
     }
 }
