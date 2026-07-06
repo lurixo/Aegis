@@ -5,16 +5,16 @@
   "app": {
     "project": "Aegis",
     "repository": "https://github.com/lurixo/Aegis",
-    "release_tag": "v0.1.0-debug.52"
+    "release_tag": "v0.1.0-debug.53"
   },
   "resources": [
     {
       "kind": "dictionary",
       "physical_asset": {
-        "name": "aegis_dict_pack_debug52.zip",
-        "url": "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.52/aegis_dict_pack_debug52.zip",
-        "release_tag": "v0.1.0-debug.52",
-        "release_url": "https://github.com/lurixo/Aegis/releases/tag/v0.1.0-debug.52",
+        "name": "aegis_dict_pack_debug53.zip",
+        "url": "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.53/aegis_dict_pack_debug53.zip",
+        "release_tag": "v0.1.0-debug.53",
+        "release_url": "https://github.com/lurixo/Aegis/releases/tag/v0.1.0-debug.53",
         "prerelease": true,
         "published_at": null,
         "sha256": "bf97e78955cef642066cc17d5ed1458c1ea7f7637507f165797bd8719a2a87fd",

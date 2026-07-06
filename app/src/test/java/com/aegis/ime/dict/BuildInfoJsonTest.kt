@@ -40,14 +40,14 @@ class BuildInfoJsonTest {
 
         assertEquals(1, buildInfo.getInt("schema_version"))
         assertEquals("dictionary", dictionary.getString("kind"))
-        assertEquals("aegis_dict_pack_debug52.zip", asset.getString("name"))
+        assertEquals("aegis_dict_pack_debug53.zip", asset.getString("name"))
         assertEquals(
-            "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.52/aegis_dict_pack_debug52.zip",
+            "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.53/aegis_dict_pack_debug53.zip",
             asset.getString("url"),
         )
         assertEquals("bf97e78955cef642066cc17d5ed1458c1ea7f7637507f165797bd8719a2a87fd", asset.getString("sha256"))
         assertEquals(97_926_380L, asset.getLong("size_bytes"))
-        assertEquals("v0.1.0-debug.52", asset.getString("release_tag"))
+        assertEquals("v0.1.0-debug.53", asset.getString("release_tag"))
         assertTrue(asset.getBoolean("prerelease"))
         assertNotEquals(ModelDownload.FALLBACK_DICT_SHA256, asset.getString("sha256"))
         assertEquals(ModelDownload.DICT_REPO_URL, source.getString("repo"))
