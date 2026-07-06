@@ -23,8 +23,8 @@ import android.os.Looper
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
@@ -56,8 +56,8 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
     val zip = ModelDownload.dictZipFile(context.filesDir)
     val location = zip.parentFile?.absolutePath ?: zip.absolutePath
     fun doneStatus(): LocalizedText {
-        val mb = ModelDownload.DICT_PACK_FILES.sumOf { File(context.filesDir, "downloaded/$it").length() } / 1048576
-        return LocalizedText.ResourceLong(R.string.dict_status_enabled, mb)
+        val bytes = ModelDownload.DICT_PACK_FILES.sumOf { File(context.filesDir, "downloaded/$it").length() }
+        return LocalizedText.ResourceLong(R.string.dict_status_enabled, ModelDownload.bytesToDisplayMb(bytes))
     }
     val notDownloadedStatus = LocalizedText.Resource(R.string.dict_status_not_downloaded)
 
@@ -173,7 +173,10 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
                 if (checking) stringResource(R.string.download_status_checking_update) else status.asString(),
                 style = MaterialTheme.typography.bodySmall,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 Button(
                     enabled = !downloading && !present,
                     onClick = { startDownload() },

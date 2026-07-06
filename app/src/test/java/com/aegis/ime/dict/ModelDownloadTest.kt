@@ -15,7 +15,9 @@
 
 package com.aegis.ime.dict
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -72,5 +74,20 @@ class ModelDownloadTest {
         assertTrue(ModelDownload.updateAvailable(local = null, remote = "etag-2"))
         assertTrue(ModelDownload.updateAvailable(local = "etag-1", remote = null))
         assertTrue(ModelDownload.updateAvailable(local = null, remote = null))
+    }
+
+    @Test
+    fun sizeDisplayIsDecimalMegabytesNotBinaryMebibytes() {
+        assertEquals("gram model reads as decimal MB", 421L, ModelDownload.bytesToDisplayMb(420_556_844L))
+        assertEquals("dict pack reads as decimal MB", 255L, ModelDownload.bytesToDisplayMb(254_961_874L))
+
+        assertEquals("gram was 401 under the old MiB divisor", 401L, 420_556_844L / 1_048_576L)
+        assertEquals("dict was 243 under the old MiB divisor", 243L, 254_961_874L / 1_048_576L)
+        assertNotEquals(420_556_844L / 1_048_576L, ModelDownload.bytesToDisplayMb(420_556_844L))
+
+        assertEquals("rounds up past .5", 255L, ModelDownload.bytesToDisplayMb(254_500_000L))
+        assertEquals("rounds down below .5", 254L, ModelDownload.bytesToDisplayMb(254_499_999L))
+        assertEquals("exact MB", 100L, ModelDownload.bytesToDisplayMb(100_000_000L))
+        assertEquals("zero bytes", 0L, ModelDownload.bytesToDisplayMb(0L))
     }
 }

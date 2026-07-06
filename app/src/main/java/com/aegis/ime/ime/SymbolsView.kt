@@ -274,8 +274,9 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     private fun railTab(index: Int, title: String): TextView = TextView(context).apply {
         text = title
         gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
-        setPadding(0, dp(13), 0, dp(13))
+        maxLines = 1
+        setPadding(dp(2), dp(13), dp(2), dp(13))
+        TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(this, 11, ImeType.label.toInt(), 1, TypedValue.COMPLEX_UNIT_SP)
         background = railTabBackground(index == selected)
         isClickable = true
         Motion.applyTapFeedback(this, if (index == selected) palette.candidateFirst else palette.keyLabelSecondary, radiusDp = ImeShapes.chipRadiusDp)

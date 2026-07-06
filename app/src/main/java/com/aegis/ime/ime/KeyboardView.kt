@@ -460,7 +460,14 @@ class KeyboardView(context: Context) : View(context) {
             display.length > 1 && p.key.action != KeyAction.COMMIT -> specialLabelPaint
             else -> labelPaint
         }
+        val baseTextSize = paint.textSize
+        if (display.length > 1) {
+            val avail = p.rect.width() - 14f * density
+            val w = paint.measureText(display)
+            if (w > avail && avail > 0f) paint.textSize = (baseTextSize * avail / w).coerceAtLeast(11f * density)
+        }
         canvas.drawText(display, cx, cy - (paint.descent() + paint.ascent()) / 2, paint)
+        paint.textSize = baseTextSize
         if (p.key.sub != null) {
             canvas.drawText(p.key.sub, p.rect.right - 6 * density, p.rect.top + 15 * density, subPaint)
         }
