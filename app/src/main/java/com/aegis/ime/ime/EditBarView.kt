@@ -24,6 +24,7 @@ import android.view.MotionEvent
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.ime.theme.ImeType
@@ -57,8 +58,8 @@ class EditBarView(context: Context) : LinearLayout(context) {
         minHeight = dp(36)
         maxHeight = lineHeight * 4 + paddingTop + paddingBottom
     }
-    private val cancel = btn("取消")
-    private val confirm = btn("确定")
+    private val cancel = btn(context.getString(R.string.editbar_cancel))
+    private val confirm = btn(context.getString(R.string.editbar_confirm))
 
     init {
         orientation = HORIZONTAL

@@ -43,7 +43,7 @@ enum class KeyAction {
 }
 
 data class Key(
-    val label: String,
+    val label: String = "",
     val output: String = label,
     val action: KeyAction = KeyAction.COMMIT,
     val sub: String? = null,
@@ -51,6 +51,7 @@ data class Key(
     val direct: Boolean = false,
     val accent: Boolean = false,
     val bold: Boolean = false,
+    val labelRes: Int? = null,
 )
 
 data class KeyboardRow(val keys: List<Key>)

@@ -38,22 +38,22 @@ class SymbolPanelRenderTest {
 
     private fun overlaps(): Map<String, List<String>> {
         val where = LinkedHashMap<String, MutableList<String>>()
-        for (c in SymbolCatalog.categories) for (s in c.symbols) where.getOrPut(s) { mutableListOf() }.add(c.title)
+        for (c in SymbolCatalog.categories) for (s in c.symbols) where.getOrPut(s) { mutableListOf() }.add(c.id)
         return where.filterValues { it.size > 1 }
     }
 
 
     @Test fun common_badge_shows_the_recorded_true_origin() {
-        val origin = mapOf("$" to "货币", "℃" to "角标", "π" to "希腊")
+        val origin = mapOf("$" to "currency", "℃" to "supsub", "π" to "greek")
         val sv = SymbolsView(ctx).apply {
             recentProvider = { listOf("$", "℃", "π") }
             recentOriginOf = { origin[it] }
             applyPalette(light)
             openCategoryForTest(0)
         }
-        assertEquals("货", sv.gridBadgeForTest("$"))
-        assertEquals("角", sv.gridBadgeForTest("℃"))
-        assertEquals("希", sv.gridBadgeForTest("π"))
+        assertEquals("C", sv.gridBadgeForTest("$"))
+        assertEquals("S", sv.gridBadgeForTest("℃"))
+        assertEquals("G", sv.gridBadgeForTest("π"))
     }
 
     @Test fun common_badge_falls_back_to_first_category_when_origin_missing() {
@@ -62,9 +62,9 @@ class SymbolPanelRenderTest {
             applyPalette(light)
             openCategoryForTest(0)
         }
-        assertEquals("英", sv.gridBadgeForTest("$"))
-        assertEquals("数", sv.gridBadgeForTest("℃"))
-        assertEquals("数", sv.gridBadgeForTest("π"))
+        assertEquals("E", sv.gridBadgeForTest("$"))
+        assertEquals("M", sv.gridBadgeForTest("℃"))
+        assertEquals("M", sv.gridBadgeForTest("π"))
     }
 
     @Test fun tapping_a_symbol_reports_the_tab_it_came_from() {
@@ -75,11 +75,11 @@ class SymbolPanelRenderTest {
         }
         sv.openCategoryForTest(idx("currency"))
         assertTrue(sv.tapCellForTest("$"))
-        assertEquals("$" to "货币", got)
+        assertEquals("$" to "currency", got)
 
         sv.openCategoryForTest(idx("math"))
         assertTrue(sv.tapCellForTest("π"))
-        assertEquals("π" to "数学", got)
+        assertEquals("π" to "math", got)
     }
 
     @Test fun every_overlapping_symbol_badges_its_recorded_origin_not_the_first_category() {
@@ -92,9 +92,9 @@ class SymbolPanelRenderTest {
             openCategoryForTest(0)
         }
         for ((sym, cats) in overlaps) {
-            val expected = cats.last().take(1)
+            val expected = ctx.getString(SymbolCatalog.titleResOf(cats.last())!!).take(1)
             assertEquals("badge of $sym must show its recorded origin ${cats.last()}", expected, sv.gridBadgeForTest(sym))
-            assertTrue("test setup: chosen origin is genuinely non-first for $sym", expected != cats.first().take(1))
+            assertTrue("test setup: chosen origin is genuinely non-first for $sym", cats.last() != cats.first())
         }
         assertEquals("every multi-category symbol covered", 39, overlaps.size)
     }
@@ -103,13 +103,13 @@ class SymbolPanelRenderTest {
         var got: Pair<String, String?>? = null
         val sv = SymbolsView(ctx).apply {
             recentProvider = { listOf("$") }
-            recentOriginOf = { if (it == "$") "货币" else null }
+            recentOriginOf = { if (it == "$") "currency" else null }
             onSymbol = { s, o -> got = s to o }
             applyPalette(light)
             openCategoryForTest(0)
         }
         assertTrue(sv.tapCellForTest("$"))
-        assertEquals("re-using a recent symbol keeps its real origin, not 常用", "$" to "货币", got)
+        assertEquals("re-using a recent symbol keeps its real origin, not the common tab", "$" to "currency", got)
     }
 
 
@@ -138,7 +138,7 @@ class SymbolPanelRenderTest {
                 if (sym.length != 1) continue
                 val tv = sv.gridGlyphForTest(sym) ?: continue
                 val expected = if (SymbolsView.wideMetricGlyph(sym[0])) shrunk else full
-                assertEquals("size of $sym in ${cat.title}", expected, tv.textSize, 0.5f)
+                assertEquals("size of $sym in ${cat.id}", expected, tv.textSize, 0.5f)
             }
         }
     }

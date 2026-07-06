@@ -125,10 +125,10 @@ class PanelResetOnExitTest {
         val ep = EditPanelView(ctx)
         ep.applyPalette(light)
         ep.setSelecting(true)
-        assertEquals("结束选择", ep.selectingLabelForTest())
+        assertEquals(ctx.getString(com.aegis.ime.R.string.edit_end_select), ep.selectingLabelForTest())
 
         ep.resetToDefault()
 
-        assertEquals("开始选择", ep.selectingLabelForTest())
+        assertEquals(ctx.getString(com.aegis.ime.R.string.edit_start_select), ep.selectingLabelForTest())
     }
 }

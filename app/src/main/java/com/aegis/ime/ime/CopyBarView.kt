@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
@@ -74,16 +75,16 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         if (!ctl.splitMode) {
             addView(content(ctl.content.orEmpty()), lp(0, WC, 1f))
             addView(divider(), lp(dp(1), dp(18)))
-            addView(pill("拆") { ctl.toggleSplit(); render() }, lp(WC, WC))
+            addView(pill(context.getString(R.string.copybar_split)) { ctl.toggleSplit(); render() }, lp(WC, WC))
         } else {
             val chips = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
             if (ctl.blocks.isEmpty()) chips.addView(TextView(context).apply {
-                text = "无可拆分内容"; setTextColor(palette.keyHint)
+                text = context.getString(R.string.copybar_no_splittable_content); setTextColor(palette.keyHint)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label); setPadding(dp(8), 0, dp(8), 0)
             })
             for (b in ctl.blocks) chips.addView(chip(b) { ctl.tapBlock(b) })
             addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, lp(0, WC, 1f))
-            addView(pill("收") { ctl.toggleSplit(); render() }, lp(WC, WC))
+            addView(pill(context.getString(R.string.copybar_collapse)) { ctl.toggleSplit(); render() }, lp(WC, WC))
         }
         addView(pill("×") { ctl.close() }, lp(dp(34), WC))
     }

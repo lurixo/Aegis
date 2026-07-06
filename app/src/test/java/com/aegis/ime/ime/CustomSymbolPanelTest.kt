@@ -60,7 +60,7 @@ class CustomSymbolPanelTest {
         var back = false
         val p = CustomSymbolPanel(ctx).apply { onBack = { back = true } }
         p.refresh()
-        assertTrue(click(p, "‹ 自定义标点"))
+        assertTrue(click(p, ctx.getString(com.aegis.ime.R.string.csp_back_title)))
         assertTrue(back)
     }
 }

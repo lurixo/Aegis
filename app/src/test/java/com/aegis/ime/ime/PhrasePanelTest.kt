@@ -86,9 +86,9 @@ class PhrasePanelTest {
     @Test fun expanded_phrase_card_action_row_is_edit_move_delete() {
         val v = phraseView().apply { expandForTest("你好") }
         val ls = labels(v)
-        assertTrue("编辑" in ls); assertTrue("移动" in ls); assertTrue("删除" in ls)
-        assertFalse("＋常用语 makes no sense for a phrase", ls.any { it.contains("常用语") && it.contains("＋") })
-        assertFalse("no 拆词 on a phrase", ls.any { it.contains("拆词") })
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_edit) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_move) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_delete) in ls)
+        assertFalse("＋常用语 makes no sense for a phrase", ls.any { it.contains(ctx.getString(com.aegis.ime.R.string.clip_phrases)) && it.contains("＋") })
+        assertFalse("no 拆词 on a phrase", ls.any { it.contains(ctx.getString(com.aegis.ime.R.string.clip_split_word)) })
     }
 
     @Test fun expanded_clipboard_card_keeps_add_split_delete() {
@@ -96,7 +96,7 @@ class PhrasePanelTest {
             historyProvider = { listOf("abc") }; applyPalette(pal); refresh(); expandForTest("abc")
         }
         val ls = labels(v)
-        assertTrue(ls.any { it.contains("常用语") }); assertTrue(ls.any { it.contains("拆词") }); assertTrue(ls.any { it.contains("删除") })
+        assertTrue(ls.any { it.contains(ctx.getString(com.aegis.ime.R.string.clip_phrases)) }); assertTrue(ls.any { it.contains(ctx.getString(com.aegis.ime.R.string.clip_split_word)) }); assertTrue(ls.any { it.contains(ctx.getString(com.aegis.ime.R.string.clip_delete)) })
     }
 
     @Test fun expanded_clipboard_action_row_wraps_actions_inside_left_center_right_slots() {
@@ -104,7 +104,7 @@ class PhrasePanelTest {
             historyProvider = { listOf("abc") }; applyPalette(pal); refresh(); expandForTest("abc")
         }
         val actions = textViews(v)
-            .filter { it.text?.toString() in setOf("常用语", "拆词", "删除") && it.compoundDrawables.any { d -> d != null } }
+            .filter { it.text?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_phrases), ctx.getString(com.aegis.ime.R.string.clip_split_word), ctx.getString(com.aegis.ime.R.string.clip_delete)) && it.compoundDrawables.any { d -> d != null } }
         assertEquals(3, actions.size)
         val gravities = actions.map { (it.layoutParams as android.widget.FrameLayout.LayoutParams).gravity }
         assertEquals(listOf(Gravity.START, Gravity.CENTER, Gravity.END), gravities)
@@ -114,14 +114,14 @@ class PhrasePanelTest {
     @Test fun edit_action_invokes_onEditPhrase() {
         var got: Pair<String, String>? = null
         val v = phraseView().apply { onEditPhrase = { c, t -> got = c to t }; expandForTest("你好") }
-        assertTrue(click(v, "编辑"))
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_edit)))
         assertEquals("默认" to "你好", got)
     }
 
     @Test fun move_action_opens_chooser_excluding_current_then_invokes_onMovePhrase() {
         var move: Triple<String, String, String>? = null
         val v = phraseView().apply { onMovePhrase = { f, t, to -> move = Triple(f, t, to) }; expandForTest("你好") }
-        assertTrue(click(v, "移动"))
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_move)))
         val chooser = labels(overlayOf(v))
         assertTrue("工作" in chooser); assertTrue("私人" in chooser)
         assertFalse("current category excluded", "默认" in chooser)
@@ -132,7 +132,7 @@ class PhrasePanelTest {
     @Test fun delete_action_invokes_onDeletePhrasesFrom() {
         var del: Pair<String, List<String>>? = null
         val v = phraseView().apply { onDeletePhrasesFrom = { c, l -> del = c to l }; expandForTest("你好") }
-        assertTrue(click(v, "删除"))
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_delete)))
         assertEquals("默认" to listOf("你好"), del)
     }
 
@@ -359,11 +359,11 @@ class PhrasePanelTest {
     @Test fun phrase_select_mode_title_and_batch_actions() {
         val v = phraseView().apply { enterSelectForTest(listOf("你好", "在吗")) }
         val ls = labels(v)
-        assertTrue("编辑常用语" in ls)
-        assertFalse("编辑剪贴板" in ls)
-        assertTrue("移动到分类" in ls)
-        assertTrue("删除" in ls)
-        assertFalse("添加常用语" in ls)
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_edit_phrases) in ls)
+        assertFalse(ctx.getString(com.aegis.ime.R.string.clip_edit_clipboard) in ls)
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_move_to_category) in ls)
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_delete) in ls)
+        assertFalse(ctx.getString(com.aegis.ime.R.string.clip_add_phrase) in ls)
     }
 
     @Test fun clipboard_select_mode_keeps_add_phrase_action() {
@@ -371,8 +371,8 @@ class PhrasePanelTest {
             historyProvider = { listOf("a", "b") }; applyPalette(pal); refresh(); enterSelectForTest(listOf("a"))
         }
         val ls = labels(v)
-        assertTrue("编辑剪贴板" in ls); assertTrue("添加常用语" in ls); assertTrue("删除" in ls)
-        assertFalse("移动到分类" in ls)
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_edit_clipboard) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_add_phrase) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_delete) in ls)
+        assertFalse(ctx.getString(com.aegis.ime.R.string.clip_move_to_category) in ls)
     }
 
     @Test fun batch_move_invokes_onMovePhrasesTo_with_selection_and_target() {
@@ -381,7 +381,7 @@ class PhrasePanelTest {
             onMovePhrasesTo = { f, list, to -> batch = Triple(f, list, to) }
             enterSelectForTest(listOf("你好", "稍等"))
         }
-        assertTrue(click(v, "移动到分类"))
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_move_to_category)))
         assertTrue(click(overlayOf(v), "工作"))
         assertEquals("默认", batch?.first)
         assertEquals(listOf("你好", "稍等"), batch?.second)
@@ -391,7 +391,7 @@ class PhrasePanelTest {
     @Test fun batch_delete_invokes_onDeletePhrasesFrom() {
         var del: Pair<String, List<String>>? = null
         val v = phraseView().apply { onDeletePhrasesFrom = { c, l -> del = c to l }; enterSelectForTest(listOf("你好")) }
-        assertTrue(click(v, "删除"))
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_delete)))
         assertEquals("默认", del?.first)
         assertEquals(listOf("你好"), del?.second)
     }
@@ -400,9 +400,9 @@ class PhrasePanelTest {
     @Test fun categorybar_pencil_menu_add_category_still_triggers_onAddCategory() {
         var adds = 0
         val v = phraseView().apply { onAddCategory = { adds++ } }
-        clickDesc(v, "添加常用语"); assertEquals("top-bar ＋ no longer creates a category", 0, adds)
-        assertTrue("categoryBar ✎", clickDesc(v, "管理常用语"))
-        assertTrue("✎ menu has 添加分类", click(overlayOf(v), "添加分类")); assertEquals(1, adds)
+        clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_add_phrase)); assertEquals("top-bar ＋ no longer creates a category", 0, adds)
+        assertTrue("categoryBar ✎", clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_manage_phrases)))
+        assertTrue("✎ menu has 添加分类", click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_add_category))); assertEquals(1, adds)
     }
 
     @Test fun category_chip_long_press_offers_inline_rename_and_delete() {
@@ -411,15 +411,15 @@ class PhrasePanelTest {
         val v = phraseView().apply { onRenameCategory = { renamed = it }; onDeleteCategory = { deleted = it } }
         val chip = textViews(v).first { it.text?.toString() == "工作" && it.hasOnClickListeners() }
         assertTrue(chip.performLongClick())
-        assertTrue(click(overlayOf(v), "重命名「工作」")); assertEquals("工作", renamed)
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_rename_named, "工作"))); assertEquals("工作", renamed)
         assertTrue(chip.performLongClick())
-        assertTrue(click(overlayOf(v), "删除「工作」")); assertEquals("工作", deleted)
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete_named, "工作"))); assertEquals("工作", deleted)
     }
 
 
     @Test fun top_bar_icons_are_uniform_size() {
         val v = phraseView()
-        val wanted = setOf("返回", "添加常用语", "多选", "清空分类")
+        val wanted = setOf(ctx.getString(com.aegis.ime.R.string.clip_back), ctx.getString(com.aegis.ime.R.string.clip_add_phrase), ctx.getString(com.aegis.ime.R.string.clip_multi_select), ctx.getString(com.aegis.ime.R.string.clip_clear_category))
         val icons = allViews(v).filter { it.contentDescription?.toString() in wanted && it.hasOnClickListeners() }
         assertEquals("all 4 phrase-tab top icons present", 4, icons.size)
         assertTrue("返回 is no longer a '‹' text glyph", textViews(v).none { it.text?.toString() == "‹" })
@@ -439,8 +439,8 @@ class PhrasePanelTest {
         var carried: List<String>? = null
         val v = clipboardView(listOf("hello"), listOf("默认")).apply { onAddCategoryThenAdd = { carried = it } }
         v.expandForTest("hello")
-        assertTrue(clickAction(v, "常用语"))
-        assertTrue(click(overlayOf(v), "＋ 新建分类…"))
+        assertTrue(clickAction(v, ctx.getString(com.aegis.ime.R.string.clip_phrases)))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_new_category)))
         assertEquals("the clip rides the inline new-category flow", listOf("hello"), carried)
     }
 
@@ -448,7 +448,7 @@ class PhrasePanelTest {
         var carried: List<String>? = null
         val v = clipboardView(listOf("hello"), emptyList()).apply { onAddCategoryThenAdd = { carried = it } }
         v.expandForTest("hello")
-        assertTrue(clickAction(v, "常用语"))
+        assertTrue(clickAction(v, ctx.getString(com.aegis.ime.R.string.clip_phrases)))
         assertEquals(listOf("hello"), carried)
     }
 
@@ -456,7 +456,7 @@ class PhrasePanelTest {
         var saved: Pair<String, List<String>>? = null
         val v = clipboardView(listOf("hello"), listOf("默认")).apply { onSaveAsPhrasesTo = { c, l -> saved = c to l } }
         v.expandForTest("hello")
-        assertTrue(clickAction(v, "常用语"))
+        assertTrue(clickAction(v, ctx.getString(com.aegis.ime.R.string.clip_phrases)))
         assertTrue(click(overlayOf(v), "默认"))
         assertEquals("默认" to listOf("hello"), saved)
     }
@@ -472,9 +472,9 @@ class PhrasePanelTest {
         var carried: Pair<String, List<String>>? = null
         val v = singleCatPhraseView().apply { onAddCategoryThenMove = { from, texts -> carried = from to texts } }
         v.expandForTest("你好")
-        assertTrue(click(v, "移动"))
-        assertTrue("no other category → offers 新建", "没有其它分类" in labels(overlayOf(v)))
-        assertTrue(click(overlayOf(v), "＋ 新建分类…"))
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_move)))
+        assertTrue("no other category → offers 新建", ctx.getString(com.aegis.ime.R.string.clip_no_other_categories) in labels(overlayOf(v)))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_new_category)))
         assertEquals("默认" to listOf("你好"), carried)
     }
 
@@ -482,7 +482,7 @@ class PhrasePanelTest {
         var moved: Triple<String, String, String>? = null
         val v = phraseView().apply { onMovePhrase = { f, t, to -> moved = Triple(f, t, to) } }
         v.expandForTest("你好")
-        assertTrue(click(v, "移动"))
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_move)))
         assertTrue(click(overlayOf(v), "工作"))
         assertEquals(Triple("默认", "你好", "工作"), moved)
     }

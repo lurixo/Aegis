@@ -15,6 +15,8 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.R
+
 import android.animation.ValueAnimator
 import android.content.Context
 import android.content.res.ColorStateList
@@ -57,7 +59,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     }
 
     private val titles: List<String> =
-        listOf(SymbolCatalog.RECENT_TITLE) + SymbolCatalog.categories.map { it.title }
+        listOf(context.getString(SymbolCatalog.RECENT_TITLE_RES)) + SymbolCatalog.categories.map { context.getString(it.titleRes) }
     private var selected = 0
     private var locked = false
     private var showingUrlCompletions = false
@@ -76,8 +78,8 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         addView(grid, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
     }
     private val gridScroll = ScrollView(context).apply { addView(gridHolder); isFillViewport = true }
-    private val backBtn = barButton("返回") { onBack() }
-    private val lockBtn = barButton("锁定") { toggleLock() }
+    private val backBtn = barButton(context.getString(R.string.panel_back)) { onBack() }
+    private val lockBtn = barButton(context.getString(R.string.panel_lock)) { toggleLock() }
     private val lockSlot = FrameLayout(context).apply {
         isClickable = true
         Motion.applyTapFeedback(this, palette.keyLabelSecondary)
@@ -264,10 +266,10 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         if (index == 0) recentProvider() else SymbolCatalog.categories[index - 1].symbols
 
     private fun originForCurrent(symbol: String): String? =
-        if (selected == 0) recentOriginOf(symbol) else SymbolCatalog.categories.getOrNull(selected - 1)?.title
+        if (selected == 0) recentOriginOf(symbol) else SymbolCatalog.categories.getOrNull(selected - 1)?.id
 
     private fun badgeFor(symbol: String): String? =
-        (recentOriginOf(symbol) ?: SymbolCatalog.categoryTitleOf(symbol))?.take(1)
+        (recentOriginOf(symbol) ?: SymbolCatalog.categoryIdOf(symbol))?.let { SymbolCatalog.titleResOf(it) }?.let { context.getString(it).take(1) }
 
     private fun railTab(index: Int, title: String): TextView = TextView(context).apply {
         text = title
@@ -341,7 +343,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     private fun obtainEmptySpan(): TextView = emptySpanView ?: emptySpan().also { emptySpanView = it }
 
     private fun emptySpan(): TextView = TextView(context).apply {
-        text = "最近使用的符号会显示在这里"
+        text = context.getString(R.string.symbols_empty_hint)
         gravity = Gravity.CENTER
         setTextColor(palette.keyHint)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
@@ -414,7 +416,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         val tint = if (locked) palette.candidateFirst else palette.keyLabelSecondary
         lockGlyph.closed = locked
         lockGlyph.tint(tint)
-        lockBtn.text = "锁定"
+        lockBtn.text = context.getString(R.string.panel_lock)
         lockBtn.setTextColor(tint)
         Motion.applyTapFeedback(lockBtn, tint)
         Motion.applyTapFeedback(lockSlot, tint)

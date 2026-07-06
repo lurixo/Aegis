@@ -71,8 +71,8 @@ class PanelIconAlignmentTest {
     @Test fun edit_panel_back_icon_matches_right_action_label_height() {
         val v = EditPanelView(ctx)
         val labels = textViews(v)
-        val title = labels.first { it.text.toString() == "文字编辑" }
-        val delete = labels.first { it.text.toString() == "删除" }
+        val title = labels.first { it.text.toString() == ctx.getString(com.aegis.ime.R.string.edit_title) }
+        val delete = labels.first { it.text.toString() == ctx.getString(com.aegis.ime.R.string.clip_delete) }
         val backIcon = title.compoundDrawables[0]
 
         assertNotNull("edit panel title must keep a leading back drawable", backIcon)

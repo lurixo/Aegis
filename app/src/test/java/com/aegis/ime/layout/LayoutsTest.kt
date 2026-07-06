@@ -91,7 +91,7 @@ class LayoutsTest {
         val composing = Layouts.nine(Lang.CN, Layouts.ninePunctuation(), composing = true)
         assertTrue(
             "composing 9-key top-left must be the 分词 key",
-            composing.cells!!.any { it.key.label == "分词" && it.key.action == KeyAction.SEGMENT },
+            composing.cells!!.any { it.key.labelRes == com.aegis.ime.R.string.kbd_split && it.key.action == KeyAction.SEGMENT },
         )
     }
 
@@ -110,18 +110,20 @@ class LayoutsTest {
     @Test fun nine_resting_left_column_is_the_full_punctuation_list() {
         val sc = Layouts.nine(Lang.CN, Layouts.ninePunctuation()).scrollColumn!!
         assertEquals(
-            listOf("，", "。", "？", "！", "…", "：", "；", "~", ".", "-", "@", "自定义"),
-            sc.items.map { it.label },
+            listOf("，", "。", "？", "！", "…", "：", "；", "~", ".", "-", "@"),
+            sc.items.dropLast(1).map { it.label },
         )
+        assertEquals(com.aegis.ime.R.string.kbd_custom, sc.items.last().labelRes)
         assertEquals(KeyAction.CUSTOM_SYMBOL, sc.items.last().action)
     }
 
     @Test fun nine_punctuation_inserts_custom_marks_before_the_自定义_entry() {
         val sc = Layouts.nine(Lang.CN, Layouts.ninePunctuation(listOf("、", "《"))).scrollColumn!!
         assertEquals(
-            listOf("，", "。", "？", "！", "…", "：", "；", "~", ".", "-", "@", "、", "《", "自定义"),
-            sc.items.map { it.label },
+            listOf("，", "。", "？", "！", "…", "：", "；", "~", ".", "-", "@", "、", "《"),
+            sc.items.dropLast(1).map { it.label },
         )
+        assertEquals(com.aegis.ime.R.string.kbd_custom, sc.items.last().labelRes)
         assertEquals(KeyAction.CUSTOM_SYMBOL, sc.items.last().action)
         assertTrue("custom marks commit directly", sc.items.filter { it.label in listOf("、", "《") }.all { it.direct })
     }
@@ -133,7 +135,7 @@ class LayoutsTest {
         assertTrue("default math operators present",
             listOf("+", "-", "×", "÷", "=", "(", ")", "%", ".").all { it in labels })
         assertTrue("custom operators appended after the defaults", listOf("√", "^").all { it in labels })
-        assertEquals("自定义 is the last entry", "自定义", labels.last())
+        assertEquals("custom entry (labelRes) is the last item", com.aegis.ime.R.string.kbd_custom, ops.last().labelRes)
         assertEquals("自定义 opens the operator panel", KeyAction.CUSTOM_OPERATOR, ops.last().action)
         assertTrue("every operator commits directly", ops.dropLast(1).all { it.direct })
     }
@@ -160,7 +162,7 @@ class LayoutsTest {
         assertTrue("9-key switch is via the startup setting, not a key", KeyAction.SWITCH_NINE !in actions)
         assertTrue("pen / symbols entry present", KeyAction.SHOW_SYMBOLS in actions)
         val pen = keysOf(qwerty).first { it.action == KeyAction.SHOW_SYMBOLS }
-        assertEquals("符号", pen.label)
+        assertEquals(com.aegis.ime.R.string.kbd_symbols, pen.labelRes)
     }
 
     @Test fun qwerty_pen_width_matches_the_adjacent_function_keys() {

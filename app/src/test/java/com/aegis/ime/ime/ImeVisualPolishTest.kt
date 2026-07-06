@@ -158,8 +158,8 @@ class ImeVisualPolishTest {
             applyPalette(palette)
             enterSelectForTest()
         }
-        val add = textView(v, "添加常用语")
-        val delete = textView(v, "删除")
+        val add = textView(v, ctx.getString(com.aegis.ime.R.string.clip_add_phrase))
+        val delete = textView(v, ctx.getString(com.aegis.ime.R.string.clip_delete))
         assertDisabledButton(add, palette)
         assertDisabledButton(delete, palette)
         assertEquals(palette.keyLabelSecondary, v.disabledActionTextColorForTest())
@@ -174,8 +174,8 @@ class ImeVisualPolishTest {
             forcePhrasesStateForTest("默认")
             enterSelectForTest()
         }
-        val move = textView(v, "移动到分类")
-        val delete = textView(v, "删除")
+        val move = textView(v, ctx.getString(com.aegis.ime.R.string.clip_move_to_category))
+        val delete = textView(v, ctx.getString(com.aegis.ime.R.string.clip_delete))
         assertDisabledButton(move, palette)
         assertDisabledButton(delete, palette)
     }

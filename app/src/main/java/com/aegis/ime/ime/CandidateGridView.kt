@@ -15,6 +15,8 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.R
+
 import android.animation.ValueAnimator
 import android.content.Context
 import android.content.res.ColorStateList
@@ -93,7 +95,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             LayoutParams(0, LayoutParams.MATCH_PARENT, 1f),
         )
         rightColumn.setBackgroundColor(palette.keyboardBg)
-        rightColumn.addView(funcButton("返回") { onClose() }, rowAlignedLp(0))
+        rightColumn.addView(funcButton(context.getString(R.string.panel_back)) { onClose() }, rowAlignedLp(0))
         rightColumn.addView(
             backspaceButton().apply {
                 setCompoundDrawablesWithIntrinsicBounds(null, backspaceGlyph, null, null)
@@ -101,7 +103,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             },
             centeredLp(),
         )
-        rightColumn.addView(funcButton("重输") { onClear() }, rowAlignedLp(4))
+        rightColumn.addView(funcButton(context.getString(R.string.kbd_redo)) { onClear() }, rowAlignedLp(4))
         addView(rightColumn, LayoutParams(dp(64), LayoutParams.MATCH_PARENT))
     }
 

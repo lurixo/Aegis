@@ -109,11 +109,11 @@ class PanelRecyclingTest {
         val recent = listOf("$")
         val v = SymbolsView(ctx).apply {
             recentProvider = { recent }
-            recentOriginOf = { if (it == "$") "货币" else null }
+            recentOriginOf = { if (it == "$") "currency" else null }
             applyPalette(light)
         }
         v.openCategoryForTest(0)
-        assertEquals("货", v.gridBadgeForTest("$"))
+        assertEquals("C", v.gridBadgeForTest("$"))
         val catId = SymbolCatalog.categories[0].id
         val firstCatSymbol = SymbolCatalog.categories[0].symbols.first { it.length == 1 }
         v.openCategoryForTest(idx(catId))
@@ -130,7 +130,7 @@ class PanelRecyclingTest {
         assertTrue(v.tapCellForTest(sym))
         assertEquals(
             "a recycled tile reports its current tab as the tap origin",
-            SymbolCatalog.categories[catNo].title,
+            SymbolCatalog.categories[catNo].id,
             tappedOrigin,
         )
     }

@@ -209,7 +209,7 @@ class ClipboardViewInteractionTest {
             historyProvider = { listOf(text) }; onCopyBlockToAegis = { collected.add(it) }; applyPalette(pal); refresh()
         }
         v.showSplitForTest(text)
-        assertTrue(clickText(overlayOf(v), "全部复制"))
+        assertTrue(clickText(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_copy_all)))
         assertEquals("每块各写一条 (N 条), not 1 merged entry", blocks.size, collected.size)
         assertEquals("the blocks recorded are exactly the split blocks", blocks.toSet(), collected.toSet())
     }
@@ -219,8 +219,8 @@ class ClipboardViewInteractionTest {
         val v = phraseView(listOf("你好"))
         v.showPhraseManageMenuForTest()
         val ls = labels(overlayOf(v))
-        assertTrue("「移动分类」present", "移动分类" in ls)
-        assertFalse("the bare 「移动」 label is gone", ls.any { it == "移动" })
+        assertTrue("「移动分类」present", ctx.getString(com.aegis.ime.R.string.clip_move_category) in ls)
+        assertFalse("the bare 「移动」 label is gone", ls.any { it == ctx.getString(com.aegis.ime.R.string.clip_move) })
     }
 
 
@@ -228,9 +228,9 @@ class ClipboardViewInteractionTest {
         var clears = 0
         val v = clipView(listOf("第一条")).apply { onClearHistory = { clears++ } }
         layout(v)
-        assertTrue("tap the clear-history icon", clickDesc(v, "清空剪贴板历史"))
+        assertTrue("tap the clear-history icon", clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_clear_history)))
         assertEquals("top icon does not clear immediately", 0, clears)
-        assertTrue(clickText(overlayOf(v), "清空"))
+        assertTrue(clickText(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_clear)))
         assertEquals("confirming clears history", 1, clears)
         assertFalse("old settings gear is gone", allViews(v).any { it.contentDescription?.toString() == "设置" })
     }

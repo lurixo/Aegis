@@ -16,14 +16,14 @@ the typing path.**
 **English** · [简体中文](README.zh-CN.md)
 
 <p align="center">
-  <img src="docs/screenshots/keyboard-qwerty.png" alt="26-key full-pinyin keyboard" width="330">
-  <img src="docs/screenshots/keyboard-t9.png" alt="9-key T9 keyboard" width="330">
+  <img src="docs/screenshots/en/keyboard-qwerty.png" alt="26-key full-pinyin keyboard" width="330">
+  <img src="docs/screenshots/en/keyboard-t9.png" alt="9-key T9 keyboard" width="330">
 </p>
 <p align="center">
-  <img src="docs/screenshots/emoji.png" alt="Emoji selector" width="200">
-  <img src="docs/screenshots/clipboard.png" alt="Clipboard history and saved phrases" width="200">
-  <img src="docs/screenshots/symbols.png" alt="Symbol panel" width="200">
-  <img src="docs/screenshots/settings.png" alt="Settings" width="200">
+  <img src="docs/screenshots/en/emoji.png" alt="Emoji selector" width="200">
+  <img src="docs/screenshots/en/clipboard.png" alt="Clipboard history and saved phrases" width="200">
+  <img src="docs/screenshots/en/symbols.png" alt="Symbol panel" width="200">
+  <img src="docs/screenshots/en/settings.png" alt="Settings" width="200">
 </p>
 
 ## Contents

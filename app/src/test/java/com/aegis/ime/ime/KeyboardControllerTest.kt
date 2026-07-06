@@ -462,10 +462,11 @@ class KeyboardControllerTest {
         val c = KeyboardController(FakeHost(), engine)
         c.onKey(act(KeyAction.SWITCH_NINE))
         c.setCustomSymbols(listOf("、", "《"))
-        val labels = c.nineLeftColumn().map { it.label }
+        val col = c.nineLeftColumn()
+        val labels = col.map { it.label }
         assertTrue("、 present", "、" in labels)
         assertTrue("《 present", "《" in labels)
-        assertEquals("自定义 stays last", "自定义", labels.last())
+        assertEquals("custom key stays last", com.aegis.ime.R.string.kbd_custom, col.last().labelRes)
     }
 
     @Test fun nine_left_column_ni_full_scroll_list_matches_reference() {
