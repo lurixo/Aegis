@@ -33,7 +33,7 @@ jobs:
       # Verify the checked-in gradle-wrapper.jar against Gradle's published checksums,
       # so a tampered wrapper cannot run arbitrary code in CI.
       - name: Validate Gradle wrapper
-        uses: gradle/actions/wrapper-validation@v4
+        uses: gradle/actions/wrapper-validation@v6
 
       # Provide sdkmanager and accept the SDK licenses on the runner.
       - name: Set up Android SDK
@@ -50,7 +50,7 @@ jobs:
 
       # Restore/save the Gradle dependency and build cache across runs.
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Build, test & lint
         run: ./gradlew :app:testDebugUnitTest :app:lintDebug assembleDebug --stacktrace
