@@ -15,6 +15,8 @@
 
 package com.aegis.ime.ui
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.aegis.ime.R
@@ -63,7 +66,18 @@ internal fun LicensesPage(onBack: () -> Unit) {
 @Composable
 private fun LicenseCard(item: LicenseItem) {
     val modifiedLabel = stringResource(R.string.licenses_modified)
-    Card(modifier = Modifier.fillMaxWidth()) {
+    val context = LocalContext.current
+    Card(
+        onClick = {
+            runCatching {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse(item.url))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
+        },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -72,7 +86,7 @@ private fun LicenseCard(item: LicenseItem) {
             val meta = "${item.copyright} · ${item.license}" + if (item.modified) " · $modifiedLabel" else ""
             Text(meta, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             Text(stringResource(item.noteRes), style = MaterialTheme.typography.bodySmall)
-            Text(item.url, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("${item.url} ↗", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
         }
     }
 }

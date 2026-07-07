@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ui
 
+import android.content.Intent
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -23,12 +24,14 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import com.aegis.ime.R
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
@@ -97,5 +100,23 @@ class LicensesTest {
         compose.onNodeWithContentDescription(s(R.string.settings_back)).performScrollTo().performClick()
         compose.waitForIdle()
         assertTrue("back arrow finishes the licenses Activity", compose.activity.isFinishing)
+    }
+
+    private val expectedLinks = listOf(
+        R.string.license_wanxiang_name to "https://github.com/amzxyz/rime-wanxiang",
+        R.string.license_octagram_name to "https://github.com/amzxyz/RIME-LMDG",
+        R.string.license_opencc_name to "https://github.com/BYVoid/OpenCC",
+        R.string.license_emoji_name to "https://www.unicode.org/license.txt",
+        R.string.license_androidx_name to "https://developer.android.com/jetpack/androidx",
+    )
+
+    @Test fun each_component_card_taps_through_to_its_upstream_url() {
+        for ((nameId, url) in expectedLinks) {
+            compose.onNodeWithText(s(nameId)).performScrollTo().performClick()
+            compose.waitForIdle()
+            val started = shadowOf(compose.activity).nextStartedActivity
+            assertEquals("$url must open via a view intent", Intent.ACTION_VIEW, started?.action)
+            assertEquals("card opens its own upstream url", url, started?.dataString)
+        }
     }
 }
