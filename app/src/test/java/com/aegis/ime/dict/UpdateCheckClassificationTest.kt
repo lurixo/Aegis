@@ -79,13 +79,13 @@ class UpdateCheckClassificationTest {
 
 
     @Test
-    fun dictionaryCheckOverAValidReleasesArrayReturnsRealVerdict() {
-        val update = ModelDownload.dictionaryUpdateFromFetch({ releasesArray(sha2) }, ModelDownload.DictionaryInstallMetadata())
+    fun dictionaryCheckOverTheDictLatestTagReturnsRealVerdict() {
+        val update = ModelDownload.dictionaryUpdateFromFetch({ dictLatestRelease(sha2) }, ModelDownload.DictionaryInstallMetadata())
         assertEquals(ModelDownload.UpdateCheck.UPDATE, update.state)
         assertEquals(sha2, update.asset?.sha256)
 
         val current = ModelDownload.dictionaryUpdateFromFetch(
-            { releasesArray(sha2) },
+            { dictLatestRelease(sha2) },
             ModelDownload.DictionaryInstallMetadata(sha256 = sha2, publishedAt = PUBLISHED),
         )
         assertEquals(ModelDownload.UpdateCheck.UP_TO_DATE, current.state)
@@ -192,24 +192,34 @@ class UpdateCheckClassificationTest {
         }
     }
 
-    private fun releasesArray(sha256: String, tag: String = "v0.1.0-debug.60"): String =
+    private fun dictLatestRelease(sha256: String, tag: String = "dict-latest"): String =
         """
-        [
-          {
-            "tag_name": "$tag",
-            "html_url": "https://github.com/lurixo/Aegis/releases/tag/$tag",
-            "prerelease": true,
-            "published_at": "$PUBLISHED",
-            "assets": [
-              {
-                "name": "aegis_dict_pack_$tag.zip",
-                "size": 123456,
-                "digest": "sha256:$sha256",
-                "browser_download_url": "https://github.com/lurixo/Aegis/releases/download/$tag/aegis_dict_pack_$tag.zip"
-              }
-            ]
-          }
-        ]
+        {
+          "tag_name": "$tag",
+          "html_url": "https://github.com/lurixo/Aegis/releases/tag/$tag",
+          "prerelease": true,
+          "published_at": "$PUBLISHED",
+          "assets": [
+            {
+              "name": "aegis-build-info.json",
+              "size": 8250,
+              "digest": "sha256:${"a".repeat(64)}",
+              "browser_download_url": "https://github.com/lurixo/Aegis/releases/download/$tag/aegis-build-info.json"
+            },
+            {
+              "name": "aegis-dictionary-update.json",
+              "size": 698,
+              "digest": "sha256:${"b".repeat(64)}",
+              "browser_download_url": "https://github.com/lurixo/Aegis/releases/download/$tag/aegis-dictionary-update.json"
+            },
+            {
+              "name": "aegis_dict_pack_$tag.zip",
+              "size": 97927377,
+              "digest": "sha256:$sha256",
+              "browser_download_url": "https://github.com/lurixo/Aegis/releases/download/$tag/aegis_dict_pack_$tag.zip"
+            }
+          ]
+        }
         """.trimIndent()
 
     private companion object {

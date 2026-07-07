@@ -82,7 +82,7 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
         status = LocalizedText.Resource(R.string.download_status_downloading)
         var lastPct = -1
         Thread {
-            val selected = asset ?: ModelDownload.resolveDictionaryDownloadAsset(ModelDownload.DictionaryInstallMetadata())
+            val selected = asset ?: ModelDownload.resolveDictionaryDownloadAsset()
             val result = ModelDownload.download(selected.url, zip) { done, total ->
                 if (total > 0) {
                     val pct = (done * 100 / total).toInt()
