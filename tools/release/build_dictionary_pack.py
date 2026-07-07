@@ -268,7 +268,7 @@ def update_payload(build_info_json):
 
 def main(argv):
     parser = argparse.ArgumentParser(description="Build the latest Aegis full dictionary release pack.")
-    parser.add_argument("--release-tag", required=True, help="GitHub release tag that will host the dictionary asset.")
+    parser.add_argument("--release-tag", required=True, help="GitHub release tag that will host the dictionary asset (use dict-latest for the rolling production dictionary pack).")
     parser.add_argument("--output-dir", default="build/release-dictionary", help="Directory for generated artifacts.")
     parser.add_argument("--source-dir", help="Existing rime-wanxiang checkout to use instead of cloning.")
     parser.add_argument("--source-repo", default="https://github.com/amzxyz/rime-wanxiang.git")
@@ -356,7 +356,7 @@ def main(argv):
     print(zip_path)
     print(output_dir / "aegis-build-info.json")
     print(output_dir / "aegis-dictionary-update.json")
-    print("\nUpload these files to the same GitHub release as the APK; this script does not upload or tag.")
+    print("\nUpload these files to the rolling dict-latest GitHub release; this script does not upload or tag.")
     return 0
 
 
