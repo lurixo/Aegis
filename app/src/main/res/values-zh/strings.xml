@@ -33,6 +33,8 @@
     <string name="download_status_downloading">下载中…</string>
     <string name="download_status_checking_update">正在检查更新…</string>
     <string name="download_toast_update_offline">无法检查更新（网络不可用）</string>
+    <string name="download_toast_update_server_error">无法检查更新（服务器暂时不可用，请稍后重试）</string>
+    <string name="download_toast_update_parse_error">无法检查更新（服务器返回的数据无法解析）</string>
     <string name="download_toast_up_to_date">已是最新，无更新</string>
     <string name="download_toast_update_found">发现更新，开始更新</string>
     <string name="download_storage_format">存放位置：%1$s（应用私有目录，文件管理器不可见，仅本机、可删除）。</string>

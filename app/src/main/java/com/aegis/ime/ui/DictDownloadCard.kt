@@ -114,6 +114,11 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
         }.apply { isDaemon = true }.start()
     }
 
+    fun showCheckFailure(msgRes: Int) {
+        status = LocalizedText.Resource(msgRes)
+        Toast.makeText(context, msgRes, Toast.LENGTH_SHORT).show()
+    }
+
     fun checkUpdate() {
         checking = true
         Thread {
@@ -122,10 +127,9 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
                 checking = false
                 when (if (present) checked.state else null) {
                     null -> {}
-                    ModelDownload.UpdateCheck.OFFLINE -> {
-                        status = LocalizedText.Resource(R.string.download_toast_update_offline)
-                        Toast.makeText(context, R.string.download_toast_update_offline, Toast.LENGTH_SHORT).show()
-                    }
+                    ModelDownload.UpdateCheck.OFFLINE -> showCheckFailure(R.string.download_toast_update_offline)
+                    ModelDownload.UpdateCheck.SERVER_ERROR -> showCheckFailure(R.string.download_toast_update_server_error)
+                    ModelDownload.UpdateCheck.PARSE_ERROR -> showCheckFailure(R.string.download_toast_update_parse_error)
                     ModelDownload.UpdateCheck.UP_TO_DATE -> {
                         status = LocalizedText.Resource(R.string.dict_status_update_current)
                         Toast.makeText(context, R.string.download_toast_up_to_date, Toast.LENGTH_SHORT).show()

@@ -87,7 +87,33 @@ object ModelDownload {
         }
     }
 
-    fun remoteValidator(url: String): String? {
+    enum class CheckFailure { OFFLINE, SERVER, PARSE }
+
+    enum class UpdateCheck { OFFLINE, UP_TO_DATE, UPDATE, SERVER_ERROR, PARSE_ERROR }
+
+    private fun CheckFailure.toUpdateCheck(): UpdateCheck = when (this) {
+        CheckFailure.OFFLINE -> UpdateCheck.OFFLINE
+        CheckFailure.SERVER -> UpdateCheck.SERVER_ERROR
+        CheckFailure.PARSE -> UpdateCheck.PARSE_ERROR
+    }
+
+    class HttpStatusException(val code: Int) : IOException("HTTP $code")
+
+    internal fun classifyRequestFailure(t: Throwable): CheckFailure = when (t) {
+        is HttpStatusException -> CheckFailure.SERVER
+        is java.net.UnknownHostException -> CheckFailure.OFFLINE
+        is java.net.NoRouteToHostException -> CheckFailure.OFFLINE
+        is java.net.PortUnreachableException -> CheckFailure.OFFLINE
+        is java.net.ConnectException -> CheckFailure.OFFLINE
+        else -> CheckFailure.SERVER
+    }
+
+    sealed interface ValidatorProbe {
+        data class Reached(val validator: String?) : ValidatorProbe
+        data class Failed(val failure: CheckFailure) : ValidatorProbe
+    }
+
+    fun remoteValidatorProbe(url: String): ValidatorProbe {
         var conn: HttpURLConnection? = null
         return try {
             conn = (URL(url).openConnection() as HttpURLConnection).apply {
@@ -96,12 +122,15 @@ object ModelDownload {
                 connectTimeout = 20_000
                 readTimeout = 20_000
             }
-            if (conn.responseCode !in 200..299) null
-            else conn.getHeaderField("ETag")
-                ?: conn.getHeaderField("Last-Modified")
-                ?: conn.contentLengthLong.takeIf { it > 0L }?.let { "size:$it" }
+            val code = conn.responseCode
+            if (code !in 200..299) ValidatorProbe.Failed(CheckFailure.SERVER)
+            else ValidatorProbe.Reached(
+                conn.getHeaderField("ETag")
+                    ?: conn.getHeaderField("Last-Modified")
+                    ?: conn.contentLengthLong.takeIf { it > 0L }?.let { "size:$it" },
+            )
         } catch (e: Exception) {
-            null
+            ValidatorProbe.Failed(classifyRequestFailure(e))
         } finally {
             conn?.disconnect()
         }
@@ -109,13 +138,16 @@ object ModelDownload {
 
     fun updateAvailable(local: String?, remote: String?): Boolean = !(remote != null && remote == local)
 
-    enum class UpdateCheck { OFFLINE, UP_TO_DATE, UPDATE }
-
-    fun updateAction(present: Boolean, local: String?, remote: String?): UpdateCheck? = when {
-        !present -> null
-        remote == null -> UpdateCheck.OFFLINE
-        remote == local -> UpdateCheck.UP_TO_DATE
-        else -> UpdateCheck.UPDATE
+    fun modelUpdateAction(present: Boolean, local: String?, probe: ValidatorProbe): UpdateCheck? {
+        if (!present) return null
+        return when (probe) {
+            is ValidatorProbe.Failed -> probe.failure.toUpdateCheck()
+            is ValidatorProbe.Reached -> when {
+                probe.validator == null -> UpdateCheck.SERVER_ERROR
+                probe.validator == local -> UpdateCheck.UP_TO_DATE
+                else -> UpdateCheck.UPDATE
+            }
+        }
     }
 
     fun purge(filesDir: File): Boolean {
@@ -214,8 +246,23 @@ object ModelDownload {
             ?: FALLBACK_DICT_ASSET
 
     fun checkDictionaryUpdate(current: DictionaryInstallMetadata): DictionaryUpdateCheck =
-        runCatching { dictionaryUpdateFromReleasesJson(fetchText(DICT_RELEASES_API_URL), current) }
-            .getOrDefault(DictionaryUpdateCheck(UpdateCheck.OFFLINE))
+        dictionaryUpdateFromFetch({ fetchText(DICT_RELEASES_API_URL) }, current)
+
+    internal fun dictionaryUpdateFromFetch(
+        fetch: () -> String,
+        current: DictionaryInstallMetadata,
+    ): DictionaryUpdateCheck {
+        val json = try {
+            fetch()
+        } catch (t: Exception) {
+            return DictionaryUpdateCheck(classifyRequestFailure(t).toUpdateCheck())
+        }
+        return try {
+            dictionaryUpdateFromReleasesJson(json, current)
+        } catch (t: Exception) {
+            DictionaryUpdateCheck(UpdateCheck.PARSE_ERROR)
+        }
+    }
 
     internal fun dictionaryUpdateFromReleasesJson(
         releasesJson: String,
@@ -327,7 +374,7 @@ object ModelDownload {
 
     private fun instantOrNull(value: String): Instant? = runCatching { Instant.parse(value) }.getOrNull()
 
-    private fun fetchText(url: String): String {
+    internal fun fetchText(url: String): String {
         var conn: HttpURLConnection? = null
         return try {
             conn = (URL(url).openConnection() as HttpURLConnection).apply {
@@ -338,7 +385,7 @@ object ModelDownload {
                 setRequestProperty("Accept", "application/vnd.github+json")
                 setRequestProperty("User-Agent", "Aegis-resource-updater")
             }
-            if (conn.responseCode !in 200..299) throw IOException("GET $url failed: ${conn.responseCode}")
+            if (conn.responseCode !in 200..299) throw HttpStatusException(conn.responseCode)
             conn.inputStream.bufferedReader().use { it.readText() }
         } finally {
             conn?.disconnect()
