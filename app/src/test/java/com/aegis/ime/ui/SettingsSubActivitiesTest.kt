@@ -15,8 +15,10 @@
 
 package com.aegis.ime.ui
 
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -49,6 +51,11 @@ class InputSettingsActivityTest {
         compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).performScrollTo().performClick()
         compose.waitForIdle()
         assertTrue("back arrow finishes the Activity", compose.activity.isFinishing)
+    }
+
+    @Test fun back_affordance_is_the_drawn_chevron_not_a_thin_text_glyph() {
+        compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).assertExists()
+        compose.onAllNodesWithText("‹").assertCountEquals(0)
     }
 }
 

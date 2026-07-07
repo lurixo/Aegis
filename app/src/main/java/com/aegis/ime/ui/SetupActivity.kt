@@ -17,6 +17,7 @@ package com.aegis.ime.ui
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Paint
 import android.os.Bundle
 import android.provider.Settings
 import android.view.View
@@ -26,6 +27,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.ScrollState
@@ -38,12 +40,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -63,7 +67,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.input.pointer.pointerInput
@@ -77,6 +86,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.aegis.ime.ime.Glyphs
 import com.aegis.ime.R
 import com.aegis.ime.ui.theme.AegisTheme
 import com.aegis.ime.ui.theme.SettingsMotion
@@ -236,16 +246,40 @@ private fun SettingsGroupCard(titleRes: Int, descRes: Int, onClick: () -> Unit) 
 @Composable
 internal fun SettingsPageHeader(title: String, onBack: () -> Unit) {
     val backLabel = stringResource(R.string.settings_back)
+    val iconColor = LocalContentColor.current
     Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton(
             onClick = onBack,
             modifier = Modifier.semantics { contentDescription = backLabel },
         ) {
-            Text("‹", style = MaterialTheme.typography.headlineMedium)
+            BackChevron(color = iconColor)
         }
         Text(title, style = MaterialTheme.typography.headlineSmall)
     }
 }
+
+@Composable
+private fun BackChevron(color: Color) {
+    val argb = color.toArgb()
+    val strokePx = with(LocalDensity.current) { SETTINGS_BACK_ICON_STROKE.toPx() }
+    Canvas(modifier = Modifier.size(SETTINGS_BACK_ICON_BOX)) {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = argb
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+            strokeWidth = strokePx
+        }
+        val s = size.minDimension * SETTINGS_BACK_ICON_S_FACTOR
+        drawIntoCanvas { canvas ->
+            Glyphs.drawBack(canvas.nativeCanvas, paint, size.width / 2f, size.height / 2f, s)
+        }
+    }
+}
+
+private val SETTINGS_BACK_ICON_BOX = 24.dp
+private const val SETTINGS_BACK_ICON_S_FACTOR = 0.56f
+private val SETTINGS_BACK_ICON_STROKE = 2.dp
 
 @Composable
 internal fun SettingsPageColumn(title: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
