@@ -229,6 +229,9 @@
 
     <string name="settings_backup_title">Data backup</string>
     <string name="settings_backup_desc">Export or import all your data as an encrypted file</string>
+    <string name="backup_password_empty">Enter a password</string>
+    <string name="backup_password_too_short">Use at least 6 characters</string>
+    <string name="backup_password_mismatch">Passwords do not match</string>
     <string name="restore_gate_rollback_failed">Restore unfinished — undo failed, tap here</string>
     <string name="restore_gate_rollback_impossible">Restore unfinished — cannot undo, tap here</string>
 

@@ -227,6 +227,9 @@
 
     <string name="settings_backup_title">数据备份</string>
     <string name="settings_backup_desc">将全部数据导出或导入为加密文件</string>
+    <string name="backup_password_empty">请输入密码</string>
+    <string name="backup_password_too_short">至少 6 个字符</string>
+    <string name="backup_password_mismatch">两次密码不一致</string>
     <string name="restore_gate_rollback_failed">恢复没做完，撤销失败，点这里</string>
     <string name="restore_gate_rollback_impossible">恢复没做完，无法撤销，点这里</string>
 
