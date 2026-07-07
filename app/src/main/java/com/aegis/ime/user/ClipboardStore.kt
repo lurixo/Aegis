@@ -164,6 +164,8 @@ class ClipboardStore(private val dir: File) {
 
     private val tmpTag = TMP_TAGS.incrementAndGet()
 
+    internal fun owns(other: File): Boolean = dir == other
+
     internal fun tempFileFor(dest: File): File = AtomicFileSwap.stagingFor(dest, tmpTag)
 
     private val history = ArrayList<ClipEntry>()

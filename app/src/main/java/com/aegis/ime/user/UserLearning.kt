@@ -656,6 +656,10 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
             return sb.toString()
         }
 
+        internal fun validateText(text: String) {
+            text.reader().buffered().use(::parse)
+        }
+
         private fun parse(file: File): Parsed {
             if (!file.exists() || file.length() == 0L) return Parsed()
             return file.bufferedReader().use(::parse)

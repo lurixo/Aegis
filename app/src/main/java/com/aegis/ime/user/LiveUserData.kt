@@ -15,6 +15,8 @@
 
 package com.aegis.ime.user
 
+import java.io.File
+
 object LiveUserData {
     @Volatile
     var onRestored: (() -> Unit)? = null
@@ -40,6 +42,32 @@ object LiveUserData {
     internal fun flushBeforeExport() {
         val hook = synchronized(clipboardPersistenceHookLock) { beforeExportHook }
         hook?.invoke()
+    }
+
+    internal fun flushBeforeRestore() {
+        val hook = synchronized(clipboardPersistenceHookLock) { beforeRestoreHook }
+        hook?.invoke()
+    }
+
+    internal fun unregisterClipboardPersistenceHooks(flush: () -> Unit) {
+        val shouldFlush = synchronized(clipboardPersistenceHookLock) {
+            beforeExportHook === flush || beforeRestoreHook === flush
+        }
+        if (shouldFlush) runCatching { flush() }
+        synchronized(clipboardPersistenceHookLock) {
+            if (beforeExportHook === flush) beforeExportHook = null
+            if (beforeRestoreHook === flush) beforeRestoreHook = null
+        }
+    }
+
+    internal fun <T> withClipboardStore(dir: File, work: (ClipboardStore) -> T): T {
+        clipboardHost?.takeIf { it.owns(dir) }?.let { return work(it) }
+        val own = ClipboardStore(dir).also { it.load() }
+        return try {
+            work(own)
+        } finally {
+            own.stopSaving()
+        }
     }
 
     @Volatile

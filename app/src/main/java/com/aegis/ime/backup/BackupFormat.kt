@@ -44,6 +44,12 @@ internal enum class BackupError {
     WRONG_PASSWORD_OR_CORRUPT,
 
     IO_ERROR,
+
+    DAMAGED_CONTENT,
+
+    ALREADY_RESTORING,
+
+    ROLLBACK_FAILED,
 }
 
 internal class BackupException(
