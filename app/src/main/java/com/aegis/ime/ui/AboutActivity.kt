@@ -45,6 +45,9 @@ class AboutActivity : ComponentActivity() {
                         onOpenLicenses = {
                             navOnce { startActivity(Intent(this@AboutActivity, LicensesActivity::class.java)) }
                         },
+                        onOpenBackup = {
+                            navOnce { startActivity(Intent(this@AboutActivity, BackupActivity::class.java)) }
+                        },
                     )
                 }
             }

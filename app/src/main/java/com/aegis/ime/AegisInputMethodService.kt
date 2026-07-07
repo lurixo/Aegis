@@ -52,6 +52,7 @@ import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.SymbolCatalog
 import com.aegis.ime.user.ClipboardStore
 import com.aegis.ime.user.CustomSymbolStore
+import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.LiveUserDictHost
 import com.aegis.ime.user.SymbolUsageStore
 import com.aegis.ime.user.UserDictHot
@@ -106,6 +107,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var pendingMoveFrom = ""
     private var pendingMoveTexts: List<String> = emptyList()
     private val clipboardStore by lazy { ClipboardStore(filesDir).also { it.load() } }
+    private val clipboardExportFlush: () -> Unit = { clipboardStore.flushPendingWrites() }
     private val symbolUsageStore by lazy { SymbolUsageStore(filesDir).also { it.load() } }
     private val emojiUsageStore by lazy { SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).also { it.load() } }
     @Volatile private var secureField = false
@@ -174,6 +176,16 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             getSharedPreferences("aegis", MODE_PRIVATE)
                 .registerOnSharedPreferenceChangeListener(settingsHotApply)
         }
+        LiveUserData.restoreInProgress = false
+        LiveUserData.onRestored = {
+            mainHandler.post {
+                runCatching { clipboardStore.load() }
+                runCatching { symbolUsageStore.load() }
+                runCatching { emojiUsageStore.load() }
+                LiveUserData.restoreInProgress = false
+            }
+        }
+        LiveUserData.onBeforeExport = clipboardExportFlush
         controller = KeyboardController(this, DictEngine(null, null, null), decodeLane)
         controller.onShowEmoji = { showEmojiPanel() }
         controller.onShowClipboard = { showClipboardPanel() }
@@ -692,6 +704,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun captureClip() {
+        if (LiveUserData.restoreInProgress) return
         if (!com.aegis.ime.user.ClipboardStore.shouldCapture(historyEnabled())) return
         runCatching {
             val clip = clipboardManager.primaryClip ?: return
@@ -702,6 +715,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun onSystemClipChanged() {
+        if (LiveUserData.restoreInProgress) return
         if (!com.aegis.ime.user.ClipboardPolicy.shouldReadSystemClip(false, historyEnabled())) return
         val clip = runCatching { clipboardManager.primaryClip }.getOrNull() ?: return
         if (clip.itemCount == 0) return
@@ -751,6 +765,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         runCatching { decodeWorker.shutdownNow() }
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
         if (UserDictHot.host === liveUserDictHost) UserDictHot.host = null
+        if (LiveUserData.onBeforeExport === clipboardExportFlush) LiveUserData.onBeforeExport = null
+        LiveUserData.onRestored = null
+        LiveUserData.restoreInProgress = false
         runCatching {
             getSharedPreferences("aegis", MODE_PRIVATE)
                 .unregisterOnSharedPreferenceChangeListener(settingsHotApply)

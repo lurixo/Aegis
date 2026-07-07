@@ -45,7 +45,7 @@ class ClipboardStoreTest {
 
     @Test fun multiline_clip_survives_persist_roundtrip() {
         val dir = newDir()
-        ClipboardStore(dir).apply { load(); record("line1\nline2"); awaitWritesForTest() }
+        ClipboardStore(dir).apply { load(); record("line1\nline2"); flushPendingWrites() }
         val reloaded = ClipboardStore(dir).apply { load() }
         assertEquals("line1\nline2", reloaded.history().first())
     }
@@ -80,7 +80,7 @@ class ClipboardStoreTest {
 
     @Test fun crlf_clip_survives_persist_roundtrip() {
         val dir = newDir()
-        ClipboardStore(dir).apply { load(); record("line1\r\nline2"); awaitWritesForTest() }
+        ClipboardStore(dir).apply { load(); record("line1\r\nline2"); flushPendingWrites() }
         val reloaded = ClipboardStore(dir).apply { load() }
         assertEquals("line1\r\nline2", reloaded.history().first())
     }
@@ -91,11 +91,11 @@ class ClipboardStoreTest {
         s.record("a"); s.record("b"); s.record("c")
         s.deleteAll(listOf("a", "c"))
         assertEquals(listOf("b"), s.history())
-        s.awaitWritesForTest()
+        s.flushPendingWrites()
         assertEquals(listOf("b"), ClipboardStore(dir).apply { load() }.history())
         s.clearHistory()
         assertTrue(s.history().isEmpty())
-        s.awaitWritesForTest()
+        s.flushPendingWrites()
         assertTrue(ClipboardStore(dir).apply { load() }.history().isEmpty())
     }
 
@@ -105,7 +105,7 @@ class ClipboardStoreTest {
         val big = "字".repeat(1_000_000)
         val s = ClipboardStore(dir).apply { load(); record(big) }
         assertEquals(1_000_000, s.history().first().length)
-        s.awaitWritesForTest()
+        s.flushPendingWrites()
         val index = File(dir, "clipboard.txt").readText()
         assertTrue("index is a small B-marker, not the content", index.startsWith("B\t") && index.length < 200)
         val sideFiles = File(dir, "clips").listFiles().orEmpty()
@@ -119,7 +119,7 @@ class ClipboardStoreTest {
         val dir = newDir()
         val small = "x".repeat(ClipboardStore.BIG_THRESHOLD)
         val big = "y".repeat(ClipboardStore.BIG_THRESHOLD + 1)
-        val s = ClipboardStore(dir).apply { load(); record(small); record(big); awaitWritesForTest() }
+        val s = ClipboardStore(dir).apply { load(); record(small); record(big); flushPendingWrites() }
         val lines = File(dir, "clipboard.txt").readLines()
         assertEquals(2, lines.size)
         assertTrue("newest (big) is a B-marker", lines[0].startsWith("B\t"))
@@ -138,9 +138,9 @@ class ClipboardStoreTest {
     @Test fun deleting_a_big_entry_sweeps_its_side_file() {
         val dir = newDir()
         val big = "z".repeat(ClipboardStore.BIG_THRESHOLD + 100)
-        val s = ClipboardStore(dir).apply { load(); record(big); awaitWritesForTest() }
+        val s = ClipboardStore(dir).apply { load(); record(big); flushPendingWrites() }
         assertTrue("side file written", File(dir, "clips").listFiles().orEmpty().isNotEmpty())
-        s.clearHistory(); s.awaitWritesForTest()
+        s.clearHistory(); s.flushPendingWrites()
         assertTrue("orphan side file swept", File(dir, "clips").listFiles().orEmpty().isEmpty())
     }
 

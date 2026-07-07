@@ -100,6 +100,20 @@ class ClipboardStore(private val dir: File) {
         scheduleSave()
     }
 
+    fun importHistory(entries: List<String>, merge: Boolean) {
+        val incoming = entries.mapNotNull { it.trim().ifEmpty { null } }
+        if (merge) {
+            val present = HashSet(history)
+            for (e in incoming) if (present.add(e)) history.add(e)
+        } else {
+            history.clear()
+            val seen = HashSet<String>()
+            for (e in incoming) if (seen.add(e)) history.add(e)
+        }
+        while (history.size > MAX_HISTORY) history.removeAt(history.size - 1)
+        writeHistory(ArrayList(history))
+    }
+
     fun delete(text: String) { if (history.remove(text)) scheduleSave() }
     fun deleteAll(texts: Collection<String>) { if (history.removeAll(texts.toSet())) scheduleSave() }
     fun clearHistory() { if (history.isNotEmpty()) { history.clear(); scheduleSave() } }
@@ -275,7 +289,7 @@ class ClipboardStore(private val dir: File) {
     private fun sha256(s: String): String =
         MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it.toInt() and 0xFF) }
 
-    internal fun awaitWritesForTest() { runCatching { io.submit { }.get() } }
+    internal fun flushPendingWrites() { runCatching { io.submit { }.get() } }
 
     private fun savePhrases() = runCatching { phraseFile.writeText(serializePhrases()) }
 

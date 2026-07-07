@@ -1,0 +1,244 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Copyright (C) 2026 lurixo
+//
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 3.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+// PARTICULAR PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
+
+package com.aegis.ime.backup
+
+import android.content.SharedPreferences
+import com.aegis.ime.user.ClipboardStore
+import com.aegis.ime.user.LiveUserData
+import com.aegis.ime.user.SymbolUsageStore
+import com.aegis.ime.user.UserDictEdit
+import com.aegis.ime.user.UserDictHot
+import com.aegis.ime.user.UserDictImport
+import java.io.DataInputStream
+import java.io.DataOutputStream
+import java.io.File
+import java.io.InputStream
+import java.io.OutputStream
+import java.util.zip.GZIPInputStream
+import java.util.zip.GZIPOutputStream
+
+object BackupManager {
+
+
+    private const val USERDB = "userdb.txt"
+    private const val PHRASES = "phrases.txt"
+    private const val CLIPBOARD = "clipboard.txt"
+    private const val CLIPS_DIR = "clips"
+    private const val SYMBOL_USAGE = "symbol_usage.txt"
+    private const val EMOJI_DIR = "emoji"
+    private const val EMOJI_USAGE = "emoji/symbol_usage.txt"
+    private const val STAGING_DIR = "backup_staging"
+
+    private val DOWNLOAD_STATE_KEYS = setOf(
+        "engine_pack_touch",
+        "gram_validator",
+        "dict_validator",
+        "dict_sha256",
+        "dict_asset_name",
+        "dict_asset_url",
+        "dict_release_tag",
+        "dict_release_published_at",
+    )
+
+    enum class Mode { OVERWRITE, MERGE }
+
+
+    fun export(filesDir: File, prefs: SharedPreferences, password: CharArray, rawOut: OutputStream) {
+        UserDictEdit.flushBeforeExport()
+        LiveUserData.onBeforeExport?.invoke()
+        BackupCrypto.writeEncrypted(rawOut, password) { cipherOut ->
+            val gzip = GZIPOutputStream(cipherOut)
+            val out = DataOutputStream(gzip)
+            BackupArchive.writePrefs(out, PrefsCodec.encode(prefs.all.filterKeys { it !in DOWNLOAD_STATE_KEYS }))
+            for (rel in backupRelPaths(filesDir)) {
+                val file = File(filesDir, rel)
+                if (file.isFile) BackupArchive.writeFile(out, rel, file)
+            }
+            BackupArchive.writeEnd(out)
+            out.flush()
+            gzip.finish()
+        }
+    }
+
+    private fun backupRelPaths(filesDir: File): List<String> {
+        val paths = ArrayList<String>()
+        for (name in listOf(USERDB, PHRASES, CLIPBOARD, SYMBOL_USAGE)) {
+            if (File(filesDir, name).isFile) paths.add(name)
+        }
+        if (File(filesDir, EMOJI_USAGE).isFile) paths.add(EMOJI_USAGE)
+        File(filesDir, CLIPS_DIR).listFiles()?.sortedBy { it.name }?.forEach { f ->
+            val rel = "$CLIPS_DIR/${f.name}"
+            if (f.isFile && BackupArchive.sanitizedRelativePath(rel) != null) paths.add(rel)
+        }
+        return paths
+    }
+
+
+    fun restore(
+        filesDir: File,
+        prefs: SharedPreferences,
+        password: CharArray,
+        rawIn: InputStream,
+        mode: Mode,
+    ): Mode {
+        val staging = File(filesDir, STAGING_DIR)
+        staging.deleteRecursively()
+        if (!staging.mkdirs()) throw BackupException(BackupError.IO_ERROR)
+        LiveUserData.restoreInProgress = true
+        var handedOff = false
+        try {
+            val visitor = StagingVisitor(staging)
+            try {
+                BackupCrypto.readDecrypted(rawIn, password) { plainIn ->
+                    GZIPInputStream(plainIn).use { gzip ->
+                        BackupArchive.read(DataInputStream(gzip), visitor)
+                    }
+                }
+            } catch (e: BackupException) {
+                throw e
+            } catch (e: Exception) {
+                throw BackupException(BackupError.WRONG_PASSWORD_OR_CORRUPT, e)
+            }
+
+            try {
+                commit(filesDir, prefs, staging, visitor.prefsBlob, mode)
+            } catch (e: Exception) {
+                throw BackupException(BackupError.IO_ERROR, e)
+            }
+
+            val reload = LiveUserData.onRestored
+            if (reload != null) {
+                handedOff = true
+                reload()
+            }
+            return mode
+        } finally {
+            staging.deleteRecursively()
+            if (!handedOff) LiveUserData.restoreInProgress = false
+        }
+    }
+
+    private class StagingVisitor(private val staging: File) : BackupArchive.Visitor {
+        var prefsBlob: ByteArray? = null
+            private set
+
+        override fun onPrefs(blob: ByteArray) {
+            prefsBlob = blob
+        }
+
+        override fun openFile(relativePath: String): OutputStream {
+            val dest = File(staging, relativePath)
+            dest.parentFile?.mkdirs()
+            return dest.outputStream()
+        }
+    }
+
+    private fun commit(
+        filesDir: File,
+        prefs: SharedPreferences,
+        staging: File,
+        prefsBlob: ByteArray?,
+        mode: Mode,
+    ) {
+        val merge = mode == Mode.MERGE
+        applyPrefs(prefs, prefsBlob, merge)
+        applyUserDb(filesDir, staging, merge)
+        applyPhrases(filesDir, staging, merge)
+        applyClipboard(filesDir, staging, merge)
+        applySymbolUsage(filesDir, staging, merge)
+        applyEmojiUsage(filesDir, staging, merge)
+    }
+
+    private fun applyPrefs(prefs: SharedPreferences, blob: ByteArray?, merge: Boolean) {
+        if (blob == null) return
+        val decoded = PrefsCodec.decode(blob).filterKeys { it !in DOWNLOAD_STATE_KEYS }
+        val editor = prefs.edit()
+        for ((key, value) in decoded) {
+            if (merge && prefs.contains(key)) continue
+            when (value) {
+                is PrefsCodec.Value.Bool -> editor.putBoolean(key, value.v)
+                is PrefsCodec.Value.Integer -> editor.putInt(key, value.v)
+                is PrefsCodec.Value.LongVal -> editor.putLong(key, value.v)
+                is PrefsCodec.Value.FloatVal -> editor.putFloat(key, value.v)
+                is PrefsCodec.Value.Str -> editor.putString(key, value.v)
+                is PrefsCodec.Value.StrSet -> editor.putStringSet(key, value.v)
+            }
+        }
+        editor.commit()
+    }
+
+    private fun applyUserDb(filesDir: File, staging: File, merge: Boolean) {
+        val staged = File(staging, USERDB)
+        if (!staged.isFile) return
+        val now = System.currentTimeMillis()
+        val host = UserDictHot.host
+        if (host != null) {
+            host.importUserDict(staged, merge, now)
+        } else {
+            UserDictImport.apply(staged, File(filesDir, USERDB), merge, now)
+        }
+    }
+
+    private fun applyPhrases(filesDir: File, staging: File, merge: Boolean) {
+        val staged = File(staging, PHRASES)
+        if (!staged.isFile) return
+        val raw = staged.readText()
+        val text = if (raw.lineSequence().any { it.startsWith("C\t") }) {
+            raw
+        } else {
+            val migrated = ClipboardStore(staging).also { it.load() }
+            if (migrated.phrases().isEmpty()) return
+            migrated.exportPhrasesText()
+        }
+        ClipboardStore(filesDir).also { it.load() }.importPhrasesText(text, merge)
+    }
+
+    private fun applyClipboard(filesDir: File, staging: File, merge: Boolean) {
+        val stagedIndex = File(staging, CLIPBOARD)
+        if (!stagedIndex.isFile) return
+        if (merge) {
+            val incoming = ClipboardStore(staging).also { it.load() }.history()
+            ClipboardStore(filesDir).also { it.load() }.importHistory(incoming, merge = true)
+        } else {
+            File(staging, CLIPS_DIR).takeIf { it.isDirectory }
+                ?.copyRecursively(File(filesDir, CLIPS_DIR), overwrite = true)
+            val realIndex = File(filesDir, CLIPBOARD)
+            val tmp = File(filesDir, "$CLIPBOARD.import.tmp")
+            stagedIndex.copyTo(tmp, overwrite = true)
+            if (!tmp.renameTo(realIndex)) {
+                realIndex.delete()
+                if (!tmp.renameTo(realIndex)) {
+                    tmp.delete()
+                    throw java.io.IOException("clipboard index swap failed")
+                }
+            }
+        }
+    }
+
+    private fun applySymbolUsage(filesDir: File, staging: File, merge: Boolean) {
+        val staged = File(staging, SYMBOL_USAGE)
+        if (!staged.isFile) return
+        val incoming = SymbolUsageStore(staging).also { it.load() }.recentEntries()
+        SymbolUsageStore(filesDir).also { it.load() }.importEntries(incoming, merge)
+    }
+
+    private fun applyEmojiUsage(filesDir: File, staging: File, merge: Boolean) {
+        val staged = File(staging, EMOJI_USAGE)
+        if (!staged.isFile) return
+        val incoming = SymbolUsageStore(File(staging, EMOJI_DIR)).also { it.load() }.recentEntries()
+        SymbolUsageStore(File(filesDir, EMOJI_DIR).apply { mkdirs() }).also { it.load() }.importEntries(incoming, merge)
+    }
+}
