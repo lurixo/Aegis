@@ -22,6 +22,8 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.View
 import android.view.ViewTreeObserver
+import android.view.WindowInsets as AndroidWindowInsets
+import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -39,8 +41,13 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -71,6 +78,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -161,7 +169,8 @@ internal fun SettingsHomePage(onOpenGroup: (String) -> Unit) {
             .fillMaxSize()
             .settingsScrollInsets(
                 scrollState = rememberScrollState(),
-                insets = WindowInsets.safeDrawing,
+                bottomInsets = WindowInsets.safeDrawing,
+                topInsets = settingsTopInset(),
             )
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -288,7 +297,8 @@ internal fun SettingsPageColumn(title: String, onBack: () -> Unit, content: @Com
             .fillMaxSize()
             .settingsScrollInsets(
                 scrollState = rememberScrollState(),
-                insets = WindowInsets.safeDrawing,
+                bottomInsets = WindowInsets.safeDrawing,
+                topInsets = settingsTopInset(),
             )
             .padding(horizontal = 24.dp)
             .padding(bottom = 24.dp),
@@ -431,10 +441,32 @@ internal fun AboutPage(resumeSignal: Int, onBack: () -> Unit, onOpenLicenses: ()
 
 internal fun Modifier.settingsScrollInsets(
     scrollState: ScrollState,
-    insets: WindowInsets,
+    bottomInsets: WindowInsets,
+    topInsets: WindowInsets,
 ): Modifier = this
-    .windowInsetsPadding(insets)
+    .windowInsetsPadding(bottomInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
+    .windowInsetsPadding(topInsets.only(WindowInsetsSides.Top))
     .verticalScroll(scrollState)
+
+@Composable
+internal fun settingsTopInset(): WindowInsets {
+    val density = LocalDensity.current
+    val liveTop = WindowInsets.systemBars.union(WindowInsets.displayCutout).getTop(density)
+    val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val seedTop = remember(context, configuration) { synchronousTopInsetPx(context) }
+    return WindowInsets(top = resolveTopInsetPx(liveTop, seedTop))
+}
+
+internal fun resolveTopInsetPx(liveTop: Int, seedTop: Int): Int = if (liveTop > 0) liveTop else seedTop
+
+private fun synchronousTopInsetPx(context: Context): Int {
+    val wm = context.getSystemService(WindowManager::class.java) ?: return 0
+    val insets = wm.currentWindowMetrics.windowInsets
+    return insets.getInsets(
+        AndroidWindowInsets.Type.statusBars() or AndroidWindowInsets.Type.displayCutout(),
+    ).top
+}
 
 private val IME_SHOW_RETRY_DELAYS_MS = longArrayOf(
     0L, 50L, 100L, 150L, 225L, 300L, 400L, 500L, 650L, 800L, 950L, 1_100L,

@@ -73,7 +73,8 @@ class SettingsInsetTest {
                             .fillMaxSize()
                             .settingsScrollInsets(
                                 scrollState = scroll,
-                                insets = WindowInsets(top = statusDp.dp, bottom = imeBottomDp.dp),
+                                bottomInsets = WindowInsets(top = statusDp.dp, bottom = imeBottomDp.dp),
+                                topInsets = WindowInsets(top = statusDp.dp),
                             )
                             .padding(24.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -113,5 +114,15 @@ class SettingsInsetTest {
         val shrink = (withoutIme.viewportSize - withIme.viewportSize).toFloat()
         val expected = imeDp * density
         assertEquals("opening the IME must shrink the scroll viewport by ~${expected}px", expected, shrink, density * 4f)
+    }
+
+    @Test fun seed_bridges_only_the_first_frame_zero() {
+        assertEquals("first frame (holder still 0) uses the seed", 63, resolveTopInsetPx(liveTop = 0, seedTop = 63))
+        assertEquals("steady state matches", 63, resolveTopInsetPx(liveTop = 63, seedTop = 63))
+        assertEquals("live wins even if the seed read 0", 63, resolveTopInsetPx(liveTop = 63, seedTop = 0))
+    }
+
+    @Test fun shrinking_live_inset_is_not_clamped_up_to_a_stale_seed() {
+        assertEquals(48, resolveTopInsetPx(liveTop = 48, seedTop = 63))
     }
 }
