@@ -95,23 +95,23 @@ internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
         }.apply { isDaemon = true }.start()
     }
 
+    fun showCheckFailure(msgRes: Int) {
+        status = LocalizedText.Resource(msgRes)
+        Toast.makeText(context, msgRes, Toast.LENGTH_SHORT).show()
+    }
+
     fun checkUpdate() {
         checking = true
         Thread {
-            val checked = runCatching {
-                ModelDownload.remoteValidator(ModelDownload.GRAM_URL) to
-                    prefs.getString(ModelDownload.VALIDATOR_PREF, null)
-            }.getOrNull()
-            val remote = checked?.first
-            val local = checked?.second
+            val probe = ModelDownload.remoteValidatorProbe(ModelDownload.GRAM_URL)
+            val local = prefs.getString(ModelDownload.VALIDATOR_PREF, null)
             handler.post {
                 checking = false
-                when (ModelDownload.updateAction(present, local, remote)) {
+                when (ModelDownload.modelUpdateAction(present, local, probe)) {
                     null -> {}
-                    ModelDownload.UpdateCheck.OFFLINE -> {
-                        status = LocalizedText.Resource(R.string.download_toast_update_offline)
-                        Toast.makeText(context, R.string.download_toast_update_offline, Toast.LENGTH_SHORT).show()
-                    }
+                    ModelDownload.UpdateCheck.OFFLINE -> showCheckFailure(R.string.download_toast_update_offline)
+                    ModelDownload.UpdateCheck.SERVER_ERROR -> showCheckFailure(R.string.download_toast_update_server_error)
+                    ModelDownload.UpdateCheck.PARSE_ERROR -> showCheckFailure(R.string.download_toast_update_parse_error)
                     ModelDownload.UpdateCheck.UP_TO_DATE -> {
                         status = LocalizedText.Resource(R.string.gram_status_update_current)
                         Toast.makeText(context, R.string.download_toast_up_to_date, Toast.LENGTH_SHORT).show()

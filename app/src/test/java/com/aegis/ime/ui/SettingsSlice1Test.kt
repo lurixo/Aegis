@@ -142,15 +142,38 @@ class SettingsSlice1Test {
 
 
     @Test fun update_check_distinguishes_offline_uptodate_and_update() {
-        assertEquals(ModelDownload.UpdateCheck.OFFLINE, ModelDownload.updateAction(true, "etag-1", null))
-        assertEquals(ModelDownload.UpdateCheck.UP_TO_DATE, ModelDownload.updateAction(true, "etag-1", "etag-1"))
-        assertEquals(ModelDownload.UpdateCheck.UPDATE, ModelDownload.updateAction(true, "etag-1", "etag-2"))
-        assertEquals("never recorded but remote present → update", ModelDownload.UpdateCheck.UPDATE, ModelDownload.updateAction(true, null, "etag-1"))
+        assertEquals(
+            ModelDownload.UpdateCheck.OFFLINE,
+            ModelDownload.modelUpdateAction(true, "etag-1", ModelDownload.ValidatorProbe.Failed(ModelDownload.CheckFailure.OFFLINE)),
+        )
+        assertEquals(
+            ModelDownload.UpdateCheck.SERVER_ERROR,
+            ModelDownload.modelUpdateAction(true, "etag-1", ModelDownload.ValidatorProbe.Failed(ModelDownload.CheckFailure.SERVER)),
+        )
+        assertEquals(
+            ModelDownload.UpdateCheck.UP_TO_DATE,
+            ModelDownload.modelUpdateAction(true, "etag-1", ModelDownload.ValidatorProbe.Reached("etag-1")),
+        )
+        assertEquals(
+            ModelDownload.UpdateCheck.UPDATE,
+            ModelDownload.modelUpdateAction(true, "etag-1", ModelDownload.ValidatorProbe.Reached("etag-2")),
+        )
+        assertEquals(
+            "never recorded but remote present → update",
+            ModelDownload.UpdateCheck.UPDATE,
+            ModelDownload.modelUpdateAction(true, null, ModelDownload.ValidatorProbe.Reached("etag-1")),
+        )
     }
 
     @Test fun a_check_resolving_after_delete_is_discarded_and_never_redownloads() {
-        assertNull("deleted mid-check → discard", ModelDownload.updateAction(false, null, "etag-2"))
-        assertNull("deleted mid-check, differing validators → still discard", ModelDownload.updateAction(false, "etag-1", "etag-2"))
+        assertNull(
+            "deleted mid-check → discard",
+            ModelDownload.modelUpdateAction(false, null, ModelDownload.ValidatorProbe.Reached("etag-2")),
+        )
+        assertNull(
+            "deleted mid-check, differing validators → still discard",
+            ModelDownload.modelUpdateAction(false, "etag-1", ModelDownload.ValidatorProbe.Reached("etag-2")),
+        )
     }
 
 
