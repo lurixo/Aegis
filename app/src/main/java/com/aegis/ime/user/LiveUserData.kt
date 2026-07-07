@@ -22,6 +22,9 @@ object LiveUserData {
     @Volatile
     var onLexiconsRestored: (() -> Unit)? = null
 
+    @Volatile
+    var clipboardHost: ClipboardStore? = null
+
     private val clipboardPersistenceHookLock = Any()
     private var beforeExportHook: (() -> Unit)? = null
     private var beforeRestoreHook: (() -> Unit)? = null
@@ -33,6 +36,11 @@ object LiveUserData {
     var onBeforeRestore: (() -> Unit)?
         get() = synchronized(clipboardPersistenceHookLock) { beforeRestoreHook }
         set(value) = synchronized(clipboardPersistenceHookLock) { beforeRestoreHook = value }
+
+    internal fun flushBeforeExport() {
+        val hook = synchronized(clipboardPersistenceHookLock) { beforeExportHook }
+        hook?.invoke()
+    }
 
     @Volatile
     var restoreInProgress: Boolean = false

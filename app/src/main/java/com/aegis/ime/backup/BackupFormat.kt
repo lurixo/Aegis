@@ -42,6 +42,8 @@ internal enum class BackupError {
     UNSUPPORTED_VERSION,
 
     WRONG_PASSWORD_OR_CORRUPT,
+
+    IO_ERROR,
 }
 
 internal class BackupException(

@@ -66,6 +66,10 @@ class SymbolUsageStore(private val dir: File) {
 
     fun stopReportingWrites() { report = null }
 
+    internal fun awaitPendingWrites() {
+        onWriteLaneNow { }
+    }
+
     private fun reportWrite(landed: Boolean) {
         if (report == null) return
         reportLane.execute { report?.invoke(landed) }
