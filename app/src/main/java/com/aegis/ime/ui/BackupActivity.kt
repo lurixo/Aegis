@@ -23,16 +23,19 @@ import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts.CreateDocument
+import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -42,7 +45,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -51,7 +56,9 @@ import androidx.compose.ui.unit.dp
 import com.aegis.ime.R
 import com.aegis.ime.ui.theme.AppShapes
 import com.aegis.ime.ui.theme.AppSpacing
+import com.aegis.ime.backup.BackupError
 import com.aegis.ime.backup.BackupItem
+import com.aegis.ime.backup.BackupException
 import com.aegis.ime.backup.BackupManager
 import java.io.File
 import java.io.FileOutputStream
@@ -63,10 +70,21 @@ class BackupActivity : ComponentActivity() {
 
     private var pendingExportPassword: CharArray? = null
 
+    private var pendingImportUri: Uri? = null
+
     private val onJobResult: (BackupUiState.Result) -> Unit = { uiState = it }
 
     private val createDocument = registerForActivityResult(CreateDocument(MIME_TYPE)) { uri ->
         onExportTarget(uri)
+    }
+
+    private val openDocument = registerForActivityResult(OpenDocument()) { uri ->
+        if (uri == null) {
+            uiState = BackupUiState.Menu
+        } else {
+            pendingImportUri = uri
+            uiState = BackupUiState.ImportPassword
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -78,7 +96,9 @@ class BackupActivity : ComponentActivity() {
                     state = uiState,
                     onBack = { finish() },
                     onStartExport = { uiState = BackupUiState.ExportPassword },
+                    onStartImport = { openDocument.launch(arrayOf("*/*")) },
                     onExportConfirm = { password -> beginExport(password) },
+                    onImportConfirm = { password, mode -> beginImport(password, mode) },
                     onDismissDialog = { cancelDialogs() },
                     onDone = { uiState = BackupUiState.Menu },
                 )
@@ -110,6 +130,7 @@ class BackupActivity : ComponentActivity() {
     private fun cancelDialogs() {
         pendingExportPassword?.fill('\u0000')
         pendingExportPassword = null
+        pendingImportUri = null
         uiState = BackupUiState.Menu
     }
 
@@ -150,6 +171,38 @@ class BackupActivity : ComponentActivity() {
             return report
         } finally {
             staged.delete()
+        }
+    }
+
+    private fun beginImport(password: String, mode: BackupManager.Mode) {
+        val uri = pendingImportUri
+        if (uri == null) {
+            uiState = BackupUiState.Result(R.string.backup_import_interrupted)
+            return
+        }
+        val chars = password.toCharArray()
+        pendingImportUri = null
+        uiState = BackupUiState.Working
+        BackupJob.start {
+            val result = runImport(uri, chars, mode)
+            chars.fill('\u0000')
+            result
+        }
+    }
+
+    private fun runImport(uri: Uri, password: CharArray, mode: BackupManager.Mode): BackupUiState.Result {
+        return try {
+            val input = contentResolver.openInputStream(uri)
+                ?: return BackupUiState.Result(R.string.backup_error_io)
+            input.use { BackupManager.restore(filesDir, aegisPrefs(), password, it, mode) }
+            BackupUiState.Result(
+                if (mode == BackupManager.Mode.MERGE) R.string.backup_import_ok_merge
+                else R.string.backup_import_ok_overwrite,
+            )
+        } catch (e: BackupException) {
+            importResult(e)
+        } catch (e: Exception) {
+            BackupUiState.Result(R.string.backup_error_io)
         }
     }
 
@@ -202,6 +255,7 @@ internal object BackupJob {
 internal sealed interface BackupUiState {
     data object Menu : BackupUiState
     data object ExportPassword : BackupUiState
+    data object ImportPassword : BackupUiState
     data object Working : BackupUiState
     data class Result(val messageRes: Int, val omittedRes: List<Int> = emptyList()) : BackupUiState
 }
@@ -213,7 +267,9 @@ internal fun BackupScreen(
     state: BackupUiState,
     onBack: () -> Unit,
     onStartExport: () -> Unit,
+    onStartImport: () -> Unit,
     onExportConfirm: (String) -> Unit,
+    onImportConfirm: (String, BackupManager.Mode) -> Unit,
     onDismissDialog: () -> Unit,
     onDone: () -> Unit,
 ) {
@@ -243,6 +299,13 @@ internal fun BackupScreen(
             modifier = Modifier.fillMaxWidth(),
         )
 
+        AppPrimaryButton(
+            text = stringResource(R.string.backup_import_button),
+            onClick = onStartImport,
+            enabled = state == BackupUiState.Menu,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
         if (state == BackupUiState.Working) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 CircularProgressIndicator(modifier = Modifier.size(20.dp))
@@ -255,6 +318,10 @@ internal fun BackupScreen(
         BackupUiState.ExportPassword -> ExportPasswordDialog(
             onDismiss = onDismissDialog,
             onConfirm = onExportConfirm,
+        )
+        BackupUiState.ImportPassword -> ImportPasswordDialog(
+            onDismiss = onDismissDialog,
+            onConfirm = onImportConfirm,
         )
         is BackupUiState.Result -> ResultDialog(state.messageRes, state.omittedRes, onDone)
         else -> Unit
@@ -311,6 +378,58 @@ private fun ExportPasswordDialog(
 }
 
 @Composable
+private fun ImportPasswordDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (String, BackupManager.Mode) -> Unit,
+) {
+    var password by remember { mutableStateOf("") }
+    var mode by remember { mutableStateOf(BackupManager.Mode.OVERWRITE) }
+    var error by remember { mutableStateOf<Int?>(null) }
+
+    AegisAlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.backup_import_button)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                PasswordTextField(
+                    value = password,
+                    onValueChange = {
+                        password = it
+                        error = null
+                    },
+                    labelRes = R.string.backup_password_label,
+                )
+                Text(stringResource(R.string.backup_mode_title), style = MaterialTheme.typography.titleSmall)
+                ModeOption(
+                    selected = mode == BackupManager.Mode.OVERWRITE,
+                    titleRes = R.string.backup_mode_overwrite,
+                    descRes = R.string.backup_mode_overwrite_desc,
+                    onSelect = { mode = BackupManager.Mode.OVERWRITE },
+                )
+                ModeOption(
+                    selected = mode == BackupManager.Mode.MERGE,
+                    titleRes = R.string.backup_mode_merge,
+                    descRes = R.string.backup_mode_merge_desc,
+                    onSelect = { mode = BackupManager.Mode.MERGE },
+                )
+                error?.let {
+                    Text(stringResource(it), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                modifier = Modifier.testTag("backup_import_confirm"),
+                onClick = {
+                    if (password.isEmpty()) error = R.string.backup_password_empty else onConfirm(password, mode)
+                },
+            ) { Text(stringResource(R.string.backup_import_button)) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.backup_cancel)) } },
+    )
+}
+
+@Composable
 internal fun PasswordTextField(
     value: String,
     onValueChange: (String) -> Unit,
@@ -340,6 +459,28 @@ internal fun PasswordTextField(
 }
 
 @Composable
+private fun ModeOption(selected: Boolean, titleRes: Int, descRes: Int, onSelect: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.extraSmall)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onSelect),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(stringResource(titleRes), style = MaterialTheme.typography.bodyMedium)
+            Text(
+                stringResource(descRes),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
 private fun ResultDialog(messageRes: Int, omittedRes: List<Int>, onDone: () -> Unit) {
     AegisAlertDialog(
         onDismissRequest = onDone,
@@ -364,6 +505,19 @@ internal fun exportResult(report: BackupManager.ExportReport?): BackupUiState.Re
     report == null -> BackupUiState.Result(R.string.backup_export_failed)
     report.omitted.isEmpty() -> BackupUiState.Result(R.string.backup_export_ok)
     else -> BackupUiState.Result(R.string.backup_export_ok_partial, report.omitted.map(::backupItemLabel))
+}
+
+internal fun importResult(failure: BackupException): BackupUiState.Result = when (failure.error) {
+    BackupError.NOT_A_BACKUP -> BackupUiState.Result(R.string.backup_error_not_a_backup)
+    BackupError.UNSUPPORTED_VERSION -> BackupUiState.Result(R.string.backup_error_unsupported)
+    BackupError.WRONG_PASSWORD_OR_CORRUPT -> BackupUiState.Result(R.string.backup_error_wrong_password)
+    BackupError.IO_ERROR -> BackupUiState.Result(R.string.backup_error_io)
+    BackupError.DAMAGED_CONTENT -> BackupUiState.Result(
+        R.string.backup_error_damaged_content,
+        failure.items.map(::backupItemLabel),
+    )
+    BackupError.ALREADY_RESTORING -> BackupUiState.Result(R.string.backup_error_already_restoring)
+    BackupError.ROLLBACK_FAILED -> BackupUiState.Result(R.string.backup_error_rollback_failed)
 }
 
 internal fun backupItemLabel(item: BackupItem): Int = when (item) {

@@ -17,6 +17,8 @@ package com.aegis.ime.ui
 
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import com.aegis.ime.R
+import com.aegis.ime.backup.BackupError
+import com.aegis.ime.backup.BackupException
 import com.aegis.ime.backup.BackupItem
 import com.aegis.ime.backup.BackupManager
 import org.junit.Assert.assertEquals
@@ -86,6 +88,51 @@ class BackupResultDialogTest {
         val result = exportResult(null)
         assertEquals(R.string.backup_export_failed, result.messageRes)
         assertEquals(emptyList<Int>(), result.omittedRes)
+    }
+
+    @Test fun a_refused_restore_names_every_part_it_could_not_read() {
+        val result = importResult(
+            BackupException(
+                BackupError.DAMAGED_CONTENT,
+                items = setOf(BackupItem.DICTIONARY, BackupItem.LEARNING),
+            ),
+        )
+
+        assertEquals(R.string.backup_error_damaged_content, result.messageRes)
+        assertEquals(
+            listOf(R.string.backup_item_dictionary, R.string.backup_item_learning),
+            result.omittedRes,
+        )
+    }
+
+    @Test fun every_other_restore_failure_is_still_reported_on_its_own_terms() {
+        assertEquals(
+            R.string.backup_error_wrong_password,
+            importResult(BackupException(BackupError.WRONG_PASSWORD_OR_CORRUPT)).messageRes,
+        )
+        assertEquals(R.string.backup_error_io, importResult(BackupException(BackupError.IO_ERROR)).messageRes)
+        assertEquals(
+            R.string.backup_error_not_a_backup,
+            importResult(BackupException(BackupError.NOT_A_BACKUP)).messageRes,
+        )
+        assertEquals(
+            R.string.backup_error_unsupported,
+            importResult(BackupException(BackupError.UNSUPPORTED_VERSION)).messageRes,
+        )
+        assertEquals(
+            R.string.backup_error_already_restoring,
+            importResult(BackupException(BackupError.ALREADY_RESTORING)).messageRes,
+        )
+        assertEquals(
+            "a plain failure carries no list of parts",
+            emptyList<Int>(),
+            importResult(BackupException(BackupError.IO_ERROR)).omittedRes,
+        )
+        assertEquals(
+            "every way a restore can fail must be reported as something of its own",
+            BackupError.entries.size,
+            BackupError.entries.map { importResult(BackupException(it)).messageRes }.toSet().size,
+        )
     }
 
     @Test fun every_store_the_backup_can_leave_out_has_a_name_of_its_own() {
