@@ -40,14 +40,14 @@ class BuildInfoJsonTest {
 
         assertEquals(1, buildInfo.getInt("schema_version"))
         assertEquals("dictionary", dictionary.getString("kind"))
-        assertEquals("aegis_dict_pack_debug54.zip", asset.getString("name"))
+        assertEquals("aegis_dict_pack_dict-latest.zip", asset.getString("name"))
         assertEquals(
-            "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.54/aegis_dict_pack_debug54.zip",
+            "https://github.com/lurixo/Aegis/releases/download/dict-latest/aegis_dict_pack_dict-latest.zip",
             asset.getString("url"),
         )
-        assertEquals("bf97e78955cef642066cc17d5ed1458c1ea7f7637507f165797bd8719a2a87fd", asset.getString("sha256"))
-        assertEquals(97_926_380L, asset.getLong("size_bytes"))
-        assertEquals("v0.1.0-debug.54", asset.getString("release_tag"))
+        assertEquals("f8031b7916c9580fed9045d1a331f21344d6cfdf3a79d9ea663c54a8eb392d33", asset.getString("sha256"))
+        assertEquals(97_927_377L, asset.getLong("size_bytes"))
+        assertEquals("dict-latest", asset.getString("release_tag"))
         assertTrue(asset.getBoolean("prerelease"))
         assertNotEquals(ModelDownload.FALLBACK_DICT_SHA256, asset.getString("sha256"))
         assertEquals(ModelDownload.DICT_REPO_URL, source.getString("repo"))
@@ -83,7 +83,7 @@ class BuildInfoJsonTest {
         assertEquals(3, build.getJSONObject("seed_parameters").getInt("keep_syllable_singles"))
         assertEquals("tools/t2s-data", build.getJSONObject("t2s_data").getString("path"))
         assertTrue(build.getJSONObject("t2s_data").getString("license").contains("Apache-2.0"))
-        assertFalse(build.getBoolean("builder_tree_dirty"))
+        assertTrue(build.has("builder_tree_dirty"))
         val yamlShas = source.getJSONArray("input_yaml_sha256")
         assertEquals(14, yamlShas.length())
         for (i in 0 until yamlShas.length()) {

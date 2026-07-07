@@ -148,25 +148,25 @@ dictionary-build workflow.
 
 ## Release dictionary pack
 
-Each app release publishes the APK and the current full dictionary pack in the same GitHub release.
-The app discovers dictionary updates from `lurixo/Aegis` release assets, preferring the latest
-pre-release dictionary ZIP by `published_at`, then falling back to normal releases. The
-source/provenance link remains `https://github.com/amzxyz/rime-wanxiang`; the physical download is
-the Aegis-converted binary ZIP release asset.
+App APK releases and downloadable dictionary packs are published separately. Versioned app releases
+carry the APK only. The full dictionary pack is published on the rolling
+[`dict-latest`](https://github.com/lurixo/Aegis/releases/tag/dict-latest) GitHub release, and the
+app discovers dictionary updates from that single release tag by comparing the installed pack's
+SHA-256 with the current dictionary ZIP asset.
 
 ```
-tools/release/build_dictionary_pack.py --release-tag vX.Y.Z-debug.N
+tools/release/build_dictionary_pack.py --release-tag dict-latest
 ```
 
 The command clones `amzxyz/rime-wanxiang` (a stable tag by default, or use `--source-dir`), builds
 the 14 verified tables with `tools/DictBuilder` at `--min-freq 1` and no per-key cap, and writes the
 pack ZIP, `aegis-build-info.json`, and `aegis-dictionary-update.json` under `build/release-dictionary/`.
-Upload those generated files to the same GitHub release as the APK. The checked-in
-`aegis-build-info.json` records the current release's pack trail (source tag & commit, per-table
-input hashes, build parameters, and output-bin hashes) and its remaining provenance gaps; each
-release regenerates it for the freshly built asset. A dictionary pack is not a fully reproducible
-public supply-chain artifact until the release also carries the exact input hashes, a deterministic
-recipe, and a signature or attestation.
+Upload those generated files to the rolling `dict-latest` release, not to versioned app releases.
+The checked-in `aegis-build-info.json` records the current rolling pack trail (source tag & commit,
+per-table input hashes, build parameters, output-bin hashes, and physical asset URL) and its
+remaining provenance gaps; update it when the rolling dictionary pack is republished. A dictionary
+pack is not a fully reproducible public supply-chain artifact until the release also carries the
+exact input hashes, a deterministic recipe, and a signature or attestation.
 
 ## Architecture
 
@@ -218,6 +218,6 @@ reports have a private channel — see [SECURITY.md](SECURITY.md).
 Aegis is in active development and releases are currently **pre-release / debug** builds. Known
 limitations:
 
-- Releases are unsigned debug/prerelease APKs distributed via GitHub Releases, not an app store.
+- Releases are debug-signed prerelease APKs distributed via GitHub Releases, not an app store.
 - The downloadable dictionary pack records its build inputs but is not yet a signed / independently
   reproducible supply-chain artifact (see [Release dictionary pack](#release-dictionary-pack)).

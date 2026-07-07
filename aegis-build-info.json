@@ -1,24 +1,24 @@
 {
   "schema_version": 1,
   "schema_name": "aegis.resource-build-info",
-  "generated_at": "2026-07-07T01:12:34Z",
+  "generated_at": "2026-07-06T15:34:49Z",
   "app": {
     "project": "Aegis",
     "repository": "https://github.com/lurixo/Aegis",
-    "release_tag": "v0.1.0-debug.54"
+    "release_tag": "dict-latest"
   },
   "resources": [
     {
       "kind": "dictionary",
       "physical_asset": {
-        "name": "aegis_dict_pack_debug54.zip",
-        "url": "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.54/aegis_dict_pack_debug54.zip",
-        "release_tag": "v0.1.0-debug.54",
-        "release_url": "https://github.com/lurixo/Aegis/releases/tag/v0.1.0-debug.54",
+        "name": "aegis_dict_pack_dict-latest.zip",
+        "url": "https://github.com/lurixo/Aegis/releases/download/dict-latest/aegis_dict_pack_dict-latest.zip",
+        "release_tag": "dict-latest",
+        "release_url": "https://github.com/lurixo/Aegis/releases/tag/dict-latest",
         "prerelease": true,
         "published_at": null,
-        "sha256": "bf97e78955cef642066cc17d5ed1458c1ea7f7637507f165797bd8719a2a87fd",
-        "size_bytes": 97926380
+        "sha256": "f8031b7916c9580fed9045d1a331f21344d6cfdf3a79d9ea663c54a8eb392d33",
+        "size_bytes": 97927377
       },
       "source": {
         "repo": "https://github.com/amzxyz/rime-wanxiang",
@@ -133,8 +133,8 @@
       },
       "build": {
         "builder_path": "tools/src/main/kotlin/com/aegis/tools/DictBuilder.kt",
-        "builder_commit": "37bff06e244835b7d31ea8fe2446d708da60b411",
-        "builder_tree_dirty": false,
+        "builder_commit": "cab8fb600de67221455f97edde1ee8b3b40f1458",
+        "builder_tree_dirty": true,
         "full_pack_parameters": {
           "min_freq": 1,
           "max_per_key": null,
@@ -168,20 +168,20 @@
           {
             "zip_entry": "aegis_dict_full.bin",
             "runtime_name": "aegis_dict.bin",
-            "sha256": "410afe855792f6e8afc97ead242ca131edb00c6db77ca7309eefb44b0972fdfb",
-            "size_bytes": 98326878
+            "sha256": "08a17dce2c66414a0402ea8d4a9c68f660cea8176242b9e46423fa0e389f2fdd",
+            "size_bytes": 98326644
           },
           {
             "zip_entry": "aegis_t9_full.bin",
             "runtime_name": "aegis_t9.bin",
-            "sha256": "41d52cd47760faef6d2da7f3a611cb6dcc8aaf0cd0154eb92a3bd8ab646b42fb",
-            "size_bytes": 94248633
+            "sha256": "b8349e23b25f1130944e2bee05bc7e7582413d8bc7113e7b44ad7df2b0c5ea3d",
+            "size_bytes": 94248399
           },
           {
             "zip_entry": "aegis_jianpin_full.bin",
             "runtime_name": "aegis_jianpin.bin",
-            "sha256": "60a6a5b14c4609512c396d25951070fa0f01d588cf26b73d0cec91b2fb49a399",
-            "size_bytes": 62386363
+            "sha256": "7be9a3dbcc182d77f1f40aa1fb1ea2bc3afbceff57f048021269cbc9c65d10ac",
+            "size_bytes": 62386129
           }
         ],
         "zip_packaging": {
