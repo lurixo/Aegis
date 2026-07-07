@@ -20,7 +20,6 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
-import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import org.json.JSONArray
 import org.json.JSONObject
@@ -159,7 +158,10 @@ object ModelDownload {
 
     const val DICT_REPO_URL = "https://github.com/amzxyz/rime-wanxiang"
 
-    const val DICT_RELEASES_API_URL = "https://api.github.com/repos/lurixo/Aegis/releases?per_page=100"
+    const val DICT_LATEST_TAG = "dict-latest"
+
+    const val DICT_LATEST_RELEASE_API_URL =
+        "https://api.github.com/repos/lurixo/Aegis/releases/tags/$DICT_LATEST_TAG"
 
     const val DICT_NAME = "aegis_dict_pack.zip"
     const val FALLBACK_DICT_NAME = "aegis_dict_pack_debug13.zip"
@@ -240,13 +242,14 @@ object ModelDownload {
         return ok
     }
 
-    fun resolveDictionaryDownloadAsset(current: DictionaryInstallMetadata = DictionaryInstallMetadata()): DictionaryAsset =
-        runCatching { dictionaryUpdateFromReleasesJson(fetchText(DICT_RELEASES_API_URL), current).asset }
-            .getOrNull()
-            ?: FALLBACK_DICT_ASSET
+    fun resolveDictionaryDownloadAsset(): DictionaryAsset =
+        resolveDictionaryDownloadAsset { fetchText(DICT_LATEST_RELEASE_API_URL) }
+
+    internal fun resolveDictionaryDownloadAsset(fetch: () -> String): DictionaryAsset =
+        runCatching { latestDictionaryAssetFromRelease(fetch()) }.getOrNull() ?: FALLBACK_DICT_ASSET
 
     fun checkDictionaryUpdate(current: DictionaryInstallMetadata): DictionaryUpdateCheck =
-        dictionaryUpdateFromFetch({ fetchText(DICT_RELEASES_API_URL) }, current)
+        dictionaryUpdateFromFetch({ fetchText(DICT_LATEST_RELEASE_API_URL) }, current)
 
     internal fun dictionaryUpdateFromFetch(
         fetch: () -> String,
@@ -258,23 +261,29 @@ object ModelDownload {
             return DictionaryUpdateCheck(classifyRequestFailure(t).toUpdateCheck())
         }
         return try {
-            dictionaryUpdateFromReleasesJson(json, current)
+            dictionaryUpdateFromLatestReleaseJson(json, current)
         } catch (t: Exception) {
             DictionaryUpdateCheck(UpdateCheck.PARSE_ERROR)
         }
     }
 
-    internal fun dictionaryUpdateFromReleasesJson(
-        releasesJson: String,
+    internal fun dictionaryUpdateFromLatestReleaseJson(
+        releaseJson: String,
         current: DictionaryInstallMetadata,
     ): DictionaryUpdateCheck {
-        val releases = parseGitHubReleases(releasesJson)
-        for (prerelease in listOf(true, false)) {
-            val asset = latestUsableDictionaryAsset(releases, prerelease) ?: continue
-            if (isNewerDictionaryAsset(asset, current)) return DictionaryUpdateCheck(UpdateCheck.UPDATE, asset)
-        }
-        return DictionaryUpdateCheck(UpdateCheck.UP_TO_DATE)
+        val release = parseGitHubRelease(releaseJson)
+            ?: return DictionaryUpdateCheck(UpdateCheck.PARSE_ERROR)
+        val asset = dictionaryPackAssetIn(release)
+            ?: return DictionaryUpdateCheck(UpdateCheck.SERVER_ERROR)
+        return if (isNewerDictionaryAsset(asset, current)) DictionaryUpdateCheck(UpdateCheck.UPDATE, asset)
+        else DictionaryUpdateCheck(UpdateCheck.UP_TO_DATE)
     }
+
+    internal fun latestDictionaryAssetFromRelease(releaseJson: String): DictionaryAsset? =
+        parseGitHubRelease(releaseJson)?.let(::dictionaryPackAssetIn)
+
+    private fun dictionaryPackAssetIn(release: GitHubRelease): DictionaryAsset? =
+        release.assets.firstNotNullOfOrNull { dictionaryAssetFrom(release, it) }
 
     private data class GitHubRelease(
         val tagName: String,
@@ -290,14 +299,6 @@ object ModelDownload {
         val sizeBytes: Long,
         val digest: String?,
     )
-
-    private fun latestUsableDictionaryAsset(releases: List<GitHubRelease>, prerelease: Boolean): DictionaryAsset? =
-        releases
-            .filter { it.prerelease == prerelease }
-            .sortedWith(compareByDescending<GitHubRelease> { instantOrEpoch(it.publishedAt) }.thenByDescending { it.tagName })
-            .firstNotNullOfOrNull { release ->
-                release.assets.firstNotNullOfOrNull { asset -> dictionaryAssetFrom(release, asset) }
-            }
 
     private fun dictionaryAssetFrom(release: GitHubRelease, asset: GitHubAsset): DictionaryAsset? {
         val name = asset.name
@@ -319,10 +320,7 @@ object ModelDownload {
 
     private fun isNewerDictionaryAsset(asset: DictionaryAsset, current: DictionaryInstallMetadata): Boolean {
         val currentSha = normalizeSha256(current.sha256) ?: return true
-        if (asset.sha256.equals(currentSha, ignoreCase = true)) return false
-        val currentPublished = current.publishedAt?.let(::instantOrNull)
-        val assetPublished = instantOrNull(asset.publishedAt)
-        return currentPublished == null || assetPublished == null || assetPublished.isAfter(currentPublished)
+        return !asset.sha256.equals(currentSha, ignoreCase = true)
     }
 
     private fun isDictionaryZipAsset(name: String, url: String): Boolean {
@@ -340,39 +338,33 @@ object ModelDownload {
         return raw.takeIf { it.matches(Regex("[0-9a-f]{64}")) }
     }
 
-    private fun parseGitHubReleases(json: String): List<GitHubRelease> {
-        val array = JSONArray(json)
-        val releases = ArrayList<GitHubRelease>(array.length())
-        for (i in 0 until array.length()) {
-            val r = array.getJSONObject(i)
-            val assetsArray = r.optJSONArray("assets") ?: JSONArray()
-            val assets = ArrayList<GitHubAsset>(assetsArray.length())
-            for (j in 0 until assetsArray.length()) {
-                val a = assetsArray.getJSONObject(j)
-                assets += GitHubAsset(
-                    name = a.optStringOrNull("name") ?: continue,
-                    url = a.optStringOrNull("browser_download_url") ?: continue,
-                    sizeBytes = a.optLong("size", -1L),
-                    digest = a.optStringOrNull("digest"),
-                )
-            }
-            releases += GitHubRelease(
-                tagName = r.optStringOrNull("tag_name") ?: continue,
-                releaseUrl = r.optStringOrNull("html_url") ?: continue,
-                prerelease = r.optBoolean("prerelease", false),
-                publishedAt = r.optStringOrNull("published_at") ?: continue,
-                assets = assets,
+    private fun parseGitHubRelease(releaseJson: String): GitHubRelease? {
+        val r = JSONObject(releaseJson)
+        val tagName = r.optStringOrNull("tag_name") ?: return null
+        val releaseUrl = r.optStringOrNull("html_url") ?: return null
+        val publishedAt = r.optStringOrNull("published_at") ?: return null
+        val assetsArray = r.optJSONArray("assets") ?: JSONArray()
+        val assets = ArrayList<GitHubAsset>(assetsArray.length())
+        for (j in 0 until assetsArray.length()) {
+            val a = assetsArray.getJSONObject(j)
+            assets += GitHubAsset(
+                name = a.optStringOrNull("name") ?: continue,
+                url = a.optStringOrNull("browser_download_url") ?: continue,
+                sizeBytes = a.optLong("size", -1L),
+                digest = a.optStringOrNull("digest"),
             )
         }
-        return releases
+        return GitHubRelease(
+            tagName = tagName,
+            releaseUrl = releaseUrl,
+            prerelease = r.optBoolean("prerelease", false),
+            publishedAt = publishedAt,
+            assets = assets,
+        )
     }
 
     private fun JSONObject.optStringOrNull(name: String): String? =
         if (has(name) && !isNull(name)) optString(name).takeIf { it.isNotBlank() } else null
-
-    private fun instantOrEpoch(value: String): Instant = instantOrNull(value) ?: Instant.EPOCH
-
-    private fun instantOrNull(value: String): Instant? = runCatching { Instant.parse(value) }.getOrNull()
 
     internal fun fetchText(url: String): String {
         var conn: HttpURLConnection? = null

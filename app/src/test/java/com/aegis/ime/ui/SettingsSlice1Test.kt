@@ -68,13 +68,15 @@ class SettingsSlice1Test {
             "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.13/${ModelDownload.FALLBACK_DICT_NAME}",
             ModelDownload.FALLBACK_DICT_ASSET.url,
         )
-        assertEquals("https://api.github.com/repos/lurixo/Aegis/releases?per_page=100", ModelDownload.DICT_RELEASES_API_URL)
+        assertEquals("dict-latest", ModelDownload.DICT_LATEST_TAG)
+        assertEquals("https://api.github.com/repos/lurixo/Aegis/releases/tags/dict-latest", ModelDownload.DICT_LATEST_RELEASE_API_URL)
+        assertFalse("discovery must read one tag, not scan the release list", ModelDownload.DICT_LATEST_RELEASE_API_URL.contains("per_page"))
         assertEquals("https://github.com/amzxyz/rime-wanxiang", ModelDownload.DICT_REPO_URL)
         assertFalse("model updates must not point at the Aegis app repo", ModelDownload.REPO_URL.contains("lurixo/Aegis"))
         assertFalse("dictionary source link must not point at the Aegis app repo", ModelDownload.DICT_REPO_URL.contains("lurixo/Aegis"))
         assertFalse("resource downloads must not be APK self-update assets", ModelDownload.GRAM_URL.endsWith(".apk"))
         assertFalse("resource downloads must not be APK self-update assets", ModelDownload.FALLBACK_DICT_ASSET.url.endsWith(".apk"))
-        assertFalse("resource discovery must not be an APK endpoint", ModelDownload.DICT_RELEASES_API_URL.endsWith(".apk"))
+        assertFalse("resource discovery must not be an APK endpoint", ModelDownload.DICT_LATEST_RELEASE_API_URL.endsWith(".apk"))
     }
 
     @Test fun resource_update_labels_are_specific_to_model_and_dictionary() {
