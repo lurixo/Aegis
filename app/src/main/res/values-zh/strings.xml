@@ -233,6 +233,10 @@
     <string name="backup_password_empty">请输入密码</string>
     <string name="backup_password_too_short">至少 6 个字符</string>
     <string name="backup_password_mismatch">两次密码不一致</string>
+    <string name="backup_export_ok">已导出备份</string>
+    <string name="backup_import_ok_overwrite">已恢复备份</string>
+    <string name="backup_import_ok_merge">已合并备份</string>
+    <string name="backup_error_io">无法读取或写入文件</string>
     <string name="restore_gate_rollback_failed">恢复没做完，撤销失败，点这里</string>
     <string name="restore_gate_rollback_impossible">恢复没做完，无法撤销，点这里</string>
 

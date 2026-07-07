@@ -15,6 +15,8 @@
 
 package com.aegis.ime.ui
 
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
@@ -33,6 +35,49 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import com.aegis.ime.R
 import com.aegis.ime.ui.theme.AppShapes
+import java.util.concurrent.Executors
+
+internal object BackupJob {
+
+    private val worker = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "aegis-backup").apply { isDaemon = true }
+    }
+    private val main = Handler(Looper.getMainLooper())
+
+    @Volatile
+    var inProgress: Boolean = false
+        private set
+
+    private var finished: BackupUiState.Result? = null
+    private var listener: ((BackupUiState.Result) -> Unit)? = null
+
+    fun start(work: () -> BackupUiState.Result) {
+        inProgress = true
+        worker.execute {
+            val result = runCatching(work).getOrElse { BackupUiState.Result(R.string.backup_error_io) }
+            main.post { deliver(result) }
+        }
+    }
+
+    fun reportTo(page: (BackupUiState.Result) -> Unit) {
+        listener = page
+        finished?.let { finished = null; page(it) }
+    }
+
+    fun stopReportingTo(page: (BackupUiState.Result) -> Unit) {
+        if (listener === page) listener = null
+    }
+
+    private fun deliver(result: BackupUiState.Result) {
+        inProgress = false
+        val page = listener
+        if (page == null) finished = result else page(result)
+    }
+}
+
+internal sealed interface BackupUiState {
+    data class Result(val messageRes: Int, val omittedRes: List<Int> = emptyList()) : BackupUiState
+}
 
 internal const val BACKUP_MIN_PASSWORD_LENGTH = 6
 
