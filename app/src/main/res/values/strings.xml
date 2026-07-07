@@ -139,6 +139,35 @@
     <string name="phrase_transfer_toast_import_overwritten">Phrases imported and overwritten</string>
     <string name="phrase_transfer_toast_import_invalid">Import failed: no valid content; phrases were not changed</string>
 
+    <string name="settings_backup_title">Data backup</string>
+    <string name="settings_backup_desc">Export or import all your data as an encrypted file</string>
+    <string name="backup_intro">Backs up your learning dictionary, saved phrases, clipboard history, symbol history and all settings into one encrypted file. The downloadable dictionary and model are not included — they can be downloaded again.</string>
+    <string name="backup_password_warning">The file is encrypted with your password. Keep it safe: without it the backup cannot be restored, and it cannot be recovered.</string>
+    <string name="backup_export_button">Export backup</string>
+    <string name="backup_import_button">Import backup</string>
+    <string name="backup_set_password_hint">Set a password to encrypt this backup.</string>
+    <string name="backup_password_label">Password</string>
+    <string name="backup_password_confirm_label">Confirm password</string>
+    <string name="backup_password_empty">Enter a password</string>
+    <string name="backup_password_too_short">Use at least 6 characters</string>
+    <string name="backup_password_mismatch">Passwords do not match</string>
+    <string name="backup_mode_title">If data already exists</string>
+    <string name="backup_mode_overwrite">Overwrite</string>
+    <string name="backup_mode_overwrite_desc">Replace existing data with the backup</string>
+    <string name="backup_mode_merge">Merge</string>
+    <string name="backup_mode_merge_desc">Keep existing data and add the backup</string>
+    <string name="backup_working">Working…</string>
+    <string name="backup_done">Done</string>
+    <string name="backup_cancel">Cancel</string>
+    <string name="backup_export_ok">Backup exported</string>
+    <string name="backup_export_failed">Export failed</string>
+    <string name="backup_import_ok_overwrite">Backup restored</string>
+    <string name="backup_import_ok_merge">Backup merged</string>
+    <string name="backup_error_not_a_backup">This is not an Aegis backup file</string>
+    <string name="backup_error_unsupported">This backup was made by a newer version</string>
+    <string name="backup_error_wrong_password">Wrong password, or the file is damaged</string>
+    <string name="backup_error_io">Could not read or write the file</string>
+
     <string name="settings_about_licenses_title">Open-source licenses</string>
     <string name="settings_about_licenses_desc">Third-party components and their licenses</string>
     <string name="licenses_page_title">Open-source licenses</string>

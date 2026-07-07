@@ -138,6 +138,35 @@
     <string name="phrase_transfer_toast_import_overwritten">已覆盖导入常用语</string>
     <string name="phrase_transfer_toast_import_invalid">导入失败：无有效内容，常用语未改动</string>
 
+    <string name="settings_backup_title">数据备份</string>
+    <string name="settings_backup_desc">将全部数据导出或导入为加密文件</string>
+    <string name="backup_intro">将学习词库、常用语、剪贴板历史、符号历史和全部设置备份为一个加密文件。可重新下载的词库与模型不包含在内。</string>
+    <string name="backup_password_warning">文件使用你的密码加密。请妥善保管:没有密码将无法恢复备份,且密码无法找回。</string>
+    <string name="backup_export_button">导出备份</string>
+    <string name="backup_import_button">导入备份</string>
+    <string name="backup_set_password_hint">设置用于加密此备份的密码。</string>
+    <string name="backup_password_label">密码</string>
+    <string name="backup_password_confirm_label">确认密码</string>
+    <string name="backup_password_empty">请输入密码</string>
+    <string name="backup_password_too_short">至少 6 个字符</string>
+    <string name="backup_password_mismatch">两次密码不一致</string>
+    <string name="backup_mode_title">当已存在数据时</string>
+    <string name="backup_mode_overwrite">覆盖</string>
+    <string name="backup_mode_overwrite_desc">用备份替换现有数据</string>
+    <string name="backup_mode_merge">合并</string>
+    <string name="backup_mode_merge_desc">保留现有数据并加入备份</string>
+    <string name="backup_working">处理中…</string>
+    <string name="backup_done">完成</string>
+    <string name="backup_cancel">取消</string>
+    <string name="backup_export_ok">已导出备份</string>
+    <string name="backup_export_failed">导出失败</string>
+    <string name="backup_import_ok_overwrite">已恢复备份</string>
+    <string name="backup_import_ok_merge">已合并备份</string>
+    <string name="backup_error_not_a_backup">这不是 Aegis 备份文件</string>
+    <string name="backup_error_unsupported">此备份由更高版本创建</string>
+    <string name="backup_error_wrong_password">密码错误,或文件已损坏</string>
+    <string name="backup_error_io">无法读取或写入文件</string>
+
     <string name="settings_about_licenses_title">开源许可</string>
     <string name="settings_about_licenses_desc">第三方组件及其许可</string>
     <string name="licenses_page_title">开源许可</string>

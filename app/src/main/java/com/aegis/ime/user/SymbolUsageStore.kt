@@ -46,7 +46,27 @@ class SymbolUsageStore(private val dir: File) {
         used.removeAll { SymbolCatalog.foldFullWidth(it.symbol) == key }
         used.add(0, Entry(symbol, origin))
         while (used.size > MAX) used.removeAt(used.size - 1)
-        runCatching { file.writeText(used.joinToString("\n") { if (it.origin == null) it.symbol else "${it.symbol}\t${it.origin}" }) }
+        persist()
+    }
+
+    fun importEntries(incoming: List<Entry>, merge: Boolean) {
+        if (!merge) used.clear()
+        val seen = used.mapTo(HashSet()) { SymbolCatalog.foldFullWidth(it.symbol) }
+        for (e in incoming) {
+            if (e.symbol.isEmpty()) continue
+            if (seen.add(SymbolCatalog.foldFullWidth(e.symbol))) used.add(e)
+        }
+        while (used.size > MAX) used.removeAt(used.size - 1)
+        persist()
+    }
+
+    private fun persist() {
+        runCatching {
+            val text = used.joinToString("\n") { if (it.origin == null) it.symbol else "${it.symbol}\t${it.origin}" }
+            val tmp = File(dir, "symbol_usage.txt.tmp")
+            tmp.writeText(text)
+            if (!tmp.renameTo(file)) { file.delete(); if (!tmp.renameTo(file)) tmp.delete() }
+        }
     }
 
     fun recent(n: Int = MAX): List<String> = used.take(n).map { it.symbol }

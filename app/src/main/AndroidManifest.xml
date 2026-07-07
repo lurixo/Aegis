@@ -61,6 +61,14 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
+            android:name=".ui.BackupActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|uiMode|density|navigation|locale|layoutDirection|fontScale"
+            android:label="@string/settings_backup_title"
+            android:theme="@style/Theme.Aegis"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".ui.PhraseTransferActivity"
             android:autoRemoveFromRecents="true"
             android:exported="false"

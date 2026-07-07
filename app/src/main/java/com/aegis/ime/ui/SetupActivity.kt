@@ -330,7 +330,7 @@ internal fun DictSettingsPage(onBack: () -> Unit) {
 }
 
 @Composable
-internal fun AboutPage(resumeSignal: Int, onBack: () -> Unit, onOpenLicenses: () -> Unit) {
+internal fun AboutPage(resumeSignal: Int, onBack: () -> Unit, onOpenLicenses: () -> Unit, onOpenBackup: () -> Unit) {
     val context = LocalContext.current
     var typed by remember { mutableStateOf("") }
     var tryFieldFocused by remember { mutableStateOf(false) }
@@ -429,6 +429,12 @@ internal fun AboutPage(resumeSignal: Int, onBack: () -> Unit, onOpenLicenses: ()
                     tryFieldFocused = it.isFocused
                     if (!it.isFocused) activeTryFieldImeRequest = 0
                 },
+        )
+
+        SettingsGroupCard(
+            titleRes = R.string.settings_backup_title,
+            descRes = R.string.settings_backup_desc,
+            onClick = onOpenBackup,
         )
 
         SettingsGroupCard(
