@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ui
 
+import android.content.Context
 import android.net.Uri
 import android.os.Looper
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -46,6 +47,39 @@ private fun str(id: Int) = RuntimeEnvironment.getApplication().getString(id)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
 class BackupActivityUiTest {
     @get:Rule val compose = createAndroidComposeRule<BackupActivity>()
+
+    @Test fun shows_export_and_import_actions() {
+        compose.onNodeWithText(str(R.string.backup_default_password_title)).assertExists()
+        compose.onNodeWithText(str(R.string.backup_export_button)).assertExists()
+        compose.onNodeWithText(str(R.string.backup_import_button)).assertExists()
+    }
+
+    @Test fun removing_default_password_requires_second_step_confirmation() {
+        val prefs = RuntimeEnvironment.getApplication()
+            .getSharedPreferences("aegis_backup_default_password", Context.MODE_PRIVATE)
+        prefs.edit()
+            .clear()
+            .putInt("version", 1)
+            .putString("iv", "AA==")
+            .putString("ciphertext", "AA==")
+            .commit()
+
+        compose.activityRule.scenario.recreate()
+        compose.waitForIdle()
+
+        compose.onNodeWithText(str(R.string.backup_default_password_remove_button)).performScrollTo().performClick()
+        compose.waitForIdle()
+
+        assertTrue("first remove click must not clear the saved password", prefs.contains("ciphertext"))
+        compose.onNodeWithText(str(R.string.backup_default_password_remove_title)).assertExists()
+
+        compose.onNodeWithText(str(R.string.backup_default_password_remove_confirm_button)).performClick()
+        compose.waitForIdle()
+
+        assertFalse("confirmation must clear the saved password", prefs.contains("ciphertext"))
+        compose.onNodeWithText(str(R.string.backup_default_password_remove_title)).assertDoesNotExist()
+        compose.onNodeWithText(str(R.string.backup_default_password_removed)).assertExists()
+    }
 
     private fun writeExport(uri: Uri): Result<Any?> {
         val method = BackupActivity::class.java

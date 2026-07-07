@@ -15,12 +15,15 @@
 
 package com.aegis.ime.ui
 
+import androidx.activity.compose.setContent
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithText
 import com.aegis.ime.R
 import com.aegis.ime.backup.BackupError
 import com.aegis.ime.backup.BackupException
 import com.aegis.ime.backup.BackupItem
 import com.aegis.ime.backup.BackupManager
+import com.aegis.ime.ui.theme.AegisTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -44,6 +47,60 @@ class BackupResultDialogTest {
             .find(File("src/main/res/values-zh/strings.xml").readText())
         assertTrue("values-zh must define $name", found != null)
         return found!!.groupValues[1]
+    }
+
+    private fun show(state: BackupUiState) {
+        compose.runOnUiThread {
+            compose.activity.setContent {
+                AegisTheme {
+                    BackupScreen(
+                        state = state,
+                        defaultPasswordSaved = false,
+                        defaultPasswordAuthAvailable = false,
+                        defaultPasswordMessageRes = null,
+                        defaultPasswordDialogErrorRes = null,
+                        defaultPasswordAutofill = null,
+                        onBack = {},
+                        onStartExport = {},
+                        onStartImport = {},
+                        onSetDefaultPassword = {},
+                        onSaveDefaultPassword = {},
+                        onRemoveDefaultPassword = {},
+                        onConfirmRemoveDefaultPassword = {},
+                        onUseDefaultPassword = {},
+                        onDefaultPasswordAutofillConsumed = {},
+                        onClearDefaultPasswordDialogError = {},
+                        onExportConfirm = {},
+                        onImportConfirm = { _, _ -> },
+                        onDismissDialog = {},
+                        onDone = {},
+                    )
+                }
+            }
+        }
+        compose.waitForIdle()
+    }
+
+    @Test fun the_result_dialog_names_the_stores_the_backup_left_out() {
+        show(
+            BackupUiState.Result(
+                R.string.backup_export_ok_partial,
+                listOf(R.string.backup_item_dictionary, R.string.backup_item_clipboard),
+            ),
+        )
+
+        compose.onNodeWithText(text(R.string.backup_export_ok_partial)).assertExists()
+        compose.onNodeWithText(text(R.string.backup_item_dictionary)).assertExists()
+        compose.onNodeWithText(text(R.string.backup_item_clipboard)).assertExists()
+        compose.onNodeWithText(text(R.string.backup_item_phrases)).assertDoesNotExist()
+    }
+
+    @Test fun the_result_dialog_says_nothing_extra_when_everything_was_backed_up() {
+        show(BackupUiState.Result(R.string.backup_export_ok))
+
+        compose.onNodeWithText(text(R.string.backup_export_ok)).assertExists()
+        compose.onNodeWithText(text(R.string.backup_item_dictionary)).assertDoesNotExist()
+        compose.onNodeWithText(text(R.string.backup_export_ok_partial)).assertDoesNotExist()
     }
 
     @Test fun a_backup_that_left_nothing_out_is_reported_as_a_plain_success() {
@@ -103,6 +160,19 @@ class BackupResultDialogTest {
             listOf(R.string.backup_item_dictionary, R.string.backup_item_learning),
             result.omittedRes,
         )
+    }
+
+    @Test fun a_refused_restore_says_the_device_was_left_alone() {
+        show(
+            BackupUiState.Result(
+                R.string.backup_error_damaged_content,
+                listOf(R.string.backup_item_dictionary),
+            ),
+        )
+
+        compose.onNodeWithText(text(R.string.backup_error_damaged_content)).assertExists()
+        compose.onNodeWithText(text(R.string.backup_item_dictionary)).assertExists()
+        compose.onNodeWithText(text(R.string.backup_item_clipboard)).assertDoesNotExist()
     }
 
     @Test fun every_other_restore_failure_is_still_reported_on_its_own_terms() {

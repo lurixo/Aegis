@@ -80,6 +80,8 @@ class BackupDefaultPasswordStoreTest {
 private class ReversingCipher : BackupPasswordCipher {
     var cleared = false
 
+    override fun prepare() = Unit
+
     override fun encrypt(plain: ByteArray): BackupPasswordCiphertext =
         BackupPasswordCiphertext(byteArrayOf(1, 2, 3), plain.reversedArray())
 

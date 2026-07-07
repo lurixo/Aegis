@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ui
 
+import android.content.Context
 import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -28,10 +29,17 @@ import javax.crypto.spec.GCMParameterSpec
 
 internal interface BackupDefaultPasswordStore {
     fun hasPassword(): Boolean
+    fun prepareForAuth()
     fun save(password: String)
     fun read(): String?
     fun clear()
 }
+
+internal fun backupDefaultPasswordStore(context: Context): BackupDefaultPasswordStore =
+    SharedPrefsBackupDefaultPasswordStore(
+        context.getSharedPreferences(BACKUP_DEFAULT_PASSWORD_PREFS, Context.MODE_PRIVATE),
+        AndroidKeystoreBackupPasswordCipher(),
+    )
 
 internal class SharedPrefsBackupDefaultPasswordStore(
     private val prefs: SharedPreferences,
@@ -41,6 +49,10 @@ internal class SharedPrefsBackupDefaultPasswordStore(
         prefs.getInt(KEY_VERSION, 0) == STORE_VERSION &&
             prefs.getString(KEY_IV, null) != null &&
             prefs.getString(KEY_CIPHERTEXT, null) != null
+
+    override fun prepareForAuth() {
+        cipher.prepare()
+    }
 
     override fun save(password: String) {
         val plain = password.encodeToByteArray()
@@ -78,6 +90,7 @@ internal class SharedPrefsBackupDefaultPasswordStore(
 }
 
 internal interface BackupPasswordCipher {
+    fun prepare()
     fun encrypt(plain: ByteArray): BackupPasswordCiphertext
     fun decrypt(encrypted: BackupPasswordCiphertext): ByteArray
     fun clear()
@@ -86,6 +99,10 @@ internal interface BackupPasswordCipher {
 internal data class BackupPasswordCiphertext(val iv: ByteArray, val ciphertext: ByteArray)
 
 internal class AndroidKeystoreBackupPasswordCipher : BackupPasswordCipher {
+    override fun prepare() {
+        key()
+    }
+
     override fun encrypt(plain: ByteArray): BackupPasswordCiphertext {
         val cipher = Cipher.getInstance(KEY_TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, key())
@@ -127,6 +144,7 @@ internal class AndroidKeystoreBackupPasswordCipher : BackupPasswordCipher {
     }
 }
 
+private const val BACKUP_DEFAULT_PASSWORD_PREFS = "aegis_backup_default_password"
 private const val STORE_VERSION = 1
 private const val KEY_VERSION = "version"
 private const val KEY_IV = "iv"
