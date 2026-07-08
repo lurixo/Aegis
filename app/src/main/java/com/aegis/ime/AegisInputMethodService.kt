@@ -176,7 +176,6 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             getSharedPreferences("aegis", MODE_PRIVATE)
                 .registerOnSharedPreferenceChangeListener(settingsHotApply)
         }
-        LiveUserData.restoreInProgress = false
         LiveUserData.onRestored = {
             mainHandler.post {
                 runCatching { clipboardStore.load() }
@@ -766,10 +765,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         runCatching { decodeWorker.shutdownNow() }
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
         if (UserDictHot.host === liveUserDictHost) UserDictHot.host = null
-        if (LiveUserData.onBeforeExport === clipboardPendingWriteFlush) LiveUserData.onBeforeExport = null
-        if (LiveUserData.onBeforeRestore === clipboardPendingWriteFlush) LiveUserData.onBeforeRestore = null
+        LiveUserData.unregisterClipboardPersistenceHooks(clipboardPendingWriteFlush)
         LiveUserData.onRestored = null
-        LiveUserData.restoreInProgress = false
         runCatching {
             getSharedPreferences("aegis", MODE_PRIVATE)
                 .unregisterOnSharedPreferenceChangeListener(settingsHotApply)

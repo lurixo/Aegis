@@ -53,6 +53,19 @@ class SettingsWiringTest {
         assertTrue("host registration must follow the userDbLoaded gate", loadGate in 1 until hostReg)
     }
 
+    @Test fun service_teardown_drains_clipboard_persistence_without_clearing_the_restore_guard() {
+        val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
+        val onDestroy = svc.substringAfter("override fun onDestroy()").substringBefore("// --- ImeHost ---")
+        assertTrue(
+            "onDestroy must drain owned clipboard persistence hooks before withdrawing them",
+            onDestroy.contains("LiveUserData.unregisterClipboardPersistenceHooks(clipboardPendingWriteFlush)"),
+        )
+        assertFalse(
+            "onDestroy must leave restore guard ownership to restore/reload code",
+            onDestroy.contains("LiveUserData.restoreInProgress = false"),
+        )
+    }
+
     @Test fun engine_reload_rechecks_after_initial_build_and_after_a_successful_hot_reload() {
         val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
         val calls = Regex("""(?<!fun )maybeReloadEngine\(\)""").findAll(svc).count()

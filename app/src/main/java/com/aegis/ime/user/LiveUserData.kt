@@ -25,6 +25,12 @@ object LiveUserData {
     @Volatile
     var onBeforeRestore: (() -> Unit)? = null
 
+    internal fun unregisterClipboardPersistenceHooks(flush: () -> Unit) {
+        if (onBeforeExport === flush || onBeforeRestore === flush) runCatching { flush() }
+        if (onBeforeExport === flush) onBeforeExport = null
+        if (onBeforeRestore === flush) onBeforeRestore = null
+    }
+
     @Volatile
     var restoreInProgress: Boolean = false
 }
