@@ -15,9 +15,14 @@
 
 package com.aegis.ime.ui
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.graphics.drawable.ColorDrawable
 import android.os.SystemClock
 import android.view.View
 import android.view.ViewTreeObserver
+import android.view.Window
 import android.view.animation.AnimationUtils
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -37,6 +42,8 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
@@ -59,6 +66,20 @@ internal fun SettingsActivityChrome(content: @Composable () -> Unit) {
         onDispose { release() }
     }
     AegisTheme(darkTheme = darkTheme) {
+        val window = LocalContext.current.findActivity()?.window
+        val view = LocalView.current
+        val backgroundColor = MaterialTheme.colorScheme.background.toArgb()
+        SideEffect {
+            window?.syncSettingsBackground(backgroundColor)
+            if (window != null) {
+                androidx.core.view.WindowCompat.getInsetsController(window, view).apply {
+                    isAppearanceLightStatusBars = !darkTheme
+                    isAppearanceLightNavigationBars = !darkTheme
+                }
+            }
+            view.setBackgroundColor(backgroundColor)
+            view.rootView.setBackgroundColor(backgroundColor)
+        }
         val pressEpoch = page.epoch.intValue
         SideEffect { page.onComposed(pressEpoch) }
         CompositionLocalProvider(LocalSettingsPressEpoch provides pressEpoch) {
@@ -170,4 +191,15 @@ internal object SettingsPressHandoff {
             return released
         }
     }
+}
+
+internal fun Window.syncSettingsBackground(backgroundColor: Int) {
+    setBackgroundDrawable(ColorDrawable(backgroundColor))
+    decorView.setBackgroundColor(backgroundColor)
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
