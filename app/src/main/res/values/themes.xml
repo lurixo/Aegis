@@ -1,9 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Aegis" parent="android:Theme.DeviceDefault.DayNight">
+    <style name="Theme.Aegis" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowActionBar">false</item>
         <item name="android:windowNoTitle">true</item>
-        <item name="android:windowBackground">?android:attr/colorBackground</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:colorBackground">@color/settings_window_background</item>
+        <item name="android:windowBackground">@color/settings_window_background</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">@bool/settings_light_system_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/settings_light_system_bars</item>
+        <item name="android:enforceStatusBarContrast">false</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
     </style>
 
     <style name="Theme.Aegis.Transparent" parent="Theme.Aegis">

@@ -20,7 +20,6 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts.CreateDocument
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
 import androidx.compose.foundation.layout.Arrangement
@@ -39,7 +38,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -56,7 +54,6 @@ import com.aegis.ime.R
 import com.aegis.ime.backup.BackupError
 import com.aegis.ime.backup.BackupException
 import com.aegis.ime.backup.BackupManager
-import com.aegis.ime.ui.theme.AegisTheme
 import java.util.concurrent.Executors
 
 class BackupActivity : ComponentActivity() {
@@ -86,23 +83,26 @@ class BackupActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        bootstrapSettingsEdgeToEdge()
         setContent {
-            AegisTheme {
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    BackupScreen(
-                        state = uiState,
-                        onBack = { finish() },
-                        onStartExport = { uiState = BackupUiState.ExportPassword },
-                        onStartImport = { openDocument.launch(arrayOf("*/*")) },
-                        onExportConfirm = { password -> beginExport(password) },
-                        onImportConfirm = { password, mode -> beginImport(password, mode) },
-                        onDismissDialog = { cancelDialogs() },
-                        onDone = { uiState = BackupUiState.Menu },
-                    )
-                }
+            SettingsActivityChrome {
+                BackupScreen(
+                    state = uiState,
+                    onBack = { finish() },
+                    onStartExport = { uiState = BackupUiState.ExportPassword },
+                    onStartImport = { openDocument.launch(arrayOf("*/*")) },
+                    onExportConfirm = { password -> beginExport(password) },
+                    onImportConfirm = { password, mode -> beginImport(password, mode) },
+                    onDismissDialog = { cancelDialogs() },
+                    onDone = { uiState = BackupUiState.Menu },
+                )
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        bootstrapSettingsEdgeToEdge()
     }
 
     override fun onDestroy() {

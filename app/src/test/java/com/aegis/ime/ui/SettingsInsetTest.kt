@@ -53,11 +53,16 @@ class SettingsInsetTest {
     private val wPx = ctx.resources.displayMetrics.widthPixels
     private val statusDp = 36
     private val imeDp = 300
+    private val leftDp = 17
+    private val rightDp = 19
     private val statusPx = statusDp * density
     private val viewportPx = 1200
 
     private class Caps {
         var topY = Float.NaN
+        var leftX = Float.NaN
+        var width = 0
+        var height = 0
     }
 
     private fun render(imeBottomDp: Int): Pair<Caps, ScrollState> {
@@ -100,6 +105,52 @@ class SettingsInsetTest {
         return caps to scroll
     }
 
+    private fun renderUserDictInsets(imeBottomDp: Int, safeTopDp: Int): Caps {
+        val caps = Caps()
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup()
+        val activity: Activity = controller.get()
+        val compose = ComposeView(activity).apply {
+            setContent {
+                AegisTheme {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .userDictPageInsets(
+                                bottomInsets = WindowInsets(
+                                    left = leftDp.dp,
+                                    top = safeTopDp.dp,
+                                    right = rightDp.dp,
+                                    bottom = imeBottomDp.dp,
+                                ),
+                                topInsets = WindowInsets(top = statusDp.dp),
+                            ),
+                    ) {
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .onGloballyPositioned {
+                                    val topLeft = it.localToRoot(Offset.Zero)
+                                    caps.topY = topLeft.y
+                                    caps.leftX = topLeft.x
+                                    caps.width = it.size.width
+                                    caps.height = it.size.height
+                                },
+                        )
+                    }
+                }
+            }
+        }
+        activity.setContentView(compose)
+        shadowOf(Looper.getMainLooper()).idle()
+        compose.measure(
+            View.MeasureSpec.makeMeasureSpec(wPx, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(viewportPx, View.MeasureSpec.EXACTLY),
+        )
+        compose.layout(0, 0, wPx, viewportPx)
+        shadowOf(Looper.getMainLooper()).idle()
+        return caps
+    }
+
     @Test fun top_content_stays_below_status_bar_with_ime() {
         val (caps, _) = render(imeBottomDp = imeDp)
         assertTrue(
@@ -124,5 +175,96 @@ class SettingsInsetTest {
 
     @Test fun shrinking_live_inset_is_not_clamped_up_to_a_stale_seed() {
         assertEquals(48, resolveTopInsetPx(liveTop = 48, seedTop = 63))
+    }
+
+    @Test fun synchronous_top_seed_prefers_visible_then_ignoring_visibility_then_maximum_then_resource() {
+        assertEquals(
+            "visible status/cutout inset wins first",
+            11,
+            synchronousTopInsetPx(
+                visibleTop = 11,
+                ignoringVisibilityTop = 22,
+                maximumIgnoringVisibilityTop = 33,
+                statusBarHeightTop = 44,
+                isAttachedToDisplayTop = true,
+            ),
+        )
+        assertEquals(
+            "ignoring-visibility inset wins when visible inset is not available",
+            22,
+            synchronousTopInsetPx(
+                visibleTop = 0,
+                ignoringVisibilityTop = 22,
+                maximumIgnoringVisibilityTop = 33,
+                statusBarHeightTop = 44,
+                isAttachedToDisplayTop = true,
+            ),
+        )
+        assertEquals(
+            "maximum metrics fallback is used before the resource height",
+            33,
+            synchronousTopInsetPx(
+                visibleTop = 0,
+                ignoringVisibilityTop = 0,
+                maximumIgnoringVisibilityTop = 33,
+                statusBarHeightTop = 44,
+                isAttachedToDisplayTop = true,
+            ),
+        )
+        assertEquals(
+            "status_bar_height is the last top-attached fallback",
+            44,
+            synchronousTopInsetPx(
+                visibleTop = 0,
+                ignoringVisibilityTop = 0,
+                maximumIgnoringVisibilityTop = 0,
+                statusBarHeightTop = 44,
+                isAttachedToDisplayTop = true,
+            ),
+        )
+    }
+
+    @Test fun synchronous_top_seed_skips_maximum_and_resource_fallbacks_when_not_top_attached() {
+        assertEquals(
+            0,
+            synchronousTopInsetPx(
+                visibleTop = 0,
+                ignoringVisibilityTop = 0,
+                maximumIgnoringVisibilityTop = 33,
+                statusBarHeightTop = 44,
+                isAttachedToDisplayTop = false,
+            ),
+        )
+        assertEquals(
+            22,
+            synchronousTopInsetPx(
+                visibleTop = 0,
+                ignoringVisibilityTop = 22,
+                maximumIgnoringVisibilityTop = 33,
+                statusBarHeightTop = 44,
+                isAttachedToDisplayTop = false,
+            ),
+        )
+    }
+
+    @Test fun user_dict_insets_use_seeded_top_not_safe_drawing_top() {
+        val safeTopDp = 99
+        val caps = renderUserDictInsets(imeBottomDp = imeDp, safeTopDp = safeTopDp)
+        assertEquals("user dict top must come from settingsTopInset's source", statusPx, caps.topY, density)
+        assertEquals("safeDrawing start inset must be preserved", leftDp * density, caps.leftX, density)
+        assertEquals(
+            "safeDrawing horizontal insets must be preserved",
+            wPx - (leftDp + rightDp) * density,
+            caps.width.toFloat(),
+            density * 2f,
+        )
+    }
+
+    @Test fun user_dict_ime_inset_shrinks_the_lazy_viewport() {
+        val withIme = renderUserDictInsets(imeBottomDp = imeDp, safeTopDp = 99)
+        val withoutIme = renderUserDictInsets(imeBottomDp = 0, safeTopDp = 99)
+        val shrink = (withoutIme.height - withIme.height).toFloat()
+        val expected = imeDp * density
+        assertEquals("user dict IME inset must shrink the lazy-list viewport", expected, shrink, density * 4f)
     }
 }

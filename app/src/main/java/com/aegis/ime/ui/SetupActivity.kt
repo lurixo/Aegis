@@ -27,13 +27,14 @@ import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -46,8 +47,9 @@ import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -57,7 +59,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -83,10 +84,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import androidx.core.view.ViewCompat
@@ -96,28 +100,27 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.aegis.ime.ime.Glyphs
 import com.aegis.ime.R
-import com.aegis.ime.ui.theme.AegisTheme
 import com.aegis.ime.ui.theme.SettingsMotion
 
 class SetupActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        bootstrapSettingsEdgeToEdge()
         setContent {
-            AegisTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background,
-                ) {
-                    val navOnce = rememberNavOnce()
-                    SettingsHomePage(onOpenGroup = { route ->
-                        activityForGroup(route)?.let { target ->
-                            navOnce { startActivity(Intent(this@SetupActivity, target)) }
-                        }
-                    })
-                }
+            SettingsActivityChrome {
+                val navOnce = rememberNavOnce()
+                SettingsHomePage(onOpenGroup = { route ->
+                    activityForGroup(route)?.let { target ->
+                        navOnce { startActivity(Intent(this@SetupActivity, target)) }
+                    }
+                })
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        bootstrapSettingsEdgeToEdge()
     }
 }
 
@@ -385,29 +388,25 @@ internal fun AboutPage(resumeSignal: Int, onBack: () -> Unit, onOpenLicenses: ()
     SettingsPageColumn(stringResource(R.string.settings_group_about_title), onBack) {
         AppVersionCard()
 
-        Card(modifier = Modifier.fillMaxWidth()) {
+        Card(modifier = Modifier.fillMaxWidth().testTag("setup_steps_card")) {
             Column(
-                modifier = Modifier.padding(16.dp),
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(stringResource(R.string.setup_steps_title), style = MaterialTheme.typography.titleMedium)
-                Button(
-                    onClick = {
+                SetupStepActions(
+                    onEnable = {
                         context.startActivity(
                             Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)
                                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                         )
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text(stringResource(R.string.setup_enable_button)) }
-                Button(
-                    onClick = {
+                    onSwitch = {
                         val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE)
                             as InputMethodManager
                         imm.showInputMethodPicker()
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text(stringResource(R.string.setup_switch_button)) }
+                )
             }
         }
 
@@ -445,11 +444,82 @@ internal fun AboutPage(resumeSignal: Int, onBack: () -> Unit, onOpenLicenses: ()
     }
 }
 
+@Composable
+private fun SetupStepActions(onEnable: () -> Unit, onSwitch: () -> Unit) {
+    val density = LocalDensity.current
+    val enableLabel = stringResource(R.string.setup_enable_button)
+    val switchLabel = stringResource(R.string.setup_switch_button)
+    val textMeasurer = rememberTextMeasurer()
+    val labelStyle = MaterialTheme.typography.labelLarge
+    val labelBlockWidthPx = remember(enableLabel, switchLabel, density.density, density.fontScale, labelStyle) {
+        maxOf(
+            textMeasurer.measure(enableLabel, style = labelStyle).size.width,
+            textMeasurer.measure(switchLabel, style = labelStyle).size.width,
+        )
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("setup_step_actions"),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        SetupStepButton(
+            label = enableLabel,
+            labelBlockWidthPx = labelBlockWidthPx,
+            labelTag = "setup_enable_label_block",
+            modifier = Modifier.testTag("setup_enable_action"),
+            onClick = onEnable,
+        )
+        SetupStepButton(
+            label = switchLabel,
+            labelBlockWidthPx = labelBlockWidthPx,
+            labelTag = "setup_switch_label_block",
+            modifier = Modifier.testTag("setup_switch_action"),
+            onClick = onSwitch,
+        )
+    }
+}
+
+@Composable
+private fun SetupStepButton(
+    label: String,
+    labelBlockWidthPx: Int,
+    labelTag: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val density = LocalDensity.current
+    Button(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center,
+        ) {
+            val labelModifier = if (labelBlockWidthPx > 0) {
+                val requestedWidth = with(density) { labelBlockWidthPx.toDp() }
+                Modifier.width(if (requestedWidth > maxWidth) maxWidth else requestedWidth)
+            } else {
+                Modifier
+            }
+            Text(
+                label,
+                modifier = labelModifier.testTag(labelTag),
+                textAlign = TextAlign.Start,
+            )
+        }
+    }
+}
+
+@Composable
 internal fun Modifier.settingsScrollInsets(
     scrollState: ScrollState,
     bottomInsets: WindowInsets,
     topInsets: WindowInsets,
 ): Modifier = this
+    .background(MaterialTheme.colorScheme.background)
     .windowInsetsPadding(bottomInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
     .windowInsetsPadding(topInsets.only(WindowInsetsSides.Top))
     .verticalScroll(scrollState)
@@ -457,7 +527,7 @@ internal fun Modifier.settingsScrollInsets(
 @Composable
 internal fun settingsTopInset(): WindowInsets {
     val density = LocalDensity.current
-    val liveTop = WindowInsets.systemBars.union(WindowInsets.displayCutout).getTop(density)
+    val liveTop = WindowInsets.statusBars.union(WindowInsets.displayCutout).getTop(density)
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
     val seedTop = remember(context, configuration) { synchronousTopInsetPx(context) }
@@ -468,10 +538,44 @@ internal fun resolveTopInsetPx(liveTop: Int, seedTop: Int): Int = if (liveTop > 
 
 private fun synchronousTopInsetPx(context: Context): Int {
     val wm = context.getSystemService(WindowManager::class.java) ?: return 0
-    val insets = wm.currentWindowMetrics.windowInsets
-    return insets.getInsets(
-        AndroidWindowInsets.Type.statusBars() or AndroidWindowInsets.Type.displayCutout(),
-    ).top
+    val types = AndroidWindowInsets.Type.statusBars() or AndroidWindowInsets.Type.displayCutout()
+    val currentMetrics = wm.currentWindowMetrics
+    val currentInsets = currentMetrics.windowInsets
+    val visibleTop = currentInsets.getInsets(types).top
+    val ignoringVisibilityTop = currentInsets.getInsetsIgnoringVisibility(types).top
+    val maximumMetrics = wm.maximumWindowMetrics
+    val isAttachedToDisplayTop = currentMetrics.bounds.top <= maximumMetrics.bounds.top
+    val maximumIgnoringVisibilityTop = if (isAttachedToDisplayTop) {
+        maximumMetrics.windowInsets.getInsetsIgnoringVisibility(types).top
+    } else {
+        0
+    }
+    return synchronousTopInsetPx(
+        visibleTop = visibleTop,
+        ignoringVisibilityTop = ignoringVisibilityTop,
+        maximumIgnoringVisibilityTop = maximumIgnoringVisibilityTop,
+        statusBarHeightTop = context.statusBarHeightPx(),
+        isAttachedToDisplayTop = isAttachedToDisplayTop,
+    )
+}
+
+internal fun synchronousTopInsetPx(
+    visibleTop: Int,
+    ignoringVisibilityTop: Int,
+    maximumIgnoringVisibilityTop: Int,
+    statusBarHeightTop: Int,
+    isAttachedToDisplayTop: Boolean,
+): Int = when {
+    visibleTop > 0 -> visibleTop
+    ignoringVisibilityTop > 0 -> ignoringVisibilityTop
+    !isAttachedToDisplayTop -> 0
+    maximumIgnoringVisibilityTop > 0 -> maximumIgnoringVisibilityTop
+    else -> statusBarHeightTop.coerceAtLeast(0)
+}
+
+private fun Context.statusBarHeightPx(): Int {
+    val id = resources.getIdentifier("status_bar_height", "dimen", "android")
+    return if (id != 0) resources.getDimensionPixelSize(id) else 0
 }
 
 private val IME_SHOW_RETRY_DELAYS_MS = longArrayOf(
