@@ -528,13 +528,50 @@ internal fun Modifier.settingsScrollInsets(
 internal fun settingsTopInset(): WindowInsets {
     val density = LocalDensity.current
     val liveTop = WindowInsets.statusBars.union(WindowInsets.displayCutout).getTop(density)
+    val view = LocalView.current
+    val rootTop = rememberRootTopInsetPx(view)
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
     val seedTop = remember(context, configuration) { synchronousTopInsetPx(context) }
-    return WindowInsets(top = resolveTopInsetPx(liveTop, seedTop))
+    return WindowInsets(top = resolveTopInsetPx(liveTop, seedTop, rootTop))
 }
 
-internal fun resolveTopInsetPx(liveTop: Int, seedTop: Int): Int = if (liveTop > 0) liveTop else seedTop
+internal fun resolveTopInsetPx(liveTop: Int, seedTop: Int, rootTop: Int?): Int = when {
+    liveTop > 0 -> liveTop
+    rootTop != null -> rootTop
+    else -> seedTop
+}
+
+@Composable
+private fun rememberRootTopInsetPx(view: View): Int? {
+    val rootTop = rootTopInsetPx(view)
+    var rootInsetsDelivered by remember(view) { mutableStateOf(rootTop != null) }
+    DisposableEffect(view, rootInsetsDelivered) {
+        if (rootInsetsDelivered) {
+            onDispose {}
+        } else {
+            val observer = view.viewTreeObserver
+            val listener = object : ViewTreeObserver.OnPreDrawListener {
+                override fun onPreDraw(): Boolean {
+                    if (rootTopInsetPx(view) != null) rootInsetsDelivered = true
+                    return true
+                }
+            }
+            observer.addOnPreDrawListener(listener)
+            ViewCompat.requestApplyInsets(view)
+            onDispose {
+                if (observer.isAlive) observer.removeOnPreDrawListener(listener)
+            }
+        }
+    }
+    return rootTop
+}
+
+private fun rootTopInsetPx(view: View): Int? {
+    val insets = ViewCompat.getRootWindowInsets(view) ?: return null
+    val types = WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()
+    return insets.getInsets(types).top
+}
 
 private fun synchronousTopInsetPx(context: Context): Int {
     val wm = context.getSystemService(WindowManager::class.java) ?: return 0

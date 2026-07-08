@@ -167,14 +167,35 @@ class SettingsInsetTest {
         assertEquals("opening the IME must shrink the scroll viewport by ~${expected}px", expected, shrink, density * 4f)
     }
 
-    @Test fun seed_bridges_only_the_first_frame_zero() {
-        assertEquals("first frame (holder still 0) uses the seed", 63, resolveTopInsetPx(liveTop = 0, seedTop = 63))
-        assertEquals("steady state matches", 63, resolveTopInsetPx(liveTop = 63, seedTop = 63))
-        assertEquals("live wins even if the seed read 0", 63, resolveTopInsetPx(liveTop = 63, seedTop = 0))
+    @Test fun seed_bridges_only_until_root_insets_are_delivered() {
+        assertEquals(
+            "first frame (holder still 0, root insets not delivered) uses the seed",
+            63,
+            resolveTopInsetPx(liveTop = 0, seedTop = 63, rootTop = null),
+        )
+        assertEquals(
+            "delivered root inset wins while the Compose holder is still 0",
+            63,
+            resolveTopInsetPx(liveTop = 0, seedTop = 99, rootTop = 63),
+        )
+        assertEquals(
+            "steady state matches",
+            63,
+            resolveTopInsetPx(liveTop = 63, seedTop = 63, rootTop = 63),
+        )
+        assertEquals(
+            "live wins even if the seed read 0",
+            63,
+            resolveTopInsetPx(liveTop = 63, seedTop = 0, rootTop = 0),
+        )
     }
 
     @Test fun shrinking_live_inset_is_not_clamped_up_to_a_stale_seed() {
-        assertEquals(48, resolveTopInsetPx(liveTop = 48, seedTop = 63))
+        assertEquals(48, resolveTopInsetPx(liveTop = 48, seedTop = 63, rootTop = 63))
+    }
+
+    @Test fun delivered_zero_top_inset_is_not_replaced_by_a_stale_seed() {
+        assertEquals(0, resolveTopInsetPx(liveTop = 0, seedTop = 63, rootTop = 0))
     }
 
     @Test fun synchronous_top_seed_prefers_visible_then_ignoring_visibility_then_maximum_then_resource() {
