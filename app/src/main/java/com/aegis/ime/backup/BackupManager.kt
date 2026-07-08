@@ -25,6 +25,7 @@ import com.aegis.ime.user.UserDictImport
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
+import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.zip.GZIPInputStream
@@ -204,11 +205,12 @@ object BackupManager {
         if (!staged.isFile) return
         val now = System.currentTimeMillis()
         val host = UserDictHot.host
-        if (host != null) {
+        val applied = if (host != null) {
             host.importUserDict(staged, merge, now)
         } else {
             UserDictImport.apply(staged, File(filesDir, USERDB), merge, now)
         }
+        if (!applied) throw IOException("user dictionary import failed")
     }
 
     private fun applyPhrases(filesDir: File, staging: File, merge: Boolean) {
@@ -222,7 +224,8 @@ object BackupManager {
             if (migrated.phrases().isEmpty()) return
             migrated.exportPhrasesText()
         }
-        ClipboardStore(filesDir).also { it.load() }.importPhrasesText(text, merge)
+        val applied = ClipboardStore(filesDir).also { it.load() }.importPhrasesText(text, merge)
+        if (!applied) throw IOException("phrase import failed")
     }
 
     private fun applyClipboard(filesDir: File, staging: File, merge: Boolean) {
@@ -233,8 +236,12 @@ object BackupManager {
             ClipboardStore(filesDir).also { it.load() }.importHistory(incoming, merge = true)
         } else {
             val stagedClipNames = restoredClipSidecarNames(staging, stagedIndex)
-            File(staging, CLIPS_DIR).takeIf { it.isDirectory }
-                ?.copyRecursively(File(filesDir, CLIPS_DIR), overwrite = true)
+            val stagedClipsDir = File(staging, CLIPS_DIR)
+            if (stagedClipsDir.isDirectory &&
+                !stagedClipsDir.copyRecursively(File(filesDir, CLIPS_DIR), overwrite = true)
+            ) {
+                throw IOException("clipboard sidecar copy failed")
+            }
             val realIndex = File(filesDir, CLIPBOARD)
             val tmp = File(filesDir, "$CLIPBOARD.import.tmp")
             stagedIndex.copyTo(tmp, overwrite = true)
@@ -268,13 +275,15 @@ object BackupManager {
         val staged = File(staging, SYMBOL_USAGE)
         if (!staged.isFile) return
         val incoming = SymbolUsageStore(staging).also { it.load() }.recentEntries()
-        SymbolUsageStore(filesDir).also { it.load() }.importEntries(incoming, merge)
+        val applied = SymbolUsageStore(filesDir).also { it.load() }.importEntries(incoming, merge)
+        if (!applied) throw IOException("symbol usage import failed")
     }
 
     private fun applyEmojiUsage(filesDir: File, staging: File, merge: Boolean) {
         val staged = File(staging, EMOJI_USAGE)
         if (!staged.isFile) return
         val incoming = SymbolUsageStore(File(staging, EMOJI_DIR)).also { it.load() }.recentEntries()
-        SymbolUsageStore(File(filesDir, EMOJI_DIR).apply { mkdirs() }).also { it.load() }.importEntries(incoming, merge)
+        val applied = SymbolUsageStore(File(filesDir, EMOJI_DIR).apply { mkdirs() }).also { it.load() }.importEntries(incoming, merge)
+        if (!applied) throw IOException("emoji usage import failed")
     }
 }

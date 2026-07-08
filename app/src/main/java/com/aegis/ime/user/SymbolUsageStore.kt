@@ -17,6 +17,7 @@ package com.aegis.ime.user
 
 import com.aegis.ime.layout.SymbolCatalog
 import java.io.File
+import java.io.IOException
 
 class SymbolUsageStore(private val dir: File) {
 
@@ -46,10 +47,10 @@ class SymbolUsageStore(private val dir: File) {
         used.removeAll { SymbolCatalog.foldFullWidth(it.symbol) == key }
         used.add(0, Entry(symbol, origin))
         while (used.size > MAX) used.removeAt(used.size - 1)
-        persist()
+        runCatching { persist() }
     }
 
-    fun importEntries(incoming: List<Entry>, merge: Boolean) {
+    fun importEntries(incoming: List<Entry>, merge: Boolean): Boolean {
         if (!merge) used.clear()
         val seen = used.mapTo(HashSet()) { SymbolCatalog.foldFullWidth(it.symbol) }
         for (e in incoming) {
@@ -58,14 +59,19 @@ class SymbolUsageStore(private val dir: File) {
         }
         while (used.size > MAX) used.removeAt(used.size - 1)
         persist()
+        return true
     }
 
     private fun persist() {
-        runCatching {
-            val text = used.joinToString("\n") { if (it.origin == null) it.symbol else "${it.symbol}\t${it.origin}" }
-            val tmp = File(dir, "symbol_usage.txt.tmp")
-            tmp.writeText(text)
-            if (!tmp.renameTo(file)) { file.delete(); if (!tmp.renameTo(file)) tmp.delete() }
+        val text = used.joinToString("\n") { if (it.origin == null) it.symbol else "${it.symbol}\t${it.origin}" }
+        val tmp = File(dir, "symbol_usage.txt.tmp")
+        tmp.writeText(text)
+        if (!tmp.renameTo(file)) {
+            file.delete()
+            if (!tmp.renameTo(file)) {
+                tmp.delete()
+                throw IOException("symbol usage swap failed")
+            }
         }
     }
 
