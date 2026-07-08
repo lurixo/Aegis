@@ -65,6 +65,7 @@ class BackupRoundTripTest {
         UserDictHot.host = null
         LiveUserData.onRestored = null
         LiveUserData.onBeforeExport = null
+        LiveUserData.onBeforeRestore = null
         LiveUserData.restoreInProgress = false
         listOf("userdb.txt", "phrases.txt", "clipboard.txt", "symbol_usage.txt").forEach { File(filesDir, it).delete() }
         File(filesDir, "clips").deleteRecursively()
@@ -385,6 +386,48 @@ class BackupRoundTripTest {
             releaseIo.countDown()
             exportWorker.shutdownNow()
             LiveUserData.onBeforeExport = null
+        }
+    }
+
+    @Test fun restore_flushes_queued_clipboard_write_before_committing_restored_history() {
+        val restoredMarker = "restored-clipboard-marker-" + "r".repeat(ClipboardStore.BIG_THRESHOLD + 1)
+        freshClip().apply { importHistory(listOf(restoredMarker), merge = false) }
+        val backup = export()
+        wipeUserData()
+
+        val liveClip = freshClip()
+        val ioBlocked = CountDownLatch(1)
+        val releaseIo = CountDownLatch(1)
+        clipboardIo(liveClip).execute {
+            ioBlocked.countDown()
+            releaseIo.await(5, TimeUnit.SECONDS)
+        }
+        assertTrue("precondition: clipboard IO thread is blocked", ioBlocked.await(1, TimeUnit.SECONDS))
+
+        liveClip.record("queued-stale-before-restore")
+
+        val flushEntered = CountDownLatch(1)
+        val restoreWorker = Executors.newSingleThreadExecutor()
+        try {
+            LiveUserData.onBeforeRestore = {
+                flushEntered.countDown()
+                liveClip.flushPendingWrites()
+            }
+
+            val restoreFuture = restoreWorker.submit<BackupManager.Mode> {
+                restore(backup, BackupManager.Mode.OVERWRITE)
+            }
+            assertTrue("restore reached the live clipboard flush hook", flushEntered.await(1, TimeUnit.SECONDS))
+            assertFalse("restore must wait for the queued clipboard write before committing", restoreFuture.isDone)
+
+            releaseIo.countDown()
+            assertEquals(BackupManager.Mode.OVERWRITE, restoreFuture.get(5, TimeUnit.SECONDS))
+
+            assertEquals(listOf(restoredMarker), freshClip().history())
+        } finally {
+            releaseIo.countDown()
+            restoreWorker.shutdownNow()
+            LiveUserData.onBeforeRestore = null
         }
     }
 
