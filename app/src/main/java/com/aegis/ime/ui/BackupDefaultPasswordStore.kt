@@ -16,8 +16,15 @@
 package com.aegis.ime.ui
 
 import android.content.SharedPreferences
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
 import android.util.Base64
 import androidx.core.content.edit
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 
 internal interface BackupDefaultPasswordStore {
     fun hasPassword(): Boolean
@@ -78,7 +85,55 @@ internal interface BackupPasswordCipher {
 
 internal data class BackupPasswordCiphertext(val iv: ByteArray, val ciphertext: ByteArray)
 
+internal class AndroidKeystoreBackupPasswordCipher : BackupPasswordCipher {
+    override fun encrypt(plain: ByteArray): BackupPasswordCiphertext {
+        val cipher = Cipher.getInstance(KEY_TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, key())
+        return BackupPasswordCiphertext(cipher.iv, cipher.doFinal(plain))
+    }
+
+    override fun decrypt(encrypted: BackupPasswordCiphertext): ByteArray {
+        val cipher = Cipher.getInstance(KEY_TRANSFORMATION)
+        cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(GCM_TAG_BITS, encrypted.iv))
+        return cipher.doFinal(encrypted.ciphertext)
+    }
+
+    override fun clear() {
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        keyStore.deleteEntry(KEY_ALIAS)
+    }
+
+    private fun key(): SecretKey {
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        (keyStore.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
+        val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
+        val spec = KeyGenParameterSpec.Builder(
+            KEY_ALIAS,
+            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+        )
+            .setKeySize(KEY_SIZE_BITS)
+            .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+            .setRandomizedEncryptionRequired(true)
+            .setUserAuthenticationRequired(true)
+            .setUserAuthenticationParameters(
+                KEY_AUTH_VALIDITY_SECONDS,
+                KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL,
+            )
+            .setInvalidatedByBiometricEnrollment(false)
+            .build()
+        keyGenerator.init(spec)
+        return keyGenerator.generateKey()
+    }
+}
+
 private const val STORE_VERSION = 1
 private const val KEY_VERSION = "version"
 private const val KEY_IV = "iv"
 private const val KEY_CIPHERTEXT = "ciphertext"
+private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+private const val KEY_ALIAS = "aegis_backup_default_password_v1"
+private const val KEY_TRANSFORMATION = "AES/GCM/NoPadding"
+private const val KEY_SIZE_BITS = 256
+private const val GCM_TAG_BITS = 128
+private const val KEY_AUTH_VALIDITY_SECONDS = 30
