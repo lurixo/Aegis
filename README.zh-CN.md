@@ -194,6 +194,6 @@ darts-clone(BSD-2-Clause)。
 
 Aegis 处于活跃开发中,当前发布均为**预发布 / debug** 构建。已知限制:
 
-- 发布为未签名的 debug / 预发布 APK,经由 GitHub Releases 分发,而非应用商店。
+- 发布为 debug 签名的预发布 APK,经由 GitHub Releases 分发,而非应用商店。
 - 可下载的词库包记录了其构建输入,但尚不是经签名 / 可独立复现的供应链产物(见
   [发布词库包](#发布词库包))。
