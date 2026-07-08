@@ -114,6 +114,7 @@ object BackupManager {
             }
 
             try {
+                LiveUserData.onBeforeRestore?.invoke()
                 commit(filesDir, prefs, staging, visitor.prefsBlob, mode)
             } catch (e: Exception) {
                 throw BackupException(BackupError.IO_ERROR, e)

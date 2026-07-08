@@ -107,7 +107,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var pendingMoveFrom = ""
     private var pendingMoveTexts: List<String> = emptyList()
     private val clipboardStore by lazy { ClipboardStore(filesDir).also { it.load() } }
-    private val clipboardExportFlush: () -> Unit = { clipboardStore.flushPendingWrites() }
+    private val clipboardPendingWriteFlush: () -> Unit = { clipboardStore.flushPendingWrites() }
     private val symbolUsageStore by lazy { SymbolUsageStore(filesDir).also { it.load() } }
     private val emojiUsageStore by lazy { SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).also { it.load() } }
     @Volatile private var secureField = false
@@ -185,7 +185,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 LiveUserData.restoreInProgress = false
             }
         }
-        LiveUserData.onBeforeExport = clipboardExportFlush
+        LiveUserData.onBeforeExport = clipboardPendingWriteFlush
+        LiveUserData.onBeforeRestore = clipboardPendingWriteFlush
         controller = KeyboardController(this, DictEngine(null, null, null), decodeLane)
         controller.onShowEmoji = { showEmojiPanel() }
         controller.onShowClipboard = { showClipboardPanel() }
@@ -765,7 +766,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         runCatching { decodeWorker.shutdownNow() }
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
         if (UserDictHot.host === liveUserDictHost) UserDictHot.host = null
-        if (LiveUserData.onBeforeExport === clipboardExportFlush) LiveUserData.onBeforeExport = null
+        if (LiveUserData.onBeforeExport === clipboardPendingWriteFlush) LiveUserData.onBeforeExport = null
+        if (LiveUserData.onBeforeRestore === clipboardPendingWriteFlush) LiveUserData.onBeforeRestore = null
         LiveUserData.onRestored = null
         LiveUserData.restoreInProgress = false
         runCatching {

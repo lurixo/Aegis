@@ -23,5 +23,8 @@ object LiveUserData {
     var onBeforeExport: (() -> Unit)? = null
 
     @Volatile
+    var onBeforeRestore: (() -> Unit)? = null
+
+    @Volatile
     var restoreInProgress: Boolean = false
 }
