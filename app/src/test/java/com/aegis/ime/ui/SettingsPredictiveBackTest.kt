@@ -15,9 +15,15 @@
 
 package com.aegis.ime.ui
 
+import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
+import android.os.Looper
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.ComposeView
 import com.aegis.ime.R
 import com.aegis.ime.ui.theme.aegisColorScheme
 import com.aegis.ime.ui.theme.settingsBackgroundArgb
@@ -28,6 +34,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
@@ -223,10 +230,11 @@ class SettingsPredictiveBackTest {
         assertTrue("the settings surface must fill the whole Activity", chrome.contains("Modifier.fillMaxSize()"))
         assertTrue("settings chrome must synchronize the Window background", chrome.contains("setBackgroundDrawable"))
         assertTrue("settings chrome must synchronize the decorView background", chrome.contains("decorView.setBackgroundColor"))
+        assertTrue("settings chrome must synchronize the Compose root background", chrome.contains("view.setBackgroundColor"))
+        assertTrue("settings chrome must synchronize the root view background", chrome.contains("view.rootView.setBackgroundColor"))
         assertTrue("settings chrome must sync when the Material background recomposes", chrome.contains("SideEffect"))
         assertTrue("settings chrome must sync the Material background color", chrome.contains("MaterialTheme.colorScheme.background.toArgb()"))
         assertTrue("settings chrome sync must operate on the Activity Window", chrome.contains("android.view.Window"))
-        assertFalse("settings chrome must not repaint rootView at runtime", chrome.contains("rootView.setBackgroundColor"))
 
         for (a in settingsActivities) {
             val text = code("src/main/java/com/aegis/ime/ui/$a.kt")
@@ -244,6 +252,37 @@ class SettingsPredictiveBackTest {
             settingsBackgroundArgb(activity),
             (activity.window.decorView.background as ColorDrawable).color,
         )
+        assertEquals(
+            "status bar must stay transparent over the settings surface",
+            Color.TRANSPARENT,
+            activity.window.statusBarColor,
+        )
+        assertEquals(
+            "navigation bar must stay transparent over the settings surface",
+            Color.TRANSPARENT,
+            activity.window.navigationBarColor,
+        )
+    }
+
+    @Test
+    @Config(qualifiers = "notnight")
+    fun settings_chrome_syncs_runtime_compose_root_and_decor_background() {
+        val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+        val compose = ComposeView(activity).apply {
+            setContent {
+                SettingsActivityChrome {
+                    Box(Modifier.fillMaxSize())
+                }
+            }
+        }
+        activity.setContentView(compose)
+        shadowOf(Looper.getMainLooper()).idle()
+
+        val expected = aegisColorScheme(activity, darkTheme = false).background.toArgb()
+        val composeRoot = requireNotNull(compose.getChildAt(0)) { "Compose must install a root view" }
+        assertEquals(expected, (activity.window.decorView.background as ColorDrawable).color)
+        assertEquals(expected, (composeRoot.background as ColorDrawable).color)
+        assertEquals(expected, (compose.rootView.background as ColorDrawable).color)
     }
 
     @Test fun every_settings_activity_bootstraps_edge_to_edge_before_setcontent_and_on_resume() {

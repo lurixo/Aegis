@@ -33,6 +33,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import com.aegis.ime.ui.theme.AegisTheme
 import com.aegis.ime.ui.theme.settingsBackgroundArgb
 
@@ -48,9 +49,12 @@ internal fun ComponentActivity.bootstrapSettingsEdgeToEdge() {
 internal fun SettingsActivityChrome(content: @Composable () -> Unit) {
     AegisTheme {
         val window = LocalContext.current.findActivity()?.window
+        val view = LocalView.current
         val backgroundColor = MaterialTheme.colorScheme.background.toArgb()
         SideEffect {
             window?.syncSettingsBackground(backgroundColor)
+            view.setBackgroundColor(backgroundColor)
+            view.rootView.setBackgroundColor(backgroundColor)
         }
         Surface(
             modifier = Modifier.fillMaxSize(),
