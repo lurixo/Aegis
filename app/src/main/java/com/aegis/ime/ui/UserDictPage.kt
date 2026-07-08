@@ -24,8 +24,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
@@ -142,7 +144,10 @@ internal fun UserDictPage(onBack: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .userDictPageInsets(
+                bottomInsets = WindowInsets.safeDrawing,
+                topInsets = settingsTopInset(),
+            )
             .padding(horizontal = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -235,7 +240,7 @@ internal fun UserDictPage(onBack: () -> Unit) {
                     )
                 }
             } else {
-                items(filtered, key = { "${it.reading} ${it.word}" }) { entry ->
+                items(filtered, key = { "${it.reading}\t${it.word}" }) { entry ->
                     UserDictEntryRow(entry, onDelete = { deleteWord(entry.reading, entry.word) })
                 }
             }
@@ -265,6 +270,13 @@ internal fun UserDictPage(onBack: () -> Unit) {
         )
     }
 }
+
+internal fun Modifier.userDictPageInsets(
+    bottomInsets: WindowInsets,
+    topInsets: WindowInsets,
+): Modifier = this
+    .windowInsetsPadding(bottomInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
+    .windowInsetsPadding(topInsets.only(WindowInsetsSides.Top))
 
 @Composable
 private fun UserDictEntryRow(entry: UserModel.Entry, onDelete: () -> Unit) {
