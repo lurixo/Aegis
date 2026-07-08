@@ -197,7 +197,7 @@ object BackupManager {
                 is PrefsCodec.Value.StrSet -> editor.putStringSet(key, value.v)
             }
         }
-        editor.commit()
+        if (!editor.commit()) throw IOException("preferences restore failed")
     }
 
     private fun applyUserDb(filesDir: File, staging: File, merge: Boolean) {
@@ -225,50 +225,14 @@ object BackupManager {
             migrated.exportPhrasesText()
         }
         val applied = ClipboardStore(filesDir).also { it.load() }.importPhrasesText(text, merge)
-        if (!applied) throw IOException("phrase import failed")
+        if (!applied) return
     }
 
     private fun applyClipboard(filesDir: File, staging: File, merge: Boolean) {
         val stagedIndex = File(staging, CLIPBOARD)
         if (!stagedIndex.isFile) return
-        if (merge) {
-            val incoming = ClipboardStore(staging).also { it.load() }.history()
-            ClipboardStore(filesDir).also { it.load() }.importHistory(incoming, merge = true)
-        } else {
-            val stagedClipNames = restoredClipSidecarNames(staging, stagedIndex)
-            val stagedClipsDir = File(staging, CLIPS_DIR)
-            if (stagedClipsDir.isDirectory &&
-                !stagedClipsDir.copyRecursively(File(filesDir, CLIPS_DIR), overwrite = true)
-            ) {
-                throw IOException("clipboard sidecar copy failed")
-            }
-            val realIndex = File(filesDir, CLIPBOARD)
-            val tmp = File(filesDir, "$CLIPBOARD.import.tmp")
-            stagedIndex.copyTo(tmp, overwrite = true)
-            if (!tmp.renameTo(realIndex)) {
-                realIndex.delete()
-                if (!tmp.renameTo(realIndex)) {
-                    tmp.delete()
-                    throw java.io.IOException("clipboard index swap failed")
-                }
-            }
-            sweepUnrestoredClipSidecars(File(filesDir, CLIPS_DIR), stagedClipNames)
-        }
-    }
-
-    private fun restoredClipSidecarNames(staging: File, index: File): Set<String> {
-        val referenced = referencedClipSidecarNames(index)
-        return File(staging, CLIPS_DIR).listFiles()
-            ?.filter { it.isFile && BackupArchive.sanitizedRelativePath("$CLIPS_DIR/${it.name}") != null }
-            ?.filter { it.name in referenced }
-            ?.mapTo(LinkedHashSet()) { it.name }
-            ?: emptySet()
-    }
-
-    private fun sweepUnrestoredClipSidecars(clipsDir: File, restoredNames: Set<String>) {
-        clipsDir.listFiles()?.forEach { f ->
-            if (f.isFile && f.name.endsWith(".txt") && f.name !in restoredNames) runCatching { f.delete() }
-        }
+        val incoming = ClipboardStore(staging).also { it.load() }.history()
+        ClipboardStore(filesDir).also { it.load() }.importHistory(incoming, merge)
     }
 
     private fun applySymbolUsage(filesDir: File, staging: File, merge: Boolean) {

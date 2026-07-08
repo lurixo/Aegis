@@ -39,11 +39,15 @@ class ClipboardStore(private val dir: File) {
     fun load() {
         history.clear()
         purgeLegacyImageDir()
+        val seen = HashSet<String>()
         runCatching {
             if (histFile.exists()) histFile.readLines().forEach { line ->
-                readEntry(line)?.let { e -> if (!isLegacyImageEntry(e)) history.add(e) }
+                readEntry(line)?.let { e ->
+                    if (e.isNotBlank() && !isLegacyImageEntry(e) && seen.add(e)) history.add(e)
+                }
             }
         }
+        while (history.size > MAX_HISTORY) history.removeAt(history.size - 1)
         loadPhrases()
     }
 
@@ -70,8 +74,8 @@ class ClipboardStore(private val dir: File) {
             phraseCats.add(c)
             return
         }
-        phraseCats.addAll(parseCategories(lines))
-        migrateLegacyDefault()
+        phraseCats.addAll(canonicalCategories(parseCategories(lines)))
+        if (phraseCats.isEmpty()) phraseCats.add(Category(DEFAULT_CATEGORY_ID))
     }
 
     private fun parseCategories(lines: List<String>): List<Category> {
@@ -86,10 +90,26 @@ class ClipboardStore(private val dir: File) {
         return out
     }
 
-    private fun migrateLegacyDefault() {
-        if (phraseCats.none { it.name == DEFAULT_CATEGORY_ID }) {
-            phraseCats.firstOrNull { it.name == LEGACY_DEFAULT_NAME }?.let { it.name = DEFAULT_CATEGORY_ID }
+    private fun canonicalCategories(categories: List<Category>): ArrayList<Category> {
+        val out = mergeSameNameCategories(categories)
+        if (out.none { it.name == DEFAULT_CATEGORY_ID }) {
+            out.firstOrNull { it.name == LEGACY_DEFAULT_NAME }?.let { it.name = DEFAULT_CATEGORY_ID }
         }
+        return mergeSameNameCategories(out)
+    }
+
+    private fun mergeSameNameCategories(categories: List<Category>): ArrayList<Category> {
+        val out = ArrayList<Category>()
+        val byName = LinkedHashMap<String, Category>()
+        for (source in categories) {
+            if (source.name.isBlank()) continue
+            val dest = byName[source.name] ?: Category(source.name).also {
+                byName[source.name] = it
+                out.add(it)
+            }
+            for (p in source.phrases) mergePhraseInto(dest, p)
+        }
+        return out
     }
 
     fun record(text: String?) {
@@ -214,9 +234,12 @@ class ClipboardStore(private val dir: File) {
         return true
     }
 
-    private fun carryInto(to: Category, p: Phrase) {
+    private fun carryInto(to: Category, p: Phrase) = mergePhraseInto(to, p)
+
+    private fun mergePhraseInto(to: Category, p: Phrase) {
+        if (p.text.isBlank()) return
         val existing = findPhrase(to, p.text)
-        if (existing == null) to.phrases.add(p)
+        if (existing == null) to.phrases.add(Phrase(p.text, p.note))
         else if (existing.note.isEmpty() && p.note.isNotEmpty()) existing.note = p.note
     }
 
@@ -302,9 +325,7 @@ class ClipboardStore(private val dir: File) {
 
     private fun savePhrases() { runCatching { savePhrasesOrThrow() } }
 
-    private fun savePhrasesOrThrow() {
-        phraseFile.writeText(serializePhrases())
-    }
+    private fun savePhrasesOrThrow() { atomicWrite(phraseFile, serializePhrases()) }
 
     private fun serializePhrases(): String {
         val sb = StringBuilder()
@@ -322,18 +343,15 @@ class ClipboardStore(private val dir: File) {
     fun exportPhrasesText(): String = serializePhrases()
 
     fun importPhrasesText(text: String, merge: Boolean): Boolean {
-        val parsed = parseCategories(text.lineSequence().toList())
-        val hasContent = parsed.any { it.phrases.isNotEmpty() || it.name.isNotBlank() }
-        if (!hasContent) return false
+        val parsed = canonicalCategories(parseCategories(text.lineSequence().toList()))
+        if (parsed.isEmpty()) return false
         if (merge) {
+            val normalized = canonicalCategories(phraseCats)
+            phraseCats.clear()
+            phraseCats.addAll(normalized)
             for (pc in parsed) {
-                if (pc.name.isBlank()) continue
                 val c = find(pc.name) ?: Category(pc.name).also { phraseCats.add(it) }
-                for (p in pc.phrases) {
-                    val existing = findPhrase(c, p.text)
-                    if (existing == null) c.phrases.add(Phrase(p.text, p.note))
-                    else if (existing.note.isEmpty() && p.note.isNotEmpty()) existing.note = p.note
-                }
+                for (p in pc.phrases) mergePhraseInto(c, p)
             }
         } else {
             phraseCats.clear()

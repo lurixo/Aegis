@@ -135,6 +135,13 @@ class ClipboardStoreTest {
         assertEquals(listOf("B\tcol2\tcol3", "T\tnot a marker", "plain clip"), s.history())
     }
 
+    @Test fun load_dedupes_duplicate_history_and_keeps_missing_sidecar_marker_literal() {
+        val dir = newDir()
+        File(dir, "clipboard.txt").writeText("dup\nB\tMissingSidecar42\ndup\n")
+        val s = ClipboardStore(dir).apply { load() }
+        assertEquals(listOf("dup", "B\tMissingSidecar42"), s.history())
+    }
+
     @Test fun deleting_a_big_entry_sweeps_its_side_file() {
         val dir = newDir()
         val big = "z".repeat(ClipboardStore.BIG_THRESHOLD + 100)
@@ -499,11 +506,63 @@ class ClipboardStoreTest {
         assertEquals(listOf("你好"), s.phrasesIn("新组"))
     }
 
+    @Test fun import_merge_collapses_existing_duplicate_category_names() {
+        val dir = newDir()
+        File(dir, "phrases.txt").writeText(
+            "C\t工作\n" +
+                "P\t本机一\n" +
+                "C\t工作\n" +
+                "P\t本机二\n" +
+                "P\t共同\n" +
+                "N\t本机注\n",
+        )
+        val s = ClipboardStore(dir).apply { load() }
+
+        assertTrue(s.importPhrasesText("C\t工作\nP\t备份一\nP\t共同\nN\t备份注\n", merge = true))
+
+        assertEquals(1, s.categories().count { it == "工作" })
+        assertEquals(listOf("本机一", "本机二", "共同", "备份一"), s.phrasesIn("工作"))
+        assertEquals("本机注", s.noteFor("工作", "共同"))
+        assertEquals(1, ClipboardStore(dir).apply { load() }.categories().count { it == "工作" })
+    }
+
     @Test fun import_overwrite_replaces_whole_library() {
         val s = ClipboardStore(newDir()).apply { load(); addCategory("旧组"); addPhrasesTo("旧组", listOf("旧")) }
         assertTrue(s.importPhrasesText("C\t新组\nP\t新\n", merge = false))
         assertFalse("旧组 replaced away", "旧组" in s.categories())
         assertEquals(listOf("新"), s.phrasesIn("新组"))
+    }
+
+    @Test fun import_overwrite_merges_duplicate_category_names() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("旧组"); addPhrasesTo("旧组", listOf("旧")) }
+
+        assertTrue(
+            s.importPhrasesText(
+                "C\t工作\n" +
+                    "P\t备份一\n" +
+                    "N\t一注\n" +
+                    "C\t工作\n" +
+                    "P\t备份二\n" +
+                    "P\t备份一\n" +
+                    "N\t不应覆盖\n",
+                merge = false,
+            ),
+        )
+
+        assertEquals(1, s.categories().count { it == "工作" })
+        assertEquals(listOf("备份一", "备份二"), s.phrasesIn("工作"))
+        assertEquals("一注", s.noteFor("工作", "备份一"))
+        assertFalse("旧组" in s.categories())
+    }
+
+    @Test fun import_overwrite_migrates_legacy_default_name_without_adding_a_duplicate_default() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("旧组"); addPhrasesTo("旧组", listOf("旧")) }
+
+        assertTrue(s.importPhrasesText("C\t默认\nP\t你好\n", merge = false))
+
+        assertEquals(1, s.categories().count { it == ClipboardStore.DEFAULT_CATEGORY_ID })
+        assertFalse("默认" in s.categories())
+        assertEquals(listOf("你好"), s.phrasesIn(ClipboardStore.DEFAULT_CATEGORY_ID))
     }
 
     @Test fun import_empty_or_unparseable_never_clears() {
@@ -512,6 +571,15 @@ class ClipboardStoreTest {
         assertFalse("blank lines → no change", s.importPhrasesText("\n  \n", merge = false))
         assertFalse("garbage with no markers → no change", s.importPhrasesText("just some text\nmore", merge = false))
         assertEquals("library intact after failed overwrite", listOf("keep"), s.phrasesIn("甲"))
+    }
+
+    @Test fun import_blank_named_category_never_clears() {
+        val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("keep")) }
+
+        assertFalse(s.importPhrasesText("C\t\nP\tbad\n", merge = false))
+
+        assertEquals(listOf("keep"), s.phrasesIn("甲"))
+        assertFalse("" in s.categories())
     }
 
 
