@@ -133,21 +133,21 @@ tools/build/install/tools/bin/tools lm --out <lm> <14 张万象 .dict.yaml ...>
 
 ## 发布词库包
 
-每个应用发布都会在同一个 GitHub release 里发布 APK 与当前的完整词库包。应用从 `lurixo/Aegis` 的
-release 附件里发现词库更新,优先按 `published_at` 取最新的预发布词库 ZIP,再回退到正式发布。
-来源 / 溯源链接始终是 `https://github.com/amzxyz/rime-wanxiang`;实际下载的是 Aegis 转换后的
-二进制 ZIP 发布附件。
+应用 APK 发布与可下载词库包分开发布。带版本号的应用 release 只携带 APK。完整词库包发布在滚动的
+[`dict-latest`](https://github.com/lurixo/Aegis/releases/tag/dict-latest) GitHub release 上;应用只从
+这个 release tag 发现词库更新,通过比较已安装词库包的 SHA-256 与当前词库 ZIP 附件来判断是否更新。
 
 ```
-tools/release/build_dictionary_pack.py --release-tag vX.Y.Z-debug.N
+tools/release/build_dictionary_pack.py --release-tag dict-latest
 ```
 
 该命令默认克隆 `amzxyz/rime-wanxiang`(默认取某个稳定 tag,或用 `--source-dir` 指定本地目录),
 用 `tools/DictBuilder` 以 `--min-freq 1`、无每键上限构建 14 张已核验表,并在
 `build/release-dictionary/` 下写出词库包 ZIP、`aegis-build-info.json` 与
-`aegis-dictionary-update.json`。把这些生成文件上传到与 APK 相同的 GitHub release。已签入的
-`aegis-build-info.json` 记录当前发布的词库包溯源链(来源 tag 与 commit、逐表输入哈希、构建参数、
-输出 bin 哈希)及其尚存的溯源缺口;每次发布都会为新构建的附件重新生成它。在 release 同时携带确切
+`aegis-dictionary-update.json`。把这些生成文件上传到滚动的 `dict-latest` release,不要上传到带
+版本号的应用 release。已签入的 `aegis-build-info.json` 记录当前滚动词库包溯源链(来源 tag 与
+commit、逐表输入哈希、构建参数、输出 bin 哈希和物理附件 URL)及其尚存的溯源缺口;滚动词库包重新
+发布时需要同步更新它。在 release 同时携带确切
 输入哈希、可确定复现的配方以及签名 / 证明之前,词库包还不是完全可复现的公共供应链产物。
 
 ## 架构
