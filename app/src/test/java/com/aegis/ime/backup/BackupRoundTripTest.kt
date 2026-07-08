@@ -153,6 +153,64 @@ class BackupRoundTripTest {
         assertFalse("guard must not stay latched after a failed restore", LiveUserData.restoreInProgress)
     }
 
+    private class CommitFailingSharedPreferences(
+        private val delegate: SharedPreferences,
+    ) : SharedPreferences by delegate {
+        val editedKeys = LinkedHashSet<String>()
+        var commitCalled = false
+            private set
+
+        override fun edit(): SharedPreferences.Editor =
+            CommitFailingEditor(delegate.edit(), editedKeys) { commitCalled = true }
+
+        private class CommitFailingEditor(
+            private val delegate: SharedPreferences.Editor,
+            private val editedKeys: MutableSet<String>,
+            private val onCommit: () -> Unit,
+        ) : SharedPreferences.Editor by delegate {
+            override fun putBoolean(key: String, value: Boolean): SharedPreferences.Editor {
+                editedKeys.add(key)
+                delegate.putBoolean(key, value)
+                return this
+            }
+
+            override fun putFloat(key: String, value: Float): SharedPreferences.Editor {
+                editedKeys.add(key)
+                delegate.putFloat(key, value)
+                return this
+            }
+
+            override fun putInt(key: String, value: Int): SharedPreferences.Editor {
+                editedKeys.add(key)
+                delegate.putInt(key, value)
+                return this
+            }
+
+            override fun putLong(key: String, value: Long): SharedPreferences.Editor {
+                editedKeys.add(key)
+                delegate.putLong(key, value)
+                return this
+            }
+
+            override fun putString(key: String, value: String?): SharedPreferences.Editor {
+                editedKeys.add(key)
+                delegate.putString(key, value)
+                return this
+            }
+
+            override fun putStringSet(key: String, values: Set<String>?): SharedPreferences.Editor {
+                editedKeys.add(key)
+                delegate.putStringSet(key, values)
+                return this
+            }
+
+            override fun commit(): Boolean {
+                onCommit()
+                return false
+            }
+        }
+    }
+
     private fun decodeUserdbFromBackup(backup: ByteArray): UserModel {
         val captured = ByteArrayOutputStream()
         BackupCrypto.readDecrypted(ByteArrayInputStream(backup), password.toCharArray()) { plain ->
@@ -348,6 +406,35 @@ class BackupRoundTripTest {
         } finally {
             UserDictHot.host = null
         }
+    }
+
+    @Test fun restore_reports_failure_when_preference_commit_fails_after_decoding_prefs() {
+        seedTypicalData()
+        val backup = export()
+        wipeUserData()
+        prefs.edit().clear().commit()
+        val failingPrefs = CommitFailingSharedPreferences(prefs)
+
+        try {
+            BackupManager.restore(
+                filesDir,
+                failingPrefs,
+                password.toCharArray(),
+                ByteArrayInputStream(backup),
+                BackupManager.Mode.OVERWRITE,
+            )
+            fail("expected restore to report a preference persistence failure")
+        } catch (e: BackupException) {
+            assertEquals(BackupError.IO_ERROR, e.error)
+        }
+
+        assertTrue(
+            "restored preferences must be decoded and applied before commit failure is reported",
+            "cn_layout" in failingPrefs.editedKeys,
+        )
+        assertTrue("preference editor commit must be reached", failingPrefs.commitCalled)
+        assertFalse("staging must be cleaned up", File(filesDir, "backup_staging").exists())
+        assertFalse("guard must not stay latched after a failed restore", LiveUserData.restoreInProgress)
     }
 
     @Test fun restore_reports_failure_when_phrase_persistence_fails() {
