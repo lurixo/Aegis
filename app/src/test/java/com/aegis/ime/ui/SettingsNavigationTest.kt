@@ -48,12 +48,22 @@ class SettingsNavigationTest {
         Group(R.string.settings_group_input_title, InputSettingsActivity::class.java, R.string.layout_card_title),
         Group(R.string.settings_group_dicts_title, DictSettingsActivity::class.java, R.string.dict_card_title),
         Group(R.string.settings_group_userdict_title, UserDictActivity::class.java, R.string.user_dict_export_button),
+        Group(R.string.settings_backup_title, BackupActivity::class.java, R.string.backup_export_button),
         Group(R.string.settings_group_about_title, AboutActivity::class.java, R.string.setup_steps_title),
     )
 
-    @Test fun home_shows_all_four_group_entries_and_none_of_the_moved_cards() {
+    @Test fun home_shows_all_five_group_entries_and_none_of_the_moved_cards() {
         for (g in groups) compose.onNodeWithText(s(g.titleRes)).assertExists()
-        assertEquals(4, SettingsRoutes.GROUPS.size)
+        assertEquals(
+            listOf(
+                SettingsRoutes.INPUT,
+                SettingsRoutes.DICTS,
+                SettingsRoutes.USER_DICT,
+                SettingsRoutes.BACKUP,
+                SettingsRoutes.ABOUT,
+            ),
+            SettingsRoutes.GROUPS,
+        )
         for (g in groups) compose.onNodeWithText(s(g.markerRes)).assertDoesNotExist()
         compose.onNodeWithText(s(R.string.fuzzy_card_title)).assertDoesNotExist()
         compose.onNodeWithText(s(R.string.gram_card_title)).assertDoesNotExist()
@@ -91,6 +101,7 @@ class SettingsNavigationTest {
         assertEquals(InputSettingsActivity::class.java, activityForGroup(SettingsRoutes.INPUT))
         assertEquals(DictSettingsActivity::class.java, activityForGroup(SettingsRoutes.DICTS))
         assertEquals(UserDictActivity::class.java, activityForGroup(SettingsRoutes.USER_DICT))
+        assertEquals(BackupActivity::class.java, activityForGroup(SettingsRoutes.BACKUP))
         assertEquals(AboutActivity::class.java, activityForGroup(SettingsRoutes.ABOUT))
         assertNull(activityForGroup("nope"))
     }
