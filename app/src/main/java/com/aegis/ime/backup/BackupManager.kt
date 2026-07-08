@@ -37,6 +37,7 @@ object BackupManager {
     private const val PHRASES = "phrases.txt"
     private const val CLIPBOARD = "clipboard.txt"
     private const val CLIPS_DIR = "clips"
+    private const val BIG_CLIP_LINE = "B\t"
     private const val SYMBOL_USAGE = "symbol_usage.txt"
     private const val EMOJI_DIR = "emoji"
     private const val EMOJI_USAGE = "emoji/symbol_usage.txt"
@@ -79,11 +80,28 @@ object BackupManager {
             if (File(filesDir, name).isFile) paths.add(name)
         }
         if (File(filesDir, EMOJI_USAGE).isFile) paths.add(EMOJI_USAGE)
+        val referencedClips = referencedClipSidecarNames(File(filesDir, CLIPBOARD))
         File(filesDir, CLIPS_DIR).listFiles()?.sortedBy { it.name }?.forEach { f ->
+            if (f.name !in referencedClips) return@forEach
             val rel = "$CLIPS_DIR/${f.name}"
             if (f.isFile && BackupArchive.sanitizedRelativePath(rel) != null) paths.add(rel)
         }
         return paths
+    }
+
+    private fun referencedClipSidecarNames(index: File): Set<String> {
+        if (!index.isFile) return emptySet()
+        val names = LinkedHashSet<String>()
+        runCatching {
+            index.forEachLine { line ->
+                if (line.startsWith(BIG_CLIP_LINE)) {
+                    val name = line.substring(BIG_CLIP_LINE.length) + ".txt"
+                    val rel = "$CLIPS_DIR/$name"
+                    if (BackupArchive.sanitizedRelativePath(rel) != null) names.add(name)
+                }
+            }
+        }
+        return names
     }
 
 
@@ -214,6 +232,7 @@ object BackupManager {
             val incoming = ClipboardStore(staging).also { it.load() }.history()
             ClipboardStore(filesDir).also { it.load() }.importHistory(incoming, merge = true)
         } else {
+            val stagedClipNames = restoredClipSidecarNames(staging, stagedIndex)
             File(staging, CLIPS_DIR).takeIf { it.isDirectory }
                 ?.copyRecursively(File(filesDir, CLIPS_DIR), overwrite = true)
             val realIndex = File(filesDir, CLIPBOARD)
@@ -226,6 +245,22 @@ object BackupManager {
                     throw java.io.IOException("clipboard index swap failed")
                 }
             }
+            sweepUnrestoredClipSidecars(File(filesDir, CLIPS_DIR), stagedClipNames)
+        }
+    }
+
+    private fun restoredClipSidecarNames(staging: File, index: File): Set<String> {
+        val referenced = referencedClipSidecarNames(index)
+        return File(staging, CLIPS_DIR).listFiles()
+            ?.filter { it.isFile && BackupArchive.sanitizedRelativePath("$CLIPS_DIR/${it.name}") != null }
+            ?.filter { it.name in referenced }
+            ?.mapTo(LinkedHashSet()) { it.name }
+            ?: emptySet()
+    }
+
+    private fun sweepUnrestoredClipSidecars(clipsDir: File, restoredNames: Set<String>) {
+        clipsDir.listFiles()?.forEach { f ->
+            if (f.isFile && f.name.endsWith(".txt") && f.name !in restoredNames) runCatching { f.delete() }
         }
     }
 

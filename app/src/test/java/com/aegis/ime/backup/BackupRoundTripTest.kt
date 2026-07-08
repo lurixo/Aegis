@@ -78,6 +78,8 @@ class BackupRoundTripTest {
 
     private fun userdbFile() = File(filesDir, "userdb.txt")
     private fun freshClip() = ClipboardStore(filesDir).apply { load() }
+    private fun clipSideFileNames(): Set<String> =
+        File(filesDir, "clips").listFiles().orEmpty().filter { it.isFile }.mapTo(LinkedHashSet()) { it.name }
 
     private fun clipboardIo(store: ClipboardStore): ExecutorService {
         val field = ClipboardStore::class.java.getDeclaredField("io")
@@ -142,6 +144,22 @@ class BackupRoundTripTest {
         val tmp = File(filesDir, "decoded_userdb_probe.txt")
         tmp.writeBytes(captured.toByteArray())
         return UserModel().apply { load(tmp) }.also { tmp.delete() }
+    }
+
+    private fun decodeFileNamesFromBackup(backup: ByteArray): Set<String> {
+        val names = LinkedHashSet<String>()
+        BackupCrypto.readDecrypted(ByteArrayInputStream(backup), password.toCharArray()) { plain ->
+            java.util.zip.GZIPInputStream(plain).use { gz ->
+                BackupArchive.read(java.io.DataInputStream(gz), object : BackupArchive.Visitor {
+                    override fun onPrefs(blob: ByteArray) {}
+                    override fun openFile(relativePath: String): ByteArrayOutputStream {
+                        names.add(relativePath)
+                        return ByteArrayOutputStream()
+                    }
+                })
+            }
+        }
+        return names
     }
 
 
@@ -327,6 +345,50 @@ class BackupRoundTripTest {
         val history = freshClip().history()
         assertTrue(history.contains("普通"))
         assertTrue("the multi-MB entry round-trips", history.contains(bigClip))
+    }
+
+    @Test fun overwrite_restore_replaces_clip_sidecar_set() {
+        val restoredBig = "restored-sidecar-" + "r".repeat(ClipboardStore.BIG_THRESHOLD + 1)
+        freshClip().apply { importHistory(listOf(restoredBig), merge = false) }
+        val backup = export()
+        val restoredSidecars = clipSideFileNames()
+        assertTrue("precondition: restored history has a sidecar", restoredSidecars.isNotEmpty())
+
+        wipeUserData()
+        val staleBig = "stale-sidecar-" + "s".repeat(ClipboardStore.BIG_THRESHOLD + 1)
+        freshClip().apply { importHistory(listOf(staleBig), merge = false) }
+        val staleSidecars = clipSideFileNames()
+        assertTrue("precondition: target history has a stale sidecar", staleSidecars.isNotEmpty())
+        assertTrue("precondition: sidecar hashes differ", restoredSidecars.intersect(staleSidecars).isEmpty())
+
+        restore(backup, BackupManager.Mode.OVERWRITE)
+
+        assertEquals(listOf(restoredBig), freshClip().history())
+        assertEquals(restoredSidecars, clipSideFileNames())
+    }
+
+    @Test fun export_after_overwrite_omits_unreferenced_clip_sidecars() {
+        val restoredBig = "export-restored-sidecar-" + "r".repeat(ClipboardStore.BIG_THRESHOLD + 1)
+        freshClip().apply { importHistory(listOf(restoredBig), merge = false) }
+        val backup = export()
+        val restoredSidecars = clipSideFileNames()
+        assertTrue("precondition: restored history has a sidecar", restoredSidecars.isNotEmpty())
+
+        wipeUserData()
+        val staleBig = "export-stale-sidecar-" + "s".repeat(ClipboardStore.BIG_THRESHOLD + 1)
+        freshClip().apply { importHistory(listOf(staleBig), merge = false) }
+        val staleSidecars = clipSideFileNames()
+        assertTrue("precondition: target history has a stale sidecar", staleSidecars.isNotEmpty())
+        assertTrue("precondition: sidecar hashes differ", restoredSidecars.intersect(staleSidecars).isEmpty())
+
+        restore(backup, BackupManager.Mode.OVERWRITE)
+        val clipsDir = File(filesDir, "clips").apply { mkdirs() }
+        for (name in staleSidecars) File(clipsDir, name).writeText(staleBig)
+
+        val archiveNames = decodeFileNamesFromBackup(export())
+
+        for (name in restoredSidecars) assertTrue("restored sidecar must be archived", "clips/$name" in archiveNames)
+        for (name in staleSidecars) assertFalse("stale sidecar must not be archived", "clips/$name" in archiveNames)
     }
 
     @Test fun export_flushes_live_learning_not_yet_written_to_disk() {
