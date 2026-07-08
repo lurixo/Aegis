@@ -68,7 +68,9 @@ class BackupRoundTripTest {
         LiveUserData.onBeforeExport = null
         LiveUserData.onBeforeRestore = null
         LiveUserData.restoreInProgress = false
-        listOf("userdb.txt", "phrases.txt", "clipboard.txt", "symbol_usage.txt").forEach { File(filesDir, it).delete() }
+        listOf("userdb.txt", "phrases.txt", "clipboard.txt", "symbol_usage.txt").forEach {
+            File(filesDir, it).deleteRecursively()
+        }
         File(filesDir, "clips").deleteRecursively()
         File(filesDir, "emoji").deleteRecursively()
         File(filesDir, "backup_staging").deleteRecursively()
@@ -125,9 +127,30 @@ class BackupRoundTripTest {
         BackupManager.restore(filesDir, prefs, pass.toCharArray(), ByteArrayInputStream(bytes), mode)
 
     private fun wipeUserData() {
-        listOf("userdb.txt", "phrases.txt", "clipboard.txt", "symbol_usage.txt").forEach { File(filesDir, it).delete() }
+        listOf("userdb.txt", "phrases.txt", "clipboard.txt", "symbol_usage.txt").forEach {
+            File(filesDir, it).deleteRecursively()
+        }
         File(filesDir, "clips").deleteRecursively()
         File(filesDir, "emoji").deleteRecursively()
+    }
+
+    private fun blockFilePathWithDirectory(relativePath: String) {
+        val dir = File(filesDir, relativePath)
+        dir.deleteRecursively()
+        dir.parentFile?.mkdirs()
+        assertTrue("precondition: blocker directory was created", dir.mkdirs())
+        File(dir, "blocker").writeText("x")
+    }
+
+    private fun expectRestoreIoFailure(backup: ByteArray, mode: BackupManager.Mode) {
+        try {
+            restore(backup, mode)
+            fail("expected restore to report a persistence failure")
+        } catch (e: BackupException) {
+            assertEquals(BackupError.IO_ERROR, e.error)
+        }
+        assertFalse("staging must be cleaned up", File(filesDir, "backup_staging").exists())
+        assertFalse("guard must not stay latched after a failed restore", LiveUserData.restoreInProgress)
     }
 
     private fun decodeUserdbFromBackup(backup: ByteArray): UserModel {
@@ -306,6 +329,61 @@ class BackupRoundTripTest {
 
         assertTrue("the running service's stores are refreshed after a restore", reloaded)
         assertFalse("the capture guard is released once the reload lands", LiveUserData.restoreInProgress)
+    }
+
+    @Test fun restore_reports_failure_when_live_user_dictionary_import_fails() {
+        UserModel().apply { addManualWord("nihao", "你好", 1000) }.save(userdbFile())
+        val backup = export()
+        wipeUserData()
+
+        UserDictHot.host = object : UserDictHot.Host {
+            override fun addWord(reading: String, word: String, now: Long) = true
+            override fun removeWord(reading: String, word: String) = true
+            override fun importUserDict(importFile: File, merge: Boolean, now: Long) = false
+            override fun entries(): List<UserModel.Entry> = emptyList()
+            override fun flush() {}
+        }
+        try {
+            expectRestoreIoFailure(backup, BackupManager.Mode.OVERWRITE)
+        } finally {
+            UserDictHot.host = null
+        }
+    }
+
+    @Test fun restore_reports_failure_when_phrase_persistence_fails() {
+        freshClip().apply { addPhrasesTo("default", listOf("短语写入失败探针")) }
+        val backup = export()
+        wipeUserData()
+        blockFilePathWithDirectory("phrases.txt")
+
+        expectRestoreIoFailure(backup, BackupManager.Mode.OVERWRITE)
+    }
+
+    @Test fun merge_restore_reports_failure_when_clipboard_persistence_fails() {
+        freshClip().apply { record("剪贴写入失败探针"); flushPendingWrites() }
+        val backup = export()
+        wipeUserData()
+        blockFilePathWithDirectory("clipboard.txt")
+
+        expectRestoreIoFailure(backup, BackupManager.Mode.MERGE)
+    }
+
+    @Test fun restore_reports_failure_when_symbol_persistence_fails() {
+        SymbolUsageStore(filesDir).apply { load(); record("！", "zh") }
+        val backup = export()
+        wipeUserData()
+        blockFilePathWithDirectory("symbol_usage.txt")
+
+        expectRestoreIoFailure(backup, BackupManager.Mode.OVERWRITE)
+    }
+
+    @Test fun restore_reports_failure_when_emoji_persistence_fails() {
+        SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).apply { load(); record("😀", "smileys") }
+        val backup = export()
+        wipeUserData()
+        blockFilePathWithDirectory("emoji/symbol_usage.txt")
+
+        expectRestoreIoFailure(backup, BackupManager.Mode.OVERWRITE)
     }
 
     @Test fun a_failed_restore_never_latches_the_capture_guard() {

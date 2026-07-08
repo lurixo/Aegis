@@ -16,6 +16,7 @@
 package com.aegis.ime.user
 
 import java.io.File
+import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
@@ -257,18 +258,20 @@ class ClipboardStore(private val dir: File) {
     private fun scheduleSave() {
         val snapshot = ArrayList(history)
         val gen = saveGen.incrementAndGet()
-        runCatching { io.execute { if (gen == saveGen.get()) writeHistory(snapshot) } }
+        runCatching { io.execute { if (gen == saveGen.get()) runCatching { writeHistory(snapshot) } } }
     }
 
-    private fun writeHistory(snapshot: List<String>) = runCatching {
+    private fun writeHistory(snapshot: List<String>) {
         val sb = StringBuilder()
         val referenced = HashSet<String>()
         for (e in snapshot) {
             if (e.length > BIG_THRESHOLD) {
                 val hash = sha256(e)
                 referenced.add(hash)
-                val f = File(clipsDir().apply { mkdirs() }, "$hash.txt")
-                if (!f.exists()) atomicWrite(f, e)
+                val sideDir = clipsDir()
+                if (!sideDir.exists() && !sideDir.mkdirs()) throw IOException("clipboard sidecar directory creation failed")
+                val f = File(sideDir, "$hash.txt")
+                if (!f.isFile) atomicWrite(f, e)
                 sb.append(BIG_LINE).append(hash).append('\n')
             } else {
                 sb.append(encode(e)).append('\n')
@@ -283,7 +286,13 @@ class ClipboardStore(private val dir: File) {
     private fun atomicWrite(dest: File, text: String) {
         val tmp = File(dest.parentFile, dest.name + ".tmp")
         tmp.writeText(text)
-        if (!tmp.renameTo(dest)) { dest.delete(); if (!tmp.renameTo(dest)) tmp.delete() }
+        if (!tmp.renameTo(dest)) {
+            dest.delete()
+            if (!tmp.renameTo(dest)) {
+                tmp.delete()
+                throw IOException("atomic write swap failed")
+            }
+        }
     }
 
     private fun sha256(s: String): String =
@@ -291,7 +300,11 @@ class ClipboardStore(private val dir: File) {
 
     internal fun flushPendingWrites() { runCatching { io.submit { }.get() } }
 
-    private fun savePhrases() = runCatching { phraseFile.writeText(serializePhrases()) }
+    private fun savePhrases() { runCatching { savePhrasesOrThrow() } }
+
+    private fun savePhrasesOrThrow() {
+        phraseFile.writeText(serializePhrases())
+    }
 
     private fun serializePhrases(): String {
         val sb = StringBuilder()
@@ -327,7 +340,7 @@ class ClipboardStore(private val dir: File) {
             phraseCats.addAll(parsed)
             if (phraseCats.none { it.name == DEFAULT_CATEGORY_ID }) phraseCats.add(0, Category(DEFAULT_CATEGORY_ID))
         }
-        savePhrases()
+        savePhrasesOrThrow()
         return true
     }
 
