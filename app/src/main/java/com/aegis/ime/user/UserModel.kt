@@ -16,6 +16,7 @@
 package com.aegis.ime.user
 
 import java.io.File
+import java.io.IOException
 import kotlin.math.ln
 
 class UserModel {
@@ -139,11 +140,21 @@ class UserModel {
 
     @Synchronized
     fun save(file: File) {
-        file.bufferedWriter().use { w ->
-            w.write("aegis-userdb 1\n")
-            for ((word, c) in count) w.write("W\t$word\t$c\t${lastUsed[word] ?: 0}\n")
-            for ((prev, m) in bigram) for ((word, c) in m) w.write("B\t$prev\t$word\t$c\n")
-            for ((reading, ws) in readings) for (word in ws) w.write("R\t$reading\t$word\n")
+        val tmp = File(file.absoluteFile.parentFile, file.name + ".tmp")
+        try {
+            tmp.bufferedWriter().use { w ->
+                w.write("aegis-userdb 1\n")
+                for ((word, c) in count) w.write("W\t$word\t$c\t${lastUsed[word] ?: 0}\n")
+                for ((prev, m) in bigram) for ((word, c) in m) w.write("B\t$prev\t$word\t$c\n")
+                for ((reading, ws) in readings) for (word in ws) w.write("R\t$reading\t$word\n")
+            }
+            if (!tmp.renameTo(file)) {
+                file.delete()
+                if (!tmp.renameTo(file)) throw IOException("userdb swap failed")
+            }
+        } catch (e: Exception) {
+            tmp.delete()
+            throw e
         }
         dirty = false
     }

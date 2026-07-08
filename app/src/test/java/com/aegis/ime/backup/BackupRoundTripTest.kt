@@ -445,6 +445,18 @@ class BackupRoundTripTest {
         assertEquals(restoredSidecars, clipSideFileNames())
     }
 
+    @Test fun overwrite_restore_normalizes_duplicate_clips_and_missing_sidecars() {
+        File(filesDir, "clipboard.txt").writeText("重复剪贴\nB\tMissingSidecar42\n重复剪贴\n")
+        val backup = export()
+
+        wipeUserData()
+        restore(backup, BackupManager.Mode.OVERWRITE)
+
+        assertEquals(listOf("重复剪贴", "B\tMissingSidecar42"), freshClip().history())
+        assertEquals(listOf("重复剪贴", "B\tMissingSidecar42"), File(filesDir, "clipboard.txt").readLines())
+        assertTrue(clipSideFileNames().isEmpty())
+    }
+
     @Test fun export_after_overwrite_omits_unreferenced_clip_sidecars() {
         val restoredBig = "export-restored-sidecar-" + "r".repeat(ClipboardStore.BIG_THRESHOLD + 1)
         freshClip().apply { importHistory(listOf(restoredBig), merge = false) }
@@ -646,6 +658,83 @@ class BackupRoundTripTest {
             "legacy flat phrases must survive the round-trip",
             freshClip().phrases().containsAll(listOf("张三", "李四", "王五")),
         )
+    }
+
+    @Test fun overwrite_restore_merges_duplicate_phrase_categories_from_backup() {
+        File(filesDir, "phrases.txt").writeText(
+            "C\t工作\n" +
+                "P\t备份一\n" +
+                "N\t一注\n" +
+                "C\t工作\n" +
+                "P\t备份二\n" +
+                "P\t备份一\n" +
+                "N\t不应覆盖\n",
+        )
+        val backup = export()
+
+        wipeUserData()
+        freshClip().apply {
+            addCategory("工作")
+            addPhrasesTo("工作", listOf("本机旧"))
+            addCategory("本机组")
+            addPhrasesTo("本机组", listOf("不应保留"))
+        }
+
+        restore(backup, BackupManager.Mode.OVERWRITE)
+
+        val clip = freshClip()
+        assertEquals(1, clip.categories().count { it == "工作" })
+        assertEquals(listOf("备份一", "备份二"), clip.phrasesIn("工作"))
+        assertEquals("一注", clip.noteFor("工作", "备份一"))
+        assertFalse("本机组" in clip.categories())
+        assertFalse("本机旧" in clip.phrasesIn("工作"))
+    }
+
+    @Test fun merge_restore_collapses_local_duplicate_phrase_categories() {
+        File(filesDir, "phrases.txt").writeText(
+            "C\t工作\n" +
+                "P\t备份一\n" +
+                "P\t共同\n" +
+                "N\t备份注\n" +
+                "C\t新组\n" +
+                "P\t新短语\n",
+        )
+        val backup = export()
+
+        wipeUserData()
+        File(filesDir, "phrases.txt").writeText(
+            "C\t工作\n" +
+                "P\t本机一\n" +
+                "C\t工作\n" +
+                "P\t本机二\n" +
+                "P\t共同\n" +
+                "N\t本机注\n" +
+                "C\t本机组\n" +
+                "P\t保留\n",
+        )
+
+        restore(backup, BackupManager.Mode.MERGE)
+
+        val clip = freshClip()
+        assertEquals(1, clip.categories().count { it == "工作" })
+        assertEquals(listOf("本机一", "本机二", "共同", "备份一"), clip.phrasesIn("工作"))
+        assertEquals("本机注", clip.noteFor("工作", "共同"))
+        assertEquals(listOf("新短语"), clip.phrasesIn("新组"))
+        assertEquals(listOf("保留"), clip.phrasesIn("本机组"))
+    }
+
+    @Test fun malformed_blank_phrase_category_backup_never_wipes_existing_phrases() {
+        File(filesDir, "phrases.txt").writeText("C\t\nP\t无分类短语\n")
+        val backup = export()
+
+        wipeUserData()
+        freshClip().apply { addPhrasesTo("default", listOf("请勿删除的短语")) }
+
+        restore(backup, BackupManager.Mode.OVERWRITE)
+
+        val clip = freshClip()
+        assertTrue(clip.phrases().contains("请勿删除的短语"))
+        assertFalse("" in clip.categories())
     }
 
     @Test fun an_empty_phrases_backup_never_wipes_existing_phrases_on_overwrite() {
