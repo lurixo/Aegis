@@ -41,6 +41,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -427,6 +428,67 @@ class BackupRoundTripTest {
         } finally {
             releaseIo.countDown()
             restoreWorker.shutdownNow()
+            LiveUserData.onBeforeRestore = null
+        }
+    }
+
+    @Test fun service_teardown_drains_queued_clipboard_write_before_restore_can_commit() {
+        val restoredMarker = "restored-after-service-teardown-" + "t".repeat(ClipboardStore.BIG_THRESHOLD + 1)
+        freshClip().apply { importHistory(listOf(restoredMarker), merge = false) }
+        val backup = export()
+        wipeUserData()
+
+        val liveClip = freshClip()
+        val ioBlocked = CountDownLatch(1)
+        val releaseIo = CountDownLatch(1)
+        clipboardIo(liveClip).execute {
+            ioBlocked.countDown()
+            releaseIo.await(5, TimeUnit.SECONDS)
+        }
+        assertTrue("precondition: clipboard IO thread is blocked", ioBlocked.await(1, TimeUnit.SECONDS))
+
+        liveClip.record("queued-stale-during-service-teardown")
+
+        val flushCalls = AtomicInteger(0)
+        val teardownFlushEntered = CountDownLatch(1)
+        val restoreFlushEntered = CountDownLatch(1)
+        val flush = {
+            when (flushCalls.incrementAndGet()) {
+                1 -> teardownFlushEntered.countDown()
+                2 -> restoreFlushEntered.countDown()
+            }
+            liveClip.flushPendingWrites()
+        }
+        val teardownWorker = Executors.newSingleThreadExecutor()
+        val restoreWorker = Executors.newSingleThreadExecutor()
+        try {
+            LiveUserData.onBeforeExport = flush
+            LiveUserData.onBeforeRestore = flush
+
+            val teardownFuture = teardownWorker.submit {
+                LiveUserData.unregisterClipboardPersistenceHooks(flush)
+            }
+            assertTrue("service teardown reached the live clipboard flush hook", teardownFlushEntered.await(1, TimeUnit.SECONDS))
+            assertFalse("service teardown must wait for the queued clipboard write", teardownFuture.isDone)
+
+            val restoreFuture = restoreWorker.submit<BackupManager.Mode> {
+                restore(backup, BackupManager.Mode.OVERWRITE)
+            }
+            assertTrue("restore must still see the flush hook while teardown is draining it", restoreFlushEntered.await(1, TimeUnit.SECONDS))
+            assertFalse("restore must wait for the queued clipboard write before committing", restoreFuture.isDone)
+
+            releaseIo.countDown()
+            teardownFuture.get(5, TimeUnit.SECONDS)
+            assertEquals(BackupManager.Mode.OVERWRITE, restoreFuture.get(5, TimeUnit.SECONDS))
+
+            assertNull(LiveUserData.onBeforeExport)
+            assertNull(LiveUserData.onBeforeRestore)
+            assertEquals(listOf(restoredMarker), freshClip().history())
+        } finally {
+            releaseIo.countDown()
+            teardownWorker.shutdownNow()
+            restoreWorker.shutdownNow()
+            LiveUserData.onBeforeExport = null
             LiveUserData.onBeforeRestore = null
         }
     }
