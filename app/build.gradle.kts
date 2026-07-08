@@ -13,7 +13,7 @@ android {
         applicationId = "com.aegis.ime"
         minSdk = 34
         targetSdk = 37
-        val releaseName = "0.1.0-debug.54"
+        val releaseName = "0.1.0-debug.55"
         val debugSeq = releaseName.substringAfterLast("-debug.").toIntOrNull()
             ?: error("versionName '$releaseName' must end in '-debug.<N>' so versionCode can derive from it")
         require(debugSeq >= 2) {
