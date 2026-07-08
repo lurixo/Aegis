@@ -15,15 +15,20 @@
 
 package com.aegis.ime.ui
 
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.test.ext.junit.rules.ActivityScenarioRule
 import com.aegis.ime.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -37,6 +42,111 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 private fun ctxString(id: Int) = RuntimeEnvironment.getApplication().getString(id)
+
+private fun <A : ComponentActivity> AndroidComposeTestRule<ActivityScenarioRule<A>, A>.assertSetupStepActionLayout(
+    expectCenteredInset: Boolean = false,
+) {
+    onNodeWithText(ctxString(R.string.setup_steps_title)).performScrollTo().assertExists()
+
+    val pageHorizontalPadding = 24f
+    val cardContentPadding = 16f
+    val buttonHorizontalContentPadding = 24f
+    val rootBounds = onRoot().getUnclippedBoundsInRoot()
+    val cardBounds = onNodeWithTag("setup_steps_card").getUnclippedBoundsInRoot()
+    val actionsBounds = onNodeWithTag("setup_step_actions").getUnclippedBoundsInRoot()
+    val enableButtonBounds = onNodeWithTag("setup_enable_action")
+        .getUnclippedBoundsInRoot()
+    val switchButtonBounds = onNodeWithTag("setup_switch_action")
+        .getUnclippedBoundsInRoot()
+    val enableLabelBounds = onNodeWithTag("setup_enable_label_block", useUnmergedTree = true)
+        .getUnclippedBoundsInRoot()
+    val switchLabelBounds = onNodeWithTag("setup_switch_label_block", useUnmergedTree = true)
+        .getUnclippedBoundsInRoot()
+
+    assertEquals(
+        "setup steps card should fill the page content width",
+        rootBounds.left.value + pageHorizontalPadding,
+        cardBounds.left.value,
+        1f,
+    )
+    assertEquals(
+        "setup steps card should fill the page content width",
+        rootBounds.right.value - pageHorizontalPadding,
+        cardBounds.right.value,
+        1f,
+    )
+    assertEquals(
+        "setup actions should fill the padded card width",
+        cardBounds.left.value + cardContentPadding,
+        actionsBounds.left.value,
+        1f,
+    )
+    assertEquals(
+        "setup actions should fill the padded card width",
+        cardBounds.right.value - cardContentPadding,
+        actionsBounds.right.value,
+        1f,
+    )
+    assertEquals(
+        "enable setup button should fill the action width",
+        actionsBounds.left.value,
+        enableButtonBounds.left.value,
+        0.5f,
+    )
+    assertEquals(
+        "enable setup button should fill the action width",
+        actionsBounds.right.value,
+        enableButtonBounds.right.value,
+        0.5f,
+    )
+    assertEquals(
+        "switch setup button should fill the action width",
+        actionsBounds.left.value,
+        switchButtonBounds.left.value,
+        0.5f,
+    )
+    assertEquals(
+        "switch setup button should fill the action width",
+        actionsBounds.right.value,
+        switchButtonBounds.right.value,
+        0.5f,
+    )
+
+    assertEquals(
+        "setup label blocks should share the same left edge",
+        enableLabelBounds.left.value,
+        switchLabelBounds.left.value,
+        0.5f,
+    )
+    assertEquals(
+        "setup label blocks should share the same width",
+        enableLabelBounds.right.value - enableLabelBounds.left.value,
+        switchLabelBounds.right.value - switchLabelBounds.left.value,
+        0.5f,
+    )
+    assertEquals(
+        "enable setup label block should be centered in the button",
+        (enableButtonBounds.left.value + enableButtonBounds.right.value) / 2f,
+        (enableLabelBounds.left.value + enableLabelBounds.right.value) / 2f,
+        1f,
+    )
+    assertEquals(
+        "switch setup label block should be centered in the button",
+        (switchButtonBounds.left.value + switchButtonBounds.right.value) / 2f,
+        (switchLabelBounds.left.value + switchLabelBounds.right.value) / 2f,
+        1f,
+    )
+    if (expectCenteredInset) {
+        assertTrue(
+            "setup label block should be centered beyond the button's horizontal content padding",
+            enableLabelBounds.left.value > enableButtonBounds.left.value + buttonHorizontalContentPadding,
+        )
+        assertTrue(
+            "setup label block should be centered beyond the button's horizontal content padding",
+            enableLabelBounds.right.value < enableButtonBounds.right.value - buttonHorizontalContentPadding,
+        )
+    }
+}
 
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -101,6 +211,9 @@ class AboutActivityTest {
         compose.onNodeWithText(ctxString(R.string.setup_try_field_label)).performScrollTo().assertExists()
     }
 
+    @Test fun setup_step_actions_fill_card_width_and_labels_use_centered_shared_block() =
+        compose.assertSetupStepActionLayout()
+
     @Test fun opening_licenses_starts_the_licenses_activity() {
         compose.onNodeWithText(ctxString(R.string.settings_about_licenses_title)).performScrollTo().performClick()
         compose.waitForIdle()
@@ -113,6 +226,16 @@ class AboutActivityTest {
         compose.waitForIdle()
         assertTrue(compose.activity.isFinishing)
     }
+}
+
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(sdk = [34], qualifiers = "zh-rCN-w411dp-h891dp-xxhdpi")
+class AboutActivityChineseTest {
+    @get:Rule val compose = createAndroidComposeRule<AboutActivity>()
+
+    @Test fun setup_step_actions_align_the_chinese_labels_in_a_centered_shared_block() =
+        compose.assertSetupStepActionLayout(expectCenteredInset = true)
 }
 
 @RunWith(RobolectricTestRunner::class)

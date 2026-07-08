@@ -18,23 +18,20 @@ package com.aegis.ime.ui
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.ui.Modifier
-import com.aegis.ime.ui.theme.AegisTheme
 
 class LicensesActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        bootstrapSettingsEdgeToEdge()
         setContent {
-            AegisTheme {
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    LicensesPage(onBack = { finish() })
-                }
+            SettingsActivityChrome {
+                LicensesPage(onBack = { finish() })
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        bootstrapSettingsEdgeToEdge()
     }
 }

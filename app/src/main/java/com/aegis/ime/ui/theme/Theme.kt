@@ -15,12 +15,17 @@
 
 package com.aegis.ime.ui.theme
 
+import android.content.Context
+import android.content.res.Configuration
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import com.aegis.ime.R
 
 @Composable
 fun AegisTheme(
@@ -28,10 +33,28 @@ fun AegisTheme(
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
-    val colorScheme = if (darkTheme) {
-        dynamicDarkColorScheme(context)
-    } else {
-        dynamicLightColorScheme(context)
-    }
+    val colorScheme = aegisColorScheme(context, darkTheme)
     MaterialTheme(colorScheme = colorScheme, content = content)
 }
+
+internal fun aegisColorScheme(context: Context, darkTheme: Boolean): ColorScheme = if (darkTheme) {
+    dynamicDarkColorScheme(context)
+} else {
+    dynamicLightColorScheme(context)
+}.copy(background = settingsBackgroundColor(context, darkTheme))
+
+internal fun settingsBackgroundArgb(context: Context): Int = context.getColor(R.color.settings_window_background)
+
+internal fun settingsBackgroundArgb(context: Context, darkTheme: Boolean): Int {
+    val configuration = Configuration(context.resources.configuration)
+    val nightMode = if (darkTheme) {
+        Configuration.UI_MODE_NIGHT_YES
+    } else {
+        Configuration.UI_MODE_NIGHT_NO
+    }
+    configuration.uiMode = (configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or nightMode
+    return context.createConfigurationContext(configuration).getColor(R.color.settings_window_background)
+}
+
+internal fun settingsBackgroundColor(context: Context, darkTheme: Boolean): Color =
+    Color(settingsBackgroundArgb(context, darkTheme))
