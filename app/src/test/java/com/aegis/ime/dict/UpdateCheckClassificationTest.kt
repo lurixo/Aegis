@@ -46,6 +46,10 @@ class UpdateCheckClassificationTest {
     fun onlyUnreachableConnectivityFailuresAreOffline() {
         assertEquals(ModelDownload.CheckFailure.OFFLINE, ModelDownload.classifyRequestFailure(UnknownHostException("api.github.com")))
         assertEquals(ModelDownload.CheckFailure.OFFLINE, ModelDownload.classifyRequestFailure(ConnectException("Network is unreachable")))
+        assertEquals(ModelDownload.CheckFailure.OFFLINE, ModelDownload.classifyRequestFailure(ConnectException("failed to connect: ENETUNREACH (Network is unreachable)")))
+        assertEquals(ModelDownload.CheckFailure.OFFLINE, ModelDownload.classifyRequestFailure(ConnectException("failed to connect: EHOSTUNREACH (No route to host)")))
+        assertEquals(ModelDownload.CheckFailure.OFFLINE, ModelDownload.classifyRequestFailure(ConnectException("Host is unreachable")))
+        assertEquals(ModelDownload.CheckFailure.OFFLINE, ModelDownload.classifyRequestFailure(ConnectException("wrapped").apply { initCause(NoRouteToHostException()) }))
         assertEquals(ModelDownload.CheckFailure.OFFLINE, ModelDownload.classifyRequestFailure(NoRouteToHostException()))
         assertEquals(ModelDownload.CheckFailure.OFFLINE, ModelDownload.classifyRequestFailure(PortUnreachableException()))
     }
@@ -57,6 +61,24 @@ class UpdateCheckClassificationTest {
         assertEquals(ModelDownload.CheckFailure.SERVER, ModelDownload.classifyRequestFailure(SocketTimeoutException("Read timed out")))
         assertEquals(ModelDownload.CheckFailure.SERVER, ModelDownload.classifyRequestFailure(SSLException("handshake failed")))
         assertEquals(ModelDownload.CheckFailure.SERVER, ModelDownload.classifyRequestFailure(IOException("stream closed")))
+    }
+
+    @Test
+    fun refusedAndTimedConnectFailuresAreServerNotOffline() {
+        listOf(
+            ConnectException("Connection refused"),
+            ConnectException("connect timed out"),
+            ConnectException("failed to connect to github.com/140.82.112.3 (port 443) after 20000ms"),
+            ConnectException("ECONNREFUSED (Connection refused)"),
+        ).forEach { error ->
+            val failure = ModelDownload.classifyRequestFailure(error)
+            assertEquals(ModelDownload.CheckFailure.SERVER, failure)
+            assertNotEquals(ModelDownload.CheckFailure.OFFLINE, failure)
+            assertEquals(
+                ModelDownload.UpdateCheck.SERVER_ERROR,
+                ModelDownload.modelUpdateAction(true, "local", ModelDownload.ValidatorProbe.Failed(failure)),
+            )
+        }
     }
 
 

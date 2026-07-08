@@ -80,7 +80,12 @@ class SettingsWiringTest {
         val setup = src("src/main/java/com/aegis/ime/ui/SetupActivity.kt")
         assertTrue(setup.contains("fun SettingsPageColumn") && setup.contains(".settingsScrollInsets("))
         val page = src("src/main/java/com/aegis/ime/ui/UserDictPage.kt")
-        assertTrue(page.contains("windowInsetsPadding(WindowInsets.safeDrawing)"))
+        assertTrue(page.contains(".userDictPageInsets("))
+        assertTrue(page.contains("bottomInsets = WindowInsets.safeDrawing"))
+        assertTrue(page.contains("topInsets = settingsTopInset()"))
+        assertTrue(page.contains("bottomInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)"))
+        assertTrue(page.contains("topInsets.only(WindowInsetsSides.Top)"))
+        assertFalse("user dict must not source top padding directly from safeDrawing", page.contains(".windowInsetsPadding(WindowInsets.safeDrawing)"))
     }
 
     @Test fun the_model_card_sits_above_the_dictionary_card_on_the_dicts_page() {

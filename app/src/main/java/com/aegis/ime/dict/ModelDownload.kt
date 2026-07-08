@@ -20,6 +20,7 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import org.json.JSONArray
 import org.json.JSONObject
@@ -103,9 +104,30 @@ object ModelDownload {
         is java.net.UnknownHostException -> CheckFailure.OFFLINE
         is java.net.NoRouteToHostException -> CheckFailure.OFFLINE
         is java.net.PortUnreachableException -> CheckFailure.OFFLINE
-        is java.net.ConnectException -> CheckFailure.OFFLINE
+        is java.net.ConnectException ->
+            if (t.hasExplicitOfflineConnectSignal()) CheckFailure.OFFLINE else CheckFailure.SERVER
         else -> CheckFailure.SERVER
     }
+
+    private fun Throwable.hasExplicitOfflineConnectSignal(): Boolean =
+        generateSequence(this) { it.cause }
+            .any { error ->
+                error is java.net.UnknownHostException ||
+                    error is java.net.NoRouteToHostException ||
+                    error is java.net.PortUnreachableException ||
+                    error.message?.hasOfflineConnectSignal() == true
+            }
+
+    private fun String.hasOfflineConnectSignal(): Boolean =
+        lowercase(Locale.ROOT).let {
+            "network is unreachable" in it ||
+                "network unreachable" in it ||
+                "no route to host" in it ||
+                "host is unreachable" in it ||
+                "host unreachable" in it ||
+                "enetunreach" in it ||
+                "ehostunreach" in it
+        }
 
     sealed interface ValidatorProbe {
         data class Reached(val validator: String?) : ValidatorProbe
