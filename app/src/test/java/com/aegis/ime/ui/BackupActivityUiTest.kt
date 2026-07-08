@@ -21,14 +21,12 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import com.aegis.ime.R
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
-import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
@@ -37,24 +35,11 @@ private fun str(id: Int) = RuntimeEnvironment.getApplication().getString(id)
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
-class BackupAboutEntryTest {
-    @get:Rule val compose = createAndroidComposeRule<AboutActivity>()
-
-    @Test fun about_page_opens_the_backup_activity() {
-        compose.onNodeWithText(str(R.string.settings_backup_title)).performScrollTo().performClick()
-        compose.waitForIdle()
-        val started = shadowOf(compose.activity).nextStartedActivity
-        assertEquals(BackupActivity::class.java.name, started?.component?.className)
-    }
-}
-
-@RunWith(RobolectricTestRunner::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
 class BackupActivityUiTest {
     @get:Rule val compose = createAndroidComposeRule<BackupActivity>()
 
     @Test fun shows_export_and_import_actions() {
+        compose.onNodeWithText(str(R.string.backup_default_password_title)).assertExists()
         compose.onNodeWithText(str(R.string.backup_export_button)).assertExists()
         compose.onNodeWithText(str(R.string.backup_import_button)).assertExists()
     }

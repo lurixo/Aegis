@@ -32,6 +32,17 @@ class BackupManifestTest {
         assertEquals("adjustResize", activity.androidAttr("windowSoftInputMode"))
     }
 
+    @Test fun default_password_auth_declares_biometric_permission() {
+        val manifest = parseXml("src/main/AndroidManifest.xml")
+        val permissions = manifest.getElementsByTagName("uses-permission")
+        var found = false
+        for (i in 0 until permissions.length) {
+            val permission = permissions.item(i) as Element
+            found = found || permission.androidAttr("name") == "android.permission.USE_BIOMETRIC"
+        }
+        assertEquals(true, found)
+    }
+
     private fun activityNamed(name: String): Element {
         val manifest = parseXml("src/main/AndroidManifest.xml")
         val activities = manifest.getElementsByTagName("activity")

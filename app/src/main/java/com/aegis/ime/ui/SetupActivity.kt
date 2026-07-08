@@ -128,9 +128,10 @@ internal object SettingsRoutes {
     const val INPUT = "input"
     const val DICTS = "dicts"
     const val USER_DICT = "userdict"
+    const val BACKUP = "backup"
     const val ABOUT = "about"
 
-    val GROUPS = listOf(INPUT, DICTS, USER_DICT, ABOUT)
+    val GROUPS = listOf(INPUT, DICTS, USER_DICT, BACKUP, ABOUT)
 }
 
 @Composable
@@ -156,6 +157,7 @@ internal fun activityForGroup(route: String): Class<out ComponentActivity>? = wh
     SettingsRoutes.INPUT -> InputSettingsActivity::class.java
     SettingsRoutes.DICTS -> DictSettingsActivity::class.java
     SettingsRoutes.USER_DICT -> UserDictActivity::class.java
+    SettingsRoutes.BACKUP -> BackupActivity::class.java
     SettingsRoutes.ABOUT -> AboutActivity::class.java
     else -> null
 }
@@ -223,6 +225,11 @@ internal fun SettingsHomePage(onOpenGroup: (String) -> Unit) {
             titleRes = R.string.settings_group_userdict_title,
             descRes = R.string.settings_group_userdict_desc,
             onClick = { onOpenGroup(SettingsRoutes.USER_DICT) },
+        )
+        SettingsGroupCard(
+            titleRes = R.string.settings_backup_title,
+            descRes = R.string.settings_backup_desc,
+            onClick = { onOpenGroup(SettingsRoutes.BACKUP) },
         )
         SettingsGroupCard(
             titleRes = R.string.settings_group_about_title,
@@ -333,7 +340,7 @@ internal fun DictSettingsPage(onBack: () -> Unit) {
 }
 
 @Composable
-internal fun AboutPage(resumeSignal: Int, onBack: () -> Unit, onOpenLicenses: () -> Unit, onOpenBackup: () -> Unit) {
+internal fun AboutPage(resumeSignal: Int, onBack: () -> Unit, onOpenLicenses: () -> Unit) {
     val context = LocalContext.current
     var typed by remember { mutableStateOf("") }
     var tryFieldFocused by remember { mutableStateOf(false) }
@@ -428,12 +435,6 @@ internal fun AboutPage(resumeSignal: Int, onBack: () -> Unit, onOpenLicenses: ()
                     tryFieldFocused = it.isFocused
                     if (!it.isFocused) activeTryFieldImeRequest = 0
                 },
-        )
-
-        SettingsGroupCard(
-            titleRes = R.string.settings_backup_title,
-            descRes = R.string.settings_backup_desc,
-            onClick = onOpenBackup,
         )
 
         SettingsGroupCard(

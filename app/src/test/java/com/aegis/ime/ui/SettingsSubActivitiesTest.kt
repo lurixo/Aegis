@@ -209,6 +209,7 @@ class AboutActivityTest {
         compose.onNodeWithText(ctxString(R.string.app_version_card_title)).assertExists()
         compose.onNodeWithText(ctxString(R.string.setup_steps_title)).performScrollTo().assertExists()
         compose.onNodeWithText(ctxString(R.string.setup_try_field_label)).performScrollTo().assertExists()
+        compose.onNodeWithText(ctxString(R.string.settings_backup_title)).assertDoesNotExist()
     }
 
     @Test fun setup_step_actions_fill_card_width_and_labels_use_centered_shared_block() =

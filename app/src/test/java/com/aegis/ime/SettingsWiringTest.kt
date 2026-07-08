@@ -110,6 +110,29 @@ class SettingsWiringTest {
         assertTrue("GramDownloadCard must render before DictDownloadCard", gram < dict)
     }
 
+    @Test fun data_backup_is_a_home_group_not_an_about_entry() {
+        val setup = src("src/main/java/com/aegis/ime/ui/SetupActivity.kt")
+        assertTrue("home route order must place backup between user dictionary and about", setup.contains("listOf(INPUT, DICTS, USER_DICT, BACKUP, ABOUT)"))
+        assertTrue("backup route must open BackupActivity directly", setup.contains("SettingsRoutes.BACKUP -> BackupActivity::class.java"))
+        val aboutPage = setup.substringAfter("fun AboutPage").substringBefore("fun SetupStepActions")
+        assertFalse("About page must not keep a duplicate data-backup entry", aboutPage.contains("settings_backup_title"))
+        val aboutActivity = src("src/main/java/com/aegis/ime/ui/AboutActivity.kt")
+        assertFalse("AboutActivity must not launch BackupActivity", aboutActivity.contains("BackupActivity"))
+    }
+
+    @Test fun backup_password_dialogs_keep_visibility_and_default_autofill_affordances() {
+        val backup = src("src/main/java/com/aegis/ime/ui/BackupActivity.kt")
+        assertTrue("password fields must route through the shared show/hide field", backup.contains("fun PasswordTextField"))
+        assertTrue("password fields must offer a show control", backup.contains("backup_password_show"))
+        assertTrue("password fields must offer a hide control", backup.contains("backup_password_hide"))
+        assertTrue("export/import dialogs must expose the saved default action", backup.contains("backup_default_password_use_button"))
+        assertTrue("default password fill must populate export password and confirmation", backup.contains("confirm = fill"))
+        assertTrue("default password fill must populate import password", backup.contains("password = fill"))
+        val store = src("src/main/java/com/aegis/ime/ui/BackupDefaultPasswordStore.kt")
+        assertTrue("default password must use Android Keystore AES-GCM", store.contains("AndroidKeyStore") && store.contains("AES/GCM/NoPadding"))
+        assertFalse("default password store must not use the backup settings prefs", store.contains("getSharedPreferences(\"aegis\""))
+    }
+
     @Test fun the_input_page_wires_the_case_card_and_the_merged_preview_card() {
         val setup = src("src/main/java/com/aegis/ime/ui/SetupActivity.kt")
         val inputPage = setup.substringAfter("fun InputSettingsPage").substringBefore("fun DictSettingsPage")
