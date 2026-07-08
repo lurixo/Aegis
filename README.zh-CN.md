@@ -133,9 +133,10 @@ tools/build/install/tools/bin/tools lm --out <lm> <14 张万象 .dict.yaml ...>
 
 ## 发布词库包
 
-应用 APK 发布与可下载词库包分开发布。带版本号的应用 release 只携带 APK。完整词库包发布在滚动的
+应用 APK 发布与可下载词库包分开发布。带版本号的应用 release 只携带 APK,不参与词库更新发现。完整词库包与
+随附的 `aegis-dictionary-update.json` / `aegis-build-info.json` 元数据发布在滚动的
 [`dict-latest`](https://github.com/lurixo/Aegis/releases/tag/dict-latest) GitHub release 上;应用只从
-这个 release tag 发现词库更新,通过比较已安装词库包的 SHA-256 与当前词库 ZIP 附件来判断是否更新。
+这个 release tag 读取词库元数据,按已安装包与当前 ZIP 的 SHA-256 / 内容元数据判断是否更新。
 
 ```
 tools/release/build_dictionary_pack.py --release-tag dict-latest
