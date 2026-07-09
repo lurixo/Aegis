@@ -45,6 +45,7 @@ class AppLocalizationTest {
         assertEquals("关于与启用", ctx.getString(R.string.settings_group_about_title))
         assertEquals("返回", ctx.getString(R.string.settings_back))
         assertEquals("搜索：词或拼音", ctx.getString(R.string.user_dict_search_hint))
+        assertEquals("词数：3", ctx.getString(R.string.user_dict_count_format, 3))
         assertEquals("没有匹配的词。", ctx.getString(R.string.user_dict_search_no_match))
     }
 
@@ -66,6 +67,7 @@ class AppLocalizationTest {
         assertEquals("About & enable", ctx.getString(R.string.settings_group_about_title))
         assertEquals("Back", ctx.getString(R.string.settings_back))
         assertEquals("Search word or pinyin", ctx.getString(R.string.user_dict_search_hint))
+        assertEquals("Words: 3", ctx.getString(R.string.user_dict_count_format, 3))
         assertEquals("No matching words.", ctx.getString(R.string.user_dict_search_no_match))
     }
 
@@ -84,5 +86,6 @@ class AppLocalizationTest {
         assertEquals("Input settings", ctx.getString(R.string.settings_group_input_title))
         assertEquals("User dictionary", ctx.getString(R.string.settings_group_userdict_title))
         assertEquals("Search word or pinyin", ctx.getString(R.string.user_dict_search_hint))
+        assertEquals("Words: 3", ctx.getString(R.string.user_dict_count_format, 3))
     }
 }

@@ -75,7 +75,8 @@ internal fun UserDictPage(onBack: () -> Unit) {
 
     var entries by remember { mutableStateOf(UserDictEdit.list(userDb)) }
     var query by remember { mutableStateOf("") }
-    val filtered = remember(entries, query) { UserDictSearch.filter(entries, query) }
+    val searchIndex = remember(entries) { UserDictSearch.index(entries) }
+    val filtered = remember(searchIndex, query) { searchIndex.filter(query) }
     var newWord by remember { mutableStateOf("") }
     var newReading by remember { mutableStateOf("") }
     fun reload() { entries = UserDictEdit.list(userDb) }
@@ -160,6 +161,11 @@ internal fun UserDictPage(onBack: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("user_dict_search"),
+        )
+        Text(
+            stringResource(R.string.user_dict_count_format, entries.size),
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.testTag("user_dict_count"),
         )
         LazyColumn(
             modifier = Modifier

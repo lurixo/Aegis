@@ -17,16 +17,44 @@ package com.aegis.ime.user
 
 object UserDictSearch {
 
+    class Index internal constructor(private val rows: List<Row>) {
+        private val entries = rows.map { it.entry }
+
+        fun filter(query: String): List<UserModel.Entry> {
+            val q = query.trim()
+            if (q.isEmpty()) return entries
+            val qLower = q.lowercase()
+            val letters = pinyinLetters(qLower)
+            val pinyinQuery = letters.isNotEmpty() &&
+                qLower.all { it.isWhitespace() || it == '\'' || it in 'a'..'z' }
+            val out = ArrayList<UserModel.Entry>()
+            for (row in rows) {
+                if (row.wordLower.contains(qLower) || (pinyinQuery && row.reading.contains(letters))) {
+                    out.add(row.entry)
+                }
+            }
+            return out
+        }
+    }
+
+    class Row internal constructor(
+        val entry: UserModel.Entry,
+        val wordLower: String,
+        val reading: String,
+    )
+
+    fun index(entries: List<UserModel.Entry>): Index =
+        Index(entries.map { Row(it, it.word.lowercase(), it.reading) })
+
     fun filter(entries: List<UserModel.Entry>, query: String): List<UserModel.Entry> {
-        val q = query.trim()
-        if (q.isEmpty()) return entries
-        val letters = buildString(q.length) {
-            for (ch in q.lowercase()) if (ch in 'a'..'z') append(ch)
+        return index(entries).filter(query)
+    }
+
+    private fun pinyinLetters(qLower: String): String {
+        val letters = StringBuilder(qLower.length)
+        for (ch in qLower) {
+            if (ch in 'a'..'z') letters.append(ch)
         }
-        val pinyinQuery = letters.isNotEmpty() &&
-            q.all { it.isWhitespace() || it == '\'' || it.lowercaseChar() in 'a'..'z' }
-        return entries.filter { e ->
-            e.word.contains(q, ignoreCase = true) || (pinyinQuery && e.reading.contains(letters))
-        }
+        return letters.toString()
     }
 }

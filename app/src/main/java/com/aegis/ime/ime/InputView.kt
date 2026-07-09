@@ -16,12 +16,14 @@
 package com.aegis.ime.ime
 
 import android.content.Context
+import android.content.res.Configuration
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import kotlin.math.roundToInt
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyboardLayout
@@ -50,6 +52,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private val copyBarView = CopyBarView(context)
     private val editBarView = EditBarView(context)
     private val keyboardView = KeyboardView(context)
+    private val keyboardSlot = KeyboardDock(context, keyboardView)
     private val panelContainer = FrameLayout(context)
     private val gridView = CandidateGridView(context)
     private val body = LinearLayout(context)
@@ -117,7 +120,7 @@ class InputView(context: Context) : LinearLayout(context) {
         body.addView(candidateView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
         copyBarView.visibility = GONE
         body.addView(copyBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
-        body.addView(keyboardView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        body.addView(keyboardSlot, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         panelContainer.visibility = GONE
         panelContainer.setBackgroundColor(palette.keyboardBg)
         body.addView(panelContainer, LayoutParams(LayoutParams.MATCH_PARENT, dp(250)))
@@ -135,7 +138,7 @@ class InputView(context: Context) : LinearLayout(context) {
     }
 
     private fun applyWindowPadding(navBottom: Int, cutLeft: Int, cutRight: Int) {
-        val side = dp(4)
+        val side = dp(SIDE_PADDING_DP)
         val leftPad = maxOf(cutLeft, side)
         body.setPadding(leftPad, 0, maxOf(cutRight, side), navBottom + dp(28))
         preeditView.setLeftInset(leftPad.toFloat())
@@ -278,6 +281,11 @@ class InputView(context: Context) : LinearLayout(context) {
 
     internal fun keyboardHeightPx(): Int = keyboardView.height
 
+    internal fun keyboardVisualWidthPx(): Int = keyboardView.width
+    internal fun keyboardDockWidthPx(): Int = keyboardSlot.width
+    internal fun keyboardVisualLeftPx(): Int = keyboardView.left
+    internal fun keyboardVisualRightPx(): Int = keyboardView.right
+
     internal fun panelFloorColorForTest(): Int? =
         (panelContainer.background as? android.graphics.drawable.ColorDrawable)?.color
 
@@ -287,6 +295,47 @@ class InputView(context: Context) : LinearLayout(context) {
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
+    private class KeyboardDock(context: Context, private val keyboard: KeyboardView) : FrameLayout(context) {
+        init {
+            addView(keyboard, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
+        }
+
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val slotWidth = MeasureSpec.getSize(widthMeasureSpec).coerceAtLeast(0)
+            if (keyboard.visibility == GONE || slotWidth == 0) {
+                setMeasuredDimension(slotWidth, 0)
+                return
+            }
+            val keyboardWidth = keyboardWidthFor(slotWidth)
+            keyboard.measure(
+                MeasureSpec.makeMeasureSpec(keyboardWidth, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
+            )
+            setMeasuredDimension(slotWidth, keyboard.measuredHeight)
+        }
+
+        override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+            if (keyboard.visibility == GONE) return
+            val childWidth = keyboard.measuredWidth
+            val childHeight = keyboard.measuredHeight
+            val childLeft = (width - childWidth).coerceAtLeast(0)
+            val childTop = (height - childHeight).coerceAtLeast(0)
+            keyboard.layout(childLeft, childTop, childLeft + childWidth, childTop + childHeight)
+        }
+
+        private fun keyboardWidthFor(slotWidth: Int): Int {
+            val c = resources.configuration
+            if (c.orientation != Configuration.ORIENTATION_LANDSCAPE) return slotWidth
+            val shortDp = listOf(c.screenWidthDp, c.screenHeightDp)
+                .filter { it > 0 && it != Configuration.SCREEN_WIDTH_DP_UNDEFINED }
+                .minOrNull()
+                ?: return slotWidth
+            val portraitContentWidth = (shortDp * resources.displayMetrics.density).roundToInt() -
+                2 * (SIDE_PADDING_DP * resources.displayMetrics.density).roundToInt()
+            return portraitContentWidth.coerceIn(1, slotWidth)
+        }
+    }
+
     internal fun bodyBottomPaddingPx(): Int = body.paddingBottom
     internal fun simulateNavInsetForTest(navBottomPx: Int) {
         lastNavBottomPx = navBottomPx
@@ -295,6 +344,7 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun cachedNavBottomForTest(): Int = lastNavBottomPx
 
     private companion object {
+        private const val SIDE_PADDING_DP = 4
         private var lastNavBottomPx = 0
     }
 }
