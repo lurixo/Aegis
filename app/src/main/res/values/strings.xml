@@ -157,6 +157,9 @@
     <string name="backup_default_password_dialog_title">Set default backup password</string>
     <string name="backup_default_password_dialog_desc">This password stays on this device. It does not change existing backup files, and exported files still use the password shown in the export dialog.</string>
     <string name="backup_default_password_save_button">Save default</string>
+    <string name="backup_default_password_remove_title">Remove default backup password?</string>
+    <string name="backup_default_password_remove_desc">The saved local default password will be cleared from this device. Existing backup files are unchanged.</string>
+    <string name="backup_default_password_remove_confirm_button">Remove default password</string>
     <string name="backup_default_password_use_button">Use default password</string>
     <string name="backup_default_password_saved">Default password saved</string>
     <string name="backup_default_password_removed">Default password removed</string>
