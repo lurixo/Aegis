@@ -60,7 +60,7 @@ object BackupManager {
 
     fun export(filesDir: File, prefs: SharedPreferences, password: CharArray, rawOut: OutputStream) {
         UserDictEdit.flushBeforeExport()
-        LiveUserData.onBeforeExport?.invoke()
+        LiveUserData.flushBeforeExport()
         BackupCrypto.writeEncrypted(rawOut, password) { cipherOut ->
             val gzip = GZIPOutputStream(cipherOut)
             val out = DataOutputStream(gzip)
@@ -133,7 +133,7 @@ object BackupManager {
             }
 
             try {
-                LiveUserData.onBeforeRestore?.invoke()
+                LiveUserData.flushBeforeRestore()
                 commit(filesDir, prefs, staging, visitor.prefsBlob, mode)
             } catch (e: Exception) {
                 throw BackupException(BackupError.IO_ERROR, e)

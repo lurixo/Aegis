@@ -184,8 +184,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 LiveUserData.restoreInProgress = false
             }
         }
-        LiveUserData.onBeforeExport = clipboardPendingWriteFlush
-        LiveUserData.onBeforeRestore = clipboardPendingWriteFlush
+        LiveUserData.registerClipboardPersistenceHooks(clipboardPendingWriteFlush)
         controller = KeyboardController(this, DictEngine(null, null, null), decodeLane)
         controller.onShowEmoji = { showEmojiPanel() }
         controller.onShowClipboard = { showClipboardPanel() }
