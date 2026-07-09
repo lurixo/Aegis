@@ -119,6 +119,12 @@ object BackupManager {
         LiveUserData.restoreInProgress = true
         var handedOff = false
         try {
+            try {
+                LiveUserData.flushBeforeRestore()
+            } catch (e: Exception) {
+                throw BackupException(BackupError.IO_ERROR, e)
+            }
+
             val visitor = StagingVisitor(staging)
             try {
                 BackupCrypto.readDecrypted(rawIn, password) { plainIn ->
@@ -133,7 +139,6 @@ object BackupManager {
             }
 
             try {
-                LiveUserData.flushBeforeRestore()
                 commit(filesDir, prefs, staging, visitor.prefsBlob, mode)
             } catch (e: Exception) {
                 throw BackupException(BackupError.IO_ERROR, e)
