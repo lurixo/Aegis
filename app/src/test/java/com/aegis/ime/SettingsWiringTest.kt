@@ -72,13 +72,31 @@ class SettingsWiringTest {
         assertTrue("expected the onStartInput call plus both build-site re-checks, found $calls", calls >= 3)
     }
 
+    @Test fun download_work_is_screen_independent_and_observed_by_cards() {
+        val runtime = src("src/main/java/com/aegis/ime/ui/DownloadCardWork.kt")
+        assertTrue("download runtime must use the application context, not a screen context", runtime.contains("context.applicationContext"))
+        assertTrue("download runtime must expose observer snapshots for recreated cards", runtime.contains("fun observe(context: Context"))
+
+        val gram = src("src/main/java/com/aegis/ime/ui/GramDownloadCard.kt")
+        val dict = src("src/main/java/com/aegis/ime/ui/DictDownloadCard.kt")
+        assertTrue("model card must observe the process-level download runtime", gram.contains("GramDownloadWork.observe(context)"))
+        assertTrue("model card must start downloads through the process-level runtime", gram.contains("GramDownloadWork.start(context)"))
+        assertTrue("dictionary card must observe the process-level download runtime", dict.contains("DictDownloadWork.observe(context)"))
+        assertTrue("dictionary card must start downloads through the process-level runtime", dict.contains("DictDownloadWork.start(context, asset)"))
+        assertFalse("model card must not own the long-running download thread", gram.contains("ModelDownload.download("))
+        assertFalse("dictionary card must not own the long-running download thread", dict.contains("ModelDownload.download("))
+    }
+
     @Test fun both_download_cards_bump_the_touch_counter_on_install_and_delete() {
+        val runtime = src("src/main/java/com/aegis/ime/ui/DownloadCardWork.kt")
+        val installBumps = Regex("""SettingsHotApply\.noteEnginePackChanged\(prefs\)""").findAll(runtime).count()
+        assertTrue("download runtime must bump the counter for model and dictionary installs", installBumps >= 2)
         for (card in listOf(
             "src/main/java/com/aegis/ime/ui/GramDownloadCard.kt",
             "src/main/java/com/aegis/ime/ui/DictDownloadCard.kt",
         )) {
-            val bumps = Regex("""SettingsHotApply\.noteEnginePackChanged\(prefs\)""").findAll(src(card)).count()
-            assertTrue("$card must bump the counter on install AND delete (found $bumps)", bumps >= 2)
+            val deleteBumps = Regex("""SettingsHotApply\.noteEnginePackChanged\(prefs\)""").findAll(src(card)).count()
+            assertTrue("$card must bump the counter on delete (found $deleteBumps)", deleteBumps >= 1)
         }
     }
 

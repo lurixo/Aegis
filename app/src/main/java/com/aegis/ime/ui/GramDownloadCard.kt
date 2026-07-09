@@ -35,6 +35,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,43 +57,30 @@ internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
     val dest = ModelDownload.destFile(context.filesDir)
     val location = dest.parentFile?.absolutePath ?: dest.absolutePath
-    fun doneStatus() = LocalizedText.ResourceLong(R.string.gram_status_enabled, ModelDownload.bytesToDisplayMb(dest.length()))
-    val notDownloadedStatus = LocalizedText.Resource(R.string.gram_status_not_downloaded)
-
-    var present by remember { mutableStateOf(preview?.present ?: (dest.exists() && dest.length() > 1024)) }
-    var status by remember {
-        mutableStateOf(preview?.status?.let(LocalizedText::Raw) ?: if (present) doneStatus() else notDownloadedStatus)
-    }
-    var progress by remember { mutableStateOf(0f) }
-    var downloading by remember { mutableStateOf(false) }
+    val initial = remember { GramDownloadWork.snapshot(context) }
+    var present by remember { mutableStateOf(preview?.present ?: initial.present) }
+    var status by remember { mutableStateOf(preview?.status?.let(LocalizedText::Raw) ?: initial.status) }
+    var progress by remember { mutableStateOf(if (preview == null) initial.progress else 0f) }
+    var downloading by remember { mutableStateOf(if (preview == null) initial.downloading else false) }
     var checking by remember { mutableStateOf(preview?.checking ?: false) }
 
     val handler = remember { Handler(Looper.getMainLooper()) }
 
+    DisposableEffect(context, preview) {
+        if (preview != null) onDispose { }
+        else {
+            val dispose = GramDownloadWork.observe(context) { snap ->
+                present = snap.present
+                downloading = snap.downloading
+                progress = snap.progress
+                status = snap.status
+            }
+            onDispose { dispose() }
+        }
+    }
+
     fun startDownload() {
-        downloading = true
-        progress = 0f
-        status = LocalizedText.Resource(R.string.download_status_downloading)
-        var lastPct = -1
-        Thread {
-            val result = ModelDownload.download(ModelDownload.GRAM_URL, dest) { done, total ->
-                if (total > 0) {
-                    val pct = (done * 100 / total).toInt()
-                    if (pct != lastPct) { lastPct = pct; handler.post { progress = pct / 100f } }
-                }
-            }
-            handler.post {
-                downloading = false
-                present = dest.exists() && dest.length() > 1024
-                if (result.ok) {
-                    prefs.edit { putString(ModelDownload.VALIDATOR_PREF, result.validator) }
-                    SettingsHotApply.noteEnginePackChanged(prefs)
-                    status = doneStatus()
-                } else {
-                    status = LocalizedText.Resource(R.string.gram_status_download_failed)
-                }
-            }
-        }.apply { isDaemon = true }.start()
+        if (preview == null) GramDownloadWork.start(context)
     }
 
     fun showCheckFailure(msgRes: Int) {
@@ -185,6 +173,7 @@ internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
                         present = false
                         progress = 0f
                         status = LocalizedText.Resource(R.string.gram_status_deleted)
+                        GramDownloadWork.setIdleStatus(status)
                     },
                 ) { Text(stringResource(R.string.delete_button)) }
             }

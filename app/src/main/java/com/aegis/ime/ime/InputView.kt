@@ -50,9 +50,13 @@ class InputView(context: Context) : LinearLayout(context) {
     private val preeditView = PreeditView(context)
     private val candidateView = CandidateView(context)
     private val copyBarView = CopyBarView(context)
+    private val stripSlot = CompactDock(context).apply {
+        addDockedView(candidateView)
+        addDockedView(copyBarView)
+    }
     private val editBarView = EditBarView(context)
     private val keyboardView = KeyboardView(context)
-    private val keyboardSlot = KeyboardDock(context, keyboardView)
+    private val keyboardSlot = CompactDock(context).apply { addDockedView(keyboardView) }
     private val panelContainer = FrameLayout(context)
     private val gridView = CandidateGridView(context)
     private val body = LinearLayout(context)
@@ -117,9 +121,8 @@ class InputView(context: Context) : LinearLayout(context) {
         body.setBackgroundColor(palette.keyboardBg)
         editBarView.visibility = GONE
         body.addView(editBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
-        body.addView(candidateView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
         copyBarView.visibility = GONE
-        body.addView(copyBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
+        body.addView(stripSlot, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
         body.addView(keyboardSlot, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         panelContainer.visibility = GONE
         panelContainer.setBackgroundColor(palette.keyboardBg)
@@ -285,6 +288,10 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun keyboardDockWidthPx(): Int = keyboardSlot.width
     internal fun keyboardVisualLeftPx(): Int = keyboardView.left
     internal fun keyboardVisualRightPx(): Int = keyboardView.right
+    internal fun toolbarVisualWidthPx(): Int = candidateView.width
+    internal fun toolbarDockWidthPx(): Int = stripSlot.width
+    internal fun toolbarVisualLeftPx(): Int = candidateView.left
+    internal fun toolbarVisualRightPx(): Int = candidateView.right
 
     internal fun panelFloorColorForTest(): Int? =
         (panelContainer.background as? android.graphics.drawable.ColorDrawable)?.color
@@ -295,35 +302,47 @@ class InputView(context: Context) : LinearLayout(context) {
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
-    private class KeyboardDock(context: Context, private val keyboard: KeyboardView) : FrameLayout(context) {
-        init {
-            addView(keyboard, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
+    private class CompactDock(context: Context) : FrameLayout(context) {
+        fun addDockedView(child: View) {
+            addView(child, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         }
 
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
             val slotWidth = MeasureSpec.getSize(widthMeasureSpec).coerceAtLeast(0)
-            if (keyboard.visibility == GONE || slotWidth == 0) {
+            val visibleChildren = (0 until childCount).map { getChildAt(it) }.filter { it.visibility != GONE }
+            if (slotWidth == 0 || visibleChildren.isEmpty()) {
                 setMeasuredDimension(slotWidth, 0)
                 return
             }
-            val keyboardWidth = keyboardWidthFor(slotWidth)
-            keyboard.measure(
-                MeasureSpec.makeMeasureSpec(keyboardWidth, MeasureSpec.EXACTLY),
-                MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
-            )
-            setMeasuredDimension(slotWidth, keyboard.measuredHeight)
+            val childWidth = compactWidthFor(slotWidth)
+            val heightMode = MeasureSpec.getMode(heightMeasureSpec)
+            val heightSize = MeasureSpec.getSize(heightMeasureSpec)
+            var measuredHeight = 0
+            for (child in visibleChildren) {
+                val childHeightSpec = when (heightMode) {
+                    MeasureSpec.EXACTLY -> MeasureSpec.makeMeasureSpec(heightSize, MeasureSpec.EXACTLY)
+                    else -> MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
+                }
+                child.measure(MeasureSpec.makeMeasureSpec(childWidth, MeasureSpec.EXACTLY), childHeightSpec)
+                measuredHeight = maxOf(measuredHeight, child.measuredHeight)
+            }
+            if (heightMode == MeasureSpec.EXACTLY) measuredHeight = heightSize
+            setMeasuredDimension(slotWidth, measuredHeight)
         }
 
         override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
-            if (keyboard.visibility == GONE) return
-            val childWidth = keyboard.measuredWidth
-            val childHeight = keyboard.measuredHeight
-            val childLeft = (width - childWidth).coerceAtLeast(0)
-            val childTop = (height - childHeight).coerceAtLeast(0)
-            keyboard.layout(childLeft, childTop, childLeft + childWidth, childTop + childHeight)
+            val childLeft = (width - compactWidthFor(width)).coerceAtLeast(0)
+            for (i in 0 until childCount) {
+                val child = getChildAt(i)
+                if (child.visibility == GONE) continue
+                val childWidth = child.measuredWidth
+                val childHeight = child.measuredHeight
+                val childTop = (height - childHeight).coerceAtLeast(0)
+                child.layout(childLeft, childTop, childLeft + childWidth, childTop + childHeight)
+            }
         }
 
-        private fun keyboardWidthFor(slotWidth: Int): Int {
+        private fun compactWidthFor(slotWidth: Int): Int {
             val c = resources.configuration
             if (c.orientation != Configuration.ORIENTATION_LANDSCAPE) return slotWidth
             val shortDp = listOf(c.screenWidthDp, c.screenHeightDp)

@@ -35,6 +35,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,7 +48,6 @@ import androidx.core.content.edit
 import com.aegis.ime.R
 import com.aegis.ime.SettingsHotApply
 import com.aegis.ime.dict.ModelDownload
-import java.io.File
 
 @Composable
 internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
@@ -55,21 +55,27 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
     val zip = ModelDownload.dictZipFile(context.filesDir)
     val location = zip.parentFile?.absolutePath ?: zip.absolutePath
-    fun doneStatus(): LocalizedText {
-        val bytes = ModelDownload.DICT_PACK_FILES.sumOf { File(context.filesDir, "downloaded/$it").length() }
-        return LocalizedText.ResourceLong(R.string.dict_status_enabled, ModelDownload.bytesToDisplayMb(bytes))
-    }
-    val notDownloadedStatus = LocalizedText.Resource(R.string.dict_status_not_downloaded)
-
-    var present by remember { mutableStateOf(preview?.present ?: ModelDownload.isDictDownloaded(context.filesDir)) }
-    var status by remember {
-        mutableStateOf(preview?.status?.let(LocalizedText::Raw) ?: if (present) doneStatus() else notDownloadedStatus)
-    }
-    var progress by remember { mutableStateOf(0f) }
-    var downloading by remember { mutableStateOf(false) }
+    val initial = remember { DictDownloadWork.snapshot(context) }
+    var present by remember { mutableStateOf(preview?.present ?: initial.present) }
+    var status by remember { mutableStateOf(preview?.status?.let(LocalizedText::Raw) ?: initial.status) }
+    var progress by remember { mutableStateOf(if (preview == null) initial.progress else 0f) }
+    var downloading by remember { mutableStateOf(if (preview == null) initial.downloading else false) }
     var checking by remember { mutableStateOf(preview?.checking ?: false) }
 
     val handler = remember { Handler(Looper.getMainLooper()) }
+
+    DisposableEffect(context, preview) {
+        if (preview != null) onDispose { }
+        else {
+            val dispose = DictDownloadWork.observe(context) { snap ->
+                present = snap.present
+                downloading = snap.downloading
+                progress = snap.progress
+                status = snap.status
+            }
+            onDispose { dispose() }
+        }
+    }
 
     fun currentInstallMetadata() = ModelDownload.DictionaryInstallMetadata(
         sha256 = prefs.getString(ModelDownload.DICT_SHA256_PREF, null),
@@ -77,41 +83,7 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
     )
 
     fun startDownload(asset: ModelDownload.DictionaryAsset? = null) {
-        downloading = true
-        progress = 0f
-        status = LocalizedText.Resource(R.string.download_status_downloading)
-        var lastPct = -1
-        Thread {
-            val selected = asset ?: ModelDownload.resolveDictionaryDownloadAsset()
-            val result = ModelDownload.download(selected.url, zip) { done, total ->
-                if (total > 0) {
-                    val pct = (done * 100 / total).toInt()
-                    if (pct != lastPct) { lastPct = pct; handler.post { progress = pct / 100f } }
-                }
-            }
-            if (result.ok) handler.post { status = LocalizedText.Resource(R.string.dict_status_verifying_extracting) }
-            val installed = result.ok && ModelDownload.installDictPack(context.filesDir, selected.sha256)
-            handler.post {
-                downloading = false
-                present = ModelDownload.isDictDownloaded(context.filesDir)
-                when {
-                    installed -> {
-                        prefs.edit {
-                            putString(ModelDownload.DICT_VALIDATOR_PREF, result.validator)
-                            putString(ModelDownload.DICT_SHA256_PREF, selected.sha256)
-                            putString(ModelDownload.DICT_ASSET_NAME_PREF, selected.assetName)
-                            putString(ModelDownload.DICT_ASSET_URL_PREF, selected.url)
-                            putString(ModelDownload.DICT_RELEASE_TAG_PREF, selected.releaseTag)
-                            putString(ModelDownload.DICT_RELEASE_PUBLISHED_PREF, selected.publishedAt)
-                        }
-                        SettingsHotApply.noteEnginePackChanged(prefs)
-                        status = doneStatus()
-                    }
-                    !result.ok -> status = LocalizedText.Resource(R.string.dict_status_download_failed)
-                    else -> status = LocalizedText.Resource(R.string.dict_status_install_failed)
-                }
-            }
-        }.apply { isDaemon = true }.start()
+        if (preview == null) DictDownloadWork.start(context, asset)
     }
 
     fun showCheckFailure(msgRes: Int) {
@@ -207,6 +179,7 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
                         present = false
                         progress = 0f
                         status = LocalizedText.Resource(R.string.dict_status_deleted)
+                        DictDownloadWork.setIdleStatus(status)
                     },
                 ) { Text(stringResource(R.string.delete_button)) }
             }
