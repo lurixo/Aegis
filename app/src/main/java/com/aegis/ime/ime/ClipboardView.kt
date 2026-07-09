@@ -227,6 +227,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
     internal fun forcePhrasesStateForTest(cat: String) { st.switchTab(ClipboardPanelState.Tab.PHRASE); phraseCat = cat }
     internal fun enterSelectForTest(selected: List<String> = emptyList()) { st.enterSelect(); st.selected.addAll(selected); refresh() }
+    internal fun toggleSelectForTest(text: String) { st.toggleSelect(text); refresh() }
     internal fun exitSelectForTest() { exitSelect() }
     internal fun showMoveChooserForTest(current: String) { chooseMoveCategoryThen(current, emptyList()) { target -> onMovePhrase(current, "", target) } }
     internal fun dragStartForTest(index: Int) { if (categorySortMode) startCategoryDrag(index) else startDrag(index) }
@@ -1012,11 +1013,20 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 Motion.applyTapFeedback(this, if (allSel) GREEN else TEXT_DARK)
                 setOnClickListener { st.selectAll(all); refresh() }
             }, ll(0, WC, 1f))
-            addView(TextView(context).apply {
-                text = if (st.tab == Tab.PHRASE) context.getString(R.string.clip_edit_phrases) else context.getString(R.string.clip_edit_clipboard)
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
-                setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
-                setTypeface(null, android.graphics.Typeface.BOLD)
+                addView(TextView(context).apply {
+                    text = if (st.tab == Tab.PHRASE) context.getString(R.string.clip_edit_phrases) else context.getString(R.string.clip_edit_clipboard)
+                    gravity = Gravity.CENTER
+                    setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                }, ll(MP, WC))
+                addView(TextView(context).apply {
+                    text = context.getString(R.string.clip_selected_count, st.selected.size)
+                    gravity = Gravity.CENTER
+                    setTextColor(TEXT_SECONDARY); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
+                }, ll(MP, WC))
             }, ll(0, WC, 1f))
             addView(TextView(context).apply {
                 text = context.getString(R.string.clip_cancel); gravity = Gravity.END

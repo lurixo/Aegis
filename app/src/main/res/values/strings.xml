@@ -312,6 +312,7 @@
     <string name="clip_select_all">Select all</string>
     <string name="clip_edit_phrases">Edit phrases</string>
     <string name="clip_edit_clipboard">Edit clipboard</string>
+    <string name="clip_selected_count">%1$d selected</string>
     <string name="clip_move_to_category">Move to category</string>
     <string name="clip_no_other_categories">No other categories</string>
     <string name="clip_delete_category">Delete category</string>

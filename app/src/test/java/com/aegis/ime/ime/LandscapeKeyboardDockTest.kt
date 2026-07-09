@@ -52,5 +52,20 @@ class LandscapeKeyboardDockTest {
         assertTrue("keyboard still has its normal measured height", iv.keyboardHeightPx() > 0)
     }
 
+    @Test fun landscape_toolbar_matches_the_compact_keyboard_width_and_right_edge() {
+        val iv = InputView(ctx)
+        val widthPx = dp(891)
+        iv.measure(
+            View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+        )
+        iv.layout(0, 0, iv.measuredWidth, iv.measuredHeight)
+
+        assertTrue("landscape toolbar slot stays full-width", iv.toolbarDockWidthPx() > iv.toolbarVisualWidthPx())
+        assertEquals("toolbar keeps the same compact width as the keyboard", iv.keyboardVisualWidthPx(), iv.toolbarVisualWidthPx())
+        assertEquals("toolbar right edge aligns with the compact keyboard", iv.keyboardVisualRightPx(), iv.toolbarVisualRightPx())
+        assertEquals("toolbar left edge aligns with the compact keyboard", iv.keyboardVisualLeftPx(), iv.toolbarVisualLeftPx())
+    }
+
     private fun dp(v: Int): Int = (v * density).toInt()
 }

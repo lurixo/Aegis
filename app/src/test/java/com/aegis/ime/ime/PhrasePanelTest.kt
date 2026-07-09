@@ -361,9 +361,13 @@ class PhrasePanelTest {
         val ls = labels(v)
         assertTrue(ctx.getString(com.aegis.ime.R.string.clip_edit_phrases) in ls)
         assertFalse(ctx.getString(com.aegis.ime.R.string.clip_edit_clipboard) in ls)
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_selected_count, 2) in ls)
         assertTrue(ctx.getString(com.aegis.ime.R.string.clip_move_to_category) in ls)
         assertTrue(ctx.getString(com.aegis.ime.R.string.clip_delete) in ls)
         assertFalse(ctx.getString(com.aegis.ime.R.string.clip_add_phrase) in ls)
+
+        v.toggleSelectForTest("你好")
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_selected_count, 1) in labels(v))
     }
 
     @Test fun clipboard_select_mode_keeps_add_phrase_action() {
@@ -372,7 +376,11 @@ class PhrasePanelTest {
         }
         val ls = labels(v)
         assertTrue(ctx.getString(com.aegis.ime.R.string.clip_edit_clipboard) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_add_phrase) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_delete) in ls)
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_selected_count, 1) in ls)
         assertFalse(ctx.getString(com.aegis.ime.R.string.clip_move_to_category) in ls)
+
+        v.toggleSelectForTest("b")
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_selected_count, 2) in labels(v))
     }
 
     @Test fun batch_move_invokes_onMovePhrasesTo_with_selection_and_target() {

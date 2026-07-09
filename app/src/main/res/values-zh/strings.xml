@@ -311,6 +311,7 @@
     <string name="clip_select_all">全选</string>
     <string name="clip_edit_phrases">编辑常用语</string>
     <string name="clip_edit_clipboard">编辑剪贴板</string>
+    <string name="clip_selected_count">已选择 %1$d 项</string>
     <string name="clip_move_to_category">移动到分类</string>
     <string name="clip_no_other_categories">没有其它分类</string>
     <string name="clip_delete_category">删除分类</string>
