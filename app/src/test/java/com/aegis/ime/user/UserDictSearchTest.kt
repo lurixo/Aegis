@@ -30,6 +30,7 @@ class UserDictSearchTest {
     )
 
     private fun words(query: String) = UserDictSearch.filter(entries, query).map { it.word }
+    private fun indexedWords(query: String) = UserDictSearch.index(entries).filter(query).map { it.word }
 
 
     @Test fun blank_query_returns_everything_in_order() {
@@ -48,6 +49,13 @@ class UserDictSearchTest {
         assertEquals(listOf("你好", "你好呀"), words("nih"))
         assertEquals(listOf("你好", "你好呀"), words("nihao"))
         assertEquals(listOf("你好呀"), words("nihaoy"))
+    }
+
+    @Test fun prebuilt_index_matches_the_legacy_filter_api() {
+        val queries = listOf("", "nih", "ni hao", "测", "OKGO", "zzzz9", "好a好")
+        for (q in queries) {
+            assertEquals("indexed query '$q'", words(q), indexedWords(q))
+        }
     }
 
     @Test fun pinyin_infix_and_separator_tolerance() {

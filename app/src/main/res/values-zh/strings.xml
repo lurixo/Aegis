@@ -119,6 +119,7 @@
     <string name="user_dict_manual_title">我的词</string>
     <string name="user_dict_manual_description">添加一个词和它的拼音，输入该拼音时就会作为候选出现；也可删除某个词，让它不再出现在候选里。逐字拼出的词会自动加到这里。改动立即生效。</string>
     <string name="user_dict_search_hint">搜索：词或拼音</string>
+    <string name="user_dict_count_format">词数：%1$d</string>
     <string name="user_dict_search_no_match">没有匹配的词。</string>
     <string name="user_dict_word_hint">词</string>
     <string name="user_dict_reading_hint">拼音（字母）</string>

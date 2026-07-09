@@ -56,16 +56,18 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
 
     private data class PrefixHit(val word: String, val freq: Int, val tieRank: Int, val order: Int)
 
-    fun exact(key: String): List<WordFreq> {
+    fun exact(key: String, limit: Int = Int.MAX_VALUE): List<WordFreq> {
         if (key.isEmpty() || numKeys == 0) return emptyList()
         val q = key.toByteArray(Charsets.US_ASCII)
         val i = lowerBound(q)
         if (i >= numKeys || compareKey(i, q) != 0) return emptyList()
         val es = entryStart(i)
         val ee = if (i + 1 < numKeys) entryStart(i + 1) else numEntries
-        val out = ArrayList<WordFreq>(ee - es)
+        val take = minOf((ee - es).coerceAtLeast(0), limit.coerceAtLeast(0))
+        if (take == 0) return emptyList()
+        val out = ArrayList<WordFreq>(take)
         var j = es
-        while (j < ee) {
+        while (j < ee && out.size < limit) {
             val wo = buf.getInt(entryArrOff + j * 12)
             val wl = buf.getInt(entryArrOff + j * 12 + 4)
             val fr = buf.getInt(entryArrOff + j * 12 + 8)
@@ -73,6 +75,25 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
             j++
         }
         return out
+    }
+
+    fun containsExactWord(key: String, word: String): Boolean {
+        if (key.isEmpty() || word.isEmpty() || numKeys == 0) return false
+        val wordBytes = word.toByteArray(Charsets.UTF_8)
+        val q = key.toByteArray(Charsets.US_ASCII)
+        val i = lowerBound(q)
+        if (i >= numKeys || compareKey(i, q) != 0) return false
+        val es = entryStart(i)
+        val ee = if (i + 1 < numKeys) entryStart(i + 1) else numEntries
+        var j = es
+        while (j < ee) {
+            val entryOff = entryArrOff + j * 12
+            val wo = buf.getInt(entryOff)
+            val wl = buf.getInt(entryOff + 4)
+            if (wordEquals(wo, wl, wordBytes)) return true
+            j++
+        }
+        return false
     }
 
     fun prefixByFreq(prefix: String, limit: Int): List<WordFreq> {
@@ -262,6 +283,15 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
         val base = wordBlobOff + wordOffset
         for (k in 0 until len) bytes[k] = buf.get(base + k)
         return String(bytes, Charsets.UTF_8)
+    }
+
+    private fun wordEquals(wordOffset: Int, len: Int, bytes: ByteArray): Boolean {
+        if (bytes.size != len) return false
+        val base = wordBlobOff + wordOffset
+        for (k in 0 until len) {
+            if (buf.get(base + k) != bytes[k]) return false
+        }
+        return true
     }
 
     companion object {

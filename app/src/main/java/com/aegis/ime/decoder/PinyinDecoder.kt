@@ -65,7 +65,7 @@ class PinyinDecoder(
         out: MutableList<Edge>,
         seen: MutableSet<String>,
     ): Boolean {
-        for (wf in preferredExact(source, key)) {
+        for (wf in preferredExact(source, key, edgeN + seen.size)) {
             if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, penalty))
             if (out.size >= edgeN) return true
         }
@@ -82,7 +82,7 @@ class PinyinDecoder(
     }
 
     fun hasDictWord(reading: String, word: String): Boolean =
-        reading.isNotEmpty() && dict.exact(reading).any { it.word == word }
+        reading.isNotEmpty() && dict.containsExactWord(reading, word)
 
     private fun refreshUserIndex() {
         val um = userModel ?: return
@@ -153,7 +153,7 @@ class PinyinDecoder(
         val exactFull = addExactEdges(dict, sub, 0.0, out, seen)
         for (alias in inputAliases(sub)) {
             var added = 0
-            for (wf in preferredExact(aliasSource, alias)) {
+            for (wf in preferredExact(aliasSource, alias, edgeN + seen.size)) {
                 if (seen.add(wf.word)) { out.add(Edge(wf.word, wf.freq, ALIAS_PENALTY)); if (++added >= edgeN) break }
             }
         }
@@ -161,14 +161,14 @@ class PinyinDecoder(
         if (fuzzyRules.isNotEmpty()) {
             for (variant in Fuzzy.variants(sub, fuzzyRules)) {
                 if (variant == sub) continue
-                for (wf in preferredExact(dict, variant)) {
+                for (wf in preferredExact(dict, variant, edgeN + seen.size)) {
                     if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, FUZZY_PENALTY))
                     if (out.size >= edgeN) return out
                 }
             }
         }
         initialsDict?.let { id ->
-            for (wf in preferredExact(id, sub)) {
+            for (wf in preferredExact(id, sub, edgeN + seen.size)) {
                 if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, INITIALS_PENALTY))
                 if (out.size >= edgeN) break
             }
@@ -231,8 +231,12 @@ class PinyinDecoder(
     private fun preferredWordFreqs(words: List<BinaryDict.WordFreq>): List<BinaryDict.WordFreq> =
         words.sortedWith(compareByDescending<BinaryDict.WordFreq> { it.freq }.thenBy { supplementarySingleTieRank(it.word) })
 
-    private fun preferredExact(source: BinaryDict, key: String): List<BinaryDict.WordFreq> =
-        preferredWordFreqs(source.exact(key))
+    private fun preferredExact(source: BinaryDict, key: String, limit: Int = Int.MAX_VALUE): List<BinaryDict.WordFreq> {
+        if (limit <= 0) return emptyList()
+        val scanLimit = if (limit == Int.MAX_VALUE) limit else limit + EXACT_TIE_LOOKAHEAD
+        val preferred = preferredWordFreqs(source.exact(key, scanLimit))
+        return if (preferred.size <= limit) preferred else preferred.subList(0, limit)
+    }
 
     private fun prefixWords(source: BinaryDict, input: String, limit: Int): List<String> =
         source.prefixByFreq(input, limit).map { it.word }
@@ -732,6 +736,7 @@ class PinyinDecoder(
         const val ATOMIC_BEAM_N = 8
         const val CTX_WORD_MAX = 4
         const val MAX_SYLLABLE_KEY_LEN = 6
+        const val EXACT_TIE_LOOKAHEAD = 16
         val ALIAS_FREQ_DISCOUNT = exp(-ALIAS_PENALTY)
         const val DEFAULT_CONTEXT_WEIGHT = 2.0
         val INPUT_ALIASES = mapOf("en" to listOf("ng"))

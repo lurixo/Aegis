@@ -89,6 +89,7 @@ class UserDictPageTest {
     @Test fun thousand_entry_list_is_lazily_composed_not_fully_inflated() {
         seed(1200)
         openUserDictPage()
+        compose.onNodeWithText(ctx.getString(R.string.user_dict_count_format, 1200)).assertExists()
         compose.onNodeWithTag("user_dict_list").assertExists()
         val composedDeleteButtons = compose.onAllNodesWithText(s(R.string.user_dict_delete_button))
             .fetchSemanticsNodes().size
@@ -103,6 +104,7 @@ class UserDictPageTest {
         seed(50, "nihao" to "你好", "ceshi" to "测试")
         openUserDictPage()
         compose.onNodeWithText(s(R.string.user_dict_export_button)).assertExists()
+        compose.onNodeWithText(ctx.getString(R.string.user_dict_count_format, 52)).assertExists()
 
         compose.onNodeWithTag("user_dict_search").performTextInput("nih")
         compose.onNodeWithText(row("你好", "nihao")).assertExists()
@@ -132,6 +134,7 @@ class UserDictPageTest {
         compose.onNodeWithTag("user_dict_add").performClick()
         compose.waitForIdle()
         assertEquals(listOf("测试词"), UserDictEdit.list(db).filter { it.reading == "ceshici" }.map { it.word })
+        compose.onNodeWithText(ctx.getString(R.string.user_dict_count_format, 1)).assertExists()
         compose.onNodeWithTag("user_dict_search").performTextInput("ceshici")
         compose.onNodeWithText(row("测试词", "ceshici")).assertExists()
     }
@@ -144,6 +147,7 @@ class UserDictPageTest {
         compose.onNodeWithText(s(R.string.user_dict_delete_button)).performClick()
         compose.waitForIdle()
         compose.onNodeWithText(s(R.string.user_dict_search_no_match)).assertExists()
+        compose.onNodeWithText(ctx.getString(R.string.user_dict_count_format, 30)).assertExists()
         assertTrue(UserDictEdit.list(db).none { it.word == "删除词" })
     }
 }

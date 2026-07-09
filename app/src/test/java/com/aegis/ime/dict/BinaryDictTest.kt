@@ -44,4 +44,17 @@ class BinaryDictTest {
         assertTrue("limit honored", dict.query("a", 2).size <= 2)
         assertEquals("empty -> none", emptyList<String>(), dict.query("", 30))
     }
+
+    @Test
+    fun exact_lookup_can_be_bounded_and_membership_checked_without_materializing_callers() {
+        assumeTrue("demo dict asset present", dictFile.exists())
+        val dict = BinaryDict.fromFile(dictFile)
+
+        val all = dict.exact("nihao")
+        assertTrue("fixture has nihao candidates", all.isNotEmpty())
+        assertEquals("bounded exact returns the frequency-leading prefix", all.take(1), dict.exact("nihao", limit = 1))
+        assertEquals("zero limit returns no rows", emptyList<BinaryDict.WordFreq>(), dict.exact("nihao", limit = 0))
+        assertTrue("contains existing exact word", dict.containsExactWord("nihao", "你好"))
+        assertTrue("does not claim the word under the wrong key", !dict.containsExactWord("ceshi", "你好"))
+    }
 }
