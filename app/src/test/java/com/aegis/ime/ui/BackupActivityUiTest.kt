@@ -15,12 +15,14 @@
 
 package com.aegis.ime.ui
 
+import android.content.Context
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import com.aegis.ime.R
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -42,6 +44,33 @@ class BackupActivityUiTest {
         compose.onNodeWithText(str(R.string.backup_default_password_title)).assertExists()
         compose.onNodeWithText(str(R.string.backup_export_button)).assertExists()
         compose.onNodeWithText(str(R.string.backup_import_button)).assertExists()
+    }
+
+    @Test fun removing_default_password_requires_second_step_confirmation() {
+        val prefs = RuntimeEnvironment.getApplication()
+            .getSharedPreferences("aegis_backup_default_password", Context.MODE_PRIVATE)
+        prefs.edit()
+            .clear()
+            .putInt("version", 1)
+            .putString("iv", "AA==")
+            .putString("ciphertext", "AA==")
+            .commit()
+
+        compose.activityRule.scenario.recreate()
+        compose.waitForIdle()
+
+        compose.onNodeWithText(str(R.string.backup_default_password_remove_button)).performScrollTo().performClick()
+        compose.waitForIdle()
+
+        assertTrue("first remove click must not clear the saved password", prefs.contains("ciphertext"))
+        compose.onNodeWithText(str(R.string.backup_default_password_remove_title)).assertExists()
+
+        compose.onNodeWithText(str(R.string.backup_default_password_remove_confirm_button)).performClick()
+        compose.waitForIdle()
+
+        assertFalse("confirmation must clear the saved password", prefs.contains("ciphertext"))
+        compose.onNodeWithText(str(R.string.backup_default_password_remove_title)).assertDoesNotExist()
+        compose.onNodeWithText(str(R.string.backup_default_password_removed)).assertExists()
     }
 
     @Test fun back_arrow_finishes_the_activity() {

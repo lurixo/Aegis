@@ -115,7 +115,8 @@ class BackupActivity : ComponentActivity() {
                         uiState = BackupUiState.SetDefaultPassword
                     },
                     onSaveDefaultPassword = { password -> saveDefaultPassword(password) },
-                    onRemoveDefaultPassword = { removeDefaultPassword() },
+                    onRemoveDefaultPassword = { uiState = BackupUiState.RemoveDefaultPasswordConfirmation },
+                    onConfirmRemoveDefaultPassword = { removeDefaultPassword() },
                     onUseDefaultPassword = { useDefaultPassword() },
                     onDefaultPasswordAutofillConsumed = { defaultPasswordAutofill = null },
                     onClearDefaultPasswordDialogError = { defaultPasswordDialogErrorRes = null },
@@ -227,6 +228,7 @@ class BackupActivity : ComponentActivity() {
     private fun removeDefaultPassword() {
         runCatching { defaultPasswordStore.clear() }
         refreshDefaultPasswordState()
+        uiState = BackupUiState.Menu
         defaultPasswordMessageRes = R.string.backup_default_password_removed
     }
 
@@ -314,6 +316,7 @@ class BackupActivity : ComponentActivity() {
 internal sealed interface BackupUiState {
     data object Menu : BackupUiState
     data object SetDefaultPassword : BackupUiState
+    data object RemoveDefaultPasswordConfirmation : BackupUiState
     data object ExportPassword : BackupUiState
     data object ImportPassword : BackupUiState
     data object Working : BackupUiState
@@ -336,6 +339,7 @@ internal fun BackupScreen(
     onSetDefaultPassword: () -> Unit,
     onSaveDefaultPassword: (String) -> Unit,
     onRemoveDefaultPassword: () -> Unit,
+    onConfirmRemoveDefaultPassword: () -> Unit,
     onUseDefaultPassword: () -> Unit,
     onDefaultPasswordAutofillConsumed: () -> Unit,
     onClearDefaultPasswordDialogError: () -> Unit,
@@ -394,6 +398,10 @@ internal fun BackupScreen(
             onClearExternalError = onClearDefaultPasswordDialogError,
             onDismiss = onDismissDialog,
             onSave = onSaveDefaultPassword,
+        )
+        BackupUiState.RemoveDefaultPasswordConfirmation -> RemoveDefaultPasswordDialog(
+            onDismiss = onDismissDialog,
+            onConfirm = onConfirmRemoveDefaultPassword,
         )
         BackupUiState.ExportPassword -> ExportPasswordDialog(
             defaultPasswordSaved = defaultPasswordSaved,
@@ -481,6 +489,25 @@ private fun DefaultPasswordCard(
             }
         }
     }
+}
+
+@Composable
+private fun RemoveDefaultPasswordDialog(
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.backup_default_password_remove_title)) },
+        text = { Text(stringResource(R.string.backup_default_password_remove_desc)) },
+        confirmButton = {
+            TextButton(
+                modifier = Modifier.testTag("backup_default_password_remove_confirm"),
+                onClick = onConfirm,
+            ) { Text(stringResource(R.string.backup_default_password_remove_confirm_button)) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.backup_cancel)) } },
+    )
 }
 
 @Composable

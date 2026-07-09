@@ -156,6 +156,9 @@
     <string name="backup_default_password_dialog_title">设置默认备份密码</string>
     <string name="backup_default_password_dialog_desc">此密码只保存在本机。它不会更改已有备份文件，导出的文件仍使用导出对话框中显示的密码。</string>
     <string name="backup_default_password_save_button">保存默认密码</string>
+    <string name="backup_default_password_remove_title">移除默认备份密码？</string>
+    <string name="backup_default_password_remove_desc">将从此设备清除已保存的本机默认密码。已有备份文件不会受影响。</string>
+    <string name="backup_default_password_remove_confirm_button">移除默认密码</string>
     <string name="backup_default_password_use_button">使用默认密码</string>
     <string name="backup_default_password_saved">已保存默认密码</string>
     <string name="backup_default_password_removed">已移除默认密码</string>
