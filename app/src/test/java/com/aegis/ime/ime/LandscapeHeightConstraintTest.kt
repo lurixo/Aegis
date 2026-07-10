@@ -351,7 +351,7 @@ class LandscapeHeight388ConstraintTest {
         }
     }
 
-    @Test fun nine_composition_edit_and_open_panel_survive_portrait_rotation_and_detach_reattach_hide_show_lifecycle() {
+    @Test fun nine_stateful_overlays_keep_geometry_across_qualifier_change_and_same_view_detach_reattach() {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val host = FrameLayout(controller.get())
         controller.get().setContentView(host)
@@ -392,7 +392,7 @@ class LandscapeHeight388ConstraintTest {
             assertStatefulNinePanel(iv, grid, expectCompact = true)
 
             host.removeView(iv)
-            assertTrue("hide surrogate must really detach the input view", iv.parent == null)
+            assertTrue("geometry surrogate must really detach the input view", iv.parent == null)
             assertTrue(iv.isComposing())
             assertTrue(iv.isEditBarShowing())
             assertTrue(iv.isPanelShowing(grid))

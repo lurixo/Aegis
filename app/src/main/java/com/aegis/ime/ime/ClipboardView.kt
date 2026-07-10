@@ -47,6 +47,11 @@ import com.aegis.ime.user.ClipSplitter
 
 class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
+    internal data class RecreationState(
+        val phrasesTab: Boolean,
+        val phraseCategory: String,
+    )
+
     var onPick: (String) -> Unit = {}
     var onCopyBlockToAegis: (String) -> Unit = {}
     var onCopyBlocksToAegis: (List<String>) -> Unit = { blocks -> blocks.forEach { onCopyBlockToAegis(it) } }
@@ -125,6 +130,15 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         swipeRevealed = null; sortMode = false; categorySortMode = false
         if (category.isNotEmpty() && category in categoriesProvider()) phraseCat = category
         refresh()
+    }
+
+    internal fun recreationState(): RecreationState = RecreationState(
+        phrasesTab = st.tab == ClipboardPanelState.Tab.PHRASE,
+        phraseCategory = phraseCat,
+    )
+
+    internal fun restoreRecreationState(state: RecreationState) {
+        if (state.phrasesTab) showPhraseTab(state.phraseCategory) else refresh()
     }
 
     private var dragFrom = -1
