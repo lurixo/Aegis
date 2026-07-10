@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.user.asClipEntries
 import com.aegis.ime.user.clipEntries
 import android.app.Activity
 import android.content.res.Configuration
@@ -815,6 +816,76 @@ class TinyPanelViewportConstraintTest {
         assertClipboardFixedTextTracksItsRail(clipboard, authoredTextSizes)
         activity.pause().stop().destroy()
     }
+
+    @Test fun clipboard_select_phrase_sort_and_category_sort_keep_readable_root_clickable_actions() {
+        val deleted = mutableListOf<List<String>>()
+        val clips = (1..20).map { "clip$it" }
+        val clipboard = ClipboardView(ctx).apply {
+            historyProvider = { clips.asClipEntries() }
+            categoriesProvider = { listOf("A", "B", "C") }
+            phrasesInProvider = { category -> (1..20).map { "$category phrase$it" } }
+            onDeleteClips = { deleted += it; true }
+        }
+        val iv = InputView(ctx).apply {
+            simulateNavInsetForTest(12)
+            showEditBar(true)
+            showPanel(clipboard)
+        }
+        val activity = attachToActivity(iv)
+
+        clipboard.enterSelectForTest()
+        val authoredTextSizes = clipboardFixedTextSizes(clipboard)
+        layoutAtMost(iv, 320, 200)
+        settleUiAnimations()
+        var cancel = assertClipboardModeReadable(iv, clipboard, ctx.getString(com.aegis.ime.R.string.clip_back))
+        assertClipboardFixedTextScales(clipboard, authoredTextSizes)
+        val stableSelectBounds = clipboardModeBoundsSnapshot(iv, clipboard)
+        repeat(2) {
+            layoutAtMost(iv, 320, 200)
+            cancel = assertClipboardModeReadable(iv, clipboard, ctx.getString(com.aegis.ime.R.string.clip_back))
+            assertEquals("identical select-mode measures must not alternate compact/overflow states", stableSelectBounds, clipboardModeBoundsSnapshot(iv, clipboard))
+        }
+        settleUiAnimations()
+        shadowOf(Looper.getMainLooper()).idleFor(500, TimeUnit.MILLISECONDS)
+        assertFalse("compressed Clipboard geometry must settle its layout request", clipboard.isLayoutRequested)
+        assertTrue(dispatchRootTap(iv, iv.panelDescendantBoundsForTest(cancel), cancel))
+        flushPostedClicks()
+        assertFalse(clipboard.isSelectModeForTest())
+
+        clipboard.enterSelectForTest(listOf(clips.first()))
+        layoutAtMost(iv, 320, 200)
+        settleUiAnimations()
+        val delete = assertClipboardModeReadable(iv, clipboard, ctx.getString(com.aegis.ime.R.string.clip_delete))
+        assertTrue(dispatchRootTap(iv, iv.panelDescendantBoundsForTest(delete), delete))
+        flushPostedClicks()
+        assertTrue(deleted.isEmpty())
+        assertTrue(clipboard.isSelectModeForTest())
+        val confirmDelete = visibleTextViews(clipboard).last { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_delete) && it.isClickable }
+        assertTrue(confirmDelete.performClick())
+        flushPostedClicks()
+        assertEquals(listOf(listOf(clips.first())), deleted)
+        assertFalse(clipboard.isSelectModeForTest())
+
+        clipboard.showPhraseTab("A")
+        clipboard.enterSortModeForTest()
+        layoutAtMost(iv, 320, 200)
+        settleUiAnimations()
+        val sortDone = assertClipboardModeReadable(iv, clipboard, ctx.getString(com.aegis.ime.R.string.clip_done))
+        assertTrue(dispatchRootTap(iv, iv.panelDescendantBoundsForTest(sortDone), sortDone))
+        flushPostedClicks()
+        assertFalse(clipboard.isSortModeForTest())
+
+        clipboard.enterCategorySortModeForTest()
+        layoutAtMost(iv, 320, 200)
+        settleUiAnimations()
+        assertClipboardModeReadable(iv, clipboard, ctx.getString(com.aegis.ime.R.string.clip_add_category))
+        assertClipboardModeReadable(iv, clipboard, ctx.getString(com.aegis.ime.R.string.clip_import_phrases))
+        val categoryBack = assertClipboardModeReadable(iv, clipboard, ctx.getString(com.aegis.ime.R.string.clip_back))
+        assertTrue(dispatchRootTap(iv, iv.panelDescendantBoundsForTest(categoryBack), categoryBack))
+        flushPostedClicks()
+        assertFalse(clipboard.isCategorySortModeForTest())
+        activity.pause().stop().destroy()
+    }
 }
 
 private fun layoutAtMost(iv: InputView, widthPx: Int, heightPx: Int) {
@@ -1002,6 +1073,25 @@ private fun assertClipboardFixedLabelsRenderTheirLines(iv: InputView, clipboard:
     }
 }
 
+private fun assertClipboardModeReadable(iv: InputView, clipboard: ClipboardView, actionText: String): android.widget.TextView {
+    val fixed = clipboard.fixedChromeViewsForTest()
+    assertTrue("mode must retain at least one fixed action rail", fixed.isNotEmpty())
+    assertClipboardFixedLabelsRenderTheirLines(iv, clipboard)
+    val viewport = iv.panelDescendantBoundsForTest(clipboard.listViewportForTest())
+    assertPanelRectInside(iv, "mode list viewport", viewport)
+    assertTrue("mode list must retain a scroll/touch viewport", viewport.height() > 0)
+    val action = fixed.asSequence().mapNotNull { textViewWithExactText(it, actionText) }.firstOrNull()
+        ?: throw AssertionError("missing fixed action '$actionText'")
+    val actionBounds = iv.panelDescendantBoundsForTest(action)
+    assertPanelRectInside(iv, "mode action '$actionText'", actionBounds)
+    assertTrue(action.isClickable)
+    assertTrue(
+        "mode action '$actionText' must retain the declared 20dp compact rail",
+        action.height >= (20 * action.resources.displayMetrics.density).roundToInt(),
+    )
+    return action
+}
+
 private fun clipboardFixedTextSizes(clipboard: ClipboardView): Map<android.widget.TextView, Float> =
     clipboard.fixedChromeViewsForTest()
         .flatMap(::visibleTextViews)
@@ -1079,6 +1169,19 @@ private fun visibleTextViews(view: View): List<android.widget.TextView> {
         for (i in 0 until view.childCount) addAll(visibleTextViews(view.getChildAt(i)))
     }
 }
+
+private fun textViewWithExactText(view: View, text: String): android.widget.TextView? {
+    if (view.visibility != View.VISIBLE) return null
+    if (view is android.widget.TextView && view.text.toString() == text) return view
+    if (view is ViewGroup) {
+        for (i in 0 until view.childCount) textViewWithExactText(view.getChildAt(i), text)?.let { return it }
+    }
+    return null
+}
+
+private fun clipboardModeBoundsSnapshot(iv: InputView, clipboard: ClipboardView): List<Rect> =
+    clipboard.fixedChromeViewsForTest().map { Rect(iv.panelDescendantBoundsForTest(it)) } +
+        Rect(iv.panelDescendantBoundsForTest(clipboard.listViewportForTest()))
 
 private fun dispatchRootTap(root: View, rect: Rect, expectedTarget: View? = null): Boolean {
     val x = rect.exactCenterX()
