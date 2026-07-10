@@ -1179,6 +1179,7 @@ class InputView(context: Context) : LinearLayout(context) {
     ).map(::boundsInRoot)
 
     internal fun expandedGridForTest(): CandidateGridView = gridView
+    internal fun panelDescendantBoundsForTest(view: View): Rect = boundsInRoot(view)
 
     private fun boundsInRoot(descendant: View): Rect {
         var x = 0

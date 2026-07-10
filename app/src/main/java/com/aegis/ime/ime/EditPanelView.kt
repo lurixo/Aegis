@@ -309,6 +309,12 @@ class EditPanelView(context: Context) :
     internal fun actionFeedbackLevelForTest(action: EditAction): Float? = actionFeedback[action]?.levelForTest()
     internal fun actionViewportForTest(): View = actionScroll
     internal fun actionContentCanScrollForTest(): Boolean = actionScroll.canScrollVertically(-1) || actionScroll.canScrollVertically(1)
+    internal fun scrollActionIntoViewForTest(action: EditAction) {
+        val view = actionViews.getValue(action)
+        val bounds = Rect(0, 0, view.width, view.height)
+        actionBody.offsetDescendantRectToMyCoords(view, bounds)
+        actionScroll.requestChildRectangleOnScreen(actionBody, bounds, true)
+    }
     internal fun arrowLastDrawCenterForTest(action: EditAction): Pair<Float, Float>? = arrowIcons[action]?.lastDrawCenterForTest()
 
     private inner class EditKey(label: String, val icon: GlyphDrawable) : TextView(context) {

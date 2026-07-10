@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.user.clipEntries
 import android.app.Activity
 import android.content.res.Configuration
 import android.graphics.Rect
@@ -23,6 +24,7 @@ import android.inputmethodservice.InputMethodService
 import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.core.graphics.Insets
 import androidx.core.view.ViewCompat
@@ -192,6 +194,104 @@ class LandscapeHeight388ConstraintTest {
             assertEquals("T9 ABC must emit digit 2 in both measure modes", listOf("2", "2"), emitted.filter { it.label == "ABC" }.map { it.output })
             assertEquals(listOf(0, 0), picked)
             assertEquals(2, confirms)
+        } finally {
+            activity.pause().stop().destroy()
+        }
+    }
+
+    @Test fun nine_expanded_edit_clipboard_and_phrases_panels_keep_key_actions_inside_the_live_region() {
+        var expandedBackspaces = 0
+        var expandedClears = 0
+        var candidatePicks = 0
+        val editActions = mutableListOf<EditAction>()
+        val pickedPanelText = mutableListOf<String>()
+        val iv = InputView(ctx).apply {
+            showKeyboard(Layouts.nine(Layouts.ninePunctuation(), composing = true), false, false, Lang.CN)
+            showCandidates((1..40).map { "候选$it" }, "nihao", (1..12).map { "reading$it" })
+            showEditBar(true)
+            onPanelBackspace = { expandedBackspaces++ }
+            onPanelClear = { expandedClears++ }
+            onPickCandidate = { candidatePicks++ }
+        }
+        ViewCompat.dispatchApplyWindowInsets(
+            iv,
+            WindowInsetsCompat.Builder()
+                .setInsets(WindowInsetsCompat.Type.navigationBars(), Insets.of(58, 0, 17, 24))
+                .setInsets(WindowInsetsCompat.Type.displayCutout(), Insets.of(9, 0, 9, 0))
+                .build(),
+        )
+        val activity = attachToActivity(iv)
+        try {
+            layoutAtMost(iv, 1280, 582)
+            assertTrue("candidate must dispatch before opening a panel", iv.tapFirstCandidateForTest())
+            flushPostedClicks()
+            assertEquals(1, candidatePicks)
+
+            iv.showExpandedCandidates()
+            layoutAtMost(iv, 1280, 582)
+            settleUiAnimations()
+            val grid = iv.expandedGridForTest()
+            assertTrue(iv.isPanelShowing(grid))
+            val expandedSpec = iv.dockHeightSpecForTest()!!
+            assertEquals(expandedSpec.keyboardHeight + expandedSpec.barHeight, iv.panelHeightPx())
+            assertPanelControlsInside(iv)
+            val expandedControls = iv.expandedPanelControlBoundsForTest()
+            expandedControls.forEachIndexed { index, bounds ->
+                assertRootRectInsideTouchableRegion(iv, "expanded control $index", bounds)
+            }
+            assertTrue(dispatchRootTap(iv, expandedControls[1], grid.backspaceButtonForTest()))
+            assertTrue(dispatchRootTap(iv, expandedControls[2], grid.clearButtonForTest()))
+            assertTrue(dispatchRootTap(iv, expandedControls[0], grid.returnButtonForTest()))
+            flushPostedClicks()
+            settleUiAnimations()
+            assertEquals(1, expandedBackspaces)
+            assertEquals(1, expandedClears)
+            assertFalse(iv.isPanelShowing(grid))
+
+            val edit = EditPanelView(ctx).apply { onAction = editActions::add }
+            iv.showPanel(edit)
+            layoutAtMost(iv, 1280, 582)
+            settleUiAnimations()
+            for (action in listOf(EditAction.UP, EditAction.PASTE)) {
+                val target = requireNotNull(edit.actionViewForTest(action))
+                edit.scrollActionIntoViewForTest(action)
+                val bounds = iv.panelDescendantBoundsForTest(target)
+                assertPanelRectInside(iv, "edit $action", bounds)
+                assertRootRectInsideTouchableRegion(iv, "edit $action", bounds)
+                assertTrue(dispatchRootTap(iv, bounds, target))
+            }
+            flushPostedClicks()
+            assertEquals(listOf(EditAction.UP, EditAction.PASTE), editActions)
+            iv.showPanel(null)
+            settleUiAnimations()
+
+            val clipboard = ClipboardView(ctx).apply {
+                historyProvider = { clipEntries("clipboard-entry") }
+                categoriesProvider = { listOf("Quick") }
+                phrasesInProvider = { listOf("phrase-entry") }
+                onPick = pickedPanelText::add
+                refresh()
+            }
+            iv.showPanel(clipboard)
+            layoutAtMost(iv, 1280, 582)
+            settleUiAnimations()
+            val clipTarget = requireNotNull(firstClickableDescendant(requireNotNull(clipboard.listRowViewForTest(0))))
+            val clipBounds = iv.panelDescendantBoundsForTest(clipTarget)
+            assertPanelRectInside(iv, "clipboard entry", clipBounds)
+            assertRootRectInsideTouchableRegion(iv, "clipboard entry", clipBounds)
+            assertTrue(dispatchRootTap(iv, clipBounds, clipTarget))
+            flushPostedClicks()
+
+            clipboard.showPhraseTab("Quick")
+            layoutAtMost(iv, 1280, 582)
+            settleUiAnimations()
+            val phraseTarget = requireNotNull(firstClickableDescendant(requireNotNull(clipboard.listRowViewForTest(0))))
+            val phraseBounds = iv.panelDescendantBoundsForTest(phraseTarget)
+            assertPanelRectInside(iv, "phrase entry", phraseBounds)
+            assertRootRectInsideTouchableRegion(iv, "phrase entry", phraseBounds)
+            assertTrue(dispatchRootTap(iv, phraseBounds, phraseTarget))
+            flushPostedClicks()
+            assertEquals(listOf("clipboard-entry", "phrase-entry"), pickedPanelText)
         } finally {
             activity.pause().stop().destroy()
         }
@@ -553,6 +653,170 @@ class WideToNarrowInsetResizeTest {
     }
 }
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], qualifiers = "w320dp-h200dp-land-mdpi")
+class TinyPanelViewportConstraintTest {
+
+    private val ctx = RuntimeEnvironment.getApplication()
+
+    @Test fun edit_custom_and_clipboard_important_actions_remain_inside_and_root_clickable() {
+        val iv = InputView(ctx).apply {
+            simulateNavInsetForTest(12)
+            showEditBar(true)
+        }
+        val activity = attachToActivity(iv)
+        layoutAtMost(iv, 320, 200)
+
+        val editActions = mutableListOf<EditAction>()
+        val edit = EditPanelView(ctx).apply { onAction = { editActions += it } }
+        iv.showPanel(edit)
+        layoutAtMost(iv, 320, 200)
+        settleUiAnimations()
+        assertEquals("real emergency panel target", 118, iv.panelHeightPx())
+        assertTrue("edit actions must scroll at h200 instead of collapsing their rows", edit.actionContentCanScrollForTest())
+        val actionViewport = iv.panelDescendantBoundsForTest(edit.actionViewportForTest())
+        assertPanelRectInside(iv, "edit action viewport", actionViewport)
+        assertTrue("at least one complete 44dp action row remains visible", actionViewport.height() >= 44)
+        for (action in listOf(EditAction.BACK, EditAction.UP, EditAction.DELETE, EditAction.PASTE)) {
+            val target = requireNotNull(edit.actionViewForTest(action))
+            if (action != EditAction.BACK) edit.scrollActionIntoViewForTest(action)
+            val fullBounds = iv.panelDescendantBoundsForTest(target)
+            val visibleBounds = Rect(fullBounds)
+            if (action != EditAction.BACK) {
+                assertTrue("$action must intersect the real scrolled viewport", visibleBounds.intersect(actionViewport))
+                assertTrue("$action must expose a >=44dp touch slice, got $visibleBounds", visibleBounds.height() >= 44)
+            }
+            assertPanelRectInside(iv, "$action visible bounds", visibleBounds)
+            assertTrue(dispatchRootTap(iv, visibleBounds, target))
+            flushPostedClicks()
+        }
+        assertEquals(listOf(EditAction.BACK, EditAction.UP, EditAction.DELETE, EditAction.PASTE), editActions)
+
+        var customBack = 0
+        var added = ""
+        val symbols = (1..48).map { "S$it" }
+        val custom = CustomSymbolPanel(ctx).apply {
+            addPalette = symbols
+            current = { emptyList() }
+            onBack = { customBack++ }
+            onAdd = { added = it }
+            refresh()
+        }
+        iv.showPanel(custom)
+        layoutAtMost(iv, 320, 200)
+        settleUiAnimations()
+        assertEquals(iv.panelHeightPx(), custom.height)
+        assertTrue("the intact full-height symbol rows scroll in the 74px viewport", custom.contentCanScrollForwardForTest())
+        custom.contentScrollForTest(Int.MAX_VALUE)
+        assertTrue(custom.contentScrollYForTest() > 0)
+        val lastChip = requireNotNull(custom.paletteChipForTest(symbols.last()))
+        val chipBounds = iv.panelDescendantBoundsForTest(lastChip)
+        assertPanelRectInside(iv, "last custom symbol after scroll", chipBounds)
+        val visibleChipBounds = Rect(chipBounds)
+        val contentViewport = iv.panelDescendantBoundsForTest(custom.contentViewportForTest())
+        assertTrue(
+            "scrolled last chip $chipBounds must intersect viewport $contentViewport; " +
+                "scrollY=${custom.contentScrollYForTest()} panel=${custom.width}x${custom.height}",
+            visibleChipBounds.intersect(contentViewport),
+        )
+        assertTrue("scrolled last chip must expose a positive touch area", !visibleChipBounds.isEmpty)
+        assertTrue(dispatchRootTap(iv, visibleChipBounds, lastChip))
+        val customBackButton = custom.backButtonForTest()
+        val backBounds = iv.panelDescendantBoundsForTest(customBackButton)
+        assertPanelRectInside(iv, "custom back", backBounds)
+        assertTrue(dispatchRootTap(iv, backBounds, customBackButton))
+        flushPostedClicks()
+        assertEquals(symbols.last(), added)
+        assertEquals(1, customBack)
+
+        var clipboardBack = 0
+        val clipboard = ClipboardView(ctx).apply {
+            categoriesProvider = { listOf("A", "B", "C") }
+            phrasesInProvider = { (1..20).map { "phrase$it" } }
+            onBack = { clipboardBack++ }
+            switchTabForTest(toClipboard = false)
+        }
+        iv.showPanel(clipboard)
+        layoutAtMost(iv, 320, 200)
+        settleUiAnimations()
+        val fixed = clipboard.fixedChromeViewsForTest()
+        assertEquals("phrase mode has a top toolbar and bottom category bar", 2, fixed.size)
+        for ((index, chrome) in fixed.withIndex()) {
+            val bounds = iv.panelDescendantBoundsForTest(chrome)
+            assertPanelRectInside(iv, "clipboard fixed chrome $index", bounds)
+            assertTrue("clipboard fixed chrome remains non-zero", bounds.height() > 0)
+        }
+        assertClipboardFixedLabelsRenderTheirLines(iv, clipboard)
+        val listBounds = iv.panelDescendantBoundsForTest(clipboard.listViewportForTest())
+        assertPanelRectInside(iv, "clipboard scroll viewport", listBounds)
+        assertTrue(listBounds.height() > 0)
+        val clipBack = requireNotNull(firstClickableDescendant(fixed.first()))
+        val clipBackBounds = iv.panelDescendantBoundsForTest(clipBack)
+        assertPanelRectInside(iv, "clipboard back", clipBackBounds)
+        assertTrue(dispatchRootTap(iv, clipBackBounds, clipBack))
+        flushPostedClicks()
+        assertEquals(1, clipboardBack)
+        activity.pause().stop().destroy()
+    }
+
+    @Test fun clipboard_compressed_fixed_chrome_splits_the_budget_above_its_readable_floors_and_scales_rail_text() {
+        val clipboard = ClipboardView(ctx).apply {
+            categoriesProvider = { listOf("A", "B", "C") }
+            phrasesInProvider = { (1..20).map { "phrase$it" } }
+            switchTabForTest(toClipboard = false)
+        }
+        val authoredTextSizes = clipboardFixedTextSizes(clipboard)
+        val authoredLineHeights = clipboardFixedLineHeights(clipboard)
+        val authoredLabelHeights = clipboardFixedLabelHeights(clipboard)
+        val iv = InputView(ctx).apply {
+            simulateNavInsetForTest(12)
+            showEditBar(true)
+            showPanel(clipboard)
+        }
+        val activity = attachToActivity(iv)
+        layoutAtMost(iv, 320, 200)
+        settleUiAnimations()
+
+        assertEquals("real emergency panel target", 118, iv.panelHeightPx())
+        val fixed = clipboard.fixedChromeViewsForTest()
+        assertEquals("phrase mode has a top toolbar and bottom category bar", 2, fixed.size)
+        assertEquals("the list keeps the 30px the panel reserves for it", 30, clipboard.listViewportForTest().height)
+        assertEquals("the fixed chrome takes the whole 88px budget the reserve leaves behind", 88, fixed.sumOf { it.height })
+        assertTrue("the 56px toolbar must really be compressed", fixed[0].height < 56)
+        assertTrue("the 40px category bar must really be compressed", fixed[1].height < 40)
+        assertEquals(
+            "the toolbar keeps its 20px readable floor plus the 36/57 slack share of the 49px above both floors",
+            51,
+            fixed[0].height,
+        )
+        assertEquals(
+            "the category bar keeps its 19px readable floor plus the 21/57 slack share of the 49px above both floors",
+            37,
+            fixed[1].height,
+        )
+        for ((index, chrome) in fixed.withIndex()) {
+            val labels = visibleTextViews(chrome).filter { !it.text.isNullOrEmpty() }
+            val floor = labels.maxOf { requireNotNull(authoredLineHeights[it]) }
+            assertTrue(
+                "compressed chrome $index must stay at least one authored text line tall: height=${chrome.height}, floor=$floor",
+                chrome.height >= floor,
+            )
+            for (label in labels) {
+                val authoredHeight = requireNotNull(authoredLabelHeights[label])
+                if (authoredHeight <= 0) continue
+                assertTrue(
+                    "compressed chrome $index must not stretch '${label.text}' past its authored ${authoredHeight}px, was ${label.height}",
+                    label.height <= authoredHeight,
+                )
+            }
+        }
+        assertClipboardFixedLabelsRenderTheirLines(iv, clipboard)
+        assertClipboardFixedTextScales(clipboard, authoredTextSizes)
+        assertClipboardFixedTextTracksItsRail(clipboard, authoredTextSizes)
+        activity.pause().stop().destroy()
+    }
+}
+
 private fun layoutAtMost(iv: InputView, widthPx: Int, heightPx: Int) {
     iv.measure(
         View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),
@@ -703,6 +967,119 @@ private fun assertPanelControlsInside(iv: InputView) {
     }
 }
 
+private fun assertPanelRectInside(iv: InputView, name: String, rect: Rect) {
+    val panel = Rect(
+        iv.panelVisualLeftPx(),
+        iv.panelVisualTopPx(),
+        iv.panelVisualRightPx(),
+        iv.panelVisualBottomPx(),
+    )
+    assertTrue("$name must be non-empty: $rect", !rect.isEmpty)
+    assertTrue("$name $rect must stay inside panel $panel", panel.contains(rect))
+}
+
+private fun firstClickableDescendant(view: View): View? {
+    if (view.isClickable) return view
+    if (view is ViewGroup) {
+        for (i in 0 until view.childCount) firstClickableDescendant(view.getChildAt(i))?.let { return it }
+    }
+    return null
+}
+
+private fun assertClipboardFixedLabelsRenderTheirLines(iv: InputView, clipboard: ClipboardView) {
+    for ((index, chrome) in clipboard.fixedChromeViewsForTest().withIndex()) {
+        assertPanelRectInside(iv, "fixed chrome $index", iv.panelDescendantBoundsForTest(chrome))
+        for (label in visibleTextViews(chrome)) {
+            if (label.text.isNullOrEmpty()) continue
+            assertPanelRectInside(iv, "visible fixed label '${label.text}'", iv.panelDescendantBoundsForTest(label))
+            val lines = maxOf(1, label.lineCount)
+            assertTrue(
+                "visible fixed label '${label.text}' in chrome $index must stay as tall as the $lines line(s) it renders: " +
+                    "height=${label.height}, lineHeight=${label.lineHeight}, textSize=${label.textSize}",
+                label.height >= lines * label.lineHeight,
+            )
+        }
+    }
+}
+
+private fun clipboardFixedTextSizes(clipboard: ClipboardView): Map<android.widget.TextView, Float> =
+    clipboard.fixedChromeViewsForTest()
+        .flatMap(::visibleTextViews)
+        .filter { !it.text.isNullOrEmpty() }
+        .associateWith { it.textSize }
+
+private fun clipboardFixedLineHeights(clipboard: ClipboardView): Map<android.widget.TextView, Int> =
+    clipboard.fixedChromeViewsForTest()
+        .flatMap(::visibleTextViews)
+        .filter { !it.text.isNullOrEmpty() }
+        .associateWith { it.lineHeight }
+
+private fun clipboardFixedLabelHeights(clipboard: ClipboardView): Map<android.widget.TextView, Int> =
+    clipboard.fixedChromeViewsForTest()
+        .flatMap(::visibleTextViews)
+        .filter { !it.text.isNullOrEmpty() }
+        .associateWith { it.layoutParams?.height ?: -1 }
+
+private fun assertClipboardFixedTextTracksItsRail(
+    clipboard: ClipboardView,
+    authoredTextSizes: Map<android.widget.TextView, Float>,
+) {
+    var belowRail = 0
+    for (chrome in clipboard.fixedChromeViewsForTest()) {
+        for (label in visibleTextViews(chrome).filter { !it.text.isNullOrEmpty() }) {
+            val authoredTextSize = requireNotNull(authoredTextSizes[label])
+            val railHeight = (40 * label.resources.displayMetrics.density).toInt().coerceAtLeast(1)
+            if (label.height >= railHeight) {
+                assertEquals(
+                    "visible fixed label '${label.text}' owns a full ${railHeight}px rail and must keep its authored text size",
+                    authoredTextSize,
+                    label.textSize,
+                    0.01f,
+                )
+                continue
+            }
+            belowRail++
+            assertTrue(
+                "visible fixed label '${label.text}' sits in a ${label.height}px rail and must drop below its authored ${authoredTextSize}px text, was ${label.textSize}",
+                label.textSize < authoredTextSize,
+            )
+            assertEquals(
+                "visible fixed label '${label.text}' must shrink to exactly its share of the ${railHeight}px rail",
+                authoredTextSize * label.height / railHeight,
+                label.textSize,
+                0.01f,
+            )
+        }
+    }
+    assertTrue("the compressed chrome must push at least one label under its readability rail", belowRail > 0)
+}
+
+private fun assertClipboardFixedTextScales(
+    clipboard: ClipboardView,
+    authoredTextSizes: Map<android.widget.TextView, Float>,
+) {
+    for (chrome in clipboard.fixedChromeViewsForTest()) {
+        for (label in visibleTextViews(chrome).filter { !it.text.isNullOrEmpty() }) {
+            val authoredTextSize = requireNotNull(authoredTextSizes[label])
+            val railHeight = (40 * label.resources.displayMetrics.density).toInt().coerceAtLeast(1)
+            val minTextSize = (authoredTextSize * minOf(1f, label.height.toFloat() / railHeight)).coerceAtLeast(1f)
+            assertTrue(
+                "visible fixed label '${label.text}' must stay readable within its rail — never larger than authored, never below its height ratio (was ${label.textSize})",
+                label.textSize in (minTextSize - 0.01f)..(authoredTextSize + 0.01f),
+            )
+        }
+    }
+}
+
+private fun visibleTextViews(view: View): List<android.widget.TextView> {
+    if (view.visibility != View.VISIBLE) return emptyList()
+    if (view is android.widget.TextView) return listOf(view)
+    if (view !is ViewGroup) return emptyList()
+    return buildList {
+        for (i in 0 until view.childCount) addAll(visibleTextViews(view.getChildAt(i)))
+    }
+}
+
 private fun dispatchRootTap(root: View, rect: Rect, expectedTarget: View? = null): Boolean {
     val x = rect.exactCenterX()
     val y = rect.exactCenterY()
@@ -723,4 +1100,56 @@ private fun dispatchRootTap(root: View, rect: Rect, expectedTarget: View? = null
 private fun flushPostedClicks() {
 
     shadowOf(Looper.getMainLooper()).idle()
+}
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], qualifiers = "w320dp-h200dp-land-xxhdpi")
+class TinyPanelReadableFloorConstraintTest {
+
+    private val ctx = RuntimeEnvironment.getApplication()
+
+    @Test fun clipboard_compressed_fixed_chrome_is_shared_out_from_its_readable_floors_upwards() {
+        val clipboard = ClipboardView(ctx).apply {
+            categoriesProvider = { listOf("A", "B", "C") }
+            phrasesInProvider = { (1..20).map { "phrase$it" } }
+            switchTabForTest(toClipboard = false)
+        }
+        val authoredLineHeights = clipboardFixedLineHeights(clipboard)
+        val iv = InputView(ctx).apply {
+            simulateNavInsetForTest(36)
+            showEditBar(true)
+            showPanel(clipboard)
+        }
+        val activity = attachToActivity(iv)
+        layoutAtMost(iv, 960, 600)
+        settleUiAnimations()
+
+        assertEquals("real emergency panel target at three pixels to the point", 354, iv.panelHeightPx())
+        val fixed = clipboard.fixedChromeViewsForTest()
+        assertEquals("phrase mode has a top toolbar and bottom category bar", 2, fixed.size)
+        assertEquals("the list keeps the 89px the panel reserves for it", 89, clipboard.listViewportForTest().height)
+        assertEquals("the fixed chrome takes the whole 265px budget the reserve leaves behind", 265, fixed.sumOf { it.height })
+        assertTrue("the 168px toolbar must really be compressed", fixed[0].height < 168)
+        assertTrue("the 120px category bar must really be compressed", fixed[1].height < 120)
+        assertEquals(
+            "the toolbar keeps its 60px readable floor plus the 108/171 slack share of the 148px above both floors",
+            153,
+            fixed[0].height,
+        )
+        assertEquals(
+            "the category bar keeps its 57px readable floor plus the 63/171 slack share of the 148px above both floors",
+            112,
+            fixed[1].height,
+        )
+        for ((index, chrome) in fixed.withIndex()) {
+            val labels = visibleTextViews(chrome).filter { !it.text.isNullOrEmpty() }
+            val floor = labels.maxOf { requireNotNull(authoredLineHeights[it]) }
+            assertTrue(
+                "compressed chrome $index must stay at least one authored text line tall: height=${chrome.height}, floor=$floor",
+                chrome.height >= floor,
+            )
+        }
+        assertClipboardFixedLabelsRenderTheirLines(iv, clipboard)
+        activity.pause().stop().destroy()
+    }
 }

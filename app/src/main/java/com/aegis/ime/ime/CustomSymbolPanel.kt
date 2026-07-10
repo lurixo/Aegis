@@ -211,7 +211,14 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     internal fun confirmRemoveForTest(): Boolean = removeDialog.confirmForTest()
     internal fun cancelRemoveForTest(): Boolean = removeDialog.cancelForTest()
     internal fun dismissRemoveForTest(): Boolean = removeDialog.performClick()
+    internal fun contentCanScrollForwardForTest(): Boolean = contentScroll.canScrollVertically(1)
+    internal fun contentScrollForTest(y: Int) {
 
+        val viewport = (contentScroll.height - contentScroll.paddingTop - contentScroll.paddingBottom).coerceAtLeast(0)
+        val maxScroll = (contentColumn.height - viewport).coerceAtLeast(0)
+        contentScroll.scrollTo(0, y.coerceIn(0, maxScroll))
+    }
+    internal fun contentScrollYForTest(): Int = contentScroll.scrollY
     internal fun contentViewportForTest(): View = contentScroll
     private fun addedChips(): List<View> = (0 until addedRows.childCount).flatMap { rowIndex ->
         val row = addedRows.getChildAt(rowIndex) as? ViewGroup ?: return@flatMap emptyList()
