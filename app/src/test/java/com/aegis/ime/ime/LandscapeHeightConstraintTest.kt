@@ -54,6 +54,60 @@ class LandscapeHeight388ConstraintTest {
     private val density = ctx.resources.displayMetrics.density
     private fun dp(value: Int) = (value * density).toInt()
 
+    @Test fun alpha_edit_candidate_and_enter_are_inside_real_at_most_window_and_clickable() {
+        val keys = mutableListOf<KeyAction>()
+        var picked = -1
+        var confirmed = false
+        val iv = InputView(ctx).apply {
+            simulateNavInsetForTest(24)
+            showKeyboard(Layouts.forId(LayoutId.ALPHA, Lang.CN), false, false, Lang.CN)
+            showCandidates(listOf("你", "泥", "逆"), "ni", emptyList())
+            showEditBar(true)
+            onKey = { keys += it.action }
+            onPickCandidate = { picked = it }
+            onEditConfirm = { confirmed = true }
+        }
+        val activity = attachToActivity(iv)
+        layoutAtMost(iv, dp(853), dp(388))
+
+        assertEquals("root must consume, not exceed, its 582px cap", 582, iv.measuredHeight)
+        assertEquals(iv.height, iv.dockSurfaceBottomPx())
+        assertEquals(24, iv.dockHeightSpecForTest()!!.navBottom)
+        assertEquals("the shorter four-row keyboard affords a partial aesthetic raise", dp(12), iv.dockHeightSpecForTest()!!.bottomExtra)
+        assertFalse("h388 remains above the declared emergency minimum", iv.dockHeightSpecForTest()!!.emergency)
+        assertVerticalBounds(iv)
+
+        val first = requireNotNull(iv.keyboardLabelBoundsForTest("q"))
+        val enter = requireNotNull(iv.keyboardActionBoundsForTest(KeyAction.ENTER))
+        assertRectInsideSurface(iv, first)
+        assertRectInsideSurface(iv, enter)
+        assertTrue("first row keeps a usable >=28dp face", first.height() >= dp(28))
+        assertTrue("last-row Enter keeps a usable >=28dp face", enter.height() >= dp(28))
+
+        assertTrue(iv.tapKeyboardLabelForTest("q"))
+        assertTrue(iv.tapKeyboardActionForTest(KeyAction.ENTER))
+        assertEquals(listOf(KeyAction.COMMIT, KeyAction.ENTER), keys)
+        assertTrue(iv.tapFirstCandidateForTest())
+        assertEquals(0, picked)
+        assertTrue(dispatchRootTap(iv, iv.editConfirmBoundsForTest(), iv.editBarForTest().confirmButtonForTest()))
+        flushPostedClicks()
+        assertTrue("confirm callback missing; bounds=${iv.editConfirmBoundsForTest()}, edit=[${iv.editBarVisualLeftPx()},${iv.editBarVisualTopPx()}..${iv.editBarVisualRightPx()},${iv.editBarVisualBottomPx()}]", confirmed)
+
+        val surface = iv.dockSurfaceBoundsInWindow()
+        val insets = LandscapeImeWindowPolicy.resolve(
+            compactLandscape = iv.isCompactLandscapeDock(),
+            normalTop = iv.barTopInsetPx(),
+            windowBottom = iv.height,
+            surfaceBounds = surface,
+        )
+        assertEquals(iv.height, insets.contentTop)
+        assertEquals(surface, insets.touchableRegion)
+        val region = requireNotNull(insets.touchableRegion)
+        assertTrue(region.bottom <= iv.height)
+        assertTrue(region.right <= iv.width)
+        activity.pause().stop().destroy()
+    }
+
     @Test fun nine_nav_cutout_edit_candidate_first_last_and_enter_are_region_bound_and_clickable_at_most_and_exactly() {
         val config = ctx.resources.configuration
         assertEquals(Configuration.ORIENTATION_LANDSCAPE, config.orientation)
@@ -139,6 +193,78 @@ class LandscapeHeight388ConstraintTest {
             assertEquals(listOf(0, 0), picked)
             assertEquals(2, confirms)
         } finally {
+            activity.pause().stop().destroy()
+        }
+    }
+
+    @Test fun nine_composition_edit_and_expanded_panel_resize_h388_to_h291_to_near_square_and_back_without_stale_geometry() {
+        val emitted = mutableListOf<Key>()
+        var picked = 0
+        var confirmed = 0
+        val iv = InputView(ctx).apply {
+            showKeyboard(Layouts.nine(Layouts.ninePunctuation(), composing = true), false, false, Lang.CN)
+            showCandidates((1..30).map { "候选$it" }, "nihao", (1..8).map { "reading$it" })
+            showEditBar(true)
+            onKey = emitted::add
+            onPickCandidate = { picked++ }
+            onEditConfirm = { confirmed++ }
+        }
+        ViewCompat.dispatchApplyWindowInsets(
+            iv,
+            WindowInsetsCompat.Builder()
+                .setInsets(WindowInsetsCompat.Type.navigationBars(), Insets.of(58, 0, 17, 24))
+                .setInsets(WindowInsetsCompat.Type.displayCutout(), Insets.of(9, 0, 9, 0))
+                .build(),
+        )
+        val activity = attachToActivity(iv)
+        try {
+            layoutAtMost(iv, 1280, 582)
+            iv.showExpandedCandidates()
+            layoutAtMost(iv, 1280, 582)
+            settleUiAnimations()
+            val grid = iv.expandedGridForTest()
+            assertStatefulNinePanel(iv, grid, expectCompact = true)
+            val initialPanelHeight = iv.panelHeightPx()
+
+            RuntimeEnvironment.setQualifiers("w640dp-h291dp-land-hdpi")
+            assertEquals(640, iv.resources.configuration.screenWidthDp)
+            assertEquals(291, iv.resources.configuration.screenHeightDp)
+            layoutAtMost(iv, dpRound(640), dpRound(291))
+            assertStatefulNinePanel(iv, grid, expectCompact = true)
+            val minimumPanelHeight = iv.panelHeightPx()
+            assertTrue("h291 must recompute the open panel height", minimumPanelHeight < initialPanelHeight)
+
+            RuntimeEnvironment.setQualifiers("w320dp-h200dp-land-hdpi")
+            assertEquals(320, iv.resources.configuration.screenWidthDp)
+            assertEquals(200, iv.resources.configuration.screenHeightDp)
+            layoutAtMost(iv, dpRound(320), dpRound(200))
+            assertStatefulNinePanel(iv, grid, expectCompact = false)
+            val nearSquarePanelHeight = iv.panelHeightPx()
+            assertTrue("near-square must replace, not retain, the h291 panel height", nearSquarePanelHeight < minimumPanelHeight)
+
+            RuntimeEnvironment.setQualifiers("w853dp-h388dp-land-hdpi")
+            layoutAtMost(iv, 1280, 582)
+            assertStatefulNinePanel(iv, grid, expectCompact = true)
+            assertEquals("restored h388 panel height must match its original live value", initialPanelHeight, iv.panelHeightPx())
+            assertTrue("restored panel must not retain near-square height", iv.panelHeightPx() != nearSquarePanelHeight)
+
+            iv.showPanel(null)
+            settleUiAnimations()
+            layoutAtMost(iv, 1280, 582)
+            assertFalse(iv.panelShown)
+            assertTrue(iv.keyboardHeightPx() > 0)
+            assertEquals(iv.dockHeightSpecForTest()!!.keyboardHeight, iv.keyboardHeightPx())
+            assertTrue(iv.tapKeyboardLabelForTest("ABC"))
+            assertTrue(iv.tapKeyboardLabelForTest("123"))
+            assertTrue(iv.tapKeyboardActionForTest(KeyAction.ENTER))
+            assertTrue(iv.tapFirstCandidateForTest())
+            assertTrue(iv.tapEditConfirmForTest())
+            flushPostedClicks()
+            assertEquals(listOf(KeyAction.COMMIT, KeyAction.SWITCH_NUMPAD, KeyAction.ENTER), emitted.map { it.action })
+            assertEquals(1, picked)
+            assertEquals(1, confirmed)
+        } finally {
+            RuntimeEnvironment.setQualifiers("w853dp-h388dp-land-hdpi")
             activity.pause().stop().destroy()
         }
     }
@@ -263,6 +389,35 @@ class LandscapeHeight388ConstraintTest {
         assertEquals(1, backspaces)
         assertEquals("clear callback missing; controls=$controls panel=[${iv.panelVisualLeftPx()},${iv.panelVisualTopPx()}..${iv.panelVisualRightPx()},${iv.panelVisualBottomPx()}]", 1, clears)
         assertFalse(iv.isPanelShowing(grid))
+        activity.pause().stop().destroy()
+    }
+
+    @Test fun exact_soft_input_window_height_extends_the_surface_floor_without_stretching_keys() {
+        val emitted = mutableListOf<KeyAction>()
+        val iv = InputView(ctx).apply {
+            simulateNavInsetForTest(24)
+            showKeyboard(Layouts.forId(LayoutId.ALPHA, Lang.CN), false, false, Lang.CN)
+            onKey = { emitted += it.action }
+        }
+        val activity = attachToActivity(iv)
+        layoutAtMost(iv, dp(853), 800)
+        val naturalKeyboardHeight = iv.dockHeightSpecForTest()!!.keyboardHeight
+
+        iv.measure(
+            View.MeasureSpec.makeMeasureSpec(dp(853), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY),
+        )
+        iv.layout(0, 0, iv.measuredWidth, iv.measuredHeight)
+
+        assertEquals(800, iv.measuredHeight)
+        assertEquals(800, iv.dockHeightSpecForTest()!!.rootHeight)
+        assertEquals("EXACTLY must extend the floor, not distort the key geometry", naturalKeyboardHeight, iv.dockHeightSpecForTest()!!.keyboardHeight)
+        assertEquals("the physical surface must cover the framework's exact root", 800, iv.dockSurfaceBottomPx())
+        assertEquals(800, iv.dockSurfaceBoundsInWindow().bottom)
+        assertTrue(iv.keyboardVisualBottomPx() <= iv.dockSurfaceBottomPx())
+        assertTrue(iv.tapKeyboardActionForTest(KeyAction.ENTER))
+        assertEquals(listOf(KeyAction.ENTER), emitted)
+        assertVerticalBounds(iv)
         activity.pause().stop().destroy()
     }
 

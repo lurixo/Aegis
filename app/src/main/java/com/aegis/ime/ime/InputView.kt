@@ -1154,6 +1154,7 @@ class InputView(context: Context) : LinearLayout(context) {
     }
 
     internal fun editConfirmBoundsForTest(): Rect = boundsInRoot(editBarView.confirmButtonForTest())
+    internal fun editBarForTest(): EditBarView = editBarView
     internal fun tapEditConfirmForTest(): Boolean {
         val b = editConfirmBoundsForTest()
         return dispatchTapForTest(b.exactCenterX(), b.exactCenterY())
