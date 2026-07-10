@@ -22,12 +22,14 @@ import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 
 enum class EditAction { UP, DOWN, LEFT, RIGHT, START_SELECT, DELETE, COPY, CUT, SELECT_ALL, HOME, END, PASTE, BACK }
@@ -51,6 +53,8 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
     private val actionViews = mutableMapOf<EditAction, View>()
     private val arrowIcons = mutableMapOf<EditAction, GlyphDrawable>()
     private val titleBar: LinearLayout
+    private val actionColumn: LinearLayout
+    private val actionScroll: ScrollView
 
     fun applyPalette(p: ImePalette) {
         palette = p
@@ -111,7 +115,6 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         rightCol.addView(cutBtn, rowLp())
         mid.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         mid.addView(rightCol, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        addView(mid, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
 
         val bottom = LinearLayout(context).apply { orientation = HORIZONTAL }
         bottom.addView(iconBtn(context.getString(R.string.edit_paragraph_start), EditAction.HOME, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawParagraphEdge(c, p, x, y, s, toStart = true) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
@@ -119,9 +122,54 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         bottom.addView(iconBtn(context.getString(R.string.edit_paragraph_end), EditAction.END, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawParagraphEdge(c, p, x, y, s, toStart = false) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         bottom.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         bottom.addView(iconBtn(context.getString(R.string.edit_paste), EditAction.PASTE, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawClipboard(c, p, x, y, s) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        addView(bottom, LayoutParams(LayoutParams.MATCH_PARENT, dp(56)))
+
+        actionColumn = object : LinearLayout(context) {
+            init { orientation = VERTICAL }
+
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val viewport = if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED) {
+                    0
+                } else {
+                    MeasureSpec.getSize(heightMeasureSpec).coerceAtLeast(0)
+                }
+                val bottomHeight = dp(56)
+                val contentHeight = maxOf(dp(44 * 3) + bottomHeight, viewport)
+                (mid.layoutParams as LayoutParams).height = contentHeight - bottomHeight
+                (bottom.layoutParams as LayoutParams).height = bottomHeight
+                super.onMeasure(
+                    widthMeasureSpec,
+                    MeasureSpec.makeMeasureSpec(contentHeight, MeasureSpec.EXACTLY),
+                )
+            }
+        }.apply {
+            addView(mid, LayoutParams(LayoutParams.MATCH_PARENT, dp(44 * 3)))
+            addView(bottom, LayoutParams(LayoutParams.MATCH_PARENT, dp(56)))
+        }
+        actionScroll = ScrollView(context).apply {
+            isFillViewport = true
+            clipToPadding = true
+            addView(
+                actionColumn,
+                ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+            )
+        }
+        addView(actionScroll, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
 
         setHasSelection(false)
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        if (MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED) {
+            val available = MeasureSpec.getSize(heightMeasureSpec).coerceAtLeast(0)
+
+            val titleHeight = if (available >= dp(84)) {
+                dp(40)
+            } else {
+                maxOf(dp(20).coerceAtMost(available), available - dp(44)).coerceAtMost(available)
+            }
+            (titleBar.layoutParams as LayoutParams).height = titleHeight.coerceAtLeast(0)
+        }
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
     }
 
     fun setHasSelection(has: Boolean) {
@@ -138,11 +186,24 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         selectBtn.text = if (selecting) context.getString(R.string.edit_end_select) else context.getString(R.string.edit_start_select)
     }
 
-    override fun resetToDefault() = setSelecting(false)
+    override fun resetToDefault() {
+        setSelecting(false)
+        actionScroll.scrollTo(0, 0)
+    }
 
     internal fun selectingLabelForTest(): CharSequence = selectBtn.text
     internal fun actionViewForTest(action: EditAction): View? = actionViews[action]
     internal fun titleBarForTest(): View = titleBar
+    internal fun actionViewportForTest(): View = actionScroll
+    internal fun actionContentCanScrollForTest(): Boolean = actionScroll.canScrollVertically(1)
+    internal fun scrollActionIntoViewForTest(action: EditAction) {
+        val target = actionViews[action] ?: return
+        val targetRect = Rect(0, 0, target.width, target.height)
+        actionScroll.offsetDescendantRectToMyCoords(target, targetRect)
+        val maxScroll = (actionColumn.height - actionScroll.height).coerceAtLeast(0)
+        val desired = targetRect.centerY() - actionScroll.height / 2
+        actionScroll.scrollTo(0, desired.coerceIn(0, maxScroll))
+    }
     internal fun arrowLastDrawCenterForTest(action: EditAction): Pair<Float, Float>? =
         arrowIcons[action]?.lastDrawCenterForTest()
 

@@ -35,6 +35,8 @@ import android.view.ViewConfiguration
 import android.view.ViewGroup
 import kotlin.math.abs
 import kotlin.math.min
+import kotlin.math.roundToInt
+import java.util.WeakHashMap
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
@@ -147,6 +149,15 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private val overlay = FrameLayout(context).apply { visibility = GONE }
     private val listColumn = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(8), 0, dp(8), dp(8)) }
     private val listScroll = ScrollView(context).apply { addView(listColumn) }
+    private val fixedChromeOriginalHeights = WeakHashMap<View, Int>()
+    private val fixedDescendantOriginalHeights = WeakHashMap<View, Int>()
+    private val fixedChromeOriginalPadding = WeakHashMap<View, IntArray>()
+    private val fixedDescendantOriginalVisibility = WeakHashMap<View, Int>()
+    private val fixedDescendantOriginalTextSize = WeakHashMap<TextView, Float>()
+    private val fixedChromePreferredHeights = WeakHashMap<View, Int>()
+    private val fixedChromeMinimumHeights = WeakHashMap<View, Int>()
+    private var fixedChromePreferredWidth = -1
+    private var fixedChromeCompressed: Boolean? = null
     private var listRenderGeneration = 0
     private var pendingListAppend: Runnable? = null
 
@@ -199,6 +210,210 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         return super.dispatchTouchEvent(ev)
     }
 
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        if (MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED && main.childCount > 0) {
+            val available = MeasureSpec.getSize(heightMeasureSpec).coerceAtLeast(0)
+            val widthCap = MeasureSpec.getSize(widthMeasureSpec).coerceAtLeast(0)
+            val fixed = (0 until main.childCount).map { main.getChildAt(it) }.filter { it !== listScroll }
+            val preferredGeometryStale = fixedChromePreferredWidth != widthCap ||
+                fixed.any { fixedChromePreferredHeights[it] == null }
+            if (preferredGeometryStale) {
+
+                if (fixedChromeCompressed == true) fixed.forEach(::restoreFixedChromeState)
+                fixedChromePreferredHeights.clear()
+                fixedChromeMinimumHeights.clear()
+                for (child in fixed) {
+                    val lp = child.layoutParams as LinearLayout.LayoutParams
+                    val original = fixedChromeOriginalHeights.getOrPut(child) { lp.height }
+                    val preferredHeight = if (original >= 0) original else {
+                        child.measure(
+                            MeasureSpec.makeMeasureSpec(widthCap, MeasureSpec.AT_MOST),
+                            MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
+                        )
+                        child.measuredHeight
+                    }
+                    fixedChromePreferredHeights[child] = preferredHeight
+                }
+                for (child in fixed) {
+                    fixedChromeMinimumHeights[child] = minimumReadableHeight(child)
+                        .coerceAtMost(fixedChromePreferredHeights[child] ?: 0)
+                }
+                fixedChromePreferredWidth = widthCap
+            }
+            val preferred = fixed.associateWith { fixedChromePreferredHeights[it] ?: 0 }
+            val desiredFixed = preferred.values.sum().coerceAtLeast(0)
+            val listReserve = minOf(dp(32), (available * 0.25f).roundToInt()).coerceAtMost(available)
+            val fixedBudget = (available - listReserve).coerceAtLeast(0)
+            val compressed = desiredFixed > fixedBudget
+            val targetHeights = mutableMapOf<View, Int>()
+            if (compressed) {
+                val minima = fixed.associateWith { child -> fixedChromeMinimumHeights[child] ?: 0 }
+                val minimumTotal = minima.values.sum()
+                if (minimumTotal <= fixedBudget) {
+
+                    val remaining = fixedBudget - minimumTotal
+                    val slackTotal = fixed.sumOf { child ->
+                        ((preferred[child] ?: 0) - (minima[child] ?: 0)).coerceAtLeast(0)
+                    }
+                    var assigned = 0
+                    for ((index, child) in fixed.withIndex()) {
+                        val minimum = minima[child] ?: 0
+                        val extra = if (index == fixed.lastIndex) {
+                            remaining - assigned
+                        } else if (slackTotal > 0) {
+                            (remaining * (((preferred[child] ?: 0) - minimum).coerceAtLeast(0)).toFloat() / slackTotal)
+                                .roundToInt()
+                                .coerceAtMost(remaining - assigned)
+                        } else {
+                            0
+                        }
+                        targetHeights[child] = minimum + extra
+                        assigned += extra
+                    }
+                } else {
+
+                    var assigned = 0
+                    for ((index, child) in fixed.withIndex()) {
+                        val target = if (index == fixed.lastIndex) {
+                            fixedBudget - assigned
+                        } else if (minimumTotal > 0) {
+                            (fixedBudget * (minima[child] ?: 0).toFloat() / minimumTotal).roundToInt()
+                                .coerceAtMost(fixedBudget - assigned)
+                        } else {
+                            0
+                        }
+                        targetHeights[child] = target
+                        assigned += target
+                    }
+                }
+            }
+            if (!compressed && fixedChromeCompressed == true) fixed.forEach(::restoreFixedChromeState)
+            for (child in fixed) {
+                val lp = child.layoutParams as LinearLayout.LayoutParams
+                val original = fixedChromeOriginalHeights[child] ?: lp.height
+                val targetHeight = if (compressed) targetHeights[child] ?: 0 else original
+                if (lp.height != targetHeight) lp.height = targetHeight
+                if (compressed) {
+                    adaptFixedChrome(
+                        child,
+                        targetHeight = if (targetHeight >= 0) targetHeight else preferred[child] ?: 0,
+                    )
+                }
+            }
+            fixedChromeCompressed = compressed
+        }
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+    }
+
+    private fun restoreFixedChromeState(root: View) {
+        fixedChromeOriginalHeights[root]?.let { original ->
+            root.layoutParams?.let { lp -> if (lp.height != original) lp.height = original }
+        }
+        fixedDescendantOriginalHeights[root]?.let { original ->
+            root.layoutParams?.let { lp -> if (lp.height != original) lp.height = original }
+        }
+        fixedChromeOriginalPadding[root]?.let { original ->
+            setPaddingIfChanged(root, original[0], original[1], original[2], original[3])
+        }
+        fixedDescendantOriginalVisibility[root]?.let { if (root.visibility != it) root.visibility = it }
+        if (root is TextView) {
+            fixedDescendantOriginalTextSize[root]?.let { original ->
+                if (root.textSize != original) root.setTextSize(TypedValue.COMPLEX_UNIT_PX, original)
+            }
+        }
+        val group = root as? ViewGroup ?: return
+        for (i in 0 until group.childCount) restoreFixedChromeState(group.getChildAt(i))
+    }
+
+    private fun minimumReadableHeight(root: View): Int {
+        if (root.visibility == GONE) return 0
+        if (root is TextView && !root.text.isNullOrEmpty()) return root.lineHeight.coerceAtLeast(1)
+        val group = root as? ViewGroup ?: return if (root.isClickable) dp(20) else 1
+        val children = (0 until group.childCount).map { group.getChildAt(it) }.filter { it.visibility != GONE }
+        if (children.isEmpty()) return if (root.isClickable) dp(20) else 1
+        val childMinimum = children.maxOf(::minimumReadableHeight)
+
+        return childMinimum
+    }
+
+    private fun setPaddingIfChanged(view: View, left: Int, top: Int, right: Int, bottom: Int) {
+        if (view.paddingLeft != left || view.paddingTop != top ||
+            view.paddingRight != right || view.paddingBottom != bottom
+        ) {
+            view.setPadding(left, top, right, bottom)
+        }
+    }
+
+    private fun adaptFixedChrome(root: View, targetHeight: Int) {
+        val group = root as? ViewGroup ?: return
+        fun scaledPadding(view: View, available: Int): Int {
+            val originalPadding = fixedChromeOriginalPadding.getOrPut(view) {
+                intArrayOf(view.paddingLeft, view.paddingTop, view.paddingRight, view.paddingBottom)
+            }
+
+            setPaddingIfChanged(view, originalPadding[0], 0, originalPadding[2], 0)
+            return available
+        }
+
+        fun adaptDescendant(view: View, available: Int) {
+            val lp = view.layoutParams ?: return
+            val original = fixedDescendantOriginalHeights.getOrPut(view) { lp.height }
+            val assigned = if (original > 0) minOf(original, available) else available
+            if (lp.height != assigned) lp.height = assigned
+            if (view is TextView) {
+                val originalTextSize = fixedDescendantOriginalTextSize.getOrPut(view) { view.textSize }
+                val targetTextSize = if (assigned > 0) {
+
+                    val railScale = minOf(1f, assigned.toFloat() / dp(40).coerceAtLeast(1))
+                    (originalTextSize * railScale).coerceAtLeast(1f)
+                } else {
+                    originalTextSize
+                }
+                if (view.textSize != targetTextSize) {
+                    view.setTextSize(TypedValue.COMPLEX_UNIT_PX, targetTextSize)
+                }
+            }
+            (view as? ViewGroup)?.let { vg ->
+                val actual = if (assigned >= 0) assigned else available
+                val childContent = scaledPadding(view, actual.coerceAtLeast(0))
+                val allChildren = (0 until vg.childCount).map { vg.getChildAt(it) }
+                allChildren.forEach { child ->
+                    fixedDescendantOriginalVisibility.getOrPut(child) { child.visibility }
+                }
+                val authoredVisible = allChildren.filter {
+                    fixedDescendantOriginalVisibility[it] != GONE
+                }
+                if (vg is LinearLayout && vg.orientation == LinearLayout.VERTICAL && authoredVisible.isNotEmpty()) {
+                    val requiredTextLines = authoredVisible.sumOf { child ->
+                        (child as? TextView)?.lineHeight?.coerceAtLeast(1) ?: 1
+                    }
+                    if (authoredVisible.size > 1 && childContent < requiredTextLines) {
+
+                        if (authoredVisible.first().visibility == GONE) authoredVisible.first().visibility = VISIBLE
+                        authoredVisible.drop(1).forEach { if (it.visibility != GONE) it.visibility = GONE }
+                        adaptDescendant(authoredVisible.first(), childContent)
+                    } else {
+
+                        authoredVisible.forEach { child ->
+                            val authored = fixedDescendantOriginalVisibility[child] ?: VISIBLE
+                            if (child.visibility != authored) child.visibility = authored
+                        }
+                        var remaining = childContent
+                        for ((index, child) in authoredVisible.withIndex()) {
+                            val share = if (index == authoredVisible.lastIndex) remaining else childContent / authoredVisible.size
+                            adaptDescendant(child, share)
+                            remaining = (remaining - share).coerceAtLeast(0)
+                        }
+                    }
+                } else {
+                    for (child in authoredVisible) adaptDescendant(child, childContent)
+                }
+            }
+        }
+        val contentHeight = scaledPadding(root, targetHeight.coerceAtLeast(0))
+        for (i in 0 until group.childCount) adaptDescendant(group.getChildAt(i), contentHeight)
+    }
+
     private fun handleActiveDrag(e: MotionEvent): Boolean {
         when (e.actionMasked) {
             MotionEvent.ACTION_MOVE -> updateActiveDrag(e.rawY)
@@ -227,6 +442,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
     internal fun forcePhrasesStateForTest(cat: String) { st.switchTab(ClipboardPanelState.Tab.PHRASE); phraseCat = cat }
     internal fun enterSelectForTest(selected: List<String> = emptyList()) { st.enterSelect(); st.selected.addAll(selected); refresh() }
+    internal fun isSelectModeForTest(): Boolean = st.selectMode
     internal fun toggleSelectForTest(text: String) { st.toggleSelect(text); refresh() }
     internal fun exitSelectForTest() { exitSelect() }
     internal fun showMoveChooserForTest(current: String) { chooseMoveCategoryThen(current, emptyList()) { target -> onMovePhrase(current, "", target) } }
@@ -260,6 +476,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         return loc[1]
     }
     internal fun listScrollRawBottomForTest(): Int = listScrollRawTopForTest() + listScroll.height
+    internal fun fixedChromeViewsForTest(): List<View> =
+        (0 until main.childCount).map { main.getChildAt(it) }.filter { it !== listScroll }
+    internal fun listViewportForTest(): View = listScroll
     internal fun expandForTest(text: String) { if (st.expanded != text) st.toggleExpand(text); refresh() }
     internal fun revealSwipeForTest(text: String) { revealSwipe(text) }
     internal fun hideSwipeForTest() { hideSwipe() }
@@ -302,6 +521,15 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         renderedMode = mode
         val rebuild = {
             invalidateListRender()
+            fixedChromeOriginalHeights.clear()
+            fixedDescendantOriginalHeights.clear()
+            fixedChromeOriginalPadding.clear()
+            fixedDescendantOriginalVisibility.clear()
+            fixedDescendantOriginalTextSize.clear()
+            fixedChromePreferredHeights.clear()
+            fixedChromeMinimumHeights.clear()
+            fixedChromePreferredWidth = -1
+            fixedChromeCompressed = null
             main.removeAllViews()
             when {
                 st.selectMode -> buildSelectMode()

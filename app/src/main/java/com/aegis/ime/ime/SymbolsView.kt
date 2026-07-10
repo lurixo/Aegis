@@ -63,6 +63,8 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     private var selected = 0
     private var locked = false
     private var showingUrlCompletions = false
+    private var measuringWidthOverride = 0
+    private var lastFlowWidth = -1
 
     private var palette = ImePalette.STATIC_LIGHT
     private val rail = LinearLayout(context).apply { orientation = VERTICAL }
@@ -218,13 +220,20 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
 
     private fun addCompletionChips(completions: List<String>) {
         val maxRowW = resources.displayMetrics.widthPixels - dp(60) - dp(16)
+        val configuredWidth = resources.configuration.screenWidthDp
+            .takeIf { it > 0 }
+            ?.let { (it * density).toInt() }
+            ?: resources.displayMetrics.widthPixels
+
+        val liveWidth = measuringWidthOverride.takeIf { it > 0 } ?: width.takeIf { it > 0 } ?: configuredWidth
+        val liveMaxRowW = minOf(maxRowW, (liveWidth - dp(60) - dp(16)).coerceAtLeast(dp(44)))
         val gap = dp(8)
         var row = netRow()
         var rowW = 0
         for (c in completions) {
             val chip = netChip(c)
             val w = measureW(chip) + gap
-            if (rowW + w > maxRowW && row.childCount > 0) { netBar.addView(row); row = netRow(); rowW = 0 }
+            if (rowW + w > liveMaxRowW && row.childCount > 0) { netBar.addView(row); row = netRow(); rowW = 0 }
             row.addView(
                 chip,
                 LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { marginEnd = gap; topMargin = dp(4) },
@@ -232,6 +241,17 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
             rowW += w
         }
         if (row.childCount > 0) netBar.addView(row)
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val incomingWidth = MeasureSpec.getSize(widthMeasureSpec)
+        if (incomingWidth > 0 && incomingWidth != lastFlowWidth) {
+            measuringWidthOverride = incomingWidth
+            lastFlowWidth = incomingWidth
+            showCategory(selected)
+            measuringWidthOverride = 0
+        }
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
     }
 
     private fun netRow(): LinearLayout = LinearLayout(context).apply {

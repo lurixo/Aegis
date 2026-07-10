@@ -69,6 +69,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private var renderedSelected = Int.MIN_VALUE
     private var candidateRebuilds = 0
     private var readingRebuilds = 0
+    private var measuringWidthOverride = 0
 
     private val chipPool = ArrayList<TextView>()
     private val rowPool = ArrayList<LinearLayout>()
@@ -144,6 +145,44 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(46), Gravity.TOP).apply { topMargin = dp(46 * rowIndex) }
 
     private fun centeredLp() = FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(46), Gravity.CENTER)
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val mode = MeasureSpec.getMode(heightMeasureSpec)
+        if (mode != MeasureSpec.UNSPECIFIED) updateRightActionLayout(MeasureSpec.getSize(heightMeasureSpec))
+        val incomingWidth = MeasureSpec.getSize(widthMeasureSpec)
+        if (incomingWidth > 0) {
+
+            measuringWidthOverride = incomingWidth
+            renderedCandidates?.let { setCandidates(it) }
+            measuringWidthOverride = 0
+        }
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+    }
+
+    private fun updateRightActionLayout(availableHeight: Int) {
+        val preferred = dp(46)
+        val fullRail = preferred * 5
+        val back = returnButtonForTest()
+        val delete = backspaceButtonForTest()
+        val clear = clearButtonForTest()
+        if (availableHeight >= fullRail) {
+            setActionFrame(back, preferred, Gravity.TOP, 0)
+            setActionFrame(delete, preferred, Gravity.CENTER, 0)
+            setActionFrame(clear, preferred, Gravity.TOP, preferred * 4)
+            return
+        }
+        val actionHeight = minOf(preferred, availableHeight.coerceAtLeast(0) / 3)
+        setActionFrame(back, actionHeight, Gravity.TOP, 0)
+        setActionFrame(delete, actionHeight, Gravity.TOP, (availableHeight - actionHeight) / 2)
+        setActionFrame(clear, actionHeight, Gravity.TOP, (availableHeight - actionHeight).coerceAtLeast(0))
+    }
+
+    private fun setActionFrame(view: View, height: Int, gravity: Int, topMargin: Int) {
+        val lp = view.layoutParams as FrameLayout.LayoutParams
+        lp.height = height.coerceAtLeast(0)
+        lp.gravity = gravity
+        lp.topMargin = topMargin.coerceAtLeast(0)
+    }
 
     private fun funcButton(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
         text = label
@@ -236,7 +275,13 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     }
 
     fun setCandidates(candidates: List<String>) {
-        val maxRowW = resources.displayMetrics.widthPixels - dp(60 + 64 + 16)
+
+        val configuredWidth = resources.configuration.screenWidthDp
+            .takeIf { it > 0 }
+            ?.let { (it * density).toInt() }
+            ?: resources.displayMetrics.widthPixels
+        val liveWidth = measuringWidthOverride.takeIf { it > 0 } ?: width.takeIf { it > 0 } ?: configuredWidth
+        val maxRowW = (liveWidth - dp(60 + 64)).coerceAtLeast(dp(46))
         if (candidates == renderedCandidates && maxRowW == renderedCandidateWidth) return
         renderedCandidates = candidates.toList()
         renderedCandidateWidth = maxRowW
@@ -360,6 +405,8 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     internal fun clearButtonForTest(): TextView = rightColumn.getChildAt(2) as TextView
     internal fun gridScrollYForTest(): Int = gridScroll.scrollY
     internal fun readingScrollYForTest(): Int = readingScroll.scrollY
+    internal fun gridCanScrollForwardForTest(): Boolean = gridScroll.canScrollVertically(1)
+    internal fun readingCanScrollForwardForTest(): Boolean = readingScroll.canScrollVertically(1)
     internal fun scrollForTest(gridY: Int, readingY: Int = 0) {
         gridScroll.scrollTo(0, gridY)
         readingScroll.scrollTo(0, readingY)

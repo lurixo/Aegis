@@ -137,6 +137,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         super.onConfigurationChanged(newConfig)
         applyPaletteEverywhere()
     }
+
+    override fun onEvaluateFullscreenMode(): Boolean = false
+
     private val clipboardManager by lazy { getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager }
     private val clipChangedListener = android.content.ClipboardManager.OnPrimaryClipChangedListener { onSystemClipChanged() }
 
@@ -392,10 +395,18 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val v = inputView ?: return
         val loc = IntArray(2)
         v.getLocationInWindow(loc)
-        val top = loc[1] + v.barTopInsetPx()
-        outInsets.contentTopInsets = top
-        outInsets.visibleTopInsets = top
-        outInsets.touchableInsets = Insets.TOUCHABLE_INSETS_VISIBLE
+        val normalTop = loc[1] + v.barTopInsetPx()
+        val spec = LandscapeImeWindowPolicy.resolve(
+            compactLandscape = v.isCompactLandscapeDock(),
+            normalTop = normalTop,
+            windowBottom = loc[1] + v.height,
+            surfaceBounds = v.dockTouchableBoundsInWindow(),
+        )
+        outInsets.contentTopInsets = spec.contentTop
+        outInsets.visibleTopInsets = spec.visibleTop
+        outInsets.touchableInsets = spec.touchableInsets
+        outInsets.touchableRegion.setEmpty()
+        spec.touchableRegion?.let(outInsets.touchableRegion::set)
     }
 
     override fun onUpdateSelection(
