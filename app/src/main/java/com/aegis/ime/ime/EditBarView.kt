@@ -199,6 +199,8 @@ class EditBarView(context: Context) : LinearLayout(context) {
 
     fun releaseField() { field.clearFocus() }
 
+    internal fun confirmButtonForTest(): TextView = confirm
+
     internal fun fieldForTest(): EditText = field
 
     internal fun fieldBoxForTest(): View = fieldBox

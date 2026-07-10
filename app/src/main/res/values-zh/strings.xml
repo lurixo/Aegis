@@ -55,5 +55,15 @@
     <string name="translate_mode_zh_en">中英互译</string>
     <string name="translate_mode_zh_ja">中日互译</string>
     <string name="translate_caption">翻译</string>
+    <string name="key_sound_off">关闭</string>
+    <string name="key_sound_blue">Cherry MX 青轴</string>
+    <string name="key_sound_brown">Cherry MX 茶轴</string>
+    <string name="key_sound_red">Cherry MX 红轴</string>
+    <string name="key_sound_black">Cherry MX 黑轴</string>
+    <string name="key_sound_cream">NK Cream 奶油轴</string>
+    <string name="key_sound_silver">Cherry MX 银轴</string>
+    <string name="key_sound_purple">Cherry MX 紫轴</string>
+    <string name="key_sound_silent_red">Cherry MX 静音红轴</string>
+    <string name="key_sound_silent_black">Cherry MX 静音黑轴</string>
     <string name="sym_cat_vertical">竖标</string>
 </resources>

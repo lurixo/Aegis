@@ -89,6 +89,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private var currentPanel: View? = null
     private var keyHaptics = false
     internal val keyHapticsEnabled: Boolean get() = keyHaptics
+    private val keySoundPlayer = KeySoundPlayer(context)
     private var editBarActive = false
     private var translateBarActive = false
     private var palette = ImePalette.STATIC_LIGHT
@@ -381,11 +382,13 @@ class InputView(context: Context) : LinearLayout(context) {
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        keySoundPlayer.prepare()
         ViewCompat.requestApplyInsets(this)
     }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        keySoundPlayer.release()
         Motion.cancelCover(panelContainer)
         Motion.reset(keyboardView)
         Motion.reset(preeditView)
@@ -403,6 +406,9 @@ class InputView(context: Context) : LinearLayout(context) {
         keyboardView.setLayout(layout, shifted, locked, lang)
     }
 
+    fun setKeySound(sound: KeySound) { keySoundPlayer.select(sound) }
+    internal fun setKeySoundVolume(volume: Float) { keySoundPlayer.volume = volume }
+    internal fun playKeySound() { keySoundPlayer.play() }
     internal var keyHapticStyle: KeyHaptic = KeyHaptic.CRISP
         private set
     internal fun setKeyHapticStyle(style: KeyHaptic) { keyHapticStyle = style }

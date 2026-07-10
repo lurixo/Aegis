@@ -94,6 +94,7 @@ private fun View.feedbackHost(): InputView? {
 }
 
 internal fun View.playImeKeyFeedback(hapticsEnabled: Boolean) {
+    feedbackHost()?.playKeySound()
     performImeKeyHaptic(hapticsEnabled)
 }
 
@@ -110,6 +111,7 @@ internal fun View.playImeTapFeedback() {
 }
 
 internal fun View.bindImeTapFeedback(source: View = this) {
+    isSoundEffectsEnabled = false
     setOnTouchListener { _, event ->
         if (isEnabled && event.actionMasked == MotionEvent.ACTION_DOWN) source.playImeTapFeedback()
         false
