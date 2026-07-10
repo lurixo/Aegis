@@ -21,6 +21,7 @@ import android.inputmethodservice.InputMethodService.Insets
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.text.InputType
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
@@ -111,6 +112,46 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private val symbolUsageStore by lazy { SymbolUsageStore(filesDir).also { it.load() } }
     private val emojiUsageStore by lazy { SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).also { it.load() } }
     @Volatile private var secureField = false
+
+    private data class EditorTarget(
+        val packageName: String,
+        val fieldId: Int?,
+        val fieldName: String?,
+        val inputKind: Int,
+    ) {
+        fun sameEditor(other: EditorTarget): Boolean {
+            if (packageName != other.packageName || inputKind != other.inputKind) return false
+            if (fieldId != null || other.fieldId != null) return fieldId != null && fieldId == other.fieldId
+            if (fieldName != null || other.fieldName != null) return fieldName != null && fieldName == other.fieldName
+            return true
+        }
+    }
+
+    private enum class RestorablePanel {
+        EXPANDED_CANDIDATES, EDIT, EMOJI, CLIPBOARD, SYMBOLS, CUSTOM_SYMBOLS, CUSTOM_OPERATORS,
+    }
+
+    internal data class TransientStateSnapshot(
+        val inputActive: Boolean,
+        val secure: Boolean,
+        val targetPackage: String?,
+        val composition: String,
+        val editActive: Boolean,
+        val editText: String,
+        val editPurpose: String?,
+        val panel: String?,
+        val panelDetail: String?,
+    )
+
+    private var currentEditorTarget: EditorTarget? = null
+    private var inputSessionActive = false
+    private var resetControllerOnNextInputView = false
+    private var restorablePanel: RestorablePanel? = null
+
+    private var panelCacheDensityDpi = 0
+    private var clipboardRecreationState: ClipboardView.RecreationState? = null
+    private var restoreClipboardWithoutCapture = false
+    private var panelInputTitle = ""
     private var lastCopy: String? = null
     @Volatile private var userDbLoaded = false
     @Volatile private var engineSig = ""
@@ -134,8 +175,21 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
+
+        unregisterBackCallback()
+        val previousInputView = inputView
+        val nextDensityDpi = newConfig.densityDpi.takeIf { it > 0 } ?: resources.displayMetrics.densityDpi
+        val densityChanged = panelCacheDensityDpi > 0 && panelCacheDensityDpi != nextDensityDpi
+        if (densityChanged) invalidateDensityBoundPanelCaches(nextDensityDpi)
+        else panelCacheDensityDpi = nextDensityDpi
         super.onConfigurationChanged(newConfig)
         applyPaletteEverywhere()
+
+        if (densityChanged && previousInputView != null && inputView === previousInputView) {
+            val replacement = onCreateInputView() as InputView
+            setInputView(replacement)
+            replacement.post { if (inputView === replacement) syncBackCallback() }
+        }
     }
 
     override fun onEvaluateFullscreenMode(): Boolean = false
@@ -250,9 +304,45 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
     }
 
+    private fun editorTarget(info: EditorInfo?): EditorTarget? {
+        val packageName = info?.packageName?.takeIf { it.isNotBlank() } ?: return null
+        val stableFieldId = info.fieldId.takeIf { it > 0 }
+        val stableFieldName = info.fieldName?.takeIf { it.isNotBlank() }
+        val inputKind = info.inputType and (InputType.TYPE_MASK_CLASS or InputType.TYPE_MASK_VARIATION)
+        return EditorTarget(packageName, stableFieldId, stableFieldName, inputKind)
+    }
+
+    private fun clearEditorTransientState(resetController: Boolean, abortInline: Boolean = true) {
+        if (abortInline) abortInlineInput(hideBar = false)
+
+        inputView?.clearEditorTransientUiImmediately()
+        restorablePanel = null
+        clipboardRecreationState = null
+        stopSelecting()
+        deletedSnapshot = null
+        if (resetController && ::controller.isInitialized) controller.reset()
+    }
+
+    private fun canRestoreCurrentSession(): Boolean =
+        inputSessionActive && !secureField && currentEditorTarget != null
+
     override fun onStartInput(info: EditorInfo?, restarting: Boolean) {
         super.onStartInput(info, restarting)
-        secureField = info != null && com.aegis.ime.user.ClipboardPolicy.isSensitive(info.inputType)
+
+        val nextTarget = editorTarget(info)
+        val nextSecure = info != null && com.aegis.ime.user.ClipboardPolicy.isSensitive(info.inputType)
+        val sameRestart = restarting && inputSessionActive && !secureField && !nextSecure &&
+            currentEditorTarget?.let { previous -> nextTarget?.let(previous::sameEditor) } == true
+
+        if (!sameRestart) {
+            clearEditorTransientState(resetController = true)
+
+            resetControllerOnNextInputView = true
+        }
+        secureField = nextSecure
+        currentEditorTarget = nextTarget
+        inputSessionActive = nextTarget != null
+
         controller.setLearningBlocked(
             info != null && com.aegis.ime.user.ClipboardPolicy.blocksLearning(info.inputType, info.imeOptions),
         )
@@ -265,6 +355,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     override fun onFinishInput() {
         super.onFinishInput()
         abortInlineInput()
+        clearEditorTransientState(resetController = true, abortInline = false)
+        currentEditorTarget = null
+        inputSessionActive = false
+        resetControllerOnNextInputView = false
+        secureField = false
         if (userModel.dirty) runCatching {
             userModel.save(userDbFile)
             userDbMtime = userDbFile.lastModified()
@@ -297,6 +392,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     override fun onCreateInputView(): View {
+
+        unregisterBackCallback()
+        if (panelCacheDensityDpi == 0) panelCacheDensityDpi = resources.displayMetrics.densityDpi
         val view = InputView(this).apply {
             onKey = { key -> controller.onKey(key) }
             onPickCandidate = { index -> controller.onPickCandidate(index) }
@@ -326,6 +424,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onOverlayChanged = { syncBackCallback() }
         }
         inputView = view
+        view.onPanelChanged = { panel ->
+
+            if (inputView === view) restorablePanel = classifyPanel(view, panel)
+        }
         panelInput.onChange = { txt ->
             panelTextSnapshot = txt
             view.setEditText(txt)
@@ -338,18 +440,102 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         view.setKeyPreviewNine(SettingsHotApply.keyPreviewNine(fbPrefs))
         view.setKeyPreviewAlpha(SettingsHotApply.keyPreviewAlpha(fbPrefs))
         view.setLetterCase(SettingsHotApply.letterCase(fbPrefs))
+
+        if (canRestoreCurrentSession()) restoreTransientUi(view)
         return view
+    }
+
+    private fun classifyPanel(view: InputView, panel: View?): RestorablePanel? = when {
+        panel == null -> null
+        view.isExpandedCandidatePanel(panel) -> RestorablePanel.EXPANDED_CANDIDATES
+        panel === editPanelView -> RestorablePanel.EDIT
+        panel === emojiView -> RestorablePanel.EMOJI
+        panel === clipboardView -> RestorablePanel.CLIPBOARD
+        panel === symbolsView -> RestorablePanel.SYMBOLS
+        panel === customSymbolView -> RestorablePanel.CUSTOM_SYMBOLS
+        panel === customOperatorView -> RestorablePanel.CUSTOM_OPERATORS
+        else -> null
+    }
+
+    private fun invalidateDensityBoundPanelCaches(nextDensityDpi: Int) {
+        clipboardRecreationState = if (restorablePanel == RestorablePanel.CLIPBOARD) {
+            clipboardView?.recreationState()
+        } else {
+            null
+        }
+        emojiView = null
+        clipboardView = null
+        symbolsView = null
+        editPanelView = null
+        customSymbolView = null
+        customOperatorView = null
+        panelCacheDensityDpi = nextDensityDpi
+    }
+
+    private fun restoreClipboardPanel() {
+        restoreClipboardWithoutCapture = true
+        try {
+            showClipboardPanel()
+        } finally {
+            restoreClipboardWithoutCapture = false
+        }
+    }
+
+    private fun restoreTransientUi(candidateView: InputView? = inputView) {
+        val view = candidateView ?: return
+        when (restorablePanel) {
+            RestorablePanel.EXPANDED_CANDIDATES -> view.showExpandedCandidates()
+            RestorablePanel.EDIT -> editPanelView?.let(view::showPanel) ?: showEditPanel()
+            RestorablePanel.EMOJI -> emojiView?.let(view::showPanel) ?: showEmojiPanel()
+            RestorablePanel.CLIPBOARD -> restoreClipboardPanel()
+            RestorablePanel.SYMBOLS -> symbolsView?.let(view::showPanel) ?: showSymbolsPanel()
+            RestorablePanel.CUSTOM_SYMBOLS -> customSymbolView?.let(view::showPanel) ?: showCustomSymbolPanel()
+            RestorablePanel.CUSTOM_OPERATORS -> customOperatorView?.let(view::showPanel) ?: showCustomOperatorPanel()
+            null -> Unit
+        }
+        if (panelInput.active) {
+            view.setEditTitle(panelInputTitle)
+            view.setEditText(panelInput.text())
+            view.showEditBar(true)
+        }
+    }
+
+    internal fun transientStateForTest(): TransientStateSnapshot {
+        val composition = if (::controller.isInitialized) controller.preeditForTest() else ""
+        val panel = restorablePanel?.name
+        val panelDetail = when (restorablePanel) {
+            RestorablePanel.CLIPBOARD -> if (clipboardView?.isClipboardTabForTest() == true) "HISTORY" else "PHRASES"
+            RestorablePanel.EXPANDED_CANDIDATES -> "CANDIDATES"
+            null -> null
+            else -> "DEFAULT"
+        }
+        return TransientStateSnapshot(
+            inputActive = inputSessionActive,
+            secure = secureField,
+            targetPackage = currentEditorTarget?.packageName,
+            composition = composition,
+            editActive = panelInput.active,
+            editText = panelInput.text(),
+            editPurpose = inputPurpose?.name,
+            panel = panel,
+            panelDetail = panelDetail,
+        )
     }
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        val viewTarget = editorTarget(info)
+        val viewSecure = info != null && com.aegis.ime.user.ClipboardPolicy.isSensitive(info.inputType)
+        val targetMatches = inputSessionActive && !secureField && !viewSecure &&
+            currentEditorTarget?.let { active -> viewTarget?.let(active::sameEditor) } == true
+        if (!targetMatches) {
+
         abortInlineInput()
-        inputView?.showPanel(null)
-        val lc = lastCopy
-        if (com.aegis.ime.user.ClipboardPolicy.shouldRestoreCopyBar(lc, secureField)) {
-            inputView?.showCopyBar(lc!!)
-        } else {
-            inputView?.hideCopyBar()
+            clearEditorTransientState(resetController = true, abortInline = false)
+            currentEditorTarget = null
+            inputSessionActive = false
+            secureField = viewSecure
+            resetControllerOnNextInputView = true
         }
         val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
         controller.setCnDefaultLayout(SettingsHotApply.cnLayout(prefs))
@@ -359,8 +545,21 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         inputView?.setKeyPreviewNine(SettingsHotApply.keyPreviewNine(prefs))
         inputView?.setKeyPreviewAlpha(SettingsHotApply.keyPreviewAlpha(prefs))
         inputView?.setLetterCase(SettingsHotApply.letterCase(prefs))
-        controller.reset()
+        if (resetControllerOnNextInputView) {
+            controller.reset()
+            resetControllerOnNextInputView = false
+        }
+
+        val lc = lastCopy
+        if (inputView?.isComposing() == true) {
+            inputView?.hideCopyBar()
+        } else if (com.aegis.ime.user.ClipboardPolicy.shouldRestoreCopyBar(lc, secureField)) {
+            inputView?.showCopyBar(lc!!)
+        } else {
+            inputView?.hideCopyBar()
+        }
         applyPaletteEverywhere()
+        if (targetMatches && canRestoreCurrentSession()) restoreTransientUi()
     }
 
     private fun buildBackCallback(): OnBackInvokedCallback = OnBackInvokedCallback {
@@ -519,8 +718,15 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun showClipboardPanel() {
         val iv = inputView ?: return
+        val captureCurrentClip = !restoreClipboardWithoutCapture
+        if (!restoreClipboardWithoutCapture) {
         if (iv.isPanelShowing(clipboardView)) { iv.showPanel(null); return }
+        }
+        if (captureCurrentClip) {
         captureClip()
+        }
+        if (captureCurrentClip) clipboardRecreationState = null
+        val recreationState = clipboardRecreationState
         val cv = clipboardView ?: ClipboardView(this).also {
             it.historyProvider = { clipboardStore.history() }
             it.categoriesProvider = { clipboardStore.categories() }
@@ -556,9 +762,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onSetHistoryEnabled = { on -> setHistoryEnabled(on) }
             clipboardView = it
         }
+
+        if (captureCurrentClip) {
         cv.resetToDefault()
+        }
         clipboardStore.reloadPhrases()
         cv.applyPalette(imePalette)
+        recreationState?.let(cv::restoreRecreationState)
+        clipboardRecreationState = null
         iv.showPanel(cv)
     }
 
@@ -661,6 +872,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun startInlineInput(title: String, initial: String) {
         val iv = inputView ?: return
         iv.showPanel(null)
+        panelInputTitle = title
         panelInput.begin(initial)
         iv.setEditTitle(title)
         iv.setEditText(initial)
@@ -699,17 +911,19 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val reopenCat = inputCat
         panelInput.end()
         panelTextSnapshot = null
+        panelInputTitle = ""
         inputView?.showEditBar(false)
         inputPurpose = null; inputCat = ""; inputOld = ""; pendingPhraseAdds = emptyList(); pendingMoveFrom = ""; pendingMoveTexts = emptyList()
         showClipboardPanel()
         clipboardView?.showPhraseTab(reopenCat)
     }
 
-    private fun abortInlineInput() {
+    private fun abortInlineInput(hideBar: Boolean = true) {
         if (!panelInput.active && inputPurpose == null) return
         panelInput.end()
         panelTextSnapshot = null
-        inputView?.showEditBar(false)
+        panelInputTitle = ""
+        if (hideBar) inputView?.showEditBar(false)
         inputPurpose = null; inputCat = ""; inputOld = ""; pendingPhraseAdds = emptyList(); pendingMoveFrom = ""; pendingMoveTexts = emptyList()
     }
 
@@ -768,9 +982,37 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
         unregisterBackCallback()
+        if (finishingInput) {
+            clearEditorTransientState(resetController = true)
+            currentEditorTarget = null
+            inputSessionActive = false
+            resetControllerOnNextInputView = false
+            secureField = false
+        }
+    }
+
+    override fun onWindowShown() {
+        super.onWindowShown()
+
+        val shownView = inputView
+        shownView?.post { if (inputView === shownView) syncBackCallback() }
+    }
+
+    override fun onUnbindInput() {
+        clearEditorTransientState(resetController = true)
+        currentEditorTarget = null
+        inputSessionActive = false
+        resetControllerOnNextInputView = false
+        secureField = false
+        super.onUnbindInput()
     }
 
     override fun onDestroy() {
+        clearEditorTransientState(resetController = true)
+        currentEditorTarget = null
+        inputSessionActive = false
+        resetControllerOnNextInputView = false
+        secureField = false
         unregisterBackCallback()
         runCatching { decodeWorker.shutdownNow() }
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }

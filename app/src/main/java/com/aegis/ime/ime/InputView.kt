@@ -51,6 +51,8 @@ class InputView(context: Context) : LinearLayout(context) {
     var onEditCancel: () -> Unit = {}
     var onOverlayChanged: () -> Unit = {}
 
+    var onPanelChanged: (View?) -> Unit = {}
+
     private val preeditView = PreeditView(context)
     private val preeditSlot = CompactDock(context) { resolveDockWidth(it) }.apply { addDockedView(preeditView) }
     private val candidateView = CandidateView(context)
@@ -378,6 +380,31 @@ class InputView(context: Context) : LinearLayout(context) {
             keyboardView.visibility = GONE
             Motion.revealIn(panel, Motion.EnterFrom.BOTTOM)
         }
+        onPanelChanged(panel)
+        onOverlayChanged()
+    }
+
+    internal fun isExpandedCandidatePanel(panel: View): Boolean = panel === gridView
+
+    internal fun clearEditorTransientUiImmediately() {
+        val outgoing = currentPanel
+        (outgoing as? ResettablePanel)?.resetToDefault()
+        if (outgoing === gridView) onExpandClosed()
+        currentPanel = null
+        candidateView.setExpanded(false)
+        outgoing?.let(Motion::reset)
+        panelContainer.removeAllViews()
+        panelContainer.visibility = GONE
+        Motion.reset(keyboardView)
+        keyboardView.visibility = VISIBLE
+
+        editBarActive = false
+        Motion.reset(editBarView)
+        editBarView.setTitle("")
+        editBarView.setText("")
+        editBarView.visibility = GONE
+
+        onPanelChanged(null)
         onOverlayChanged()
     }
 
