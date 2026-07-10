@@ -24,10 +24,12 @@ import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import com.aegis.ime.layout.SymbolCatalog
+import kotlin.math.roundToInt
 
 class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePanel {
 
@@ -41,8 +43,8 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     private var colors = ImePalette.STATIC_LIGHT
     private val addedRows = LinearLayout(context).apply { orientation = VERTICAL }
     private val paletteRows = LinearLayout(context).apply { orientation = VERTICAL }
-    private val addedScroll = ScrollView(context).apply { addView(addedRows) }
-    private val paletteScroll = ScrollView(context).apply { addView(paletteRows) }
+    private val contentColumn = LinearLayout(context).apply { orientation = VERTICAL }
+    private val contentScroll = ScrollView(context).apply { addView(contentColumn) }
     private val headerBar = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
     private val backText = TextView(context).apply {
         text = context.getString(R.string.csp_back_title)
@@ -53,6 +55,12 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         Motion.applyTapFeedback(this, colors.keyLabel)
     }
     private val sectionLabels = mutableListOf<TextView>()
+    private var measuringWidthOverride = 0
+    private var lastFlowWidth = -1
+    private val preferredHeaderHeight = dp(40)
+    private val minimumHeaderHeight = dp(20)
+    private val intactChipHeight = dp(44)
+    private val normalBackVerticalPadding = dp(10)
 
     var backTitle: String = context.getString(R.string.csp_back_title)
         set(v) { field = v; backText.text = v }
@@ -65,18 +73,19 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         setBackgroundColor(colors.keyboardBg)
         backText.setOnClickListener { onBack() }
         headerBar.setBackgroundColor(colors.keyboardBg)
-        headerBar.addView(backText)
+        headerBar.addView(backText, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
         headerBar.addView(View(context), LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
-        addView(headerBar)
-        addView(sectionLabel(context.getString(R.string.csp_added_tap_to_remove)))
-        addView(addedScroll, LayoutParams(LayoutParams.MATCH_PARENT, dp(56)))
-        addView(sectionLabel(context.getString(R.string.csp_tap_to_add)))
-        addView(paletteScroll, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+        addView(headerBar, LayoutParams(LayoutParams.MATCH_PARENT, preferredHeaderHeight))
+
+        contentColumn.addView(sectionLabel(context.getString(R.string.csp_added_tap_to_remove)))
+        contentColumn.addView(addedRows, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        contentColumn.addView(sectionLabel(context.getString(R.string.csp_tap_to_add)))
+        contentColumn.addView(paletteRows, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        addView(contentScroll, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
     }
 
     override fun resetToDefault() {
-        addedScroll.scrollTo(0, 0)
-        paletteScroll.scrollTo(0, 0)
+        contentScroll.scrollTo(0, 0)
     }
 
     fun applyPalette(p: ImePalette) {
@@ -103,9 +112,43 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         fillFlow(paletteRows, addPalette.filter { it !in added }) { sym -> chip(sym, removable = false) { onAdd(sym) } }
     }
 
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val incomingWidth = MeasureSpec.getSize(widthMeasureSpec)
+        if (incomingWidth > 0 && incomingWidth != lastFlowWidth) {
+            measuringWidthOverride = incomingWidth
+            lastFlowWidth = incomingWidth
+            refresh()
+            measuringWidthOverride = 0
+        }
+        if (MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED) {
+            val available = MeasureSpec.getSize(heightMeasureSpec).coerceAtLeast(0)
+
+            val headerHeight = minOf(
+                preferredHeaderHeight,
+                maxOf(minimumHeaderHeight.coerceAtMost(available), available - intactChipHeight),
+            ).coerceIn(0, available)
+            (headerBar.layoutParams as LayoutParams).height = headerHeight
+            (backText.layoutParams as LayoutParams).height = headerHeight
+            val paddingScale = if (preferredHeaderHeight > 0) {
+                headerHeight.toFloat() / preferredHeaderHeight
+            } else {
+                0f
+            }
+            val verticalPadding = (normalBackVerticalPadding * paddingScale).roundToInt()
+                .coerceAtMost((headerHeight - dp(18)).coerceAtLeast(0) / 2)
+            backText.setPadding(dp(12), verticalPadding, dp(12), verticalPadding)
+        }
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+    }
+
     private fun fillFlow(container: LinearLayout, items: List<String>, make: (String) -> View) {
         container.removeAllViews()
-        val maxRowW = resources.displayMetrics.widthPixels - dp(16)
+        val configuredWidth = resources.configuration.screenWidthDp
+            .takeIf { it > 0 }
+            ?.let { (it * density).toInt() }
+            ?: resources.displayMetrics.widthPixels
+        val liveWidth = measuringWidthOverride.takeIf { it > 0 } ?: width.takeIf { it > 0 } ?: configuredWidth
+        val maxRowW = (liveWidth - dp(16)).coerceAtLeast(dp(56))
         var row = newRow(); var rowW = 0
         val cellW = dp(56)
         for (sym in items) {
@@ -114,6 +157,27 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
             rowW += cellW + dp(4)
         }
         if (row.childCount > 0) container.addView(row)
+    }
+
+    internal fun contentCanScrollForwardForTest(): Boolean = contentScroll.canScrollVertically(1)
+    internal fun contentScrollForTest(y: Int) {
+
+        val viewport = (contentScroll.height - contentScroll.paddingTop - contentScroll.paddingBottom).coerceAtLeast(0)
+        val maxScroll = (contentColumn.height - viewport).coerceAtLeast(0)
+        contentScroll.scrollTo(0, y.coerceIn(0, maxScroll))
+    }
+    internal fun contentScrollYForTest(): Int = contentScroll.scrollY
+    internal fun contentViewportForTest(): View = contentScroll
+    internal fun backButtonForTest(): TextView = backText
+    internal fun paletteChipForTest(symbol: String): View? {
+        for (r in 0 until paletteRows.childCount) {
+            val row = paletteRows.getChildAt(r) as? ViewGroup ?: continue
+            for (i in 0 until row.childCount) {
+                val chip = row.getChildAt(i) as? TextView ?: continue
+                if (chip.text.toString() == symbol) return chip
+            }
+        }
+        return null
     }
 
     private fun newRow(): LinearLayout = LinearLayout(context).apply {

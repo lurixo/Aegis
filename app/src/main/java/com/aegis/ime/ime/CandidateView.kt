@@ -149,6 +149,12 @@ class CandidateView(context: Context) : View(context) {
     internal fun taskbarPressRadiusDpForTest(): Float = ImeShapes.toolbarFeedbackRadiusDp
     internal fun keyPressRadiusDpForTest(): Float = ImeShapes.keyRadiusDp
 
+    internal fun centerOfCandidateForTest(index: Int): Pair<Float, Float>? {
+        if (index !in 0 until hitCount) return null
+        val r = hitRects[index]
+        return (r.centerX() - scrollX) to (height / 2f)
+    }
+
     private fun layoutCells() {
         hitCount = items.size
         var x = 0f

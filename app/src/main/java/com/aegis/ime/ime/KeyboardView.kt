@@ -30,6 +30,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.widget.OverScroller
 import kotlin.math.abs
+import kotlin.math.min
 import kotlin.math.roundToInt
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
@@ -216,12 +217,16 @@ class KeyboardView(context: Context) : View(context) {
 
     internal fun modeSwitchesForTest(): Int = modeSwitches
 
+    internal fun rowCountForSizing(): Int = layout.rowCount
+    internal fun usesFractionalCellsForSizing(): Boolean = layout.cells != null
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
         val rows = layout.rowCount
         val rh = if (rows == 4) rowHeight + shortPageRowExtra else rowHeight
-        val height = (rows * rh + (rows + 1) * gap).toInt()
-        setMeasuredDimension(width, height)
+        val desiredHeight = (rows * rh + (rows + 1) * gap).toInt()
+
+        setMeasuredDimension(resolveSize(width, widthMeasureSpec), resolveSize(desiredHeight, heightMeasureSpec))
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -233,10 +238,22 @@ class KeyboardView(context: Context) : View(context) {
         placed.clear()
         val w = width.toFloat()
         val h = height.toFloat()
+        val horizontalGap = effectiveHorizontalGap(w)
+        val verticalGap = LandscapeDockSizing.effectiveVerticalGap(
+            height,
+            layout.rowCount,
+            density,
+            fractionalRows = layout.cells != null,
+        )
         val sc = layout.scrollColumn
         scrollColumn = sc
         if (sc != null && h > 0) {
-            scrollRegion.set(sc.x * w + gap, sc.y * h + gap, (sc.x + sc.w) * w - gap, (sc.y + sc.h) * h - gap)
+            scrollRegion.set(
+                sc.x * w + horizontalGap,
+                sc.y * h + verticalGap,
+                (sc.x + sc.w) * w - horizontalGap,
+                (sc.y + sc.h) * h - verticalGap,
+            )
             val visible = (sc.h / sc.cellHFrac).roundToInt().coerceAtLeast(1)
             scrollCellH = scrollRegion.height() / visible
             clampScroll()
@@ -246,26 +263,54 @@ class KeyboardView(context: Context) : View(context) {
             for (pk in cells) {
                 placed.add(
                     Placed(
-                        RectF(pk.x * w + gap, pk.y * h + gap, (pk.x + pk.w) * w - gap, (pk.y + pk.h) * h - gap),
+                        RectF(
+                            pk.x * w + horizontalGap,
+                            pk.y * h + verticalGap,
+                            (pk.x + pk.w) * w - horizontalGap,
+                            (pk.y + pk.h) * h - verticalGap,
+                        ),
                         pk.key, pk.groupId,
                     ),
                 )
             }
             return
         }
-        val rh = (h - (layout.rowCount + 1) * gap) / layout.rowCount
-        var top = gap
+        val rh = (h - (layout.rowCount + 1) * verticalGap) / layout.rowCount
+        var top = verticalGap
         for (rowItem in layout.rows) {
             val totalWeight = rowItem.keys.sumOf { it.weight.toDouble() }.toFloat()
-            val usable = w - 2 * gap - (rowItem.keys.size - 1) * gap
-            var left = gap
+            val usable = w - 2 * horizontalGap - (rowItem.keys.size - 1) * horizontalGap
+            var left = horizontalGap
             for (key in rowItem.keys) {
                 val keyW = usable * (key.weight / totalWeight)
                 placed.add(Placed(RectF(left, top, left + keyW, top + rh), key))
-                left += keyW + gap
+                left += keyW + horizontalGap
             }
-            top += rh + gap
+            top += rh + verticalGap
         }
+    }
+
+    private fun effectiveHorizontalGap(viewWidth: Float): Float {
+        if (viewWidth <= 0f) return 0f
+        val minimumFace = 20f * density
+        var allowed = gap
+        val cells = layout.cells
+        if (cells != null) {
+            val minimumFraction = cells.minOfOrNull { it.w } ?: 1f
+            allowed = min(allowed, (minimumFraction * viewWidth - minimumFace) / 2f)
+        } else {
+            for (row in layout.rows) {
+                if (row.keys.isEmpty()) continue
+                val totalWeight = row.keys.sumOf { it.weight.toDouble() }.toFloat()
+                val minimumWeight = row.keys.minOf { it.weight }
+                val gapCount = row.keys.size + 1
+                allowed = min(
+                    allowed,
+                    (viewWidth - minimumFace * totalWeight / minimumWeight) / gapCount,
+                )
+            }
+        }
+        return allowed.coerceIn(0f, gap)
     }
 
     private fun maxScroll(): Float {
@@ -515,6 +560,21 @@ class KeyboardView(context: Context) : View(context) {
         if (placed.isEmpty()) relayout()
         val p = placed.firstOrNull { it.key.label == label } ?: return null
         return p.rect.centerX() to p.rect.centerY()
+    }
+
+    internal fun boundsOfActionForTest(action: KeyAction): RectF? {
+        if (placed.isEmpty()) relayout()
+        return placed.firstOrNull { it.key.action == action }?.rect?.let(::RectF)
+    }
+
+    internal fun boundsOfLabelForTest(label: String): RectF? {
+        if (placed.isEmpty()) relayout()
+        return placed.firstOrNull { it.key.label == label }?.rect?.let(::RectF)
+    }
+
+    internal fun minimumKeyWidthForTest(): Float {
+        if (placed.isEmpty()) relayout()
+        return placed.minOfOrNull { it.rect.width() } ?: 0f
     }
 
     private fun displayLabel(key: Key): String {
@@ -845,8 +905,10 @@ class KeyboardView(context: Context) : View(context) {
             val d = dx * dx + dy * dy
             if (d < best) { best = d; nearest = p }
         }
+
         val cap = snapCap
-        return if (best <= cap * cap) nearest else null
+        val boundedCap = minOf(cap, (nearest?.rect?.height() ?: 0f) * 0.5f)
+        return if (best <= boundedCap * boundedCap) nearest else null
     }
 
     private fun currentTarget(x: Float, y: Float): Key? {

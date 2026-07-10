@@ -100,4 +100,7 @@ class EditBarView(context: Context) : LinearLayout(context) {
             field.scrollTo(0, overflow.coerceAtLeast(0))
         }
     }
+
+    internal fun cancelButtonForTest(): TextView = cancel
+    internal fun confirmButtonForTest(): TextView = confirm
 }
