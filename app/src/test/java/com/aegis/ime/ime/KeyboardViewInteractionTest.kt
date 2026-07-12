@@ -42,7 +42,7 @@ class KeyboardViewInteractionTest {
 
     private val context = RuntimeEnvironment.getApplication()
     private val density = context.resources.displayMetrics.density
-    private val gap = 6f * density
+    private val gap = 3f * density
     private val u = 1f / 4.7f
 
     private fun nineView(left: List<Key>, composing: Boolean): KeyboardView {

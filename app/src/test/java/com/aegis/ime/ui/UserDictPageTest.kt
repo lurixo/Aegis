@@ -91,6 +91,7 @@ class UserDictPageTest {
         openUserDictPage()
         compose.onNodeWithText(ctx.getString(R.string.user_dict_count_format, 1200)).assertExists()
         compose.onNodeWithTag("user_dict_list").assertExists()
+        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(row("词0", "aaaa")))
         val composedDeleteButtons = compose.onAllNodesWithText(s(R.string.user_dict_delete_button))
             .fetchSemanticsNodes().size
         assertTrue("expected at least one visible row, got $composedDeleteButtons", composedDeleteButtons > 0)

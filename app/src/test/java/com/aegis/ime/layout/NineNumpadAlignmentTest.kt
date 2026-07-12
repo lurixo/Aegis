@@ -17,6 +17,8 @@ package com.aegis.ime.layout
 
 import android.graphics.Paint
 import android.util.TypedValue
+import android.view.View
+import com.aegis.ime.ime.KeyboardView
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -32,9 +34,18 @@ class NineNumpadAlignmentTest {
     private val ctx = RuntimeEnvironment.getApplication()
     private val dm = ctx.resources.displayMetrics
     private val wPx = dm.widthPixels
-    private val gapPx = 6f * dm.density
+    private val gapPx = 3f * dm.density
 
     private fun cells(l: KeyboardLayout) = l.cells!!
+
+    private fun actual(layout: KeyboardLayout): KeyboardView = KeyboardView(ctx).apply {
+        setLayout(layout, false, false, Lang.CN)
+        measure(
+            View.MeasureSpec.makeMeasureSpec(wPx, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+        )
+        layout(0, 0, measuredWidth, measuredHeight)
+    }
 
     @Test
     fun longestSyllableShowsFullyInTheLeftReadoutColumn() {
@@ -85,5 +96,34 @@ class NineNumpadAlignmentTest {
         assertTrue("digits 0-9 all present", (0..9).all { it.toString() in labels })
         val zero = cells(numpad).first { it.key.label == "0" }
         assertEquals("0 sits under the 2/5/8 column (aligned, not misplaced)", abc.x, zero.x, 1e-5f)
+    }
+
+    @Test
+    fun pinyinAndNumpadUseTheSameCompactActualGapsAndHitRectangles() {
+        val nine = actual(Layouts.nine(Lang.CN, Layouts.ninePunctuation()))
+        val numpad = actual(Layouts.numpad())
+        val nineFaces = nine.keyBoundsForTest().associate { it.first.label to it.second }
+        val numpadFaces = numpad.keyBoundsForTest().associate { it.first.label to it.second }
+        val nineHits = nine.keyHitBoundsForTest().associate { it.first.label to it.second }
+        val numpadHits = numpad.keyHitBoundsForTest().associate { it.first.label to it.second }
+        val aligned = listOf(
+            "1" to "@#", "2" to "ABC", "3" to "DEF", "4" to "GHI", "5" to "JKL",
+            "6" to "MNO", "7" to "PQRS", "8" to "TUV", "9" to "WXYZ",
+        )
+        for ((digit, letters) in aligned) {
+            assertEquals(nineFaces.getValue(letters), numpadFaces.getValue(digit))
+            assertEquals(nineHits.getValue(letters), numpadHits.getValue(digit))
+            val hit = numpadHits.getValue(digit)
+            assertEquals(digit, numpad.keyAtForTest(hit.left + 0.01f, hit.centerY())?.label)
+        }
+        val expectedGap = 6f * dm.density
+        val nineHorizontal = nineFaces.getValue("DEF").left - nineFaces.getValue("ABC").right
+        val nineVertical = nineFaces.getValue("JKL").top - nineFaces.getValue("ABC").bottom
+        val numpadHorizontal = numpadFaces.getValue("3").left - numpadFaces.getValue("2").right
+        val numpadVertical = numpadFaces.getValue("5").top - numpadFaces.getValue("2").bottom
+        assertEquals(expectedGap, nineHorizontal, 0.01f)
+        assertEquals(expectedGap, nineVertical, 0.01f)
+        assertEquals(nineHorizontal, numpadHorizontal, 0.01f)
+        assertEquals(nineVertical, numpadVertical, 0.01f)
     }
 }

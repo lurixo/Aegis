@@ -148,6 +148,7 @@ class CandidateView(context: Context) : View(context) {
     internal fun flingVelocityForTest(): Float = fling.velocity()
     internal fun taskbarPressRadiusDpForTest(): Float = ImeShapes.toolbarFeedbackRadiusDp
     internal fun keyPressRadiusDpForTest(): Float = ImeShapes.keyRadiusDp
+    internal fun toolbarControlBoundsForTest(): List<RectF> = funcRects.map(::RectF) + RectF(collapseRect)
 
     internal fun centerOfCandidateForTest(index: Int): Pair<Float, Float>? {
         if (index !in 0 until hitCount) return null
@@ -213,11 +214,9 @@ class CandidateView(context: Context) : View(context) {
 
         val cy = (capT + capB) / 2f
         val edgePad = 10f * density
-        val collapseW = expandW
         val areaL = capL + edgePad
-        val collapseL = capR - edgePad - collapseW
-        val areaR = collapseL
-        val slot = (areaR - areaL) / functions.size
+        val areaR = capR - edgePad
+        val slot = (areaR - areaL) / (functions.size + 1)
         val s = 9f * density
         for ((i, f) in functions.withIndex()) {
             val cx = areaL + slot * (i + 0.5f)
@@ -225,11 +224,11 @@ class CandidateView(context: Context) : View(context) {
             drawPressLayer(canvas, PressTarget(PressKind.FUNCTION, i), funcRects[i].left, funcRects[i].top, funcRects[i].right, funcRects[i].bottom)
             drawIcon(canvas, f, cx, cy, s)
         }
-        collapseRect.set(collapseL, capT, capR - edgePad, capB)
+        collapseRect.set(areaL + slot * functions.size, capT, areaR, capB)
         val sepH = (capB - capT) * 0.25f
-        canvas.drawRect(collapseL, cy - sepH, collapseL + density, cy + sepH, sepPaint)
+        canvas.drawRect(collapseRect.left, cy - sepH, collapseRect.left + density, cy + sepH, sepPaint)
         drawPressLayer(canvas, PressTarget(PressKind.COLLAPSE), collapseRect.left, collapseRect.top, collapseRect.right, collapseRect.bottom)
-        drawChevronDown(canvas, collapseL + collapseW / 2f, cy, s)
+        drawChevronDown(canvas, collapseRect.centerX(), cy, s)
     }
 
     private fun drawPressLayer(canvas: Canvas, target: PressTarget, left: Float, top: Float, right: Float, bottom: Float) {

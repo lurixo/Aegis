@@ -37,7 +37,7 @@ class KeyPreviewSplitTest {
 
     private val context = RuntimeEnvironment.getApplication()
     private val density = context.resources.displayMetrics.density
-    private val gap = 6f * density
+    private val gap = 3f * density
     private val u = 1f / 4.7f
 
     private fun laidOut(v: KeyboardView): KeyboardView {
