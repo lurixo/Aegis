@@ -36,17 +36,15 @@ class AppVersionCardTest {
             .getPackageInfo(ctx.packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0))
             .versionName!!
 
-        assertTrue("versionName must be 0.1.0-debug.<N>", version.matches(Regex("""0\.1\.0-debug\.\d+""")))
+        assertEquals("0.1.0-beta.1", version)
         assertEquals("Aegis v$version", appReleaseLabel(ctx))
         assertFalse("release label must not show the stale debug.38 value", appReleaseLabel(ctx).contains("debug.38"))
     }
 
-    @Test fun version_code_is_derived_from_the_debug_sequence_and_is_updatable() {
+    @Test fun version_code_matches_the_beta_candidate() {
         val info = ctx.packageManager
             .getPackageInfo(ctx.packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0))
-        val seq = info.versionName!!.substringAfterLast("-debug.").toInt()
-        assertEquals("versionCode must equal the debug sequence parsed from versionName", seq.toLong(), info.longVersionCode)
-        assertTrue("versionCode must exceed the published 1 so installs count as updates", info.longVersionCode >= 2L)
+        assertEquals(61L, info.longVersionCode)
     }
 
     @Test fun app_release_label_resource_is_not_a_stale_hard_coded_version() {
