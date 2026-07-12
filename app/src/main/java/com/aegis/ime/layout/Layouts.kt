@@ -63,11 +63,7 @@ object Layouts {
         val numbers = "1234567890".map { Key(it.toString(), direct = true) }
         val q = subRow("qwertyuiop", listOf("`", "=", "+", "$", "…", "\"", "^", "[", "]", "|"))
         val a = subRow("asdfghjkl", listOf("~", "!", "@", "#", "%", "'", "&", "*", "?"))
-        val z = ArrayList<Key>().apply {
-            add(Key("⇧", action = SHIFT, weight = 1.5f))
-            addAll(subRow("zxcvbnm", listOf("(", ")", "-", "_", ":", ";", "/")))
-            add(Key("⌫", action = BACKSPACE, weight = 1.5f))
-        }
+        val z = subRow("zxcvbnm", listOf("(", ")", "-", "_", ":", ";", "/"))
         val comma = if (lang == Lang.CN) "，" else ","
         val period = if (lang == Lang.CN) "。" else "."
         val bottom = listOf(
@@ -79,10 +75,24 @@ object Layouts {
             Key(action = TOGGLE_LANG, weight = 1.5f),
             Key("↵", action = ENTER, accent = true, weight = 1.6f),
         )
-        return KeyboardLayout(
-            LayoutId.ALPHA,
-            listOf(KeyboardRow(numbers), KeyboardRow(q), KeyboardRow(a), KeyboardRow(z), KeyboardRow(bottom)),
-        )
+        val cells = ArrayList<PlacedKey>()
+        fun addRow(keys: List<Key>, x: Float, y: Float) {
+            keys.forEachIndexed { index, key -> cells.add(PlacedKey(key, x + index * 0.1f, y, 0.1f, 0.2f)) }
+        }
+        addRow(numbers, 0f, 0f)
+        addRow(q, 0f, 0.2f)
+        addRow(a, 0.05f, 0.4f)
+        cells.add(PlacedKey(Key("⇧", action = SHIFT, weight = 1.5f), 0f, 0.6f, 0.15f, 0.2f))
+        addRow(z, 0.15f, 0.6f)
+        cells.add(PlacedKey(Key("⌫", action = BACKSPACE, weight = 1.5f), 0.85f, 0.6f, 0.15f, 0.2f))
+        val bottomWeight = bottom.sumOf { it.weight.toDouble() }.toFloat()
+        var bottomX = 0f
+        bottom.forEach { key ->
+            val width = key.weight / bottomWeight
+            cells.add(PlacedKey(key, bottomX, 0.8f, width, 0.2f))
+            bottomX += width
+        }
+        return KeyboardLayout(LayoutId.ALPHA, cells = cells, rowCount = 5)
     }
 
     private fun t9key(letters: String, digit: String) = Key(letters, output = digit)
@@ -130,11 +140,11 @@ object Layouts {
                 Key("⌫", action = BACKSPACE, weight = 1.5f),
             ),
             row(
-                Key(labelRes = R.string.kbd_back, action = SWITCH_TEXT, weight = 1.6f),
+                Key(labelRes = R.string.kbd_back, action = SWITCH_TEXT),
                 Key(","),
                 Key(labelRes = R.string.kbd_space, output = " ", action = SPACE, weight = 4f),
                 Key("."),
-                Key("↵", action = ENTER, accent = true, weight = 1.6f),
+                Key("↵", action = ENTER, accent = true),
             ),
         ),
     )
@@ -182,11 +192,11 @@ object Layouts {
                 Key("⌫", action = BACKSPACE, weight = 1.5f),
             ),
             row(
-                Key(labelRes = R.string.kbd_back, action = SWITCH_TEXT, weight = 1.6f),
+                Key(labelRes = R.string.kbd_back, action = SWITCH_TEXT),
                 Key("<"),
                 Key(labelRes = R.string.kbd_space, output = " ", action = SPACE, weight = 4f),
                 Key(">"),
-                Key("↵", action = ENTER, accent = true, weight = 1.6f),
+                Key("↵", action = ENTER, accent = true),
             ),
         ),
     )

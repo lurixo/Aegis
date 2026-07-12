@@ -117,7 +117,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         setBackgroundColor(palette.keyboardBg)
         lockBtn.setCompoundDrawablesWithIntrinsicBounds(lockGlyph, null, null, null)
         lockBtn.compoundDrawablePadding = dp(2)
-        backspaceBtn.setCompoundDrawablesWithIntrinsicBounds(null, null, backspaceGlyph, null)
+        backspaceBtn.background = backspaceGlyph
         backspaceGlyph.tint(palette.keyLabelSecondary)
 
         for ((i, t) in titles.withIndex()) rail.addView(railTab(i, t))
@@ -149,11 +149,9 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         setBackgroundColor(p.keyboardBg)
         railScroll.setBackgroundColor(p.railBg)
         bottomBarView.setBackgroundColor(p.keyboardBg)
-        (bottomBarView as LinearLayout).let { bar ->
-            for (i in 0 until bar.childCount) (bar.getChildAt(i) as? TextView)?.let {
-                it.setTextColor(p.keyLabelSecondary)
-                Motion.applyTapFeedback(it, p.keyLabelSecondary)
-            }
+        for (button in listOf(backBtn, backspaceBtn)) {
+            button.setTextColor(p.keyLabelSecondary)
+            Motion.applyTapFeedback(button, p.keyLabelSecondary)
         }
         backspaceGlyph.tint(p.keyLabelSecondary)
         for (tile in tilePool) {
@@ -444,15 +442,26 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         lockBtn.setTypeface(null, if (locked) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
     }
 
-    private fun bottomBar(): View = LinearLayout(context).apply {
-        orientation = HORIZONTAL
+    private fun bottomBar(): View = FrameLayout(context).apply {
         setBackgroundColor(palette.keyboardBg)
         backBtn.gravity = Gravity.START or Gravity.CENTER_VERTICAL; backBtn.setPadding(dp(20), 0, 0, 0)
-        backspaceBtn.gravity = Gravity.END or Gravity.CENTER_VERTICAL; backspaceBtn.setPadding(0, 0, dp(20), 0)
+        backspaceBtn.gravity = Gravity.CENTER; backspaceBtn.setPadding(0, 0, 0, 0)
         lockSlot.addView(lockBtn, FrameLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT, Gravity.CENTER))
-        addView(backBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        addView(lockSlot, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        addView(backspaceBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        val symbolColumns = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            addView(View(context), LinearLayout.LayoutParams(dp(64), LayoutParams.MATCH_PARENT))
+            repeat(COLUMNS - 1) { addView(View(context), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f)) }
+            addView(backspaceBtn, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+            addView(View(context), LinearLayout.LayoutParams(dp(4), LayoutParams.MATCH_PARENT))
+        }
+        val lockRow = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            addView(backBtn, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+            addView(lockSlot, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+            addView(View(context), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        }
+        addView(symbolColumns, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        addView(lockRow, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     }
 
     private fun barButton(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
@@ -497,7 +506,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         fun tint(color: Int) { paint.color = color; invalidateSelf() }
         override fun draw(canvas: Canvas) {
             val b = bounds
-            render(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) * sFactor)
+            render(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height(), intrinsicWidth, intrinsicHeight) * sFactor)
         }
         override fun getIntrinsicWidth() = (22 * density).toInt()
         override fun getIntrinsicHeight() = (22 * density).toInt()

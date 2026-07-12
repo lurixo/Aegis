@@ -38,7 +38,7 @@ class ScrollColumnInkCenterTest {
 
     private val ctx = RuntimeEnvironment.getApplication()
     private val density = ctx.resources.displayMetrics.density
-    private val gap = 6f * density
+    private val gap = 3f * density
     private val u = 1f / 4.7f
     private val pal = ImePalette.STATIC_LIGHT
 

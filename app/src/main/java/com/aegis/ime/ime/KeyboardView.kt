@@ -198,7 +198,7 @@ class KeyboardView(context: Context) : View(context) {
 
     private fun withAlpha(argb: Int, alpha: Int): Int = Motion.withAlpha(argb, alpha)
 
-    private data class Placed(val rect: RectF, val key: Key, val groupId: Int = 0)
+    private data class Placed(val rect: RectF, val key: Key, val groupId: Int = 0, val hitRect: RectF? = null)
 
     fun setLayout(newLayout: KeyboardLayout, isShifted: Boolean, isLocked: Boolean, language: Lang) {
         val sameColumn = newLayout.scrollColumn?.items?.map { it.label } == layout.scrollColumn?.items?.map { it.label }
@@ -218,7 +218,7 @@ class KeyboardView(context: Context) : View(context) {
     internal fun modeSwitchesForTest(): Int = modeSwitches
 
     internal fun rowCountForSizing(): Int = layout.rowCount
-    internal fun usesFractionalCellsForSizing(): Boolean = layout.cells != null
+    internal fun usesFractionalCellsForSizing(): Boolean = layout.cells != null && layout.id != LayoutId.ALPHA
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
@@ -238,13 +238,28 @@ class KeyboardView(context: Context) : View(context) {
         placed.clear()
         val w = width.toFloat()
         val h = height.toFloat()
-        val horizontalGap = effectiveHorizontalGap(w)
-        val verticalGap = LandscapeDockSizing.effectiveVerticalGap(
+        val compactGrid = layout.id == LayoutId.ALPHA || layout.id == LayoutId.NINE || layout.id == LayoutId.NUMPAD
+        val gapGeometry = if (layout.id == LayoutId.NUMBER || layout.id == LayoutId.SYMBOL) {
+            Layouts.forId(LayoutId.ALPHA, lang)
+        } else {
+            layout
+        }
+        val constrainedPage = (layout.id == LayoutId.NUMBER || layout.id == LayoutId.SYMBOL) &&
+            height < LandscapeDockSizing.preferredKeyboardHeight(layout.rowCount, density)
+        val verticalRows = if (constrainedPage) gapGeometry.rowCount else layout.rowCount
+        val horizontalGap = effectiveHorizontalGap(w, if (compactGrid || gapGeometry.id == LayoutId.ALPHA) gap / 2f else gap, gapGeometry)
+        val fractionalVertical = layout.cells != null && layout.id != LayoutId.ALPHA
+        val availableVerticalGap = LandscapeDockSizing.effectiveVerticalGap(
             height,
-            layout.rowCount,
+            verticalRows,
             density,
-            fractionalRows = layout.cells != null,
+            fractionalRows = fractionalVertical,
         )
+        val verticalGap = if (layout.id == LayoutId.NINE || layout.id == LayoutId.NUMPAD) {
+            minOf(gap / 2f, availableVerticalGap / 2f)
+        } else {
+            availableVerticalGap
+        }
         val sc = layout.scrollColumn
         scrollColumn = sc
         if (sc != null && h > 0) {
@@ -260,18 +275,65 @@ class KeyboardView(context: Context) : View(context) {
         }
         val cells = layout.cells
         if (cells != null) {
+            val alphaFaceHeight = if (layout.id == LayoutId.ALPHA) {
+                (h - (layout.rowCount + 1) * verticalGap) / layout.rowCount
+            } else {
+                0f
+            }
             for (pk in cells) {
+                val top = if (layout.id == LayoutId.ALPHA) {
+                    val row = (pk.y * layout.rowCount).roundToInt()
+                    verticalGap + row * (alphaFaceHeight + verticalGap)
+                } else {
+                    pk.y * h + verticalGap
+                }
+                val bottom = if (layout.id == LayoutId.ALPHA) top + alphaFaceHeight else (pk.y + pk.h) * h - verticalGap
+                val hitTop = if (layout.id == LayoutId.ALPHA) top - verticalGap / 2f else pk.y * h
+                val hitBottom = if (layout.id == LayoutId.ALPHA) bottom + verticalGap / 2f else (pk.y + pk.h) * h
                 placed.add(
                     Placed(
                         RectF(
                             pk.x * w + horizontalGap,
-                            pk.y * h + verticalGap,
+                            top,
                             (pk.x + pk.w) * w - horizontalGap,
-                            (pk.y + pk.h) * h - verticalGap,
+                            bottom,
                         ),
                         pk.key, pk.groupId,
+                        RectF(pk.x * w, hitTop, (pk.x + pk.w) * w, hitBottom),
                     ),
                 )
+            }
+            return
+        }
+        if (layout.id == LayoutId.NUMBER || layout.id == LayoutId.SYMBOL) {
+            val faceGap = horizontalGap * 2f
+            val ordinaryWidth = w / 10f - faceGap
+            val availableFaceHeight = (h - (verticalRows + 1) * verticalGap) / verticalRows
+            val faceHeight = minOf(rowHeight, availableFaceHeight)
+            var top = (h - layout.rowCount * faceHeight - (layout.rowCount - 1) * verticalGap) / 2f
+            for (rowItem in layout.rows) {
+                val finalRow = rowItem.keys.any { it.action == KeyAction.SPACE }
+                val widths = if (finalRow) {
+                    val nonSpace = rowItem.keys.count { it.action != KeyAction.SPACE }
+                    val spaceWidth = w - horizontalGap * 2f - faceGap * (rowItem.keys.size - 1) - ordinaryWidth * nonSpace
+                    rowItem.keys.map { if (it.action == KeyAction.SPACE) spaceWidth else ordinaryWidth }
+                } else {
+                    rowItem.keys.map { ordinaryWidth * it.weight }
+                }
+                val rowWidth = widths.sum() + faceGap * (rowItem.keys.size - 1)
+                var left = (w - rowWidth) / 2f
+                for ((key, keyWidth) in rowItem.keys.zip(widths)) {
+                    val rect = RectF(left, top, left + keyWidth, top + faceHeight)
+                    val hitRect = RectF(
+                        rect.left - horizontalGap,
+                        rect.top - verticalGap / 2f,
+                        rect.right + horizontalGap,
+                        rect.bottom + verticalGap / 2f,
+                    )
+                    placed.add(Placed(rect, key, hitRect = hitRect))
+                    left += keyWidth + faceGap
+                }
+                top += faceHeight + verticalGap
             }
             return
         }
@@ -290,16 +352,16 @@ class KeyboardView(context: Context) : View(context) {
         }
     }
 
-    private fun effectiveHorizontalGap(viewWidth: Float): Float {
+    private fun effectiveHorizontalGap(viewWidth: Float, maximumGap: Float, geometry: KeyboardLayout): Float {
         if (viewWidth <= 0f) return 0f
         val minimumFace = 20f * density
-        var allowed = gap
-        val cells = layout.cells
+        var allowed = maximumGap
+        val cells = geometry.cells
         if (cells != null) {
             val minimumFraction = cells.minOfOrNull { it.w } ?: 1f
             allowed = min(allowed, (minimumFraction * viewWidth - minimumFace) / 2f)
         } else {
-            for (row in layout.rows) {
+            for (row in geometry.rows) {
                 if (row.keys.isEmpty()) continue
                 val totalWeight = row.keys.sumOf { it.weight.toDouble() }.toFloat()
                 val minimumWeight = row.keys.minOf { it.weight }
@@ -310,7 +372,7 @@ class KeyboardView(context: Context) : View(context) {
                 )
             }
         }
-        return allowed.coerceIn(0f, gap)
+        return allowed.coerceIn(0f, maximumGap)
     }
 
     private fun maxScroll(): Float {
@@ -570,6 +632,21 @@ class KeyboardView(context: Context) : View(context) {
     internal fun boundsOfLabelForTest(label: String): RectF? {
         if (placed.isEmpty()) relayout()
         return placed.firstOrNull { it.key.label == label }?.rect?.let(::RectF)
+    }
+
+    internal fun keyBoundsForTest(): List<Pair<Key, RectF>> {
+        if (placed.isEmpty()) relayout()
+        return placed.map { it.key to RectF(it.rect) }
+    }
+
+    internal fun keyHitBoundsForTest(): List<Pair<Key, RectF>> {
+        if (placed.isEmpty()) relayout()
+        return placed.map { it.key to RectF(it.hitRect ?: it.rect) }
+    }
+
+    internal fun keyAtForTest(x: Float, y: Float): Key? {
+        if (placed.isEmpty()) relayout()
+        return placedAt(x, y)?.key
     }
 
     internal fun minimumKeyWidthForTest(): Float {
@@ -890,7 +967,14 @@ class KeyboardView(context: Context) : View(context) {
     private fun placedAt(x: Float, y: Float): Placed? {
         var nearest: Placed? = null
         var best = Float.MAX_VALUE
+        var explicitHits = false
         for (p in placed) {
+            val hitRect = p.hitRect
+            if (hitRect != null) {
+                explicitHits = true
+                if (hitRect.contains(x, y)) return p
+                continue
+            }
             if (p.rect.contains(x, y)) return p
             val dx = when {
                 x < p.rect.left -> p.rect.left - x
@@ -906,6 +990,8 @@ class KeyboardView(context: Context) : View(context) {
             if (d < best) { best = d; nearest = p }
         }
 
+        if (explicitHits) return null
+
         val cap = snapCap
         val boundedCap = minOf(cap, (nearest?.rect?.height() ?: 0f) * 0.5f)
         return if (best <= boundedCap * boundedCap) nearest else null
@@ -914,8 +1000,9 @@ class KeyboardView(context: Context) : View(context) {
     private fun currentTarget(x: Float, y: Float): Key? {
         val dp = downPlaced ?: return placedAt(x, y)?.key
         val m = retargetHysteresis
-        val insideDownKey = x >= dp.rect.left - m && x <= dp.rect.right + m &&
-            y >= dp.rect.top - m && y <= dp.rect.bottom + m
+        val hitRect = dp.hitRect ?: dp.rect
+        val insideDownKey = x >= hitRect.left - m && x <= hitRect.right + m &&
+            y >= hitRect.top - m && y <= hitRect.bottom + m
         return if (insideDownKey) dp.key else placedAt(x, y)?.key ?: dp.key
     }
 

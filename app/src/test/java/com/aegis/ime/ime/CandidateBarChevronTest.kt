@@ -15,9 +15,12 @@
 
 package com.aegis.ime.ime
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.view.MotionEvent
 import android.view.View
 import com.aegis.ime.engine.CandidateEngine
+import kotlin.math.abs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -43,6 +46,18 @@ class CandidateBarChevronTest {
         )
         v.layout(0, 0, v.measuredWidth, v.measuredHeight)
         return v
+    }
+
+    private fun idleBar(widthDp: Int): CandidateView {
+        val view = CandidateView(ctx)
+        view.setContent(emptyList(), "")
+        view.measure(
+            View.MeasureSpec.makeMeasureSpec((widthDp * density).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec((44 * density).toInt(), View.MeasureSpec.EXACTLY),
+        )
+        view.layout(0, 0, view.measuredWidth, view.measuredHeight)
+        view.draw(Canvas(Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)))
+        return view
     }
 
     private fun CandidateView.tapChevron() {
@@ -97,6 +112,28 @@ class CandidateBarChevronTest {
         assertEquals("grid open → chevron flips up", "⌃", iv.barChevronGlyph())
         iv.showPanel(null)
         assertEquals("grid closed → chevron back to down", "⌄", iv.barChevronGlyph())
+    }
+
+    @Test fun five_idle_toolbar_controls_have_equal_centered_bounds_and_actions() {
+        for (widthDp in listOf(320, 480)) {
+            val view = idleBar(widthDp)
+            val controls = view.toolbarControlBoundsForTest()
+            assertEquals(5, controls.size)
+            assertTrue(controls.all { abs(it.width() - controls.first().width()) <= 0.01f })
+            assertTrue(controls.all { abs(it.height() - controls.first().height()) <= 0.01f })
+            val spacing = controls.zipWithNext { left, right -> right.centerX() - left.centerX() }
+            assertTrue(spacing.all { abs(it - spacing.first()) <= 0.01f })
+            assertEquals(view.width / 2f, (controls.first().left + controls.last().right) / 2f, 0.01f)
+        }
+        val view = idleBar(360)
+        val actions = ArrayList<String>()
+        view.onFunction = { actions += it.name }
+        view.onCollapse = { actions += "COLLAPSE" }
+        for ((index, rect) in view.toolbarControlBoundsForTest().withIndex()) {
+            view.dispatchTouchEvent(MotionEvent.obtain(0, index * 20L, MotionEvent.ACTION_DOWN, rect.centerX(), rect.centerY(), 0))
+            view.dispatchTouchEvent(MotionEvent.obtain(0, index * 20L + 10L, MotionEvent.ACTION_UP, rect.centerX(), rect.centerY(), 0))
+        }
+        assertEquals(listOf("BRAND", "EMOJI", "EDIT", "CLIPBOARD", "COLLAPSE"), actions)
     }
 
 

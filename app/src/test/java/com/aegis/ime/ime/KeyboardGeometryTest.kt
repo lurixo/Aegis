@@ -1,0 +1,171 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Copyright (C) 2026 lurixo
+//
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 3.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+// PARTICULAR PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
+
+package com.aegis.ime.ime
+
+import android.graphics.RectF
+import android.view.View
+import com.aegis.ime.layout.KeyAction
+import com.aegis.ime.layout.Lang
+import com.aegis.ime.layout.LayoutId
+import com.aegis.ime.layout.Layouts
+import kotlin.math.abs
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
+class KeyboardGeometryTest {
+
+    private val context = RuntimeEnvironment.getApplication()
+    private val density = context.resources.displayMetrics.density
+
+    private fun view(id: LayoutId, widthDp: Int, lang: Lang = Lang.EN, heightPx: Int? = null): KeyboardView = KeyboardView(context).apply {
+        setLayout(Layouts.forId(id, lang), false, false, lang)
+        measure(
+            View.MeasureSpec.makeMeasureSpec((widthDp * density).toInt(), View.MeasureSpec.EXACTLY),
+            if (heightPx == null) {
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+            } else {
+                View.MeasureSpec.makeMeasureSpec(heightPx, View.MeasureSpec.EXACTLY)
+            },
+        )
+        layout(0, 0, measuredWidth, measuredHeight)
+    }
+
+    private fun assertSize(expected: RectF, actual: RectF) {
+        assertEquals(expected.width(), actual.width(), 0.02f)
+        assertEquals(expected.height(), actual.height(), 0.02f)
+    }
+
+    @Test
+    fun alphabetOrdinaryFacesAndEffectiveHitsStayEqualWithCenteredHomeRow() {
+        for (widthDp in listOf(320, 480)) {
+            val view = view(LayoutId.ALPHA, widthDp)
+            val faces = view.keyBoundsForTest().associate { it.first.label to it.second }
+            val hits = view.keyHitBoundsForTest().associate { it.first.label to it.second }
+            val baselineFace = faces.getValue("q")
+            val baselineHit = hits.getValue("q")
+            for (label in "1234567890abcdefghijklmnopqrstuvwxyz".map(Char::toString)) {
+                assertSize(baselineFace, faces.getValue(label))
+                assertSize(baselineHit, hits.getValue(label))
+            }
+            val homeFaces = "asdfghjkl".map { faces.getValue(it.toString()) }
+            val homeHits = "asdfghjkl".map { hits.getValue(it.toString()) }
+            val ordinaryGap = faces.getValue("w").left - baselineFace.right
+            assertTrue(homeFaces.zipWithNext().all { (left, right) -> abs(right.left - left.right - ordinaryGap) <= 0.02f })
+            assertEquals(homeFaces.first().left, view.width - homeFaces.last().right, 0.02f)
+            assertEquals(homeHits.first().left, view.width - homeHits.last().right, 0.02f)
+            assertTrue(homeFaces.first().left < baselineFace.width())
+            assertEquals(view.width / 2f, (homeFaces.first().left + homeFaces.last().right) / 2f, 0.02f)
+            assertEquals(view.width / 2f, (homeHits.first().left + homeHits.last().right) / 2f, 0.02f)
+            val y = homeHits.first().centerY()
+            assertNull(view.keyAtForTest(homeHits.first().left - 0.01f, y))
+            assertEquals("a", view.keyAtForTest(homeHits.first().left, y)?.label)
+            assertEquals("l", view.keyAtForTest(homeHits.last().right - 0.01f, y)?.label)
+            assertNull(view.keyAtForTest(homeHits.last().right, y))
+        }
+    }
+
+    @Test
+    fun numberAndSymbolPagesMatchAlphabetFacesHitsAndGaps() {
+        for (widthDp in listOf(250, 360, 480)) {
+            val alphabet = view(LayoutId.ALPHA, widthDp)
+            val baselineFace = requireNotNull(alphabet.boundsOfLabelForTest("q"))
+            val baselineHit = alphabet.keyHitBoundsForTest().first { it.first.label == "q" }.second
+            val alphaFaces = alphabet.keyBoundsForTest().associate { it.first.label to it.second }
+            val ordinaryGap = alphaFaces.getValue("w").left - alphaFaces.getValue("q").right
+            for (id in listOf(LayoutId.NUMBER, LayoutId.SYMBOL)) {
+                val source = Layouts.forId(id, Lang.EN)
+                val page = view(id, widthDp)
+                val faces = page.keyBoundsForTest()
+                val hits = page.keyHitBoundsForTest()
+                val sourceKeys = source.rows.flatMap { it.keys }
+                assertEquals(sourceKeys, faces.map { it.first })
+                assertEquals(sourceKeys, hits.map { it.first })
+                var offset = 0
+                for ((rowIndex, row) in source.rows.withIndex()) {
+                    val rowFaces = faces.subList(offset, offset + row.keys.size)
+                    val rowHits = hits.subList(offset, offset + row.keys.size)
+                    assertTrue(rowFaces.zipWithNext().all { (left, right) ->
+                        abs(right.second.left - left.second.right - ordinaryGap) <= 0.02f
+                    })
+                    if (rowIndex < source.rows.lastIndex) {
+                        for (index in row.keys.indices.filter { row.keys[it].weight == 1f }) {
+                            assertSize(baselineFace, rowFaces[index].second)
+                            assertSize(baselineHit, rowHits[index].second)
+                        }
+                    } else {
+                        for (index in row.keys.indices) {
+                            val key = row.keys[index]
+                            if (key.action == KeyAction.SPACE) {
+                                assertTrue(rowFaces[index].second.width() > baselineFace.width())
+                                assertTrue(rowHits[index].second.width() > baselineHit.width())
+                            } else {
+                                assertSize(baselineFace, rowFaces[index].second)
+                                assertSize(baselineHit, rowHits[index].second)
+                            }
+                            val hit = rowHits[index].second
+                            assertEquals(key, page.keyAtForTest(hit.left + 0.01f, hit.centerY()))
+                        }
+                        assertTrue(rowHits.zipWithNext().all { (left, right) ->
+                            abs(right.second.left - left.second.right) <= 0.02f
+                        })
+                    }
+                    offset += row.keys.size
+                }
+            }
+        }
+        val nineHeight = view(LayoutId.NINE, 360).measuredHeight
+        assertEquals(nineHeight, view(LayoutId.NUMPAD, 360).measuredHeight)
+        assertEquals(nineHeight, view(LayoutId.NUMBER, 360).measuredHeight)
+        assertEquals(nineHeight, view(LayoutId.SYMBOL, 360).measuredHeight)
+    }
+
+    @Test
+    @Config(sdk = [34], qualifiers = "w320dp-h200dp-land-mdpi")
+    fun constrainedPageHeightsMatchAlphabetAt118Pixels() {
+        val height = 118
+        val alphabet = view(LayoutId.ALPHA, 320, heightPx = height)
+        val baselineFace = requireNotNull(alphabet.boundsOfLabelForTest("q"))
+        val baselineHit = alphabet.keyHitBoundsForTest().first { it.first.label == "q" }.second
+        assertEquals(height, alphabet.measuredHeight)
+        for (id in listOf(LayoutId.NUMBER, LayoutId.SYMBOL)) {
+            val source = Layouts.forId(id, Lang.EN)
+            val page = view(id, 320, heightPx = height)
+            val faces = page.keyBoundsForTest()
+            val hits = page.keyHitBoundsForTest()
+            assertEquals(height, page.measuredHeight)
+            var offset = 0
+            for ((rowIndex, row) in source.rows.withIndex()) {
+                for (index in row.keys.indices) {
+                    val key = row.keys[index]
+                    val ordinary = if (rowIndex < source.rows.lastIndex) key.weight == 1f else key.action != KeyAction.SPACE
+                    if (ordinary) {
+                        assertEquals(baselineFace.height(), faces[offset + index].second.height(), 0.02f)
+                        assertEquals(baselineHit.height(), hits[offset + index].second.height(), 0.02f)
+                    }
+                }
+                offset += row.keys.size
+            }
+        }
+    }
+}

@@ -20,7 +20,9 @@ import com.aegis.ime.decoder.Syllable
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
+import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
+import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.SymbolCatalog
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -937,6 +939,23 @@ class KeyboardControllerTest {
         c.onKey(act(KeyAction.TOGGLE_LANG))
         c.onKey(act(KeyAction.SWITCH_NUMBERS))
         c.onKey(act(KeyAction.SWITCH_TEXT))
+        assertEquals(LayoutId.ALPHA, c.activeLayoutId())
+    }
+
+    @Test fun qwerty_123_uses_the_number_symbol_flow_and_returns_to_qwerty() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.reset()
+        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        val alphabet123 = Layouts.forId(LayoutId.ALPHA, Lang.CN).cells!!.first { it.key.label == "123" }.key
+        c.onKey(alphabet123)
+        assertEquals(LayoutId.NUMBER, c.activeLayoutId())
+        val symbols = Layouts.forId(LayoutId.NUMBER, Lang.CN).rows.flatMap { it.keys }
+            .first { it.action == KeyAction.SWITCH_SYMBOLS }
+        c.onKey(symbols)
+        assertEquals(LayoutId.SYMBOL, c.activeLayoutId())
+        val text = Layouts.forId(LayoutId.SYMBOL, Lang.CN).rows.flatMap { it.keys }
+            .first { it.action == KeyAction.SWITCH_TEXT }
+        c.onKey(text)
         assertEquals(LayoutId.ALPHA, c.activeLayoutId())
     }
 

@@ -63,9 +63,9 @@ class LayoutsTest {
     @Test fun qwerty_has_number_row_and_letter_subsymbols() {
         assertEquals(
             listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"),
-            qwerty.rows.first().keys.map { it.label },
+            qwerty.cells!!.filter { it.y < 0.1f }.sortedBy { it.x }.map { it.key.label },
         )
-        val letters = qwerty.rows.drop(1).flatMap { it.keys }
+        val letters = keysOf(qwerty)
             .filter { it.action == KeyAction.COMMIT && it.label.length == 1 && it.label[0] in 'a'..'z' }
         assertEquals(26, letters.size)
         assertTrue("every letter needs a super-script symbol", letters.all { it.sub != null })
@@ -85,6 +85,13 @@ class LayoutsTest {
     @Test fun nine_123_key_opens_the_numpad_grid() {
         val k123 = nine.cells!!.first { it.key.label == "123" }
         assertEquals(KeyAction.SWITCH_NUMPAD, k123.key.action)
+    }
+
+    @Test fun alphabet_123_and_nine_page_key_keep_their_distinct_flows() {
+        val alphabet123 = qwerty.cells!!.first { it.key.label == "123" }
+        val ninePage = nine.cells!!.first { it.key.label == "@#" }
+        assertEquals(KeyAction.SWITCH_NUMBERS, alphabet123.key.action)
+        assertEquals(KeyAction.SWITCH_SYMBOLS, ninePage.key.action)
     }
 
     @Test fun nine_composing_top_left_is_the_segment_key() {
@@ -166,7 +173,7 @@ class LayoutsTest {
     }
 
     @Test fun qwerty_pen_width_matches_the_adjacent_function_keys() {
-        val bottom = qwerty.rows.last().keys
+        val bottom = qwerty.cells!!.filter { it.y >= 0.8f }.map { it.key }
         val pen = bottom.first { it.action == KeyAction.SHOW_SYMBOLS }
         val num = bottom.first { it.action == KeyAction.SWITCH_NUMBERS }
         val lang = bottom.first { it.action == KeyAction.TOGGLE_LANG }
