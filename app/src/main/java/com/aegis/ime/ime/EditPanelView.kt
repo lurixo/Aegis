@@ -83,6 +83,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
             gravity = Gravity.CENTER_VERTICAL
             addView(
                 textBtn(context.getString(R.string.edit_title), EditAction.BACK, sp = TITLE_SP).apply {
+                    isFocusable = false
                     gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), 0, dp(12), 0)
                     setCompoundDrawablesWithIntrinsicBounds(
                         icon(16, 0.56f) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) },
@@ -100,9 +101,9 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         val mid = LinearLayout(context).apply { orientation = HORIZONTAL }
         val dpad = LinearLayout(context).apply { orientation = VERTICAL }
         selectBtn = textBtn(context.getString(R.string.edit_start_select), EditAction.START_SELECT, sp = 16f)
-        dpad.addView(dpadRow(null, arrowBtn(EditAction.UP, Glyphs.Arrow.UP), null), rowLp())
-        dpad.addView(dpadRow(arrowBtn(EditAction.LEFT, Glyphs.Arrow.LEFT), selectBtn, arrowBtn(EditAction.RIGHT, Glyphs.Arrow.RIGHT)), rowLp())
-        dpad.addView(dpadRow(null, arrowBtn(EditAction.DOWN, Glyphs.Arrow.DOWN), null), rowLp())
+        dpad.addView(dpadRow(null, arrowBtn(EditAction.UP, Glyphs.Arrow.UP).apply { isFocusable = false }, null), rowLp())
+        dpad.addView(dpadRow(arrowBtn(EditAction.LEFT, Glyphs.Arrow.LEFT).apply { isFocusable = false }, selectBtn, arrowBtn(EditAction.RIGHT, Glyphs.Arrow.RIGHT).apply { isFocusable = false }), rowLp())
+        dpad.addView(dpadRow(null, arrowBtn(EditAction.DOWN, Glyphs.Arrow.DOWN).apply { isFocusable = false }, null), rowLp())
         mid.addView(dpad, LayoutParams(0, LayoutParams.MATCH_PARENT, 3f))
 
         copyIcon = icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawCopy(c, p, x, y, s) }
@@ -117,9 +118,9 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         mid.addView(rightCol, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
 
         val bottom = LinearLayout(context).apply { orientation = HORIZONTAL }
-        bottom.addView(iconBtn(context.getString(R.string.edit_paragraph_start), EditAction.HOME, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawParagraphEdge(c, p, x, y, s, toStart = true) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        bottom.addView(iconBtn(context.getString(R.string.edit_paragraph_start), EditAction.HOME, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawParagraphEdge(c, p, x, y, s, toStart = true) }).apply { isFocusable = false }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         bottom.addView(iconBtn(context.getString(R.string.edit_select_all), EditAction.SELECT_ALL, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawSelectAll(c, p, x, y, s) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        bottom.addView(iconBtn(context.getString(R.string.edit_paragraph_end), EditAction.END, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawParagraphEdge(c, p, x, y, s, toStart = false) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        bottom.addView(iconBtn(context.getString(R.string.edit_paragraph_end), EditAction.END, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawParagraphEdge(c, p, x, y, s, toStart = false) }).apply { isFocusable = false }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         bottom.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         bottom.addView(iconBtn(context.getString(R.string.edit_paste), EditAction.PASTE, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawClipboard(c, p, x, y, s) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
 

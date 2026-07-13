@@ -58,7 +58,7 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
     val initial = remember { DictDownloadWork.snapshot(context) }
     var present by remember { mutableStateOf(preview?.present ?: initial.present) }
     var status by remember { mutableStateOf(preview?.status?.let(LocalizedText::Raw) ?: initial.status) }
-    var progress by remember { mutableStateOf(if (preview == null) initial.progress else 0f) }
+    var progress by remember { mutableStateOf(if (preview == null) initial.progress else null) }
     var downloading by remember { mutableStateOf(if (preview == null) initial.downloading else false) }
     var checking by remember { mutableStateOf(preview?.checking ?: false) }
 
@@ -93,7 +93,7 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
 
     fun checkUpdate() {
         checking = true
-        Thread {
+        val task = Thread {
             val checked = ModelDownload.checkDictionaryUpdate(currentInstallMetadata())
             handler.post {
                 checking = false
@@ -112,7 +112,11 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
                     }
                 }
             }
-        }.apply { isDaemon = true }.start()
+        }.apply { isDaemon = true }
+        if (runCatching { task.start() }.isFailure) {
+            checking = false
+            showCheckFailure(R.string.dict_status_download_failed)
+        }
     }
 
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -143,7 +147,12 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
                 Text(stringResource(R.string.dict_source_link), style = MaterialTheme.typography.bodySmall)
             }
             if (downloading) {
-                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                val currentProgress = progress
+                if (currentProgress == null) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                } else {
+                    LinearProgressIndicator(progress = { currentProgress }, modifier = Modifier.fillMaxWidth())
+                }
             }
             Text(
                 if (checking) stringResource(R.string.download_status_checking_update) else status.asString(),

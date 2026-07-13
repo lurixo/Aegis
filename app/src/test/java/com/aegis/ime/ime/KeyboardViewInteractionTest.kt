@@ -76,7 +76,7 @@ class KeyboardViewInteractionTest {
     }
 
     private fun KeyboardView.regTop() = gap
-    private fun KeyboardView.cx() = (gap + (1.0f * u * width - gap)) / 2f
+    private fun KeyboardView.cx() = (gap + (0.85f * u * width - gap)) / 2f
     private fun KeyboardView.cellH() = ((0.75f * height - gap) - gap) / 4f
     private fun KeyboardView.colCellY(i: Int) = regTop() + cellH() * (i + 0.5f)
 
@@ -308,7 +308,7 @@ class KeyboardViewInteractionTest {
         return v
     }
 
-    private fun KeyboardView.opCx() = (1.0f * u * width) / 2f
+    private fun KeyboardView.opCx() = (0.85f * u * width) / 2f
     private fun KeyboardView.opCellH() = (height - 2 * gap) / 4f
     private fun KeyboardView.opCellY(i: Int) = gap + opCellH() * (i + 0.5f)
 

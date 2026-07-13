@@ -27,11 +27,11 @@ import java.io.File
 internal data class DownloadCardSnapshot(
     val present: Boolean,
     val downloading: Boolean,
-    val progress: Float,
+    val progress: Float?,
     val status: LocalizedText,
 )
 
-private class DownloadRuntime(
+internal class DownloadRuntime(
     private val isPresent: (Context) -> Boolean,
     private val doneStatus: (Context) -> LocalizedText,
     private val notDownloadedStatus: LocalizedText,
@@ -42,7 +42,7 @@ private class DownloadRuntime(
     private val lock = Any()
     private val observers = LinkedHashMap<(DownloadCardSnapshot) -> Unit, Context>()
     private var running = false
-    private var progress = 0f
+    private var progress: Float? = null
     private var statusOverride: LocalizedText? = null
 
     fun snapshot(context: Context): DownloadCardSnapshot {
@@ -60,13 +60,17 @@ private class DownloadRuntime(
         return { synchronized(lock) { observers.remove(observer) } }
     }
 
-    fun start(context: Context, worker: (Context, (Float) -> Unit, (LocalizedText) -> Unit) -> LocalizedText) {
+    fun start(
+        context: Context,
+        startTask: (Thread) -> Unit = Thread::start,
+        worker: (Context, (Float) -> Unit, (LocalizedText) -> Unit) -> LocalizedText,
+    ) {
         val app = context.applicationContext
         val shouldStart = synchronized(lock) {
             if (running) false
             else {
                 running = true
-                progress = 0f
+                progress = null
                 statusOverride = downloadStatus
                 true
             }
@@ -75,23 +79,22 @@ private class DownloadRuntime(
             emit()
             return
         }
-        emit()
-        Thread {
+        val task = Thread {
             val finalStatus = runCatching { worker(app, ::updateProgress, ::updateRunningStatus) }
                 .getOrDefault(failureStatus)
-            synchronized(lock) {
-                running = false
-                progress = if (isPresent(app)) 1f else 0f
-                statusOverride = finalStatus
-            }
-            emit()
-        }.apply { isDaemon = true }.start()
+            finish(app, finalStatus)
+        }.apply { isDaemon = true }
+        if (runCatching { startTask(task) }.isFailure) {
+            finish(app, failureStatus)
+            return
+        }
+        emit()
     }
 
     fun setIdleStatus(status: LocalizedText) {
         synchronized(lock) {
             running = false
-            progress = 0f
+            progress = null
             statusOverride = status
         }
         emit()
@@ -99,6 +102,15 @@ private class DownloadRuntime(
 
     private fun updateProgress(value: Float) {
         synchronized(lock) { progress = value.coerceIn(0f, 1f) }
+        emit()
+    }
+
+    private fun finish(context: Context, status: LocalizedText) {
+        synchronized(lock) {
+            running = false
+            progress = if (isPresent(context)) 1f else 0f
+            statusOverride = status
+        }
         emit()
     }
 

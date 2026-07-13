@@ -41,9 +41,9 @@ object Layouts {
         LayoutId.NUMPAD -> numpad()
     }
 
-    private const val NINE_LEFT_U = 1.0f
+    private const val NINE_LEFT_U = 0.85f
     private const val NINE_MAIN_U = 1.0f
-    private const val NINE_RIGHT_U = 0.7f
+    private const val NINE_RIGHT_U = 0.85f
     private const val NINE_TOTAL_U = NINE_LEFT_U + 3f * NINE_MAIN_U + NINE_RIGHT_U
 
     val nineFixedPunctuation: List<String> = listOf("，", "。", "？", "！", "…", "：", "；", "~", ".", "-", "@")
@@ -68,7 +68,7 @@ object Layouts {
         val period = if (lang == Lang.CN) "。" else "."
         val bottom = listOf(
             Key(labelRes = R.string.kbd_symbols, action = SHOW_SYMBOLS, weight = 1.5f),
-            Key("123", action = SWITCH_NUMBERS, weight = 1.5f),
+            Key("123", action = SWITCH_NUMPAD, weight = 1.5f),
             Key(comma, direct = true),
             Key(labelRes = R.string.kbd_space, output = " ", action = SPACE, weight = 3.5f),
             Key(period, direct = true),
@@ -106,7 +106,7 @@ object Layouts {
         val leftColumn = ScrollColumn(left, xL, 0f, wL, 0.75f, cellHFrac = 0.75f / 4f)
         cells.add(PlacedKey(Key(labelRes = R.string.kbd_symbols, action = SHOW_SYMBOLS), xL, 0.75f, wL, 0.25f))
         cells.add(PlacedKey(
-            if (composing) Key(labelRes = R.string.kbd_split, action = SEGMENT, bold = true) else Key("@#", action = SWITCH_SYMBOLS, bold = true),
+            if (composing) Key(labelRes = R.string.kbd_split, action = SEGMENT, bold = true) else Key("@#", action = SWITCH_NUMBERS, bold = true),
             x1, 0f, wM, 0.25f,
         ))
         cells.add(PlacedKey(t9key("ABC", "2"), x2, 0f, wM, 0.25f))
@@ -140,11 +140,11 @@ object Layouts {
                 Key("⌫", action = BACKSPACE, weight = 1.5f),
             ),
             row(
-                Key(labelRes = R.string.kbd_back, action = SWITCH_TEXT),
+                Key(labelRes = R.string.kbd_back, action = SWITCH_TEXT, weight = 1.5f),
                 Key(","),
-                Key(labelRes = R.string.kbd_space, output = " ", action = SPACE, weight = 4f),
+                Key(labelRes = R.string.kbd_space, output = " ", action = SPACE, weight = 3f),
                 Key("."),
-                Key("↵", action = ENTER, accent = true),
+                Key("↵", action = ENTER, accent = true, weight = 1.5f),
             ),
         ),
     )
@@ -192,11 +192,11 @@ object Layouts {
                 Key("⌫", action = BACKSPACE, weight = 1.5f),
             ),
             row(
-                Key(labelRes = R.string.kbd_back, action = SWITCH_TEXT),
+                Key(labelRes = R.string.kbd_back, action = SWITCH_TEXT, weight = 1.5f),
                 Key("<"),
-                Key(labelRes = R.string.kbd_space, output = " ", action = SPACE, weight = 4f),
+                Key(labelRes = R.string.kbd_space, output = " ", action = SPACE, weight = 3f),
                 Key(">"),
-                Key("↵", action = ENTER, accent = true),
+                Key("↵", action = ENTER, accent = true, weight = 1.5f),
             ),
         ),
     )

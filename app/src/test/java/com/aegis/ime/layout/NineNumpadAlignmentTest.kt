@@ -16,8 +16,10 @@
 package com.aegis.ime.layout
 
 import android.graphics.Paint
+import android.graphics.Typeface
 import android.util.TypedValue
 import android.view.View
+import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.ime.KeyboardView
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -49,21 +51,28 @@ class NineNumpadAlignmentTest {
 
     @Test
     fun longestSyllableShowsFullyInTheLeftReadoutColumn() {
-        val readout = listOf("zhuang", "shuang", "chuang", "zhu", "yi", "zhua")
-            .map { Key(it, output = it, action = KeyAction.PICK_READING) }
+        val displayed = T9Pinyin.SYLLABLES.filter {
+            it in T9Pinyin.leftColumnReadings(T9Pinyin.toT9(it), 24)
+        }
+        assertEquals(T9Pinyin.SYLLABLES, displayed.toSet())
+        val paint = Paint().apply {
+            textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 17f, dm)
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        val widest = displayed.maxByOrNull(paint::measureText)!!
+        assertEquals(6, displayed.maxOf(String::length))
+        val readout = displayed.map { Key(it, output = it, action = KeyAction.PICK_READING) }
         val sc = Layouts.nine(Lang.CN, readout, composing = true).scrollColumn!!
+        assertEquals(0.85f / 4.7f, sc.w, 1e-5f)
         val colWpx = sc.w * wPx - 2 * gapPx
         val avail = colWpx - 12f * dm.density
-        val base = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 17f, dm)
-        fun widthAt(size: Float) = Paint().apply { textSize = size }.measureText("zhuang")
-        val w0 = widthAt(base)
-        val fitted = if (w0 > avail) (base * avail / w0).coerceAtLeast(11f * dm.density) else base
         assertTrue(
-            "zhuang (${w0}px @17sp) must show fully in the ${avail}px left column (fitted ${widthAt(fitted)}px)",
-            widthAt(fitted) <= avail + 0.5f,
+            "$widest (${paint.measureText(widest)}px @ bold 17sp) must show fully in the ${avail}px left column",
+            displayed.all { paint.measureText(it) <= avail + 0.5f },
         )
-        assertTrue("the read-out stays legible (>=13sp) — the widening does the work, not an aggressive shrink",
-            fitted >= 13f * dm.density)
+        val right = cells(Layouts.nine(Lang.CN, readout, composing = true))
+            .first { it.key.action == KeyAction.BACKSPACE }
+        assertEquals(sc.w, right.w, 1e-5f)
     }
 
     @Test

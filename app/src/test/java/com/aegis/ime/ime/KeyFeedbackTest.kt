@@ -53,6 +53,10 @@ class KeyFeedbackTest {
     private fun KeyboardView.move(x: Float, y: Float) = dispatchTouchEvent(MotionEvent.obtain(0, 10, MotionEvent.ACTION_MOVE, x, y, 0))
     private fun KeyboardView.up(x: Float, y: Float) = dispatchTouchEvent(MotionEvent.obtain(0, 20, MotionEvent.ACTION_UP, x, y, 0))
 
+    @Test fun every_font_drawn_key_label_uses_bold_type() {
+        assertTrue(alphaView().keyLabelPaintsAreBoldForTest())
+    }
+
 
     @Test fun pressing_a_letter_shows_its_enlarged_preview_when_enabled() {
         val v = alphaView().apply { previewAlphaEnabled = true }
