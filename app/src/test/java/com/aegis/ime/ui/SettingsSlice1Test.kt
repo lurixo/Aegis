@@ -16,9 +16,13 @@
 package com.aegis.ime.ui
 
 import androidx.core.content.edit
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.unit.dp
 import com.aegis.ime.R
 import com.aegis.ime.dict.EngineAssets
 import com.aegis.ime.dict.ModelDownload
+import com.aegis.ime.ime.theme.ImeShapes
+import com.aegis.ime.ui.theme.aegisShapes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -38,6 +42,11 @@ import java.util.zip.ZipOutputStream
 class SettingsSlice1Test {
 
     private val ctx = RuntimeEnvironment.getApplication()
+
+    @Test fun settings_cards_use_the_shared_smaller_aegis_radius() {
+        assertEquals(RoundedCornerShape(ImeShapes.cardRadiusDp.dp), aegisShapes.medium)
+        assertEquals(8f, ImeShapes.cardRadiusDp, 0f)
+    }
 
 
     @Test fun dict_surface_is_independent_of_the_gram_surface() {

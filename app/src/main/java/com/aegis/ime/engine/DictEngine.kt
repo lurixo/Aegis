@@ -91,7 +91,6 @@ class DictEngine(
 
     override fun learnWord(reading: String, word: String, assembled: Boolean) {
         val um = userModel ?: return
-        if (decoder?.hasDictWord(reading, word) == true) return
         um.recordWord(reading, word, System.currentTimeMillis(), incrementCount = assembled)
     }
 

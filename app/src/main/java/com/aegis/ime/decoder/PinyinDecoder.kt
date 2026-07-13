@@ -81,9 +81,6 @@ class PinyinDecoder(
         return preferredWordFreqs(out)
     }
 
-    fun hasDictWord(reading: String, word: String): Boolean =
-        reading.isNotEmpty() && dict.containsExactWord(reading, word)
-
     private fun refreshUserIndex() {
         val um = userModel ?: return
         val v = um.version
@@ -107,6 +104,15 @@ class PinyinDecoder(
         if (userModel == null || key.isEmpty()) return emptyList()
         refreshUserIndex()
         return (if (key[0] in '2'..'9') userDigitIndex[key] else userLetterIndex[key]) ?: emptyList()
+    }
+
+    private fun learnedExactWordFreqs(key: String): Map<String, Int> {
+        val out = LinkedHashMap<String, Int>()
+        for (word in userWordsFor(key)) {
+            val freq = dict.exactWordFreq(key, word) ?: continue
+            out[word] = freq
+        }
+        return out
     }
 
     private fun userWordFreq(word: String, readingKey: String): Double {
@@ -144,13 +150,16 @@ class PinyinDecoder(
     private fun edgesFor(sub: String): List<Edge> {
         val out = ArrayList<Edge>(edgeN)
         val seen = HashSet<String>()
+        val exactFull = addExactEdges(dict, sub, 0.0, out, seen)
+        for ((word, freq) in learnedExactWordFreqs(sub)) {
+            if (seen.add(word)) out.add(Edge(word, freq, 0.0))
+        }
         for (uw in userWordsFor(sub)) {
             if (seen.add(uw)) {
                 val n = uw.codePointCount(0, uw.length)
                 out.add(Edge(uw, userWordFreq(uw, sub).toInt().coerceAtLeast(1), (n - 1).coerceAtLeast(0) * lnTotal))
             }
         }
-        val exactFull = addExactEdges(dict, sub, 0.0, out, seen)
         for (alias in inputAliases(sub)) {
             var added = 0
             for (wf in preferredExact(aliasSource, alias, edgeN + seen.size)) {
@@ -431,7 +440,7 @@ class PinyinDecoder(
         val out = ArrayList<Cand>(1 + leadFreq.size + tailRanked.size)
         val seen = HashSet<String>()
         best?.let { if (seen.add(it)) out.add(Cand(it, input.length)) }
-        for ((w, _) in leadFreq.entries.sortedByDescending { it.value }) {
+        for ((w, _) in leadFreq.entries.sortedByDescending { wordModelScore(it.key, it.value, ctxCp, ctxWord) }) {
             if (out.size >= limit) break
             if (seen.add(w)) out.add(Cand(w, leadCov.getValue(w)))
         }
@@ -505,10 +514,18 @@ class PinyinDecoder(
             for (j in i + 1..nSyl) {
                 val seg = input.substring(B[i], B[j])
                 val raw = preferredExact(dict, seg)
-                val edges = (if (j == i + 1) raw.filter { isSingleChar(it.word) }
+                val eligible = if (j == i + 1) raw.filter { isSingleChar(it.word) }
                 else raw.filterNot { isSingleChar(it.word) }
-                    .filter { admissibleUnderCuts(it.word, B[i], B[j], interior, input, singlesCache) })
-                    .take(SENTENCE_EDGE_N)
+                    .filter { admissibleUnderCuts(it.word, B[i], B[j], interior, input, singlesCache) }
+                val edges = eligible.take(SENTENCE_EDGE_N).toMutableList()
+                val present = edges.mapTo(HashSet()) { it.word }
+                for ((word, freq) in learnedExactWordFreqs(seg)) {
+                    if (!present.add(word)) continue
+                    if (j == i + 1 && !isSingleChar(word)) continue
+                    if (j > i + 1 && isSingleChar(word)) continue
+                    if (j > i + 1 && !admissibleUnderCuts(word, B[i], B[j], interior, input, singlesCache)) continue
+                    edges.add(BinaryDict.WordFreq(word, freq))
+                }
                 for (wf in edges) {
                     val w = wf.word
                     val firstCp = w.codePointAt(0)

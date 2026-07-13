@@ -150,6 +150,12 @@ class CandidateView(context: Context) : View(context) {
     internal fun keyPressRadiusDpForTest(): Float = ImeShapes.keyRadiusDp
     internal fun toolbarControlBoundsForTest(): List<RectF> = funcRects.map(::RectF) + RectF(collapseRect)
     internal fun expandControlBoundsForTest(): RectF = RectF(width - expandW, 0f, width.toFloat(), height.toFloat())
+    internal fun toolbarChevronBoundsForTest(): RectF =
+        Glyphs.chevronBounds(collapseRect.centerX(), collapseRect.centerY(), 9f * density)
+    internal fun candidateChevronBoundsForTest(): RectF {
+        val control = expandControlBoundsForTest()
+        return Glyphs.chevronBounds(control.centerX(), control.centerY(), 9f * density)
+    }
 
     internal fun centerOfCandidateForTest(index: Int): Pair<Float, Float>? {
         if (index !in 0 until hitCount) return null
@@ -200,7 +206,7 @@ class CandidateView(context: Context) : View(context) {
         canvas.drawRect(visibleW, height * 0.25f, visibleW + density, height * 0.75f, sepPaint)
         drawPressLayer(canvas, PressTarget(PressKind.EXPAND), visibleW, 4f * density, width.toFloat(), height - 4f * density)
         val chCx = visibleW + expandW / 2f; val chCy = height / 2f; val chS = 9f * density
-        if (expanded) drawChevronUp(canvas, chCx, chCy, chS) else drawChevronDown(canvas, chCx, chCy, chS)
+        Glyphs.drawChevron(canvas, iconPaint, chCx, chCy, chS, down = !expanded)
     }
 
     private fun drawFunctions(canvas: Canvas, baseline: Float) {
@@ -229,7 +235,7 @@ class CandidateView(context: Context) : View(context) {
         val sepH = (capB - capT) * 0.25f
         canvas.drawRect(collapseRect.left, cy - sepH, collapseRect.left + density, cy + sepH, sepPaint)
         drawPressLayer(canvas, PressTarget(PressKind.COLLAPSE), collapseRect.left, collapseRect.top, collapseRect.right, collapseRect.bottom)
-        drawChevronDown(canvas, collapseRect.centerX(), cy, s)
+        Glyphs.drawChevron(canvas, iconPaint, collapseRect.centerX(), cy, s, down = true)
     }
 
     private fun drawPressLayer(canvas: Canvas, target: PressTarget, left: Float, top: Float, right: Float, bottom: Float) {
@@ -253,16 +259,6 @@ class CandidateView(context: Context) : View(context) {
             BarFunction.EDIT -> Glyphs.drawEditCaret(c, iconPaint, cx, cy, s)
             BarFunction.CLIPBOARD -> Glyphs.drawClipboard(c, iconPaint, cx, cy, s)
         }
-    }
-
-    private fun drawChevronDown(c: Canvas, cx: Float, cy: Float, s: Float) {
-        c.drawLine(cx - s * 0.5f, cy - s * 0.2f, cx, cy + s * 0.28f, iconPaint)
-        c.drawLine(cx, cy + s * 0.28f, cx + s * 0.5f, cy - s * 0.2f, iconPaint)
-    }
-
-    private fun drawChevronUp(c: Canvas, cx: Float, cy: Float, s: Float) {
-        c.drawLine(cx - s * 0.5f, cy + s * 0.2f, cx, cy - s * 0.28f, iconPaint)
-        c.drawLine(cx, cy - s * 0.28f, cx + s * 0.5f, cy + s * 0.2f, iconPaint)
     }
 
     override fun computeScroll() {

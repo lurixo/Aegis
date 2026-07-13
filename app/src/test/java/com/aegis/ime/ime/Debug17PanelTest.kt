@@ -16,6 +16,7 @@
 package com.aegis.ime.ime
 
 import android.graphics.drawable.GradientDrawable
+import android.graphics.Rect
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
@@ -500,6 +501,57 @@ class Debug17PanelTest {
         val phraseTabs = textViews(phrase).filter { it.text?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_clipboard), ctx.getString(com.aegis.ime.R.string.clip_phrases)) }
         assertEquals(pal.keyLabel, phraseTabs.first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_clipboard) }.currentTextColor)
         assertEquals(pal.candidateFirst, phraseTabs.first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_phrases) }.currentTextColor)
+    }
+
+    @Test fun clipboard_and_phrase_tabs_keep_order_and_bounds_while_switching() {
+        val clipboard = ctx.getString(com.aegis.ime.R.string.clip_clipboard)
+        val phrases = ctx.getString(com.aegis.ime.R.string.clip_phrases)
+        val view = ClipboardView(ctx).apply {
+            historyProvider = { listOf("clipboard body") }
+            categoriesProvider = { listOf("默认") }
+            phrasesInProvider = { listOf("phrase body") }
+            applyPalette(pal)
+            refresh()
+        }
+        fun layoutView() {
+            view.measure(
+                View.MeasureSpec.makeMeasureSpec((600 * ctx.resources.displayMetrics.density).toInt(), View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec((400 * ctx.resources.displayMetrics.density).toInt(), View.MeasureSpec.EXACTLY),
+            )
+            view.layout(0, 0, view.measuredWidth, view.measuredHeight)
+        }
+        fun absoluteBounds(child: View): Rect {
+            var x = 0
+            var y = 0
+            var current: View? = child
+            while (current != null) {
+                x += current.left
+                y += current.top
+                current = current.parent as? View
+            }
+            return Rect(x, y, x + child.width, y + child.height)
+        }
+        fun tabs(): List<Pair<String, Rect>> = textViews(view)
+            .filter { it.text?.toString() == clipboard || it.text?.toString() == phrases }
+            .map { it.text.toString() to absoluteBounds(it) }
+            .sortedBy { it.second.left }
+
+        layoutView()
+        val initial = tabs()
+        assertEquals(listOf(clipboard, phrases), initial.map { it.first })
+        assertEquals(2, initial.size)
+        assertTrue(initial.all { it.second.width() == (84 * ctx.resources.displayMetrics.density).toInt() })
+        assertTrue(initial.all { it.second.height() == (34 * ctx.resources.displayMetrics.density).toInt() })
+        assertTrue(click(view, phrases))
+        layoutView()
+        assertFalse(view.isClipboardTabForTest())
+        assertEquals(initial, tabs())
+        assertTrue("phrase body" in labels(view))
+        assertTrue(click(view, clipboard))
+        layoutView()
+        assertTrue(view.isClipboardTabForTest())
+        assertEquals(initial, tabs())
+        assertTrue("clipboard body" in labels(view))
     }
 
     @Test fun phrase_category_row_uses_text_edit_button_without_chip_backgrounds() {

@@ -98,6 +98,30 @@ class CandidateBarChevronTest {
         assertFalse("it must NOT re-expand", expanded)
     }
 
+    @Test fun candidate_and_taskbar_chevrons_share_centered_function_icon_geometry() {
+        val candidate = barView()
+        val candidateHit = candidate.expandControlBoundsForTest()
+        val candidateGlyph = candidate.candidateChevronBoundsForTest()
+        assertEquals(candidateHit.centerX(), candidateGlyph.centerX(), 0.01f)
+        assertEquals(candidateHit.centerY(), candidateGlyph.centerY(), 0.01f)
+        assertEquals(64f * density, candidateHit.width(), 0.01f)
+
+        candidate.setExpanded(true)
+        assertEquals(candidateGlyph, candidate.candidateChevronBoundsForTest())
+
+        val taskbar = idleBar(360)
+        val taskbarHit = taskbar.toolbarControlBoundsForTest().last()
+        val taskbarGlyph = taskbar.toolbarChevronBoundsForTest()
+        assertEquals(taskbarHit.centerX(), taskbarGlyph.centerX(), 0.01f)
+        assertEquals(taskbarHit.centerY(), taskbarGlyph.centerY(), 0.01f)
+        assertEquals(candidateGlyph.width(), taskbarGlyph.width(), 0.01f)
+        assertEquals(candidateGlyph.height(), taskbarGlyph.height(), 0.01f)
+        assertEquals(12.6f * density, taskbarGlyph.width(), 0.01f)
+        assertEquals(6.84f * density, taskbarGlyph.height(), 0.01f)
+        assertTrue(candidateHit.contains(candidateGlyph))
+        assertTrue(taskbarHit.contains(taskbarGlyph))
+    }
+
     @Test fun collapsed_expand_hit_column_matches_back_and_requires_bounded_down_and_up() {
         val context = ctx.createConfigurationContext(
             Configuration(ctx.resources.configuration).apply { densityDpi = 411 },

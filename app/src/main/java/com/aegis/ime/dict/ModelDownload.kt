@@ -38,6 +38,8 @@ object ModelDownload {
 
     fun destFile(filesDir: File): File = File(File(filesDir, "downloaded"), GRAM_NAME)
 
+    fun installedGramBytes(filesDir: File): Long = destFile(filesDir).length()
+
     fun partFile(filesDir: File): File = File(File(filesDir, "downloaded"), "$GRAM_NAME.part")
 
     fun isDownloaded(filesDir: File): Boolean = destFile(filesDir).let { it.exists() && it.length() > 1024 }
@@ -192,6 +194,9 @@ object ModelDownload {
     const val FALLBACK_DICT_SHA256 = "d048435631623513a9d6a6ccb877a6ba06fb15a293ade72bb101d1e0d4feaa60"
 
     val DICT_PACK_FILES = listOf("aegis_dict.bin", "aegis_t9.bin", "aegis_jianpin.bin")
+
+    fun installedDictionaryBytes(filesDir: File): Long =
+        DICT_PACK_FILES.sumOf { File(downloadedDir(filesDir), it).length() }
 
     const val DICT_VALIDATOR_PREF = "dict_validator"
     const val DICT_SHA256_PREF = "dict_sha256"

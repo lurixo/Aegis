@@ -15,6 +15,9 @@
 
 package com.aegis.ime.ui
 
+import com.aegis.ime.R
+import com.aegis.ime.dict.ModelDownload
+import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
@@ -113,5 +116,45 @@ class DownloadCardWorkTest {
         val retried = awaitTerminal(runtime)
         assertFalse(retried.downloading)
         assertEquals(done, retried.status)
+    }
+
+    @Test fun model_and_dictionary_cards_report_their_activated_files_and_refresh_after_changes() {
+        val base = context.filesDir
+        ModelDownload.purge(base)
+        ModelDownload.purgeDict(base)
+        try {
+            ModelDownload.destFile(base).apply {
+                parentFile?.mkdirs()
+                writeBytes(ByteArray(1_500_000))
+            }
+            val downloaded = ModelDownload.destFile(base).parentFile!!
+            listOf(600_000, 700_000, 800_000).zip(ModelDownload.DICT_PACK_FILES).forEach { (length, name) ->
+                File(downloaded, name).writeBytes(ByteArray(length))
+            }
+            File(downloaded, "unrelated.bin").writeBytes(ByteArray(5_000_000))
+            assertEquals(
+                LocalizedText.ResourceLong(R.string.gram_status_enabled, 2L),
+                GramDownloadWork.snapshot(context).status,
+            )
+            assertEquals(
+                LocalizedText.ResourceLong(R.string.dict_status_enabled, 2L),
+                DictDownloadWork.snapshot(context).status,
+            )
+
+            ModelDownload.destFile(base).writeBytes(ByteArray(2_500_000))
+            File(downloaded, ModelDownload.DICT_PACK_FILES.first()).writeBytes(ByteArray(1_600_000))
+            assertEquals(
+                LocalizedText.ResourceLong(R.string.gram_status_enabled, 3L),
+                GramDownloadWork.snapshot(context).status,
+            )
+            assertEquals(
+                LocalizedText.ResourceLong(R.string.dict_status_enabled, 3L),
+                DictDownloadWork.snapshot(context).status,
+            )
+        } finally {
+            ModelDownload.purge(base)
+            ModelDownload.purgeDict(base)
+            File(ModelDownload.destFile(base).parentFile, "unrelated.bin").delete()
+        }
     }
 }

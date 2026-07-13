@@ -39,6 +39,8 @@ class PinyinDecoderUserWordTest {
 
     private val lmFile = File("src/main/assets/aegis_lm.bin")
     private val lm: CharBigramLM by lazy { CharBigramLM.fromFile(lmFile) }
+    private val productionDict: BinaryDict by lazy { BinaryDict.fromFile(File("src/main/assets/aegis_dict.bin")) }
+    private val productionT9Dict: BinaryDict by lazy { BinaryDict.fromFile(File("src/main/assets/aegis_t9.bin")) }
 
     @Before fun requireLm() {
         org.junit.Assume.assumeTrue("real LM asset present (production decoder wiring)", lmFile.exists())
@@ -126,5 +128,110 @@ class PinyinDecoderUserWordTest {
         assertTrue("both recall the word", lightRank >= 0 && heavyRank >= 0)
         assertTrue("a fresh word is not the commit default (a natural candidate precedes it)", lightRank > 0)
         assertTrue("heavy use lifts the self-created word strictly higher ($heavyRank < $lightRank)", heavyRank < lightRank)
+    }
+
+    @Test fun exact_conflict_dedup_uses_learning_without_permanently_pinning_the_word() {
+        val target = "自词"
+        val competitor = "常词"
+        val anchor = "优词"
+        val reading = "zici"
+        val controlledDict = EngineFixture.build(
+            listOf(
+                EngineFixture.Row(reading, target, 10),
+                EngineFixture.Row(reading, competitor, 1_000),
+                EngineFixture.Row(reading, anchor, 1_000_000_000),
+            ),
+        )
+        val cp = listOf('前', '自', '常', '优', '词').associate { it.code to 1_000L }
+        val controlledLm = EngineFixture.buildLm(
+            cp,
+            mapOf(
+                ('前'.code to '自'.code) to 1L,
+                ('前'.code to '常'.code) to 1_000_000L,
+            ),
+        )
+        fun learned(count: Int) = UserModel().apply {
+            repeat(count) { recordWord(reading, target, it.toLong(), incrementCount = true) }
+        }
+        fun decoded(model: UserModel, context: String = "") =
+            PinyinDecoder(controlledDict, controlledLm, userModel = model)
+                .decodeCovered(reading, 30, context = context)
+                .map { it.word }
+
+        val light = decoded(learned(1))
+        assertTrue(light.indexOf(competitor) < light.indexOf(target))
+        val learned = learned(3)
+        val stronger = decoded(learned)
+        assertEquals(anchor, stronger.first())
+        assertTrue(stronger.indexOf(target) < stronger.indexOf(competitor))
+        assertEquals(1, stronger.count { it == target })
+
+        val contextual = decoded(learned, "前")
+        assertEquals(anchor, contextual.first())
+        assertTrue(contextual.indexOf(competitor) < contextual.indexOf(target))
+
+        val atomic = PinyinDecoder(controlledDict, controlledLm, userModel = learned)
+        val atomicPlain = atomic.decodeCoveredAtomic(reading, 30, setOf(2)).map { it.word }
+        val atomicContext = atomic.decodeCoveredAtomic(reading, 30, setOf(2), "前").map { it.word }
+        assertEquals(anchor, atomicPlain.first())
+        assertEquals(anchor, atomicContext.first())
+        assertTrue(atomicPlain.indexOf(target) < atomicPlain.indexOf(competitor))
+        assertTrue(atomicContext.indexOf(competitor) < atomicContext.indexOf(target))
+        assertEquals(1, atomicPlain.count { it == target })
+    }
+
+    @Test fun exact_pair_beyond_free_edge_cap_uses_dictionary_frequency_on_letters_and_t9() {
+        val reading = "yizhi"
+        val digits = T9Pinyin.toT9(reading)
+        val target = "义肢"
+        val competitor = "一直"
+        assertTrue(productionDict.exact(reading).indexOfFirst { it.word == target } >= PinyinDecoder.EDGE_N)
+        assertTrue(productionT9Dict.exact(digits).indexOfFirst { it.word == target } >= PinyinDecoder.EDGE_N)
+
+        fun learned(count: Int) = UserModel().apply {
+            repeat(count) { recordWord(reading, target, it.toLong(), incrementCount = true) }
+        }
+        fun letterBest(count: Int) =
+            PinyinDecoder(productionDict, lm, userModel = learned(count)).decodeCovered(reading, 30).first().word
+        fun t9Best(count: Int) =
+            PinyinDecoder(productionT9Dict, lm, userModel = learned(count), aliasDict = productionDict)
+                .decodeCovered(digits, 30).first().word
+
+        assertEquals(competitor, letterBest(4))
+        assertEquals(competitor, t9Best(4))
+        assertEquals(target, letterBest(5))
+        assertEquals(target, t9Best(5))
+    }
+
+    @Test fun exact_pair_beyond_atomic_edge_cap_uses_dictionary_frequency_before_boost() {
+        val reading = "zici"
+        val target = "自词"
+        val blocker = "常词"
+        val controlledDict = EngineFixture.build(
+            listOf(
+                EngineFixture.Row(reading, blocker, 5_000),
+                EngineFixture.Row(reading, "高词", 4_500),
+                EngineFixture.Row(reading, "强词", 4_000),
+                EngineFixture.Row(reading, "前词", 3_500),
+                EngineFixture.Row(reading, "先词", 3_000),
+                EngineFixture.Row(reading, "首词", 2_500),
+                EngineFixture.Row(reading, target, 100),
+                EngineFixture.Row("zi", "自", 1),
+                EngineFixture.Row("ci", "词", 1),
+            ),
+        )
+        val exactWords = controlledDict.exact(reading).filter { it.word.codePointCount(0, it.word.length) > 1 }
+        assertTrue(exactWords.indexOfFirst { it.word == target } >= PinyinDecoder.SENTENCE_EDGE_N)
+
+        fun best(count: Int): String {
+            val model = UserModel().apply {
+                repeat(count) { recordWord(reading, target, it.toLong(), incrementCount = true) }
+            }
+            return PinyinDecoder(controlledDict, null, userModel = model)
+                .decodeCoveredAtomic(reading, 30, setOf(2)).first().word
+        }
+
+        assertEquals(blocker, best(2))
+        assertEquals(target, best(3))
     }
 }

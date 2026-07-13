@@ -152,14 +152,14 @@ class KeyboardView(context: Context) : View(context) {
     private fun sp(value: Float) =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, resources.displayMetrics)
 
-    private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(20f); typeface = android.graphics.Typeface.DEFAULT_BOLD }
-    private val specialLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabelSecondary; textAlign = Paint.Align.CENTER; textSize = sp(15f); typeface = android.graphics.Typeface.DEFAULT_BOLD }
-    private val boldLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(18f); typeface = android.graphics.Typeface.DEFAULT_BOLD }
+    private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(20f); typeface = android.graphics.Typeface.DEFAULT }
+    private val specialLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabelSecondary; textAlign = Paint.Align.CENTER; textSize = sp(15f); typeface = android.graphics.Typeface.DEFAULT }
+    private val boldLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(18f); typeface = android.graphics.Typeface.DEFAULT }
     private val shiftActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.accentBottom; textAlign = Paint.Align.CENTER; textSize = sp(20f) }
-    private val accentLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.accentLabel; textAlign = Paint.Align.CENTER; textSize = sp(20f); typeface = android.graphics.Typeface.DEFAULT_BOLD }
-    private val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyHint; textAlign = Paint.Align.RIGHT; textSize = sp(10f); typeface = android.graphics.Typeface.DEFAULT_BOLD }
-    private val langActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabelSecondary; textAlign = Paint.Align.CENTER; textSize = sp(17f); typeface = android.graphics.Typeface.DEFAULT_BOLD }
-    private val langSmallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyHint; textAlign = Paint.Align.RIGHT; textSize = sp(11f); typeface = android.graphics.Typeface.DEFAULT_BOLD }
+    private val accentLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.accentLabel; textAlign = Paint.Align.CENTER; textSize = sp(20f); typeface = android.graphics.Typeface.DEFAULT }
+    private val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyHint; textAlign = Paint.Align.RIGHT; textSize = sp(10f); typeface = android.graphics.Typeface.DEFAULT }
+    private val langActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabelSecondary; textAlign = Paint.Align.CENTER; textSize = sp(17f); typeface = android.graphics.Typeface.DEFAULT }
+    private val langSmallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyHint; textAlign = Paint.Align.RIGHT; textSize = sp(11f); typeface = android.graphics.Typeface.DEFAULT }
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySurface }
     private val keyOutlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = density; color = palette.separator }
@@ -167,12 +167,12 @@ class KeyboardView(context: Context) : View(context) {
     private val pressHighlight = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withAlpha(palette.keyLabel, 0x22) }
     private val scrollTrackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.railBg }
     private val scrollbarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withAlpha(palette.icon, 0x55) }
-    private val scrollLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.LEFT; textSize = sp(17f); typeface = android.graphics.Typeface.DEFAULT_BOLD }
+    private val scrollLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.LEFT; textSize = sp(17f); typeface = android.graphics.Typeface.DEFAULT }
     private val inkBounds = android.graphics.Rect()
     private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2f * density; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
     private val previewFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySurface }
     private val previewOutlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = density; color = palette.separator }
-    private val previewLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(30f); typeface = android.graphics.Typeface.DEFAULT_BOLD }
+    private val previewLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(30f); typeface = android.graphics.Typeface.DEFAULT }
 
     fun applyPalette(p: ImePalette) {
         palette = p
@@ -554,13 +554,19 @@ class KeyboardView(context: Context) : View(context) {
             pressHighlight.color = Motion.stateLayerColor(palette.keyLabel, pressLevel)
             canvas.drawRoundRect(rect, keyRadius, keyRadius, pressHighlight)
         }
-        canvas.drawRoundRect(rect, keyRadius, keyRadius, keyOutlinePaint)
+        if (drawsOrdinaryKeyOutline()) canvas.drawRoundRect(rect, keyRadius, keyRadius, keyOutlinePaint)
     }
 
     private fun drawLabel(canvas: Canvas, p: Placed) {
         if (p.key.action == KeyAction.TOGGLE_LANG) { drawLangToggle(canvas, p.rect); return }
         if (p.key.action == KeyAction.SHIFT) { drawShift(canvas, p.rect); return }
         if (p.key.action == KeyAction.BACKSPACE) { drawKeyGlyph(canvas, p.rect, palette.keyLabel) { c, pt, x, y, s -> Glyphs.drawBackspace(c, pt, x, y, s) }; return }
+        if (p.key.action == KeyAction.ENTER) {
+            drawKeyGlyph(canvas, p.rect, palette.accentLabel, functionalGlyphScale(p.rect)) { c, pt, x, y, s ->
+                Glyphs.drawEnter(c, pt, x, y, s)
+            }
+            return
+        }
         val cx = p.rect.centerX()
         val cy = p.rect.centerY()
         val display = displayLabel(p.key)
@@ -599,10 +605,23 @@ class KeyboardView(context: Context) : View(context) {
         }
     }
 
-    private inline fun drawKeyGlyph(canvas: Canvas, rect: RectF, color: Int, draw: (Canvas, Paint, Float, Float, Float) -> Unit) {
+    private inline fun drawKeyGlyph(
+        canvas: Canvas,
+        rect: RectF,
+        color: Int,
+        scale: Float = minOf(rect.width(), rect.height()) * 0.24f,
+        draw: (Canvas, Paint, Float, Float, Float) -> Unit,
+    ) {
         iconPaint.color = color
-        draw(canvas, iconPaint, rect.centerX(), rect.centerY(), minOf(rect.width(), rect.height()) * 0.24f)
+        draw(canvas, iconPaint, rect.centerX(), rect.centerY(), scale)
     }
+
+    private fun functionalGlyphScale(fallback: RectF): Float {
+        val rect = placed.firstOrNull { it.key.action == KeyAction.BACKSPACE }?.rect ?: fallback
+        return minOf(rect.width(), rect.height()) * 0.24f
+    }
+
+    private fun drawsOrdinaryKeyOutline(): Boolean = layout.id != LayoutId.ALPHA && layout.id != LayoutId.NINE
 
     internal fun shiftRenderState(): String = if (shiftLocked) "LOCK" else if (shifted) "ONCE" else "OFF"
 
@@ -611,7 +630,7 @@ class KeyboardView(context: Context) : View(context) {
 
     internal fun displayLabelForTest(key: Key): String = displayLabel(key)
 
-    internal fun keyLabelPaintsAreBoldForTest(): Boolean = listOf(
+    internal fun keyLabelPaintsUseNormalWeightForTest(): Boolean = listOf(
         labelPaint,
         specialLabelPaint,
         boldLabelPaint,
@@ -621,7 +640,14 @@ class KeyboardView(context: Context) : View(context) {
         langSmallPaint,
         scrollLabelPaint,
         previewLabelPaint,
-    ).all { it.typeface === android.graphics.Typeface.DEFAULT_BOLD }
+    ).all { it.typeface === android.graphics.Typeface.DEFAULT }
+
+    internal fun enterGlyphBoundsForTest(): RectF? {
+        val rect = boundsOfActionForTest(KeyAction.ENTER) ?: return null
+        return Glyphs.enterBounds(rect.centerX(), rect.centerY(), functionalGlyphScale(rect))
+    }
+
+    internal fun drawsOrdinaryKeyOutlineForTest(): Boolean = drawsOrdinaryKeyOutline()
 
     internal fun caseBoxActiveForTest(): Boolean = caseBoxActive
     internal fun caseBoxLabelsForTest(): List<String>? = caseBoxKey?.let { caseBoxLabels(it) }

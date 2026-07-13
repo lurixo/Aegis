@@ -214,7 +214,7 @@ class UserModel {
     }
 
     private companion object {
-        const val BOOST_WEIGHT = 2.5
+        const val BOOST_WEIGHT = 3.5
 
         fun isStorableWord(word: String): Boolean = word.none { it == '\t' || it == '\n' || it == '\r' }
 
