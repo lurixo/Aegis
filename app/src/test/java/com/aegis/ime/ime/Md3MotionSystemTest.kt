@@ -16,10 +16,15 @@
 package com.aegis.ime.ime
 
 import android.app.Activity
+import android.content.ContentResolver
+import android.content.Context
+import android.content.ContextWrapper
 import android.graphics.Color
 import android.provider.Settings
+import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
+import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
@@ -42,6 +47,15 @@ class Md3MotionSystemTest {
 
     private val ctx = RuntimeEnvironment.getApplication()
 
+    private class CountingContext(base: Context) : ContextWrapper(base) {
+        var resolverAccesses = 0
+
+        override fun getContentResolver(): ContentResolver {
+            resolverAccesses++
+            return baseContext.contentResolver
+        }
+    }
+
     private fun animationsOn() = Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
     private fun animationsOff() = Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
 
@@ -51,6 +65,23 @@ class Md3MotionSystemTest {
         host.addView(view)
         activity.setContentView(host)
         return view
+    }
+
+    private fun <T : View> attach(activity: Activity, view: T, width: Int, height: Int): T {
+        val host = FrameLayout(activity)
+        host.addView(view, FrameLayout.LayoutParams(width, height))
+        activity.setContentView(host)
+        host.measure(
+            View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY),
+        )
+        host.layout(0, 0, width, height)
+        return view
+    }
+
+    private fun tap(view: View, x: Float, y: Float) {
+        view.dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, x, y, 0))
+        view.dispatchTouchEvent(MotionEvent.obtain(0, 10, MotionEvent.ACTION_UP, x, y, 0))
     }
 
 
@@ -105,6 +136,34 @@ class Md3MotionSystemTest {
         val anim = Motion.crossfadeColor(v, Color.RED, Color.BLUE) { }
         assertNotNull("an attached, animated colour change runs a cross-fade", anim)
         assertTrue(anim!!.isRunning)
+    }
+
+    @Test fun attached_candidate_and_keyboard_presses_do_not_read_global_settings() {
+        animationsOn()
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val context = CountingContext(activity)
+        val density = activity.resources.displayMetrics.density
+        val bar = CandidateView(context).apply { setContent(listOf("你", "泥"), "ni") }
+        attach(activity, bar, (360 * density).toInt(), (44 * density).toInt())
+        context.resolverAccesses = 0
+        var expandAccesses = -1
+        bar.onExpand = { expandAccesses = context.resolverAccesses }
+        val expandBounds = bar.expandControlBoundsForTest()
+        tap(bar, expandBounds.centerX(), expandBounds.centerY())
+        assertEquals(0, expandAccesses)
+        assertEquals(0, context.resolverAccesses)
+
+        val keyboard = KeyboardView(context).apply {
+            setLayout(Layouts.forId(LayoutId.ALPHA, Lang.CN), false, false, Lang.CN)
+        }
+        attach(activity, keyboard, (360 * density).toInt(), (260 * density).toInt())
+        context.resolverAccesses = 0
+        var picked: Key? = null
+        keyboard.onKey = { picked = it }
+        val keyCenter = requireNotNull(keyboard.centerOfLabelForTest("a"))
+        tap(keyboard, keyCenter.first, keyCenter.second)
+        assertEquals("a", picked?.label)
+        assertEquals(0, context.resolverAccesses)
     }
 
 
