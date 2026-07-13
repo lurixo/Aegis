@@ -363,8 +363,17 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     internal fun candidateRebuildsForTest(): Int = candidateRebuilds
     internal fun readingRebuildsForTest(): Int = readingRebuilds
     internal fun chipsAllocatedForTest(): Int = chipsAllocated
+    internal fun needsPoolGrowth(candidateCount: Int, readingCount: Int): Boolean =
+        candidateCount > chipPool.size || readingCount > readingPool.size
+    internal fun setSelectionContentVisible(visible: Boolean) {
+        val target = if (visible) View.VISIBLE else View.INVISIBLE
+        readingScroll.visibility = target
+        gridScroll.visibility = target
+    }
     internal fun chipReparentsForTest(): Int = chipReparents
     internal fun readingsAllocatedForTest(): Int = readingsAllocated
+    internal fun selectionContentVisibleForTest(): Boolean =
+        readingScroll.visibility == View.VISIBLE && gridScroll.visibility == View.VISIBLE
     internal fun renderedCandidateTextsForTest(): List<String> {
         val out = ArrayList<String>()
         for (r in 0 until gridColumn.childCount) {

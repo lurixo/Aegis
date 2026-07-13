@@ -71,7 +71,7 @@ class CandidateView(context: Context) : View(context) {
 
     private val density = resources.displayMetrics.density
     private val padding = 14f * density
-    private val expandW = 40f * density
+    private val expandW = (64f * density).toInt().toFloat()
     private val capMarginH = 8f * density
     private val capMarginV = 5f * density
 
@@ -149,6 +149,7 @@ class CandidateView(context: Context) : View(context) {
     internal fun taskbarPressRadiusDpForTest(): Float = ImeShapes.toolbarFeedbackRadiusDp
     internal fun keyPressRadiusDpForTest(): Float = ImeShapes.keyRadiusDp
     internal fun toolbarControlBoundsForTest(): List<RectF> = funcRects.map(::RectF) + RectF(collapseRect)
+    internal fun expandControlBoundsForTest(): RectF = RectF(width - expandW, 0f, width.toFloat(), height.toFloat())
 
     internal fun centerOfCandidateForTest(index: Int): Pair<Float, Float>? {
         if (index !in 0 until hitCount) return null
@@ -292,6 +293,7 @@ class CandidateView(context: Context) : View(context) {
                 }
             }
             MotionEvent.ACTION_UP -> {
+                val downTarget = pressedTarget
                 releasePressedTarget()
                 if (dragging) { dragging = false; if (fling.fling(scrollX, maxScroll())) postInvalidateOnAnimation(); return true }
                 if (fling.stopArmed) return true
@@ -301,8 +303,11 @@ class CandidateView(context: Context) : View(context) {
                         .takeIf { it >= 0 }?.let { performClick(); onFunction(functions[it]) }
                     return true
                 }
-                if (items.isNotEmpty() && event.x >= width - expandW) {
-                    performClick(); if (expanded) onCollapseExpanded() else onExpand(); return true
+                if (items.isNotEmpty() && (downTarget?.kind == PressKind.EXPAND || isExpandTarget(event.x, event.y))) {
+                    if (downTarget?.kind == PressKind.EXPAND && isExpandTarget(event.x, event.y)) {
+                        performClick(); if (expanded) onCollapseExpanded() else onExpand()
+                    }
+                    return true
                 }
                 val cx = event.x + scrollX
                 for (i in 0 until hitCount) {
@@ -324,7 +329,7 @@ class CandidateView(context: Context) : View(context) {
             return if (idx >= 0) PressTarget(PressKind.FUNCTION, idx) else null
         }
         if (items.isNotEmpty()) {
-            if (x >= width - expandW) return PressTarget(PressKind.EXPAND)
+            if (isExpandTarget(x, y)) return PressTarget(PressKind.EXPAND)
             val cx = x + scrollX
             for (i in 0 until hitCount) {
                 val r = hitRects[i]
@@ -333,6 +338,9 @@ class CandidateView(context: Context) : View(context) {
         }
         return null
     }
+
+    private fun isExpandTarget(x: Float, y: Float): Boolean =
+        x >= width - expandW && x < width && y >= 0f && y < height
 
     private fun setPressedTarget(target: PressTarget?) {
         if (pressedTarget == target) return

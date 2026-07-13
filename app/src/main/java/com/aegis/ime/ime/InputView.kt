@@ -67,6 +67,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private var lastCandidates: List<String> = emptyList()
     private var lastReadings: List<String> = emptyList()
     private var lastSelectedReading = -1
+    private var pendingGridBind: Any? = null
     private var composingNow = false
     private var currentPanel: View? = null
     private var copyBarActive = false
@@ -321,15 +322,43 @@ class InputView(context: Context) : LinearLayout(context) {
         if (copyBarShown && composingNow) { hideCopyBar(); onCopyDismiss() }
         if (currentPanel === gridView) {
             if (preedit.isEmpty()) showPanel(null)
-            else { gridView.setCandidates(candidates); gridView.setReadings(readings, selectedReading) }
+            else if (pendingGridBind == null) bindExpandedCandidates()
         }
     }
 
     internal fun showExpandedCandidates() {
         if (lastCandidates.isEmpty()) return
+        if (pendingGridBind != null && currentPanel === gridView) return
+        val deferBinding = isAttachedToWindow &&
+            gridView.needsPoolGrowth(lastCandidates.size, lastReadings.size)
+        val token = if (deferBinding) Any().also { pendingGridBind = it } else null
+        if (token != null) gridView.setSelectionContentVisible(false)
+        showPanel(gridView)
+        if (token != null) {
+            gridView.postOnAnimation {
+                if (pendingGridBind !== token || currentPanel !== gridView) return@postOnAnimation
+                gridView.post(object : Runnable {
+                    override fun run() {
+                        if (pendingGridBind !== token || currentPanel !== gridView) return
+                        if (!gridView.isAttachedToWindow) {
+                            gridView.post(this)
+                            return
+                        }
+                        pendingGridBind = null
+                        bindExpandedCandidates()
+                    }
+                })
+            }
+        } else {
+            bindExpandedCandidates()
+        }
+    }
+
+    private fun bindExpandedCandidates() {
+        if (currentPanel !== gridView) return
         gridView.setCandidates(lastCandidates)
         gridView.setReadings(lastReadings, lastSelectedReading)
-        showPanel(gridView)
+        gridView.setSelectionContentVisible(true)
     }
 
     internal fun shownCandidateCount(): Int = candidateView.itemCount()
@@ -344,6 +373,7 @@ class InputView(context: Context) : LinearLayout(context) {
         (outgoing as? ResettablePanel)?.takeIf { it !== panel }?.resetToDefault()
         if (outgoing === gridView && panel !== gridView) onExpandClosed()
         currentPanel = panel
+        if (panel !== gridView) pendingGridBind = null
         candidateView.setExpanded(panel === gridView)
         if (panel == null) {
             if (outgoing != null) {
@@ -391,6 +421,7 @@ class InputView(context: Context) : LinearLayout(context) {
         (outgoing as? ResettablePanel)?.resetToDefault()
         if (outgoing === gridView) onExpandClosed()
         currentPanel = null
+        pendingGridBind = null
         candidateView.setExpanded(false)
         outgoing?.let(Motion::reset)
         panelContainer.removeAllViews()
@@ -503,6 +534,14 @@ class InputView(context: Context) : LinearLayout(context) {
         candidateView.centerOfCandidateForTest(0)?.let { (x, y) ->
             dispatchTapForTest(toolbarVisualLeftPx() + x, toolbarVisualTopPx() + y)
         } ?: false
+
+    internal fun tapExpandCandidatesForTest(): Boolean {
+        val bounds = candidateView.expandControlBoundsForTest()
+        return dispatchTapForTest(
+            toolbarVisualLeftPx() + bounds.centerX(),
+            toolbarVisualTopPx() + bounds.centerY(),
+        )
+    }
 
     internal fun editConfirmBoundsForTest(): Rect = boundsInRoot(editBarView.confirmButtonForTest())
     internal fun editBarForTest(): EditBarView = editBarView

@@ -18,12 +18,10 @@ package com.aegis.ime.ime
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
-import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
-import android.provider.Settings
 import android.view.View
 import android.view.animation.Interpolator
 import android.view.animation.PathInterpolator
@@ -53,10 +51,7 @@ object Motion {
 
     const val REVEAL_SHIFT_DP = 8f
 
-    fun enabled(ctx: Context): Boolean =
-        runCatching {
-            Settings.Global.getFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
-        }.getOrDefault(1f) != 0f
+    fun enabled(): Boolean = ValueAnimator.areAnimatorsEnabled()
 
     fun withAlpha(argb: Int, alpha: Int): Int = (argb and 0x00FFFFFF) or (alpha.coerceIn(0, 255) shl 24)
 
@@ -77,7 +72,7 @@ object Motion {
 
     fun fadeIn(view: View, duration: Long = FADE_IN) {
         view.animate().cancel()
-        if (!view.isAttachedToWindow || !enabled(view.context)) {
+        if (!view.isAttachedToWindow || !enabled()) {
             showImmediately(view)
             return
         }
@@ -91,7 +86,7 @@ object Motion {
         view.animate().cancel()
         view.visibility = View.VISIBLE
         val distance = distanceDp * view.resources.displayMetrics.density
-        if (!view.isAttachedToWindow || !enabled(view.context)) {
+        if (!view.isAttachedToWindow || !enabled()) {
             showImmediately(view)
             return
         }
@@ -124,7 +119,7 @@ object Motion {
         endAction: (() -> Unit)? = null,
     ) {
         view.animate().cancel()
-        if (!view.isAttachedToWindow || !enabled(view.context)) {
+        if (!view.isAttachedToWindow || !enabled()) {
             view.visibility = endVisibility
             reset(view)
             endAction?.invoke()
@@ -170,7 +165,7 @@ object Motion {
     fun swapIn(incoming: View, outgoing: View?, outDuration: Long = FADE_OUT, inDuration: Long = FADE_IN) {
         incoming.animate().cancel()
         outgoing?.animate()?.cancel()
-        if (outgoing == null || !outgoing.isAttachedToWindow || !enabled(outgoing.context)) {
+        if (outgoing == null || !outgoing.isAttachedToWindow || !enabled()) {
             outgoing?.let { it.visibility = View.GONE; reset(it) }
             showImmediately(incoming)
             return
@@ -203,7 +198,7 @@ object Motion {
 
     fun fadeThrough(view: View, outDuration: Long = FADE_OUT, inDuration: Long = FADE_IN, swap: () -> Unit) {
         view.animate().cancel()
-        if (!view.isAttachedToWindow || !enabled(view.context)) {
+        if (!view.isAttachedToWindow || !enabled()) {
             swap()
             showImmediately(view)
             return
@@ -232,7 +227,7 @@ object Motion {
 
     fun crossfadeColor(view: View, from: Int, to: Int, duration: Long = STATE_CHANGE, apply: (Int) -> Unit): ValueAnimator? {
         if (from == to) { apply(to); return null }
-        if (!view.isAttachedToWindow || !enabled(view.context)) { apply(to); return null }
+        if (!view.isAttachedToWindow || !enabled()) { apply(to); return null }
         return ValueAnimator.ofArgb(from, to).apply {
             this.duration = duration
             interpolator = STANDARD
@@ -277,7 +272,7 @@ object Motion {
 
         private fun animateTo(target: Float, duration: Long, interpolator: Interpolator) {
             animator?.cancel()
-            if (!view.isAttachedToWindow || !enabled(view.context)) {
+            if (!view.isAttachedToWindow || !enabled()) {
                 level = target
                 invalidate()
                 return

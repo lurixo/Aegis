@@ -15,20 +15,28 @@
 
 package com.aegis.ime.ime
 
+import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
+import android.widget.FrameLayout
 import com.aegis.ime.engine.CandidateEngine
+import com.aegis.ime.ime.theme.ImePalette
 import kotlin.math.abs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.LooperMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -37,12 +45,13 @@ class CandidateBarChevronTest {
     private val ctx = RuntimeEnvironment.getApplication()
     private val density = ctx.resources.displayMetrics.density
 
-    private fun barView(): CandidateView {
-        val v = CandidateView(ctx)
+    private fun barView(context: Context = ctx): CandidateView {
+        val viewDensity = context.resources.displayMetrics.density
+        val v = CandidateView(context)
         v.setContent(listOf("你好", "你", "拟"), "ni'hao")
         v.measure(
-            View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec((44 * density).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec((360 * viewDensity).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec((44 * viewDensity).toInt(), View.MeasureSpec.EXACTLY),
         )
         v.layout(0, 0, v.measuredWidth, v.measuredHeight)
         return v
@@ -61,8 +70,9 @@ class CandidateBarChevronTest {
     }
 
     private fun CandidateView.tapChevron() {
-        val cx = width - 20f * density
-        val cy = height / 2f
+        val bounds = expandControlBoundsForTest()
+        val cx = bounds.centerX()
+        val cy = bounds.centerY()
         dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, cx, cy, 0))
         dispatchTouchEvent(MotionEvent.obtain(0, 10, MotionEvent.ACTION_UP, cx, cy, 0))
     }
@@ -88,6 +98,46 @@ class CandidateBarChevronTest {
         assertFalse("it must NOT re-expand", expanded)
     }
 
+    @Test fun collapsed_expand_hit_column_matches_back_and_requires_bounded_down_and_up() {
+        val context = ctx.createConfigurationContext(
+            Configuration(ctx.resources.configuration).apply { densityDpi = 411 },
+        )
+        val viewDensity = context.resources.displayMetrics.density
+        val bar = barView(context)
+        val grid = CandidateGridView(context)
+        grid.measure(
+            View.MeasureSpec.makeMeasureSpec(bar.width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec((230 * viewDensity).toInt(), View.MeasureSpec.EXACTLY),
+        )
+        grid.layout(0, 0, grid.measuredWidth, grid.measuredHeight)
+        bar.setContent(List(40) { "候选$it" }, "shi")
+        val bounds = bar.expandControlBoundsForTest()
+        assertEquals(grid.returnButtonForTest().width.toFloat(), bounds.width(), 0.01f)
+        var expansions = 0
+        var picks = 0
+        var time = 0L
+        bar.onExpand = { expansions++ }
+        bar.onPick = { picks++ }
+        fun gesture(downX: Float, downY: Float, upX: Float, upY: Float, move: Boolean = false) {
+            val downTime = time
+            bar.dispatchTouchEvent(MotionEvent.obtain(downTime, time, MotionEvent.ACTION_DOWN, downX, downY, 0))
+            time += 10
+            if (move) {
+                bar.dispatchTouchEvent(MotionEvent.obtain(downTime, time, MotionEvent.ACTION_MOVE, upX, upY, 0))
+                time += 10
+            }
+            bar.dispatchTouchEvent(MotionEvent.obtain(downTime, time, MotionEvent.ACTION_UP, upX, upY, 0))
+            time += 10
+        }
+        gesture(bounds.left + 1f, bounds.centerY(), bounds.left + 1f, bounds.centerY())
+        assertEquals(1, expansions)
+        gesture(bounds.centerX(), bounds.centerY(), bounds.centerX(), bounds.bottom + 1f, move = true)
+        gesture(bounds.right - 1f, bounds.centerY(), bounds.right + 1f, bounds.centerY())
+        gesture(bounds.left - 1f, bounds.centerY(), bounds.left + 1f, bounds.centerY())
+        assertEquals(1, expansions)
+        assertEquals(0, picks)
+    }
+
 
     private fun attached(): InputView {
         val iv = InputView(ctx)
@@ -103,6 +153,28 @@ class CandidateBarChevronTest {
         return iv
     }
 
+    private fun activityInput(): Pair<FrameLayout, InputView> {
+        val activity = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
+        val root = FrameLayout(activity)
+        val iv = InputView(activity)
+        root.addView(iv)
+        activity.setContentView(root)
+        layoutRoot(root)
+        Shadows.shadowOf(Looper.getMainLooper()).runToEndOfTasks()
+        return root to iv
+    }
+
+    private fun layoutRoot(root: FrameLayout) {
+        val viewDensity = root.resources.displayMetrics.density
+        val width = (360 * viewDensity).toInt()
+        val height = (500 * viewDensity).toInt()
+        root.measure(
+            View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY),
+        )
+        root.layout(0, 0, width, height)
+    }
+
     @Test fun inputview_flips_chevron_when_the_grid_opens_and_closes() {
         val iv = attached()
         iv.showCandidates(listOf("你好", "你"), "ni'hao", listOf("ni"))
@@ -112,6 +184,151 @@ class CandidateBarChevronTest {
         assertEquals("grid open → chevron flips up", "⌃", iv.barChevronGlyph())
         iv.showPanel(null)
         assertEquals("grid closed → chevron back to down", "⌄", iv.barChevronGlyph())
+    }
+
+    @Test fun pending_expand_coalesces_rapid_updates_and_repeated_open_requests() {
+        val (root, iv) = activityInput()
+        val candidates = List(54) { "候选$it" }
+        val readings = listOf("shi")
+        iv.showCandidates(candidates, "shi", readings, 0)
+        val grid = iv.expandedGridForTest()
+        val mainLooper = Shadows.shadowOf(Looper.getMainLooper())
+        var firstPreDrawPools: Pair<Int, Int>? = null
+        root.viewTreeObserver.addOnPreDrawListener {
+            if (firstPreDrawPools == null) {
+                firstPreDrawPools = grid.chipsAllocatedForTest() to grid.readingsAllocatedForTest()
+            }
+            true
+        }
+        assertEquals(0, grid.chipsAllocatedForTest())
+        assertTrue(iv.tapExpandCandidatesForTest())
+        assertTrue(iv.panelShown)
+        assertEquals(0, grid.chipsAllocatedForTest())
+        assertFalse(grid.selectionContentVisibleForTest())
+        assertEquals(View.VISIBLE, grid.returnButtonForTest().visibility)
+        root.postOnAnimation { root.viewTreeObserver.dispatchOnPreDraw() }
+        mainLooper.runToEndOfTasks()
+        assertEquals(0 to 0, firstPreDrawPools)
+        assertEquals(candidates.size, grid.chipsAllocatedForTest())
+        assertEquals(candidates, grid.renderedCandidateTextsForTest())
+        assertEquals(readings, grid.renderedReadingTextsForTest())
+        assertEquals(ImePalette.STATIC_LIGHT.accentBottom, grid.readingTextColorForTest(0))
+        assertTrue(grid.selectionContentVisibleForTest())
+
+        iv.showPanel(null)
+        mainLooper.runToEndOfTasks()
+        iv.showCandidates(List(60) { "打开$it" }, "shi", listOf("shi", "si"), 0)
+        val candidateRebuilds = grid.candidateRebuildsForTest()
+        val readingRebuilds = grid.readingRebuildsForTest()
+        var growthPreDrawPools: Pair<Int, Int>? = null
+        root.viewTreeObserver.addOnPreDrawListener {
+            if (growthPreDrawPools == null) {
+                growthPreDrawPools = grid.chipsAllocatedForTest() to grid.readingsAllocatedForTest()
+            }
+            true
+        }
+        assertTrue(iv.tapExpandCandidatesForTest())
+        iv.showExpandedCandidates()
+        iv.showCandidates(List(68) { "中间$it" }, "shi", listOf("shi", "si", "chi", "zhi"), 3)
+        iv.showExpandedCandidates()
+        val latestCandidates = List(63) { "最新$it" }
+        val latestReadings = listOf("chi", "shi", "si")
+        iv.showCandidates(latestCandidates, "shi", latestReadings, 1)
+        assertEquals(candidates.size, grid.chipsAllocatedForTest())
+        assertEquals(1, grid.readingsAllocatedForTest())
+        assertEquals(candidateRebuilds, grid.candidateRebuildsForTest())
+        assertEquals(readingRebuilds, grid.readingRebuildsForTest())
+        assertEquals(candidates, grid.renderedCandidateTextsForTest())
+        assertEquals(readings, grid.renderedReadingTextsForTest())
+        assertFalse(grid.selectionContentVisibleForTest())
+        assertEquals(View.VISIBLE, grid.returnButtonForTest().visibility)
+        assertTrue(grid.returnButtonForTest().isClickable)
+        root.postOnAnimation { root.viewTreeObserver.dispatchOnPreDraw() }
+        mainLooper.runToEndOfTasks()
+        assertEquals(candidates.size to 1, growthPreDrawPools)
+        assertEquals(latestCandidates.size, grid.chipsAllocatedForTest())
+        assertEquals(latestReadings.size, grid.readingsAllocatedForTest())
+        assertEquals(latestCandidates, grid.renderedCandidateTextsForTest())
+        assertEquals(latestReadings, grid.renderedReadingTextsForTest())
+        assertEquals(ImePalette.STATIC_LIGHT.candidateText, grid.readingTextColorForTest(0))
+        assertEquals(ImePalette.STATIC_LIGHT.accentBottom, grid.readingTextColorForTest(1))
+        assertEquals(ImePalette.STATIC_LIGHT.candidateText, grid.readingTextColorForTest(2))
+        assertEquals(candidateRebuilds + 1, grid.candidateRebuildsForTest())
+        assertEquals(readingRebuilds + 1, grid.readingRebuildsForTest())
+        assertTrue(grid.selectionContentVisibleForTest())
+    }
+
+    @LooperMode(LooperMode.Mode.PAUSED)
+    @Test fun close_then_reopen_rejects_the_old_nested_bind() {
+        val (root, iv) = activityInput()
+        val grid = iv.expandedGridForTest()
+        val mainLooper = Shadows.shadowOf(Looper.getMainLooper())
+        iv.showCandidates(List(70) { "旧候选$it" }, "shi", listOf("shi", "si", "chi", "zhi"), 2)
+        assertTrue(iv.tapExpandCandidatesForTest())
+        var checkpointPools: Pair<Int, Int>? = null
+        grid.postOnAnimation {
+            assertTrue(grid.returnButtonForTest().performClick())
+            val latestCandidates = List(12) { "重开$it" }
+            val latestReadings = listOf("si", "shi")
+            iv.showCandidates(latestCandidates, "shi", latestReadings, 1)
+            iv.showExpandedCandidates()
+            grid.postOnAnimation {
+                checkpointPools = grid.chipsAllocatedForTest() to grid.readingsAllocatedForTest()
+                assertFalse(grid.selectionContentVisibleForTest())
+                assertEquals(View.VISIBLE, grid.returnButtonForTest().visibility)
+            }
+        }
+        root.postOnAnimation { root.viewTreeObserver.dispatchOnPreDraw() }
+        mainLooper.runToEndOfTasks()
+        assertEquals(0 to 0, checkpointPools)
+        assertEquals(12, grid.chipsAllocatedForTest())
+        assertEquals(2, grid.readingsAllocatedForTest())
+        assertEquals(List(12) { "重开$it" }, grid.renderedCandidateTextsForTest())
+        assertEquals(listOf("si", "shi"), grid.renderedReadingTextsForTest())
+        assertEquals(ImePalette.STATIC_LIGHT.candidateText, grid.readingTextColorForTest(0))
+        assertEquals(ImePalette.STATIC_LIGHT.accentBottom, grid.readingTextColorForTest(1))
+        assertEquals(1, grid.candidateRebuildsForTest())
+        assertEquals(1, grid.readingRebuildsForTest())
+        assertTrue(grid.selectionContentVisibleForTest())
+    }
+
+    @LooperMode(LooperMode.Mode.PAUSED)
+    @Test fun pending_open_inter_stage_detach_waits_for_reattach_and_binds_latest_once() {
+        val (root, iv) = activityInput()
+        val grid = iv.expandedGridForTest()
+        val mainLooper = Shadows.shadowOf(Looper.getMainLooper())
+        iv.showCandidates(List(54) { "分离前$it" }, "shi", listOf("shi"), 0)
+        assertTrue(iv.tapExpandCandidatesForTest())
+        grid.postOnAnimation { root.removeView(iv) }
+        mainLooper.runToEndOfTasks()
+        assertFalse(iv.isAttachedToWindow)
+        assertEquals(0, grid.chipsAllocatedForTest())
+        assertEquals(0, grid.readingsAllocatedForTest())
+        assertEquals(0, grid.candidateRebuildsForTest())
+        assertEquals(0, grid.readingRebuildsForTest())
+        assertFalse(grid.selectionContentVisibleForTest())
+        assertEquals(View.VISIBLE, grid.returnButtonForTest().visibility)
+        assertTrue(grid.returnButtonForTest().isClickable)
+        val latestCandidates = List(51) { "重连$it" }
+        val latestReadings = listOf("si", "shi", "chi")
+        iv.showCandidates(latestCandidates, "shi", latestReadings, 2)
+        assertEquals(0, grid.chipsAllocatedForTest())
+        assertEquals(0, grid.readingsAllocatedForTest())
+        root.addView(iv)
+        layoutRoot(root)
+        assertTrue(iv.isAttachedToWindow)
+        assertEquals(0, grid.chipsAllocatedForTest())
+        mainLooper.runToEndOfTasks()
+        assertEquals(latestCandidates.size, grid.chipsAllocatedForTest())
+        assertEquals(latestReadings.size, grid.readingsAllocatedForTest())
+        assertEquals(latestCandidates, grid.renderedCandidateTextsForTest())
+        assertEquals(latestReadings, grid.renderedReadingTextsForTest())
+        assertEquals(ImePalette.STATIC_LIGHT.candidateText, grid.readingTextColorForTest(0))
+        assertEquals(ImePalette.STATIC_LIGHT.candidateText, grid.readingTextColorForTest(1))
+        assertEquals(ImePalette.STATIC_LIGHT.accentBottom, grid.readingTextColorForTest(2))
+        assertEquals(1, grid.candidateRebuildsForTest())
+        assertEquals(1, grid.readingRebuildsForTest())
+        assertTrue(grid.selectionContentVisibleForTest())
     }
 
     @Test fun five_idle_toolbar_controls_have_equal_centered_bounds_and_actions() {
