@@ -33,6 +33,7 @@
     <string name="download_status_downloading">Downloading…</string>
     <string name="download_status_checking_update">Checking for updates…</string>
     <string name="download_toast_update_offline">Unable to check for updates (network unavailable)</string>
+    <string name="download_toast_update_timeout">Unable to check for updates (connection timed out, please retry)</string>
     <string name="download_toast_update_server_error">Unable to check for updates (server unavailable, please try again later)</string>
     <string name="download_toast_update_parse_error">Unable to check for updates (unexpected response from server)</string>
     <string name="download_toast_up_to_date">Up to date, no update</string>

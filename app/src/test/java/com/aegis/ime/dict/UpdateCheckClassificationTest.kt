@@ -44,7 +44,7 @@ class UpdateCheckClassificationTest {
 
     @Test
     fun onlyUnreachableConnectivityFailuresAreOffline() {
-        assertEquals(ModelDownload.CheckFailure.OFFLINE, ModelDownload.classifyRequestFailure(UnknownHostException("api.github.com")))
+        assertEquals(ModelDownload.CheckFailure.OFFLINE, ModelDownload.classifyRequestFailure(UnknownHostException("timeout.example")))
         assertEquals(ModelDownload.CheckFailure.OFFLINE, ModelDownload.classifyRequestFailure(ConnectException("Network is unreachable")))
         assertEquals(ModelDownload.CheckFailure.OFFLINE, ModelDownload.classifyRequestFailure(ConnectException("failed to connect: ENETUNREACH (Network is unreachable)")))
         assertEquals(ModelDownload.CheckFailure.OFFLINE, ModelDownload.classifyRequestFailure(ConnectException("failed to connect: EHOSTUNREACH (No route to host)")))
@@ -58,17 +58,14 @@ class UpdateCheckClassificationTest {
     fun reachedButFailedServerIsServerNotOffline() {
         assertEquals(ModelDownload.CheckFailure.SERVER, ModelDownload.classifyRequestFailure(ModelDownload.HttpStatusException(403)))
         assertEquals(ModelDownload.CheckFailure.SERVER, ModelDownload.classifyRequestFailure(ModelDownload.HttpStatusException(500)))
-        assertEquals(ModelDownload.CheckFailure.SERVER, ModelDownload.classifyRequestFailure(SocketTimeoutException("Read timed out")))
         assertEquals(ModelDownload.CheckFailure.SERVER, ModelDownload.classifyRequestFailure(SSLException("handshake failed")))
-        assertEquals(ModelDownload.CheckFailure.SERVER, ModelDownload.classifyRequestFailure(IOException("stream closed")))
+        assertEquals(ModelDownload.CheckFailure.SERVER, ModelDownload.classifyRequestFailure(IOException("operation timed out")))
     }
 
     @Test
-    fun refusedAndTimedConnectFailuresAreServerNotOffline() {
+    fun refusedConnectFailuresAreServerNotOffline() {
         listOf(
             ConnectException("Connection refused"),
-            ConnectException("connect timed out"),
-            ConnectException("failed to connect to github.com/140.82.112.3 (port 443) after 20000ms"),
             ConnectException("ECONNREFUSED (Connection refused)"),
         ).forEach { error ->
             val failure = ModelDownload.classifyRequestFailure(error)
@@ -76,6 +73,23 @@ class UpdateCheckClassificationTest {
             assertNotEquals(ModelDownload.CheckFailure.OFFLINE, failure)
             assertEquals(
                 ModelDownload.UpdateCheck.SERVER_ERROR,
+                ModelDownload.modelUpdateAction(true, "local", ModelDownload.ValidatorProbe.Failed(failure)),
+            )
+        }
+    }
+
+    @Test
+    fun timeoutsHaveTheirOwnRetryableOutcome() {
+        listOf(
+            SocketTimeoutException("Read timed out"),
+            IOException("wrapped", SocketTimeoutException("Read timed out")),
+            ConnectException("connect timed out"),
+            ConnectException("ETIMEDOUT"),
+        ).forEach { error ->
+            val failure = ModelDownload.classifyRequestFailure(error)
+            assertEquals(ModelDownload.CheckFailure.TIMEOUT, failure)
+            assertEquals(
+                ModelDownload.UpdateCheck.TIMEOUT,
                 ModelDownload.modelUpdateAction(true, "local", ModelDownload.ValidatorProbe.Failed(failure)),
             )
         }
@@ -89,6 +103,7 @@ class UpdateCheckClassificationTest {
         assertEquals(ModelDownload.UpdateCheck.UPDATE, ModelDownload.modelUpdateAction(true, null, ModelDownload.ValidatorProbe.Reached("e2")))
         assertEquals(ModelDownload.UpdateCheck.SERVER_ERROR, ModelDownload.modelUpdateAction(true, "e1", ModelDownload.ValidatorProbe.Reached(null)))
         assertEquals(ModelDownload.UpdateCheck.OFFLINE, ModelDownload.modelUpdateAction(true, "e1", ModelDownload.ValidatorProbe.Failed(ModelDownload.CheckFailure.OFFLINE)))
+        assertEquals(ModelDownload.UpdateCheck.TIMEOUT, ModelDownload.modelUpdateAction(true, "e1", ModelDownload.ValidatorProbe.Failed(ModelDownload.CheckFailure.TIMEOUT)))
         assertEquals(ModelDownload.UpdateCheck.SERVER_ERROR, ModelDownload.modelUpdateAction(true, "e1", ModelDownload.ValidatorProbe.Failed(ModelDownload.CheckFailure.SERVER)))
         assertEquals(ModelDownload.UpdateCheck.PARSE_ERROR, ModelDownload.modelUpdateAction(true, "e1", ModelDownload.ValidatorProbe.Failed(ModelDownload.CheckFailure.PARSE)))
     }
@@ -99,15 +114,14 @@ class UpdateCheckClassificationTest {
         assertNull(ModelDownload.modelUpdateAction(false, null, ModelDownload.ValidatorProbe.Failed(ModelDownload.CheckFailure.OFFLINE)))
     }
 
-
     @Test
-    fun dictionaryCheckOverTheDictLatestTagReturnsRealVerdict() {
-        val update = ModelDownload.dictionaryUpdateFromFetch({ dictLatestRelease(sha2) }, ModelDownload.DictionaryInstallMetadata())
+    fun dictionaryCheckOverTheUpdateManifestReturnsRealVerdict() {
+        val update = ModelDownload.dictionaryUpdateFromFetch({ dictionaryManifest(sha2) }, ModelDownload.DictionaryInstallMetadata())
         assertEquals(ModelDownload.UpdateCheck.UPDATE, update.state)
         assertEquals(sha2, update.asset?.sha256)
 
         val current = ModelDownload.dictionaryUpdateFromFetch(
-            { dictLatestRelease(sha2) },
+            { dictionaryManifest(sha2) },
             ModelDownload.DictionaryInstallMetadata(sha256 = sha2, publishedAt = PUBLISHED),
         )
         assertEquals(ModelDownload.UpdateCheck.UP_TO_DATE, current.state)
@@ -124,13 +138,13 @@ class UpdateCheckClassificationTest {
     }
 
     @Test
-    fun rateLimitedDictionaryCheckReportsServerNotOffline() {
+    fun dictionaryHttpFailureReportsServerNotOffline() {
         val result = ModelDownload.dictionaryUpdateFromFetch(
             { throw ModelDownload.HttpStatusException(403) },
             ModelDownload.DictionaryInstallMetadata(),
         )
         assertEquals(ModelDownload.UpdateCheck.SERVER_ERROR, result.state)
-        assertNotEquals("a rate-limited (reachable) server must NOT read as offline", ModelDownload.UpdateCheck.OFFLINE, result.state)
+        assertNotEquals(ModelDownload.UpdateCheck.OFFLINE, result.state)
     }
 
     @Test
@@ -214,33 +228,21 @@ class UpdateCheckClassificationTest {
         }
     }
 
-    private fun dictLatestRelease(sha256: String, tag: String = "dict-latest"): String =
+    private fun dictionaryManifest(sha256: String, tag: String = "dict-latest"): String =
         """
         {
-          "tag_name": "$tag",
-          "html_url": "https://github.com/lurixo/Aegis/releases/tag/$tag",
-          "prerelease": true,
-          "published_at": "$PUBLISHED",
-          "assets": [
-            {
-              "name": "aegis-build-info.json",
-              "size": 8250,
-              "digest": "sha256:${"a".repeat(64)}",
-              "browser_download_url": "https://github.com/lurixo/Aegis/releases/download/$tag/aegis-build-info.json"
-            },
-            {
-              "name": "aegis-dictionary-update.json",
-              "size": 698,
-              "digest": "sha256:${"b".repeat(64)}",
-              "browser_download_url": "https://github.com/lurixo/Aegis/releases/download/$tag/aegis-dictionary-update.json"
-            },
-            {
-              "name": "aegis_dict_pack_$tag.zip",
-              "size": 97927377,
-              "digest": "sha256:$sha256",
-              "browser_download_url": "https://github.com/lurixo/Aegis/releases/download/$tag/aegis_dict_pack_$tag.zip"
-            }
-          ]
+          "schema_version": 1,
+          "kind": "dictionary_update",
+          "asset": {
+            "name": "aegis_dict_pack_$tag.zip",
+            "url": "https://github.com/lurixo/Aegis/releases/download/$tag/aegis_dict_pack_$tag.zip",
+            "release_tag": "$tag",
+            "release_url": "https://github.com/lurixo/Aegis/releases/tag/$tag",
+            "prerelease": false,
+            "published_at": null,
+            "sha256": "$sha256",
+            "size_bytes": 97927377
+          }
         }
         """.trimIndent()
 
