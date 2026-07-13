@@ -149,6 +149,7 @@ class CandidateView(context: Context) : View(context) {
     internal fun taskbarPressRadiusDpForTest(): Float = ImeShapes.toolbarFeedbackRadiusDp
     internal fun keyPressRadiusDpForTest(): Float = ImeShapes.keyRadiusDp
     internal fun toolbarControlBoundsForTest(): List<RectF> = funcRects.map(::RectF) + RectF(collapseRect)
+    internal fun toolbarOuterRadiusForTest(): Float = toolbarOuterRadius()
     internal fun expandControlBoundsForTest(): RectF = RectF(width - expandW, 0f, width.toFloat(), height.toFloat())
     internal fun toolbarChevronBoundsForTest(): RectF =
         Glyphs.chevronBounds(collapseRect.centerX(), collapseRect.centerY(), 9f * density)
@@ -214,7 +215,7 @@ class CandidateView(context: Context) : View(context) {
         val capR = width - capMarginH
         val capT = capMarginV
         val capB = height - capMarginV
-        val rad = minOf((capB - capT) / 2f, ImeShapes.toolbarPillRadiusDp * density)
+        val rad = toolbarOuterRadius()
         capsulePaint.setShadowLayer(6f * density, 0f, 2f * density, palette.shadow)
         canvas.drawRoundRect(capL, capT, capR, capB, rad, rad, capsulePaint)
         capsulePaint.clearShadowLayer()
@@ -232,11 +233,12 @@ class CandidateView(context: Context) : View(context) {
             drawIcon(canvas, f, cx, cy, s)
         }
         collapseRect.set(areaL + slot * functions.size, capT, areaR, capB)
-        val sepH = (capB - capT) * 0.25f
-        canvas.drawRect(collapseRect.left, cy - sepH, collapseRect.left + density, cy + sepH, sepPaint)
         drawPressLayer(canvas, PressTarget(PressKind.COLLAPSE), collapseRect.left, collapseRect.top, collapseRect.right, collapseRect.bottom)
         Glyphs.drawChevron(canvas, iconPaint, collapseRect.centerX(), cy, s, down = true)
     }
+
+    private fun toolbarOuterRadius(): Float =
+        minOf((height - capMarginV * 2f) / 2f, ImeShapes.toolbarPillRadiusDp * density)
 
     private fun drawPressLayer(canvas: Canvas, target: PressTarget, left: Float, top: Float, right: Float, bottom: Float) {
         val level = if (target == visualPressedTarget) pressFeedback.level else 0f

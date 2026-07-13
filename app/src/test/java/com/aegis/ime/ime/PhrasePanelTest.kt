@@ -15,7 +15,7 @@
 
 package com.aegis.ime.ime
 
-import android.view.Gravity
+import android.graphics.drawable.GradientDrawable
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -83,12 +83,11 @@ class PhrasePanelTest {
     }
 
 
-    @Test fun expanded_phrase_card_action_row_is_edit_move_delete() {
+    @Test fun expanded_phrase_card_action_row_is_edit_note_move_delete() {
         val v = phraseView().apply { expandForTest("你好") }
-        val ls = labels(v)
-        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_edit) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_move) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_delete) in ls)
-        assertFalse("＋常用语 makes no sense for a phrase", ls.any { it.contains(ctx.getString(com.aegis.ime.R.string.clip_phrases)) && it.contains("＋") })
-        assertFalse("no 拆词 on a phrase", ls.any { it.contains(ctx.getString(com.aegis.ime.R.string.clip_split_word)) })
+        val actions = textViews(v).filter { it.compoundDrawables[0] != null && it.background is GradientDrawable }
+        assertEquals(listOf(ctx.getString(com.aegis.ime.R.string.clip_edit), ctx.getString(com.aegis.ime.R.string.clip_note), ctx.getString(com.aegis.ime.R.string.clip_move), ctx.getString(com.aegis.ime.R.string.clip_delete)), actions.map { it.text.toString() })
+        assertFalse(labels(v).any { it == "置顶" || it == "Pin to top" })
     }
 
     @Test fun expanded_clipboard_card_keeps_add_split_delete() {
@@ -99,16 +98,25 @@ class PhrasePanelTest {
         assertTrue(ls.any { it.contains(ctx.getString(com.aegis.ime.R.string.clip_phrases)) }); assertTrue(ls.any { it.contains(ctx.getString(com.aegis.ime.R.string.clip_split_word)) }); assertTrue(ls.any { it.contains(ctx.getString(com.aegis.ime.R.string.clip_delete)) })
     }
 
-    @Test fun expanded_clipboard_action_row_wraps_actions_inside_left_center_right_slots() {
-        val v = ClipboardView(ctx).apply {
+    @Test fun clipboard_and_phrase_action_buttons_share_height_rounding_and_spacing() {
+        val clip = ClipboardView(ctx).apply {
             historyProvider = { listOf("abc") }; applyPalette(pal); refresh(); expandForTest("abc")
         }
-        val actions = textViews(v)
+        val clipActions = textViews(clip)
             .filter { it.text?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_phrases), ctx.getString(com.aegis.ime.R.string.clip_split_word), ctx.getString(com.aegis.ime.R.string.clip_delete)) && it.compoundDrawables.any { d -> d != null } }
-        assertEquals(3, actions.size)
-        val gravities = actions.map { (it.layoutParams as android.widget.FrameLayout.LayoutParams).gravity }
-        assertEquals(listOf(Gravity.START, Gravity.CENTER, Gravity.END), gravities)
-        assertTrue(actions.all { it.layoutParams.width == ViewGroup.LayoutParams.WRAP_CONTENT })
+        val phraseActions = textViews(phraseView().apply { expandForTest("你好") })
+            .filter { it.text?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_edit), ctx.getString(com.aegis.ime.R.string.clip_note), ctx.getString(com.aegis.ime.R.string.clip_move), ctx.getString(com.aegis.ime.R.string.clip_delete)) && it.compoundDrawables.any { d -> d != null } }
+        assertEquals(3, clipActions.size)
+        assertEquals(4, phraseActions.size)
+        val all = clipActions + phraseActions
+        assertEquals(1, all.map { it.layoutParams.height }.toSet().size)
+        assertEquals(1, all.map { it.compoundDrawablePadding }.toSet().size)
+        assertTrue(all.all { it.background is GradientDrawable })
+        assertEquals(1, all.map { (it.background as GradientDrawable).cornerRadius }.toSet().size)
+        assertTrue(all.all { (it.background as GradientDrawable).cornerRadius > 0f })
+        val gap = (4 * ctx.resources.displayMetrics.density).toInt()
+        assertEquals(listOf(0, gap, gap), clipActions.map { (it.layoutParams as android.widget.LinearLayout.LayoutParams).marginStart })
+        assertEquals(listOf(0, gap, gap, gap), phraseActions.map { (it.layoutParams as android.widget.LinearLayout.LayoutParams).marginStart })
     }
 
     @Test fun edit_action_invokes_onEditPhrase() {
@@ -129,11 +137,14 @@ class PhrasePanelTest {
         assertEquals(Triple("默认", "你好", "工作"), move)
     }
 
-    @Test fun delete_action_invokes_onDeletePhrasesFrom() {
+    @Test fun closing_delete_confirmation_does_not_invoke_onDeletePhrasesFrom() {
         var del: Pair<String, List<String>>? = null
         val v = phraseView().apply { onDeletePhrasesFrom = { c, l -> del = c to l }; expandForTest("你好") }
         assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_delete)))
-        assertEquals("默认" to listOf("你好"), del)
+        assertNull(del)
+        overlayOf(v).performClick()
+        assertEquals(View.GONE, overlayOf(v).visibility)
+        assertNull(del)
     }
 
 
@@ -396,12 +407,24 @@ class PhrasePanelTest {
         assertEquals("工作", batch?.third)
     }
 
-    @Test fun batch_delete_invokes_onDeletePhrasesFrom() {
+    @Test fun batch_delete_requires_confirmation_before_onDeletePhrasesFrom() {
         var del: Pair<String, List<String>>? = null
         val v = phraseView().apply { onDeletePhrasesFrom = { c, l -> del = c to l }; enterSelectForTest(listOf("你好")) }
         assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_delete)))
+        assertNull(del)
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_delete_phrase_confirm) in labels(overlayOf(v)))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_cancel)))
+        assertNull(del)
+        assertTrue(v.isSelectModeForTest())
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_delete)))
+        overlayOf(v).performClick()
+        assertNull(del)
+        assertTrue(v.isSelectModeForTest())
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_delete)))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete)))
         assertEquals("默认", del?.first)
         assertEquals(listOf("你好"), del?.second)
+        assertFalse(v.isSelectModeForTest())
     }
 
 
@@ -433,7 +456,12 @@ class PhrasePanelTest {
         assertTrue("返回 is no longer a '‹' text glyph", textViews(v).none { it.text?.toString() == "‹" })
         assertEquals("all top icons share one width (item7)", 1, icons.map { it.layoutParams.width }.toSet().size)
         assertEquals("all top icons share one height (item7)", 1, icons.map { it.layoutParams.height }.toSet().size)
-        assertTrue("top icons are transparent controls, not rounded chips", icons.all { it.background == null })
+        val surfaced = icons.filter { it.contentDescription?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_add_phrase), ctx.getString(com.aegis.ime.R.string.clip_multi_select)) }
+        assertTrue(surfaced.all { it.background is GradientDrawable })
+        val iconSize = (36 * ctx.resources.displayMetrics.density).toInt()
+        assertTrue(surfaced.all { it.layoutParams.width == iconSize && it.layoutParams.height == iconSize })
+        assertTrue(surfaced.all { (it.background as GradientDrawable).cornerRadius > 0f })
+        assertTrue(icons.filterNot { it in surfaced }.all { it.background == null })
     }
 
 

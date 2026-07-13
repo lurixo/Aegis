@@ -15,9 +15,14 @@
 
 package com.aegis.ime.ime
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
+import com.aegis.ime.engine.CandidateEngine
+import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.KeyboardLayout
 import com.aegis.ime.layout.Key
@@ -34,6 +39,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -57,6 +63,39 @@ class KeyFeedbackTest {
     }
 
     private fun alphaView(): KeyboardView = keyboardView(Layouts.forId(LayoutId.ALPHA, Lang.EN))
+
+    private fun assertOrdinaryKeyRendersWithoutOutline(
+        state: String,
+        keyboardLayout: KeyboardLayout,
+        language: Lang,
+    ) {
+        val palette = ImePalette.STATIC_LIGHT.copy(
+            keyboardBg = Color.BLACK,
+            keySurface = Color.WHITE,
+            separator = Color.RED,
+        )
+        val view = keyboardView(keyboardLayout, language = language).apply { applyPalette(palette) }
+        val bounds = view.keyBoundsForTest().first { (key, _) -> key.action == KeyAction.COMMIT && !key.accent }.second
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        view.draw(Canvas(bitmap))
+        val centerY = bounds.centerY().toInt()
+        assertEquals(state, palette.keyboardBg, bitmap.getPixel((bounds.left - 2f * density).toInt(), centerY))
+        assertEquals(state, palette.keySurface, bitmap.getPixel((bounds.left + 2f * density).toInt(), centerY))
+        val left = (bounds.left - density).toInt()
+        val right = (bounds.left + density).toInt()
+        val top = (bounds.top + 12f * density).toInt()
+        val bottom = (bounds.bottom - 12f * density).toInt()
+        var chromaticPixels = 0
+        for (y in top..bottom) for (x in left..right) {
+            val pixel = bitmap.getPixel(x, y)
+            if (maxOf(Color.red(pixel), Color.green(pixel), Color.blue(pixel)) -
+                minOf(Color.red(pixel), Color.green(pixel), Color.blue(pixel)) > 1
+            ) {
+                chromaticPixels++
+            }
+        }
+        assertEquals(state, 0, chromaticPixels)
+    }
 
     private fun KeyboardView.down(x: Float, y: Float) = dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, x, y, 0))
     private fun KeyboardView.move(x: Float, y: Float) = dispatchTouchEvent(MotionEvent.obtain(0, 10, MotionEvent.ACTION_MOVE, x, y, 0))
@@ -89,16 +128,38 @@ class KeyFeedbackTest {
         }
     }
 
-    @Test fun ordinary_key_outline_is_removed_only_from_alpha_and_nine_layouts() {
-        val expected = mapOf(
-            LayoutId.ALPHA to false,
-            LayoutId.NINE to false,
-            LayoutId.NUMBER to true,
-            LayoutId.SYMBOL to true,
-            LayoutId.NUMPAD to true,
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Config(sdk = [34], qualifiers = "xxhdpi")
+    @Test fun ordinary_key_background_renders_without_an_outer_stroke_in_every_alpha_and_nine_reachable_layout_state() {
+        val controller = KeyboardController(
+            object : ImeHost {
+                override fun commitText(text: CharSequence) {}
+                override fun deleteBackward() {}
+                override fun performEnter() {}
+            },
+            object : CandidateEngine {
+                override fun candidates(composing: String, t9: Boolean): List<String> = emptyList()
+            },
         )
-        for ((id, outlined) in expected) {
-            assertEquals(outlined, keyboardView(Layouts.forId(id, Lang.CN)).drawsOrdinaryKeyOutlineForTest())
+        controller.onKey(Key(action = KeyAction.SWITCH_NINE))
+        "94".forEach { controller.onKey(Key(it.toString(), output = it.toString())) }
+        controller.onKey(Key(action = KeyAction.SEGMENT))
+        val firstForcedCut = Layouts.nine(Lang.CN, controller.nineLeftColumn(), composing = true)
+        "26".forEach { controller.onKey(Key(it.toString(), output = it.toString())) }
+        val secondForcedCut = Layouts.nine(Lang.CN, controller.nineLeftColumn(), composing = true)
+        val states = listOf(
+            Triple("26-key Chinese", Layouts.forId(LayoutId.ALPHA, Lang.CN), Lang.CN),
+            Triple("26-key English", Layouts.forId(LayoutId.ALPHA, Lang.EN), Lang.EN),
+            Triple("nine-key resting", Layouts.nine(Lang.CN, Layouts.ninePunctuation(), composing = false), Lang.CN),
+            Triple("nine-key composing", Layouts.nine(Lang.CN, listOf(Key("ci", action = KeyAction.PICK_READING)), composing = true), Lang.CN),
+            Triple("nine-key first forced-cut chunk", firstForcedCut, Lang.CN),
+            Triple("nine-key second forced-cut chunk", secondForcedCut, Lang.CN),
+            Triple("nine-key number page", Layouts.forId(LayoutId.NUMBER, Lang.CN), Lang.CN),
+            Triple("nine-key symbol page", Layouts.forId(LayoutId.SYMBOL, Lang.CN), Lang.CN),
+            Triple("nine-key numpad", Layouts.forId(LayoutId.NUMPAD, Lang.CN), Lang.CN),
+        )
+        for ((state, keyboardLayout, language) in states) {
+            assertOrdinaryKeyRendersWithoutOutline(state, keyboardLayout, language)
         }
     }
 

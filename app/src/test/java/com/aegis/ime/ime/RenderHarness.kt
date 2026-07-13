@@ -440,7 +440,7 @@ class RenderHarness {
                 applyPalette(pal); forcePhrasesStateForTest("默认"); refresh(); revealSwipeForTest("在吗")
             }
             snap(v, h, "phrase_swipe_$t.png")
-            assertTrue("$t: swipe row missing 置顶", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_pin_top)))
+            assertTrue("$t: swipe row missing 备注", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_note)))
         }
     }
 
@@ -510,17 +510,6 @@ class RenderHarness {
             }
             snap(v, h, "phrase_note_$t.png")
             assertTrue("$t: note alias shown", v.hasTextLeaf("登录服务器"))
-        }
-    }
-
-    @Test fun phrase_expanded_scroll() {
-        val h = (300 * density).toInt()
-        val long = (1..12).joinToString("\n") { "第${it}行内容很长需要滚动查看完整文本" }
-        for ((t, pal) in themes) {
-            val v = ClipboardView(ctx).apply {
-                historyProvider = { listOf(long, "短") }; applyPalette(pal); refresh(); expandForTest(long)
-            }
-            snap(v, h, "phrase_expanded_scroll_$t.png")
         }
     }
 

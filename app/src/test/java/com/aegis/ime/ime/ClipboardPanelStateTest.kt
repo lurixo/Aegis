@@ -35,7 +35,8 @@ class ClipboardPanelStateTest {
 
     @Test fun enter_exit_select_clears_selection() {
         val s = ClipboardPanelState()
-        s.enterSelect(); s.toggleSelect("a"); assertTrue(s.hasSelection())
+        s.toggleExpand("b"); s.enterSelect(); s.toggleSelect("a"); assertTrue(s.hasSelection())
+        assertEquals(null, s.expanded)
         s.exitSelect()
         assertFalse(s.selectMode)
         assertFalse(s.hasSelection())

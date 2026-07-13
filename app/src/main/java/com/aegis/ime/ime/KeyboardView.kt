@@ -162,7 +162,6 @@ class KeyboardView(context: Context) : View(context) {
     private val langSmallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyHint; textAlign = Paint.Align.RIGHT; textSize = sp(11f); typeface = android.graphics.Typeface.DEFAULT }
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySurface }
-    private val keyOutlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = density; color = palette.separator }
     private val sepLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.separator; strokeWidth = density }
     private val pressHighlight = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withAlpha(palette.keyLabel, 0x22) }
     private val scrollTrackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.railBg }
@@ -184,7 +183,6 @@ class KeyboardView(context: Context) : View(context) {
         subPaint.color = p.keyHint
         langActivePaint.color = p.keyLabelSecondary
         langSmallPaint.color = p.keyHint
-        keyOutlinePaint.color = p.separator
         sepLinePaint.color = p.separator
         pressHighlight.color = Motion.withAlpha(p.keyLabel, 0x22)
         scrollTrackPaint.color = p.railBg
@@ -554,7 +552,6 @@ class KeyboardView(context: Context) : View(context) {
             pressHighlight.color = Motion.stateLayerColor(palette.keyLabel, pressLevel)
             canvas.drawRoundRect(rect, keyRadius, keyRadius, pressHighlight)
         }
-        if (drawsOrdinaryKeyOutline()) canvas.drawRoundRect(rect, keyRadius, keyRadius, keyOutlinePaint)
     }
 
     private fun drawLabel(canvas: Canvas, p: Placed) {
@@ -621,8 +618,6 @@ class KeyboardView(context: Context) : View(context) {
         return minOf(rect.width(), rect.height()) * 0.24f
     }
 
-    private fun drawsOrdinaryKeyOutline(): Boolean = layout.id != LayoutId.ALPHA && layout.id != LayoutId.NINE
-
     internal fun shiftRenderState(): String = if (shiftLocked) "LOCK" else if (shifted) "ONCE" else "OFF"
 
     internal fun previewLabelForTest(): String? = previewKey?.let { displayLabel(it) }
@@ -646,8 +641,6 @@ class KeyboardView(context: Context) : View(context) {
         val rect = boundsOfActionForTest(KeyAction.ENTER) ?: return null
         return Glyphs.enterBounds(rect.centerX(), rect.centerY(), functionalGlyphScale(rect))
     }
-
-    internal fun drawsOrdinaryKeyOutlineForTest(): Boolean = drawsOrdinaryKeyOutline()
 
     internal fun caseBoxActiveForTest(): Boolean = caseBoxActive
     internal fun caseBoxLabelsForTest(): List<String>? = caseBoxKey?.let { caseBoxLabels(it) }

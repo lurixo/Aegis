@@ -44,13 +44,13 @@ class ImeVisualPolishTest {
         assertTrue("toolbar press shape must not read as a capsule", v.taskbarPressRadiusDpForTest() < v.keyPressRadiusDpForTest())
     }
 
-    @Test fun shared_aegis_surface_radii_use_the_smaller_shape_scale() {
+    @Test fun shared_aegis_surface_radii_keep_the_taskbar_capsule() {
         assertEquals(8f, ImeShapes.keyRadiusDp, 0f)
         assertEquals(6f, ImeShapes.toolbarFeedbackRadiusDp, 0f)
         assertEquals(8f, ImeShapes.cardRadiusDp, 0f)
         assertEquals(8f, ImeShapes.inputRadiusDp, 0f)
         assertEquals(8f, ImeShapes.chipRadiusDp, 0f)
-        assertEquals(8f, ImeShapes.toolbarPillRadiusDp, 0f)
+        assertEquals(999f, ImeShapes.toolbarPillRadiusDp, 0f)
     }
 
     @Test fun tap_feedback_helper_installs_a_rounded_ripple_foreground() {
