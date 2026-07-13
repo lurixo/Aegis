@@ -16,6 +16,7 @@
 package com.aegis.ime.ime
 
 import com.aegis.ime.decoder.EngineFixture
+import com.aegis.ime.decoder.PinyinDecoder
 import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.engine.DictEngine
@@ -23,8 +24,6 @@ import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.user.UserModel
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -150,7 +149,7 @@ class UserDictEndToEndTest {
         assertEquals("flush-committed assembled word is learned under its reading", listOf("此是"), um.readingSnapshot()["cishi"])
     }
 
-    @Test fun loneCharacter_and_realDictWord_areNotStoredAsSelfCreated() {
+    @Test fun exact_dictionary_word_is_saved_once_and_recalled_after_reload() {
         val um = UserModel()
         val (c, h) = controller(um)
         switchAlpha(c)
@@ -163,7 +162,26 @@ class UserDictEndToEndTest {
         "ciku".forEach { c.onKey(out(it.toString())) }
         pick(c, "词库")
         assertEquals("次词库", h.text)
-        assertNull("dictionary word not stored as a self-created word", um.readingSnapshot()["ciku"])
-        assertFalse("no spurious recall entries", um.readingSnapshot().containsKey("ciku"))
+        assertEquals(listOf("词库"), um.readingSnapshot()["ciku"])
+        val once = UserModel().apply { record(null, "词库", 1L) }
+        assertEquals(once.wordBoost("词库"), um.wordBoost("词库"), 0.0)
+
+        val file = File.createTempFile("userdb-exact", ".txt").also { it.deleteOnExit() }
+        um.save(file)
+        val loaded = UserModel().apply { load(file) }
+        assertEquals(listOf("词库"), loaded.readingSnapshot()["ciku"])
+        val fallback = EngineFixture.build(listOf(EngineFixture.Row("bie", "别", 100)))
+        val recalled = PinyinDecoder(fallback, lm, userModel = loaded).decodeCovered("ciku", 30).map { it.word }
+        assertTrue("词库" in recalled)
+    }
+
+    @Test fun same_word_only_and_same_reading_only_remain_distinct_learning_records() {
+        val um = UserModel()
+        val candidateEngine = engine(um)
+        candidateEngine.learnWord("CI'KU", "词库", assembled = true)
+        candidateEngine.learnWord("ci'gui", "词库", assembled = true)
+        candidateEngine.learnWord("CI-KU", "此库", assembled = true)
+        assertEquals(listOf("词库"), um.readingSnapshot()["cigui"])
+        assertEquals(setOf("词库", "此库"), um.readingSnapshot().getValue("ciku").toSet())
     }
 }

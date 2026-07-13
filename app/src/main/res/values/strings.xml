@@ -40,19 +40,19 @@
     <string name="download_storage_format">Storage: %1$s (app-private directory, hidden from file managers; local only and removable).</string>
 
     <string name="gram_card_title">Enhancement model (Wanxiang offline model)</string>
-    <string name="gram_card_description">Optional ~421 MB download. Chinese candidates become noticeably more accurate after download. Stored locally only; input remains fully offline.</string>
+    <string name="gram_card_description">Optional enhancement model. Chinese candidates become noticeably more accurate after download. Stored locally only; input remains fully offline.</string>
     <string name="gram_source_link">Model source: amzxyz/RIME-LMDG ↗</string>
     <string name="gram_status_enabled">✅ Enabled: enhanced grammar is active (downloaded %1$d MB, local only; loaded automatically after download)</string>
-    <string name="gram_status_not_downloaded">⚠ Enhanced grammar is not enabled - download the ~421 MB model to enable it</string>
+    <string name="gram_status_not_downloaded">⚠ Enhanced grammar is not enabled - download the optional model to enable it</string>
     <string name="gram_status_download_failed">Download failed</string>
     <string name="gram_status_update_current">Up to date, no update (enhancement model is already current)</string>
     <string name="gram_status_deleted">⚠ Enhanced grammar is not enabled (deleted; a loaded model is released automatically)</string>
 
     <string name="dict_card_title">Full dictionary pack (14 tables freq >= 1)</string>
-    <string name="dict_card_description">Optional full dictionary download, about 255 MB extracted (characters, base words, associations, sound corrections, polyphones, poetry, places, medicine, chemistry, drugs, notable names, variants, species, and personal names). The built-in high-frequency seed dictionary works offline without download; the full pack broadens Chinese candidate coverage. Stored locally only; input remains fully offline.</string>
+    <string name="dict_card_description">Optional full dictionary download (characters, base words, associations, sound corrections, polyphones, poetry, places, medicine, chemistry, drugs, notable names, variants, species, and personal names). The built-in high-frequency seed dictionary works offline without download; the full pack broadens Chinese candidate coverage. Stored locally only; input remains fully offline.</string>
     <string name="dict_source_link">Dictionary source: amzxyz/rime-wanxiang ↗</string>
     <string name="dict_status_enabled">✅ Downloaded and enabled: full dictionary (about %1$d MB, local only; broader Chinese coverage loads automatically)</string>
-    <string name="dict_status_not_downloaded">⚠ Full dictionary is not downloaded - optional ~98 MB compressed pack (~255 MB extracted; built-in seed dictionary already works offline)</string>
+    <string name="dict_status_not_downloaded">⚠ Full dictionary is not downloaded - the built-in seed dictionary already works offline</string>
     <string name="dict_status_verifying_extracting">Verifying and extracting…</string>
     <string name="dict_status_install_failed">Verification or extraction failed (file may be corrupt, please retry)</string>
     <string name="dict_status_download_failed">Download failed</string>

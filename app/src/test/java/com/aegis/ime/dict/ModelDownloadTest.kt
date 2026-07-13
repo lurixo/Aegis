@@ -17,7 +17,6 @@ package com.aegis.ime.dict
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -77,17 +76,35 @@ class ModelDownloadTest {
     }
 
     @Test
-    fun sizeDisplayIsDecimalMegabytesNotBinaryMebibytes() {
-        assertEquals("gram model reads as decimal MB", 421L, ModelDownload.bytesToDisplayMb(420_556_844L))
-        assertEquals("dict pack reads as decimal MB", 255L, ModelDownload.bytesToDisplayMb(254_961_874L))
-
-        assertEquals("gram was 401 under the old MiB divisor", 401L, 420_556_844L / 1_048_576L)
-        assertEquals("dict was 243 under the old MiB divisor", 243L, 254_961_874L / 1_048_576L)
-        assertNotEquals(420_556_844L / 1_048_576L, ModelDownload.bytesToDisplayMb(420_556_844L))
-
-        assertEquals("rounds up past .5", 255L, ModelDownload.bytesToDisplayMb(254_500_000L))
-        assertEquals("rounds down below .5", 254L, ModelDownload.bytesToDisplayMb(254_499_999L))
+    fun sizeDisplayUsesRoundedDecimalMegabytes() {
+        assertEquals(1L, ModelDownload.bytesToDisplayMb(1_499_999L))
+        assertEquals(2L, ModelDownload.bytesToDisplayMb(1_500_000L))
         assertEquals("exact MB", 100L, ModelDownload.bytesToDisplayMb(100_000_000L))
         assertEquals("zero bytes", 0L, ModelDownload.bytesToDisplayMb(0L))
+    }
+
+    @Test
+    fun installedResourceSizesFollowTheFilesEachCardActivates() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        val gram = ModelDownload.destFile(base).apply { writeBytes(ByteArray(1_499_999)) }
+        File(downloaded, "unrelated.bin").writeBytes(ByteArray(200_000))
+        File(downloaded, "${ModelDownload.GRAM_NAME}.part").writeBytes(ByteArray(300_000))
+        assertEquals(1_499_999L, ModelDownload.installedGramBytes(base))
+
+        val lengths = listOf(600_000, 700_000, 800_000)
+        ModelDownload.DICT_PACK_FILES.zip(lengths).forEach { (name, length) ->
+            File(downloaded, name).writeBytes(ByteArray(length))
+        }
+        ModelDownload.dictZipFile(base).writeBytes(ByteArray(900_000))
+        assertEquals(2_100_000L, ModelDownload.installedDictionaryBytes(base))
+
+        gram.writeBytes(ByteArray(1_500_000))
+        File(downloaded, ModelDownload.DICT_PACK_FILES.first()).writeBytes(ByteArray(900_000))
+        assertEquals(1_500_000L, ModelDownload.installedGramBytes(base))
+        assertEquals(2_400_000L, ModelDownload.installedDictionaryBytes(base))
+        assertEquals(2L, ModelDownload.bytesToDisplayMb(ModelDownload.installedGramBytes(base)))
+        assertEquals(2L, ModelDownload.bytesToDisplayMb(ModelDownload.installedDictionaryBytes(base)))
+        base.deleteRecursively()
     }
 }

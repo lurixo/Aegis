@@ -19,6 +19,8 @@ import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import com.aegis.ime.layout.KeyAction
+import com.aegis.ime.layout.KeyboardLayout
+import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
@@ -40,8 +42,13 @@ class KeyFeedbackTest {
     private val context = RuntimeEnvironment.getApplication()
     private val density = context.resources.displayMetrics.density
 
-    private fun alphaView(): KeyboardView = KeyboardView(context).apply {
-        setLayout(Layouts.forId(LayoutId.ALPHA, Lang.EN), false, false, Lang.EN)
+    private fun keyboardView(
+        keyboardLayout: KeyboardLayout,
+        shifted: Boolean = false,
+        locked: Boolean = false,
+        language: Lang = Lang.EN,
+    ): KeyboardView = KeyboardView(context).apply {
+        setLayout(keyboardLayout, shifted, locked, language)
         measure(
             View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
@@ -49,12 +56,50 @@ class KeyFeedbackTest {
         layout(0, 0, measuredWidth, measuredHeight)
     }
 
+    private fun alphaView(): KeyboardView = keyboardView(Layouts.forId(LayoutId.ALPHA, Lang.EN))
+
     private fun KeyboardView.down(x: Float, y: Float) = dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, x, y, 0))
     private fun KeyboardView.move(x: Float, y: Float) = dispatchTouchEvent(MotionEvent.obtain(0, 10, MotionEvent.ACTION_MOVE, x, y, 0))
     private fun KeyboardView.up(x: Float, y: Float) = dispatchTouchEvent(MotionEvent.obtain(0, 20, MotionEvent.ACTION_UP, x, y, 0))
 
-    @Test fun every_font_drawn_key_label_uses_bold_type() {
-        assertTrue(alphaView().keyLabelPaintsAreBoldForTest())
+    @Test fun every_font_drawn_key_label_uses_normal_weight() {
+        assertTrue(alphaView().keyLabelPaintsUseNormalWeightForTest())
+    }
+
+    @Test fun enter_glyph_is_centered_and_matches_function_icon_scale_in_every_layout_state() {
+        val cases = listOf(
+            Triple(Layouts.forId(LayoutId.ALPHA, Lang.CN), false, false),
+            Triple(Layouts.forId(LayoutId.ALPHA, Lang.EN), true, true),
+            Triple(Layouts.nine(Lang.CN, Layouts.ninePunctuation(), composing = false), false, false),
+            Triple(Layouts.nine(Lang.CN, listOf(Key("ci")), composing = true), false, false),
+            Triple(Layouts.forId(LayoutId.NUMBER, Lang.CN), false, false),
+            Triple(Layouts.forId(LayoutId.SYMBOL, Lang.CN), false, false),
+            Triple(Layouts.forId(LayoutId.NUMPAD, Lang.CN), false, false),
+        )
+        for ((keyboardLayout, shifted, locked) in cases) {
+            val view = keyboardView(keyboardLayout, shifted, locked, Lang.CN)
+            val key = view.boundsOfActionForTest(KeyAction.ENTER)!!
+            val backspace = view.boundsOfActionForTest(KeyAction.BACKSPACE)!!
+            val glyph = view.enterGlyphBoundsForTest()!!
+            val scale = minOf(backspace.width(), backspace.height()) * 0.24f
+            assertEquals(key.centerX(), glyph.centerX(), 0.01f)
+            assertEquals(key.centerY(), glyph.centerY(), 0.01f)
+            assertEquals(scale * 1.8f, glyph.width(), 0.01f)
+            assertEquals(scale * 1.4f, glyph.height(), 0.01f)
+        }
+    }
+
+    @Test fun ordinary_key_outline_is_removed_only_from_alpha_and_nine_layouts() {
+        val expected = mapOf(
+            LayoutId.ALPHA to false,
+            LayoutId.NINE to false,
+            LayoutId.NUMBER to true,
+            LayoutId.SYMBOL to true,
+            LayoutId.NUMPAD to true,
+        )
+        for ((id, outlined) in expected) {
+            assertEquals(outlined, keyboardView(Layouts.forId(id, Lang.CN)).drawsOrdinaryKeyOutlineForTest())
+        }
     }
 
 

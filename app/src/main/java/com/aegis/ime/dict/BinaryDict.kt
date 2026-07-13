@@ -77,12 +77,14 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
         return out
     }
 
-    fun containsExactWord(key: String, word: String): Boolean {
-        if (key.isEmpty() || word.isEmpty() || numKeys == 0) return false
+    fun containsExactWord(key: String, word: String): Boolean = exactWordFreq(key, word) != null
+
+    fun exactWordFreq(key: String, word: String): Int? {
+        if (key.isEmpty() || word.isEmpty() || numKeys == 0) return null
         val wordBytes = word.toByteArray(Charsets.UTF_8)
         val q = key.toByteArray(Charsets.US_ASCII)
         val i = lowerBound(q)
-        if (i >= numKeys || compareKey(i, q) != 0) return false
+        if (i >= numKeys || compareKey(i, q) != 0) return null
         val es = entryStart(i)
         val ee = if (i + 1 < numKeys) entryStart(i + 1) else numEntries
         var j = es
@@ -90,10 +92,10 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
             val entryOff = entryArrOff + j * 12
             val wo = buf.getInt(entryOff)
             val wl = buf.getInt(entryOff + 4)
-            if (wordEquals(wo, wl, wordBytes)) return true
+            if (wordEquals(wo, wl, wordBytes)) return buf.getInt(entryOff + 8)
             j++
         }
-        return false
+        return null
     }
 
     fun prefixByFreq(prefix: String, limit: Int): List<WordFreq> {

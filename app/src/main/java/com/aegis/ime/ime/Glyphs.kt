@@ -18,6 +18,7 @@ package com.aegis.ime.ime
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.RectF
 
 object Glyphs {
 
@@ -89,6 +90,18 @@ object Glyphs {
         c.drawLine(xc - a, cy - a, xc + a, cy + a, paint)
         c.drawLine(xc - a, cy + a, xc + a, cy - a, paint)
     }
+
+    fun drawEnter(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val bounds = enterBounds(cx, cy, s)
+        val turnY = cy + s * 0.1f
+        c.drawLine(bounds.right, bounds.top, bounds.right, turnY, paint)
+        c.drawLine(bounds.right, turnY, bounds.left, turnY, paint)
+        c.drawLine(bounds.left, turnY, bounds.left + s * 0.55f, cy - s * 0.5f, paint)
+        c.drawLine(bounds.left, turnY, bounds.left + s * 0.55f, bounds.bottom, paint)
+    }
+
+    internal fun enterBounds(cx: Float, cy: Float, s: Float): RectF =
+        RectF(cx - s * 0.9f, cy - s * 0.7f, cx + s * 0.9f, cy + s * 0.7f)
 
     fun drawCopy(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val w = s * 0.5f; val h = s * 0.66f; val r = s * 0.16f; val d = s * 0.3f
@@ -211,12 +224,15 @@ object Glyphs {
     }
 
     fun drawChevron(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, down: Boolean) {
-        val w = s * 0.7f; val h = s * 0.38f
-        val ty = if (down) cy - h else cy + h
-        val my = if (down) cy + h else cy - h
-        c.drawLine(cx - w, ty, cx, my, paint)
-        c.drawLine(cx, my, cx + w, ty, paint)
+        val bounds = chevronBounds(cx, cy, s)
+        val ty = if (down) bounds.top else bounds.bottom
+        val my = if (down) bounds.bottom else bounds.top
+        c.drawLine(bounds.left, ty, cx, my, paint)
+        c.drawLine(cx, my, bounds.right, ty, paint)
     }
+
+    internal fun chevronBounds(cx: Float, cy: Float, s: Float): RectF =
+        RectF(cx - s * 0.7f, cy - s * 0.38f, cx + s * 0.7f, cy + s * 0.38f)
 
     fun drawTag(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val l = cx - s * 0.85f; val r = cx + s * 0.45f; val tip = cx + s * 0.92f

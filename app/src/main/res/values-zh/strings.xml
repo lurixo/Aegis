@@ -40,19 +40,19 @@
     <string name="download_storage_format">存放位置：%1$s（应用私有目录，文件管理器不可见，仅本机、可删除）。</string>
 
     <string name="gram_card_title">增强模型（万象离线大模型）</string>
-    <string name="gram_card_description">可选下载 ~421 MB。下载后中文候选明显更准；仅存本机，输入过程仍全程离线。</string>
+    <string name="gram_card_description">可选下载增强模型。下载后中文候选明显更准；仅存本机，输入过程仍全程离线。</string>
     <string name="gram_source_link">模型来源：amzxyz/RIME-LMDG ↗</string>
     <string name="gram_status_enabled">✅ 已启用：增强语法生效中（已下载 %1$d MB，仅存本机；下载完成后自动加载）</string>
-    <string name="gram_status_not_downloaded">⚠ 增强语法未启用 —— 需下载约 421 MB 模型后才生效</string>
+    <string name="gram_status_not_downloaded">⚠ 增强语法未启用 —— 下载可选模型后生效</string>
     <string name="gram_status_download_failed">下载失败</string>
     <string name="gram_status_update_current">已是最新，无更新（增强模型已是最新版本）</string>
     <string name="gram_status_deleted">⚠ 增强语法未启用（已删除；已加载的内存模型会自动卸载）</string>
 
     <string name="dict_card_title">全量词库包（14 表 freq≥1）</string>
-    <string name="dict_card_description">可选下载约 255 MB 的全量词库（字/基础/联想/错音/多音/诗词/地名/医学/化学/药品/名人/异体/物种/人名）。内置高频种子词库无需下载即可离线使用；下载后中文候选覆盖更全。仅存本机，输入全程离线。</string>
+    <string name="dict_card_description">可选下载全量词库（字/基础/联想/错音/多音/诗词/地名/医学/化学/药品/名人/异体/物种/人名）。内置高频种子词库无需下载即可离线使用；下载后中文候选覆盖更全。仅存本机，输入全程离线。</string>
     <string name="dict_source_link">词库来源：amzxyz/rime-wanxiang ↗</string>
     <string name="dict_status_enabled">✅ 已下载并启用：全量词库（约 %1$d MB，仅存本机；下载完成后自动加载更全词库）</string>
-    <string name="dict_status_not_downloaded">⚠ 全量词库未下载 —— 可选下载约 98 MB 压缩包（解压约 255 MB；内置高频种子词库已可离线使用）</string>
+    <string name="dict_status_not_downloaded">⚠ 全量词库未下载 —— 内置高频种子词库已可离线使用</string>
     <string name="dict_status_verifying_extracting">校验并解压…</string>
     <string name="dict_status_install_failed">校验或解压失败（文件可能损坏，请重试）</string>
     <string name="dict_status_download_failed">下载失败</string>

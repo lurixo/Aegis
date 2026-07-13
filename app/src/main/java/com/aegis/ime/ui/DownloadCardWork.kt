@@ -22,7 +22,6 @@ import androidx.core.content.edit
 import com.aegis.ime.R
 import com.aegis.ime.SettingsHotApply
 import com.aegis.ime.dict.ModelDownload
-import java.io.File
 
 internal data class DownloadCardSnapshot(
     val present: Boolean,
@@ -150,7 +149,7 @@ internal object GramDownloadWork {
         doneStatus = { context ->
             LocalizedText.ResourceLong(
                 R.string.gram_status_enabled,
-                ModelDownload.bytesToDisplayMb(ModelDownload.destFile(context.filesDir).length()),
+                ModelDownload.bytesToDisplayMb(ModelDownload.installedGramBytes(context.filesDir)),
             )
         },
         notDownloadedStatus = LocalizedText.Resource(R.string.gram_status_not_downloaded),
@@ -180,7 +179,7 @@ internal object GramDownloadWork {
                 SettingsHotApply.noteEnginePackChanged(prefs)
                 LocalizedText.ResourceLong(
                     R.string.gram_status_enabled,
-                    ModelDownload.bytesToDisplayMb(dest.length()),
+                    ModelDownload.bytesToDisplayMb(ModelDownload.installedGramBytes(app.filesDir)),
                 )
             } else {
                 LocalizedText.Resource(R.string.gram_status_download_failed)
@@ -195,8 +194,10 @@ internal object DictDownloadWork {
     private val runtime = DownloadRuntime(
         isPresent = { ModelDownload.isDictDownloaded(it.filesDir) },
         doneStatus = { context ->
-            val bytes = ModelDownload.DICT_PACK_FILES.sumOf { File(context.filesDir, "downloaded/$it").length() }
-            LocalizedText.ResourceLong(R.string.dict_status_enabled, ModelDownload.bytesToDisplayMb(bytes))
+            LocalizedText.ResourceLong(
+                R.string.dict_status_enabled,
+                ModelDownload.bytesToDisplayMb(ModelDownload.installedDictionaryBytes(context.filesDir)),
+            )
         },
         notDownloadedStatus = LocalizedText.Resource(R.string.dict_status_not_downloaded),
         failureStatus = LocalizedText.Resource(R.string.dict_status_download_failed),
@@ -234,8 +235,10 @@ internal object DictDownloadWork {
                         putString(ModelDownload.DICT_RELEASE_PUBLISHED_PREF, selected.publishedAt)
                     }
                     SettingsHotApply.noteEnginePackChanged(prefs)
-                    val bytes = ModelDownload.DICT_PACK_FILES.sumOf { File(app.filesDir, "downloaded/$it").length() }
-                    LocalizedText.ResourceLong(R.string.dict_status_enabled, ModelDownload.bytesToDisplayMb(bytes))
+                    LocalizedText.ResourceLong(
+                        R.string.dict_status_enabled,
+                        ModelDownload.bytesToDisplayMb(ModelDownload.installedDictionaryBytes(app.filesDir)),
+                    )
                 }
                 !result.ok -> LocalizedText.Resource(R.string.dict_status_download_failed)
                 else -> LocalizedText.Resource(R.string.dict_status_install_failed)
