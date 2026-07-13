@@ -50,7 +50,12 @@ import com.aegis.ime.SettingsHotApply
 import com.aegis.ime.dict.ModelDownload
 
 @Composable
-internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
+internal fun DictDownloadCard(
+    preview: DownloadCardPreview? = null,
+    check: (ModelDownload.DictionaryInstallMetadata) -> ModelDownload.DictionaryUpdateCheck =
+        ModelDownload::checkDictionaryUpdate,
+    downloader: (Context, ModelDownload.DictionaryAsset?) -> Unit = DictDownloadWork::start,
+) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
     val zip = ModelDownload.dictZipFile(context.filesDir)
@@ -78,12 +83,12 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
     }
 
     fun currentInstallMetadata() = ModelDownload.DictionaryInstallMetadata(
-        sha256 = prefs.getString(ModelDownload.DICT_SHA256_PREF, null),
-        publishedAt = prefs.getString(ModelDownload.DICT_RELEASE_PUBLISHED_PREF, null),
+        sha256 = prefs.all[ModelDownload.DICT_SHA256_PREF] as? String,
+        publishedAt = prefs.all[ModelDownload.DICT_RELEASE_PUBLISHED_PREF] as? String,
     )
 
     fun startDownload(asset: ModelDownload.DictionaryAsset? = null) {
-        if (preview == null) DictDownloadWork.start(context, asset)
+        if (preview == null) downloader(context, asset)
     }
 
     fun showCheckFailure(msgRes: Int) {
@@ -94,12 +99,16 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
     fun checkUpdate() {
         checking = true
         val task = Thread {
-            val checked = ModelDownload.checkDictionaryUpdate(currentInstallMetadata())
+            val checked = runCatching { check(currentInstallMetadata()) }
             handler.post {
                 checking = false
-                when (if (present) checked.state else null) {
+                val result = checked.getOrElse {
+                    ModelDownload.DictionaryUpdateCheck(ModelDownload.UpdateCheck.PARSE_ERROR)
+                }
+                when (if (present) result.state else null) {
                     null -> {}
                     ModelDownload.UpdateCheck.OFFLINE -> showCheckFailure(R.string.download_toast_update_offline)
+                    ModelDownload.UpdateCheck.TIMEOUT -> showCheckFailure(R.string.download_toast_update_timeout)
                     ModelDownload.UpdateCheck.SERVER_ERROR -> showCheckFailure(R.string.download_toast_update_server_error)
                     ModelDownload.UpdateCheck.PARSE_ERROR -> showCheckFailure(R.string.download_toast_update_parse_error)
                     ModelDownload.UpdateCheck.UP_TO_DATE -> {
@@ -108,7 +117,7 @@ internal fun DictDownloadCard(preview: DownloadCardPreview? = null) {
                     }
                     ModelDownload.UpdateCheck.UPDATE -> {
                         Toast.makeText(context, R.string.download_toast_update_found, Toast.LENGTH_SHORT).show()
-                        startDownload(checked.asset)
+                        startDownload(result.asset)
                     }
                 }
             }

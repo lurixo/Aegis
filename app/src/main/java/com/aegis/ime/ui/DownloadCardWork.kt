@@ -160,12 +160,12 @@ internal object GramDownloadWork {
     fun observe(context: Context, observer: (DownloadCardSnapshot) -> Unit): () -> Unit =
         runtime.observe(context, observer)
 
-    fun start(context: Context) {
+    fun start(context: Context, url: String = ModelDownload.GRAM_URL) {
         runtime.start(context) { app, onProgress, _ ->
             val prefs = app.getSharedPreferences("aegis", Context.MODE_PRIVATE)
             val dest = ModelDownload.destFile(app.filesDir)
             var lastPct = -1
-            val result = ModelDownload.download(ModelDownload.GRAM_URL, dest) { done, total ->
+            val result = ModelDownload.download(url, dest) { done, total ->
                 if (total > 0) {
                     val pct = (done * 100 / total).toInt()
                     if (pct != lastPct) {

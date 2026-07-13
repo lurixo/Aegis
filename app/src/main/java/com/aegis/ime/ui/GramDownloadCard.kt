@@ -52,7 +52,11 @@ import com.aegis.ime.dict.ModelDownload
 internal data class DownloadCardPreview(val present: Boolean, val checking: Boolean = false, val status: String? = null)
 
 @Composable
-internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
+internal fun GramDownloadCard(
+    preview: DownloadCardPreview? = null,
+    probe: (String) -> ModelDownload.ValidatorProbe = ModelDownload::remoteValidatorProbe,
+    downloader: (Context, String) -> Unit = GramDownloadWork::start,
+) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
     val dest = ModelDownload.destFile(context.filesDir)
@@ -79,8 +83,8 @@ internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
         }
     }
 
-    fun startDownload() {
-        if (preview == null) GramDownloadWork.start(context)
+    fun startDownload(url: String = ModelDownload.GRAM_URL) {
+        if (preview == null) downloader(context, url)
     }
 
     fun showCheckFailure(msgRes: Int) {
@@ -91,13 +95,21 @@ internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
     fun checkUpdate() {
         checking = true
         val task = Thread {
-            val probe = ModelDownload.remoteValidatorProbe(ModelDownload.GRAM_URL)
-            val local = prefs.getString(ModelDownload.VALIDATOR_PREF, null)
+            val checked = runCatching {
+                val remote = probe(ModelDownload.GRAM_URL)
+                val local = prefs.all[ModelDownload.VALIDATOR_PREF] as? String
+                local to remote
+            }
             handler.post {
                 checking = false
-                when (ModelDownload.modelUpdateAction(present, local, probe)) {
+                val action = checked.fold(
+                    onSuccess = { (local, remote) -> ModelDownload.modelUpdateAction(present, local, remote) },
+                    onFailure = { ModelDownload.UpdateCheck.PARSE_ERROR },
+                )
+                when (action) {
                     null -> {}
                     ModelDownload.UpdateCheck.OFFLINE -> showCheckFailure(R.string.download_toast_update_offline)
+                    ModelDownload.UpdateCheck.TIMEOUT -> showCheckFailure(R.string.download_toast_update_timeout)
                     ModelDownload.UpdateCheck.SERVER_ERROR -> showCheckFailure(R.string.download_toast_update_server_error)
                     ModelDownload.UpdateCheck.PARSE_ERROR -> showCheckFailure(R.string.download_toast_update_parse_error)
                     ModelDownload.UpdateCheck.UP_TO_DATE -> {
@@ -106,7 +118,7 @@ internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
                     }
                     ModelDownload.UpdateCheck.UPDATE -> {
                         Toast.makeText(context, R.string.download_toast_update_found, Toast.LENGTH_SHORT).show()
-                        startDownload()
+                        startDownload(ModelDownload.GRAM_URL)
                     }
                 }
             }

@@ -15,20 +15,38 @@
 
 package com.aegis.ime.ui
 
+import android.os.Looper
+import androidx.activity.compose.setContent
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import com.aegis.ime.R
 import com.aegis.ime.dict.ModelDownload
+import com.aegis.ime.ui.theme.AegisTheme
+import com.sun.net.httpserver.HttpExchange
+import com.sun.net.httpserver.HttpServer
 import java.io.File
+import java.net.InetSocketAddress
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
+import org.robolectric.shadows.ShadowToast
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -156,5 +174,292 @@ class DownloadCardWorkTest {
             ModelDownload.purgeDict(base)
             File(ModelDownload.destFile(base).parentFile, "unrelated.bin").delete()
         }
+    }
+}
+
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
+class ResourceUpdateCardTest {
+
+    @get:Rule val compose = createAndroidComposeRule<DictSettingsActivity>()
+
+    private val context = RuntimeEnvironment.getApplication()
+    private val prefs = context.getSharedPreferences("aegis", android.content.Context.MODE_PRIVATE)
+
+    @After
+    fun clean() {
+        ShadowToast.reset()
+        prefs.edit()
+            .remove(ModelDownload.VALIDATOR_PREF)
+            .remove(ModelDownload.DICT_SHA256_PREF)
+            .remove(ModelDownload.DICT_RELEASE_PUBLISHED_PREF)
+            .commit()
+        ModelDownload.purge(context.filesDir)
+        ModelDownload.purgeDict(context.filesDir)
+        GramDownloadWork.setIdleStatus(LocalizedText.Resource(R.string.gram_status_not_downloaded))
+        DictDownloadWork.setIdleStatus(LocalizedText.Resource(R.string.dict_status_not_downloaded))
+    }
+
+    @Test
+    fun grammarCardCompletesRedirectedCheckWithMalformedLocalState() {
+        val requests = CopyOnWriteArrayList<String>()
+        val downloaded = AtomicReference<String>()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val base = "http://127.0.0.1:${server.address.port}"
+        server.createContext("/model") { exchange ->
+            requests += exchange.requestMethod
+            exchange.responseHeaders.add("Location", "$base/asset")
+            exchange.sendResponseHeaders(302, -1)
+            exchange.close()
+        }
+        server.createContext("/asset") { exchange ->
+            requests += exchange.requestMethod
+            exchange.responseHeaders.add("ETag", "remote-model")
+            exchange.sendResponseHeaders(200, -1)
+            exchange.close()
+        }
+        server.start()
+        try {
+            ModelDownload.destFile(context.filesDir).apply {
+                parentFile?.mkdirs()
+                writeBytes(ByteArray(2_048))
+            }
+            prefs.edit().putInt(ModelDownload.VALIDATOR_PREF, 7).commit()
+            ShadowToast.reset()
+            compose.runOnUiThread {
+                compose.activity.setContent {
+                    AegisTheme {
+                        GramDownloadCard(
+                            probe = { ModelDownload.remoteValidatorProbe("$base/model") },
+                            downloader = { _, url -> downloaded.set(url) },
+                        )
+                    }
+                }
+            }
+            compose.waitForIdle()
+
+            compose.onNodeWithText(context.getString(R.string.check_model_update_button)).assertIsEnabled().performClick()
+            awaitMain { downloaded.get() != null }
+
+            assertEquals(listOf("HEAD", "HEAD"), requests.toList())
+            assertEquals(ModelDownload.GRAM_URL, downloaded.get())
+            assertEquals(context.getString(R.string.download_toast_update_found), ShadowToast.getTextOfLatestToast())
+            compose.onNodeWithText(context.getString(R.string.check_model_update_button)).assertIsEnabled()
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
+    fun dictionaryCardUsesRedirectedManifestAndHandsOffItsAsset() {
+        val requests = CopyOnWriteArrayList<Triple<String, String?, String?>>()
+        val downloaded = AtomicReference<ModelDownload.DictionaryAsset>()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val base = "http://127.0.0.1:${server.address.port}"
+        server.createContext("/metadata") { exchange ->
+            requests += requestOf(exchange)
+            exchange.responseHeaders.add("Location", "$base/manifest")
+            exchange.sendResponseHeaders(302, -1)
+            exchange.close()
+        }
+        server.createContext("/manifest") { exchange ->
+            requests += requestOf(exchange)
+            val body = dictionaryManifest().toByteArray()
+            exchange.responseHeaders.add("Content-Type", "application/octet-stream")
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+            exchange.close()
+        }
+        server.start()
+        try {
+            val dir = ModelDownload.destFile(context.filesDir).parentFile!!.apply { mkdirs() }
+            ModelDownload.DICT_PACK_FILES.forEach { File(dir, it).writeBytes(ByteArray(2_048)) }
+            prefs.edit()
+                .putInt(ModelDownload.DICT_SHA256_PREF, 7)
+                .putInt(ModelDownload.DICT_RELEASE_PUBLISHED_PREF, 7)
+                .commit()
+            ShadowToast.reset()
+            compose.runOnUiThread {
+                compose.activity.setContent {
+                    AegisTheme {
+                        DictDownloadCard(
+                            check = { ModelDownload.checkDictionaryUpdate("$base/metadata", it) },
+                            downloader = { _, asset -> downloaded.set(asset) },
+                        )
+                    }
+                }
+            }
+            compose.waitForIdle()
+
+            compose.onNodeWithText(context.getString(R.string.check_dict_update_button)).assertIsEnabled().performClick()
+            awaitMain { downloaded.get() != null }
+
+            assertEquals(listOf("GET", "GET"), requests.map { it.first })
+            assertTrue(requests.all { it.second == "application/vnd.github+json" })
+            assertTrue(requests.all { it.third == "Aegis-resource-updater" })
+            assertEquals(DICT_ASSET_URL, downloaded.get().url)
+            assertEquals(DICT_SHA, downloaded.get().sha256)
+            assertNull(downloaded.get().publishedAt)
+            assertEquals(context.getString(R.string.download_toast_update_found), ShadowToast.getTextOfLatestToast())
+            compose.onNodeWithText(context.getString(R.string.check_dict_update_button)).assertIsEnabled()
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
+    fun timeoutOutcomeCleansUpAndAllowsImmediateRetry() {
+        val probes = AtomicInteger()
+        val downloads = AtomicInteger()
+        ModelDownload.destFile(context.filesDir).apply {
+            parentFile?.mkdirs()
+            writeBytes(ByteArray(2_048))
+        }
+        prefs.edit().putString(ModelDownload.VALIDATOR_PREF, "local-model").commit()
+        ShadowToast.reset()
+        compose.runOnUiThread {
+            compose.activity.setContent {
+                AegisTheme {
+                    GramDownloadCard(
+                        probe = {
+                            probes.incrementAndGet()
+                            ModelDownload.ValidatorProbe.Failed(ModelDownload.CheckFailure.TIMEOUT)
+                        },
+                        downloader = { _, _ -> downloads.incrementAndGet() },
+                    )
+                }
+            }
+        }
+        compose.waitForIdle()
+
+        val button = compose.onNodeWithText(context.getString(R.string.check_model_update_button))
+        button.assertIsEnabled().performClick()
+        awaitMain { probes.get() == 1 && ShadowToast.shownToastCount() == 1 }
+        compose.onNodeWithText(context.getString(R.string.download_toast_update_timeout)).assertExists()
+        button.assertIsEnabled().performClick()
+        awaitMain { probes.get() == 2 && ShadowToast.shownToastCount() == 2 }
+
+        assertEquals(0, downloads.get())
+        assertEquals(context.getString(R.string.download_toast_update_timeout), ShadowToast.getTextOfLatestToast())
+        button.assertIsEnabled()
+    }
+
+    @Test
+    fun grammarWorkerExceptionCleansUpAndAllowsImmediateRetry() {
+        val calls = AtomicInteger()
+        ModelDownload.destFile(context.filesDir).apply {
+            parentFile?.mkdirs()
+            writeBytes(ByteArray(2_048))
+        }
+        ShadowToast.reset()
+        compose.runOnUiThread {
+            compose.activity.setContent {
+                AegisTheme {
+                    GramDownloadCard(
+                        probe = {
+                            calls.incrementAndGet()
+                            error("worker failed")
+                        },
+                        downloader = { _, _ -> },
+                    )
+                }
+            }
+        }
+        compose.waitForIdle()
+
+        val button = compose.onNodeWithText(context.getString(R.string.check_model_update_button))
+        button.assertIsEnabled().performClick()
+        awaitMain { calls.get() == 1 && ShadowToast.shownToastCount() == 1 }
+        compose.onNodeWithText(context.getString(R.string.download_toast_update_parse_error)).assertExists()
+        assertEquals(context.getString(R.string.download_toast_update_parse_error), ShadowToast.getTextOfLatestToast())
+        button.assertIsEnabled().performClick()
+        awaitMain { calls.get() == 2 && ShadowToast.shownToastCount() == 2 }
+
+        assertEquals(context.getString(R.string.download_toast_update_parse_error), ShadowToast.getTextOfLatestToast())
+        button.assertIsEnabled()
+    }
+
+    @Test
+    fun dictionaryWorkerExceptionCleansUpAndAllowsImmediateRetry() {
+        val calls = AtomicInteger()
+        val dir = ModelDownload.destFile(context.filesDir).parentFile!!.apply { mkdirs() }
+        ModelDownload.DICT_PACK_FILES.forEach { File(dir, it).writeBytes(ByteArray(2_048)) }
+        ShadowToast.reset()
+        compose.runOnUiThread {
+            compose.activity.setContent {
+                AegisTheme {
+                    DictDownloadCard(
+                        check = {
+                            calls.incrementAndGet()
+                            error("worker failed")
+                        },
+                        downloader = { _, _ -> },
+                    )
+                }
+            }
+        }
+        compose.waitForIdle()
+
+        val button = compose.onNodeWithText(context.getString(R.string.check_dict_update_button))
+        button.assertIsEnabled().performClick()
+        awaitMain { calls.get() == 1 && ShadowToast.shownToastCount() == 1 }
+        compose.onNodeWithText(context.getString(R.string.download_toast_update_parse_error)).assertExists()
+        assertEquals(context.getString(R.string.download_toast_update_parse_error), ShadowToast.getTextOfLatestToast())
+        button.assertIsEnabled().performClick()
+        awaitMain { calls.get() == 2 && ShadowToast.shownToastCount() == 2 }
+
+        assertEquals(context.getString(R.string.download_toast_update_parse_error), ShadowToast.getTextOfLatestToast())
+        button.assertIsEnabled()
+    }
+
+    private fun requestOf(exchange: HttpExchange): Triple<String, String?, String?> =
+        Triple(
+            exchange.requestMethod,
+            exchange.requestHeaders.getFirst("Accept"),
+            exchange.requestHeaders.getFirst("User-Agent"),
+        )
+
+    private fun awaitMain(condition: () -> Boolean) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        var satisfied = condition()
+        while (!satisfied && System.nanoTime() < deadline) {
+            shadowOf(Looper.getMainLooper()).idle()
+            Thread.yield()
+            satisfied = condition()
+        }
+        assertTrue(satisfied)
+        compose.waitForIdle()
+    }
+
+    private fun dictionaryManifest(): String =
+        """
+        {
+          "schema_version": 1,
+          "kind": "dictionary_update",
+          "asset": {
+            "name": "aegis_dict_pack_dict-latest.zip",
+            "url": "$DICT_ASSET_URL",
+            "release_tag": "dict-latest",
+            "release_url": "https://github.com/lurixo/Aegis/releases/tag/dict-latest",
+            "prerelease": false,
+            "published_at": null,
+            "sha256": "$DICT_SHA",
+            "size_bytes": 98236647
+          },
+          "source": {
+            "repo": "https://github.com/amzxyz/rime-wanxiang",
+            "ref_type": "tag",
+            "tag": "v16.1.0",
+            "branch": null,
+            "commit": "6c792a2e68c8382f9c63e8bed74c5cf247f1b1a9"
+          }
+        }
+        """.trimIndent()
+
+    private companion object {
+        const val DICT_ASSET_URL =
+            "https://github.com/lurixo/Aegis/releases/download/dict-latest/aegis_dict_pack_dict-latest.zip"
+        const val DICT_SHA = "53b6d4c98f4431777dd0c7cbbc397d0738631c5697df2f3a4d401d316c411182"
     }
 }

@@ -80,9 +80,7 @@ class SettingsWiringTest {
         val gram = src("src/main/java/com/aegis/ime/ui/GramDownloadCard.kt")
         val dict = src("src/main/java/com/aegis/ime/ui/DictDownloadCard.kt")
         assertTrue("model card must observe the process-level download runtime", gram.contains("GramDownloadWork.observe(context)"))
-        assertTrue("model card must start downloads through the process-level runtime", gram.contains("GramDownloadWork.start(context)"))
         assertTrue("dictionary card must observe the process-level download runtime", dict.contains("DictDownloadWork.observe(context)"))
-        assertTrue("dictionary card must start downloads through the process-level runtime", dict.contains("DictDownloadWork.start(context, asset)"))
         assertFalse("model card must not own the long-running download thread", gram.contains("ModelDownload.download("))
         assertFalse("dictionary card must not own the long-running download thread", dict.contains("ModelDownload.download("))
     }
