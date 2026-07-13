@@ -942,12 +942,11 @@ class KeyboardControllerTest {
         assertEquals(LayoutId.ALPHA, c.activeLayoutId())
     }
 
-    @Test fun qwerty_123_uses_the_number_symbol_flow_and_returns_to_qwerty() {
+    @Test fun nine_page_key_opens_number_then_symbol_and_returns_to_nine() {
         val c = KeyboardController(FakeHost(), engine)
         c.reset()
-        c.onKey(act(KeyAction.SWITCH_ALPHA))
-        val alphabet123 = Layouts.forId(LayoutId.ALPHA, Lang.CN).cells!!.first { it.key.label == "123" }.key
-        c.onKey(alphabet123)
+        val pageKey = Layouts.forId(LayoutId.NINE, Lang.CN).cells!!.first { it.key.label == "@#" }.key
+        c.onKey(pageKey)
         assertEquals(LayoutId.NUMBER, c.activeLayoutId())
         val symbols = Layouts.forId(LayoutId.NUMBER, Lang.CN).rows.flatMap { it.keys }
             .first { it.action == KeyAction.SWITCH_SYMBOLS }
@@ -955,6 +954,18 @@ class KeyboardControllerTest {
         assertEquals(LayoutId.SYMBOL, c.activeLayoutId())
         val text = Layouts.forId(LayoutId.SYMBOL, Lang.CN).rows.flatMap { it.keys }
             .first { it.action == KeyAction.SWITCH_TEXT }
+        c.onKey(text)
+        assertEquals(LayoutId.NINE, c.activeLayoutId())
+    }
+
+    @Test fun qwerty_123_opens_the_nine_key_numpad_and_returns_to_qwerty() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.reset()
+        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        val alphabet123 = Layouts.forId(LayoutId.ALPHA, Lang.CN).cells!!.first { it.key.label == "123" }.key
+        c.onKey(alphabet123)
+        assertEquals(LayoutId.NUMPAD, c.activeLayoutId())
+        val text = Layouts.forId(LayoutId.NUMPAD, Lang.CN).cells!!.first { it.key.action == KeyAction.SWITCH_TEXT }.key
         c.onKey(text)
         assertEquals(LayoutId.ALPHA, c.activeLayoutId())
     }

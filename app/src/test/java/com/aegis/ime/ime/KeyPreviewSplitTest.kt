@@ -76,7 +76,7 @@ class KeyPreviewSplitTest {
         return armed
     }
 
-    private fun KeyboardView.scrollCx() = (gap + (1.0f * u * width - gap)) / 2f
+    private fun KeyboardView.scrollCx() = (gap + (0.85f * u * width - gap)) / 2f
     private fun KeyboardView.scrollCellH() = ((0.75f * height - gap) - gap) / 4f
     private fun KeyboardView.scrollCellY(i: Int) = gap + scrollCellH() * (i + 0.5f)
 
@@ -164,7 +164,7 @@ class KeyPreviewSplitTest {
         val alpha = view(LayoutId.ALPHA, Lang.EN).apply { previewAlphaEnabled = true }
         for (action in listOf(
             KeyAction.SHIFT, KeyAction.BACKSPACE, KeyAction.SPACE, KeyAction.ENTER,
-            KeyAction.SHOW_SYMBOLS, KeyAction.SWITCH_NUMBERS, KeyAction.TOGGLE_LANG,
+            KeyAction.SHOW_SYMBOLS, KeyAction.SWITCH_NUMPAD, KeyAction.TOGGLE_LANG,
         )) {
             assertFalse("$action must not preview on the 26-key", alpha.previewOnAction(action))
         }

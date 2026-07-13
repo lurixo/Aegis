@@ -39,7 +39,7 @@ object T9Pinyin {
         '6' to "mno", '7' to "pqrs", '8' to "tuv", '9' to "wxyz",
     )
 
-    private val SYLLABLES: Set<String> = """
+    internal val SYLLABLES: Set<String> = """
         a o e ai ei ao ou an en ang eng er
         yi ya yo ye yao you yan yin yang ying yong
         wu wa wo wai wei wan wen wang weng

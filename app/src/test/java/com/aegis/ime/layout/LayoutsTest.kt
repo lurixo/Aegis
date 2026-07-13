@@ -90,8 +90,8 @@ class LayoutsTest {
     @Test fun alphabet_123_and_nine_page_key_keep_their_distinct_flows() {
         val alphabet123 = qwerty.cells!!.first { it.key.label == "123" }
         val ninePage = nine.cells!!.first { it.key.label == "@#" }
-        assertEquals(KeyAction.SWITCH_NUMBERS, alphabet123.key.action)
-        assertEquals(KeyAction.SWITCH_SYMBOLS, ninePage.key.action)
+        assertEquals(KeyAction.SWITCH_NUMPAD, alphabet123.key.action)
+        assertEquals(KeyAction.SWITCH_NUMBERS, ninePage.key.action)
     }
 
     @Test fun nine_composing_top_left_is_the_segment_key() {
@@ -175,9 +175,27 @@ class LayoutsTest {
     @Test fun qwerty_pen_width_matches_the_adjacent_function_keys() {
         val bottom = qwerty.cells!!.filter { it.y >= 0.8f }.map { it.key }
         val pen = bottom.first { it.action == KeyAction.SHOW_SYMBOLS }
-        val num = bottom.first { it.action == KeyAction.SWITCH_NUMBERS }
+        val num = bottom.first { it.action == KeyAction.SWITCH_NUMPAD }
         val lang = bottom.first { it.action == KeyAction.TOGGLE_LANG }
         assertEquals("pen width == 123 width", num.weight, pen.weight, 1e-4f)
         assertEquals("pen width == 中英 width", lang.weight, pen.weight, 1e-4f)
+    }
+
+    @Test fun number_and_symbol_pages_share_the_control_width_baseline() {
+        for (id in listOf(LayoutId.NUMBER, LayoutId.SYMBOL)) {
+            val layout = Layouts.forId(id, Lang.CN)
+            val controls = layout.rows.flatMap { it.keys }.filter {
+                it.action in setOf(
+                    KeyAction.SWITCH_NUMBERS,
+                    KeyAction.SWITCH_SYMBOLS,
+                    KeyAction.SWITCH_TEXT,
+                    KeyAction.BACKSPACE,
+                    KeyAction.ENTER,
+                )
+            }
+            assertTrue(controls.isNotEmpty())
+            assertTrue(controls.all { it.weight == 1.5f })
+            assertEquals(3f, layout.rows.last().keys.first { it.action == KeyAction.SPACE }.weight, 0f)
+        }
     }
 }

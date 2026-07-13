@@ -152,14 +152,14 @@ class KeyboardView(context: Context) : View(context) {
     private fun sp(value: Float) =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, resources.displayMetrics)
 
-    private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(20f) }
-    private val specialLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabelSecondary; textAlign = Paint.Align.CENTER; textSize = sp(15f) }
+    private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(20f); typeface = android.graphics.Typeface.DEFAULT_BOLD }
+    private val specialLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabelSecondary; textAlign = Paint.Align.CENTER; textSize = sp(15f); typeface = android.graphics.Typeface.DEFAULT_BOLD }
     private val boldLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(18f); typeface = android.graphics.Typeface.DEFAULT_BOLD }
     private val shiftActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.accentBottom; textAlign = Paint.Align.CENTER; textSize = sp(20f) }
-    private val accentLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.accentLabel; textAlign = Paint.Align.CENTER; textSize = sp(20f) }
-    private val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyHint; textAlign = Paint.Align.RIGHT; textSize = sp(10f) }
-    private val langActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabelSecondary; textAlign = Paint.Align.CENTER; textSize = sp(17f) }
-    private val langSmallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyHint; textAlign = Paint.Align.RIGHT; textSize = sp(11f) }
+    private val accentLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.accentLabel; textAlign = Paint.Align.CENTER; textSize = sp(20f); typeface = android.graphics.Typeface.DEFAULT_BOLD }
+    private val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyHint; textAlign = Paint.Align.RIGHT; textSize = sp(10f); typeface = android.graphics.Typeface.DEFAULT_BOLD }
+    private val langActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabelSecondary; textAlign = Paint.Align.CENTER; textSize = sp(17f); typeface = android.graphics.Typeface.DEFAULT_BOLD }
+    private val langSmallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyHint; textAlign = Paint.Align.RIGHT; textSize = sp(11f); typeface = android.graphics.Typeface.DEFAULT_BOLD }
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySurface }
     private val keyOutlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = density; color = palette.separator }
@@ -167,12 +167,12 @@ class KeyboardView(context: Context) : View(context) {
     private val pressHighlight = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withAlpha(palette.keyLabel, 0x22) }
     private val scrollTrackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.railBg }
     private val scrollbarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withAlpha(palette.icon, 0x55) }
-    private val scrollLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.LEFT; textSize = sp(17f) }
+    private val scrollLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.LEFT; textSize = sp(17f); typeface = android.graphics.Typeface.DEFAULT_BOLD }
     private val inkBounds = android.graphics.Rect()
     private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2f * density; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
     private val previewFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySurface }
     private val previewOutlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = density; color = palette.separator }
-    private val previewLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(30f) }
+    private val previewLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(30f); typeface = android.graphics.Typeface.DEFAULT_BOLD }
 
     fun applyPalette(p: ImePalette) {
         palette = p
@@ -314,9 +314,12 @@ class KeyboardView(context: Context) : View(context) {
             for (rowItem in layout.rows) {
                 val finalRow = rowItem.keys.any { it.action == KeyAction.SPACE }
                 val widths = if (finalRow) {
-                    val nonSpace = rowItem.keys.count { it.action != KeyAction.SPACE }
-                    val spaceWidth = w - horizontalGap * 2f - faceGap * (rowItem.keys.size - 1) - ordinaryWidth * nonSpace
-                    rowItem.keys.map { if (it.action == KeyAction.SPACE) spaceWidth else ordinaryWidth }
+                    val nonSpaceWidth = rowItem.keys
+                        .filter { it.action != KeyAction.SPACE }
+                        .sumOf { (ordinaryWidth * it.weight).toDouble() }
+                        .toFloat()
+                    val spaceWidth = w - horizontalGap * 2f - faceGap * (rowItem.keys.size - 1) - nonSpaceWidth
+                    rowItem.keys.map { if (it.action == KeyAction.SPACE) spaceWidth else ordinaryWidth * it.weight }
                 } else {
                     rowItem.keys.map { ordinaryWidth * it.weight }
                 }
@@ -607,6 +610,18 @@ class KeyboardView(context: Context) : View(context) {
     internal fun previewActiveForTest(): Boolean = previewKey != null
 
     internal fun displayLabelForTest(key: Key): String = displayLabel(key)
+
+    internal fun keyLabelPaintsAreBoldForTest(): Boolean = listOf(
+        labelPaint,
+        specialLabelPaint,
+        boldLabelPaint,
+        accentLabelPaint,
+        subPaint,
+        langActivePaint,
+        langSmallPaint,
+        scrollLabelPaint,
+        previewLabelPaint,
+    ).all { it.typeface === android.graphics.Typeface.DEFAULT_BOLD }
 
     internal fun caseBoxActiveForTest(): Boolean = caseBoxActive
     internal fun caseBoxLabelsForTest(): List<String>? = caseBoxKey?.let { caseBoxLabels(it) }

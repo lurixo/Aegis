@@ -120,8 +120,11 @@ class KeyboardGeometryTest {
                                 assertTrue(rowFaces[index].second.width() > baselineFace.width())
                                 assertTrue(rowHits[index].second.width() > baselineHit.width())
                             } else {
-                                assertSize(baselineFace, rowFaces[index].second)
-                                assertSize(baselineHit, rowHits[index].second)
+                                assertEquals(baselineFace.width() * key.weight, rowFaces[index].second.width(), 0.02f)
+                                assertEquals(baselineFace.height(), rowFaces[index].second.height(), 0.02f)
+                                val hitInset = baselineHit.width() - baselineFace.width()
+                                assertEquals(baselineFace.width() * key.weight + hitInset, rowHits[index].second.width(), 0.02f)
+                                assertEquals(baselineHit.height(), rowHits[index].second.height(), 0.02f)
                             }
                             val hit = rowHits[index].second
                             assertEquals(key, page.keyAtForTest(hit.left + 0.01f, hit.centerY()))
@@ -129,6 +132,11 @@ class KeyboardGeometryTest {
                         assertTrue(rowHits.zipWithNext().all { (left, right) ->
                             abs(right.second.left - left.second.right) <= 0.02f
                         })
+
+                        val controlWidth = rowFaces.first().second.width()
+                        assertEquals(1.5f * baselineFace.width(), controlWidth, 0.02f)
+                        assertEquals(controlWidth, rowFaces.last().second.width(), 0.02f)
+                        assertTrue(rowFaces.first { it.first.action == KeyAction.SPACE }.second.width() < page.width * 0.55f)
                     }
                     offset += row.keys.size
                 }

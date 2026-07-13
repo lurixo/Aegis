@@ -60,7 +60,7 @@ internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
     val initial = remember { GramDownloadWork.snapshot(context) }
     var present by remember { mutableStateOf(preview?.present ?: initial.present) }
     var status by remember { mutableStateOf(preview?.status?.let(LocalizedText::Raw) ?: initial.status) }
-    var progress by remember { mutableStateOf(if (preview == null) initial.progress else 0f) }
+    var progress by remember { mutableStateOf(if (preview == null) initial.progress else null) }
     var downloading by remember { mutableStateOf(if (preview == null) initial.downloading else false) }
     var checking by remember { mutableStateOf(preview?.checking ?: false) }
 
@@ -90,7 +90,7 @@ internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
 
     fun checkUpdate() {
         checking = true
-        Thread {
+        val task = Thread {
             val probe = ModelDownload.remoteValidatorProbe(ModelDownload.GRAM_URL)
             val local = prefs.getString(ModelDownload.VALIDATOR_PREF, null)
             handler.post {
@@ -110,7 +110,11 @@ internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
                     }
                 }
             }
-        }.apply { isDaemon = true }.start()
+        }.apply { isDaemon = true }
+        if (runCatching { task.start() }.isFailure) {
+            checking = false
+            showCheckFailure(R.string.gram_status_download_failed)
+        }
     }
 
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -144,7 +148,12 @@ internal fun GramDownloadCard(preview: DownloadCardPreview? = null) {
                 )
             }
             if (downloading) {
-                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                val currentProgress = progress
+                if (currentProgress == null) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                } else {
+                    LinearProgressIndicator(progress = { currentProgress }, modifier = Modifier.fillMaxWidth())
+                }
             }
             Text(
                 if (checking) stringResource(R.string.download_status_checking_update) else status.asString(),

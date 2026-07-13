@@ -28,6 +28,7 @@ import com.aegis.ime.ime.theme.ImePalette
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -120,6 +121,44 @@ class PanelIconAlignmentTest {
             assertEquals("$action glyph x center", button.width / 2f, center.first, 0.5f)
             assertEquals("$action glyph y center", button.height / 2f, center.second, 0.5f)
         }
+    }
+
+    @Test fun edit_navigation_and_back_are_only_non_focusable_actions() {
+        val v = EditPanelView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        val actions = mutableListOf<EditAction>()
+        v.onAction = actions::add
+        layout(v, width = 600, height = 320)
+        val navigation = listOf(
+            EditAction.UP,
+            EditAction.DOWN,
+            EditAction.LEFT,
+            EditAction.RIGHT,
+            EditAction.HOME,
+            EditAction.END,
+        )
+        val back = requireNotNull(v.actionViewForTest(EditAction.BACK))
+        assertFalse(back.isFocusable)
+        assertFalse(back.requestFocus())
+        for (action in navigation) {
+            val button = requireNotNull(v.actionViewForTest(action))
+            assertFalse(button.isFocusable)
+            assertFalse(button.requestFocus())
+            assertTrue(button.performClick())
+            assertFalse(back.isFocused)
+        }
+        for (action in listOf(
+            EditAction.START_SELECT,
+            EditAction.DELETE,
+            EditAction.COPY,
+            EditAction.CUT,
+            EditAction.SELECT_ALL,
+            EditAction.PASTE,
+        )) {
+            assertTrue(requireNotNull(v.actionViewForTest(action)).isFocusable)
+        }
+        assertEquals(navigation, actions)
+        assertTrue(back.performClick())
+        assertEquals(navigation + EditAction.BACK, actions)
     }
 
     @Test fun symbols_lock_control_is_centered_and_sized_like_text() {
