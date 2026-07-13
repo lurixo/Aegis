@@ -35,13 +35,14 @@ class ClipboardPanelState {
         return true
     }
 
-    fun enterSelect() { selectMode = true; selected.clear() }
+    fun enterSelect() { selectMode = true; selected.clear(); expanded = null }
     fun exitSelect() { selectMode = false; selected.clear() }
 
     fun toggleSelect(item: String): Boolean =
         if (selected.add(item)) true else { selected.remove(item); false }
 
     fun toggleExpand(item: String) { expanded = if (expanded == item) null else item }
+    fun collapse() { expanded = null }
     fun collapseIfExpanded(item: String) { if (expanded == item) expanded = null }
 
     fun isAllSelected(all: List<String>): Boolean = all.isNotEmpty() && selected.containsAll(all)

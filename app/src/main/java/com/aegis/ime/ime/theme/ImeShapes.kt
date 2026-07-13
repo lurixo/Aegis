@@ -21,5 +21,5 @@ object ImeShapes {
     const val cardRadiusDp = 8f
     const val inputRadiusDp = 8f
     const val chipRadiusDp = 8f
-    const val toolbarPillRadiusDp = 8f
+    const val toolbarPillRadiusDp = 999f
 }

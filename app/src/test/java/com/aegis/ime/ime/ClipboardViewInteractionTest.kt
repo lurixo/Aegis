@@ -18,7 +18,6 @@ package com.aegis.ime.ime
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ScrollView
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.user.ClipSplitter
@@ -54,6 +53,35 @@ class ClipboardViewInteractionTest {
         send(target, MotionEvent.ACTION_DOWN, 320f, 12f, 0)
         send(target, MotionEvent.ACTION_MOVE, 320f - dx, 12f, 16)
         send(target, MotionEvent.ACTION_UP, 320f - dx, 12f, 32)
+    }
+
+    private fun centerInRoot(root: View, target: View): Pair<Float, Float> {
+        var x = target.width / 2f
+        var y = target.height / 2f
+        var current = target
+        while (current !== root) {
+            val parent = current.parent as View
+            x += current.left + current.translationX - parent.scrollX
+            y += current.top + current.translationY - parent.scrollY
+            current = parent
+        }
+        return x to y
+    }
+
+    private fun rootSwipe(root: View, target: View, dx: Float) {
+        val (x, y) = centerInRoot(root, target)
+        send(root, MotionEvent.ACTION_DOWN, x, y, 0)
+        send(root, MotionEvent.ACTION_MOVE, x + dx, y, 16)
+        send(root, MotionEvent.ACTION_UP, x + dx, y, 32)
+    }
+
+    private fun rootSwipe(root: View, target: View, localX: Float, localY: Float, dx: Float) {
+        val (centerX, centerY) = centerInRoot(root, target)
+        val x = centerX - target.width / 2f + localX
+        val y = centerY - target.height / 2f + localY
+        send(root, MotionEvent.ACTION_DOWN, x, y, 0)
+        send(root, MotionEvent.ACTION_MOVE, x + dx, y, 16)
+        send(root, MotionEvent.ACTION_UP, x + dx, y, 32)
     }
 
     private fun allViews(root: View): List<View> {
@@ -174,29 +202,89 @@ class ClipboardViewInteractionTest {
         assertTrue("previous history remains visible", "old" in labels(mainOf(v)))
     }
 
-
-    @Test fun expanded_card_inner_scroll_drags_and_the_outer_list_does_not_steal_it() {
-        val long = (1..12).joinToString("\n") { "第${it}行内容" }
-        val history = listOf(long) + (1..20).map { "条目$it" }
-        val v = clipView(history)
-        v.expandForTest(long)
+    @Test fun left_and_right_swipes_and_arrow_clicks_drive_the_same_open_state() {
+        val v = clipView(listOf("第一条", "第二条"))
         layout(v)
-        val body = bodyOf(v, long)
-        val inner = body.parent as ScrollView
-        val outer = allViews(v).filterIsInstance<ScrollView>().first { it !== inner }
-        assertTrue("precondition: the inner card overflows 4 lines", inner.canScrollVertically(1))
-        assertTrue("precondition: the outer list overflows", outer.canScrollVertically(1))
+        rootSwipe(v, bodyOf(v, "第一条"), -200f)
+        layout(v)
+        val openedBody = bodyOf(v, "第一条")
+        assertEquals("第一条", v.swipeRevealedForTest())
+        assertTrue((openedBody.parent as View).translationX < 0f)
+        assertTrue(clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_collapse)))
+        assertNull(v.swipeRevealedForTest())
+        assertTrue(clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_expand)))
+        assertEquals("第一条", v.swipeRevealedForTest())
+        layout(v)
+        val action = textViews(v).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_phrases) && it.compoundDrawables[0] != null }
+        rootSwipe(v, action, 200f)
+        layout(v)
+        val closedBody = bodyOf(v, "第一条")
+        assertNull(v.swipeRevealedForTest())
+        assertEquals(0f, (closedBody.parent as View).translationX, 0f)
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_expand) in allViews(v).mapNotNull { it.contentDescription?.toString() })
+    }
 
-        var x = 0; var y = 0; var cur: View? = body
-        while (cur != null && cur !== v) { x += cur.left; y += cur.top; cur = cur.parent as? View }
-        val cx = (x + 8).toFloat(); val cy = (y + 6).toFloat()
-        send(v, MotionEvent.ACTION_DOWN, cx, cy, 0)
-        send(v, MotionEvent.ACTION_MOVE, cx, cy - 60f, 16)
-        send(v, MotionEvent.ACTION_MOVE, cx, cy - 120f, 32)
-        send(v, MotionEvent.ACTION_UP, cx, cy - 120f, 48)
+    @Test fun right_swipes_from_action_row_gaps_and_vertical_bands_close_the_revealed_row() {
+        val clipboard = clipView(listOf("第一条", "第二条"))
+        layout(clipboard)
+        rootSwipe(clipboard, bodyOf(clipboard, "第一条"), -200f)
+        layout(clipboard)
+        val clipboardAction = textViews(clipboard).first {
+            it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_phrases) && it.compoundDrawables[0] != null
+        }
+        val clipboardRow = clipboardAction.parent as ViewGroup
+        val nextClipboardAction = clipboardRow.getChildAt(1)
+        assertTrue(nextClipboardAction.left > clipboardAction.right)
+        rootSwipe(
+            clipboard,
+            clipboardRow,
+            (clipboardAction.right + nextClipboardAction.left) / 2f,
+            clipboardRow.height / 2f,
+            80f,
+        )
+        assertNull(clipboard.swipeRevealedForTest())
 
-        assertTrue("the inner card actually scrolled (真滚了)", inner.scrollY > 0)
-        assertEquals("the outer list did NOT steal the drag", 0, outer.scrollY)
+        val phrases = phraseView(listOf("你好", "在吗"))
+        layout(phrases)
+        rootSwipe(phrases, bodyOf(phrases, "你好"), -200f)
+        layout(phrases)
+        val phraseAction = textViews(phrases).first {
+            it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_edit) && it.compoundDrawables[0] != null
+        }
+        val phraseRow = phraseAction.parent as ViewGroup
+        assertTrue(phraseAction.top > 0)
+        rootSwipe(
+            phrases,
+            phraseRow,
+            phraseAction.left + phraseAction.width / 2f,
+            phraseAction.top / 2f,
+            80f,
+        )
+        assertNull(phrases.swipeRevealedForTest())
+    }
+
+    @Test fun narrow_phrase_row_keeps_the_arrow_visible_and_right_swipe_reachable_from_the_root() {
+        for (width in listOf(320, 360)) {
+            val v = phraseView(listOf("你好", "在吗"))
+            layout(v, width)
+            rootSwipe(v, bodyOf(v, "你好"), -80f)
+            layout(v, width)
+            assertEquals("你好", v.swipeRevealedForTest())
+            val collapse = allViews(v).first { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_collapse) }
+            val (arrowX, _) = centerInRoot(v, collapse)
+            assertTrue(arrowX - collapse.width / 2f >= 0f)
+            assertTrue(arrowX + collapse.width / 2f <= v.width)
+            assertTrue(collapse.performClick())
+            assertNull(v.swipeRevealedForTest())
+            layout(v, width)
+            val expand = allViews(v).first { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_expand) }
+            assertTrue(expand.performClick())
+            assertEquals("你好", v.swipeRevealedForTest())
+            layout(v, width)
+            val edit = textViews(v).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_edit) && it.compoundDrawables[0] != null }
+            rootSwipe(v, edit, 80f)
+            assertNull(v.swipeRevealedForTest())
+        }
     }
 
 

@@ -47,6 +47,13 @@ class Debug17PanelTest {
         walk(root); return out
     }
     private fun labels(root: View): List<String> = textViews(root).mapNotNull { it.text?.toString() }
+    private fun actionButtons(root: View): List<TextView> = textViews(root).filter {
+        it.compoundDrawables[0] != null && it.background is GradientDrawable && it.hasOnClickListeners()
+    }
+    private fun layout(root: View, width: Int = 480, height: Int = 400) {
+        root.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
+        root.layout(0, 0, root.measuredWidth, root.measuredHeight)
+    }
     private fun click(root: View, label: String): Boolean {
         val tv = textViews(root).firstOrNull { it.text?.toString() == label && it.hasOnClickListeners() } ?: return false
         tv.performClick(); return true
@@ -160,35 +167,31 @@ class Debug17PanelTest {
     }
 
 
-    @Test fun clipboard_left_swipe_reveals_action_row_without_expanding() {
+    @Test fun clipboard_left_swipe_moves_the_item_left_and_opens_the_arrow_state() {
+        val v = clipView()
+        v.revealSwipeForTest("hello")
+        layout(v)
+        assertEquals("hello", v.swipeRevealedForTest())
+        val body = textViews(v).first { it.text?.toString() == "hello" }
+        assertTrue((body.parent as View).translationX < 0f)
+        assertEquals(
+            listOf(ctx.getString(com.aegis.ime.R.string.clip_phrases), ctx.getString(com.aegis.ime.R.string.clip_split_word), ctx.getString(com.aegis.ime.R.string.clip_delete)),
+            actionButtons(v).map { it.text.toString() },
+        )
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_collapse) in descs(v))
+        assertFalse(ctx.getString(com.aegis.ime.R.string.clip_expand) in descs(v))
+    }
+
+    @Test fun clipboard_arrow_and_swipe_toggle_the_same_state_with_one_click_each() {
         val v = clipView()
         v.revealSwipeForTest("hello")
         assertEquals("hello", v.swipeRevealedForTest())
-        val ls = labels(v)
-        assertTrue("添加常用语 action", ls.any { it.contains(ctx.getString(com.aegis.ime.R.string.clip_phrases)) })
-        assertTrue("拆词 action", ls.any { it.contains(ctx.getString(com.aegis.ime.R.string.clip_split_word)) })
-        assertTrue("删除 action", ls.any { it.contains(ctx.getString(com.aegis.ime.R.string.clip_delete)) })
-        assertTrue("NOT expanded (chevron shows 展开)", ctx.getString(com.aegis.ime.R.string.clip_expand) in descs(v))
-        assertFalse("not the expanded chevron", ctx.getString(com.aegis.ime.R.string.clip_collapse) in descs(v))
-    }
-
-    @Test fun clipboard_left_swipe_shows_four_line_body_without_expanding_chevron() {
-        val long = (1..8).joinToString("\n") { "line $it" }
-        val v = clipView(listOf(long))
-        v.revealSwipeForTest(long)
-        val body = textViews(v).first { it.text?.toString() == long }
-        assertTrue("left-swipe wraps the body like expanded cards", body.parent is android.widget.ScrollView)
-        assertTrue("body itself is not capped to two text lines", body.maxLines > 4)
-        assertTrue("chevron still reports collapsed state", ctx.getString(com.aegis.ime.R.string.clip_expand) in descs(v))
-        assertFalse("left-swipe is not chevron expansion", ctx.getString(com.aegis.ime.R.string.clip_collapse) in descs(v))
-    }
-
-    @Test fun clipboard_chevron_expand_still_works_and_clears_a_swipe() {
-        val v = clipView()
-        v.revealSwipeForTest("hello"); assertEquals("hello", v.swipeRevealedForTest())
+        assertTrue(clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_collapse)))
+        assertNull(v.swipeRevealedForTest())
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_expand) in descs(v))
         assertTrue("chevron present", clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_expand)))
-        assertNull("⌄展开 supersedes the swipe reveal", v.swipeRevealedForTest())
-        assertTrue("now expanded", ctx.getString(com.aegis.ime.R.string.clip_collapse) in descs(v))
+        assertEquals("hello", v.swipeRevealedForTest())
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_collapse) in descs(v))
     }
 
     @Test fun clipboard_longpress_menu_unchanged() {
@@ -199,24 +202,66 @@ class Debug17PanelTest {
         assertTrue(ctx.getString(com.aegis.ime.R.string.clip_split_title), ctx.getString(com.aegis.ime.R.string.clip_split_title) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_add_phrase), ctx.getString(com.aegis.ime.R.string.clip_add_phrase) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_delete_item), ctx.getString(com.aegis.ime.R.string.clip_delete_item) in ls)
     }
 
-
-    @Test fun phrase_left_swipe_reveals_edit_pin_delete() {
-        val v = phraseView()
-        v.revealSwipeForTest("在吗")
-        val ls = labels(v)
-        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_edit), ctx.getString(com.aegis.ime.R.string.clip_edit) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_pin_top), ctx.getString(com.aegis.ime.R.string.clip_pin_top) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_delete), ctx.getString(com.aegis.ime.R.string.clip_delete) in ls)
-        assertFalse("swipe row is NOT the expand row (no 移动)", ctx.getString(com.aegis.ime.R.string.clip_move) in ls)
+    @Test fun clipboard_item_delete_cancels_and_confirms_without_early_mutation() {
+        val deleted = ArrayList<List<String>>()
+        val v = clipView().apply { onDeleteClips = { deleted.add(it) }; expandForTest("hello") }
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_delete)))
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_delete_clip_confirm) in labels(overlayOf(v)))
+        assertTrue(deleted.isEmpty())
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_cancel)))
+        assertTrue(deleted.isEmpty())
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_delete)))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete)))
+        assertEquals(listOf(listOf("hello")), deleted)
     }
 
-    @Test fun phrase_left_swipe_shows_four_line_body_without_expanding_chevron() {
-        val long = (1..8).joinToString("\n") { "phrase $it" }
-        val v = phraseView(listOf(long))
-        v.revealSwipeForTest(long)
-        val body = textViews(v).first { it.text?.toString() == long }
-        assertTrue("left-swiped phrase body is four-line bounded", body.parent is android.widget.ScrollView)
-        assertTrue("phrase body itself is not a two-line preview", body.maxLines > 4)
-        assertTrue("chevron still reports collapsed state", ctx.getString(com.aegis.ime.R.string.clip_expand) in descs(v))
-        assertFalse("left-swipe is not chevron expansion", ctx.getString(com.aegis.ime.R.string.clip_collapse) in descs(v))
+    @Test fun clipboard_longpress_delete_opens_the_same_confirmation() {
+        val deleted = ArrayList<List<String>>()
+        val v = clipView().apply { onDeleteClips = { deleted.add(it) } }
+        assertTrue(textViews(v).first { it.text?.toString() == "hello" }.performLongClick())
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete_item)))
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_delete_clip_confirm) in labels(overlayOf(v)))
+        overlayOf(v).performClick()
+        assertEquals(View.GONE, overlayOf(v).visibility)
+        assertTrue(deleted.isEmpty())
+        assertTrue(textViews(v).first { it.text?.toString() == "hello" }.performLongClick())
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete_item)))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_cancel)))
+        assertTrue(deleted.isEmpty())
+        assertTrue(textViews(v).first { it.text?.toString() == "hello" }.performLongClick())
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete_item)))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete)))
+        assertEquals(listOf(listOf("hello")), deleted)
+    }
+
+    @Test fun clipboard_batch_delete_cancel_close_and_confirm_preserve_selection_until_confirmation() {
+        val deleted = ArrayList<List<String>>()
+        val v = clipView().apply { onDeleteClips = { deleted.add(it) }; enterSelectForTest(listOf("hello")) }
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_delete)))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_cancel)))
+        assertTrue(deleted.isEmpty())
+        assertTrue(v.isSelectModeForTest())
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_delete)))
+        overlayOf(v).performClick()
+        assertTrue(deleted.isEmpty())
+        assertTrue(v.isSelectModeForTest())
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_delete)))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete)))
+        assertEquals(listOf(listOf("hello")), deleted)
+        assertFalse(v.isSelectModeForTest())
+    }
+
+
+    @Test fun phrase_left_swipe_reveals_the_complete_fixed_action_set() {
+        val v = phraseView()
+        v.revealSwipeForTest("在吗")
+        assertEquals(
+            listOf(ctx.getString(com.aegis.ime.R.string.clip_edit), ctx.getString(com.aegis.ime.R.string.clip_note), ctx.getString(com.aegis.ime.R.string.clip_move), ctx.getString(com.aegis.ime.R.string.clip_delete)),
+            actionButtons(v).map { it.text.toString() },
+        )
+        assertTrue("拆 ${ctx.getString(com.aegis.ime.R.string.clip_split_word)}" in descs(clipView().apply { revealSwipeForTest("hello") }))
+        assertTrue("移 ${ctx.getString(com.aegis.ime.R.string.clip_move)}" in descs(v))
+        assertFalse(labels(v).any { it == "置顶" || it == "Pin to top" })
     }
 
     @Test fun category_switch_clears_a_stale_swipe_reveal() {
@@ -242,19 +287,25 @@ class Debug17PanelTest {
         v.settleSwipeForTest(100f, "hello"); assertNull("clear right → hide", v.swipeRevealedForTest())
     }
 
-    @Test fun phrase_pin_moves_item_to_top() {
-        var reorder: Triple<String, Int, Int>? = null
-        val v = phraseView().apply { onReorderPhrase = { c, f, t -> reorder = Triple(c, f, t) } }
-        v.revealSwipeForTest("稍等")
-        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_pin_top)))
-        assertEquals("置顶 = reorder to index 0", Triple("默认", 2, 0), reorder)
+    @Test fun phrase_arrow_and_swipe_render_identical_actions() {
+        val v = phraseView().apply { expandForTest("你好") }
+        val arrowActions = actionButtons(v).map { it.text.toString() }
+        v.hideSwipeForTest()
+        v.revealSwipeForTest("你好")
+        assertEquals(arrowActions, actionButtons(v).map { it.text.toString() })
+        assertEquals(listOf(ctx.getString(com.aegis.ime.R.string.clip_edit), ctx.getString(com.aegis.ime.R.string.clip_note), ctx.getString(com.aegis.ime.R.string.clip_move), ctx.getString(com.aegis.ime.R.string.clip_delete)), arrowActions)
     }
 
-    @Test fun phrase_expand_row_is_unchanged_edit_move_delete() {
-        val v = phraseView().apply { expandForTest("你好") }
-        val ls = labels(v)
-        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_move) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_edit) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_delete) in ls)
-        assertFalse("expand row has no 置顶", ctx.getString(com.aegis.ime.R.string.clip_pin_top) in ls)
+    @Test fun phrase_item_delete_cancels_and_confirms_without_early_mutation() {
+        val deleted = ArrayList<Pair<String, List<String>>>()
+        val v = phraseView().apply { onDeletePhrasesFrom = { category, items -> deleted.add(category to items) }; expandForTest("你好") }
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_delete)))
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_delete_phrase_confirm) in labels(overlayOf(v)))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_cancel)))
+        assertTrue(deleted.isEmpty())
+        assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_delete)))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete)))
+        assertEquals(listOf("默认" to listOf("你好")), deleted)
     }
 
 
@@ -391,13 +442,6 @@ class Debug17PanelTest {
         assertEquals(pal.keyLabel, textViews(overlayOf(v)).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_copy_all) }.currentTextColor)
     }
 
-
-    private fun scrollViews(root: View): List<android.widget.ScrollView> {
-        val out = ArrayList<android.widget.ScrollView>()
-        fun walk(x: View) { if (x is android.widget.ScrollView) out.add(x); if (x is ViewGroup) for (i in 0 until x.childCount) walk(x.getChildAt(i)) }
-        walk(root); return out
-    }
-
     @Test fun phrase_note_is_displayed_but_pick_commits_the_original() {
         val picked = ArrayList<String>()
         val v = ClipboardView(ctx).apply {
@@ -489,18 +533,40 @@ class Debug17PanelTest {
         assertTrue("history recording toggle remains reachable", labels(overlayOf(v)).any { it == ctx.getString(com.aegis.ime.R.string.clip_history_recording_on) || it == ctx.getString(com.aegis.ime.R.string.clip_history_recording_off) })
     }
 
-    @Test fun clipboard_and_phrase_tab_row_uses_text_color_only() {
+    @Test fun clipboard_and_phrase_tabs_share_a_capsule_and_highlight_the_selected_half() {
         val clip = clipView()
+        layout(clip)
         val tabs = textViews(clip).filter { it.text?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_clipboard), ctx.getString(com.aegis.ime.R.string.clip_phrases)) }
         assertEquals(2, tabs.size)
-        assertTrue(tabs.all { it.background == null })
-        assertEquals(pal.candidateFirst, tabs.first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_clipboard) }.currentTextColor)
-        assertEquals(pal.keyLabel, tabs.first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_phrases) }.currentTextColor)
+        val clipTab = tabs.first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_clipboard) }
+        val phraseTab = tabs.first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_phrases) }
+        assertTrue(clipTab.parent === phraseTab.parent)
+        assertTrue(clipTab.parent is View)
+        val tray = clipTab.parent as View
+        assertTrue(tray.background is GradientDrawable)
+        assertEquals((34 * ctx.resources.displayMetrics.density).toInt(), tray.layoutParams.height)
+        assertTrue((tray.background as GradientDrawable).cornerRadius >= 17 * ctx.resources.displayMetrics.density)
+        assertTrue(clipTab.background is GradientDrawable)
+        assertNull(phraseTab.background)
+        assertEquals(0, clipTab.left)
+        assertEquals(clipTab.right, phraseTab.left)
+        assertEquals(tray.width, phraseTab.right)
+        val leftRadii = (clipTab.background as GradientDrawable).cornerRadii!!
+        assertTrue(leftRadii[0] > 0f && leftRadii[2] == 0f && leftRadii[4] == 0f && leftRadii[6] > 0f)
+        assertEquals(pal.candidateFirst, clipTab.currentTextColor)
+        assertEquals(pal.keyLabel, phraseTab.currentTextColor)
 
         val phrase = phraseView()
+        layout(phrase)
         val phraseTabs = textViews(phrase).filter { it.text?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_clipboard), ctx.getString(com.aegis.ime.R.string.clip_phrases)) }
-        assertEquals(pal.keyLabel, phraseTabs.first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_clipboard) }.currentTextColor)
-        assertEquals(pal.candidateFirst, phraseTabs.first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_phrases) }.currentTextColor)
+        val phraseClipTab = phraseTabs.first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_clipboard) }
+        val selectedPhraseTab = phraseTabs.first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_phrases) }
+        assertNull(phraseClipTab.background)
+        assertTrue(selectedPhraseTab.background is GradientDrawable)
+        val rightRadii = (selectedPhraseTab.background as GradientDrawable).cornerRadii!!
+        assertTrue(rightRadii[0] == 0f && rightRadii[2] > 0f && rightRadii[4] > 0f && rightRadii[6] == 0f)
+        assertEquals(pal.keyLabel, phraseClipTab.currentTextColor)
+        assertEquals(pal.candidateFirst, selectedPhraseTab.currentTextColor)
     }
 
     @Test fun clipboard_and_phrase_tabs_keep_order_and_bounds_while_switching() {
@@ -547,6 +613,16 @@ class Debug17PanelTest {
         assertFalse(view.isClipboardTabForTest())
         assertEquals(initial, tabs())
         assertTrue("phrase body" in labels(view))
+        val phraseTab = textViews(view).first { it.text?.toString() == phrases }
+        val tray = phraseTab.parent as View
+        val plus = allViews(view).first { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_add_phrase) }
+        val list = allViews(view).first { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_multi_select) }
+        assertTrue(plus.background is GradientDrawable)
+        assertTrue(list.background is GradientDrawable)
+        val trayToPlus = absoluteBounds(plus).left - absoluteBounds(tray).right
+        val plusToList = absoluteBounds(list).left - absoluteBounds(plus).right
+        assertTrue(trayToPlus > 0)
+        assertEquals(trayToPlus, plusToList)
         assertTrue(click(view, clipboard))
         layoutView()
         assertTrue(view.isClipboardTabForTest())
@@ -637,9 +713,15 @@ class Debug17PanelTest {
         assertEquals(pal.keyLabel, textViews(overlayOf(category)).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_choose_category) }.currentTextColor)
     }
 
-    @Test fun expanding_a_card_wraps_its_body_in_a_scrollview() {
-        val baseline = scrollViews(clipView(listOf("a long clip"))).size
-        val expanded = clipView(listOf("a long clip")).apply { expandForTest("a long clip") }
-        assertTrue("F1: an expanded card adds a bounded ScrollView around its body", scrollViews(expanded).size > baseline)
+    @Test fun opening_actions_offsets_only_the_foreground_item() {
+        val v = clipView(listOf("a long clip"))
+        layout(v)
+        val closedBody = textViews(v).first { it.text?.toString() == "a long clip" }
+        assertEquals(0f, (closedBody.parent as View).translationX, 0f)
+        v.expandForTest("a long clip")
+        layout(v)
+        val openBody = textViews(v).first { it.text?.toString() == "a long clip" }
+        assertTrue((openBody.parent as View).translationX < 0f)
+        assertEquals(2, openBody.maxLines)
     }
 }

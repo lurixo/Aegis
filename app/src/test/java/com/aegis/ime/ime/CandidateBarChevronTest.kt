@@ -36,6 +36,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 import org.robolectric.annotation.LooperMode
 
 @RunWith(RobolectricTestRunner::class)
@@ -360,6 +361,8 @@ class CandidateBarChevronTest {
             val view = idleBar(widthDp)
             val controls = view.toolbarControlBoundsForTest()
             assertEquals(5, controls.size)
+            assertEquals(18f * density, controls.first().left, 0.01f)
+            assertEquals(view.width - 18f * density, controls.last().right, 0.01f)
             assertTrue(controls.all { abs(it.width() - controls.first().width()) <= 0.01f })
             assertTrue(controls.all { abs(it.height() - controls.first().height()) <= 0.01f })
             val spacing = controls.zipWithNext { left, right -> right.centerX() - left.centerX() }
@@ -375,6 +378,17 @@ class CandidateBarChevronTest {
             view.dispatchTouchEvent(MotionEvent.obtain(0, index * 20L + 10L, MotionEvent.ACTION_UP, rect.centerX(), rect.centerY(), 0))
         }
         assertEquals(listOf("BRAND", "EMOJI", "EDIT", "CLIPBOARD", "COLLAPSE"), actions)
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test fun idle_toolbar_has_semicircular_ends_and_no_chevron_divider() {
+        val view = idleBar(360)
+        val controls = view.toolbarControlBoundsForTest()
+        assertEquals(controls.first().height() / 2f, view.toolbarOuterRadiusForTest(), 0.01f)
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        view.draw(Canvas(bitmap))
+        val dividerX = (controls.last().left + density * 0.5f).toInt()
+        assertEquals(ImePalette.STATIC_LIGHT.keySurface, bitmap.getPixel(dividerX, controls.last().centerY().toInt()))
     }
 
 

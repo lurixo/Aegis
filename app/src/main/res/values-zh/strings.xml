@@ -290,7 +290,6 @@
     <string name="clip_edit">编辑</string>
     <string name="clip_note">备注</string>
     <string name="clip_move">移动</string>
-    <string name="clip_pin_top">置顶</string>
     <string name="clip_drag_sort">拖动排序</string>
     <string name="clip_done">完成</string>
     <string name="clip_drag_category">拖动分类</string>
@@ -316,6 +315,8 @@
     <string name="clip_no_other_categories">没有其它分类</string>
     <string name="clip_delete_category">删除分类</string>
     <string name="clip_delete_item">删除此条内容</string>
+    <string name="clip_delete_clip_confirm">删除选中的剪贴板条目?</string>
+    <string name="clip_delete_phrase_confirm">删除选中的常用语?</string>
     <string name="clip_split_title">拆分选词</string>
     <string name="clip_history_recording_on">剪贴板记录:开</string>
     <string name="clip_history_recording_off">剪贴板记录:关</string>

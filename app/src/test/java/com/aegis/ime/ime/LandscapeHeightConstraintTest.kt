@@ -792,6 +792,11 @@ class TinyPanelViewportConstraintTest {
         val delete = assertClipboardModeReadable(iv, clipboard, ctx.getString(com.aegis.ime.R.string.clip_delete))
         assertTrue(dispatchRootTap(iv, iv.panelDescendantBoundsForTest(delete), delete))
         flushPostedClicks()
+        assertTrue(deleted.isEmpty())
+        assertTrue(clipboard.isSelectModeForTest())
+        val confirmDelete = visibleTextViews(clipboard).last { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_delete) && it.isClickable }
+        assertTrue(confirmDelete.performClick())
+        flushPostedClicks()
         assertEquals(listOf(listOf(clips.first())), deleted)
         assertFalse(clipboard.isSelectModeForTest())
 

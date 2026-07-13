@@ -291,7 +291,6 @@
     <string name="clip_edit">Edit</string>
     <string name="clip_note">Note</string>
     <string name="clip_move">Move</string>
-    <string name="clip_pin_top">Pin to top</string>
     <string name="clip_drag_sort">Drag to reorder</string>
     <string name="clip_done">Done</string>
     <string name="clip_drag_category">Drag to reorder categories</string>
@@ -317,6 +316,8 @@
     <string name="clip_no_other_categories">No other categories</string>
     <string name="clip_delete_category">Delete category</string>
     <string name="clip_delete_item">Delete this item</string>
+    <string name="clip_delete_clip_confirm">Delete the selected clipboard item(s)?</string>
+    <string name="clip_delete_phrase_confirm">Delete the selected phrase(s)?</string>
     <string name="clip_split_title">Split into words</string>
     <string name="clip_history_recording_on">Clipboard history: On</string>
     <string name="clip_history_recording_off">Clipboard history: Off</string>
