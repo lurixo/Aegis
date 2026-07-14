@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ui
 
+import android.content.SharedPreferences
 import android.os.Looper
 import androidx.activity.compose.setContent
 import androidx.compose.ui.test.assertIsEnabled
@@ -156,6 +157,15 @@ class DownloadCardWorkTest {
         assertEquals(absent, runtime.snapshot(context).status)
     }
 
+    @Test fun model_validator_commit_failure_restores_the_previous_preference() {
+        val prefs = context.getSharedPreferences("model-validator-failure", 0)
+        prefs.edit().putString(ModelDownload.VALIDATOR_PREF, "installed-model").commit()
+        val failing = CommitFailingPreferences(prefs)
+
+        assertFalse(GramDownloadWork.persistModelValidator(failing, "candidate-model"))
+        assertEquals("installed-model", prefs.getString(ModelDownload.VALIDATOR_PREF, null))
+    }
+
     @Test fun model_and_dictionary_cards_report_their_activated_files_and_refresh_after_changes() {
         val base = context.filesDir
         ModelDownload.purge(base)
@@ -193,6 +203,20 @@ class DownloadCardWorkTest {
             ModelDownload.purge(base)
             ModelDownload.purgeDict(base)
             File(ModelDownload.destFile(base).parentFile, "unrelated.bin").delete()
+        }
+    }
+
+    private class CommitFailingPreferences(
+        private val delegate: SharedPreferences,
+    ) : SharedPreferences by delegate {
+        override fun edit(): SharedPreferences.Editor {
+            val editor = delegate.edit()
+            return object : SharedPreferences.Editor by editor {
+                override fun commit(): Boolean {
+                    editor.apply()
+                    return false
+                }
+            }
         }
     }
 }
@@ -272,7 +296,7 @@ class ResourceUpdateCardTest {
     }
 
     @Test
-    fun legacyGrammarFileIsRecognizedAndItsValidatorIsPersisted() {
+    fun unidentifiedGrammarFileOffersTheUpdateWithoutAdoptingTheHeadValidator() {
         val downloads = AtomicInteger()
         ModelDownload.destFile(context.filesDir).apply {
             parentFile?.mkdirs()
@@ -284,7 +308,7 @@ class ResourceUpdateCardTest {
             compose.activity.setContent {
                 AegisTheme {
                     GramDownloadCard(
-                        probe = { ModelDownload.ValidatorProbe.Reached("current-model", 2_048L) },
+                        probe = { ModelDownload.ValidatorProbe.Reached("current-model") },
                         downloader = { _, _ -> downloads.incrementAndGet() },
                     )
                 }
@@ -293,11 +317,11 @@ class ResourceUpdateCardTest {
         compose.waitForIdle()
 
         compose.onNodeWithText(context.getString(R.string.check_model_update_button)).performClick()
-        awaitMain { prefs.getString(ModelDownload.VALIDATOR_PREF, null) == "current-model" }
+        awaitMain { downloads.get() == 1 }
 
-        assertEquals(0, downloads.get())
+        assertFalse(prefs.contains(ModelDownload.VALIDATOR_PREF))
         assertTrue(ModelDownload.isDownloaded(context.filesDir))
-        assertEquals(context.getString(R.string.download_toast_up_to_date), ShadowToast.getTextOfLatestToast())
+        assertEquals(context.getString(R.string.download_toast_update_found), ShadowToast.getTextOfLatestToast())
     }
 
     @Test
@@ -358,9 +382,9 @@ class ResourceUpdateCardTest {
     }
 
     @Test
-    fun legacyDictionaryFilesResolveAndPersistTheirFixedPackHash() {
+    fun unknownDictionaryFilesRequireTheTrustedManifestUpdate() {
         val checked = AtomicReference<ModelDownload.DictionaryInstallMetadata?>()
-        val downloads = AtomicInteger()
+        val downloaded = AtomicReference<ModelDownload.DictionaryAsset?>()
         val dir = ModelDownload.destFile(context.filesDir).parentFile!!.apply { mkdirs() }
         ModelDownload.DICT_PACK_FILES.forEach { File(dir, it).writeBytes(ByteArray(2_048)) }
         prefs.edit().remove(ModelDownload.DICT_SHA256_PREF).commit()
@@ -371,9 +395,9 @@ class ResourceUpdateCardTest {
                     DictDownloadCard(
                         check = {
                             checked.set(it)
-                            ModelDownload.DictionaryUpdateCheck(ModelDownload.UpdateCheck.UP_TO_DATE)
+                            ModelDownload.dictionaryUpdateFromFetch({ dictionaryManifest() }, it)
                         },
-                        downloader = { _, _ -> downloads.incrementAndGet() },
+                        downloader = { _, asset -> downloaded.set(asset) },
                     )
                 }
             }
@@ -381,13 +405,13 @@ class ResourceUpdateCardTest {
         compose.waitForIdle()
 
         compose.onNodeWithText(context.getString(R.string.check_dict_update_button)).performClick()
-        awaitMain { checked.get() != null && ShadowToast.shownToastCount() == 1 }
+        awaitMain { checked.get() != null && downloaded.get() != null }
 
-        assertEquals(ModelDownload.FALLBACK_DICT_SHA256, checked.get()!!.sha256)
-        assertEquals(ModelDownload.FALLBACK_DICT_SHA256, prefs.getString(ModelDownload.DICT_SHA256_PREF, null))
-        assertEquals(0, downloads.get())
+        assertNull(checked.get()!!.sha256)
+        assertFalse(prefs.contains(ModelDownload.DICT_SHA256_PREF))
+        assertEquals(DICT_SHA, downloaded.get()!!.sha256)
         assertTrue(ModelDownload.isDictDownloaded(context.filesDir))
-        assertEquals(context.getString(R.string.download_toast_up_to_date), ShadowToast.getTextOfLatestToast())
+        assertEquals(context.getString(R.string.download_toast_update_found), ShadowToast.getTextOfLatestToast())
     }
 
     @Test

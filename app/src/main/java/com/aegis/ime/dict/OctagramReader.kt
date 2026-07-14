@@ -50,14 +50,33 @@ class OctagramReader private constructor(
 
     companion object {
         private const val VALUE_SCALE = 10000.0
+        private const val METADATA_SIZE = 44
+        private const val FORMAT_SIZE = 32
+        private const val FORMAT_PREFIX = "Rime::Grammar/"
 
         fun fromFile(file: File): OctagramReader {
             RandomAccessFile(file, "r").use { raf ->
                 val ch = raf.channel
+                require(ch.size() >= METADATA_SIZE)
                 val mapped = ch.map(FileChannel.MapMode.READ_ONLY, 0, ch.size())
                 mapped.order(ByteOrder.LITTLE_ENDIAN)
+                val formatBytes = ByteArray(FORMAT_SIZE)
+                mapped.get(formatBytes)
+                val formatEnd = formatBytes.indexOf(0.toByte()).let { if (it < 0) FORMAT_SIZE else it }
+                require(String(formatBytes, 0, formatEnd, Charsets.US_ASCII).startsWith(FORMAT_PREFIX))
+                val arraySize = mapped.getInt(36).toLong() and 0xffffffffL
                 val arrayOffset = mapped.getInt(40)
-                return OctagramReader(mapped, 40 + arrayOffset)
+                val imageStart = 40L + arrayOffset.toLong()
+                val imageBytes = arraySize * 4L
+                require(
+                    arrayOffset != 0 &&
+                        arraySize > 0L &&
+                        imageBytes <= ch.size() &&
+                        imageStart in METADATA_SIZE.toLong()..(ch.size() - imageBytes) &&
+                        imageStart + imageBytes == ch.size() &&
+                        ch.size() <= Int.MAX_VALUE.toLong()
+                )
+                return OctagramReader(mapped, imageStart.toInt())
             }
         }
 
