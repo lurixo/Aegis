@@ -59,8 +59,7 @@ class Md3MotionSystemTest {
     private fun animationsOn() = Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
     private fun animationsOff() = Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
 
-    private fun attach(view: View): View {
-        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+    private fun attach(activity: Activity, view: View): View {
         val host = FrameLayout(activity)
         host.addView(view)
         activity.setContentView(host)
@@ -87,11 +86,17 @@ class Md3MotionSystemTest {
 
     @Test fun fadeThrough_under_reduced_motion_swaps_immediately_at_full_opacity() {
         animationsOff()
-        val v = attach(View(ctx)).apply { alpha = 0.2f }
-        var swapped = false
-        Motion.fadeThrough(v) { swapped = true }
-        assertTrue("reduced motion runs the content swap immediately", swapped)
-        assertEquals("reduced motion jumps straight to full opacity", 1f, v.alpha, 0f)
+        val v = View(ctx)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            attach(controller.get(), v).apply { alpha = 0.2f }
+            var swapped = false
+            Motion.fadeThrough(v) { swapped = true }
+            assertTrue("reduced motion runs the content swap immediately", swapped)
+            assertEquals("reduced motion jumps straight to full opacity", 1f, v.alpha, 0f)
+        } finally {
+            controller.pause().stop().destroy()
+        }
     }
 
     @Test fun fadeThrough_when_detached_swaps_immediately() {
@@ -105,65 +110,94 @@ class Md3MotionSystemTest {
 
     @Test fun fadeThrough_when_attached_and_animated_defers_the_swap_to_the_trough() {
         animationsOn()
-        val v = attach(View(ctx))
-        var swapped = false
-        Motion.fadeThrough(v) { swapped = true }
-        assertFalse("the animated fade-through defers the swap until the alpha-0 trough", swapped)
+        val v = View(ctx)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            attach(controller.get(), v)
+            var swapped = false
+            Motion.fadeThrough(v) { swapped = true }
+            assertFalse("the animated fade-through defers the swap until the alpha-0 trough", swapped)
+        } finally {
+            controller.pause().stop().destroy()
+        }
     }
 
 
     @Test fun crossfadeColor_from_equals_to_is_a_noop_returning_null() {
         animationsOn()
-        val v = attach(View(ctx))
-        var applied = 0
-        val anim = Motion.crossfadeColor(v, Color.RED, Color.RED) { applied = it }
-        assertNull("no animator when there is nothing to fade", anim)
-        assertEquals("the target is still applied once", Color.RED, applied)
+        val v = View(ctx)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            attach(controller.get(), v)
+            var applied = 0
+            val anim = Motion.crossfadeColor(v, Color.RED, Color.RED) { applied = it }
+            assertNull("no animator when there is nothing to fade", anim)
+            assertEquals("the target is still applied once", Color.RED, applied)
+        } finally {
+            controller.pause().stop().destroy()
+        }
     }
 
     @Test fun crossfadeColor_reduced_motion_applies_the_target_immediately() {
         animationsOff()
-        val v = attach(View(ctx))
-        var applied = 0
-        val anim = Motion.crossfadeColor(v, Color.RED, Color.BLUE) { applied = it }
-        assertNull("reduced motion returns no animator", anim)
-        assertEquals("reduced motion jumps straight to the target colour", Color.BLUE, applied)
+        val v = View(ctx)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            attach(controller.get(), v)
+            var applied = 0
+            val anim = Motion.crossfadeColor(v, Color.RED, Color.BLUE) { applied = it }
+            assertNull("reduced motion returns no animator", anim)
+            assertEquals("reduced motion jumps straight to the target colour", Color.BLUE, applied)
+        } finally {
+            controller.pause().stop().destroy()
+        }
     }
 
     @Test fun crossfadeColor_attached_and_animated_returns_a_running_animator() {
         animationsOn()
-        val v = attach(View(ctx))
-        val anim = Motion.crossfadeColor(v, Color.RED, Color.BLUE) { }
-        assertNotNull("an attached, animated colour change runs a cross-fade", anim)
-        assertTrue(anim!!.isRunning)
+        val v = View(ctx)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            attach(controller.get(), v)
+            val anim = Motion.crossfadeColor(v, Color.RED, Color.BLUE) { }
+            assertNotNull("an attached, animated colour change runs a cross-fade", anim)
+            assertTrue(anim!!.isRunning)
+        } finally {
+            controller.pause().stop().destroy()
+        }
     }
 
     @Test fun attached_candidate_and_keyboard_presses_do_not_read_global_settings() {
         animationsOn()
-        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
-        val context = CountingContext(activity)
-        val density = activity.resources.displayMetrics.density
-        val bar = CandidateView(context).apply { setContent(listOf("你", "泥"), "ni") }
-        attach(activity, bar, (360 * density).toInt(), (44 * density).toInt())
-        context.resolverAccesses = 0
-        var expandAccesses = -1
-        bar.onExpand = { expandAccesses = context.resolverAccesses }
-        val expandBounds = bar.expandControlBoundsForTest()
-        tap(bar, expandBounds.centerX(), expandBounds.centerY())
-        assertEquals(0, expandAccesses)
-        assertEquals(0, context.resolverAccesses)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val context = CountingContext(activity)
+            val density = activity.resources.displayMetrics.density
+            val bar = CandidateView(context).apply { setContent(listOf("你", "泥"), "ni") }
+            attach(activity, bar, (360 * density).toInt(), (44 * density).toInt())
+            context.resolverAccesses = 0
+            var expandAccesses = -1
+            bar.onExpand = { expandAccesses = context.resolverAccesses }
+            val expandBounds = bar.expandControlBoundsForTest()
+            tap(bar, expandBounds.centerX(), expandBounds.centerY())
+            assertEquals(0, expandAccesses)
+            assertEquals(0, context.resolverAccesses)
 
-        val keyboard = KeyboardView(context).apply {
-            setLayout(Layouts.forId(LayoutId.ALPHA, Lang.CN), false, false, Lang.CN)
+            val keyboard = KeyboardView(context).apply {
+                setLayout(Layouts.forId(LayoutId.ALPHA, Lang.CN), false, false, Lang.CN)
+            }
+            attach(activity, keyboard, (360 * density).toInt(), (260 * density).toInt())
+            context.resolverAccesses = 0
+            var picked: Key? = null
+            keyboard.onKey = { picked = it }
+            val keyCenter = requireNotNull(keyboard.centerOfLabelForTest("a"))
+            tap(keyboard, keyCenter.first, keyCenter.second)
+            assertEquals("a", picked?.label)
+            assertEquals(0, context.resolverAccesses)
+        } finally {
+            controller.pause().stop().destroy()
         }
-        attach(activity, keyboard, (360 * density).toInt(), (260 * density).toInt())
-        context.resolverAccesses = 0
-        var picked: Key? = null
-        keyboard.onKey = { picked = it }
-        val keyCenter = requireNotNull(keyboard.centerOfLabelForTest("a"))
-        tap(keyboard, keyCenter.first, keyCenter.second)
-        assertEquals("a", picked?.label)
-        assertEquals(0, context.resolverAccesses)
     }
 
 
@@ -205,9 +239,15 @@ class Md3MotionSystemTest {
 
     @Test fun candidate_strip_applies_content_immediately_under_reduced_motion() {
         animationsOff()
-        val cv = attach(CandidateView(ctx)) as CandidateView
-        cv.setContent(listOf("你", "好", "吗"), "nihaoma")
-        assertEquals("reduced-motion role change still applies the content immediately", 3, cv.itemCount())
+        val cv = CandidateView(ctx)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            attach(controller.get(), cv)
+            cv.setContent(listOf("你", "好", "吗"), "nihaoma")
+            assertEquals("reduced-motion role change still applies the content immediately", 3, cv.itemCount())
+        } finally {
+            controller.pause().stop().destroy()
+        }
     }
 
 

@@ -50,41 +50,51 @@ class SwitchFlickerTest {
 
     @Test fun clipboard_open_starts_fully_opaque_with_current_content() {
         Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
-        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
-        val host = FrameLayout(activity)
-        val input = InputView(activity)
-        host.addView(input)
-        activity.setContentView(host)
-        val clipboard = ClipboardView(activity).apply {
-            historyProvider = { listOf("current clip") }
-            applyPalette(light)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val host = FrameLayout(activity)
+            val input = InputView(activity)
+            host.addView(input)
+            activity.setContentView(host)
+            val clipboard = ClipboardView(activity).apply {
+                historyProvider = { listOf("current clip") }
+                applyPalette(light)
+            }
+
+            input.showPanelImmediately(clipboard)
+
+            assertEquals(1f, clipboard.alpha, 0f)
+            assertEquals(0f, clipboard.translationY, 0f)
+            assertEquals(listOf("current clip"), clipboard.listRowTextsForTest())
+        } finally {
+            controller.pause().stop().destroy()
         }
-
-        input.showPanelImmediately(clipboard)
-
-        assertEquals(1f, clipboard.alpha, 0f)
-        assertEquals(0f, clipboard.translationY, 0f)
-        assertEquals(listOf("current clip"), clipboard.listRowTextsForTest())
     }
 
     @Test fun composing_dismisses_the_copy_bar_once_during_its_animated_exit() {
         Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
-        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
-        val input = InputView(activity)
-        var dismissals = 0
-        input.onCopyDismiss = { dismissals++ }
-        input.showCopyBar("copied")
-        val host = FrameLayout(activity)
-        host.addView(input)
-        activity.setContentView(host)
-        assertTrue(input.copyBarShown)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val input = InputView(activity)
+            var dismissals = 0
+            input.onCopyDismiss = { dismissals++ }
+            input.showCopyBar("copied")
+            val host = FrameLayout(activity)
+            host.addView(input)
+            activity.setContentView(host)
+            assertTrue(input.copyBarShown)
 
-        input.showCandidates(listOf("你"), "ni", listOf("ni"))
+            input.showCandidates(listOf("你"), "ni", listOf("ni"))
 
-        assertEquals(1, dismissals)
-        assertTrue(input.copyBarShown)
-        input.showCandidates(listOf("你好", "你"), "nihao", listOf("ni"))
-        assertEquals(1, dismissals)
+            assertEquals(1, dismissals)
+            assertTrue(input.copyBarShown)
+            input.showCandidates(listOf("你好", "你"), "nihao", listOf("ni"))
+            assertEquals(1, dismissals)
+        } finally {
+            controller.pause().stop().destroy()
+        }
     }
 
     @Test fun every_panel_root_carries_an_opaque_floor() {
