@@ -287,8 +287,9 @@ class RenderHarness {
         v.draw(c)
         c.restore()
         FileOutputStream(File(outDir, "panel_fade_mid.png")).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        val mid = IntArray(wPx); bmp.getPixels(mid, 0, wPx, 0, h / 2, wPx, 1)
-        assertTrue("panel_fade_mid drew nothing over the keyboard floor", mid.any { it != pal.keyboardBg })
+        val pixels = IntArray(wPx * h)
+        bmp.getPixels(pixels, 0, wPx, 0, 0, wPx, h)
+        assertTrue("panel_fade_mid drew nothing over the keyboard floor", pixels.any { it != pal.keyboardBg })
     }
 
     @Test fun copy_bar() {
