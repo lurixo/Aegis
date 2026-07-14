@@ -239,6 +239,53 @@ class AsyncDecodeEquivalenceTest {
         assertTrue(grid.tapCandidateForTest(candidatesBefore.indexOf("尼")))
         assertTrue(lane.lane.pending)
 
+        val readingsBeforePendingReadingPick = Triple(
+            controller.expandedReadings(),
+            grid.renderedReadingTextsForTest(),
+            controller.drilledSyllableForTest(),
+        )
+        val laneBeforePendingReadingPick = lane.lane.pending to lane.workerQ.size
+        val rebuildsBeforePendingReadingPick =
+            grid.candidateRebuildsForTest() to grid.readingRebuildsForTest()
+        val allocationsBeforePendingReadingPick =
+            grid.chipsAllocatedForTest() to grid.readingsAllocatedForTest()
+        val panelBeforePendingReadingPick = panelChanges to view.isPanelShowing(grid)
+        val candidatesBeforePendingReadingPick =
+            controller.candidateWords() to grid.renderedCandidateTextsForTest()
+        val compositionBeforePendingReadingPick =
+            controller.preeditForTest() to controller.composingPrefix()
+
+        assertEquals(listOf("hao"), readingsBeforePendingReadingPick.first)
+        assertEquals(readingsBeforePendingReadingPick.first, readingsBeforePendingReadingPick.second)
+        assertTrue(grid.tapReadingForTest(readingsBeforePendingReadingPick.second.indexOf("hao")))
+
+        assertEquals(
+            readingsBeforePendingReadingPick,
+            Triple(
+                controller.expandedReadings(),
+                grid.renderedReadingTextsForTest(),
+                controller.drilledSyllableForTest(),
+            ),
+        )
+        assertEquals(laneBeforePendingReadingPick, lane.lane.pending to lane.workerQ.size)
+        assertEquals(
+            rebuildsBeforePendingReadingPick,
+            grid.candidateRebuildsForTest() to grid.readingRebuildsForTest(),
+        )
+        assertEquals(
+            allocationsBeforePendingReadingPick,
+            grid.chipsAllocatedForTest() to grid.readingsAllocatedForTest(),
+        )
+        assertEquals(panelBeforePendingReadingPick, panelChanges to view.isPanelShowing(grid))
+        assertEquals(
+            candidatesBeforePendingReadingPick,
+            controller.candidateWords() to grid.renderedCandidateTextsForTest(),
+        )
+        assertEquals(
+            compositionBeforePendingReadingPick,
+            controller.preeditForTest() to controller.composingPrefix(),
+        )
+
         assertEquals("你hao", controller.preeditForTest())
         assertEquals("你", controller.composingPrefix())
         assertEquals(listOf("hao"), controller.expandedReadings())
