@@ -38,8 +38,7 @@ class MotionSymmetryTest {
     private fun animationsOn() = Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
     private fun animationsOff() = Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
 
-    private fun host(): FrameLayout {
-        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+    private fun host(activity: Activity): FrameLayout {
         val host = FrameLayout(activity)
         activity.setContentView(host)
         return host
@@ -48,14 +47,19 @@ class MotionSymmetryTest {
 
     @Test fun hide_under_reduced_motion_reaches_gone_and_runs_end_action() {
         animationsOff()
-        val host = host()
-        val v = View(ctx).also { host.addView(it) }
-        var ended = false
-        Motion.hide(v, toward = Motion.EnterFrom.TOP) { ended = true }
-        assertEquals("reduced motion jumps straight to GONE", View.GONE, v.visibility)
-        assertTrue("the end action still runs (the caller closes synchronously)", ended)
-        assertEquals("and the transform is reset to rest", 0f, v.translationY, 0f)
-        assertEquals(1f, v.alpha, 0f)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val host = host(controller.get())
+            val v = View(ctx).also { host.addView(it) }
+            var ended = false
+            Motion.hide(v, toward = Motion.EnterFrom.TOP) { ended = true }
+            assertEquals("reduced motion jumps straight to GONE", View.GONE, v.visibility)
+            assertTrue("the end action still runs (the caller closes synchronously)", ended)
+            assertEquals("and the transform is reset to rest", 0f, v.translationY, 0f)
+            assertEquals(1f, v.alpha, 0f)
+        } finally {
+            controller.pause().stop().destroy()
+        }
     }
 
     @Test fun hide_when_detached_reaches_end_state_immediately() {
@@ -69,34 +73,49 @@ class MotionSymmetryTest {
 
     @Test fun hide_when_attached_and_animated_defers_the_gone_until_the_fade_ends() {
         animationsOn()
-        val host = host()
-        val v = View(ctx).also { host.addView(it) }
-        var ended = false
-        Motion.hide(v) { ended = true }
-        assertEquals("the fade defers GONE (it animates, never snaps)", View.VISIBLE, v.visibility)
-        assertFalse("the end action waits for the fade to finish", ended)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val host = host(controller.get())
+            val v = View(ctx).also { host.addView(it) }
+            var ended = false
+            Motion.hide(v) { ended = true }
+            assertEquals("the fade defers GONE (it animates, never snaps)", View.VISIBLE, v.visibility)
+            assertFalse("the end action waits for the fade to finish", ended)
+        } finally {
+            controller.pause().stop().destroy()
+        }
     }
 
 
     @Test fun swapIn_under_reduced_motion_swaps_to_the_end_state_immediately() {
         animationsOff()
-        val host = host()
-        val outgoing = View(ctx).apply { visibility = View.VISIBLE }.also { host.addView(it) }
-        val incoming = View(ctx).apply { visibility = View.GONE }.also { host.addView(it) }
-        Motion.swapIn(incoming, outgoing)
-        assertEquals(View.GONE, outgoing.visibility)
-        assertEquals(View.VISIBLE, incoming.visibility)
-        assertEquals(1f, incoming.alpha, 0f)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val host = host(controller.get())
+            val outgoing = View(ctx).apply { visibility = View.VISIBLE }.also { host.addView(it) }
+            val incoming = View(ctx).apply { visibility = View.GONE }.also { host.addView(it) }
+            Motion.swapIn(incoming, outgoing)
+            assertEquals(View.GONE, outgoing.visibility)
+            assertEquals(View.VISIBLE, incoming.visibility)
+            assertEquals(1f, incoming.alpha, 0f)
+        } finally {
+            controller.pause().stop().destroy()
+        }
     }
 
     @Test fun swapIn_when_attached_and_animated_defers_showing_the_incoming() {
         animationsOn()
-        val host = host()
-        val outgoing = View(ctx).apply { visibility = View.VISIBLE }.also { host.addView(it) }
-        val incoming = View(ctx).apply { visibility = View.GONE }.also { host.addView(it) }
-        Motion.swapIn(incoming, outgoing)
-        assertEquals("outgoing fades out first (still visible)", View.VISIBLE, outgoing.visibility)
-        assertEquals("incoming only appears at the trough — never both at full height at once", View.GONE, incoming.visibility)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val host = host(controller.get())
+            val outgoing = View(ctx).apply { visibility = View.VISIBLE }.also { host.addView(it) }
+            val incoming = View(ctx).apply { visibility = View.GONE }.also { host.addView(it) }
+            Motion.swapIn(incoming, outgoing)
+            assertEquals("outgoing fades out first (still visible)", View.VISIBLE, outgoing.visibility)
+            assertEquals("incoming only appears at the trough — never both at full height at once", View.GONE, incoming.visibility)
+        } finally {
+            controller.pause().stop().destroy()
+        }
     }
 
 
