@@ -448,21 +448,20 @@ class InputView(context: Context) : LinearLayout(context) {
         onOverlayChanged()
     }
 
-    private enum class BackKind { NONE, PANEL, COPY_BAR, EDIT_BAR }
+    private enum class BackKind { NONE, PANEL, EDIT_BAR }
 
-    fun hasOverlay(): Boolean = currentPanel != null || copyBarActive || editBarActive
+    fun hasOverlay(): Boolean = !copyBarActive && (currentPanel != null || editBarActive)
 
     private fun topOverlay(): Pair<BackKind, View?> = when {
+        copyBarActive -> BackKind.NONE to null
         editBarActive -> BackKind.EDIT_BAR to editBarView
         currentPanel != null -> BackKind.PANEL to currentPanel
-        copyBarActive -> BackKind.COPY_BAR to copyBarView
         else -> BackKind.NONE to null
     }
 
     fun closeTopOverlay(): Boolean = when (topOverlay().first) {
         BackKind.EDIT_BAR -> { onEditCancel(); true }
         BackKind.PANEL -> { showPanel(null); true }
-        BackKind.COPY_BAR -> { hideCopyBar(); onCopyDismiss(); true }
         BackKind.NONE -> false
     }
 

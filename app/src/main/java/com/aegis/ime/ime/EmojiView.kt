@@ -117,7 +117,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         setBackgroundColor(palette.keyboardBg)
         lockBtn.setCompoundDrawablesWithIntrinsicBounds(lockGlyph, null, null, null)
         lockBtn.compoundDrawablePadding = dp(2)
-        backspaceBtn.setCompoundDrawablesWithIntrinsicBounds(null, null, backspaceGlyph, null)
+        backspaceBtn.setCompoundDrawablesWithIntrinsicBounds(backspaceGlyph, null, null, null)
         backspaceGlyph.tint(palette.keyLabelSecondary)
         updateLockFace()
 
@@ -129,7 +129,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         variantCard.addView(variantSkinRow)
         val content = LinearLayout(context).apply {
             orientation = HORIZONTAL
-            railScroll.setBackgroundColor(palette.railBg)
+            railScroll.setBackgroundColor(palette.keyboardBg)
             addView(railScroll, LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
             addView(gridFrame, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         }
@@ -141,13 +141,12 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     fun applyPalette(p: ImePalette) {
         palette = p
         setBackgroundColor(p.keyboardBg)
-        railScroll.setBackgroundColor(p.railBg)
+        railScroll.setBackgroundColor(p.keyboardBg)
         bottomBarView.setBackgroundColor(p.keyboardBg)
-        (bottomBarView as LinearLayout).let { bar ->
-            for (i in 0 until bar.childCount) (bar.getChildAt(i) as? TextView)?.let {
-                it.setTextColor(p.keyLabelSecondary)
-                Motion.applyTapFeedback(it, p.keyLabelSecondary)
-            }
+        for (button in listOf(backBtn, lockBtn, backspaceBtn)) button.background = barButtonBackground()
+        for (button in listOf(backBtn, backspaceBtn)) {
+            button.setTextColor(p.keyLabelSecondary)
+            Motion.applyTapFeedback(button, p.keyLabelSecondary)
         }
         backspaceGlyph.tint(p.keyLabelSecondary)
         for (cell in emojiPool) retintRipple(cell, p.keyLabel)
@@ -189,6 +188,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun railTabForTest(index: Int): TextView = rail.getChildAt(index) as TextView
     internal fun emojiCellsAllocatedForTest(): Int = emojiPool.size
     internal fun gridCellCountForTest(): Int = grid.childCount
+    internal fun gridCellForTest(index: Int): TextView? = grid.getChildAt(index) as? TextView
     internal fun gridCellTextsForTest(): List<String> =
         (0 until grid.childCount).mapNotNull { (grid.getChildAt(it) as? TextView)?.text?.toString() }
     internal fun tapCellForTest(index: Int): Boolean = (grid.getChildAt(index) as? TextView)?.performClick() ?: false
@@ -364,15 +364,28 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun tapVariantSkinForTest(index: Int): Boolean =
         (variantSkinRow.getChildAt(index) as? TextView)?.performClick() ?: false
 
-    private fun bottomBar(): View = LinearLayout(context).apply {
-        orientation = HORIZONTAL
+    private fun bottomBar(): View = FrameLayout(context).apply {
         setBackgroundColor(palette.keyboardBg)
-        backBtn.gravity = Gravity.START or Gravity.CENTER_VERTICAL; backBtn.setPadding(dp(20), 0, 0, 0)
-        backspaceBtn.gravity = Gravity.END or Gravity.CENTER_VERTICAL; backspaceBtn.setPadding(0, 0, dp(20), 0)
+        backBtn.gravity = Gravity.CENTER; backBtn.setPadding(0, 0, 0, 0)
+        backspaceBtn.gravity = Gravity.CENTER; backspaceBtn.setPadding(0, 0, 0, 0)
         lockSlot.addView(lockBtn, FrameLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT, Gravity.CENTER))
-        addView(backBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        addView(lockSlot, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        addView(backspaceBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        val symbolColumns = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            addView(View(context), LinearLayout.LayoutParams(dp(64), LayoutParams.MATCH_PARENT))
+            repeat(COLUMNS - 1) { addView(View(context), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f)) }
+            addView(backspaceBtn, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+            addView(View(context), LinearLayout.LayoutParams(dp(4), LayoutParams.MATCH_PARENT))
+        }
+        val lockRow = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            addView(FrameLayout(context).apply {
+                addView(backBtn, FrameLayout.LayoutParams(dp(60), LayoutParams.MATCH_PARENT, Gravity.START))
+            }, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+            addView(lockSlot, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+            addView(View(context), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        }
+        addView(symbolColumns, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        addView(lockRow, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     }
 
     private fun barButton(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
@@ -380,9 +393,15 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         setTextColor(palette.keyLabelSecondary)
+        background = barButtonBackground()
         isClickable = true
         Motion.applyTapFeedback(this, palette.keyLabelSecondary)
         setOnClickListener { onClick() }
+    }
+
+    private fun barButtonBackground() = GradientDrawable().apply {
+        setColor(palette.keySurface)
+        cornerRadius = ImeShapes.keyRadiusDp * density
     }
 
     private class LockDrawable(private val density: Float) : Drawable() {

@@ -15,12 +15,12 @@
 
 package com.aegis.ime.ime
 
-import android.graphics.Bitmap
-import android.graphics.Canvas
+import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
 import android.widget.TextView
-import kotlin.math.abs
+import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -30,23 +30,12 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34])
 class BottomBarSymmetryTest {
 
     private val ctx = RuntimeEnvironment.getApplication()
-
-    private fun assertBackspaceHugsRightSymmetrically(back: TextView, backspace: TextView, name: String) {
-        assertNull("$name: ⌫ must NOT be a LEFT compound drawable (that anchors it to the button's left edge)", backspace.compoundDrawables[0])
-        assertNotNull("$name: ⌫ must be the END/right compound drawable so it hugs the right edge", backspace.compoundDrawables[2])
-        assertTrue("$name: 返回 must have a left inset", back.paddingLeft > 0)
-        assertEquals("$name: ⌫ right inset must mirror 返回's left inset", back.paddingLeft, backspace.paddingRight)
-        assertEquals("$name: 返回 must not also be right-inset", 0, back.paddingRight)
-        assertEquals("$name: ⌫ must not also be left-inset", 0, backspace.paddingLeft)
-    }
 
     private fun layout(view: View, width: Int) {
         view.measure(
@@ -66,54 +55,83 @@ class BottomBarSymmetryTest {
         return x
     }
 
-    private fun inkCenter(view: View): Pair<Float, Float> {
-        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
-        view.draw(Canvas(bitmap))
-        var left = view.width
-        var top = view.height
-        var right = -1
-        var bottom = -1
-        for (y in 0 until view.height) {
-            for (x in 0 until view.width) {
-                if (bitmap.getPixel(x, y) ushr 24 != 0) {
-                    left = minOf(left, x)
-                    top = minOf(top, y)
-                    right = maxOf(right, x)
-                    bottom = maxOf(bottom, y)
-                }
-            }
+    private fun assertControlBackgrounds(controls: List<TextView>, palette: ImePalette, name: String) {
+        for (control in controls) {
+            val background = control.background
+            assertTrue("$name control has a rounded rectangle background", background is GradientDrawable)
+            background as GradientDrawable
+            assertEquals(palette.keySurface, background.color?.defaultColor)
+            assertEquals(ImeShapes.keyRadiusDp * control.resources.displayMetrics.density, background.cornerRadius, 0f)
         }
-        assertTrue(right >= left && bottom >= top)
-        return (left + right) / 2f to (top + bottom) / 2f
     }
 
-    @Test fun symbols_back_boundary_and_backspace_alignment_match_layout() {
+    private fun assertAxes(
+        view: View,
+        rail: View,
+        back: TextView,
+        lock: TextView,
+        backspace: TextView,
+        lastCell: View,
+        name: String,
+    ) {
+        assertEquals((60 * view.resources.displayMetrics.density).toInt(), back.width)
+        assertEquals(centerX(view, rail), centerX(view, back), 1f)
+        assertEquals(view.width / 2f, centerX(view, lock), 1f)
+        assertEquals(centerX(view, lastCell), centerX(view, backspace), 1f)
+        assertEquals(Gravity.CENTER, back.gravity)
+        assertEquals(Gravity.CENTER, backspace.gravity)
+        assertNotNull("$name delete keeps its glyph", backspace.compoundDrawables[0])
+        assertNull("$name delete has no right-anchored glyph", backspace.compoundDrawables[2])
+    }
+
+    @Test fun symbols_bottom_controls_follow_the_rail_center_and_content_columns() {
         for (width in listOf(360, 480)) {
             val view = SymbolsView(ctx).apply {
                 recentProvider = { (1..7).map(Int::toString) }
+                applyPalette(ImePalette.STATIC_LIGHT)
                 refresh()
             }
             layout(view, width)
-            val seventh = requireNotNull(view.gridGlyphForTest("7"))
             val back = view.backBtnForTest()
             val backspace = view.backspaceBtnForTest()
-            assertEquals(width / 3, back.width)
-            assertEquals(0f, centerX(view, back) - back.width / 2f, 0f)
-            assertEquals(Gravity.START or Gravity.CENTER_VERTICAL, back.gravity)
-            assertEquals((20 * view.resources.displayMetrics.density).toInt(), back.paddingLeft)
-            assertEquals(0, back.paddingTop)
-            assertEquals(0, back.paddingRight)
-            assertEquals(0, back.paddingBottom)
-            assertTrue(abs(centerX(view, backspace) - centerX(view, seventh)) <= 1f)
-            assertEquals(Gravity.CENTER, backspace.gravity)
-            val (inkX, inkY) = inkCenter(backspace)
-            assertEquals(backspace.width / 2f, inkX, 1f)
-            assertEquals(backspace.height / 2f, inkY, 1f)
+            val controls = listOf(back, view.lockBtnForTest(), backspace)
+            assertAxes(
+                view,
+                view.railTabForTest(0),
+                back,
+                view.lockBtnForTest(),
+                backspace,
+                requireNotNull(view.gridGlyphForTest("7")),
+                "SymbolsView",
+            )
+            assertControlBackgrounds(controls, ImePalette.STATIC_LIGHT, "SymbolsView")
+            view.applyPalette(ImePalette.STATIC_DARK)
+            assertControlBackgrounds(controls, ImePalette.STATIC_DARK, "SymbolsView")
         }
     }
 
-    @Test fun emoji_bottom_bar_is_left_right_symmetric() {
-        val v = EmojiView(ctx)
-        assertBackspaceHugsRightSymmetrically(v.backBtnForTest(), v.backspaceBtnForTest(), "EmojiView")
+    @Test fun emoji_bottom_controls_follow_the_rail_center_and_content_columns() {
+        for (width in listOf(360, 480)) {
+            val view = EmojiView(ctx).apply {
+                recentProvider = { (1..7).map(Int::toString) }
+                applyPalette(ImePalette.STATIC_LIGHT)
+            }
+            layout(view, width)
+            val back = view.backBtnForTest()
+            val backspace = view.backspaceBtnForTest()
+            val controls = listOf(back, view.lockBtnForTest(), backspace)
+            assertAxes(
+                view,
+                view.railTabForTest(0),
+                back,
+                view.lockBtnForTest(),
+                backspace,
+                requireNotNull(view.gridCellForTest(6)),
+                "EmojiView",
+            )
+            assertControlBackgrounds(controls, ImePalette.STATIC_LIGHT, "EmojiView")
+            view.applyPalette(ImePalette.STATIC_DARK)
+            assertControlBackgrounds(controls, ImePalette.STATIC_DARK, "EmojiView")
+        }
     }
 }

@@ -117,14 +117,14 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         setBackgroundColor(palette.keyboardBg)
         lockBtn.setCompoundDrawablesWithIntrinsicBounds(lockGlyph, null, null, null)
         lockBtn.compoundDrawablePadding = dp(2)
-        backspaceBtn.background = backspaceGlyph
+        backspaceBtn.setCompoundDrawablesWithIntrinsicBounds(backspaceGlyph, null, null, null)
         backspaceGlyph.tint(palette.keyLabelSecondary)
 
         for ((i, t) in titles.withIndex()) rail.addView(railTab(i, t))
 
         val content = LinearLayout(context).apply {
             orientation = HORIZONTAL
-            railScroll.setBackgroundColor(palette.railBg)
+            railScroll.setBackgroundColor(palette.keyboardBg)
             addView(railScroll, LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
             addView(gridScroll, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         }
@@ -147,8 +147,9 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     fun applyPalette(p: ImePalette) {
         palette = p
         setBackgroundColor(p.keyboardBg)
-        railScroll.setBackgroundColor(p.railBg)
+        railScroll.setBackgroundColor(p.keyboardBg)
         bottomBarView.setBackgroundColor(p.keyboardBg)
+        for (button in listOf(backBtn, lockBtn, backspaceBtn)) button.background = barButtonBackground()
         for (button in listOf(backBtn, backspaceBtn)) {
             button.setTextColor(p.keyLabelSecondary)
             Motion.applyTapFeedback(button, p.keyLabelSecondary)
@@ -444,7 +445,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
 
     private fun bottomBar(): View = FrameLayout(context).apply {
         setBackgroundColor(palette.keyboardBg)
-        backBtn.gravity = Gravity.START or Gravity.CENTER_VERTICAL; backBtn.setPadding(dp(20), 0, 0, 0)
+        backBtn.gravity = Gravity.CENTER; backBtn.setPadding(0, 0, 0, 0)
         backspaceBtn.gravity = Gravity.CENTER; backspaceBtn.setPadding(0, 0, 0, 0)
         lockSlot.addView(lockBtn, FrameLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT, Gravity.CENTER))
         val symbolColumns = LinearLayout(context).apply {
@@ -456,7 +457,9 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         }
         val lockRow = LinearLayout(context).apply {
             orientation = HORIZONTAL
-            addView(backBtn, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+            addView(FrameLayout(context).apply {
+                addView(backBtn, FrameLayout.LayoutParams(dp(60), LayoutParams.MATCH_PARENT, Gravity.START))
+            }, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
             addView(lockSlot, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
             addView(View(context), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         }
@@ -469,9 +472,15 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         setTextColor(palette.keyLabelSecondary)
+        background = barButtonBackground()
         isClickable = true
         Motion.applyTapFeedback(this, palette.keyLabelSecondary)
         setOnClickListener { onClick() }
+    }
+
+    private fun barButtonBackground() = GradientDrawable().apply {
+        setColor(palette.keySurface)
+        cornerRadius = ImeShapes.keyRadiusDp * density
     }
 
     private class LockDrawable(private val density: Float) : Drawable() {

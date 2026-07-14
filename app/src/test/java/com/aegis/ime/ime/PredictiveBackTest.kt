@@ -64,19 +64,17 @@ class PredictiveBackTest {
         iv.showPanel(null)
         assertFalse("closing the panel clears the overlay", iv.hasOverlay())
         iv.showCopyBar("x")
-        assertTrue("the copy bar is an overlay", iv.hasOverlay())
+        assertFalse("the copy bar leaves Back to the framework", iv.hasOverlay())
         iv.hideCopyBar()
         assertFalse(iv.hasOverlay())
         iv.showEditBar(true)
         assertTrue("the edit bar is an overlay", iv.hasOverlay())
     }
 
-    @Test fun back_precedence_is_edit_bar_then_panel_then_copy_bar() {
+    @Test fun back_precedence_is_edit_bar_then_panel() {
         val iv = InputView(ctx)
-        iv.showCopyBar("x")
-        assertEquals("COPY_BAR", iv.backTargetKindForTest())
         iv.showPanel(View(ctx))
-        assertEquals("a panel outranks the copy bar", "PANEL", iv.backTargetKindForTest())
+        assertEquals("PANEL", iv.backTargetKindForTest())
         iv.showEditBar(true)
         assertEquals("the inline edit bar is the top of the stack", "EDIT_BAR", iv.backTargetKindForTest())
         iv.showEditBar(false)
@@ -93,15 +91,42 @@ class PredictiveBackTest {
         assertFalse("no overlay remains", iv.hasOverlay())
     }
 
-    @Test fun back_peels_exactly_one_overlay_layer() {
+    @Test fun copy_bar_routes_back_to_framework_without_dismissing_content_or_transient_ui() {
         val iv = InputView(ctx)
-        iv.showCopyBar("x")
+        var dismissed = 0
+        var editCancelled = 0
+        iv.onCopyDismiss = { dismissed++ }
+        iv.onEditCancel = { editCancelled++; iv.showEditBar(false) }
+        iv.showCopyBar("persistent-copy")
+
+        fun assertCopyContentRemains() {
+            val matches = arrayListOf<View>()
+            iv.findViewsWithText(matches, "persistent-copy", View.FIND_VIEWS_WITH_TEXT)
+            assertTrue("the copied content remains rendered", matches.isNotEmpty())
+            assertTrue("the copy bar remains visible", iv.copyBarShown)
+            assertEquals("Back never takes the explicit copy dismiss path", 0, dismissed)
+        }
+
+        assertFalse(iv.hasOverlay())
+        assertEquals("NONE", iv.backTargetKindForTest())
+        assertFalse(iv.closeTopOverlay())
+        assertCopyContentRemains()
+
         iv.showPanel(View(ctx))
-        assertTrue(iv.closeTopOverlay())
-        assertFalse("Back closed the panel (the top overlay)", iv.panelShown)
-        assertTrue("but the copy bar underneath survives — Back peels one layer", iv.copyBarShown)
-        assertTrue("a second Back closes the copy bar", iv.closeTopOverlay())
-        assertFalse("now nothing is left open", iv.hasOverlay())
+        assertFalse(iv.hasOverlay())
+        assertEquals("NONE", iv.backTargetKindForTest())
+        assertFalse(iv.closeTopOverlay())
+        assertTrue("the panel remains for the hide lifecycle to clear", iv.panelShown)
+        assertCopyContentRemains()
+
+        iv.showPanel(null)
+        iv.showEditBar(true)
+        assertFalse(iv.hasOverlay())
+        assertEquals("NONE", iv.backTargetKindForTest())
+        assertFalse(iv.closeTopOverlay())
+        assertTrue("the edit bar remains for the hide lifecycle to clear", iv.isEditBarShowing())
+        assertEquals("Back does not cancel inline editing before hiding the IME", 0, editCancelled)
+        assertCopyContentRemains()
     }
 
     @Test fun back_on_the_edit_bar_runs_its_cancel_path() {
@@ -131,9 +156,9 @@ class PredictiveBackTest {
         val iv = InputView(ctx)
         val host = FrameLayout(activity).apply { addView(iv) }
         activity.setContentView(host)
-        iv.showCopyBar("x")
+        iv.showEditBar(true)
         assertTrue(iv.hasOverlay())
-        iv.hideCopyBar()
+        iv.showEditBar(false)
         assertFalse("logical overlay state clears at once, before the deferred fade sets the view GONE", iv.hasOverlay())
     }
 
@@ -147,7 +172,7 @@ class PredictiveBackTest {
         iv.hideCopyBar()
         iv.showEditBar(true)
         iv.showEditBar(false)
-        assertEquals("each overlay open/close pings the service so it can (un)register the back callback", 6, notifications)
+        assertEquals("each routed state change pings the service so it can resync the back callback", 6, notifications)
     }
 
 

@@ -56,7 +56,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
     }
 
     private fun capsuleBg() = InsetDrawable(
-        GradientDrawable().apply { setColor(palette.keySurface); cornerRadius = ImeShapes.chipRadiusDp * density },
+        GradientDrawable().apply { setColor(palette.keySurface); cornerRadius = ImeShapes.toolbarPillRadiusDp * density },
         dp(8), dp(5), dp(8), dp(5),
     )
 
