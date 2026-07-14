@@ -288,6 +288,7 @@ class KeyboardController(
         if (drillSyllable >= 0) {
             pickDrilledHomophone(candidates[index].word)
             refreshCandidates()
+            if (composing.isNotEmpty()) ensureDecodeApplied()
             render()
             return
         }
@@ -319,6 +320,7 @@ class KeyboardController(
             }
         }
         refreshCandidates()
+        if (composing.isNotEmpty()) ensureDecodeApplied()
         render()
     }
 
@@ -406,7 +408,10 @@ class KeyboardController(
                 applyDeferredLearning()
                 clearComposingState(); lastWord = null
             }
-            pick != null -> commitCandidate(pick)
+            pick != null -> {
+                if (candidateStaysInPreedit(pick)) savePreeditChoiceUndo()
+                commitCandidate(pick)
+            }
             else -> { host.commitText(committedPrefix.toString() + rawComposingText()); clearComposingState() }
         }
     }

@@ -15,6 +15,8 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.decoder.Cand
+import com.aegis.ime.decoder.Syllable
 import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
@@ -163,6 +165,88 @@ class AsyncDecodeEquivalenceTest {
         sync.onPickReadingIndex(0)
         async.onPickReadingIndex(0); lane.drain()
         assertEquals("drilled homophone grid matches", sync.decodeStateForTest(), async.decodeStateForTest())
+    }
+
+    @Test fun partial_homophone_pick_keeps_the_expanded_candidates_stable() {
+        val candidateEngine = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) =
+                candidatesCovered(composing, t9).map { it.word }
+
+            override fun candidatesCovered(
+                composing: String,
+                t9: Boolean,
+                cuts: Set<Int>,
+                context: CharSequence,
+            ) = when (composing) {
+                "nihao" -> listOf(Cand("你好", 5), Cand("你", 2))
+                "hao" -> listOf(Cand("好", 3), Cand("号", 3))
+                else -> emptyList()
+            }
+
+            override fun syllablesForReading(letters: String) = when (letters) {
+                "nihao" -> listOf(
+                    Syllable("ni", 0, 2),
+                    Syllable("hao", 2, 5),
+                )
+                "hao" -> listOf(Syllable("hao", 0, 3))
+                else -> emptyList()
+            }
+
+            override fun homophonesForReadingAt(letters: String, index: Int) =
+                if (letters == "nihao" && index == 0) listOf("你", "尼", "泥", "拟", "妮") else emptyList()
+        }
+        val host = object : Host() {
+            val commits = mutableListOf<String>()
+            override fun commitText(text: CharSequence) { commits.add(text.toString()) }
+        }
+        val lane = TestLane()
+        val view = InputView(ctx)
+        val controller = KeyboardController(host, candidateEngine, lane.lane)
+        view.onPickCandidate = { controller.onPickCandidate(it) }
+        view.onPickReading = { controller.onPickReadingIndex(it) }
+        view.onExpandClosed = { controller.clearDrill() }
+        var panelChanges = 0
+        view.onPanelChanged = { panelChanges++ }
+        controller.attachView(view)
+        switchTo(controller, KeyAction.SWITCH_ALPHA)
+        type(controller, "nihao")
+        lane.drain()
+        controller.onPickReadingIndex(0)
+        lane.drain()
+        view.showExpandedCandidates()
+        val grid = view.expandedGridForTest()
+        val rebuildsBefore = grid.candidateRebuildsForTest()
+        val allocationsBefore = grid.chipsAllocatedForTest()
+        val panelChangesBefore = panelChanges
+
+        assertTrue(grid.tapCandidateForTest(controller.candidateWords().indexOf("你")))
+
+        assertEquals("你hao", controller.preeditForTest())
+        assertEquals("你", controller.composingPrefix())
+        assertEquals(listOf("hao"), controller.expandedReadings())
+        assertTrue(host.commits.isEmpty())
+        assertTrue(controller.candidateWords().isNotEmpty())
+        assertEquals("好", controller.candidateWords().first())
+        assertEquals(controller.candidateWords(), grid.renderedCandidateTextsForTest())
+        assertTrue(view.shownCandidateCount() > 0)
+        assertTrue(grid.selectionContentVisibleForTest())
+        assertTrue(view.isPanelShowing(grid))
+        assertEquals("⌃", view.barChevronGlyph())
+        assertEquals(panelChangesBefore, panelChanges)
+        assertEquals(rebuildsBefore + 1, grid.candidateRebuildsForTest())
+        assertEquals(allocationsBefore, grid.chipsAllocatedForTest())
+
+        lane.drain()
+
+        assertEquals("你hao", controller.preeditForTest())
+        assertEquals("好", controller.candidateWords().first())
+        assertEquals(controller.candidateWords(), grid.renderedCandidateTextsForTest())
+        assertTrue(view.shownCandidateCount() > 0)
+        assertTrue(grid.selectionContentVisibleForTest())
+        assertTrue(view.isPanelShowing(grid))
+        assertEquals(panelChangesBefore, panelChanges)
+        assertEquals(rebuildsBefore + 1, grid.candidateRebuildsForTest())
+        assertEquals(allocationsBefore, grid.chipsAllocatedForTest())
     }
 
 

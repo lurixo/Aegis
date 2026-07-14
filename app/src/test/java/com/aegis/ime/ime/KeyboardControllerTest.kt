@@ -596,6 +596,31 @@ class KeyboardControllerTest {
         assertTrue("undoing the pick must not touch editor text", h.commits.isEmpty())
     }
 
+    @Test fun backspace_after_a_partial_space_pick_restores_the_previous_preedit() {
+        val h = FakeHost()
+        val c = KeyboardController(h, stagedNiHaoEngine())
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        val originalPreedit = c.preeditForTest()
+        assertEquals("ni'hao", originalPreedit)
+
+        c.onKey(act(KeyAction.SPACE))
+
+        assertEquals("你hao", c.preeditForTest())
+        assertEquals("你", c.composingPrefix())
+        assertTrue(h.commits.isEmpty())
+        assertEquals(0, h.deletes)
+        assertEquals("", h.text.toString())
+
+        c.onKey(act(KeyAction.BACKSPACE))
+
+        assertEquals(originalPreedit, c.preeditForTest())
+        assertEquals("", c.composingPrefix())
+        assertTrue(h.commits.isEmpty())
+        assertEquals(0, h.deletes)
+        assertEquals("", h.text.toString())
+    }
+
     @Test fun backspace_after_a_full_candidate_pick_deletes_editor_text_without_restoring_preedit() {
         val h = FakeHost()
         val full = object : CandidateEngine {
