@@ -45,6 +45,20 @@ class SymbolUsageStoreTest {
         assertEquals(listOf("≈", "÷"), SymbolUsageStore(dir).apply { load() }.recent())
     }
 
+    @Test fun clear_removes_memory_and_persisted_recents() {
+        val dir = newDir()
+        val store = SymbolUsageStore(dir).apply {
+            load()
+            record("÷", "math")
+            record("≈", "math")
+        }
+        store.clear()
+        assertTrue(store.recent().isEmpty())
+        assertTrue(store.recentEntries().isEmpty())
+        assertTrue(SymbolUsageStore(dir).apply { load() }.recent().isEmpty())
+        assertEquals("", File(dir, "symbol_usage.txt").readText())
+    }
+
     @Test fun load_dedupes_a_file_with_duplicate_lines() {
         val dir = newDir()
         File(dir, "symbol_usage.txt").writeText("★\n→\n★\n→\n☆")

@@ -205,34 +205,35 @@ class PanelIconAlignmentTest {
         assertEquals(navigation + EditAction.BACK, actions)
     }
 
-    @Test fun symbols_lock_control_is_centered_and_sized_like_text() {
+    @Test fun symbols_lock_control_fills_a_normal_bar_hit_target() {
         val v = SymbolsView(ctx)
-        assertCenteredLockControl(v, v.lockSlotForTest(), v.lockBtnForTest(), "SymbolsView")
+        assertNormalLockControl(v, v.lockSlotForTest(), v.lockBtnForTest(), v.backBtnForTest(), "SymbolsView")
 
         v.toggleLockForTest()
-        assertCenteredLockControl(v, v.lockSlotForTest(), v.lockBtnForTest(), "SymbolsView locked")
+        assertNormalLockControl(v, v.lockSlotForTest(), v.lockBtnForTest(), v.backBtnForTest(), "SymbolsView locked")
     }
 
-    @Test fun emoji_lock_control_is_centered_and_sized_like_text() {
+    @Test fun emoji_lock_control_fills_a_normal_bar_hit_target() {
         val v = EmojiView(ctx)
-        assertCenteredLockControl(v, v.lockSlotForTest(), v.lockBtnForTest(), "EmojiView")
+        assertNormalLockControl(v, v.lockSlotForTest(), v.lockBtnForTest(), v.backBtnForTest(), "EmojiView")
 
         v.toggleLockForTest()
-        assertCenteredLockControl(v, v.lockSlotForTest(), v.lockBtnForTest(), "EmojiView locked")
+        assertNormalLockControl(v, v.lockSlotForTest(), v.lockBtnForTest(), v.backBtnForTest(), "EmojiView locked")
     }
 
-    private fun assertCenteredLockControl(root: View, slot: View, lock: TextView, name: String) {
+    private fun assertNormalLockControl(root: View, slot: View, lock: TextView, back: TextView, name: String) {
         layout(root)
-        assertTrue("$name: lock label must live inside the centered slot", lock.parent === slot)
+        assertTrue("$name: lock control must live inside its slot", lock.parent === slot)
         val lp = lock.layoutParams as FrameLayout.LayoutParams
-        assertEquals("$name: lock label should measure as a cohesive wrap-content control", ViewGroup.LayoutParams.WRAP_CONTENT, lp.width)
-        assertEquals("$name: lock label should fill the bar height for vertical centering", ViewGroup.LayoutParams.MATCH_PARENT, lp.height)
+        assertEquals("$name: lock hit target should fill the slot width", ViewGroup.LayoutParams.MATCH_PARENT, lp.width)
+        assertEquals("$name: lock hit target should fill the bar height", ViewGroup.LayoutParams.MATCH_PARENT, lp.height)
         assertEquals("$name: lock label should be centered inside the middle slot", Gravity.CENTER, lp.gravity)
-
-        val rootCenter = root.width / 2
-        val lockCenter = slot.left + (lock.left + lock.right) / 2
-        assertTrue("$name: lock control must sit on the panel center", abs(lockCenter - rootCenter) <= 1)
-        assertTrue("$name: lock control should not spread across the whole middle slot", lock.width < slot.width / 2)
+        assertEquals("$name: lock hit target should fill the slot", slot.width, lock.width)
+        assertEquals("$name: lock hit target should fill the slot", slot.height, lock.height)
+        assertEquals("$name: lock hit target should match Return width", back.width, lock.width)
+        assertEquals("$name: lock hit target should match Return height", back.height, lock.height)
+        assertEquals(Gravity.CENTER, lock.gravity)
+        assertTrue("$name: lock remains independently clickable", lock.hasOnClickListeners())
 
         val maxPadding = (2f * density).roundToInt() + 1
         assertTrue("$name: lock icon and text should sit close together", lock.compoundDrawablePadding <= maxPadding)

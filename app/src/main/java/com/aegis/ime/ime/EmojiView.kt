@@ -21,6 +21,7 @@ import android.animation.ValueAnimator
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
@@ -30,6 +31,7 @@ import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.GridLayout
@@ -46,6 +48,7 @@ import com.aegis.ime.layout.EmojiVariants
 class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
 
     var onEmoji: (String) -> Unit = {}
+    var onClearRecents: () -> Unit = {}
     var onBackspace: () -> Unit = {}
     var onBack: () -> Unit = {}
     var recentProvider: () -> List<String> = { emptyList() }
@@ -64,6 +67,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         val p = dp(4); setPadding(p, p, p, p)
     }
     private val gridScroll = ScrollView(context).apply { addView(grid); isFillViewport = true }
+    private val clearDialog = PanelConfirmationOverlay(context)
     private val gridFrame = FrameLayout(context)
     private val variantGenderRow = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER }
     private val variantSkinRow = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER }
@@ -87,15 +91,14 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     }
     private var variantBase = ""
     private var variantGenderForm = ""
+    private var variantOwnsPointer = false
     private var locked = false
     private val backBtn = barButton(context.getString(R.string.panel_back)) { onBack() }
     private val lockBtn = barButton(context.getString(R.string.panel_lock)) { toggleLock() }
-    private val lockSlot = FrameLayout(context).apply {
-        isClickable = true
-        Motion.applyTapFeedback(this, palette.keyLabelSecondary)
-        setOnClickListener { toggleLock() }
-    }
+    private val lockSlot = FrameLayout(context)
     private val lockGlyph = LockDrawable(density)
+    private val clearGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }
+    private val clearBtn = barButton("") { showClearConfirmation() }
     private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
     private val backspaceBtn = barButton("") { onBackspace() }
     private val bottomBarView = bottomBar()
@@ -109,7 +112,12 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     }
     private val emojiLongClick = View.OnLongClickListener { v ->
         val e = (v as TextView).text.toString()
-        if (EmojiVariants.hasVariants(e)) { openVariants(e); true } else false
+        if (EmojiVariants.hasVariants(e)) {
+            openVariants(e)
+            variantOwnsPointer = true
+            parent?.requestDisallowInterceptTouchEvent(true)
+            true
+        } else false
     }
 
     init {
@@ -117,6 +125,9 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         setBackgroundColor(palette.keyboardBg)
         lockBtn.setCompoundDrawablesWithIntrinsicBounds(lockGlyph, null, null, null)
         lockBtn.compoundDrawablePadding = dp(2)
+        clearBtn.contentDescription = context.getString(R.string.emoji_clear_recent)
+        clearBtn.setCompoundDrawablesWithIntrinsicBounds(clearGlyph, null, null, null)
+        clearGlyph.tint(palette.keyLabelSecondary)
         backspaceBtn.setCompoundDrawablesWithIntrinsicBounds(backspaceGlyph, null, null, null)
         backspaceGlyph.tint(palette.keyLabelSecondary)
         updateLockFace()
@@ -133,8 +144,16 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
             addView(railScroll, LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
             addView(gridFrame, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         }
-        addView(content, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
-        addView(bottomBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(46)))
+        val panelColumn = LinearLayout(context).apply {
+            orientation = VERTICAL
+            addView(content, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+            addView(bottomBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(46)))
+        }
+        val panelFrame = FrameLayout(context).apply {
+            addView(panelColumn, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+            addView(clearDialog, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        }
+        addView(panelFrame, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         showCategory(0)
     }
 
@@ -143,11 +162,12 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         setBackgroundColor(p.keyboardBg)
         railScroll.setBackgroundColor(p.keyboardBg)
         bottomBarView.setBackgroundColor(p.keyboardBg)
-        for (button in listOf(backBtn, lockBtn, backspaceBtn)) button.background = barButtonBackground()
-        for (button in listOf(backBtn, backspaceBtn)) {
+        for (button in listOf(backBtn, clearBtn, lockBtn, backspaceBtn)) button.background = barButtonBackground()
+        for (button in listOf(backBtn, clearBtn, backspaceBtn)) {
             button.setTextColor(p.keyLabelSecondary)
             Motion.applyTapFeedback(button, p.keyLabelSecondary)
         }
+        clearGlyph.tint(p.keyLabelSecondary)
         backspaceGlyph.tint(p.keyLabelSecondary)
         for (cell in emojiPool) retintRipple(cell, p.keyLabel)
         emptyHintView?.setTextColor(p.keyHint)
@@ -158,6 +178,8 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     override fun resetToDefault() {
         resetLock()
         dismissVariants()
+        variantOwnsPointer = false
+        clearDialog.dismiss()
         showCategory(0)
         gridScroll.scrollTo(0, 0)
         railScroll.scrollTo(0, 0)
@@ -173,7 +195,6 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         lockGlyph.tint(tint)
         lockBtn.setTextColor(tint)
         Motion.applyTapFeedback(lockBtn, tint)
-        Motion.applyTapFeedback(lockSlot, tint)
         lockBtn.setTypeface(null, if (locked) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
     }
 
@@ -182,6 +203,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun lockedForTest(): Boolean = locked
     internal fun toggleLockForTest() = toggleLock()
     internal fun backBtnForTest(): TextView = backBtn
+    internal fun clearBtnForTest(): TextView = clearBtn
     internal fun backspaceBtnForTest(): TextView = backspaceBtn
     internal fun lockBtnForTest(): TextView = lockBtn
     internal fun lockSlotForTest(): View = lockSlot
@@ -192,6 +214,11 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun gridCellTextsForTest(): List<String> =
         (0 until grid.childCount).mapNotNull { (grid.getChildAt(it) as? TextView)?.text?.toString() }
     internal fun tapCellForTest(index: Int): Boolean = (grid.getChildAt(index) as? TextView)?.performClick() ?: false
+    internal fun gridScrollYForTest(): Int = gridScroll.scrollY
+    internal fun clearDialogVisibleForTest(): Boolean = clearDialog.visibility == View.VISIBLE
+    internal fun confirmClearForTest(): Boolean = clearDialog.confirmForTest()
+    internal fun cancelClearForTest(): Boolean = clearDialog.cancelForTest()
+    internal fun dismissClearForTest(): Boolean = clearDialog.performClick()
 
     private fun showCategory(index: Int) {
         dismissVariants()
@@ -344,7 +371,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         }
 
     private fun styleVariantCard() {
-        variantScrim.setBackgroundColor(Motion.withAlpha(palette.keyLabelSecondary, 0x40))
+        variantScrim.setBackgroundColor(Color.TRANSPARENT)
         variantCard.background = GradientDrawable().apply {
             setColor(palette.keyboardBg); cornerRadius = ImeShapes.cardRadiusDp * density
         }
@@ -355,6 +382,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         (grid.getChildAt(index) as? TextView)?.let { emojiLongClick.onLongClick(it) } ?: false
     internal fun openVariantsForTest(emoji: String) = openVariants(emoji)
     internal fun variantVisibleForTest(): Boolean = variantScrim.visibility == View.VISIBLE
+    internal fun variantBackdropForTest(): View = variantScrim
     internal fun variantGenderFormsForTest(): List<String> =
         (0 until variantGenderRow.childCount).map { (variantGenderRow.getChildAt(it) as TextView).text.toString() }
     internal fun variantSkinFormsForTest(): List<String> =
@@ -364,28 +392,56 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun tapVariantSkinForTest(index: Int): Boolean =
         (variantSkinRow.getChildAt(index) as? TextView)?.performClick() ?: false
 
-    private fun bottomBar(): View = FrameLayout(context).apply {
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN && variantOwnsPointer) {
+            variantOwnsPointer = false
+            parent?.requestDisallowInterceptTouchEvent(false)
+        }
+        return super.dispatchTouchEvent(ev)
+    }
+
+    override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+        if (variantOwnsPointer && ev.actionMasked != MotionEvent.ACTION_DOWN) return true
+        return super.onInterceptTouchEvent(ev)
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (!variantOwnsPointer) return super.onTouchEvent(event)
+        if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+            variantOwnsPointer = false
+            parent?.requestDisallowInterceptTouchEvent(false)
+        }
+        return true
+    }
+
+    private fun showClearConfirmation() {
+        clearDialog.show(
+            context.getString(R.string.emoji_clear_recent_confirm),
+            context.getString(R.string.clip_clear),
+            context.getString(R.string.clip_cancel),
+            palette,
+        ) {
+            onClearRecents()
+            showCategory(selected)
+        }
+    }
+
+    private fun bottomBar(): View = LinearLayout(context).apply {
+        orientation = HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
         setBackgroundColor(palette.keyboardBg)
         backBtn.gravity = Gravity.CENTER; backBtn.setPadding(0, 0, 0, 0)
+        clearBtn.gravity = Gravity.CENTER; clearBtn.setPadding(0, 0, 0, 0)
+        lockBtn.gravity = Gravity.CENTER; lockBtn.setPadding(0, 0, 0, 0)
         backspaceBtn.gravity = Gravity.CENTER; backspaceBtn.setPadding(0, 0, 0, 0)
-        lockSlot.addView(lockBtn, FrameLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT, Gravity.CENTER))
-        val symbolColumns = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            addView(View(context), LinearLayout.LayoutParams(dp(64), LayoutParams.MATCH_PARENT))
-            repeat(COLUMNS - 1) { addView(View(context), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f)) }
-            addView(backspaceBtn, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-            addView(View(context), LinearLayout.LayoutParams(dp(4), LayoutParams.MATCH_PARENT))
-        }
-        val lockRow = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            addView(FrameLayout(context).apply {
-                addView(backBtn, FrameLayout.LayoutParams(dp(60), LayoutParams.MATCH_PARENT, Gravity.START))
-            }, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-            addView(lockSlot, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-            addView(View(context), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        }
-        addView(symbolColumns, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-        addView(lockRow, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        lockSlot.addView(lockBtn, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT, Gravity.CENTER))
+        addView(backBtn, LinearLayout.LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
+        addView(View(context), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        addView(clearBtn, LinearLayout.LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
+        addView(View(context), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        addView(lockSlot, LinearLayout.LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
+        addView(View(context), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        addView(backspaceBtn, LinearLayout.LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
     }
 
     private fun barButton(label: String, onClick: () -> Unit): TextView = TextView(context).apply {

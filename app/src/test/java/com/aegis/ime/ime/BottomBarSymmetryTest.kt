@@ -15,9 +15,13 @@
 
 package com.aegis.ime.ime
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.drawable.GradientDrawable
+import android.graphics.Rect
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
@@ -55,6 +59,10 @@ class BottomBarSymmetryTest {
         return x
     }
 
+    private fun bounds(root: ViewGroup, descendant: View): Rect = Rect(0, 0, descendant.width, descendant.height).also {
+        root.offsetDescendantRectToMyCoords(descendant, it)
+    }
+
     private fun assertControlBackgrounds(controls: List<TextView>, palette: ImePalette, name: String) {
         for (control in controls) {
             val background = control.background
@@ -66,20 +74,41 @@ class BottomBarSymmetryTest {
     }
 
     private fun assertAxes(
-        view: View,
-        rail: View,
+        view: ViewGroup,
         back: TextView,
+        clear: TextView,
         lock: TextView,
         backspace: TextView,
-        lastCell: View,
         name: String,
     ) {
-        assertEquals((60 * view.resources.displayMetrics.density).toInt(), back.width)
-        assertEquals(centerX(view, rail), centerX(view, back), 1f)
-        assertEquals(view.width / 2f, centerX(view, lock), 1f)
-        assertEquals(centerX(view, lastCell), centerX(view, backspace), 1f)
-        assertEquals(Gravity.CENTER, back.gravity)
-        assertEquals(Gravity.CENTER, backspace.gravity)
+        val controls = listOf(back, clear, lock, backspace)
+        val centers = controls.map { centerX(view, it) }
+        assertEquals(controls, controls.sortedBy { centerX(view, it) })
+        assertEquals(centers[1] - centers[0], centers[2] - centers[1], 1f)
+        assertEquals(centers[2] - centers[1], centers[3] - centers[2], 1f)
+
+        val backBounds = bounds(view, back)
+        val clearBounds = bounds(view, clear)
+        val lockBounds = bounds(view, lock)
+        val backspaceBounds = bounds(view, backspace)
+        assertEquals((60 * view.resources.displayMetrics.density).toInt(), backBounds.width())
+        assertEquals(backBounds.width(), clearBounds.width())
+        assertEquals(backBounds.width(), lockBounds.width())
+        assertEquals(backBounds.width(), backspaceBounds.width())
+        assertEquals(backBounds.height(), clearBounds.height())
+        assertEquals(backBounds.height(), lockBounds.height())
+        assertEquals(backBounds.height(), backspaceBounds.height())
+        controls.forEach {
+            val bitmap = Bitmap.createBitmap(it.width, it.height, Bitmap.Config.ARGB_8888)
+            it.draw(Canvas(bitmap))
+            bitmap.recycle()
+        }
+        assertEquals(Rect(0, 0, back.width, back.height), back.background.bounds)
+        assertEquals(Rect(0, 0, backspace.width, backspace.height), backspace.background.bounds)
+        assertTrue("$name controls keep independent click targets", controls.all { it.hasOnClickListeners() })
+        assertTrue("$name controls keep centered content", controls.all { it.gravity == Gravity.CENTER })
+        assertNotNull("$name clear keeps its delete glyph", clear.compoundDrawables[0])
+        assertNull("$name clear has no right-anchored glyph", clear.compoundDrawables[2])
         assertNotNull("$name delete keeps its glyph", backspace.compoundDrawables[0])
         assertNull("$name delete has no right-anchored glyph", backspace.compoundDrawables[2])
     }
@@ -93,15 +122,15 @@ class BottomBarSymmetryTest {
             }
             layout(view, width)
             val back = view.backBtnForTest()
+            val clear = view.clearBtnForTest()
             val backspace = view.backspaceBtnForTest()
-            val controls = listOf(back, view.lockBtnForTest(), backspace)
+            val controls = listOf(back, clear, view.lockBtnForTest(), backspace)
             assertAxes(
                 view,
-                view.railTabForTest(0),
                 back,
+                clear,
                 view.lockBtnForTest(),
                 backspace,
-                requireNotNull(view.gridGlyphForTest("7")),
                 "SymbolsView",
             )
             assertControlBackgrounds(controls, ImePalette.STATIC_LIGHT, "SymbolsView")
@@ -118,15 +147,15 @@ class BottomBarSymmetryTest {
             }
             layout(view, width)
             val back = view.backBtnForTest()
+            val clear = view.clearBtnForTest()
             val backspace = view.backspaceBtnForTest()
-            val controls = listOf(back, view.lockBtnForTest(), backspace)
+            val controls = listOf(back, clear, view.lockBtnForTest(), backspace)
             assertAxes(
                 view,
-                view.railTabForTest(0),
                 back,
+                clear,
                 view.lockBtnForTest(),
                 backspace,
-                requireNotNull(view.gridCellForTest(6)),
                 "EmojiView",
             )
             assertControlBackgrounds(controls, ImePalette.STATIC_LIGHT, "EmojiView")

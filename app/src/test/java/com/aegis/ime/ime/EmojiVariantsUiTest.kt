@@ -15,6 +15,13 @@
 
 package com.aegis.ime.ime
 
+import android.graphics.Color
+import android.graphics.Rect
+import android.graphics.drawable.ColorDrawable
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
+import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.layout.EmojiCatalog
 import com.aegis.ime.layout.EmojiVariants
@@ -35,6 +42,31 @@ class EmojiVariantsUiTest {
     private fun view() = EmojiView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
     private val hand = EmojiCatalog.categories.first { it.id == "hand" }.emoji
 
+    private fun layout(view: View) {
+        view.measure(
+            View.MeasureSpec.makeMeasureSpec(480, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
+        )
+        view.layout(0, 0, view.measuredWidth, view.measuredHeight)
+    }
+
+    private fun bounds(root: ViewGroup, descendant: View): Rect = Rect(0, 0, descendant.width, descendant.height).also {
+        root.offsetDescendantRectToMyCoords(descendant, it)
+    }
+
+    private fun EmojiView.send(action: Int, x: Float, y: Float, time: Long): Boolean =
+        dispatchTouchEvent(MotionEvent.obtain(0, time, action, x, y, 0))
+
+    private fun textViews(root: View): List<TextView> {
+        val views = ArrayList<TextView>()
+        fun collect(view: View) {
+            if (view is TextView) views.add(view)
+            if (view is ViewGroup) for (index in 0 until view.childCount) collect(view.getChildAt(index))
+        }
+        collect(root)
+        return views
+    }
+
     @Test fun long_press_opens_the_selector_only_for_a_variant_capable_cell() {
         val v = view()
         v.openCategoryForTest(2)
@@ -54,6 +86,30 @@ class EmojiVariantsUiTest {
         v.openCategoryForTest(2)
         v.tapCellForTest(hand.indexOf("🧑‍⚕️"))
         assertEquals("🧑‍⚕️", committed)
+    }
+
+    @Test fun a_programmatic_long_press_does_not_latch_pointer_ownership() {
+        var committed = ""
+        val v = view().apply {
+            onEmoji = { committed = it }
+            openCategoryForTest(2)
+        }
+        layout(v)
+        assertTrue(v.longPressCellForTest(hand.indexOf("👋")))
+        layout(v)
+        val selected = v.variantSkinFormsForTest()[1]
+        val cell = textViews(v.variantBackdropForTest()).single { it.text?.toString() == selected }
+        val cellBounds = bounds(v, cell)
+        val x = cellBounds.exactCenterX()
+        val y = cellBounds.exactCenterY()
+        assertTrue(v.send(MotionEvent.ACTION_DOWN, x, y, 0))
+        assertTrue(cell.isPressed)
+        val move = MotionEvent.obtain(0, 10, MotionEvent.ACTION_MOVE, x, y, 0)
+        assertFalse(v.onInterceptTouchEvent(move))
+        move.recycle()
+        assertTrue(v.send(MotionEvent.ACTION_CANCEL, x, y, 20))
+        assertTrue(v.tapVariantSkinForTest(1))
+        assertEquals(selected, committed)
     }
 
     @Test fun skin_only_emoji_offers_default_plus_five_tones_and_commits_the_toned_form() {
@@ -98,5 +154,34 @@ class EmojiVariantsUiTest {
         v.tapVariantGenderForTest(1)
         assertEquals("🧞‍♂️", committed)
         assertFalse(v.variantVisibleForTest())
+    }
+
+    @Test fun an_open_selector_owns_the_active_pointer_without_scrolling_or_dimming() {
+        for (terminal in listOf(MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL)) {
+            var committed = ""
+            val v = view().apply {
+                onEmoji = { committed = it }
+                openCategoryForTest(2)
+            }
+            layout(v)
+            val cell = requireNotNull(v.gridCellForTest(hand.indexOf("👋")))
+            val cellBounds = bounds(v, cell)
+            val x = cellBounds.exactCenterX()
+            val y = cellBounds.exactCenterY()
+            assertTrue(v.send(MotionEvent.ACTION_DOWN, x, y, 0))
+            assertTrue(cell.performLongClick())
+            assertTrue(v.variantVisibleForTest())
+            val backdrop = v.variantBackdropForTest().background
+            assertTrue(backdrop == null || backdrop is ColorDrawable && Color.alpha(backdrop.color) == 0)
+            val scrollY = v.gridScrollYForTest()
+            assertTrue(v.send(MotionEvent.ACTION_MOVE, x, y - 180f, 20))
+            assertEquals(scrollY, v.gridScrollYForTest())
+            assertTrue(v.send(terminal, x, y - 180f, 40))
+            assertEquals(scrollY, v.gridScrollYForTest())
+            assertTrue(v.variantVisibleForTest())
+            val selected = v.variantSkinFormsForTest()[1]
+            assertTrue(v.tapVariantSkinForTest(1))
+            assertEquals(selected, committed)
+        }
     }
 }

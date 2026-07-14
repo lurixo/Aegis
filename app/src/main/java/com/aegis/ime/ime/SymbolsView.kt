@@ -45,6 +45,7 @@ import com.aegis.ime.layout.SymbolCatalog
 class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
 
     var onSymbol: (String, String?) -> Unit = { _, _ -> }
+    var onClearRecents: () -> Unit = {}
     var onBackspace: () -> Unit = {}
     var onBack: () -> Unit = {}
     var recentProvider: () -> List<String> = { emptyList() }
@@ -80,14 +81,13 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         addView(grid, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
     }
     private val gridScroll = ScrollView(context).apply { addView(gridHolder); isFillViewport = true }
+    private val clearDialog = PanelConfirmationOverlay(context)
     private val backBtn = barButton(context.getString(R.string.panel_back)) { onBack() }
     private val lockBtn = barButton(context.getString(R.string.panel_lock)) { toggleLock() }
-    private val lockSlot = FrameLayout(context).apply {
-        isClickable = true
-        Motion.applyTapFeedback(this, palette.keyLabelSecondary)
-        setOnClickListener { toggleLock() }
-    }
+    private val lockSlot = FrameLayout(context)
     private val lockGlyph = LockDrawable(density)
+    private val clearGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }
+    private val clearBtn = barButton("") { showClearConfirmation() }
     private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
     private val backspaceBtn = barButton("") { onBackspace() }
     private val bottomBarView = bottomBar()
@@ -117,6 +117,9 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         setBackgroundColor(palette.keyboardBg)
         lockBtn.setCompoundDrawablesWithIntrinsicBounds(lockGlyph, null, null, null)
         lockBtn.compoundDrawablePadding = dp(2)
+        clearBtn.contentDescription = context.getString(R.string.symbols_clear_recent)
+        clearBtn.setCompoundDrawablesWithIntrinsicBounds(clearGlyph, null, null, null)
+        clearGlyph.tint(palette.keyLabelSecondary)
         backspaceBtn.setCompoundDrawablesWithIntrinsicBounds(backspaceGlyph, null, null, null)
         backspaceGlyph.tint(palette.keyLabelSecondary)
 
@@ -128,8 +131,16 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
             addView(railScroll, LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
             addView(gridScroll, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         }
-        addView(content, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
-        addView(bottomBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(46)))
+        val panelColumn = LinearLayout(context).apply {
+            orientation = VERTICAL
+            addView(content, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+            addView(bottomBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(46)))
+        }
+        val panelFrame = FrameLayout(context).apply {
+            addView(panelColumn, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+            addView(clearDialog, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        }
+        addView(panelFrame, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         updateLockFace()
     }
 
@@ -139,6 +150,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
 
     override fun resetToDefault() {
         resetLock()
+        clearDialog.dismiss()
         showCategory(0)
         gridScroll.scrollTo(0, 0)
         railScroll.scrollTo(0, 0)
@@ -149,11 +161,12 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         setBackgroundColor(p.keyboardBg)
         railScroll.setBackgroundColor(p.keyboardBg)
         bottomBarView.setBackgroundColor(p.keyboardBg)
-        for (button in listOf(backBtn, lockBtn, backspaceBtn)) button.background = barButtonBackground()
-        for (button in listOf(backBtn, backspaceBtn)) {
+        for (button in listOf(backBtn, clearBtn, lockBtn, backspaceBtn)) button.background = barButtonBackground()
+        for (button in listOf(backBtn, clearBtn, backspaceBtn)) {
             button.setTextColor(p.keyLabelSecondary)
             Motion.applyTapFeedback(button, p.keyLabelSecondary)
         }
+        clearGlyph.tint(p.keyLabelSecondary)
         backspaceGlyph.tint(p.keyLabelSecondary)
         for (tile in tilePool) {
             retintRipple(tile, p.keyLabel)
@@ -383,10 +396,15 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun toggleLockForTest() = toggleLock()
     internal fun gridScrollYForTest(): Int = gridScroll.scrollY
     internal fun backBtnForTest(): TextView = backBtn
+    internal fun clearBtnForTest(): TextView = clearBtn
     internal fun backspaceBtnForTest(): TextView = backspaceBtn
     internal fun lockBtnForTest(): TextView = lockBtn
     internal fun lockSlotForTest(): View = lockSlot
     internal fun railTabForTest(index: Int): TextView = rail.getChildAt(index) as TextView
+    internal fun clearDialogVisibleForTest(): Boolean = clearDialog.visibility == View.VISIBLE
+    internal fun confirmClearForTest(): Boolean = clearDialog.confirmForTest()
+    internal fun cancelClearForTest(): Boolean = clearDialog.cancelForTest()
+    internal fun dismissClearForTest(): Boolean = clearDialog.performClick()
 
     internal fun netBarVisibleForTest(): Boolean = showingUrlCompletions
     internal fun chipBarVisibleForTest(): Boolean = netBar.visibility == View.VISIBLE
@@ -439,32 +457,37 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         lockBtn.text = context.getString(R.string.panel_lock)
         lockBtn.setTextColor(tint)
         Motion.applyTapFeedback(lockBtn, tint)
-        Motion.applyTapFeedback(lockSlot, tint)
         lockBtn.setTypeface(null, if (locked) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
     }
 
-    private fun bottomBar(): View = FrameLayout(context).apply {
+    private fun showClearConfirmation() {
+        clearDialog.show(
+            context.getString(R.string.symbols_clear_recent_confirm),
+            context.getString(R.string.clip_clear),
+            context.getString(R.string.clip_cancel),
+            palette,
+        ) {
+            onClearRecents()
+            showCategory(selected)
+        }
+    }
+
+    private fun bottomBar(): View = LinearLayout(context).apply {
+        orientation = HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
         setBackgroundColor(palette.keyboardBg)
         backBtn.gravity = Gravity.CENTER; backBtn.setPadding(0, 0, 0, 0)
+        clearBtn.gravity = Gravity.CENTER; clearBtn.setPadding(0, 0, 0, 0)
+        lockBtn.gravity = Gravity.CENTER; lockBtn.setPadding(0, 0, 0, 0)
         backspaceBtn.gravity = Gravity.CENTER; backspaceBtn.setPadding(0, 0, 0, 0)
-        lockSlot.addView(lockBtn, FrameLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT, Gravity.CENTER))
-        val symbolColumns = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            addView(View(context), LinearLayout.LayoutParams(dp(64), LayoutParams.MATCH_PARENT))
-            repeat(COLUMNS - 1) { addView(View(context), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f)) }
-            addView(backspaceBtn, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-            addView(View(context), LinearLayout.LayoutParams(dp(4), LayoutParams.MATCH_PARENT))
-        }
-        val lockRow = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            addView(FrameLayout(context).apply {
-                addView(backBtn, FrameLayout.LayoutParams(dp(60), LayoutParams.MATCH_PARENT, Gravity.START))
-            }, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-            addView(lockSlot, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-            addView(View(context), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        }
-        addView(symbolColumns, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-        addView(lockRow, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        lockSlot.addView(lockBtn, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT, Gravity.CENTER))
+        addView(backBtn, LinearLayout.LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
+        addView(View(context), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        addView(clearBtn, LinearLayout.LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
+        addView(View(context), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        addView(lockSlot, LinearLayout.LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
+        addView(View(context), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        addView(backspaceBtn, LinearLayout.LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
     }
 
     private fun barButton(label: String, onClick: () -> Unit): TextView = TextView(context).apply {

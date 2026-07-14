@@ -98,6 +98,31 @@ class ClipboardViewInteractionTest {
         val v = allViews(root).firstOrNull { it.contentDescription?.toString() == desc && it.hasOnClickListeners() } ?: return false
         v.performClick(); return true
     }
+    private fun dp(value: Int): Int = (value * ctx.resources.displayMetrics.density).toInt()
+    private fun swipeActions(root: View, descriptions: List<String>): List<View> =
+        allViews(root).filterIsInstance<ViewGroup>().map { group ->
+            (0 until group.childCount).map(group::getChildAt)
+        }.single { children -> children.map { it.contentDescription?.toString() } == descriptions }
+
+    private fun assertSwipeActionStrip(v: ClipboardView, text: String, descriptions: List<String>): List<View> {
+        val actions = swipeActions(v, descriptions)
+        val size = dp(44)
+        val gap = dp(4)
+        val strip = actions.first().parent as View
+        assertEquals(descriptions, actions.map { it.contentDescription?.toString() })
+        assertTrue(actions.all { it !is TextView && it.hasOnClickListeners() })
+        assertTrue(actions.all { it.width == size && it.height == size })
+        assertTrue(actions.all { it.background is GradientDrawable && (it.background as GradientDrawable).cornerRadius > 0f })
+        assertEquals(descriptions.size * size + (descriptions.size - 1) * gap, strip.width)
+        assertEquals(0, actions.first().left)
+        assertEquals(strip.width, actions.last().right)
+        actions.zipWithNext().forEach { (left, right) ->
+            assertEquals(gap, right.left - left.right)
+            assertTrue(left.right <= right.left)
+        }
+        assertEquals(-strip.width.toFloat(), (bodyOf(v, text).parent as View).translationX, 0f)
+        return actions
+    }
 
     private fun clipView(history: List<String>): ClipboardView = ClipboardView(ctx).apply {
         historyProvider = { history }; applyPalette(pal); refresh()
@@ -197,23 +222,25 @@ class ClipboardViewInteractionTest {
         assertTrue("previous history remains visible", "old" in labels(mainOf(v)))
     }
 
-    @Test fun clipboard_swipe_reveals_one_icon_button_while_dropdown_reveals_labeled_actions() {
+    @Test fun clipboard_swipe_reveals_three_icon_actions_while_dropdown_reveals_labeled_actions() {
         val v = clipView(listOf("第一条", "第二条"))
         layout(v)
         rootSwipe(v, bodyOf(v, "第一条"), -200f)
         layout(v)
-        val swipedBody = bodyOf(v, "第一条")
-        val delete = allViews(v).single { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_delete) }
+        val swipeActions = assertSwipeActionStrip(
+            v,
+            "第一条",
+            listOf(
+                ctx.getString(com.aegis.ime.R.string.clip_add_phrase),
+                ctx.getString(com.aegis.ime.R.string.clip_split_word),
+                ctx.getString(com.aegis.ime.R.string.clip_delete),
+            ),
+        )
         assertEquals("第一条", v.swipeRevealedForTest())
-        assertEquals((44 * ctx.resources.displayMetrics.density).toInt(), delete.width)
-        assertEquals(-delete.width.toFloat(), (swipedBody.parent as View).translationX, 0f)
-        assertTrue(delete !is TextView)
-        assertTrue(delete.background is GradientDrawable)
-        assertTrue((delete.background as GradientDrawable).cornerRadius > 0f)
         assertTrue(actionButtons(v).isEmpty())
         assertTrue(ctx.getString(com.aegis.ime.R.string.clip_expand) in allViews(v).mapNotNull { it.contentDescription?.toString() })
 
-        rootSwipe(v, delete, 200f)
+        rootSwipe(v, swipeActions.last(), 200f)
         assertNull(v.swipeRevealedForTest())
         assertTrue(clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_expand)))
         layout(v)
@@ -230,20 +257,30 @@ class ClipboardViewInteractionTest {
         assertTrue(ctx.getString(com.aegis.ime.R.string.clip_collapse) in allViews(v).mapNotNull { it.contentDescription?.toString() })
     }
 
-    @Test fun narrow_phrase_swipe_keeps_delete_reachable_and_dropdown_actions_distinct() {
+    @Test fun narrow_phrase_swipe_keeps_four_actions_reachable_and_dropdown_actions_distinct() {
         for (width in listOf(320, 360)) {
             val v = phraseView(listOf("你好", "在吗"))
             layout(v, width)
             rootSwipe(v, bodyOf(v, "你好"), -80f)
             layout(v, width)
             assertEquals("你好", v.swipeRevealedForTest())
-            val delete = allViews(v).single { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_delete) }
-            val (deleteX, _) = centerInRoot(v, delete)
-            assertTrue(deleteX - delete.width / 2f >= 0f)
-            assertTrue(deleteX + delete.width / 2f <= v.width)
-            assertTrue(delete !is TextView)
+            val swipeActions = assertSwipeActionStrip(
+                v,
+                "你好",
+                listOf(
+                    ctx.getString(com.aegis.ime.R.string.clip_edit),
+                    ctx.getString(com.aegis.ime.R.string.clip_note),
+                    ctx.getString(com.aegis.ime.R.string.clip_move),
+                    ctx.getString(com.aegis.ime.R.string.clip_delete),
+                ),
+            )
+            swipeActions.forEach { action ->
+                val (actionX, _) = centerInRoot(v, action)
+                assertTrue(actionX - action.width / 2f >= 0f)
+                assertTrue(actionX + action.width / 2f <= v.width)
+            }
             assertTrue(actionButtons(v).isEmpty())
-            rootSwipe(v, delete, 80f)
+            rootSwipe(v, swipeActions.last(), 80f)
             assertNull(v.swipeRevealedForTest())
             layout(v, width)
             val expand = allViews(v).first { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_expand) }

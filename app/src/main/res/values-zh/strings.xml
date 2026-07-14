@@ -223,6 +223,10 @@
     <string name="lang_en">英</string>
     <string name="panel_back">返回</string>
     <string name="panel_lock">锁定</string>
+    <string name="emoji_clear_recent">清空最近表情</string>
+    <string name="emoji_clear_recent_confirm">清空最近使用的表情?</string>
+    <string name="symbols_clear_recent">清空常用符号</string>
+    <string name="symbols_clear_recent_confirm">清空常用符号?</string>
     <string name="emoji_empty_hint">最近使用的表情会显示在这里</string>
     <string name="symbols_empty_hint">最近使用的符号会显示在这里</string>
 
