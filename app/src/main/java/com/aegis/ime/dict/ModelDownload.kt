@@ -350,11 +350,14 @@ object ModelDownload {
 
     internal fun recordPendingDictionarySha(filesDir: File, value: String): Boolean {
         val sha256 = normalizeSha256(value) ?: return false
-        return runCatching {
-            downloadedDir(filesDir).mkdirs()
-            dictPendingShaFile(filesDir).writeText(sha256)
-            true
-        }.getOrDefault(false)
+        return dictionaryRecoveryLock.withLock {
+            if (unmarkedDictionaryRecoveryRequired(filesDir)) return@withLock false
+            runCatching {
+                downloadedDir(filesDir).mkdirs()
+                dictPendingShaFile(filesDir).writeText(sha256)
+                true
+            }.getOrDefault(false)
+        }
     }
 
     private fun pendingDictionarySha(filesDir: File): String? =

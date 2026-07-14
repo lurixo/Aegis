@@ -23,10 +23,13 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.aegis.ime.R
+import com.aegis.ime.SettingsHotApply
+import com.aegis.ime.dict.EngineAssets
 import com.aegis.ime.dict.ModelDownload
 import com.aegis.ime.ui.theme.AegisTheme
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.InetSocketAddress
 import java.util.concurrent.CountDownLatch
@@ -34,7 +37,11 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+import kotlin.random.Random
 import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -73,6 +80,28 @@ class DownloadCardWorkTest {
             snapshot = runtime.snapshot(context)
         }
         return snapshot
+    }
+
+    private fun awaitDictionaryTerminal(): DownloadCardSnapshot {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+        var snapshot = DictDownloadWork.snapshot(context)
+        while (snapshot.downloading && System.nanoTime() < deadline) {
+            Thread.yield()
+            snapshot = DictDownloadWork.snapshot(context)
+        }
+        return snapshot
+    }
+
+    private fun dictionaryArchive(entries: Map<String, ByteArray>): ByteArray {
+        val output = ByteArrayOutputStream()
+        ZipOutputStream(output).use { zip ->
+            entries.forEach { (name, bytes) ->
+                zip.putNextEntry(ZipEntry(name))
+                zip.write(bytes)
+                zip.closeEntry()
+            }
+        }
+        return output.toByteArray()
     }
 
     @Test fun active_download_is_indeterminate_until_known_progress_arrives() {
@@ -203,6 +232,106 @@ class DownloadCardWorkTest {
             ModelDownload.purge(base)
             ModelDownload.purgeDict(base)
             File(ModelDownload.destFile(base).parentFile, "unrelated.bin").delete()
+        }
+    }
+
+    @Test fun dictionary_recovery_blocks_marked_download_until_live_member_cleanup_succeeds() {
+        val base = context.filesDir
+        assertTrue(ModelDownload.purgeDict(base))
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        val survivorName = ModelDownload.DICT_PACK_FILES.first()
+        val survivor = File(downloaded, survivorName).apply { mkdirs() }
+        val residue = File(survivor, "residue").apply { writeText("x") }
+        ModelDownload.DICT_PACK_FILES.drop(1).forEachIndexed { index, name ->
+            File(downloaded, name).writeBytes(ByteArray(2_048) { (index + 1).toByte() })
+        }
+        File(downloaded, ModelDownload.DICT_INSTALLED_SHA_NAME).writeText("invalid")
+        val replacements = ModelDownload.DICT_PACK_FILES.mapIndexed { index, name ->
+            name to ByteArray(2_048).also { Random(index + 1).nextBytes(it) }
+        }.toMap()
+        val body = dictionaryArchive(replacements)
+        val zip = ModelDownload.dictZipFile(base).apply { writeBytes(body) }
+        val sha256 = ModelDownload.sha256Of(zip)
+        val requests = AtomicInteger()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/dict") { exchange ->
+                requests.incrementAndGet()
+                exchange.sendResponseHeaders(200, body.size.toLong())
+                exchange.responseBody.use { it.write(body) }
+                exchange.close()
+            }
+        }
+        val asset = ModelDownload.FALLBACK_DICT_ASSET.copy(
+            url = "http://127.0.0.1:${server.address.port}/dict",
+            sizeBytes = body.size.toLong(),
+            sha256 = sha256,
+        )
+        server.start()
+        try {
+            assertTrue(ModelDownload.unmarkedDictionaryRecoveryRequired(base))
+            assertNull(EngineAssets.downloadedOverride(downloaded, survivorName, minBytes = 0L))
+
+            DictDownloadWork.start(context, asset)
+            val blocked = awaitDictionaryTerminal()
+
+            assertFalse(blocked.downloading)
+            assertEquals(LocalizedText.Resource(R.string.dict_status_download_failed), blocked.status)
+            assertEquals(0, requests.get())
+            assertTrue(survivor.exists())
+            ModelDownload.DICT_PACK_FILES.drop(1).forEach { name ->
+                assertFalse(File(downloaded, name).exists())
+            }
+            assertFalse(File(downloaded, ModelDownload.DICT_INSTALLED_SHA_NAME).exists())
+            assertTrue(zip.exists())
+            assertTrue(ModelDownload.unmarkedDictionaryRecoveryRequired(base))
+            assertFalse(ModelDownload.dictPartFile(base).exists())
+            assertNull(EngineAssets.downloadedOverride(downloaded, survivorName, minBytes = 0L))
+            ModelDownload.reconcileInterruptedDownloads(base)
+            assertTrue(survivor.exists())
+            assertTrue(zip.exists())
+            assertTrue(ModelDownload.unmarkedDictionaryRecoveryRequired(base))
+
+            assertTrue(residue.delete())
+            ModelDownload.recoverInterruptedDictionaryInstall(base)
+
+            ModelDownload.DICT_PACK_FILES.forEach { name ->
+                assertFalse(File(downloaded, name).exists())
+            }
+            assertFalse(File(downloaded, ModelDownload.DICT_INSTALLED_SHA_NAME).exists())
+            assertFalse(zip.exists())
+            assertFalse(ModelDownload.unmarkedDictionaryRecoveryRequired(base))
+
+            DictDownloadWork.start(context, asset)
+            val installed = awaitDictionaryTerminal()
+
+            assertFalse(installed.downloading)
+            assertTrue(installed.present)
+            assertEquals(1, requests.get())
+            assertTrue(ModelDownload.isDictDownloaded(base))
+            assertEquals(sha256, ModelDownload.installedDictionaryFileSha(base))
+            replacements.forEach { (name, bytes) ->
+                assertArrayEquals(bytes, File(downloaded, name).readBytes())
+                assertEquals(
+                    File(downloaded, name).absolutePath,
+                    EngineAssets.downloadedOverride(downloaded, name)?.absolutePath,
+                )
+            }
+            assertFalse(zip.exists())
+        } finally {
+            server.stop(0)
+            ModelDownload.DICT_PACK_FILES.forEach { name -> File(downloaded, name).deleteRecursively() }
+            File(downloaded, ModelDownload.DICT_INSTALLED_SHA_NAME).deleteRecursively()
+            ModelDownload.purgeDict(base)
+            DictDownloadWork.setIdleStatus(context, LocalizedText.Resource(R.string.dict_status_not_downloaded))
+            context.getSharedPreferences("aegis", 0).edit()
+                .remove(ModelDownload.DICT_VALIDATOR_PREF)
+                .remove(ModelDownload.DICT_SHA256_PREF)
+                .remove(ModelDownload.DICT_ASSET_NAME_PREF)
+                .remove(ModelDownload.DICT_ASSET_URL_PREF)
+                .remove(ModelDownload.DICT_RELEASE_TAG_PREF)
+                .remove(ModelDownload.DICT_RELEASE_PUBLISHED_PREF)
+                .remove(SettingsHotApply.ENGINE_PACK_TOUCH_PREF)
+                .commit()
         }
     }
 
