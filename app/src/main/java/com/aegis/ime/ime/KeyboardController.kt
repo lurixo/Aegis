@@ -183,6 +183,12 @@ class KeyboardController(
         render()
     }
 
+    fun restoreBaseKeyboard() {
+        shiftState = ShiftState.OFF
+        layoutId = if (lang == Lang.CN) cnLayout else LayoutId.ALPHA
+        render()
+    }
+
     internal fun activeLayoutId(): LayoutId = layoutId
 
     fun onKey(key: Key) {

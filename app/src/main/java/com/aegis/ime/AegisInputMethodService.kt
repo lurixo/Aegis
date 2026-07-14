@@ -1000,6 +1000,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         shownView?.post { if (inputView === shownView) syncBackCallback() }
     }
 
+    override fun onWindowHidden() {
+        super.onWindowHidden()
+        if (panelInput.active && ::controller.isInitialized) controller.onPanelClear()
+        clearEditorTransientState(resetController = false)
+        if (::controller.isInitialized) controller.restoreBaseKeyboard()
+    }
+
     override fun onUnbindInput() {
         clearEditorTransientState(resetController = true)
         currentEditorTarget = null

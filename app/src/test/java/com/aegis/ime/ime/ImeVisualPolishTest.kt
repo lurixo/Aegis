@@ -16,7 +16,10 @@
 package com.aegis.ime.ime
 
 import android.graphics.Color
+import android.graphics.Rect
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.InsetDrawable
 import android.graphics.drawable.RippleDrawable
 import android.view.View
 import android.view.ViewGroup
@@ -60,13 +63,38 @@ class ImeVisualPolishTest {
     }
 
     @Test fun symbols_and_emoji_recent_tabs_use_rounded_selected_and_pressed_shapes() {
-        val symbols = SymbolsView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT); refresh() }
-        val emoji = EmojiView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        val palette = ImePalette.STATIC_LIGHT
+        val symbols = SymbolsView(ctx).apply { applyPalette(palette); refresh() }
+        val emoji = EmojiView(ctx).apply { applyPalette(palette) }
 
         assertRoundedRailTab(symbols.railTabForTest(0), "symbols 常用")
         assertRoundedRailTab(emoji.railTabForTest(0), "emoji 最近")
         assertTrue("symbols unselected tabs also use rounded ripple", symbols.railTabForTest(1).foreground is RippleDrawable)
         assertTrue("emoji unselected tabs also use rounded ripple", emoji.railTabForTest(1).foreground is RippleDrawable)
+        assertEquals(palette.keyboardBg, effectiveBackgroundColor(symbols.railTabForTest(1)))
+        assertEquals(palette.keyboardBg, effectiveBackgroundColor(emoji.railTabForTest(1)))
+    }
+
+    @Test fun copy_bar_background_uses_the_toolbar_capsule_radius() {
+        for (palette in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
+            val view = CopyBarView(ctx).apply {
+                applyPalette(palette)
+                show("测试内容")
+            }
+            val height = (44 * view.resources.displayMetrics.density).toInt()
+            view.measure(
+                View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY),
+            )
+            val inset = requireNotNull(view.background as? InsetDrawable)
+            val background = requireNotNull(inset.drawable as? GradientDrawable)
+            val padding = Rect()
+            inset.getPadding(padding)
+            val innerHeight = view.measuredHeight - padding.top - padding.bottom
+            assertEquals(palette.keySurface, background.color?.defaultColor)
+            assertEquals(ImeShapes.toolbarPillRadiusDp * view.resources.displayMetrics.density, background.cornerRadius, 0f)
+            assertTrue(background.cornerRadius >= innerHeight / 2f)
+        }
     }
 
     @Test fun edit_panel_controls_all_use_rounded_tap_feedback() {
@@ -140,6 +168,18 @@ class ImeVisualPolishTest {
         assertTrue("$label selected background is rounded", tab.background is GradientDrawable)
         assertTrue("$label press state is a rounded ripple", tab.foreground is RippleDrawable)
         assertTrue("$label remains clickable", tab.hasOnClickListeners())
+    }
+
+    private fun effectiveBackgroundColor(view: View): Int? {
+        var current: View? = view
+        while (current != null) {
+            when (val background = current.background) {
+                is ColorDrawable -> return background.color
+                is GradientDrawable -> background.color?.defaultColor?.let { return it }
+            }
+            current = current.parent as? View
+        }
+        return null
     }
 
     private fun assertAllClickableViewsUseRoundedTapFeedback(root: View, label: String) {

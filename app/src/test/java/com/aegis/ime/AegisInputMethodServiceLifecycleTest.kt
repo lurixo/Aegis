@@ -30,6 +30,8 @@ import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.ime.SymbolsView
 import com.aegis.ime.layout.Key
+import com.aegis.ime.layout.KeyAction
+import com.aegis.ime.layout.LayoutId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotSame
@@ -206,13 +208,13 @@ class AegisInputMethodServiceLifecycleTest {
         assertPreserved(f, seeded)
     }
 
-    private fun hideShowThroughRealServiceCallbacks(f: Fixture, seeded: SeededState) {
+    private fun hideShowThroughRealServiceCallbacks(f: Fixture) {
         val sameView = f.view
         f.service.onFinishInputView(false)
+        f.service.onWindowHidden()
 
-        f.service.onStartInputView(editor(), false)
-        assertTrue("temporary hide/show keeps the framework view", sameView === f.view)
-        assertPreserved(f, seeded)
+        f.service.onStartInputView(f.info, false)
+        assertTrue("hide/show keeps the framework view", sameView === f.view)
     }
 
     @Test fun composition_survives_same_editor_restart_real_rotation_and_real_hide_show() {
@@ -223,29 +225,89 @@ class AegisInputMethodServiceLifecycleTest {
         f.service.onStartInputView(editor(), true)
         assertPreserved(f, seeded)
         rotateThroughRealServiceCallbacks(f, seeded)
-        hideShowThroughRealServiceCallbacks(f, seeded)
+        hideShowThroughRealServiceCallbacks(f)
+        assertPreserved(f, seeded)
 
         f.view.onKey(Key("6", output = "6"))
         assertTrue("restored controller remains live", f.service.transientStateForTest().composition.isNotEmpty())
     }
 
-    @Test fun inline_edit_buffer_and_purpose_survive_real_rotation_and_real_hide_show() {
+    @Test fun inline_edit_buffer_and_purpose_survive_real_rotation_but_clear_after_real_hide_show() {
         val f = fixture()
         val seeded = seed(f, StateKind.INLINE_EDIT)
 
         rotateThroughRealServiceCallbacks(f, seeded)
-        hideShowThroughRealServiceCallbacks(f, seeded)
+        f.view.onKey(Key("6", output = "6"))
+        assertTrue(f.service.transientStateForTest().composition.isNotEmpty())
+        hideShowThroughRealServiceCallbacks(f)
 
-        f.service.commitText("-after")
-        assertEquals("lifecycle-draft-after", f.service.transientStateForTest().editText)
+        assertCleared(f, seeded, "inline edit window hide")
+        assertTrue(f.service.transientStateForTest().inputActive)
+        assertEquals(f.info.packageName, f.service.transientStateForTest().targetPackage)
     }
 
-    @Test fun phrases_panel_tab_and_category_survive_real_rotation_and_real_hide_show() {
+    @Test fun phrases_panel_survives_real_rotation_but_category_move_clears_after_real_hide_show() {
         val f = fixture()
         val seeded = seed(f, StateKind.PHRASES_PANEL)
+        val cv = requireNotNull(seeded.clipboard)
 
         rotateThroughRealServiceCallbacks(f, seeded)
-        hideShowThroughRealServiceCallbacks(f, seeded)
+        cv.enterCategorySortModeForTest()
+        assertTrue(cv.isCategorySortModeForTest())
+        hideShowThroughRealServiceCallbacks(f)
+
+        assertCleared(f, seeded, "phrases panel window hide")
+        assertFalse(cv.isCategorySortModeForTest())
+        assertTrue(f.service.transientStateForTest().inputActive)
+    }
+
+    @Test fun window_hidden_preserves_last_copy_and_restores_the_copy_bar() {
+        val f = fixture()
+        val copied = "copied-lifecycle-content"
+        setCachedPanel(f.service, "lastCopy", copied)
+        f.view.showCopyBar(copied)
+        assertTrue(f.view.copyBarShown)
+
+        hideShowThroughRealServiceCallbacks(f)
+
+        assertEquals(copied, cachedPanel(f.service, "lastCopy"))
+        assertTrue(f.view.copyBarShown)
+        assertTrue(f.service.transientStateForTest().inputActive)
+    }
+
+    @Test fun window_hidden_restores_nine_twenty_six_and_english_base_keyboards() {
+        val prefs = RuntimeEnvironment.getApplication().getSharedPreferences("aegis", 0)
+        val hadLayout = prefs.contains("cn_layout")
+        val previousLayout = prefs.getString("cn_layout", "nine")
+        try {
+            prefs.edit().putString("cn_layout", "nine").commit()
+            fixture().also { f ->
+                f.controller.onKey(Key("", action = KeyAction.SWITCH_NUMPAD))
+                hideShowThroughRealServiceCallbacks(f)
+                assertEquals(LayoutId.NINE, f.controller.activeLayoutId())
+            }
+
+            prefs.edit().putString("cn_layout", "alpha").commit()
+            fixture().also { f ->
+                f.controller.onKey(Key("", action = KeyAction.SWITCH_NUMPAD))
+                hideShowThroughRealServiceCallbacks(f)
+                assertEquals(LayoutId.ALPHA, f.controller.activeLayoutId())
+            }
+
+            prefs.edit().putString("cn_layout", "nine").commit()
+            fixture().also { f ->
+                f.controller.onKey(Key("", action = KeyAction.TOGGLE_LANG))
+                f.controller.onKey(Key("", action = KeyAction.SWITCH_NUMPAD))
+                hideShowThroughRealServiceCallbacks(f)
+                assertEquals(LayoutId.ALPHA, f.controller.activeLayoutId())
+                f.controller.onKey(Key("a", output = "a"))
+                assertEquals("", f.controller.preeditForTest())
+            }
+        } finally {
+            val edit = prefs.edit()
+            if (hadLayout) edit.putString("cn_layout", previousLayout) else edit.remove("cn_layout")
+            edit.commit()
+        }
     }
 
     @Test fun density_change_rebuilds_every_cached_panel_and_restores_phrases_category_semantically() {
