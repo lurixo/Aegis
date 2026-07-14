@@ -67,6 +67,26 @@ class SwitchFlickerTest {
         assertEquals(listOf("current clip"), clipboard.listRowTextsForTest())
     }
 
+    @Test fun composing_dismisses_the_copy_bar_once_during_its_animated_exit() {
+        Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val input = InputView(activity)
+        var dismissals = 0
+        input.onCopyDismiss = { dismissals++ }
+        input.showCopyBar("copied")
+        val host = FrameLayout(activity)
+        host.addView(input)
+        activity.setContentView(host)
+        assertTrue(input.copyBarShown)
+
+        input.showCandidates(listOf("你"), "ni", listOf("ni"))
+
+        assertEquals(1, dismissals)
+        assertTrue(input.copyBarShown)
+        input.showCandidates(listOf("你好", "你"), "nihao", listOf("ni"))
+        assertEquals(1, dismissals)
+    }
+
     @Test fun every_panel_root_carries_an_opaque_floor() {
         for ((name, bg) in listOf(
             "emoji" to floorColor(EmojiView(ctx).apply { applyPalette(light) }.background),

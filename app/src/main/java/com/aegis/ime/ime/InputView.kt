@@ -319,7 +319,7 @@ class InputView(context: Context) : LinearLayout(context) {
         preeditView.setText(preedit)
         candidateView.setContent(candidates, preedit)
         composingNow = candidates.isNotEmpty() || preedit.isNotEmpty()
-        if (copyBarShown && composingNow) { hideCopyBar(); onCopyDismiss() }
+        if (copyBarActive && composingNow) { hideCopyBar(); onCopyDismiss() }
         if (currentPanel === gridView) {
             if (preedit.isEmpty()) showPanel(null)
             else if (pendingGridBind == null) bindExpandedCandidates()
