@@ -20,6 +20,8 @@ import com.sun.net.httpserver.HttpServer
 import java.io.File
 import java.net.InetSocketAddress
 import java.net.SocketException
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.security.MessageDigest
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.zip.ZipEntry
@@ -181,6 +183,81 @@ class ModelDownloadTest {
     }
 
     @Test
+    fun malformedNormalSizeModelDownloadPreservesTheInstalledModel() {
+        val base = tempFilesDir()
+        val body = ByteBuffer.wrap(validGramBytes(4_096, 7)).order(ByteOrder.LITTLE_ENDIAN).apply {
+            putInt(36, 1)
+        }.array()
+        val old = validGramBytes(2_048, 1)
+        val server = assetServer(body, "candidate-model")
+        server.start()
+        try {
+            val target = ModelDownload.destFile(base)
+            target.parentFile?.mkdirs()
+            target.writeBytes(old)
+            var persisted = false
+
+            val result = ModelDownload.downloadModel(
+                "http://127.0.0.1:${server.address.port}/asset",
+                target,
+                { _, _ -> },
+            ) {
+                persisted = true
+                true
+            }
+
+            assertFalse(result.ok)
+            assertEquals(ModelDownload.TransferFailure.INSTALL, result.failure)
+            assertFalse(persisted)
+            assertArrayEquals(old, target.readBytes())
+            assertFalse(ModelDownload.partFile(base).exists())
+            assertFalse(File(target.parentFile, "${target.name}.backup").exists())
+        } finally {
+            server.stop(0)
+            base.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun modelPreferenceCommitFailureRestoresTheInstalledModel() {
+        val base = tempFilesDir()
+        val body = validGramBytes(4_096, 2)
+        val old = validGramBytes(2_048, 1)
+        val server = assetServer(body, "candidate-model")
+        server.start()
+        try {
+            val target = ModelDownload.destFile(base)
+            target.parentFile?.mkdirs()
+            target.writeBytes(old)
+            var attemptedSnapshot: ModelDownload.ModelSnapshot? = null
+
+            val result = ModelDownload.downloadModel(
+                "http://127.0.0.1:${server.address.port}/asset",
+                target,
+                { _, _ -> },
+            ) { snapshot ->
+                attemptedSnapshot = snapshot
+                false
+            }
+
+            assertFalse(result.ok)
+            assertEquals(ModelDownload.TransferFailure.INSTALL, result.failure)
+            val snapshot = requireNotNull(attemptedSnapshot)
+            assertEquals("candidate-model", snapshot.validator)
+            val expectedSha = MessageDigest.getInstance("SHA-256").digest(body)
+                .joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+            assertEquals(expectedSha, snapshot.sha256)
+            assertEquals(body.size.toLong(), snapshot.sizeBytes)
+            assertArrayEquals(old, target.readBytes())
+            assertFalse(ModelDownload.partFile(base).exists())
+            assertFalse(File(target.parentFile, "${target.name}.backup").exists())
+        } finally {
+            server.stop(0)
+            base.deleteRecursively()
+        }
+    }
+
+    @Test
     fun truncatedDownloadIsReportedAsIncomplete() {
         val base = tempFilesDir()
         val declared = 4_096L
@@ -328,6 +405,54 @@ class ModelDownloadTest {
         assertEquals(2L, ModelDownload.bytesToDisplayMb(ModelDownload.installedGramBytes(base)))
         assertEquals(2L, ModelDownload.bytesToDisplayMb(ModelDownload.installedDictionaryBytes(base)))
         base.deleteRecursively()
+    }
+
+    @Test
+    fun interruptedModelDownloadResumesWithARangeRequestAndTransfersOnlyTheRemainder() {
+        val base = tempFilesDir()
+        val body = validGramBytes(200_000, 5)
+        val cut = 80_000
+        val requests = CopyOnWriteArrayList<Pair<String?, String?>>()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/asset") { exchange ->
+            requests += exchange.requestHeaders.getFirst("Range") to exchange.requestHeaders.getFirst("If-Range")
+            if (requests.size == 1) serveTruncated(exchange, body, cut, etag = "model-1")
+            else serveRemainder(exchange, body, cut, etag = "model-1")
+        }
+        server.start()
+        try {
+            val target = ModelDownload.destFile(base)
+            val part = ModelDownload.partFile(base)
+            val sidecar = File(part.parentFile, "${part.name}.meta")
+            val url = "http://127.0.0.1:${server.address.port}/asset"
+
+            val first = ModelDownload.downloadModel(url, target, { _, _ -> }) { true }
+
+            assertFalse(first.ok)
+            assertEquals(ModelDownload.TransferFailure.INCOMPLETE, first.failure)
+            assertEquals(cut.toLong(), first.bytesRead)
+            assertEquals(0L, first.resumedFrom)
+            assertEquals(cut.toLong(), part.length())
+            assertTrue(sidecar.exists())
+
+            var snapshot: ModelDownload.ModelSnapshot? = null
+            val second = ModelDownload.downloadModel(url, target, { _, _ -> }) { snapshot = it; true }
+
+            assertTrue(second.ok)
+            assertEquals(cut.toLong(), second.resumedFrom)
+            assertEquals(body.size.toLong(), second.bytesRead)
+            assertEquals(listOf<String?>(null, "bytes=$cut-"), requests.map { it.first })
+            assertEquals(listOf<String?>(null, "model-1"), requests.map { it.second })
+            assertArrayEquals(body, target.readBytes())
+            val installed = requireNotNull(snapshot)
+            assertEquals("model-1", installed.validator)
+            assertEquals(sha256Hex(body), installed.sha256)
+            assertFalse(part.exists())
+            assertFalse(sidecar.exists())
+        } finally {
+            server.stop(0)
+            base.deleteRecursively()
+        }
     }
 
     @Test
@@ -589,4 +714,22 @@ class ModelDownloadTest {
             }
         }
     }
+
+    private fun assetServer(body: ByteArray, validator: String?): HttpServer =
+        HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/asset") { exchange ->
+                if (validator != null) exchange.responseHeaders.add("ETag", validator)
+                exchange.sendResponseHeaders(200, body.size.toLong())
+                exchange.responseBody.use { it.write(body) }
+                exchange.close()
+            }
+        }
+
+    private fun validGramBytes(size: Int, marker: Byte): ByteArray =
+        ByteBuffer.wrap(ByteArray(size)).order(ByteOrder.LITTLE_ENDIAN).apply {
+            put("Rime::Grammar/1.0".toByteArray(Charsets.US_ASCII))
+            putInt(36, (size - 44) / 4)
+            putInt(40, 4)
+            put(size - 1, marker)
+        }.array()
 }

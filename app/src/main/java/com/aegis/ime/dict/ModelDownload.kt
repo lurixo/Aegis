@@ -52,6 +52,8 @@ object ModelDownload {
         val resumedFrom: Long = 0L,
     )
 
+    data class ModelSnapshot(val validator: String?, val sha256: String, val sizeBytes: Long)
+
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
 
     fun download(
@@ -64,6 +66,21 @@ object ModelDownload {
             moveReplacing(staged, dest)
             true
         }
+
+    internal fun downloadModel(
+        url: String,
+        dest: File,
+        onProgress: (Long, Long) -> Unit,
+        persistSnapshot: (ModelSnapshot) -> Boolean,
+    ): DownloadResult = downloadStaged(url, dest, null, onProgress) { staged, validator ->
+        if (runCatching { OctagramReader.fromFile(staged) }.isFailure) return@downloadStaged false
+        replaceModel(
+            staged,
+            dest,
+            ModelSnapshot(validator, sha256Of(staged), staged.length()),
+            persistSnapshot,
+        )
+    }
 
     private fun downloadStaged(
         url: String,
@@ -242,6 +259,33 @@ object ModelDownload {
         }
     } catch (e: Exception) {
         DownloadResult(false, null, TransferFailure.INSTALL, done, total, e, resumedFrom)
+    }
+
+    private fun replaceModel(
+        staged: File,
+        dest: File,
+        snapshot: ModelSnapshot,
+        persistSnapshot: (ModelSnapshot) -> Boolean,
+    ): Boolean {
+        val backup = File(dest.parentFile, "${dest.name}.backup")
+        backup.delete()
+        var backedUp = false
+        var installed = false
+        return try {
+            if (dest.exists()) {
+                moveReplacing(dest, backup)
+                backedUp = true
+            }
+            moveReplacing(staged, dest)
+            installed = true
+            if (!persistSnapshot(snapshot)) throw IOException("snapshot commit failed")
+            backup.delete()
+            true
+        } catch (t: Throwable) {
+            if (installed) dest.delete()
+            if (backedUp && backup.exists()) runCatching { moveReplacing(backup, dest) }
+            false
+        }
     }
 
     enum class CheckFailure { OFFLINE, TIMEOUT, SERVER, PARSE }
