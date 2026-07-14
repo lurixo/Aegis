@@ -113,54 +113,60 @@ class BottomBarSymmetryTest {
         assertNull("$name delete has no right-anchored glyph", backspace.compoundDrawables[2])
     }
 
-    @Test fun symbols_bottom_controls_follow_the_rail_center_and_content_columns() {
-        for (width in listOf(360, 480)) {
-            val view = SymbolsView(ctx).apply {
-                recentProvider = { (1..7).map(Int::toString) }
-                applyPalette(ImePalette.STATIC_LIGHT)
-                refresh()
+    @Test fun symbols_bottom_controls_follow_the_rail_center_and_content_columns_in_ltr_and_rtl() {
+        for (layoutDirection in listOf(View.LAYOUT_DIRECTION_LTR, View.LAYOUT_DIRECTION_RTL)) {
+            for (width in listOf(360, 480)) {
+                val view = SymbolsView(ctx).apply {
+                    this.layoutDirection = layoutDirection
+                    recentProvider = { (1..7).map(Int::toString) }
+                    applyPalette(ImePalette.STATIC_LIGHT)
+                    refresh()
+                }
+                layout(view, width)
+                val back = view.backBtnForTest()
+                val clear = view.clearBtnForTest()
+                val backspace = view.backspaceBtnForTest()
+                val controls = listOf(back, clear, view.lockBtnForTest(), backspace)
+                assertAxes(
+                    view,
+                    back,
+                    clear,
+                    view.lockBtnForTest(),
+                    backspace,
+                    "SymbolsView",
+                )
+                assertControlBackgrounds(controls, ImePalette.STATIC_LIGHT, "SymbolsView")
+                view.applyPalette(ImePalette.STATIC_DARK)
+                assertControlBackgrounds(controls, ImePalette.STATIC_DARK, "SymbolsView")
             }
-            layout(view, width)
-            val back = view.backBtnForTest()
-            val clear = view.clearBtnForTest()
-            val backspace = view.backspaceBtnForTest()
-            val controls = listOf(back, clear, view.lockBtnForTest(), backspace)
-            assertAxes(
-                view,
-                back,
-                clear,
-                view.lockBtnForTest(),
-                backspace,
-                "SymbolsView",
-            )
-            assertControlBackgrounds(controls, ImePalette.STATIC_LIGHT, "SymbolsView")
-            view.applyPalette(ImePalette.STATIC_DARK)
-            assertControlBackgrounds(controls, ImePalette.STATIC_DARK, "SymbolsView")
         }
     }
 
-    @Test fun emoji_bottom_controls_follow_the_rail_center_and_content_columns() {
-        for (width in listOf(360, 480)) {
-            val view = EmojiView(ctx).apply {
-                recentProvider = { (1..7).map(Int::toString) }
-                applyPalette(ImePalette.STATIC_LIGHT)
+    @Test fun emoji_bottom_controls_follow_the_rail_center_and_content_columns_in_ltr_and_rtl() {
+        for (layoutDirection in listOf(View.LAYOUT_DIRECTION_LTR, View.LAYOUT_DIRECTION_RTL)) {
+            for (width in listOf(360, 480)) {
+                val view = EmojiView(ctx).apply {
+                    this.layoutDirection = layoutDirection
+                    recentProvider = { (1..7).map(Int::toString) }
+                    applyPalette(ImePalette.STATIC_LIGHT)
+                }
+                layout(view, width)
+                val back = view.backBtnForTest()
+                val clear = view.clearBtnForTest()
+                val backspace = view.backspaceBtnForTest()
+                val controls = listOf(back, clear, view.lockBtnForTest(), backspace)
+                assertAxes(
+                    view,
+                    back,
+                    clear,
+                    view.lockBtnForTest(),
+                    backspace,
+                    "EmojiView",
+                )
+                assertControlBackgrounds(controls, ImePalette.STATIC_LIGHT, "EmojiView")
+                view.applyPalette(ImePalette.STATIC_DARK)
+                assertControlBackgrounds(controls, ImePalette.STATIC_DARK, "EmojiView")
             }
-            layout(view, width)
-            val back = view.backBtnForTest()
-            val clear = view.clearBtnForTest()
-            val backspace = view.backspaceBtnForTest()
-            val controls = listOf(back, clear, view.lockBtnForTest(), backspace)
-            assertAxes(
-                view,
-                back,
-                clear,
-                view.lockBtnForTest(),
-                backspace,
-                "EmojiView",
-            )
-            assertControlBackgrounds(controls, ImePalette.STATIC_LIGHT, "EmojiView")
-            view.applyPalette(ImePalette.STATIC_DARK)
-            assertControlBackgrounds(controls, ImePalette.STATIC_DARK, "EmojiView")
         }
     }
 }

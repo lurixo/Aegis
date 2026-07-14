@@ -36,9 +36,7 @@ internal class PanelConfirmationOverlay(context: Context) : FrameLayout(context)
 
     init {
         visibility = View.GONE
-        isClickable = true
         setBackgroundColor(Color.TRANSPARENT)
-        setOnClickListener { dismiss() }
     }
 
     fun show(title: String, confirm: String, cancel: String, palette: ImePalette, onConfirm: () -> Unit) {
@@ -76,12 +74,15 @@ internal class PanelConfirmationOverlay(context: Context) : FrameLayout(context)
             leftMargin = margin
             rightMargin = margin
         })
+        setOnClickListener { dismiss() }
         visibility = View.VISIBLE
         bringToFront()
         Motion.revealIn(card, Motion.EnterFrom.BOTTOM)
     }
 
     fun dismiss() {
+        setOnClickListener(null)
+        isClickable = false
         removeAllViews()
         confirmAction = null
         cancelAction = null

@@ -34,6 +34,23 @@ class RecentClearConfirmationTest {
 
     private val ctx = RuntimeEnvironment.getApplication()
 
+    @Test fun confirmation_backdrop_is_clickable_only_while_visible() {
+        val overlay = PanelConfirmationOverlay(ctx)
+        var confirmations = 0
+
+        assertFalse(overlay.hasOnClickListeners())
+        assertFalse(overlay.isClickable)
+
+        overlay.show("Clear recent items?", "Clear", "Cancel", ImePalette.STATIC_LIGHT) { confirmations++ }
+        assertTrue(overlay.hasOnClickListeners())
+        assertTrue(overlay.isClickable)
+        assertTrue(overlay.performClick())
+
+        assertFalse(overlay.hasOnClickListeners())
+        assertFalse(overlay.isClickable)
+        assertEquals(0, confirmations)
+    }
+
     @Test fun symbol_recents_clear_only_after_confirmation() {
         val recents = mutableListOf("★", "→")
         var clears = 0
