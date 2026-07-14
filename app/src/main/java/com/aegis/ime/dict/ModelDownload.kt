@@ -26,6 +26,8 @@ import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.security.MessageDigest
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 import org.json.JSONObject
 
 object ModelDownload {
@@ -55,6 +57,7 @@ object ModelDownload {
     data class ModelSnapshot(val validator: String?, val sha256: String, val sizeBytes: Long)
 
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
+    private val dictionaryRecoveryLock = ReentrantLock()
 
     fun download(
         url: String,
@@ -434,6 +437,8 @@ object ModelDownload {
         "https://github.com/lurixo/Aegis/releases/download/$DICT_LATEST_TAG/aegis-dictionary-update.json"
 
     const val DICT_NAME = "aegis_dict_pack.zip"
+    internal const val DICT_INSTALLED_SHA_NAME = "aegis_dict_pack.sha256"
+    internal const val DICT_PENDING_SHA_NAME = "aegis_dict_pack.pending.sha256"
 
     const val LM_NAME = "aegis_lm.bin"
 
@@ -475,9 +480,50 @@ object ModelDownload {
     private fun downloadedDir(filesDir: File) = File(filesDir, "downloaded")
     fun dictZipFile(filesDir: File): File = File(downloadedDir(filesDir), DICT_NAME)
     fun dictPartFile(filesDir: File): File = File(downloadedDir(filesDir), "$DICT_NAME.part")
+    private fun dictInstalledShaFile(filesDir: File) = File(downloadedDir(filesDir), DICT_INSTALLED_SHA_NAME)
+    private fun dictPendingShaFile(filesDir: File) = File(downloadedDir(filesDir), DICT_PENDING_SHA_NAME)
 
     fun isDictDownloaded(filesDir: File): Boolean =
         DICT_BIN_FILES.all { File(downloadedDir(filesDir), it).let { f -> f.exists() && f.length() > 1024 } }
+
+    internal fun resolvedInstalledDictionarySha(
+        filesDir: File,
+        stored: String?,
+    ): String? {
+        installedDictionaryFileSha(filesDir)?.let { return it }
+        if (dictInstalledShaFile(filesDir).exists()) return null
+        return normalizeSha256(stored)
+    }
+
+    internal fun installedDictionaryFileSha(filesDir: File): String? =
+        runCatching { normalizeSha256(dictInstalledShaFile(filesDir).readText()) }.getOrNull()
+
+    sealed interface PendingMarker {
+        data object Recorded : PendingMarker
+        data object UnfinishedInstall : PendingMarker
+        data class NotWritten(val error: Throwable) : PendingMarker
+    }
+
+    internal fun recordPendingDictionarySha(filesDir: File, value: String): PendingMarker =
+        dictionaryRecoveryLock.withLock {
+            if (unmarkedDictionaryRecoveryRequired(filesDir)) {
+                return@withLock PendingMarker.UnfinishedInstall
+            }
+            runCatching {
+                val sha256 = requireNotNull(normalizeSha256(value)) { "unrecognised dictionary sha256" }
+                downloadedDir(filesDir).mkdirs()
+                syncWrite(dictPendingShaFile(filesDir), sha256)
+                PendingMarker.Recorded
+            }.getOrElse { PendingMarker.NotWritten(it) }
+        }
+
+    private fun pendingDictionarySha(filesDir: File): String? =
+        runCatching { normalizeSha256(dictPendingShaFile(filesDir).readText()) }.getOrNull()
+
+    internal fun unmarkedDictionaryRecoveryRequired(filesDir: File): Boolean =
+        dictZipFile(filesDir).exists() &&
+            pendingDictionarySha(filesDir) == null &&
+            (!isDictDownloaded(filesDir) || installedDictionaryFileSha(filesDir) == null)
 
     internal fun resolveDictionaryDownloadAsset(fetch: () -> String): Result<DictionaryAsset> =
         runCatching { dictionaryAssetFromUpdateJson(fetch()) }
@@ -575,6 +621,13 @@ object ModelDownload {
             while (true) { val n = ins.read(buf); if (n < 0) break; md.update(buf, 0, n) }
         }
         return md.digest().joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+    }
+
+    private fun syncWrite(file: File, text: String) {
+        FileOutputStream(file).use { out ->
+            out.write(text.toByteArray())
+            out.fd.sync()
+        }
     }
 
     private fun moveReplacing(source: File, target: File) {

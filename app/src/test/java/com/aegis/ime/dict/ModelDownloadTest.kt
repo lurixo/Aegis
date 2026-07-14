@@ -18,6 +18,7 @@ package com.aegis.ime.dict
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import java.io.File
+import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.SocketException
 import java.nio.ByteBuffer
@@ -324,6 +325,42 @@ class ModelDownloadTest {
             server.stop(0)
             base.deleteRecursively()
         }
+    }
+
+    @Test
+    fun aPendingMarkerThatCannotBeWrittenKeepsItsCause() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        val marker = File(downloaded, "aegis_dict_pack.pending.sha256").apply { mkdirs() }
+        File(marker, "occupant").writeText("x")
+
+        val outcome = ModelDownload.recordPendingDictionarySha(base, "a".repeat(64))
+
+        assertTrue(outcome is ModelDownload.PendingMarker.NotWritten)
+        assertTrue(
+            "the cause the marker keeps must be the write that failed",
+            (outcome as ModelDownload.PendingMarker.NotWritten).error is IOException,
+        )
+        assertFalse(ModelDownload.unmarkedDictionaryRecoveryRequired(base))
+
+        base.deleteRecursively()
+    }
+
+    @Test
+    fun unknownInstalledDictionaryDoesNotInferAPackHash() {
+        val base = tempFilesDir()
+        assertNull(ModelDownload.resolvedInstalledDictionarySha(base, null))
+        ModelDownload.DICT_PACK_FILES.forEach { name ->
+            File(base, "downloaded/$name").apply { parentFile?.mkdirs(); writeBytes(ByteArray(2_048)) }
+        }
+        assertNull(ModelDownload.resolvedInstalledDictionarySha(base, null))
+        assertNull(ModelDownload.resolvedInstalledDictionarySha(base, "invalid"))
+        val storedSha = "e".repeat(64)
+        assertEquals(storedSha, ModelDownload.resolvedInstalledDictionarySha(base, storedSha))
+        val installedSha = "d".repeat(64)
+        File(base, "downloaded/${ModelDownload.DICT_INSTALLED_SHA_NAME}").writeText(installedSha)
+        assertEquals(installedSha, ModelDownload.resolvedInstalledDictionarySha(base, "invalid"))
+        base.deleteRecursively()
     }
 
     @Test
