@@ -772,7 +772,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         cv.applyPalette(imePalette)
         recreationState?.let(cv::restoreRecreationState)
         clipboardRecreationState = null
-        iv.showPanel(cv)
+        iv.showPanelImmediately(cv)
     }
 
     private fun showCustomSymbolPanel() {

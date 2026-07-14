@@ -368,7 +368,11 @@ class InputView(context: Context) : LinearLayout(context) {
 
     internal fun barChevronGlyph(): String = candidateView.chevronGlyph()
 
-    fun showPanel(panel: View?) {
+    fun showPanel(panel: View?) = showPanel(panel, animateReveal = true)
+
+    internal fun showPanelImmediately(panel: View) = showPanel(panel, animateReveal = false)
+
+    private fun showPanel(panel: View?, animateReveal: Boolean) {
         val outgoing = currentPanel
         (outgoing as? ResettablePanel)?.takeIf { it !== panel }?.resetToDefault()
         if (outgoing === gridView && panel !== gridView) onExpandClosed()
@@ -408,7 +412,12 @@ class InputView(context: Context) : LinearLayout(context) {
             )
             panelContainer.visibility = VISIBLE
             keyboardView.visibility = GONE
-            Motion.revealIn(panel, Motion.EnterFrom.BOTTOM)
+            if (animateReveal) {
+                Motion.revealIn(panel, Motion.EnterFrom.BOTTOM)
+            } else {
+                panel.visibility = VISIBLE
+                Motion.reset(panel)
+            }
         }
         onPanelChanged(panel)
         onOverlayChanged()
