@@ -50,6 +50,11 @@ class SymbolUsageStore(private val dir: File) {
         runCatching { persist() }
     }
 
+    fun clear() {
+        used.clear()
+        persist()
+    }
+
     fun importEntries(incoming: List<Entry>, merge: Boolean): Boolean {
         if (!merge) used.clear()
         val seen = used.mapTo(HashSet()) { SymbolCatalog.foldFullWidth(it.symbol) }

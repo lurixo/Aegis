@@ -709,6 +709,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val ev = emojiView ?: EmojiView(this).also {
             it.recentProvider = { emojiUsageStore.recent() }
             it.onEmoji = { e -> emojiUsageStore.record(e); commitExternalText(e) }
+            it.onClearRecents = { emojiUsageStore.clear() }
             it.onBackspace = { panelBackspace() }
             it.onBack = { inputView?.showPanel(null) }
             emojiView = it
@@ -811,6 +812,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val sv = symbolsView ?: SymbolsView(this).also {
             it.recentProvider = { symbolUsageStore.recent() }
             it.recentOriginOf = { s -> symbolUsageStore.originOf(s) }
+            it.onClearRecents = { symbolUsageStore.clear() }
             it.onSymbol = { s, origin -> symbolUsageStore.record(s, origin); commitExternalSymbol(s) }
             it.onBackspace = { panelBackspace() }
             it.onBack = { inputView?.showPanel(null) }

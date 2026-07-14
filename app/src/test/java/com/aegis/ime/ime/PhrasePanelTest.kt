@@ -16,6 +16,7 @@
 package com.aegis.ime.ime
 
 import android.graphics.drawable.GradientDrawable
+import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -23,6 +24,7 @@ import android.widget.HorizontalScrollView
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -74,6 +76,7 @@ class PhrasePanelTest {
         )
         v.layout(0, 0, v.measuredWidth, v.measuredHeight)
     }
+    private fun dp(value: Int): Int = (value * ctx.resources.displayMetrics.density).toInt()
     private fun maxAutoScrollStepPx(): Int = (8 * ctx.resources.displayMetrics.density).toInt().coerceAtLeast(1)
 
     private fun phraseView(): ClipboardView = phraseView(listOf("你好", "在吗", "稍等"))
@@ -87,8 +90,11 @@ class PhrasePanelTest {
 
     @Test fun expanded_phrase_card_action_row_is_edit_note_move_delete() {
         val v = phraseView().apply { expandForTest("你好") }
-        val actions = textViews(v).filter { it.compoundDrawables[0] != null && it.background is GradientDrawable }
-        assertEquals(listOf(ctx.getString(com.aegis.ime.R.string.clip_edit), ctx.getString(com.aegis.ime.R.string.clip_note), ctx.getString(com.aegis.ime.R.string.clip_move), ctx.getString(com.aegis.ime.R.string.clip_delete)), actions.map { it.text.toString() })
+        layout(v)
+        val expected = listOf(ctx.getString(com.aegis.ime.R.string.clip_edit), ctx.getString(com.aegis.ime.R.string.clip_note), ctx.getString(com.aegis.ime.R.string.clip_move), ctx.getString(com.aegis.ime.R.string.clip_delete))
+        val actions = textViews(v).filter { it.text?.toString() in expected && it.compoundDrawables[0] != null && it.hasOnClickListeners() }
+        assertEquals(expected, actions.map { it.text.toString() })
+        assertTrue(actions.all { it.compoundDrawables[0] != null && it.text.isNotEmpty() })
         assertFalse(labels(v).any { it == "置顶" || it == "Pin to top" })
     }
 
@@ -96,24 +102,31 @@ class PhrasePanelTest {
         val v = ClipboardView(ctx).apply {
             historyProvider = { listOf("abc") }; applyPalette(pal); refresh(); expandForTest("abc")
         }
-        val ls = labels(v)
-        assertTrue(ls.any { it.contains(ctx.getString(com.aegis.ime.R.string.clip_phrases)) }); assertTrue(ls.any { it.contains(ctx.getString(com.aegis.ime.R.string.clip_split_word)) }); assertTrue(ls.any { it.contains(ctx.getString(com.aegis.ime.R.string.clip_delete)) })
+        layout(v)
+        val expected = listOf(ctx.getString(com.aegis.ime.R.string.clip_phrases), ctx.getString(com.aegis.ime.R.string.clip_split_word), ctx.getString(com.aegis.ime.R.string.clip_delete))
+        val actions = textViews(v).filter { it.text?.toString() in expected && it.compoundDrawables[0] != null && it.hasOnClickListeners() }
+        assertEquals(expected, actions.map { it.text.toString() })
+        assertTrue(actions.all { it.compoundDrawables[0] != null && it.text.isNotEmpty() })
     }
 
     @Test fun clipboard_and_phrase_action_buttons_share_height_rounding_and_spacing() {
         val clip = ClipboardView(ctx).apply {
             historyProvider = { listOf("abc") }; applyPalette(pal); refresh(); expandForTest("abc")
         }
+        layout(clip)
+        val phrase = phraseView().apply { expandForTest("你好") }
+        layout(phrase)
         val clipActions = textViews(clip)
             .filter { it.text?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_phrases), ctx.getString(com.aegis.ime.R.string.clip_split_word), ctx.getString(com.aegis.ime.R.string.clip_delete)) && it.compoundDrawables.any { d -> d != null } }
-        val phraseActions = textViews(phraseView().apply { expandForTest("你好") })
+        val phraseActions = textViews(phrase)
             .filter { it.text?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_edit), ctx.getString(com.aegis.ime.R.string.clip_note), ctx.getString(com.aegis.ime.R.string.clip_move), ctx.getString(com.aegis.ime.R.string.clip_delete)) && it.compoundDrawables.any { d -> d != null } }
         assertEquals(3, clipActions.size)
         assertEquals(4, phraseActions.size)
         val all = clipActions + phraseActions
         assertEquals(1, all.map { it.layoutParams.height }.toSet().size)
-        assertEquals(1, all.map { it.compoundDrawablePadding }.toSet().size)
-        assertEquals((2 * ctx.resources.displayMetrics.density).toInt(), all.first().compoundDrawablePadding)
+        assertTrue(all.all { it.layoutParams.width == ViewGroup.LayoutParams.WRAP_CONTENT })
+        assertTrue(all.all { it.compoundDrawablePadding == it.paint.measureText(" ").roundToInt().coerceAtLeast(1) })
+        assertTrue(all.all { Gravity.getAbsoluteGravity(it.gravity, it.layoutDirection) and Gravity.HORIZONTAL_GRAVITY_MASK == Gravity.LEFT })
         val heightTolerance = 2 * ctx.resources.displayMetrics.density + 1f
         assertTrue(all.all { abs(it.compoundDrawables[0].intrinsicHeight - it.textSize) <= heightTolerance })
         assertTrue(all.all { it.background is GradientDrawable })
@@ -122,6 +135,17 @@ class PhrasePanelTest {
         val gap = (4 * ctx.resources.displayMetrics.density).toInt()
         assertEquals(listOf(0, gap, gap), clipActions.map { (it.layoutParams as android.widget.LinearLayout.LayoutParams).marginStart })
         assertEquals(listOf(0, gap, gap, gap), phraseActions.map { (it.layoutParams as android.widget.LinearLayout.LayoutParams).marginStart })
+        for ((view, body, actions) in listOf(Triple(clip, "abc", clipActions), Triple(phrase, "你好", phraseActions))) {
+            val row = actions.first().parent as View
+            val surface = row.parent as View
+            val header = textViews(view).first { it.text?.toString() == body }.parent as View
+            val headerFrame = header.parent as View
+            assertTrue(headerFrame.parent === surface)
+            assertTrue(surface.background is GradientDrawable)
+            assertTrue((surface.background as GradientDrawable).cornerRadius > 0f)
+            assertTrue(header.background == null)
+            assertEquals((row as ViewGroup).paddingLeft, actions.first().left)
+        }
     }
 
     @Test fun edit_action_invokes_onEditPhrase() {
@@ -397,6 +421,40 @@ class PhrasePanelTest {
 
         v.toggleSelectForTest("b")
         assertTrue(ctx.getString(com.aegis.ime.R.string.clip_selected_count, 2) in labels(v))
+    }
+
+    @Test fun select_mode_top_actions_are_symmetric_for_clipboard_and_phrases() {
+        val clipboard = ClipboardView(ctx).apply {
+            historyProvider = { listOf("a", "b") }; applyPalette(pal); refresh(); enterSelectForTest(listOf("a"))
+        }
+        val phrases = phraseView().apply { enterSelectForTest(listOf("你好")) }
+        val geometries = listOf(clipboard, phrases).map { view ->
+            layout(view, w = 480, h = 400)
+            val selectAll = checkNotNull(view.selectAllActionForTest())
+            val cancel = checkNotNull(view.cancelSelectActionForTest())
+            val topBar = selectAll.parent as ViewGroup
+            val title = topBar.getChildAt(1)
+            assertTrue(cancel.parent === topBar)
+            assertEquals(dp(104), selectAll.width)
+            assertEquals(dp(104), cancel.width)
+            assertEquals(dp(40), selectAll.height)
+            assertEquals(dp(40), cancel.height)
+            assertEquals(selectAll.left, topBar.width - cancel.right)
+            assertEquals(selectAll.top, cancel.top)
+            assertEquals(selectAll.bottom, cancel.bottom)
+            assertEquals(topBar.width * 2, selectAll.left + selectAll.right + cancel.left + cancel.right)
+            assertTrue(selectAll.right <= title.left)
+            assertTrue(title.right <= cancel.left)
+            assertEquals(Gravity.CENTER, selectAll.gravity)
+            assertEquals(Gravity.CENTER, cancel.gravity)
+            assertTrue(selectAll.hasOnClickListeners())
+            assertTrue(cancel.hasOnClickListeners())
+            assertTrue(selectAll.background is GradientDrawable)
+            assertTrue(cancel.background is GradientDrawable)
+            assertEquals((selectAll.background as GradientDrawable).cornerRadius, (cancel.background as GradientDrawable).cornerRadius, 0f)
+            listOf(selectAll.left, selectAll.top, selectAll.right, selectAll.bottom, cancel.left, cancel.top, cancel.right, cancel.bottom)
+        }
+        assertEquals(1, geometries.toSet().size)
     }
 
     @Test fun batch_move_invokes_onMovePhrasesTo_with_selection_and_target() {
