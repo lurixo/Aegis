@@ -15,7 +15,6 @@
 
 package com.aegis.ime.ui
 
-import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.os.Looper
 import androidx.activity.ComponentActivity
@@ -37,6 +36,8 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.shadow.api.Shadow
+import org.robolectric.shadows.ShadowPhoneWindow
 import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
@@ -252,15 +253,9 @@ class SettingsPredictiveBackTest {
             settingsBackgroundArgb(activity),
             (activity.window.decorView.background as ColorDrawable).color,
         )
-        assertEquals(
-            "status bar must stay transparent over the settings surface",
-            Color.TRANSPARENT,
-            activity.window.statusBarColor,
-        )
-        assertEquals(
-            "navigation bar must stay transparent over the settings surface",
-            Color.TRANSPARENT,
-            activity.window.navigationBarColor,
+        assertFalse(
+            "settings background must draw behind the system bar insets",
+            Shadow.extract<ShadowPhoneWindow>(activity.window).decorFitsSystemWindows,
         )
     }
 
