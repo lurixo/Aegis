@@ -44,7 +44,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.core.content.edit
 import com.aegis.ime.R
 import com.aegis.ime.SettingsHotApply
 import com.aegis.ime.dict.ModelDownload
@@ -98,14 +97,23 @@ internal fun GramDownloadCard(
             val checked = runCatching {
                 val remote = probe(ModelDownload.GRAM_URL)
                 val local = prefs.all[ModelDownload.VALIDATOR_PREF] as? String
-                local to remote
+                Triple(local, ModelDownload.installedGramBytes(context.filesDir), remote)
             }
             handler.post {
                 checking = false
                 val action = checked.fold(
-                    onSuccess = { (local, remote) -> ModelDownload.modelUpdateAction(present, local, remote) },
+                    onSuccess = { (local, installedBytes, remote) ->
+                        ModelDownload.modelUpdateAction(present, local, remote, installedBytes)
+                    },
                     onFailure = { ModelDownload.UpdateCheck.PARSE_ERROR },
                 )
+                if (action == ModelDownload.UpdateCheck.UP_TO_DATE) {
+                    val state = checked.getOrNull()
+                    val validator = (state?.third as? ModelDownload.ValidatorProbe.Reached)?.validator
+                    if (state?.first == null && validator != null) {
+                        prefs.edit().putString(ModelDownload.VALIDATOR_PREF, validator).commit()
+                    }
+                }
                 when (action) {
                     null -> {}
                     ModelDownload.UpdateCheck.OFFLINE -> showCheckFailure(R.string.download_toast_update_offline)
@@ -188,13 +196,22 @@ internal fun GramDownloadCard(
                 OutlinedButton(
                     enabled = !downloading && !checking && present,
                     onClick = {
-                        ModelDownload.purge(context.filesDir)
-                        prefs.edit { remove(ModelDownload.VALIDATOR_PREF) }
-                        SettingsHotApply.noteEnginePackChanged(prefs)
-                        present = false
-                        progress = 0f
-                        status = LocalizedText.Resource(R.string.gram_status_deleted)
-                        GramDownloadWork.setIdleStatus(status)
+                        val purged = ModelDownload.purge(context.filesDir)
+                        present = ModelDownload.isDownloaded(context.filesDir)
+                        if (!present) {
+                            prefs.edit().remove(ModelDownload.VALIDATOR_PREF).commit()
+                            SettingsHotApply.noteEnginePackChanged(prefs)
+                        }
+                        progress = if (present) 1f else 0f
+                        status = when {
+                            purged -> LocalizedText.Resource(R.string.gram_status_deleted)
+                            present -> LocalizedText.ResourceLong(
+                                R.string.gram_status_enabled,
+                                ModelDownload.bytesToDisplayMb(ModelDownload.installedGramBytes(context.filesDir)),
+                            )
+                            else -> LocalizedText.Resource(R.string.gram_status_not_downloaded)
+                        }
+                        GramDownloadWork.setIdleStatus(context, status)
                     },
                 ) { Text(stringResource(R.string.delete_button)) }
             }

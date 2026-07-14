@@ -136,6 +136,26 @@ class DownloadCardWorkTest {
         assertEquals(done, retried.status)
     }
 
+    @Test fun idle_status_override_yields_when_the_persisted_presence_changes() {
+        var present = false
+        val runtime = DownloadRuntime(
+            isPresent = { present },
+            doneStatus = { done },
+            notDownloadedStatus = absent,
+            failureStatus = failed,
+        )
+        runtime.setIdleStatus(context, failed)
+        assertEquals(failed, runtime.snapshot(context).status)
+
+        present = true
+        val reconciled = runtime.snapshot(context)
+        assertTrue(reconciled.present)
+        assertEquals(done, reconciled.status)
+
+        present = false
+        assertEquals(absent, runtime.snapshot(context).status)
+    }
+
     @Test fun model_and_dictionary_cards_report_their_activated_files_and_refresh_after_changes() {
         val base = context.filesDir
         ModelDownload.purge(base)
@@ -197,8 +217,8 @@ class ResourceUpdateCardTest {
             .commit()
         ModelDownload.purge(context.filesDir)
         ModelDownload.purgeDict(context.filesDir)
-        GramDownloadWork.setIdleStatus(LocalizedText.Resource(R.string.gram_status_not_downloaded))
-        DictDownloadWork.setIdleStatus(LocalizedText.Resource(R.string.dict_status_not_downloaded))
+        GramDownloadWork.setIdleStatus(context, LocalizedText.Resource(R.string.gram_status_not_downloaded))
+        DictDownloadWork.setIdleStatus(context, LocalizedText.Resource(R.string.dict_status_not_downloaded))
     }
 
     @Test
@@ -249,6 +269,35 @@ class ResourceUpdateCardTest {
         } finally {
             server.stop(0)
         }
+    }
+
+    @Test
+    fun legacyGrammarFileIsRecognizedAndItsValidatorIsPersisted() {
+        val downloads = AtomicInteger()
+        ModelDownload.destFile(context.filesDir).apply {
+            parentFile?.mkdirs()
+            writeBytes(ByteArray(2_048))
+        }
+        prefs.edit().remove(ModelDownload.VALIDATOR_PREF).commit()
+        ShadowToast.reset()
+        compose.runOnUiThread {
+            compose.activity.setContent {
+                AegisTheme {
+                    GramDownloadCard(
+                        probe = { ModelDownload.ValidatorProbe.Reached("current-model", 2_048L) },
+                        downloader = { _, _ -> downloads.incrementAndGet() },
+                    )
+                }
+            }
+        }
+        compose.waitForIdle()
+
+        compose.onNodeWithText(context.getString(R.string.check_model_update_button)).performClick()
+        awaitMain { prefs.getString(ModelDownload.VALIDATOR_PREF, null) == "current-model" }
+
+        assertEquals(0, downloads.get())
+        assertTrue(ModelDownload.isDownloaded(context.filesDir))
+        assertEquals(context.getString(R.string.download_toast_up_to_date), ShadowToast.getTextOfLatestToast())
     }
 
     @Test
@@ -306,6 +355,78 @@ class ResourceUpdateCardTest {
         } finally {
             server.stop(0)
         }
+    }
+
+    @Test
+    fun legacyDictionaryFilesResolveAndPersistTheirFixedPackHash() {
+        val checked = AtomicReference<ModelDownload.DictionaryInstallMetadata?>()
+        val downloads = AtomicInteger()
+        val dir = ModelDownload.destFile(context.filesDir).parentFile!!.apply { mkdirs() }
+        ModelDownload.DICT_PACK_FILES.forEach { File(dir, it).writeBytes(ByteArray(2_048)) }
+        prefs.edit().remove(ModelDownload.DICT_SHA256_PREF).commit()
+        ShadowToast.reset()
+        compose.runOnUiThread {
+            compose.activity.setContent {
+                AegisTheme {
+                    DictDownloadCard(
+                        check = {
+                            checked.set(it)
+                            ModelDownload.DictionaryUpdateCheck(ModelDownload.UpdateCheck.UP_TO_DATE)
+                        },
+                        downloader = { _, _ -> downloads.incrementAndGet() },
+                    )
+                }
+            }
+        }
+        compose.waitForIdle()
+
+        compose.onNodeWithText(context.getString(R.string.check_dict_update_button)).performClick()
+        awaitMain { checked.get() != null && ShadowToast.shownToastCount() == 1 }
+
+        assertEquals(ModelDownload.FALLBACK_DICT_SHA256, checked.get()!!.sha256)
+        assertEquals(ModelDownload.FALLBACK_DICT_SHA256, prefs.getString(ModelDownload.DICT_SHA256_PREF, null))
+        assertEquals(0, downloads.get())
+        assertTrue(ModelDownload.isDictDownloaded(context.filesDir))
+        assertEquals(context.getString(R.string.download_toast_up_to_date), ShadowToast.getTextOfLatestToast())
+    }
+
+    @Test
+    fun unknownDictionaryVersionClearsStaleReleaseMetadata() {
+        val checked = AtomicReference<ModelDownload.DictionaryInstallMetadata?>()
+        val dir = ModelDownload.destFile(context.filesDir).parentFile!!.apply { mkdirs() }
+        ModelDownload.DICT_PACK_FILES.forEach { File(dir, it).writeBytes(ByteArray(2_048)) }
+        File(dir, ModelDownload.DICT_INSTALLED_SHA_NAME).writeText("unknown")
+        prefs.edit()
+            .remove(ModelDownload.DICT_SHA256_PREF)
+            .putString(ModelDownload.DICT_ASSET_NAME_PREF, "old.zip")
+            .putString(ModelDownload.DICT_ASSET_URL_PREF, "https://example.invalid/old.zip")
+            .putString(ModelDownload.DICT_RELEASE_TAG_PREF, "old")
+            .putString(ModelDownload.DICT_RELEASE_PUBLISHED_PREF, "2026-01-01T00:00:00Z")
+            .commit()
+        ShadowToast.reset()
+        compose.runOnUiThread {
+            compose.activity.setContent {
+                AegisTheme {
+                    DictDownloadCard(
+                        check = {
+                            checked.set(it)
+                            ModelDownload.DictionaryUpdateCheck(ModelDownload.UpdateCheck.UP_TO_DATE)
+                        },
+                    )
+                }
+            }
+        }
+        compose.waitForIdle()
+
+        compose.onNodeWithText(context.getString(R.string.check_dict_update_button)).performClick()
+        awaitMain { checked.get() != null && ShadowToast.shownToastCount() == 1 }
+
+        assertNull(checked.get()!!.sha256)
+        assertNull(checked.get()!!.publishedAt)
+        assertFalse(prefs.contains(ModelDownload.DICT_SHA256_PREF))
+        assertFalse(prefs.contains(ModelDownload.DICT_ASSET_NAME_PREF))
+        assertFalse(prefs.contains(ModelDownload.DICT_RELEASE_PUBLISHED_PREF))
+        assertEquals(context.getString(R.string.download_toast_up_to_date), ShadowToast.getTextOfLatestToast())
     }
 
     @Test

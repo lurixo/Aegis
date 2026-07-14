@@ -44,7 +44,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.core.content.edit
 import com.aegis.ime.R
 import com.aegis.ime.SettingsHotApply
 import com.aegis.ime.dict.ModelDownload
@@ -82,10 +81,39 @@ internal fun DictDownloadCard(
         }
     }
 
-    fun currentInstallMetadata() = ModelDownload.DictionaryInstallMetadata(
-        sha256 = prefs.all[ModelDownload.DICT_SHA256_PREF] as? String,
-        publishedAt = prefs.all[ModelDownload.DICT_RELEASE_PUBLISHED_PREF] as? String,
-    )
+    fun currentInstallMetadata(): ModelDownload.DictionaryInstallMetadata {
+        ModelDownload.recoverInterruptedDictionaryInstall(context.filesDir)
+        val storedSha = prefs.all[ModelDownload.DICT_SHA256_PREF] as? String
+        val fileSha = ModelDownload.installedDictionaryFileSha(context.filesDir)
+        val versionUnknown = ModelDownload.dictionaryVersionUnknown(context.filesDir)
+        val newerMetadata = listOf(
+            ModelDownload.DICT_ASSET_NAME_PREF,
+            ModelDownload.DICT_ASSET_URL_PREF,
+            ModelDownload.DICT_RELEASE_TAG_PREF,
+            ModelDownload.DICT_RELEASE_PUBLISHED_PREF,
+        ).any { prefs.all[it] is String }
+        val resolvedSha = ModelDownload.resolvedInstalledDictionarySha(
+            context.filesDir,
+            storedSha,
+            legacyInstall = !newerMetadata,
+        )
+        if (resolvedSha != storedSha || versionUnknown) {
+            val editor = prefs.edit().putString(ModelDownload.DICT_SHA256_PREF, resolvedSha)
+            if (fileSha != null || versionUnknown) {
+                editor
+                    .remove(ModelDownload.DICT_VALIDATOR_PREF)
+                    .remove(ModelDownload.DICT_ASSET_NAME_PREF)
+                    .remove(ModelDownload.DICT_ASSET_URL_PREF)
+                    .remove(ModelDownload.DICT_RELEASE_TAG_PREF)
+                    .remove(ModelDownload.DICT_RELEASE_PUBLISHED_PREF)
+            }
+            editor.commit()
+        }
+        return ModelDownload.DictionaryInstallMetadata(
+            sha256 = resolvedSha,
+            publishedAt = prefs.all[ModelDownload.DICT_RELEASE_PUBLISHED_PREF] as? String,
+        )
+    }
 
     fun startDownload(asset: ModelDownload.DictionaryAsset? = null) {
         if (preview == null) downloader(context, asset)
@@ -183,21 +211,35 @@ internal fun DictDownloadCard(
                 }
                 OutlinedButton(
                     enabled = !downloading && !checking && present,
-                    onClick = {
-                        ModelDownload.purgeDict(context.filesDir)
-                        prefs.edit {
-                            remove(ModelDownload.DICT_VALIDATOR_PREF)
-                            remove(ModelDownload.DICT_SHA256_PREF)
-                            remove(ModelDownload.DICT_ASSET_NAME_PREF)
-                            remove(ModelDownload.DICT_ASSET_URL_PREF)
-                            remove(ModelDownload.DICT_RELEASE_TAG_PREF)
-                            remove(ModelDownload.DICT_RELEASE_PUBLISHED_PREF)
+                    onClick = delete@ {
+                        if (ModelDownload.dictionaryTransactionInProgress(context.filesDir)) return@delete
+                        val purged = ModelDownload.purgeDict(context.filesDir)
+                        if (
+                            !purged &&
+                            ModelDownload.dictionaryTransactionInProgress(context.filesDir)
+                        ) return@delete
+                        present = ModelDownload.isDictDownloaded(context.filesDir)
+                        if (!present) {
+                            prefs.edit()
+                                .remove(ModelDownload.DICT_VALIDATOR_PREF)
+                                .remove(ModelDownload.DICT_SHA256_PREF)
+                                .remove(ModelDownload.DICT_ASSET_NAME_PREF)
+                                .remove(ModelDownload.DICT_ASSET_URL_PREF)
+                                .remove(ModelDownload.DICT_RELEASE_TAG_PREF)
+                                .remove(ModelDownload.DICT_RELEASE_PUBLISHED_PREF)
+                                .commit()
+                            SettingsHotApply.noteEnginePackChanged(prefs)
                         }
-                        SettingsHotApply.noteEnginePackChanged(prefs)
-                        present = false
-                        progress = 0f
-                        status = LocalizedText.Resource(R.string.dict_status_deleted)
-                        DictDownloadWork.setIdleStatus(status)
+                        progress = if (present) 1f else 0f
+                        status = when {
+                            purged -> LocalizedText.Resource(R.string.dict_status_deleted)
+                            present -> LocalizedText.ResourceLong(
+                                R.string.dict_status_enabled,
+                                ModelDownload.bytesToDisplayMb(ModelDownload.installedDictionaryBytes(context.filesDir)),
+                            )
+                            else -> LocalizedText.Resource(R.string.dict_status_not_downloaded)
+                        }
+                        DictDownloadWork.setIdleStatus(context, status)
                     },
                 ) { Text(stringResource(R.string.delete_button)) }
             }

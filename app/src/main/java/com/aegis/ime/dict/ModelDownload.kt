@@ -19,9 +19,14 @@ import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption.ATOMIC_MOVE
+import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.security.MessageDigest
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 import org.json.JSONObject
 
 object ModelDownload {
@@ -48,6 +53,10 @@ object ModelDownload {
     data class DownloadResult(val ok: Boolean, val validator: String?)
 
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
+    private val installingDicts = ConcurrentHashMap.newKeySet<String>()
+    private val reconciledDirs = ConcurrentHashMap.newKeySet<String>()
+    private val recoveringDicts = ConcurrentHashMap.newKeySet<String>()
+    private val dictionaryRecoveryLock = ReentrantLock()
 
     fun download(url: String, dest: File, onProgress: (Long, Long) -> Unit): DownloadResult {
         val key = dest.absolutePath
@@ -56,18 +65,21 @@ object ModelDownload {
         val tmp = File(dest.parentFile, dest.name + ".part")
         return try {
             dest.parentFile?.mkdirs()
+            tmp.delete()
             conn = (URL(url).openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = true
                 connectTimeout = 20_000
                 readTimeout = 30_000
             }
-            if (conn.responseCode !in 200..299) return DownloadResult(false, null)
-            val validator = conn.getHeaderField("ETag") ?: conn.getHeaderField("Last-Modified")
+            if (conn.responseCode !in 200..299) throw HttpStatusException(conn.responseCode)
             val total = conn.contentLengthLong
+            val validator = conn.getHeaderField("ETag")
+                ?: conn.getHeaderField("Last-Modified")
+                ?: total.takeIf { it > 0L }?.let { "size:$it" }
+            var done = 0L
             conn.inputStream.use { input ->
                 tmp.outputStream().use { out ->
                     val buf = ByteArray(1 shl 16)
-                    var done = 0L
                     while (true) {
                         val n = input.read(buf)
                         if (n < 0) break
@@ -77,12 +89,14 @@ object ModelDownload {
                     }
                 }
             }
-            dest.delete()
-            DownloadResult(tmp.renameTo(dest), validator)
+            if (total >= 0L && done != total) throw IOException("incomplete download")
+            if (done <= 1024L) throw IOException("invalid download")
+            moveReplacing(tmp, dest)
+            DownloadResult(true, validator)
         } catch (e: Exception) {
-            tmp.delete()
             DownloadResult(false, null)
         } finally {
+            tmp.delete()
             conn?.disconnect()
             inFlight.remove(key)
         }
@@ -144,7 +158,7 @@ object ModelDownload {
         }
 
     sealed interface ValidatorProbe {
-        data class Reached(val validator: String?) : ValidatorProbe
+        data class Reached(val validator: String?, val sizeBytes: Long? = null) : ValidatorProbe
         data class Failed(val failure: CheckFailure) : ValidatorProbe
     }
 
@@ -159,11 +173,15 @@ object ModelDownload {
             }
             val code = conn.responseCode
             if (code !in 200..299) ValidatorProbe.Failed(CheckFailure.SERVER)
-            else ValidatorProbe.Reached(
-                conn.getHeaderField("ETag")
-                    ?: conn.getHeaderField("Last-Modified")
-                    ?: conn.contentLengthLong.takeIf { it > 0L }?.let { "size:$it" },
-            )
+            else {
+                val sizeBytes = conn.contentLengthLong.takeIf { it > 0L }
+                ValidatorProbe.Reached(
+                    conn.getHeaderField("ETag")
+                        ?: conn.getHeaderField("Last-Modified")
+                        ?: sizeBytes?.let { "size:$it" },
+                    sizeBytes,
+                )
+            }
         } catch (e: Exception) {
             ValidatorProbe.Failed(classifyRequestFailure(e))
         } finally {
@@ -173,22 +191,30 @@ object ModelDownload {
 
     fun updateAvailable(local: String?, remote: String?): Boolean = !(remote != null && remote == local)
 
-    fun modelUpdateAction(present: Boolean, local: String?, probe: ValidatorProbe): UpdateCheck? {
+    fun modelUpdateAction(
+        present: Boolean,
+        local: String?,
+        probe: ValidatorProbe,
+        installedBytes: Long? = null,
+    ): UpdateCheck? {
         if (!present) return null
         return when (probe) {
             is ValidatorProbe.Failed -> probe.failure.toUpdateCheck()
             is ValidatorProbe.Reached -> when {
                 probe.validator == null -> UpdateCheck.SERVER_ERROR
                 probe.validator == local -> UpdateCheck.UP_TO_DATE
+                local == null &&
+                    probe.sizeBytes != null &&
+                    probe.sizeBytes == installedBytes -> UpdateCheck.UP_TO_DATE
                 else -> UpdateCheck.UPDATE
             }
         }
     }
 
     fun purge(filesDir: File): Boolean {
-        val a = destFile(filesDir).delete()
-        val b = partFile(filesDir).delete()
-        return a || b
+        destFile(filesDir).delete()
+        partFile(filesDir).delete()
+        return !destFile(filesDir).exists() && !partFile(filesDir).exists()
     }
 
 
@@ -200,6 +226,8 @@ object ModelDownload {
         "https://github.com/lurixo/Aegis/releases/download/$DICT_LATEST_TAG/aegis-dictionary-update.json"
 
     const val DICT_NAME = "aegis_dict_pack.zip"
+    internal const val DICT_INSTALLED_SHA_NAME = "aegis_dict_pack.sha256"
+    private const val DICT_PENDING_SHA_NAME = "aegis_dict_pack.pending.sha256"
     const val FALLBACK_DICT_NAME = "aegis_dict_pack_debug13.zip"
     const val FALLBACK_DICT_URL =
         "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.13/$FALLBACK_DICT_NAME"
@@ -254,31 +282,226 @@ object ModelDownload {
     fun dictPartFile(filesDir: File): File = File(downloadedDir(filesDir), "$DICT_NAME.part")
     private fun legacyDictZipFile(filesDir: File): File = File(downloadedDir(filesDir), FALLBACK_DICT_NAME)
     private fun legacyDictPartFile(filesDir: File): File = File(downloadedDir(filesDir), "$FALLBACK_DICT_NAME.part")
+    private fun dictStagingDir(filesDir: File) = File(downloadedDir(filesDir), "dict-install")
+    private fun dictBackupFile(filesDir: File, name: String) = File(downloadedDir(filesDir), "$name.backup")
+    private fun dictInstalledShaFile(filesDir: File) = File(downloadedDir(filesDir), DICT_INSTALLED_SHA_NAME)
+    private fun dictPendingShaFile(filesDir: File) = File(downloadedDir(filesDir), DICT_PENDING_SHA_NAME)
 
     fun isDictDownloaded(filesDir: File): Boolean =
         DICT_PACK_FILES.all { File(downloadedDir(filesDir), it).let { f -> f.exists() && f.length() > 1024 } }
 
-    fun installInProgress(filesDir: File): Boolean =
-        dictZipFile(filesDir).exists() ||
-            dictPartFile(filesDir).exists() ||
-            legacyDictZipFile(filesDir).exists() ||
-            legacyDictPartFile(filesDir).exists() ||
-            partFile(filesDir).exists()
+    internal fun resolvedInstalledDictionarySha(
+        filesDir: File,
+        stored: String?,
+        legacyInstall: Boolean = true,
+    ): String? {
+        installedDictionaryFileSha(filesDir)?.let { return it }
+        if (dictInstalledShaFile(filesDir).exists()) return null
+        return normalizeSha256(stored) ?:
+            FALLBACK_DICT_SHA256.takeIf {
+                legacyInstall && isDictDownloaded(filesDir) && !dictZipFile(filesDir).exists()
+            }
+    }
 
-    fun installDictPack(filesDir: File, expectedSha256: String = FALLBACK_DICT_SHA256): Boolean {
-        val zip = dictZipFile(filesDir)
-        if (!zip.exists()) return false
-        if (!sha256Of(zip).equals(expectedSha256, ignoreCase = true)) { zip.delete(); return false }
-        val produced = runCatching { extractDictPack(zip, downloadedDir(filesDir)) }.getOrDefault(emptySet())
-        zip.delete()
-        val ok = DICT_PACK_FILES.all { it in produced }
-        if (!ok) {
-            DICT_PACK_FILES.forEach {
-                File(downloadedDir(filesDir), it).delete()
-                File(downloadedDir(filesDir), "$it.part").delete()
+    internal fun installedDictionaryFileSha(filesDir: File): String? =
+        runCatching { normalizeSha256(dictInstalledShaFile(filesDir).readText()) }.getOrNull()
+
+    internal fun dictionaryVersionUnknown(filesDir: File): Boolean =
+        dictInstalledShaFile(filesDir).exists() && installedDictionaryFileSha(filesDir) == null
+
+    internal fun recordPendingDictionarySha(filesDir: File, value: String): Boolean {
+        val sha256 = normalizeSha256(value) ?: return false
+        return runCatching {
+            downloadedDir(filesDir).mkdirs()
+            dictPendingShaFile(filesDir).writeText(sha256)
+            true
+        }.getOrDefault(false)
+    }
+
+    private fun pendingDictionarySha(filesDir: File): String? =
+        runCatching { normalizeSha256(dictPendingShaFile(filesDir).readText()) }.getOrNull()
+
+    internal fun clearPendingDictionarySha(filesDir: File) {
+        dictPendingShaFile(filesDir).delete()
+    }
+
+    @Synchronized
+    fun reconcileInterruptedDownloads(filesDir: File) {
+        val key = filesDir.absolutePath
+        if (!reconciledDirs.add(key)) return
+        if (destFile(filesDir).absolutePath !in inFlight) partFile(filesDir).delete()
+        val dictActive = dictZipFile(filesDir).absolutePath in inFlight ||
+            key in installingDicts ||
+            key in recoveringDicts
+        if (dictActive) {
+            reconciledDirs.remove(key)
+            return
+        }
+
+        val transactionFiles = DICT_PACK_FILES + DICT_INSTALLED_SHA_NAME
+        val backups = transactionFiles.associateWith { dictBackupFile(filesDir, it) }
+        val hadBackups = backups.values.any(File::exists)
+        val completeNewGeneration = isDictDownloaded(filesDir) && installedDictionaryFileSha(filesDir) != null
+        val recoveryRequired = hadBackups && !completeNewGeneration
+        if (recoveryRequired) {
+            backups.forEach { (name, backup) ->
+                if (backup.exists()) {
+                    val live = File(downloadedDir(filesDir), name)
+                    runCatching { moveReplacing(backup, live) }
+                }
             }
         }
-        return ok
+        if (recoveryRequired && backups.values.any(File::exists)) {
+            reconciledDirs.remove(key)
+            return
+        }
+        val pendingArchive = dictZipFile(filesDir).exists()
+        if (!isDictDownloaded(filesDir) && !pendingArchive) {
+            DICT_PACK_FILES.forEach { File(downloadedDir(filesDir), it).delete() }
+            dictInstalledShaFile(filesDir).delete()
+        }
+        backups.values.forEach { it.delete() }
+        DICT_PACK_FILES.forEach { File(downloadedDir(filesDir), "$it.part").delete() }
+        dictStagingDir(filesDir).deleteRecursively()
+        if (completeNewGeneration || recoveryRequired) dictZipFile(filesDir).delete()
+        if (!dictZipFile(filesDir).exists()) clearPendingDictionarySha(filesDir)
+        dictPartFile(filesDir).delete()
+        if (isDictDownloaded(filesDir)) legacyDictZipFile(filesDir).delete()
+        legacyDictPartFile(filesDir).delete()
+    }
+
+    internal fun recoverInterruptedDictionaryInstall(filesDir: File) {
+        dictionaryRecoveryLock.withLock {
+            reconcileInterruptedDownloads(filesDir)
+            val key = filesDir.absolutePath
+            val zip = dictZipFile(filesDir)
+            val legacyZip = legacyDictZipFile(filesDir)
+            if (!zip.exists() && !legacyZip.exists()) return
+            if (zip.absolutePath in inFlight || key in installingDicts) return
+            recoveringDicts.add(key)
+            try {
+                if (!zip.exists()) {
+                    val legacyMatches = runCatching {
+                        sha256Of(legacyZip).equals(FALLBACK_DICT_SHA256, ignoreCase = true)
+                    }.getOrDefault(false)
+                    if (!legacyMatches) {
+                        legacyZip.delete()
+                        return
+                    }
+                    val moved = runCatching { moveReplacing(legacyZip, zip); true }.getOrDefault(false)
+                    if (!moved) return
+                    runCatching { installDictPack(filesDir, FALLBACK_DICT_SHA256) }
+                    return
+                }
+                val expectedSha = pendingDictionarySha(filesDir)
+                if (expectedSha == null) {
+                    zip.delete()
+                    if (isDictDownloaded(filesDir)) {
+                        if (installedDictionaryFileSha(filesDir) == null) {
+                            runCatching { dictInstalledShaFile(filesDir).writeText("unknown") }
+                        }
+                    } else {
+                        DICT_PACK_FILES.forEach { File(downloadedDir(filesDir), it).delete() }
+                        dictInstalledShaFile(filesDir).delete()
+                    }
+                    return
+                }
+                val installed = runCatching { installDictPack(filesDir, expectedSha) }.getOrDefault(false)
+                if (!installed && !isDictDownloaded(filesDir)) {
+                    DICT_PACK_FILES.forEach { File(downloadedDir(filesDir), it).delete() }
+                    dictInstalledShaFile(filesDir).delete()
+                }
+            } finally {
+                clearPendingDictionarySha(filesDir)
+                if (isDictDownloaded(filesDir)) legacyZip.delete()
+                recoveringDicts.remove(key)
+            }
+        }
+    }
+
+    fun installInProgress(filesDir: File): Boolean {
+        reconcileInterruptedDownloads(filesDir)
+        return destFile(filesDir).absolutePath in inFlight ||
+            dictZipFile(filesDir).absolutePath in inFlight ||
+            dictionaryRecoveryLock.isLocked ||
+            filesDir.absolutePath in installingDicts ||
+            filesDir.absolutePath in recoveringDicts
+    }
+
+    internal fun dictionaryTransactionInProgress(filesDir: File): Boolean =
+        dictionaryRecoveryLock.isLocked ||
+            filesDir.absolutePath in installingDicts ||
+            filesDir.absolutePath in recoveringDicts ||
+            dictZipFile(filesDir).absolutePath in inFlight
+
+    fun installDictPack(
+        filesDir: File,
+        expectedSha256: String = FALLBACK_DICT_SHA256,
+        persistMetadata: () -> Boolean = { true },
+    ): Boolean = dictionaryRecoveryLock.withLock {
+        installDictPackLocked(filesDir, expectedSha256, persistMetadata)
+    }
+
+    private fun installDictPackLocked(
+        filesDir: File,
+        expectedSha256: String,
+        persistMetadata: () -> Boolean,
+    ): Boolean {
+        val installKey = filesDir.absolutePath
+        if (!installingDicts.add(installKey)) return false
+        val zip = dictZipFile(filesDir)
+        val staging = dictStagingDir(filesDir)
+        return try {
+            if (!zip.exists()) return false
+            val normalizedSha = normalizeSha256(expectedSha256) ?: return false
+            if (!sha256Of(zip).equals(normalizedSha, ignoreCase = true)) return false
+            staging.deleteRecursively()
+            val produced = runCatching { extractDictPack(zip, staging) }.getOrDefault(emptySet())
+            val complete = DICT_PACK_FILES.all { name ->
+                name in produced && File(staging, name).let { it.exists() && it.length() > 1024 }
+            }
+            if (!complete) return false
+            File(staging, DICT_INSTALLED_SHA_NAME).writeText(normalizedSha)
+
+            val backedUp = ArrayList<String>()
+            val installed = ArrayList<String>()
+            try {
+                val transactionFiles = DICT_PACK_FILES + DICT_INSTALLED_SHA_NAME
+                transactionFiles.forEach { name ->
+                    val live = File(downloadedDir(filesDir), name)
+                    val backup = dictBackupFile(filesDir, name)
+                    if (backup.exists()) throw IOException("dictionary recovery pending")
+                    if (live.exists()) {
+                        moveReplacing(live, backup)
+                        backedUp += name
+                    }
+                }
+                transactionFiles.forEach { name ->
+                    moveReplacing(File(staging, name), File(downloadedDir(filesDir), name))
+                    installed += name
+                }
+                if (!persistMetadata()) throw IOException("metadata commit failed")
+            } catch (t: Throwable) {
+                installed.forEach { File(downloadedDir(filesDir), it).delete() }
+                backedUp.asReversed().forEach { name ->
+                    val backup = dictBackupFile(filesDir, name)
+                    if (backup.exists()) runCatching {
+                        moveReplacing(backup, File(downloadedDir(filesDir), name))
+                    }
+                }
+                if (backedUp.any { dictBackupFile(filesDir, it).exists() }) {
+                    reconciledDirs.remove(installKey)
+                }
+                return false
+            }
+            backedUp.forEach { dictBackupFile(filesDir, it).delete() }
+            true
+        } finally {
+            zip.delete()
+            clearPendingDictionarySha(filesDir)
+            staging.deleteRecursively()
+            installingDicts.remove(installKey)
+        }
     }
 
     fun resolveDictionaryDownloadAsset(): DictionaryAsset =
@@ -388,8 +611,7 @@ object ModelDownload {
                     part.delete()
                     try {
                         part.outputStream().use { out -> zin.copyTo(out) }
-                        finalFile.delete()
-                        if (!part.renameTo(finalFile)) throw java.io.IOException("rename failed: $target")
+                        moveReplacing(part, finalFile)
                         produced.add(target)
                     } catch (t: Throwable) {
                         part.delete()
@@ -422,16 +644,46 @@ object ModelDownload {
         return md.digest().joinToString("") { "%02x".format(it.toInt() and 0xFF) }
     }
 
+    private fun moveReplacing(source: File, target: File) {
+        Files.move(source.toPath(), target.toPath(), ATOMIC_MOVE, REPLACE_EXISTING)
+    }
+
     fun purgeDict(filesDir: File): Boolean {
-        var removed = false
-        DICT_PACK_FILES.forEach {
-            if (File(downloadedDir(filesDir), it).delete()) removed = true
-            if (File(downloadedDir(filesDir), "$it.part").delete()) removed = true
+        if (!dictionaryRecoveryLock.tryLock()) return false
+        try {
+            val key = filesDir.absolutePath
+            if (
+                key in installingDicts ||
+                key in recoveringDicts ||
+                dictZipFile(filesDir).absolutePath in inFlight
+            ) return false
+            DICT_PACK_FILES.forEach {
+                File(downloadedDir(filesDir), it).delete()
+                File(downloadedDir(filesDir), "$it.part").delete()
+                dictBackupFile(filesDir, it).delete()
+            }
+            dictInstalledShaFile(filesDir).delete()
+            dictBackupFile(filesDir, DICT_INSTALLED_SHA_NAME).delete()
+            clearPendingDictionarySha(filesDir)
+            dictStagingDir(filesDir).deleteRecursively()
+            dictZipFile(filesDir).delete()
+            dictPartFile(filesDir).delete()
+            legacyDictZipFile(filesDir).delete()
+            legacyDictPartFile(filesDir).delete()
+            return DICT_PACK_FILES.none {
+                File(downloadedDir(filesDir), it).exists() ||
+                    File(downloadedDir(filesDir), "$it.part").exists() ||
+                    dictBackupFile(filesDir, it).exists()
+            } && !dictInstalledShaFile(filesDir).exists() &&
+                !dictBackupFile(filesDir, DICT_INSTALLED_SHA_NAME).exists() &&
+                !dictPendingShaFile(filesDir).exists() &&
+                !dictStagingDir(filesDir).exists() &&
+                !dictZipFile(filesDir).exists() &&
+                !dictPartFile(filesDir).exists() &&
+                !legacyDictZipFile(filesDir).exists() &&
+                !legacyDictPartFile(filesDir).exists()
+        } finally {
+            dictionaryRecoveryLock.unlock()
         }
-        if (dictZipFile(filesDir).delete()) removed = true
-        if (dictPartFile(filesDir).delete()) removed = true
-        if (legacyDictZipFile(filesDir).delete()) removed = true
-        if (legacyDictPartFile(filesDir).delete()) removed = true
-        return removed
     }
 }
