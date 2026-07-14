@@ -18,8 +18,11 @@ package com.aegis.ime.dict
 import com.sun.net.httpserver.HttpServer
 import java.io.File
 import java.net.InetSocketAddress
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import org.junit.Assert.assertArrayEquals
@@ -141,7 +144,7 @@ class ModelDownloadTest {
     }
 
     @Test
-    fun sharedDownloadReplacesInsteadOfAppendingAndStoresTheSizeValidator() {
+    fun sharedDownloadReplacesInsteadOfAppendingWithoutSynthesizingAValidator() {
         val base = tempFilesDir()
         val body = ByteArray(4_096) { (it % 251).toByte() }
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
@@ -163,9 +166,101 @@ class ModelDownloadTest {
             ) { _, _ -> }
 
             assertTrue(result.ok)
-            assertEquals("size:${body.size}", result.validator)
+            assertNull(result.validator)
             assertArrayEquals(body, target.readBytes())
             assertFalse(ModelDownload.partFile(base).exists())
+        } finally {
+            server.stop(0)
+            base.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun modelProbeDoesNotUseContentLengthAsAValidator() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/asset") { exchange ->
+            exchange.responseHeaders.add("Content-Length", "4096")
+            exchange.sendResponseHeaders(200, -1)
+            exchange.close()
+        }
+        server.start()
+        try {
+            val probe = ModelDownload.remoteValidatorProbe(
+                "http://127.0.0.1:${server.address.port}/asset",
+            )
+
+            assertEquals(ModelDownload.ValidatorProbe.Reached(null), probe)
+            assertEquals(
+                ModelDownload.UpdateCheck.UPDATE,
+                ModelDownload.modelUpdateAction(true, null, probe),
+            )
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
+    fun malformedNormalSizeModelDownloadPreservesTheInstalledModel() {
+        val base = tempFilesDir()
+        val body = ByteBuffer.wrap(validGramBytes(4_096, 7)).order(ByteOrder.LITTLE_ENDIAN).apply {
+            putInt(36, 1)
+        }.array()
+        val old = validGramBytes(2_048, 1)
+        val server = assetServer(body, "candidate-model")
+        server.start()
+        try {
+            val target = ModelDownload.destFile(base)
+            target.parentFile?.mkdirs()
+            target.writeBytes(old)
+            var persisted = false
+
+            val result = ModelDownload.downloadModel(
+                "http://127.0.0.1:${server.address.port}/asset",
+                target,
+                { _, _ -> },
+            ) {
+                persisted = true
+                true
+            }
+
+            assertFalse(result.ok)
+            assertFalse(persisted)
+            assertArrayEquals(old, target.readBytes())
+            assertFalse(ModelDownload.partFile(base).exists())
+            assertFalse(File(target.parentFile, "${target.name}.backup").exists())
+        } finally {
+            server.stop(0)
+            base.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun modelPreferenceCommitFailureRestoresTheInstalledModel() {
+        val base = tempFilesDir()
+        val body = validGramBytes(4_096, 2)
+        val old = validGramBytes(2_048, 1)
+        val server = assetServer(body, "candidate-model")
+        server.start()
+        try {
+            val target = ModelDownload.destFile(base)
+            target.parentFile?.mkdirs()
+            target.writeBytes(old)
+            var attemptedValidator: String? = null
+
+            val result = ModelDownload.downloadModel(
+                "http://127.0.0.1:${server.address.port}/asset",
+                target,
+                { _, _ -> },
+            ) { validator ->
+                attemptedValidator = validator
+                false
+            }
+
+            assertFalse(result.ok)
+            assertEquals("candidate-model", attemptedValidator)
+            assertArrayEquals(old, target.readBytes())
+            assertFalse(ModelDownload.partFile(base).exists())
+            assertFalse(File(target.parentFile, "${target.name}.backup").exists())
         } finally {
             server.stop(0)
             base.deleteRecursively()
@@ -364,29 +459,32 @@ class ModelDownloadTest {
     }
 
     @Test
-    fun unverifiedCanonicalArchiveDoesNotReplaceTheInstalledPack() {
+    fun unmarkedCanonicalArchiveNeverLeavesAPartiallyReplacedGenerationActive() {
         val base = tempFilesDir()
         val downloaded = File(base, "downloaded").apply { mkdirs() }
         val old = ModelDownload.DICT_PACK_FILES.associateWith { name ->
             ByteArray(2_048) { name.length.toByte() }.also { File(downloaded, name).writeBytes(it) }
         }
-        val zip = ModelDownload.dictZipFile(base)
-        writeZip(
-            zip,
-            mapOf(
-                "aegis_dict.bin" to ByteArray(3_000) { 1 },
-                "aegis_t9.bin" to ByteArray(3_000) { 2 },
-                "aegis_jianpin.bin" to ByteArray(3_000) { 3 },
-            ),
+        val replacements = mapOf(
+            "aegis_dict.bin" to ByteArray(3_000) { 1 },
+            "aegis_t9.bin" to ByteArray(3_000) { 2 },
+            "aegis_jianpin.bin" to ByteArray(3_000) { 3 },
         )
+        val zip = ModelDownload.dictZipFile(base)
+        writeZip(zip, replacements)
+        val replacedName = ModelDownload.DICT_PACK_FILES.first()
+        File(downloaded, replacedName).writeBytes(replacements.getValue(replacedName))
+        assertArrayEquals(replacements.getValue(replacedName), File(downloaded, replacedName).readBytes())
+        ModelDownload.DICT_PACK_FILES.drop(1).forEach { name ->
+            assertArrayEquals(old.getValue(name), File(downloaded, name).readBytes())
+        }
 
         ModelDownload.recoverInterruptedDictionaryInstall(base)
 
-        old.forEach { (name, bytes) -> assertArrayEquals(bytes, File(downloaded, name).readBytes()) }
+        ModelDownload.DICT_PACK_FILES.forEach { assertFalse(File(downloaded, it).exists()) }
         assertFalse(zip.exists())
         assertNull(ModelDownload.installedDictionaryFileSha(base))
-        assertTrue(ModelDownload.dictionaryVersionUnknown(base))
-        assertNull(ModelDownload.resolvedInstalledDictionarySha(base, "2".repeat(64), legacyInstall = false))
+        assertFalse(ModelDownload.isDictDownloaded(base))
         base.deleteRecursively()
     }
 
@@ -473,6 +571,81 @@ class ModelDownloadTest {
     }
 
     @Test
+    fun dictionaryGenerationReadWaitsForTransactionRollback() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        val old = ModelDownload.DICT_PACK_FILES.associateWith { name ->
+            ByteArray(2_048) { name.length.toByte() }.also { File(downloaded, name).writeBytes(it) }
+        }
+        File(downloaded, ModelDownload.DICT_INSTALLED_SHA_NAME).writeText("c".repeat(64))
+        val replacements = mapOf(
+            "aegis_dict.bin" to ByteArray(3_000) { 1 },
+            "aegis_t9.bin" to ByteArray(3_000) { 2 },
+            "aegis_jianpin.bin" to ByteArray(3_000) { 3 },
+        )
+        val zip = ModelDownload.dictZipFile(base)
+        writeZip(zip, replacements)
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val readerDone = CountDownLatch(1)
+        val snapshot = AtomicReference<Pair<String, List<ByteArray>>>()
+        var installed = true
+        val installer = Thread {
+            installed = ModelDownload.installDictPack(base, ModelDownload.sha256Of(zip)) {
+                entered.countDown()
+                release.await(2, TimeUnit.SECONDS)
+                false
+            }
+        }
+        installer.start()
+        assertTrue(entered.await(2, TimeUnit.SECONDS))
+
+        val reader = Thread {
+            snapshot.set(
+                ModelDownload.withDictionaryGeneration {
+                    EngineAssets.signature(downloaded) to
+                        ModelDownload.DICT_PACK_FILES.map { File(downloaded, it).readBytes() }
+                },
+            )
+            readerDone.countDown()
+        }
+        reader.start()
+        assertFalse(readerDone.await(200, TimeUnit.MILLISECONDS))
+
+        release.countDown()
+        installer.join(2_000)
+        assertFalse(installed)
+        assertTrue(readerDone.await(2, TimeUnit.SECONDS))
+        reader.join(2_000)
+        assertEquals(EngineAssets.signature(downloaded), snapshot.get().first)
+        ModelDownload.DICT_PACK_FILES.forEachIndexed { index, name ->
+            assertArrayEquals(old.getValue(name), snapshot.get().second[index])
+        }
+        base.deleteRecursively()
+    }
+
+    @Test
+    fun reconciliationRetriesResidueCleanupInTheSameProcess() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        ModelDownload.DICT_PACK_FILES.forEach { name ->
+            File(downloaded, name).writeBytes(ByteArray(2_048) { 1 })
+        }
+        File(downloaded, ModelDownload.DICT_INSTALLED_SHA_NAME).writeText("d".repeat(64))
+        val backup = File(downloaded, "${ModelDownload.DICT_PACK_FILES.first()}.backup").apply {
+            mkdirs()
+        }
+        val residue = File(backup, "residue").apply { writeText("x") }
+
+        ModelDownload.reconcileInterruptedDownloads(base)
+        assertTrue(backup.exists())
+        assertTrue(residue.delete())
+        ModelDownload.reconcileInterruptedDownloads(base)
+        assertFalse(backup.exists())
+        base.deleteRecursively()
+    }
+
+    @Test
     fun dictionaryDeleteDoesNotRaceAnInstallTransaction() {
         val base = tempFilesDir()
         val downloaded = File(base, "downloaded").apply { mkdirs() }
@@ -510,46 +683,43 @@ class ModelDownloadTest {
     }
 
     @Test
-    fun legacyInstalledDictionaryResolvesItsFixedPackHash() {
+    fun unknownInstalledDictionaryDoesNotInferTheFallbackPackHash() {
         val base = tempFilesDir()
         assertNull(ModelDownload.resolvedInstalledDictionarySha(base, null))
         ModelDownload.DICT_PACK_FILES.forEach { name ->
             File(base, "downloaded/$name").apply { parentFile?.mkdirs(); writeBytes(ByteArray(2_048)) }
         }
-        assertEquals(
-            ModelDownload.FALLBACK_DICT_SHA256,
-            ModelDownload.resolvedInstalledDictionarySha(base, null),
-        )
-        assertEquals(
-            ModelDownload.FALLBACK_DICT_SHA256,
-            ModelDownload.resolvedInstalledDictionarySha(base, "invalid"),
-        )
-        assertNull(ModelDownload.resolvedInstalledDictionarySha(base, "invalid", legacyInstall = false))
+        assertNull(ModelDownload.resolvedInstalledDictionarySha(base, null))
+        assertNull(ModelDownload.resolvedInstalledDictionarySha(base, "invalid"))
+        val storedSha = "e".repeat(64)
+        assertEquals(storedSha, ModelDownload.resolvedInstalledDictionarySha(base, storedSha))
         val installedSha = "d".repeat(64)
         File(base, "downloaded/${ModelDownload.DICT_INSTALLED_SHA_NAME}").writeText(installedSha)
-        assertEquals(installedSha, ModelDownload.resolvedInstalledDictionarySha(base, "invalid", legacyInstall = false))
+        assertEquals(installedSha, ModelDownload.resolvedInstalledDictionarySha(base, "invalid"))
         base.deleteRecursively()
     }
 
     @Test
-    fun legacyInstalledModelMatchesTheRemoteSize() {
+    fun unidentifiedInstalledModelAlwaysOffersTheUpdate() {
         assertEquals(
-            ModelDownload.UpdateCheck.UP_TO_DATE,
+            ModelDownload.UpdateCheck.UPDATE,
             ModelDownload.modelUpdateAction(
                 true,
                 null,
-                ModelDownload.ValidatorProbe.Reached("remote-etag", 2_048L),
-                2_048L,
+                ModelDownload.ValidatorProbe.Reached("remote-etag"),
             ),
         )
         assertEquals(
             ModelDownload.UpdateCheck.UPDATE,
             ModelDownload.modelUpdateAction(
                 true,
-                null,
-                ModelDownload.ValidatorProbe.Reached("remote-etag", 4_096L),
-                2_048L,
+                "size:2048",
+                ModelDownload.ValidatorProbe.Reached("size:2048"),
             ),
+        )
+        assertEquals(
+            ModelDownload.UpdateCheck.UPDATE,
+            ModelDownload.modelUpdateAction(true, "remote-etag", ModelDownload.ValidatorProbe.Reached(null)),
         )
     }
 
@@ -605,4 +775,22 @@ class ModelDownloadTest {
             }
         }
     }
+
+    private fun assetServer(body: ByteArray, validator: String?): HttpServer =
+        HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/asset") { exchange ->
+                if (validator != null) exchange.responseHeaders.add("ETag", validator)
+                exchange.sendResponseHeaders(200, body.size.toLong())
+                exchange.responseBody.use { it.write(body) }
+                exchange.close()
+            }
+        }
+
+    private fun validGramBytes(size: Int, marker: Byte): ByteArray =
+        ByteBuffer.wrap(ByteArray(size)).order(ByteOrder.LITTLE_ENDIAN).apply {
+            put("Rime::Grammar/1.0".toByteArray(Charsets.US_ASCII))
+            putInt(36, (size - 44) / 4)
+            putInt(40, 4)
+            put(size - 1, marker)
+        }.array()
 }

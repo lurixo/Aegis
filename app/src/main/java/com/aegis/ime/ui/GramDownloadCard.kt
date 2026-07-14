@@ -97,23 +97,16 @@ internal fun GramDownloadCard(
             val checked = runCatching {
                 val remote = probe(ModelDownload.GRAM_URL)
                 val local = prefs.all[ModelDownload.VALIDATOR_PREF] as? String
-                Triple(local, ModelDownload.installedGramBytes(context.filesDir), remote)
+                local to remote
             }
             handler.post {
                 checking = false
                 val action = checked.fold(
-                    onSuccess = { (local, installedBytes, remote) ->
-                        ModelDownload.modelUpdateAction(present, local, remote, installedBytes)
+                    onSuccess = { (local, remote) ->
+                        ModelDownload.modelUpdateAction(present, local, remote)
                     },
                     onFailure = { ModelDownload.UpdateCheck.PARSE_ERROR },
                 )
-                if (action == ModelDownload.UpdateCheck.UP_TO_DATE) {
-                    val state = checked.getOrNull()
-                    val validator = (state?.third as? ModelDownload.ValidatorProbe.Reached)?.validator
-                    if (state?.first == null && validator != null) {
-                        prefs.edit().putString(ModelDownload.VALIDATOR_PREF, validator).commit()
-                    }
-                }
                 when (action) {
                     null -> {}
                     ModelDownload.UpdateCheck.OFFLINE -> showCheckFailure(R.string.download_toast_update_offline)

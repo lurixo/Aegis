@@ -16,6 +16,7 @@
 package com.aegis.ime.ui
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.os.Handler
 import android.os.Looper
 import com.aegis.ime.R
@@ -182,7 +183,7 @@ internal object GramDownloadWork {
             val prefs = app.getSharedPreferences("aegis", Context.MODE_PRIVATE)
             val dest = ModelDownload.destFile(app.filesDir)
             var lastPct = -1
-            val result = ModelDownload.download(url, dest) { done, total ->
+            val result = ModelDownload.downloadModel(url, dest, { done, total ->
                 if (total > 0) {
                     val pct = (done * 100 / total).toInt()
                     if (pct != lastPct) {
@@ -190,9 +191,8 @@ internal object GramDownloadWork {
                         onProgress(pct / 100f)
                     }
                 }
-            }
+            }) { validator -> persistModelValidator(prefs, validator) }
             if (result.ok) {
-                prefs.edit().putString(ModelDownload.VALIDATOR_PREF, result.validator).commit()
                 SettingsHotApply.noteEnginePackChanged(prefs)
                 LocalizedText.ResourceLong(
                     R.string.gram_status_enabled,
@@ -205,6 +205,19 @@ internal object GramDownloadWork {
     }
 
     fun setIdleStatus(context: Context, status: LocalizedText) = runtime.setIdleStatus(context, status)
+
+    internal fun persistModelValidator(prefs: SharedPreferences, validator: String?): Boolean {
+        val previous = prefs.all[ModelDownload.VALIDATOR_PREF] as? String
+        val editor = prefs.edit()
+        if (validator == null) editor.remove(ModelDownload.VALIDATOR_PREF)
+        else editor.putString(ModelDownload.VALIDATOR_PREF, validator)
+        if (editor.commit()) return true
+        val rollback = prefs.edit()
+        if (previous == null) rollback.remove(ModelDownload.VALIDATOR_PREF)
+        else rollback.putString(ModelDownload.VALIDATOR_PREF, previous)
+        rollback.apply()
+        return false
+    }
 }
 
 internal object DictDownloadWork {

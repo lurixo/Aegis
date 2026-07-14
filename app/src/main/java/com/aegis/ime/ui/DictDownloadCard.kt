@@ -86,16 +86,9 @@ internal fun DictDownloadCard(
         val storedSha = prefs.all[ModelDownload.DICT_SHA256_PREF] as? String
         val fileSha = ModelDownload.installedDictionaryFileSha(context.filesDir)
         val versionUnknown = ModelDownload.dictionaryVersionUnknown(context.filesDir)
-        val newerMetadata = listOf(
-            ModelDownload.DICT_ASSET_NAME_PREF,
-            ModelDownload.DICT_ASSET_URL_PREF,
-            ModelDownload.DICT_RELEASE_TAG_PREF,
-            ModelDownload.DICT_RELEASE_PUBLISHED_PREF,
-        ).any { prefs.all[it] is String }
         val resolvedSha = ModelDownload.resolvedInstalledDictionarySha(
             context.filesDir,
             storedSha,
-            legacyInstall = !newerMetadata,
         )
         if (resolvedSha != storedSha || versionUnknown) {
             val editor = prefs.edit().putString(ModelDownload.DICT_SHA256_PREF, resolvedSha)
