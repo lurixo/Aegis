@@ -447,7 +447,10 @@ class ModelDownloadTest {
         val zip = ModelDownload.dictZipFile(base)
         writeZip(zip, replacements)
         val sha = ModelDownload.sha256Of(zip)
+        val archive = zip.readBytes()
+        assertTrue(zip.delete())
         assertTrue(ModelDownload.recordPendingDictionarySha(base, sha))
+        zip.writeBytes(archive)
 
         ModelDownload.recoverInterruptedDictionaryInstall(base)
 
