@@ -284,6 +284,7 @@ class KeyboardController(
     }
 
     fun onPickCandidate(index: Int) {
+        if (decodeLane?.pending == true) return
         if (index !in candidates.indices) return
         if (drillSyllable >= 0) {
             pickDrilledHomophone(candidates[index].word)
@@ -892,6 +893,7 @@ class KeyboardController(
     internal fun preeditForTest(): String = preeditText()
 
     fun onPickReadingIndex(index: Int) {
+        if (decodeLane?.pending == true) return
         if (layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty()) {
             if (index != 0 || currentSyllables().isEmpty()) return
             expirePreeditChoiceUndo()

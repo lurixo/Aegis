@@ -35,7 +35,7 @@ class DecodeLane(
             if (gen < lastRequested) return@execute
             val result = compute()
             main.execute {
-                if (gen > lastApplied) {
+                if (gen == lastRequested && gen > lastApplied) {
                     lastApplied = gen
                     apply(result)
                 }
