@@ -22,7 +22,14 @@ object EngineAssets {
     val ASSET_NAMES: List<String> = ModelDownload.DICT_PACK_FILES + ModelDownload.GRAM_NAME
 
     fun downloadedOverride(downloadedDir: File, name: String, minBytes: Long = 1L): File? =
-        File(downloadedDir, name).takeIf { it.exists() && it.length() >= minBytes }
+        if (
+            name in ModelDownload.DICT_PACK_FILES &&
+            downloadedDir.parentFile?.let { ModelDownload.unmarkedDictionaryRecoveryRequired(it) } == true
+        ) {
+            null
+        } else {
+            File(downloadedDir, name).takeIf { it.exists() && it.length() >= minBytes }
+        }
 
     fun signature(downloadedDir: File): String =
         ASSET_NAMES.joinToString(";") { name ->

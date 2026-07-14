@@ -360,6 +360,11 @@ object ModelDownload {
     private fun pendingDictionarySha(filesDir: File): String? =
         runCatching { normalizeSha256(dictPendingShaFile(filesDir).readText()) }.getOrNull()
 
+    internal fun unmarkedDictionaryRecoveryRequired(filesDir: File): Boolean =
+        dictZipFile(filesDir).exists() &&
+            pendingDictionarySha(filesDir) == null &&
+            (!isDictDownloaded(filesDir) || installedDictionaryFileSha(filesDir) == null)
+
     internal fun clearPendingDictionarySha(filesDir: File) {
         dictPendingShaFile(filesDir).delete()
     }
@@ -435,10 +440,17 @@ object ModelDownload {
                 }
                 val expectedSha = pendingDictionarySha(filesDir)
                 if (expectedSha == null) {
-                    zip.delete()
-                    if (!isDictDownloaded(filesDir) || installedDictionaryFileSha(filesDir) == null) {
+                    if (unmarkedDictionaryRecoveryRequired(filesDir)) {
                         DICT_PACK_FILES.forEach { File(downloadedDir(filesDir), it).delete() }
                         dictInstalledShaFile(filesDir).delete()
+                        if (
+                            DICT_PACK_FILES.none { File(downloadedDir(filesDir), it).exists() } &&
+                            !dictInstalledShaFile(filesDir).exists()
+                        ) {
+                            zip.delete()
+                        }
+                    } else {
+                        zip.delete()
                     }
                     return
                 }
