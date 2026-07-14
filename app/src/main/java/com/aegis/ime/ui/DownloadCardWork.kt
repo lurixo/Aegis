@@ -18,7 +18,6 @@ package com.aegis.ime.ui
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import androidx.core.content.edit
 import com.aegis.ime.R
 import com.aegis.ime.SettingsHotApply
 import com.aegis.ime.dict.ModelDownload
@@ -43,6 +42,7 @@ internal class DownloadRuntime(
     private var running = false
     private var progress: Float? = null
     private var statusOverride: LocalizedText? = null
+    private var statusPresent: Boolean? = null
 
     fun snapshot(context: Context): DownloadCardSnapshot {
         val app = context.applicationContext
@@ -71,6 +71,7 @@ internal class DownloadRuntime(
                 running = true
                 progress = null
                 statusOverride = downloadStatus
+                statusPresent = null
                 true
             }
         }
@@ -90,11 +91,13 @@ internal class DownloadRuntime(
         emit()
     }
 
-    fun setIdleStatus(status: LocalizedText) {
+    fun setIdleStatus(context: Context, status: LocalizedText) {
+        val app = context.applicationContext
         synchronized(lock) {
             running = false
             progress = null
             statusOverride = status
+            statusPresent = isPresent(app)
         }
         emit()
     }
@@ -105,10 +108,12 @@ internal class DownloadRuntime(
     }
 
     private fun finish(context: Context, status: LocalizedText) {
+        val present = isPresent(context)
         synchronized(lock) {
             running = false
-            progress = if (isPresent(context)) 1f else 0f
+            progress = if (present) 1f else 0f
             statusOverride = status
+            statusPresent = present
         }
         emit()
     }
@@ -122,9 +127,14 @@ internal class DownloadRuntime(
 
     private fun snapshotLocked(context: Context): DownloadCardSnapshot {
         val present = isPresent(context)
+        if (!running && statusPresent != null && statusPresent != present) {
+            progress = null
+            statusOverride = null
+            statusPresent = null
+        }
         val status = when {
             running -> statusOverride ?: downloadStatus
-            statusOverride != null -> statusOverride!!
+            statusOverride != null && statusPresent == present -> statusOverride!!
             present -> doneStatus(context)
             else -> notDownloadedStatus
         }
@@ -156,11 +166,18 @@ internal object GramDownloadWork {
         failureStatus = LocalizedText.Resource(R.string.gram_status_download_failed),
     )
 
-    fun snapshot(context: Context): DownloadCardSnapshot = runtime.snapshot(context)
-    fun observe(context: Context, observer: (DownloadCardSnapshot) -> Unit): () -> Unit =
-        runtime.observe(context, observer)
+    fun snapshot(context: Context): DownloadCardSnapshot {
+        ModelDownload.reconcileInterruptedDownloads(context.filesDir)
+        return runtime.snapshot(context)
+    }
+
+    fun observe(context: Context, observer: (DownloadCardSnapshot) -> Unit): () -> Unit {
+        ModelDownload.reconcileInterruptedDownloads(context.filesDir)
+        return runtime.observe(context, observer)
+    }
 
     fun start(context: Context, url: String = ModelDownload.GRAM_URL) {
+        ModelDownload.reconcileInterruptedDownloads(context.filesDir)
         runtime.start(context) { app, onProgress, _ ->
             val prefs = app.getSharedPreferences("aegis", Context.MODE_PRIVATE)
             val dest = ModelDownload.destFile(app.filesDir)
@@ -175,7 +192,7 @@ internal object GramDownloadWork {
                 }
             }
             if (result.ok) {
-                prefs.edit { putString(ModelDownload.VALIDATOR_PREF, result.validator) }
+                prefs.edit().putString(ModelDownload.VALIDATOR_PREF, result.validator).commit()
                 SettingsHotApply.noteEnginePackChanged(prefs)
                 LocalizedText.ResourceLong(
                     R.string.gram_status_enabled,
@@ -187,7 +204,7 @@ internal object GramDownloadWork {
         }
     }
 
-    fun setIdleStatus(status: LocalizedText) = runtime.setIdleStatus(status)
+    fun setIdleStatus(context: Context, status: LocalizedText) = runtime.setIdleStatus(context, status)
 }
 
 internal object DictDownloadWork {
@@ -203,14 +220,46 @@ internal object DictDownloadWork {
         failureStatus = LocalizedText.Resource(R.string.dict_status_download_failed),
     )
 
-    fun snapshot(context: Context): DownloadCardSnapshot = runtime.snapshot(context)
-    fun observe(context: Context, observer: (DownloadCardSnapshot) -> Unit): () -> Unit =
-        runtime.observe(context, observer)
+    fun snapshot(context: Context): DownloadCardSnapshot {
+        ModelDownload.reconcileInterruptedDownloads(context.filesDir)
+        return runtime.snapshot(context)
+    }
+
+    fun observe(context: Context, observer: (DownloadCardSnapshot) -> Unit): () -> Unit {
+        ModelDownload.reconcileInterruptedDownloads(context.filesDir)
+        return runtime.observe(context, observer)
+    }
 
     fun start(context: Context, asset: ModelDownload.DictionaryAsset? = null) {
-        runtime.start(context) { app, onProgress, onStatus ->
+        ModelDownload.reconcileInterruptedDownloads(context.filesDir)
+        runtime.start(context) worker@ { app, onProgress, onStatus ->
+            ModelDownload.recoverInterruptedDictionaryInstall(app.filesDir)
             val prefs = app.getSharedPreferences("aegis", Context.MODE_PRIVATE)
             val selected = asset ?: ModelDownload.resolveDictionaryDownloadAsset()
+            val recoveredSha = ModelDownload.installedDictionaryFileSha(app.filesDir)
+            if (
+                asset == null &&
+                ModelDownload.isDictDownloaded(app.filesDir) &&
+                recoveredSha != null &&
+                recoveredSha.equals(selected.sha256, ignoreCase = true)
+            ) {
+                prefs.edit()
+                    .remove(ModelDownload.DICT_VALIDATOR_PREF)
+                    .putString(ModelDownload.DICT_SHA256_PREF, selected.sha256)
+                    .putString(ModelDownload.DICT_ASSET_NAME_PREF, selected.assetName)
+                    .putString(ModelDownload.DICT_ASSET_URL_PREF, selected.url)
+                    .putString(ModelDownload.DICT_RELEASE_TAG_PREF, selected.releaseTag)
+                    .putString(ModelDownload.DICT_RELEASE_PUBLISHED_PREF, selected.publishedAt)
+                    .commit()
+                SettingsHotApply.noteEnginePackChanged(prefs)
+                return@worker LocalizedText.ResourceLong(
+                    R.string.dict_status_enabled,
+                    ModelDownload.bytesToDisplayMb(ModelDownload.installedDictionaryBytes(app.filesDir)),
+                )
+            }
+            if (!ModelDownload.recordPendingDictionarySha(app.filesDir, selected.sha256)) {
+                return@worker LocalizedText.Resource(R.string.dict_status_download_failed)
+            }
             val zip = ModelDownload.dictZipFile(app.filesDir)
             var lastPct = -1
             val result = ModelDownload.download(selected.url, zip) { done, total ->
@@ -222,18 +271,20 @@ internal object DictDownloadWork {
                     }
                 }
             }
+            if (!result.ok) ModelDownload.clearPendingDictionarySha(app.filesDir)
             if (result.ok) onStatus(LocalizedText.Resource(R.string.dict_status_verifying_extracting))
-            val installed = result.ok && ModelDownload.installDictPack(app.filesDir, selected.sha256)
+            val installed = result.ok && ModelDownload.installDictPack(app.filesDir, selected.sha256) {
+                prefs.edit()
+                    .putString(ModelDownload.DICT_VALIDATOR_PREF, result.validator)
+                    .putString(ModelDownload.DICT_SHA256_PREF, selected.sha256)
+                    .putString(ModelDownload.DICT_ASSET_NAME_PREF, selected.assetName)
+                    .putString(ModelDownload.DICT_ASSET_URL_PREF, selected.url)
+                    .putString(ModelDownload.DICT_RELEASE_TAG_PREF, selected.releaseTag)
+                    .putString(ModelDownload.DICT_RELEASE_PUBLISHED_PREF, selected.publishedAt)
+                    .commit()
+            }
             when {
                 installed -> {
-                    prefs.edit {
-                        putString(ModelDownload.DICT_VALIDATOR_PREF, result.validator)
-                        putString(ModelDownload.DICT_SHA256_PREF, selected.sha256)
-                        putString(ModelDownload.DICT_ASSET_NAME_PREF, selected.assetName)
-                        putString(ModelDownload.DICT_ASSET_URL_PREF, selected.url)
-                        putString(ModelDownload.DICT_RELEASE_TAG_PREF, selected.releaseTag)
-                        putString(ModelDownload.DICT_RELEASE_PUBLISHED_PREF, selected.publishedAt)
-                    }
                     SettingsHotApply.noteEnginePackChanged(prefs)
                     LocalizedText.ResourceLong(
                         R.string.dict_status_enabled,
@@ -246,5 +297,5 @@ internal object DictDownloadWork {
         }
     }
 
-    fun setIdleStatus(status: LocalizedText) = runtime.setIdleStatus(status)
+    fun setIdleStatus(context: Context, status: LocalizedText) = runtime.setIdleStatus(context, status)
 }

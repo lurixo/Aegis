@@ -267,6 +267,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun buildEngine(): DictEngine {
+        com.aegis.ime.dict.ModelDownload.recoverInterruptedDictionaryInstall(filesDir)
         val sig = EngineAssets.signature(File(filesDir, "downloaded"))
         val dict = loadDict("aegis_dict.bin")
         val t9Dict = loadDict("aegis_t9.bin")
