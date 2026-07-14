@@ -489,6 +489,38 @@ class ModelDownloadTest {
     }
 
     @Test
+    fun failedUnmarkedArchiveCleanupRetainsMarkerAndBlocksActivationUntilRetry() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        ModelDownload.DICT_PACK_FILES.forEachIndexed { index, name ->
+            File(downloaded, name).writeBytes(ByteArray(2_048) { (index + 1).toByte() })
+        }
+        val zip = ModelDownload.dictZipFile(base).apply { writeBytes(ByteArray(4_000)) }
+        val sidecar = File(downloaded, ModelDownload.DICT_INSTALLED_SHA_NAME).apply { mkdirs() }
+        val residue = File(sidecar, "residue").apply { writeText("x") }
+        assertTrue(ModelDownload.isDictDownloaded(base))
+        ModelDownload.DICT_PACK_FILES.forEach { name ->
+            assertNull(EngineAssets.downloadedOverride(downloaded, name))
+        }
+
+        ModelDownload.recoverInterruptedDictionaryInstall(base)
+
+        ModelDownload.DICT_PACK_FILES.forEach { name -> assertFalse(File(downloaded, name).exists()) }
+        assertTrue(sidecar.exists())
+        assertTrue(zip.exists())
+        ModelDownload.reconcileInterruptedDownloads(base)
+        assertTrue(zip.exists())
+
+        assertTrue(residue.delete())
+        ModelDownload.recoverInterruptedDictionaryInstall(base)
+
+        assertFalse(sidecar.exists())
+        assertFalse(zip.exists())
+        assertFalse(ModelDownload.isDictDownloaded(base))
+        base.deleteRecursively()
+    }
+
+    @Test
     fun unmarkedArchiveDoesNotReplaceASidecarGeneration() {
         val base = tempFilesDir()
         val downloaded = File(base, "downloaded").apply { mkdirs() }
