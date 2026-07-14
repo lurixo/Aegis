@@ -297,4 +297,52 @@ class ClipboardViewInteractionTest {
         assertEquals("confirming clears history", 1, clears)
         assertFalse("old settings gear is gone", allViews(v).any { it.contentDescription?.toString() == "设置" })
     }
+
+    @Test fun confirmed_bulk_clear_resets_item_actions_before_same_text_returns() {
+        val expand = ctx.getString(com.aegis.ime.R.string.clip_expand)
+        val collapse = ctx.getString(com.aegis.ime.R.string.clip_collapse)
+        val clear = ctx.getString(com.aegis.ime.R.string.clip_clear)
+
+        fun arm(v: ClipboardView, expanded: Boolean) {
+            if (expanded) {
+                v.expandForTest("x")
+                assertTrue(collapse in allViews(v).mapNotNull { it.contentDescription?.toString() })
+            } else {
+                v.revealSwipeForTest("x")
+                assertEquals("x", v.swipeRevealedForTest())
+            }
+        }
+
+        fun assertNeutral(v: ClipboardView) {
+            val descriptions = allViews(v).mapNotNull { it.contentDescription?.toString() }
+            assertNull(v.swipeRevealedForTest())
+            assertTrue(expand in descriptions)
+            assertFalse(collapse in descriptions)
+            assertTrue(actionButtons(v).isEmpty())
+        }
+
+        for (expanded in listOf(false, true)) {
+            val history = mutableListOf("x")
+            val clip = clipView(history).apply { onClearHistory = { history.clear() } }
+            arm(clip, expanded)
+            clip.confirmClearHistoryForTest()
+            assertTrue(clickText(overlayOf(clip), clear))
+            assertTrue(history.isEmpty())
+            history.add("x")
+            clip.refresh()
+            assertTrue("x" in labels(mainOf(clip)))
+            assertNeutral(clip)
+
+            val phrases = mutableListOf("x")
+            val phrase = phraseView(phrases).apply { onClearCategory = { phrases.clear() } }
+            arm(phrase, expanded)
+            phrase.confirmClearForTest()
+            assertTrue(clickText(overlayOf(phrase), clear))
+            assertTrue(phrases.isEmpty())
+            phrases.add("x")
+            phrase.refresh()
+            assertTrue("x" in labels(mainOf(phrase)))
+            assertNeutral(phrase)
+        }
+    }
 }
