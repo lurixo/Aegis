@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import android.util.TypedValue
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.layout.SymbolCatalog
@@ -129,9 +130,13 @@ class SymbolPanelRenderTest {
     }
 
     @Test fun every_single_char_cell_is_sized_by_its_glyph_class_in_every_tab() {
-        val scaled = ctx.resources.displayMetrics.scaledDensity
-        val full = ImeType.display * scaled
-        val shrunk = ImeType.display * SymbolsView.WIDE_GLYPH_SCALE * scaled
+        val metrics = ctx.resources.displayMetrics
+        val full = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, ImeType.display, metrics)
+        val shrunk = TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_SP,
+            ImeType.display * SymbolsView.WIDE_GLYPH_SCALE,
+            metrics,
+        )
         for ((ci, cat) in SymbolCatalog.categories.withIndex()) {
             val sv = SymbolsView(ctx).apply { applyPalette(light); openCategoryForTest(ci + 1) }
             for (sym in cat.symbols) {
@@ -172,7 +177,11 @@ class SymbolPanelRenderTest {
     @Test fun greek_and_net_tabs_are_not_regressed() {
         val greek = SymbolsView(ctx).apply { applyPalette(light); openCategoryForTest(idx("greek")) }
         assertTrue("希腊 cells stay uniform", greek.gridTileHeightsForTest().all { it == greek.cellHeightForTest() })
-        val disp = ImeType.display * ctx.resources.displayMetrics.scaledDensity
+        val disp = TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_SP,
+            ImeType.display,
+            ctx.resources.displayMetrics,
+        )
         assertEquals(disp, greek.gridGlyphForTest("π")!!.textSize, 0.5f)
         assertEquals(disp, greek.gridGlyphForTest("Ω")!!.textSize, 0.5f)
 

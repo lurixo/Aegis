@@ -672,7 +672,7 @@ internal fun View.requestImeWhenReady(
     focusTarget: () -> Unit,
     showSoftInput: (View) -> Boolean = { target ->
         val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-        imm.showSoftInput(target, InputMethodManager.SHOW_IMPLICIT)
+        imm.showSoftInput(target, 0)
     },
     restartInput: (View) -> Unit = { target ->
         val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
