@@ -16,6 +16,7 @@
 package com.aegis.ime.ime
 
 import android.graphics.drawable.GradientDrawable
+import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -296,6 +297,78 @@ class ClipboardViewInteractionTest {
                 ),
                 actionButtons(v).map { it.text.toString() },
             )
+        }
+    }
+
+    @Test fun rtl_swipe_strips_keep_physical_action_order_and_right_edge_anchor() {
+        val cases = listOf(
+            Triple(
+                clipView(listOf("第一条")),
+                "第一条",
+                listOf(
+                    ctx.getString(com.aegis.ime.R.string.clip_add_phrase),
+                    ctx.getString(com.aegis.ime.R.string.clip_split_word),
+                    ctx.getString(com.aegis.ime.R.string.clip_delete),
+                ),
+            ),
+            Triple(
+                phraseView(listOf("你好")),
+                "你好",
+                listOf(
+                    ctx.getString(com.aegis.ime.R.string.clip_edit),
+                    ctx.getString(com.aegis.ime.R.string.clip_note),
+                    ctx.getString(com.aegis.ime.R.string.clip_move),
+                    ctx.getString(com.aegis.ime.R.string.clip_delete),
+                ),
+            ),
+        )
+        for ((view, text, expected) in cases) {
+            view.layoutDirection = View.LAYOUT_DIRECTION_RTL
+            view.revealSwipeForTest(text)
+            layout(view)
+            val actions = assertSwipeActionStrip(view, text, expected)
+            val strip = actions.first().parent as View
+            val frame = strip.parent as View
+            assertEquals(expected, actions.sortedBy { it.left }.map { it.contentDescription?.toString() })
+            assertEquals(frame.width, strip.right)
+        }
+    }
+
+    @Test fun rtl_dropdown_action_rows_keep_physical_order_and_left_alignment() {
+        val cases = listOf(
+            Triple(
+                clipView(listOf("第一条")),
+                "第一条",
+                listOf(
+                    ctx.getString(com.aegis.ime.R.string.clip_phrases),
+                    ctx.getString(com.aegis.ime.R.string.clip_split_word),
+                    ctx.getString(com.aegis.ime.R.string.clip_delete),
+                ),
+            ),
+            Triple(
+                phraseView(listOf("你好")),
+                "你好",
+                listOf(
+                    ctx.getString(com.aegis.ime.R.string.clip_edit),
+                    ctx.getString(com.aegis.ime.R.string.clip_note),
+                    ctx.getString(com.aegis.ime.R.string.clip_move),
+                    ctx.getString(com.aegis.ime.R.string.clip_delete),
+                ),
+            ),
+        )
+        for ((view, text, expected) in cases) {
+            view.layoutDirection = View.LAYOUT_DIRECTION_RTL
+            view.expandForTest(text)
+            layout(view)
+            val actions = actionButtons(view)
+            val physical = actions.sortedBy { it.left }
+            val row = actions.first().parent as ViewGroup
+            assertEquals(expected, physical.map { it.text.toString() })
+            assertEquals(row.paddingLeft, physical.first().left)
+            assertTrue(physical.zipWithNext().all { (left, right) -> left.right <= right.left })
+            assertTrue(actions.all {
+                Gravity.getAbsoluteGravity(it.gravity, it.layoutDirection) and Gravity.HORIZONTAL_GRAVITY_MASK == Gravity.LEFT
+            })
         }
     }
 

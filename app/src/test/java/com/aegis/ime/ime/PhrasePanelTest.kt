@@ -423,38 +423,47 @@ class PhrasePanelTest {
         assertTrue(ctx.getString(com.aegis.ime.R.string.clip_selected_count, 2) in labels(v))
     }
 
-    @Test fun select_mode_top_actions_are_symmetric_for_clipboard_and_phrases() {
-        val clipboard = ClipboardView(ctx).apply {
-            historyProvider = { listOf("a", "b") }; applyPalette(pal); refresh(); enterSelectForTest(listOf("a"))
+    @Test fun select_mode_top_actions_keep_physical_order_and_symmetry_in_ltr_and_rtl() {
+        for (layoutDirection in listOf(View.LAYOUT_DIRECTION_LTR, View.LAYOUT_DIRECTION_RTL)) {
+            val clipboard = ClipboardView(ctx).apply {
+                this.layoutDirection = layoutDirection
+                historyProvider = { listOf("a", "b") }; applyPalette(pal); refresh(); enterSelectForTest(listOf("a"))
+            }
+            val phrases = phraseView().apply {
+                this.layoutDirection = layoutDirection
+                enterSelectForTest(listOf("你好"))
+            }
+            val geometries = listOf(clipboard, phrases).map { view ->
+                layout(view, w = 480, h = 400)
+                val selectAll = checkNotNull(view.selectAllActionForTest())
+                val cancel = checkNotNull(view.cancelSelectActionForTest())
+                val topBar = selectAll.parent as ViewGroup
+                val title = topBar.getChildAt(1)
+                assertTrue(cancel.parent === topBar)
+                assertEquals(dp(104), selectAll.width)
+                assertEquals(dp(104), cancel.width)
+                assertEquals(dp(40), selectAll.height)
+                assertEquals(dp(40), cancel.height)
+                assertTrue(selectAll.left < cancel.left)
+                assertEquals(topBar.paddingLeft, selectAll.left)
+                assertEquals(topBar.width - topBar.paddingRight, cancel.right)
+                assertEquals(selectAll.left, topBar.width - cancel.right)
+                assertEquals(selectAll.top, cancel.top)
+                assertEquals(selectAll.bottom, cancel.bottom)
+                assertEquals(topBar.width * 2, selectAll.left + selectAll.right + cancel.left + cancel.right)
+                assertTrue(selectAll.right <= title.left)
+                assertTrue(title.right <= cancel.left)
+                assertEquals(Gravity.CENTER, selectAll.gravity)
+                assertEquals(Gravity.CENTER, cancel.gravity)
+                assertTrue(selectAll.hasOnClickListeners())
+                assertTrue(cancel.hasOnClickListeners())
+                assertTrue(selectAll.background is GradientDrawable)
+                assertTrue(cancel.background is GradientDrawable)
+                assertEquals((selectAll.background as GradientDrawable).cornerRadius, (cancel.background as GradientDrawable).cornerRadius, 0f)
+                listOf(selectAll.left, selectAll.top, selectAll.right, selectAll.bottom, cancel.left, cancel.top, cancel.right, cancel.bottom)
+            }
+            assertEquals(1, geometries.toSet().size)
         }
-        val phrases = phraseView().apply { enterSelectForTest(listOf("你好")) }
-        val geometries = listOf(clipboard, phrases).map { view ->
-            layout(view, w = 480, h = 400)
-            val selectAll = checkNotNull(view.selectAllActionForTest())
-            val cancel = checkNotNull(view.cancelSelectActionForTest())
-            val topBar = selectAll.parent as ViewGroup
-            val title = topBar.getChildAt(1)
-            assertTrue(cancel.parent === topBar)
-            assertEquals(dp(104), selectAll.width)
-            assertEquals(dp(104), cancel.width)
-            assertEquals(dp(40), selectAll.height)
-            assertEquals(dp(40), cancel.height)
-            assertEquals(selectAll.left, topBar.width - cancel.right)
-            assertEquals(selectAll.top, cancel.top)
-            assertEquals(selectAll.bottom, cancel.bottom)
-            assertEquals(topBar.width * 2, selectAll.left + selectAll.right + cancel.left + cancel.right)
-            assertTrue(selectAll.right <= title.left)
-            assertTrue(title.right <= cancel.left)
-            assertEquals(Gravity.CENTER, selectAll.gravity)
-            assertEquals(Gravity.CENTER, cancel.gravity)
-            assertTrue(selectAll.hasOnClickListeners())
-            assertTrue(cancel.hasOnClickListeners())
-            assertTrue(selectAll.background is GradientDrawable)
-            assertTrue(cancel.background is GradientDrawable)
-            assertEquals((selectAll.background as GradientDrawable).cornerRadius, (cancel.background as GradientDrawable).cornerRadius, 0f)
-            listOf(selectAll.left, selectAll.top, selectAll.right, selectAll.bottom, cancel.left, cancel.top, cancel.right, cancel.bottom)
-        }
-        assertEquals(1, geometries.toSet().size)
     }
 
     @Test fun batch_move_invokes_onMovePhrasesTo_with_selection_and_target() {

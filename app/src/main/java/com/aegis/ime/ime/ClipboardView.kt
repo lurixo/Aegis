@@ -713,7 +713,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         if (swiped) {
             headerFrame.addView(
                 swipeActionStrip(text, category, phrase),
-                FrameLayout.LayoutParams(dp(revealWidthDp), MP, Gravity.END),
+                FrameLayout.LayoutParams(dp(revealWidthDp), MP, Gravity.RIGHT),
             )
         }
         headerFrame.addView(header, FrameLayout.LayoutParams(MP, WC))
@@ -732,7 +732,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun swipeActionStrip(text: String, category: String, phrase: Boolean): LinearLayout = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL or Gravity.END
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
+        gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT
         fun addSwipeAction(desc: String, onClick: () -> Unit, render: (Canvas, Paint, Float, Float, Float) -> Unit) {
             val action = glyphToolbarBtn(desc, onClick = onClick, render = render).apply {
                 background = rounded(CARD, ImeShapes.toolbarFeedbackRadiusDp)
@@ -758,6 +759,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun actionRow(text: String): LinearLayout = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(8), dp(4), dp(8), dp(8))
         addActionButton(glyphAction(context.getString(R.string.clip_phrases), render = { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }) { chooseCategoryThen(listOf(text)) })
@@ -767,6 +769,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun phraseActionRow(text: String, category: String): LinearLayout = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(8), dp(4), dp(8), dp(8))
         addActionButton(glyphAction(context.getString(R.string.clip_edit), render = { c, p, x, y, s -> Glyphs.drawPencil(c, p, x, y, s) }) { onEditPhrase(category, text) })
@@ -1313,6 +1316,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val all = if (st.tab == Tab.CLIPBOARD) historyProvider() else phrasesInProvider(category)
         val topBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8), dp(8), dp(8), dp(8))
             val allSel = st.isAllSelected(all)

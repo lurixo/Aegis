@@ -474,6 +474,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
 
     private fun bottomBar(): View = LinearLayout(context).apply {
         orientation = HORIZONTAL
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
         gravity = Gravity.CENTER_VERTICAL
         setBackgroundColor(palette.keyboardBg)
         backBtn.gravity = Gravity.CENTER; backBtn.setPadding(0, 0, 0, 0)
