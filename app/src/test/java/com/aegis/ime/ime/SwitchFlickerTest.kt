@@ -15,14 +15,18 @@
 
 package com.aegis.ime.ime
 
+import android.app.Activity
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
+import android.provider.Settings
+import android.widget.FrameLayout
 import com.aegis.ime.ime.theme.ImePalette
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
@@ -42,6 +46,25 @@ class SwitchFlickerTest {
         val floor = iv.panelFloorColorForTest()
         assertEquals("the panel slot must be painted the keyboard-floor colour", light.keyboardBg, floor)
         assertEquals("…and it must be fully opaque so an alpha-0 panel never reveals the window", 0xFF, Color.alpha(floor!!))
+    }
+
+    @Test fun clipboard_open_starts_fully_opaque_with_current_content() {
+        Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val host = FrameLayout(activity)
+        val input = InputView(activity)
+        host.addView(input)
+        activity.setContentView(host)
+        val clipboard = ClipboardView(activity).apply {
+            historyProvider = { listOf("current clip") }
+            applyPalette(light)
+        }
+
+        input.showPanelImmediately(clipboard)
+
+        assertEquals(1f, clipboard.alpha, 0f)
+        assertEquals(0f, clipboard.translationY, 0f)
+        assertEquals(listOf("current clip"), clipboard.listRowTextsForTest())
     }
 
     @Test fun every_panel_root_carries_an_opaque_floor() {

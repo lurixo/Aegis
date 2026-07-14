@@ -19,6 +19,7 @@ import android.graphics.drawable.GradientDrawable
 import android.graphics.Rect
 import android.view.View
 import android.view.ViewGroup
+import android.widget.HorizontalScrollView
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import org.junit.Assert.assertEquals
@@ -167,31 +168,34 @@ class Debug17PanelTest {
     }
 
 
-    @Test fun clipboard_left_swipe_moves_the_item_left_and_opens_the_arrow_state() {
+    @Test fun clipboard_left_swipe_moves_only_one_icon_button_width() {
         val v = clipView()
         v.revealSwipeForTest("hello")
         layout(v)
         assertEquals("hello", v.swipeRevealedForTest())
         val body = textViews(v).first { it.text?.toString() == "hello" }
-        assertTrue((body.parent as View).translationX < 0f)
+        val delete = allViews(v).single { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_delete) }
+        assertEquals(-delete.width.toFloat(), (body.parent as View).translationX, 0f)
+        assertTrue(delete !is TextView)
+        assertTrue(delete.background is GradientDrawable)
+        assertTrue(actionButtons(v).isEmpty())
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_expand) in descs(v))
+        assertFalse(ctx.getString(com.aegis.ime.R.string.clip_collapse) in descs(v))
+    }
+
+    @Test fun clipboard_arrow_expansion_replaces_swipe_with_labeled_actions() {
+        val v = clipView()
+        v.revealSwipeForTest("hello")
+        assertEquals("hello", v.swipeRevealedForTest())
+        assertTrue(clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_expand)))
+        assertNull(v.swipeRevealedForTest())
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_collapse) in descs(v))
         assertEquals(
             listOf(ctx.getString(com.aegis.ime.R.string.clip_phrases), ctx.getString(com.aegis.ime.R.string.clip_split_word), ctx.getString(com.aegis.ime.R.string.clip_delete)),
             actionButtons(v).map { it.text.toString() },
         )
-        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_collapse) in descs(v))
-        assertFalse(ctx.getString(com.aegis.ime.R.string.clip_expand) in descs(v))
-    }
-
-    @Test fun clipboard_arrow_and_swipe_toggle_the_same_state_with_one_click_each() {
-        val v = clipView()
-        v.revealSwipeForTest("hello")
-        assertEquals("hello", v.swipeRevealedForTest())
         assertTrue(clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_collapse)))
-        assertNull(v.swipeRevealedForTest())
-        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_expand) in descs(v))
-        assertTrue("chevron present", clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_expand)))
-        assertEquals("hello", v.swipeRevealedForTest())
-        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_collapse) in descs(v))
+        assertTrue(actionButtons(v).isEmpty())
     }
 
     @Test fun clipboard_longpress_menu_unchanged() {
@@ -252,15 +256,13 @@ class Debug17PanelTest {
     }
 
 
-    @Test fun phrase_left_swipe_reveals_the_complete_fixed_action_set() {
+    @Test fun phrase_left_swipe_reveals_only_the_delete_glyph() {
         val v = phraseView()
         v.revealSwipeForTest("在吗")
-        assertEquals(
-            listOf(ctx.getString(com.aegis.ime.R.string.clip_edit), ctx.getString(com.aegis.ime.R.string.clip_note), ctx.getString(com.aegis.ime.R.string.clip_move), ctx.getString(com.aegis.ime.R.string.clip_delete)),
-            actionButtons(v).map { it.text.toString() },
-        )
-        assertTrue("拆 ${ctx.getString(com.aegis.ime.R.string.clip_split_word)}" in descs(clipView().apply { revealSwipeForTest("hello") }))
-        assertTrue("移 ${ctx.getString(com.aegis.ime.R.string.clip_move)}" in descs(v))
+        val delete = allViews(v).single { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_delete) }
+        assertTrue(delete !is TextView)
+        assertTrue(delete.background is GradientDrawable)
+        assertTrue(actionButtons(v).isEmpty())
         assertFalse(labels(v).any { it == "置顶" || it == "Pin to top" })
     }
 
@@ -287,13 +289,13 @@ class Debug17PanelTest {
         v.settleSwipeForTest(100f, "hello"); assertNull("clear right → hide", v.swipeRevealedForTest())
     }
 
-    @Test fun phrase_arrow_and_swipe_render_identical_actions() {
+    @Test fun phrase_arrow_and_swipe_render_distinct_action_content() {
         val v = phraseView().apply { expandForTest("你好") }
         val arrowActions = actionButtons(v).map { it.text.toString() }
-        v.hideSwipeForTest()
         v.revealSwipeForTest("你好")
-        assertEquals(arrowActions, actionButtons(v).map { it.text.toString() })
         assertEquals(listOf(ctx.getString(com.aegis.ime.R.string.clip_edit), ctx.getString(com.aegis.ime.R.string.clip_note), ctx.getString(com.aegis.ime.R.string.clip_move), ctx.getString(com.aegis.ime.R.string.clip_delete)), arrowActions)
+        assertTrue(actionButtons(v).isEmpty())
+        assertTrue(allViews(v).single { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_delete) } !is TextView)
     }
 
     @Test fun phrase_item_delete_cancels_and_confirms_without_early_mutation() {
@@ -630,24 +632,41 @@ class Debug17PanelTest {
         assertTrue("clipboard body" in labels(view))
     }
 
-    @Test fun phrase_category_row_uses_text_edit_button_without_chip_backgrounds() {
+    @Test fun phrase_category_row_uses_a_capsule_with_edit_outside_the_scroll() {
         val v = phraseView()
         val category = textViews(v).first { it.text?.toString() == "默认" && it.hasOnClickListeners() }
         val inactiveCategory = textViews(v).first { it.text?.toString() == "工作" && it.hasOnClickListeners() }
         val manage = textViews(v).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_edit) && it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_manage_phrases) }
+        val categoryScroll = allViews(v).filterIsInstance<HorizontalScrollView>().single()
         assertEquals(pal.candidateFirst, category.currentTextColor)
         assertEquals(pal.keyLabel, inactiveCategory.currentTextColor)
         assertEquals(pal.keyLabel, manage.currentTextColor)
-        assertTrue(category.background == null)
+        assertTrue(category.background is GradientDrawable)
         assertTrue(inactiveCategory.background == null)
         assertTrue(manage.background == null)
+        assertTrue(categoryScroll.parent === manage.parent)
+        val categorySurface = (categoryScroll.parent as View).background as GradientDrawable
+        assertTrue(categorySurface.cornerRadius > 0f)
+        assertFalse(allViews(categoryScroll).contains(manage))
         assertTrue(clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_manage_phrases)))
     }
 
-    @Test fun select_and_action_row_defaults_use_body_text_color() {
+    @Test fun edit_chrome_and_action_rows_use_enabled_colors_and_rounded_surfaces() {
         val selected = clipView().apply { enterSelectForTest() }
-        assertEquals(pal.keyLabel, textViews(selected).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_select_all) }.currentTextColor)
-        assertEquals(pal.keyLabel, textViews(selected).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_cancel) }.currentTextColor)
+        val selectAll = textViews(selected).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_select_all) }
+        val cancel = textViews(selected).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_cancel) }
+        assertEquals(pal.keyLabel, selectAll.currentTextColor)
+        assertEquals(pal.keyLabel, cancel.currentTextColor)
+        assertTrue(selectAll.background is GradientDrawable)
+        assertTrue(cancel.background is GradientDrawable)
+        assertTrue((selectAll.background as GradientDrawable).cornerRadius > 0f)
+        assertTrue((cancel.background as GradientDrawable).cornerRadius > 0f)
+
+        val categorySort = phraseView().apply { enterCategorySortModeForTest() }
+        val done = textViews(categorySort).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_done) }
+        assertEquals(pal.candidateFirst, done.currentTextColor)
+        assertTrue(done.background is GradientDrawable)
+        assertTrue((done.background as GradientDrawable).cornerRadius > 0f)
 
         val expanded = clipView().apply { expandForTest("hello") }
         val actions = textViews(expanded)
@@ -713,7 +732,7 @@ class Debug17PanelTest {
         assertEquals(pal.keyLabel, textViews(overlayOf(category)).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_choose_category) }.currentTextColor)
     }
 
-    @Test fun opening_actions_offsets_only_the_foreground_item() {
+    @Test fun dropdown_actions_expand_below_without_translating_the_foreground() {
         val v = clipView(listOf("a long clip"))
         layout(v)
         val closedBody = textViews(v).first { it.text?.toString() == "a long clip" }
@@ -721,7 +740,8 @@ class Debug17PanelTest {
         v.expandForTest("a long clip")
         layout(v)
         val openBody = textViews(v).first { it.text?.toString() == "a long clip" }
-        assertTrue((openBody.parent as View).translationX < 0f)
+        assertEquals(0f, (openBody.parent as View).translationX, 0f)
         assertEquals(2, openBody.maxLines)
+        assertEquals(3, actionButtons(v).size)
     }
 }

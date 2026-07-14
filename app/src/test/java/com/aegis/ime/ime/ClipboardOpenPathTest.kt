@@ -59,6 +59,7 @@ class ClipboardOpenPathTest {
             applyPalette(pal)
         }
 
+        assertTrue(v.initialSyncRowsForTest() <= 12)
         assertEquals("first open work is bounded to the initial batch", v.initialSyncRowsForTest(), v.listRowCountForTest())
         assertEquals(clips.take(v.initialSyncRowsForTest()), v.listRowTextsForTest())
 
@@ -67,6 +68,37 @@ class ClipboardOpenPathTest {
 
         assertEquals("deferred rows are still appended for full scroll semantics", clips.size, v.listRowCountForTest())
         assertEquals(clips, v.listRowTextsForTest())
+    }
+
+    @Test fun switching_to_common_phrases_snapshots_category_data_once_and_defers_offscreen_rows() {
+        val probe = ClipboardView(ctx)
+        val phrases = (0 until (probe.initialSyncRowsForTest() + 5)).map { "phrase-$it" }
+        var categoryReads = 0
+        var phraseReads = 0
+        var noteReads = 0
+        val v = ClipboardView(ctx).apply {
+            historyProvider = { listOf("clip") }
+            categoriesProvider = { categoryReads++; listOf("默认") }
+            phrasesInProvider = { phraseReads++; phrases }
+            phraseNoteProvider = { _, _ -> noteReads++; "" }
+            applyPalette(pal)
+        }
+
+        v.switchTabForTest(toClipboard = false)
+
+        assertFalse(v.isClipboardTabForTest())
+        assertEquals(1, categoryReads)
+        assertEquals(1, phraseReads)
+        assertEquals(v.initialSyncRowsForTest(), noteReads)
+        assertEquals(phrases.take(v.initialSyncRowsForTest()), v.listRowTextsForTest())
+
+        while (v.runPendingListAppendForTest()) {
+        }
+
+        assertEquals(1, categoryReads)
+        assertEquals(1, phraseReads)
+        assertEquals(phrases.size, noteReads)
+        assertEquals(phrases, v.listRowTextsForTest())
     }
 
     @Test fun refreshing_cancels_a_stale_deferred_append() {

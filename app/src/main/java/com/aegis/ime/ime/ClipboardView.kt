@@ -115,6 +115,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private val st = ClipboardPanelState()
     private var phraseCat = ""
+    private var swipeRevealed: String? = null
+    private var categoryScrollX = 0
 
     private var sortMode = false
     private var categorySortMode = false
@@ -126,7 +128,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     fun showPhraseTab(category: String) {
         st.switchTab(ClipboardPanelState.Tab.PHRASE)
-        st.collapse(); sortMode = false; categorySortMode = false
+        st.collapse(); swipeRevealed = null; sortMode = false; categorySortMode = false
         if (category.isNotEmpty() && category in categoriesProvider()) phraseCat = category
         refresh()
     }
@@ -201,8 +203,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         const val MP = ViewGroup.LayoutParams.MATCH_PARENT
         const val WC = ViewGroup.LayoutParams.WRAP_CONTENT
         const val DISPLAY_CAP = 2000
-        const val INITIAL_SYNC_ROWS = 48
-        const val APPEND_ROWS_PER_FRAME = 48
+        const val INITIAL_SYNC_ROWS = 12
+        const val APPEND_ROWS_PER_FRAME = 12
+        const val SWIPE_ACTION_WIDTH_DP = 44
         const val SWIPE_VERTICAL_BIAS = 1.5f
         const val DRAG_AUTO_SCROLL_INTERVAL_MS = 16L
         const val DRAG_AUTO_SCROLL_MIN_STEP_DP = 2
@@ -438,23 +441,24 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     fun reset() {
         invalidateListRender()
-        st.reset(); hideOverlay(); sortMode = false; categorySortMode = false
+        st.reset(); hideOverlay(); swipeRevealed = null; sortMode = false; categorySortMode = false
     }
 
     override fun resetToDefault() {
         reset()
         phraseCat = ""
+        categoryScrollX = 0
         listScroll.scrollTo(0, 0)
     }
 
     internal fun isClipboardTabForTest(): Boolean = st.tab == ClipboardPanelState.Tab.CLIPBOARD
     internal fun phraseCatForTest(): String = phraseCat
     internal fun switchTabForTest(toClipboard: Boolean) {
-        st.switchTab(if (toClipboard) ClipboardPanelState.Tab.CLIPBOARD else ClipboardPanelState.Tab.PHRASE)
+        if (st.switchTab(if (toClipboard) ClipboardPanelState.Tab.CLIPBOARD else ClipboardPanelState.Tab.PHRASE)) swipeRevealed = null
         refresh()
     }
-    internal fun forcePhrasesStateForTest(cat: String) { st.switchTab(ClipboardPanelState.Tab.PHRASE); phraseCat = cat }
-    internal fun enterSelectForTest(selected: List<String> = emptyList()) { st.enterSelect(); st.selected.addAll(selected); refresh() }
+    internal fun forcePhrasesStateForTest(cat: String) { st.switchTab(ClipboardPanelState.Tab.PHRASE); swipeRevealed = null; phraseCat = cat }
+    internal fun enterSelectForTest(selected: List<String> = emptyList()) { swipeRevealed = null; st.enterSelect(); st.selected.addAll(selected); refresh() }
     internal fun isSelectModeForTest(): Boolean = st.selectMode
     internal fun toggleSelectForTest(text: String) { st.toggleSelect(text); refresh() }
     internal fun exitSelectForTest() { exitSelect() }
@@ -492,10 +496,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     internal fun fixedChromeViewsForTest(): List<View> =
         (0 until main.childCount).map { main.getChildAt(it) }.filter { it !== listScroll }
     internal fun listViewportForTest(): View = listScroll
-    internal fun expandForTest(text: String) { if (st.expanded != text) st.toggleExpand(text); refresh() }
+    internal fun expandForTest(text: String) { swipeRevealed = null; if (st.expanded != text) st.toggleExpand(text); refresh() }
     internal fun revealSwipeForTest(text: String) { revealSwipe(text) }
     internal fun hideSwipeForTest() { hideSwipe() }
-    internal fun swipeRevealedForTest(): String? = st.expanded
+    internal fun swipeRevealedForTest(): String? = swipeRevealed
     internal fun showPhraseManageMenuForTest() { showPhraseManageMenu() }
     internal fun showHistoryRecordingMenuForTest() { showHistoryRecordingMenu() }
     internal fun confirmClearForTest() { confirmClearCurrentCategory() }
@@ -605,6 +609,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
 
     private fun buildNormal() {
+        val categories = if (st.tab == Tab.PHRASE) categoriesProvider() else emptyList()
+        val category = if (st.tab == Tab.PHRASE) currentCategory(categories) else ""
+        val entries = if (st.tab == Tab.CLIPBOARD) historyProvider() else phrasesInProvider(category)
         val topBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -613,42 +620,50 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             addView(glyphToolbarBtn(desc = context.getString(R.string.clip_back), glyphSizeDp = 8, onClick = { onBack() }) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }, iconLp())
             addView(View(context), ll(0, dp(1), 1f))
             addView(pillTray(), ll(WC, dp(34)))
-            if (st.tab == Tab.PHRASE) addView(glyphToolbarBtn(desc = context.getString(R.string.clip_add_phrase), onClick = { onAddPhrase(currentCategory()) }) { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }.apply {
+            if (st.tab == Tab.PHRASE) addView(glyphToolbarBtn(desc = context.getString(R.string.clip_add_phrase), onClick = { onAddPhrase(category) }) { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }.apply {
                 background = rounded(CARD, ImeShapes.toolbarFeedbackRadiusDp)
             }, iconLp(true))
             else addView(View(context), iconLp(true))
             addView(glyphToolbarBtn(desc = context.getString(R.string.clip_multi_select), onClick = { enterSelect() }) { c, p, x, y, s -> Glyphs.drawList(c, p, x, y, s) }.apply {
                 background = rounded(CARD, ImeShapes.toolbarFeedbackRadiusDp)
             }, iconLp(true))
-            if (st.tab == Tab.PHRASE) addView(glyphToolbarBtn(desc = context.getString(R.string.clip_clear_category), tint = TEXT_DARK, onClick = { confirmClearCurrentCategory() }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }, iconLp(true))
+            if (st.tab == Tab.PHRASE) addView(glyphToolbarBtn(desc = context.getString(R.string.clip_clear_category), tint = TEXT_DARK, onClick = { confirmClearCurrentCategory() }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }.apply {
+                background = rounded(CARD, ImeShapes.toolbarFeedbackRadiusDp)
+            }, iconLp(true))
             else addView(glyphToolbarBtn(desc = context.getString(R.string.clip_clear_history), tint = TEXT_DARK, onClick = { confirmClearHistory() }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }.apply {
+                background = rounded(CARD, ImeShapes.toolbarFeedbackRadiusDp)
                 setOnLongClickListener { showHistoryRecordingMenu(); true }
             }, iconLp(true))
         }
         main.addView(topBar, ll(MP, dp(50)))
-        val entries = currentEntries()
-        populateListRows(entries) { e, i -> card(e, i) }
+        populateListRows(entries) { e, i -> card(e, i, category) }
         main.addView(listScroll, ll(MP, 0, 1f))
 
-        if (st.tab == Tab.PHRASE) main.addView(categoryBar(), ll(MP, dp(44)))
+        if (st.tab == Tab.PHRASE) main.addView(categoryBar(categories, category), ll(MP, dp(44)).apply {
+            leftMargin = dp(8)
+            rightMargin = dp(8)
+        })
     }
 
-    private fun phraseDisplayText(text: String): String {
-        val note = phraseNoteProvider(currentCategory(), text)
+    private fun phraseDisplayText(category: String, text: String): String {
+        val note = phraseNoteProvider(category, text)
         return if (note.isNotEmpty()) note else text
     }
 
-    private fun card(text: String, index: Int): View {
-        val revealed = st.expanded == text
+    private fun card(text: String, index: Int, category: String): View {
+        val expanded = st.expanded == text
+        val swiped = swipeRevealed == text
         val phrase = st.tab == Tab.PHRASE
-        val display = if (phrase) phraseDisplayText(text) else text
+        val display = if (phrase) phraseDisplayText(category, text) else text
         lateinit var header: LinearLayout
-        val frame = object : FrameLayout(context) {
+        val headerFrame = object : FrameLayout(context) {
             override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
                 super.onLayout(changed, left, top, right, bottom)
-                header.translationX = if (revealed) -((right - left) - dp(40)).coerceAtLeast(0).toFloat() else 0f
+                header.translationX = if (swiped) -minOf(dp(SWIPE_ACTION_WIDTH_DP), (right - left).coerceAtLeast(0)).toFloat() else 0f
             }
-        }.apply {
+        }
+        val column = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
             layoutParams = ll(MP, WC).apply { topMargin = dp(8) }
         }
         header = LinearLayout(context).apply {
@@ -664,45 +679,58 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setTextColor(TEXT_DARK)
             setPadding(dp(14), dp(12), dp(8), dp(12))
             Motion.applyTapFeedback(this, TEXT_DARK)
-            setOnClickListener { if (st.expanded == text) hideSwipe(text) else onPick(text) }
+            setOnClickListener {
+                when {
+                    swipeRevealed == text -> hideSwipe(text)
+                    st.expanded == text -> { st.collapse(); refresh() }
+                    else -> onPick(text)
+                }
+            }
             if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
         }
-        val chevron = glyphView(TEXT_DARK, 7) { c, p, x, y, s -> Glyphs.drawChevron(c, p, x, y, s, down = !revealed) }.apply {
-            contentDescription = if (revealed) context.getString(R.string.clip_collapse) else context.getString(R.string.clip_expand)
+        val chevron = glyphView(TEXT_DARK, 7) { c, p, x, y, s -> Glyphs.drawChevron(c, p, x, y, s, down = !expanded) }.apply {
+            contentDescription = if (expanded) context.getString(R.string.clip_collapse) else context.getString(R.string.clip_expand)
             Motion.applyTapFeedback(this, TEXT_DARK)
-            setOnClickListener { st.toggleExpand(text); refresh() }
+            setOnClickListener { swipeRevealed = null; st.toggleExpand(text); refresh() }
             if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
         }
         header.addView(body, ll(0, WC, 1f))
-        header.addView(View(context), ll(dp(40), MP))
-        if (revealed) {
-            val actions = if (phrase) phraseActionRow(text) else actionRow(text)
-            frame.addView(actions, FrameLayout.LayoutParams(MP, MP).apply { leftMargin = dp(40) })
-            for (i in 0 until actions.childCount) attachSwipeReveal(actions.getChildAt(i), text)
-            attachSwipeReveal(actions, text, retainDown = true)
+        header.addView(chevron, ll(dp(40), MP))
+        if (swiped) {
+            val delete = glyphToolbarBtn(
+                desc = context.getString(R.string.clip_delete),
+                tint = TEXT_DARK,
+                onClick = { confirmDelete(listOf(text)) },
+            ) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }.apply {
+                background = rounded(CARD, ImeShapes.toolbarFeedbackRadiusDp)
+            }
+            headerFrame.addView(delete, FrameLayout.LayoutParams(dp(SWIPE_ACTION_WIDTH_DP), MP, Gravity.END))
+            attachSwipeReveal(delete, text)
         }
-        frame.addView(header, FrameLayout.LayoutParams(MP, WC))
-        frame.addView(chevron, FrameLayout.LayoutParams(dp(40), MP, if (revealed) Gravity.START else Gravity.END))
+        headerFrame.addView(header, FrameLayout.LayoutParams(MP, WC))
+        column.addView(headerFrame, ll(MP, WC))
+        if (expanded) column.addView(if (phrase) phraseActionRow(text, category) else actionRow(text), ll(MP, WC))
         attachSwipeReveal(chevron, text)
-        if (phrase && !revealed) attachDragHandle(body, frame, index, text) else attachSwipeReveal(body, text)
-        return frame
+        if (phrase && !expanded && !swiped) attachDragHandle(body, column, index, text) else attachSwipeReveal(body, text)
+        return column
     }
 
     private fun actionRow(text: String): LinearLayout = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(8), dp(4), dp(8), dp(8))
         addActionButton(glyphAction(context.getString(R.string.clip_phrases), render = { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }) { chooseCategoryThen(listOf(text)) })
         addActionButton(charAction("拆", context.getString(R.string.clip_split_word)) { showSplit(text) })
         addActionButton(glyphAction(context.getString(R.string.clip_delete), render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { confirmDelete(listOf(text)) })
     }
 
-    private fun phraseActionRow(text: String): LinearLayout = LinearLayout(context).apply {
+    private fun phraseActionRow(text: String, category: String): LinearLayout = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        val cat = currentCategory()
-        addActionButton(glyphAction(context.getString(R.string.clip_edit), render = { c, p, x, y, s -> Glyphs.drawPencil(c, p, x, y, s) }) { onEditPhrase(cat, text) })
-        addActionButton(glyphAction(context.getString(R.string.clip_note), render = { c, p, x, y, s -> Glyphs.drawTag(c, p, x, y, s) }) { onEditNote(cat, text) })
-        addActionButton(charAction("移", context.getString(R.string.clip_move)) { chooseMoveCategoryThen(cat, listOf(text)) { target -> onMovePhrase(cat, text, target); refresh() } })
+        setPadding(dp(8), dp(4), dp(8), dp(8))
+        addActionButton(glyphAction(context.getString(R.string.clip_edit), render = { c, p, x, y, s -> Glyphs.drawPencil(c, p, x, y, s) }) { onEditPhrase(category, text) })
+        addActionButton(glyphAction(context.getString(R.string.clip_note), render = { c, p, x, y, s -> Glyphs.drawTag(c, p, x, y, s) }) { onEditNote(category, text) })
+        addActionButton(charAction("移", context.getString(R.string.clip_move)) { chooseMoveCategoryThen(category, listOf(text)) { target -> onMovePhrase(category, text, target); refresh() } })
         addActionButton(glyphAction(context.getString(R.string.clip_delete), render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { confirmDelete(listOf(text)) })
     }
 
@@ -776,16 +804,16 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
 
     private fun revealSwipe(text: String) {
-        if (st.expanded != text) {
-            st.toggleExpand(text)
-            refresh()
-        }
+        st.collapse()
+        if (swipeRevealed == text) return
+        swipeRevealed = text
+        refresh()
     }
 
     private fun hideSwipe(text: String? = null) {
-        val shown = st.expanded ?: return
+        val shown = swipeRevealed ?: return
         if (text == null || shown == text) {
-            st.collapse()
+            swipeRevealed = null
             refresh()
         }
     }
@@ -1004,13 +1032,13 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
 
 
-    private fun enterSortMode() { st.collapse(); categorySortMode = false; sortMode = true; refresh() }
+    private fun enterSortMode() { st.collapse(); swipeRevealed = null; categorySortMode = false; sortMode = true; refresh() }
     private fun exitSortMode() { sortMode = false; refresh() }
-    private fun enterCategorySortMode() { st.collapse(); sortMode = false; categorySortMode = true; refresh() }
+    private fun enterCategorySortMode() { st.collapse(); swipeRevealed = null; sortMode = false; categorySortMode = true; refresh() }
     private fun exitCategorySortMode() { categorySortMode = false; refresh() }
 
     private fun buildSortMode() {
-        val cat = currentCategory()
+        val cat = currentCategory(categoriesProvider())
         val topBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -1034,14 +1062,14 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         main.addView(topBar, ll(MP, WC))
 
         val entries = phrasesInProvider(cat)
-        populateListRows(entries) { e, i -> sortRowFor(e, i) }
+        populateListRows(entries) { e, i -> sortRowFor(e, i, cat) }
         main.addView(listScroll, ll(MP, 0, 1f))
     }
 
-    private fun sortRowFor(text: String, index: Int): View {
+    private fun sortRowFor(text: String, index: Int, category: String): View {
         val h = if (index < sortRowPool.size) sortRowPool[index] else buildTextRow(sortRowPool, maxLines = 2)
         Motion.reset(h.row)
-        h.label.text = preview(phraseDisplayText(text))
+        h.label.text = preview(phraseDisplayText(category, text))
         attachSortDrag(h.handle, h.row, index)
         return h.row
     }
@@ -1079,6 +1107,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
 
     private fun buildCategorySortMode() {
+        val cats = categoriesProvider()
+        val current = currentCategory(cats)
         val topBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -1091,22 +1121,22 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             addView(TextView(context).apply {
                 text = context.getString(R.string.clip_done); gravity = Gravity.END
                 setTextColor(GREEN); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+                background = rounded(CARD, ImeShapes.toolbarFeedbackRadiusDp)
                 Motion.applyTapFeedback(this, GREEN)
                 setOnClickListener { exitCategorySortMode() }
             }, ll(0, WC, 1f))
         }
         main.addView(topBar, ll(MP, WC))
 
-        val cats = categoriesProvider()
-        populateListRows(cats) { name, i -> catSortRowFor(name, i) }
+        populateListRows(cats) { name, i -> catSortRowFor(name, i, current) }
         main.addView(listScroll, ll(MP, 0, 1f))
     }
 
-    private fun catSortRowFor(name: String, index: Int): View {
+    private fun catSortRowFor(name: String, index: Int, current: String): View {
         val h = if (index < catSortRowPool.size) catSortRowPool[index] else buildTextRow(catSortRowPool, maxLines = 1)
         Motion.reset(h.row)
         h.label.text = displayCat(name)
-        h.label.setTypeface(null, if (name == currentCategory()) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+        h.label.setTypeface(null, if (name == current) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         attachCategorySortDrag(h.handle, h.row, index)
         return h.row
     }
@@ -1125,14 +1155,28 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         }
     }
 
-    private fun categoryBar(): View = LinearLayout(context).apply {
+    private fun categoryBar(categories: List<String>, current: String): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(8), 0, dp(8), 0)
+        setPadding(dp(4), 0, dp(4), 0)
+        background = rounded(CARD, ImeShapes.toolbarPillRadiusDp)
         val chips = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
-        val cur = currentCategory()
-        for (name in categoriesProvider()) chips.addView(catChip(name, name == cur))
-        addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, ll(0, WC, 1f))
+        for (name in categories) chips.addView(catChip(name, name == current))
+        addView(object : HorizontalScrollView(context) {
+            override fun onScrollChanged(left: Int, top: Int, oldLeft: Int, oldTop: Int) {
+                super.onScrollChanged(left, top, oldLeft, oldTop)
+                categoryScrollX = left
+            }
+
+            override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+                val saved = categoryScrollX
+                super.onLayout(changed, left, top, right, bottom)
+                if (scrollX != saved) scrollTo(saved, 0)
+            }
+        }.apply {
+            isHorizontalScrollBarEnabled = false
+            addView(chips)
+        }, ll(0, dp(34), 1f))
         addView(TextView(context).apply {
             text = context.getString(R.string.clip_edit)
             gravity = Gravity.CENTER
@@ -1198,30 +1242,32 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         text = displayCat(name)
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
-        setPadding(dp(14), dp(6), dp(14), dp(6))
-        background = null
+        setPadding(dp(10), dp(6), dp(10), dp(6))
+        background = if (on) rounded(GREY_PILL, ImeShapes.toolbarPillRadiusDp) else null
         setTextColor(if (on) GREEN else TEXT_DARK)
         setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         Motion.applyTapFeedback(this, if (on) GREEN else TEXT_DARK)
-        setOnClickListener { st.collapse(); phraseCat = name; refresh() }
+        setOnClickListener { st.collapse(); swipeRevealed = null; phraseCat = name; refresh() }
         setOnLongClickListener { showCategoryMenu(name); true }
-        layoutParams = ll(WC, WC).apply { rightMargin = dp(8) }
+        layoutParams = ll(WC, WC).apply { rightMargin = dp(2) }
     }
 
     private fun showCategoryMenu(name: String) {
         val card = menuCard()
         card.addView(menuItem(context.getString(R.string.clip_rename_named, displayCat(name))) { hideOverlay(); onRenameCategory(name) })
         card.addView(menuDivider())
-        card.addView(menuItem(context.getString(R.string.clip_delete_named, displayCat(name))) { hideOverlay(); onDeleteCategory(name); if (phraseCat == name) phraseCat = ""; st.collapse(); refresh() })
+        card.addView(menuItem(context.getString(R.string.clip_delete_named, displayCat(name))) { hideOverlay(); onDeleteCategory(name); if (phraseCat == name) phraseCat = ""; st.collapse(); swipeRevealed = null; refresh() })
         showOverlay(card)
     }
 
 
-    private fun enterSelect() { sortMode = false; categorySortMode = false; st.enterSelect(); refresh() }
+    private fun enterSelect() { swipeRevealed = null; sortMode = false; categorySortMode = false; st.enterSelect(); refresh() }
     private fun exitSelect() { st.exitSelect(); refresh() }
 
     private fun buildSelectMode() {
-        val all = currentEntries()
+        val categories = if (st.tab == Tab.PHRASE) categoriesProvider() else emptyList()
+        val category = if (st.tab == Tab.PHRASE) currentCategory(categories) else ""
+        val all = if (st.tab == Tab.CLIPBOARD) historyProvider() else phrasesInProvider(category)
         val topBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -1233,6 +1279,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 setCompoundDrawablesWithIntrinsicBounds(glyphIcon(if (allSel) GREEN else TEXT_DARK, 22) { c, p, x, y, s -> Glyphs.drawRadio(c, p, x, y, s, allSel) }, null, null, null)
                 compoundDrawablePadding = dp(6)
+                background = rounded(CARD, ImeShapes.toolbarFeedbackRadiusDp)
                 Motion.applyTapFeedback(this, if (allSel) GREEN else TEXT_DARK)
                 setOnClickListener { st.selectAll(all); refresh() }
             }, ll(0, WC, 1f))
@@ -1254,13 +1301,14 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             addView(TextView(context).apply {
                 text = context.getString(R.string.clip_cancel); gravity = Gravity.END
                 setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+                background = rounded(CARD, ImeShapes.toolbarFeedbackRadiusDp)
                 Motion.applyTapFeedback(this, TEXT_DARK)
                 setOnClickListener { exitSelect() }
             }, ll(0, WC, 1f))
         }
         main.addView(topBar, ll(MP, WC))
 
-        populateListRows(all) { e, i -> selectRowFor(e, i) }
+        populateListRows(all) { e, i -> selectRowFor(e, i, category) }
         main.addView(listScroll, ll(MP, 0, 1f))
 
         val hasSel = st.hasSelection()
@@ -1269,8 +1317,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setPadding(dp(12), dp(8), dp(12), dp(8))
             if (st.tab == Tab.PHRASE) {
                 addView(pillButton(context.getString(R.string.clip_move_to_category), hasSel) {
-                    val from = currentCategory(); val victims = st.selected.toList()
-                    chooseMoveCategoryThen(from, victims, after = { exitSelect() }) { target -> onMovePhrasesTo(from, victims, target); exitSelect() }
+                    val victims = st.selected.toList()
+                    chooseMoveCategoryThen(category, victims, after = { exitSelect() }) { target -> onMovePhrasesTo(category, victims, target); exitSelect() }
                 }, ll(0, dp(44), 1f).apply { rightMargin = dp(8) })
             } else {
                 addView(pillButton(context.getString(R.string.clip_add_phrase), hasSel) {
@@ -1285,13 +1333,13 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         main.addView(bottom, ll(MP, WC))
     }
 
-    private fun selectRowFor(text: String, index: Int): View {
+    private fun selectRowFor(text: String, index: Int, category: String): View {
         val h = if (index < selectRowPool.size) selectRowPool[index] else buildSelectRow()
         val on = text in st.selected
         val tint = if (on) GREEN else TEXT_DARK
         Motion.reset(h.row)
         h.radio.bind(tint, on)
-        h.label.text = if (st.tab == Tab.PHRASE) phraseDisplayText(text) else text
+        h.label.text = if (st.tab == Tab.PHRASE) phraseDisplayText(category, text) else text
         retintRow(h.row, tint)
         h.row.setOnClickListener { st.toggleSelect(text); refresh() }
         return h.row
@@ -1361,7 +1409,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                     contentDescription = context.getString(R.string.clip_delete_category)
                     Motion.applyTapFeedback(this, RED)
                     setOnClickListener {
-                        onDeleteCategory(name); if (phraseCat == name) phraseCat = ""; st.collapse()
+                        onDeleteCategory(name); if (phraseCat == name) phraseCat = ""; st.collapse(); swipeRevealed = null
                         refresh()
                         chooseMoveCategoryThen(current, moveTexts, after, action)
                     }
@@ -1456,9 +1504,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
 
 
-    private fun currentCategory(): String {
-        val cats = categoriesProvider()
-        if (phraseCat !in cats) phraseCat = cats.firstOrNull().orEmpty()
+    private fun currentCategory(): String = currentCategory(categoriesProvider())
+
+    private fun currentCategory(categories: List<String>): String {
+        if (phraseCat !in categories) phraseCat = categories.firstOrNull().orEmpty()
         return phraseCat
     }
 
@@ -1476,6 +1525,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             hideOverlay()
             if (deleteTab == Tab.CLIPBOARD) onDeleteClips(texts) else onDeletePhrasesFrom(category, texts)
             texts.forEach(st::collapseIfExpanded)
+            swipeRevealed?.let { if (it in texts) swipeRevealed = null }
             after()
             refresh()
         })
@@ -1488,8 +1538,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         background = rounded(CARD, ImeShapes.toolbarPillRadiusDp)
-        addView(pill(context.getString(R.string.clip_clipboard), st.tab == Tab.CLIPBOARD, true) { if (st.switchTab(Tab.CLIPBOARD)) { sortMode = false; categorySortMode = false; refresh() } }, ll(dp(84), MP))
-        addView(pill(context.getString(R.string.clip_phrases), st.tab == Tab.PHRASE, false) { if (st.switchTab(Tab.PHRASE)) { sortMode = false; categorySortMode = false; refresh() } }, ll(dp(84), MP))
+        addView(pill(context.getString(R.string.clip_clipboard), st.tab == Tab.CLIPBOARD, true) { if (st.switchTab(Tab.CLIPBOARD)) { swipeRevealed = null; sortMode = false; categorySortMode = false; refresh() } }, ll(dp(84), MP))
+        addView(pill(context.getString(R.string.clip_phrases), st.tab == Tab.PHRASE, false) { if (st.switchTab(Tab.PHRASE)) { swipeRevealed = null; sortMode = false; categorySortMode = false; refresh() } }, ll(dp(84), MP))
     }
 
     private fun pill(label: String, on: Boolean, left: Boolean, onClick: () -> Unit): TextView = TextView(context).apply {
@@ -1595,10 +1645,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         }
 
     private fun glyphAction(label: String, tint: Int = TEXT_DARK, render: (Canvas, Paint, Float, Float, Float) -> Unit, onClick: () -> Unit): TextView =
-        actionButton(label, tint, glyphIcon(tint, 18, render), onClick)
+        actionButton(label, tint, glyphIcon(tint, 16, render), onClick)
 
     private fun charAction(symbol: String, label: String, tint: Int = TEXT_DARK, onClick: () -> Unit): TextView =
-        actionButton(label, tint, charIcon(symbol, tint, 18), onClick).apply { contentDescription = "$symbol $label" }
+        actionButton(label, tint, charIcon(symbol, tint, 16), onClick).apply { contentDescription = "$symbol $label" }
 
     private fun actionButton(label: String, tint: Int, icon: android.graphics.drawable.Drawable, onClick: () -> Unit): TextView =
         TextView(context).apply {
@@ -1608,7 +1658,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setTextColor(TEXT_DARK)
             setPadding(dp(4), 0, dp(4), 0)
             setCompoundDrawablesWithIntrinsicBounds(icon, null, null, null)
-            compoundDrawablePadding = dp(4)
+            compoundDrawablePadding = dp(2)
             background = rounded(CARD, ImeShapes.toolbarFeedbackRadiusDp)
             Motion.applyTapFeedback(this, tint, radiusDp = ImeShapes.toolbarFeedbackRadiusDp)
             setOnClickListener { onClick() }

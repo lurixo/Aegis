@@ -19,8 +19,10 @@ import android.graphics.drawable.GradientDrawable
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.widget.HorizontalScrollView
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
+import kotlin.math.abs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -111,6 +113,9 @@ class PhrasePanelTest {
         val all = clipActions + phraseActions
         assertEquals(1, all.map { it.layoutParams.height }.toSet().size)
         assertEquals(1, all.map { it.compoundDrawablePadding }.toSet().size)
+        assertEquals((2 * ctx.resources.displayMetrics.density).toInt(), all.first().compoundDrawablePadding)
+        val heightTolerance = 2 * ctx.resources.displayMetrics.density + 1f
+        assertTrue(all.all { abs(it.compoundDrawables[0].intrinsicHeight - it.textSize) <= heightTolerance })
         assertTrue(all.all { it.background is GradientDrawable })
         assertEquals(1, all.map { (it.background as GradientDrawable).cornerRadius }.toSet().size)
         assertTrue(all.all { (it.background as GradientDrawable).cornerRadius > 0f })
@@ -447,6 +452,44 @@ class PhrasePanelTest {
         assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete_named, "工作"))); assertEquals("工作", deleted)
     }
 
+    @Test fun non_first_category_selection_retains_scroll_with_edit_pinned_outside() {
+        val categories = (0..11).map { "分类${it.toString().padStart(2, '0')}" }
+        val v = ClipboardView(ctx).apply {
+            categoriesProvider = { categories }
+            phrasesInProvider = { listOf("短语") }
+            applyPalette(pal)
+            forcePhrasesStateForTest(categories.first())
+            refresh()
+        }
+        layout(v, w = 320, h = 400)
+        val initialScroll = allViews(v).filterIsInstance<HorizontalScrollView>().single()
+        initialScroll.scrollTo((initialScroll.getChildAt(0).width - initialScroll.width).coerceAtLeast(0), 0)
+        val savedScroll = initialScroll.scrollX
+        assertTrue(savedScroll > 0)
+
+        val selectedName = categories.last()
+        assertTrue(textViews(v).first { it.text?.toString() == selectedName }.performClick())
+        layout(v, w = 320, h = 400)
+
+        val retainedScroll = allViews(v).filterIsInstance<HorizontalScrollView>().single()
+        val selected = textViews(v).first { it.text?.toString() == selectedName }
+        val manage = allViews(v).first { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_manage_phrases) }
+        assertTrue(retainedScroll !== initialScroll)
+        assertEquals(selectedName, v.phraseCatForTest())
+        assertTrue(retainedScroll.scrollX > 0)
+        assertTrue(selected.left - retainedScroll.scrollX < retainedScroll.width)
+        assertTrue(selected.right - retainedScroll.scrollX > 0)
+        assertTrue(retainedScroll.parent === manage.parent)
+        assertFalse(allViews(retainedScroll).contains(manage))
+        assertTrue((retainedScroll.parent as View).background is GradientDrawable)
+        assertTrue(selected.background is GradientDrawable)
+
+        v.refresh()
+        layout(v, w = 320, h = 400)
+        assertEquals(selectedName, v.phraseCatForTest())
+        assertTrue(allViews(v).filterIsInstance<HorizontalScrollView>().single().scrollX > 0)
+    }
+
 
     @Test fun top_bar_icons_are_uniform_size() {
         val v = phraseView()
@@ -456,7 +499,7 @@ class PhrasePanelTest {
         assertTrue("返回 is no longer a '‹' text glyph", textViews(v).none { it.text?.toString() == "‹" })
         assertEquals("all top icons share one width (item7)", 1, icons.map { it.layoutParams.width }.toSet().size)
         assertEquals("all top icons share one height (item7)", 1, icons.map { it.layoutParams.height }.toSet().size)
-        val surfaced = icons.filter { it.contentDescription?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_add_phrase), ctx.getString(com.aegis.ime.R.string.clip_multi_select)) }
+        val surfaced = icons.filter { it.contentDescription?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_add_phrase), ctx.getString(com.aegis.ime.R.string.clip_multi_select), ctx.getString(com.aegis.ime.R.string.clip_clear_category)) }
         assertTrue(surfaced.all { it.background is GradientDrawable })
         val iconSize = (36 * ctx.resources.displayMetrics.density).toInt()
         assertTrue(surfaced.all { it.layoutParams.width == iconSize && it.layoutParams.height == iconSize })

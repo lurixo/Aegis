@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import android.graphics.drawable.GradientDrawable
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -75,21 +76,15 @@ class ClipboardViewInteractionTest {
         send(root, MotionEvent.ACTION_UP, x + dx, y, 32)
     }
 
-    private fun rootSwipe(root: View, target: View, localX: Float, localY: Float, dx: Float) {
-        val (centerX, centerY) = centerInRoot(root, target)
-        val x = centerX - target.width / 2f + localX
-        val y = centerY - target.height / 2f + localY
-        send(root, MotionEvent.ACTION_DOWN, x, y, 0)
-        send(root, MotionEvent.ACTION_MOVE, x + dx, y, 16)
-        send(root, MotionEvent.ACTION_UP, x + dx, y, 32)
-    }
-
     private fun allViews(root: View): List<View> {
         val out = ArrayList<View>()
         fun walk(x: View) { out.add(x); if (x is ViewGroup) for (i in 0 until x.childCount) walk(x.getChildAt(i)) }
         walk(root); return out
     }
     private fun textViews(root: View): List<TextView> = allViews(root).filterIsInstance<TextView>()
+    private fun actionButtons(root: View): List<TextView> = textViews(root).filter {
+        it.compoundDrawables[0] != null && it.background is GradientDrawable && it.hasOnClickListeners()
+    }
     private fun bodyOf(root: View, text: String): TextView =
         textViews(root).first { it.text?.toString() == text }
     private fun mainOf(v: ClipboardView): View = (v as ViewGroup).getChildAt(0)
@@ -202,88 +197,68 @@ class ClipboardViewInteractionTest {
         assertTrue("previous history remains visible", "old" in labels(mainOf(v)))
     }
 
-    @Test fun left_and_right_swipes_and_arrow_clicks_drive_the_same_open_state() {
+    @Test fun clipboard_swipe_reveals_one_icon_button_while_dropdown_reveals_labeled_actions() {
         val v = clipView(listOf("第一条", "第二条"))
         layout(v)
         rootSwipe(v, bodyOf(v, "第一条"), -200f)
         layout(v)
-        val openedBody = bodyOf(v, "第一条")
+        val swipedBody = bodyOf(v, "第一条")
+        val delete = allViews(v).single { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_delete) }
         assertEquals("第一条", v.swipeRevealedForTest())
-        assertTrue((openedBody.parent as View).translationX < 0f)
-        assertTrue(clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_collapse)))
+        assertEquals((44 * ctx.resources.displayMetrics.density).toInt(), delete.width)
+        assertEquals(-delete.width.toFloat(), (swipedBody.parent as View).translationX, 0f)
+        assertTrue(delete !is TextView)
+        assertTrue(delete.background is GradientDrawable)
+        assertTrue((delete.background as GradientDrawable).cornerRadius > 0f)
+        assertTrue(actionButtons(v).isEmpty())
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_expand) in allViews(v).mapNotNull { it.contentDescription?.toString() })
+
+        rootSwipe(v, delete, 200f)
         assertNull(v.swipeRevealedForTest())
         assertTrue(clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_expand)))
-        assertEquals("第一条", v.swipeRevealedForTest())
         layout(v)
-        val action = textViews(v).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_phrases) && it.compoundDrawables[0] != null }
-        rootSwipe(v, action, 200f)
-        layout(v)
-        val closedBody = bodyOf(v, "第一条")
         assertNull(v.swipeRevealedForTest())
-        assertEquals(0f, (closedBody.parent as View).translationX, 0f)
-        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_expand) in allViews(v).mapNotNull { it.contentDescription?.toString() })
+        assertEquals(0f, (bodyOf(v, "第一条").parent as View).translationX, 0f)
+        assertEquals(
+            listOf(
+                ctx.getString(com.aegis.ime.R.string.clip_phrases),
+                ctx.getString(com.aegis.ime.R.string.clip_split_word),
+                ctx.getString(com.aegis.ime.R.string.clip_delete),
+            ),
+            actionButtons(v).map { it.text.toString() },
+        )
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_collapse) in allViews(v).mapNotNull { it.contentDescription?.toString() })
     }
 
-    @Test fun right_swipes_from_action_row_gaps_and_vertical_bands_close_the_revealed_row() {
-        val clipboard = clipView(listOf("第一条", "第二条"))
-        layout(clipboard)
-        rootSwipe(clipboard, bodyOf(clipboard, "第一条"), -200f)
-        layout(clipboard)
-        val clipboardAction = textViews(clipboard).first {
-            it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_phrases) && it.compoundDrawables[0] != null
-        }
-        val clipboardRow = clipboardAction.parent as ViewGroup
-        val nextClipboardAction = clipboardRow.getChildAt(1)
-        assertTrue(nextClipboardAction.left > clipboardAction.right)
-        rootSwipe(
-            clipboard,
-            clipboardRow,
-            (clipboardAction.right + nextClipboardAction.left) / 2f,
-            clipboardRow.height / 2f,
-            80f,
-        )
-        assertNull(clipboard.swipeRevealedForTest())
-
-        val phrases = phraseView(listOf("你好", "在吗"))
-        layout(phrases)
-        rootSwipe(phrases, bodyOf(phrases, "你好"), -200f)
-        layout(phrases)
-        val phraseAction = textViews(phrases).first {
-            it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_edit) && it.compoundDrawables[0] != null
-        }
-        val phraseRow = phraseAction.parent as ViewGroup
-        assertTrue(phraseAction.top > 0)
-        rootSwipe(
-            phrases,
-            phraseRow,
-            phraseAction.left + phraseAction.width / 2f,
-            phraseAction.top / 2f,
-            80f,
-        )
-        assertNull(phrases.swipeRevealedForTest())
-    }
-
-    @Test fun narrow_phrase_row_keeps_the_arrow_visible_and_right_swipe_reachable_from_the_root() {
+    @Test fun narrow_phrase_swipe_keeps_delete_reachable_and_dropdown_actions_distinct() {
         for (width in listOf(320, 360)) {
             val v = phraseView(listOf("你好", "在吗"))
             layout(v, width)
             rootSwipe(v, bodyOf(v, "你好"), -80f)
             layout(v, width)
             assertEquals("你好", v.swipeRevealedForTest())
-            val collapse = allViews(v).first { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_collapse) }
-            val (arrowX, _) = centerInRoot(v, collapse)
-            assertTrue(arrowX - collapse.width / 2f >= 0f)
-            assertTrue(arrowX + collapse.width / 2f <= v.width)
-            assertTrue(collapse.performClick())
+            val delete = allViews(v).single { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_delete) }
+            val (deleteX, _) = centerInRoot(v, delete)
+            assertTrue(deleteX - delete.width / 2f >= 0f)
+            assertTrue(deleteX + delete.width / 2f <= v.width)
+            assertTrue(delete !is TextView)
+            assertTrue(actionButtons(v).isEmpty())
+            rootSwipe(v, delete, 80f)
             assertNull(v.swipeRevealedForTest())
             layout(v, width)
             val expand = allViews(v).first { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_expand) }
             assertTrue(expand.performClick())
-            assertEquals("你好", v.swipeRevealedForTest())
-            layout(v, width)
-            val edit = textViews(v).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_edit) && it.compoundDrawables[0] != null }
-            rootSwipe(v, edit, 80f)
             assertNull(v.swipeRevealedForTest())
+            layout(v, width)
+            assertEquals(
+                listOf(
+                    ctx.getString(com.aegis.ime.R.string.clip_edit),
+                    ctx.getString(com.aegis.ime.R.string.clip_note),
+                    ctx.getString(com.aegis.ime.R.string.clip_move),
+                    ctx.getString(com.aegis.ime.R.string.clip_delete),
+                ),
+                actionButtons(v).map { it.text.toString() },
+            )
         }
     }
 

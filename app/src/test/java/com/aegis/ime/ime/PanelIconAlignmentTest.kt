@@ -17,6 +17,7 @@ package com.aegis.ime.ime
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Rect
 import android.graphics.drawable.RippleDrawable
 import android.view.Gravity
 import android.view.MotionEvent
@@ -120,6 +121,49 @@ class PanelIconAlignmentTest {
                 ?: throw AssertionError("$action arrow glyph must draw during button rendering")
             assertEquals("$action glyph x center", button.width / 2f, center.first, 0.5f)
             assertEquals("$action glyph y center", button.height / 2f, center.second, 0.5f)
+        }
+    }
+
+    @Test fun edit_left_group_moves_together_and_right_actions_use_leading_icons() {
+        val v = EditPanelView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        layout(v, width = 600, height = 320)
+
+        fun viewFor(item: EditAction): View = requireNotNull(v.actionViewForTest(item))
+        fun centerX(item: EditAction): Float {
+            val target = viewFor(item)
+            val bounds = Rect(0, 0, target.width, target.height)
+            v.offsetDescendantRectToMyCoords(target, bounds)
+            return bounds.exactCenterX()
+        }
+
+        assertEquals(centerX(EditAction.LEFT), centerX(EditAction.HOME), 0.5f)
+        assertEquals(centerX(EditAction.UP), centerX(EditAction.SELECT_ALL), 0.5f)
+        assertEquals(centerX(EditAction.DOWN), centerX(EditAction.SELECT_ALL), 0.5f)
+        assertEquals(centerX(EditAction.START_SELECT), centerX(EditAction.SELECT_ALL), 0.5f)
+        assertEquals(centerX(EditAction.RIGHT), centerX(EditAction.END), 0.5f)
+        assertTrue(centerX(EditAction.LEFT) > v.width / 10f)
+
+        val leftWidths = listOf(
+            EditAction.LEFT,
+            EditAction.UP,
+            EditAction.RIGHT,
+            EditAction.DOWN,
+            EditAction.HOME,
+            EditAction.SELECT_ALL,
+            EditAction.END,
+        ).map { viewFor(it).width }
+        assertTrue(leftWidths.max() - leftWidths.min() <= 1)
+        assertTrue(leftWidths.all { kotlin.math.abs(it - v.width / 5) <= 1 })
+
+        for (item in listOf(EditAction.DELETE, EditAction.COPY, EditAction.CUT, EditAction.PASTE)) {
+            val button = viewFor(item) as TextView
+            assertNotNull("$item keeps its icon", button.compoundDrawables[0])
+            assertTrue("$item does not stack its icon above the label", button.compoundDrawables[1] == null)
+        }
+        for (item in listOf(EditAction.HOME, EditAction.SELECT_ALL, EditAction.END)) {
+            val button = viewFor(item) as TextView
+            assertTrue("$item keeps no leading icon", button.compoundDrawables[0] == null)
+            assertNotNull("$item keeps its top symbol", button.compoundDrawables[1])
         }
     }
 

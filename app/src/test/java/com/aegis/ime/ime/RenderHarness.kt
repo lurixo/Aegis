@@ -427,7 +427,7 @@ class RenderHarness {
                 applyPalette(pal); refresh(); revealSwipeForTest("第一条复制内容")
             }
             snap(v, h, "clip_swipe_$t.png")
-            assertTrue("$t: swipe row missing 拆词", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_split_word)))
+            assertFalse("$t: swipe row must not show 拆词", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_split_word)))
         }
     }
 
@@ -440,7 +440,7 @@ class RenderHarness {
                 applyPalette(pal); forcePhrasesStateForTest("默认"); refresh(); revealSwipeForTest("在吗")
             }
             snap(v, h, "phrase_swipe_$t.png")
-            assertTrue("$t: swipe row missing 备注", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_note)))
+            assertFalse("$t: swipe row must not show 备注", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_note)))
         }
     }
 
