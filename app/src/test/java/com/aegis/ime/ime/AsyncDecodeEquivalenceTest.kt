@@ -25,6 +25,7 @@ import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -62,6 +63,8 @@ class AsyncDecodeEquivalenceTest {
         val workerQ = ArrayDeque<Runnable>()
         val mainQ = ArrayDeque<Runnable>()
         val lane = DecodeLane(Executor { workerQ.add(it) }, Executor { mainQ.add(it) })
+        fun runNextWorker() = workerQ.removeFirst().run()
+        fun runNextMain() = mainQ.removeFirst().run()
         fun drain() {
             while (workerQ.isNotEmpty() || mainQ.isNotEmpty()) {
                 while (workerQ.isNotEmpty()) workerQ.removeFirst().run()
@@ -230,6 +233,11 @@ class AsyncDecodeEquivalenceTest {
         val candidatesBefore = grid.renderedCandidateTextsForTest()
 
         assertTrue(grid.tapCandidateForTest(controller.candidateWords().indexOf("你")))
+        val pendingWorkersAfterPick = lane.workerQ.size
+
+        assertTrue(lane.lane.pending)
+        assertTrue(grid.tapCandidateForTest(candidatesBefore.indexOf("尼")))
+        assertTrue(lane.lane.pending)
 
         assertEquals("你hao", controller.preeditForTest())
         assertEquals("你", controller.composingPrefix())
@@ -246,6 +254,7 @@ class AsyncDecodeEquivalenceTest {
         assertEquals(panelChangesBefore, panelChanges)
         assertEquals(rebuildsBefore, grid.candidateRebuildsForTest())
         assertEquals(allocationsBefore, grid.chipsAllocatedForTest())
+        assertEquals(pendingWorkersAfterPick, lane.workerQ.size)
 
         lane.drain()
 
@@ -269,6 +278,11 @@ class AsyncDecodeEquivalenceTest {
         val restoredDrillDecodesBeforeUndo = restoredDrillDecodes
 
         assertTrue(grid.backspaceButtonForTest().performClick())
+        val pendingWorkersAfterUndo = lane.workerQ.size
+
+        assertTrue(lane.lane.pending)
+        assertTrue(grid.tapCandidateForTest(candidatesBeforeUndo.indexOf("好")))
+        assertTrue(lane.lane.pending)
 
         assertEquals("nihao", controller.preeditForTest())
         assertEquals("", controller.composingPrefix())
@@ -285,6 +299,7 @@ class AsyncDecodeEquivalenceTest {
         assertEquals(panelChangesBeforeUndo, panelChanges)
         assertEquals(rebuildsBeforeUndo, grid.candidateRebuildsForTest())
         assertEquals(allocationsBeforeUndo, grid.chipsAllocatedForTest())
+        assertEquals(pendingWorkersAfterUndo, lane.workerQ.size)
 
         lane.drain()
 
@@ -303,6 +318,50 @@ class AsyncDecodeEquivalenceTest {
         assertEquals(panelChangesBeforeUndo, panelChanges)
         assertEquals(rebuildsBeforeUndo + 1, grid.candidateRebuildsForTest())
         assertEquals(allocationsBeforeUndo, grid.chipsAllocatedForTest())
+    }
+
+    @Test fun computed_stale_main_is_dropped_before_apply() {
+        val lane = TestLane()
+        val grid = CandidateGridView(ctx)
+        grid.setCandidates(listOf("visible"))
+        val rebuildsBefore = grid.candidateRebuildsForTest()
+        var decodes = 0
+        var applies = 0
+
+        lane.lane.submit(
+            compute = { decodes++; "old" },
+            apply = { applies++; grid.setCandidates(listOf(it)) },
+        )
+        lane.runNextWorker()
+        assertEquals(1, decodes)
+        assertEquals(1, lane.mainQ.size)
+
+        lane.lane.submit(
+            compute = { decodes++; "current" },
+            apply = { applies++; grid.setCandidates(listOf(it)) },
+        )
+        lane.runNextMain()
+
+        assertEquals(1, decodes)
+        assertEquals(0, applies)
+        assertEquals(listOf("visible"), grid.renderedCandidateTextsForTest())
+        assertEquals(rebuildsBefore, grid.candidateRebuildsForTest())
+        assertTrue(lane.lane.pending)
+
+        lane.runNextWorker()
+
+        assertEquals(2, decodes)
+        assertEquals(0, applies)
+        assertEquals(listOf("visible"), grid.renderedCandidateTextsForTest())
+        assertEquals(rebuildsBefore, grid.candidateRebuildsForTest())
+
+        lane.runNextMain()
+
+        assertEquals(2, decodes)
+        assertEquals(1, applies)
+        assertEquals(listOf("current"), grid.renderedCandidateTextsForTest())
+        assertEquals(rebuildsBefore + 1, grid.candidateRebuildsForTest())
+        assertFalse(lane.lane.pending)
     }
 
 
