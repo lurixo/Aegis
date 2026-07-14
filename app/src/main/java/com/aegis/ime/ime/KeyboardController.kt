@@ -288,7 +288,6 @@ class KeyboardController(
         if (drillSyllable >= 0) {
             pickDrilledHomophone(candidates[index].word)
             refreshCandidates()
-            if (composing.isNotEmpty()) ensureDecodeApplied()
             render()
             return
         }
@@ -320,7 +319,6 @@ class KeyboardController(
             }
         }
         refreshCandidates()
-        if (composing.isNotEmpty()) ensureDecodeApplied()
         render()
     }
 
@@ -446,7 +444,6 @@ class KeyboardController(
                 lockedReadings.clear(); activeStart = 0
             }
             drillSyllable = -1
-            candidates = emptyList()
             rebuildHistory()
             repeat(lockedReadings.size) { history.addLast(StepKind.LOCK) }
         } else {
@@ -784,7 +781,6 @@ class KeyboardController(
         drillChoices.clear(); drillChoices.putAll(snap.drillChoices)
         deferredLearnEvents.clear(); deferredLearnEvents.addAll(snap.deferredLearnEvents)
         lastWord = snap.lastWord
-        candidates = emptyList()
         return true
     }
 

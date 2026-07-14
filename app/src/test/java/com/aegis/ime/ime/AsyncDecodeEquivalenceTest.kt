@@ -168,6 +168,8 @@ class AsyncDecodeEquivalenceTest {
     }
 
     @Test fun partial_homophone_pick_keeps_the_expanded_candidates_stable() {
+        var remainderDecodes = 0
+        var restoredDrillDecodes = 0
         val candidateEngine = object : CandidateEngine {
             override fun candidates(composing: String, t9: Boolean) =
                 candidatesCovered(composing, t9).map { it.word }
@@ -177,10 +179,13 @@ class AsyncDecodeEquivalenceTest {
                 t9: Boolean,
                 cuts: Set<Int>,
                 context: CharSequence,
-            ) = when (composing) {
-                "nihao" -> listOf(Cand("你好", 5), Cand("你", 2))
-                "hao" -> listOf(Cand("好", 3), Cand("号", 3))
-                else -> emptyList()
+            ): List<Cand> {
+                if (composing == "hao") remainderDecodes++
+                return when (composing) {
+                    "nihao" -> listOf(Cand("你好", 5), Cand("你", 2))
+                    "hao" -> listOf(Cand("好", 3), Cand("号", 3))
+                    else -> emptyList()
+                }
             }
 
             override fun syllablesForReading(letters: String) = when (letters) {
@@ -192,8 +197,11 @@ class AsyncDecodeEquivalenceTest {
                 else -> emptyList()
             }
 
-            override fun homophonesForReadingAt(letters: String, index: Int) =
-                if (letters == "nihao" && index == 0) listOf("你", "尼", "泥", "拟", "妮") else emptyList()
+            override fun homophonesForReadingAt(letters: String, index: Int): List<String> {
+                if (letters != "nihao" || index != 0) return emptyList()
+                restoredDrillDecodes++
+                return listOf("你", "尼", "泥", "拟", "妮")
+            }
         }
         val host = object : Host() {
             val commits = mutableListOf<String>()
@@ -205,6 +213,7 @@ class AsyncDecodeEquivalenceTest {
         view.onPickCandidate = { controller.onPickCandidate(it) }
         view.onPickReading = { controller.onPickReadingIndex(it) }
         view.onExpandClosed = { controller.clearDrill() }
+        view.onPanelBackspace = { controller.onPanelBackspace() }
         var panelChanges = 0
         view.onPanelChanged = { panelChanges++ }
         controller.attachView(view)
@@ -218,6 +227,7 @@ class AsyncDecodeEquivalenceTest {
         val rebuildsBefore = grid.candidateRebuildsForTest()
         val allocationsBefore = grid.chipsAllocatedForTest()
         val panelChangesBefore = panelChanges
+        val candidatesBefore = grid.renderedCandidateTextsForTest()
 
         assertTrue(grid.tapCandidateForTest(controller.candidateWords().indexOf("你")))
 
@@ -225,20 +235,24 @@ class AsyncDecodeEquivalenceTest {
         assertEquals("你", controller.composingPrefix())
         assertEquals(listOf("hao"), controller.expandedReadings())
         assertTrue(host.commits.isEmpty())
+        assertEquals(0, remainderDecodes)
         assertTrue(controller.candidateWords().isNotEmpty())
-        assertEquals("好", controller.candidateWords().first())
-        assertEquals(controller.candidateWords(), grid.renderedCandidateTextsForTest())
+        assertEquals(candidatesBefore, controller.candidateWords())
+        assertEquals(candidatesBefore, grid.renderedCandidateTextsForTest())
         assertTrue(view.shownCandidateCount() > 0)
         assertTrue(grid.selectionContentVisibleForTest())
         assertTrue(view.isPanelShowing(grid))
         assertEquals("⌃", view.barChevronGlyph())
         assertEquals(panelChangesBefore, panelChanges)
-        assertEquals(rebuildsBefore + 1, grid.candidateRebuildsForTest())
+        assertEquals(rebuildsBefore, grid.candidateRebuildsForTest())
         assertEquals(allocationsBefore, grid.chipsAllocatedForTest())
 
         lane.drain()
 
+        assertEquals(1, remainderDecodes)
         assertEquals("你hao", controller.preeditForTest())
+        assertEquals("你", controller.composingPrefix())
+        assertEquals(listOf("hao"), controller.expandedReadings())
         assertEquals("好", controller.candidateWords().first())
         assertEquals(controller.candidateWords(), grid.renderedCandidateTextsForTest())
         assertTrue(view.shownCandidateCount() > 0)
@@ -247,6 +261,48 @@ class AsyncDecodeEquivalenceTest {
         assertEquals(panelChangesBefore, panelChanges)
         assertEquals(rebuildsBefore + 1, grid.candidateRebuildsForTest())
         assertEquals(allocationsBefore, grid.chipsAllocatedForTest())
+
+        val rebuildsBeforeUndo = grid.candidateRebuildsForTest()
+        val allocationsBeforeUndo = grid.chipsAllocatedForTest()
+        val panelChangesBeforeUndo = panelChanges
+        val candidatesBeforeUndo = grid.renderedCandidateTextsForTest()
+        val restoredDrillDecodesBeforeUndo = restoredDrillDecodes
+
+        assertTrue(grid.backspaceButtonForTest().performClick())
+
+        assertEquals("nihao", controller.preeditForTest())
+        assertEquals("", controller.composingPrefix())
+        assertEquals(listOf("ni"), controller.expandedReadings())
+        assertTrue(host.commits.isEmpty())
+        assertEquals(restoredDrillDecodesBeforeUndo, restoredDrillDecodes)
+        assertTrue(controller.candidateWords().isNotEmpty())
+        assertEquals(candidatesBeforeUndo, controller.candidateWords())
+        assertEquals(candidatesBeforeUndo, grid.renderedCandidateTextsForTest())
+        assertTrue(view.shownCandidateCount() > 0)
+        assertTrue(grid.selectionContentVisibleForTest())
+        assertTrue(view.isPanelShowing(grid))
+        assertEquals("⌃", view.barChevronGlyph())
+        assertEquals(panelChangesBeforeUndo, panelChanges)
+        assertEquals(rebuildsBeforeUndo, grid.candidateRebuildsForTest())
+        assertEquals(allocationsBeforeUndo, grid.chipsAllocatedForTest())
+
+        lane.drain()
+
+        assertEquals(1, remainderDecodes)
+        assertEquals(restoredDrillDecodesBeforeUndo + 1, restoredDrillDecodes)
+        assertEquals("nihao", controller.preeditForTest())
+        assertEquals("", controller.composingPrefix())
+        assertEquals(listOf("ni"), controller.expandedReadings())
+        assertEquals("你", controller.candidateWords().first())
+        assertEquals(candidatesBefore, controller.candidateWords())
+        assertEquals(controller.candidateWords(), grid.renderedCandidateTextsForTest())
+        assertTrue(view.shownCandidateCount() > 0)
+        assertTrue(grid.selectionContentVisibleForTest())
+        assertTrue(view.isPanelShowing(grid))
+        assertEquals("⌃", view.barChevronGlyph())
+        assertEquals(panelChangesBeforeUndo, panelChanges)
+        assertEquals(rebuildsBeforeUndo + 1, grid.candidateRebuildsForTest())
+        assertEquals(allocationsBeforeUndo, grid.chipsAllocatedForTest())
     }
 
 
