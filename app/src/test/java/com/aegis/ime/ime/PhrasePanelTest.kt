@@ -533,6 +533,7 @@ class PhrasePanelTest {
             val doneBounds = boundsInRoot(view, done)
             val categoryBounds = boundsInRoot(view, category)
             val handleBounds = boundsInRoot(view, handle)
+            assertEquals(View.LAYOUT_DIRECTION_LTR, firstRow.layoutDirection)
             assertEquals(categoryBounds.left + category.totalPaddingLeft, dragBounds.left + dragCategories.totalPaddingLeft)
             assertEquals(dragCategories.currentTextColor, done.currentTextColor)
             assertEquals(pal.keyLabel, done.currentTextColor)
@@ -552,6 +553,16 @@ class PhrasePanelTest {
             assertEquals(inkRight(bitmap, handleBounds, pal.keySurface), inkRight(bitmap, doneBounds, pal.keySurface))
             bitmap.recycle()
         }
+        val phraseSort = phraseView().apply {
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            enterSortModeForTest()
+        }
+        layout(phraseSort, w = 480, h = 400)
+        val phraseRow = checkNotNull(phraseSort.listRowViewForTest(0)) as ViewGroup
+        val phraseLabelBounds = boundsInRoot(phraseSort, phraseRow.getChildAt(0))
+        val phraseHandleBounds = boundsInRoot(phraseSort, phraseRow.getChildAt(1))
+        assertEquals(View.LAYOUT_DIRECTION_RTL, phraseRow.layoutDirection)
+        assertEquals(phraseHandleBounds.right, phraseLabelBounds.left)
     }
 
     @Test fun batch_move_invokes_onMovePhrasesTo_with_selection_and_target() {

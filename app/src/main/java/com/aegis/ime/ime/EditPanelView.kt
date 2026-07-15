@@ -116,20 +116,24 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         cutIcon = icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawCut(c, p, x, y, s) }
         copyBtn = iconBtn(context.getString(R.string.edit_copy), EditAction.COPY, copyIcon, iconOnStart = true)
         cutBtn = iconBtn(context.getString(R.string.edit_cut), EditAction.CUT, cutIcon, iconOnStart = true)
+        val deleteBtn = iconBtn(context.getString(R.string.edit_delete), EditAction.DELETE, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }, iconOnStart = true)
+        val rightActions = listOf(deleteBtn, copyBtn, cutBtn)
         val rightCol = LinearLayout(context).apply { orientation = VERTICAL }
-        rightCol.addView(iconBtn(context.getString(R.string.edit_delete), EditAction.DELETE, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }, iconOnStart = true), rowLp())
+        rightCol.addView(deleteBtn, rowLp())
         rightCol.addView(copyBtn, rowLp())
         rightCol.addView(cutBtn, rowLp())
         mid.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 0.9f))
         mid.addView(rightCol, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
 
-        val bottom = LinearLayout(context).apply { orientation = HORIZONTAL }
+        val bottom = LinearLayout(context).apply { orientation = HORIZONTAL; isBaselineAligned = false }
         bottom.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 0.1f))
         bottom.addView(iconBtn(context.getString(R.string.edit_paragraph_start), EditAction.HOME, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawParagraphEdge(c, p, x, y, s, toStart = true) }).apply { isFocusable = false }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         bottom.addView(iconBtn(context.getString(R.string.edit_select_all), EditAction.SELECT_ALL, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawSelectAll(c, p, x, y, s) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         bottom.addView(iconBtn(context.getString(R.string.edit_paragraph_end), EditAction.END, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawParagraphEdge(c, p, x, y, s, toStart = false) }).apply { isFocusable = false }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         bottom.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 0.9f))
         bottom.addView(iconBtn(context.getString(R.string.edit_paste), EditAction.PASTE, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawClipboard(c, p, x, y, s) }, iconOnStart = true), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        val pasteBtn = requireNotNull(actionViews[EditAction.PASTE])
+        val navigationActions = listOf(EditAction.HOME, EditAction.SELECT_ALL, EditAction.END).map { requireNotNull(actionViews[it]) }
 
         actionColumn = object : LinearLayout(context) {
             init { orientation = VERTICAL }
@@ -140,13 +144,30 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
                 } else {
                     MeasureSpec.getSize(heightMeasureSpec).coerceAtLeast(0)
                 }
-                val contentHeight = maxOf(dp(44) * 4, viewport)
-                val rowHeight = contentHeight / 4
-                (mid.layoutParams as LayoutParams).height = rowHeight * 3
-                (bottom.layoutParams as LayoutParams).height = rowHeight
+                val bottomHeight = dp(56)
+                val contentHeight = maxOf(dp(44 * 3) + bottomHeight, viewport)
+                val midHeight = contentHeight - bottomHeight
+                for (action in rightActions) {
+                    (action.layoutParams as LayoutParams).apply { height = 0; weight = 1f }
+                }
+                (mid.layoutParams as LayoutParams).height = midHeight
+                (bottom.layoutParams as LayoutParams).height = bottomHeight
+                for (action in navigationActions) (action.layoutParams as LayoutParams).height = bottomHeight
+                (pasteBtn.layoutParams as LayoutParams).height = bottomHeight
                 super.onMeasure(
                     widthMeasureSpec,
                     MeasureSpec.makeMeasureSpec(contentHeight, MeasureSpec.EXACTLY),
+                )
+                val referenceHeight = deleteBtn.measuredHeight
+                for (action in rightActions) {
+                    (action.layoutParams as LayoutParams).apply { height = referenceHeight; weight = 0f }
+                }
+                (pasteBtn.layoutParams as LayoutParams).height = referenceHeight
+                val measuredBottomHeight = maxOf(bottomHeight, referenceHeight)
+                (bottom.layoutParams as LayoutParams).height = measuredBottomHeight
+                super.onMeasure(
+                    widthMeasureSpec,
+                    MeasureSpec.makeMeasureSpec(midHeight + measuredBottomHeight, MeasureSpec.EXACTLY),
                 )
             }
         }.apply {
