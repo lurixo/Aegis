@@ -18,6 +18,9 @@ package com.aegis.ime.ime
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Rect
+import android.graphics.drawable.RippleDrawable
+import android.view.MotionEvent
 import android.view.View
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
@@ -27,6 +30,7 @@ import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.SymbolCatalog
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -414,7 +418,8 @@ class RenderHarness {
             val idle = EditPanelView(ctx).apply { applyPalette(pal); setHasSelection(false) }
             snap(idle, h, "edit_panel_$t.png")
             assertTrue("$t: header keeps the 文字编辑 label", idle.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.edit_title)))
-            assertActionGroupRightShifted(idle, h, pal, "edit_panel_$t")
+            assertActionInkCentered(idle, pal, "edit_panel_$t")
+            assertEditPanelGeometry(idle, h, "edit_panel_$t")
             val active = EditPanelView(ctx).apply { applyPalette(pal); setSelecting(true); setHasSelection(true) }
             snap(active, h, "edit_panel_selecting_$t.png")
         }
@@ -484,20 +489,141 @@ class RenderHarness {
         walk(root); return out
     }
 
-    private fun assertActionGroupRightShifted(view: View, hPx: Int, pal: ImePalette, name: String) {
-        view.measure(exactly(wPx), exactly(hPx)); view.layout(0, 0, wPx, hPx)
-        val bmp = Bitmap.createBitmap(wPx, hPx, Bitmap.Config.ARGB_8888)
-        view.draw(Canvas(bmp))
-        val bg = pal.keyboardBg
-        val y0 = (46 * density).toInt()
-        fun colPainted(x: Int): Boolean { for (y in y0 until hPx) if (bmp.getPixel(x, y) != bg) return true; return false }
-        var left = 0; while (left < wPx && !colPainted(left)) left++
-        var right = wPx - 1; while (right > 0 && !colPainted(right)) right--
-        val leftMargin = left; val rightMargin = wPx - 1 - right
-        assertTrue(
-            "$name: action group not symmetric — leftMargin=$leftMargin rightMargin=$rightMargin (want ≈ equal)",
-            kotlin.math.abs(leftMargin - rightMargin) <= wPx / 20,
-        )
+    private fun assertActionInkCentered(view: EditPanelView, pal: ImePalette, name: String) {
+        for (action in listOf(EditAction.DELETE, EditAction.COPY, EditAction.CUT, EditAction.PASTE)) {
+            val target = requireNotNull(view.actionViewForTest(action)) as TextView
+            val bmp = Bitmap.createBitmap(target.width, target.height, Bitmap.Config.ARGB_8888)
+            bmp.eraseColor(pal.keySurface)
+            target.draw(Canvas(bmp))
+            val ink = target.currentTextColor
+            var left = target.width
+            var right = -1
+            for (y in 0 until target.height) {
+                for (x in 0 until target.width) {
+                    if (bmp.getPixel(x, y) == ink) {
+                        left = minOf(left, x)
+                        right = maxOf(right, x)
+                    }
+                }
+            }
+            assertTrue("$name: $action content was not rendered", right >= left)
+            val leftMargin = left
+            val rightMargin = target.width - 1 - right
+            assertTrue(
+                "$name: $action content not centered — leftMargin=$leftMargin rightMargin=$rightMargin",
+                kotlin.math.abs(leftMargin - rightMargin) <= 1,
+            )
+        }
+    }
+
+    private fun assertEditPanelGeometry(view: EditPanelView, hPx: Int, name: String) {
+        fun bounds(action: EditAction): Rect {
+            val target = requireNotNull(view.actionViewForTest(action))
+            return Rect(0, 0, target.width, target.height).also { view.offsetDescendantRectToMyCoords(target, it) }
+        }
+
+        fun hitBounds(target: View): Rect {
+            val hit = Rect()
+            target.getHitRect(hit)
+            view.offsetDescendantRectToMyCoords(target.parent as View, hit)
+            return hit
+        }
+
+        val actions = listOf(EditAction.DELETE, EditAction.COPY, EditAction.CUT, EditAction.PASTE)
+        val bottomNavigation = listOf(EditAction.HOME, EditAction.SELECT_ALL, EditAction.END)
+        var firstGeometry: List<List<Rect>>? = null
+        for ((pass, width) in listOf(wPx, (360 * density).toInt(), wPx).withIndex()) {
+            view.measure(exactly(width), exactly(hPx))
+            view.layout(0, 0, width, hPx)
+            view.draw(Canvas(Bitmap.createBitmap(width, hPx, Bitmap.Config.ARGB_8888)))
+
+            val geometry = actions.map { action ->
+                val target = requireNotNull(view.actionViewForTest(action))
+                val viewRect = bounds(action)
+                val backgroundRect = Rect(requireNotNull(target.background).bounds).apply {
+                    offset(viewRect.left, viewRect.top)
+                }
+                listOf(viewRect, backgroundRect, hitBounds(target))
+            }
+            if (pass == 0) {
+                firstGeometry = geometry.map { rectangles -> rectangles.map { Rect(it) } }
+            } else if (pass == 2) {
+                assertEquals("$name: action geometry after A-B-A layout", firstGeometry, geometry)
+            }
+
+            val deleteRect = Rect(geometry.first().first()).apply { offset(0, -top) }
+            for ((action, rectangles) in actions.zip(geometry)) {
+                val viewTop = rectangles.first().top
+                val relative = rectangles.map { Rect(it).apply { offset(0, -viewTop) } }
+                assertEquals(
+                    "$name/${width}px: $action View/background/hit rectangles relative to Delete",
+                    List(3) { Rect(deleteRect) },
+                    relative,
+                )
+            }
+        }
+
+        val navigationClicks = mutableListOf<EditAction>()
+        view.onAction = navigationClicks::add
+        for (action in bottomNavigation) {
+            val target = requireNotNull(view.actionViewForTest(action))
+            assertTrue("$name: $action keeps a transparent resting background", target.background == null)
+            val ripple = target.foreground as? RippleDrawable
+                ?: throw AssertionError("$name: $action lost pressed feedback")
+            assertTrue("$name: $action pressed feedback remains stateful", ripple.isStateful)
+            assertTrue("$name: $action click", target.performClick())
+        }
+        assertEquals("$name: navigation clicks", bottomNavigation, navigationClicks)
+
+        val dispatched = mutableListOf<EditAction>()
+        view.onAction = dispatched::add
+        val activity = org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).setup()
+        try {
+            val root = requireNotNull(activity.get().findViewById<android.view.ViewGroup>(android.R.id.content))
+            root.addView(view)
+            assertTrue("$name: panel attaches directly to the Activity content root", view.parent === root)
+            root.measure(exactly(wPx), exactly(hPx))
+            root.layout(0, 0, wPx, hPx)
+
+            val routedActions = listOf(EditAction.DELETE, EditAction.PASTE)
+            val targets = routedActions.map { requireNotNull(view.actionViewForTest(it)) }
+            val viewRects = targets.map { target ->
+                Rect(0, 0, target.width, target.height).also {
+                    root.offsetDescendantRectToMyCoords(target, it)
+                }
+            }
+            val centers = viewRects.map { it.exactCenterX() to it.exactCenterY() }
+            val hitRects = targets.map { target ->
+                Rect().also {
+                    target.getHitRect(it)
+                    root.offsetDescendantRectToMyCoords(target.parent as View, it)
+                }
+            }
+            for ((index, action) in routedActions.withIndex()) {
+                val (x, y) = centers[index]
+                assertEquals(
+                    "$name: $action root hit ownership",
+                    listOf(action),
+                    routedActions.filterIndexed { hitIndex, _ ->
+                        hitRects[hitIndex].contains(x.toInt(), y.toInt())
+                    },
+                )
+                val downTime = index * 32L
+                val down = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, y, 0)
+                val up = MotionEvent.obtain(downTime, downTime + 16L, MotionEvent.ACTION_UP, x, y, 0)
+                try {
+                    assertTrue("$name: $action root press", root.dispatchTouchEvent(down))
+                    assertTrue("$name: $action root release", root.dispatchTouchEvent(up))
+                } finally {
+                    down.recycle()
+                    up.recycle()
+                }
+            }
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            assertEquals("$name: root-routed actions", routedActions, dispatched)
+        } finally {
+            activity.pause().stop().destroy()
+        }
     }
 
     @Test fun phrase_note_display() {
