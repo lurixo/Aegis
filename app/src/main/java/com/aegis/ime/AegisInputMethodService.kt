@@ -921,7 +921,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         panelInputTitle = ""
         inputPurpose = null; inputCat = ""; inputOld = ""; pendingPhraseAdds = emptyList(); pendingMoveFrom = ""; pendingMoveTexts = emptyList()
         if (returningView == null) return
-        returningView.showEditBar(false)
+        returningView.dismissEditBarForPanelReturn()
         if (returningClipboard != null) {
             returningClipboard.showPhraseTab(reopenCat)
             returningView.showPanelImmediately(returningClipboard)

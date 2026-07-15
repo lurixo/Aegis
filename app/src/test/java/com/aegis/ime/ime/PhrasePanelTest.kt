@@ -19,6 +19,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -477,6 +478,10 @@ class PhrasePanelTest {
                 assertTrue(selectAll.background is GradientDrawable)
                 assertTrue(cancel.background is GradientDrawable)
                 assertEquals((selectAll.background as GradientDrawable).cornerRadius, (cancel.background as GradientDrawable).cornerRadius, 0f)
+                val selectMask = (selectAll.foreground as RippleDrawable).findDrawableByLayerId(android.R.id.mask) as GradientDrawable
+                val cancelMask = (cancel.foreground as RippleDrawable).findDrawableByLayerId(android.R.id.mask) as GradientDrawable
+                assertEquals((selectAll.background as GradientDrawable).cornerRadius, selectMask.cornerRadius, 0f)
+                assertEquals((cancel.background as GradientDrawable).cornerRadius, cancelMask.cornerRadius, 0f)
                 assertEquals(selectAll.paint.measureText(" ").roundToInt().coerceAtLeast(1), selectAll.compoundDrawablePadding)
 
                 val bottomLeftLabel = if (view.isClipboardTabForTest()) {
@@ -659,13 +664,13 @@ class PhrasePanelTest {
 
     @Test fun top_bar_icons_are_uniform_size() {
         val v = phraseView()
-        val wanted = setOf(ctx.getString(com.aegis.ime.R.string.clip_back), ctx.getString(com.aegis.ime.R.string.clip_add_phrase), ctx.getString(com.aegis.ime.R.string.clip_multi_select), ctx.getString(com.aegis.ime.R.string.clip_clear_category))
+        val wanted = setOf(ctx.getString(com.aegis.ime.R.string.clip_back), ctx.getString(com.aegis.ime.R.string.clip_add_phrase), ctx.getString(com.aegis.ime.R.string.clip_edit_phrases), ctx.getString(com.aegis.ime.R.string.clip_clear_category))
         val icons = allViews(v).filter { it.contentDescription?.toString() in wanted && it.hasOnClickListeners() }
         assertEquals("all 4 phrase-tab top icons present", 4, icons.size)
         assertTrue("返回 is no longer a '‹' text glyph", textViews(v).none { it.text?.toString() == "‹" })
         assertEquals("all top icons share one width (item7)", 1, icons.map { it.layoutParams.width }.toSet().size)
         assertEquals("all top icons share one height (item7)", 1, icons.map { it.layoutParams.height }.toSet().size)
-        val surfaced = icons.filter { it.contentDescription?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_add_phrase), ctx.getString(com.aegis.ime.R.string.clip_multi_select), ctx.getString(com.aegis.ime.R.string.clip_clear_category)) }
+        val surfaced = icons.filter { it.contentDescription?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_add_phrase), ctx.getString(com.aegis.ime.R.string.clip_edit_phrases), ctx.getString(com.aegis.ime.R.string.clip_clear_category)) }
         assertTrue(surfaced.all { it.background is GradientDrawable })
         val iconSize = (36 * ctx.resources.displayMetrics.density).toInt()
         assertTrue(surfaced.all { it.layoutParams.width == iconSize && it.layoutParams.height == iconSize })

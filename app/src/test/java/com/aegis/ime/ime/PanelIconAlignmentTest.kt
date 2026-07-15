@@ -27,12 +27,12 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
-import com.aegis.ime.ime.theme.ImeShapes
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -169,7 +169,7 @@ class PanelIconAlignmentTest {
         }
     }
 
-    @Test fun edit_copy_cut_and_paste_match_delete_bounds_and_surfaces() {
+    @Test fun edit_copy_cut_and_paste_match_delete_bounds_and_flat_feedback() {
         for (height in listOf(246, 296, 299)) {
             val dispatched = mutableListOf<EditAction>()
             val v = EditPanelView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
@@ -216,9 +216,10 @@ class PanelIconAlignmentTest {
             assertTrue(navigationBounds.all { it.bottom == titleHeight + contentHeight })
             for (action in actions) {
                 val target = requireNotNull(v.actionViewForTest(action))
-                val background = target.background as GradientDrawable
-                assertEquals(ImePalette.STATIC_LIGHT.keySurface, background.color?.defaultColor)
-                assertEquals(ImeShapes.keyRadiusDp * density, background.cornerRadius, 0f)
+                assertNull(target.background)
+                val ripple = target.foreground as android.graphics.drawable.RippleDrawable
+                val mask = ripple.findDrawableByLayerId(android.R.id.mask) as GradientDrawable
+                assertEquals(0f, mask.cornerRadius, 0f)
                 assertTrue(target.hasOnClickListeners())
                 assertTrue(target.performClick())
                 assertEquals(action, dispatched.last())
@@ -226,8 +227,9 @@ class PanelIconAlignmentTest {
             assertEquals(actions, dispatched)
             v.applyPalette(ImePalette.STATIC_DARK)
             for (action in actions) {
-                val background = requireNotNull(v.actionViewForTest(action)).background as GradientDrawable
-                assertEquals(ImePalette.STATIC_DARK.keySurface, background.color?.defaultColor)
+                val target = requireNotNull(v.actionViewForTest(action))
+                assertNull(target.background)
+                assertTrue(target.foreground is android.graphics.drawable.RippleDrawable)
             }
         }
     }

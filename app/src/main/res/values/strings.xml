@@ -285,7 +285,6 @@
     <string name="svc_saved_to_clipboard">Saved to clipboard</string>
     <string name="clip_back">Back</string>
     <string name="clip_add_phrase">Add phrase</string>
-    <string name="clip_multi_select">Select multiple</string>
     <string name="clip_clear_category">Clear category</string>
     <string name="clip_clear_history">Clear clipboard history</string>
     <string name="clip_collapse">Collapse</string>
@@ -314,8 +313,8 @@
     <string name="clip_rename_named">Rename \"%1$s\"</string>
     <string name="clip_delete_named">Delete \"%1$s\"</string>
     <string name="clip_select_all">Select all</string>
-    <string name="clip_edit_phrases">Edit phrases</string>
-    <string name="clip_edit_clipboard">Edit clipboard</string>
+    <string name="clip_edit_phrases">Batch phrases</string>
+    <string name="clip_edit_clipboard">Batch clipboard</string>
     <string name="clip_selected_count">%1$d selected</string>
     <string name="clip_move_to_category">Move to category</string>
     <string name="clip_no_other_categories">No other categories</string>

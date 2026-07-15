@@ -770,9 +770,11 @@ class TinyPanelViewportConstraintTest {
         val activity = attachToActivity(iv)
 
         clipboard.enterSelectForTest()
+        val authoredTextSizes = clipboardFixedTextSizes(clipboard)
         layoutAtMost(iv, 320, 200)
         settleUiAnimations()
         var cancel = assertClipboardModeReadable(iv, clipboard, ctx.getString(com.aegis.ime.R.string.clip_cancel))
+        assertClipboardFixedTextScales(clipboard, authoredTextSizes)
         val stableSelectBounds = clipboardModeBoundsSnapshot(iv, clipboard)
         repeat(2) {
             layoutAtMost(iv, 320, 200)
@@ -1002,14 +1004,6 @@ private fun assertClipboardModeReadable(iv: InputView, clipboard: ClipboardView,
                     "height=${label.height}, textSize=${label.textSize}",
                 label.height >= (20 * label.resources.displayMetrics.density).roundToInt(),
             )
-            assertTrue(
-                "visible fixed label '${label.text}' must retain >=10sp emergency type",
-                label.textSize >= android.util.TypedValue.applyDimension(
-                    android.util.TypedValue.COMPLEX_UNIT_SP,
-                    10f,
-                    label.resources.displayMetrics,
-                ),
-            )
         }
     }
     val viewport = iv.panelDescendantBoundsForTest(clipboard.listViewportForTest())
@@ -1025,6 +1019,31 @@ private fun assertClipboardModeReadable(iv: InputView, clipboard: ClipboardView,
         action.height >= (20 * action.resources.displayMetrics.density).roundToInt(),
     )
     return action
+}
+
+private fun clipboardFixedTextSizes(clipboard: ClipboardView): Map<android.widget.TextView, Float> =
+    clipboard.fixedChromeViewsForTest()
+        .flatMap(::visibleTextViews)
+        .filter { !it.text.isNullOrEmpty() }
+        .associateWith { it.textSize }
+
+private fun assertClipboardFixedTextScales(
+    clipboard: ClipboardView,
+    authoredTextSizes: Map<android.widget.TextView, Float>,
+) {
+    for (chrome in clipboard.fixedChromeViewsForTest()) {
+        for (label in visibleTextViews(chrome).filter { !it.text.isNullOrEmpty() }) {
+            val authoredTextSize = requireNotNull(authoredTextSizes[label])
+            val railHeight = (40 * label.resources.displayMetrics.density).toInt().coerceAtLeast(1)
+            val expectedTextSize = (authoredTextSize * minOf(1f, label.height.toFloat() / railHeight)).coerceAtLeast(1f)
+            assertEquals(
+                "visible fixed label '${label.text}' must scale with its compressed rail",
+                expectedTextSize,
+                label.textSize,
+                0.01f,
+            )
+        }
+    }
 }
 
 private fun visibleTextViews(view: View): List<android.widget.TextView> {

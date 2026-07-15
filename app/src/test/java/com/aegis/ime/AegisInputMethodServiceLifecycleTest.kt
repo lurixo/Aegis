@@ -253,7 +253,7 @@ class AegisInputMethodServiceLifecycleTest {
     }
 
     @Test fun inline_cancel_and_confirm_attach_only_the_final_phrase_panel_state() {
-        for (purpose in listOf("CATEGORY", "PHRASE", "NOTE")) {
+        for (purpose in listOf("CATEGORY", "RENAME", "ADD_PHRASE", "PHRASE", "NOTE")) {
             for (confirm in listOf(false, true)) {
                 val f = fixture()
                 Settings.Global.putFloat(f.service.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
@@ -270,6 +270,8 @@ class AegisInputMethodServiceLifecycleTest {
                     val cv = clipboard(f.service)
                     when (purpose) {
                         "CATEGORY" -> cv.onAddCategory()
+                        "RENAME" -> cv.onRenameCategory("默认")
+                        "ADD_PHRASE" -> cv.onAddPhrase("默认")
                         "PHRASE" -> cv.onEditPhrase("默认", "原文")
                         else -> cv.onEditNote("默认", "原文")
                     }
@@ -277,15 +279,19 @@ class AegisInputMethodServiceLifecycleTest {
                     f.view.onKey(Key("6", output = "6"))
                     assertTrue(f.controller.preeditForTest().isNotEmpty())
                     f.service.commitText("final-state-$purpose-$confirm")
+                    var overlayChanges = 0
+                    f.view.onOverlayChanged = { overlayChanges++ }
                     if (confirm) f.view.onEditConfirm() else f.view.onEditCancel()
 
                     val state = f.service.transientStateForTest()
                     assertFalse(state.editActive)
                     assertEquals("", state.composition)
+                    assertFalse(f.view.isEditBarShowing())
                     assertEquals("CLIPBOARD", state.panel)
                     assertEquals("PHRASES", state.panelDetail)
                     assertFalse(cv.isClipboardTabForTest())
                     assertTrue(f.view.isPanelShowing(cv))
+                    assertEquals(1, overlayChanges)
                     shadowOf(Looper.getMainLooper()).idleFor(200, TimeUnit.MILLISECONDS)
                     assertFalse(f.view.isEditBarShowing())
                     assertTrue(f.view.isPanelShowing(cv))
@@ -319,6 +325,7 @@ class AegisInputMethodServiceLifecycleTest {
             f.view.onEditCancel()
 
             val rebuiltClipboard = cachedPanel(f.service, "clipboardView") as ClipboardView
+            assertFalse(f.view.isEditBarShowing())
             assertNotSame(oldClipboard, rebuiltClipboard)
             assertEquals(1f, capturedDensity(rebuiltClipboard), 0.001f)
             assertFalse(rebuiltClipboard.isClipboardTabForTest())

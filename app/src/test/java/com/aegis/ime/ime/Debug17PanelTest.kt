@@ -711,7 +711,7 @@ class Debug17PanelTest {
         val phraseTab = textViews(view).first { it.text?.toString() == phrases }
         val tray = phraseTab.parent as View
         val plus = allViews(view).first { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_add_phrase) }
-        val list = allViews(view).first { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_multi_select) }
+        val list = allViews(view).first { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_edit_phrases) }
         assertTrue(plus.background is GradientDrawable)
         assertTrue(list.background is GradientDrawable)
         val trayToPlus = absoluteBounds(plus).left - absoluteBounds(tray).right
