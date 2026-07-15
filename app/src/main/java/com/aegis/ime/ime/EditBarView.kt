@@ -85,9 +85,9 @@ class EditBarView(context: Context) : LinearLayout(context) {
         field.setTextColor(p.keyLabel)
         field.background = GradientDrawable().apply { setColor(p.keySurface); cornerRadius = ImeShapes.inputRadiusDp * density }
         cancel.setTextColor(p.keyLabelSecondary)
-        confirm.setTextColor(p.candidateFirst)
+        confirm.setTextColor(p.keyLabelSecondary)
         Motion.applyTapFeedback(cancel, p.keyLabelSecondary)
-        Motion.applyTapFeedback(confirm, p.candidateFirst)
+        Motion.applyTapFeedback(confirm, p.keyLabelSecondary)
     }
 
     fun setTitle(t: String) { title.text = t }

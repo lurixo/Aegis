@@ -15,7 +15,10 @@
 
 package com.aegis.ime.ime
 
+import android.app.Activity
+import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
+import android.os.Looper
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -30,7 +33,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Robolectric
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -77,6 +82,23 @@ class ClipboardViewInteractionTest {
         send(root, MotionEvent.ACTION_UP, x + dx, y, 32)
     }
 
+    private fun rootTap(root: View, target: View) {
+        val bounds = boundsInRoot(root as ViewGroup, target)
+        send(root, MotionEvent.ACTION_DOWN, bounds.exactCenterX(), bounds.exactCenterY(), 0)
+        send(root, MotionEvent.ACTION_UP, bounds.exactCenterX(), bounds.exactCenterY(), 16)
+        shadowOf(Looper.getMainLooper()).idle()
+    }
+
+    private fun rootTap(root: View, x: Float, y: Float) {
+        send(root, MotionEvent.ACTION_DOWN, x, y, 0)
+        send(root, MotionEvent.ACTION_UP, x, y, 16)
+        shadowOf(Looper.getMainLooper()).idle()
+    }
+
+    private fun boundsInRoot(root: ViewGroup, target: View): Rect = Rect(0, 0, target.width, target.height).also {
+        root.offsetDescendantRectToMyCoords(target, it)
+    }
+
     private fun allViews(root: View): List<View> {
         val out = ArrayList<View>()
         fun walk(x: View) { out.add(x); if (x is ViewGroup) for (i in 0 until x.childCount) walk(x.getChildAt(i)) }
@@ -114,14 +136,18 @@ class ClipboardViewInteractionTest {
         assertTrue(actions.all { it !is TextView && it.hasOnClickListeners() })
         assertTrue(actions.all { it.width == size && it.height == size })
         assertTrue(actions.all { it.background is GradientDrawable && (it.background as GradientDrawable).cornerRadius > 0f })
-        assertEquals(descriptions.size * size + (descriptions.size - 1) * gap, strip.width)
-        assertEquals(0, actions.first().left)
+        assertEquals(descriptions.size * (size + gap), strip.width)
+        assertEquals(gap, actions.first().left)
         assertEquals(strip.width, actions.last().right)
         actions.zipWithNext().forEach { (left, right) ->
             assertEquals(gap, right.left - left.right)
             assertTrue(left.right <= right.left)
         }
-        assertEquals(-strip.width.toFloat(), (bodyOf(v, text).parent as View).translationX, 0f)
+        val header = bodyOf(v, text).parent as View
+        val frame = strip.parent as View
+        assertEquals(-strip.width.toFloat(), header.translationX, 0f)
+        assertEquals(gap.toFloat(), strip.left + actions.first().left - (header.right + header.translationX), 0f)
+        assertEquals(frame.width, strip.right)
         return actions
     }
 
@@ -297,6 +323,60 @@ class ClipboardViewInteractionTest {
                 ),
                 actionButtons(v).map { it.text.toString() },
             )
+        }
+    }
+
+    @Test fun phrase_swipe_move_reuses_the_expanded_move_asset() {
+        val v = phraseView(listOf("你好"))
+        v.revealSwipeForTest("你好")
+        layout(v)
+        val swipeMove = allViews(v).single {
+            it !is TextView && it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_move)
+        }
+        val asset = requireNotNull(swipeMove.tag)
+        v.hideSwipeForTest()
+        v.expandForTest("你好")
+        layout(v)
+        val expandedMove = actionButtons(v).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_move) }
+        assertTrue(asset === expandedMove.tag)
+        assertFalse(expandedMove.contentDescription?.toString()?.startsWith("移 ") == true)
+    }
+
+    @Test fun tabs_and_categories_dispatch_only_inside_their_own_capsules() {
+        val clipboard = ctx.getString(com.aegis.ime.R.string.clip_clipboard)
+        val phrases = ctx.getString(com.aegis.ime.R.string.clip_phrases)
+        val v = phraseView(listOf("你好"))
+        val activity = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            activity.get().setContentView(v)
+            layout(v, w = 600)
+            var tabs = textViews(v).filter { it.text?.toString() == clipboard || it.text?.toString() == phrases }
+            val tray = tabs.first().parent as View
+            assertEquals(tray.width / 2, tabs[0].width)
+            assertEquals(tray.width / 2, tabs[1].width)
+            assertEquals(tabs[0].right, tabs[1].left)
+            rootTap(v, tabs.first { it.text?.toString() == clipboard })
+            assertTrue(v.isClipboardTabForTest())
+            layout(v, w = 600)
+            tabs = textViews(v).filter { it.text?.toString() == clipboard || it.text?.toString() == phrases }
+            rootTap(v, tabs.first { it.text?.toString() == phrases })
+            assertFalse(v.isClipboardTabForTest())
+            layout(v, w = 600)
+            val defaults = textViews(v).first { it.text?.toString() == "默认" && it.hasOnClickListeners() }
+            val work = textViews(v).first { it.text?.toString() == "工作" && it.hasOnClickListeners() }
+            val defaultBounds = boundsInRoot(v, defaults)
+            val workBounds = boundsInRoot(v, work)
+            assertTrue(defaultBounds.right < workBounds.left)
+            rootTap(v, work)
+            assertEquals("工作", v.phraseCatForTest())
+            layout(v, w = 600)
+            rootTap(v, (defaultBounds.right + workBounds.left) / 2f, defaultBounds.exactCenterY())
+            assertEquals("工作", v.phraseCatForTest())
+            val refreshedDefault = textViews(v).first { it.text?.toString() == "默认" && it.hasOnClickListeners() }
+            rootTap(v, refreshedDefault)
+            assertEquals("默认", v.phraseCatForTest())
+        } finally {
+            activity.pause().stop().destroy()
         }
     }
 

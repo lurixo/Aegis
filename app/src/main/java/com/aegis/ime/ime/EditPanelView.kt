@@ -17,6 +17,7 @@ package com.aegis.ime.ime
 
 import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.ColorFilter
@@ -24,6 +25,7 @@ import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -60,6 +62,9 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         palette = p
         setBackgroundColor(p.keyboardBg)
         recolor(this)
+        for (action in listOf(EditAction.DELETE, EditAction.COPY, EditAction.CUT, EditAction.PASTE)) {
+            actionViews[action]?.background = rightActionBackground()
+        }
         for (g in icons) g.applyTint(p.keyLabel)
         setHasSelection(copyBtn.isEnabled)
     }
@@ -135,10 +140,10 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
                 } else {
                     MeasureSpec.getSize(heightMeasureSpec).coerceAtLeast(0)
                 }
-                val bottomHeight = dp(56)
-                val contentHeight = maxOf(dp(44 * 3) + bottomHeight, viewport)
-                (mid.layoutParams as LayoutParams).height = contentHeight - bottomHeight
-                (bottom.layoutParams as LayoutParams).height = bottomHeight
+                val contentHeight = maxOf(dp(44) * 4, viewport)
+                val rowHeight = contentHeight / 4
+                (mid.layoutParams as LayoutParams).height = rowHeight * 3
+                (bottom.layoutParams as LayoutParams).height = rowHeight
                 super.onMeasure(
                     widthMeasureSpec,
                     MeasureSpec.makeMeasureSpec(contentHeight, MeasureSpec.EXACTLY),
@@ -245,10 +250,16 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
             null,
         )
         compoundDrawablePadding = dp(2)
+        if (iconOnStart) background = rightActionBackground()
         isClickable = true
         Motion.applyTapFeedback(this, palette.keyLabel)
         setOnClickListener { onAction(action) }
         actionViews[action] = this
+    }
+
+    private fun rightActionBackground() = GradientDrawable().apply {
+        setColor(palette.keySurface)
+        cornerRadius = ImeShapes.keyRadiusDp * density
     }
 
     private fun arrowBtn(action: EditAction, dir: Glyphs.Arrow): View = View(context).apply {

@@ -93,8 +93,8 @@ class Debug17PanelTest {
         assertTrue(actions.all { it !is TextView && it.hasOnClickListeners() })
         assertTrue(actions.all { it.width == dp(44) && it.height == dp(44) })
         assertTrue(actions.all { it.background is GradientDrawable && (it.background as GradientDrawable).cornerRadius > 0f })
-        assertEquals(descriptions.size * dp(44) + (descriptions.size - 1) * dp(4), strip.width)
-        assertEquals(0, actions.first().left)
+        assertEquals(descriptions.size * (dp(44) + dp(4)), strip.width)
+        assertEquals(dp(4), actions.first().left)
         assertEquals(strip.width, actions.last().right)
         actions.zipWithNext().forEach { (left, right) -> assertEquals(dp(4), right.left - left.right) }
         val body = textViews(v).first { it.text?.toString() == text }
@@ -757,7 +757,9 @@ class Debug17PanelTest {
 
         val categorySort = phraseView().apply { enterCategorySortModeForTest() }
         val done = textViews(categorySort).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_done) }
-        assertEquals(pal.candidateFirst, done.currentTextColor)
+        val dragCategories = textViews(categorySort).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_drag_category) }
+        assertEquals(pal.keyLabel, done.currentTextColor)
+        assertEquals(dragCategories.currentTextColor, done.currentTextColor)
         assertTrue(done.background is GradientDrawable)
         assertTrue((done.background as GradientDrawable).cornerRadius > 0f)
 
@@ -768,20 +770,20 @@ class Debug17PanelTest {
         assertTrue(actions.all { it.currentTextColor == pal.keyLabel })
     }
 
-    @Test fun select_mode_action_buttons_match_split_block_colors_when_enabled() {
+    @Test fun select_mode_action_buttons_match_top_action_colors_when_enabled() {
         val clip = clipView().apply { enterSelectForTest(listOf("hello")) }
         for (label in listOf(ctx.getString(com.aegis.ime.R.string.clip_add_phrase), ctx.getString(com.aegis.ime.R.string.clip_delete))) {
             val button = textViews(clip).first { it.text?.toString() == label }
-            assertEquals("$label uses split block background", pal.accentBottom, bgColor(button))
-            assertEquals("$label uses split block text", pal.accentLabel, button.currentTextColor)
+            assertEquals("$label uses top action background", pal.keySurface, bgColor(button))
+            assertEquals("$label uses top action text", pal.keyLabel, button.currentTextColor)
             assertTrue("$label remains clickable when enabled", button.hasOnClickListeners())
         }
 
         val phrase = phraseView().apply { enterSelectForTest(listOf("你好")) }
         for (label in listOf(ctx.getString(com.aegis.ime.R.string.clip_move_to_category), ctx.getString(com.aegis.ime.R.string.clip_delete))) {
             val button = textViews(phrase).first { it.text?.toString() == label }
-            assertEquals("$label uses split block background", pal.accentBottom, bgColor(button))
-            assertEquals("$label uses split block text", pal.accentLabel, button.currentTextColor)
+            assertEquals("$label uses top action background", pal.keySurface, bgColor(button))
+            assertEquals("$label uses top action text", pal.keyLabel, button.currentTextColor)
             assertTrue("$label remains clickable when enabled", button.hasOnClickListeners())
         }
     }

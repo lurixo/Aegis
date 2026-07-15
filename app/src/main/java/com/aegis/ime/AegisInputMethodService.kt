@@ -913,13 +913,22 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun endInlineInput() {
         val reopenCat = inputCat
+        val returningView = inputView
+        val returningClipboard = clipboardView
+        if (::controller.isInitialized) controller.onPanelClear()
         panelInput.end()
         panelTextSnapshot = null
         panelInputTitle = ""
-        inputView?.showEditBar(false)
         inputPurpose = null; inputCat = ""; inputOld = ""; pendingPhraseAdds = emptyList(); pendingMoveFrom = ""; pendingMoveTexts = emptyList()
-        showClipboardPanel()
-        clipboardView?.showPhraseTab(reopenCat)
+        if (returningView == null) return
+        returningView.showEditBar(false)
+        if (returningClipboard != null) {
+            returningClipboard.showPhraseTab(reopenCat)
+            returningView.showPanelImmediately(returningClipboard)
+        } else {
+            clipboardRecreationState = ClipboardView.RecreationState(true, reopenCat)
+            restoreClipboardPanel()
+        }
     }
 
     private fun abortInlineInput(hideBar: Boolean = true) {

@@ -211,8 +211,8 @@ class ImeVisualPolishTest {
         val delete = textView(v, ctx.getString(com.aegis.ime.R.string.clip_delete))
         assertDisabledButton(add, palette)
         assertDisabledButton(delete, palette)
-        assertEquals(palette.keyLabelSecondary, v.disabledActionTextColorForTest())
-        assertEquals(palette.chipBg, v.disabledActionBackgroundColorForTest())
+        assertEquals(palette.keyLabel, v.disabledActionTextColorForTest())
+        assertEquals(palette.keySurface, v.disabledActionBackgroundColorForTest())
     }
 
     private fun assertPhraseDisabledActionContrast(palette: ImePalette) {
@@ -231,8 +231,8 @@ class ImeVisualPolishTest {
 
     private fun assertDisabledButton(tv: TextView, palette: ImePalette) {
         val bg = (tv.background as GradientDrawable).color?.defaultColor
-        assertEquals(palette.chipBg, bg)
-        assertEquals(palette.keyLabelSecondary, tv.currentTextColor)
+        assertEquals(palette.keySurface, bg)
+        assertEquals(palette.keyLabel, tv.currentTextColor)
         assertTrue("disabled action text contrast is readable", contrastRatio(tv.currentTextColor, bg!!) >= 4.5)
         assertTrue("disabled action stays disabled", !tv.hasOnClickListeners())
     }

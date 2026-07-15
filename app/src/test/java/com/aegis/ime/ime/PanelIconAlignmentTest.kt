@@ -18,6 +18,7 @@ package com.aegis.ime.ime
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Rect
+import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.view.Gravity
 import android.view.MotionEvent
@@ -26,6 +27,7 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
@@ -164,6 +166,38 @@ class PanelIconAlignmentTest {
             val button = viewFor(item) as TextView
             assertTrue("$item keeps no leading icon", button.compoundDrawables[0] == null)
             assertNotNull("$item keeps its top symbol", button.compoundDrawables[1])
+        }
+    }
+
+    @Test fun edit_copy_cut_and_paste_match_delete_bounds_and_surfaces() {
+        for (height in listOf(246, 296, 299)) {
+            val v = EditPanelView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+            layout(v, width = 600, height = height)
+            val reference = requireNotNull(v.actionViewForTest(EditAction.DELETE))
+            val actions = listOf(EditAction.DELETE, EditAction.COPY, EditAction.CUT, EditAction.PASTE)
+            for (action in actions.drop(1)) {
+                val target = requireNotNull(v.actionViewForTest(action))
+                assertEquals(reference.width, target.width)
+                assertEquals(reference.height, target.height)
+            }
+            val bounds = actions.map { action ->
+                val target = requireNotNull(v.actionViewForTest(action))
+                Rect(0, 0, target.width, target.height).also { v.offsetDescendantRectToMyCoords(target, it) }
+            }
+            assertTrue(bounds.all { it.left == bounds.first().left && it.right == bounds.first().right })
+            bounds.zipWithNext().forEach { (upper, lower) -> assertEquals(upper.bottom, lower.top) }
+            for (action in actions) {
+                val target = requireNotNull(v.actionViewForTest(action))
+                val background = target.background as GradientDrawable
+                assertEquals(ImePalette.STATIC_LIGHT.keySurface, background.color?.defaultColor)
+                assertEquals(ImeShapes.keyRadiusDp * density, background.cornerRadius, 0f)
+                assertTrue(target.hasOnClickListeners())
+            }
+            v.applyPalette(ImePalette.STATIC_DARK)
+            for (action in actions) {
+                val background = requireNotNull(v.actionViewForTest(action)).background as GradientDrawable
+                assertEquals(ImePalette.STATIC_DARK.keySurface, background.color?.defaultColor)
+            }
         }
     }
 

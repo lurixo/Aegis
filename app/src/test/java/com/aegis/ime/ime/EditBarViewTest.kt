@@ -40,6 +40,7 @@ class EditBarViewTest {
         walk(root); return out
     }
     private fun field(v: EditBarView): TextView = textViews(v).first { it.text?.toString()?.endsWith("▏") == true }
+    private fun action(v: EditBarView, text: String): TextView = textViews(v).single { it.text?.toString() == text }
 
     private fun layout(v: View, w: Int = 480) {
         v.measure(
@@ -75,5 +76,15 @@ class EditBarViewTest {
         layout(v)
         val f = field(v)
         assertFalse("a short name needs no scrolling", f.canScrollVertically(1) || f.canScrollVertically(-1))
+    }
+
+    @Test fun confirm_and_cancel_use_the_same_action_color_in_both_palettes() {
+        for (palette in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
+            val view = EditBarView(ctx).apply { applyPalette(palette) }
+            val cancel = action(view, ctx.getString(com.aegis.ime.R.string.editbar_cancel))
+            val confirm = action(view, ctx.getString(com.aegis.ime.R.string.editbar_confirm))
+            assertEquals(cancel.currentTextColor, confirm.currentTextColor)
+            assertEquals(palette.keyLabelSecondary, confirm.currentTextColor)
+        }
     }
 }

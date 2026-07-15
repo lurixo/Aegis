@@ -97,7 +97,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     private val lockBtn = barButton(context.getString(R.string.panel_lock)) { toggleLock() }
     private val lockSlot = FrameLayout(context)
     private val lockGlyph = LockDrawable(density)
-    private val clearGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }
+    private val clearGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y - s * 0.06f, s) }
     private val clearBtn = barButton("") { showClearConfirmation() }
     private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
     private val backspaceBtn = barButton("") { onBackspace() }
@@ -483,16 +483,17 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         private val sFactor: Float,
         private val render: (Canvas, Paint, Float, Float, Float) -> Unit,
     ) : Drawable() {
+        private val iconBoxPx = (22 * density).toInt()
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE; strokeWidth = 2f * density; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
         }
         fun tint(color: Int) { paint.color = color; invalidateSelf() }
         override fun draw(canvas: Canvas) {
             val b = bounds
-            render(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) * sFactor)
+            render(canvas, paint, b.exactCenterX(), b.exactCenterY(), iconBoxPx * sFactor)
         }
-        override fun getIntrinsicWidth() = (22 * density).toInt()
-        override fun getIntrinsicHeight() = (22 * density).toInt()
+        override fun getIntrinsicWidth() = (60 * density).toInt()
+        override fun getIntrinsicHeight() = (46 * density).toInt()
         override fun setAlpha(alpha: Int) {}
         override fun setColorFilter(colorFilter: ColorFilter?) {}
         @Deprecated("Deprecated in Java") override fun getOpacity() = PixelFormat.TRANSLUCENT
