@@ -1119,7 +1119,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         return h.row
     }
 
-    private fun buildTextRow(pool: ArrayList<TextRowHolder>, maxLines: Int): TextRowHolder {
+    private fun buildTextRow(pool: ArrayList<TextRowHolder>, maxLines: Int, physicalLtr: Boolean = false): TextRowHolder {
         val label = TextView(context).apply {
             this.maxLines = maxLines; ellipsize = android.text.TextUtils.TruncateAt.END
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body); setTextColor(TEXT_DARK)
@@ -1128,7 +1128,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val handle = glyphView(TEXT_DARK, 9) { c, p, x, y, s -> Glyphs.drawList(c, p, x, y, s) }
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            if (physicalLtr) layoutDirection = View.LAYOUT_DIRECTION_LTR
             gravity = Gravity.CENTER_VERTICAL
             background = rounded(CARD, ImeShapes.cardRadiusDp)
             layoutParams = ll(MP, WC).apply { topMargin = dp(8) }
@@ -1182,7 +1182,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
 
     private fun catSortRowFor(name: String, index: Int, current: String): View {
-        val h = if (index < catSortRowPool.size) catSortRowPool[index] else buildTextRow(catSortRowPool, maxLines = 1)
+        val h = if (index < catSortRowPool.size) catSortRowPool[index] else buildTextRow(catSortRowPool, maxLines = 1, physicalLtr = true)
         Motion.reset(h.row)
         h.label.text = displayCat(name)
         h.label.setTypeface(null, if (name == current) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)

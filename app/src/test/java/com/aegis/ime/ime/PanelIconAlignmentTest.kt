@@ -171,7 +171,10 @@ class PanelIconAlignmentTest {
 
     @Test fun edit_copy_cut_and_paste_match_delete_bounds_and_surfaces() {
         for (height in listOf(246, 296, 299)) {
+            val dispatched = mutableListOf<EditAction>()
             val v = EditPanelView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+            v.onAction = dispatched::add
+            v.setHasSelection(true)
             layout(v, width = 600, height = height)
             val reference = requireNotNull(v.actionViewForTest(EditAction.DELETE))
             val actions = listOf(EditAction.DELETE, EditAction.COPY, EditAction.CUT, EditAction.PASTE)
@@ -185,14 +188,42 @@ class PanelIconAlignmentTest {
                 Rect(0, 0, target.width, target.height).also { v.offsetDescendantRectToMyCoords(target, it) }
             }
             assertTrue(bounds.all { it.left == bounds.first().left && it.right == bounds.first().right })
-            bounds.zipWithNext().forEach { (upper, lower) -> assertEquals(upper.bottom, lower.top) }
+            bounds.zipWithNext().forEach { (upper, lower) -> assertTrue(upper.bottom <= lower.top) }
+            val titleHeight = (40 * density).toInt()
+            val bottomHeight = (56 * density).toInt()
+            val contentHeight = maxOf((44 * 3 * density).toInt() + bottomHeight, height - titleHeight)
+            val midHeight = contentHeight - bottomHeight
+            assertEquals(midHeight / 3, reference.height)
+            assertEquals(titleHeight, bounds.first().top)
+            val dpadBounds = listOf(EditAction.UP, EditAction.START_SELECT, EditAction.DOWN).map { action ->
+                val target = requireNotNull(v.actionViewForTest(action))
+                Rect(0, 0, target.width, target.height).also { v.offsetDescendantRectToMyCoords(target, it) }
+            }
+            val firstDpadHeight = midHeight / 3
+            val secondDpadHeight = (midHeight - firstDpadHeight) / 2
+            val expectedDpadHeights = listOf(firstDpadHeight, secondDpadHeight, midHeight - firstDpadHeight - secondDpadHeight)
+            assertEquals(bounds.first().top, dpadBounds.first().top)
+            assertEquals(bounds.first().height(), dpadBounds.first().height())
+            assertEquals(expectedDpadHeights, dpadBounds.map { it.height() })
+            dpadBounds.zipWithNext().forEach { (upper, lower) -> assertEquals(upper.bottom, lower.top) }
+            assertEquals(titleHeight + midHeight, dpadBounds.last().bottom)
+            val navigationBounds = listOf(EditAction.HOME, EditAction.SELECT_ALL, EditAction.END).map { action ->
+                val target = requireNotNull(v.actionViewForTest(action))
+                Rect(0, 0, target.width, target.height).also { v.offsetDescendantRectToMyCoords(target, it) }
+            }
+            assertTrue(navigationBounds.all { it.top == titleHeight + midHeight })
+            assertTrue(navigationBounds.all { it.height() == bottomHeight })
+            assertTrue(navigationBounds.all { it.bottom == titleHeight + contentHeight })
             for (action in actions) {
                 val target = requireNotNull(v.actionViewForTest(action))
                 val background = target.background as GradientDrawable
                 assertEquals(ImePalette.STATIC_LIGHT.keySurface, background.color?.defaultColor)
                 assertEquals(ImeShapes.keyRadiusDp * density, background.cornerRadius, 0f)
                 assertTrue(target.hasOnClickListeners())
+                assertTrue(target.performClick())
+                assertEquals(action, dispatched.last())
             }
+            assertEquals(actions, dispatched)
             v.applyPalette(ImePalette.STATIC_DARK)
             for (action in actions) {
                 val background = requireNotNull(v.actionViewForTest(action)).background as GradientDrawable
