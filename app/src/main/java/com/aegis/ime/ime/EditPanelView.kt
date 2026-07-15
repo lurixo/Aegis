@@ -112,11 +112,11 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         mid.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 0.1f))
         mid.addView(dpad, LayoutParams(0, LayoutParams.MATCH_PARENT, 3f))
 
-        copyIcon = icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawCopy(c, p, x, y, s) }
-        cutIcon = icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawCut(c, p, x, y, s) }
+        copyIcon = icon(22, 0.34f, 0.8f) { c, p, x, y, s -> Glyphs.drawCopy(c, p, x, y, s) }
+        cutIcon = icon(22, 0.34f, 0.68f) { c, p, x, y, s -> Glyphs.drawCut(c, p, x, y, s) }
         copyBtn = iconBtn(context.getString(R.string.edit_copy), EditAction.COPY, copyIcon, iconOnStart = true)
         cutBtn = iconBtn(context.getString(R.string.edit_cut), EditAction.CUT, cutIcon, iconOnStart = true)
-        val deleteBtn = iconBtn(context.getString(R.string.edit_delete), EditAction.DELETE, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }, iconOnStart = true)
+        val deleteBtn = iconBtn(context.getString(R.string.edit_delete), EditAction.DELETE, icon(22, 0.34f, 1f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }, iconOnStart = true)
         val rightActions = listOf(deleteBtn, copyBtn, cutBtn)
         val rightCol = LinearLayout(context).apply { orientation = VERTICAL }
         rightCol.addView(deleteBtn, rowLp())
@@ -125,13 +125,21 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         mid.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 0.9f))
         mid.addView(rightCol, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
 
-        val bottom = LinearLayout(context).apply { orientation = HORIZONTAL; isBaselineAligned = false }
+        val bottom = object : LinearLayout(context) {
+            init { orientation = HORIZONTAL; isBaselineAligned = false }
+
+            override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+                super.onLayout(changed, left, top, right, bottom)
+                val paste = actionViews[EditAction.PASTE] ?: return
+                paste.layout(rightCol.left + deleteBtn.left, paste.top, rightCol.left + deleteBtn.right, paste.bottom)
+            }
+        }
         bottom.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 0.1f))
         bottom.addView(iconBtn(context.getString(R.string.edit_paragraph_start), EditAction.HOME, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawParagraphEdge(c, p, x, y, s, toStart = true) }).apply { isFocusable = false }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         bottom.addView(iconBtn(context.getString(R.string.edit_select_all), EditAction.SELECT_ALL, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawSelectAll(c, p, x, y, s) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         bottom.addView(iconBtn(context.getString(R.string.edit_paragraph_end), EditAction.END, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawParagraphEdge(c, p, x, y, s, toStart = false) }).apply { isFocusable = false }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         bottom.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 0.9f))
-        bottom.addView(iconBtn(context.getString(R.string.edit_paste), EditAction.PASTE, icon(22, 0.34f) { c, p, x, y, s -> Glyphs.drawClipboard(c, p, x, y, s) }, iconOnStart = true), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        bottom.addView(iconBtn(context.getString(R.string.edit_paste), EditAction.PASTE, icon(22, 0.34f, 0.58f) { c, p, x, y, s -> Glyphs.drawClipboard(c, p, x, y, s) }, iconOnStart = true), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         val pasteBtn = requireNotNull(actionViews[EditAction.PASTE])
         val navigationActions = listOf(EditAction.HOME, EditAction.SELECT_ALL, EditAction.END).map { requireNotNull(actionViews[it]) }
 
@@ -168,6 +176,10 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
                 super.onMeasure(
                     widthMeasureSpec,
                     MeasureSpec.makeMeasureSpec(midHeight + measuredBottomHeight, MeasureSpec.EXACTLY),
+                )
+                pasteBtn.measure(
+                    MeasureSpec.makeMeasureSpec(deleteBtn.measuredWidth, MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec(deleteBtn.measuredHeight, MeasureSpec.EXACTLY),
                 )
             }
         }.apply {
@@ -259,7 +271,21 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         actionViews[action] = this
     }
 
-    private fun iconBtn(label: String, action: EditAction, glyph: GlyphDrawable, iconOnStart: Boolean = false): TextView = TextView(context).apply {
+    private fun iconBtn(label: String, action: EditAction, glyph: GlyphDrawable, iconOnStart: Boolean = false): TextView = object : TextView(context) {
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            if (iconOnStart) {
+                val textBounds = Rect()
+                paint.getTextBounds(label, 0, label.length, textBounds)
+                val textWidth = paint.measureText(label)
+                val slack = MeasureSpec.getSize(widthMeasureSpec) -
+                    glyph.intrinsicWidth - compoundDrawablePadding - textWidth
+                val rightBearing = textWidth - textBounds.right
+                val inset = (slack / 2f - glyph.leftInkInset() + rightBearing).toInt().coerceAtLeast(0)
+                setPadding(inset, paddingTop, inset, paddingBottom)
+            }
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+        }
+    }.apply {
         text = label
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
@@ -293,19 +319,21 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         actionViews[action] = this
     }
 
-    private fun icon(boxDp: Int, sFactor: Float, render: (Canvas, Paint, Float, Float, Float) -> Unit): GlyphDrawable =
-        GlyphDrawable(dp(boxDp), sFactor, 2f * density, render).also { it.applyTint(palette.keyLabel); icons += it }
+    private fun icon(boxDp: Int, sFactor: Float, leftExtent: Float = 0f, render: (Canvas, Paint, Float, Float, Float) -> Unit): GlyphDrawable =
+        GlyphDrawable(dp(boxDp), sFactor, 2f * density, leftExtent, render).also { it.applyTint(palette.keyLabel); icons += it }
 
     private class GlyphDrawable(
         private val boxPx: Int,
         private val sFactor: Float,
-        strokePx: Float,
+        private val strokePx: Float,
+        private val leftExtent: Float,
         private val render: (Canvas, Paint, Float, Float, Float) -> Unit,
     ) : Drawable() {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND; strokeWidth = strokePx
         }
         fun applyTint(color: Int) { paint.color = color; invalidateSelf() }
+        fun leftInkInset(): Float = boxPx / 2f - boxPx * sFactor * leftExtent - strokePx / 2f
         fun lastDrawCenterForTest(): Pair<Float, Float>? {
             val x = lastCenterX
             val y = lastCenterY
