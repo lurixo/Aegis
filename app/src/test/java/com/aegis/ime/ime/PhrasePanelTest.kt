@@ -15,6 +15,9 @@
 
 package com.aegis.ime.ime
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.MotionEvent
@@ -34,6 +37,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -78,6 +82,20 @@ class PhrasePanelTest {
     }
     private fun dp(value: Int): Int = (value * ctx.resources.displayMetrics.density).toInt()
     private fun maxAutoScrollStepPx(): Int = (8 * ctx.resources.displayMetrics.density).toInt().coerceAtLeast(1)
+    private fun boundsInRoot(root: ViewGroup, target: View): Rect = Rect(0, 0, target.width, target.height).also {
+        root.offsetDescendantRectToMyCoords(target, it)
+    }
+    private fun inkRight(bitmap: Bitmap, bounds: Rect, background: Int): Int {
+        var right = -1
+        val top = bounds.centerY() - dp(10)
+        val bottom = bounds.centerY() + dp(10)
+        for (y in top until bottom) {
+            for (x in bounds.left until bounds.right) {
+                if (bitmap.getPixel(x, y) != background) right = maxOf(right, x)
+            }
+        }
+        return right
+    }
 
     private fun phraseView(): ClipboardView = phraseView(listOf("你好", "在吗", "稍等"))
     private fun phraseView(phrases: List<String>): ClipboardView = ClipboardView(ctx).apply {
@@ -440,29 +458,99 @@ class PhrasePanelTest {
                 val topBar = selectAll.parent as ViewGroup
                 val title = topBar.getChildAt(1)
                 assertTrue(cancel.parent === topBar)
-                assertEquals(dp(104), selectAll.width)
-                assertEquals(dp(104), cancel.width)
-                assertEquals(dp(40), selectAll.height)
-                assertEquals(dp(40), cancel.height)
+                assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, selectAll.layoutParams.width)
+                assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, cancel.layoutParams.width)
+                assertEquals(dp(36), selectAll.height)
+                assertEquals(dp(36), cancel.height)
                 assertTrue(selectAll.left < cancel.left)
                 assertEquals(topBar.paddingLeft, selectAll.left)
                 assertEquals(topBar.width - topBar.paddingRight, cancel.right)
                 assertEquals(selectAll.left, topBar.width - cancel.right)
                 assertEquals(selectAll.top, cancel.top)
                 assertEquals(selectAll.bottom, cancel.bottom)
-                assertEquals(topBar.width * 2, selectAll.left + selectAll.right + cancel.left + cancel.right)
                 assertTrue(selectAll.right <= title.left)
                 assertTrue(title.right <= cancel.left)
-                assertEquals(Gravity.CENTER, selectAll.gravity)
+                assertEquals(Gravity.CENTER_VERTICAL or Gravity.START, selectAll.gravity)
                 assertEquals(Gravity.CENTER, cancel.gravity)
                 assertTrue(selectAll.hasOnClickListeners())
                 assertTrue(cancel.hasOnClickListeners())
                 assertTrue(selectAll.background is GradientDrawable)
                 assertTrue(cancel.background is GradientDrawable)
                 assertEquals((selectAll.background as GradientDrawable).cornerRadius, (cancel.background as GradientDrawable).cornerRadius, 0f)
+                assertEquals(selectAll.paint.measureText(" ").roundToInt().coerceAtLeast(1), selectAll.compoundDrawablePadding)
+
+                val bottomLeftLabel = if (view.isClipboardTabForTest()) {
+                    ctx.getString(com.aegis.ime.R.string.clip_add_phrase)
+                } else {
+                    ctx.getString(com.aegis.ime.R.string.clip_move_to_category)
+                }
+                val bottomLeft = textViews(view).single { it.text?.toString() == bottomLeftLabel }
+                val bottom = bottomLeft.parent as ViewGroup
+                val bottomRight = textViews(bottom).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_delete) }
+                val selectBounds = boundsInRoot(view, selectAll)
+                val cancelBounds = boundsInRoot(view, cancel)
+                val bottomLeftBounds = boundsInRoot(view, bottomLeft)
+                val bottomRightBounds = boundsInRoot(view, bottomRight)
+                assertEquals(dp(36), bottomLeft.height)
+                assertEquals(dp(36), bottomRight.height)
+                assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, bottomLeft.layoutParams.width)
+                assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, bottomRight.layoutParams.width)
+                assertEquals(selectBounds.left, bottomLeftBounds.left)
+                assertEquals(cancelBounds.right, bottomRightBounds.right)
+                assertTrue(bottomLeftBounds.right <= bottomRightBounds.left)
+                assertEquals((selectAll.background as GradientDrawable).color?.defaultColor, (bottomLeft.background as GradientDrawable).color?.defaultColor)
+                assertEquals((cancel.background as GradientDrawable).color?.defaultColor, (bottomRight.background as GradientDrawable).color?.defaultColor)
+                assertEquals(selectAll.currentTextColor, bottomLeft.currentTextColor)
+                assertEquals(cancel.currentTextColor, bottomRight.currentTextColor)
+
+                val firstRow = checkNotNull(view.listRowViewForTest(0)) as ViewGroup
+                val itemCircle = firstRow.getChildAt(0)
+                val selectGlyph = checkNotNull(selectAll.compoundDrawables[0])
+                val selectCircleCenter = selectBounds.left + selectAll.paddingLeft + selectGlyph.bounds.exactCenterX()
+                val itemCircleCenter = boundsInRoot(view, itemCircle).exactCenterX()
+                assertEquals(itemCircleCenter, selectCircleCenter, 0f)
                 listOf(selectAll.left, selectAll.top, selectAll.right, selectAll.bottom, cancel.left, cancel.top, cancel.right, cancel.bottom)
             }
             assertEquals(1, geometries.toSet().size)
+        }
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun category_sort_title_done_and_drag_handle_share_the_requested_edges() {
+        for (layoutDirection in listOf(View.LAYOUT_DIRECTION_LTR, View.LAYOUT_DIRECTION_RTL)) {
+            val view = phraseView().apply {
+                this.layoutDirection = layoutDirection
+                enterCategorySortModeForTest()
+            }
+            layout(view, w = 480, h = 400)
+            val dragCategories = textViews(view).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_drag_category) }
+            val done = textViews(view).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_done) }
+            val firstRow = checkNotNull(view.listRowViewForTest(0)) as ViewGroup
+            val category = firstRow.getChildAt(0) as TextView
+            val handle = firstRow.getChildAt(1)
+            val dragBounds = boundsInRoot(view, dragCategories)
+            val doneBounds = boundsInRoot(view, done)
+            val categoryBounds = boundsInRoot(view, category)
+            val handleBounds = boundsInRoot(view, handle)
+            assertEquals(categoryBounds.left + category.totalPaddingLeft, dragBounds.left + dragCategories.totalPaddingLeft)
+            assertEquals(dragCategories.currentTextColor, done.currentTextColor)
+            assertEquals(pal.keyLabel, done.currentTextColor)
+            assertEquals(dp(36), done.height)
+            assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, done.layoutParams.width)
+            assertTrue(done.hasOnClickListeners())
+            assertTrue(done.background is GradientDrawable)
+            assertTrue(dragBounds.right <= doneBounds.left)
+            assertEquals(dp(44), handle.width)
+            assertEquals(firstRow.height, handle.height)
+            assertEquals(categoryBounds.right, handleBounds.left)
+            val doneTextRight = doneBounds.left + done.totalPaddingLeft + done.layout.getLineRight(0)
+            val handleVisibleRight = handleBounds.exactCenterX() + dp(9) * 0.78f + ctx.resources.displayMetrics.density
+            assertEquals(handleVisibleRight, doneTextRight, 0.6f)
+            val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+            view.draw(Canvas(bitmap))
+            assertEquals(inkRight(bitmap, handleBounds, pal.keySurface), inkRight(bitmap, doneBounds, pal.keySurface))
+            bitmap.recycle()
         }
     }
 

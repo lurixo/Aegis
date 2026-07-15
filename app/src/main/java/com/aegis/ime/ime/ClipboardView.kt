@@ -100,6 +100,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private var CARD = palette.keySurface
     private var BG = palette.keyboardBg
     private var SEP = palette.separator
+    private val moveGlyph: (Canvas, Paint, Float, Float, Float) -> Unit = Glyphs::drawList
 
     fun applyPalette(p: ImePalette) {
         palette = p
@@ -209,8 +210,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         const val APPEND_ROWS_PER_FRAME = 12
         const val SWIPE_ACTION_SIZE_DP = 44
         const val SWIPE_ACTION_GAP_DP = 4
-        const val SELECT_TOP_ACTION_WIDTH_DP = 104
-        const val SELECT_TOP_ACTION_HEIGHT_DP = 40
+        const val COMPACT_ACTION_HEIGHT_DP = 36
         const val SWIPE_VERTICAL_BIAS = 1.5f
         const val DRAG_AUTO_SCROLL_INTERVAL_MS = 16L
         const val DRAG_AUTO_SCROLL_MIN_STEP_DP = 2
@@ -490,8 +490,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         r.run()
         return true
     }
-    internal fun disabledActionTextColorForTest(): Int = TEXT_SECONDARY
-    internal fun disabledActionBackgroundColorForTest(): Int = GREY_PILL
+    internal fun disabledActionTextColorForTest(): Int = TEXT_DARK
+    internal fun disabledActionBackgroundColorForTest(): Int = CARD
     internal fun selectAllActionForTest(): TextView? = selectAllAction
     internal fun cancelSelectActionForTest(): TextView? = cancelSelectAction
     internal fun listScrollRawTopForTest(): Int {
@@ -727,19 +727,20 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun swipeRevealWidthDp(phrase: Boolean): Int {
         val count = if (phrase) 4 else 3
-        return count * SWIPE_ACTION_SIZE_DP + (count - 1) * SWIPE_ACTION_GAP_DP
+        return count * (SWIPE_ACTION_SIZE_DP + SWIPE_ACTION_GAP_DP)
     }
 
     private fun swipeActionStrip(text: String, category: String, phrase: Boolean): LinearLayout = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         layoutDirection = View.LAYOUT_DIRECTION_LTR
         gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT
-        fun addSwipeAction(desc: String, onClick: () -> Unit, render: (Canvas, Paint, Float, Float, Float) -> Unit) {
+        fun addSwipeAction(desc: String, onClick: () -> Unit, asset: Any? = null, render: (Canvas, Paint, Float, Float, Float) -> Unit) {
             val action = glyphToolbarBtn(desc, onClick = onClick, render = render).apply {
                 background = rounded(CARD, ImeShapes.toolbarFeedbackRadiusDp)
+                if (asset != null) tag = asset
             }
             addView(action, ll(dp(SWIPE_ACTION_SIZE_DP), dp(SWIPE_ACTION_SIZE_DP)).apply {
-                if (childCount > 0) marginStart = dp(SWIPE_ACTION_GAP_DP)
+                marginStart = dp(SWIPE_ACTION_GAP_DP)
             })
             attachSwipeReveal(action, text)
         }
@@ -748,7 +749,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             addSwipeAction(context.getString(R.string.clip_note), { onEditNote(category, text) }) { c, p, x, y, s -> Glyphs.drawTag(c, p, x, y, s) }
             addSwipeAction(context.getString(R.string.clip_move), {
                 chooseMoveCategoryThen(category, listOf(text)) { target -> onMovePhrase(category, text, target); refresh() }
-            }) { c, p, x, y, s -> Glyphs.drawArrow(c, p, x, y, s, Glyphs.Arrow.RIGHT) }
+            }, moveGlyph, moveGlyph)
             addSwipeAction(context.getString(R.string.clip_delete), { confirmDelete(listOf(text)) }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }
         } else {
             addSwipeAction(context.getString(R.string.clip_add_phrase), { chooseCategoryThen(listOf(text)) }) { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }
@@ -774,7 +775,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         setPadding(dp(8), dp(4), dp(8), dp(8))
         addActionButton(glyphAction(context.getString(R.string.clip_edit), render = { c, p, x, y, s -> Glyphs.drawPencil(c, p, x, y, s) }) { onEditPhrase(category, text) })
         addActionButton(glyphAction(context.getString(R.string.clip_note), render = { c, p, x, y, s -> Glyphs.drawTag(c, p, x, y, s) }) { onEditNote(category, text) })
-        addActionButton(charAction("移", context.getString(R.string.clip_move)) { chooseMoveCategoryThen(category, listOf(text)) { target -> onMovePhrase(category, text, target); refresh() } })
+        addActionButton(glyphAction(context.getString(R.string.clip_move), render = moveGlyph) { chooseMoveCategoryThen(category, listOf(text)) { target -> onMovePhrase(category, text, target); refresh() } }.apply { tag = moveGlyph })
         addActionButton(glyphAction(context.getString(R.string.clip_delete), render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { confirmDelete(listOf(text)) })
     }
 
@@ -1127,6 +1128,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val handle = glyphView(TEXT_DARK, 9) { c, p, x, y, s -> Glyphs.drawList(c, p, x, y, s) }
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
             gravity = Gravity.CENTER_VERTICAL
             background = rounded(CARD, ImeShapes.cardRadiusDp)
             layoutParams = ll(MP, WC).apply { topMargin = dp(8) }
@@ -1155,20 +1157,23 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val current = currentCategory(cats)
         val topBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), dp(8), dp(12), dp(8))
+            setPadding(dp(22), dp(4), dp(8), dp(4))
             addView(TextView(context).apply {
                 text = context.getString(R.string.clip_drag_category)
                 setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 setTypeface(null, android.graphics.Typeface.BOLD)
-            }, ll(0, WC, 1f))
+            }, ll(WC, WC))
+            addView(View(context), ll(0, dp(1), 1f))
             addView(TextView(context).apply {
-                text = context.getString(R.string.clip_done); gravity = Gravity.END
-                setTextColor(GREEN); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+                text = context.getString(R.string.clip_done); gravity = Gravity.CENTER_VERTICAL or Gravity.END
+                setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+                setPadding(dp(12), 0, dp(14), 0)
                 background = rounded(CARD, ImeShapes.toolbarFeedbackRadiusDp)
-                Motion.applyTapFeedback(this, GREEN)
+                Motion.applyTapFeedback(this, TEXT_DARK)
                 setOnClickListener { exitCategorySortMode() }
-            }, ll(0, WC, 1f))
+            }, ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)))
         }
         main.addView(topBar, ll(MP, WC))
 
@@ -1318,21 +1323,22 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), dp(8), dp(8), dp(8))
+            setPadding(dp(8), dp(4), dp(8), dp(4))
             val allSel = st.isAllSelected(all)
             val selectAll = TextView(context).apply {
                 text = context.getString(R.string.clip_select_all)
-                gravity = Gravity.CENTER
-                setTextColor(if (allSel) GREEN else TEXT_DARK)
+                gravity = Gravity.CENTER_VERTICAL or Gravity.START
+                setTextColor(TEXT_DARK)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 setCompoundDrawablesWithIntrinsicBounds(glyphIcon(if (allSel) GREEN else TEXT_DARK, 22) { c, p, x, y, s -> Glyphs.drawRadio(c, p, x, y, s, allSel) }, null, null, null)
-                compoundDrawablePadding = dp(6)
+                compoundDrawablePadding = paint.measureText(" ").roundToInt().coerceAtLeast(1)
+                setPadding(dp(9), 0, dp(10), 0)
                 background = rounded(CARD, ImeShapes.toolbarFeedbackRadiusDp)
-                Motion.applyTapFeedback(this, if (allSel) GREEN else TEXT_DARK)
+                Motion.applyTapFeedback(this, TEXT_DARK)
                 setOnClickListener { st.selectAll(all); refresh() }
             }
             selectAllAction = selectAll
-            addView(selectAll, ll(dp(SELECT_TOP_ACTION_WIDTH_DP), dp(SELECT_TOP_ACTION_HEIGHT_DP)))
+            addView(selectAll, ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)))
             addView(LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
@@ -1347,16 +1353,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                     gravity = Gravity.CENTER
                     setTextColor(TEXT_SECONDARY); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
                 }, ll(MP, WC))
-            }, ll(0, dp(SELECT_TOP_ACTION_HEIGHT_DP), 1f))
-            val cancel = TextView(context).apply {
-                text = context.getString(R.string.clip_cancel); gravity = Gravity.CENTER
-                setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
-                background = rounded(CARD, ImeShapes.toolbarFeedbackRadiusDp)
-                Motion.applyTapFeedback(this, TEXT_DARK)
-                setOnClickListener { exitSelect() }
-            }
+            }, ll(0, dp(COMPACT_ACTION_HEIGHT_DP), 1f))
+            val cancel = compactActionButton(context.getString(R.string.clip_cancel), true) { exitSelect() }
             cancelSelectAction = cancel
-            addView(cancel, ll(dp(SELECT_TOP_ACTION_WIDTH_DP), dp(SELECT_TOP_ACTION_HEIGHT_DP)))
+            addView(cancel, ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)))
         }
         main.addView(topBar, ll(MP, WC))
 
@@ -1366,21 +1366,24 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val hasSel = st.hasSelection()
         val bottom = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(12), dp(8), dp(12), dp(8))
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), dp(4), dp(8), dp(4))
             if (st.tab == Tab.PHRASE) {
-                addView(pillButton(context.getString(R.string.clip_move_to_category), hasSel) {
+                addView(compactActionButton(context.getString(R.string.clip_move_to_category), hasSel) {
                     val victims = st.selected.toList()
                     chooseMoveCategoryThen(category, victims, after = { exitSelect() }) { target -> onMovePhrasesTo(category, victims, target); exitSelect() }
-                }, ll(0, dp(44), 1f).apply { rightMargin = dp(8) })
+                }, ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)))
             } else {
-                addView(pillButton(context.getString(R.string.clip_add_phrase), hasSel) {
+                addView(compactActionButton(context.getString(R.string.clip_add_phrase), hasSel) {
                     chooseCategoryThen(st.selected.toList()) { exitSelect() }
-                }, ll(0, dp(44), 1f).apply { rightMargin = dp(8) })
+                }, ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)))
             }
-            addView(pillButton(context.getString(R.string.clip_delete), hasSel) {
+            addView(View(context), ll(0, dp(1), 1f))
+            addView(compactActionButton(context.getString(R.string.clip_delete), hasSel) {
                 val victims = st.selected.toList()
                 confirmDelete(victims) { st.exitSelect() }
-            }, ll(0, dp(44), 1f))
+            }, ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)))
         }
         main.addView(bottom, ll(MP, WC))
     }
@@ -1406,6 +1409,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         }
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
             gravity = Gravity.CENTER_VERTICAL
             background = rounded(CARD, ImeShapes.cardRadiusDp)
             layoutParams = ll(MP, WC).apply { topMargin = dp(8) }
@@ -1654,15 +1658,16 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         layoutParams = LinearLayout.LayoutParams(MP, maxOf(1, dp(1)))
     }
 
-    private fun pillButton(label: String, enabled: Boolean, onClick: () -> Unit): TextView =
+    private fun compactActionButton(label: String, enabled: Boolean, onClick: () -> Unit): TextView =
         TextView(context).apply {
             text = label; gravity = Gravity.CENTER
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
-            background = rounded(if (enabled) SPLIT_BLOCK_BG else GREY_PILL, ImeShapes.chipRadiusDp)
-            setTextColor(if (enabled) SPLIT_BLOCK_TEXT else TEXT_SECONDARY)
+            setPadding(dp(12), 0, dp(12), 0)
+            background = rounded(CARD, ImeShapes.toolbarFeedbackRadiusDp)
+            setTextColor(TEXT_DARK)
             isClickable = enabled
             if (enabled) {
-                Motion.applyTapFeedback(this, SPLIT_BLOCK_TEXT)
+                Motion.applyTapFeedback(this, TEXT_DARK)
                 setOnClickListener { onClick() }
             }
         }

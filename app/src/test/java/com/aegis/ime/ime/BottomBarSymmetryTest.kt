@@ -18,6 +18,7 @@ package com.aegis.ime.ime
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.Drawable
 import android.graphics.Rect
 import android.view.Gravity
 import android.view.View
@@ -34,9 +35,11 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class BottomBarSymmetryTest {
 
     private val ctx = RuntimeEnvironment.getApplication()
@@ -61,6 +64,28 @@ class BottomBarSymmetryTest {
 
     private fun bounds(root: ViewGroup, descendant: View): Rect = Rect(0, 0, descendant.width, descendant.height).also {
         root.offsetDescendantRectToMyCoords(descendant, it)
+    }
+
+    private fun inkCenter(drawable: Drawable): Pair<Float, Float> {
+        val bitmap = Bitmap.createBitmap(drawable.bounds.width(), drawable.bounds.height(), Bitmap.Config.ARGB_8888)
+        drawable.draw(Canvas(bitmap))
+        var left = bitmap.width
+        var top = bitmap.height
+        var right = -1
+        var bottom = -1
+        for (y in 0 until bitmap.height) {
+            for (x in 0 until bitmap.width) {
+                if (bitmap.getPixel(x, y) ushr 24 != 0) {
+                    left = minOf(left, x)
+                    top = minOf(top, y)
+                    right = maxOf(right, x)
+                    bottom = maxOf(bottom, y)
+                }
+            }
+        }
+        bitmap.recycle()
+        assertTrue(right >= left && bottom >= top)
+        return (left + right + 1) / 2f to (top + bottom + 1) / 2f
     }
 
     private fun assertControlBackgrounds(controls: List<TextView>, palette: ImePalette, name: String) {
@@ -111,6 +136,17 @@ class BottomBarSymmetryTest {
         assertNull("$name clear has no right-anchored glyph", clear.compoundDrawables[2])
         assertNotNull("$name delete keeps its glyph", backspace.compoundDrawables[0])
         assertNull("$name delete has no right-anchored glyph", backspace.compoundDrawables[2])
+        for (control in listOf(clear, backspace)) {
+            val glyph = requireNotNull(control.compoundDrawables[0])
+            assertEquals(Rect(0, 0, control.width, control.height), glyph.bounds)
+            assertEquals(control.width / 2f, glyph.bounds.exactCenterX(), 0f)
+            assertEquals(control.height / 2f, glyph.bounds.exactCenterY(), 0f)
+            assertEquals(control.background.bounds.exactCenterX(), glyph.bounds.exactCenterX(), 0f)
+            assertEquals(control.background.bounds.exactCenterY(), glyph.bounds.exactCenterY(), 0f)
+            val center = inkCenter(glyph)
+            assertEquals(control.width / 2f, center.first, 0.6f)
+            assertEquals(control.height / 2f, center.second, 0.6f)
+        }
     }
 
     @Test fun symbols_bottom_controls_follow_the_rail_center_and_content_columns_in_ltr_and_rtl() {

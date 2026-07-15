@@ -17,6 +17,8 @@ package com.aegis.ime
 
 import android.app.Activity
 import android.content.res.Configuration
+import android.os.Looper
+import android.provider.Settings
 import android.text.InputType
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -24,6 +26,7 @@ import android.widget.FrameLayout
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.ime.ClipboardView
 import com.aegis.ime.ime.CustomSymbolPanel
+import com.aegis.ime.ime.DecodeLane
 import com.aegis.ime.ime.EditPanelView
 import com.aegis.ime.ime.EmojiView
 import com.aegis.ime.ime.InputView
@@ -42,7 +45,10 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import java.util.concurrent.Executor
+import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w853dp-h388dp-land-hdpi")
@@ -81,10 +87,10 @@ class AegisInputMethodServiceLifecycleTest {
         this.inputType = inputType
     }
 
-    private fun fixture(info: EditorInfo = editor()): Fixture {
+    private fun fixture(info: EditorInfo = editor(), decodeLane: DecodeLane? = null): Fixture {
 
         val service = Robolectric.buildService(AegisInputMethodService::class.java).get()
-        val controller = KeyboardController(service, engine)
+        val controller = KeyboardController(service, engine, decodeLane)
         service.javaClass.getDeclaredField("controller").apply {
             isAccessible = true
             set(service, controller)
@@ -244,6 +250,105 @@ class AegisInputMethodServiceLifecycleTest {
         assertCleared(f, seeded, "inline edit window hide")
         assertTrue(f.service.transientStateForTest().inputActive)
         assertEquals(f.info.packageName, f.service.transientStateForTest().targetPackage)
+    }
+
+    @Test fun inline_cancel_and_confirm_attach_only_the_final_phrase_panel_state() {
+        for (purpose in listOf("CATEGORY", "PHRASE", "NOTE")) {
+            for (confirm in listOf(false, true)) {
+                val f = fixture()
+                Settings.Global.putFloat(f.service.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+                val activity = Robolectric.buildActivity(Activity::class.java).setup()
+                try {
+                    val host = FrameLayout(activity.get())
+                    activity.get().setContentView(host)
+                    host.addView(f.view)
+                    f.view.measure(
+                        View.MeasureSpec.makeMeasureSpec(1280, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(582, View.MeasureSpec.AT_MOST),
+                    )
+                    f.view.layout(0, 0, f.view.measuredWidth, f.view.measuredHeight)
+                    val cv = clipboard(f.service)
+                    when (purpose) {
+                        "CATEGORY" -> cv.onAddCategory()
+                        "PHRASE" -> cv.onEditPhrase("默认", "原文")
+                        else -> cv.onEditNote("默认", "原文")
+                    }
+                    shadowOf(Looper.getMainLooper()).idleFor(200, TimeUnit.MILLISECONDS)
+                    f.view.onKey(Key("6", output = "6"))
+                    assertTrue(f.controller.preeditForTest().isNotEmpty())
+                    f.service.commitText("final-state-$purpose-$confirm")
+                    if (confirm) f.view.onEditConfirm() else f.view.onEditCancel()
+
+                    val state = f.service.transientStateForTest()
+                    assertFalse(state.editActive)
+                    assertEquals("", state.composition)
+                    assertEquals("CLIPBOARD", state.panel)
+                    assertEquals("PHRASES", state.panelDetail)
+                    assertFalse(cv.isClipboardTabForTest())
+                    assertTrue(f.view.isPanelShowing(cv))
+                    shadowOf(Looper.getMainLooper()).idleFor(200, TimeUnit.MILLISECONDS)
+                    assertFalse(f.view.isEditBarShowing())
+                    assertTrue(f.view.isPanelShowing(cv))
+                } finally {
+                    activity.pause().stop().destroy()
+                }
+            }
+        }
+    }
+
+    @Test fun density_change_during_inline_edit_recreates_the_final_phrase_panel() {
+        val f = fixture()
+        val oldClipboard = clipboard(f.service)
+        oldClipboard.onEditNote("默认", "原文")
+        f.service.commitText("density-draft")
+        val frameworkInputFrame = installFrameworkInputFrame(f)
+
+        try {
+            RuntimeEnvironment.setQualifiers("w320dp-h200dp-land-mdpi")
+            f.service.onConfigurationChanged(
+                Configuration(f.service.resources.configuration).apply {
+                    densityDpi = 160
+                    orientation = Configuration.ORIENTATION_LANDSCAPE
+                },
+            )
+            f.view = cachedPanel(f.service, "inputView") as InputView
+            assertTrue(frameworkInputFrame.getChildAt(0) === f.view)
+            assertNull(cachedPanel(f.service, "clipboardView"))
+            assertTrue(f.service.transientStateForTest().editActive)
+
+            f.view.onEditCancel()
+
+            val rebuiltClipboard = cachedPanel(f.service, "clipboardView") as ClipboardView
+            assertNotSame(oldClipboard, rebuiltClipboard)
+            assertEquals(1f, capturedDensity(rebuiltClipboard), 0.001f)
+            assertFalse(rebuiltClipboard.isClipboardTabForTest())
+            assertTrue(f.view.isPanelShowing(rebuiltClipboard))
+            assertEquals("PHRASES", f.service.transientStateForTest().panelDetail)
+        } finally {
+            RuntimeEnvironment.setQualifiers("w853dp-h388dp-land-hdpi")
+        }
+    }
+
+    @Test fun inline_exit_drops_a_decode_result_already_queued_for_main_delivery() {
+        val worker = ArrayDeque<Runnable>()
+        val main = ArrayDeque<Runnable>()
+        val lane = DecodeLane(Executor { worker.add(it) }, Executor { main.add(it) })
+        val f = fixture(decodeLane = lane)
+        val cv = clipboard(f.service)
+        cv.onEditNote("默认", "原文")
+        f.view.onKey(Key("6", output = "6"))
+        assertTrue(worker.isNotEmpty())
+        while (worker.isNotEmpty()) worker.removeFirst().run()
+        assertTrue(main.isNotEmpty())
+
+        f.view.onEditCancel()
+        assertEquals("", f.controller.preeditForTest())
+        assertTrue(f.view.isPanelShowing(cv))
+        while (main.isNotEmpty()) main.removeFirst().run()
+
+        assertEquals("", f.controller.preeditForTest())
+        assertTrue(f.controller.candidateWords().isEmpty())
+        assertTrue(f.view.isPanelShowing(cv))
     }
 
     @Test fun phrases_panel_survives_real_rotation_but_category_move_clears_after_real_hide_show() {
