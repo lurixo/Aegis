@@ -284,7 +284,6 @@
     <string name="svc_saved_to_clipboard">已存入剪贴板</string>
     <string name="clip_back">返回</string>
     <string name="clip_add_phrase">添加常用语</string>
-    <string name="clip_multi_select">多选</string>
     <string name="clip_clear_category">清空分类</string>
     <string name="clip_clear_history">清空剪贴板历史</string>
     <string name="clip_collapse">收起</string>
@@ -313,8 +312,8 @@
     <string name="clip_rename_named">重命名「%1$s」</string>
     <string name="clip_delete_named">删除「%1$s」</string>
     <string name="clip_select_all">全选</string>
-    <string name="clip_edit_phrases">编辑常用语</string>
-    <string name="clip_edit_clipboard">编辑剪贴板</string>
+    <string name="clip_edit_phrases">批量管理常用语</string>
+    <string name="clip_edit_clipboard">批量管理剪贴板</string>
     <string name="clip_selected_count">已选择 %1$d 项</string>
     <string name="clip_move_to_category">移动到分类</string>
     <string name="clip_no_other_categories">没有其它分类</string>

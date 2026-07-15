@@ -32,6 +32,7 @@ import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.SymbolCatalog
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -366,7 +367,7 @@ class RenderHarness {
                 enterSelectForTest(listOf("你好"))
             }
             snap(v, h, "phrase_select_$t.png")
-            assertTrue("$t: missing title 编辑常用语", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_edit_phrases)))
+            assertTrue("$t: missing phrase batch title", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_edit_phrases)))
             assertTrue("$t: missing 移动到分类", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_move_to_category)))
             assertTrue("$t: missing 删除", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_delete)))
         }
@@ -392,7 +393,7 @@ class RenderHarness {
     @Test fun edit_bar() {
         val h = (44 * density).toInt()
         for ((t, pal) in themes) {
-            val v = EditBarView(ctx).apply { applyPalette(pal); setTitle(ctx.getString(com.aegis.ime.R.string.clip_edit_phrases)); setText("你好世界") }
+            val v = EditBarView(ctx).apply { applyPalette(pal); setTitle(ctx.getString(com.aegis.ime.R.string.svc_edit_phrase)); setText("你好世界") }
             snap(v, h, "edit_bar_$t.png")
             assertTrue("$t: edit bar missing 确定", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.editbar_confirm)))
             assertTrue("$t: edit bar missing 取消", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_cancel)))
@@ -540,10 +541,16 @@ class RenderHarness {
             val geometry = actions.map { action ->
                 val target = requireNotNull(view.actionViewForTest(action))
                 val viewRect = bounds(action)
-                val backgroundRect = Rect(requireNotNull(target.background).bounds).apply {
+                assertNull("$name/${width}px: $action has no resting background", target.background)
+                val ripple = target.foreground as? RippleDrawable
+                    ?: throw AssertionError("$name/${width}px: $action lost pressed feedback")
+                val mask = ripple.findDrawableByLayerId(android.R.id.mask) as? android.graphics.drawable.GradientDrawable
+                    ?: throw AssertionError("$name/${width}px: $action lost its pressed mask")
+                assertEquals("$name/${width}px: $action pressed mask is rectangular", 0f, mask.cornerRadius, 0f)
+                val rippleRect = Rect(ripple.bounds).apply {
                     offset(viewRect.left, viewRect.top)
                 }
-                listOf(viewRect, backgroundRect, hitBounds(target))
+                listOf(viewRect, rippleRect, hitBounds(target))
             }
             if (pass == 0) {
                 firstGeometry = geometry.map { rectangles -> rectangles.map { Rect(it) } }
@@ -556,7 +563,7 @@ class RenderHarness {
                 val viewTop = rectangles.first().top
                 val relative = rectangles.map { Rect(it).apply { offset(0, -viewTop) } }
                 assertEquals(
-                    "$name/${width}px: $action View/background/hit rectangles relative to Delete",
+                    "$name/${width}px: $action View/pressed/hit rectangles relative to Delete",
                     List(3) { Rect(deleteRect) },
                     relative,
                 )

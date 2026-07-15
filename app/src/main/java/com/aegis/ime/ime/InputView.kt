@@ -106,6 +106,11 @@ class InputView(context: Context) : LinearLayout(context) {
     fun isEditBarShowing(): Boolean = editBarView.visibility == VISIBLE
     fun setEditTitle(t: String) { editBarView.setTitle(t) }
     fun setEditText(t: String) { editBarView.setText(t) }
+    internal fun dismissEditBarForPanelReturn() {
+        editBarActive = false
+        Motion.reset(editBarView)
+        editBarView.visibility = GONE
+    }
 
     init {
         orientation = VERTICAL

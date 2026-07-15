@@ -25,7 +25,6 @@ import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.drawable.Drawable
-import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -63,7 +62,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         setBackgroundColor(p.keyboardBg)
         recolor(this)
         for (action in listOf(EditAction.DELETE, EditAction.COPY, EditAction.CUT, EditAction.PASTE)) {
-            actionViews[action]?.background = rightActionBackground()
+            actionViews[action]?.let { Motion.applyTapFeedback(it, p.keyLabel, radiusDp = 0f) }
         }
         for (g in icons) g.applyTint(p.keyLabel)
         setHasSelection(copyBtn.isEnabled)
@@ -218,7 +217,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         for (b in listOf(copyBtn, cutBtn)) {
             b.isEnabled = has
             b.setTextColor(tint)
-            Motion.applyTapFeedback(b, tint)
+            Motion.applyTapFeedback(b, tint, radiusDp = 0f)
         }
         copyIcon.applyTint(tint); cutIcon.applyTint(tint)
     }
@@ -297,16 +296,10 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
             null,
         )
         compoundDrawablePadding = dp(2)
-        if (iconOnStart) background = rightActionBackground()
         isClickable = true
-        Motion.applyTapFeedback(this, palette.keyLabel)
+        Motion.applyTapFeedback(this, palette.keyLabel, radiusDp = if (iconOnStart) 0f else ImeShapes.keyRadiusDp)
         setOnClickListener { onAction(action) }
         actionViews[action] = this
-    }
-
-    private fun rightActionBackground() = GradientDrawable().apply {
-        setColor(palette.keySurface)
-        cornerRadius = ImeShapes.keyRadiusDp * density
     }
 
     private fun arrowBtn(action: EditAction, dir: Glyphs.Arrow): View = View(context).apply {

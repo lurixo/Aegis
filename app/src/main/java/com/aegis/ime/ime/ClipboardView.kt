@@ -22,6 +22,7 @@ import com.aegis.ime.ime.theme.ImeShapes
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.drawable.RippleDrawable
 import android.graphics.drawable.GradientDrawable
@@ -100,7 +101,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private var CARD = palette.keySurface
     private var BG = palette.keyboardBg
     private var SEP = palette.separator
-    private val moveGlyph: (Canvas, Paint, Float, Float, Float) -> Unit = Glyphs::drawList
+    private val splitSymbol = "拆"
+    private val moveSymbol = "移"
 
     fun applyPalette(p: ImePalette) {
         palette = p
@@ -576,6 +578,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         else -> 0
     }
 
+    private fun batchManagementTitle(): String = context.getString(
+        if (st.tab == Tab.PHRASE) R.string.clip_edit_phrases else R.string.clip_edit_clipboard,
+    )
+
     internal fun tabTransitionsForTest(): Int = tabTransitions
     internal fun modeTransitionsForTest(): Int = modeTransitions
 
@@ -633,7 +639,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 background = rounded(CARD, ImeShapes.toolbarFeedbackRadiusDp)
             }, iconLp(true))
             else addView(View(context), iconLp(true))
-            addView(glyphToolbarBtn(desc = context.getString(R.string.clip_multi_select), onClick = { enterSelect() }) { c, p, x, y, s -> Glyphs.drawList(c, p, x, y, s) }.apply {
+            addView(glyphToolbarBtn(desc = batchManagementTitle(), onClick = { enterSelect() }) { c, p, x, y, s -> Glyphs.drawList(c, p, x, y, s) }.apply {
                 background = rounded(CARD, ImeShapes.toolbarFeedbackRadiusDp)
             }, iconLp(true))
             if (st.tab == Tab.PHRASE) addView(glyphToolbarBtn(desc = context.getString(R.string.clip_clear_category), tint = TEXT_DARK, onClick = { confirmClearCurrentCategory() }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }.apply {
@@ -734,8 +740,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         orientation = LinearLayout.HORIZONTAL
         layoutDirection = View.LAYOUT_DIRECTION_LTR
         gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT
-        fun addSwipeAction(desc: String, onClick: () -> Unit, asset: Any? = null, render: (Canvas, Paint, Float, Float, Float) -> Unit) {
-            val action = glyphToolbarBtn(desc, onClick = onClick, render = render).apply {
+        fun addSwipeAction(action: View, asset: Any? = null) {
+            action.apply {
                 background = rounded(CARD, ImeShapes.toolbarFeedbackRadiusDp)
                 if (asset != null) tag = asset
             }
@@ -744,17 +750,23 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             })
             attachSwipeReveal(action, text)
         }
+        fun addGlyphSwipeAction(desc: String, onClick: () -> Unit, render: (Canvas, Paint, Float, Float, Float) -> Unit) {
+            addSwipeAction(glyphToolbarBtn(desc, onClick = onClick, render = render))
+        }
+        fun addCharSwipeAction(desc: String, symbol: String, onClick: () -> Unit) {
+            addSwipeAction(charToolbarBtn(desc, symbol, onClick = onClick), symbol)
+        }
         if (phrase) {
-            addSwipeAction(context.getString(R.string.clip_edit), { onEditPhrase(category, text) }) { c, p, x, y, s -> Glyphs.drawPencil(c, p, x, y, s) }
-            addSwipeAction(context.getString(R.string.clip_note), { onEditNote(category, text) }) { c, p, x, y, s -> Glyphs.drawTag(c, p, x, y, s) }
-            addSwipeAction(context.getString(R.string.clip_move), {
+            addGlyphSwipeAction(context.getString(R.string.clip_edit), { onEditPhrase(category, text) }) { c, p, x, y, s -> Glyphs.drawPencil(c, p, x, y, s) }
+            addGlyphSwipeAction(context.getString(R.string.clip_note), { onEditNote(category, text) }) { c, p, x, y, s -> Glyphs.drawTag(c, p, x, y, s) }
+            addCharSwipeAction(context.getString(R.string.clip_move), moveSymbol) {
                 chooseMoveCategoryThen(category, listOf(text)) { target -> onMovePhrase(category, text, target); refresh() }
-            }, moveGlyph, moveGlyph)
-            addSwipeAction(context.getString(R.string.clip_delete), { confirmDelete(listOf(text)) }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }
+            }
+            addGlyphSwipeAction(context.getString(R.string.clip_delete), { confirmDelete(listOf(text)) }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }
         } else {
-            addSwipeAction(context.getString(R.string.clip_add_phrase), { chooseCategoryThen(listOf(text)) }) { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }
-            addSwipeAction(context.getString(R.string.clip_split_word), { showSplit(text) }) { c, p, x, y, s -> Glyphs.drawCut(c, p, x, y, s) }
-            addSwipeAction(context.getString(R.string.clip_delete), { confirmDelete(listOf(text)) }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }
+            addGlyphSwipeAction(context.getString(R.string.clip_add_phrase), { chooseCategoryThen(listOf(text)) }) { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }
+            addCharSwipeAction(context.getString(R.string.clip_split_word), splitSymbol) { showSplit(text) }
+            addGlyphSwipeAction(context.getString(R.string.clip_delete), { confirmDelete(listOf(text)) }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }
         }
     }
 
@@ -764,7 +776,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(8), dp(4), dp(8), dp(8))
         addActionButton(glyphAction(context.getString(R.string.clip_phrases), render = { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }) { chooseCategoryThen(listOf(text)) })
-        addActionButton(charAction("拆", context.getString(R.string.clip_split_word)) { showSplit(text) })
+        addActionButton(charAction(splitSymbol, context.getString(R.string.clip_split_word)) { showSplit(text) }.apply { tag = splitSymbol })
         addActionButton(glyphAction(context.getString(R.string.clip_delete), render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { confirmDelete(listOf(text)) })
     }
 
@@ -775,7 +787,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         setPadding(dp(8), dp(4), dp(8), dp(8))
         addActionButton(glyphAction(context.getString(R.string.clip_edit), render = { c, p, x, y, s -> Glyphs.drawPencil(c, p, x, y, s) }) { onEditPhrase(category, text) })
         addActionButton(glyphAction(context.getString(R.string.clip_note), render = { c, p, x, y, s -> Glyphs.drawTag(c, p, x, y, s) }) { onEditNote(category, text) })
-        addActionButton(glyphAction(context.getString(R.string.clip_move), render = moveGlyph) { chooseMoveCategoryThen(category, listOf(text)) { target -> onMovePhrase(category, text, target); refresh() } }.apply { tag = moveGlyph })
+        addActionButton(charAction(moveSymbol, context.getString(R.string.clip_move)) { chooseMoveCategoryThen(category, listOf(text)) { target -> onMovePhrase(category, text, target); refresh() } }.apply { tag = moveSymbol })
         addActionButton(glyphAction(context.getString(R.string.clip_delete), render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { confirmDelete(listOf(text)) })
     }
 
@@ -1171,7 +1183,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 setPadding(dp(12), 0, dp(14), 0)
                 background = rounded(CARD, ImeShapes.toolbarFeedbackRadiusDp)
-                Motion.applyTapFeedback(this, TEXT_DARK)
+                Motion.applyTapFeedback(this, TEXT_DARK, radiusDp = ImeShapes.toolbarFeedbackRadiusDp)
                 setOnClickListener { exitCategorySortMode() }
             }, ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)))
         }
@@ -1297,7 +1309,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         background = if (on) rounded(GREY_PILL, ImeShapes.toolbarPillRadiusDp) else null
         setTextColor(if (on) GREEN else TEXT_DARK)
         setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
-        Motion.applyTapFeedback(this, if (on) GREEN else TEXT_DARK)
+        Motion.applyTapFeedback(this, if (on) GREEN else TEXT_DARK, radiusDp = ImeShapes.toolbarPillRadiusDp)
         setOnClickListener { st.collapse(); swipeRevealed = null; phraseCat = name; refresh() }
         setOnLongClickListener { showCategoryMenu(name); true }
         layoutParams = ll(WC, WC).apply { rightMargin = dp(2) }
@@ -1334,25 +1346,28 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 compoundDrawablePadding = paint.measureText(" ").roundToInt().coerceAtLeast(1)
                 setPadding(dp(9), 0, dp(10), 0)
                 background = rounded(CARD, ImeShapes.toolbarFeedbackRadiusDp)
-                Motion.applyTapFeedback(this, TEXT_DARK)
+                Motion.applyTapFeedback(this, TEXT_DARK, radiusDp = ImeShapes.toolbarFeedbackRadiusDp)
                 setOnClickListener { st.selectAll(all); refresh() }
             }
             selectAllAction = selectAll
             addView(selectAll, ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)))
             addView(LinearLayout(context).apply {
-                orientation = LinearLayout.VERTICAL
+                orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER
                 addView(TextView(context).apply {
-                    text = if (st.tab == Tab.PHRASE) context.getString(R.string.clip_edit_phrases) else context.getString(R.string.clip_edit_clipboard)
+                    text = batchManagementTitle()
                     gravity = Gravity.CENTER
-                    setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+                    maxLines = 1
+                    setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
                     setTypeface(null, android.graphics.Typeface.BOLD)
-                }, ll(MP, WC))
+                }, ll(WC, MP))
                 addView(TextView(context).apply {
                     text = context.getString(R.string.clip_selected_count, st.selected.size)
                     gravity = Gravity.CENTER
-                    setTextColor(TEXT_SECONDARY); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
-                }, ll(MP, WC))
+                    maxLines = 1
+                    setPadding(dp(6), 0, 0, 0)
+                    setTextColor(TEXT_SECONDARY); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.caption)
+                }, ll(WC, MP))
             }, ll(0, dp(COMPACT_ACTION_HEIGHT_DP), 1f))
             val cancel = compactActionButton(context.getString(R.string.clip_cancel), true) { exitSelect() }
             cancelSelectAction = cancel
@@ -1606,7 +1621,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         background = if (on) tabSegment(GREY_PILL, left) else null
         setTextColor(if (on) GREEN else TEXT_DARK)
         setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
-        Motion.applyTapFeedback(this, if (on) GREEN else TEXT_DARK, radiusDp = ImeShapes.toolbarPillRadiusDp)
+        foreground = RippleDrawable(
+            ColorStateList.valueOf(Motion.withAlpha(if (on) GREEN else TEXT_DARK, 0x24)),
+            null,
+            tabSegment(Color.WHITE, left),
+        )
         setOnClickListener { onClick() }
     }
 
@@ -1667,7 +1686,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             setTextColor(TEXT_DARK)
             isClickable = enabled
             if (enabled) {
-                Motion.applyTapFeedback(this, TEXT_DARK)
+                Motion.applyTapFeedback(this, TEXT_DARK, radiusDp = ImeShapes.toolbarFeedbackRadiusDp)
                 setOnClickListener { onClick() }
             }
         }
@@ -1699,9 +1718,25 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun glyphToolbarBtn(desc: String, tint: Int = TEXT_DARK, glyphSizeDp: Int = 9, onClick: () -> Unit, render: (Canvas, Paint, Float, Float, Float) -> Unit): View =
         glyphView(tint, glyphSizeDp, render).apply {
             contentDescription = desc
-            Motion.applyTapFeedback(this, tint)
+            Motion.applyTapFeedback(this, tint, radiusDp = ImeShapes.toolbarFeedbackRadiusDp)
             setOnClickListener { onClick() }
         }
+
+    private fun charToolbarBtn(desc: String, symbol: String, tint: Int = TEXT_DARK, onClick: () -> Unit): View {
+        val icon = charIcon(symbol, tint, 16)
+        return object : View(context) {
+            override fun onDraw(canvas: Canvas) {
+                val left = (width - icon.intrinsicWidth) / 2
+                val top = (height - icon.intrinsicHeight) / 2
+                icon.setBounds(left, top, left + icon.intrinsicWidth, top + icon.intrinsicHeight)
+                icon.draw(canvas)
+            }
+        }.apply {
+            contentDescription = desc
+            Motion.applyTapFeedback(this, tint, radiusDp = ImeShapes.toolbarFeedbackRadiusDp)
+            setOnClickListener { onClick() }
+        }
+    }
 
     private fun glyphAction(label: String, tint: Int = TEXT_DARK, render: (Canvas, Paint, Float, Float, Float) -> Unit, onClick: () -> Unit): TextView =
         actionButton(label, tint, glyphIcon(tint, 16, render), onClick)

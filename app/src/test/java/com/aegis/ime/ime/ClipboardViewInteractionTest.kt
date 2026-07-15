@@ -16,13 +16,17 @@
 package com.aegis.ime.ime
 
 import android.app.Activity
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.os.Looper
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.widget.LinearLayout
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.user.ClipSplitter
@@ -122,6 +126,11 @@ class ClipboardViewInteractionTest {
         v.performClick(); return true
     }
     private fun dp(value: Int): Int = (value * ctx.resources.displayMetrics.density).toInt()
+    private fun draw(view: View) {
+        view.draw(Canvas(Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)))
+    }
+    private fun rippleMask(view: View): GradientDrawable =
+        ((view.foreground as RippleDrawable).findDrawableByLayerId(android.R.id.mask) as GradientDrawable)
     private fun swipeActions(root: View, descriptions: List<String>): List<View> =
         allViews(root).filterIsInstance<ViewGroup>().map { group ->
             (0 until group.childCount).map(group::getChildAt)
@@ -326,7 +335,24 @@ class ClipboardViewInteractionTest {
         }
     }
 
-    @Test fun phrase_swipe_move_reuses_the_expanded_move_asset() {
+    @Test fun clipboard_swipe_split_reuses_the_expanded_split_character() {
+        val v = clipView(listOf("第一条"))
+        v.revealSwipeForTest("第一条")
+        layout(v)
+        val swipeSplit = allViews(v).single {
+            it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_split_word)
+        }
+        val asset = requireNotNull(swipeSplit.tag)
+        assertEquals("拆", asset)
+        v.hideSwipeForTest()
+        v.expandForTest("第一条")
+        layout(v)
+        val expandedSplit = actionButtons(v).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_split_word) }
+        assertTrue(asset === expandedSplit.tag)
+        assertTrue(expandedSplit.contentDescription?.toString()?.startsWith("拆 ") == true)
+    }
+
+    @Test fun phrase_swipe_move_reuses_the_expanded_move_character() {
         val v = phraseView(listOf("你好"))
         v.revealSwipeForTest("你好")
         layout(v)
@@ -334,12 +360,13 @@ class ClipboardViewInteractionTest {
             it !is TextView && it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_move)
         }
         val asset = requireNotNull(swipeMove.tag)
+        assertEquals("移", asset)
         v.hideSwipeForTest()
         v.expandForTest("你好")
         layout(v)
         val expandedMove = actionButtons(v).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_move) }
         assertTrue(asset === expandedMove.tag)
-        assertFalse(expandedMove.contentDescription?.toString()?.startsWith("移 ") == true)
+        assertTrue(expandedMove.contentDescription?.toString()?.startsWith("移 ") == true)
     }
 
     @Test fun tabs_and_categories_dispatch_only_inside_their_own_capsules() {
@@ -355,6 +382,17 @@ class ClipboardViewInteractionTest {
             assertEquals(tray.width / 2, tabs[0].width)
             assertEquals(tray.width / 2, tabs[1].width)
             assertEquals(tabs[0].right, tabs[1].left)
+            tabs.forEach { tab ->
+                draw(tab)
+                val hit = Rect()
+                tab.getHitRect(hit)
+                assertEquals(Rect(tab.left, tab.top, tab.right, tab.bottom), hit)
+                assertEquals(Rect(0, 0, tab.width, tab.height), tab.foreground.bounds)
+            }
+            val leftMaskRadii = requireNotNull(rippleMask(tabs[0]).cornerRadii)
+            val rightMaskRadii = requireNotNull(rippleMask(tabs[1]).cornerRadii)
+            assertTrue(leftMaskRadii[0] > 0f && leftMaskRadii[2] == 0f && leftMaskRadii[4] == 0f && leftMaskRadii[6] > 0f)
+            assertTrue(rightMaskRadii[0] == 0f && rightMaskRadii[2] > 0f && rightMaskRadii[4] > 0f && rightMaskRadii[6] == 0f)
             rootTap(v, tabs.first { it.text?.toString() == clipboard })
             assertTrue(v.isClipboardTabForTest())
             layout(v, w = 600)
@@ -366,6 +404,12 @@ class ClipboardViewInteractionTest {
             val work = textViews(v).first { it.text?.toString() == "工作" && it.hasOnClickListeners() }
             val defaultBounds = boundsInRoot(v, defaults)
             val workBounds = boundsInRoot(v, work)
+            draw(defaults)
+            draw(work)
+            assertTrue(rippleMask(defaults).cornerRadius >= defaults.height / 2f)
+            assertTrue(rippleMask(work).cornerRadius >= work.height / 2f)
+            assertEquals(Rect(0, 0, defaults.width, defaults.height), defaults.foreground.bounds)
+            assertEquals(Rect(0, 0, work.width, work.height), work.foreground.bounds)
             assertTrue(defaultBounds.right < workBounds.left)
             rootTap(v, work)
             assertEquals("工作", v.phraseCatForTest())
@@ -377,6 +421,41 @@ class ClipboardViewInteractionTest {
             assertEquals("默认", v.phraseCatForTest())
         } finally {
             activity.pause().stop().destroy()
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "zh-rCN-mdpi")
+    fun batch_management_entry_header_and_count_are_exact_single_line_text_at_supported_widths() {
+        val cases = listOf(
+            Triple(clipView(listOf("第一条")), "批量管理剪贴板", "第一条"),
+            Triple(phraseView(listOf("你好")), "批量管理常用语", "你好"),
+        )
+        for ((view, title, item) in cases) {
+            layout(view, 320)
+            val entry = allViews(view).single { it.contentDescription?.toString() == title }
+            assertEquals(title, entry.contentDescription?.toString())
+            assertEquals((entry.background as GradientDrawable).cornerRadius, rippleMask(entry).cornerRadius, 0f)
+            view.enterSelectForTest()
+            for (width in listOf(320, 360, 480)) {
+                layout(view, width)
+                val titleView = textViews(view).single { it.text?.toString() == title }
+                val countView = textViews(view).single { it.text?.toString() == "已选择 0 项" }
+                val header = titleView.parent as ViewGroup
+                assertTrue(countView.parent === header)
+                assertEquals(LinearLayout.HORIZONTAL, (header as LinearLayout).orientation)
+                assertEquals(1, titleView.lineCount)
+                assertEquals(1, countView.lineCount)
+                assertTrue(titleView.left >= 0 && titleView.right <= header.width)
+                assertTrue(countView.left >= titleView.right && countView.right <= header.width)
+                assertTrue(titleView.paint.measureText(title) <= titleView.width - titleView.paddingLeft - titleView.paddingRight)
+                assertTrue(countView.paint.measureText("已选择 0 项") <= countView.width - countView.paddingLeft - countView.paddingRight)
+            }
+            view.toggleSelectForTest(item)
+            layout(view, 320)
+            val updated = textViews(view).single { it.text?.toString() == "已选择 1 项" }
+            assertEquals(1, updated.lineCount)
+            assertTrue(updated.right <= (updated.parent as View).width)
         }
     }
 
