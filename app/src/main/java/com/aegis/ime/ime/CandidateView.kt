@@ -18,11 +18,13 @@ package com.aegis.ime.ime
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import androidx.core.graphics.withClip
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 import kotlin.math.abs
@@ -99,13 +101,23 @@ class CandidateView(context: Context) : View(context) {
     private val capsulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySurface }
     private val sepPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.separator }
     private val pressPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val brandPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = palette.icon
+        textAlign = Paint.Align.CENTER
+        textSize = sp(14f)
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+    }
     private val tmpRect = RectF()
+    private val toolbarBounds = RectF()
+    private val brandLabelBounds = RectF()
+    private val toolbarClipPath = Path()
 
     fun applyPalette(p: ImePalette) {
         palette = p
         textPaint.color = p.candidateText
         firstPaint.color = p.candidateFirst
         iconPaint.color = p.icon
+        brandPaint.color = p.icon
         capsulePaint.color = p.keySurface
         sepPaint.color = p.separator
         invalidate()
@@ -149,6 +161,9 @@ class CandidateView(context: Context) : View(context) {
     internal fun taskbarPressRadiusDpForTest(): Float = ImeShapes.toolbarFeedbackRadiusDp
     internal fun keyPressRadiusDpForTest(): Float = ImeShapes.keyRadiusDp
     internal fun toolbarControlBoundsForTest(): List<RectF> = funcRects.map(::RectF) + RectF(collapseRect)
+    internal fun toolbarCapsuleBoundsForTest(): RectF = RectF(toolbarBounds)
+    internal fun toolbarBrandLabelForTest(): String = BRAND_LABEL
+    internal fun toolbarBrandLabelBoundsForTest(): RectF = RectF(brandLabelBounds)
     internal fun toolbarOuterRadiusForTest(): Float = toolbarOuterRadius()
     internal fun expandControlBoundsForTest(): RectF = RectF(width - expandW, 0f, width.toFloat(), height.toFloat())
     internal fun toolbarChevronBoundsForTest(): RectF =
@@ -216,25 +231,29 @@ class CandidateView(context: Context) : View(context) {
         val capT = capMarginV
         val capB = height - capMarginV
         val rad = toolbarOuterRadius()
+        toolbarBounds.set(capL, capT, capR, capB)
         capsulePaint.setShadowLayer(6f * density, 0f, 2f * density, palette.shadow)
         canvas.drawRoundRect(capL, capT, capR, capB, rad, rad, capsulePaint)
         capsulePaint.clearShadowLayer()
 
         val cy = (capT + capB) / 2f
-        val edgePad = 10f * density
-        val areaL = capL + edgePad
-        val areaR = capR - edgePad
+        val areaL = capL
+        val areaR = capR
         val slot = (areaR - areaL) / (functions.size + 1)
         val s = 9f * density
-        for ((i, f) in functions.withIndex()) {
-            val cx = areaL + slot * (i + 0.5f)
-            funcRects[i].set(areaL + slot * i, capT, areaL + slot * (i + 1), capB)
-            drawPressLayer(canvas, PressTarget(PressKind.FUNCTION, i), funcRects[i].left, funcRects[i].top, funcRects[i].right, funcRects[i].bottom)
-            drawIcon(canvas, f, cx, cy, s)
+        toolbarClipPath.reset()
+        toolbarClipPath.addRoundRect(toolbarBounds, rad, rad, Path.Direction.CW)
+        canvas.withClip(toolbarClipPath) {
+            for ((i, f) in functions.withIndex()) {
+                val cx = areaL + slot * (i + 0.5f)
+                funcRects[i].set(areaL + slot * i, capT, areaL + slot * (i + 1), capB)
+                drawPressLayer(canvas, PressTarget(PressKind.FUNCTION, i), funcRects[i].left, funcRects[i].top, funcRects[i].right, funcRects[i].bottom)
+                drawIcon(canvas, f, cx, cy, s)
+            }
+            collapseRect.set(areaL + slot * functions.size, capT, areaR, capB)
+            drawPressLayer(canvas, PressTarget(PressKind.COLLAPSE), collapseRect.left, collapseRect.top, collapseRect.right, collapseRect.bottom)
+            Glyphs.drawChevron(canvas, iconPaint, collapseRect.centerX(), cy, s, down = true)
         }
-        collapseRect.set(areaL + slot * functions.size, capT, areaR, capB)
-        drawPressLayer(canvas, PressTarget(PressKind.COLLAPSE), collapseRect.left, collapseRect.top, collapseRect.right, collapseRect.bottom)
-        Glyphs.drawChevron(canvas, iconPaint, collapseRect.centerX(), cy, s, down = true)
     }
 
     private fun toolbarOuterRadius(): Float =
@@ -256,11 +275,22 @@ class CandidateView(context: Context) : View(context) {
 
     private fun drawIcon(c: Canvas, f: BarFunction, cx: Float, cy: Float, s: Float) {
         when (f) {
-            BarFunction.BRAND -> Glyphs.drawBrandA(c, iconPaint, cx, cy, s)
+            BarFunction.BRAND -> drawBrandLabel(c, cx, cy)
             BarFunction.EMOJI -> Glyphs.drawEmoji(c, iconPaint, cx, cy, s)
             BarFunction.EDIT -> Glyphs.drawEditCaret(c, iconPaint, cx, cy, s)
             BarFunction.CLIPBOARD -> Glyphs.drawClipboard(c, iconPaint, cx, cy, s)
         }
+    }
+
+    private fun drawBrandLabel(canvas: Canvas, cx: Float, cy: Float) {
+        brandPaint.textSize = sp(14f)
+        val availableWidth = (funcRects.first().width() - 12f * density).coerceAtLeast(1f)
+        val measuredWidth = brandPaint.measureText(BRAND_LABEL)
+        if (measuredWidth > availableWidth) brandPaint.textSize *= availableWidth / measuredWidth
+        val baseline = cy - (brandPaint.ascent() + brandPaint.descent()) / 2f
+        val halfWidth = brandPaint.measureText(BRAND_LABEL) / 2f
+        brandLabelBounds.set(cx - halfWidth, baseline + brandPaint.ascent(), cx + halfWidth, baseline + brandPaint.descent())
+        canvas.drawText(BRAND_LABEL, cx, baseline, brandPaint)
     }
 
     override fun computeScroll() {
@@ -296,9 +326,14 @@ class CandidateView(context: Context) : View(context) {
                 if (dragging) { dragging = false; if (fling.fling(scrollX, maxScroll())) postInvalidateOnAnimation(); return true }
                 if (fling.stopArmed) return true
                 if (showingFunctions) {
-                    if (collapseRect.contains(event.x, event.y)) { performClick(); onCollapse(); return true }
-                    funcRects.indexOfFirst { it.contains(event.x, event.y) }
-                        .takeIf { it >= 0 }?.let { performClick(); onFunction(functions[it]) }
+                    val upTarget = toolbarTargetAt(event.x, event.y)
+                    if (downTarget == upTarget) {
+                        when (upTarget?.kind) {
+                            PressKind.COLLAPSE -> { performClick(); onCollapse() }
+                            PressKind.FUNCTION -> { performClick(); onFunction(functions[upTarget.index]) }
+                            else -> Unit
+                        }
+                    }
                     return true
                 }
                 if (items.isNotEmpty() && (downTarget?.kind == PressKind.EXPAND || isExpandTarget(event.x, event.y))) {
@@ -322,9 +357,7 @@ class CandidateView(context: Context) : View(context) {
 
     private fun targetAt(x: Float, y: Float): PressTarget? {
         if (isFunctionMode()) {
-            if (collapseRect.contains(x, y)) return PressTarget(PressKind.COLLAPSE)
-            val idx = funcRects.indexOfFirst { it.contains(x, y) }
-            return if (idx >= 0) PressTarget(PressKind.FUNCTION, idx) else null
+            return toolbarTargetAt(x, y)
         }
         if (items.isNotEmpty()) {
             if (isExpandTarget(x, y)) return PressTarget(PressKind.EXPAND)
@@ -335,6 +368,25 @@ class CandidateView(context: Context) : View(context) {
             }
         }
         return null
+    }
+
+    private fun toolbarTargetAt(x: Float, y: Float): PressTarget? {
+        if (!toolbarContains(x, y)) return null
+        if (collapseRect.contains(x, y)) return PressTarget(PressKind.COLLAPSE)
+        val idx = funcRects.indexOfFirst { it.contains(x, y) }
+        return if (idx >= 0) PressTarget(PressKind.FUNCTION, idx) else null
+    }
+
+    private fun toolbarContains(x: Float, y: Float): Boolean {
+        if (!toolbarBounds.contains(x, y)) return false
+        val radius = toolbarOuterRadius()
+        if (x >= toolbarBounds.left + radius && x < toolbarBounds.right - radius) return true
+        if (y >= toolbarBounds.top + radius && y < toolbarBounds.bottom - radius) return true
+        val cornerX = if (x < toolbarBounds.left + radius) toolbarBounds.left + radius else toolbarBounds.right - radius
+        val cornerY = if (y < toolbarBounds.top + radius) toolbarBounds.top + radius else toolbarBounds.bottom - radius
+        val dx = x - cornerX
+        val dy = y - cornerY
+        return dx * dx + dy * dy <= radius * radius
     }
 
     private fun isExpandTarget(x: Float, y: Float): Boolean =
@@ -364,6 +416,7 @@ class CandidateView(context: Context) : View(context) {
     }
 
     private companion object {
+        private const val BRAND_LABEL = "Aegis"
         private const val ROLE_CANDIDATES = 0
         private const val ROLE_FUNCTIONS = 1
         private const val ROLE_BLANK = 2

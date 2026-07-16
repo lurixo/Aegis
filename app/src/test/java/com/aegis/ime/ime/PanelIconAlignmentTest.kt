@@ -27,6 +27,7 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
@@ -169,7 +170,7 @@ class PanelIconAlignmentTest {
         }
     }
 
-    @Test fun edit_copy_cut_and_paste_match_delete_bounds_and_flat_feedback() {
+    @Test fun edit_copy_cut_and_paste_match_delete_bounds_and_rounded_feedback() {
         for (height in listOf(246, 296, 299)) {
             val dispatched = mutableListOf<EditAction>()
             val v = EditPanelView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
@@ -219,7 +220,7 @@ class PanelIconAlignmentTest {
                 assertNull(target.background)
                 val ripple = target.foreground as android.graphics.drawable.RippleDrawable
                 val mask = ripple.findDrawableByLayerId(android.R.id.mask) as GradientDrawable
-                assertEquals(0f, mask.cornerRadius, 0f)
+                assertEquals(ImeShapes.keyRadiusDp * density, mask.cornerRadius, 0f)
                 assertTrue(target.hasOnClickListeners())
                 assertTrue(target.performClick())
                 assertEquals(action, dispatched.last())

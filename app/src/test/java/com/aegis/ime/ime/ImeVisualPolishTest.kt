@@ -143,6 +143,10 @@ class ImeVisualPolishTest {
             "copy bar",
         )
         assertAllClickableViewsUseRoundedTapFeedback(
+            EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) },
+            "inline edit bar",
+        )
+        assertAllClickableViewsUseRoundedTapFeedback(
             ClipboardView(ctx).apply {
                 historyProvider = { listOf("clip") }
                 categoriesProvider = { listOf("默认") }
@@ -185,8 +189,15 @@ class ImeVisualPolishTest {
     private fun assertAllClickableViewsUseRoundedTapFeedback(root: View, label: String) {
         val clickable = clickableViews(root)
         assertTrue("$label exposes click targets for the audit", clickable.isNotEmpty())
-        clickable.forEach {
-            assertTrue("$label click target ${it.javaClass.simpleName} uses rounded ripple feedback", it.foreground is RippleDrawable)
+        clickable.forEach { view ->
+            val ripple = view.foreground as? RippleDrawable
+                ?: throw AssertionError("$label click target ${view.javaClass.simpleName} lost ripple feedback")
+            val mask = ripple.findDrawableByLayerId(android.R.id.mask) as? GradientDrawable
+                ?: throw AssertionError("$label click target ${view.javaClass.simpleName} lost its ripple mask")
+            assertTrue(
+                "$label click target ${view.javaClass.simpleName} uses a rounded ripple mask",
+                mask.cornerRadius > 0f || mask.cornerRadii?.any { it > 0f } == true,
+            )
         }
     }
 

@@ -1760,21 +1760,36 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun charIcon(symbol: String, tint: Int, boxDp: Int): android.graphics.drawable.Drawable {
         val box = dp(boxDp)
-        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = tint
             textAlign = Paint.Align.CENTER
-            textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, ImeType.label, resources.displayMetrics)
+            textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, ImeType.caption, resources.displayMetrics)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+        val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = tint
+            style = Paint.Style.STROKE
+            strokeWidth = density
         }
         return object : android.graphics.drawable.Drawable() {
             override fun draw(canvas: Canvas) {
                 val b = bounds
-                canvas.drawText(symbol, b.exactCenterX(), b.exactCenterY() - (p.ascent() + p.descent()) / 2f, p)
+                val inset = density * 0.5f
+                canvas.drawRoundRect(
+                    b.left + inset,
+                    b.top + inset,
+                    b.right - inset,
+                    b.bottom - inset,
+                    dp(2).toFloat(),
+                    dp(2).toFloat(),
+                    boxPaint,
+                )
+                canvas.drawText(symbol, b.exactCenterX(), b.exactCenterY() - (textPaint.ascent() + textPaint.descent()) / 2f, textPaint)
             }
             override fun getIntrinsicWidth() = box
             override fun getIntrinsicHeight() = box
-            override fun setAlpha(a: Int) { p.alpha = a }
-            override fun setColorFilter(cf: android.graphics.ColorFilter?) { p.colorFilter = cf }
+            override fun setAlpha(a: Int) { textPaint.alpha = a; boxPaint.alpha = a }
+            override fun setColorFilter(cf: android.graphics.ColorFilter?) { textPaint.colorFilter = cf; boxPaint.colorFilter = cf }
             @Deprecated("deprecated in Drawable", ReplaceWith("android.graphics.PixelFormat.TRANSLUCENT"))
             override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
         }
