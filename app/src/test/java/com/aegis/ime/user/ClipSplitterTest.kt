@@ -29,9 +29,16 @@ class ClipSplitterTest {
         assertEquals(listOf(Kind.HAN, Kind.HAN, Kind.LATIN, Kind.SYMBOL, Kind.LATIN, Kind.SYMBOL), kinds("你好hello,world!"))
     }
 
-    @Test fun url_stays_one_block() {
-        assertEquals(listOf("https://github.com/a_b?x=1"), texts("https://github.com/a_b?x=1"))
-        assertEquals(listOf(Kind.LINK), kinds("https://github.com/a_b?x=1"))
+    @Test fun reported_url_splits_at_character_class_boundaries() {
+        val url = "https://blog.youtube/news-and-events/watch-fifa-world-cup-youtube/"
+        assertEquals(
+            listOf(
+                "https", "://", "blog", ".", "youtube", "/", "news", "-", "and", "-", "events", "/",
+                "watch", "-", "fifa", "-", "world", "-", "cup", "-", "youtube", "/",
+            ),
+            texts(url),
+        )
+        assertEquals(url, texts(url).joinToString(""))
     }
 
     @Test fun email_stays_one_block() {
@@ -39,14 +46,27 @@ class ClipSplitterTest {
         assertEquals(Kind.EMAIL, ClipSplitter.split("bob@x.com").single().kind)
     }
 
-    @Test fun link_embedded_in_chinese_ends_cleanly_without_trailing_punct() {
-        assertEquals(listOf("看", "这", "个", "https://x.com", "。"), texts("看这个https://x.com。"))
-        assertEquals(listOf("访", "问", "https://a.b/c?d=1", "，"), texts("访问https://a.b/c?d=1，"))
+    @Test fun common_url_forms_use_the_same_boundaries() {
+        assertEquals(
+            listOf(
+                "http", "://", "x", ".", "io", "/", "a", "-", "b", "/", "c", "2", "?", "x", "=", "10",
+                "&", "y", "=", "z",
+            ),
+            texts("http://x.io/a-b/c2?x=10&y=z"),
+        )
+        assertEquals(listOf("www", ".", "aegis", ".", "cn", "/", "path"), texts("www.aegis.cn/path"))
+        assertEquals(listOf("x", ".", "ai"), texts("x.ai"))
     }
 
-    @Test fun www_and_bare_domain_are_links() {
-        assertEquals(listOf("www.aegis.cn"), texts("www.aegis.cn"))
-        assertEquals(listOf("去", "x.com", "看"), texts("去x.com看"))
+    @Test fun url_boundaries_preserve_chinese_and_sentence_punctuation() {
+        assertEquals(
+            listOf("看", "这", "个", "https", "://", "x", ".", "com", "。"),
+            texts("看这个https://x.com。"),
+        )
+        assertEquals(
+            listOf("访", "问", "https", "://", "a", ".", "b", "/", "c", "?", "d", "=", "1", "，"),
+            texts("访问https://a.b/c?d=1，"),
+        )
     }
 
     @Test fun digits_split_from_chinese() {
@@ -54,10 +74,26 @@ class ClipSplitterTest {
         assertEquals(listOf(Kind.HAN, Kind.HAN, Kind.HAN, Kind.DIGIT), kinds("打电话13800138000"))
     }
 
-    @Test fun whitespace_dropped_blocks_kept() {
-        assertEquals(listOf("hello", "world"), texts("hello   world"))
-        assertEquals(emptyList<String>(), texts("   "))
+    @Test fun whitespace_delimits_and_is_dropped() {
+        val value = "看 \t https://x.io/a-b2\n好!"
+        assertEquals(listOf("看", "https", "://", "x", ".", "io", "/", "a", "-", "b", "2", "好", "!"), texts(value))
+        assertEquals(value.filterNot { it.isWhitespace() }, texts(value).joinToString(""))
+    }
+
+    @Test fun empty_and_minimal_inputs_preserve_existing_classes() {
         assertEquals(emptyList<String>(), texts(""))
+        assertEquals(emptyList<String>(), texts(" \t\n"))
+        assertEquals(listOf("a"), texts("a"))
+        assertEquals(listOf("1"), texts("1"))
+        assertEquals(listOf("."), texts("."))
+        assertEquals(listOf("你"), texts("你"))
+    }
+
+    @Test fun plain_latin_numeric_and_punctuation_runs_stay_grouped() {
+        assertEquals(listOf("hello"), texts("hello"))
+        assertEquals(listOf("13800138000"), texts("13800138000"))
+        assertEquals(listOf("?!/."), texts("?!/."))
+        assertEquals(listOf(Kind.LATIN, Kind.DIGIT, Kind.SYMBOL, Kind.HAN), kinds("a1.你"))
     }
 
     @Test fun plain_han_text_uses_single_character_blocks() {
@@ -69,18 +105,15 @@ class ClipSplitterTest {
         assertEquals(listOf(extB, "好"), texts(extB + "好"))
     }
 
-    @Test fun parenthesized_url_is_kept_whole() {
-        assertEquals(listOf("https://en.wikipedia.org/wiki/Foo_(bar)"), texts("https://en.wikipedia.org/wiki/Foo_(bar)"))
-        assertEquals(listOf("(", "https://x.com", ")"), texts("(https://x.com)"))
-    }
-
-    @Test fun url_trailing_sentence_punct_is_stripped() {
-        assertEquals(listOf("看", "https://x.com", "."), texts("看https://x.com."))
-    }
-
-    @Test fun wider_tlds_are_recognized_as_links() {
-        for (host in listOf("x.ai", "x.ru", "x.uk", "x.tv", "min.io")) {
-            assertEquals(host, ClipSplitter.split(host).single().also { assert(it.kind == Kind.LINK) }.text)
+    @Test fun url_punctuation_and_delimiters_reconstruct_in_order() {
+        for (value in listOf(
+            "(https://x.com)",
+            "https://en.wikipedia.org/wiki/Foo_(bar)",
+            "https://x.com.",
+            "www.aegis.cn/path",
+            "min.io/a-b2?x=1",
+        )) {
+            assertEquals(value, texts(value).joinToString(""))
         }
     }
 

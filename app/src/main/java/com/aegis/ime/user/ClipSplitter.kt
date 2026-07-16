@@ -21,17 +21,7 @@ object ClipSplitter {
 
     data class Block(val text: String, val kind: Kind)
 
-    private const val STOP = "\\s一-鿿，。！？；：、（）【】《》“”‘’"
     private val EMAIL = Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}")
-    private val URL = Regex("https?://[^$STOP]+", RegexOption.IGNORE_CASE)
-    private val WWW = Regex("www\\.[^$STOP]+", RegexOption.IGNORE_CASE)
-    private const val TLDS =
-        "com|cn|net|org|io|gov|edu|co|me|app|dev|xyz|top|info|biz|ai|ru|uk|tv|de|fr|jp|kr|us|ca|au|in|it|es|" +
-            "nl|se|no|ch|eu|hk|tw|sg|cc|to|pro|club|live|vip|ltd|art|online|site|store|tech|news|blog|wiki"
-    private val DOMAIN = Regex(
-        "[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)*\\.($TLDS)(/[^$STOP]*)?",
-        RegexOption.IGNORE_CASE,
-    )
 
     private enum class Cls { HAN, LATIN, DIGIT, SYMBOL, SPACE }
 
@@ -62,27 +52,7 @@ object ClipSplitter {
 
     private fun entityAt(s: String, i: Int): Block? {
         EMAIL.matchAt(s, i)?.let { return Block(it.value, Kind.EMAIL) }
-        URL.matchAt(s, i)?.let { return Block(trimTrailer(it.value), Kind.LINK) }
-        WWW.matchAt(s, i)?.let { return Block(trimTrailer(it.value), Kind.LINK) }
-        DOMAIN.matchAt(s, i)?.let { return Block(trimTrailer(it.value), Kind.LINK) }
         return null
-    }
-
-    private fun trimTrailer(v: String): String {
-        var s = v
-        while (s.isNotEmpty()) {
-            val c = s.last()
-            val strip = when (c) {
-                '.', ',', '!', '?', ';', ':', '"', '\'', '>' -> true
-                ')' -> s.count { it == ')' } > s.count { it == '(' }
-                ']' -> s.count { it == ']' } > s.count { it == '[' }
-                '}' -> s.count { it == '}' } > s.count { it == '{' }
-                else -> false
-            }
-            if (!strip) break
-            s = s.dropLast(1)
-        }
-        return if (s.isEmpty()) v else s
     }
 
     private fun classOf(cp: Int): Cls = when {
