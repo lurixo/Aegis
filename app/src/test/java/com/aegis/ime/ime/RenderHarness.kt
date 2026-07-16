@@ -546,7 +546,12 @@ class RenderHarness {
                     ?: throw AssertionError("$name/${width}px: $action lost pressed feedback")
                 val mask = ripple.findDrawableByLayerId(android.R.id.mask) as? android.graphics.drawable.GradientDrawable
                     ?: throw AssertionError("$name/${width}px: $action lost its pressed mask")
-                assertEquals("$name/${width}px: $action pressed mask is rectangular", 0f, mask.cornerRadius, 0f)
+                assertEquals(
+                    "$name/${width}px: $action pressed mask uses the shared key radius",
+                    com.aegis.ime.ime.theme.ImeShapes.keyRadiusDp * density,
+                    mask.cornerRadius,
+                    0f,
+                )
                 val rippleRect = Rect(ripple.bounds).apply {
                     offset(viewRect.left, viewRect.top)
                 }

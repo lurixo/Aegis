@@ -18,6 +18,7 @@ package com.aegis.ime.ime
 import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
@@ -29,6 +30,7 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.user.ClipSplitter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -41,6 +43,7 @@ import org.robolectric.Robolectric
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -131,6 +134,28 @@ class ClipboardViewInteractionTest {
     }
     private fun rippleMask(view: View): GradientDrawable =
         ((view.foreground as RippleDrawable).findDrawableByLayerId(android.R.id.mask) as GradientDrawable)
+    private fun assertBoxedSymbol(drawable: android.graphics.drawable.Drawable) {
+        val bitmap = Bitmap.createBitmap(drawable.intrinsicWidth, drawable.intrinsicHeight, Bitmap.Config.ARGB_8888)
+        drawable.setBounds(0, 0, drawable.intrinsicWidth, drawable.intrinsicHeight)
+        drawable.draw(Canvas(bitmap))
+        val middleX = bitmap.width / 2
+        val middleY = bitmap.height / 2
+        assertTrue(Color.alpha(bitmap.getPixel(middleX, 0)) > 0)
+        assertTrue(Color.alpha(bitmap.getPixel(middleX, bitmap.height - 1)) > 0)
+        assertTrue(Color.alpha(bitmap.getPixel(0, middleY)) > 0)
+        assertTrue(Color.alpha(bitmap.getPixel(bitmap.width - 1, middleY)) > 0)
+    }
+    private fun assertBoxedSymbol(view: View) {
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        view.draw(Canvas(bitmap))
+        val halfBox = dp(8)
+        val centerX = view.width / 2
+        val centerY = view.height / 2
+        assertTrue(bitmap.getPixel(centerX, centerY - halfBox) != pal.keySurface)
+        assertTrue(bitmap.getPixel(centerX, centerY + halfBox - 1) != pal.keySurface)
+        assertTrue(bitmap.getPixel(centerX - halfBox, centerY) != pal.keySurface)
+        assertTrue(bitmap.getPixel(centerX + halfBox - 1, centerY) != pal.keySurface)
+    }
     private fun swipeActions(root: View, descriptions: List<String>): List<View> =
         allViews(root).filterIsInstance<ViewGroup>().map { group ->
             (0 until group.childCount).map(group::getChildAt)
@@ -335,7 +360,8 @@ class ClipboardViewInteractionTest {
         }
     }
 
-    @Test fun clipboard_swipe_split_reuses_the_expanded_split_character() {
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test fun clipboard_swipe_split_reuses_the_expanded_boxed_split_character() {
         val v = clipView(listOf("第一条"))
         v.revealSwipeForTest("第一条")
         layout(v)
@@ -344,15 +370,40 @@ class ClipboardViewInteractionTest {
         }
         val asset = requireNotNull(swipeSplit.tag)
         assertEquals("拆", asset)
+        assertBoxedSymbol(swipeSplit)
         v.hideSwipeForTest()
         v.expandForTest("第一条")
         layout(v)
         val expandedSplit = actionButtons(v).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_split_word) }
         assertTrue(asset === expandedSplit.tag)
         assertTrue(expandedSplit.contentDescription?.toString()?.startsWith("拆 ") == true)
+        assertBoxedSymbol(requireNotNull(expandedSplit.compoundDrawables[0]))
     }
 
-    @Test fun phrase_swipe_move_reuses_the_expanded_move_character() {
+    @Test fun clipboard_swipe_plus_keeps_its_geometry_hit_region_and_action() {
+        val pending = ArrayList<List<String>>()
+        val view = clipView(listOf("第一条")).apply { onAddCategoryThenAdd = { pending += it } }
+        view.revealSwipeForTest("第一条")
+        layout(view)
+        val plus = allViews(view).single {
+            it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_add_phrase)
+        }
+        draw(plus)
+        val hit = Rect()
+        plus.getHitRect(hit)
+        assertEquals(dp(44), plus.width)
+        assertEquals(dp(44), plus.height)
+        assertEquals(Rect(plus.left, plus.top, plus.right, plus.bottom), hit)
+        assertEquals(Rect(0, 0, plus.width, plus.height), plus.foreground.bounds)
+        assertEquals(ImeShapes.toolbarFeedbackRadiusDp * ctx.resources.displayMetrics.density, (plus.background as GradientDrawable).cornerRadius, 0f)
+        assertEquals(ImeShapes.toolbarFeedbackRadiusDp * ctx.resources.displayMetrics.density, rippleMask(plus).cornerRadius, 0f)
+        assertNull(plus.tag)
+        assertTrue(plus.performClick())
+        assertEquals(listOf(listOf("第一条")), pending)
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test fun phrase_swipe_move_reuses_the_expanded_boxed_move_character() {
         val v = phraseView(listOf("你好"))
         v.revealSwipeForTest("你好")
         layout(v)
@@ -361,12 +412,14 @@ class ClipboardViewInteractionTest {
         }
         val asset = requireNotNull(swipeMove.tag)
         assertEquals("移", asset)
+        assertBoxedSymbol(swipeMove)
         v.hideSwipeForTest()
         v.expandForTest("你好")
         layout(v)
         val expandedMove = actionButtons(v).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_move) }
         assertTrue(asset === expandedMove.tag)
         assertTrue(expandedMove.contentDescription?.toString()?.startsWith("移 ") == true)
+        assertBoxedSymbol(requireNotNull(expandedMove.compoundDrawables[0]))
     }
 
     @Test fun tabs_and_categories_dispatch_only_inside_their_own_capsules() {

@@ -58,12 +58,13 @@ class CandidateBarChevronTest {
         return v
     }
 
-    private fun idleBar(widthDp: Int): CandidateView {
-        val view = CandidateView(ctx)
+    private fun idleBar(widthDp: Int, context: Context = ctx): CandidateView {
+        val viewDensity = context.resources.displayMetrics.density
+        val view = CandidateView(context)
         view.setContent(emptyList(), "")
         view.measure(
-            View.MeasureSpec.makeMeasureSpec((widthDp * density).toInt(), View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec((44 * density).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec((widthDp * viewDensity).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec((44 * viewDensity).toInt(), View.MeasureSpec.EXACTLY),
         )
         view.layout(0, 0, view.measuredWidth, view.measuredHeight)
         view.draw(Canvas(Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)))
@@ -357,18 +358,29 @@ class CandidateBarChevronTest {
     }
 
     @Test fun five_idle_toolbar_controls_have_equal_centered_bounds_and_actions() {
-        for (widthDp in listOf(320, 480)) {
+        for (widthDp in listOf(250, 320, 480)) {
             val view = idleBar(widthDp)
             val controls = view.toolbarControlBoundsForTest()
+            val capsule = view.toolbarCapsuleBoundsForTest()
+            val brand = view.toolbarBrandLabelBoundsForTest()
             assertEquals(5, controls.size)
-            assertEquals(18f * density, controls.first().left, 0.01f)
-            assertEquals(view.width - 18f * density, controls.last().right, 0.01f)
+            assertEquals("Aegis", view.toolbarBrandLabelForTest())
+            assertEquals(capsule.left, controls.first().left, 0.01f)
+            assertEquals(capsule.right, controls.last().right, 0.01f)
+            assertTrue(controls.all { it.top == capsule.top && it.bottom == capsule.bottom })
+            controls.zipWithNext().forEach { (left, right) -> assertEquals(left.right, right.left, 0.01f) }
             assertTrue(controls.all { abs(it.width() - controls.first().width()) <= 0.01f })
             assertTrue(controls.all { abs(it.height() - controls.first().height()) <= 0.01f })
             val spacing = controls.zipWithNext { left, right -> right.centerX() - left.centerX() }
             assertTrue(spacing.all { abs(it - spacing.first()) <= 0.01f })
-            assertEquals(view.width / 2f, (controls.first().left + controls.last().right) / 2f, 0.01f)
+            assertEquals(capsule.centerX(), (controls.first().left + controls.last().right) / 2f, 0.01f)
+            assertTrue(controls.first().contains(brand))
         }
+        val largeTextContext = ctx.createConfigurationContext(
+            Configuration(ctx.resources.configuration).apply { fontScale = 2f },
+        )
+        val largeTextView = idleBar(250, largeTextContext)
+        assertTrue(largeTextView.toolbarControlBoundsForTest().first().contains(largeTextView.toolbarBrandLabelBoundsForTest()))
         val view = idleBar(360)
         val actions = ArrayList<String>()
         view.onFunction = { actions += it.name }
@@ -378,6 +390,45 @@ class CandidateBarChevronTest {
             view.dispatchTouchEvent(MotionEvent.obtain(0, index * 20L + 10L, MotionEvent.ACTION_UP, rect.centerX(), rect.centerY(), 0))
         }
         assertEquals(listOf("BRAND", "EMOJI", "EDIT", "CLIPBOARD", "COLLAPSE"), actions)
+    }
+
+    @Test fun idle_toolbar_end_targets_fill_only_the_rounded_capsule() {
+        val view = idleBar(320)
+        val capsule = view.toolbarCapsuleBoundsForTest()
+        val actions = ArrayList<String>()
+        view.onFunction = { actions += it.name }
+        view.onCollapse = { actions += "COLLAPSE" }
+        fun tap(x: Float, y: Float, time: Long) {
+            view.dispatchTouchEvent(MotionEvent.obtain(time, time, MotionEvent.ACTION_DOWN, x, y, 0))
+            view.dispatchTouchEvent(MotionEvent.obtain(time, time + 10L, MotionEvent.ACTION_UP, x, y, 0))
+        }
+        tap(capsule.left + 0.5f * density, capsule.centerY(), 0L)
+        tap(capsule.left + density, capsule.top + density, 20L)
+        tap(capsule.right - density, capsule.top + density, 40L)
+        tap(capsule.right - 0.5f * density, capsule.centerY(), 60L)
+        tap(capsule.left - density, capsule.centerY(), 80L)
+        tap(capsule.right + density, capsule.centerY(), 100L)
+        assertEquals(listOf("BRAND", "COLLAPSE"), actions)
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test fun idle_toolbar_end_feedback_is_clipped_to_the_capsule() {
+        val view = idleBar(320)
+        val capsule = view.toolbarCapsuleBoundsForTest()
+        val resting = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        view.draw(Canvas(resting))
+        view.dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, capsule.left + density, capsule.centerY(), 0))
+        val pressed = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        view.draw(Canvas(pressed))
+        assertEquals(
+            resting.getPixel((capsule.left + density).toInt(), (capsule.top + density).toInt()),
+            pressed.getPixel((capsule.left + density).toInt(), (capsule.top + density).toInt()),
+        )
+        assertTrue(
+            resting.getPixel((capsule.left + density).toInt(), capsule.centerY().toInt()) !=
+                pressed.getPixel((capsule.left + density).toInt(), capsule.centerY().toInt()),
+        )
+        view.dispatchTouchEvent(MotionEvent.obtain(0, 10, MotionEvent.ACTION_CANCEL, capsule.left + density, capsule.centerY(), 0))
     }
 
     @GraphicsMode(GraphicsMode.Mode.NATIVE)

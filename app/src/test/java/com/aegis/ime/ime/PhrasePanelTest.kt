@@ -151,6 +151,15 @@ class PhrasePanelTest {
         assertTrue(all.all { it.background is GradientDrawable })
         assertEquals(1, all.map { (it.background as GradientDrawable).cornerRadius }.toSet().size)
         assertTrue(all.all { (it.background as GradientDrawable).cornerRadius > 0f })
+        for (action in all) {
+            action.draw(Canvas(Bitmap.createBitmap(action.width, action.height, Bitmap.Config.ARGB_8888)))
+            val hit = Rect()
+            action.getHitRect(hit)
+            assertEquals(Rect(action.left, action.top, action.right, action.bottom), hit)
+            assertEquals(Rect(0, 0, action.width, action.height), action.foreground.bounds)
+            val mask = (action.foreground as RippleDrawable).findDrawableByLayerId(android.R.id.mask) as GradientDrawable
+            assertEquals((action.background as GradientDrawable).cornerRadius, mask.cornerRadius, 0f)
+        }
         val gap = (4 * ctx.resources.displayMetrics.density).toInt()
         assertEquals(listOf(0, gap, gap), clipActions.map { (it.layoutParams as android.widget.LinearLayout.LayoutParams).marginStart })
         assertEquals(listOf(0, gap, gap, gap), phraseActions.map { (it.layoutParams as android.widget.LinearLayout.LayoutParams).marginStart })

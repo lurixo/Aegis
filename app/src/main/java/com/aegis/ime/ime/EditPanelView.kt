@@ -62,7 +62,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         setBackgroundColor(p.keyboardBg)
         recolor(this)
         for (action in listOf(EditAction.DELETE, EditAction.COPY, EditAction.CUT, EditAction.PASTE)) {
-            actionViews[action]?.let { Motion.applyTapFeedback(it, p.keyLabel, radiusDp = 0f) }
+            actionViews[action]?.let { Motion.applyTapFeedback(it, p.keyLabel, radiusDp = ImeShapes.keyRadiusDp) }
         }
         for (g in icons) g.applyTint(p.keyLabel)
         setHasSelection(copyBtn.isEnabled)
@@ -217,7 +217,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         for (b in listOf(copyBtn, cutBtn)) {
             b.isEnabled = has
             b.setTextColor(tint)
-            Motion.applyTapFeedback(b, tint, radiusDp = 0f)
+            Motion.applyTapFeedback(b, tint, radiusDp = ImeShapes.keyRadiusDp)
         }
         copyIcon.applyTint(tint); cutIcon.applyTint(tint)
     }
@@ -297,7 +297,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         )
         compoundDrawablePadding = dp(2)
         isClickable = true
-        Motion.applyTapFeedback(this, palette.keyLabel, radiusDp = if (iconOnStart) 0f else ImeShapes.keyRadiusDp)
+        Motion.applyTapFeedback(this, palette.keyLabel, radiusDp = ImeShapes.keyRadiusDp)
         setOnClickListener { onAction(action) }
         actionViews[action] = this
     }
