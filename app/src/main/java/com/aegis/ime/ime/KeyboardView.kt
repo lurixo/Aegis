@@ -670,7 +670,15 @@ class KeyboardView(context: Context) : View(context) {
             val fw = paint.measureText(display)
             if (fw > face && face > 0f) paint.textSize = paint.textSize * face / fw
         }
-        canvas.drawText(display, cx, cy - (paint.descent() + paint.ascent()) / 2, paint)
+        if (display.length == 1 && display[0] in INK_CENTERED_GLYPHS) {
+            val baseAlign = paint.textAlign
+            paint.textAlign = Paint.Align.LEFT
+            paint.getTextBounds(display, 0, display.length, inkBounds)
+            canvas.drawText(display, cx - inkBounds.exactCenterX(), cy - inkBounds.exactCenterY(), paint)
+            paint.textAlign = baseAlign
+        } else {
+            canvas.drawText(display, cx, cy - (paint.descent() + paint.ascent()) / 2, paint)
+        }
         paint.textSize = baseTextSize
         if (p.key.sub != null) {
             val subBaseTextSize = subPaint.textSize
@@ -1185,6 +1193,7 @@ class KeyboardView(context: Context) : View(context) {
         const val REPEAT_INTERVAL_MS = 55L
         const val LONG_PRESS_MS = 300L
         const val RETARGET_HOLD_MS = 120L
+        const val INK_CENTERED_GLYPHS = "，。"
     }
 }
 
