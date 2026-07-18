@@ -979,9 +979,12 @@ class KeyboardView(context: Context) : View(context) {
             }
             dk != null && dk.action == KeyAction.BACKSPACE -> {
                 val dy = y - downY
-                if (!swiped && abs(dy) > swipeThreshold && abs(dy) > abs(x - downX)) {
+                if (!swiped && !repeating && abs(dy) > swipeThreshold && abs(dy) > abs(x - downX)) {
                     swiped = true
                     cancelKeyHold()
+                } else {
+                    val bounds = downPlaced?.let { it.hitRect ?: it.rect }
+                    if (bounds != null && !bounds.contains(x, y)) cancelKeyHold()
                 }
             }
             dk != null && lang == Lang.EN && isAlphaLetter(dk) -> {
