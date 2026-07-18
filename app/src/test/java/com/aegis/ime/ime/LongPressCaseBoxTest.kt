@@ -117,6 +117,41 @@ class LongPressCaseBoxTest {
     }
 
 
+    @Test fun dragging_a_cell_height_below_the_key_cancels_and_commits_nothing() {
+        val out = ArrayList<String>()
+        val v = alphaView().apply { onKey = { out.add(it.output) } }
+        val rect = v.boundsOfLabelForTest("g")!!
+        val (gx, gy) = v.centerOfLabelForTest("g")!!
+        val cancelY = rect.bottom + rect.height() * 1.12f
+        v.send(MotionEvent.ACTION_DOWN, gx, gy, 0)
+        holdOpen()
+        v.send(MotionEvent.ACTION_MOVE, gx, cancelY - 2f, 380)
+        assertEquals("just inside the bound still selects a cell", 1, v.caseBoxSelectedForTest())
+        v.send(MotionEvent.ACTION_MOVE, gx, cancelY + 2f, 390)
+        assertEquals("past the bound the selection clears", -1, v.caseBoxSelectedForTest())
+        v.send(MotionEvent.ACTION_UP, gx, cancelY + 2f, 400)
+        assertEquals(emptyList<String>(), out)
+    }
+
+    @Test fun dragging_a_cell_height_above_the_box_cancels_and_commits_nothing() {
+        val out = ArrayList<String>()
+        val v = alphaView().apply { onKey = { out.add(it.output) } }
+        val rect = v.boundsOfLabelForTest("g")!!
+        val (gx, gy) = v.centerOfLabelForTest("g")!!
+        val cellH = rect.height() * 1.12f
+        val boxTop = (rect.top - cellH - 4f * density).coerceAtLeast(0f)
+        val cancelY = boxTop - cellH
+        v.send(MotionEvent.ACTION_DOWN, gx, gy, 0)
+        holdOpen()
+        v.send(MotionEvent.ACTION_MOVE, gx, cancelY + 2f, 380)
+        assertEquals("just inside the bound still selects a cell", 1, v.caseBoxSelectedForTest())
+        v.send(MotionEvent.ACTION_MOVE, gx, cancelY - 2f, 390)
+        assertEquals("past the bound the selection clears", -1, v.caseBoxSelectedForTest())
+        v.send(MotionEvent.ACTION_UP, gx, cancelY - 2f, 400)
+        assertEquals(emptyList<String>(), out)
+    }
+
+
     private class RecordingHost : ImeHost {
         val commits = mutableListOf<String>()
         override fun commitText(text: CharSequence) { commits.add(text.toString()) }
