@@ -30,6 +30,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.widget.OverScroller
 import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.roundToInt
 import com.aegis.ime.layout.Key
@@ -84,6 +85,8 @@ class KeyboardView(context: Context) : View(context) {
     private var downPlaced: Placed? = null
     private var downX = 0f
     private var downY = 0f
+    private var downEventTime = 0L
+    private var retargetUnlocked = false
     private var activePointerId = MotionEvent.INVALID_POINTER_ID
     private var repeating = false
     private var swiped = false
@@ -130,6 +133,7 @@ class KeyboardView(context: Context) : View(context) {
     private val rowHeight = 52f * density
     private val snapCap = rowHeight * 0.5f
     private val retargetHysteresis = 4f * density
+    private val retargetDistance = 24f * density
     private val shortPageRowExtra = 2f * density
     private val gap = 6f * density
     private val keyRadius = ImeShapes.keyRadiusDp * density
@@ -749,7 +753,7 @@ class KeyboardView(context: Context) : View(context) {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 activePointerId = event.getPointerId(0)
-                beginPrimary(event.x, event.y)
+                beginPrimary(event.x, event.y, event.eventTime)
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 val newIdx = event.actionIndex
@@ -759,11 +763,11 @@ class KeyboardView(context: Context) : View(context) {
                     else finishPrimary(downX, downY, event.eventTime)
                 }
                 activePointerId = event.getPointerId(newIdx)
-                beginPrimary(event.getX(newIdx), event.getY(newIdx))
+                beginPrimary(event.getX(newIdx), event.getY(newIdx), event.eventTime)
             }
             MotionEvent.ACTION_MOVE -> {
                 val ai = event.findPointerIndex(activePointerId)
-                if (ai >= 0) handlePrimaryMove(event.getX(ai), event.getY(ai))
+                if (ai >= 0) handlePrimaryMove(event.getX(ai), event.getY(ai), event.eventTime)
             }
             MotionEvent.ACTION_POINTER_UP -> {
                 if (event.getPointerId(event.actionIndex) == activePointerId) {
@@ -788,11 +792,12 @@ class KeyboardView(context: Context) : View(context) {
         return true
     }
 
-    private fun beginPrimary(x: Float, y: Float) {
+    private fun beginPrimary(x: Float, y: Float, eventTime: Long) {
         downPlaced = placedAt(x, y)
         downKey = downPlaced?.key
         setPressedKey(downKey)
         downX = x; downY = y
+        downEventTime = eventTime; retargetUnlocked = false
         repeating = false; swiped = false; vSwipeDir = 0
         caseBoxActive = false; caseBoxKey = null; caseBoxSelected = -1; caseBoxMoved = false
         val dp = downPlaced
@@ -849,7 +854,8 @@ class KeyboardView(context: Context) : View(context) {
     private fun caseBoxSelectionAt(x: Float): Int =
         ((x - caseBoxLeft()) / caseBoxCellW()).toInt().coerceIn(0, 2)
 
-    private fun handlePrimaryMove(x: Float, y: Float) {
+    private fun handlePrimaryMove(x: Float, y: Float, eventTime: Long) {
+        maybeUnlockRetarget(x, y, eventTime)
         val dk = downKey
         when {
             caseBoxActive -> {
@@ -903,6 +909,7 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     private fun finishPrimary(x: Float, y: Float, eventTime: Long) {
+        maybeUnlockRetarget(x, y, eventTime)
         cancelKeyHold()
         val dk = downKey
         val stickyPressed = pressed
@@ -1058,8 +1065,22 @@ class KeyboardView(context: Context) : View(context) {
         return if (best <= boundedCap * boundedCap) nearest else null
     }
 
+    private fun maybeUnlockRetarget(x: Float, y: Float, eventTime: Long) {
+        if (retargetUnlocked) return
+        val dp = downPlaced ?: return
+        val m = retargetHysteresis
+        val hitRect = dp.hitRect ?: dp.rect
+        val insideDownKey = x >= hitRect.left - m && x <= hitRect.right + m &&
+            y >= hitRect.top - m && y <= hitRect.bottom + m
+        if (insideDownKey) return
+        val deliberate = eventTime - downEventTime >= RETARGET_HOLD_MS ||
+            hypot(x - downX, y - downY) >= retargetDistance
+        if (deliberate) retargetUnlocked = true
+    }
+
     private fun currentTarget(x: Float, y: Float): Key? {
         val dp = downPlaced ?: return placedAt(x, y)?.key
+        if (!retargetUnlocked) return dp.key
         val m = retargetHysteresis
         val hitRect = dp.hitRect ?: dp.rect
         val insideDownKey = x >= hitRect.left - m && x <= hitRect.right + m &&
@@ -1091,6 +1112,7 @@ class KeyboardView(context: Context) : View(context) {
         const val REPEAT_DELAY_MS = 400L
         const val REPEAT_INTERVAL_MS = 55L
         const val LONG_PRESS_MS = 300L
+        const val RETARGET_HOLD_MS = 120L
     }
 }
 

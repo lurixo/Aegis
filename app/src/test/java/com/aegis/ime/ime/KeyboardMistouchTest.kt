@@ -94,12 +94,12 @@ class KeyboardMistouchTest {
     }
 
 
-    private fun KeyboardView.pressMoveUp(dx: Float, dy: Float, downX: Float, downY: Float): Key? {
+    private fun KeyboardView.pressMoveUp(dx: Float, dy: Float, downX: Float, downY: Float, moveT: Long = 10, upT: Long = 20): Key? {
         var picked: Key? = null
         onKey = { picked = it }
         send(MotionEvent.ACTION_DOWN, downX, downY, 0)
-        send(MotionEvent.ACTION_MOVE, downX + dx, downY + dy, 10)
-        send(MotionEvent.ACTION_UP, downX + dx, downY + dy, 20)
+        send(MotionEvent.ACTION_MOVE, downX + dx, downY + dy, moveT)
+        send(MotionEvent.ACTION_UP, downX + dx, downY + dy, upT)
         return picked
     }
 
@@ -113,7 +113,7 @@ class KeyboardMistouchTest {
         val v = nineView()
         val (ax, ay) = v.centerOfLabelForTest("ABC")!!
         val (bx, by) = v.centerOfLabelForTest("DEF")!!
-        assertEquals("3", v.pressMoveUp(bx - ax, by - ay, ax, ay)?.output)
+        assertEquals("3", v.pressMoveUp(bx - ax, by - ay, ax, ay, 200, 260)?.output)
     }
 
     @Test fun a_slide_that_stops_at_the_shared_edge_does_not_flip() {
