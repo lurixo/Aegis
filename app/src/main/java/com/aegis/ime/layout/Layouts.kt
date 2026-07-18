@@ -56,14 +56,14 @@ object Layouts {
 
     private fun letters(s: String): List<Key> = s.map { Key(it.toString()) }
 
-    private fun subRow(letters: String, subs: List<String>): List<Key> =
-        letters.mapIndexed { i, c -> Key(c.toString(), sub = subs.getOrNull(i)) }
+    private fun subRow(lang: Lang, letters: String, enSubs: List<String>): List<Key> =
+        letters.mapIndexed { i, c -> Key(c.toString(), sub = if (lang == Lang.EN) enSubs.getOrNull(i) else null) }
 
     private fun qwerty(lang: Lang): KeyboardLayout {
         val numbers = "1234567890".map { Key(it.toString(), direct = true) }
-        val q = subRow("qwertyuiop", listOf("`", "=", "+", "$", "…", "\"", "^", "[", "]", "|"))
-        val a = subRow("asdfghjkl", listOf("~", "!", "@", "#", "%", "'", "&", "*", "?"))
-        val z = subRow("zxcvbnm", listOf("(", ")", "-", "_", ":", ";", "/"))
+        val q = subRow(lang, "qwertyuiop", listOf("`", "=", "+", "$", "…", "\"", "^", "[", "]", "|"))
+        val a = subRow(lang, "asdfghjkl", listOf("~", "!", "@", "#", "%", "'", "&", "*", "?"))
+        val z = subRow(lang, "zxcvbnm", listOf("(", ")", "-", "_", ":", ";", "/"))
         val comma = if (lang == Lang.CN) "，" else ","
         val period = if (lang == Lang.CN) "。" else "."
         val bottom = listOf(
