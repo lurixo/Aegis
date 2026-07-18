@@ -48,6 +48,8 @@ class KeyboardController(
 
     private var cnDefaultLayout = LayoutId.NINE
 
+    private var defaultLang = Lang.CN
+
     private var cnLayout = LayoutId.NINE
     private val composing = StringBuilder()
     private var candidates: List<Cand> = emptyList()
@@ -150,6 +152,20 @@ class KeyboardController(
         }
     }
 
+    fun setDefaultLang(l: Lang) {
+        if (defaultLang == l) return
+        defaultLang = l
+        if (lang != l && (layoutId == LayoutId.NINE || layoutId == LayoutId.ALPHA) &&
+            composing.isEmpty() && committedPrefix.isEmpty()
+        ) {
+            lang = l
+            shiftState = ShiftState.OFF
+            layoutId = if (l == Lang.CN) cnLayout else LayoutId.ALPHA
+            refreshCandidates()
+            render()
+        }
+    }
+
     fun setAssociationsEnabled(on: Boolean) {
         if (associationsEnabled == on) return
         associationsEnabled = on
@@ -178,6 +194,7 @@ class KeyboardController(
         committedPrefix.setLength(0)
         shiftState = ShiftState.OFF
         if (!preserveLayout) {
+            lang = defaultLang
             cnLayout = cnDefaultLayout
             layoutId = if (lang == Lang.CN) cnDefaultLayout else LayoutId.ALPHA
         }

@@ -909,10 +909,77 @@ class KeyboardControllerTest {
 
     @Test fun reset_keeps_en_on_26_key_even_with_a_nine_default() {
         val c = KeyboardController(FakeHost(), engine)
-        c.onKey(act(KeyAction.TOGGLE_LANG))
+        c.setDefaultLang(Lang.EN)
         c.setCnDefaultLayout(LayoutId.NINE)
         c.reset()
         assertEquals("EN is always 26-key", LayoutId.ALPHA, c.activeLayoutId())
+    }
+
+    @Test fun reset_starts_in_the_configured_default_language() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        assertEquals(LayoutId.ALPHA, c.activeLayoutId())
+        c.reset()
+        assertEquals("the CN default overrides the remembered EN", LayoutId.NINE, c.activeLayoutId())
+
+        c.setDefaultLang(Lang.EN)
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        assertEquals(LayoutId.NINE, c.activeLayoutId())
+        c.reset()
+        assertEquals("the EN default overrides the remembered CN", LayoutId.ALPHA, c.activeLayoutId())
+        c.onKey(out("a"))
+        assertEquals("the new session commits EN letters directly", listOf("a"), h.commits)
+        assertEquals("", c.preeditForTest())
+    }
+
+    @Test fun same_package_reset_keeps_the_last_used_language_over_the_default() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.setDefaultLang(Lang.EN)
+        c.reset()
+        assertEquals(LayoutId.ALPHA, c.activeLayoutId())
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        assertEquals(LayoutId.NINE, c.activeLayoutId())
+
+        c.reset(preserveLayout = true)
+
+        assertEquals("same-package continuity keeps the manual Chinese", LayoutId.NINE, c.activeLayoutId())
+        c.onKey(out("6"))
+        assertTrue("Chinese composition still active", c.preeditForTest().isNotEmpty())
+        c.onKey(act(KeyAction.CLEAR_COMPOSING))
+
+        c.reset()
+        assertEquals("a full reset returns to the EN default", LayoutId.ALPHA, c.activeLayoutId())
+    }
+
+    @Test fun changing_the_default_language_hot_applies_in_place_when_idle() {
+        val c = KeyboardController(FakeHost(), engine)
+        c.reset()
+        assertEquals(LayoutId.NINE, c.activeLayoutId())
+        c.setDefaultLang(Lang.EN)
+        assertEquals("switches to the English keyboard in place", LayoutId.ALPHA, c.activeLayoutId())
+        c.setDefaultLang(Lang.CN)
+        assertEquals("switches back to Chinese in place", LayoutId.NINE, c.activeLayoutId())
+    }
+
+    @Test fun changing_the_default_language_never_disturbs_an_active_composition() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.reset()
+        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        "ni".forEach { c.onKey(out(it.toString())) }
+
+        c.setDefaultLang(Lang.EN)
+
+        assertEquals("composition keeps the Chinese keyboard", LayoutId.ALPHA, c.activeLayoutId())
+        assertEquals("ni", c.preeditForTest())
+        assertTrue(h.commits.isEmpty())
+
+        c.onKey(act(KeyAction.CLEAR_COMPOSING))
+        c.reset()
+        c.onKey(out("a"))
+        assertEquals("the stored default still applies on the next reset", listOf("a"), h.commits)
     }
 
     @Test fun restore_base_keyboard_preserves_nine_twenty_six_and_english_without_committing() {

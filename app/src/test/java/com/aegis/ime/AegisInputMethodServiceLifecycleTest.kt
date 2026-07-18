@@ -422,6 +422,48 @@ class AegisInputMethodServiceLifecycleTest {
         }
     }
 
+    @Test fun a_new_app_session_starts_in_the_configured_default_language() {
+        val prefs = RuntimeEnvironment.getApplication().getSharedPreferences("aegis", 0)
+        val hadLang = prefs.contains("pref_default_lang")
+        val previousLang = prefs.getString("pref_default_lang", "cn")
+        try {
+            prefs.edit().putString("pref_default_lang", "en").commit()
+            fixture().also { f ->
+                assertEquals("the EN default opens the English 26-key", LayoutId.ALPHA, f.controller.activeLayoutId())
+                f.controller.onKey(Key("a", output = "a"))
+                assertEquals("", f.controller.preeditForTest())
+
+                f.controller.onKey(Key("", action = KeyAction.TOGGLE_LANG))
+                assertEquals(LayoutId.NINE, f.controller.activeLayoutId())
+                val sameAppField = editor(fieldId = 202)
+                f.service.onStartInput(sameAppField, true)
+                f.service.onStartInputView(sameAppField, true)
+                assertEquals("same-package continuity keeps the manual Chinese", LayoutId.NINE, f.controller.activeLayoutId())
+
+                val differentApp = editor(packageName = "com.other.editor")
+                f.service.onStartInput(differentApp, true)
+                f.service.onStartInputView(differentApp, true)
+                assertEquals("a different app starts back on the EN default", LayoutId.ALPHA, f.controller.activeLayoutId())
+                f.controller.onKey(Key("a", output = "a"))
+                assertEquals("", f.controller.preeditForTest())
+            }
+
+            prefs.edit().putString("pref_default_lang", "cn").commit()
+            fixture().also { f ->
+                f.controller.onKey(Key("", action = KeyAction.TOGGLE_LANG))
+                assertEquals(LayoutId.ALPHA, f.controller.activeLayoutId())
+                val differentApp = editor(packageName = "com.other.editor")
+                f.service.onStartInput(differentApp, true)
+                f.service.onStartInputView(differentApp, true)
+                assertEquals("the CN default overrides the remembered EN in a new app", LayoutId.NINE, f.controller.activeLayoutId())
+            }
+        } finally {
+            val edit = prefs.edit()
+            if (hadLang) edit.putString("pref_default_lang", previousLang) else edit.remove("pref_default_lang")
+            edit.commit()
+        }
+    }
+
     @Test fun density_change_rebuilds_every_cached_panel_and_restores_phrases_category_semantically() {
         val f = fixture()
         val seeded = seed(f, StateKind.PHRASES_PANEL)

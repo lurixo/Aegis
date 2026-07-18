@@ -100,6 +100,11 @@
     <string name="letter_case_upper">Always uppercase</string>
     <string name="letter_case_lower">Always lowercase</string>
 
+    <string name="default_lang_title">Default input language</string>
+    <string name="default_lang_description">Language the keyboard starts with when opened in a new app. Manual switching while typing is unchanged.</string>
+    <string name="default_lang_cn">Chinese</string>
+    <string name="default_lang_en">English</string>
+
     <string name="layout_card_title">Full Pinyin keyboard</string>
     <string name="layout_card_description">Default keyboard for Chinese input (English always uses 26 keys).</string>
     <string name="layout_nine">Full Pinyin T9</string>

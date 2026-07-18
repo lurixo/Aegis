@@ -20,6 +20,7 @@ import android.content.SharedPreferences
 import android.os.Looper
 import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.dict.ModelDownload
+import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON
 import com.aegis.ime.ui.KEY_HAPTICS_DEFAULT
@@ -28,6 +29,7 @@ import com.aegis.ime.ui.KEY_PREVIEW_SUB_DEFAULT
 import com.aegis.ime.ui.LETTER_CASE_DEFAULT
 import com.aegis.ime.ui.LetterCase
 import com.aegis.ime.ui.PREF_ASSOCIATIONS_ON
+import com.aegis.ime.ui.PREF_DEFAULT_LANG
 import com.aegis.ime.ui.PREF_KEY_HAPTICS
 import com.aegis.ime.ui.PREF_KEY_PREVIEW_ALPHA
 import com.aegis.ime.ui.PREF_KEY_PREVIEW_MASTER
@@ -53,6 +55,7 @@ class SettingsHotApplyTest {
     private val prefs: SharedPreferences = ctx.getSharedPreferences("aegis", Context.MODE_PRIVATE)
 
     private val cnLayouts = mutableListOf<LayoutId>()
+    private val defaultLangs = mutableListOf<Lang>()
     private val associations = mutableListOf<Boolean>()
     private val fuzzySets = mutableListOf<Set<String>>()
     private var engineAssetChanges = 0
@@ -63,6 +66,7 @@ class SettingsHotApplyTest {
 
     private val listener = SettingsHotApply(
         onCnLayout = { cnLayouts += it },
+        onDefaultLang = { defaultLangs += it },
         onAssociations = { associations += it },
         onFuzzyRules = { fuzzySets += it },
         onEngineAssetsChanged = { engineAssetChanges++ },
@@ -90,7 +94,7 @@ class SettingsHotApplyTest {
     }
 
     private fun totalActions() =
-        cnLayouts.size + associations.size + fuzzySets.size + engineAssetChanges + keyHaptics.size +
+        cnLayouts.size + defaultLangs.size + associations.size + fuzzySets.size + engineAssetChanges + keyHaptics.size +
             keyPreviewsNine.size + keyPreviewsAlpha.size + letterCases.size
 
     private val allRuleKeys = Fuzzy.RULES.mapTo(LinkedHashSet()) { it.key }
@@ -102,6 +106,21 @@ class SettingsHotApplyTest {
         put { putString("cn_layout", "nine") }
         assertEquals(listOf(LayoutId.ALPHA, LayoutId.NINE), cnLayouts)
         assertEquals("no other channel may fire", 2, totalActions())
+    }
+
+
+    @Test fun default_lang_change_hot_applies_both_directions_immediately() {
+        put { putString(PREF_DEFAULT_LANG, "en") }
+        assertEquals(listOf(Lang.EN), defaultLangs)
+        put { putString(PREF_DEFAULT_LANG, "cn") }
+        assertEquals(listOf(Lang.EN, Lang.CN), defaultLangs)
+        assertEquals("no other channel may fire", 2, totalActions())
+    }
+
+    @Test fun default_lang_pref_removal_resolves_to_the_chinese_factory_default() {
+        put { putString(PREF_DEFAULT_LANG, "en") }
+        put { remove(PREF_DEFAULT_LANG) }
+        assertEquals(listOf(Lang.EN, Lang.CN), defaultLangs)
     }
 
 
@@ -259,18 +278,19 @@ class SettingsHotApplyTest {
 
     @Test fun the_pref_backed_settings_surface_is_fully_enumerated() {
         val enumerated = mutableSetOf(
-            "cn_layout", PREF_ASSOCIATIONS_ON, "fuzzy", PREF_KEY_HAPTICS,
+            "cn_layout", PREF_DEFAULT_LANG, PREF_ASSOCIATIONS_ON, "fuzzy", PREF_KEY_HAPTICS,
             PREF_KEY_PREVIEW_MASTER, PREF_KEY_PREVIEW_NINE, PREF_KEY_PREVIEW_ALPHA, PREF_LETTER_CASE,
         )
         enumerated += Fuzzy.RULES.map { Fuzzy.prefKey(it.key) }
         enumerated += SettingsHotApply.ENGINE_ASSET_PREF_KEYS
-        assertEquals(8 + Fuzzy.RULES.size + 4, enumerated.size)
+        assertEquals(9 + Fuzzy.RULES.size + 4, enumerated.size)
         for (key in enumerated) {
             val before = totalActions()
             put { putString("probe_reset", key) }
             assertEquals(before, totalActions())
             when (key) {
                 "cn_layout" -> put { putString(key, "alpha") }
+                PREF_DEFAULT_LANG -> put { putString(key, "en") }
                 PREF_LETTER_CASE -> put { putString(key, "upper") }
                 else -> put { putBoolean(key, true) }
             }
