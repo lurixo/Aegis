@@ -163,7 +163,7 @@ class KeyboardController(
         engine.setFuzzyRules(rules)
     }
 
-    fun reset() {
+    fun reset(preserveLayout: Boolean = false) {
         decodeLane?.markSatisfiedSynchronously()
         composing.setLength(0)
         candidates = emptyList()
@@ -177,8 +177,10 @@ class KeyboardController(
         drillChoices.clear()
         committedPrefix.setLength(0)
         shiftState = ShiftState.OFF
-        cnLayout = cnDefaultLayout
-        layoutId = if (lang == Lang.CN) cnDefaultLayout else LayoutId.ALPHA
+        if (!preserveLayout) {
+            cnLayout = cnDefaultLayout
+            layoutId = if (lang == Lang.CN) cnDefaultLayout else LayoutId.ALPHA
+        }
         lastWord = null
         render()
     }

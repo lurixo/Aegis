@@ -144,6 +144,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     )
 
     private var currentEditorTarget: EditorTarget? = null
+    private var layoutSessionPackage: String? = null
     private var inputSessionActive = false
     private var resetControllerOnNextInputView = false
     private var restorablePanel: RestorablePanel? = null
@@ -314,7 +315,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         return EditorTarget(packageName, stableFieldId, stableFieldName, inputKind)
     }
 
-    private fun clearEditorTransientState(resetController: Boolean, abortInline: Boolean = true) {
+    private fun clearEditorTransientState(resetController: Boolean, abortInline: Boolean = true, preserveLayout: Boolean = false) {
         if (abortInline) abortInlineInput(hideBar = false)
 
         inputView?.clearEditorTransientUiImmediately()
@@ -322,7 +323,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         clipboardRecreationState = null
         stopSelecting()
         deletedSnapshot = null
-        if (resetController && ::controller.isInitialized) controller.reset()
+        if (resetController && ::controller.isInitialized) controller.reset(preserveLayout)
     }
 
     private fun canRestoreCurrentSession(): Boolean =
@@ -333,14 +334,16 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
         val nextTarget = editorTarget(info)
         val nextSecure = info != null && com.aegis.ime.user.ClipboardPolicy.isSensitive(info.inputType)
+        val preserveLayout = nextTarget != null && nextTarget.packageName == layoutSessionPackage
         val sameRestart = restarting && inputSessionActive && !secureField && !nextSecure &&
             currentEditorTarget?.let { previous -> nextTarget?.let(previous::sameEditor) } == true
 
         if (!sameRestart) {
-            clearEditorTransientState(resetController = true)
+            clearEditorTransientState(resetController = true, preserveLayout = preserveLayout)
 
             resetControllerOnNextInputView = true
         }
+        if (nextTarget != null) layoutSessionPackage = nextTarget.packageName
         secureField = nextSecure
         currentEditorTarget = nextTarget
         inputSessionActive = nextTarget != null
@@ -357,7 +360,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     override fun onFinishInput() {
         super.onFinishInput()
         abortInlineInput()
-        clearEditorTransientState(resetController = true, abortInline = false)
+        clearEditorTransientState(resetController = true, abortInline = false, preserveLayout = layoutSessionPackage != null)
         currentEditorTarget = null
         inputSessionActive = false
         resetControllerOnNextInputView = false
@@ -528,12 +531,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         super.onStartInputView(info, restarting)
         val viewTarget = editorTarget(info)
         val viewSecure = info != null && com.aegis.ime.user.ClipboardPolicy.isSensitive(info.inputType)
+        val preserveLayout = viewTarget != null && viewTarget.packageName == layoutSessionPackage
         val targetMatches = inputSessionActive && !secureField && !viewSecure &&
             currentEditorTarget?.let { active -> viewTarget?.let(active::sameEditor) } == true
         if (!targetMatches) {
 
         abortInlineInput()
-            clearEditorTransientState(resetController = true, abortInline = false)
+            clearEditorTransientState(resetController = true, abortInline = false, preserveLayout = preserveLayout)
             currentEditorTarget = null
             inputSessionActive = false
             secureField = viewSecure
@@ -548,7 +552,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         inputView?.setKeyPreviewAlpha(SettingsHotApply.keyPreviewAlpha(prefs))
         inputView?.setLetterCase(SettingsHotApply.letterCase(prefs))
         if (resetControllerOnNextInputView) {
-            controller.reset()
+            controller.reset(preserveLayout)
             resetControllerOnNextInputView = false
         }
 
@@ -996,7 +1000,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         super.onFinishInputView(finishingInput)
         unregisterBackCallback()
         if (finishingInput) {
-            clearEditorTransientState(resetController = true)
+            clearEditorTransientState(resetController = true, preserveLayout = layoutSessionPackage != null)
             currentEditorTarget = null
             inputSessionActive = false
             resetControllerOnNextInputView = false
@@ -1015,12 +1019,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         super.onWindowHidden()
         if (panelInput.active && ::controller.isInitialized) controller.onPanelClear()
         clearEditorTransientState(resetController = false)
+        layoutSessionPackage = null
         if (::controller.isInitialized) controller.restoreBaseKeyboard()
     }
 
     override fun onUnbindInput() {
         clearEditorTransientState(resetController = true)
         currentEditorTarget = null
+        layoutSessionPackage = null
         inputSessionActive = false
         resetControllerOnNextInputView = false
         secureField = false
@@ -1030,6 +1036,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     override fun onDestroy() {
         clearEditorTransientState(resetController = true)
         currentEditorTarget = null
+        layoutSessionPackage = null
         inputSessionActive = false
         resetControllerOnNextInputView = false
         secureField = false
