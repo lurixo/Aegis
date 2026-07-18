@@ -350,7 +350,7 @@ class KeyboardController(
     private fun handleCommit(key: Key) {
         if (key.direct) {
             if (composing.isNotEmpty() || committedPrefix.isNotEmpty()) flushComposing()
-            host.commitText(applyCase(key.output))
+            host.commitText(if (key.verbatim) key.output else applyCase(key.output))
             if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
             lastWord = null
             return

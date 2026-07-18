@@ -999,9 +999,9 @@ class KeyboardView(context: Context) : View(context) {
             dk != null && caseBoxActive -> {
                 performClick()
                 when (caseBoxSelected) {
-                    0 -> onKey(Key(dk.label.uppercase(), output = dk.label.uppercase(), direct = true))
-                    1 -> dk.sub?.let { s -> onKey(Key(s, output = s, direct = true)) } ?: emitKey(dk, eventTime)
-                    2 -> onKey(Key(dk.label.lowercase(), output = dk.label.lowercase(), direct = true))
+                    0 -> onKey(Key(dk.label.uppercase(), output = dk.label.uppercase(), direct = true, verbatim = true))
+                    1 -> dk.sub?.let { s -> onKey(Key(s, output = s, direct = true, verbatim = true)) } ?: emitKey(dk, eventTime)
+                    2 -> onKey(Key(dk.label.lowercase(), output = dk.label.lowercase(), direct = true, verbatim = true))
                     else -> emitKey(dk, eventTime)
                 }
             }
