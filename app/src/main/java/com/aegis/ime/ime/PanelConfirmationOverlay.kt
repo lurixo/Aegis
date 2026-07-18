@@ -40,6 +40,7 @@ internal class PanelConfirmationOverlay(context: Context) : FrameLayout(context)
     }
 
     fun show(title: String, confirm: String, cancel: String, palette: ImePalette, onConfirm: () -> Unit) {
+        Motion.reset(this)
         removeAllViews()
         val card = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -81,11 +82,26 @@ internal class PanelConfirmationOverlay(context: Context) : FrameLayout(context)
     }
 
     fun dismiss() {
+        if (visibility != View.VISIBLE) {
+            dismissImmediately()
+            return
+        }
         setOnClickListener(null)
         isClickable = false
-        removeAllViews()
+        confirmAction?.isClickable = false
+        cancelAction?.isClickable = false
         confirmAction = null
         cancelAction = null
+        Motion.hide(this, toward = Motion.EnterFrom.BOTTOM) { removeAllViews() }
+    }
+
+    internal fun dismissImmediately() {
+        setOnClickListener(null)
+        isClickable = false
+        confirmAction = null
+        cancelAction = null
+        Motion.reset(this)
+        removeAllViews()
         visibility = View.GONE
     }
 

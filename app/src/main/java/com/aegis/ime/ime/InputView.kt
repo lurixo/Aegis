@@ -278,6 +278,7 @@ class InputView(context: Context) : LinearLayout(context) {
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        settlePanelSwitch()
         Motion.reset(keyboardView)
         Motion.reset(preeditView)
         Motion.reset(candidateView)
@@ -378,6 +379,7 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun showPanelImmediately(panel: View) = showPanel(panel, animateReveal = false)
 
     private fun showPanel(panel: View?, animateReveal: Boolean) {
+        settlePanelSwitch()
         val outgoing = currentPanel
         (outgoing as? ResettablePanel)?.takeIf { it !== panel }?.resetToDefault()
         if (outgoing === gridView && panel !== gridView) onExpandClosed()
@@ -386,7 +388,7 @@ class InputView(context: Context) : LinearLayout(context) {
         candidateView.setExpanded(panel === gridView)
         if (panel == null) {
             if (outgoing != null) {
-                Motion.hide(outgoing, toward = Motion.EnterFrom.BOTTOM) {
+                pendingPanelSwitch = {
                     if (currentPanel == null) {
                         panelContainer.removeAllViews()
                         panelContainer.visibility = GONE
@@ -395,13 +397,13 @@ class InputView(context: Context) : LinearLayout(context) {
                     }
                     Motion.reset(outgoing)
                 }
+                Motion.hide(outgoing, toward = Motion.EnterFrom.BOTTOM) { settlePanelSwitch() }
             } else {
                 panelContainer.removeAllViews()
                 panelContainer.visibility = GONE
                 keyboardView.visibility = VISIBLE
             }
         } else {
-            panelContainer.removeAllViews()
             setPanelHeight(
                 lastDockHeightSpec?.keyboardHeight
                     ?: keyboardView.height.takeIf { it > 0 }
@@ -410,27 +412,64 @@ class InputView(context: Context) : LinearLayout(context) {
                         resources.displayMetrics.density,
                     ),
             )
-            (panel.parent as? ViewGroup)?.removeView(panel)
-            panelContainer.addView(
-                panel,
-                FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT),
-            )
-            panelContainer.visibility = VISIBLE
-            keyboardView.visibility = GONE
-            if (animateReveal) {
-                Motion.revealIn(panel, Motion.EnterFrom.BOTTOM)
-            } else {
-                panel.visibility = VISIBLE
-                Motion.reset(panel)
+            when {
+                !animateReveal -> {
+                    attachPanel(panel)
+                    keyboardView.visibility = GONE
+                    panel.visibility = VISIBLE
+                    Motion.reset(panel)
+                }
+                outgoing == null -> {
+                    pendingPanelSwitch = {
+                        Motion.reset(keyboardView)
+                        keyboardView.visibility = GONE
+                        attachPanel(panel)
+                        Motion.revealIn(panel, Motion.EnterFrom.BOTTOM)
+                    }
+                    Motion.hide(keyboardView, duration = Motion.FADE_OUT) { settlePanelSwitch() }
+                }
+                outgoing === panel -> {
+                    attachPanel(panel)
+                    keyboardView.visibility = GONE
+                    Motion.revealIn(panel, Motion.EnterFrom.BOTTOM)
+                }
+                else -> {
+                    pendingPanelSwitch = {
+                        Motion.reset(outgoing)
+                        attachPanel(panel)
+                        keyboardView.visibility = GONE
+                        Motion.revealIn(panel, Motion.EnterFrom.BOTTOM)
+                    }
+                    Motion.hide(outgoing, toward = Motion.EnterFrom.BOTTOM) { settlePanelSwitch() }
+                }
             }
         }
         onPanelChanged(panel)
         onOverlayChanged()
     }
 
+    private var pendingPanelSwitch: (() -> Unit)? = null
+
+    private fun settlePanelSwitch() {
+        val pending = pendingPanelSwitch ?: return
+        pendingPanelSwitch = null
+        pending()
+    }
+
+    private fun attachPanel(panel: View) {
+        panelContainer.removeAllViews()
+        (panel.parent as? ViewGroup)?.removeView(panel)
+        panelContainer.addView(
+            panel,
+            FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT),
+        )
+        panelContainer.visibility = VISIBLE
+    }
+
     internal fun isExpandedCandidatePanel(panel: View): Boolean = panel === gridView
 
     internal fun clearEditorTransientUiImmediately() {
+        pendingPanelSwitch = null
         val outgoing = currentPanel
         (outgoing as? ResettablePanel)?.resetToDefault()
         if (outgoing === gridView) onExpandClosed()
@@ -623,7 +662,7 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun panelFloorColorForTest(): Int? =
         (panelContainer.background as? android.graphics.drawable.ColorDrawable)?.color
 
-    val panelShown: Boolean get() = panelContainer.visibility == VISIBLE
+    val panelShown: Boolean get() = panelContainer.visibility == VISIBLE || pendingPanelSwitch != null
 
     fun isPanelShowing(panel: View?): Boolean = panelShown && panel != null && currentPanel === panel
 

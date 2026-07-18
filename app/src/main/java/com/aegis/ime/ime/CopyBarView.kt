@@ -48,11 +48,17 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         dismiss = { onDismiss() },
     )
 
+    private val row = LinearLayout(context).apply {
+        orientation = HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+    }
+
     init {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         background = capsuleBg()
         setPadding(dp(14), 0, dp(14), 0)
+        addView(row, lp(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     }
 
     private fun capsuleBg() = InsetDrawable(
@@ -67,15 +73,20 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         render()
     }
 
-    fun show(text: String) { ctl.show(text); render() }
+    fun show(text: String) { ctl.show(text); Motion.reset(row); render() }
+
+    private fun toggleSplit() {
+        ctl.toggleSplit()
+        Motion.fadeThrough(row) { render() }
+    }
 
     private fun render() {
-        removeAllViews()
-        addView(icon(), lp(dp(26), dp(26)))
+        row.removeAllViews()
+        row.addView(icon(), lp(dp(26), dp(26)))
         if (!ctl.splitMode) {
-            addView(content(ctl.content.orEmpty()), lp(0, WC, 1f))
-            addView(divider(), lp(dp(1), dp(18)))
-            addView(pill(context.getString(R.string.copybar_split)) { ctl.toggleSplit(); render() }, lp(WC, WC))
+            row.addView(content(ctl.content.orEmpty()), lp(0, WC, 1f))
+            row.addView(divider(), lp(dp(1), dp(18)))
+            row.addView(pill(context.getString(R.string.copybar_split)) { toggleSplit() }, lp(WC, WC))
         } else {
             val chips = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
             if (ctl.blocks.isEmpty()) chips.addView(TextView(context).apply {
@@ -83,11 +94,15 @@ class CopyBarView(context: Context) : LinearLayout(context) {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label); setPadding(dp(8), 0, dp(8), 0)
             })
             for (b in ctl.blocks) chips.addView(chip(b) { ctl.tapBlock(b) })
-            addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, lp(0, WC, 1f))
-            addView(pill(context.getString(R.string.copybar_collapse)) { ctl.toggleSplit(); render() }, lp(WC, WC))
+            row.addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, lp(0, WC, 1f))
+            row.addView(pill(context.getString(R.string.copybar_collapse)) { toggleSplit() }, lp(WC, WC))
         }
-        addView(pill("×") { ctl.close() }, lp(dp(34), WC))
+        row.addView(pill("×") { ctl.close() }, lp(dp(34), WC))
     }
+
+    internal fun toggleSplitForTest() = toggleSplit()
+    internal fun splitModeForTest(): Boolean = ctl.splitMode
+    internal fun splitRenderedForTest(): Boolean = row.childCount > 1 && row.getChildAt(1) is HorizontalScrollView
 
     private fun icon(): View = object : View(context) {
         private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {

@@ -252,6 +252,67 @@ object Motion {
         view.translationZ = 0f
     }
 
+    class ContentSwap(private val view: View, private val invalidate: () -> Unit = { view.invalidate() }) {
+        var active = false
+            private set
+        private var fraction = 1f
+        private var animator: ValueAnimator? = null
+
+        val outAlpha: Float
+            get() {
+                if (!active) return 0f
+                return 1f - EMPHASIZED_ACCEL.getInterpolation((fraction * SHORT3 / SHORT2).coerceAtMost(1f))
+            }
+
+        val inAlpha: Float
+            get() = if (active) EMPHASIZED_DECEL.getInterpolation(fraction) else 1f
+
+        fun start() {
+            animator?.cancel()
+            animator = null
+            if (!view.isAttachedToWindow || !enabled()) {
+                applyEndState()
+                return
+            }
+            active = true
+            fraction = 0f
+            animator = ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = SHORT3
+                interpolator = null
+                addUpdateListener {
+                    fraction = it.animatedValue as Float
+                    view.postInvalidateOnAnimation()
+                }
+                addListener(object : AnimatorListenerAdapter() {
+                    private var cancelled = false
+
+                    override fun onAnimationCancel(animation: Animator) {
+                        cancelled = true
+                    }
+
+                    override fun onAnimationEnd(animation: Animator) {
+                        if (cancelled) return
+                        animator = null
+                        applyEndState()
+                    }
+                })
+                start()
+            }
+        }
+
+        fun cancel() {
+            animator?.cancel()
+            animator = null
+            applyEndState()
+        }
+
+        private fun applyEndState() {
+            active = false
+            fraction = 1f
+            invalidate()
+        }
+    }
+
     class PressFeedback(private val view: View, private val invalidate: () -> Unit = { view.invalidate() }) {
         var level: Float = 0f
             private set

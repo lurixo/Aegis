@@ -27,6 +27,7 @@ import com.aegis.ime.ime.theme.ImeShapes
 open class PreeditView(context: Context) : View(context) {
 
     private var text: String = ""
+    private var shownText: String = ""
     private val density = resources.displayMetrics.density
     private val pad = 12f * density
     private val candPad = 14f * density
@@ -57,8 +58,32 @@ open class PreeditView(context: Context) : View(context) {
     fun setText(s: String) {
         if (s == text) return
         val appearing = text.isEmpty() && s.isNotEmpty()
+        val disappearing = text.isNotEmpty() && s.isEmpty()
         text = s
-        if (appearing) Motion.fadeIn(this) else invalidate()
+        when {
+            appearing -> {
+                shownText = s
+                Motion.fadeIn(this)
+            }
+            disappearing -> Motion.hide(this, endVisibility = VISIBLE) {
+                shownText = ""
+                invalidate()
+            }
+            else -> {
+                shownText = s
+                invalidate()
+            }
+        }
+    }
+
+    internal fun shownTextForTest(): String = shownText
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        if (text.isEmpty() && shownText.isNotEmpty()) {
+            shownText = ""
+            invalidate()
+        }
     }
 
     fun setLeftInset(px: Float) {
@@ -68,13 +93,13 @@ open class PreeditView(context: Context) : View(context) {
     }
 
     override fun onDraw(canvas: Canvas) {
-        if (text.isEmpty()) return
+        if (shownText.isEmpty()) return
         val textX = leftInset + candPad
-        val w = textPaint.measureText(text) + pad * 2
+        val w = textPaint.measureText(shownText) + pad * 2
         val r = ImeShapes.keyRadiusDp * density
         tab.set(textX - pad, 0f, textX - pad + w, height.toFloat() + r)
         canvas.drawRoundRect(tab, r, r, tabPaint)
         val baseline = height / 2f - (textPaint.descent() + textPaint.ascent()) / 2
-        canvas.drawText(text, textX, baseline, textPaint)
+        canvas.drawText(shownText, textX, baseline, textPaint)
     }
 }

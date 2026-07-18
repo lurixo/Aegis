@@ -18,6 +18,7 @@ package com.aegis.ime.ime
 import com.aegis.ime.R
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
@@ -64,6 +65,11 @@ class KeyboardView(context: Context) : View(context) {
     private var pressed: Key? = null
     private var visualPressed: Key? = null
     private val keyPress = Motion.PressFeedback(this)
+    private val contentSwap = Motion.ContentSwap(this)
+    private var contentSwaps = 0
+    private var swapBitmap: Bitmap? = null
+    private var swapCanvas: Canvas? = null
+    private val swapPaint = Paint()
 
     private var scrollColumn: ScrollColumn? = null
     private val scrollRegion = RectF()
@@ -144,7 +150,9 @@ class KeyboardView(context: Context) : View(context) {
     var caseMode: LetterCase = LetterCase.AUTO
         set(value) {
             if (field == value) return
+            val swapping = prepareContentSwap()
             field = value
+            if (swapping) startContentSwap()
             invalidate()
         }
     private var previewKey: Key? = null
@@ -213,6 +221,8 @@ class KeyboardView(context: Context) : View(context) {
         layoutApplies++
         val sameColumn = newLayout.scrollColumn?.items?.map { it.label } == layout.scrollColumn?.items?.map { it.label }
         val modeChanged = newLayout.id != layout.id
+        val swapWorthy = modeChanged || isShifted != shifted || isLocked != shiftLocked || language != lang
+        val swapping = swapWorthy && prepareContentSwap()
         layout = newLayout
         shifted = isShifted
         shiftLocked = isLocked
@@ -221,13 +231,49 @@ class KeyboardView(context: Context) : View(context) {
         if (!sameColumn) { fling.forceFinish(); scrollY = 0f }
         if (width > 0) relayout()
         requestLayout()
+        if (swapping) startContentSwap()
         invalidate()
         if (modeChanged && width > 0) { modeSwitches++ }
+    }
+
+    private fun prepareContentSwap(): Boolean {
+        if (!isAttachedToWindow || width <= 0 || height <= 0 || !Motion.enabled()) {
+            if (contentSwap.active) contentSwap.cancel()
+            return false
+        }
+        var bitmap = swapBitmap
+        var canvas = swapCanvas
+        if (bitmap == null || canvas == null || bitmap.width != width || bitmap.height != height) {
+            dropSwapSnapshot()
+            bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            canvas = Canvas(bitmap)
+            swapBitmap = bitmap
+            swapCanvas = canvas
+        }
+        bitmap.eraseColor(palette.keyboardBg)
+        if (placed.isEmpty()) relayout()
+        drawContent(canvas)
+        return true
+    }
+
+    private fun startContentSwap() {
+        contentSwaps++
+        contentSwap.start()
+    }
+
+    private fun dropSwapSnapshot() {
+        swapCanvas = null
+        swapBitmap?.recycle()
+        swapBitmap = null
     }
 
     internal fun modeSwitchesForTest(): Int = modeSwitches
 
     internal fun layoutAppliesForTest(): Int = layoutApplies
+
+    internal fun contentSwapsForTest(): Int = contentSwaps
+
+    internal fun contentSwapActiveForTest(): Boolean = contentSwap.active
 
     internal fun rowCountForSizing(): Int = layout.rowCount
     internal fun usesFractionalCellsForSizing(): Boolean = layout.cells != null && layout.id != LayoutId.ALPHA
@@ -243,7 +289,15 @@ class KeyboardView(context: Context) : View(context) {
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
+        if (contentSwap.active) contentSwap.cancel()
+        dropSwapSnapshot()
         relayout()
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        if (contentSwap.active) contentSwap.cancel()
+        dropSwapSnapshot()
     }
 
     private fun relayout() {
@@ -463,6 +517,22 @@ class KeyboardView(context: Context) : View(context) {
         canvas.drawColor(palette.keyboardBg)
         if (placed.isEmpty()) relayout()
 
+        val snapshot = if (contentSwap.active) swapBitmap else null
+        if (snapshot != null) {
+            swapPaint.alpha = (255 * contentSwap.outAlpha).roundToInt().coerceIn(0, 255)
+            if (swapPaint.alpha > 0) canvas.drawBitmap(snapshot, 0f, 0f, swapPaint)
+            val inAlpha = (255 * contentSwap.inAlpha).roundToInt().coerceIn(0, 255)
+            val layer = canvas.saveLayerAlpha(0f, 0f, width.toFloat(), height.toFloat(), inAlpha)
+            drawContent(canvas)
+            canvas.restoreToCount(layer)
+        } else {
+            drawContent(canvas)
+        }
+
+        drawPreview(canvas)
+    }
+
+    private fun drawContent(canvas: Canvas) {
         for (p in placed) {
             val pressLevel = if (p.key == visualPressed) keyPress.level else 0f
             drawKey(canvas, p.rect, p.key.accent, pressLevel)
@@ -470,8 +540,6 @@ class KeyboardView(context: Context) : View(context) {
         }
 
         drawScrollColumn(canvas)
-
-        drawPreview(canvas)
     }
 
     private fun drawPreview(canvas: Canvas) {
