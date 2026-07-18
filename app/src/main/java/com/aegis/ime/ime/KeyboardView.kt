@@ -231,7 +231,7 @@ class KeyboardView(context: Context) : View(context) {
         if (!sameColumn) { fling.forceFinish(); scrollY = 0f }
         if (width > 0) relayout()
         requestLayout()
-        if (swapping) startContentSwap()
+        if (swapping) startContentSwap(modeChanged)
         invalidate()
         if (modeChanged && width > 0) { modeSwitches++ }
     }
@@ -256,9 +256,9 @@ class KeyboardView(context: Context) : View(context) {
         return true
     }
 
-    private fun startContentSwap() {
+    private fun startContentSwap(sequential: Boolean = false) {
         contentSwaps++
-        contentSwap.start()
+        contentSwap.start(sequential)
     }
 
     private fun dropSwapSnapshot() {
@@ -274,6 +274,8 @@ class KeyboardView(context: Context) : View(context) {
     internal fun contentSwapsForTest(): Int = contentSwaps
 
     internal fun contentSwapActiveForTest(): Boolean = contentSwap.active
+
+    internal fun contentSwapSequentialForTest(): Boolean = contentSwap.sequential
 
     internal fun rowCountForSizing(): Int = layout.rowCount
     internal fun usesFractionalCellsForSizing(): Boolean = layout.cells != null && layout.id != LayoutId.ALPHA
@@ -522,9 +524,11 @@ class KeyboardView(context: Context) : View(context) {
             swapPaint.alpha = (255 * contentSwap.outAlpha).roundToInt().coerceIn(0, 255)
             if (swapPaint.alpha > 0) canvas.drawBitmap(snapshot, 0f, 0f, swapPaint)
             val inAlpha = (255 * contentSwap.inAlpha).roundToInt().coerceIn(0, 255)
-            val layer = canvas.saveLayerAlpha(0f, 0f, width.toFloat(), height.toFloat(), inAlpha)
-            drawContent(canvas)
-            canvas.restoreToCount(layer)
+            if (inAlpha > 0) {
+                val layer = canvas.saveLayerAlpha(0f, 0f, width.toFloat(), height.toFloat(), inAlpha)
+                drawContent(canvas)
+                canvas.restoreToCount(layer)
+            }
         } else {
             drawContent(canvas)
         }

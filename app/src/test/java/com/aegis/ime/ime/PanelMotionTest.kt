@@ -86,27 +86,35 @@ class PanelMotionTest {
             val v = attach(activity, clipboardView(activity) { clips })
             assertEquals(0, v.contentFadesForTest())
 
-            val before = v.listRowTextsForTest()
             v.switchTabForTest(toClipboard = false)
             assertEquals("a tab switch runs one content fade", 1, v.contentFadesForTest())
-            assertEquals("the tab swap defers to the fade trough", before, v.listRowTextsForTest())
+            assertEquals("the tab swap lands synchronously", listOf("短语"), v.listRowTextsForTest())
+            assertEquals("the viewport entrance fade starts transparent", 0f, v.listViewportForTest().alpha, 0f)
             flushMotion()
+            assertEquals("the entrance fade settles fully opaque", 1f, v.listViewportForTest().alpha, 0f)
             assertEquals(listOf("短语"), v.listRowTextsForTest())
 
             v.selectPhraseCategoryForTest("工作")
             assertEquals("a category selection runs one content fade", 2, v.contentFadesForTest())
+            assertEquals(0f, v.listViewportForTest().alpha, 0f)
             flushMotion()
+            assertEquals(1f, v.listViewportForTest().alpha, 0f)
 
             v.enterSelectForTest()
             assertEquals("a mode switch runs one content fade", 3, v.contentFadesForTest())
+            assertEquals(0f, v.listViewportForTest().alpha, 0f)
             flushMotion()
             v.exitSelectForTest()
             assertEquals(4, v.contentFadesForTest())
+            assertEquals(0f, v.listViewportForTest().alpha, 0f)
             flushMotion()
 
             v.switchTabForTest(toClipboard = true)
             assertEquals(5, v.contentFadesForTest())
+            assertEquals("the tab swap lands synchronously", listOf("clip-a", "clip-b"), v.listRowTextsForTest())
+            assertEquals(0f, v.listViewportForTest().alpha, 0f)
             flushMotion()
+            assertEquals(1f, v.listViewportForTest().alpha, 0f)
 
             clips = listOf("clip-a")
             v.refresh()
@@ -129,6 +137,7 @@ class PanelMotionTest {
             v.switchTabForTest(toClipboard = false)
             assertEquals("the logical fade is still counted", 1, v.contentFadesForTest())
             assertEquals("reduced motion rebuilds the content immediately", listOf("短语"), v.listRowTextsForTest())
+            assertEquals("reduced motion keeps the viewport fully opaque", 1f, v.listViewportForTest().alpha, 0f)
         } finally {
             controller.pause().stop().destroy()
         }

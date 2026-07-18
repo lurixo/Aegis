@@ -255,21 +255,36 @@ object Motion {
     class ContentSwap(private val view: View, private val invalidate: () -> Unit = { view.invalidate() }) {
         var active = false
             private set
+        var sequential = false
+            private set
         private var fraction = 1f
         private var animator: ValueAnimator? = null
+        private val outWindow = SHORT1.toFloat() / SHORT3
 
         val outAlpha: Float
             get() {
                 if (!active) return 0f
+                if (sequential) {
+                    if (fraction >= outWindow) return 0f
+                    return 1f - EMPHASIZED_ACCEL.getInterpolation(fraction / outWindow)
+                }
                 return 1f - EMPHASIZED_ACCEL.getInterpolation((fraction * SHORT3 / SHORT2).coerceAtMost(1f))
             }
 
         val inAlpha: Float
-            get() = if (active) EMPHASIZED_DECEL.getInterpolation(fraction) else 1f
+            get() {
+                if (!active) return 1f
+                if (sequential) {
+                    if (fraction <= outWindow) return 0f
+                    return EMPHASIZED_DECEL.getInterpolation((fraction - outWindow) / (1f - outWindow))
+                }
+                return EMPHASIZED_DECEL.getInterpolation(fraction)
+            }
 
-        fun start() {
+        fun start(sequential: Boolean = false) {
             animator?.cancel()
             animator = null
+            this.sequential = sequential
             if (!view.isAttachedToWindow || !enabled()) {
                 applyEndState()
                 return

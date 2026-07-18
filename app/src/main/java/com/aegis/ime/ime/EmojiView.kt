@@ -225,6 +225,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         (0 until grid.childCount).mapNotNull { (grid.getChildAt(it) as? TextView)?.text?.toString() }
     internal fun tapCellForTest(index: Int): Boolean = (grid.getChildAt(index) as? TextView)?.performClick() ?: false
     internal fun gridScrollYForTest(): Int = gridScroll.scrollY
+    internal fun gridViewportForTest(): View = gridScroll
     internal fun clearDialogVisibleForTest(): Boolean = clearDialog.visibility == View.VISIBLE
     internal fun confirmClearForTest(): Boolean = clearDialog.confirmForTest()
     internal fun cancelClearForTest(): Boolean = clearDialog.cancelForTest()
@@ -244,7 +245,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
             if (tabChanged && (i == index || i == prev)) crossfadeTabColor(tab, color) else tab.setTextColor(color)
             retintRipple(tab, color)
         }
-        if (animate && tabChanged && gridScroll.isShown) Motion.fadeThrough(gridScroll) { bindGrid(selected) }
+        if (animate && tabChanged && gridScroll.isShown) { bindGrid(selected); Motion.fadeIn(gridScroll, Motion.SHORT2) }
         else bindGrid(index)
     }
 
