@@ -23,6 +23,7 @@ class LayoutsTest {
 
     private val nine = Layouts.nine(Lang.CN, Layouts.ninePunctuation())
     private val qwerty = Layouts.forId(LayoutId.ALPHA, Lang.CN)
+    private val qwertyEn = Layouts.forId(LayoutId.ALPHA, Lang.EN)
 
     private fun keysOf(l: KeyboardLayout): List<Key> = l.cells?.map { it.key } ?: l.rows.flatMap { it.keys }
 
@@ -65,10 +66,29 @@ class LayoutsTest {
             listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"),
             qwerty.cells!!.filter { it.y < 0.1f }.sortedBy { it.x }.map { it.key.label },
         )
-        val letters = keysOf(qwerty)
+        val letters = keysOf(qwertyEn)
             .filter { it.action == KeyAction.COMMIT && it.label.length == 1 && it.label[0] in 'a'..'z' }
         assertEquals(26, letters.size)
-        assertTrue("every letter needs a super-script symbol", letters.all { it.sub != null })
+        assertTrue("every EN letter needs a super-script symbol", letters.all { it.sub != null })
+    }
+
+    @Test fun cn_qwerty_carries_no_sub_symbols_and_en_keeps_the_full_set() {
+        val cnLetters = keysOf(qwerty)
+            .filter { it.action == KeyAction.COMMIT && it.label.length == 1 && it.label[0] in 'a'..'z' }
+        assertEquals(26, cnLetters.size)
+        assertTrue("CN qwerty letters must not carry sub symbols", cnLetters.all { it.sub == null })
+        assertTrue("no CN qwerty key carries a sub symbol", keysOf(qwerty).all { it.sub == null })
+        assertEquals(
+            "EN qwerty keeps the exact sub-symbol assignment",
+            listOf(
+                "`", "=", "+", "$", "…", "\"", "^", "[", "]", "|",
+                "~", "!", "@", "#", "%", "'", "&", "*", "?",
+                "(", ")", "-", "_", ":", ";", "/",
+            ),
+            keysOf(qwertyEn)
+                .filter { it.action == KeyAction.COMMIT && it.label.length == 1 && it.label[0] in 'a'..'z' }
+                .map { it.sub },
+        )
     }
 
     @Test fun nine_space_is_in_bottom_row_not_right_column() {
