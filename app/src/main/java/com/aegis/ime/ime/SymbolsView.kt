@@ -82,8 +82,9 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     }
     private val gridScroll = ScrollView(context).apply { addView(gridHolder); isFillViewport = true }
     private val clearDialog = PanelConfirmationOverlay(context)
-    private val backBtn = barButton(context.getString(R.string.panel_back)) { onBack() }
-    private val lockBtn = barButton(context.getString(R.string.panel_lock)) { toggleLock() }
+    private val backGlyph = IconDrawable(density, 0.41f) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }
+    private val backBtn = barButton("") { onBack() }
+    private val lockBtn = barButton("") { toggleLock() }
     private val lockSlot = FrameLayout(context)
     private val lockGlyph = LockDrawable(density)
     private val clearGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y - s * 0.06f, s) }
@@ -115,8 +116,11 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     init {
         orientation = VERTICAL
         setBackgroundColor(palette.keyboardBg)
+        backBtn.contentDescription = context.getString(R.string.panel_back)
+        backBtn.setCompoundDrawablesWithIntrinsicBounds(backGlyph, null, null, null)
+        backGlyph.tint(palette.keyLabelSecondary)
+        lockBtn.contentDescription = context.getString(R.string.panel_lock)
         lockBtn.setCompoundDrawablesWithIntrinsicBounds(lockGlyph, null, null, null)
-        lockBtn.compoundDrawablePadding = dp(2)
         clearBtn.contentDescription = context.getString(R.string.symbols_clear_recent)
         clearBtn.setCompoundDrawablesWithIntrinsicBounds(clearGlyph, null, null, null)
         clearGlyph.tint(palette.keyLabelSecondary)
@@ -166,6 +170,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
             button.setTextColor(p.keyLabelSecondary)
             Motion.applyTapFeedback(button, p.keyLabelSecondary)
         }
+        backGlyph.tint(p.keyLabelSecondary)
         clearGlyph.tint(p.keyLabelSecondary)
         backspaceGlyph.tint(p.keyLabelSecondary)
         for (tile in tilePool) {
@@ -454,10 +459,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         val tint = if (locked) palette.candidateFirst else palette.keyLabelSecondary
         lockGlyph.closed = locked
         lockGlyph.tint(tint)
-        lockBtn.text = context.getString(R.string.panel_lock)
-        lockBtn.setTextColor(tint)
         Motion.applyTapFeedback(lockBtn, tint)
-        lockBtn.setTypeface(null, if (locked) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
     }
 
     private fun showClearConfirmation() {
@@ -517,11 +519,11 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         fun tint(color: Int) { paint.color = color; invalidateSelf() }
         override fun draw(canvas: Canvas) {
             val b = bounds
-            Glyphs.drawLock(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) * 0.48f, closed)
+            Glyphs.drawLock(canvas, paint, b.exactCenterX(), b.exactCenterY(), 18 * density * 0.48f, closed)
         }
         init { paint.strokeWidth = 2f * density }
-        override fun getIntrinsicWidth() = (18 * density).toInt()
-        override fun getIntrinsicHeight() = (18 * density).toInt()
+        override fun getIntrinsicWidth() = (60 * density).toInt()
+        override fun getIntrinsicHeight() = (46 * density).toInt()
         override fun setAlpha(alpha: Int) {}
         override fun setColorFilter(colorFilter: ColorFilter?) {}
         @Deprecated("Deprecated in Java")

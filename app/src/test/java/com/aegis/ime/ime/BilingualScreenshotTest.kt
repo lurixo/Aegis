@@ -155,6 +155,14 @@ class BilingualScreenshotTest {
         )
 
         snap(
+            EditPanelView(ctx).apply {
+                applyPalette(pal)
+                setHasSelection(true)
+            },
+            (230 * density).toInt(), dir, "edit-panel.png",
+        )
+
+        snap(
             EmojiView(ctx).apply {
                 recentProvider = { curatedFaces }
                 applyPalette(pal)

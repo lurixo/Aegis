@@ -138,25 +138,37 @@ class PanelIconAlignmentTest {
             v.offsetDescendantRectToMyCoords(target, bounds)
             return bounds.exactCenterX()
         }
+        fun boundsFor(item: EditAction): Rect {
+            val target = viewFor(item)
+            return Rect(0, 0, target.width, target.height).also { v.offsetDescendantRectToMyCoords(target, it) }
+        }
 
-        assertEquals(centerX(EditAction.LEFT), centerX(EditAction.HOME), 0.5f)
         assertEquals(centerX(EditAction.UP), centerX(EditAction.SELECT_ALL), 0.5f)
         assertEquals(centerX(EditAction.DOWN), centerX(EditAction.SELECT_ALL), 0.5f)
         assertEquals(centerX(EditAction.START_SELECT), centerX(EditAction.SELECT_ALL), 0.5f)
-        assertEquals(centerX(EditAction.RIGHT), centerX(EditAction.END), 0.5f)
         assertTrue(centerX(EditAction.LEFT) > v.width / 10f)
 
-        val leftWidths = listOf(
-            EditAction.LEFT,
-            EditAction.UP,
-            EditAction.RIGHT,
-            EditAction.DOWN,
-            EditAction.HOME,
-            EditAction.SELECT_ALL,
-            EditAction.END,
-        ).map { viewFor(it).width }
-        assertTrue(leftWidths.max() - leftWidths.min() <= 1)
-        assertTrue(leftWidths.all { kotlin.math.abs(it - v.width / 5) <= 1 })
+        val select = boundsFor(EditAction.START_SELECT)
+        val leftArrow = boundsFor(EditAction.LEFT)
+        val rightArrow = boundsFor(EditAction.RIGHT)
+        val upArrow = boundsFor(EditAction.UP)
+        val downArrow = boundsFor(EditAction.DOWN)
+        assertEquals(select.left, leftArrow.right)
+        assertEquals(select.right, rightArrow.left)
+        assertEquals(select.top, leftArrow.top)
+        assertEquals(select.top, rightArrow.top)
+        assertEquals(select.top, upArrow.bottom)
+        assertEquals(select.bottom, downArrow.top)
+        for (arrow in listOf(leftArrow, rightArrow, upArrow, downArrow)) {
+            assertEquals((48 * density).toInt(), arrow.width())
+            assertEquals((44 * density).toInt(), arrow.height())
+        }
+        assertEquals((88 * density).toInt(), select.width())
+        assertEquals((44 * density).toInt(), select.height())
+
+        val navWidths = listOf(EditAction.HOME, EditAction.SELECT_ALL, EditAction.END).map { viewFor(it).width }
+        assertTrue(navWidths.max() - navWidths.min() <= 1)
+        assertTrue(navWidths.all { kotlin.math.abs(it - v.width / 5) <= 1 })
 
         for (item in listOf(EditAction.DELETE, EditAction.COPY, EditAction.CUT, EditAction.PASTE)) {
             val button = viewFor(item) as TextView
@@ -200,14 +212,12 @@ class PanelIconAlignmentTest {
                 val target = requireNotNull(v.actionViewForTest(action))
                 Rect(0, 0, target.width, target.height).also { v.offsetDescendantRectToMyCoords(target, it) }
             }
-            val firstDpadHeight = midHeight / 3
-            val secondDpadHeight = (midHeight - firstDpadHeight) / 2
-            val expectedDpadHeights = listOf(firstDpadHeight, secondDpadHeight, midHeight - firstDpadHeight - secondDpadHeight)
+            val clusterRowHeight = (44 * density).toInt()
             assertEquals(bounds.first().top, dpadBounds.first().top)
-            assertEquals(bounds.first().height(), dpadBounds.first().height())
-            assertEquals(expectedDpadHeights, dpadBounds.map { it.height() })
+            assertEquals(List(3) { clusterRowHeight }, dpadBounds.map { it.height() })
             dpadBounds.zipWithNext().forEach { (upper, lower) -> assertEquals(upper.bottom, lower.top) }
-            assertEquals(titleHeight + midHeight, dpadBounds.last().bottom)
+            assertEquals(titleHeight + 3 * clusterRowHeight, dpadBounds.last().bottom)
+            assertTrue(dpadBounds.last().bottom + (16 * density).toInt() <= titleHeight + midHeight)
             val navigationBounds = listOf(EditAction.HOME, EditAction.SELECT_ALL, EditAction.END).map { action ->
                 val target = requireNotNull(v.actionViewForTest(action))
                 Rect(0, 0, target.width, target.height).also { v.offsetDescendantRectToMyCoords(target, it) }
@@ -303,16 +313,11 @@ class PanelIconAlignmentTest {
         assertEquals(Gravity.CENTER, lock.gravity)
         assertTrue("$name: lock remains independently clickable", lock.hasOnClickListeners())
 
-        val maxPadding = (2f * density).roundToInt() + 1
-        assertTrue("$name: lock icon and text should sit close together", lock.compoundDrawablePadding <= maxPadding)
-
-        val icon = lock.compoundDrawables[0]
-        assertNotNull("$name: lock control must keep a leading icon", icon)
-        val maxDelta = (2f * density).roundToInt().coerceAtLeast(2)
-        val labelTextSize = textSizePx(lock)
-        assertTrue(
-            "$name: lock icon box should match the label text size: icon=${icon.intrinsicHeight}, text=$labelTextSize",
-            abs(icon.intrinsicHeight - labelTextSize) <= maxDelta,
-        )
+        assertEquals("$name: lock key face is icon-only", "", lock.text.toString())
+        val icon = requireNotNull(lock.compoundDrawables[0])
+        assertEquals("$name: lock glyph fills the key face", Rect(0, 0, lock.width, lock.height), icon.bounds)
+        assertEquals("$name: back key face is icon-only", "", back.text.toString())
+        val backIcon = requireNotNull(back.compoundDrawables[0])
+        assertEquals("$name: back glyph fills the key face", Rect(0, 0, back.width, back.height), backIcon.bounds)
     }
 }

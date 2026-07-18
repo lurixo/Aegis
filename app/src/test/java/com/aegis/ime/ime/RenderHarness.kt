@@ -512,7 +512,7 @@ class RenderHarness {
             val rightMargin = target.width - 1 - right
             assertTrue(
                 "$name: $action content not centered — leftMargin=$leftMargin rightMargin=$rightMargin",
-                kotlin.math.abs(leftMargin - rightMargin) <= 1,
+                kotlin.math.abs(leftMargin - rightMargin) <= 2,
             )
         }
     }

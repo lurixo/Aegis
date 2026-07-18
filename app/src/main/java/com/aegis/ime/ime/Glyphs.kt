@@ -52,20 +52,28 @@ object Glyphs {
     enum class Arrow { UP, DOWN, LEFT, RIGHT }
 
     fun drawArrow(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, dir: Arrow) {
-        val dx: Float; val dy: Float
-        when (dir) {
-            Arrow.UP -> { dx = 0f; dy = -1f }
-            Arrow.DOWN -> { dx = 0f; dy = 1f }
-            Arrow.LEFT -> { dx = -1f; dy = 0f }
-            Arrow.RIGHT -> { dx = 1f; dy = 0f }
+        val angle = when (dir) {
+            Arrow.UP -> 0f
+            Arrow.RIGHT -> 90f
+            Arrow.DOWN -> 180f
+            Arrow.LEFT -> 270f
         }
-        val tipX = cx + dx * s; val tipY = cy + dy * s
-        c.drawLine(cx - dx * s, cy - dy * s, tipX, tipY, paint)
-        val hw = s * 0.66f
-        val px = -dy; val py = dx
-        val baseX = tipX - dx * hw; val baseY = tipY - dy * hw
-        c.drawLine(tipX, tipY, baseX + px * hw, baseY + py * hw, paint)
-        c.drawLine(tipX, tipY, baseX - px * hw, baseY - py * hw, paint)
+        val tipY = cy - s * 0.76f; val headW = s * 0.8f; val midY = cy + s * 0.05f
+        val stemW = s * 0.34f; val botY = cy + s * 0.76f
+        val path = Path().apply {
+            moveTo(cx, tipY)
+            lineTo(cx + headW, midY)
+            lineTo(cx + stemW, midY)
+            lineTo(cx + stemW, botY)
+            lineTo(cx - stemW, botY)
+            lineTo(cx - stemW, midY)
+            lineTo(cx - headW, midY)
+            close()
+        }
+        c.save()
+        c.rotate(angle, cx, cy)
+        c.drawPath(path, paint)
+        c.restore()
     }
 
     fun drawBack(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
