@@ -202,16 +202,27 @@ object Glyphs {
         if (locked) c.drawLine(cx - headW, botY + s * 0.3f, cx + headW, botY + s * 0.3f, paint)
     }
 
-    fun drawPencil(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
-        val e = s * 0.78f; val o = s * 0.2f
-        val tipX = cx - e; val tipY = cy + e; val endX = cx + e; val endY = cy - e
-        c.drawLine(tipX + o, tipY + o, endX + o, endY + o, paint)
-        c.drawLine(tipX - o, tipY - o, endX - o, endY - o, paint)
-        c.drawLine(endX + o, endY + o, endX - o, endY - o, paint)
-        c.drawLine(tipX + o, tipY + o, tipX, tipY, paint)
-        c.drawLine(tipX - o, tipY - o, tipX, tipY, paint)
-        val bx = endX - e * 0.42f; val by = endY + e * 0.42f
-        c.drawLine(bx + o, by + o, bx - o, by - o, paint)
+    fun drawEditSquare(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val box = Path().apply {
+            moveTo(cx + s * 0.1f, cy - s * 0.7f)
+            lineTo(cx - s * 0.5f, cy - s * 0.7f)
+            quadTo(cx - s * 0.7f, cy - s * 0.7f, cx - s * 0.7f, cy - s * 0.5f)
+            lineTo(cx - s * 0.7f, cy + s * 0.6f)
+            quadTo(cx - s * 0.7f, cy + s * 0.8f, cx - s * 0.5f, cy + s * 0.8f)
+            lineTo(cx + s * 0.5f, cy + s * 0.8f)
+            quadTo(cx + s * 0.7f, cy + s * 0.8f, cx + s * 0.7f, cy + s * 0.6f)
+            lineTo(cx + s * 0.7f, cy)
+        }
+        c.drawPath(box, paint)
+        val pen = Path().apply {
+            moveTo(cx + s * 0.61f, cy - s * 0.91f)
+            lineTo(cx + s * 0.91f, cy - s * 0.61f)
+            lineTo(cx + s * 0.5f, cy - s * 0.2f)
+            lineTo(cx + s * 0.12f, cy - s * 0.12f)
+            lineTo(cx + s * 0.2f, cy - s * 0.5f)
+            close()
+        }
+        c.drawPath(pen, paint)
     }
 
 

@@ -148,13 +148,15 @@ class ClipboardViewInteractionTest {
     private fun assertBoxedSymbol(view: View) {
         val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
         view.draw(Canvas(bitmap))
-        val halfBox = dp(8)
+        val box = dp(15)
+        val left = (view.width - box) / 2
+        val top = (view.height - box) / 2
         val centerX = view.width / 2
         val centerY = view.height / 2
-        assertTrue(bitmap.getPixel(centerX, centerY - halfBox) != pal.keySurface)
-        assertTrue(bitmap.getPixel(centerX, centerY + halfBox - 1) != pal.keySurface)
-        assertTrue(bitmap.getPixel(centerX - halfBox, centerY) != pal.keySurface)
-        assertTrue(bitmap.getPixel(centerX + halfBox - 1, centerY) != pal.keySurface)
+        assertTrue(bitmap.getPixel(centerX, top) != pal.keySurface)
+        assertTrue(bitmap.getPixel(centerX, top + box - 1) != pal.keySurface)
+        assertTrue(bitmap.getPixel(left, centerY) != pal.keySurface)
+        assertTrue(bitmap.getPixel(left + box - 1, centerY) != pal.keySurface)
     }
     private fun swipeActions(root: View, descriptions: List<String>): List<View> =
         allViews(root).filterIsInstance<ViewGroup>().map { group ->
