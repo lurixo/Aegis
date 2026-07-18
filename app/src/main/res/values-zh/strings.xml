@@ -51,6 +51,11 @@
     <string name="key_haptic_soft_description">缓起缓落，柔和绵长</string>
     <string name="key_haptic_system_description">使用设备默认的按键触感</string>
 
+    <string name="default_lang_title">默认输入语言</string>
+    <string name="default_lang_description">键盘在新应用中打开时使用的语言</string>
+    <string name="default_lang_cn">中文</string>
+    <string name="default_lang_en">英文</string>
+
     <string name="layout_nine">全拼9键</string>
     <string name="layout_alpha">全拼26键</string>
     <string name="layout_en">英文26键</string>

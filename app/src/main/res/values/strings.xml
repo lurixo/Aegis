@@ -51,6 +51,11 @@
     <string name="key_haptic_soft_description">A smooth rise and a gentle fade</string>
     <string name="key_haptic_system_description">The device’s standard keyboard feedback</string>
 
+    <string name="default_lang_title">Default input language</string>
+    <string name="default_lang_description">Language the keyboard starts with in a new app</string>
+    <string name="default_lang_cn">Chinese</string>
+    <string name="default_lang_en">English</string>
+
     <string name="layout_nine">Full Pinyin T9</string>
     <string name="layout_alpha">Full Pinyin 26-key</string>
     <string name="layout_en">English 26-key</string>
