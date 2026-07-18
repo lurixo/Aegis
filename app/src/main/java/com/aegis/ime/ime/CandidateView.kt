@@ -101,15 +101,8 @@ class CandidateView(context: Context) : View(context) {
     private val capsulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySurface }
     private val sepPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.separator }
     private val pressPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val brandPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = palette.icon
-        textAlign = Paint.Align.CENTER
-        textSize = sp(14f)
-        typeface = android.graphics.Typeface.DEFAULT_BOLD
-    }
     private val tmpRect = RectF()
     private val toolbarBounds = RectF()
-    private val brandLabelBounds = RectF()
     private val toolbarClipPath = Path()
 
     fun applyPalette(p: ImePalette) {
@@ -117,7 +110,6 @@ class CandidateView(context: Context) : View(context) {
         textPaint.color = p.candidateText
         firstPaint.color = p.candidateFirst
         iconPaint.color = p.icon
-        brandPaint.color = p.icon
         capsulePaint.color = p.keySurface
         sepPaint.color = p.separator
         invalidate()
@@ -162,8 +154,6 @@ class CandidateView(context: Context) : View(context) {
     internal fun keyPressRadiusDpForTest(): Float = ImeShapes.keyRadiusDp
     internal fun toolbarControlBoundsForTest(): List<RectF> = funcRects.map(::RectF) + RectF(collapseRect)
     internal fun toolbarCapsuleBoundsForTest(): RectF = RectF(toolbarBounds)
-    internal fun toolbarBrandLabelForTest(): String = BRAND_LABEL
-    internal fun toolbarBrandLabelBoundsForTest(): RectF = RectF(brandLabelBounds)
     internal fun toolbarOuterRadiusForTest(): Float = toolbarOuterRadius()
     internal fun expandControlBoundsForTest(): RectF = RectF(width - expandW, 0f, width.toFloat(), height.toFloat())
     internal fun toolbarChevronBoundsForTest(): RectF =
@@ -275,22 +265,11 @@ class CandidateView(context: Context) : View(context) {
 
     private fun drawIcon(c: Canvas, f: BarFunction, cx: Float, cy: Float, s: Float) {
         when (f) {
-            BarFunction.BRAND -> drawBrandLabel(c, cx, cy)
+            BarFunction.BRAND -> Glyphs.drawBrandWeldedA(c, iconPaint, cx, cy, s)
             BarFunction.EMOJI -> Glyphs.drawEmoji(c, iconPaint, cx, cy, s)
             BarFunction.EDIT -> Glyphs.drawEditCaret(c, iconPaint, cx, cy, s)
             BarFunction.CLIPBOARD -> Glyphs.drawClipboard(c, iconPaint, cx, cy, s)
         }
-    }
-
-    private fun drawBrandLabel(canvas: Canvas, cx: Float, cy: Float) {
-        brandPaint.textSize = sp(14f)
-        val availableWidth = (funcRects.first().width() - 12f * density).coerceAtLeast(1f)
-        val measuredWidth = brandPaint.measureText(BRAND_LABEL)
-        if (measuredWidth > availableWidth) brandPaint.textSize *= availableWidth / measuredWidth
-        val baseline = cy - (brandPaint.ascent() + brandPaint.descent()) / 2f
-        val halfWidth = brandPaint.measureText(BRAND_LABEL) / 2f
-        brandLabelBounds.set(cx - halfWidth, baseline + brandPaint.ascent(), cx + halfWidth, baseline + brandPaint.descent())
-        canvas.drawText(BRAND_LABEL, cx, baseline, brandPaint)
     }
 
     override fun computeScroll() {
@@ -416,7 +395,6 @@ class CandidateView(context: Context) : View(context) {
     }
 
     private companion object {
-        private const val BRAND_LABEL = "Aegis"
         private const val ROLE_CANDIDATES = 0
         private const val ROLE_FUNCTIONS = 1
         private const val ROLE_BLANK = 2
