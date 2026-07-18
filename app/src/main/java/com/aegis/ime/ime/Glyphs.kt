@@ -152,12 +152,22 @@ object Glyphs {
         c.drawArc(cx - s * 0.4f, cy - s * 0.05f, cx + s * 0.4f, cy + s * 0.45f, 20f, 140f, false, paint)
     }
 
-    fun drawBrandA(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
-        val h = s * 0.82f; val apexY = cy - h; val baseY = cy + h; val legX = s * 0.62f
-        val p = Path().apply { moveTo(cx - legX, baseY); lineTo(cx, apexY); lineTo(cx + legX, baseY) }
-        c.drawPath(p, paint)
-        val t = 0.58f; val ly = apexY + (baseY - apexY) * t
-        c.drawLine(cx - legX * t, ly, cx + legX * t, ly, paint)
+    fun drawBrandWeldedA(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        c.drawPath(heaterPath(cx, cy, s), paint)
+        val fx = s * 0.45f; val fy = cy + s * 0.47f; val topY = cy - s * 0.76f
+        val a = Path().apply { moveTo(cx - fx, fy); lineTo(cx, topY); lineTo(cx + fx, fy) }
+        c.drawPath(a, paint)
+        c.drawLine(cx - s * 0.27f, cy - s * 0.03f, cx + s * 0.27f, cy - s * 0.03f, paint)
+    }
+
+    private fun heaterPath(cx: Float, cy: Float, s: Float): Path {
+        val w = s * 0.64f; val top = cy - s * 0.76f; val mid = cy - s * 0.12f
+        return Path().apply {
+            moveTo(cx - w, top); lineTo(cx + w, top); lineTo(cx + w, mid)
+            quadTo(cx + w, cy + s * 0.48f, cx, cy + s * 0.83f)
+            quadTo(cx - w, cy + s * 0.48f, cx - w, mid)
+            close()
+        }
     }
 
     fun drawEditCaret(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {

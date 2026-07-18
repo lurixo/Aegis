@@ -19,6 +19,7 @@ import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.RectF
 import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
@@ -362,9 +363,7 @@ class CandidateBarChevronTest {
             val view = idleBar(widthDp)
             val controls = view.toolbarControlBoundsForTest()
             val capsule = view.toolbarCapsuleBoundsForTest()
-            val brand = view.toolbarBrandLabelBoundsForTest()
             assertEquals(5, controls.size)
-            assertEquals("Aegis", view.toolbarBrandLabelForTest())
             assertEquals(capsule.left, controls.first().left, 0.01f)
             assertEquals(capsule.right, controls.last().right, 0.01f)
             assertTrue(controls.all { it.top == capsule.top && it.bottom == capsule.bottom })
@@ -374,13 +373,7 @@ class CandidateBarChevronTest {
             val spacing = controls.zipWithNext { left, right -> right.centerX() - left.centerX() }
             assertTrue(spacing.all { abs(it - spacing.first()) <= 0.01f })
             assertEquals(capsule.centerX(), (controls.first().left + controls.last().right) / 2f, 0.01f)
-            assertTrue(controls.first().contains(brand))
         }
-        val largeTextContext = ctx.createConfigurationContext(
-            Configuration(ctx.resources.configuration).apply { fontScale = 2f },
-        )
-        val largeTextView = idleBar(250, largeTextContext)
-        assertTrue(largeTextView.toolbarControlBoundsForTest().first().contains(largeTextView.toolbarBrandLabelBoundsForTest()))
         val view = idleBar(360)
         val actions = ArrayList<String>()
         view.onFunction = { actions += it.name }
@@ -440,6 +433,27 @@ class CandidateBarChevronTest {
         view.draw(Canvas(bitmap))
         val dividerX = (controls.last().left + density * 0.5f).toInt()
         assertEquals(ImePalette.STATIC_LIGHT.keySurface, bitmap.getPixel(dividerX, controls.last().centerY().toInt()))
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test fun idle_toolbar_brand_slot_renders_the_brand_icon() {
+        val view = idleBar(320)
+        val slot = view.toolbarControlBoundsForTest().first()
+        val s = 9f * density
+        val glyph = RectF(slot.centerX() - s * 0.64f, slot.centerY() - s * 0.76f, slot.centerX() + s * 0.64f, slot.centerY() + s * 0.83f)
+        assertTrue(slot.contains(glyph))
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        view.draw(Canvas(bitmap))
+        val ink = RectF(glyph).apply { inset(-(0.9f * density + 1f), -(0.9f * density + 1f)) }
+        var found = false
+        for (y in slot.top.toInt() until slot.bottom.toInt()) {
+            for (x in slot.left.toInt() until slot.right.toInt()) {
+                if (bitmap.getPixel(x, y) != ImePalette.STATIC_LIGHT.icon) continue
+                found = true
+                assertTrue(ink.contains(x.toFloat(), y.toFloat()))
+            }
+        }
+        assertTrue(found)
     }
 
 
