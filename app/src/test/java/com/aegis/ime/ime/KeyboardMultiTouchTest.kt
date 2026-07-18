@@ -68,6 +68,12 @@ class KeyboardMultiTouchTest {
     private fun pointerUp(index: Int) =
         MotionEvent.ACTION_POINTER_UP or (index shl MotionEvent.ACTION_POINTER_INDEX_SHIFT)
 
+    private val gap = 3f * density
+    private val u = 1f / 4.7f
+    private fun KeyboardView.cx() = (gap + (0.85f * u * width - gap)) / 2f
+    private fun KeyboardView.cellH() = ((0.75f * height - gap) - gap) / 4f
+    private fun KeyboardView.colCellY(i: Int) = gap + cellH() * (i + 0.5f)
+
     private fun KeyboardView.roll(ax: Float, ay: Float, bx: Float, by: Float, aFirst: Boolean): List<String> {
         val out = ArrayList<String>()
         onKey = { out.add(it.output) }
@@ -151,6 +157,34 @@ class KeyboardMultiTouchTest {
         v.dispatch(pointerUp(1), 40, intArrayOf(1, 2), floatArrayOf(ax, bx), floatArrayOf(ay, by))
         v.dispatch(MotionEvent.ACTION_UP, 50, intArrayOf(1), floatArrayOf(ax), floatArrayOf(ay))
         assertEquals("no spurious double-emit: X, then Y once per real tap", listOf("2", "3", "3"), out)
+    }
+
+    @Test fun a_grid_tap_by_a_second_finger_commits_while_the_first_rests_on_the_column() {
+        val v = nineView()
+        val out = ArrayList<String>()
+        v.onKey = { out.add(it.output) }
+        val colX = v.cx()
+        val colY = v.colCellY(0)
+        val (bx, by) = v.centerOfLabelForTest("ABC")!!
+        v.dispatch(MotionEvent.ACTION_DOWN, 0, intArrayOf(1), floatArrayOf(colX), floatArrayOf(colY))
+        v.dispatch(pointerDown(1), 10, intArrayOf(1, 2), floatArrayOf(colX, bx), floatArrayOf(colY, by))
+        v.dispatch(pointerUp(1), 20, intArrayOf(1, 2), floatArrayOf(colX, bx), floatArrayOf(colY, by))
+        v.dispatch(MotionEvent.ACTION_UP, 30, intArrayOf(1), floatArrayOf(colX), floatArrayOf(colY))
+        assertEquals("the grid tap commits and the resting column press still resolves on lift", listOf("2", "，"), out)
+    }
+
+    @Test fun a_column_tap_by_a_second_finger_registers_while_the_first_holds_a_grid_key() {
+        val v = nineView()
+        val out = ArrayList<String>()
+        v.onKey = { out.add(it.output) }
+        val (ax, ay) = v.centerOfLabelForTest("ABC")!!
+        val colX = v.cx()
+        val colY = v.colCellY(0)
+        v.dispatch(MotionEvent.ACTION_DOWN, 0, intArrayOf(1), floatArrayOf(ax), floatArrayOf(ay))
+        v.dispatch(pointerDown(1), 10, intArrayOf(1, 2), floatArrayOf(ax, colX), floatArrayOf(ay, colY))
+        v.dispatch(pointerUp(1), 20, intArrayOf(1, 2), floatArrayOf(ax, colX), floatArrayOf(ay, colY))
+        v.dispatch(MotionEvent.ACTION_UP, 30, intArrayOf(1), floatArrayOf(ax), floatArrayOf(ay))
+        assertEquals("the column tap registers and the held grid key commits in press order", listOf("2", "，"), out)
     }
 
     @Test fun sequential_non_overlapping_taps_still_commit_both() {
