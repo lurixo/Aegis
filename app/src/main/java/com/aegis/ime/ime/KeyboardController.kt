@@ -842,12 +842,14 @@ class KeyboardController(
         val lane = decodeLane
         if (lane == null) {
             applyDecodeResult(computeDecode(req))
+            if (req.idle) req.engine.prepareUserWords()
         } else {
             lane.submit(
                 compute = { computeDecode(req) },
                 apply = { result -> applyDecodeResult(result); if (!settlingDecode) render() },
                 onError = { applyDecodeResult(emptyDecodeResult()); if (!settlingDecode) render() },
             )
+            if (req.idle) lane.execute { synchronized(decodeLock) { req.engine.prepareUserWords() } }
         }
     }
 
@@ -890,7 +892,10 @@ class KeyboardController(
         val learningBlocked: Boolean,
         val lastWord: String?,
         val englishTyped: String,
-    )
+    ) {
+        val idle: Boolean
+            get() = composingEmpty && committedPrefixEmpty && englishTyped.isEmpty()
+    }
 
     private class DecodeResult(
         val candidates: List<Cand>,

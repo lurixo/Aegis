@@ -18,7 +18,9 @@ package com.aegis.ime.ime
 import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
+import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.Key
+import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
@@ -142,6 +144,39 @@ class LongPressCaseBoxTest {
             v.send(MotionEvent.ACTION_UP, box.right + 8f * density, box.centerY(), 400)
         }
         assertTrue(out.isEmpty())
+    }
+
+    private class RecordingHost : ImeHost {
+        val commits = mutableListOf<String>()
+        override fun commitText(text: CharSequence) { commits.add(text.toString()) }
+        override fun deleteBackward() {}
+        override fun performEnter() {}
+    }
+
+    private fun lowercaseCellCommits(prime: KeyAction): List<String> {
+        val host = RecordingHost()
+        val controller = KeyboardController(host, object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean): List<String> = emptyList()
+        })
+        controller.onKey(Key("", action = KeyAction.TOGGLE_LANG))
+        controller.onKey(Key("", action = prime))
+        val v = alphaView().apply { onKey = { controller.onKey(it) } }
+        val (gx, gy) = v.centerOfLabelForTest("g")!!
+        v.send(MotionEvent.ACTION_DOWN, gx, gy, 0)
+        holdOpen()
+        val box = requireNotNull(v.caseBoxBoundsForTest())
+        val x = box.left + box.width() * 5f / 6f
+        v.send(MotionEvent.ACTION_MOVE, x, box.centerY(), 380)
+        v.send(MotionEvent.ACTION_UP, x, box.centerY(), 400)
+        return host.commits
+    }
+
+    @Test fun the_lowercase_cell_commits_lowercase_under_caps_lock() {
+        assertEquals("the explicitly chosen cell wins over caps lock", listOf("g"), lowercaseCellCommits(KeyAction.SHIFT_LOCK))
+    }
+
+    @Test fun the_lowercase_cell_commits_lowercase_under_one_shot_shift() {
+        assertEquals("the explicitly chosen cell wins over a pending shift", listOf("g"), lowercaseCellCommits(KeyAction.SHIFT))
     }
 
 

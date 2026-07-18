@@ -337,6 +337,28 @@ class DecodeSettleTest {
 
     @Test fun space_without_a_running_worker_commits_like_sync_on_9key() = spaceFallbackWithoutAnyWorker(nine = true)
 
+    private fun userWordsArePreparedAfterPredictionsAreDelivered(nine: Boolean) {
+        val queues = QueueLane()
+        val prepared = ArrayList<Int>()
+        val engine = object : CandidateEngine by fixtureEngine() {
+            override fun predict(prevWord: String?): List<String> = listOf("吗")
+            override fun prepareUserWords() { prepared.add(queues.mainQ.size) }
+        }
+        val c = controller(Editor(), engine, queues.lane, nine)
+        type(c, keys(nine, "nihao")); queues.drain()
+        prepared.clear()
+        c.onKey(space)
+        assertTrue("nothing runs before the worker does", prepared.isEmpty())
+        while (queues.workerQ.isNotEmpty()) queues.workerQ.removeFirst().run()
+        assertEquals("user words are prepared once, after the predictions were handed to the main thread", listOf(1), prepared)
+        queues.drain()
+        assertEquals(listOf("吗"), c.candidateWords())
+    }
+
+    @Test fun user_words_are_prepared_after_predictions_are_delivered_on_26key() = userWordsArePreparedAfterPredictionsAreDelivered(nine = false)
+
+    @Test fun user_words_are_prepared_after_predictions_are_delivered_on_9key() = userWordsArePreparedAfterPredictionsAreDelivered(nine = true)
+
     private fun cursorContextIsReadOnMainAndRefreshed(nine: Boolean) {
         val lane = ThreadLane(settleMillis = 60_000L)
         try {
