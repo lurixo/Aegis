@@ -78,7 +78,7 @@ class KeyboardView(context: Context) : View(context) {
     private var scrollPressedIndex = -1
     private var scrollVisualPressedIndex = -1
     private val scrollPress = Motion.PressFeedback(this)
-    private var inScrollDown = false
+    private var scrollPointerId = MotionEvent.INVALID_POINTER_ID
     private var scrollDownY = 0f
     private var scrollLastY = 0f
     private var scrolling = false
@@ -826,37 +826,55 @@ class KeyboardView(context: Context) : View(context) {
         listOf(key.label.uppercase(), key.sub ?: "", key.label.lowercase())
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-            inScrollDown = scrollColumn != null && scrollRegion.contains(event.x, event.y)
-        }
-        if (inScrollDown) return handleScrollTouch(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                activePointerId = event.getPointerId(0)
-                beginPrimary(event.x, event.y, event.eventTime)
+                if (scrollColumn != null && scrollRegion.contains(event.x, event.y)) {
+                    scrollPointerId = event.getPointerId(0)
+                    beginScroll(event.y)
+                } else {
+                    activePointerId = event.getPointerId(0)
+                    beginPrimary(event.x, event.y, event.eventTime)
+                }
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 val newIdx = event.actionIndex
-                if (activePointerId != MotionEvent.INVALID_POINTER_ID) {
-                    val ai = event.findPointerIndex(activePointerId)
-                    if (ai >= 0) finishPrimary(event.getX(ai), event.getY(ai), event.eventTime)
-                    else finishPrimary(downX, downY, event.eventTime)
+                val x = event.getX(newIdx)
+                val y = event.getY(newIdx)
+                if (scrollColumn != null && scrollRegion.contains(x, y)) {
+                    if (scrollPointerId == MotionEvent.INVALID_POINTER_ID) {
+                        finishActivePrimary(event)
+                        scrollPointerId = event.getPointerId(newIdx)
+                        beginScroll(y)
+                    }
+                } else {
+                    finishActivePrimary(event)
+                    activePointerId = event.getPointerId(newIdx)
+                    beginPrimary(x, y, event.eventTime)
                 }
-                activePointerId = event.getPointerId(newIdx)
-                beginPrimary(event.getX(newIdx), event.getY(newIdx), event.eventTime)
             }
             MotionEvent.ACTION_MOVE -> {
+                val si = event.findPointerIndex(scrollPointerId)
+                if (si >= 0) moveScroll(event.getY(si), event.eventTime)
                 val ai = event.findPointerIndex(activePointerId)
                 if (ai >= 0) handlePrimaryMove(event.getX(ai), event.getY(ai), event.eventTime)
             }
             MotionEvent.ACTION_POINTER_UP -> {
-                if (event.getPointerId(event.actionIndex) == activePointerId) {
+                val id = event.getPointerId(event.actionIndex)
+                if (id == scrollPointerId) {
+                    endScroll(event.getY(event.actionIndex))
+                    scrollPointerId = MotionEvent.INVALID_POINTER_ID
+                } else if (id == activePointerId) {
                     val ai = event.actionIndex
                     finishPrimary(event.getX(ai), event.getY(ai), event.eventTime)
                     activePointerId = MotionEvent.INVALID_POINTER_ID
                 }
             }
             MotionEvent.ACTION_UP -> {
+                if (scrollPointerId != MotionEvent.INVALID_POINTER_ID) {
+                    val si = event.findPointerIndex(scrollPointerId)
+                    endScroll(if (si >= 0) event.getY(si) else event.y)
+                    scrollPointerId = MotionEvent.INVALID_POINTER_ID
+                }
                 if (activePointerId != MotionEvent.INVALID_POINTER_ID) {
                     val ai = event.findPointerIndex(activePointerId)
                     if (ai >= 0) finishPrimary(event.getX(ai), event.getY(ai), event.eventTime)
@@ -865,11 +883,21 @@ class KeyboardView(context: Context) : View(context) {
                 activePointerId = MotionEvent.INVALID_POINTER_ID
             }
             MotionEvent.ACTION_CANCEL -> {
+                if (scrollPointerId != MotionEvent.INVALID_POINTER_ID) cancelScroll()
+                scrollPointerId = MotionEvent.INVALID_POINTER_ID
                 cancelPrimary()
                 activePointerId = MotionEvent.INVALID_POINTER_ID
             }
         }
         return true
+    }
+
+    private fun finishActivePrimary(event: MotionEvent) {
+        if (activePointerId == MotionEvent.INVALID_POINTER_ID) return
+        val ai = event.findPointerIndex(activePointerId)
+        if (ai >= 0) finishPrimary(event.getX(ai), event.getY(ai), event.eventTime)
+        else finishPrimary(downX, downY, event.eventTime)
+        activePointerId = MotionEvent.INVALID_POINTER_ID
     }
 
     private fun beginPrimary(x: Float, y: Float, eventTime: Long) {
@@ -1055,51 +1083,49 @@ class KeyboardView(context: Context) : View(context) {
         invalidate()
     }
 
-    private fun handleScrollTouch(event: MotionEvent): Boolean {
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                inScrollDown = true; scrolling = false
-                fling.onDown()
-                scrollDownY = event.y; scrollLastY = event.y
-                scrollPressedIndex = if (fling.stopArmed) -1 else scrollIndexAt(event.y)
-                scrollVisualPressedIndex = scrollPressedIndex
-                if (scrollPressedIndex >= 0) scrollPress.press() else scrollPress.release()
-                showScrollPreview()
-                invalidate()
-            }
-            MotionEvent.ACTION_MOVE -> {
-                fling.addSample(event.eventTime, event.y)
-                if (!scrolling && abs(event.y - scrollDownY) > scrollSlop) {
-                    scrolling = true; scrollPressedIndex = -1; scrollPress.release()
-                    hidePreview()
-                }
-                if (scrolling) {
-                    scrollY += scrollLastY - event.y
-                    clampScroll(); invalidate()
-                }
-                scrollLastY = event.y
-            }
-            MotionEvent.ACTION_UP -> {
-                val col = scrollColumn
-                if (scrolling) {
-                    if (col != null && fling.fling(scrollY, maxScroll())) postInvalidateOnAnimation()
-                } else if (col != null && !fling.stopArmed) {
-                    val idx = scrollIndexAt(event.y)
-                    if (idx >= 0 && idx == scrollPressedIndex) { performClick(); onKey(col.items[idx]) }
-                }
-                scrollPressedIndex = -1; inScrollDown = false; scrolling = false
-                scrollPress.release()
-                hidePreview()
-                invalidate()
-            }
-            MotionEvent.ACTION_CANCEL -> {
-                scrollPressedIndex = -1; inScrollDown = false; scrolling = false
-                scrollPress.release()
-                hidePreview()
-                invalidate()
-            }
+    private fun beginScroll(y: Float) {
+        scrolling = false
+        fling.onDown()
+        scrollDownY = y; scrollLastY = y
+        scrollPressedIndex = if (fling.stopArmed) -1 else scrollIndexAt(y)
+        scrollVisualPressedIndex = scrollPressedIndex
+        if (scrollPressedIndex >= 0) scrollPress.press() else scrollPress.release()
+        showScrollPreview()
+        invalidate()
+    }
+
+    private fun moveScroll(y: Float, eventTime: Long) {
+        fling.addSample(eventTime, y)
+        if (!scrolling && abs(y - scrollDownY) > scrollSlop) {
+            scrolling = true; scrollPressedIndex = -1; scrollPress.release()
+            hidePreview()
         }
-        return true
+        if (scrolling) {
+            scrollY += scrollLastY - y
+            clampScroll(); invalidate()
+        }
+        scrollLastY = y
+    }
+
+    private fun endScroll(y: Float) {
+        val col = scrollColumn
+        if (scrolling) {
+            if (col != null && fling.fling(scrollY, maxScroll())) postInvalidateOnAnimation()
+        } else if (col != null && !fling.stopArmed) {
+            val idx = scrollIndexAt(y)
+            if (idx >= 0 && idx == scrollPressedIndex) { performClick(); onKey(col.items[idx]) }
+        }
+        scrollPressedIndex = -1; scrolling = false
+        scrollPress.release()
+        hidePreview()
+        invalidate()
+    }
+
+    private fun cancelScroll() {
+        scrollPressedIndex = -1; scrolling = false
+        scrollPress.release()
+        hidePreview()
+        invalidate()
     }
 
     private fun showScrollPreview() {
