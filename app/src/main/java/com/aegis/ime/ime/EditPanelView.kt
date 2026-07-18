@@ -18,6 +18,7 @@ package com.aegis.ime.ime
 import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
+import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.ColorFilter
@@ -53,6 +54,8 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
     private val icons = mutableListOf<GlyphDrawable>()
     private val actionViews = mutableMapOf<EditAction, View>()
     private val arrowIcons = mutableMapOf<EditAction, GlyphDrawable>()
+    private val tintAnimators = HashMap<View, ValueAnimator>()
+    private var selecting = false
     private val titleBar: LinearLayout
     private val actionColumn: LinearLayout
     private val actionScroll: ScrollView
@@ -65,7 +68,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
             actionViews[action]?.let { Motion.applyTapFeedback(it, p.keyLabel, radiusDp = ImeShapes.keyRadiusDp) }
         }
         for (g in icons) g.applyTint(p.keyLabel)
-        setHasSelection(copyBtn.isEnabled)
+        applySelectionTint(copyBtn.isEnabled, animate = false)
     }
 
     private fun recolor(v: View) {
@@ -218,26 +221,45 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
     }
 
-    fun setHasSelection(has: Boolean) {
+    fun setHasSelection(has: Boolean) = applySelectionTint(has, animate = true)
+
+    private fun applySelectionTint(has: Boolean, animate: Boolean) {
         val tint = if (has) palette.keyLabel else palette.disabled
-        for (b in listOf(copyBtn, cutBtn)) {
+        for ((b, icon) in listOf(copyBtn to copyIcon, cutBtn to cutIcon)) {
             b.isEnabled = has
-            b.setTextColor(tint)
             Motion.applyTapFeedback(b, tint, radiusDp = ImeShapes.keyRadiusDp)
+            tintAnimators.remove(b)?.cancel()
+            if (animate) {
+                Motion.crossfadeColor(b, b.currentTextColor, tint) {
+                    b.setTextColor(it)
+                    icon.applyTint(it)
+                }?.let { tintAnimators[b] = it }
+            } else {
+                b.setTextColor(tint)
+                icon.applyTint(tint)
+            }
         }
-        copyIcon.applyTint(tint); cutIcon.applyTint(tint)
     }
 
     fun setSelecting(selecting: Boolean) {
+        val changed = this.selecting != selecting
+        this.selecting = selecting
+        if (changed) Motion.fadeThrough(selectBtn) { renderSelectingLabel() } else renderSelectingLabel()
+    }
+
+    private fun renderSelectingLabel() {
         selectBtn.text = if (selecting) context.getString(R.string.edit_end_select) else context.getString(R.string.edit_start_select)
     }
 
     override fun resetToDefault() {
-        setSelecting(false)
+        selecting = false
+        Motion.reset(selectBtn)
+        renderSelectingLabel()
         actionScroll.scrollTo(0, 0)
     }
 
     internal fun selectingLabelForTest(): CharSequence = selectBtn.text
+    internal fun selectionTintAnimatingForTest(): Boolean = tintAnimators.values.any { it.isRunning }
     internal fun actionViewForTest(action: EditAction): View? = actionViews[action]
     internal fun titleBarForTest(): View = titleBar
     internal fun actionViewportForTest(): View = actionScroll

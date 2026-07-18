@@ -85,6 +85,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     }
 
     override fun resetToDefault() {
+        Motion.reset(contentColumn)
         contentScroll.scrollTo(0, 0)
     }
 
@@ -95,7 +96,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         backText.setTextColor(p.keyLabel)
         Motion.applyTapFeedback(backText, p.keyLabel)
         sectionLabels.forEach { it.setTextColor(p.keyLabelSecondary) }
-        refresh()
+        rebuildFlows()
     }
 
     private fun sectionLabel(text: String): View = TextView(context).apply {
@@ -107,6 +108,10 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     }
 
     fun refresh() {
+        if (contentColumn.isShown) Motion.fadeThrough(contentColumn) { rebuildFlows() } else rebuildFlows()
+    }
+
+    private fun rebuildFlows() {
         val added = current()
         fillFlow(addedRows, added) { sym -> chip("$sym ✕", removable = true) { onRemove(sym) } }
         fillFlow(paletteRows, addPalette.filter { it !in added }) { sym -> chip(sym, removable = false) { onAdd(sym) } }
@@ -117,7 +122,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         if (incomingWidth > 0 && incomingWidth != lastFlowWidth) {
             measuringWidthOverride = incomingWidth
             lastFlowWidth = incomingWidth
-            refresh()
+            rebuildFlows()
             measuringWidthOverride = 0
         }
         if (MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED) {

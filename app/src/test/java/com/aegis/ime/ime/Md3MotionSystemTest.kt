@@ -123,6 +123,53 @@ class Md3MotionSystemTest {
     }
 
 
+    @Test fun contentSwap_under_reduced_motion_lands_on_the_end_state_immediately() {
+        animationsOff()
+        val v = View(ctx)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            attach(controller.get(), v)
+            val swap = Motion.ContentSwap(v)
+            swap.start()
+            assertFalse("reduced motion never leaves the swap active", swap.active)
+            assertEquals("the incoming content shows at full opacity", 1f, swap.inAlpha, 0f)
+            assertEquals("the outgoing snapshot is fully gone", 0f, swap.outAlpha, 0f)
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun contentSwap_when_detached_lands_on_the_end_state_immediately() {
+        animationsOn()
+        val swap = Motion.ContentSwap(View(ctx))
+        swap.start()
+        assertFalse(swap.active)
+        assertEquals(1f, swap.inAlpha, 0f)
+        assertEquals(0f, swap.outAlpha, 0f)
+    }
+
+    @Test fun contentSwap_attached_and_animated_runs_and_restarts_cancel_safely() {
+        animationsOn()
+        val v = View(ctx)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            attach(controller.get(), v)
+            val swap = Motion.ContentSwap(v)
+            swap.start()
+            assertTrue("an attached, animated swap runs", swap.active)
+            assertEquals("the incoming face starts from transparent", 0f, swap.inAlpha, 0f)
+            assertEquals("the outgoing face starts fully shown", 1f, swap.outAlpha, 0f)
+            swap.start()
+            assertTrue("a restart mid-swap stays active from a fresh window", swap.active)
+            swap.cancel()
+            assertFalse("cancel lands the end state", swap.active)
+            assertEquals(1f, swap.inAlpha, 0f)
+            assertEquals(0f, swap.outAlpha, 0f)
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
     @Test fun crossfadeColor_from_equals_to_is_a_noop_returning_null() {
         animationsOn()
         val v = View(ctx)

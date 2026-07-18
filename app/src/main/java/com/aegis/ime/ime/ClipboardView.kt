@@ -113,7 +113,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         BG = p.keyboardBg; SEP = p.separator
         main.setBackgroundColor(BG)
         selectRowPool.clear(); sortRowPool.clear(); catSortRowPool.clear()
-        refresh()
+        refresh(animate = false)
     }
 
     private val st = ClipboardPanelState()
@@ -128,12 +128,14 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private var tabTransitions = 0
     private var renderedMode = -1
     private var modeTransitions = 0
+    private var pendingCategoryFade = false
+    private var contentFades = 0
 
     fun showPhraseTab(category: String) {
         st.switchTab(ClipboardPanelState.Tab.PHRASE)
         st.collapse(); swipeRevealed = null; sortMode = false; categorySortMode = false
         if (category.isNotEmpty() && category in categoriesProvider()) phraseCat = category
-        refresh()
+        refresh(animate = false)
     }
 
     internal fun recreationState(): RecreationState = RecreationState(
@@ -142,7 +144,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     )
 
     internal fun restoreRecreationState(state: RecreationState) {
-        if (state.phrasesTab) showPhraseTab(state.phraseCategory) else refresh()
+        if (state.phrasesTab) showPhraseTab(state.phraseCategory) else refresh(animate = false)
     }
 
     private var dragFrom = -1
@@ -448,7 +450,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     fun reset() {
         invalidateListRender()
-        st.reset(); hideOverlay(); swipeRevealed = null; sortMode = false; categorySortMode = false
+        st.reset(); hideOverlayImmediately(); swipeRevealed = null; sortMode = false; categorySortMode = false
     }
 
     override fun resetToDefault() {
@@ -539,36 +541,46 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         }
     }
 
-    fun refresh() {
+    fun refresh() = refresh(animate = true)
+
+    private fun refresh(animate: Boolean) {
         val tabChanged = renderedTab != null && renderedTab != st.tab
         val mode = currentRenderMode()
         val modeChanged = renderedMode != -1 && renderedMode != mode
+        val categoryChanged = pendingCategoryFade
+        pendingCategoryFade = false
         renderedTab = st.tab
         renderedMode = mode
-        val rebuild = {
-            invalidateListRender()
-            fixedChromeOriginalHeights.clear()
-            fixedDescendantOriginalHeights.clear()
-            fixedChromeOriginalPadding.clear()
-            fixedDescendantOriginalVisibility.clear()
-            fixedDescendantOriginalTextSize.clear()
-            fixedChromePreferredHeights.clear()
-            fixedChromeMinimumHeights.clear()
-            fixedChromePreferredWidth = -1
-            fixedChromeCompressed = null
-            selectAllAction = null
-            cancelSelectAction = null
-            main.removeAllViews()
-            when {
-                st.selectMode -> buildSelectMode()
-                categorySortMode -> buildCategorySortMode()
-                sortMode -> buildSortMode()
-                else -> buildNormal()
-            }
-        }
         if (tabChanged) tabTransitions++
         if (modeChanged) modeTransitions++
-        rebuild()
+        if (animate && (tabChanged || modeChanged || categoryChanged) && main.isShown) {
+            contentFades++
+            Motion.fadeThrough(main) { rebuildContent() }
+        } else {
+            rebuildContent()
+        }
+    }
+
+    private fun rebuildContent() {
+        invalidateListRender()
+        fixedChromeOriginalHeights.clear()
+        fixedDescendantOriginalHeights.clear()
+        fixedChromeOriginalPadding.clear()
+        fixedDescendantOriginalVisibility.clear()
+        fixedDescendantOriginalTextSize.clear()
+        fixedChromePreferredHeights.clear()
+        fixedChromeMinimumHeights.clear()
+        fixedChromePreferredWidth = -1
+        fixedChromeCompressed = null
+        selectAllAction = null
+        cancelSelectAction = null
+        main.removeAllViews()
+        when {
+            st.selectMode -> buildSelectMode()
+            categorySortMode -> buildCategorySortMode()
+            sortMode -> buildSortMode()
+            else -> buildNormal()
+        }
     }
 
     private fun currentRenderMode(): Int = when {
@@ -584,6 +596,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     internal fun tabTransitionsForTest(): Int = tabTransitions
     internal fun modeTransitionsForTest(): Int = modeTransitions
+    internal fun contentFadesForTest(): Int = contentFades
+    internal fun overlayVisibleForTest(): Boolean = overlay.visibility == VISIBLE
+    internal fun hideOverlayForTest() = hideOverlay()
+    internal fun selectPhraseCategoryForTest(name: String) = selectPhraseCategory(name)
 
     private fun cancelPendingListAppend() {
         pendingListAppend?.let { removeCallbacks(it) }
@@ -1301,6 +1317,14 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun displayCat(name: String): String =
         if (name == com.aegis.ime.user.ClipboardStore.DEFAULT_CATEGORY_ID) context.getString(R.string.clip_default_category) else name
 
+    private fun selectPhraseCategory(name: String) {
+        st.collapse()
+        swipeRevealed = null
+        if (phraseCat != name) pendingCategoryFade = true
+        phraseCat = name
+        refresh()
+    }
+
     private fun catChip(name: String, on: Boolean): View = TextView(context).apply {
         text = displayCat(name)
         gravity = Gravity.CENTER
@@ -1310,7 +1334,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         setTextColor(if (on) GREEN else TEXT_DARK)
         setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         Motion.applyTapFeedback(this, if (on) GREEN else TEXT_DARK, radiusDp = ImeShapes.toolbarPillRadiusDp)
-        setOnClickListener { st.collapse(); swipeRevealed = null; phraseCat = name; refresh() }
+        setOnClickListener { selectPhraseCategory(name) }
         setOnLongClickListener { showCategoryMenu(name); true }
         layoutParams = ll(WC, WC).apply { rightMargin = dp(2) }
     }
@@ -1319,7 +1343,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val card = menuCard()
         card.addView(menuItem(context.getString(R.string.clip_rename_named, displayCat(name))) { hideOverlay(); onRenameCategory(name) })
         card.addView(menuDivider())
-        card.addView(menuItem(context.getString(R.string.clip_delete_named, displayCat(name))) { hideOverlay(); onDeleteCategory(name); if (phraseCat == name) phraseCat = ""; st.collapse(); swipeRevealed = null; refresh() })
+        card.addView(menuItem(context.getString(R.string.clip_delete_named, displayCat(name))) { hideOverlay(); onDeleteCategory(name); if (phraseCat == name) { phraseCat = ""; pendingCategoryFade = true }; st.collapse(); swipeRevealed = null; refresh() })
         showActionPopup(card)
     }
 
@@ -1435,9 +1459,33 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
 
 
-    private fun hideOverlay() { overlay.removeAllViews(); overlay.visibility = GONE }
+    private fun hideOverlay() {
+        if (overlay.visibility != VISIBLE) {
+            overlay.removeAllViews()
+            return
+        }
+        overlay.setOnClickListener(null)
+        overlay.isClickable = false
+        disableClicks(overlay)
+        Motion.hide(overlay, toward = Motion.EnterFrom.BOTTOM) { overlay.removeAllViews() }
+    }
+
+    private fun hideOverlayImmediately() {
+        overlay.setOnClickListener(null)
+        overlay.isClickable = false
+        Motion.reset(overlay)
+        overlay.removeAllViews()
+        overlay.visibility = GONE
+    }
+
+    private fun disableClicks(v: View) {
+        v.isClickable = false
+        v.isLongClickable = false
+        if (v is ViewGroup) for (i in 0 until v.childCount) disableClicks(v.getChildAt(i))
+    }
 
     private fun showOverlay(content: View, gravity: Int = Gravity.CENTER, maxWidthDp: Int? = null) {
+        Motion.reset(overlay)
         overlay.removeAllViews()
         overlay.setBackgroundColor(0x00000000)
         overlay.setOnClickListener { hideOverlay() }
@@ -1482,7 +1530,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                     contentDescription = context.getString(R.string.clip_delete_category)
                     Motion.applyTapFeedback(this, RED)
                     setOnClickListener {
-                        onDeleteCategory(name); if (phraseCat == name) phraseCat = ""; st.collapse(); swipeRevealed = null
+                        onDeleteCategory(name); if (phraseCat == name) { phraseCat = ""; pendingCategoryFade = true }; st.collapse(); swipeRevealed = null
                         refresh()
                         chooseMoveCategoryThen(current, moveTexts, after, action)
                     }

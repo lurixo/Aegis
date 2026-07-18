@@ -33,6 +33,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.GridLayout
 import android.widget.LinearLayout
@@ -81,8 +82,9 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         visibility = GONE
         @Suppress("ClickableViewAccessibility")
         setOnTouchListener { _, e ->
-            if (e.actionMasked == android.view.MotionEvent.ACTION_DOWN) dismissVariants()
-            true
+            val consume = visibility == VISIBLE
+            if (e.actionMasked == MotionEvent.ACTION_DOWN && isClickable) dismissVariants()
+            consume
         }
         addView(variantCard, FrameLayout.LayoutParams(
             LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT,
@@ -182,17 +184,22 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
 
     override fun resetToDefault() {
         resetLock()
-        dismissVariants()
+        Motion.reset(lockBtn)
+        dismissVariantsImmediately()
         variantOwnsPointer = false
-        clearDialog.dismiss()
-        showCategory(0)
+        clearDialog.dismissImmediately()
+        Motion.reset(gridScroll)
+        showCategory(0, animate = false)
         gridScroll.scrollTo(0, 0)
         railScroll.scrollTo(0, 0)
     }
 
     fun resetLock() { locked = false; updateLockFace() }
 
-    private fun toggleLock() { locked = !locked; updateLockFace() }
+    private fun toggleLock() {
+        locked = !locked
+        Motion.fadeThrough(lockBtn) { updateLockFace() }
+    }
 
     private fun updateLockFace() {
         val tint = if (locked) palette.candidateFirst else palette.keyLabelSecondary
@@ -223,7 +230,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun cancelClearForTest(): Boolean = clearDialog.cancelForTest()
     internal fun dismissClearForTest(): Boolean = clearDialog.performClick()
 
-    private fun showCategory(index: Int) {
+    private fun showCategory(index: Int, animate: Boolean = true) {
         dismissVariants()
         val tabChanged = index != selected
         val prev = selected
@@ -237,7 +244,8 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
             if (tabChanged && (i == index || i == prev)) crossfadeTabColor(tab, color) else tab.setTextColor(color)
             retintRipple(tab, color)
         }
-        bindGrid(index)
+        if (animate && tabChanged && gridScroll.isShown) Motion.fadeThrough(gridScroll) { bindGrid(selected) }
+        else bindGrid(index)
     }
 
     private fun bindGrid(index: Int) {
@@ -324,11 +332,32 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         styleVariantCard()
         buildGenderRow(base)
         buildSkinRow(base)
+        variantCard.isClickable = true
+        variantScrim.isClickable = true
         variantScrim.visibility = View.VISIBLE
         variantScrim.bringToFront()
+        Motion.fadeIn(variantScrim)
+        Motion.revealIn(variantCard, Motion.EnterFrom.BOTTOM)
     }
 
-    private fun dismissVariants() { variantScrim.visibility = View.GONE }
+    private fun dismissVariants() {
+        if (variantScrim.visibility != View.VISIBLE || !variantScrim.isClickable) return
+        variantScrim.isClickable = false
+        disableClicks(variantCard)
+        Motion.hide(variantScrim, toward = Motion.EnterFrom.BOTTOM)
+    }
+
+    private fun disableClicks(v: View) {
+        v.isClickable = false
+        v.isLongClickable = false
+        if (v is ViewGroup) for (i in 0 until v.childCount) disableClicks(v.getChildAt(i))
+    }
+
+    private fun dismissVariantsImmediately() {
+        variantScrim.isClickable = false
+        Motion.reset(variantScrim)
+        variantScrim.visibility = View.GONE
+    }
 
     private fun commitVariant(form: String) {
         onEmoji(form)
@@ -370,7 +399,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
                 setColor(palette.keySurface); cornerRadius = ImeShapes.chipRadiusDp * density
             }
             Motion.applyTapFeedback(this, palette.keyLabel, radiusDp = ImeShapes.chipRadiusDp)
-            setOnClickListener { onTap() }
+            setOnClickListener { if (isClickable) onTap() }
         }
 
     private fun styleVariantCard() {

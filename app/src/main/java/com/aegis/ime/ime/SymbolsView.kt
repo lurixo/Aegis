@@ -154,8 +154,10 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
 
     override fun resetToDefault() {
         resetLock()
-        clearDialog.dismiss()
-        showCategory(0)
+        Motion.reset(lockBtn)
+        clearDialog.dismissImmediately()
+        Motion.reset(gridScroll)
+        showCategory(0, animate = false)
         gridScroll.scrollTo(0, 0)
         railScroll.scrollTo(0, 0)
     }
@@ -184,7 +186,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         showCategory(selected)
     }
 
-    private fun showCategory(index: Int) {
+    private fun showCategory(index: Int, animate: Boolean = true) {
         val tabChanged = index != selected
         val prev = selected
         selected = index
@@ -197,7 +199,8 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
             if (tabChanged && (i == index || i == prev)) crossfadeTabColor(tab, color) else tab.setTextColor(color)
             retintRipple(tab, color, ImeShapes.chipRadiusDp)
         }
-        bindGrid(index)
+        if (animate && tabChanged && gridScroll.isShown) Motion.fadeThrough(gridScroll) { bindGrid(selected) }
+        else bindGrid(index)
     }
 
     private fun bindGrid(index: Int) {
@@ -393,7 +396,10 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         }
     }
 
-    private fun toggleLock() { locked = !locked; updateLockFace() }
+    private fun toggleLock() {
+        locked = !locked
+        Motion.fadeThrough(lockBtn) { updateLockFace() }
+    }
 
     internal fun selectedCategoryForTest(): Int = selected
     internal fun lockedForTest(): Boolean = locked

@@ -144,4 +144,27 @@ class MotionSymmetryTest {
         iv.hideCopyBar()
         assertFalse("copy bar swaps back out to the candidate strip", iv.copyBarShown)
     }
+
+    @Test fun panel_to_panel_switch_reaches_the_incoming_end_state() {
+        val iv = inputView()
+        val a = View(ctx)
+        val b = View(ctx)
+        iv.showPanel(a)
+        assertTrue(iv.isPanelShowing(a))
+        iv.showPanel(b)
+        assertTrue("the outgoing panel's exit hands over to the incoming reveal", iv.isPanelShowing(b))
+        assertFalse(iv.isPanelShowing(a))
+    }
+
+    @Test fun preedit_appear_and_disappear_reach_symmetric_end_states() {
+        animationsOff()
+        val pv = PreeditView(ctx)
+        pv.setText("ni")
+        assertEquals("appear lands shown", "ni", pv.shownTextForTest())
+        assertEquals(1f, pv.alpha, 0f)
+        pv.setText("")
+        assertEquals("disappear lands cleared (symmetric exit, not an instant-only cut on one side)", "", pv.shownTextForTest())
+        assertEquals("the band never leaves a half-faded rest state", 1f, pv.alpha, 0f)
+        assertEquals(View.VISIBLE, pv.visibility)
+    }
 }

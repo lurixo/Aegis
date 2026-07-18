@@ -72,6 +72,29 @@ class MotionRedrawTest {
         assertTrue("first pinyin key must repaint the preedit even with animations off", invalidated[0])
     }
 
+    @Test fun preedit_clear_under_reduced_motion_schedules_a_repaint() {
+        disableSystemAnimations()
+        val invalidated = booleanArrayOf(false)
+        val pv = object : PreeditView(ctx) {
+            override fun invalidate() { invalidated[0] = true; super.invalidate() }
+        }
+        pv.setText("n")
+        invalidated[0] = false
+        pv.setText("")
+        assertEquals("reduced motion clears the drawn text in the same call", "", pv.shownTextForTest())
+        assertTrue("the instant clear must still repaint the emptied band", invalidated[0])
+    }
+
+    @Test fun contentSwap_gated_start_invalidates_the_end_state() {
+        disableSystemAnimations()
+        val v = CountingView(ctx)
+        val swap = Motion.ContentSwap(v)
+        v.invalidations = 0
+        swap.start()
+        assertEquals("a gated swap must not stay active", false, swap.active)
+        assertTrue("the gated end state must still repaint the fresh content", v.invalidations >= 1)
+    }
+
     @Test fun pressFeedback_snaps_to_end_states_when_no_frame_loop_can_run() {
         val v = CountingView(ctx)
         val press = Motion.PressFeedback(v)
