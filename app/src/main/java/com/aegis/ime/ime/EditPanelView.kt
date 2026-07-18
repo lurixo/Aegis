@@ -110,13 +110,13 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         selectBtn = textBtn(context.getString(R.string.edit_start_select), EditAction.START_SELECT, sp = 16f).apply { includeFontPadding = false }
         val centerRow = LinearLayout(context).apply {
             orientation = HORIZONTAL
-            addView(arrowBtn(EditAction.LEFT, Glyphs.Arrow.LEFT).apply { isFocusable = false }, LayoutParams(dp(48), dp(44)))
-            addView(selectBtn, LayoutParams(dp(88), dp(44)))
-            addView(arrowBtn(EditAction.RIGHT, Glyphs.Arrow.RIGHT).apply { isFocusable = false }, LayoutParams(dp(48), dp(44)))
+            addView(arrowBtn(EditAction.LEFT, icon(38, 0.40f) { c, p, x, y, s -> Glyphs.drawArrow(c, p, x, y, s, Glyphs.Arrow.LEFT) }).apply { isFocusable = false }, LayoutParams(dp(54), dp(48)))
+            addView(selectBtn, LayoutParams(dp(88), dp(48)))
+            addView(arrowBtn(EditAction.RIGHT, icon(38, 0.40f) { c, p, x, y, s -> Glyphs.drawArrow(c, p, x, y, s, Glyphs.Arrow.RIGHT) }).apply { isFocusable = false }, LayoutParams(dp(54), dp(48)))
         }
-        dpad.addView(arrowBtn(EditAction.UP, Glyphs.Arrow.UP).apply { isFocusable = false }, LayoutParams(dp(48), dp(44)))
+        dpad.addView(arrowBtn(EditAction.UP, icon(38, 0.40f) { c, p, x, y, s -> Glyphs.drawArrow(c, p, x, y, s, Glyphs.Arrow.UP) }).apply { isFocusable = false }, LayoutParams(dp(54), dp(48)))
         dpad.addView(centerRow, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
-        dpad.addView(arrowBtn(EditAction.DOWN, Glyphs.Arrow.DOWN).apply { isFocusable = false }, LayoutParams(dp(48), dp(44)))
+        dpad.addView(arrowBtn(EditAction.DOWN, icon(38, 0.40f) { c, p, x, y, s -> Glyphs.drawArrow(c, p, x, y, s, Glyphs.Arrow.DOWN) }).apply { isFocusable = false }, LayoutParams(dp(54), dp(48)))
         mid.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 0.1f))
         mid.addView(dpad, LayoutParams(0, LayoutParams.MATCH_PARENT, 3f))
 
@@ -130,11 +130,12 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         rightCol.addView(deleteBtn, rowLp())
         rightCol.addView(copyBtn, rowLp())
         rightCol.addView(cutBtn, rowLp())
-        mid.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 0.9f))
+        mid.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 0.75f))
         mid.addView(rightCol, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        mid.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 0.15f))
 
         val bottom = object : LinearLayout(context) {
-            init { orientation = HORIZONTAL; isBaselineAligned = false }
+            init { orientation = HORIZONTAL; isBaselineAligned = false; gravity = Gravity.CENTER_VERTICAL }
 
             override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
                 super.onLayout(changed, left, top, right, bottom)
@@ -143,9 +144,21 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
             }
         }
         bottom.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 0.1f))
-        bottom.addView(iconBtn(context.getString(R.string.edit_paragraph_start), EditAction.HOME, icon(27, 0.34f) { c, p, x, y, s -> Glyphs.drawParagraphEdge(c, p, x, y, s, toStart = true) }).apply { isFocusable = false }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        bottom.addView(iconBtn(context.getString(R.string.edit_select_all), EditAction.SELECT_ALL, icon(27, 0.34f) { c, p, x, y, s -> Glyphs.drawSelectAll(c, p, x, y, s) }), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        bottom.addView(iconBtn(context.getString(R.string.edit_paragraph_end), EditAction.END, icon(27, 0.34f) { c, p, x, y, s -> Glyphs.drawParagraphEdge(c, p, x, y, s, toStart = false) }).apply { isFocusable = false }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        bottom.addView(
+            arrowBtn(EditAction.HOME, icon(32, 0.40f) { c, p, x, y, s -> Glyphs.drawArrowToEdge(c, p, x, y, s, toStart = true) }).apply {
+                isFocusable = false
+                contentDescription = context.getString(R.string.edit_paragraph_start)
+            },
+            LayoutParams(0, LayoutParams.MATCH_PARENT, 1f),
+        )
+        bottom.addView(iconBtn(context.getString(R.string.edit_select_all), EditAction.SELECT_ALL, icon(27, 0.34f, 0.74f) { c, p, x, y, s -> Glyphs.drawSelectAll(c, p, x, y, s) }, iconOnStart = true), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        bottom.addView(
+            arrowBtn(EditAction.END, icon(32, 0.40f) { c, p, x, y, s -> Glyphs.drawArrowToEdge(c, p, x, y, s, toStart = false) }).apply {
+                isFocusable = false
+                contentDescription = context.getString(R.string.edit_paragraph_end)
+            },
+            LayoutParams(0, LayoutParams.MATCH_PARENT, 1f),
+        )
         bottom.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 0.9f))
         bottom.addView(iconBtn(context.getString(R.string.edit_paste), EditAction.PASTE, icon(27, 0.34f, 0.58f) { c, p, x, y, s -> Glyphs.drawClipboard(c, p, x, y, s) }, iconOnStart = true), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         val pasteBtn = requireNotNull(actionViews[EditAction.PASTE])
@@ -161,7 +174,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
                     MeasureSpec.getSize(heightMeasureSpec).coerceAtLeast(0)
                 }
                 val bottomHeight = dp(56)
-                val contentHeight = maxOf(dp(44 * 3) + bottomHeight, viewport)
+                val contentHeight = maxOf(dp(48 * 3) + bottomHeight, viewport)
                 val midHeight = contentHeight - bottomHeight
                 for (action in rightActions) {
                     (action.layoutParams as LayoutParams).apply { height = 0; weight = 1f }
@@ -191,7 +204,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
                 )
             }
         }.apply {
-            addView(mid, LayoutParams(LayoutParams.MATCH_PARENT, dp(44 * 3)))
+            addView(mid, LayoutParams(LayoutParams.MATCH_PARENT, dp(48 * 3)))
             addView(bottom, LayoutParams(LayoutParams.MATCH_PARENT, dp(56)))
         }
         actionScroll = ScrollView(context).apply {
@@ -331,8 +344,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         actionViews[action] = this
     }
 
-    private fun arrowBtn(action: EditAction, dir: Glyphs.Arrow): View = View(context).apply {
-        val glyph = icon(32, 0.40f) { c, p, x, y, s -> Glyphs.drawArrow(c, p, x, y, s, dir) }
+    private fun arrowBtn(action: EditAction, glyph: GlyphDrawable): View = View(context).apply {
         arrowIcons[action] = glyph
         background = glyph
         isClickable = true

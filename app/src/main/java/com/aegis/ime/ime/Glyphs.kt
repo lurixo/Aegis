@@ -133,14 +133,26 @@ object Glyphs {
         c.drawLine(cx - hw * 0.06f, cy + hw * 0.42f, cx + hw * 0.52f, cy - hw * 0.4f, paint)
     }
 
-    fun drawParagraphEdge(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, toStart: Boolean) {
-        val sign = if (toStart) -1f else 1f
-        val barX = cx + sign * s
-        c.drawLine(barX, cy - s * 0.72f, barX, cy + s * 0.72f, paint)
-        val tipX = barX - sign * s * 0.46f
-        c.drawLine(cx - sign * s * 0.92f, cy, tipX, cy, paint)
-        c.drawLine(tipX, cy, tipX - sign * s * 0.44f, cy - s * 0.4f, paint)
-        c.drawLine(tipX, cy, tipX - sign * s * 0.44f, cy + s * 0.4f, paint)
+    fun drawArrowToEdge(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, toStart: Boolean) {
+        val angle = if (toStart) 270f else 90f
+        val ay = cy + s * 0.22f
+        val tipY = ay - s * 0.76f; val headW = s * 0.8f; val midY = ay + s * 0.05f
+        val stemW = s * 0.34f; val botY = ay + s * 0.76f
+        val path = Path().apply {
+            moveTo(cx, tipY)
+            lineTo(cx + headW, midY)
+            lineTo(cx + stemW, midY)
+            lineTo(cx + stemW, botY)
+            lineTo(cx - stemW, botY)
+            lineTo(cx - stemW, midY)
+            lineTo(cx - headW, midY)
+            close()
+        }
+        c.save()
+        c.rotate(angle, cx, cy)
+        c.drawPath(path, paint)
+        c.drawLine(cx - headW, cy - s * 0.98f, cx + headW, cy - s * 0.98f, paint)
+        c.restore()
     }
 
 

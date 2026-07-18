@@ -113,7 +113,7 @@ class PanelIconAlignmentTest {
         val v = EditPanelView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
         layout(v, width = 600, height = 320)
 
-        for (action in listOf(EditAction.UP, EditAction.DOWN, EditAction.LEFT, EditAction.RIGHT)) {
+        for (action in listOf(EditAction.UP, EditAction.DOWN, EditAction.LEFT, EditAction.RIGHT, EditAction.HOME, EditAction.END)) {
             val button = v.actionViewForTest(action)
                 ?: throw AssertionError("$action arrow button must exist")
             assertTrue("$action arrow keeps rounded tap feedback", button.foreground is RippleDrawable)
@@ -160,26 +160,71 @@ class PanelIconAlignmentTest {
         assertEquals(select.top, upArrow.bottom)
         assertEquals(select.bottom, downArrow.top)
         for (arrow in listOf(leftArrow, rightArrow, upArrow, downArrow)) {
-            assertEquals((48 * density).toInt(), arrow.width())
-            assertEquals((44 * density).toInt(), arrow.height())
+            assertEquals((54 * density).toInt(), arrow.width())
+            assertEquals((48 * density).toInt(), arrow.height())
         }
         assertEquals((88 * density).toInt(), select.width())
-        assertEquals((44 * density).toInt(), select.height())
+        assertEquals((48 * density).toInt(), select.height())
 
         val navWidths = listOf(EditAction.HOME, EditAction.SELECT_ALL, EditAction.END).map { viewFor(it).width }
         assertTrue(navWidths.max() - navWidths.min() <= 1)
         assertTrue(navWidths.all { kotlin.math.abs(it - v.width / 5) <= 1 })
 
-        for (item in listOf(EditAction.DELETE, EditAction.COPY, EditAction.CUT, EditAction.PASTE)) {
+        for (item in listOf(EditAction.DELETE, EditAction.COPY, EditAction.CUT, EditAction.PASTE, EditAction.SELECT_ALL)) {
             val button = viewFor(item) as TextView
             assertNotNull("$item keeps its icon", button.compoundDrawables[0])
             assertTrue("$item does not stack its icon above the label", button.compoundDrawables[1] == null)
         }
-        for (item in listOf(EditAction.HOME, EditAction.SELECT_ALL, EditAction.END)) {
-            val button = viewFor(item) as TextView
-            assertTrue("$item keeps no leading icon", button.compoundDrawables[0] == null)
-            assertNotNull("$item keeps its top symbol", button.compoundDrawables[1])
+        for (item in listOf(EditAction.HOME, EditAction.END)) {
+            val button = viewFor(item)
+            assertFalse("$item drops its text label", button is TextView)
+            assertNotNull("$item draws its glyph as the button face", button.background)
         }
+    }
+
+    @Test fun edit_panel_bottom_row_balances_paragraph_jumps_and_aligns_paste_with_the_end_row() {
+        val v = EditPanelView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        layout(v, width = 600, height = 320)
+        fun boundsFor(item: EditAction): Rect {
+            val target = requireNotNull(v.actionViewForTest(item))
+            return Rect(0, 0, target.width, target.height).also { v.offsetDescendantRectToMyCoords(target, it) }
+        }
+
+        val home = boundsFor(EditAction.HOME)
+        val all = boundsFor(EditAction.SELECT_ALL)
+        val end = boundsFor(EditAction.END)
+        assertTrue(kotlin.math.abs((all.centerX() - home.centerX()) - (end.centerX() - all.centerX())) <= 1)
+        assertTrue(kotlin.math.abs(boundsFor(EditAction.UP).centerX() - all.centerX()) <= 1)
+        assertTrue(kotlin.math.abs(home.width() - end.width()) <= 1)
+        assertTrue(listOf(home, all, end).all { it.top == all.top && it.height() == all.height() })
+
+        val paste = boundsFor(EditAction.PASTE)
+        assertTrue(kotlin.math.abs(paste.centerY() - end.centerY()) <= 1)
+
+        val delete = boundsFor(EditAction.DELETE)
+        assertEquals(delete.left, paste.left)
+        assertEquals(delete.right, paste.right)
+        val rightInset = v.width - delete.right
+        assertTrue(
+            "right action column keeps a margin to the panel edge: $rightInset",
+            kotlin.math.abs(rightInset - (v.width * 0.15f / 5).toInt()) <= 2,
+        )
+
+        for (action in listOf(EditAction.UP, EditAction.DOWN, EditAction.LEFT, EditAction.RIGHT)) {
+            val glyph = requireNotNull(requireNotNull(v.actionViewForTest(action)).background)
+            assertEquals("$action glyph box", (38 * density).toInt(), glyph.intrinsicWidth)
+        }
+        for ((action, label) in listOf(
+            EditAction.HOME to ctx.getString(com.aegis.ime.R.string.edit_paragraph_start),
+            EditAction.END to ctx.getString(com.aegis.ime.R.string.edit_paragraph_end),
+        )) {
+            val button = requireNotNull(v.actionViewForTest(action))
+            assertEquals("$action glyph box", (32 * density).toInt(), requireNotNull(button.background).intrinsicWidth)
+            assertEquals(label, button.contentDescription)
+        }
+        val selectAll = requireNotNull(v.actionViewForTest(EditAction.SELECT_ALL)) as TextView
+        assertEquals(ctx.getString(com.aegis.ime.R.string.edit_select_all), selectAll.text.toString())
+        assertNotNull(selectAll.compoundDrawables[0])
     }
 
     @Test fun edit_copy_cut_and_paste_match_delete_bounds_and_rounded_feedback() {
@@ -204,7 +249,7 @@ class PanelIconAlignmentTest {
             bounds.zipWithNext().forEach { (upper, lower) -> assertTrue(upper.bottom <= lower.top) }
             val titleHeight = (40 * density).toInt()
             val bottomHeight = (56 * density).toInt()
-            val contentHeight = maxOf((44 * 3 * density).toInt() + bottomHeight, height - titleHeight)
+            val contentHeight = maxOf((48 * 3 * density).toInt() + bottomHeight, height - titleHeight)
             val midHeight = contentHeight - bottomHeight
             assertEquals(midHeight / 3, reference.height)
             assertEquals(titleHeight, bounds.first().top)
@@ -212,19 +257,20 @@ class PanelIconAlignmentTest {
                 val target = requireNotNull(v.actionViewForTest(action))
                 Rect(0, 0, target.width, target.height).also { v.offsetDescendantRectToMyCoords(target, it) }
             }
-            val clusterRowHeight = (44 * density).toInt()
+            val clusterRowHeight = (48 * density).toInt()
             assertEquals(bounds.first().top, dpadBounds.first().top)
             assertEquals(List(3) { clusterRowHeight }, dpadBounds.map { it.height() })
             dpadBounds.zipWithNext().forEach { (upper, lower) -> assertEquals(upper.bottom, lower.top) }
             assertEquals(titleHeight + 3 * clusterRowHeight, dpadBounds.last().bottom)
-            assertTrue(dpadBounds.last().bottom + (16 * density).toInt() <= titleHeight + midHeight)
+            assertTrue(dpadBounds.last().bottom <= titleHeight + midHeight)
             val navigationBounds = listOf(EditAction.HOME, EditAction.SELECT_ALL, EditAction.END).map { action ->
                 val target = requireNotNull(v.actionViewForTest(action))
                 Rect(0, 0, target.width, target.height).also { v.offsetDescendantRectToMyCoords(target, it) }
             }
-            assertTrue(navigationBounds.all { it.top == titleHeight + midHeight })
+            val measuredBottomHeight = maxOf(bottomHeight, reference.height)
+            assertTrue(navigationBounds.all { it.top == titleHeight + midHeight + (measuredBottomHeight - bottomHeight) / 2 })
             assertTrue(navigationBounds.all { it.height() == bottomHeight })
-            assertTrue(navigationBounds.all { it.bottom == titleHeight + contentHeight })
+            assertTrue(navigationBounds.all { kotlin.math.abs(it.centerY() - bounds.last().centerY()) <= 1 })
             for (action in actions) {
                 val target = requireNotNull(v.actionViewForTest(action))
                 assertNull(target.background)

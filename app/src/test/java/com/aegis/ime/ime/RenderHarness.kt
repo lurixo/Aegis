@@ -579,7 +579,11 @@ class RenderHarness {
         view.onAction = navigationClicks::add
         for (action in bottomNavigation) {
             val target = requireNotNull(view.actionViewForTest(action))
-            assertTrue("$name: $action keeps a transparent resting background", target.background == null)
+            if (action == EditAction.SELECT_ALL) {
+                assertTrue("$name: $action keeps a transparent resting background", target.background == null)
+            } else {
+                assertTrue("$name: $action keeps its glyph face", target.background != null)
+            }
             val ripple = target.foreground as? RippleDrawable
                 ?: throw AssertionError("$name: $action lost pressed feedback")
             assertTrue("$name: $action pressed feedback remains stateful", ripple.isStateful)
