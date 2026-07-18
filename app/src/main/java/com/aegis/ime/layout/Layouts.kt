@@ -188,7 +188,7 @@ object Layouts {
             ),
             row(
                 Key("?123", action = SWITCH_NUMBERS, weight = 1.5f),
-                Key("©"), Key("®"), Key("™"), Key("℅"), Key("["), Key("]"), Key("¥"),
+                Key("©"), Key("®"), Key("™"), Key("℅"), Key("["), Key("]"), Key("§"),
                 Key("⌫", action = BACKSPACE, weight = 1.5f),
             ),
             row(
