@@ -51,6 +51,7 @@ class KeyboardView(context: Context) : View(context) {
 
     private var layout: KeyboardLayout = Layouts.forId(LayoutId.ALPHA, Lang.CN)
     private var modeSwitches = 0
+    private var layoutApplies = 0
     private var shifted = false
     private var shiftLocked = false
     private var lang = Lang.CN
@@ -137,6 +138,11 @@ class KeyboardView(context: Context) : View(context) {
     var previewNineEnabled = false
     var previewAlphaEnabled = false
     var caseMode: LetterCase = LetterCase.AUTO
+        set(value) {
+            if (field == value) return
+            field = value
+            invalidate()
+        }
     private var previewKey: Key? = null
     private val previewRect = RectF()
     private val previewFeedback = Motion.PressFeedback(this)
@@ -199,6 +205,8 @@ class KeyboardView(context: Context) : View(context) {
     private data class Placed(val rect: RectF, val key: Key, val groupId: Int = 0, val hitRect: RectF? = null)
 
     fun setLayout(newLayout: KeyboardLayout, isShifted: Boolean, isLocked: Boolean, language: Lang) {
+        if (newLayout == layout && isShifted == shifted && isLocked == shiftLocked && language == lang) return
+        layoutApplies++
         val sameColumn = newLayout.scrollColumn?.items?.map { it.label } == layout.scrollColumn?.items?.map { it.label }
         val modeChanged = newLayout.id != layout.id
         layout = newLayout
@@ -214,6 +222,8 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     internal fun modeSwitchesForTest(): Int = modeSwitches
+
+    internal fun layoutAppliesForTest(): Int = layoutApplies
 
     internal fun rowCountForSizing(): Int = layout.rowCount
     internal fun usesFractionalCellsForSizing(): Boolean = layout.cells != null && layout.id != LayoutId.ALPHA
