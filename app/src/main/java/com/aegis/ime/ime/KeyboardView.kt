@@ -934,13 +934,19 @@ class KeyboardView(context: Context) : View(context) {
     private fun caseBoxSelectionAt(x: Float): Int =
         ((x - caseBoxLeft()) / caseBoxCellW()).toInt().coerceIn(0, 2)
 
+    private fun caseBoxCancelAt(y: Float): Boolean {
+        val cellH = previewRect.height() * 1.12f
+        val top = (previewRect.top - cellH - 4f * density).coerceAtLeast(0f)
+        return y < top - cellH || y > previewRect.bottom + cellH
+    }
+
     private fun handlePrimaryMove(x: Float, y: Float, eventTime: Long) {
         maybeUnlockRetarget(x, y, eventTime)
         val dk = downKey
         when {
             caseBoxActive -> {
                 if (abs(x - downX) > caseBoxSlop || abs(y - downY) > caseBoxSlop) caseBoxMoved = true
-                val newSel = if (caseBoxMoved) caseBoxSelectionAt(x) else -1
+                val newSel = if (caseBoxMoved && !caseBoxCancelAt(y)) caseBoxSelectionAt(x) else -1
                 if (newSel != caseBoxSelected) { caseBoxSelected = newSel; invalidate() }
             }
             dk != null && dk.action == KeyAction.BACKSPACE -> {
@@ -996,7 +1002,7 @@ class KeyboardView(context: Context) : View(context) {
         hidePreview()
         releasePressedKey()
         when {
-            dk != null && caseBoxActive -> {
+            dk != null && caseBoxActive -> if (!caseBoxCancelAt(y)) {
                 performClick()
                 when (caseBoxSelected) {
                     0 -> onKey(Key(dk.label.uppercase(), output = dk.label.uppercase(), direct = true, verbatim = true))
