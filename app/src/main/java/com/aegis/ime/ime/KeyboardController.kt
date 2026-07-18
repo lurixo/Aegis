@@ -351,7 +351,7 @@ class KeyboardController(
         if (key.direct) {
             if (composing.isNotEmpty() || committedPrefix.isNotEmpty()) flushComposing()
             host.commitText(if (key.verbatim) key.output else applyCase(key.output))
-            if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
+            if (shiftState == ShiftState.ONCE && key.output.any { it.isLetter() }) shiftState = ShiftState.OFF
             lastWord = null
             return
         }
@@ -359,7 +359,7 @@ class KeyboardController(
             Mode.PINYIN -> { composing.append(key.output); history.addLast(StepKind.DIGIT) }
             Mode.DIRECT -> {
                 host.commitText(applyCase(key.output))
-                if (shiftState == ShiftState.ONCE) shiftState = ShiftState.OFF
+                if (shiftState == ShiftState.ONCE && key.output.any { it.isLetter() }) shiftState = ShiftState.OFF
                 lastWord = null
             }
         }

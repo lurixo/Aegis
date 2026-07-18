@@ -396,6 +396,32 @@ class KeyboardControllerTest {
         assertEquals("OFF", c.shiftStateName())
     }
 
+    @Test fun one_shot_shift_stays_pending_across_non_letter_commits_until_a_letter() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        c.onKey(act(KeyAction.SHIFT))
+        c.onKey(Key("1", output = "1", direct = true))
+        assertEquals("a digit must not consume the pending shift", "ONCE", c.shiftStateName())
+        c.onKey(Key(",", output = ",", direct = true))
+        assertEquals("punctuation must not consume the pending shift", "ONCE", c.shiftStateName())
+        c.onKey(out("a"))
+        assertEquals("the next letter consumes the pending shift", "OFF", c.shiftStateName())
+        assertEquals(listOf("1", ",", "A"), h.commits)
+    }
+
+    @Test fun one_shot_shift_survives_the_case_box_symbol_cell_but_not_its_letter_cells() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(act(KeyAction.TOGGLE_LANG))
+        c.onKey(act(KeyAction.SHIFT))
+        c.onKey(Key("%", output = "%", direct = true, verbatim = true))
+        assertEquals("the symbol cell must not consume the pending shift", "ONCE", c.shiftStateName())
+        c.onKey(Key("g", output = "g", direct = true, verbatim = true))
+        assertEquals("an explicit case choice counts as the next letter", "OFF", c.shiftStateName())
+        assertEquals(listOf("%", "g"), h.commits)
+    }
+
     @Test fun english_letters_commit_directly_not_buffered() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
