@@ -199,7 +199,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
             if (tabChanged && (i == index || i == prev)) crossfadeTabColor(tab, color) else tab.setTextColor(color)
             retintRipple(tab, color, ImeShapes.chipRadiusDp)
         }
-        if (animate && tabChanged && gridScroll.isShown) Motion.fadeThrough(gridScroll) { bindGrid(selected) }
+        if (animate && tabChanged && gridScroll.isShown) { bindGrid(selected); Motion.fadeIn(gridScroll, Motion.SHORT2) }
         else bindGrid(index)
     }
 
@@ -406,6 +406,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     internal fun openCategoryForTest(index: Int) = showCategory(index)
     internal fun toggleLockForTest() = toggleLock()
     internal fun gridScrollYForTest(): Int = gridScroll.scrollY
+    internal fun gridViewportForTest(): View = gridScroll
     internal fun backBtnForTest(): TextView = backBtn
     internal fun clearBtnForTest(): TextView = clearBtn
     internal fun backspaceBtnForTest(): TextView = backspaceBtn

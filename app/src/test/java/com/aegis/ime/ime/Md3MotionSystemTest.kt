@@ -20,6 +20,7 @@ import android.content.ContentResolver
 import android.content.Context
 import android.content.ContextWrapper
 import android.graphics.Color
+import android.os.Looper
 import android.provider.Settings
 import android.view.MotionEvent
 import android.view.View
@@ -29,6 +30,7 @@ import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
 import com.aegis.ime.ui.theme.SettingsMotion
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -39,6 +41,7 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -53,6 +56,16 @@ class Md3MotionSystemTest {
         override fun getContentResolver(): ContentResolver {
             resolverAccesses++
             return baseContext.contentResolver
+        }
+    }
+
+    private class SwapProbe(ctx: Context) : View(ctx) {
+        val samples = ArrayList<Pair<Float, Float>>()
+        var swap: Motion.ContentSwap? = null
+
+        override fun postInvalidateOnAnimation() {
+            swap?.let { samples.add(it.outAlpha to it.inAlpha) }
+            super.postInvalidateOnAnimation()
         }
     }
 
@@ -165,6 +178,107 @@ class Md3MotionSystemTest {
             assertFalse("cancel lands the end state", swap.active)
             assertEquals(1f, swap.inAlpha, 0f)
             assertEquals(0f, swap.outAlpha, 0f)
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun contentSwap_sequential_under_reduced_motion_lands_on_the_end_state_immediately() {
+        animationsOff()
+        val v = View(ctx)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            attach(controller.get(), v)
+            val swap = Motion.ContentSwap(v)
+            swap.start(sequential = true)
+            assertFalse("reduced motion never leaves the swap active", swap.active)
+            assertEquals("the incoming content shows at full opacity", 1f, swap.inAlpha, 0f)
+            assertEquals("the outgoing snapshot is fully gone", 0f, swap.outAlpha, 0f)
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun contentSwap_sequential_when_detached_lands_on_the_end_state_immediately() {
+        animationsOn()
+        val swap = Motion.ContentSwap(View(ctx))
+        swap.start(sequential = true)
+        assertFalse(swap.active)
+        assertEquals(1f, swap.inAlpha, 0f)
+        assertEquals(0f, swap.outAlpha, 0f)
+    }
+
+    @Test fun contentSwap_sequential_starts_with_only_the_outgoing_face_shown() {
+        animationsOn()
+        val v = View(ctx)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            attach(controller.get(), v)
+            val swap = Motion.ContentSwap(v)
+            swap.start(sequential = true)
+            assertTrue("an attached, animated sequential swap runs", swap.active)
+            assertEquals("the incoming face starts hidden", 0f, swap.inAlpha, 0f)
+            assertEquals("the outgoing face starts fully shown", 1f, swap.outAlpha, 0f)
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun contentSwap_sequential_separates_the_out_phase_from_the_in_phase() {
+        animationsOn()
+        val v = SwapProbe(ctx)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            attach(controller.get(), v)
+            val swap = Motion.ContentSwap(v)
+            v.swap = swap
+            swap.start(sequential = true)
+            shadowOf(Looper.getMainLooper()).idleFor(300, TimeUnit.MILLISECONDS)
+            assertFalse(swap.active)
+            assertEquals(1f, swap.inAlpha, 0f)
+            assertEquals(0f, swap.outAlpha, 0f)
+            val lastOut = v.samples.indexOfLast { it.first > 0f }
+            val firstIn = v.samples.indexOfFirst { it.second > 0f }
+            assertTrue("the outgoing face fades while the incoming face is still hidden", v.samples.any { it.first > 0f && it.second == 0f })
+            assertTrue("the incoming face rises only once the outgoing face is gone", firstIn >= 0 && v.samples[firstIn].first == 0f)
+            assertTrue("the out phase ends before the in phase begins", lastOut < firstIn)
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun contentSwap_sequential_never_shows_both_faces_at_once() {
+        animationsOn()
+        val v = SwapProbe(ctx)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            attach(controller.get(), v)
+            val swap = Motion.ContentSwap(v)
+            v.swap = swap
+            swap.start(sequential = true)
+            assertFalse(swap.outAlpha > 0f && swap.inAlpha > 0f)
+            repeat(15) {
+                shadowOf(Looper.getMainLooper()).idleFor(10, TimeUnit.MILLISECONDS)
+                assertFalse("the sequential swap never blends both faces", swap.outAlpha > 0f && swap.inAlpha > 0f)
+            }
+            assertTrue(v.samples.isNotEmpty())
+            assertFalse("no animation frame ever blends both faces", v.samples.any { it.first > 0f && it.second > 0f })
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun contentSwap_default_crossfade_overlaps_both_faces_mid_swap() {
+        animationsOn()
+        val v = SwapProbe(ctx)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            attach(controller.get(), v)
+            val swap = Motion.ContentSwap(v)
+            v.swap = swap
+            swap.start()
+            shadowOf(Looper.getMainLooper()).idleFor(300, TimeUnit.MILLISECONDS)
+            assertTrue("the aligned crossfade blends both faces mid-swap", v.samples.any { it.first > 0f && it.second > 0f })
         } finally {
             controller.pause().stop().destroy()
         }

@@ -555,7 +555,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         if (modeChanged) modeTransitions++
         if (animate && (tabChanged || modeChanged || categoryChanged) && main.isShown) {
             contentFades++
-            Motion.fadeThrough(main) { rebuildContent() }
+            rebuildContent()
+            Motion.fadeIn(listScroll, Motion.SHORT2)
         } else {
             rebuildContent()
         }

@@ -120,7 +120,7 @@ class SwitchFlickerTest {
 
     private fun flushMotion() = shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
 
-    @Test fun emoji_category_switch_defers_the_swap_to_the_fade_trough_when_animated() {
+    @Test fun emoji_category_switch_swaps_synchronously_and_runs_the_entrance_fade_when_animated() {
         Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -132,10 +132,12 @@ class SwitchFlickerTest {
             assertTrue("the opened category grid is populated (never left blank)", first.isNotEmpty())
             v.openCategoryForTest(2)
             assertEquals("the selected category updates synchronously", 2, v.selectedCategoryForTest())
-            assertEquals("the animated switch keeps the outgoing grid until the fade trough", first, v.gridCellTextsForTest())
+            assertNotEquals("the animated switch swaps the grid content synchronously", first, v.gridCellTextsForTest())
+            assertTrue("the swapped-in grid is populated (never blank)", v.gridCellTextsForTest().isNotEmpty())
+            assertEquals("the viewport entrance fade starts transparent", 0f, v.gridViewportForTest().alpha, 0f)
             flushMotion()
-            assertNotEquals("the trough swap re-renders the newly selected category", first, v.gridCellTextsForTest())
-            assertTrue("the switched-to grid is populated (never blank)", v.gridCellTextsForTest().isNotEmpty())
+            assertEquals("the entrance fade settles fully opaque", 1f, v.gridViewportForTest().alpha, 0f)
+            assertTrue("the settled grid stays populated", v.gridCellTextsForTest().isNotEmpty())
         } finally {
             controller.pause().stop().destroy()
         }
@@ -154,12 +156,13 @@ class SwitchFlickerTest {
             assertEquals("the selected category updates", 2, v.selectedCategoryForTest())
             assertNotEquals("reduced motion swaps the grid content in place immediately", first, v.gridCellTextsForTest())
             assertTrue("the switched-to grid is populated in place (never blank)", v.gridCellTextsForTest().isNotEmpty())
+            assertEquals("reduced motion keeps the viewport fully opaque", 1f, v.gridViewportForTest().alpha, 0f)
         } finally {
             controller.pause().stop().destroy()
         }
     }
 
-    @Test fun symbol_category_switch_defers_the_swap_to_the_fade_trough_when_animated() {
+    @Test fun symbol_category_switch_swaps_synchronously_and_runs_the_entrance_fade_when_animated() {
         Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -171,10 +174,12 @@ class SwitchFlickerTest {
             assertTrue("the opened category grid is populated (never left blank)", first.isNotEmpty())
             v.openCategoryForTest(2)
             assertEquals("the selected category updates synchronously", 2, v.selectedCategoryForTest())
-            assertEquals("the animated switch keeps the outgoing tiles until the fade trough", first, v.gridCellTextsForTest())
+            assertNotEquals("the animated switch swaps the tile content synchronously", first, v.gridCellTextsForTest())
+            assertTrue("the swapped-in grid is populated (never blank)", v.gridCellTextsForTest().isNotEmpty())
+            assertEquals("the viewport entrance fade starts transparent", 0f, v.gridViewportForTest().alpha, 0f)
             flushMotion()
-            assertNotEquals("the trough swap re-renders the newly selected category", first, v.gridCellTextsForTest())
-            assertTrue("the switched-to grid is populated (never blank)", v.gridCellTextsForTest().isNotEmpty())
+            assertEquals("the entrance fade settles fully opaque", 1f, v.gridViewportForTest().alpha, 0f)
+            assertTrue("the settled grid stays populated", v.gridCellTextsForTest().isNotEmpty())
         } finally {
             controller.pause().stop().destroy()
         }
@@ -193,6 +198,7 @@ class SwitchFlickerTest {
             assertEquals("switching categories updates the selection", 2, v.selectedCategoryForTest())
             assertNotEquals("reduced motion swaps the tile content in place immediately", first, v.gridCellTextsForTest())
             assertTrue("the switched-to grid is populated in place (never blank)", v.gridCellTextsForTest().isNotEmpty())
+            assertEquals("reduced motion keeps the viewport fully opaque", 1f, v.gridViewportForTest().alpha, 0f)
         } finally {
             controller.pause().stop().destroy()
         }
