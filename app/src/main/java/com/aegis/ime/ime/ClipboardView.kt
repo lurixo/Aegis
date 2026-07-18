@@ -774,7 +774,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             addSwipeAction(charToolbarBtn(desc, symbol, onClick = onClick), symbol)
         }
         if (phrase) {
-            addGlyphSwipeAction(context.getString(R.string.clip_edit), { onEditPhrase(category, text) }) { c, p, x, y, s -> Glyphs.drawPencil(c, p, x, y, s) }
+            addGlyphSwipeAction(context.getString(R.string.clip_edit), { onEditPhrase(category, text) }) { c, p, x, y, s -> Glyphs.drawEditSquare(c, p, x, y, s) }
             addGlyphSwipeAction(context.getString(R.string.clip_note), { onEditNote(category, text) }) { c, p, x, y, s -> Glyphs.drawTag(c, p, x, y, s) }
             addCharSwipeAction(context.getString(R.string.clip_move), moveSymbol) {
                 chooseMoveCategoryThen(category, listOf(text)) { target -> onMovePhrase(category, text, target); refresh() }
@@ -802,7 +802,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         layoutDirection = View.LAYOUT_DIRECTION_LTR
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(8), dp(4), dp(8), dp(8))
-        addActionButton(glyphAction(context.getString(R.string.clip_edit), render = { c, p, x, y, s -> Glyphs.drawPencil(c, p, x, y, s) }) { onEditPhrase(category, text) })
+        addActionButton(glyphAction(context.getString(R.string.clip_edit), render = { c, p, x, y, s -> Glyphs.drawEditSquare(c, p, x, y, s) }) { onEditPhrase(category, text) })
         addActionButton(glyphAction(context.getString(R.string.clip_note), render = { c, p, x, y, s -> Glyphs.drawTag(c, p, x, y, s) }) { onEditNote(category, text) })
         addActionButton(charAction(moveSymbol, context.getString(R.string.clip_move)) { chooseMoveCategoryThen(category, listOf(text)) { target -> onMovePhrase(category, text, target); refresh() } }.apply { tag = moveSymbol })
         addActionButton(glyphAction(context.getString(R.string.clip_delete), render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { confirmDelete(listOf(text)) })
@@ -1772,7 +1772,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         }
 
     private fun charToolbarBtn(desc: String, symbol: String, tint: Int = TEXT_DARK, onClick: () -> Unit): View {
-        val icon = charIcon(symbol, tint, 16)
+        val icon = charIcon(symbol, tint, 15)
         return object : View(context) {
             override fun onDraw(canvas: Canvas) {
                 val left = (width - icon.intrinsicWidth) / 2
@@ -1791,7 +1791,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         actionButton(label, tint, glyphIcon(tint, 16, render), onClick)
 
     private fun charAction(symbol: String, label: String, tint: Int = TEXT_DARK, onClick: () -> Unit): TextView =
-        actionButton(label, tint, charIcon(symbol, tint, 16), onClick).apply { contentDescription = "$symbol $label" }
+        actionButton(label, tint, charIcon(symbol, tint, 14), onClick).apply { contentDescription = "$symbol $label" }
 
     private fun actionButton(label: String, tint: Int, icon: android.graphics.drawable.Drawable, onClick: () -> Unit): TextView =
         TextView(context).apply {
@@ -1811,10 +1811,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val box = dp(boxDp)
         val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = tint
-            textAlign = Paint.Align.CENTER
             textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, ImeType.caption, resources.displayMetrics)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
         }
+        val ink = android.graphics.Rect()
+        textPaint.getTextBounds(symbol, 0, symbol.length, ink)
         val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = tint
             style = Paint.Style.STROKE
@@ -1833,7 +1834,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                     dp(2).toFloat(),
                     boxPaint,
                 )
-                canvas.drawText(symbol, b.exactCenterX(), b.exactCenterY() - (textPaint.ascent() + textPaint.descent()) / 2f, textPaint)
+                canvas.drawText(symbol, b.exactCenterX() - ink.exactCenterX(), b.exactCenterY() - ink.exactCenterY(), textPaint)
             }
             override fun getIntrinsicWidth() = box
             override fun getIntrinsicHeight() = box
