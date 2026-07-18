@@ -314,7 +314,7 @@ class KeyboardController(
         val cand = candidates[index]
         when {
             cand === calcCand -> {
-                val live = Calculator.detect(host.textBeforeCursor(CALC_SCAN_LEN))
+                val live = if (learningBlocked) null else Calculator.detect(host.textBeforeCursor(CALC_SCAN_LEN))
                 if (live != null && live.expr == calcExpr && live.result == calcResult && !host.hasSelection()) {
                     host.commitText(live.append)
                 }
@@ -712,7 +712,7 @@ class KeyboardController(
                 }
             }
             req.composingEmpty && req.committedPrefixEmpty -> {
-                val match = Calculator.detect(req.host.textBeforeCursor(CALC_SCAN_LEN))
+                val match = if (req.learningBlocked) null else Calculator.detect(req.host.textBeforeCursor(CALC_SCAN_LEN))
                 when {
                     match != null -> {
                         val cand = Cand(match.append, 0)

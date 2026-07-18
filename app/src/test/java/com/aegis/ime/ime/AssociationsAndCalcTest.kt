@@ -211,6 +211,24 @@ class AssociationsAndCalcTest {
         assertEquals("200×15%=30", h.text)
     }
 
+    @Test fun no_calc_candidate_appears_while_learning_is_blocked() {
+        val h = EditorHost()
+        val c = KeyboardController(h, emptyEngine)
+        c.setLearningBlocked(true)
+        "12+3".forEach { c.onKey(digit(it.toString())) }
+        assertTrue("a secure field must not surface a calc result", c.candidateWords().isEmpty())
+    }
+
+    @Test fun picking_a_calc_candidate_after_learning_becomes_blocked_commits_nothing() {
+        val h = EditorHost()
+        val c = KeyboardController(h, emptyEngine)
+        "5*2".forEach { c.onKey(digit(it.toString())) }
+        assertEquals(listOf("=10"), c.candidateWords())
+        c.setLearningBlocked(true)
+        c.onPickCandidate(0)
+        assertEquals("the calc append is skipped once learning is blocked", "5*2", h.text)
+    }
+
     @Test fun u25_m3_picking_with_an_active_selection_skips_the_replace() {
         val h = EditorHost()
         val c = KeyboardController(h, emptyEngine)
