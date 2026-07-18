@@ -583,27 +583,44 @@ class KeyboardView(context: Context) : View(context) {
             display.length > 1 && p.key.action != KeyAction.COMMIT -> specialLabelPaint
             else -> labelPaint
         }
+        val scale = labelScale(p.rect)
         val baseTextSize = paint.textSize
+        paint.textSize = baseTextSize * scale
         if (display.length > 1) {
             val avail = p.rect.width() - 14f * density
             val w = paint.measureText(display)
-            if (w > avail && avail > 0f) paint.textSize = (baseTextSize * avail / w).coerceAtLeast(11f * density)
+            if (w > avail && avail > 0f) paint.textSize = (paint.textSize * avail / w).coerceAtLeast(11f * density * scale)
+            val face = p.rect.width() - 2f * density
+            val fw = paint.measureText(display)
+            if (fw > face && face > 0f) paint.textSize = paint.textSize * face / fw
         }
         canvas.drawText(display, cx, cy - (paint.descent() + paint.ascent()) / 2, paint)
         paint.textSize = baseTextSize
         if (p.key.sub != null) {
-            canvas.drawText(p.key.sub, p.rect.right - 6 * density, p.rect.top + 15 * density, subPaint)
+            val subBaseTextSize = subPaint.textSize
+            subPaint.textSize = subBaseTextSize * scale
+            canvas.drawText(p.key.sub, p.rect.right - 6 * density * scale, p.rect.top + 15 * density * scale, subPaint)
+            subPaint.textSize = subBaseTextSize
         }
     }
+
+    private fun labelScale(rect: RectF): Float = min(1f, rect.height() / rowHeight)
 
     private fun drawLangToggle(canvas: Canvas, rect: RectF) {
         val cn = context.getString(R.string.lang_cn)
         val en = context.getString(R.string.lang_en)
         val active = if (lang == Lang.CN) cn else en
         val small = if (lang == Lang.CN) en else cn
+        val scale = labelScale(rect)
+        val activeBaseTextSize = langActivePaint.textSize
+        val smallBaseTextSize = langSmallPaint.textSize
+        langActivePaint.textSize = activeBaseTextSize * scale
+        langSmallPaint.textSize = smallBaseTextSize * scale
         val baseline = rect.centerY() - (langActivePaint.descent() + langActivePaint.ascent()) / 2
         canvas.drawText(active, rect.centerX(), baseline, langActivePaint)
-        canvas.drawText(small, rect.right - 5 * density, rect.bottom - 6 * density, langSmallPaint)
+        canvas.drawText(small, rect.right - 5 * density * scale, rect.bottom - 6 * density * scale, langSmallPaint)
+        langActivePaint.textSize = activeBaseTextSize
+        langSmallPaint.textSize = smallBaseTextSize
     }
 
     private fun drawShift(canvas: Canvas, rect: RectF) {
