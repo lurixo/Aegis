@@ -18,10 +18,12 @@ package com.aegis.ime
 import android.content.SharedPreferences
 import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.dict.ModelDownload
+import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 
 internal class SettingsHotApply(
     private val onCnLayout: (LayoutId) -> Unit,
+    private val onDefaultLang: (Lang) -> Unit,
     private val onAssociations: (Boolean) -> Unit,
     private val onFuzzyRules: (Set<String>) -> Unit,
     private val onEngineAssetsChanged: () -> Unit,
@@ -35,6 +37,7 @@ internal class SettingsHotApply(
         when {
             key == null -> {}
             key == CN_LAYOUT_PREF -> onCnLayout(cnLayout(prefs))
+            key == com.aegis.ime.ui.PREF_DEFAULT_LANG -> onDefaultLang(defaultLang(prefs))
             key == com.aegis.ime.ui.PREF_ASSOCIATIONS_ON -> onAssociations(associationsOn(prefs))
             key == FUZZY_MASTER_PREF || key in FUZZY_RULE_PREF_KEYS -> onFuzzyRules(fuzzyRules(prefs))
             key == com.aegis.ime.ui.PREF_KEY_HAPTICS -> onKeyHaptics(keyHaptics(prefs))
@@ -70,6 +73,11 @@ internal class SettingsHotApply(
 
         fun cnLayout(prefs: SharedPreferences): LayoutId =
             if (prefs.getString(CN_LAYOUT_PREF, "nine") == "alpha") LayoutId.ALPHA else LayoutId.NINE
+
+        fun defaultLang(prefs: SharedPreferences): Lang =
+            com.aegis.ime.ui.defaultLangOf(
+                prefs.getString(com.aegis.ime.ui.PREF_DEFAULT_LANG, com.aegis.ime.ui.DEFAULT_LANG_DEFAULT),
+            )
 
         fun associationsOn(prefs: SharedPreferences): Boolean =
             prefs.getBoolean(com.aegis.ime.ui.PREF_ASSOCIATIONS_ON, com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON)

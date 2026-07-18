@@ -204,6 +204,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 if (::controller.isInitialized) controller.setCnDefaultLayout(id)
             }
         },
+        onDefaultLang = { l ->
+            Handler(Looper.getMainLooper()).post {
+                if (::controller.isInitialized) controller.setDefaultLang(l)
+            }
+        },
         onAssociations = { on ->
             Handler(Looper.getMainLooper()).post {
                 if (::controller.isInitialized) controller.setAssociationsEnabled(on)
@@ -545,6 +550,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
         controller.setCnDefaultLayout(SettingsHotApply.cnLayout(prefs))
+        controller.setDefaultLang(SettingsHotApply.defaultLang(prefs))
         controller.setAssociationsEnabled(SettingsHotApply.associationsOn(prefs))
         controller.setFuzzyRules(currentFuzzyRules())
         inputView?.setKeyHaptics(SettingsHotApply.keyHaptics(prefs))

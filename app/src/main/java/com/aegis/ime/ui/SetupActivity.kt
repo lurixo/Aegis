@@ -322,6 +322,7 @@ internal fun SettingsPageColumn(title: String, onBack: () -> Unit, content: @Com
 @Composable
 internal fun InputSettingsPage(onBack: () -> Unit) {
     SettingsPageColumn(stringResource(R.string.settings_group_input_title), onBack) {
+        DefaultLangCard()
         LayoutChoiceCard()
         LetterCaseCard()
         FuzzySettingsCard()

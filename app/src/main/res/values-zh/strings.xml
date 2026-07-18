@@ -100,6 +100,11 @@
     <string name="letter_case_upper">始终大写</string>
     <string name="letter_case_lower">始终小写</string>
 
+    <string name="default_lang_title">默认输入语言</string>
+    <string name="default_lang_description">键盘在新的应用中打开时使用的语言。输入中仍可随时手动切换。</string>
+    <string name="default_lang_cn">中文</string>
+    <string name="default_lang_en">英文</string>
+
     <string name="layout_card_title">全拼键盘</string>
     <string name="layout_card_description">中文默认使用哪种键盘（英文始终为 26 键）。</string>
     <string name="layout_nine">全拼九键</string>
