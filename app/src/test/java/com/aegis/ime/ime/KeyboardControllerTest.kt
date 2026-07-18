@@ -575,6 +575,26 @@ class KeyboardControllerTest {
         assertTrue("no candidates linger after commit (no ghost)", c.candidateWords().isEmpty())
     }
 
+    @Test fun alpha_composing_offers_no_raw_pinyin_echo_candidate() {
+        val full = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+                if (composing.isEmpty()) emptyList() else listOf(Cand("你好", composing.length))
+        }
+        val c = KeyboardController(FakeHost(), full)
+        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        "nihao".forEach { c.onKey(out(it.toString())) }
+        assertEquals("the typed string is not echoed as a candidate", listOf("你好"), c.candidateWords())
+
+        val h = FakeHost()
+        val bare = KeyboardController(h, engine)
+        bare.onKey(act(KeyAction.SWITCH_ALPHA))
+        "nihao".forEach { bare.onKey(out(it.toString())) }
+        assertTrue("an empty decode shows no raw echo either", bare.candidateWords().isEmpty())
+        bare.onKey(act(KeyAction.ENTER))
+        assertEquals("Enter still commits the raw letters", listOf("nihao"), h.commits)
+    }
+
     @Test fun backspace_after_a_partial_candidate_pick_restores_the_previous_preedit() {
         val h = FakeHost()
         val partial = object : CandidateEngine {

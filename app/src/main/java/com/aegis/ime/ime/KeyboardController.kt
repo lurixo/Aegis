@@ -612,7 +612,6 @@ class KeyboardController(
         val composingEmpty: Boolean,
         val committedPrefixEmpty: Boolean,
         val mode: Mode,
-        val layoutId: LayoutId,
         val drillSyllable: Int,
         val raw: String,
         val rawComposing: String,
@@ -653,7 +652,6 @@ class KeyboardController(
             composingEmpty = composing.isEmpty(),
             committedPrefixEmpty = committedPrefix.isEmpty(),
             mode = mode(),
-            layoutId = layoutId,
             drillSyllable = drillSyllable,
             raw = composing.toString(),
             rawComposing = rawComposingText(),
@@ -729,7 +727,7 @@ class KeyboardController(
                 val pfx = T9Pinyin.longestDecodablePrefix(req.raw)
                 if (pfx.length in 1 until req.raw.length) c = req.engine.candidatesCovered(pfx, true, context = context)
             }
-            if (req.layoutId == LayoutId.ALPHA && c.none { it.word == req.raw }) c + Cand(req.raw, req.raw.length) else c
+            c
         }
     }
 

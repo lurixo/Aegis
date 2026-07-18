@@ -60,7 +60,7 @@ class AssociationsReplayTest {
         for ((key, _) in InputAssociations.entriesForTest()) {
             val c = KeyboardController(RecordingHost(), OneWordEngine())
             key.forEach { c.onKey(out(it.toString())) }
-            val expected = listOf("词") + InputAssociations.lookup(key) + listOf(key)
+            val expected = listOf("词") + InputAssociations.lookup(key)
             assertEquals("26-key replay of '$key'", expected, c.candidateWords())
             replayed++
         }
@@ -118,7 +118,7 @@ class AssociationsReplayTest {
         "sheshidu".forEach { c.onKey(out(it.toString())) }
         assertEquals(
             "glyphs splice in after the top candidate; the rest of the base keeps its order",
-            listOf("摄氏度") + InputAssociations.lookup("sheshidu") + listOf("设施", "涉世", "sheshidu"),
+            listOf("摄氏度") + InputAssociations.lookup("sheshidu") + listOf("设施", "涉世"),
             c.candidateWords(),
         )
         assertTrue("℃ is offered for sheshidu", "℃" in c.candidateWords())
