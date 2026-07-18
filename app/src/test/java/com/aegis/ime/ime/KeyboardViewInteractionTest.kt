@@ -44,6 +44,7 @@ class KeyboardViewInteractionTest {
     private val density = context.resources.displayMetrics.density
     private val gap = 3f * density
     private val u = 1f / 4.7f
+    private val swipeThreshold = 24f * density
 
     private fun nineView(left: List<Key>, composing: Boolean): KeyboardView {
         val v = KeyboardView(context)
@@ -354,6 +355,55 @@ class KeyboardViewInteractionTest {
     @Test fun a_held_backspace_still_auto_repeats() {
         val emitted = alphaView().holdFirstAction(KeyAction.BACKSPACE, 700)
         assertTrue("a held backspace auto-repeats (got ${emitted.size})", emitted.size >= 3)
+    }
+
+    @Test fun backspace_repeat_stops_when_the_finger_slides_off_the_key() {
+        val emitted = mutableListOf<String>()
+        var swipes = 0
+        val v = alphaView().apply { onKey = { emitted.add(it.output) }; onBackspaceSwipe = { swipes++ } }
+        val (x, y) = v.centerOfActionForTest(KeyAction.BACKSPACE)!!
+        val hit = v.keyHitBoundsForTest().first { it.first.action == KeyAction.BACKSPACE }.second
+        v.send(MotionEvent.ACTION_DOWN, x, y, 0)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+        assertTrue("precondition: the repeat is running", emitted.size >= 2)
+        v.send(MotionEvent.ACTION_MOVE, hit.left - 10f, y, 500)
+        val atSlideOff = emitted.size
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(400))
+        assertEquals("sliding off the key stops the repeat", atSlideOff, emitted.size)
+        v.send(MotionEvent.ACTION_UP, hit.left - 10f, y, 900)
+        assertEquals("lifting after a stopped repeat emits nothing more", atSlideOff, emitted.size)
+        assertEquals("no swipe fires after a repeat", 0, swipes)
+    }
+
+    @Test fun backspace_repeat_survives_vertical_drift_within_the_key() {
+        val emitted = mutableListOf<String>()
+        var swipes = 0
+        val v = alphaView().apply { onKey = { emitted.add(it.output) }; onBackspaceSwipe = { swipes++ } }
+        val (x, y) = v.centerOfActionForTest(KeyAction.BACKSPACE)!!
+        val hit = v.keyHitBoundsForTest().first { it.first.action == KeyAction.BACKSPACE }.second
+        val driftY = y + swipeThreshold + 2f
+        assertTrue("precondition: the drift target stays inside the key", driftY < hit.bottom)
+        v.send(MotionEvent.ACTION_DOWN, x, y, 0)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+        assertTrue("precondition: the repeat is running", emitted.size >= 2)
+        v.send(MotionEvent.ACTION_MOVE, x, driftY, 500)
+        val atDrift = emitted.size
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(400))
+        assertTrue("vertical drift inside the key keeps the repeat running", emitted.size > atDrift)
+        v.send(MotionEvent.ACTION_UP, x, driftY, 900)
+        assertEquals("the drift never converts into a swipe", 0, swipes)
+    }
+
+    @Test fun a_backspace_swipe_before_the_repeat_starts_still_fires() {
+        val emitted = mutableListOf<String>()
+        val swipes = mutableListOf<Boolean>()
+        val v = alphaView().apply { onKey = { emitted.add(it.output) }; onBackspaceSwipe = { swipes.add(it) } }
+        val (x, y) = v.centerOfActionForTest(KeyAction.BACKSPACE)!!
+        v.send(MotionEvent.ACTION_DOWN, x, y, 0)
+        v.send(MotionEvent.ACTION_MOVE, x, y - (swipeThreshold + 15f), 12)
+        v.send(MotionEvent.ACTION_UP, x, y - (swipeThreshold + 15f), 24)
+        assertEquals("an up swipe fires the swipe gesture", listOf(true), swipes)
+        assertEquals("a swipe commits no key", emptyList<String>(), emitted)
     }
 
     @Test fun a_quick_tap_emits_exactly_once_no_repeat() {
