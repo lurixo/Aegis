@@ -209,6 +209,40 @@ class LayoutsTest {
         assertTrue("§ fills the freed slot", "§" in labels)
     }
 
+    @Test fun rail_fill_marks_exactly_the_intended_function_keys() {
+        fun rails(l: KeyboardLayout) = keysOf(l).filter { it.rail }
+        assertEquals(
+            setOf(KeyAction.SHOW_SYMBOLS, KeyAction.SWITCH_NUMPAD, KeyAction.TOGGLE_LANG, KeyAction.SHIFT, KeyAction.BACKSPACE),
+            rails(qwerty).map { it.action }.toSet(),
+        )
+        assertEquals(5, rails(qwerty).size)
+        assertEquals(
+            setOf(KeyAction.SHOW_SYMBOLS, KeyAction.SWITCH_NUMPAD, KeyAction.TOGGLE_LANG, KeyAction.BACKSPACE, KeyAction.CLEAR_COMPOSING),
+            rails(nine).map { it.action }.toSet(),
+        )
+        assertEquals(5, rails(nine).size)
+        val composing = Layouts.nine(Lang.CN, Layouts.ninePunctuation(), composing = true)
+        assertEquals(rails(nine).map { it.action }.toSet(), rails(composing).map { it.action }.toSet())
+        val numpad = Layouts.forId(LayoutId.NUMPAD, Lang.CN)
+        assertEquals(
+            setOf(KeyAction.BACKSPACE, KeyAction.COMMIT, KeyAction.SWITCH_TEXT, KeyAction.SPACE),
+            rails(numpad).map { it.action }.toSet(),
+        )
+        assertEquals(4, rails(numpad).size)
+        assertEquals(listOf("."), rails(numpad).filter { it.action == KeyAction.COMMIT }.map { it.label })
+        for (id in listOf(LayoutId.NUMBER, LayoutId.SYMBOL)) {
+            val page = Layouts.forId(id, Lang.CN)
+            val switch = if (id == LayoutId.NUMBER) KeyAction.SWITCH_SYMBOLS else KeyAction.SWITCH_NUMBERS
+            assertEquals(setOf(switch, KeyAction.BACKSPACE, KeyAction.SWITCH_TEXT), rails(page).map { it.action }.toSet())
+            assertEquals(3, rails(page).size)
+        }
+        assertTrue("space keeps the key surface outside the numpad", keysOf(qwerty).none { it.rail && it.action == KeyAction.SPACE })
+        assertTrue(keysOf(nine).none { it.rail && it.action == KeyAction.SPACE })
+        assertTrue("enter keeps the accent fill", listOf(qwerty, nine, numpad).flatMap(::keysOf).none { it.rail && it.accent })
+        assertTrue(nine.scrollColumn!!.items.none { it.rail })
+        assertTrue(numpad.scrollColumn!!.items.none { it.rail })
+    }
+
     @Test fun number_and_symbol_pages_share_the_control_width_baseline() {
         for (id in listOf(LayoutId.NUMBER, LayoutId.SYMBOL)) {
             val layout = Layouts.forId(id, Lang.CN)
