@@ -66,15 +66,22 @@ class EditBarView(context: Context) : LinearLayout(context) {
         gravity = Gravity.CENTER_VERTICAL
         addView(title, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT))
         addView(field, LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { gravity = Gravity.CENTER_VERTICAL })
-        addView(cancel, LayoutParams(dp(64), ViewGroup.LayoutParams.MATCH_PARENT))
-        addView(confirm, LayoutParams(dp(64), ViewGroup.LayoutParams.MATCH_PARENT))
+        addView(cancel, btnLp(startDp = 6))
+        addView(confirm, btnLp(startDp = 6, endDp = 8))
         cancel.setOnClickListener { onCancel() }
         confirm.setOnClickListener { onConfirm() }
         applyPalette(palette)
     }
 
+    private fun btnLp(startDp: Int, endDp: Int = 0) =
+        LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT).apply {
+            topMargin = dp(4); bottomMargin = dp(4); marginStart = dp(startDp); marginEnd = dp(endDp)
+        }
+
     private fun btn(s: String) = TextView(context).apply {
         text = s; gravity = Gravity.CENTER
+        minWidth = dp(56)
+        setPadding(dp(12), 0, dp(12), 0)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
     }
 
@@ -84,10 +91,12 @@ class EditBarView(context: Context) : LinearLayout(context) {
         title.setTextColor(p.keyHint)
         field.setTextColor(p.keyLabel)
         field.background = GradientDrawable().apply { setColor(p.keySurface); cornerRadius = ImeShapes.inputRadiusDp * density }
-        cancel.setTextColor(p.keyLabelSecondary)
-        confirm.setTextColor(p.keyLabelSecondary)
-        Motion.applyTapFeedback(cancel, p.keyLabelSecondary)
-        Motion.applyTapFeedback(confirm, p.keyLabelSecondary)
+        cancel.setTextColor(p.keyLabel)
+        cancel.background = GradientDrawable().apply { setColor(p.keySurface); cornerRadius = ImeShapes.toolbarFeedbackRadiusDp * density }
+        confirm.setTextColor(p.accentBottom)
+        confirm.background = GradientDrawable().apply { setColor(Motion.withAlpha(p.accentBottom, 0x22)); cornerRadius = ImeShapes.toolbarFeedbackRadiusDp * density }
+        Motion.applyTapFeedback(cancel, p.keyLabel, radiusDp = ImeShapes.toolbarFeedbackRadiusDp)
+        Motion.applyTapFeedback(confirm, p.accentBottom, radiusDp = ImeShapes.toolbarFeedbackRadiusDp)
     }
 
     fun setTitle(t: String) { title.text = t }

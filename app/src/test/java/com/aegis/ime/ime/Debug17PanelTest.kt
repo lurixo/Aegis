@@ -114,9 +114,11 @@ class Debug17PanelTest {
         assertEquals(expectedWidth, scroll.width)
         assertEquals(overlay.width, scroll.left + scroll.right)
         assertEquals(Gravity.CENTER, (scroll.layoutParams as FrameLayout.LayoutParams).gravity)
-        assertTrue(card.background is GradientDrawable)
-        assertEquals(pal.keySurface, bgColor(card))
-        assertTrue((card.background as GradientDrawable).cornerRadius > 0f)
+        assertTrue(scroll.background is GradientDrawable)
+        assertEquals(pal.keySurface, bgColor(scroll))
+        assertTrue((scroll.background as GradientDrawable).cornerRadius > 0f)
+        assertTrue(scroll.clipToOutline)
+        assertTrue(scroll.elevation > 0f)
         assertTrue(items.all { it.currentTextColor == pal.keyLabel })
         assertTrue(items.all { Gravity.getAbsoluteGravity(it.gravity, it.layoutDirection) and Gravity.HORIZONTAL_GRAVITY_MASK == Gravity.LEFT })
         return items
@@ -530,12 +532,14 @@ class Debug17PanelTest {
         assertEquals(listOf(listOf("你", "好", "abc")), batches)
     }
 
-    @Test fun split_chooser_hides_original_preview_and_uses_normal_footer_color() {
+    @Test fun split_chooser_hides_original_preview_and_accents_copy_all() {
         val v = clipView()
         v.showSplitForTest("你好abc")
         assertFalse("original preview removed", "你好abc" in labels(overlayOf(v)))
         assertEquals(pal.keyLabel, textViews(overlayOf(v)).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_back) }.currentTextColor)
-        assertEquals(pal.keyLabel, textViews(overlayOf(v)).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_copy_all) }.currentTextColor)
+        val copyAll = textViews(overlayOf(v)).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_copy_all) }
+        assertEquals(pal.accentBottom, copyAll.currentTextColor)
+        assertEquals(Motion.withAlpha(pal.accentBottom, 0x22), bgColor(copyAll))
     }
 
     @Test fun phrase_note_is_displayed_but_pick_commits_the_original() {

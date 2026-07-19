@@ -35,7 +35,6 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
@@ -255,7 +254,7 @@ internal fun UserDictPage(onBack: () -> Unit) {
 
     val uri = pendingImport
     if (uri != null) {
-        AlertDialog(
+        AegisAlertDialog(
             onDismissRequest = { pendingImport = null },
             title = { Text(stringResource(R.string.user_dict_import_dialog_title)) },
             text = {

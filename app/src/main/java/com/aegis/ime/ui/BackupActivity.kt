@@ -30,7 +30,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -496,7 +495,7 @@ private fun RemoveDefaultPasswordDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    AlertDialog(
+    AegisAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.backup_default_password_remove_title)) },
         text = { Text(stringResource(R.string.backup_default_password_remove_desc)) },
@@ -521,7 +520,7 @@ private fun DefaultPasswordDialog(
     var confirm by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<Int?>(null) }
 
-    AlertDialog(
+    AegisAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.backup_default_password_dialog_title)) },
         text = {
@@ -588,7 +587,7 @@ private fun ExportPasswordDialog(
         onDefaultPasswordAutofillConsumed()
     }
 
-    AlertDialog(
+    AegisAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.backup_export_button)) },
         text = {
@@ -661,7 +660,7 @@ private fun ImportPasswordDialog(
         onDefaultPasswordAutofillConsumed()
     }
 
-    AlertDialog(
+    AegisAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.backup_import_button)) },
         text = {
@@ -760,7 +759,7 @@ private fun ModeOption(selected: Boolean, titleRes: Int, descRes: Int, onSelect:
 
 @Composable
 private fun ResultDialog(messageRes: Int, onDone: () -> Unit) {
-    AlertDialog(
+    AegisAlertDialog(
         onDismissRequest = onDone,
         title = { Text(stringResource(R.string.settings_backup_title)) },
         text = { Text(stringResource(messageRes)) },

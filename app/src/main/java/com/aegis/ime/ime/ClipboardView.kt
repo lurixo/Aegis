@@ -100,7 +100,6 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private var HINT = palette.keyHint
     private var CARD = palette.keySurface
     private var BG = palette.keyboardBg
-    private var SEP = palette.separator
     private val splitSymbol = "拆"
     private val moveSymbol = "移"
 
@@ -110,7 +109,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         GREY_PILL = p.chipBg; SPLIT_BLOCK_BG = p.accentBottom; SPLIT_BLOCK_TEXT = p.accentLabel
         SPLIT_BLOCK_COPIED_BG = p.chipBg; SPLIT_BLOCK_COPIED_TEXT = p.chipText
         TEXT_DARK = p.keyLabel; TEXT_SECONDARY = p.keyLabelSecondary; HINT = p.keyHint; CARD = p.keySurface
-        BG = p.keyboardBg; SEP = p.separator
+        BG = p.keyboardBg
         main.setBackgroundColor(BG)
         selectRowPool.clear(); sortRowPool.clear(); catSortRowPool.clear()
         refresh(animate = false)
@@ -1351,13 +1350,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun showPhraseManageMenu() {
         val card = menuCard()
         card.addView(menuItem(context.getString(R.string.clip_move_category)) { hideOverlay(); enterCategorySortMode() })
-        card.addView(menuDivider())
         card.addView(menuItem(context.getString(R.string.clip_add_category)) { hideOverlay(); onAddCategory() })
-        card.addView(menuDivider())
         card.addView(menuItem(context.getString(R.string.clip_import_phrases)) { showImportConfirm() })
-        card.addView(menuDivider())
         card.addView(menuItem(context.getString(R.string.clip_export_phrases)) { hideOverlay(); onExportPhrases() })
-        card.addView(menuDivider())
         card.addView(menuItem(context.getString(R.string.clip_cancel)) { hideOverlay() })
         showActionPopup(card)
     }
@@ -1366,11 +1361,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val card = menuCard()
         card.addView(menuTitle(context.getString(R.string.clip_import_phrases)))
         card.addView(menuBody(context.getString(R.string.clip_import_body)))
-        card.addView(menuDivider())
         card.addView(menuItem(context.getString(R.string.clip_overwrite)) { hideOverlay(); onImportPhrasesWithMode(false) })
-        card.addView(menuDivider())
         card.addView(menuItem(context.getString(R.string.clip_merge_recommended)) { hideOverlay(); onImportPhrasesWithMode(true) })
-        card.addView(menuDivider())
         card.addView(menuItem(context.getString(R.string.clip_cancel)) { hideOverlay() })
         showOverlay(card)
     }
@@ -1380,9 +1372,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         if (cat.isEmpty()) return
         val card = menuCard()
         card.addView(menuTitle(context.getString(R.string.clip_clear_category_confirm, displayCat(cat)), color = TEXT_DARK))
-        card.addView(menuDivider())
         card.addView(menuItem(context.getString(R.string.clip_clear)) { hideOverlay(); onClearCategory(cat); st.collapse(); swipeRevealed = null; refresh() })
-        card.addView(menuDivider())
         card.addView(menuItem(context.getString(R.string.clip_cancel)) { hideOverlay() })
         showOverlay(card)
     }
@@ -1390,9 +1380,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun confirmClearHistory() {
         val card = menuCard()
         card.addView(menuTitle(context.getString(R.string.clip_clear_history_confirm), color = TEXT_DARK))
-        card.addView(menuDivider())
         card.addView(menuItem(context.getString(R.string.clip_clear)) { hideOverlay(); onClearHistory(); st.collapse(); swipeRevealed = null; refresh() })
-        card.addView(menuDivider())
         card.addView(menuItem(context.getString(R.string.clip_cancel)) { hideOverlay() })
         showOverlay(card)
     }
@@ -1425,7 +1413,6 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun showCategoryMenu(name: String) {
         val card = menuCard()
         card.addView(menuItem(context.getString(R.string.clip_rename_named, displayCat(name))) { hideOverlay(); onRenameCategory(name) })
-        card.addView(menuDivider())
         card.addView(menuItem(context.getString(R.string.clip_delete_named, displayCat(name))) { hideOverlay(); onDeleteCategory(name); if (phraseCat == name) { phraseCat = ""; pendingCategoryFade = true }; st.collapse(); swipeRevealed = null; refresh() })
         showActionPopup(card)
     }
@@ -1572,7 +1559,13 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         overlay.removeAllViews()
         overlay.setBackgroundColor(0x00000000)
         overlay.setOnClickListener { hideOverlay() }
-        val scroll = ScrollView(context).apply { isClickable = true; addView(content) }
+        val scroll = ScrollView(context).apply {
+            isClickable = true
+            background = rounded(CARD, ImeShapes.cardRadiusDp)
+            clipToOutline = true
+            elevation = dp(8).toFloat()
+            addView(content)
+        }
         val margin = dp(24)
         val requestedWidth = maxWidthDp?.let { minOf(dp(it), (resources.displayMetrics.widthPixels - margin * 2).coerceAtLeast(dp(260))) } ?: WC
         val lp = FrameLayout.LayoutParams(requestedWidth, WC, gravity).apply { leftMargin = margin; rightMargin = margin; topMargin = margin; bottomMargin = margin }
@@ -1592,12 +1585,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val card = menuCard()
         if (targets.isEmpty()) {
             card.addView(menuTitle(context.getString(R.string.clip_no_other_categories)))
-            card.addView(menuDivider())
             card.addView(menuItem(context.getString(R.string.clip_new_category)) { hideOverlay(); after(); onAddCategoryThenMove(current, moveTexts) })
         } else {
             card.addView(menuTitle(context.getString(R.string.clip_move_to_category)))
-            for (c in targets) { card.addView(menuDivider()); card.addView(moveTargetRow(c, current, moveTexts, after, action)) }
-            card.addView(menuDivider())
+            for (c in targets) { card.addView(moveTargetRow(c, current, moveTexts, after, action)) }
             card.addView(menuItem(context.getString(R.string.clip_new_category)) { hideOverlay(); after(); onAddCategoryThenMove(current, moveTexts) })
         }
         showOverlay(card)
@@ -1625,9 +1616,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun showLongPressMenu(text: String) {
         val card = menuCard()
         card.addView(menuItem(context.getString(R.string.clip_delete_item)) { confirmDelete(listOf(text)) })
-        card.addView(menuDivider())
         card.addView(menuItem(context.getString(R.string.clip_add_phrase)) { hideOverlay(); chooseCategoryThen(listOf(text)) })
-        card.addView(menuDivider())
         card.addView(menuItem(context.getString(R.string.clip_split_title)) { hideOverlay(); showSplit(text) })
         showActionPopup(card)
     }
@@ -1644,8 +1633,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         if (cats.isEmpty()) { after(); onAddCategoryThenAdd(pending); return }
         val card = menuCard()
         card.addView(menuTitle(context.getString(R.string.clip_choose_category)))
-        for (c in cats) { card.addView(menuDivider()); card.addView(menuItem(displayCat(c)) { hideOverlay(); onSaveAsPhrasesTo(c, pending); after(); refresh() }) }
-        card.addView(menuDivider())
+        for (c in cats) { card.addView(menuItem(displayCat(c)) { hideOverlay(); onSaveAsPhrasesTo(c, pending); after(); refresh() }) }
         card.addView(menuItem(context.getString(R.string.clip_new_category)) { hideOverlay(); after(); onAddCategoryThenAdd(pending) })
         showOverlay(card)
     }
@@ -1654,7 +1642,6 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         splitSelected.clear()
         val panel = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(14), dp(16), dp(16))
-            background = GradientDrawable().apply { setColor(CARD); cornerRadius = ImeShapes.cardRadiusDp * density; setStroke(dp(1), SEP) }
         }
         panel.addView(TextView(context).apply {
             this.text = context.getString(R.string.clip_split_title); setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
@@ -1684,16 +1671,21 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             chipViews.add(chip); chips.addView(chip)
         }
         panel.addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, ll(MP, WC))
-        val footer = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val footer = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(12), 0, 0) }
         footer.addView(TextView(context).apply {
-            this.text = context.getString(R.string.clip_back); setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
-            setPadding(dp(8), dp(14), dp(16), dp(10)); Motion.applyTapFeedback(this, TEXT_DARK); setOnClickListener { hideOverlay() }
-        }, ll(WC, WC))
+            this.text = context.getString(R.string.clip_back); gravity = Gravity.CENTER
+            setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+            setPadding(dp(12), 0, dp(12), 0)
+            Motion.applyTapFeedback(this, TEXT_DARK, radiusDp = ImeShapes.toolbarFeedbackRadiusDp)
+            setOnClickListener { hideOverlay() }
+        }, ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)))
         footer.addView(View(context), ll(0, dp(1), 1f))
         if (blocks.isNotEmpty()) footer.addView(TextView(context).apply {
-            this.text = context.getString(R.string.clip_copy_all); gravity = Gravity.END; setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
-            setPadding(dp(16), dp(14), dp(8), dp(10))
-            Motion.applyTapFeedback(this, TEXT_DARK)
+            this.text = context.getString(R.string.clip_copy_all); gravity = Gravity.CENTER
+            setTextColor(SPLIT_BLOCK_BG); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+            setPadding(dp(12), 0, dp(12), 0)
+            background = rounded(Motion.withAlpha(SPLIT_BLOCK_BG, 0x22), ImeShapes.toolbarFeedbackRadiusDp)
+            Motion.applyTapFeedback(this, SPLIT_BLOCK_BG, radiusDp = ImeShapes.toolbarFeedbackRadiusDp)
             setOnClickListener {
                 splitSelected.addAll(blocks)
                 for (c in chipViews) {
@@ -1702,7 +1694,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 }
                 onCopyBlocksToAegis(blocks)
             }
-        }, ll(WC, WC))
+        }, ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)))
         panel.addView(footer, ll(MP, WC))
         showOverlay(panel, maxWidthDp = 340)
     }
@@ -1724,7 +1716,6 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val card = menuCard()
         val title = if (deleteTab == Tab.CLIPBOARD) R.string.clip_delete_clip_confirm else R.string.clip_delete_phrase_confirm
         card.addView(menuTitle(context.getString(title), color = TEXT_DARK))
-        card.addView(menuDivider())
         card.addView(menuItem(context.getString(R.string.clip_delete)) {
             hideOverlay()
             if (deleteTab == Tab.CLIPBOARD) onDeleteClips(texts) else onDeletePhrasesFrom(category, texts)
@@ -1733,7 +1724,6 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             after()
             refresh()
         })
-        card.addView(menuDivider())
         card.addView(menuItem(context.getString(R.string.clip_cancel)) { hideOverlay() })
         showOverlay(card)
     }
@@ -1782,7 +1772,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun menuCard(): LinearLayout = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
-        background = GradientDrawable().apply { setColor(CARD); cornerRadius = ImeShapes.cardRadiusDp * density; setStroke(dp(1), SEP) }
+        setPadding(0, dp(6), 0, dp(6))
     }
 
     private fun menuTitle(s: String, color: Int = TEXT_DARK): View = TextView(context).apply {
@@ -1801,11 +1791,6 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         setPadding(dp(24), dp(16), dp(24), dp(16))
         Motion.applyTapFeedback(this, TEXT_DARK)
         setOnClickListener { onClick() }
-    }
-
-    private fun menuDivider(): View = View(context).apply {
-        setBackgroundColor(SEP)
-        layoutParams = LinearLayout.LayoutParams(MP, maxOf(1, dp(1)))
     }
 
     private fun compactActionButton(label: String, enabled: Boolean, onClick: () -> Unit): TextView =
