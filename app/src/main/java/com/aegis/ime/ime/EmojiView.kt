@@ -198,7 +198,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
 
     private fun toggleLock() {
         locked = !locked
-        Motion.fadeThrough(lockBtn) { updateLockFace() }
+        Motion.coverThrough(lockBtn, palette.keyboardBg) { updateLockFace() }
     }
 
     private fun updateLockFace() {
@@ -245,7 +245,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
             if (tabChanged && (i == index || i == prev)) crossfadeTabColor(tab, color) else tab.setTextColor(color)
             retintRipple(tab, color)
         }
-        if (animate && tabChanged && gridScroll.isShown) { bindGrid(selected); Motion.fadeIn(gridScroll, Motion.SHORT2) }
+        if (animate && tabChanged && gridScroll.isShown) Motion.coverThrough(gridScroll, palette.keyboardBg, Motion.SHORT2) { bindGrid(selected) }
         else bindGrid(index)
     }
 

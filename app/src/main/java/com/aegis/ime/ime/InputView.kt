@@ -278,7 +278,7 @@ class InputView(context: Context) : LinearLayout(context) {
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
-        settlePanelSwitch()
+        Motion.cancelCover(panelContainer)
         Motion.reset(keyboardView)
         Motion.reset(preeditView)
         Motion.reset(candidateView)
@@ -304,13 +304,13 @@ class InputView(context: Context) : LinearLayout(context) {
     fun showCopyBar(text: String) {
         copyBarActive = true
         copyBarView.show(text)
-        Motion.swapIn(copyBarView, candidateView)
+        Motion.coverSwap(copyBarView, candidateView, palette.keyboardBg)
         onOverlayChanged()
     }
 
     fun hideCopyBar() {
         copyBarActive = false
-        Motion.swapIn(candidateView, copyBarView)
+        Motion.coverSwap(candidateView, copyBarView, palette.keyboardBg)
         onOverlayChanged()
     }
 
@@ -379,7 +379,6 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun showPanelImmediately(panel: View) = showPanel(panel, animateReveal = false)
 
     private fun showPanel(panel: View?, animateReveal: Boolean) {
-        settlePanelSwitch()
         val outgoing = currentPanel
         (outgoing as? ResettablePanel)?.takeIf { it !== panel }?.resetToDefault()
         if (outgoing === gridView && panel !== gridView) onExpandClosed()
@@ -388,16 +387,13 @@ class InputView(context: Context) : LinearLayout(context) {
         candidateView.setExpanded(panel === gridView)
         if (panel == null) {
             if (outgoing != null) {
-                pendingPanelSwitch = {
-                    if (currentPanel == null) {
-                        panelContainer.removeAllViews()
-                        panelContainer.visibility = GONE
-                        keyboardView.visibility = VISIBLE
-                        Motion.fadeIn(keyboardView)
-                    }
-                    Motion.reset(outgoing)
-                }
-                Motion.hide(outgoing, toward = Motion.EnterFrom.BOTTOM) { settlePanelSwitch() }
+                val snap = Motion.snapshot(outgoing, palette.keyboardBg)
+                Motion.reset(outgoing)
+                panelContainer.removeAllViews()
+                panelContainer.visibility = GONE
+                keyboardView.visibility = VISIBLE
+                Motion.reset(keyboardView)
+                Motion.coverWith(keyboardView, snap)
             } else {
                 panelContainer.removeAllViews()
                 panelContainer.visibility = GONE
@@ -412,48 +408,20 @@ class InputView(context: Context) : LinearLayout(context) {
                         resources.displayMetrics.density,
                     ),
             )
-            when {
-                !animateReveal -> {
-                    attachPanel(panel)
-                    keyboardView.visibility = GONE
-                    panel.visibility = VISIBLE
-                    Motion.reset(panel)
-                }
-                outgoing == null -> {
-                    pendingPanelSwitch = {
-                        Motion.reset(keyboardView)
-                        keyboardView.visibility = GONE
-                        attachPanel(panel)
-                        Motion.revealIn(panel, Motion.EnterFrom.BOTTOM)
-                    }
-                    Motion.hide(keyboardView, duration = Motion.FADE_OUT) { settlePanelSwitch() }
-                }
-                outgoing === panel -> {
-                    attachPanel(panel)
-                    keyboardView.visibility = GONE
-                    Motion.revealIn(panel, Motion.EnterFrom.BOTTOM)
-                }
-                else -> {
-                    pendingPanelSwitch = {
-                        Motion.reset(outgoing)
-                        attachPanel(panel)
-                        keyboardView.visibility = GONE
-                        Motion.revealIn(panel, Motion.EnterFrom.BOTTOM)
-                    }
-                    Motion.hide(outgoing, toward = Motion.EnterFrom.BOTTOM) { settlePanelSwitch() }
-                }
+            val snap = when {
+                !animateReveal -> null
+                outgoing != null && outgoing !== panel -> Motion.snapshot(outgoing, palette.keyboardBg)
+                outgoing == null && keyboardView.visibility == VISIBLE -> Motion.snapshot(keyboardView, palette.keyboardBg)
+                else -> null
             }
+            attachPanel(panel)
+            keyboardView.visibility = GONE
+            panel.visibility = VISIBLE
+            Motion.reset(panel)
+            Motion.coverWith(panelContainer, snap)
         }
         onPanelChanged(panel)
         onOverlayChanged()
-    }
-
-    private var pendingPanelSwitch: (() -> Unit)? = null
-
-    private fun settlePanelSwitch() {
-        val pending = pendingPanelSwitch ?: return
-        pendingPanelSwitch = null
-        pending()
     }
 
     private fun attachPanel(panel: View) {
@@ -469,7 +437,6 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun isExpandedCandidatePanel(panel: View): Boolean = panel === gridView
 
     internal fun clearEditorTransientUiImmediately() {
-        pendingPanelSwitch = null
         val outgoing = currentPanel
         (outgoing as? ResettablePanel)?.resetToDefault()
         if (outgoing === gridView) onExpandClosed()
@@ -477,6 +444,7 @@ class InputView(context: Context) : LinearLayout(context) {
         pendingGridBind = null
         candidateView.setExpanded(false)
         outgoing?.let(Motion::reset)
+        Motion.cancelCover(panelContainer)
         panelContainer.removeAllViews()
         panelContainer.visibility = GONE
         Motion.reset(keyboardView)
@@ -662,7 +630,7 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun panelFloorColorForTest(): Int? =
         (panelContainer.background as? android.graphics.drawable.ColorDrawable)?.color
 
-    val panelShown: Boolean get() = panelContainer.visibility == VISIBLE || pendingPanelSwitch != null
+    val panelShown: Boolean get() = panelContainer.visibility == VISIBLE
 
     fun isPanelShowing(panel: View?): Boolean = panelShown && panel != null && currentPanel === panel
 

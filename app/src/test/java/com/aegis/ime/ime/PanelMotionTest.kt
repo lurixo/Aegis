@@ -89,30 +89,30 @@ class PanelMotionTest {
             v.switchTabForTest(toClipboard = false)
             assertEquals("a tab switch runs one content fade", 1, v.contentFadesForTest())
             assertEquals("the tab swap lands synchronously", listOf("短语"), v.listRowTextsForTest())
-            assertEquals("the viewport entrance fade starts transparent", 0f, v.listViewportForTest().alpha, 0f)
+            assertEquals("the viewport never leaves full opacity", 1f, v.listViewportForTest().alpha, 0f)
             flushMotion()
-            assertEquals("the entrance fade settles fully opaque", 1f, v.listViewportForTest().alpha, 0f)
+            assertEquals("the viewport settles fully opaque", 1f, v.listViewportForTest().alpha, 0f)
             assertEquals(listOf("短语"), v.listRowTextsForTest())
 
             v.selectPhraseCategoryForTest("工作")
             assertEquals("a category selection runs one content fade", 2, v.contentFadesForTest())
-            assertEquals(0f, v.listViewportForTest().alpha, 0f)
+            assertEquals(1f, v.listViewportForTest().alpha, 0f)
             flushMotion()
             assertEquals(1f, v.listViewportForTest().alpha, 0f)
 
             v.enterSelectForTest()
             assertEquals("a mode switch runs one content fade", 3, v.contentFadesForTest())
-            assertEquals(0f, v.listViewportForTest().alpha, 0f)
+            assertEquals(1f, v.listViewportForTest().alpha, 0f)
             flushMotion()
             v.exitSelectForTest()
             assertEquals(4, v.contentFadesForTest())
-            assertEquals(0f, v.listViewportForTest().alpha, 0f)
+            assertEquals(1f, v.listViewportForTest().alpha, 0f)
             flushMotion()
 
             v.switchTabForTest(toClipboard = true)
             assertEquals(5, v.contentFadesForTest())
             assertEquals("the tab swap lands synchronously", listOf("clip-a", "clip-b"), v.listRowTextsForTest())
-            assertEquals(0f, v.listViewportForTest().alpha, 0f)
+            assertEquals(1f, v.listViewportForTest().alpha, 0f)
             flushMotion()
             assertEquals(1f, v.listViewportForTest().alpha, 0f)
 
@@ -354,7 +354,7 @@ class PanelMotionTest {
         }
     }
 
-    @Test fun edit_panel_select_label_swap_defers_to_the_trough_when_animated() {
+    @Test fun edit_panel_select_label_swap_lands_synchronously_when_animated() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -364,7 +364,7 @@ class PanelMotionTest {
             val end = activity.getString(R.string.edit_end_select)
             assertEquals(start, v.selectingLabelForTest().toString())
             v.setSelecting(true)
-            assertEquals("the label swap defers to the fade trough", start, v.selectingLabelForTest().toString())
+            assertEquals("the label swap lands in the same call", end, v.selectingLabelForTest().toString())
             flushMotion()
             assertEquals(end, v.selectingLabelForTest().toString())
             v.setSelecting(true)
@@ -374,7 +374,7 @@ class PanelMotionTest {
         }
     }
 
-    @Test fun copy_bar_split_toggle_defers_the_re_render_to_the_trough() {
+    @Test fun copy_bar_split_toggle_re_renders_synchronously() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -383,12 +383,12 @@ class PanelMotionTest {
             assertFalse(v.splitRenderedForTest())
             v.toggleSplitForTest()
             assertTrue("the split state flips synchronously", v.splitModeForTest())
-            assertFalse("the re-render defers to the fade trough", v.splitRenderedForTest())
+            assertTrue("the re-render lands in the same call", v.splitRenderedForTest())
             flushMotion()
             assertTrue(v.splitRenderedForTest())
             v.toggleSplitForTest()
             assertFalse(v.splitModeForTest())
-            assertTrue(v.splitRenderedForTest())
+            assertFalse("the collapse re-render lands in the same call", v.splitRenderedForTest())
             flushMotion()
             assertFalse(v.splitRenderedForTest())
         } finally {
@@ -412,7 +412,7 @@ class PanelMotionTest {
         }
     }
 
-    @Test fun copy_bar_split_toggle_during_the_animated_dismiss_still_restores_the_candidate_bar() {
+    @Test fun copy_bar_dismiss_is_synchronous_and_a_toggle_after_it_cannot_resurface_the_bar() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -426,12 +426,15 @@ class PanelMotionTest {
             assertEquals(View.GONE, candidates.visibility)
 
             iv.hideCopyBar()
-            assertEquals("the bar animates its exit (still visible)", View.VISIBLE, bar.visibility)
+            assertEquals("the bar leaves in the same call", View.GONE, bar.visibility)
+            assertEquals("the candidate bar returns in the same call", View.VISIBLE, candidates.visibility)
+            assertEquals(1f, candidates.alpha, 0f)
             bar.toggleSplitForTest()
             assertTrue("the split state still flips synchronously", bar.splitModeForTest())
             flushMotion()
-            assertEquals("the mid-dismiss toggle must not strand the bar visible", View.GONE, bar.visibility)
-            assertEquals("the candidate bar returns at the trough", View.VISIBLE, candidates.visibility)
+            assertEquals("the toggle on the dismissed bar must not resurface it", View.GONE, bar.visibility)
+            assertEquals(View.VISIBLE, candidates.visibility)
+            assertEquals(1f, candidates.alpha, 0f)
             assertFalse(iv.copyBarShown)
 
             iv.showCopyBar("你好，世界")
@@ -445,7 +448,7 @@ class PanelMotionTest {
         }
     }
 
-    @Test fun custom_symbol_refresh_defers_the_rebuild_to_the_trough() {
+    @Test fun custom_symbol_refresh_rebuilds_instantly_even_when_animated() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -462,9 +465,10 @@ class PanelMotionTest {
             assertNotNull(v.paletteChipForTest("★"))
             added.add("★")
             v.refresh()
-            assertNotNull("the rebuild defers to the fade trough", v.paletteChipForTest("★"))
+            assertNull("a chip change rebuilds in the same call, with no animation at all", v.paletteChipForTest("★"))
+            assertEquals(1f, v.contentViewportForTest().alpha, 0f)
             flushMotion()
-            assertNull("the trough rebuild moves the chip out of the palette", v.paletteChipForTest("★"))
+            assertNull(v.paletteChipForTest("★"))
         } finally {
             controller.pause().stop().destroy()
         }

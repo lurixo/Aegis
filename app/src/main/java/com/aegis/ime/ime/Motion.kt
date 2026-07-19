@@ -19,13 +19,17 @@ import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.content.res.ColorStateList
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.view.View
 import android.view.animation.Interpolator
 import android.view.animation.PathInterpolator
 import com.aegis.ime.ime.theme.ImeShapes
+import java.util.WeakHashMap
 import kotlin.math.roundToInt
 
 object Motion {
@@ -162,68 +166,71 @@ object Motion {
             .start()
     }
 
-    fun swapIn(incoming: View, outgoing: View?, outDuration: Long = FADE_OUT, inDuration: Long = FADE_IN) {
+    private val coverAnimators = WeakHashMap<View, ValueAnimator>()
+
+    fun snapshot(view: View, backdrop: Int): Bitmap? {
+        if (!view.isAttachedToWindow || !enabled()) return null
+        val w = view.width
+        val h = view.height
+        if (w <= 0 || h <= 0) return null
+        val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(backdrop)
+        val canvas = Canvas(bitmap)
+        canvas.translate(-view.scrollX.toFloat(), -view.scrollY.toFloat())
+        view.draw(canvas)
+        return bitmap
+    }
+
+    fun coverWith(host: View, snapshot: Bitmap?, duration: Long = FADE_OUT) {
+        cancelCover(host)
+        if (snapshot == null) return
+        if (!host.isAttachedToWindow || !enabled()) {
+            snapshot.recycle()
+            return
+        }
+        val drawable = BitmapDrawable(host.resources, snapshot).apply {
+            setBounds(host.scrollX, host.scrollY, host.scrollX + snapshot.width, host.scrollY + snapshot.height)
+        }
+        host.overlay.add(drawable)
+        coverAnimators[host] = ValueAnimator.ofInt(255, 0).apply {
+            this.duration = duration
+            interpolator = EMPHASIZED_ACCEL
+            addUpdateListener { drawable.alpha = it.animatedValue as Int }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    host.overlay.remove(drawable)
+                    if (coverAnimators[host] === animation) coverAnimators.remove(host)
+                    snapshot.recycle()
+                }
+            })
+            start()
+        }
+    }
+
+    fun coverSwap(incoming: View, outgoing: View, backdrop: Int, duration: Long = FADE_OUT) {
+        if (incoming.visibility == View.VISIBLE && incoming.alpha >= 1f && outgoing.visibility == View.GONE) return
         incoming.animate().cancel()
-        outgoing?.animate()?.cancel()
-        if (outgoing == null || !outgoing.isAttachedToWindow || !enabled()) {
-            outgoing?.let { it.visibility = View.GONE; reset(it) }
-            showImmediately(incoming)
-            return
-        }
-        outgoing.animate()
-            .alpha(0f)
-            .setDuration(outDuration)
-            .setInterpolator(EMPHASIZED_ACCEL)
-            .setListener(object : AnimatorListenerAdapter() {
-                private var cancelled = false
-
-                override fun onAnimationCancel(animation: Animator) {
-                    cancelled = true
-                }
-
-                override fun onAnimationEnd(animation: Animator) {
-                    outgoing.animate().setListener(null)
-                    if (cancelled) return
-                    outgoing.visibility = View.GONE
-                    reset(outgoing)
-                    incoming.visibility = View.VISIBLE
-                    incoming.alpha = 0f
-                    incoming.translationX = 0f
-                    incoming.translationY = 0f
-                    incoming.animate().alpha(1f).setDuration(inDuration).setInterpolator(EMPHASIZED_DECEL).start()
-                }
-            })
-            .start()
+        outgoing.animate().cancel()
+        val snap = if (outgoing.visibility == View.VISIBLE) snapshot(outgoing, backdrop) else null
+        outgoing.visibility = View.GONE
+        reset(outgoing)
+        showImmediately(incoming)
+        coverWith(incoming, snap, duration)
     }
 
-    fun fadeThrough(view: View, outDuration: Long = FADE_OUT, inDuration: Long = FADE_IN, swap: () -> Unit) {
+    fun coverThrough(view: View, backdrop: Int, duration: Long = FADE_OUT, swap: () -> Unit) {
         view.animate().cancel()
-        if (!view.isAttachedToWindow || !enabled()) {
-            swap()
-            showImmediately(view)
-            return
-        }
-        view.animate()
-            .alpha(0f)
-            .setDuration(outDuration)
-            .setInterpolator(EMPHASIZED_ACCEL)
-            .setListener(object : AnimatorListenerAdapter() {
-                private var cancelled = false
-
-                override fun onAnimationCancel(animation: Animator) {
-                    cancelled = true
-                }
-
-                override fun onAnimationEnd(animation: Animator) {
-                    view.animate().setListener(null)
-                    if (cancelled) return
-                    swap()
-                    view.alpha = 0f
-                    view.animate().alpha(1f).setDuration(inDuration).setInterpolator(EMPHASIZED_DECEL).start()
-                }
-            })
-            .start()
+        val snap = if (view.visibility == View.VISIBLE) snapshot(view, backdrop) else null
+        swap()
+        showImmediately(view)
+        coverWith(view, snap, duration)
     }
+
+    fun cancelCover(view: View) {
+        coverAnimators.remove(view)?.cancel()
+    }
+
+    internal fun coverActiveForTest(view: View): Boolean = coverAnimators[view] != null
 
     fun crossfadeColor(view: View, from: Int, to: Int, duration: Long = STATE_CHANGE, apply: (Int) -> Unit): ValueAnimator? {
         if (from == to) { apply(to); return null }
@@ -246,6 +253,7 @@ object Motion {
 
     fun reset(view: View) {
         view.animate().cancel()
+        cancelCover(view)
         view.alpha = 1f
         view.translationX = 0f
         view.translationY = 0f
@@ -255,36 +263,24 @@ object Motion {
     class ContentSwap(private val view: View, private val invalidate: () -> Unit = { view.invalidate() }) {
         var active = false
             private set
-        var sequential = false
-            private set
         private var fraction = 1f
         private var animator: ValueAnimator? = null
-        private val outWindow = SHORT1.toFloat() / SHORT3
 
         val outAlpha: Float
             get() {
                 if (!active) return 0f
-                if (sequential) {
-                    if (fraction >= outWindow) return 0f
-                    return 1f - EMPHASIZED_ACCEL.getInterpolation(fraction / outWindow)
-                }
                 return 1f - EMPHASIZED_ACCEL.getInterpolation((fraction * SHORT3 / SHORT2).coerceAtMost(1f))
             }
 
         val inAlpha: Float
             get() {
                 if (!active) return 1f
-                if (sequential) {
-                    if (fraction <= outWindow) return 0f
-                    return EMPHASIZED_DECEL.getInterpolation((fraction - outWindow) / (1f - outWindow))
-                }
                 return EMPHASIZED_DECEL.getInterpolation(fraction)
             }
 
-        fun start(sequential: Boolean = false) {
+        fun start() {
             animator?.cancel()
             animator = null
-            this.sequential = sequential
             if (!view.isAttachedToWindow || !enabled()) {
                 applyEndState()
                 return
