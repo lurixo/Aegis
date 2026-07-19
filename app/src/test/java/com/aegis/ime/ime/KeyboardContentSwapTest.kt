@@ -118,6 +118,26 @@ class KeyboardContentSwapTest {
         }
     }
 
+    @Test fun layout_id_switch_cancels_an_in_flight_shift_crossfade() {
+        animationsOn()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val kv = KeyboardView(ctx).apply {
+                setLayout(Layouts.forId(LayoutId.ALPHA, Lang.EN), false, false, Lang.EN)
+            }
+            attach(controller.get(), kv)
+            kv.setLayout(Layouts.forId(LayoutId.ALPHA, Lang.EN), true, false, Lang.EN)
+            assertTrue(kv.contentSwapActiveForTest())
+
+            kv.setLayout(Layouts.forId(LayoutId.SYMBOL, Lang.EN), true, false, Lang.EN)
+            assertFalse("a mode switch mid-crossfade lands instant", kv.contentSwapActiveForTest())
+            settle()
+            assertFalse(kv.contentSwapActiveForTest())
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
     @Test fun reduced_motion_shift_and_layout_changes_are_fully_instant() {
         animationsOff()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()

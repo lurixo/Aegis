@@ -16,6 +16,8 @@
 package com.aegis.ime.ime
 
 import android.app.Activity
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.os.Looper
 import android.provider.Settings
 import android.view.MotionEvent
@@ -391,6 +393,33 @@ class PanelMotionTest {
             assertFalse("the collapse re-render lands in the same call", v.splitRenderedForTest())
             flushMotion()
             assertFalse(v.splitRenderedForTest())
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun copy_bar_split_toggle_residue_matches_the_bar_backdrop() {
+        animationsOn()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val v = attach(activity, CopyBarView(activity).apply { applyPalette(light); show("你好，世界") })
+            v.measure(
+                View.MeasureSpec.makeMeasureSpec(720, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(44, View.MeasureSpec.EXACTLY),
+            )
+            v.layout(0, 0, 720, 44)
+            v.toggleSplitForTest()
+            assertTrue("the toggle leaves a residue on the whole bar", Motion.coverActiveForTest(v))
+            val frame = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
+            v.draw(Canvas(frame))
+            assertEquals(
+                "the residue strip above the capsule shows the bar backdrop",
+                light.keyboardBg,
+                frame.getPixel(v.width / 2, 2),
+            )
+            flushMotion()
+            assertFalse(Motion.coverActiveForTest(v))
         } finally {
             controller.pause().stop().destroy()
         }

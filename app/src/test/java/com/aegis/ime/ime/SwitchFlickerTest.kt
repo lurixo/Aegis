@@ -144,6 +144,39 @@ class SwitchFlickerTest {
         }
     }
 
+    @Test fun repeated_editor_restores_keep_the_settled_edit_bar_opaque() {
+        Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val input = attached(activity, InputView(activity).apply { applyPalette(light) })
+            layoutInput(input)
+            val bar = descendant<EditBarView>(input)
+            input.showEditBar(true)
+            flushMotion()
+            assertEquals(View.VISIBLE, bar.visibility)
+            assertEquals(1f, bar.alpha, 0f)
+
+            repeat(3) {
+                input.showEditBar(true)
+                assertEquals("a repeated show never knocks the settled bar transparent", 1f, bar.alpha, 0f)
+                assertEquals(View.VISIBLE, bar.visibility)
+            }
+            flushMotion()
+            assertEquals(1f, bar.alpha, 0f)
+            assertTrue(input.isEditBarShowing())
+
+            input.showEditBar(false)
+            flushMotion()
+            input.showEditBar(true)
+            assertTrue("a genuine reopen still animates", bar.alpha < 1f)
+            flushMotion()
+            assertEquals(1f, bar.alpha, 0f)
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
     private fun layoutInput(input: InputView) {
         val host = input.parent as FrameLayout
         val density = input.resources.displayMetrics.density

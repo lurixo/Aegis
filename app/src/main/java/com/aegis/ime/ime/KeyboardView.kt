@@ -223,6 +223,10 @@ class KeyboardView(context: Context) : View(context) {
         val modeChanged = newLayout.id != layout.id
         val swapWorthy = !modeChanged && (isShifted != shifted || isLocked != shiftLocked || language != lang)
         val swapping = swapWorthy && prepareContentSwap()
+        if (modeChanged && contentSwap.active) {
+            contentSwap.cancel()
+            dropSwapSnapshot()
+        }
         layout = newLayout
         shifted = isShifted
         shiftLocked = isLocked
