@@ -13,8 +13,8 @@ android {
         applicationId = "com.aegis.ime"
         minSdk = 34
         targetSdk = 37
-        versionName = "0.1.0-beta.11"
-        versionCode = 73
+        versionName = "0.1.0-beta.12"
+        versionCode = 74
         ndk { abiFilters += "arm64-v8a" }
     }
 
