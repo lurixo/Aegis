@@ -7,9 +7,9 @@
     <string name="phrase_manager_title">常用语管理</string>
 
     <string name="setup_title">Aegis 输入法</string>
-    <string name="setup_summary">离线中文 / 英文输入法。自建拼音引擎（全拼 + 九宫格 T9），模糊拼音、简拼、中英混输、英文补全纠错、离线自学习；可选下载万象大模型增强。全程离线，输入不联网。</string>
+    <string name="setup_summary">中文 / 英文输入法。自建拼音引擎（全拼 + 九宫格 T9），模糊拼音、简拼、中英混输、英文补全纠错、离线自学习；可选下载万象大模型增强。中文词库在安装后下载；下载完成后全程离线，输入不联网。</string>
     <string name="setup_first_run_title">首次使用</string>
-    <string name="setup_first_run_body">下方可选下载【增强模型】与【全量词库】（都不是必须的）。内置种子词库与基础语法已能离线打字，想要更准/更全时再下载即可。</string>
+    <string name="setup_first_run_body">中文输入需要一次性下载词库。首次使用键盘时会自动开始，也可在下方词库设置中手动下载。英文输入无需下载即可离线使用。下载的数据仅存本机。</string>
     <string name="setup_first_run_ack">知道了</string>
     <string name="setup_steps_title">启用步骤</string>
     <string name="setup_enable_button">1 · 在系统设置中启用 Aegis</string>
@@ -50,15 +50,19 @@
     <string name="gram_status_deleted">⚠ 增强语法未启用（已删除；已加载的内存模型会自动卸载）</string>
 
     <string name="dict_card_title">全量词库包（14 表 freq≥1）</string>
-    <string name="dict_card_description">可选下载全量词库（字/基础/联想/错音/多音/诗词/地名/医学/化学/药品/名人/异体/物种/人名）。内置高频种子词库无需下载即可离线使用；下载后中文候选覆盖更全。仅存本机，输入全程离线。</string>
+    <string name="dict_card_description">中文词库在安装后下载（SHA-256 校验）。下载完成前中文输入不可用；英文无需词库即可离线使用。仅存本机，下载后输入全程离线。</string>
     <string name="dict_source_link">词库来源：amzxyz/rime-wanxiang ↗</string>
     <string name="dict_status_enabled">✅ 已下载并启用：全量词库（约 %1$d MB，仅存本机；下载完成后自动加载更全词库）</string>
-    <string name="dict_status_not_downloaded">⚠ 全量词库未下载 —— 内置高频种子词库已可离线使用</string>
+    <string name="dict_status_not_downloaded">⚠ 中文词库未下载 —— 下载完成前中文输入不可用（英文可离线使用）</string>
     <string name="dict_status_verifying_extracting">校验并解压…</string>
     <string name="dict_status_install_failed">校验或解压失败（文件可能损坏，请重试）</string>
     <string name="dict_status_download_failed">下载失败</string>
     <string name="dict_status_update_current">已是最新，无更新（全量词库已是最新版本）</string>
-    <string name="dict_status_deleted">⚠ 全量词库已删除（内置种子词库仍可用）</string>
+    <string name="dict_status_deleted">⚠ 中文词库已删除 —— 需重新下载后才能中文输入（英文可离线使用）</string>
+    <string name="dict_gate_cta">下载词库解锁中文</string>
+    <string name="dict_gate_downloading">正在下载词库…</string>
+    <string name="dict_gate_verifying">正在校验安装…</string>
+    <string name="dict_gate_failed">下载失败，点按重试</string>
 
     <string name="fuzzy_card_title">模糊拼音</string>
     <string name="fuzzy_master_title">模糊拼音（总开关）</string>
@@ -210,7 +214,7 @@
     <string name="licenses_modified">已修改</string>
     <string name="licenses_footer">完整许可全文见 Aegis 仓库的 THIRD_PARTY_LICENSES.md。</string>
     <string name="license_wanxiang_name">rime-wanxiang 词库</string>
-    <string name="license_wanxiang_note">内置种子词库与可下载的完整词库。已去声调、拼接音节，重打包为 Aegis 二进制格式。</string>
+    <string name="license_wanxiang_note">可下载的中文词库。已去声调、拼接音节，重打包为 Aegis 二进制格式。</string>
     <string name="license_octagram_name">万象 octagram 模型</string>
     <string name="license_octagram_note">用于下一词排序的可选上下文模型，仅在明确开启时下载，不随 APK 打包。按原样使用。</string>
     <string name="license_opencc_name">OpenCC 转换数据</string>

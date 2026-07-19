@@ -39,6 +39,8 @@ class DictEngine(
         PinyinDecoder(it, lm, userModel = userModel, octagram = octagram, aliasDict = pinyinDict)
     }
 
+    override val supportsChinese: Boolean = decoder != null || t9Decoder != null
+
     override fun candidates(composing: String, t9: Boolean): List<String> =
         candidatesCovered(composing, t9).map { it.word }
 

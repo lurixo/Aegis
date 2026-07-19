@@ -31,8 +31,12 @@ import android.widget.LinearLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import kotlin.math.roundToInt
+import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
+import com.aegis.ime.ui.DictDownloadWork
+import com.aegis.ime.ui.DownloadCardSnapshot
+import com.aegis.ime.ui.LocalizedText
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.KeyboardLayout
@@ -78,6 +82,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private var copyBarActive = false
     private var editBarActive = false
     private var palette = ImePalette.STATIC_LIGHT
+    private var gateDisposer: (() -> Unit)? = null
     private var windowNavBottomPx = lastNavBottomPx
     private var windowLeftSystemInsetPx = 0
     private var windowRightSystemInsetPx = 0
@@ -126,6 +131,7 @@ class InputView(context: Context) : LinearLayout(context) {
         candidateView.onExpand = { showExpandedCandidates() }
         candidateView.onCollapse = { onCollapse() }
         candidateView.onCollapseExpanded = { showPanel(null) }
+        candidateView.onDictGate = { DictDownloadWork.start(context); startGateMonitoring() }
         gridView.onPick = { index -> onPickCandidate(index) }
         gridView.onPickReading = { index -> onPickReading(index) }
         gridView.onClose = { showPanel(null) }
@@ -290,6 +296,7 @@ class InputView(context: Context) : LinearLayout(context) {
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        stopGateMonitoring()
         Motion.cancelCover(panelContainer)
         Motion.reset(keyboardView)
         Motion.reset(preeditView)
@@ -330,12 +337,13 @@ class InputView(context: Context) : LinearLayout(context) {
 
     fun isComposing(): Boolean = composingNow
 
-    fun showCandidates(candidates: List<String>, preedit: String, readings: List<String>, selectedReading: Int = -1) {
+    fun showCandidates(candidates: List<String>, preedit: String, readings: List<String>, selectedReading: Int = -1, gate: Boolean = false) {
         lastCandidates = candidates
         lastReadings = readings
         lastSelectedReading = selectedReading
         preeditView.setText(preedit)
-        candidateView.setContent(candidates, preedit)
+        candidateView.setContent(candidates, preedit, gate)
+        if (gate) startGateMonitoring() else stopGateMonitoring()
         composingNow = candidates.isNotEmpty() || preedit.isNotEmpty()
         if (copyBarActive && composingNow) { hideCopyBar(); onCopyDismiss() }
         if (currentPanel === gridView) {
@@ -343,6 +351,35 @@ class InputView(context: Context) : LinearLayout(context) {
             else if (pendingGridBind == null) bindExpandedCandidates()
         }
     }
+
+    private fun startGateMonitoring() {
+        if (gateDisposer != null) return
+        gateDisposer = DictDownloadWork.observe(context) { snap ->
+            post { candidateView.setGateStatus(gateLabelFor(snap)) }
+        }
+    }
+
+    private fun stopGateMonitoring() {
+        gateDisposer?.invoke()
+        gateDisposer = null
+    }
+
+    private fun gateLabelFor(snap: DownloadCardSnapshot): String {
+        val progress = snap.progress
+        return when {
+            snap.downloading && progress != null ->
+                context.getString(R.string.dict_gate_downloading) + " " + (progress * 100).toInt() + "%"
+            snap.downloading -> context.getString(R.string.dict_gate_verifying)
+            !snap.present && gateStatusIsFailure(snap.status) -> context.getString(R.string.dict_gate_failed)
+            else -> context.getString(R.string.dict_gate_cta)
+        }
+    }
+
+    private fun gateStatusIsFailure(status: LocalizedText): Boolean =
+        status is LocalizedText.Resource &&
+            (status.id == R.string.dict_status_download_failed || status.id == R.string.dict_status_install_failed)
+
+    internal fun candidateGateActiveForTest(): Boolean = candidateView.gateActiveForTest()
 
     internal fun showExpandedCandidates() {
         if (lastCandidates.isEmpty()) return

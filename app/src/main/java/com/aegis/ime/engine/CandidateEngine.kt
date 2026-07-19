@@ -19,6 +19,8 @@ import com.aegis.ime.decoder.Cand
 import com.aegis.ime.decoder.Syllable
 
 interface CandidateEngine {
+    val supportsChinese: Boolean get() = false
+
     fun candidates(composing: String, t9: Boolean): List<String>
 
     fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =

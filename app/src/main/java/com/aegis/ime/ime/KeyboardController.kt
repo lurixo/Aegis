@@ -55,6 +55,8 @@ class KeyboardController(
     private var candidates: List<Cand> = emptyList()
     private var lastWord: String? = null
 
+    private var engineSupportsChinese: Boolean = engine.supportsChinese
+
     private val decodeLock = Any()
 
     private val committedPrefix = StringBuilder()
@@ -124,6 +126,7 @@ class KeyboardController(
 
     fun setEngine(newEngine: CandidateEngine) {
         engine = newEngine
+        engineSupportsChinese = newEngine.supportsChinese
         pushedFuzzyRules?.let { newEngine.setFuzzyRules(it) }
         refreshCandidates()
         render()
@@ -372,6 +375,11 @@ class KeyboardController(
         lang == Lang.CN && (layoutId == LayoutId.ALPHA || layoutId == LayoutId.NINE) -> Mode.PINYIN
         else -> Mode.DIRECT
     }
+
+    private fun chineseGateActive(): Boolean =
+        mode() == Mode.PINYIN && !engineSupportsChinese && composing.isNotEmpty()
+
+    internal fun chineseGateActiveForTest(): Boolean = chineseGateActive()
 
     private fun handleCommit(key: Key) {
         if (key.direct) {
@@ -906,7 +914,7 @@ class KeyboardController(
         }
         v.showKeyboard(layout, shifted, shiftState == ShiftState.LOCK, lang)
         val readings = expandedReadings()
-        v.showCandidates(candidates.map { it.word }, preeditText(), readings, selectedExpandedReadingIndex(readings))
+        v.showCandidates(candidates.map { it.word }, preeditText(), readings, selectedExpandedReadingIndex(readings), chineseGateActive())
     }
 
     internal fun shiftStateName(): String = shiftState.name

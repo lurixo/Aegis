@@ -123,6 +123,23 @@ class SettingsSlice1Test {
         assertEquals("DICT".repeat(400), File(dir, "aegis_dict.bin").readText())
     }
 
+    @Test fun installing_the_pack_flips_presence_and_unlocks_every_downloaded_override() {
+        ModelDownload.purgeDict(ctx.filesDir)
+        val dir = File(ctx.filesDir, "downloaded").apply { mkdirs() }
+        assertFalse("Chinese input is locked before the pack lands", ModelDownload.isDictDownloaded(ctx.filesDir))
+        val zip = File(dir, "pack.zip")
+        writePackZip(zip, "DICT".repeat(400), "T9".repeat(700), "JP".repeat(700))
+        assertEquals(ModelDownload.DICT_PACK_FILES.toSet(), ModelDownload.extractDictPack(zip, dir))
+        assertTrue("all three bins present flips isDictDownloaded true", ModelDownload.isDictDownloaded(ctx.filesDir))
+        ModelDownload.DICT_PACK_FILES.forEach { name ->
+            assertEquals(
+                "downloaded $name overrides the (now absent) bundled asset, so buildEngine loads Chinese",
+                File(dir, name).absolutePath,
+                EngineAssets.downloadedOverride(dir, name)?.absolutePath,
+            )
+        }
+    }
+
     @Test fun install_rejects_a_zip_whose_sha256_does_not_match() {
         ModelDownload.purgeDict(ctx.filesDir)
         val zip = ModelDownload.dictZipFile(ctx.filesDir)

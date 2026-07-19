@@ -7,9 +7,9 @@
     <string name="phrase_manager_title">Phrase Manager</string>
 
     <string name="setup_title">Aegis IME</string>
-    <string name="setup_summary">Offline Chinese / English input method. Built-in Pinyin engine (full Pinyin and T9), fuzzy Pinyin, abbreviated Pinyin, mixed Chinese/English input, English completion and correction, offline self-learning, and optional Wanxiang model enhancement. All input stays offline.</string>
+    <string name="setup_summary">Chinese / English input method. Self-built Pinyin engine (full Pinyin and T9), fuzzy Pinyin, abbreviated Pinyin, mixed Chinese/English input, English completion and correction, offline self-learning, and optional Wanxiang model enhancement. The Chinese dictionary is downloaded after install; once installed, all input runs offline.</string>
     <string name="setup_first_run_title">First use</string>
-    <string name="setup_first_run_body">Optional enhancement model and full dictionary downloads are available below. They are not required: the built-in seed dictionary and base grammar can already type offline. Download them later if you want broader or more accurate candidates.</string>
+    <string name="setup_first_run_body">Chinese input needs a one-time dictionary download. It starts automatically the first time you use the keyboard, and you can also start it from the dictionary settings below. English typing works offline right away. Downloaded data is stored locally only.</string>
     <string name="setup_first_run_ack">Got it</string>
     <string name="setup_steps_title">Setup steps</string>
     <string name="setup_enable_button">1 · Enable Aegis in system settings</string>
@@ -50,15 +50,19 @@
     <string name="gram_status_deleted">⚠ Enhanced grammar is not enabled (deleted; a loaded model is released automatically)</string>
 
     <string name="dict_card_title">Full dictionary pack (14 tables freq >= 1)</string>
-    <string name="dict_card_description">Optional full dictionary download (characters, base words, associations, sound corrections, polyphones, poetry, places, medicine, chemistry, drugs, notable names, variants, species, and personal names). The built-in high-frequency seed dictionary works offline without download; the full pack broadens Chinese candidate coverage. Stored locally only; input remains fully offline.</string>
+    <string name="dict_card_description">The Chinese dictionary is downloaded after install (SHA-256 verified). Chinese input stays locked until it finishes; English works offline without it. Stored locally only; after download, input runs fully offline.</string>
     <string name="dict_source_link">Dictionary source: amzxyz/rime-wanxiang ↗</string>
     <string name="dict_status_enabled">✅ Downloaded and enabled: full dictionary (about %1$d MB, local only; broader Chinese coverage loads automatically)</string>
-    <string name="dict_status_not_downloaded">⚠ Full dictionary is not downloaded - the built-in seed dictionary already works offline</string>
+    <string name="dict_status_not_downloaded">⚠ Chinese dictionary not downloaded — Chinese input is locked until download completes (English works offline)</string>
     <string name="dict_status_verifying_extracting">Verifying and extracting…</string>
     <string name="dict_status_install_failed">Verification or extraction failed (file may be corrupt, please retry)</string>
     <string name="dict_status_download_failed">Download failed</string>
     <string name="dict_status_update_current">Up to date, no update (full dictionary is already current)</string>
-    <string name="dict_status_deleted">⚠ Full dictionary deleted (built-in seed dictionary remains available)</string>
+    <string name="dict_status_deleted">⚠ Chinese dictionary deleted — Chinese input is locked until you download it again (English works offline)</string>
+    <string name="dict_gate_cta">Tap to download the Chinese dictionary</string>
+    <string name="dict_gate_downloading">Downloading dictionary…</string>
+    <string name="dict_gate_verifying">Verifying…</string>
+    <string name="dict_gate_failed">Download failed — tap to retry</string>
 
     <string name="fuzzy_card_title">Fuzzy Pinyin</string>
     <string name="fuzzy_master_title">Fuzzy Pinyin (master switch)</string>
@@ -211,7 +215,7 @@
     <string name="licenses_modified">Modified</string>
     <string name="licenses_footer">Full license texts are in THIRD_PARTY_LICENSES.md in the Aegis repository.</string>
     <string name="license_wanxiang_name">rime-wanxiang dictionaries</string>
-    <string name="license_wanxiang_note">The bundled seed and the downloadable full dictionary. Tones stripped, syllables concatenated, repacked into Aegis\'s binary format.</string>
+    <string name="license_wanxiang_note">The downloadable Chinese dictionary. Tones stripped, syllables concatenated, repacked into Aegis\'s binary format.</string>
     <string name="license_octagram_name">wanxiang octagram model</string>
     <string name="license_octagram_note">Optional context model for next-word ranking, fetched only on opt-in and not bundled. Used as published.</string>
     <string name="license_opencc_name">OpenCC conversion data</string>
