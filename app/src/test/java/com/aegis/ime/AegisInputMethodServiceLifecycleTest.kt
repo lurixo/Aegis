@@ -31,6 +31,7 @@ import com.aegis.ime.ime.EditPanelView
 import com.aegis.ime.ime.EmojiView
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
+import com.aegis.ime.ime.LayoutPanelView
 import com.aegis.ime.ime.SymbolsView
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
@@ -472,6 +473,7 @@ class AegisInputMethodServiceLifecycleTest {
             "emojiView" to EmojiView(f.service),
             "symbolsView" to SymbolsView(f.service),
             "editPanelView" to EditPanelView(f.service),
+            "layoutPanelView" to LayoutPanelView(f.service),
             "customSymbolView" to CustomSymbolPanel(f.service),
             "customOperatorView" to CustomSymbolPanel(f.service),
         )
@@ -515,6 +517,22 @@ class AegisInputMethodServiceLifecycleTest {
         } finally {
             RuntimeEnvironment.setQualifiers("w853dp-h388dp-land-hdpi")
         }
+    }
+
+    @Test fun a_same_editor_restart_keeps_the_layout_panel_open() {
+        val f = fixture()
+        f.service.javaClass.getDeclaredMethod("showLayoutPanel").apply { isAccessible = true }.invoke(f.service)
+        val panel = requireNotNull(cachedPanel(f.service, "layoutPanelView")) as LayoutPanelView
+        assertTrue(f.view.isPanelShowing(panel))
+        assertEquals("LAYOUT", f.service.transientStateForTest().panel)
+
+        f.service.onStartInput(f.info, true)
+        f.service.onStartInputView(f.info, true)
+
+        assertTrue(
+            "restore while the layout panel is showing must keep it open",
+            f.view.isPanelShowing(panel),
+        )
     }
 
     @Test fun anonymous_editor_restart_preserves_but_new_session_clears_synchronously() {

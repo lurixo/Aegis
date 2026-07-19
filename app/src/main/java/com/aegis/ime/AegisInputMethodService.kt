@@ -502,7 +502,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         when (restorablePanel) {
             RestorablePanel.EXPANDED_CANDIDATES -> view.showExpandedCandidates()
             RestorablePanel.EDIT -> editPanelView?.let(view::showPanel) ?: showEditPanel()
-            RestorablePanel.LAYOUT -> showLayoutPanel()
+            RestorablePanel.LAYOUT -> presentLayoutPanel()
             RestorablePanel.EMOJI -> emojiView?.let(view::showPanel) ?: showEmojiPanel()
             RestorablePanel.CLIPBOARD -> restoreClipboardPanel()
             RestorablePanel.SYMBOLS -> symbolsView?.let(view::showPanel) ?: showSymbolsPanel()
@@ -652,6 +652,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun showLayoutPanel() {
         val iv = inputView ?: return
         if (iv.isPanelShowing(layoutPanelView)) { iv.showPanel(null); return }
+        presentLayoutPanel()
+    }
+
+    private fun presentLayoutPanel() {
+        val iv = inputView ?: return
         val lp = layoutPanelView ?: LayoutPanelView(this).also {
             it.onPick = { choice ->
                 controller.applyLayoutChoice(choice)
