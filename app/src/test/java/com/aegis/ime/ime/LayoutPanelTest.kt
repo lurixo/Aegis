@@ -123,14 +123,24 @@ class LayoutPanelTest {
         assertTrue(found)
     }
 
-    @Test fun row_labels_use_the_exact_layout_names() {
+    @Test fun card_labels_use_the_exact_layout_names() {
         val panel = fixture().panel
-        assertEquals("全拼9键", panel.rowViewForTest(LayoutChoice.CN_NINE).text.toString())
-        assertEquals("全拼26键", panel.rowViewForTest(LayoutChoice.CN_ALPHA).text.toString())
-        assertEquals("英文26键", panel.rowViewForTest(LayoutChoice.EN_ALPHA).text.toString())
+        assertEquals("全拼9键", panel.cardViewForTest(LayoutChoice.CN_NINE).text.toString())
+        assertEquals("全拼26键", panel.cardViewForTest(LayoutChoice.CN_ALPHA).text.toString())
+        assertEquals("英文26键", panel.cardViewForTest(LayoutChoice.EN_ALPHA).text.toString())
     }
 
-    @Test fun each_row_pick_from_a_cn_start_sets_lang_layout_and_closes_the_panel() {
+    @Test fun three_cards_carry_the_badge_digits_and_glyphs() {
+        val panel = fixture().panel
+        assertEquals("9", panel.badgeDigitsForTest(LayoutChoice.CN_NINE))
+        assertEquals("26", panel.badgeDigitsForTest(LayoutChoice.CN_ALPHA))
+        assertEquals("26", panel.badgeDigitsForTest(LayoutChoice.EN_ALPHA))
+        assertEquals("拼", panel.iconCharForTest(LayoutChoice.CN_NINE))
+        assertEquals("拼", panel.iconCharForTest(LayoutChoice.CN_ALPHA))
+        assertEquals("EN", panel.iconCharForTest(LayoutChoice.EN_ALPHA))
+    }
+
+    @Test fun each_card_pick_from_a_cn_start_sets_lang_layout_and_closes_the_panel() {
         val expectations = listOf(
             Triple(LayoutChoice.CN_NINE, LayoutChoice.CN_NINE, LayoutId.NINE),
             Triple(LayoutChoice.CN_ALPHA, LayoutChoice.CN_ALPHA, LayoutId.ALPHA),
@@ -141,7 +151,7 @@ class LayoutPanelTest {
             assertEquals(LayoutChoice.CN_NINE, f.controller.currentLayoutChoice())
             f.open()
             assertTrue(f.input.isPanelShowing(f.panel))
-            f.panel.rowViewForTest(pick).performClick()
+            f.panel.cardViewForTest(pick).performClick()
             assertEquals(expectedChoice, f.controller.currentLayoutChoice())
             assertEquals(expectedLayout, f.controller.activeLayoutId())
             assertFalse(f.input.isPanelShowing(f.panel))
@@ -149,7 +159,7 @@ class LayoutPanelTest {
         }
     }
 
-    @Test fun each_row_pick_from_an_en_start_sets_lang_layout_and_closes_the_panel() {
+    @Test fun each_card_pick_from_an_en_start_sets_lang_layout_and_closes_the_panel() {
         val expectations = listOf(
             Triple(LayoutChoice.CN_NINE, LayoutChoice.CN_NINE, LayoutId.NINE),
             Triple(LayoutChoice.CN_ALPHA, LayoutChoice.CN_ALPHA, LayoutId.ALPHA),
@@ -160,7 +170,7 @@ class LayoutPanelTest {
             assertEquals(LayoutChoice.EN_ALPHA, f.controller.currentLayoutChoice())
             f.open()
             assertTrue(f.input.isPanelShowing(f.panel))
-            f.panel.rowViewForTest(pick).performClick()
+            f.panel.cardViewForTest(pick).performClick()
             assertEquals(expectedChoice, f.controller.currentLayoutChoice())
             assertEquals(expectedLayout, f.controller.activeLayoutId())
             assertFalse(f.input.isPanelShowing(f.panel))
@@ -171,7 +181,7 @@ class LayoutPanelTest {
         val f = fixture()
         f.open()
         assertHighlighted(f.panel, LayoutChoice.CN_NINE)
-        f.panel.rowViewForTest(LayoutChoice.EN_ALPHA).performClick()
+        f.panel.cardViewForTest(LayoutChoice.EN_ALPHA).performClick()
         f.open()
         assertHighlighted(f.panel, LayoutChoice.EN_ALPHA)
         f.input.showPanel(null)
@@ -183,19 +193,43 @@ class LayoutPanelTest {
 
     private fun assertHighlighted(panel: LayoutPanelView, active: LayoutChoice) {
         for (choice in LayoutChoice.entries) {
-            val row = panel.rowViewForTest(choice)
+            val card = panel.cardViewForTest(choice)
             if (choice == active) {
-                assertEquals(light.accentBottom, row.currentTextColor)
-                assertSame(Typeface.DEFAULT_BOLD, row.typeface)
-                assertTrue(panel.rowTintedForTest(choice))
-                assertTrue(panel.rowRadioOnForTest(choice))
+                assertEquals(light.accentBottom, card.currentTextColor)
+                assertSame(Typeface.DEFAULT_BOLD, card.typeface)
+                assertTrue(panel.cardActiveForTest(choice))
+                assertEquals(light.accentBottom, panel.iconTintForTest(choice))
             } else {
-                assertEquals(light.keyLabel, row.currentTextColor)
-                assertSame(Typeface.DEFAULT, row.typeface)
-                assertFalse(panel.rowTintedForTest(choice))
-                assertFalse(panel.rowRadioOnForTest(choice))
+                assertEquals(light.keyLabel, card.currentTextColor)
+                assertSame(Typeface.DEFAULT, card.typeface)
+                assertFalse(panel.cardActiveForTest(choice))
+                assertEquals(light.keyLabel, panel.iconTintForTest(choice))
             }
         }
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test fun the_active_card_paints_the_accent_green() {
+        val panel = LayoutPanelView(ctx).apply {
+            applyPalette(light)
+            setActiveChoice(LayoutChoice.CN_ALPHA)
+        }
+        val w = (360 * density).toInt()
+        val h = (240 * density).toInt()
+        panel.measure(
+            View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY),
+        )
+        panel.layout(0, 0, panel.measuredWidth, panel.measuredHeight)
+        val bitmap = Bitmap.createBitmap(panel.width, panel.height, Bitmap.Config.ARGB_8888)
+        panel.draw(Canvas(bitmap))
+        var accent = 0
+        for (y in 0 until bitmap.height) {
+            for (x in 0 until bitmap.width) {
+                if (bitmap.getPixel(x, y) == light.accentBottom) accent++
+            }
+        }
+        assertTrue(accent > 0)
     }
 
     @Test fun back_and_predictive_back_close_the_panel_without_changing_the_layout() {

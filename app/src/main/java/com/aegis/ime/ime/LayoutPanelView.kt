@@ -20,18 +20,18 @@ import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
-import android.view.ViewGroup
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
+import com.aegis.ime.ime.theme.ImeType
 
 enum class LayoutChoice { CN_NINE, CN_ALPHA, EN_ALPHA }
 
@@ -42,15 +42,21 @@ class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel
 
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
+    private fun sp(v: Float) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, v, resources.displayMetrics)
 
     private val TITLE_SP = 16f
+    private val ICON_BOX_DP = 46
+    private val ICON_STROKE_DP = 2f
+    private val ICON_RADIUS_DP = 9f
+    private val CN_CHAR_SP = 26f
+    private val EN_CHAR_SP = 16f
+    private val BADGE_SP = 11f
 
     private var palette = ImePalette.STATIC_LIGHT
     private var active = LayoutChoice.CN_NINE
     private val backIcon = GlyphDrawable(dp(16), 0.56f, 2f * density) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }
     private val titleBtn: TextView
-    private val rows: List<Row>
-    private val rowScroll: ScrollView
+    private val cards: List<Card>
 
     init {
         orientation = VERTICAL
@@ -77,24 +83,27 @@ class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel
         }
         addView(titleBar, LayoutParams(LayoutParams.MATCH_PARENT, dp(40)))
 
-        rows = listOf(
-            Row(LayoutChoice.CN_NINE, context.getString(R.string.layout_nine)),
-            Row(LayoutChoice.CN_ALPHA, context.getString(R.string.layout_alpha)),
-            Row(LayoutChoice.EN_ALPHA, context.getString(R.string.layout_en)),
+        cards = listOf(
+            Card(LayoutChoice.CN_NINE, context.getString(R.string.layout_nine), "拼", CN_CHAR_SP, "9"),
+            Card(LayoutChoice.CN_ALPHA, context.getString(R.string.layout_alpha), "拼", CN_CHAR_SP, "26"),
+            Card(LayoutChoice.EN_ALPHA, context.getString(R.string.layout_en), "EN", EN_CHAR_SP, "26"),
         )
-        val column = LinearLayout(context).apply {
+        val cardRow = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            setPadding(dp(8), 0, dp(8), 0)
+            for (card in cards) {
+                addView(card.view, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginStart = dp(4)
+                    marginEnd = dp(4)
+                })
+            }
+        }
+        val content = LinearLayout(context).apply {
             orientation = VERTICAL
-            setPadding(dp(8), dp(4), dp(8), dp(4))
-            for (row in rows) addView(row.view, LayoutParams(LayoutParams.MATCH_PARENT, dp(48)))
+            gravity = Gravity.CENTER_VERTICAL
+            addView(cardRow, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         }
-        rowScroll = ScrollView(context).apply {
-            isFillViewport = true
-            addView(
-                column,
-                ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
-            )
-        }
-        addView(rowScroll, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+        addView(content, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         restyle()
     }
 
@@ -113,52 +122,119 @@ class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel
     }
 
     private fun restyle() {
-        for (row in rows) row.applyStyle(row.choice == active)
+        for (card in cards) card.applyStyle(card.choice == active)
     }
 
-    override fun resetToDefault() {
-        rowScroll.scrollTo(0, 0)
-    }
+    override fun resetToDefault() {}
 
-    internal fun rowViewForTest(choice: LayoutChoice): TextView = row(choice).view
-    internal fun rowRadioOnForTest(choice: LayoutChoice): Boolean = row(choice).selected
-    internal fun rowTintedForTest(choice: LayoutChoice): Boolean = row(choice).view.background != null
+    internal fun cardViewForTest(choice: LayoutChoice): TextView = card(choice).view
+    internal fun cardActiveForTest(choice: LayoutChoice): Boolean = card(choice).active
+    internal fun iconTintForTest(choice: LayoutChoice): Int = card(choice).icon.tint
+    internal fun badgeDigitsForTest(choice: LayoutChoice): String = card(choice).icon.badge
+    internal fun iconCharForTest(choice: LayoutChoice): String = card(choice).icon.symbol
     internal fun titleButtonForTest(): TextView = titleBtn
 
-    private fun row(choice: LayoutChoice): Row = rows.first { it.choice == choice }
+    private fun card(choice: LayoutChoice): Card = cards.first { it.choice == choice }
 
-    private inner class Row(val choice: LayoutChoice, label: String) {
-        var selected = false
-        val radio = GlyphDrawable(dp(22), 0.42f, 2f * density) { c, p, x, y, s ->
-            Glyphs.drawRadio(c, p, x, y, s, on = selected)
-        }
+    private inner class Card(val choice: LayoutChoice, label: String, symbol: String, charSp: Float, badge: String) {
+        var active = false
+        val icon = CardIcon(symbol, charSp, badge)
         val view: TextView = TextView(context).apply {
             text = label
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), 0, dp(16), 0)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, TITLE_SP)
-            setCompoundDrawablesWithIntrinsicBounds(radio, null, null, null)
-            compoundDrawablePadding = dp(12)
+            gravity = Gravity.CENTER
+            setPadding(dp(6), dp(8), dp(6), dp(12))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
+            setCompoundDrawablesWithIntrinsicBounds(null, icon, null, null)
+            compoundDrawablePadding = dp(2)
             isClickable = true
             setOnClickListener { onPick(choice) }
         }
 
         fun applyStyle(isActive: Boolean) {
-            selected = isActive
+            active = isActive
             val tint = if (isActive) palette.accentBottom else palette.keyLabel
             view.setTextColor(tint)
             view.typeface = if (isActive) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-            radio.applyTint(tint)
-            view.background = if (isActive) {
-                GradientDrawable().apply {
-                    setColor(Motion.withAlpha(palette.accentBottom, 0x22))
-                    cornerRadius = ImeShapes.keyRadiusDp * density
-                }
-            } else {
-                null
+            icon.applyTint(tint)
+            icon.applyFill(palette.keySurface)
+            view.background = GradientDrawable().apply {
+                setColor(palette.keySurface)
+                cornerRadius = ImeShapes.cardRadiusDp * density
             }
-            Motion.applyTapFeedback(view, tint)
+            Motion.applyTapFeedback(view, tint, radiusDp = ImeShapes.cardRadiusDp)
         }
+    }
+
+    private inner class CardIcon(val symbol: String, charSp: Float, val badge: String) : Drawable() {
+        private val overflow = dp(8).toFloat()
+        private val boxSide = dp(ICON_BOX_DP).toFloat()
+        private val stroke = ICON_STROKE_DP * density
+        private val radius = ICON_RADIUS_DP * density
+        private val badgePadX = dp(3).toFloat()
+        private val badgePadY = dp(2).toFloat()
+        private val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeWidth = stroke; strokeJoin = Paint.Join.ROUND
+        }
+        private val charPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            typeface = Typeface.DEFAULT_BOLD; textSize = sp(charSp)
+        }
+        private val badgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            typeface = Typeface.DEFAULT_BOLD; textSize = sp(BADGE_SP)
+        }
+        private val badgeFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+        private val charInk = Rect()
+        private val badgeInk = Rect()
+        var tint = 0
+            private set
+
+        init {
+            charPaint.getTextBounds(symbol, 0, symbol.length, charInk)
+            badgePaint.getTextBounds(badge, 0, badge.length, badgeInk)
+        }
+
+        fun applyTint(color: Int) {
+            tint = color
+            boxPaint.color = color
+            charPaint.color = color
+            badgePaint.color = color
+            invalidateSelf()
+        }
+
+        fun applyFill(color: Int) {
+            badgeFill.color = color
+            invalidateSelf()
+        }
+
+        override fun getIntrinsicWidth() = (boxSide + overflow * 2f).toInt()
+        override fun getIntrinsicHeight() = (boxSide + overflow * 2f).toInt()
+
+        override fun draw(canvas: Canvas) {
+            val b = bounds
+            val inset = stroke / 2f
+            val left = b.left + overflow + inset
+            val top = b.top + overflow + inset
+            val right = b.left + overflow + boxSide - inset
+            val bottom = b.top + overflow + boxSide - inset
+            canvas.drawRoundRect(left, top, right, bottom, radius, radius, boxPaint)
+            canvas.drawText(
+                symbol,
+                (left + right) / 2f - charInk.exactCenterX(),
+                (top + bottom) / 2f - charInk.exactCenterY(),
+                charPaint,
+            )
+            val corner = radius * 0.2929f
+            val cx = right - corner
+            val cy = bottom - corner
+            val halfW = badgeInk.width() / 2f + badgePadX
+            val halfH = badgeInk.height() / 2f + badgePadY
+            canvas.drawRoundRect(cx - halfW, cy - halfH, cx + halfW, cy + halfH, halfH, halfH, badgeFill)
+            canvas.drawText(badge, cx - badgeInk.exactCenterX(), cy - badgeInk.exactCenterY(), badgePaint)
+        }
+
+        override fun setAlpha(alpha: Int) {}
+        override fun setColorFilter(colorFilter: ColorFilter?) {}
+        @Deprecated("deprecated in Drawable", ReplaceWith("PixelFormat.TRANSLUCENT"))
+        override fun getOpacity() = PixelFormat.TRANSLUCENT
     }
 
     private class GlyphDrawable(
