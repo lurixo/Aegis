@@ -55,6 +55,7 @@ class LossFixTest {
 
 
     @Test fun firstSyllableHomophonesCompleteWhenAlone() {
+        assumeTrue("dict asset present", dictFile.exists())
         val dict = BinaryDict.fromFile(dictFile)
         val he = dictSingles(dict, "he")
         assumeTrue("dict present with he homophones", he.size >= 8)
@@ -64,6 +65,7 @@ class LossFixTest {
     }
 
     @Test fun firstSyllableHomophonesStayCompleteInLongerBuffer() {
+        assumeTrue("dict asset present", dictFile.exists())
         val dict = BinaryDict.fromFile(dictFile)
         val he = dictSingles(dict, "he")
         assumeTrue("dict present with he homophones", he.size >= 8)
@@ -72,6 +74,7 @@ class LossFixTest {
     }
 
     @Test fun firstSyllableHomophonesCompleteInThreeSyllableBuffer() {
+        assumeTrue("dict asset present", dictFile.exists())
         val dict = BinaryDict.fromFile(dictFile)
         val gan = dictSingles(dict, "gan")
         assumeTrue("dict present with gan homophones", gan.size >= 8)
@@ -82,6 +85,7 @@ class LossFixTest {
 
 
     @Test fun everySyllablePositionExposesAllHomophones() {
+        assumeTrue("dict asset present", dictFile.exists())
         val dict = BinaryDict.fromFile(dictFile)
         val d = letterDecoder()
         assertEquals("syllable 0 = he → the dict's full he set", dictSingles(dict, "he"), d.homophonesAt("heshui", 0).toSet())
@@ -116,6 +120,7 @@ class LossFixTest {
 
 
     @Test fun ambiguousLeadingSyllablesAllReachable() {
+        assumeTrue("dict asset present", dictFile.exists())
         val dict = BinaryDict.fromFile(dictFile)
         val d = letterDecoder()
 
@@ -134,6 +139,7 @@ class LossFixTest {
 
 
     @Test fun singleCharLayerIsUncapped_mutationGuard() {
+        assumeTrue("dict asset present", dictFile.exists())
         val dict = BinaryDict.fromFile(dictFile)
         val he = dictSingles(dict, "he")
         assumeTrue("full dict present", he.size > 8)
@@ -156,6 +162,7 @@ class LossFixTest {
 
 
     @Test fun t9PathAlsoLossless() {
+        assumeTrue("t9 asset present", t9File.exists())
         val t9 = BinaryDict.fromFile(t9File)
         val d = t9Decoder()
         val digits = "437484"

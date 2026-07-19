@@ -181,6 +181,10 @@ class PinyinDecoderUserWordTest {
     }
 
     @Test fun exact_pair_beyond_free_edge_cap_uses_dictionary_frequency_on_letters_and_t9() {
+        org.junit.Assume.assumeTrue(
+            "production dict + t9 assets present",
+            File("src/main/assets/aegis_dict.bin").exists() && File("src/main/assets/aegis_t9.bin").exists(),
+        )
         val reading = "yizhi"
         val digits = T9Pinyin.toT9(reading)
         val target = "义肢"

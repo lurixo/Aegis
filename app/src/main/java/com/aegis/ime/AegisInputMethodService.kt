@@ -150,6 +150,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var inputSessionActive = false
     private var resetControllerOnNextInputView = false
     private var restorablePanel: RestorablePanel? = null
+    private var autoDictDownloadTried = false
 
     private var panelCacheDensityDpi = 0
     private var clipboardRecreationState: ClipboardView.RecreationState? = null
@@ -579,6 +580,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         applyPaletteEverywhere()
         if (targetMatches && canRestoreCurrentSession()) restoreTransientUi()
+        if (!autoDictDownloadTried && !com.aegis.ime.dict.ModelDownload.isDictDownloaded(filesDir)) {
+            autoDictDownloadTried = true
+            if (!com.aegis.ime.ui.DictDownloadWork.snapshot(this).downloading) {
+                com.aegis.ime.ui.DictDownloadWork.start(this)
+            }
+        }
     }
 
     private fun buildBackCallback(): OnBackInvokedCallback = OnBackInvokedCallback {

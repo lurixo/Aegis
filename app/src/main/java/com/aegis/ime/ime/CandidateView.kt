@@ -38,9 +38,12 @@ class CandidateView(context: Context) : View(context) {
     var onExpand: () -> Unit = {}
     var onCollapse: () -> Unit = {}
     var onCollapseExpanded: () -> Unit = {}
+    var onDictGate: (() -> Unit)? = null
 
     private var items: List<String> = emptyList()
     private var composing: String = ""
+    private var gateActive = false
+    private var gateLabel = ""
     private var expanded = false
     private val hitRects = ArrayList<RectF>()
     private var hitCount = 0
@@ -91,6 +94,10 @@ class CandidateView(context: Context) : View(context) {
         textSize = sp(18f)
         typeface = android.graphics.Typeface.DEFAULT_BOLD
     }
+    private val gatePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = palette.candidateFirst
+        textSize = sp(18f)
+    }
     private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = palette.icon
         style = Paint.Style.STROKE
@@ -109,21 +116,29 @@ class CandidateView(context: Context) : View(context) {
         palette = p
         textPaint.color = p.candidateText
         firstPaint.color = p.candidateFirst
+        gatePaint.color = p.candidateFirst
         iconPaint.color = p.icon
         capsulePaint.color = p.keySurface
         sepPaint.color = p.separator
         invalidate()
     }
 
-    fun setContent(candidates: List<String>, composingText: String) {
-        if (candidates == items && composingText == composing) return
+    fun setContent(candidates: List<String>, composingText: String, gate: Boolean = false) {
+        if (candidates == items && composingText == composing && gate == gateActive) return
         val roleChanged = stripRole(items.isEmpty(), composing) != stripRole(candidates.isEmpty(), composingText)
+        gateActive = gate
         if (roleChanged) {
             contentTransitions++
             Motion.coverThrough(this, palette.keyboardBg) { applyContent(candidates, composingText) }
         } else {
             applyContent(candidates, composingText)
         }
+    }
+
+    fun setGateStatus(text: String) {
+        if (text == gateLabel) return
+        gateLabel = text
+        invalidate()
     }
 
     private fun applyContent(candidates: List<String>, composingText: String) {
@@ -197,7 +212,10 @@ class CandidateView(context: Context) : View(context) {
         val baseline = height / 2f - (textPaint.descent() + textPaint.ascent()) / 2
 
         if (items.isEmpty()) {
-            if (isFunctionMode()) drawFunctions(canvas, baseline)
+            when {
+                gateActive -> drawGate(canvas, baseline)
+                isFunctionMode() -> drawFunctions(canvas, baseline)
+            }
             return
         }
         scrollX = scrollX.coerceIn(0f, maxScroll())
@@ -221,6 +239,13 @@ class CandidateView(context: Context) : View(context) {
         drawPressLayer(canvas, PressTarget(PressKind.EXPAND), visibleW, 4f * density, width.toFloat(), height - 4f * density)
         val chCx = visibleW + expandW / 2f; val chCy = height / 2f; val chS = 9f * density * CHEVRON_SCALE
         Glyphs.drawChevron(canvas, iconPaint, chCx, chCy, chS, down = !expanded)
+    }
+
+    private fun drawGate(canvas: Canvas, baseline: Float) {
+        val text = gateLabel
+        if (text.isEmpty()) return
+        val x = ((width - gatePaint.measureText(text)) / 2f).coerceAtLeast(padding)
+        canvas.drawText(text, x, baseline, gatePaint)
     }
 
     private fun drawFunctions(canvas: Canvas, baseline: Float) {
@@ -325,6 +350,7 @@ class CandidateView(context: Context) : View(context) {
                 releasePressedTarget()
                 if (dragging) { dragging = false; if (fling.fling(scrollX, maxScroll())) postInvalidateOnAnimation(); return true }
                 if (fling.stopArmed) return true
+                if (isGateMode()) { performClick(); onDictGate?.invoke(); return true }
                 if (isFunctionMode()) {
                     val upTarget = toolbarTargetAt(event.x, event.y)
                     if (downTarget == upTarget) {
@@ -354,6 +380,10 @@ class CandidateView(context: Context) : View(context) {
     }
 
     private fun isFunctionMode(): Boolean = items.isEmpty() && composing.isEmpty()
+
+    private fun isGateMode(): Boolean = gateActive && items.isEmpty()
+
+    internal fun gateActiveForTest(): Boolean = gateActive
 
     private fun targetAt(x: Float, y: Float): PressTarget? {
         if (isFunctionMode()) {

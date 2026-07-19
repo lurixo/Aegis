@@ -100,7 +100,7 @@ class EngineAssetsTest {
         f.writeText("pack")
         val present = EngineAssets.signature(dir)
         assertTrue(f.delete())
-        assertTrue("removing a pack (删除) must reload back to the bundled asset", EngineAssets.needsReload(present, EngineAssets.signature(dir)))
+        assertTrue("removing a pack (删除) must reload (Chinese locks until re-download)", EngineAssets.needsReload(present, EngineAssets.signature(dir)))
         dir.deleteRecursively()
     }
 }
