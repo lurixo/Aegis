@@ -42,9 +42,9 @@ object LmBuilder {
                     if (line.isEmpty() || line.startsWith('#')) continue
                     val tab = line.indexOf('\t'); if (tab < 0) continue
                     val word = line.substring(0, tab)
-                    val freq = line.lastIndexOf('\t').let { i ->
+                    val freq = (line.lastIndexOf('\t').let { i ->
                         if (i > tab) line.substring(i + 1).trim().toLongOrNull() else null
-                    } ?: 1L
+                    } ?: 1L).coerceAtLeast(1L)
                     val cps = word.codePoints().toArray()
                     for (cp in cps) uni.merge(cp, freq, Long::plus)
                     for (i in 0 until cps.size - 1) bi.merge(pack(cps[i], cps[i + 1]), freq, Long::plus)

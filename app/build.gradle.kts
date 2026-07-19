@@ -63,6 +63,7 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.ui.test.junit4)
     testImplementation(libs.androidx.ui.test.manifest)
+    testImplementation(project(":tools"))
 
     constraints {
         implementation(libs.androidx.lifecycle.runtime.compose) {

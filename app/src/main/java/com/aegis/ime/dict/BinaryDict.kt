@@ -17,6 +17,7 @@ package com.aegis.ime.dict
 
 import android.content.Context
 import java.io.File
+import java.io.IOException
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -309,8 +310,13 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
         fun fromAssets(context: Context, assetName: String): BinaryDict {
             val outFile = File(context.filesDir, assetName)
             if (!outFile.exists() || outFile.length() == 0L) {
+                val tmp = File(context.filesDir, "$assetName.part")
                 context.assets.open(assetName).use { input ->
-                    outFile.outputStream().use { input.copyTo(it) }
+                    tmp.outputStream().use { input.copyTo(it) }
+                }
+                if (!tmp.renameTo(outFile)) {
+                    tmp.delete()
+                    throw IOException("failed to install $assetName")
                 }
             }
             return fromFile(outFile)
