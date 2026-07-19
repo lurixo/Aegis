@@ -109,6 +109,8 @@
     <string name="layout_card_description">中文默认使用哪种键盘（英文始终为 26键）。</string>
     <string name="layout_nine">全拼9键</string>
     <string name="layout_alpha">全拼26键</string>
+    <string name="layout_en">英文26键</string>
+    <string name="layout_panel_title">键盘布局</string>
 
     <string name="user_dict_title">学习词库</string>
     <string name="user_dict_description">Aegis 会离线学习你常用的词与下一个词，存为【学习词库】（只存本机）。这与你下载的【主词库】（拼音大词库）是两份独立的库 —— 这里的导入/覆盖只动学习词库，绝不影响主词库。导入立即生效。</string>

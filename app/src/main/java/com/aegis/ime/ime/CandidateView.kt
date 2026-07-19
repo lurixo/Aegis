@@ -29,7 +29,7 @@ import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 import kotlin.math.abs
 
-enum class BarFunction { BRAND, EMOJI, EDIT, CLIPBOARD }
+enum class BarFunction { BRAND, LAYOUT, EMOJI, EDIT, CLIPBOARD }
 
 class CandidateView(context: Context) : View(context) {
 
@@ -271,6 +271,7 @@ class CandidateView(context: Context) : View(context) {
     private fun drawIcon(c: Canvas, f: BarFunction, cx: Float, cy: Float, s: Float) {
         when (f) {
             BarFunction.BRAND -> Glyphs.drawBrandWeldedA(c, iconPaint, cx, cy, s)
+            BarFunction.LAYOUT -> Glyphs.drawKeyboard(c, iconPaint, cx, cy, s)
             BarFunction.EMOJI -> Glyphs.drawEmoji(c, iconPaint, cx, cy, s)
             BarFunction.EDIT -> Glyphs.drawEditCaret(c, iconPaint, cx, cy, s)
             BarFunction.CLIPBOARD -> Glyphs.drawClipboard(c, iconPaint, cx, cy, s)

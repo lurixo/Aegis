@@ -116,6 +116,7 @@ class Debug12FixATest {
             c.onShowEmoji = recordOpen
             c.onShowClipboard = recordOpen
             c.onShowEdit = recordOpen
+            c.onShowLayout = recordOpen
             c.onShowSettings = recordOpen
 
             c.onKey(nine())

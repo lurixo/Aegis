@@ -107,6 +107,7 @@ class KeyboardController(
     var onShowEmoji: () -> Unit = {}
     var onShowClipboard: () -> Unit = {}
     var onShowEdit: () -> Unit = {}
+    var onShowLayout: () -> Unit = {}
     var onShowSymbols: () -> Unit = {}
     var onShowSettings: () -> Unit = {}
     var onShowCustomSymbols: () -> Unit = {}
@@ -263,10 +264,33 @@ class KeyboardController(
         }
         when (f) {
             BarFunction.BRAND -> onShowSettings()
+            BarFunction.LAYOUT -> onShowLayout()
             BarFunction.EMOJI -> onShowEmoji()
             BarFunction.EDIT -> onShowEdit()
             BarFunction.CLIPBOARD -> onShowClipboard()
         }
+    }
+
+    fun currentLayoutChoice(): LayoutChoice = when {
+        lang == Lang.EN -> LayoutChoice.EN_ALPHA
+        cnLayout == LayoutId.NINE -> LayoutChoice.CN_NINE
+        else -> LayoutChoice.CN_ALPHA
+    }
+
+    fun applyLayoutChoice(choice: LayoutChoice) {
+        expirePreeditChoiceUndo()
+        flushComposing()
+        shiftState = ShiftState.OFF
+        if (choice == LayoutChoice.EN_ALPHA) {
+            lang = Lang.EN
+            layoutId = LayoutId.ALPHA
+        } else {
+            lang = Lang.CN
+            cnLayout = if (choice == LayoutChoice.CN_NINE) LayoutId.NINE else LayoutId.ALPHA
+            layoutId = cnLayout
+        }
+        refreshCandidates()
+        render()
     }
 
     private fun handlePickReading(key: Key) {

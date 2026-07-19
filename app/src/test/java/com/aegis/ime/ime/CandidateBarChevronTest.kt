@@ -358,12 +358,12 @@ class CandidateBarChevronTest {
         assertTrue(grid.selectionContentVisibleForTest())
     }
 
-    @Test fun five_idle_toolbar_controls_have_equal_centered_bounds_and_actions() {
+    @Test fun six_idle_toolbar_controls_have_equal_centered_bounds_and_actions() {
         for (widthDp in listOf(250, 320, 480)) {
             val view = idleBar(widthDp)
             val controls = view.toolbarControlBoundsForTest()
             val capsule = view.toolbarCapsuleBoundsForTest()
-            assertEquals(5, controls.size)
+            assertEquals(6, controls.size)
             assertEquals(capsule.left, controls.first().left, 0.01f)
             assertEquals(capsule.right, controls.last().right, 0.01f)
             assertTrue(controls.all { it.top == capsule.top && it.bottom == capsule.bottom })
@@ -382,7 +382,7 @@ class CandidateBarChevronTest {
             view.dispatchTouchEvent(MotionEvent.obtain(0, index * 20L, MotionEvent.ACTION_DOWN, rect.centerX(), rect.centerY(), 0))
             view.dispatchTouchEvent(MotionEvent.obtain(0, index * 20L + 10L, MotionEvent.ACTION_UP, rect.centerX(), rect.centerY(), 0))
         }
-        assertEquals(listOf("BRAND", "EMOJI", "EDIT", "CLIPBOARD", "COLLAPSE"), actions)
+        assertEquals(listOf("BRAND", "LAYOUT", "EMOJI", "EDIT", "CLIPBOARD", "COLLAPSE"), actions)
     }
 
     @Test fun idle_toolbar_end_targets_fill_only_the_rounded_capsule() {

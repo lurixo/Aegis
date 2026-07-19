@@ -46,6 +46,7 @@ import com.aegis.ime.ime.GraphemeText
 import com.aegis.ime.ime.ImeHost
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
+import com.aegis.ime.ime.LayoutPanelView
 import com.aegis.ime.ime.SelectionMath
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.SymbolsView
@@ -85,6 +86,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var clipboardView: ClipboardView? = null
     private var symbolsView: SymbolsView? = null
     private var editPanelView: EditPanelView? = null
+    private var layoutPanelView: LayoutPanelView? = null
     private var customSymbolView: CustomSymbolPanel? = null
     private val customSymbolStore by lazy { CustomSymbolStore(getSharedPreferences("aegis", MODE_PRIVATE)) }
     private var customOperatorView: CustomSymbolPanel? = null
@@ -128,7 +130,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private enum class RestorablePanel {
-        EXPANDED_CANDIDATES, EDIT, EMOJI, CLIPBOARD, SYMBOLS, CUSTOM_SYMBOLS, CUSTOM_OPERATORS,
+        EXPANDED_CANDIDATES, EDIT, LAYOUT, EMOJI, CLIPBOARD, SYMBOLS, CUSTOM_SYMBOLS, CUSTOM_OPERATORS,
     }
 
     internal data class TransientStateSnapshot(
@@ -171,6 +173,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         clipboardView?.applyPalette(imePalette)
         symbolsView?.applyPalette(imePalette)
         editPanelView?.applyPalette(imePalette)
+        layoutPanelView?.applyPalette(imePalette)
         customSymbolView?.applyPalette(imePalette)
         customOperatorView?.applyPalette(imePalette)
     }
@@ -252,6 +255,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.onShowEmoji = { showEmojiPanel() }
         controller.onShowClipboard = { showClipboardPanel() }
         controller.onShowEdit = { showEditPanel() }
+        controller.onShowLayout = { showLayoutPanel() }
         controller.onShowSymbols = { showSymbolsPanel() }
         controller.onShowSettings = { openSettings() }
         controller.onShowCustomSymbols = { showCustomSymbolPanel() }
@@ -459,6 +463,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         panel == null -> null
         view.isExpandedCandidatePanel(panel) -> RestorablePanel.EXPANDED_CANDIDATES
         panel === editPanelView -> RestorablePanel.EDIT
+        panel === layoutPanelView -> RestorablePanel.LAYOUT
         panel === emojiView -> RestorablePanel.EMOJI
         panel === clipboardView -> RestorablePanel.CLIPBOARD
         panel === symbolsView -> RestorablePanel.SYMBOLS
@@ -477,6 +482,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         clipboardView = null
         symbolsView = null
         editPanelView = null
+        layoutPanelView = null
         customSymbolView = null
         customOperatorView = null
         panelCacheDensityDpi = nextDensityDpi
@@ -496,6 +502,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         when (restorablePanel) {
             RestorablePanel.EXPANDED_CANDIDATES -> view.showExpandedCandidates()
             RestorablePanel.EDIT -> editPanelView?.let(view::showPanel) ?: showEditPanel()
+            RestorablePanel.LAYOUT -> showLayoutPanel()
             RestorablePanel.EMOJI -> emojiView?.let(view::showPanel) ?: showEmojiPanel()
             RestorablePanel.CLIPBOARD -> restoreClipboardPanel()
             RestorablePanel.SYMBOLS -> symbolsView?.let(view::showPanel) ?: showSymbolsPanel()
@@ -640,6 +647,22 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         ep.setSelecting(false)
         ep.setHasSelection(!currentInputConnection?.getSelectedText(0).isNullOrEmpty())
         iv.showPanel(ep)
+    }
+
+    private fun showLayoutPanel() {
+        val iv = inputView ?: return
+        if (iv.isPanelShowing(layoutPanelView)) { iv.showPanel(null); return }
+        val lp = layoutPanelView ?: LayoutPanelView(this).also {
+            it.onPick = { choice ->
+                controller.applyLayoutChoice(choice)
+                inputView?.showPanel(null)
+            }
+            it.onBack = { inputView?.showPanel(null) }
+            layoutPanelView = it
+        }
+        lp.applyPalette(imePalette)
+        lp.setActiveChoice(controller.currentLayoutChoice())
+        iv.showPanel(lp)
     }
 
     private fun handleEdit(action: EditAction) {
