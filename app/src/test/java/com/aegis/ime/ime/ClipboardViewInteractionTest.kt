@@ -23,9 +23,11 @@ import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.os.Looper
+import android.provider.Settings
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -44,6 +46,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.time.Duration
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -158,13 +161,17 @@ class ClipboardViewInteractionTest {
         assertTrue(bitmap.getPixel(left, centerY) != pal.keySurface)
         assertTrue(bitmap.getPixel(left + box - 1, centerY) != pal.keySurface)
     }
-    private fun swipeActions(root: View, descriptions: List<String>): List<View> =
-        allViews(root).filterIsInstance<ViewGroup>().map { group ->
-            (0 until group.childCount).map(group::getChildAt)
-        }.single { children -> children.map { it.contentDescription?.toString() } == descriptions }
+    private fun headerOf(v: ClipboardView, text: String): View = bodyOf(v, text).parent as View
+
+    private fun swipeActions(v: ClipboardView, text: String): List<View> {
+        val strip = (headerOf(v, text).parent as ViewGroup).getChildAt(0) as ViewGroup
+        return (0 until strip.childCount).map(strip::getChildAt)
+    }
+
+    private fun flushMotion() = shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
 
     private fun assertSwipeActionStrip(v: ClipboardView, text: String, descriptions: List<String>): List<View> {
-        val actions = swipeActions(v, descriptions)
+        val actions = swipeActions(v, text)
         val size = dp(44)
         val gap = dp(4)
         val strip = actions.first().parent as View
@@ -206,12 +213,14 @@ class ClipboardViewInteractionTest {
         assertNull("a left swipe must NOT 上屏", picked)
     }
 
-    @Test fun a_SHORT_left_swipe_on_a_clipboard_card_still_reveals_not_commits() {
+    @Test fun a_SHORT_left_swipe_on_a_clipboard_card_snaps_back_and_never_commits() {
         var picked: String? = null
         val v = clipView(listOf("第一条", "第二条")).apply { onPick = { picked = it } }
         layout(v)
         leftSwipe(bodyOf(v, "第一条"), dx = 22f)
-        assertEquals("even a short left swipe reveals", "第一条", v.swipeRevealedForTest())
+        flushMotion()
+        assertNull("a sub-midpoint left swipe settles back closed", v.swipeRevealedForTest())
+        assertEquals(0f, headerOf(v, "第一条").translationX, 0f)
         assertNull("a short left swipe must NOT 上屏", picked)
     }
 
@@ -224,12 +233,14 @@ class ClipboardViewInteractionTest {
         assertNull(picked)
     }
 
-    @Test fun a_SHORT_left_swipe_on_a_phrase_card_still_reveals_not_commits() {
+    @Test fun a_SHORT_left_swipe_on_a_phrase_card_snaps_back_and_never_commits() {
         var picked: String? = null
         val v = phraseView(listOf("你好", "在吗")).apply { onPick = { picked = it } }
         layout(v)
         leftSwipe(bodyOf(v, "你好"), dx = 22f)
-        assertEquals("你好", v.swipeRevealedForTest())
+        flushMotion()
+        assertNull(v.swipeRevealedForTest())
+        assertEquals(0f, headerOf(v, "你好").translationX, 0f)
         assertNull(picked)
     }
 
@@ -255,6 +266,170 @@ class ClipboardViewInteractionTest {
         send(body, MotionEvent.ACTION_UP, 40f, 212f, 32)
         assertNull("a vertical drag does not reveal", v.swipeRevealedForTest())
         assertNull("a vertical drag does not 上屏", picked)
+    }
+
+    @Test fun closed_row_swipe_tracks_the_finger_and_clamps_to_the_strip_width() {
+        val v = clipView(listOf("第一条", "第二条"))
+        layout(v)
+        val body = bodyOf(v, "第一条")
+        val header = headerOf(v, "第一条")
+        send(body, MotionEvent.ACTION_DOWN, 320f, 12f, 0)
+        send(body, MotionEvent.ACTION_MOVE, 260f, 12f, 16)
+        assertEquals(-60f, header.translationX, 0f)
+        send(body, MotionEvent.ACTION_MOVE, 100f, 12f, 32)
+        assertEquals(-dp(144).toFloat(), header.translationX, 0f)
+        send(body, MotionEvent.ACTION_MOVE, 400f, 12f, 48)
+        assertEquals(0f, header.translationX, 0f)
+        send(body, MotionEvent.ACTION_UP, 400f, 12f, 64)
+        flushMotion()
+        assertEquals(0f, header.translationX, 0f)
+        assertNull(v.swipeRevealedForTest())
+    }
+
+    @Test fun release_past_half_settles_revealed_with_translation_animation() {
+        Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        val v = clipView(listOf("第一条", "第二条"))
+        val activity = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            activity.get().setContentView(v)
+            layout(v)
+            val body = bodyOf(v, "第一条")
+            val header = headerOf(v, "第一条")
+            send(body, MotionEvent.ACTION_DOWN, 320f, 12f, 0)
+            send(body, MotionEvent.ACTION_MOVE, 230f, 12f, 16)
+            send(body, MotionEvent.ACTION_UP, 230f, 12f, 32)
+            assertEquals("bookkeeping updates on release", "第一条", v.swipeRevealedForTest())
+            assertEquals("the settle starts from the drag position", -90f, header.translationX, 0f)
+            flushMotion()
+            assertEquals(-dp(144).toFloat(), header.translationX, 0f)
+            assertEquals(1f, header.alpha, 0f)
+            assertTrue("the settled row is not rebuilt", header === headerOf(v, "第一条"))
+            v.refresh()
+            layout(v)
+            assertEquals("a later rebuild pins the identical position", -dp(144).toFloat(), headerOf(v, "第一条").translationX, 0f)
+        } finally {
+            activity.pause().stop().destroy()
+        }
+    }
+
+    @Test fun release_short_of_half_settles_closed() {
+        val v = clipView(listOf("第一条", "第二条"))
+        layout(v)
+        val body = bodyOf(v, "第一条")
+        val header = headerOf(v, "第一条")
+        send(body, MotionEvent.ACTION_DOWN, 320f, 12f, 0)
+        send(body, MotionEvent.ACTION_MOVE, 250f, 12f, 16)
+        send(body, MotionEvent.ACTION_UP, 250f, 12f, 32)
+        flushMotion()
+        assertEquals(0f, header.translationX, 0f)
+        assertNull(v.swipeRevealedForTest())
+    }
+
+    @Test fun revealed_row_rightward_drag_tracks_and_settles_closed() {
+        val v = clipView(listOf("第一条", "第二条"))
+        layout(v)
+        val body = bodyOf(v, "第一条")
+        val header = headerOf(v, "第一条")
+        leftSwipe(body, dx = 200f)
+        flushMotion()
+        assertEquals("第一条", v.swipeRevealedForTest())
+        assertEquals(-dp(144).toFloat(), header.translationX, 0f)
+        send(body, MotionEvent.ACTION_DOWN, 100f, 12f, 0)
+        send(body, MotionEvent.ACTION_MOVE, 180f, 12f, 16)
+        assertEquals(-dp(144) + 80f, header.translationX, 0f)
+        send(body, MotionEvent.ACTION_MOVE, 220f, 12f, 32)
+        send(body, MotionEvent.ACTION_UP, 220f, 12f, 48)
+        flushMotion()
+        assertEquals(0f, header.translationX, 0f)
+        assertNull(v.swipeRevealedForTest())
+        assertTrue("the closed row is not rebuilt", body === bodyOf(v, "第一条"))
+    }
+
+    @Test fun vertical_drag_never_translates_the_header() {
+        val v = clipView(listOf("第一条", "第二条"))
+        layout(v)
+        val body = bodyOf(v, "第一条")
+        val header = headerOf(v, "第一条")
+        send(body, MotionEvent.ACTION_DOWN, 320f, 12f, 0)
+        send(body, MotionEvent.ACTION_MOVE, 320f, 112f, 16)
+        assertEquals(0f, header.translationX, 0f)
+        send(body, MotionEvent.ACTION_MOVE, 300f, 312f, 32)
+        assertEquals(0f, header.translationX, 0f)
+        send(body, MotionEvent.ACTION_UP, 300f, 312f, 48)
+        flushMotion()
+        assertEquals(0f, header.translationX, 0f)
+        assertNull(v.swipeRevealedForTest())
+    }
+
+    @Test fun phrase_horizontal_lock_cancels_the_pending_long_press_drag() {
+        val v = phraseView(listOf("你好", "在吗"))
+        layout(v)
+        val body = bodyOf(v, "你好")
+        val header = headerOf(v, "你好")
+        send(body, MotionEvent.ACTION_DOWN, 320f, 12f, 0)
+        send(body, MotionEvent.ACTION_MOVE, 250f, 12f, 16)
+        assertEquals(-70f, header.translationX, 0f)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ViewConfiguration.getLongPressTimeout() + 100L))
+        assertFalse("a locked-in swipe never morphs into drag", v.isDraggingForTest())
+        send(body, MotionEvent.ACTION_MOVE, 120f, 12f, 32)
+        send(body, MotionEvent.ACTION_UP, 120f, 12f, 48)
+        flushMotion()
+        assertFalse(v.isDraggingForTest())
+        assertEquals("你好", v.swipeRevealedForTest())
+        assertEquals(-dp(192).toFloat(), header.translationX, 0f)
+    }
+
+    @Test fun stationary_phrase_hold_still_starts_drag_reorder() {
+        val v = phraseView(listOf("你好", "在吗"))
+        layout(v)
+        val body = bodyOf(v, "你好")
+        send(body, MotionEvent.ACTION_DOWN, 320f, 12f, 0)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ViewConfiguration.getLongPressTimeout() + 100L))
+        assertTrue("a stationary hold still enters drag-reorder", v.isDraggingForTest())
+        send(body, MotionEvent.ACTION_CANCEL, 320f, 12f, 16)
+        assertFalse(v.isDraggingForTest())
+        assertEquals(0f, headerOf(v, "你好").translationX, 0f)
+    }
+
+    @Test fun covered_strip_actions_stay_untappable_until_the_row_is_revealed() {
+        var picked: String? = null
+        val adds = ArrayList<List<String>>()
+        val v = clipView(listOf("第一条")).apply {
+            onPick = { picked = it }
+            onAddCategoryThenAdd = { adds += it }
+        }
+        val activity = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            activity.get().setContentView(v)
+            layout(v)
+            val plus = allViews(v).single { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_add_phrase) }
+            rootTap(v, plus)
+            assertEquals("a tap over the covered strip lands on the row body", "第一条", picked)
+            assertTrue(adds.isEmpty())
+            picked = null
+            rootSwipe(v, bodyOf(v, "第一条"), -200f)
+            flushMotion()
+            assertEquals("第一条", v.swipeRevealedForTest())
+            rootTap(v, plus)
+            assertEquals(listOf(listOf("第一条")), adds)
+            assertNull(picked)
+        } finally {
+            activity.pause().stop().destroy()
+        }
+    }
+
+    @Test fun revealing_a_second_row_closes_the_previously_revealed_row() {
+        val v = clipView(listOf("第一条", "第二条"))
+        layout(v)
+        leftSwipe(bodyOf(v, "第一条"), dx = 200f)
+        flushMotion()
+        assertEquals("第一条", v.swipeRevealedForTest())
+        leftSwipe(bodyOf(v, "第二条"), dx = 200f)
+        flushMotion()
+        assertEquals("第二条", v.swipeRevealedForTest())
+        layout(v)
+        assertEquals(0f, headerOf(v, "第一条").translationX, 0f)
+        assertEquals(-dp(144).toFloat(), headerOf(v, "第二条").translationX, 0f)
     }
 
     @Test fun refresh_renders_new_history_items_without_reopening_panel() {
@@ -324,7 +499,7 @@ class ClipboardViewInteractionTest {
         for (width in listOf(320, 360)) {
             val v = phraseView(listOf("你好", "在吗"))
             layout(v, width)
-            rootSwipe(v, bodyOf(v, "你好"), -80f)
+            rootSwipe(v, bodyOf(v, "你好"), -200f)
             layout(v, width)
             assertEquals("你好", v.swipeRevealedForTest())
             val swipeActions = assertSwipeActionStrip(
@@ -343,7 +518,7 @@ class ClipboardViewInteractionTest {
                 assertTrue(actionX + action.width / 2f <= v.width)
             }
             assertTrue(actionButtons(v).isEmpty())
-            rootSwipe(v, swipeActions.last(), 80f)
+            rootSwipe(v, swipeActions.last(), 200f)
             assertNull(v.swipeRevealedForTest())
             layout(v, width)
             val expand = allViews(v).first { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_expand) }

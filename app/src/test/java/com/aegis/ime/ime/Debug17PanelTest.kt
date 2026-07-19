@@ -80,14 +80,15 @@ class Debug17PanelTest {
         return v.performLongClick()
     }
     private fun dp(value: Int): Int = (value * ctx.resources.displayMetrics.density).toInt()
-    private fun swipeActions(root: View, descriptions: List<String>): List<View> =
-        allViews(root).filterIsInstance<ViewGroup>().map { group ->
-            (0 until group.childCount).map(group::getChildAt)
-        }.single { children -> children.map { it.contentDescription?.toString() } == descriptions }
+    private fun swipeActions(v: ClipboardView, text: String): List<View> {
+        val body = textViews(v).first { it.text?.toString() == text }
+        val strip = ((body.parent as View).parent as ViewGroup).getChildAt(0) as ViewGroup
+        return (0 until strip.childCount).map(strip::getChildAt)
+    }
 
     private fun assertSwipeStrip(v: ClipboardView, text: String, descriptions: List<String>) {
         layout(v)
-        val actions = swipeActions(v, descriptions)
+        val actions = swipeActions(v, text)
         val strip = actions.first().parent as View
         assertEquals(descriptions, actions.map { it.contentDescription?.toString() })
         assertTrue(actions.all { it !is TextView && it.hasOnClickListeners() })
