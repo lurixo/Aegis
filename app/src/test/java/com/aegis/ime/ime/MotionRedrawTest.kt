@@ -40,24 +40,24 @@ class MotionRedrawTest {
         Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
     }
 
-    @Test fun fadeIn_with_animations_off_invalidates_even_when_alpha_is_already_one() {
+    @Test fun showNow_with_animations_off_invalidates_even_when_alpha_is_already_one() {
         disableSystemAnimations()
         val v = CountingView(ctx).apply { alpha = 1f }
         v.invalidations = 0
-        Motion.fadeIn(v)
-        assertEquals("animations off -> jump straight to fully shown", 1f, v.alpha, 0f)
+        Motion.showNow(v)
+        assertEquals("showNow lands fully shown", 1f, v.alpha, 0f)
         assertTrue(
-            "reduced-motion fadeIn must invalidate so freshly-set content repaints (setAlpha(1f) is a no-op)",
+            "showNow must invalidate so freshly-set content repaints (setAlpha(1f) is a no-op)",
             v.invalidations >= 1,
         )
     }
 
-    @Test fun fadeIn_when_detached_invalidates() {
+    @Test fun showNow_when_detached_invalidates() {
         val v = CountingView(ctx).apply { alpha = 1f }
         v.invalidations = 0
-        Motion.fadeIn(v)
+        Motion.showNow(v)
         assertEquals(1f, v.alpha, 0f)
-        assertTrue("detached fadeIn must still invalidate", v.invalidations >= 1)
+        assertTrue("detached showNow must still invalidate", v.invalidations >= 1)
     }
 
     @Test fun preedit_first_setText_under_reduced_motion_schedules_a_repaint() {
@@ -85,16 +85,6 @@ class MotionRedrawTest {
         assertTrue("the instant clear must still repaint the emptied band", invalidated[0])
     }
 
-    @Test fun contentSwap_gated_start_invalidates_the_end_state() {
-        disableSystemAnimations()
-        val v = CountingView(ctx)
-        val swap = Motion.ContentSwap(v)
-        v.invalidations = 0
-        swap.start()
-        assertEquals("a gated swap must not stay active", false, swap.active)
-        assertTrue("the gated end state must still repaint the fresh content", v.invalidations >= 1)
-    }
-
     @Test fun pressFeedback_snaps_to_end_states_when_no_frame_loop_can_run() {
         val v = CountingView(ctx)
         val press = Motion.PressFeedback(v)
@@ -109,8 +99,7 @@ class MotionRedrawTest {
         assertTrue("release feedback invalidates the drawing surface", v.invalidations >= 1)
     }
 
-    @Test fun revealIn_with_animations_off_restores_final_geometry_immediately() {
-        disableSystemAnimations()
+    @Test fun showNow_restores_final_geometry_immediately() {
         val v = CountingView(ctx).apply {
             visibility = View.GONE
             alpha = 0.25f
@@ -119,12 +108,12 @@ class MotionRedrawTest {
         }
         v.invalidations = 0
 
-        Motion.revealIn(v, Motion.EnterFrom.BOTTOM)
+        Motion.showNow(v)
 
         assertEquals(View.VISIBLE, v.visibility)
         assertEquals(1f, v.alpha, 0f)
         assertEquals(0f, v.translationX, 0f)
         assertEquals(0f, v.translationY, 0f)
-        assertTrue("reduced-motion reveal must still repaint the final state", v.invalidations >= 1)
+        assertTrue("the instant show must still repaint the final state", v.invalidations >= 1)
     }
 }

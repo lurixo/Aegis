@@ -78,7 +78,7 @@ internal class PanelConfirmationOverlay(context: Context) : FrameLayout(context)
         setOnClickListener { dismiss() }
         visibility = View.VISIBLE
         bringToFront()
-        Motion.revealIn(card, Motion.EnterFrom.BOTTOM)
+        Motion.showNow(card)
     }
 
     fun dismiss() {
@@ -92,7 +92,7 @@ internal class PanelConfirmationOverlay(context: Context) : FrameLayout(context)
         cancelAction?.isClickable = false
         confirmAction = null
         cancelAction = null
-        Motion.hide(this, toward = Motion.EnterFrom.BOTTOM) { removeAllViews() }
+        Motion.hideNow(this) { removeAllViews() }
     }
 
     internal fun dismissImmediately() {

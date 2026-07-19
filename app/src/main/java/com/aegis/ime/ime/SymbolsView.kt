@@ -199,7 +199,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
             if (tabChanged && (i == index || i == prev)) crossfadeTabColor(tab, color) else tab.setTextColor(color)
             retintRipple(tab, color, ImeShapes.chipRadiusDp)
         }
-        if (animate && tabChanged && gridScroll.isShown) Motion.coverThrough(gridScroll, palette.keyboardBg, Motion.SHORT2) { bindGrid(selected) }
+        if (animate && tabChanged && gridScroll.isShown) Motion.coverThrough(gridScroll, palette.keyboardBg) { bindGrid(selected) }
         else bindGrid(index)
     }
 

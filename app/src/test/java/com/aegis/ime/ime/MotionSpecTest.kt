@@ -29,35 +29,24 @@ import org.robolectric.annotation.Config
 class MotionSpecTest {
 
 
-    @Test fun duration_ladder_is_the_restrained_short_only_subset() {
+    @Test fun duration_ladder_is_the_two_shortest_tiers_only() {
         assertEquals(50L, Motion.SHORT1)
         assertEquals(100L, Motion.SHORT2)
-        assertEquals(150L, Motion.SHORT3)
-        assertEquals(200L, Motion.SHORT4)
-        val semantic = listOf(
-            Motion.PRESS_IN, Motion.PRESS_OUT, Motion.FADE_IN, Motion.FADE_OUT,
-            Motion.STATE_CHANGE, Motion.REVEAL, Motion.MODE_SWITCH,
-        )
-        assertTrue("no transition may exceed the SHORT4 ceiling (no medium/long tiers)", semantic.all { it <= Motion.SHORT4 })
+        val semantic = listOf(Motion.PRESS_IN, Motion.PRESS_OUT, Motion.STATE_CHANGE, Motion.COVER_HOLD)
+        assertTrue("no duration token may exceed the SHORT2 ceiling", semantic.all { it <= Motion.SHORT2 })
     }
 
-    @Test fun same_tier_interactions_share_one_duration() {
-        assertEquals("reveal == state-change (was 250 vs 200)", Motion.STATE_CHANGE, Motion.REVEAL)
-        assertEquals("mode-switch == the standard tier (was 300)", Motion.STATE_CHANGE, Motion.MODE_SWITCH)
-        assertEquals(200L, Motion.MODE_SWITCH)
+    @Test fun press_feedback_keeps_its_quick_in_relaxed_out_pair() {
+        assertEquals(Motion.SHORT1, Motion.PRESS_IN)
+        assertEquals(Motion.SHORT2, Motion.PRESS_OUT)
     }
 
-    @Test fun mode_switch_fade_is_tightened_below_the_old_value() {
-        assertTrue("the mode-switch fade must be tightened below 300ms", Motion.MODE_SWITCH < 300L)
+    @Test fun colour_state_changes_are_tightened_to_the_short2_tier() {
+        assertEquals(Motion.SHORT2, Motion.STATE_CHANGE)
     }
 
-    @Test fun the_appear_fade_is_the_short3_tier() {
-        assertEquals(Motion.SHORT3, Motion.FADE_IN)
-        assertEquals(100L, Motion.FADE_OUT)
-    }
-
-    @Test fun there_is_exactly_one_reveal_distance_token() {
-        assertEquals("the single reveal slide distance (replaced scattered 6/8/10dp)", 8f, Motion.REVEAL_SHIFT_DP, 0f)
+    @Test fun the_cover_hold_is_the_shortest_tier() {
+        assertEquals(Motion.SHORT1, Motion.COVER_HOLD)
     }
 
 
@@ -78,8 +67,6 @@ class MotionSpecTest {
     @Test fun every_ime_easing_is_monotonic_and_bounded_no_overshoot_or_bounce() {
         assertNoOvershootOrBounce("STANDARD", Motion.STANDARD)
         assertNoOvershootOrBounce("STANDARD_DECEL", Motion.STANDARD_DECEL)
-        assertNoOvershootOrBounce("EMPHASIZED_DECEL", Motion.EMPHASIZED_DECEL)
-        assertNoOvershootOrBounce("EMPHASIZED_ACCEL", Motion.EMPHASIZED_ACCEL)
     }
 
     @Test fun every_settings_easing_is_monotonic_and_bounded_no_overshoot_or_bounce() {
@@ -88,18 +75,10 @@ class MotionSpecTest {
     }
 
 
-    @Test fun settings_durations_are_the_ime_tokens() {
-        assertEquals(Motion.MODE_SWITCH.toInt(), SettingsMotion.DURATION_NAV)
-        assertEquals(Motion.FADE_IN.toInt(), SettingsMotion.DURATION_FADE_IN)
-        assertEquals(Motion.FADE_OUT.toInt(), SettingsMotion.DURATION_FADE_OUT)
-        assertEquals(Motion.STATE_CHANGE.toInt(), SettingsMotion.DURATION_STATE)
-    }
-
-    @Test fun settings_and_ime_share_the_same_incoming_and_outgoing_curves() {
-        val samples = listOf(0f, 0.25f, 0.5f, 0.75f, 1f)
-        for (t in samples) {
-            assertEquals("incoming curve mismatch at $t", Motion.EMPHASIZED_DECEL.getInterpolation(t), SettingsMotion.EmphasizedDecelerate.transform(t), 0.01f)
-            assertEquals("outgoing curve mismatch at $t", Motion.EMPHASIZED_ACCEL.getInterpolation(t), SettingsMotion.EmphasizedAccelerate.transform(t), 0.01f)
-        }
+    @Test fun settings_durations_keep_their_literal_values() {
+        assertEquals(200, SettingsMotion.DURATION_NAV)
+        assertEquals(150, SettingsMotion.DURATION_FADE_IN)
+        assertEquals(100, SettingsMotion.DURATION_FADE_OUT)
+        assertEquals(200, SettingsMotion.DURATION_STATE)
     }
 }
