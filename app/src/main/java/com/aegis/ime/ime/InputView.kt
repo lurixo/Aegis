@@ -97,7 +97,9 @@ class InputView(context: Context) : LinearLayout(context) {
     fun showEditBar(active: Boolean) {
         editBarActive = active
         if (active) {
-            Motion.revealIn(editBarView, Motion.EnterFrom.TOP)
+            if (editBarView.visibility != VISIBLE || editBarView.alpha < 1f) {
+                Motion.revealIn(editBarView, Motion.EnterFrom.TOP)
+            }
         } else {
             Motion.hide(editBarView, toward = Motion.EnterFrom.TOP)
         }

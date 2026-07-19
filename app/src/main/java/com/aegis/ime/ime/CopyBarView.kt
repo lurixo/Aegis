@@ -77,7 +77,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
 
     private fun toggleSplit() {
         ctl.toggleSplit()
-        Motion.coverThrough(row, palette.keySurface) { render() }
+        if (isShown) Motion.coverThrough(this, palette.keyboardBg) { render() } else render()
     }
 
     private fun render() {
