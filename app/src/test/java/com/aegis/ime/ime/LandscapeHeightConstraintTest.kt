@@ -231,7 +231,8 @@ class LandscapeHeight388ConstraintTest {
             settleUiAnimations()
             val grid = iv.expandedGridForTest()
             assertTrue(iv.isPanelShowing(grid))
-            assertEquals(iv.dockHeightSpecForTest()!!.keyboardHeight, iv.panelHeightPx())
+            val expandedSpec = iv.dockHeightSpecForTest()!!
+            assertEquals(expandedSpec.keyboardHeight + expandedSpec.barHeight, iv.panelHeightPx())
             assertPanelControlsInside(iv)
             val expandedControls = iv.expandedPanelControlBoundsForTest()
             expandedControls.forEachIndexed { index, bounds ->
@@ -464,14 +465,16 @@ class LandscapeHeight388ConstraintTest {
         settleUiAnimations()
         val tallPanelHeight = iv.panelHeightPx()
 
-        assertEquals(iv.dockHeightSpecForTest()!!.keyboardHeight, tallPanelHeight)
+        val tallSpec = iv.dockHeightSpecForTest()!!
+        assertEquals(tallSpec.keyboardHeight + tallSpec.barHeight, tallPanelHeight)
         assertPanelControlsInside(iv)
         assertTrue("long candidate content scrolls in the compressed panel", iv.expandedGridForTest().gridCanScrollForwardForTest())
         assertTrue("long reading content scrolls in the compressed panel", iv.expandedGridForTest().readingCanScrollForwardForTest())
 
         layoutAtMost(iv, dp(853), dp(291))
         assertTrue(iv.panelHeightPx() < tallPanelHeight)
-        assertEquals(iv.dockHeightSpecForTest()!!.keyboardHeight, iv.panelHeightPx())
+        val compressedSpec = iv.dockHeightSpecForTest()!!
+        assertEquals(compressedSpec.keyboardHeight + compressedSpec.barHeight, iv.panelHeightPx())
         assertEquals(iv.height, iv.dockSurfaceBottomPx())
         assertPanelControlsInside(iv)
 
@@ -893,10 +896,11 @@ private fun assertStatefulNinePanel(iv: InputView, grid: CandidateGridView, expe
     assertTrue("expanded panel intent must survive the geometry transition", iv.isPanelShowing(grid))
     assertTrue("active panel must remain visible", iv.panelShown)
     assertTrue("preedit must retain positive height", iv.preeditVisualBottomPx() > iv.preeditVisualTopPx())
-    assertTrue("candidate strip must retain positive height", iv.toolbarVisualBottomPx() > iv.toolbarVisualTopPx())
+    assertFalse("candidate strip is covered by the expanded surface", iv.toolbarShownForTest())
     assertTrue("edit bar must retain positive height", iv.editBarVisualBottomPx() > iv.editBarVisualTopPx())
     assertTrue("panel must retain positive height", iv.panelHeightPx() > 0)
-    assertEquals("panel slot must use the current height spec", iv.dockHeightSpecForTest()!!.keyboardHeight, iv.panelHeightPx())
+    val heightSpec = iv.dockHeightSpecForTest()!!
+    assertEquals("panel slot must cover the keyboard and the toolbar row", heightSpec.keyboardHeight + heightSpec.barHeight, iv.panelHeightPx())
     assertEquals("visible panel child must fill the current slot", iv.panelHeightPx(), grid.height)
     assertEquals("opaque body must end at the current root", iv.height, iv.dockSurfaceBottomPx())
     assertVerticalBounds(iv)

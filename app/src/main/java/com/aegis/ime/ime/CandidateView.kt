@@ -51,6 +51,7 @@ class CandidateView(context: Context) : View(context) {
     private val functions = BarFunction.entries
     private val funcRects = ArrayList<RectF>().also { l -> repeat(functions.size) { l.add(RectF()) } }
     private val collapseRect = RectF()
+    private val iconCentersX = FloatArray(functions.size + 1)
     private enum class PressKind { CANDIDATE, FUNCTION, EXPAND, COLLAPSE }
     private data class PressTarget(val kind: PressKind, val index: Int = -1)
     private var pressedTarget: PressTarget? = null
@@ -164,11 +165,13 @@ class CandidateView(context: Context) : View(context) {
     internal fun toolbarOuterRadiusForTest(): Float = toolbarOuterRadius()
     internal fun expandControlBoundsForTest(): RectF = RectF(width - expandW, 0f, width.toFloat(), height.toFloat())
     internal fun toolbarChevronBoundsForTest(): RectF =
-        Glyphs.chevronBounds(collapseRect.centerX(), collapseRect.centerY(), 9f * density)
+        Glyphs.chevronBounds(iconCentersX[functions.size], collapseRect.centerY(), 9f * density * CHEVRON_SCALE)
     internal fun candidateChevronBoundsForTest(): RectF {
         val control = expandControlBoundsForTest()
-        return Glyphs.chevronBounds(control.centerX(), control.centerY(), 9f * density)
+        return Glyphs.chevronBounds(control.centerX(), control.centerY(), 9f * density * CHEVRON_SCALE)
     }
+    internal fun toolbarIconCentersForTest(): FloatArray = iconCentersX.copyOf()
+    internal fun toolbarIconScaleForTest(f: BarFunction): Float = iconScale(f)
 
     internal fun centerOfCandidateForTest(index: Int): Pair<Float, Float>? {
         if (index !in 0 until hitCount) return null
@@ -216,7 +219,7 @@ class CandidateView(context: Context) : View(context) {
 
         canvas.drawRect(visibleW, height * 0.25f, visibleW + density, height * 0.75f, sepPaint)
         drawPressLayer(canvas, PressTarget(PressKind.EXPAND), visibleW, 4f * density, width.toFloat(), height - 4f * density)
-        val chCx = visibleW + expandW / 2f; val chCy = height / 2f; val chS = 9f * density
+        val chCx = visibleW + expandW / 2f; val chCy = height / 2f; val chS = 9f * density * CHEVRON_SCALE
         Glyphs.drawChevron(canvas, iconPaint, chCx, chCy, chS, down = !expanded)
     }
 
@@ -234,20 +237,24 @@ class CandidateView(context: Context) : View(context) {
         val cy = (capT + capB) / 2f
         val areaL = capL
         val areaR = capR
-        val slot = (areaR - areaL) / (functions.size + 1)
+        val gap = (areaR - areaL) / (functions.size + 2)
         val s = 9f * density
         toolbarClipPath.reset()
         toolbarClipPath.addRoundRect(toolbarBounds, rad, rad, Path.Direction.CW)
         canvas.withClip(toolbarClipPath) {
             for ((i, f) in functions.withIndex()) {
-                val cx = areaL + slot * (i + 0.5f)
-                funcRects[i].set(areaL + slot * i, capT, areaL + slot * (i + 1), capB)
+                val cx = areaL + gap * (i + 1)
+                iconCentersX[i] = cx
+                val cellL = if (i == 0) areaL else areaL + gap * (i + 0.5f)
+                funcRects[i].set(cellL, capT, areaL + gap * (i + 1.5f), capB)
                 drawPressLayer(canvas, PressTarget(PressKind.FUNCTION, i), funcRects[i].left, funcRects[i].top, funcRects[i].right, funcRects[i].bottom)
                 drawIcon(canvas, f, cx, cy, s)
             }
-            collapseRect.set(areaL + slot * functions.size, capT, areaR, capB)
+            val chevronCx = areaL + gap * (functions.size + 1)
+            iconCentersX[functions.size] = chevronCx
+            collapseRect.set(areaL + gap * (functions.size + 0.5f), capT, areaR, capB)
             drawPressLayer(canvas, PressTarget(PressKind.COLLAPSE), collapseRect.left, collapseRect.top, collapseRect.right, collapseRect.bottom)
-            Glyphs.drawChevron(canvas, iconPaint, collapseRect.centerX(), cy, s, down = true)
+            Glyphs.drawChevron(canvas, iconPaint, chevronCx, cy, s * CHEVRON_SCALE, down = true)
         }
     }
 
@@ -269,13 +276,21 @@ class CandidateView(context: Context) : View(context) {
     }
 
     private fun drawIcon(c: Canvas, f: BarFunction, cx: Float, cy: Float, s: Float) {
+        val gs = s * iconScale(f)
         when (f) {
-            BarFunction.BRAND -> Glyphs.drawBrandWeldedA(c, iconPaint, cx, cy, s)
-            BarFunction.LAYOUT -> Glyphs.drawKeyboard(c, iconPaint, cx, cy, s)
-            BarFunction.EMOJI -> Glyphs.drawEmoji(c, iconPaint, cx, cy, s)
-            BarFunction.EDIT -> Glyphs.drawEditCaret(c, iconPaint, cx, cy, s)
-            BarFunction.CLIPBOARD -> Glyphs.drawClipboard(c, iconPaint, cx, cy, s)
+            BarFunction.BRAND -> Glyphs.drawBrandWeldedA(c, iconPaint, cx, cy, gs)
+            BarFunction.LAYOUT -> Glyphs.drawKeyboard(c, iconPaint, cx, cy, gs)
+            BarFunction.EMOJI -> Glyphs.drawEmoji(c, iconPaint, cx, cy, gs)
+            BarFunction.EDIT -> Glyphs.drawEditCaret(c, iconPaint, cx, cy, gs)
+            BarFunction.CLIPBOARD -> Glyphs.drawClipboard(c, iconPaint, cx, cy, gs)
         }
+    }
+
+    private fun iconScale(f: BarFunction): Float = when (f) {
+        BarFunction.EDIT, BarFunction.EMOJI -> 1f
+        BarFunction.BRAND -> ICON_FAMILY_HEIGHT / BRAND_GLYPH_HEIGHT
+        BarFunction.LAYOUT -> ICON_FAMILY_HEIGHT / LAYOUT_GLYPH_HEIGHT
+        BarFunction.CLIPBOARD -> ICON_FAMILY_HEIGHT / CLIPBOARD_GLYPH_HEIGHT
     }
 
     override fun computeScroll() {
@@ -404,5 +419,12 @@ class CandidateView(context: Context) : View(context) {
         private const val ROLE_CANDIDATES = 0
         private const val ROLE_FUNCTIONS = 1
         private const val ROLE_BLANK = 2
+
+        private const val ICON_FAMILY_HEIGHT = 1.64f
+        private const val BRAND_GLYPH_HEIGHT = 1.59f
+        private const val LAYOUT_GLYPH_HEIGHT = 0.8334f
+        private const val CLIPBOARD_GLYPH_HEIGHT = 1.58f
+        private const val CHEVRON_GLYPH_HEIGHT = 0.76f
+        private const val CHEVRON_SCALE = ICON_FAMILY_HEIGHT / CHEVRON_GLYPH_HEIGHT
     }
 }

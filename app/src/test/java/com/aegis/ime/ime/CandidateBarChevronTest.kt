@@ -115,12 +115,12 @@ class CandidateBarChevronTest {
         val taskbar = idleBar(360)
         val taskbarHit = taskbar.toolbarControlBoundsForTest().last()
         val taskbarGlyph = taskbar.toolbarChevronBoundsForTest()
-        assertEquals(taskbarHit.centerX(), taskbarGlyph.centerX(), 0.01f)
+        assertEquals(taskbar.toolbarIconCentersForTest().last(), taskbarGlyph.centerX(), 0.01f)
         assertEquals(taskbarHit.centerY(), taskbarGlyph.centerY(), 0.01f)
         assertEquals(candidateGlyph.width(), taskbarGlyph.width(), 0.01f)
         assertEquals(candidateGlyph.height(), taskbarGlyph.height(), 0.01f)
-        assertEquals(12.6f * density, taskbarGlyph.width(), 0.01f)
-        assertEquals(6.84f * density, taskbarGlyph.height(), 0.01f)
+        assertEquals("chevron rises to the EDIT family height", 1.64f * 9f * density, taskbarGlyph.height(), 0.02f * density)
+        assertEquals("chevron width follows its aspect", taskbarGlyph.height() * (1.4f / 0.76f), taskbarGlyph.width(), 0.02f * density)
         assertTrue(candidateHit.contains(candidateGlyph))
         assertTrue(taskbarHit.contains(taskbarGlyph))
     }
@@ -211,6 +211,33 @@ class CandidateBarChevronTest {
         assertEquals("grid open → chevron flips up", "⌃", iv.barChevronGlyph())
         iv.showPanel(null)
         assertEquals("grid closed → chevron back to down", "⌄", iv.barChevronGlyph())
+    }
+
+    @Test fun expanded_grid_covers_the_toolbar_row_and_keeps_a_reachable_collapse_chevron() {
+        val (root, iv) = activityInput()
+        val mainLooper = Shadows.shadowOf(Looper.getMainLooper())
+        iv.showCandidates(List(30) { "候选$it" }, "shi", listOf("shi"), 0)
+        layoutRoot(root)
+        assertTrue("the bar is visible while composing", iv.toolbarShownForTest())
+        val barTop = iv.toolbarVisualTopPx()
+
+        iv.showExpandedCandidates()
+        layoutRoot(root)
+        mainLooper.runToEndOfTasks()
+        assertTrue(iv.panelShown)
+        assertFalse("the expanded surface covers the bar row", iv.toolbarShownForTest())
+        assertEquals("expanded surface top == former bar top", barTop, iv.panelVisualTopPx())
+
+        val collapse = iv.expandedGridForTest().returnButtonForTest()
+        assertEquals("the in-surface collapse control is icon-only", "", collapse.text.toString())
+        assertTrue("the collapse control shows a chevron glyph", collapse.compoundDrawables[1] != null)
+
+        assertTrue("collapse is reachable inside the expanded surface", collapse.performClick())
+        layoutRoot(root)
+        mainLooper.runToEndOfTasks()
+        assertFalse("collapsing returns to the keyboard", iv.panelShown)
+        assertTrue("collapsing restores the bar", iv.toolbarShownForTest())
+        assertEquals("the bar returns to its former position", barTop, iv.toolbarVisualTopPx())
     }
 
     @Test fun pending_expand_coalesces_rapid_updates_and_repeated_open_requests() {
@@ -363,15 +390,19 @@ class CandidateBarChevronTest {
             val view = idleBar(widthDp)
             val controls = view.toolbarControlBoundsForTest()
             val capsule = view.toolbarCapsuleBoundsForTest()
+            val centers = view.toolbarIconCentersForTest()
             assertEquals(6, controls.size)
+            assertEquals(6, centers.size)
             assertEquals(capsule.left, controls.first().left, 0.01f)
             assertEquals(capsule.right, controls.last().right, 0.01f)
             assertTrue(controls.all { it.top == capsule.top && it.bottom == capsule.bottom })
             controls.zipWithNext().forEach { (left, right) -> assertEquals(left.right, right.left, 0.01f) }
-            assertTrue(controls.all { abs(it.width() - controls.first().width()) <= 0.01f })
             assertTrue(controls.all { abs(it.height() - controls.first().height()) <= 0.01f })
-            val spacing = controls.zipWithNext { left, right -> right.centerX() - left.centerX() }
-            assertTrue(spacing.all { abs(it - spacing.first()) <= 0.01f })
+            val spacing = centers.toList().zipWithNext { a, b -> b - a }
+            assertTrue("the six icons are evenly spaced", spacing.all { abs(it - spacing.first()) <= 0.01f })
+            val gap = spacing.first()
+            assertEquals("left end margin equals inter-icon spacing", gap, centers.first() - capsule.left, 0.01f)
+            assertEquals("right end margin equals inter-icon spacing", gap, capsule.right - centers.last(), 0.01f)
             assertEquals(capsule.centerX(), (controls.first().left + controls.last().right) / 2f, 0.01f)
         }
         val view = idleBar(360)
@@ -439,8 +470,10 @@ class CandidateBarChevronTest {
     @Test fun idle_toolbar_brand_slot_renders_the_brand_icon() {
         val view = idleBar(320)
         val slot = view.toolbarControlBoundsForTest().first()
-        val s = 9f * density
-        val glyph = RectF(slot.centerX() - s * 0.64f, slot.centerY() - s * 0.76f, slot.centerX() + s * 0.64f, slot.centerY() + s * 0.83f)
+        val cx = view.toolbarIconCentersForTest().first()
+        val cy = slot.centerY()
+        val s = 9f * density * view.toolbarIconScaleForTest(BarFunction.BRAND)
+        val glyph = RectF(cx - s * 0.64f, cy - s * 0.76f, cx + s * 0.64f, cy + s * 0.83f)
         assertTrue(slot.contains(glyph))
         val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
         view.draw(Canvas(bitmap))

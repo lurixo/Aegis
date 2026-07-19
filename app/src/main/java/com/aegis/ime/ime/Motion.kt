@@ -95,16 +95,18 @@ object Motion {
         return bitmap
     }
 
-    fun coverWith(host: View, snapshot: Bitmap?) {
+    fun coverWith(host: View, snapshot: Bitmap?, offsetX: Int = 0, offsetY: Int = 0) {
         cancelCover(host)
         if (snapshot == null) return
         if (!host.isAttachedToWindow || !enabled()) {
             snapshot.recycle()
             return
         }
+        val left = host.scrollX + offsetX
+        val top = host.scrollY + offsetY
         val drawable = BitmapDrawable(host.resources, snapshot).apply {
             alpha = 255
-            setBounds(host.scrollX, host.scrollY, host.scrollX + snapshot.width, host.scrollY + snapshot.height)
+            setBounds(left, top, left + snapshot.width, top + snapshot.height)
         }
         host.overlay.add(drawable)
         coverAnimators[host] = ValueAnimator.ofFloat(0f, 1f).apply {
