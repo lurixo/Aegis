@@ -116,7 +116,7 @@ class LandscapeOverlayBoundsTest {
             24 + iv.dockHeightSpecForTest()!!.bottomExtra,
             iv.bodyBottomPaddingPx(),
         )
-        assertEquals("the natural keyboard leaves 6dp of the preferred 28dp raise", 24 + dp(6), iv.bodyBottomPaddingPx())
+        assertEquals("the shorter four-row keyboard honours the full 28dp raise", 24 + dp(28), iv.bodyBottomPaddingPx())
     }
 
     @Test fun narrow_full_width_landscape_still_honours_the_left_safe_inset() {
@@ -215,7 +215,7 @@ class LandscapeOverlayBoundsTest {
                 iv.editBarVisualRightPx(),
                 iv.editBarVisualBottomPx(),
             )
-            val key = Rect().also { requireNotNull(iv.keyboardLabelBoundsForTest("1")).roundOut(it) }.apply {
+            val key = Rect().also { requireNotNull(iv.keyboardLabelBoundsForTest("q")).roundOut(it) }.apply {
                 offset(rootLocation[0], rootLocation[1])
             }
             val enter = Rect().also { requireNotNull(iv.keyboardActionBoundsForTest(KeyAction.ENTER)).roundOut(it) }.apply {

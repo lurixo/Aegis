@@ -101,7 +101,7 @@ class QwertyPunctuationInkCenterTest {
         }
     }
 
-    @Test fun en_qwerty_comma_period_and_letters_keep_font_metric_centring() {
+    @Test fun en_qwerty_comma_and_period_keep_font_metric_centring() {
         val v = layOut(qwerty(Lang.CN))
         render(v)
         v.setLayout(Layouts.forId(LayoutId.ALPHA, Lang.EN), false, false, Lang.EN)
@@ -110,7 +110,7 @@ class QwertyPunctuationInkCenterTest {
         v.draw(canvas)
         val rects = v.keyBoundsForTest().associate { it.first.label to it.second }
         val fails = ArrayList<String>()
-        for (label in listOf(",", ".") + ('a'..'z').map { it.toString() }) {
+        for (label in listOf(",", ".")) {
             val rect = requireNotNull(rects[label]) { "$label key missing" }
             val drawn = canvas.texts.filter { it.first == label }.map { it.second }
             if (drawn.size != 1) { fails.add("$label drawn ${drawn.size} times"); continue }
@@ -119,6 +119,37 @@ class QwertyPunctuationInkCenterTest {
             if (kotlin.math.abs(a.x - rect.centerX()) > 0.5f) fails.add("$label anchor X off by ${a.x - rect.centerX()}")
             if (kotlin.math.abs(a.y - (rect.centerY() - a.metricCenter)) > 0.5f) fails.add("$label anchor Y off by ${a.y - (rect.centerY() - a.metricCenter)}")
         }
-        assertTrue("EN qwerty labels left the font-metric centring path: $fails", fails.isEmpty())
+        assertTrue("EN qwerty punctuation left the font-metric centring path: $fails", fails.isEmpty())
+    }
+
+    @Test fun qwerty_letters_drop_below_center_and_sub_hint_sits_top_center() {
+        for (lang in listOf(Lang.CN, Lang.EN)) {
+            val v = layOut(qwerty(lang))
+            val canvas = AnchorRecordingCanvas(Bitmap.createBitmap(v.measuredWidth, v.measuredHeight, Bitmap.Config.ARGB_8888))
+            v.draw(canvas)
+            val rects = v.keyBoundsForTest().associate { it.first.label to it.second }
+            val fails = ArrayList<String>()
+            for ((label, sub) in listOf("q" to "1", "a" to "~", "z" to "(")) {
+                val rect = requireNotNull(rects[label]) { "$lang $label key missing" }
+                val scale = kotlin.math.min(1f, rect.height() / (52f * density))
+                val drop = 5f * density * scale
+                val letter = canvas.texts.filter { it.first == label }.map { it.second }
+                val hint = canvas.texts.filter { it.first == sub }.map { it.second }
+                if (letter.size != 1) { fails.add("$lang $label letter drawn ${letter.size} times"); continue }
+                if (hint.size != 1) { fails.add("$lang $label hint '$sub' drawn ${hint.size} times"); continue }
+                val l = letter[0]; val h = hint[0]
+                if (l.align != Paint.Align.CENTER) fails.add("$lang $label letter align ${l.align}")
+                if (kotlin.math.abs(l.x - rect.centerX()) > 0.5f) fails.add("$lang $label letter X off by ${l.x - rect.centerX()}")
+                if (kotlin.math.abs(l.y - (rect.centerY() + drop - l.metricCenter)) > 0.5f) {
+                    fails.add("$lang $label letter not dropped below centre by $drop")
+                }
+                if (h.align != Paint.Align.CENTER) fails.add("$lang $label hint align ${h.align}")
+                if (kotlin.math.abs(h.x - rect.centerX()) > 0.5f) fails.add("$lang $label hint X off centre by ${h.x - rect.centerX()}")
+                if (kotlin.math.abs(h.y - (rect.top + 15f * density * scale)) > 0.5f) fails.add("$lang $label hint Y not at top band")
+                if (h.y >= rect.centerY()) fails.add("$lang $label hint sits below centre")
+                if (h.y >= l.y) fails.add("$lang $label hint not above the letter")
+            }
+            assertTrue("qwerty sub-hint geometry wrong ($lang): $fails", fails.isEmpty())
+        }
     }
 }

@@ -61,34 +61,35 @@ class LayoutsTest {
         }
     }
 
-    @Test fun qwerty_has_number_row_and_letter_subsymbols() {
-        assertEquals(
-            listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"),
-            qwerty.cells!!.filter { it.y < 0.1f }.sortedBy { it.x }.map { it.key.label },
-        )
-        val letters = keysOf(qwertyEn)
-            .filter { it.action == KeyAction.COMMIT && it.label.length == 1 && it.label[0] in 'a'..'z' }
-        assertEquals(26, letters.size)
-        assertTrue("every EN letter needs a super-script symbol", letters.all { it.sub != null })
+    @Test fun qwerty_is_four_rows_with_digit_subsymbols_on_the_top_letter_row() {
+        assertEquals("26-key drops the standalone digit row for four rows", 4, qwerty.rowCount)
+        assertEquals("26-key drops the standalone digit row for four rows", 4, qwertyEn.rowCount)
+        for (layout in listOf(qwerty, qwertyEn)) {
+            assertTrue(
+                "no standalone digit key remains on the 26-key",
+                layout.cells!!.none { it.key.action == KeyAction.COMMIT && it.key.label.length == 1 && it.key.label[0] in '0'..'9' },
+            )
+            val topRow = layout.cells!!.filter { it.y < 0.1f }.sortedBy { it.x }
+            assertEquals("qwertyuiop".map { it.toString() }, topRow.map { it.key.label })
+            assertEquals(
+                listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"),
+                topRow.map { it.key.sub },
+            )
+        }
     }
 
-    @Test fun cn_qwerty_carries_no_sub_symbols_and_en_keeps_the_full_set() {
-        val cnLetters = keysOf(qwerty)
-            .filter { it.action == KeyAction.COMMIT && it.label.length == 1 && it.label[0] in 'a'..'z' }
-        assertEquals(26, cnLetters.size)
-        assertTrue("CN qwerty letters must not carry sub symbols", cnLetters.all { it.sub == null })
-        assertTrue("no CN qwerty key carries a sub symbol", keysOf(qwerty).all { it.sub == null })
-        assertEquals(
-            "EN qwerty keeps the exact sub-symbol assignment",
-            listOf(
-                "`", "=", "+", "$", "…", "\"", "^", "[", "]", "|",
-                "~", "!", "@", "#", "%", "'", "&", "*", "?",
-                "(", ")", "-", "_", ":", ";", "/",
-            ),
-            keysOf(qwertyEn)
-                .filter { it.action == KeyAction.COMMIT && it.label.length == 1 && it.label[0] in 'a'..'z' }
-                .map { it.sub },
+    @Test fun both_languages_carry_the_identical_qwerty_sub_symbol_set() {
+        val expected = listOf(
+            "1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
+            "~", "!", "@", "#", "%", "'", "&", "*", "?",
+            "(", ")", "-", "_", ":", ";", "/",
         )
+        for (layout in listOf(qwerty, qwertyEn)) {
+            val letters = keysOf(layout)
+                .filter { it.action == KeyAction.COMMIT && it.label.length == 1 && it.label[0] in 'a'..'z' }
+            assertEquals(26, letters.size)
+            assertEquals("both languages share one sub-symbol assignment", expected, letters.map { it.sub })
+        }
     }
 
     @Test fun nine_space_is_in_bottom_row_not_right_column() {
@@ -193,7 +194,7 @@ class LayoutsTest {
     }
 
     @Test fun qwerty_pen_width_matches_the_adjacent_function_keys() {
-        val bottom = qwerty.cells!!.filter { it.y >= 0.8f }.map { it.key }
+        val bottom = qwerty.cells!!.filter { it.y >= 0.75f }.map { it.key }
         val pen = bottom.first { it.action == KeyAction.SHOW_SYMBOLS }
         val num = bottom.first { it.action == KeyAction.SWITCH_NUMPAD }
         val lang = bottom.first { it.action == KeyAction.TOGGLE_LANG }
