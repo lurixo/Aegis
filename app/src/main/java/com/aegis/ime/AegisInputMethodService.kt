@@ -834,6 +834,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun openSettings() {
+        requestHideSelf(0)
         runCatching {
             startActivity(
                 android.content.Intent(this, com.aegis.ime.ui.SetupActivity::class.java)
