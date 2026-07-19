@@ -91,8 +91,8 @@
     <string name="key_vibration_description">每次按键轻微振动。默认关，遵循系统触感设置。</string>
     <string name="key_preview_title">按键预览</string>
     <string name="key_preview_description">按下时显示放大的按键气泡。默认关；开启后可在下方选择生效的键盘。</string>
-    <string name="key_preview_nine_label">九键</string>
-    <string name="key_preview_alpha_label">26 键</string>
+    <string name="key_preview_nine_label">9键</string>
+    <string name="key_preview_alpha_label">26键</string>
 
     <string name="letter_case_title">字母大小写</string>
     <string name="letter_case_description">字母在键盘上的显示方式。仅影响显示 —— 不改变实际输入与 Shift。</string>
@@ -106,9 +106,9 @@
     <string name="default_lang_en">英文</string>
 
     <string name="layout_card_title">全拼键盘</string>
-    <string name="layout_card_description">中文默认使用哪种键盘（英文始终为 26 键）。</string>
-    <string name="layout_nine">全拼九键</string>
-    <string name="layout_alpha">全拼 26 键</string>
+    <string name="layout_card_description">中文默认使用哪种键盘（英文始终为 26键）。</string>
+    <string name="layout_nine">全拼9键</string>
+    <string name="layout_alpha">全拼26键</string>
 
     <string name="user_dict_title">学习词库</string>
     <string name="user_dict_description">Aegis 会离线学习你常用的词与下一个词，存为【学习词库】（只存本机）。这与你下载的【主词库】（拼音大词库）是两份独立的库 —— 这里的导入/覆盖只动学习词库，绝不影响主词库。导入立即生效。</string>
