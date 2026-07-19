@@ -102,12 +102,21 @@ class KeyboardGeometryTest {
                 assertEquals(sourceKeys, faces.map { it.first })
                 assertEquals(sourceKeys, hits.map { it.first })
                 var offset = 0
+                val topRowFaces = faces.subList(0, source.rows.first().keys.size)
                 for ((rowIndex, row) in source.rows.withIndex()) {
                     val rowFaces = faces.subList(offset, offset + row.keys.size)
                     val rowHits = hits.subList(offset, offset + row.keys.size)
-                    assertTrue(rowFaces.zipWithNext().all { (left, right) ->
-                        abs(right.second.left - left.second.right - ordinaryGap) <= 0.02f
-                    })
+                    val rowGaps = rowFaces.zipWithNext().map { (left, right) -> right.second.left - left.second.right }
+                    if (rowIndex == source.rows.lastIndex - 1) {
+                        for (gapValue in rowGaps) assertEquals(ordinaryGap * 9f / 8f, gapValue, 0.02f)
+                        assertEquals(topRowFaces.first().second.left, rowFaces.first().second.left, 0.02f)
+                        assertEquals(topRowFaces.last().second.right, rowFaces.last().second.right, 0.02f)
+                        assertEquals(rowFaces.first().second.left, page.width - rowFaces.last().second.right, 0.02f)
+                        assertEquals(1.5f * baselineFace.width(), rowFaces.first().second.width(), 0.02f)
+                        assertEquals(1.5f * baselineFace.width(), rowFaces.last().second.width(), 0.02f)
+                    } else {
+                        for (gapValue in rowGaps) assertEquals(ordinaryGap, gapValue, 0.02f)
+                    }
                     if (rowIndex < source.rows.lastIndex) {
                         for (index in row.keys.indices.filter { row.keys[it].weight == 1f }) {
                             assertSize(baselineFace, rowFaces[index].second)

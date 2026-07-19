@@ -393,8 +393,8 @@ class KeyboardView(context: Context) : View(context) {
                 } else {
                     rowItem.keys.map { ordinaryWidth * it.weight }
                 }
-                val rowWidth = widths.sum() + faceGap * (rowItem.keys.size - 1)
-                var left = (w - rowWidth) / 2f
+                val keyGap = (w - horizontalGap * 2f - widths.sum()) / (rowItem.keys.size - 1)
+                var left = horizontalGap
                 for ((key, keyWidth) in rowItem.keys.zip(widths)) {
                     val rect = RectF(left, top, left + keyWidth, top + faceHeight)
                     val hitRect = RectF(
@@ -404,7 +404,7 @@ class KeyboardView(context: Context) : View(context) {
                         rect.bottom + verticalGap / 2f,
                     )
                     placed.add(Placed(rect, key, hitRect = hitRect))
-                    left += keyWidth + faceGap
+                    left += keyWidth + keyGap
                 }
                 top += faceHeight + verticalGap
             }
