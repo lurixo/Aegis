@@ -150,6 +150,20 @@ class GuessFallbackTest {
         assertTrue(decoder.guessLockedWords("wo", "639", true, setOf(2), "", GUESS_WINDOW).isEmpty())
     }
 
+    @Test fun guessing_stays_cheap_on_ten_key_inputs() {
+        val letters = letterDecoder()
+        val digits = t9Decoder()
+        for ((decoder, input) in listOf(letters to "zhonguoren", digits to "9466448677")) {
+            assertFalse(PinyinCorrection.fullySegmentable(input))
+            words(decoder, input)
+            val start = System.nanoTime()
+            repeat(5) { words(decoder, input) }
+            val perCallMs = (System.nanoTime() - start) / 5 / 1_000_000.0
+            println("guess timing $input -> ${"%.1f".format(perCallMs)} ms per decodeCovered")
+            assertTrue("guessing should stay well under 200 ms for $input, was $perCallMs ms", perCallMs < 200.0)
+        }
+    }
+
     @Test fun corrected_readings_match_the_selected_words_on_both_layouts() {
         val letters = letterDecoder()
         val digits = t9Decoder()
