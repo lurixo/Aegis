@@ -327,8 +327,8 @@ class KeyboardViewInteractionTest {
         assertEquals("numpad matches the 9-key (no 9-key⇄123 resize)", nineH, measuredH(Layouts.numpad()))
         assertEquals("number page matches", nineH, measuredH(Layouts.forId(com.aegis.ime.layout.LayoutId.NUMBER, Lang.CN)))
         assertEquals("symbol page matches", nineH, measuredH(Layouts.forId(com.aegis.ime.layout.LayoutId.SYMBOL, Lang.CN)))
-        assertTrue("the 5-row 26-key keeps the base height and stays taller",
-            measuredH(Layouts.forId(com.aegis.ime.layout.LayoutId.ALPHA, Lang.CN)) > nineH)
+        assertEquals("the 26-key is now four rows and shares the one height", nineH,
+            measuredH(Layouts.forId(com.aegis.ime.layout.LayoutId.ALPHA, Lang.CN)))
     }
 
 

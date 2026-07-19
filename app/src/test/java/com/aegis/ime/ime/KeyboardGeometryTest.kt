@@ -64,7 +64,7 @@ class KeyboardGeometryTest {
             val hits = view.keyHitBoundsForTest().associate { it.first.label to it.second }
             val baselineFace = faces.getValue("q")
             val baselineHit = hits.getValue("q")
-            for (label in "1234567890abcdefghijklmnopqrstuvwxyz".map(Char::toString)) {
+            for (label in "abcdefghijklmnopqrstuvwxyz".map(Char::toString)) {
                 assertSize(baselineFace, faces.getValue(label))
                 assertSize(baselineHit, hits.getValue(label))
             }
@@ -98,6 +98,9 @@ class KeyboardGeometryTest {
                 val page = view(id, widthDp)
                 val faces = page.keyBoundsForTest()
                 val hits = page.keyHitBoundsForTest()
+                val pageFaceHeight = faces[0].second.height()
+                val pageHitHeight = hits[0].second.height()
+                assertEquals("page ordinary face keeps the shared column width", baselineFace.width(), faces[0].second.width(), 0.02f)
                 val sourceKeys = source.rows.flatMap { it.keys }
                 assertEquals(sourceKeys, faces.map { it.first })
                 assertEquals(sourceKeys, hits.map { it.first })
@@ -127,16 +130,18 @@ class KeyboardGeometryTest {
                     }
                     if (rowIndex < source.rows.lastIndex) {
                         for (index in row.keys.indices.filter { row.keys[it].weight == 1f }) {
-                            assertSize(baselineFace, rowFaces[index].second)
+                            assertEquals(baselineFace.width(), rowFaces[index].second.width(), 0.02f)
+                            assertEquals(pageFaceHeight, rowFaces[index].second.height(), 0.02f)
                             if (rowIndex == source.rows.lastIndex - 1) {
                                 assertEquals(
                                     baselineFace.width() + ordinaryGap * 9f / 8f,
                                     rowHits[index].second.width(),
                                     0.02f,
                                 )
-                                assertEquals(baselineHit.height(), rowHits[index].second.height(), 0.02f)
+                                assertEquals(pageHitHeight, rowHits[index].second.height(), 0.02f)
                             } else {
-                                assertSize(baselineHit, rowHits[index].second)
+                                assertEquals(baselineHit.width(), rowHits[index].second.width(), 0.02f)
+                                assertEquals(pageHitHeight, rowHits[index].second.height(), 0.02f)
                             }
                         }
                         rowHits.zipWithNext().forEach { (leftEntry, rightEntry) ->
@@ -150,10 +155,10 @@ class KeyboardGeometryTest {
                                 assertTrue(rowHits[index].second.width() > baselineHit.width())
                             } else {
                                 assertEquals(baselineFace.width() * key.weight, rowFaces[index].second.width(), 0.02f)
-                                assertEquals(baselineFace.height(), rowFaces[index].second.height(), 0.02f)
+                                assertEquals(pageFaceHeight, rowFaces[index].second.height(), 0.02f)
                                 val hitInset = baselineHit.width() - baselineFace.width()
                                 assertEquals(baselineFace.width() * key.weight + hitInset, rowHits[index].second.width(), 0.02f)
-                                assertEquals(baselineHit.height(), rowHits[index].second.height(), 0.02f)
+                                assertEquals(pageHitHeight, rowHits[index].second.height(), 0.02f)
                             }
                             val hit = rowHits[index].second
                             assertEquals(key, page.keyAtForTest(hit.left + 0.01f, hit.centerY()))

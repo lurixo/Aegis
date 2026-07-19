@@ -168,7 +168,7 @@ class KeyPreviewSplitTest {
         )) {
             assertFalse("$action must not preview on the 26-key", alpha.previewOnAction(action))
         }
-        assertEquals(true to "1", alpha.previewOnLabel("1"))
+        assertEquals(true to "q", alpha.previewOnLabel("q"))
         assertEquals(true to ",", alpha.previewOnLabel(","))
     }
 }

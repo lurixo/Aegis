@@ -167,7 +167,7 @@ class KeyboardView(context: Context) : View(context) {
     private val boldLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(18f); typeface = android.graphics.Typeface.DEFAULT }
     private val shiftActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.accentBottom; textAlign = Paint.Align.CENTER; textSize = sp(20f) }
     private val accentLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.accentLabel; textAlign = Paint.Align.CENTER; textSize = sp(20f); typeface = android.graphics.Typeface.DEFAULT }
-    private val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyHint; textAlign = Paint.Align.RIGHT; textSize = sp(10f); typeface = android.graphics.Typeface.DEFAULT }
+    private val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyHint; textAlign = Paint.Align.CENTER; textSize = sp(10f); typeface = android.graphics.Typeface.DEFAULT }
     private val langActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabelSecondary; textAlign = Paint.Align.CENTER; textSize = sp(17f); typeface = android.graphics.Typeface.DEFAULT }
     private val langSmallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyHint; textAlign = Paint.Align.RIGHT; textSize = sp(11f); typeface = android.graphics.Typeface.DEFAULT }
 
@@ -602,20 +602,21 @@ class KeyboardView(context: Context) : View(context) {
             val fw = paint.measureText(display)
             if (fw > face && face > 0f) paint.textSize = paint.textSize * face / fw
         }
+        val labelDrop = if (p.key.sub != null) 5f * density * scale else 0f
         if (display.length == 1 && display[0] in INK_CENTERED_GLYPHS) {
             val baseAlign = paint.textAlign
             paint.textAlign = Paint.Align.LEFT
             paint.getTextBounds(display, 0, display.length, inkBounds)
-            canvas.drawText(display, cx - inkBounds.exactCenterX(), cy - inkBounds.exactCenterY(), paint)
+            canvas.drawText(display, cx - inkBounds.exactCenterX(), cy + labelDrop - inkBounds.exactCenterY(), paint)
             paint.textAlign = baseAlign
         } else {
-            canvas.drawText(display, cx, cy - (paint.descent() + paint.ascent()) / 2, paint)
+            canvas.drawText(display, cx, cy + labelDrop - (paint.descent() + paint.ascent()) / 2, paint)
         }
         paint.textSize = baseTextSize
         if (p.key.sub != null) {
             val subBaseTextSize = subPaint.textSize
             subPaint.textSize = subBaseTextSize * scale
-            canvas.drawText(p.key.sub, p.rect.right - 6 * density * scale, p.rect.top + 15 * density * scale, subPaint)
+            canvas.drawText(p.key.sub, cx, p.rect.top + 15 * density * scale, subPaint)
             subPaint.textSize = subBaseTextSize
         }
     }
@@ -919,7 +920,7 @@ class KeyboardView(context: Context) : View(context) {
                     if (bounds != null && !bounds.contains(x, y)) cancelKeyHold()
                 }
             }
-            dk != null && lang == Lang.EN && isAlphaLetter(dk) -> {
+            dk != null && isAlphaLetter(dk) -> {
                 val dy = y - downY
                 if (!swiped && abs(dy) > swipeThreshold && abs(dy) > abs(x - downX)) {
                     swiped = true
@@ -976,7 +977,7 @@ class KeyboardView(context: Context) : View(context) {
             }
             dk != null && dk.action == KeyAction.BACKSPACE && swiped && !repeating ->
                 onBackspaceSwipe(y - downY < 0)
-            dk != null && lang == Lang.EN && isAlphaLetter(dk) && swiped && !repeating -> {
+            dk != null && isAlphaLetter(dk) && swiped && !repeating -> {
                 performClick()
                 if (vSwipeDir < 0 && dk.sub != null) onKey(Key(dk.sub, output = dk.sub, direct = true))
                 else onKey(dk)

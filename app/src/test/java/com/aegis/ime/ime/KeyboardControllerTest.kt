@@ -1165,6 +1165,14 @@ class KeyboardControllerTest {
         assertEquals(listOf("n", "@"), h.commits)
     }
 
+    @Test fun b2b_up_swipe_digit_commits_directly_even_mid_pinyin() {
+        val h = FakeHost()
+        val c = KeyboardController(h, engine)
+        c.onKey(Key("q", output = "q"))
+        c.onKey(Key("1", output = "1", direct = true))
+        assertEquals(listOf("q", "1"), h.commits)
+    }
+
     @Test fun backspace_up_swipe_clears_pending_pinyin_in_any_layout() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)

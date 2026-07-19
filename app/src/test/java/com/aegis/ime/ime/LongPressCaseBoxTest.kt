@@ -217,6 +217,18 @@ class LongPressCaseBoxTest {
         assertFalse(box)
     }
 
+    @Test fun cn_up_flick_commits_the_digit_sub_directly_and_never_opens_the_box() {
+        val out = ArrayList<String>()
+        val v = alphaView(Lang.CN).apply { onKey = { out.add(it.output) } }
+        val (qx, qy) = v.centerOfLabelForTest("q")!!
+        v.send(MotionEvent.ACTION_DOWN, qx, qy, 0)
+        v.send(MotionEvent.ACTION_MOVE, qx, qy - (swipeThreshold + 15f), 12)
+        val boxDuringFlick = v.caseBoxActiveForTest()
+        v.send(MotionEvent.ACTION_UP, qx, qy - (swipeThreshold + 15f), 20)
+        assertEquals("CN up-flick on q commits its digit sub", listOf("1"), out)
+        assertFalse("CN never opens the case box", boxDuringFlick)
+    }
+
     @Test fun a_short_tap_commits_the_letter_and_never_opens_the_box() {
         val out = ArrayList<String>()
         val v = alphaView().apply { onKey = { out.add(it.output) } }

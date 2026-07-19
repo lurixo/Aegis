@@ -56,14 +56,13 @@ object Layouts {
 
     private fun letters(s: String): List<Key> = s.map { Key(it.toString()) }
 
-    private fun subRow(lang: Lang, letters: String, enSubs: List<String>): List<Key> =
-        letters.mapIndexed { i, c -> Key(c.toString(), sub = if (lang == Lang.EN) enSubs.getOrNull(i) else null) }
+    private fun subRow(letters: String, subs: List<String>): List<Key> =
+        letters.mapIndexed { i, c -> Key(c.toString(), sub = subs.getOrNull(i)) }
 
     private fun qwerty(lang: Lang): KeyboardLayout {
-        val numbers = "1234567890".map { Key(it.toString(), direct = true) }
-        val q = subRow(lang, "qwertyuiop", listOf("`", "=", "+", "$", "…", "\"", "^", "[", "]", "|"))
-        val a = subRow(lang, "asdfghjkl", listOf("~", "!", "@", "#", "%", "'", "&", "*", "?"))
-        val z = subRow(lang, "zxcvbnm", listOf("(", ")", "-", "_", ":", ";", "/"))
+        val q = subRow("qwertyuiop", listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"))
+        val a = subRow("asdfghjkl", listOf("~", "!", "@", "#", "%", "'", "&", "*", "?"))
+        val z = subRow("zxcvbnm", listOf("(", ")", "-", "_", ":", ";", "/"))
         val comma = if (lang == Lang.CN) "，" else ","
         val period = if (lang == Lang.CN) "。" else "."
         val bottom = listOf(
@@ -77,22 +76,21 @@ object Layouts {
         )
         val cells = ArrayList<PlacedKey>()
         fun addRow(keys: List<Key>, x: Float, y: Float) {
-            keys.forEachIndexed { index, key -> cells.add(PlacedKey(key, x + index * 0.1f, y, 0.1f, 0.2f)) }
+            keys.forEachIndexed { index, key -> cells.add(PlacedKey(key, x + index * 0.1f, y, 0.1f, 0.25f)) }
         }
-        addRow(numbers, 0f, 0f)
-        addRow(q, 0f, 0.2f)
-        addRow(a, 0.05f, 0.4f)
-        cells.add(PlacedKey(Key("⇧", action = SHIFT, rail = true, weight = 1.5f), 0f, 0.6f, 0.15f, 0.2f))
-        addRow(z, 0.15f, 0.6f)
-        cells.add(PlacedKey(Key("⌫", action = BACKSPACE, rail = true, weight = 1.5f), 0.85f, 0.6f, 0.15f, 0.2f))
+        addRow(q, 0f, 0f)
+        addRow(a, 0.05f, 0.25f)
+        cells.add(PlacedKey(Key("⇧", action = SHIFT, rail = true, weight = 1.5f), 0f, 0.5f, 0.15f, 0.25f))
+        addRow(z, 0.15f, 0.5f)
+        cells.add(PlacedKey(Key("⌫", action = BACKSPACE, rail = true, weight = 1.5f), 0.85f, 0.5f, 0.15f, 0.25f))
         val bottomWeight = bottom.sumOf { it.weight.toDouble() }.toFloat()
         var bottomX = 0f
         bottom.forEach { key ->
             val width = key.weight / bottomWeight
-            cells.add(PlacedKey(key, bottomX, 0.8f, width, 0.2f))
+            cells.add(PlacedKey(key, bottomX, 0.75f, width, 0.25f))
             bottomX += width
         }
-        return KeyboardLayout(LayoutId.ALPHA, cells = cells, rowCount = 5)
+        return KeyboardLayout(LayoutId.ALPHA, cells = cells, rowCount = 4)
     }
 
     private fun t9key(letters: String, digit: String) = Key(letters, output = digit)
