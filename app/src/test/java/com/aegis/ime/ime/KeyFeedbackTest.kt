@@ -18,6 +18,7 @@ package com.aegis.ime.ime
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.RectF
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
@@ -161,6 +162,26 @@ class KeyFeedbackTest {
         for ((state, keyboardLayout, language) in states) {
             assertOrdinaryKeyRendersWithoutOutline(state, keyboardLayout, language)
         }
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Config(sdk = [34], qualifiers = "xxhdpi")
+    @Test fun function_keys_fill_with_the_rail_background_while_space_and_enter_keep_their_fills() {
+        val palette = ImePalette.STATIC_LIGHT.copy(
+            keyboardBg = Color.BLACK,
+            keySurface = Color.WHITE,
+            railBg = Color.BLUE,
+        )
+        val view = keyboardView(Layouts.forId(LayoutId.ALPHA, Lang.CN), language = Lang.CN).apply { applyPalette(palette) }
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        view.draw(Canvas(bitmap))
+        fun fillAt(bounds: RectF): Int = bitmap.getPixel(bounds.centerX().toInt(), (bounds.top + 3f * density).toInt())
+        for (action in listOf(KeyAction.SHOW_SYMBOLS, KeyAction.SWITCH_NUMPAD, KeyAction.TOGGLE_LANG, KeyAction.SHIFT, KeyAction.BACKSPACE)) {
+            assertEquals("$action", palette.railBg, fillAt(view.boundsOfActionForTest(action)!!))
+        }
+        assertEquals(palette.keySurface, fillAt(view.boundsOfActionForTest(KeyAction.SPACE)!!))
+        assertEquals(palette.accentBottom, fillAt(view.boundsOfActionForTest(KeyAction.ENTER)!!))
+        assertEquals(palette.keySurface, fillAt(view.boundsOfLabelForTest("q")!!))
     }
 
 

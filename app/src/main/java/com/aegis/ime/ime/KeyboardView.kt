@@ -541,7 +541,7 @@ class KeyboardView(context: Context) : View(context) {
     private fun drawContent(canvas: Canvas) {
         for (p in placed) {
             val pressLevel = if (p.key == visualPressed) keyPress.level else 0f
-            drawKey(canvas, p.rect, p.key.accent, pressLevel)
+            drawKey(canvas, p.rect, p.key.accent, p.key.rail, pressLevel)
             drawLabel(canvas, p)
         }
 
@@ -624,7 +624,7 @@ class KeyboardView(context: Context) : View(context) {
         canvas.restore()
     }
 
-    private fun drawKey(canvas: Canvas, rect: RectF, accent: Boolean, pressLevel: Float) {
+    private fun drawKey(canvas: Canvas, rect: RectF, accent: Boolean, rail: Boolean, pressLevel: Float) {
         if (accent) {
             fillPaint.color = palette.accentBottom
             canvas.drawRoundRect(rect, keyRadius, keyRadius, fillPaint)
@@ -634,7 +634,7 @@ class KeyboardView(context: Context) : View(context) {
             }
             return
         }
-        fillPaint.color = palette.keySurface
+        fillPaint.color = if (rail) palette.railBg else palette.keySurface
         canvas.drawRoundRect(rect, keyRadius, keyRadius, fillPaint)
         if (pressLevel > 0f) {
             pressHighlight.color = Motion.stateLayerColor(palette.keyLabel, pressLevel)

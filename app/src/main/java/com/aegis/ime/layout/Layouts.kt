@@ -67,12 +67,12 @@ object Layouts {
         val comma = if (lang == Lang.CN) "，" else ","
         val period = if (lang == Lang.CN) "。" else "."
         val bottom = listOf(
-            Key(labelRes = R.string.kbd_symbols, action = SHOW_SYMBOLS, weight = 1.5f),
-            Key("123", action = SWITCH_NUMPAD, weight = 1.5f),
+            Key(labelRes = R.string.kbd_symbols, action = SHOW_SYMBOLS, rail = true, weight = 1.5f),
+            Key("123", action = SWITCH_NUMPAD, rail = true, weight = 1.5f),
             Key(comma, direct = true),
             Key(labelRes = R.string.kbd_space, output = " ", action = SPACE, weight = 3.5f),
             Key(period, direct = true),
-            Key(action = TOGGLE_LANG, weight = 1.5f),
+            Key(action = TOGGLE_LANG, rail = true, weight = 1.5f),
             Key("↵", action = ENTER, accent = true, weight = 1.6f),
         )
         val cells = ArrayList<PlacedKey>()
@@ -82,9 +82,9 @@ object Layouts {
         addRow(numbers, 0f, 0f)
         addRow(q, 0f, 0.2f)
         addRow(a, 0.05f, 0.4f)
-        cells.add(PlacedKey(Key("⇧", action = SHIFT, weight = 1.5f), 0f, 0.6f, 0.15f, 0.2f))
+        cells.add(PlacedKey(Key("⇧", action = SHIFT, rail = true, weight = 1.5f), 0f, 0.6f, 0.15f, 0.2f))
         addRow(z, 0.15f, 0.6f)
-        cells.add(PlacedKey(Key("⌫", action = BACKSPACE, weight = 1.5f), 0.85f, 0.6f, 0.15f, 0.2f))
+        cells.add(PlacedKey(Key("⌫", action = BACKSPACE, rail = true, weight = 1.5f), 0.85f, 0.6f, 0.15f, 0.2f))
         val bottomWeight = bottom.sumOf { it.weight.toDouble() }.toFloat()
         var bottomX = 0f
         bottom.forEach { key ->
@@ -104,7 +104,7 @@ object Layouts {
         val xR = (NINE_LEFT_U + 3f) * u; val wR = NINE_RIGHT_U * u
         val cells = ArrayList<PlacedKey>()
         val leftColumn = ScrollColumn(left, xL, 0f, wL, 0.75f, cellHFrac = 0.75f / 4f)
-        cells.add(PlacedKey(Key(labelRes = R.string.kbd_symbols, action = SHOW_SYMBOLS), xL, 0.75f, wL, 0.25f))
+        cells.add(PlacedKey(Key(labelRes = R.string.kbd_symbols, action = SHOW_SYMBOLS, rail = true), xL, 0.75f, wL, 0.25f))
         cells.add(PlacedKey(
             if (composing) Key(labelRes = R.string.kbd_split, action = SEGMENT, bold = true) else Key("@#", action = SWITCH_NUMBERS, bold = true),
             x1, 0f, wM, 0.25f,
@@ -117,11 +117,11 @@ object Layouts {
         cells.add(PlacedKey(t9key("PQRS", "7"), x1, 0.5f, wM, 0.25f))
         cells.add(PlacedKey(t9key("TUV", "8"), x2, 0.5f, wM, 0.25f))
         cells.add(PlacedKey(t9key("WXYZ", "9"), x3, 0.5f, wM, 0.25f))
-        cells.add(PlacedKey(Key("123", action = SWITCH_NUMPAD), x1, 0.75f, 0.8f * u, 0.25f))
+        cells.add(PlacedKey(Key("123", action = SWITCH_NUMPAD, rail = true), x1, 0.75f, 0.8f * u, 0.25f))
         cells.add(PlacedKey(Key(labelRes = R.string.kbd_space, output = " ", action = SPACE), x1 + 0.8f * u, 0.75f, 1.4f * u, 0.25f))
-        cells.add(PlacedKey(Key(action = TOGGLE_LANG), x1 + 2.2f * u, 0.75f, 0.8f * u, 0.25f))
-        cells.add(PlacedKey(Key("⌫", action = BACKSPACE), xR, 0f, wR, 0.25f))
-        cells.add(PlacedKey(Key(labelRes = R.string.kbd_redo, action = CLEAR_COMPOSING), xR, 0.25f, wR, 0.25f))
+        cells.add(PlacedKey(Key(action = TOGGLE_LANG, rail = true), x1 + 2.2f * u, 0.75f, 0.8f * u, 0.25f))
+        cells.add(PlacedKey(Key("⌫", action = BACKSPACE, rail = true), xR, 0f, wR, 0.25f))
+        cells.add(PlacedKey(Key(labelRes = R.string.kbd_redo, action = CLEAR_COMPOSING, rail = true), xR, 0.25f, wR, 0.25f))
         cells.add(PlacedKey(Key("↵", action = ENTER, accent = true), xR, 0.5f, wR, 0.5f))
         return KeyboardLayout(LayoutId.NINE, cells = cells, rowCount = 4, scrollColumn = leftColumn)
     }
@@ -135,12 +135,12 @@ object Layouts {
                 Key("-"), Key("+"), Key("("), Key(")"), Key("/"),
             ),
             row(
-                Key("=\\<", action = SWITCH_SYMBOLS, weight = 1.5f),
+                Key("=\\<", action = SWITCH_SYMBOLS, rail = true, weight = 1.5f),
                 Key("*"), Key("\""), Key("'"), Key(":"), Key(";"), Key("!"), Key("?"),
-                Key("⌫", action = BACKSPACE, weight = 1.5f),
+                Key("⌫", action = BACKSPACE, rail = true, weight = 1.5f),
             ),
             row(
-                Key(labelRes = R.string.kbd_back, action = SWITCH_TEXT, weight = 1.5f),
+                Key(labelRes = R.string.kbd_back, action = SWITCH_TEXT, rail = true, weight = 1.5f),
                 Key(","),
                 Key(labelRes = R.string.kbd_space, output = " ", action = SPACE, weight = 3f),
                 Key("."),
@@ -166,12 +166,12 @@ object Layouts {
         digit("1", x1, 0f); digit("2", x2, 0f); digit("3", x3, 0f)
         digit("4", x1, 0.25f); digit("5", x2, 0.25f); digit("6", x3, 0.25f)
         digit("7", x1, 0.5f); digit("8", x2, 0.5f); digit("9", x3, 0.5f)
-        cells.add(PlacedKey(Key("⌫", action = BACKSPACE), xR, 0f, wR, 0.25f))
-        cells.add(PlacedKey(Key("."), xR, 0.25f, wR, 0.25f))
+        cells.add(PlacedKey(Key("⌫", action = BACKSPACE, rail = true), xR, 0f, wR, 0.25f))
+        cells.add(PlacedKey(Key(".", rail = true), xR, 0.25f, wR, 0.25f))
         cells.add(PlacedKey(Key("↵", action = ENTER, accent = true), xR, 0.5f, wR, 0.5f))
-        cells.add(PlacedKey(Key(labelRes = R.string.kbd_back, action = SWITCH_TEXT), x1, 0.75f, wM, 0.25f))
+        cells.add(PlacedKey(Key(labelRes = R.string.kbd_back, action = SWITCH_TEXT, rail = true), x1, 0.75f, wM, 0.25f))
         cells.add(PlacedKey(Key("0"), x2, 0.75f, wM, 0.25f))
-        cells.add(PlacedKey(Key(labelRes = R.string.kbd_space, output = " ", action = SPACE), x3, 0.75f, wM, 0.25f))
+        cells.add(PlacedKey(Key(labelRes = R.string.kbd_space, output = " ", action = SPACE, rail = true), x3, 0.75f, wM, 0.25f))
         return KeyboardLayout(LayoutId.NUMPAD, cells = cells, rowCount = 4, scrollColumn = opCol)
     }
 
@@ -187,12 +187,12 @@ object Layouts {
                 Key("°"), Key("="), Key("{"), Key("}"), Key("\\"),
             ),
             row(
-                Key("?123", action = SWITCH_NUMBERS, weight = 1.5f),
+                Key("?123", action = SWITCH_NUMBERS, rail = true, weight = 1.5f),
                 Key("©"), Key("®"), Key("™"), Key("℅"), Key("["), Key("]"), Key("§"),
-                Key("⌫", action = BACKSPACE, weight = 1.5f),
+                Key("⌫", action = BACKSPACE, rail = true, weight = 1.5f),
             ),
             row(
-                Key(labelRes = R.string.kbd_back, action = SWITCH_TEXT, weight = 1.5f),
+                Key(labelRes = R.string.kbd_back, action = SWITCH_TEXT, rail = true, weight = 1.5f),
                 Key("<"),
                 Key(labelRes = R.string.kbd_space, output = " ", action = SPACE, weight = 3f),
                 Key(">"),
