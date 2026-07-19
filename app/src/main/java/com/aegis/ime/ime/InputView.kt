@@ -816,6 +816,8 @@ class InputView(context: Context) : LinearLayout(context) {
 
     internal fun gateShowsFailureForTest(snap: DownloadCardSnapshot): Boolean = gateShowsFailure(snap)
 
+    internal fun candidateGateActiveForTest(): Boolean = candidateView.gateActiveForTest()
+
     internal fun candidateRestoreNoticeForTest(): String? = candidateView.restoreNoticeLabelForTest()
 
     internal fun candidateBarForTest(): CandidateView = candidateView

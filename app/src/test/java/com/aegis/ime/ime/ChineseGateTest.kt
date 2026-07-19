@@ -18,7 +18,12 @@ package com.aegis.ime.ime
 import android.view.MotionEvent
 import android.view.View
 import com.aegis.ime.R
+import com.aegis.ime.decoder.EngineFixture
+import com.aegis.ime.engine.CandidateEngine
+import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.layout.Key
+import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.ui.DownloadCardSnapshot
 import com.aegis.ime.ui.LocalizedText
 import org.junit.Assert.assertEquals
@@ -35,6 +40,112 @@ import org.robolectric.annotation.Config
 class ChineseGateTest {
 
     private val ctx = RuntimeEnvironment.getApplication()
+
+    private class Host : ImeHost {
+        val commits = mutableListOf<String>()
+        override fun commitText(text: CharSequence) { commits.add(text.toString()) }
+        override fun deleteBackward() {}
+        override fun performEnter() {}
+    }
+
+    private fun controller(e: CandidateEngine): Pair<KeyboardController, InputView> {
+        val view = InputView(ctx)
+        val c = KeyboardController(Host(), e).apply { attachView(view) }
+        return c to view
+    }
+
+    private fun type(c: KeyboardController, s: String) =
+        s.forEach { c.onKey(Key(it.toString(), output = it.toString())) }
+
+    private fun chineseCapableEngine(): DictEngine =
+        DictEngine(EngineFixture.build(listOf(EngineFixture.Row("ni", "你", 900))), null, null)
+
+    @Test fun gate_locks_chinese_when_no_dict_and_pinyin_is_composing() {
+        val (c, view) = controller(DictEngine(null, null, null))
+        c.switchTextLayoutForTest(nine = false)
+        type(c, "ni")
+        assertTrue("no Chinese dict + pinyin typed must gate", c.chineseGateActiveForTest())
+        assertTrue("the strip must receive the gate flag", view.candidateGateActiveForTest())
+    }
+
+    @Test fun gate_locks_chinese_on_the_nine_key_keyboard_too() {
+        val (c, view) = controller(DictEngine(null, null, null))
+        c.switchTextLayoutForTest(nine = true)
+        type(c, "64")
+        assertTrue("no Chinese dict + 9-key digits typed must gate", c.chineseGateActiveForTest())
+        assertTrue("the strip must receive the gate flag", view.candidateGateActiveForTest())
+    }
+
+    @Test fun gate_is_inactive_before_the_user_types() {
+        val (c, view) = controller(DictEngine(null, null, null))
+        c.switchTextLayoutForTest(nine = false)
+        assertFalse("empty composing must keep the functions toolbar", c.chineseGateActiveForTest())
+        assertFalse(view.candidateGateActiveForTest())
+    }
+
+    @Test fun gate_is_inactive_in_english_layout() {
+        val (c, view) = controller(DictEngine(null, null, null))
+        c.switchTextLayoutForTest(nine = false)
+        c.onKey(Key("", action = KeyAction.TOGGLE_LANG))
+        type(c, "ni")
+        assertFalse("English typing must never gate", c.chineseGateActiveForTest())
+        assertFalse(view.candidateGateActiveForTest())
+    }
+
+    @Test fun gate_is_inactive_when_a_chinese_capable_engine_is_set() {
+        val (c, view) = controller(chineseCapableEngine())
+        c.switchTextLayoutForTest(nine = false)
+        type(c, "ni")
+        assertFalse("a Chinese-capable engine must never gate", c.chineseGateActiveForTest())
+        assertFalse(view.candidateGateActiveForTest())
+    }
+
+    @Test fun hot_reloading_a_chinese_engine_clears_the_gate() {
+        val host = Host()
+        val view = InputView(ctx)
+        val c = KeyboardController(host, DictEngine(null, null, null)).apply { attachView(view) }
+        c.switchTextLayoutForTest(nine = false)
+        type(c, "ni")
+        assertTrue(c.chineseGateActiveForTest())
+        c.setEngine(chineseCapableEngine())
+        assertFalse("installing the pack (setEngine) clears the gate", c.chineseGateActiveForTest())
+        assertFalse(view.candidateGateActiveForTest())
+        assertEquals("the download-trigger input is removed", "", c.preeditForTest())
+        assertTrue("download-trigger candidates are removed", c.candidateWords().isEmpty())
+        assertTrue("clearing the gate must not commit raw pinyin", host.commits.isEmpty())
+    }
+
+    @Test fun nine_key_download_trigger_is_cleared_without_committing_digits_or_pinyin() {
+        val host = Host()
+        val view = InputView(ctx)
+        val c = KeyboardController(host, DictEngine(null, null, null)).apply { attachView(view) }
+        c.switchTextLayoutForTest(nine = true)
+        type(c, "64")
+        assertTrue(c.chineseGateActiveForTest())
+        assertTrue("precondition: 9-key input is visible", c.preeditForTest().isNotEmpty())
+
+        c.setEngine(chineseCapableEngine())
+
+        assertEquals("9-key download-trigger input is removed", "", c.preeditForTest())
+        assertTrue(c.candidateWords().isEmpty())
+        assertFalse(view.candidateGateActiveForTest())
+        assertTrue("clearing the 9-key gate must not commit", host.commits.isEmpty())
+    }
+
+    @Test fun ordinary_chinese_engine_hot_swap_preserves_active_composition() {
+        val host = Host()
+        val c = KeyboardController(host, chineseCapableEngine())
+        c.switchTextLayoutForTest(nine = false)
+        type(c, "ni")
+        val preedit = c.preeditForTest()
+        val candidates = c.candidateWords()
+
+        c.setEngine(chineseCapableEngine())
+
+        assertEquals("an ordinary Chinese-to-Chinese swap keeps the preedit", preedit, c.preeditForTest())
+        assertEquals("an ordinary Chinese-to-Chinese swap re-decodes the same input", candidates, c.candidateWords())
+        assertTrue(host.commits.isEmpty())
+    }
 
     @Test fun tapping_the_gated_strip_invokes_the_download_callback() {
         var tapped = false

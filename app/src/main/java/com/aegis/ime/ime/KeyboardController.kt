@@ -74,6 +74,8 @@ class KeyboardController(
     private var candidates: List<Cand> = emptyList()
     private var lastWord: String? = null
 
+    private var engineSupportsChinese: Boolean = engine.supportsChinese
+
     private val committedPrefix = StringBuilder()
 
     private val lockedReadings = mutableListOf<String>()
@@ -122,9 +124,16 @@ class KeyboardController(
     }
 
     fun setEngine(newEngine: CandidateEngine) {
+        val clearDownloadTrigger = !engineSupportsChinese && newEngine.supportsChinese && chineseGateActive()
         engine = newEngine
+        engineSupportsChinese = newEngine.supportsChinese
         pushedFuzzyRules?.let { newEngine.setFuzzyRules(it) }
-        refreshCandidates()
+        if (clearDownloadTrigger) {
+            clearComposingState()
+            applyDecodeResult(emptyDecodeResult())
+        } else {
+            refreshCandidates()
+        }
         render()
     }
 
@@ -469,6 +478,12 @@ class KeyboardController(
         else -> Mode.DIRECT
     }
 
+    private fun chineseGateActive(): Boolean =
+        mode() == Mode.PINYIN && !engineSupportsChinese &&
+            composing.indices.any { it !in literalIndices }
+
+    internal fun chineseGateActiveForTest(): Boolean = chineseGateActive()
+
     private fun handleCommit(key: Key) {
         if (key.preeditLiteral && mode() == Mode.PINYIN &&
             (composing.isNotEmpty() || committedPrefix.isNotEmpty())
@@ -807,6 +822,9 @@ class KeyboardController(
         val predictionCands: Set<Cand>,
         val englishCands: Set<Cand> = emptySet(),
     )
+
+    private fun emptyDecodeResult(): DecodeResult =
+        DecodeResult(emptyList(), emptySet(), emptySet(), emptySet(), emptySet())
 
     private fun buildDecodeRequest(): DecodeRequest {
         val locked = mode() == Mode.PINYIN && composing.isNotEmpty() &&
@@ -1192,6 +1210,7 @@ class KeyboardController(
             preedit,
             readings,
             selectedExpandedReadingIndex(readings, highlight),
+            chineseGateActive(),
             candidateProjection = CandidateProjectionPolicy.PINYIN.takeIf {
                 mode() == Mode.PINYIN && composing.isNotEmpty()
             },
