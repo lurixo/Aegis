@@ -114,13 +114,33 @@ class KeyboardGeometryTest {
                         assertEquals(rowFaces.first().second.left, page.width - rowFaces.last().second.right, 0.02f)
                         assertEquals(1.5f * baselineFace.width(), rowFaces.first().second.width(), 0.02f)
                         assertEquals(1.5f * baselineFace.width(), rowFaces.last().second.width(), 0.02f)
+                        for ((leftEntry, rightEntry) in rowHits.zipWithNext()) {
+                            val seamY = leftEntry.second.centerY()
+                            assertEquals(leftEntry.first, page.keyAtForTest(leftEntry.second.right - 0.02f, seamY))
+                            assertEquals(rightEntry.first, page.keyAtForTest(rightEntry.second.left + 0.02f, seamY))
+                            val mid = (leftEntry.second.right + rightEntry.second.left) / 2f
+                            val midKey = page.keyAtForTest(mid, seamY)
+                            assertTrue(midKey == leftEntry.first || midKey == rightEntry.first)
+                        }
                     } else {
                         for (gapValue in rowGaps) assertEquals(ordinaryGap, gapValue, 0.02f)
                     }
                     if (rowIndex < source.rows.lastIndex) {
                         for (index in row.keys.indices.filter { row.keys[it].weight == 1f }) {
                             assertSize(baselineFace, rowFaces[index].second)
-                            assertSize(baselineHit, rowHits[index].second)
+                            if (rowIndex == source.rows.lastIndex - 1) {
+                                assertEquals(
+                                    baselineFace.width() + ordinaryGap * 9f / 8f,
+                                    rowHits[index].second.width(),
+                                    0.02f,
+                                )
+                                assertEquals(baselineHit.height(), rowHits[index].second.height(), 0.02f)
+                            } else {
+                                assertSize(baselineHit, rowHits[index].second)
+                            }
+                        }
+                        rowHits.zipWithNext().forEach { (leftEntry, rightEntry) ->
+                            assertEquals(leftEntry.second.right, rightEntry.second.left, 0.02f)
                         }
                     } else {
                         for (index in row.keys.indices) {

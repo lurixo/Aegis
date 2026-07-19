@@ -340,9 +340,9 @@ class KeyboardView(context: Context) : View(context) {
                 for ((key, keyWidth) in rowItem.keys.zip(widths)) {
                     val rect = RectF(left, top, left + keyWidth, top + faceHeight)
                     val hitRect = RectF(
-                        rect.left - horizontalGap,
+                        rect.left - keyGap / 2f,
                         rect.top - verticalGap / 2f,
-                        rect.right + horizontalGap,
+                        rect.right + keyGap / 2f,
                         rect.bottom + verticalGap / 2f,
                     )
                     placed.add(Placed(rect, key, hitRect = hitRect))
