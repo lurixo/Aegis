@@ -109,6 +109,8 @@
     <string name="layout_card_description">Default keyboard for Chinese input (English always uses 26 keys).</string>
     <string name="layout_nine">Full Pinyin T9</string>
     <string name="layout_alpha">Full Pinyin 26-key</string>
+    <string name="layout_en">English 26-key</string>
+    <string name="layout_panel_title">Keyboard layout</string>
 
     <string name="user_dict_title">Learning dictionary</string>
     <string name="user_dict_description">Aegis learns your frequent words and next-word pairs offline and stores them as the learning dictionary on this device. This is separate from the downloaded main dictionary: import/overwrite here only changes the learning dictionary and never changes the main dictionary. Imports take effect immediately.</string>

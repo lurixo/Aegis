@@ -182,6 +182,17 @@ object Glyphs {
         }
     }
 
+    fun drawKeyboard(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val w = s * 0.70f; val h = s * 0.4167f; val r = s * 0.15f
+        c.drawRoundRect(cx - w, cy - h, cx + w, cy + h, r, r, paint)
+        val dotY = cy - s * 0.1333f; val dotX = s * 0.3667f
+        c.drawPoint(cx - dotX, dotY, paint)
+        c.drawPoint(cx, dotY, paint)
+        c.drawPoint(cx + dotX, dotY, paint)
+        val barY = cy + s * 0.1583f; val barX = s * 0.30f
+        c.drawLine(cx - barX, barY, cx + barX, barY, paint)
+    }
+
     fun drawEditCaret(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val h = s * 0.82f; val w = s * 0.5f
         c.drawLine(cx, cy - h, cx, cy + h, paint)
