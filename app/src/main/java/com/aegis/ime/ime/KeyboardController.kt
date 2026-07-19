@@ -97,6 +97,7 @@ class KeyboardController(
     private var calcCand: Cand? = null
     private var calcExpr = ""
     private var calcResult = ""
+    private var calcDismissed = false
 
     private var learningBlocked = false
 
@@ -200,6 +201,7 @@ class KeyboardController(
             layoutId = if (lang == Lang.CN) cnDefaultLayout else LayoutId.ALPHA
         }
         lastWord = null
+        calcDismissed = false
         render()
     }
 
@@ -377,6 +379,7 @@ class KeyboardController(
             host.commitText(if (key.verbatim) key.output else applyCase(key.output))
             if (shiftState == ShiftState.ONCE && key.output.any { it.isLetter() }) shiftState = ShiftState.OFF
             lastWord = null
+            calcDismissed = false
             return
         }
         when (mode()) {
@@ -385,6 +388,7 @@ class KeyboardController(
                 host.commitText(applyCase(key.output))
                 if (shiftState == ShiftState.ONCE && key.output.any { it.isLetter() }) shiftState = ShiftState.OFF
                 lastWord = null
+                calcDismissed = false
             }
         }
     }
@@ -403,6 +407,7 @@ class KeyboardController(
             }
             if (host.hasSelection()) host.deleteSelection() else host.deleteBackward()
             lastWord = null
+            if (calcCand != null) calcDismissed = true
             return
         }
         when (history.removeLastOrNull()) {
@@ -429,8 +434,10 @@ class KeyboardController(
     }
 
     private fun handleClearComposing() {
+        val hadCalc = calcCand != null
         lastWord = null
         clearComposingState()
+        if (hadCalc) calcDismissed = true
     }
 
     private fun handleSpace() {
@@ -665,6 +672,7 @@ class KeyboardController(
         val forcedCuts: Set<Int>,
         val associationsEnabled: Boolean,
         val learningBlocked: Boolean,
+        val calcDismissed: Boolean,
         val lastWord: String?,
     )
 
@@ -705,6 +713,7 @@ class KeyboardController(
             forcedCuts = forcedCuts.toSet(),
             associationsEnabled = associationsEnabled,
             learningBlocked = learningBlocked,
+            calcDismissed = calcDismissed,
             lastWord = lastWord,
         )
     }
@@ -736,7 +745,7 @@ class KeyboardController(
                 }
             }
             req.composingEmpty && req.committedPrefixEmpty -> {
-                val match = if (req.learningBlocked) null else Calculator.detect(req.host.textBeforeCursor(CALC_SCAN_LEN))
+                val match = if (req.learningBlocked || req.calcDismissed) null else Calculator.detect(req.host.textBeforeCursor(CALC_SCAN_LEN))
                 when {
                     match != null -> {
                         val cand = Cand(match.append, 0)
