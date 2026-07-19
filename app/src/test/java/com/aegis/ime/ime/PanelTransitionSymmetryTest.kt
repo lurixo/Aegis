@@ -74,7 +74,7 @@ class PanelTransitionSymmetryTest {
     private fun keyboard(iv: InputView): View = innerView(iv, "keyboardView")
     private fun container(iv: InputView): ViewGroup = innerView(iv, "panelContainer") as ViewGroup
 
-    @Test fun keyboard_to_panel_swaps_synchronously_with_a_residual_cover_fade() {
+    @Test fun keyboard_to_panel_swaps_synchronously_with_a_residual_cover_hold() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -101,7 +101,7 @@ class PanelTransitionSymmetryTest {
         }
     }
 
-    @Test fun panel_to_panel_swaps_synchronously_with_a_residual_cover_fade() {
+    @Test fun panel_to_panel_swaps_synchronously_with_a_residual_cover_hold() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -218,7 +218,7 @@ class PanelTransitionSymmetryTest {
         }
     }
 
-    @Test fun panel_to_keyboard_swaps_synchronously_with_a_residual_cover_fade() {
+    @Test fun panel_to_keyboard_swaps_synchronously_with_a_residual_cover_hold() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {

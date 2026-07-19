@@ -167,11 +167,10 @@ class SwitchFlickerTest {
             assertTrue(input.isEditBarShowing())
 
             input.showEditBar(false)
-            flushMotion()
+            assertEquals("the close lands GONE in the same call", View.GONE, bar.visibility)
             input.showEditBar(true)
-            assertTrue("a genuine reopen still animates", bar.alpha < 1f)
-            flushMotion()
-            assertEquals(1f, bar.alpha, 0f)
+            assertEquals("a genuine reopen shows the bar instantly at full opacity", 1f, bar.alpha, 0f)
+            assertEquals(View.VISIBLE, bar.visibility)
         } finally {
             controller.pause().stop().destroy()
         }

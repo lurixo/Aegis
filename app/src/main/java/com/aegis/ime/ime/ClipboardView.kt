@@ -555,7 +555,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         if (modeChanged) modeTransitions++
         if (animate && (tabChanged || modeChanged || categoryChanged) && main.isShown) {
             contentFades++
-            Motion.coverThrough(listScroll, BG, Motion.SHORT2) { rebuildContent() }
+            Motion.coverThrough(listScroll, BG) { rebuildContent() }
         } else {
             rebuildContent()
         }
@@ -1467,7 +1467,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         overlay.setOnClickListener(null)
         overlay.isClickable = false
         disableClicks(overlay)
-        Motion.hide(overlay, toward = Motion.EnterFrom.BOTTOM) { overlay.removeAllViews() }
+        Motion.hideNow(overlay) { overlay.removeAllViews() }
     }
 
     private fun hideOverlayImmediately() {
@@ -1495,7 +1495,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val lp = FrameLayout.LayoutParams(requestedWidth, WC, gravity).apply { leftMargin = margin; rightMargin = margin; topMargin = margin; bottomMargin = margin }
         overlay.addView(scroll, lp)
         overlay.visibility = VISIBLE
-        Motion.revealIn(scroll, Motion.EnterFrom.BOTTOM)
+        Motion.showNow(scroll)
         scroll.post {
             val maxH = (overlay.height * 0.82f).toInt()
             if (maxH in 1 until scroll.height) { lp.height = maxH; scroll.layoutParams = lp }

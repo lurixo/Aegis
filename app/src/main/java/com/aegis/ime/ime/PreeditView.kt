@@ -63,9 +63,9 @@ open class PreeditView(context: Context) : View(context) {
         when {
             appearing -> {
                 shownText = s
-                Motion.fadeIn(this)
+                Motion.showNow(this)
             }
-            disappearing -> Motion.hide(this, endVisibility = VISIBLE) {
+            disappearing -> Motion.hideNow(this, endVisibility = VISIBLE) {
                 shownText = ""
                 invalidate()
             }

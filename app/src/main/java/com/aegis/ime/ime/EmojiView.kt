@@ -245,7 +245,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
             if (tabChanged && (i == index || i == prev)) crossfadeTabColor(tab, color) else tab.setTextColor(color)
             retintRipple(tab, color)
         }
-        if (animate && tabChanged && gridScroll.isShown) Motion.coverThrough(gridScroll, palette.keyboardBg, Motion.SHORT2) { bindGrid(selected) }
+        if (animate && tabChanged && gridScroll.isShown) Motion.coverThrough(gridScroll, palette.keyboardBg) { bindGrid(selected) }
         else bindGrid(index)
     }
 
@@ -337,15 +337,15 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         variantScrim.isClickable = true
         variantScrim.visibility = View.VISIBLE
         variantScrim.bringToFront()
-        Motion.fadeIn(variantScrim)
-        Motion.revealIn(variantCard, Motion.EnterFrom.BOTTOM)
+        Motion.showNow(variantScrim)
+        Motion.showNow(variantCard)
     }
 
     private fun dismissVariants() {
         if (variantScrim.visibility != View.VISIBLE || !variantScrim.isClickable) return
         variantScrim.isClickable = false
         disableClicks(variantCard)
-        Motion.hide(variantScrim, toward = Motion.EnterFrom.BOTTOM)
+        Motion.hideNow(variantScrim)
     }
 
     private fun disableClicks(v: View) {

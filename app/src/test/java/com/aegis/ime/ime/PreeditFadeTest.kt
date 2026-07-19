@@ -48,7 +48,7 @@ class PreeditFadeTest {
 
     private fun settle() = shadowOf(Looper.getMainLooper()).idleFor(300, TimeUnit.MILLISECONDS)
 
-    @Test fun clearing_keeps_drawing_the_outgoing_text_while_fading_then_clears() {
+    @Test fun clearing_lands_the_emptied_band_in_the_same_call() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -59,13 +59,9 @@ class PreeditFadeTest {
 
             pv.setText("")
 
-            assertEquals("the outgoing text keeps drawing through the exit fade", "ni", pv.shownTextForTest())
-            assertEquals("the slot must not collapse during the fade", View.VISIBLE, pv.visibility)
-
-            settle()
-            assertEquals("the fade end clears the drawn text", "", pv.shownTextForTest())
-            assertEquals("alpha returns to rest for the next appear", 1f, pv.alpha, 0f)
-            assertEquals(View.VISIBLE, pv.visibility)
+            assertEquals("the clear lands in the same call — no ghost text lingers", "", pv.shownTextForTest())
+            assertEquals("the slot must not collapse on the clear", View.VISIBLE, pv.visibility)
+            assertEquals("alpha stays at rest for the next appear", 1f, pv.alpha, 0f)
         } finally {
             controller.pause().stop().destroy()
         }
@@ -95,7 +91,7 @@ class PreeditFadeTest {
         assertEquals(1f, pv.alpha, 0f)
     }
 
-    @Test fun new_text_mid_fade_cancels_the_exit_and_appears() {
+    @Test fun new_text_right_after_a_clear_appears_in_the_same_call() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -103,14 +99,14 @@ class PreeditFadeTest {
             pv.setText("ni")
             settle()
             pv.setText("")
-            assertEquals("ni", pv.shownTextForTest())
+            assertEquals("", pv.shownTextForTest())
 
             pv.setText("hao")
 
-            assertEquals("logical text was empty, so this is an appear of the new text", "hao", pv.shownTextForTest())
+            assertEquals("the new text shows in the same call", "hao", pv.shownTextForTest())
             settle()
             assertEquals("hao", pv.shownTextForTest())
-            assertEquals("the cancelled exit never clears the newly shown text", 1f, pv.alpha, 0f)
+            assertEquals("the earlier clear never dims the newly shown text", 1f, pv.alpha, 0f)
         } finally {
             controller.pause().stop().destroy()
         }
@@ -131,7 +127,7 @@ class PreeditFadeTest {
         }
     }
 
-    @Test fun detach_mid_fade_finishes_the_clear() {
+    @Test fun detach_after_a_clear_leaves_no_ghost_tab() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -139,11 +135,11 @@ class PreeditFadeTest {
             pv.setText("ni")
             settle()
             pv.setText("")
-            assertEquals("ni", pv.shownTextForTest())
+            assertEquals("", pv.shownTextForTest())
 
             (pv.parent as FrameLayout).removeView(pv)
 
-            assertEquals("a detach lands the pending clear so no ghost tab survives", "", pv.shownTextForTest())
+            assertEquals("no ghost tab survives a detach", "", pv.shownTextForTest())
         } finally {
             controller.pause().stop().destroy()
         }

@@ -24,13 +24,12 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import com.aegis.ime.ime.Motion
 
 internal object SettingsMotion {
-    val DURATION_NAV = Motion.MODE_SWITCH.toInt()
-    val DURATION_FADE_IN = Motion.FADE_IN.toInt()
-    val DURATION_FADE_OUT = Motion.FADE_OUT.toInt()
-    val DURATION_STATE = Motion.STATE_CHANGE.toInt()
+    val DURATION_NAV = 200
+    val DURATION_FADE_IN = 150
+    val DURATION_FADE_OUT = 100
+    val DURATION_STATE = 200
 
     val EmphasizedDecelerate: Easing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
     val EmphasizedAccelerate: Easing = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)

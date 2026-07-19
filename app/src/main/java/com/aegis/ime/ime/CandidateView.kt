@@ -119,7 +119,7 @@ class CandidateView(context: Context) : View(context) {
         val roleChanged = stripRole(items.isEmpty(), composing) != stripRole(candidates.isEmpty(), composingText)
         if (roleChanged) {
             contentTransitions++
-            Motion.coverThrough(this, palette.keyboardBg, Motion.FADE_IN) { applyContent(candidates, composingText) }
+            Motion.coverThrough(this, palette.keyboardBg) { applyContent(candidates, composingText) }
         } else {
             applyContent(candidates, composingText)
         }

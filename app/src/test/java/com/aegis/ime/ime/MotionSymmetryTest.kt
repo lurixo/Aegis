@@ -46,16 +46,16 @@ class MotionSymmetryTest {
     }
 
 
-    @Test fun hide_under_reduced_motion_reaches_gone_and_runs_end_action() {
+    @Test fun hideNow_under_reduced_motion_reaches_gone_and_runs_end_action() {
         animationsOff()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
             val host = host(controller.get())
-            val v = View(ctx).also { host.addView(it) }
+            val v = View(ctx).apply { alpha = 0.4f; translationY = 8f }.also { host.addView(it) }
             var ended = false
-            Motion.hide(v, toward = Motion.EnterFrom.TOP) { ended = true }
-            assertEquals("reduced motion jumps straight to GONE", View.GONE, v.visibility)
-            assertTrue("the end action still runs (the caller closes synchronously)", ended)
+            Motion.hideNow(v) { ended = true }
+            assertEquals("the hide jumps straight to GONE", View.GONE, v.visibility)
+            assertTrue("the end action runs in the same call (the caller closes synchronously)", ended)
             assertEquals("and the transform is reset to rest", 0f, v.translationY, 0f)
             assertEquals(1f, v.alpha, 0f)
         } finally {
@@ -63,25 +63,26 @@ class MotionSymmetryTest {
         }
     }
 
-    @Test fun hide_when_detached_reaches_end_state_immediately() {
+    @Test fun hideNow_when_detached_reaches_end_state_immediately() {
         animationsOn()
         val v = View(ctx)
         var ended = false
-        Motion.hide(v) { ended = true }
+        Motion.hideNow(v) { ended = true }
         assertEquals(View.GONE, v.visibility)
         assertTrue(ended)
     }
 
-    @Test fun hide_when_attached_and_animated_defers_the_gone_until_the_fade_ends() {
+    @Test fun hideNow_when_attached_and_animated_still_lands_gone_in_the_same_call() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
             val host = host(controller.get())
             val v = View(ctx).also { host.addView(it) }
             var ended = false
-            Motion.hide(v) { ended = true }
-            assertEquals("the fade defers GONE (it animates, never snaps)", View.VISIBLE, v.visibility)
-            assertFalse("the end action waits for the fade to finish", ended)
+            Motion.hideNow(v) { ended = true }
+            assertEquals("the hide never fades — GONE lands in the same call", View.GONE, v.visibility)
+            assertTrue("the end action runs synchronously, attached or not", ended)
+            assertEquals("the transform is reset to rest for the next show", 1f, v.alpha, 0f)
         } finally {
             controller.pause().stop().destroy()
         }

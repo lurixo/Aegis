@@ -35,25 +35,15 @@ import kotlin.math.roundToInt
 object Motion {
     val STANDARD: Interpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
     val STANDARD_DECEL: Interpolator = PathInterpolator(0f, 0f, 0f, 1f)
-    val EMPHASIZED_DECEL: Interpolator = PathInterpolator(0.05f, 0.7f, 0.1f, 1f)
-    val EMPHASIZED_ACCEL: Interpolator = PathInterpolator(0.3f, 0f, 0.8f, 0.15f)
 
     const val SHORT1 = 50L
     const val SHORT2 = 100L
-    const val SHORT3 = 150L
-    const val SHORT4 = 200L
 
     const val PRESS_IN = SHORT1
     const val PRESS_OUT = SHORT2
-    const val STATE_CHANGE = SHORT4
-    const val REVEAL = SHORT4
+    const val STATE_CHANGE = SHORT2
 
-    const val FADE_OUT = SHORT2
-    const val FADE_IN = SHORT3
-
-    const val MODE_SWITCH = SHORT4
-
-    const val REVEAL_SHIFT_DP = 8f
+    const val COVER_HOLD = SHORT1
 
     fun enabled(): Boolean = ValueAnimator.areAnimatorsEnabled()
 
@@ -74,96 +64,20 @@ object Motion {
         )
     }
 
-    fun fadeIn(view: View, duration: Long = FADE_IN) {
-        view.animate().cancel()
-        if (!view.isAttachedToWindow || !enabled()) {
-            showImmediately(view)
-            return
-        }
-        view.alpha = 0f
-        view.animate().alpha(1f).setDuration(duration).setInterpolator(EMPHASIZED_DECEL).start()
-    }
-
-    enum class EnterFrom { NONE, START, END, TOP, BOTTOM }
-
-    fun revealIn(view: View, from: EnterFrom = EnterFrom.NONE, distanceDp: Float = REVEAL_SHIFT_DP, duration: Long = REVEAL) {
+    fun showNow(view: View) {
         view.animate().cancel()
         view.visibility = View.VISIBLE
-        val distance = distanceDp * view.resources.displayMetrics.density
-        if (!view.isAttachedToWindow || !enabled()) {
-            showImmediately(view)
-            return
-        }
-        view.alpha = 0f
-        view.translationX = when (from) {
-            EnterFrom.START -> -distance
-            EnterFrom.END -> distance
-            else -> 0f
-        }
-        view.translationY = when (from) {
-            EnterFrom.TOP -> -distance
-            EnterFrom.BOTTOM -> distance
-            else -> 0f
-        }
-        view.animate()
-            .alpha(1f)
-            .translationX(0f)
-            .translationY(0f)
-            .setDuration(duration)
-            .setInterpolator(EMPHASIZED_DECEL)
-            .start()
+        view.alpha = 1f
+        view.translationX = 0f
+        view.translationY = 0f
+        view.invalidate()
     }
 
-    fun hide(
-        view: View,
-        endVisibility: Int = View.GONE,
-        toward: EnterFrom = EnterFrom.NONE,
-        distanceDp: Float = REVEAL_SHIFT_DP,
-        duration: Long = FADE_OUT,
-        endAction: (() -> Unit)? = null,
-    ) {
+    fun hideNow(view: View, endVisibility: Int = View.GONE, endAction: (() -> Unit)? = null) {
         view.animate().cancel()
-        if (!view.isAttachedToWindow || !enabled()) {
-            view.visibility = endVisibility
-            reset(view)
-            endAction?.invoke()
-            return
-        }
-        val distance = distanceDp * view.resources.displayMetrics.density
-        view.animate()
-            .alpha(0f)
-            .translationX(
-                when (toward) {
-                    EnterFrom.START -> -distance
-                    EnterFrom.END -> distance
-                    else -> 0f
-                },
-            )
-            .translationY(
-                when (toward) {
-                    EnterFrom.TOP -> -distance
-                    EnterFrom.BOTTOM -> distance
-                    else -> 0f
-                },
-            )
-            .setDuration(duration)
-            .setInterpolator(EMPHASIZED_ACCEL)
-            .setListener(object : AnimatorListenerAdapter() {
-                private var cancelled = false
-
-                override fun onAnimationCancel(animation: Animator) {
-                    cancelled = true
-                }
-
-                override fun onAnimationEnd(animation: Animator) {
-                    view.animate().setListener(null)
-                    if (cancelled) return
-                    view.visibility = endVisibility
-                    reset(view)
-                    endAction?.invoke()
-                }
-            })
-            .start()
+        view.visibility = endVisibility
+        reset(view)
+        endAction?.invoke()
     }
 
     private val coverAnimators = WeakHashMap<View, ValueAnimator>()
@@ -181,7 +95,7 @@ object Motion {
         return bitmap
     }
 
-    fun coverWith(host: View, snapshot: Bitmap?, duration: Long = FADE_OUT) {
+    fun coverWith(host: View, snapshot: Bitmap?) {
         cancelCover(host)
         if (snapshot == null) return
         if (!host.isAttachedToWindow || !enabled()) {
@@ -189,13 +103,12 @@ object Motion {
             return
         }
         val drawable = BitmapDrawable(host.resources, snapshot).apply {
+            alpha = 255
             setBounds(host.scrollX, host.scrollY, host.scrollX + snapshot.width, host.scrollY + snapshot.height)
         }
         host.overlay.add(drawable)
-        coverAnimators[host] = ValueAnimator.ofInt(255, 0).apply {
-            this.duration = duration
-            interpolator = EMPHASIZED_ACCEL
-            addUpdateListener { drawable.alpha = it.animatedValue as Int }
+        coverAnimators[host] = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = COVER_HOLD
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     host.overlay.remove(drawable)
@@ -207,23 +120,23 @@ object Motion {
         }
     }
 
-    fun coverSwap(incoming: View, outgoing: View, backdrop: Int, duration: Long = FADE_OUT) {
+    fun coverSwap(incoming: View, outgoing: View, backdrop: Int) {
         if (incoming.visibility == View.VISIBLE && incoming.alpha >= 1f && outgoing.visibility == View.GONE) return
         incoming.animate().cancel()
         outgoing.animate().cancel()
         val snap = if (outgoing.visibility == View.VISIBLE) snapshot(outgoing, backdrop) else null
         outgoing.visibility = View.GONE
         reset(outgoing)
-        showImmediately(incoming)
-        coverWith(incoming, snap, duration)
+        showNow(incoming)
+        coverWith(incoming, snap)
     }
 
-    fun coverThrough(view: View, backdrop: Int, duration: Long = FADE_OUT, swap: () -> Unit) {
+    fun coverThrough(view: View, backdrop: Int, swap: () -> Unit) {
         view.animate().cancel()
         val snap = if (view.visibility == View.VISIBLE) snapshot(view, backdrop) else null
         swap()
-        showImmediately(view)
-        coverWith(view, snap, duration)
+        showNow(view)
+        coverWith(view, snap)
     }
 
     fun cancelCover(view: View) {
@@ -243,14 +156,6 @@ object Motion {
         }
     }
 
-    private fun showImmediately(view: View) {
-        view.visibility = View.VISIBLE
-        view.alpha = 1f
-        view.translationX = 0f
-        view.translationY = 0f
-        view.invalidate()
-    }
-
     fun reset(view: View) {
         view.animate().cancel()
         cancelCover(view)
@@ -258,70 +163,6 @@ object Motion {
         view.translationX = 0f
         view.translationY = 0f
         view.translationZ = 0f
-    }
-
-    class ContentSwap(private val view: View, private val invalidate: () -> Unit = { view.invalidate() }) {
-        var active = false
-            private set
-        private var fraction = 1f
-        private var animator: ValueAnimator? = null
-
-        val outAlpha: Float
-            get() {
-                if (!active) return 0f
-                return 1f - EMPHASIZED_ACCEL.getInterpolation((fraction * SHORT3 / SHORT2).coerceAtMost(1f))
-            }
-
-        val inAlpha: Float
-            get() {
-                if (!active) return 1f
-                return EMPHASIZED_DECEL.getInterpolation(fraction)
-            }
-
-        fun start() {
-            animator?.cancel()
-            animator = null
-            if (!view.isAttachedToWindow || !enabled()) {
-                applyEndState()
-                return
-            }
-            active = true
-            fraction = 0f
-            animator = ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = SHORT3
-                interpolator = null
-                addUpdateListener {
-                    fraction = it.animatedValue as Float
-                    view.postInvalidateOnAnimation()
-                }
-                addListener(object : AnimatorListenerAdapter() {
-                    private var cancelled = false
-
-                    override fun onAnimationCancel(animation: Animator) {
-                        cancelled = true
-                    }
-
-                    override fun onAnimationEnd(animation: Animator) {
-                        if (cancelled) return
-                        animator = null
-                        applyEndState()
-                    }
-                })
-                start()
-            }
-        }
-
-        fun cancel() {
-            animator?.cancel()
-            animator = null
-            applyEndState()
-        }
-
-        private fun applyEndState() {
-            active = false
-            fraction = 1f
-            invalidate()
-        }
     }
 
     class PressFeedback(private val view: View, private val invalidate: () -> Unit = { view.invalidate() }) {

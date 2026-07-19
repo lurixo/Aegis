@@ -63,16 +63,6 @@ class Md3MotionSystemTest {
         }
     }
 
-    private class SwapProbe(ctx: Context) : View(ctx) {
-        val samples = ArrayList<Pair<Float, Float>>()
-        var swap: Motion.ContentSwap? = null
-
-        override fun postInvalidateOnAnimation() {
-            swap?.let { samples.add(it.outAlpha to it.inAlpha) }
-            super.postInvalidateOnAnimation()
-        }
-    }
-
     private fun animationsOn() = Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
     private fun animationsOff() = Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
 
@@ -146,65 +136,19 @@ class Md3MotionSystemTest {
             assertTrue("the content swap runs synchronously, never deferred to a trough", swapped)
             assertEquals(View.VISIBLE, v.visibility)
             assertEquals("the content stays fully opaque under the residue", 1f, v.alpha, 0f)
-            assertTrue("the residue fade runs on top of the new content", Motion.coverActiveForTest(v))
-            assertEquals("the residue starts as the old face at full strength", Color.GREEN, drawnPixel(v))
+            assertTrue("the residue hold runs on top of the new content", Motion.coverActiveForTest(v))
+            assertEquals("the residue holds the old face at full strength", Color.GREEN, drawnPixel(v))
             repeat(4) {
                 shadowOf(Looper.getMainLooper()).idleFor(20, TimeUnit.MILLISECONDS)
                 assertEquals("no frame ever dips the content", 1f, v.alpha, 0f)
                 assertEquals(View.VISIBLE, v.visibility)
                 assertEquals("combined opacity never drops below one", 0xFF, Color.alpha(drawnPixel(v)))
+                val px = drawnPixel(v)
+                assertTrue("a frame is either the held old face or the new face — never a fading blend", px == Color.GREEN || px == Color.RED)
+                if (Motion.coverActiveForTest(v)) assertEquals("while present the residue stays at full opacity", Color.GREEN, px)
             }
-            shadowOf(Looper.getMainLooper()).idleFor(300, TimeUnit.MILLISECONDS)
-            assertFalse("the residue fade ends on its own", Motion.coverActiveForTest(v))
+            assertFalse("the residue is removed in one step once the hold elapses", Motion.coverActiveForTest(v))
             assertEquals("the settled view shows the new face", Color.RED, drawnPixel(v))
-        } finally {
-            controller.pause().stop().destroy()
-        }
-    }
-
-
-    @Test fun contentSwap_under_reduced_motion_lands_on_the_end_state_immediately() {
-        animationsOff()
-        val v = View(ctx)
-        val controller = Robolectric.buildActivity(Activity::class.java).setup()
-        try {
-            attach(controller.get(), v)
-            val swap = Motion.ContentSwap(v)
-            swap.start()
-            assertFalse("reduced motion never leaves the swap active", swap.active)
-            assertEquals("the incoming content shows at full opacity", 1f, swap.inAlpha, 0f)
-            assertEquals("the outgoing snapshot is fully gone", 0f, swap.outAlpha, 0f)
-        } finally {
-            controller.pause().stop().destroy()
-        }
-    }
-
-    @Test fun contentSwap_when_detached_lands_on_the_end_state_immediately() {
-        animationsOn()
-        val swap = Motion.ContentSwap(View(ctx))
-        swap.start()
-        assertFalse(swap.active)
-        assertEquals(1f, swap.inAlpha, 0f)
-        assertEquals(0f, swap.outAlpha, 0f)
-    }
-
-    @Test fun contentSwap_attached_and_animated_runs_and_restarts_cancel_safely() {
-        animationsOn()
-        val v = View(ctx)
-        val controller = Robolectric.buildActivity(Activity::class.java).setup()
-        try {
-            attach(controller.get(), v)
-            val swap = Motion.ContentSwap(v)
-            swap.start()
-            assertTrue("an attached, animated swap runs", swap.active)
-            assertEquals("the incoming face starts from transparent", 0f, swap.inAlpha, 0f)
-            assertEquals("the outgoing face starts fully shown", 1f, swap.outAlpha, 0f)
-            swap.start()
-            assertTrue("a restart mid-swap stays active from a fresh window", swap.active)
-            swap.cancel()
-            assertFalse("cancel lands the end state", swap.active)
-            assertEquals(1f, swap.inAlpha, 0f)
-            assertEquals(0f, swap.outAlpha, 0f)
         } finally {
             controller.pause().stop().destroy()
         }
@@ -228,7 +172,7 @@ class Md3MotionSystemTest {
         return incoming to outgoing
     }
 
-    @Test fun coverSwap_keeps_the_incoming_fully_opaque_while_the_residue_fades() {
+    @Test fun coverSwap_keeps_the_incoming_fully_opaque_while_the_residue_holds() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -239,16 +183,18 @@ class Md3MotionSystemTest {
             assertEquals("the incoming face shows immediately", View.VISIBLE, incoming.visibility)
             assertEquals(1f, incoming.alpha, 0f)
             assertEquals("the outgoing view is gone in the same call", View.GONE, outgoing.visibility)
-            assertTrue("the residue fade runs on the incoming view", Motion.coverActiveForTest(incoming))
-            assertEquals("the residue starts as the outgoing face at full strength", Color.GREEN, drawnPixel(incoming))
+            assertTrue("the residue hold runs on the incoming view", Motion.coverActiveForTest(incoming))
+            assertEquals("the residue holds the outgoing face at full strength", Color.GREEN, drawnPixel(incoming))
             repeat(4) {
                 shadowOf(Looper.getMainLooper()).idleFor(20, TimeUnit.MILLISECONDS)
                 assertEquals("no frame ever dips the incoming content", 1f, incoming.alpha, 0f)
                 assertEquals(View.VISIBLE, incoming.visibility)
-                assertEquals("combined opacity never drops below one", 0xFF, Color.alpha(drawnPixel(incoming)))
+                val px = drawnPixel(incoming)
+                assertEquals("combined opacity never drops below one", 0xFF, Color.alpha(px))
+                assertTrue("a frame is either the held old face or the new face — never a fading blend", px == Color.GREEN || px == Color.RED)
+                if (Motion.coverActiveForTest(incoming)) assertEquals("while present the residue stays at full opacity", Color.GREEN, px)
             }
-            shadowOf(Looper.getMainLooper()).idleFor(300, TimeUnit.MILLISECONDS)
-            assertFalse(Motion.coverActiveForTest(incoming))
+            assertFalse("the residue is removed in one step once the hold elapses", Motion.coverActiveForTest(incoming))
             assertEquals("the settled swap shows the incoming face", Color.RED, drawnPixel(incoming))
         } finally {
             controller.pause().stop().destroy()
@@ -283,7 +229,7 @@ class Md3MotionSystemTest {
             Motion.coverThrough(v, Color.WHITE) { v.setBackgroundColor(Color.RED) }
             assertTrue(Motion.coverActiveForTest(v))
             Motion.cancelCover(v)
-            assertFalse("cancel ends the residue fade", Motion.coverActiveForTest(v))
+            assertFalse("cancel ends the residue hold", Motion.coverActiveForTest(v))
             assertEquals("cancel jumps to the final content with the overlay cleared", Color.RED, drawnPixel(v))
             assertEquals(1f, v.alpha, 0f)
             assertEquals(View.VISIBLE, v.visibility)
@@ -292,7 +238,7 @@ class Md3MotionSystemTest {
             Motion.coverThrough(v, Color.WHITE) { v.setBackgroundColor(Color.RED) }
             assertTrue(Motion.coverActiveForTest(v))
             Motion.reset(v)
-            assertFalse("reset ends the residue fade", Motion.coverActiveForTest(v))
+            assertFalse("reset ends the residue hold", Motion.coverActiveForTest(v))
             assertEquals(Color.RED, drawnPixel(v))
             assertEquals(1f, v.alpha, 0f)
         } finally {
@@ -328,22 +274,6 @@ class Md3MotionSystemTest {
             scroll.scrollTo(0, 40)
             val snap = requireNotNull(Motion.snapshot(scroll, Color.WHITE))
             assertEquals("the snapshot shows what the scrolled viewport showed", Color.MAGENTA, snap.getPixel(0, 0))
-        } finally {
-            controller.pause().stop().destroy()
-        }
-    }
-
-    @Test fun contentSwap_default_crossfade_overlaps_both_faces_mid_swap() {
-        animationsOn()
-        val v = SwapProbe(ctx)
-        val controller = Robolectric.buildActivity(Activity::class.java).setup()
-        try {
-            attach(controller.get(), v)
-            val swap = Motion.ContentSwap(v)
-            v.swap = swap
-            swap.start()
-            shadowOf(Looper.getMainLooper()).idleFor(300, TimeUnit.MILLISECONDS)
-            assertTrue("the aligned crossfade blends both faces mid-swap", v.samples.any { it.first > 0f && it.second > 0f })
         } finally {
             controller.pause().stop().destroy()
         }
@@ -451,16 +381,16 @@ class Md3MotionSystemTest {
     }
 
 
-    @Test fun candidate_strip_fades_on_role_change_but_not_on_candidate_updates() {
+    @Test fun candidate_strip_covers_on_role_change_but_not_on_candidate_updates() {
         val cv = CandidateView(ctx)
         val start = cv.contentTransitionsForTest()
         cv.setContent(listOf("你"), "ni")
-        assertEquals("toolbar→candidates fades once", start + 1, cv.contentTransitionsForTest())
+        assertEquals("toolbar→candidates covers once", start + 1, cv.contentTransitionsForTest())
         cv.setContent(listOf("你", "好"), "nihao")
         cv.setContent(listOf("你", "好", "吗"), "nihaoma")
-        assertEquals("candidate→candidate updates must NOT fade (fluidity, no strobe)", start + 1, cv.contentTransitionsForTest())
+        assertEquals("candidate→candidate updates must NOT cover (fluidity, no strobe)", start + 1, cv.contentTransitionsForTest())
         cv.setContent(emptyList(), "")
-        assertEquals("candidates→toolbar fades once", start + 2, cv.contentTransitionsForTest())
+        assertEquals("candidates→toolbar covers once", start + 2, cv.contentTransitionsForTest())
     }
 
     @Test fun candidate_strip_applies_content_immediately_under_reduced_motion() {
@@ -477,10 +407,10 @@ class Md3MotionSystemTest {
     }
 
 
-    @Test fun settings_motion_durations_mirror_the_ime_motion_tokens() {
-        assertEquals(Motion.MODE_SWITCH.toInt(), SettingsMotion.DURATION_NAV)
-        assertEquals(Motion.FADE_IN.toInt(), SettingsMotion.DURATION_FADE_IN)
-        assertEquals(Motion.FADE_OUT.toInt(), SettingsMotion.DURATION_FADE_OUT)
-        assertEquals(Motion.STATE_CHANGE.toInt(), SettingsMotion.DURATION_STATE)
+    @Test fun settings_motion_durations_stay_on_their_own_literals() {
+        assertEquals(200, SettingsMotion.DURATION_NAV)
+        assertEquals(150, SettingsMotion.DURATION_FADE_IN)
+        assertEquals(100, SettingsMotion.DURATION_FADE_OUT)
+        assertEquals(200, SettingsMotion.DURATION_STATE)
     }
 }

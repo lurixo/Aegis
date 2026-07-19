@@ -79,7 +79,7 @@ class PanelMotionTest {
             applyPalette(light)
         }
 
-    @Test fun clipboard_content_fades_only_on_tab_mode_and_category_changes() {
+    @Test fun clipboard_content_covers_only_on_tab_mode_and_category_changes() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -89,7 +89,7 @@ class PanelMotionTest {
             assertEquals(0, v.contentFadesForTest())
 
             v.switchTabForTest(toClipboard = false)
-            assertEquals("a tab switch runs one content fade", 1, v.contentFadesForTest())
+            assertEquals("a tab switch runs one content cover", 1, v.contentFadesForTest())
             assertEquals("the tab swap lands synchronously", listOf("短语"), v.listRowTextsForTest())
             assertEquals("the viewport never leaves full opacity", 1f, v.listViewportForTest().alpha, 0f)
             flushMotion()
@@ -97,13 +97,13 @@ class PanelMotionTest {
             assertEquals(listOf("短语"), v.listRowTextsForTest())
 
             v.selectPhraseCategoryForTest("工作")
-            assertEquals("a category selection runs one content fade", 2, v.contentFadesForTest())
+            assertEquals("a category selection runs one content cover", 2, v.contentFadesForTest())
             assertEquals(1f, v.listViewportForTest().alpha, 0f)
             flushMotion()
             assertEquals(1f, v.listViewportForTest().alpha, 0f)
 
             v.enterSelectForTest()
-            assertEquals("a mode switch runs one content fade", 3, v.contentFadesForTest())
+            assertEquals("a mode switch runs one content cover", 3, v.contentFadesForTest())
             assertEquals(1f, v.listViewportForTest().alpha, 0f)
             flushMotion()
             v.exitSelectForTest()
@@ -137,7 +137,7 @@ class PanelMotionTest {
             val activity = controller.get()
             val v = attach(activity, clipboardView(activity) { listOf("clip-a") })
             v.switchTabForTest(toClipboard = false)
-            assertEquals("the logical fade is still counted", 1, v.contentFadesForTest())
+            assertEquals("the logical cover is still counted", 1, v.contentFadesForTest())
             assertEquals("reduced motion rebuilds the content immediately", listOf("短语"), v.listRowTextsForTest())
             assertEquals("reduced motion keeps the viewport fully opaque", 1f, v.listViewportForTest().alpha, 0f)
         } finally {
@@ -145,7 +145,7 @@ class PanelMotionTest {
         }
     }
 
-    @Test fun clipboard_overlay_dismiss_reaches_gone_through_the_animated_exit() {
+    @Test fun clipboard_overlay_dismiss_reaches_gone_in_the_same_call() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -154,17 +154,14 @@ class PanelMotionTest {
             v.showSplitForTest("你好，世界")
             assertTrue(v.overlayVisibleForTest())
             v.hideOverlayForTest()
-            assertTrue("the dismissal animates (still visible during the exit)", v.overlayVisibleForTest())
-            flushMotion()
-            assertFalse("the animated exit reaches GONE", v.overlayVisibleForTest())
+            assertFalse("the dismissal lands GONE in the same call", v.overlayVisibleForTest())
 
             v.showSplitForTest("你好，世界")
             v.hideOverlayForTest()
             v.showSplitForTest("你好，世界")
             flushMotion()
-            assertTrue("a reopen during the exit wins and settles visible", v.overlayVisibleForTest())
+            assertTrue("a reopen right after a dismiss wins and settles visible", v.overlayVisibleForTest())
             v.hideOverlayForTest()
-            flushMotion()
             assertFalse(v.overlayVisibleForTest())
         } finally {
             controller.pause().stop().destroy()
@@ -186,7 +183,7 @@ class PanelMotionTest {
         }
     }
 
-    @Test fun clear_confirmation_dismiss_reaches_gone_through_the_animated_exit() {
+    @Test fun clear_confirmation_dismiss_reaches_gone_in_the_same_call() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -195,21 +192,16 @@ class PanelMotionTest {
             v.clearBtnForTest().performClick()
             assertTrue(v.clearDialogVisibleForTest())
             assertTrue(v.cancelClearForTest())
-            assertTrue("cancel animates the card out", v.clearDialogVisibleForTest())
-            flushMotion()
-            assertFalse("the animated cancel reaches GONE", v.clearDialogVisibleForTest())
+            assertFalse("cancel lands GONE in the same call", v.clearDialogVisibleForTest())
 
             v.clearBtnForTest().performClick()
             assertTrue(v.confirmClearForTest())
-            assertTrue("confirm animates the card out", v.clearDialogVisibleForTest())
-            flushMotion()
-            assertFalse("the animated confirm reaches GONE", v.clearDialogVisibleForTest())
+            assertFalse("confirm lands GONE in the same call", v.clearDialogVisibleForTest())
 
             v.clearBtnForTest().performClick()
             assertTrue(v.cancelClearForTest())
             v.clearBtnForTest().performClick()
-            flushMotion()
-            assertTrue("a reopen during the exit wins and settles visible", v.clearDialogVisibleForTest())
+            assertTrue("a reopen right after a cancel settles visible", v.clearDialogVisibleForTest())
         } finally {
             controller.pause().stop().destroy()
         }
@@ -230,7 +222,7 @@ class PanelMotionTest {
         }
     }
 
-    @Test fun emoji_variant_popup_dismiss_reaches_gone_through_the_animated_exit() {
+    @Test fun emoji_variant_popup_dismiss_reaches_gone_in_the_same_call() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -241,19 +233,16 @@ class PanelMotionTest {
             val down = MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, 1f, 1f, 0)
             assertTrue("the dismissing tap is consumed", v.variantBackdropForTest().dispatchTouchEvent(down))
             down.recycle()
-            assertTrue("the dismissal animates (still visible during the exit)", v.variantVisibleForTest())
-            flushMotion()
-            assertFalse("the animated exit reaches GONE", v.variantVisibleForTest())
+            assertFalse("the dismissal lands GONE in the same call", v.variantVisibleForTest())
 
             v.openVariantsForTest("👋")
-            flushMotion()
             assertTrue("a reopen settles visible", v.variantVisibleForTest())
         } finally {
             controller.pause().stop().destroy()
         }
     }
 
-    @Test fun emoji_variant_popup_ignores_taps_during_the_animated_exit() {
+    @Test fun emoji_variant_popup_commits_once_per_open() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -262,23 +251,14 @@ class PanelMotionTest {
             var commits = 0
             v.onEmoji = { commits++ }
             v.openVariantsForTest("👋")
-            flushMotion()
             assertTrue(v.tapVariantSkinForTest(1))
-            assertEquals("the first tap commits once and starts the dismissal", 1, commits)
-            assertTrue("the popup is still fading out", v.variantVisibleForTest())
+            assertEquals("the first tap commits once and dismisses", 1, commits)
+            assertFalse("the popup leaves in the same call", v.variantVisibleForTest())
 
             v.tapVariantSkinForTest(2)
-            assertEquals("a tap on the fading card commits nothing", 1, commits)
-            val down = MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, 1f, 1f, 0)
-            assertTrue("a scrim touch mid-exit is consumed, never passed through", v.variantBackdropForTest().dispatchTouchEvent(down))
-            down.recycle()
-            assertEquals(1, commits)
-            flushMotion()
-            assertFalse("the exit still reaches GONE", v.variantVisibleForTest())
-            assertEquals(1, commits)
+            assertEquals("a tap on the dismissed card commits nothing", 1, commits)
 
             v.openVariantsForTest("👋")
-            flushMotion()
             assertTrue(v.tapVariantSkinForTest(1))
             assertEquals("a reopened popup commits again", 2, commits)
         } finally {
