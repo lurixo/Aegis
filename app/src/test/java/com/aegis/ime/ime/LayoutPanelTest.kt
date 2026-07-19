@@ -101,7 +101,7 @@ class LayoutPanelTest {
     @Test fun idle_toolbar_layout_slot_renders_the_keyboard_icon() {
         val view = idleBar(320)
         val slot = view.toolbarControlBoundsForTest()[1]
-        val s = 9f * density
+        val s = 9f * density * view.toolbarIconScaleForTest(BarFunction.LAYOUT)
         val glyph = RectF(
             slot.centerX() - s * 0.70f,
             slot.centerY() - s * 0.4167f,

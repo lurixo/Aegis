@@ -64,6 +64,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private val gridScroll = ScrollView(context)
     private val rightColumn = FrameLayout(context)
     private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
+    private val collapseGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawChevron(c, p, x, y, s, down = false) }
     private val measurePaint = Paint()
     private val readingMeasurePaint = Paint().apply { typeface = Typeface.DEFAULT_BOLD }
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
@@ -117,7 +118,14 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             LayoutParams(0, LayoutParams.MATCH_PARENT, 1f),
         )
         rightColumn.setBackgroundColor(palette.keyboardBg)
-        rightColumn.addView(funcButton(context.getString(R.string.panel_back)) { onClose() }, rowAlignedLp(0))
+        rightColumn.addView(
+            funcButton("") { onClose() }.apply {
+                contentDescription = context.getString(R.string.panel_back)
+                setCompoundDrawablesWithIntrinsicBounds(null, collapseGlyph, null, null)
+                collapseGlyph.tint(palette.keyLabelSecondary)
+            },
+            rowAlignedLp(0),
+        )
         rightColumn.addView(
             backspaceButton().apply {
                 setCompoundDrawablesWithIntrinsicBounds(null, backspaceGlyph, null, null)
@@ -145,6 +153,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             Motion.applyTapFeedback(it, p.keyLabelSecondary)
         }
         backspaceGlyph.tint(p.keyLabelSecondary)
+        collapseGlyph.tint(p.keyLabelSecondary)
         for (chip in chipPool) { chip.setTextColor(p.candidateText); retintRipple(chip, p.candidateText) }
         for (i in readingPool.indices) {
             val color = readingColor(i == renderedSelected)

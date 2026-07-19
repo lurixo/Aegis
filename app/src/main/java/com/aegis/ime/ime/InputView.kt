@@ -17,6 +17,8 @@ package com.aegis.ime.ime
 
 import android.content.Context
 import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Rect
 import android.graphics.RectF
 import android.view.MotionEvent
@@ -246,9 +248,14 @@ class InputView(context: Context) : LinearLayout(context) {
         setHeight(candidateView, spec.barHeight)
         setHeight(copyBarView, spec.barHeight)
         setHeight(keyboardView, spec.keyboardHeight)
-        setPanelHeight(spec.keyboardHeight)
+        setPanelHeight(panelHeightFor(spec.keyboardHeight))
         updateBodyPadding(spec.bottomExtra)
     }
+
+    private fun panelHeightFor(keyboardHeight: Int): Int =
+        keyboardHeight + if (currentPanel === gridView) coveredBarHeightPx() else 0
+
+    private fun coveredBarHeightPx(): Int = lastDockHeightSpec?.barHeight ?: dp(BAR_HEIGHT_DP)
 
     private fun setHeight(view: View, px: Int) {
         val lp = view.layoutParams ?: return
@@ -376,6 +383,8 @@ class InputView(context: Context) : LinearLayout(context) {
 
     internal fun barChevronGlyph(): String = candidateView.chevronGlyph()
 
+    internal fun toolbarShownForTest(): Boolean = candidateView.visibility == VISIBLE
+
     fun showPanel(panel: View?) = showPanel(panel, animateReveal = true)
 
     internal fun showPanelImmediately(panel: View) = showPanel(panel, animateReveal = false)
@@ -387,15 +396,18 @@ class InputView(context: Context) : LinearLayout(context) {
         currentPanel = panel
         if (panel !== gridView) pendingGridBind = null
         candidateView.setExpanded(panel === gridView)
+        val gridCoversBar = panel === gridView
+        val restoredBar = outgoing === gridView && !gridCoversBar
         if (panel == null) {
             if (outgoing != null) {
                 val snap = Motion.snapshot(outgoing, palette.keyboardBg)
                 Motion.reset(outgoing)
                 panelContainer.removeAllViews()
                 panelContainer.visibility = GONE
+                if (restoredBar) candidateView.visibility = VISIBLE
                 keyboardView.visibility = VISIBLE
                 Motion.reset(keyboardView)
-                Motion.coverWith(keyboardView, snap)
+                Motion.coverWith(keyboardView, snap, offsetY = if (restoredBar) -coveredBarHeightPx() else 0)
             } else {
                 panelContainer.removeAllViews()
                 panelContainer.visibility = GONE
@@ -403,20 +415,24 @@ class InputView(context: Context) : LinearLayout(context) {
             }
         } else {
             setPanelHeight(
-                lastDockHeightSpec?.keyboardHeight
-                    ?: keyboardView.height.takeIf { it > 0 }
-                    ?: LandscapeDockSizing.preferredKeyboardHeight(
-                        keyboardView.rowCountForSizing(),
-                        resources.displayMetrics.density,
-                    ),
+                panelHeightFor(
+                    lastDockHeightSpec?.keyboardHeight
+                        ?: keyboardView.height.takeIf { it > 0 }
+                        ?: LandscapeDockSizing.preferredKeyboardHeight(
+                            keyboardView.rowCountForSizing(),
+                            resources.displayMetrics.density,
+                        ),
+                ),
             )
             val snap = when {
                 !animateReveal -> null
                 outgoing != null && outgoing !== panel -> Motion.snapshot(outgoing, palette.keyboardBg)
+                outgoing == null && gridCoversBar && candidateView.visibility == VISIBLE -> expandCoverSnapshot()
                 outgoing == null && keyboardView.visibility == VISIBLE -> Motion.snapshot(keyboardView, palette.keyboardBg)
                 else -> null
             }
             attachPanel(panel)
+            if (gridCoversBar) candidateView.visibility = GONE
             keyboardView.visibility = GONE
             panel.visibility = VISIBLE
             Motion.reset(panel)
@@ -424,6 +440,21 @@ class InputView(context: Context) : LinearLayout(context) {
         }
         onPanelChanged(panel)
         onOverlayChanged()
+    }
+
+    private fun expandCoverSnapshot(): Bitmap? {
+        if (!isAttachedToWindow || !Motion.enabled()) return null
+        val w = candidateView.width
+        val barH = candidateView.height
+        val kbdH = keyboardView.height
+        if (w <= 0 || barH <= 0 || kbdH <= 0) return null
+        val bitmap = Bitmap.createBitmap(w, barH + kbdH, Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(palette.keyboardBg)
+        val canvas = Canvas(bitmap)
+        candidateView.draw(canvas)
+        canvas.translate(0f, barH.toFloat())
+        keyboardView.draw(canvas)
+        return bitmap
     }
 
     private fun attachPanel(panel: View) {
@@ -445,6 +476,7 @@ class InputView(context: Context) : LinearLayout(context) {
         currentPanel = null
         pendingGridBind = null
         candidateView.setExpanded(false)
+        if (outgoing === gridView) candidateView.visibility = VISIBLE
         outgoing?.let(Motion::reset)
         Motion.cancelCover(panelContainer)
         panelContainer.removeAllViews()
