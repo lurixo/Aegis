@@ -72,6 +72,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private val decodeLane = DecodeLane(
         worker = decodeWorker,
         main = java.util.concurrent.Executor { r -> mainHandler.post(r) },
+        logError = { Log.e("Aegis", "decode failed", it) },
     )
     @Volatile private var panelTextSnapshot: String? = null
     private val userModel = UserModel()

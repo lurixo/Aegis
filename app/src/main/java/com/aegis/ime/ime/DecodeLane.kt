@@ -21,6 +21,7 @@ import java.util.concurrent.atomic.AtomicLong
 class DecodeLane(
     private val worker: Executor,
     private val main: Executor,
+    private val logError: (Throwable) -> Unit = {},
 ) {
     private val seq = AtomicLong(0L)
     @Volatile private var lastRequested = 0L
@@ -28,16 +29,17 @@ class DecodeLane(
 
     val pending: Boolean get() = lastApplied < lastRequested
 
-    fun <R> submit(compute: () -> R, apply: (R) -> Unit) {
+    fun <R> submit(compute: () -> R, apply: (R) -> Unit, onError: () -> Unit = {}) {
         val gen = seq.incrementAndGet()
         lastRequested = gen
         worker.execute {
             if (gen < lastRequested) return@execute
-            val result = compute()
+            val result = runCatching { compute() }
+            result.exceptionOrNull()?.let(logError)
             main.execute {
                 if (gen == lastRequested && gen > lastApplied) {
                     lastApplied = gen
-                    apply(result)
+                    result.fold(onSuccess = apply, onFailure = { onError() })
                 }
             }
         }

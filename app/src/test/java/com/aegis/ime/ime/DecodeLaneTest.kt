@@ -83,4 +83,44 @@ class DecodeLaneTest {
         runMain()
         assertTrue("…but is dropped, so no redundant apply happens", applied.isEmpty())
     }
+
+    @Test fun a_compute_failure_reports_the_error_and_leaves_the_lane_ready() {
+        val logged = ArrayList<Throwable>()
+        val failing = DecodeLane(worker, main, logError = { logged.add(it) })
+        val applied = ArrayList<Int>()
+        val errors = ArrayList<Unit>()
+        failing.submit(compute = { error("boom") }, apply = { applied.add(it) }, onError = { errors.add(Unit) })
+        runWorker()
+        runMain()
+        assertEquals("the throwable is logged once", 1, logged.size)
+        assertTrue("no result is applied on failure", applied.isEmpty())
+        assertEquals("the caller is asked to clear candidates", 1, errors.size)
+        assertFalse("the failed request is marked satisfied", failing.pending)
+
+        failing.submit(compute = { 7 }, apply = { applied.add(it) })
+        runWorker()
+        runMain()
+        assertEquals("a later keystroke still computes and applies", listOf(7), applied)
+    }
+
+    @Test fun a_real_single_thread_executor_survives_a_compute_exception() {
+        val exec = java.util.concurrent.Executors.newSingleThreadExecutor()
+        try {
+            val logged = java.util.concurrent.atomic.AtomicInteger(0)
+            val realLane = DecodeLane(exec, exec, logError = { logged.incrementAndGet() })
+            val firstRan = java.util.concurrent.CountDownLatch(1)
+            realLane.submit(compute = { firstRan.countDown(); throw RuntimeException("boom") }, apply = { })
+            assertTrue("the failing compute actually executed", firstRan.await(5, java.util.concurrent.TimeUnit.SECONDS))
+
+            val secondRan = java.util.concurrent.CountDownLatch(1)
+            realLane.submit(compute = { 1 }, apply = { secondRan.countDown() })
+            assertTrue(
+                "the executor thread keeps serving work after an exception",
+                secondRan.await(5, java.util.concurrent.TimeUnit.SECONDS),
+            )
+            assertEquals("the exception was caught and reported, not propagated", 1, logged.get())
+        } finally {
+            exec.shutdownNow()
+        }
+    }
 }

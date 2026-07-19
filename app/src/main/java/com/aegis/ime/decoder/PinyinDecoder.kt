@@ -185,25 +185,38 @@ class PinyinDecoder(
         return out
     }
 
-    private fun wordModelScore(word: String, freq: Int, ctxCp: Int, ctxWord: String): Double =
-        wordModelScore(word, freq.toDouble(), ctxCp, ctxWord)
+    private fun resolveCtxId(ctxCp: Int): Int =
+        if (ctxCp == BOS) NO_CTX else lm?.charId(ctxCp) ?: NO_CTX
 
-    private fun wordModelScore(word: String, freq: Double, ctxCp: Int, ctxWord: String): Double =
+    private fun logCondMemo(memo: HashMap<Long, Double>, model: CharBigramLM, id1: Int, id2: Int): Double {
+        val key = (id1.toLong() shl 32) or (id2.toLong() and 0xFFFFFFFFL)
+        memo[key]?.let { return it }
+        val v = model.logCondById(id1, id2)
+        memo[key] = v
+        return v
+    }
+
+    private fun wordModelScore(word: String, freq: Int, ctxId: Int, ctxWord: String, condMemo: HashMap<Long, Double>): Double =
+        wordModelScore(word, freq.toDouble(), ctxId, ctxWord, condMemo)
+
+    private fun wordModelScore(word: String, freq: Double, ctxId: Int, ctxWord: String, condMemo: HashMap<Long, Double>): Double =
         (ln(freq) - lnTotal) +
             (userModel?.wordBoost(word) ?: 0.0) +
             (octagram?.let { octagramWeight * (it.rawScore(word) ?: 0.0) } ?: 0.0) +
-            (if (lm != null && ctxCp != BOS) contextWeight * lm.logCond(ctxCp, word.codePointAt(0)) else 0.0) +
+            (lm?.let { if (ctxId != NO_CTX) contextWeight * logCondMemo(condMemo, it, ctxId, it.charId(word.codePointAt(0))) else 0.0 } ?: 0.0) +
             (if (octagram != null && ctxWord.isNotEmpty()) octagramWeight * (octagram.rawScore(ctxWord + word) ?: 0.0) else 0.0)
 
     private fun rerankedWholeInputAndAliases(input: String, ctxCp: Int, ctxWord: String): List<String> {
+        val ctxId = resolveCtxId(ctxCp)
+        val condMemo = HashMap<Long, Double>()
         val own = dict.exact(input)
         val alias = inputAliasWordFreqs(input)
         val scored = ArrayList<Pair<BinaryDict.WordFreq, Double>>(own.size + alias.size)
-        for (wf in own) scored.add(wf to wordModelScore(wf.word, wf.freq, ctxCp, ctxWord))
+        for (wf in own) scored.add(wf to wordModelScore(wf.word, wf.freq, ctxId, ctxWord, condMemo))
         if (alias.isNotEmpty()) {
             val ownWords = own.mapTo(HashSet()) { it.word }
             for (wf in alias) {
-                if (wf.word !in ownWords) scored.add(wf to (wordModelScore(wf.word, wf.freq, ctxCp, ctxWord) - ALIAS_PENALTY))
+                if (wf.word !in ownWords) scored.add(wf to (wordModelScore(wf.word, wf.freq, ctxId, ctxWord, condMemo) - ALIAS_PENALTY))
             }
         }
         return scored
@@ -339,13 +352,15 @@ class PinyinDecoder(
         val interior = cuts.filter { it in 1 until input.length }.toSortedSet()
         if (interior.isNotEmpty()) return decodeAtomic(input, limit, interior, ctxCp, ctxWord).let { it to it.size }
 
+        val ctxId = resolveCtxId(ctxCp)
+        val condMemo = HashMap<Long, Double>()
         val cover = LinkedHashMap<String, Int>()
         val completionCap = maxOf(1, limit * 2 / 3)
         bestSentence(input, emptySet(), ctxCp, ctxWord)?.let { cover[it] = input.length }
         val pool = ArrayList<Pair<BinaryDict.WordFreq, Double>>()
         val offered = HashSet<String>()
         fun offer(wf: BinaryDict.WordFreq, penalty: Double) {
-            if (offered.add(wf.word)) pool.add(wf to (wordModelScore(wf.word, wf.freq, ctxCp, ctxWord) - penalty))
+            if (offered.add(wf.word)) pool.add(wf to (wordModelScore(wf.word, wf.freq, ctxId, ctxWord, condMemo) - penalty))
         }
         dict.exact(input).forEach { offer(it, 0.0) }
         inputAliasWordFreqs(input).forEach { offer(it, ALIAS_PENALTY) }
@@ -378,6 +393,8 @@ class PinyinDecoder(
     }
 
     private fun decodeAtomic(input: String, limit: Int, interior: Set<Int>, ctxCp: Int, ctxWord: String): List<Cand> {
+        val ctxId = resolveCtxId(ctxCp)
+        val condMemo = HashMap<Long, Double>()
         val bset = sortedSetOf(0, input.length)
         bset.addAll(interior)
         for (s in syllablesCleanCut(input, interior)) bset.add(s.end)
@@ -424,7 +441,7 @@ class PinyinDecoder(
         val tailCand = LinkedHashMap<String, Cand>()
         fun offerTail(word: String, coveredLen: Int, coveredSyls: Int, carried: Double) {
             if (word == best || word in leadFreq) return
-            val score = wordModelScore(word, commonnessFreq(word, coveredSyls, carried), ctxCp, ctxWord)
+            val score = wordModelScore(word, commonnessFreq(word, coveredSyls, carried), ctxId, ctxWord, condMemo)
             val prev = tailScore[word]
             if (prev == null || score > prev) { tailScore[word] = score; tailCand[word] = Cand(word, coveredLen) }
         }
@@ -440,7 +457,7 @@ class PinyinDecoder(
         val out = ArrayList<Cand>(1 + leadFreq.size + tailRanked.size)
         val seen = HashSet<String>()
         best?.let { if (seen.add(it)) out.add(Cand(it, input.length)) }
-        for ((w, _) in leadFreq.entries.sortedByDescending { wordModelScore(it.key, it.value, ctxCp, ctxWord) }) {
+        for ((w, _) in leadFreq.entries.sortedByDescending { wordModelScore(it.key, it.value, ctxId, ctxWord, condMemo) }) {
             if (out.size >= limit) break
             if (seen.add(w)) out.add(Cand(w, leadCov.getValue(w)))
         }
@@ -505,6 +522,8 @@ class PinyinDecoder(
         ctxWord: String,
         singlesCache: HashMap<String, Set<String>>,
     ): List<Pair<String, Double>> {
+        val model = lm
+        val condMemo = HashMap<Long, Double>()
         val nSyl = B.size - 1
         val dp = Array(B.size) { ArrayList<APath>() }
         dp[0].add(APath("", ctxCp, ctxWord, 0.0))
@@ -529,12 +548,13 @@ class PinyinDecoder(
                 for (wf in edges) {
                     val w = wf.word
                     val firstCp = w.codePointAt(0)
+                    val idFirst = model?.charId(firstCp) ?: -1
                     val lastCp = w.codePointBefore(w.length)
                     val uni = ln(wf.freq.toDouble()) - lnTotal
                     val boost = userModel?.wordBoost(w) ?: 0.0
                     for (p in src) {
                         val bw = if (p.text.isEmpty() && p.lastCp != BOS) contextWeight else lambda
-                        val bi = if (lm == null || p.lastCp == BOS) 0.0 else bw * lm.logCond(p.lastCp, firstCp)
+                        val bi = if (model == null || p.lastCp == BOS) 0.0 else bw * logCondMemo(condMemo, model, model.charId(p.lastCp), idFirst)
                         val og = if (octagram != null && p.lastWord.isNotEmpty())
                             octagramWeight * (octagram.rawScore(p.lastWord + w) ?: 0.0) else 0.0
                         dp[j].add(APath(p.text + w, lastCp, w, p.score + uni + bi + boost + og))
@@ -552,6 +572,8 @@ class PinyinDecoder(
     }
 
     private fun appendLeadingSingles(input: String, span: Int, out: ArrayList<Cand>, limit: Int, ctxCp: Int, ctxWord: String) {
+        val ctxId = resolveCtxId(ctxCp)
+        val condMemo = HashMap<Long, Double>()
         val head = input.substring(0, span)
         val isT9 = input[0] in '2'..'9'
         val lens = if (isT9) T9Pinyin.leadingSyllableDigitLens(head)
@@ -566,13 +588,13 @@ class PinyinDecoder(
                 var added = 0
                 for (wf in preferredExact(dict, input.substring(0, q))) {
                     if (isSingleChar(wf.word) || !seen.add(wf.word)) continue
-                    entries.add(Entry(wf.word, q, wordModelScore(wf.word, wf.freq, ctxCp, ctxWord), single = false))
+                    entries.add(Entry(wf.word, q, wordModelScore(wf.word, wf.freq, ctxId, ctxWord, condMemo), single = false))
                     if (++added >= PREFIX_PER_LEN) break
                 }
             }
             if (q in lensSet) {
                 for ((w, f) in homophoneFreqs(input.substring(0, q))) if (seen.add(w))
-                    entries.add(Entry(w, q, wordModelScore(w, f, ctxCp, ctxWord), single = true))
+                    entries.add(Entry(w, q, wordModelScore(w, f, ctxId, ctxWord, condMemo), single = true))
             }
         }
         if (lens.firstOrNull() != input.length) for (k in lens) {
@@ -585,7 +607,7 @@ class PinyinDecoder(
             for (c in out) if (c.coveredLen == k) present.add(c.word)
             for (e in entries) if (e.cov == k) present.add(e.word)
             for ((w, f) in homophoneFreqs(input.substring(0, k))) if (present.add(w))
-                entries.add(Entry(w, k, wordModelScore(w, f, ctxCp, ctxWord), single = true))
+                entries.add(Entry(w, k, wordModelScore(w, f, ctxId, ctxWord, condMemo), single = true))
         }
         entries.sortWith(
             compareByDescending<Entry> { it.score }
@@ -685,6 +707,8 @@ class PinyinDecoder(
     private class Cell(val score: Double, val prevPos: Int, val prevChar: Int, val word: String)
 
     private fun bestSentence(input: String, cuts: Set<Int> = emptySet(), ctxCp: Int = BOS, ctxWord: String = ""): String? {
+        val model = lm
+        val condMemo = HashMap<Long, Double>()
         val n = input.length
         val dp = Array(n + 1) { HashMap<Int, Cell>() }
         dp[0][ctxCp] = Cell(0.0, -1, ctxCp, ctxWord)
@@ -701,11 +725,12 @@ class PinyinDecoder(
                     val uni = ln(e.freq.toDouble()) - lnTotal
                     val boost = userModel?.wordBoost(w) ?: 0.0
                     val firstCp = w.codePointAt(0)
+                    val idFirst = model?.charId(firstCp) ?: -1
                     val lastCp = w.codePointBefore(w.length)
                     for ((prevChar, cell) in from) {
                         val bw = if (cell.prevPos < 0 && prevChar != BOS) contextWeight else lambda
-                        val bi = if (lm == null || prevChar == BOS) 0.0
-                        else bw * lm.logCond(prevChar, firstCp)
+                        val bi = if (model == null || prevChar == BOS) 0.0
+                        else bw * logCondMemo(condMemo, model, model.charId(prevChar), idFirst)
                         val og = if (octagram != null && cell.word.isNotEmpty())
                             octagramWeight * (octagram.rawScore(cell.word + w) ?: 0.0) else 0.0
                         val score = cell.score + uni + bi + boost - e.penalty + og
@@ -741,6 +766,7 @@ class PinyinDecoder(
     internal companion object {
         const val SEP = '\''
         const val BOS = -1
+        const val NO_CTX = Int.MIN_VALUE
         const val EDGE_N = 20
         const val DEFAULT_LAMBDA = 1.0
         const val FUZZY_PENALTY = 3.0

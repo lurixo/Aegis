@@ -651,6 +651,7 @@ class KeyboardController(
             lane.submit(
                 compute = { computeDecode(req) },
                 apply = { result -> applyDecodeResult(result); render() },
+                onError = { applyDecodeResult(emptyDecodeResult()); render() },
             )
         }
     }
@@ -692,6 +693,9 @@ class KeyboardController(
         val calcExpr: String,
         val calcResult: String,
     )
+
+    private fun emptyDecodeResult(): DecodeResult =
+        DecodeResult(emptyList(), emptySet(), emptySet(), null, "", "")
 
     private fun buildDecodeRequest(): DecodeRequest {
         val locked = mode() == Mode.PINYIN && composing.isNotEmpty() && lockedReadings.isNotEmpty()
