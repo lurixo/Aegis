@@ -17,15 +17,14 @@ package com.aegis.ime.ime
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.RippleDrawable
 import android.graphics.Rect
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
-import com.aegis.ime.ime.theme.ImeShapes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -88,13 +87,10 @@ class BottomBarSymmetryTest {
         return (left + right + 1) / 2f to (top + bottom + 1) / 2f
     }
 
-    private fun assertControlBackgrounds(controls: List<TextView>, palette: ImePalette, name: String) {
+    private fun assertControlsAreIconOnly(controls: List<TextView>, name: String) {
         for (control in controls) {
-            val background = control.background
-            assertTrue("$name control has a rounded rectangle background", background is GradientDrawable)
-            background as GradientDrawable
-            assertEquals(palette.keySurface, background.color?.defaultColor)
-            assertEquals(ImeShapes.keyRadiusDp * control.resources.displayMetrics.density, background.cornerRadius, 0f)
+            assertNull("$name control has no resting background slab", control.background)
+            assertTrue("$name control keeps transient press feedback", control.foreground is RippleDrawable)
         }
     }
 
@@ -128,8 +124,6 @@ class BottomBarSymmetryTest {
             it.draw(Canvas(bitmap))
             bitmap.recycle()
         }
-        assertEquals(Rect(0, 0, back.width, back.height), back.background.bounds)
-        assertEquals(Rect(0, 0, backspace.width, backspace.height), backspace.background.bounds)
         assertTrue("$name controls keep independent click targets", controls.all { it.hasOnClickListeners() })
         assertTrue("$name controls keep centered content", controls.all { it.gravity == Gravity.CENTER })
         assertNotNull("$name clear keeps its delete glyph", clear.compoundDrawables[0])
@@ -141,8 +135,6 @@ class BottomBarSymmetryTest {
             assertEquals(Rect(0, 0, control.width, control.height), glyph.bounds)
             assertEquals(control.width / 2f, glyph.bounds.exactCenterX(), 0f)
             assertEquals(control.height / 2f, glyph.bounds.exactCenterY(), 0f)
-            assertEquals(control.background.bounds.exactCenterX(), glyph.bounds.exactCenterX(), 0f)
-            assertEquals(control.background.bounds.exactCenterY(), glyph.bounds.exactCenterY(), 0f)
             val center = inkCenter(glyph)
             assertEquals(control.width / 2f, center.first, 0.6f)
             assertEquals(control.height / 2f, center.second, 0.6f)
@@ -171,9 +163,9 @@ class BottomBarSymmetryTest {
                     backspace,
                     "SymbolsView",
                 )
-                assertControlBackgrounds(controls, ImePalette.STATIC_LIGHT, "SymbolsView")
+                assertControlsAreIconOnly(controls, "SymbolsView")
                 view.applyPalette(ImePalette.STATIC_DARK)
-                assertControlBackgrounds(controls, ImePalette.STATIC_DARK, "SymbolsView")
+                assertControlsAreIconOnly(controls, "SymbolsView")
             }
         }
     }
@@ -199,9 +191,9 @@ class BottomBarSymmetryTest {
                     backspace,
                     "EmojiView",
                 )
-                assertControlBackgrounds(controls, ImePalette.STATIC_LIGHT, "EmojiView")
+                assertControlsAreIconOnly(controls, "EmojiView")
                 view.applyPalette(ImePalette.STATIC_DARK)
-                assertControlBackgrounds(controls, ImePalette.STATIC_DARK, "EmojiView")
+                assertControlsAreIconOnly(controls, "EmojiView")
             }
         }
     }

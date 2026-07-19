@@ -168,7 +168,6 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         setBackgroundColor(p.keyboardBg)
         railScroll.setBackgroundColor(p.keyboardBg)
         bottomBarView.setBackgroundColor(p.keyboardBg)
-        for (button in listOf(backBtn, clearBtn, lockBtn, backspaceBtn)) button.background = barButtonBackground()
         for (button in listOf(backBtn, clearBtn, backspaceBtn)) {
             button.setTextColor(p.keyLabelSecondary)
             Motion.applyTapFeedback(button, p.keyLabelSecondary)
@@ -483,15 +482,9 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         setTextColor(palette.keyLabelSecondary)
-        background = barButtonBackground()
         isClickable = true
         Motion.applyTapFeedback(this, palette.keyLabelSecondary)
         setOnClickListener { onClick() }
-    }
-
-    private fun barButtonBackground() = GradientDrawable().apply {
-        setColor(palette.keySurface)
-        cornerRadius = ImeShapes.keyRadiusDp * density
     }
 
     private class LockDrawable(private val density: Float) : Drawable() {
