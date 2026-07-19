@@ -238,4 +238,47 @@ class AssociationsAndCalcTest {
         c.onPickCandidate(c.candidateWords().indexOf("=10"))
         assertEquals("with a selection active the calc append is skipped (no data loss)", "5*2", h.text)
     }
+
+    @Test fun clearing_composing_dismisses_the_calc_result_and_keeps_the_expression() {
+        val h = EditorHost()
+        val c = KeyboardController(h, emptyEngine)
+        "12+34*2".forEach { c.onKey(digit(it.toString())) }
+        assertEquals(listOf("=80"), c.candidateWords())
+        c.onKey(Key("", action = KeyAction.CLEAR_COMPOSING))
+        assertTrue("重输 clears the calc result from the toolbar", c.candidateWords().isEmpty())
+        assertEquals("重输 leaves the typed expression untouched", "12+34*2", h.text)
+    }
+
+    @Test fun backspace_dismisses_the_calc_result_and_deletes_the_last_expression_char() {
+        val h = EditorHost()
+        val c = KeyboardController(h, emptyEngine)
+        "12+345".forEach { c.onKey(digit(it.toString())) }
+        assertEquals(listOf("=357"), c.candidateWords())
+        c.onKey(Key("", action = KeyAction.BACKSPACE))
+        assertTrue("退格 clears the calc result instead of surfacing a new one", c.candidateWords().isEmpty())
+        assertEquals("退格 removes the last character of the expression", "12+34", h.text)
+    }
+
+    @Test fun a_dismissed_calc_result_returns_once_new_input_extends_the_expression() {
+        val h = EditorHost()
+        val c = KeyboardController(h, emptyEngine)
+        "5*2".forEach { c.onKey(digit(it.toString())) }
+        assertEquals(listOf("=10"), c.candidateWords())
+        c.onKey(Key("", action = KeyAction.CLEAR_COMPOSING))
+        assertTrue("dismissed after 重输", c.candidateWords().isEmpty())
+        c.onKey(digit("3"))
+        assertEquals("typing again re-derives the result for the new expression", listOf("=115"), c.candidateWords())
+        assertEquals("5*23", h.text)
+    }
+
+    @Test fun repeated_backspace_keeps_the_calc_result_dismissed() {
+        val h = EditorHost()
+        val c = KeyboardController(h, emptyEngine)
+        "100+200".forEach { c.onKey(digit(it.toString())) }
+        assertEquals(listOf("=300"), c.candidateWords())
+        c.onKey(Key("", action = KeyAction.BACKSPACE))
+        c.onKey(Key("", action = KeyAction.BACKSPACE))
+        assertTrue("no result lingers across successive backspaces", c.candidateWords().isEmpty())
+        assertEquals("100+2", h.text)
+    }
 }
