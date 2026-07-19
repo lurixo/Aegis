@@ -29,7 +29,7 @@ open class PreeditView(context: Context) : View(context) {
     private var text: String = ""
     private var shownText: String = ""
     private val density = resources.displayMetrics.density
-    private val pad = 12f * density
+    private val pad = 6f * density
     private val candPad = 14f * density
     private var leftInset = 0f
     private val tab = RectF()
@@ -77,6 +77,8 @@ open class PreeditView(context: Context) : View(context) {
     }
 
     internal fun shownTextForTest(): String = shownText
+
+    internal fun tabLeftForTest(leftInsetPx: Float): Float = leftInsetPx + candPad - pad
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()

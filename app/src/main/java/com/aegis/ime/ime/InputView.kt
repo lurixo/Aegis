@@ -19,17 +19,20 @@ import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Outline
 import android.graphics.Rect
 import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import kotlin.math.roundToInt
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.KeyboardLayout
@@ -64,7 +67,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private val panelContainer = FrameLayout(context)
     private val gridView = CandidateGridView(context)
 
-    private val body = LinearLayout(context)
+    private val body = SurfaceContainer(context)
     private val bodySlot = CompactDock(context) { resolveDockWidth(it) }.apply { addDockedView(body) }
     private var lastCandidates: List<String> = emptyList()
     private var lastReadings: List<String> = emptyList()
@@ -551,6 +554,10 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun dockSurfaceRightPx(): Int = dockSurfaceLeftPx() + body.width
     internal fun dockSurfaceTopPx(): Int = bodySlot.top + body.top
     internal fun dockSurfaceBottomPx(): Int = dockSurfaceTopPx() + body.height
+    internal fun surfaceClipsTopCornersForTest(): Boolean = body.clipToOutline
+    internal fun surfaceTopRadiusPxForTest(): Float = body.topRadiusPx()
+    internal fun surfaceTopOutlineForTest(): Outline = Outline().also { body.outlineProvider?.getOutline(body, it) }
+    internal fun surfaceContainerHeightForTest(): Int = body.height
     internal fun dockHeightSpecForTest(): LandscapeDockSizing.HeightSpec? = lastDockHeightSpec
     internal fun keyboardMinimumKeyWidthPxForTest(): Float = keyboardView.minimumKeyWidthForTest()
 
@@ -669,6 +676,27 @@ class InputView(context: Context) : LinearLayout(context) {
     fun isPanelShowing(panel: View?): Boolean = panelShown && panel != null && currentPanel === panel
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+
+    private class SurfaceContainer(context: Context) : LinearLayout(context) {
+        private val topRadiusPx = ImeShapes.surfaceTopRadiusDp * resources.displayMetrics.density
+
+        init {
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    val r = topRadiusPx
+                    outline.setRoundRect(0, 0, view.width, view.height + r.toInt(), r)
+                }
+            }
+            clipToOutline = true
+        }
+
+        fun topRadiusPx(): Float = topRadiusPx
+
+        override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+            super.onSizeChanged(w, h, oldw, oldh)
+            invalidateOutline()
+        }
+    }
 
     private class CompactDock(
         context: Context,
