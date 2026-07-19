@@ -29,4 +29,13 @@ object GraphemeText {
         val start = it.previous()
         return if (start == BreakIterator.DONE) end else end - start
     }
+
+    fun clusterCount(text: CharSequence): Int {
+        if (text.isEmpty()) return 0
+        val it = BreakIterator.getCharacterInstance()
+        it.setText(text.toString())
+        var count = 0
+        while (it.next() != BreakIterator.DONE) count++
+        return count
+    }
 }
