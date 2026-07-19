@@ -22,4 +22,5 @@ object ImeShapes {
     const val inputRadiusDp = 8f
     const val chipRadiusDp = 8f
     const val toolbarPillRadiusDp = 999f
+    const val surfaceTopRadiusDp = 12f
 }
