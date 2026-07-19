@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import android.graphics.drawable.GradientDrawable
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
@@ -78,13 +79,15 @@ class EditBarViewTest {
         assertFalse("a short name needs no scrolling", f.canScrollVertically(1) || f.canScrollVertically(-1))
     }
 
-    @Test fun confirm_and_cancel_use_the_same_action_color_in_both_palettes() {
+    @Test fun confirm_accents_and_cancel_stays_neutral_in_both_palettes() {
         for (palette in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
             val view = EditBarView(ctx).apply { applyPalette(palette) }
             val cancel = action(view, ctx.getString(com.aegis.ime.R.string.editbar_cancel))
             val confirm = action(view, ctx.getString(com.aegis.ime.R.string.editbar_confirm))
-            assertEquals(cancel.currentTextColor, confirm.currentTextColor)
-            assertEquals(palette.keyLabelSecondary, confirm.currentTextColor)
+            assertEquals(palette.keyLabel, cancel.currentTextColor)
+            assertEquals(palette.keySurface, (cancel.background as GradientDrawable).color?.defaultColor)
+            assertEquals(palette.accentBottom, confirm.currentTextColor)
+            assertEquals(Motion.withAlpha(palette.accentBottom, 0x22), (confirm.background as GradientDrawable).color?.defaultColor)
         }
     }
 }

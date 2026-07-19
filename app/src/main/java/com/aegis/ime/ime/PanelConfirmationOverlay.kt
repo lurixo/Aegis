@@ -46,11 +46,13 @@ internal class PanelConfirmationOverlay(context: Context) : FrameLayout(context)
             orientation = LinearLayout.VERTICAL
             isClickable = true
             minimumWidth = dp(260)
+            setPadding(0, dp(6), 0, dp(6))
             background = GradientDrawable().apply {
                 setColor(palette.keySurface)
                 cornerRadius = ImeShapes.cardRadiusDp * density
-                setStroke(dp(1), palette.separator)
             }
+            clipToOutline = true
+            elevation = dp(8).toFloat()
         }
         card.addView(TextView(context).apply {
             text = title
@@ -59,14 +61,12 @@ internal class PanelConfirmationOverlay(context: Context) : FrameLayout(context)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
             setPadding(dp(20), dp(12), dp(20), dp(8))
         })
-        card.addView(divider(palette))
         val confirmView = action(confirm, palette) {
             dismiss()
             onConfirm()
         }
         confirmAction = confirmView
         card.addView(confirmView)
-        card.addView(divider(palette))
         val cancelView = action(cancel, palette, ::dismiss)
         cancelAction = cancelView
         card.addView(cancelView)
@@ -116,10 +116,5 @@ internal class PanelConfirmationOverlay(context: Context) : FrameLayout(context)
         setPadding(dp(24), dp(16), dp(24), dp(16))
         Motion.applyTapFeedback(this, palette.keyLabel)
         setOnClickListener { onClick() }
-    }
-
-    private fun divider(palette: ImePalette): View = View(context).apply {
-        setBackgroundColor(palette.separator)
-        layoutParams = LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, maxOf(1, dp(1)))
     }
 }
