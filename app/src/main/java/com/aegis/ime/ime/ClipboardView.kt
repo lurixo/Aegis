@@ -1319,7 +1319,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(4), 0, dp(4), 0)
         background = rounded(CARD, ImeShapes.toolbarPillRadiusDp)
-        val chips = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+        val chips = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
         for (name in categories) chips.addView(catChip(name, name == current))
         addView(object : HorizontalScrollView(context) {
             override fun onScrollChanged(left: Int, top: Int, oldLeft: Int, oldTop: Int) {
@@ -1334,11 +1337,12 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             }
         }.apply {
             isHorizontalScrollBarEnabled = false
-            addView(chips)
+            addView(chips, FrameLayout.LayoutParams(WC, MP))
         }, ll(0, dp(34), 1f))
         addView(TextView(context).apply {
             text = context.getString(R.string.clip_edit)
             gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setTextColor(TEXT_DARK)
             contentDescription = context.getString(R.string.clip_manage_phrases)
@@ -1399,6 +1403,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private fun catChip(name: String, on: Boolean): View = TextView(context).apply {
         text = displayCat(name)
         gravity = Gravity.CENTER
+        includeFontPadding = false
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
         setPadding(dp(10), dp(6), dp(10), dp(6))
         background = if (on) rounded(GREY_PILL, ImeShapes.toolbarPillRadiusDp) else null
