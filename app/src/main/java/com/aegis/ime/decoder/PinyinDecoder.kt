@@ -494,7 +494,12 @@ class PinyinDecoder(
     }
 
     private fun isHan(cp: Int): Boolean {
-            return Character.isIdeographic(cp)
+        if (cp !in 0 until HAN_TABLE_SIZE) return Character.isIdeographic(cp)
+        val known = HAN_TABLE[cp]
+        if (known != HAN_UNKNOWN) return known == HAN_YES
+        val han = Character.isIdeographic(cp)
+        HAN_TABLE[cp] = if (han) HAN_YES else HAN_NO
+        return han
     }
 
     private fun allHan(word: String): Boolean {
@@ -1048,7 +1053,14 @@ class PinyinDecoder(
         return out
     }
 
-    private class APath(val text: String, val lastCp: Int, val tail: String, val score: Double)
+    private class APath(val text: String, val lastCp: Int, val tail: String, val score: Double) {
+        private var lastId = UNRESOLVED_CHAR_ID
+
+        fun charId(model: CharBigramLM): Int {
+            if (lastId == UNRESOLVED_CHAR_ID) lastId = model.charId(lastCp)
+            return lastId
+        }
+    }
 
     internal data class SentencePath(val text: String, val score: Double)
 
@@ -1114,7 +1126,7 @@ class PinyinDecoder(
                     val inner = if (model == null || lam == 0.0) 0.0 else lam * internalBigramScore(w, model)
                     for (p in src) {
                         val bw = if (p.text.isEmpty() && p.lastCp != BOS) contextWeight else lam
-                        val bi = if (model == null || p.lastCp == BOS || bw == 0.0) 0.0 else bw * logCondMemo(model, model.charId(p.lastCp), idFirst)
+                        val bi = if (model == null || p.lastCp == BOS || bw == 0.0) 0.0 else bw * logCondMemo(model, p.charId(model), idFirst)
                         val joined = joinTail(p.tail, w)
                         val og = octagramWeight * joinedArm(p.tail, joined)
                         val follow = learn?.followBoost(p.tail, w) ?: 0.0
@@ -1418,7 +1430,16 @@ class PinyinDecoder(
         return out
     }
 
-    private data class SentenceState(val lastCp: Int, val tail: String)
+    private data class SentenceState(val lastCp: Int, val tail: String) {
+        private var lastId = UNRESOLVED_CHAR_ID
+
+        fun charId(model: CharBigramLM): Int {
+            if (lastId == UNRESOLVED_CHAR_ID) lastId = model.charId(lastCp)
+            return lastId
+        }
+
+        override fun hashCode(): Int = if (tail.isEmpty()) lastCp else 31 * lastCp + tail.hashCode()
+    }
 
     private class Cell(val score: Double, val prevPos: Int, val prevState: SentenceState?, val word: String)
 
@@ -1463,7 +1484,7 @@ class PinyinDecoder(
                     for ((state, cell) in from) {
                         val bw = if (cell.prevPos < 0 && state.lastCp != BOS) contextWeight else lam
                         val bi = if (model == null || state.lastCp == BOS || bw == 0.0) 0.0
-                        else bw * logCondMemo(model, model.charId(state.lastCp), idFirst)
+                        else bw * logCondMemo(model, state.charId(model), idFirst)
                         val joined = joinTail(state.tail, w)
                         val og = octagramWeight * joinedArm(state.tail, joined)
                         val follow = learn?.followBoost(state.tail, w) ?: 0.0
@@ -1709,6 +1730,12 @@ class PinyinDecoder(
         const val HOMOPHONE_CACHE_WEIGHT = 4_096
         const val VARIANT_CACHE_WEIGHT = 4_096
         const val SENTENCE_STATE_CAPACITY = 256
+        const val UNRESOLVED_CHAR_ID = Int.MIN_VALUE
+        const val HAN_TABLE_SIZE = 0x10000
+        const val HAN_UNKNOWN: Byte = 0
+        const val HAN_YES: Byte = 1
+        const val HAN_NO: Byte = 2
+        private val HAN_TABLE = ByteArray(HAN_TABLE_SIZE)
         const val WORD_TERMS_LIMIT = 20_000
         const val READING_LOOKUP_LIMIT = 4_096
         const val ORDERING_RARE_FREQ = 100.0

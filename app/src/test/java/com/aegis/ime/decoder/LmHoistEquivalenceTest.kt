@@ -1,0 +1,181 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Copyright (C) 2026 lurixo
+//
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 3.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+// PARTICULAR PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see <https://www.gnu.org/licenses/>.
+
+package com.aegis.ime.decoder
+
+import com.aegis.ime.dict.CharBigramLM
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+class LmHoistEquivalenceTest {
+
+    private fun cp(c: Char) = c.code
+
+    private fun lm(): CharBigramLM {
+        val uni = mapOf(
+            '词' to 800L, '库' to 900L, '苦' to 850L, '哭' to 800L, '酷' to 700L,
+            '不' to 950L, '是' to 950L, '时' to 920L, '实' to 900L, '事' to 860L,
+            '想' to 930L, '相' to 900L, '向' to 980L, '香' to 800L,
+            '九' to 900L, '就' to 880L, '键' to 900L, '见' to 880L, '间' to 840L,
+            '字' to 900L, '自' to 860L, '子' to 880L,
+        ).mapKeys { it.key.code }
+        val bi = mapOf(
+            (cp('词') to cp('库')) to 5000L,
+            (cp('不') to cp('是')) to 5000L,
+            (cp('想') to cp('哭')) to 5000L,
+            (cp('九') to cp('键')) to 3000L,
+            (cp('不') to cp('时')) to 200L,
+            (cp('想') to cp('相')) to 400L,
+        )
+        return EngineFixture.buildLm(uni, bi)
+    }
+
+    private val cases = listOf(
+        "ku" to "", "ku" to "想", "ku" to "词", "ku" to "不",
+        "shi" to "", "shi" to "不", "shi" to "我",
+        "ci" to "", "ci" to "词",
+        "jian" to "", "jian" to "九",
+        "zi" to "", "zi" to "字",
+        "xiang" to "", "xiang" to "想",
+        "xiangku" to "", "xiangku" to "想",
+        "bushi" to "", "bushi" to "不",
+        "jiujian" to "",
+    )
+
+    private fun report(decoder: PinyinDecoder): String {
+        val sb = StringBuilder()
+        for ((input, ctx) in cases) {
+            sb.append("covered|$input|$ctx -> ")
+                .append(decoder.decodeCovered(input, 12, context = ctx).joinToString(",") { it.word }).append('\n')
+            sb.append("atomic|$input|$ctx -> ")
+                .append(decoder.decodeCoveredAtomic(input, 12, context = ctx).joinToString(",") { it.word }).append('\n')
+        }
+        return sb.toString()
+    }
+
+    @Test fun optimized_decoder_output_is_identical_to_the_pre_optimization_baseline() {
+        assertEquals(GOLDEN.trim(), report(hoistDecoder()).trim())
+    }
+
+    @Test fun shipped_default_weights_hold_their_own_recorded_output() {
+        assertEquals(PRODUCTION_GOLDEN.trim(), report(productionDecoder()).trim())
+    }
+
+    private fun hoistDecoder(): PinyinDecoder =
+        PinyinDecoder(EngineFixture.dict(), lm(), lambda = 1.0, contextWeight = 2.0)
+
+    private fun productionDecoder(): PinyinDecoder = PinyinDecoder(EngineFixture.dict(), lm())
+
+    @Test fun repeated_and_interleaved_decodes_do_not_leak_state_across_calls() {
+        val decoder = PinyinDecoder(EngineFixture.dict(), lm(), lambda = 1.0, contextWeight = 2.0)
+        fun run(input: String, ctx: String) = decoder.decodeCovered(input, 12, context = ctx).map { it.word }
+        val a1 = run("ku", "想")
+        val b = run("shi", "不")
+        val a2 = run("ku", "想")
+        val a3 = run("ku", "")
+        assertEquals(a1, a2)
+        assertEquals(a1, run("ku", "想"))
+        assertEquals(b, run("shi", "不"))
+        org.junit.Assert.assertNotEquals(a1, a3)
+    }
+
+    private companion object {
+        const val PRODUCTION_GOLDEN = """
+covered|ku| -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+atomic|ku| -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+covered|ku|想 -> 哭,库,苦,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+atomic|ku|想 -> 哭,库,苦,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+covered|ku|词 -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+atomic|ku|词 -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+covered|ku|不 -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+atomic|ku|不 -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+covered|shi| -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
+atomic|shi| -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
+covered|shi|不 -> 是,时,实,实现,事,市,十,始,试,视,𠃦,𠃧,𠃨
+atomic|shi|不 -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
+covered|shi|我 -> 是,时,实,实现,事,市,十,始,试,视,𠃦,𠃧,𠃨
+atomic|shi|我 -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
+covered|ci| -> 次,此,词库,词,刺,辞,磁,慈,茨,瓷,赐,雌,祠,疵,伺,𠀀,𠀁,𠀂,𠀃,𠀄,𠀅,𠀆,𠀇,𠀈,𠀉,𠀊,𠀋,𠀌,𠀍,𠀎,𠀏
+atomic|ci| -> 次,此,词,刺,辞,磁,慈,茨,瓷,赐,雌,祠,疵,伺,𠀀,𠀁,𠀂,𠀃,𠀄,𠀅,𠀆,𠀇,𠀈,𠀉,𠀊,𠀋,𠀌,𠀍,𠀎,𠀏
+covered|ci|词 -> 词,词库,次,此,刺,辞,磁,慈,茨,瓷,赐,雌,祠,疵,伺,𠀀,𠀁,𠀂,𠀃,𠀄,𠀅,𠀆,𠀇,𠀈,𠀉,𠀊,𠀋,𠀌,𠀍,𠀎,𠀏
+atomic|ci|词 -> 词,次,此,刺,辞,磁,慈,茨,瓷,赐,雌,祠,疵,伺,𠀀,𠀁,𠀂,𠀃,𠀄,𠀅,𠀆,𠀇,𠀈,𠀉,𠀊,𠀋,𠀌,𠀍,𠀎,𠀏
+covered|jian| -> 键,见,件,间,简,减,建,𠄄,𠄅,𠄆
+atomic|jian| -> 键,见,件,间,简,减,建,𠄄,𠄅,𠄆
+covered|jian|九 -> 键,见,间,件,简,减,建,𠄄,𠄅,𠄆
+atomic|jian|九 -> 键,见,间,件,简,减,建,𠄄,𠄅,𠄆
+covered|zi| -> 字,子,自,紫,资,仔,籽,𠃒,𠃓,𠃔
+atomic|zi| -> 字,子,自,紫,资,仔,籽,𠃒,𠃓,𠃔
+covered|zi|字 -> 字,子,自,紫,资,仔,籽,𠃒,𠃓,𠃔
+atomic|zi|字 -> 字,子,自,紫,资,仔,籽,𠃒,𠃓,𠃔
+covered|xiang| -> 向,想,相,像,想哭,香,响,享,西,下,夏,霞,现,县,限,先,显,鲜,险,嫌,西安,𠃰,𠃱,𠃲
+atomic|xiang| -> 向,想,相,像,香,响,享
+covered|xiang|想 -> 相,向,想,想哭,香,像,响,享,西,西安,下,夏,霞,现,县,限,先,显,鲜,险,嫌,𠃰,𠃱,𠃲
+atomic|xiang|想 -> 相,向,想,香,像,响,享
+covered|xiangku| -> 想哭,西,下,夏,霞,向,想,相,像,香,响,享,现,县,限,先,显,鲜,险,嫌,西安,𠃰,𠃱,𠃲
+atomic|xiangku| -> 想哭,向,想,相,像,香,响,享,向库,想库,相库,向苦,像库,想苦,相苦
+covered|xiangku|想 -> 想哭,相,向,想,香,西,西安,下,夏,霞,像,响,享,现,县,限,先,显,鲜,险,嫌,𠃰,𠃱,𠃲
+atomic|xiangku|想 -> 想哭,相,向,想,香,相库,相苦,相哭,相酷,向库,像,响,享,相裤,相窟
+covered|bushi| -> 不是,不,部,布,步,补,捕,卜,哺,埠,簿,𠃜,𠃝,𠃞
+atomic|bushi| -> 不是,不,部,布,步,补,捕,卜,哺,埠,簿,不时,部是,不实,部时,布是,部实,不事,𠃜,𠃝,𠃞
+covered|bushi|不 -> 不是,不,部,布,步,补,捕,卜,哺,埠,簿,𠃜,𠃝,𠃞
+atomic|bushi|不 -> 不是,不,不时,不实,不事,部,布,步,补,捕,卜,哺,埠,簿,不市,不十,部是,部时,𠃜,𠃝,𠃞
+covered|jiujian| -> 九键,九,就,久,酒,旧,救
+atomic|jiujian| -> 九键,九,就,久,酒,旧,救,就键,九见,久键,就见,酒键,久见,酒见
+"""
+
+        const val GOLDEN = """
+covered|ku| -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+atomic|ku| -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+covered|ku|想 -> 哭,库,苦,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+atomic|ku|想 -> 哭,库,苦,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+covered|ku|词 -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+atomic|ku|词 -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+covered|ku|不 -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+atomic|ku|不 -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+covered|shi| -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
+atomic|shi| -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
+covered|shi|不 -> 是,时,实,实现,事,市,十,始,试,视,𠃦,𠃧,𠃨
+atomic|shi|不 -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
+covered|shi|我 -> 是,时,实,实现,事,市,十,始,试,视,𠃦,𠃧,𠃨
+atomic|shi|我 -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
+covered|ci| -> 次,此,词库,词,刺,辞,磁,慈,茨,瓷,赐,雌,祠,疵,伺,𠀀,𠀁,𠀂,𠀃,𠀄,𠀅,𠀆,𠀇,𠀈,𠀉,𠀊,𠀋,𠀌,𠀍,𠀎,𠀏
+atomic|ci| -> 次,此,词,刺,辞,磁,慈,茨,瓷,赐,雌,祠,疵,伺,𠀀,𠀁,𠀂,𠀃,𠀄,𠀅,𠀆,𠀇,𠀈,𠀉,𠀊,𠀋,𠀌,𠀍,𠀎,𠀏
+covered|ci|词 -> 词,词库,次,此,刺,辞,磁,慈,茨,瓷,赐,雌,祠,疵,伺,𠀀,𠀁,𠀂,𠀃,𠀄,𠀅,𠀆,𠀇,𠀈,𠀉,𠀊,𠀋,𠀌,𠀍,𠀎,𠀏
+atomic|ci|词 -> 词,次,此,刺,辞,磁,慈,茨,瓷,赐,雌,祠,疵,伺,𠀀,𠀁,𠀂,𠀃,𠀄,𠀅,𠀆,𠀇,𠀈,𠀉,𠀊,𠀋,𠀌,𠀍,𠀎,𠀏
+covered|jian| -> 键,见,件,间,简,减,建,𠄄,𠄅,𠄆
+atomic|jian| -> 键,见,件,间,简,减,建,𠄄,𠄅,𠄆
+covered|jian|九 -> 键,见,间,件,简,减,建,𠄄,𠄅,𠄆
+atomic|jian|九 -> 键,见,间,件,简,减,建,𠄄,𠄅,𠄆
+covered|zi| -> 字,子,自,紫,资,仔,籽,𠃒,𠃓,𠃔
+atomic|zi| -> 字,子,自,紫,资,仔,籽,𠃒,𠃓,𠃔
+covered|zi|字 -> 字,子,自,紫,资,仔,籽,𠃒,𠃓,𠃔
+atomic|zi|字 -> 字,子,自,紫,资,仔,籽,𠃒,𠃓,𠃔
+covered|xiang| -> 向,想,相,像,想哭,香,响,享,西,下,夏,霞,现,县,限,先,显,鲜,险,嫌,西安,𠃰,𠃱,𠃲
+atomic|xiang| -> 向,想,相,像,香,响,享
+covered|xiang|想 -> 相,向,想,想哭,香,像,响,享,西,西安,下,夏,霞,现,县,限,先,显,鲜,险,嫌,𠃰,𠃱,𠃲
+atomic|xiang|想 -> 相,向,想,香,像,响,享
+covered|xiangku| -> 想哭,西,下,夏,霞,向,想,相,像,香,响,享,现,县,限,先,显,鲜,险,嫌,西安,𠃰,𠃱,𠃲
+atomic|xiangku| -> 想哭,向,想,相,像,香,响,享,向库,想库,相库,向苦,像库,想苦,相苦
+covered|xiangku|想 -> 想哭,相,向,想,香,西,西安,下,夏,霞,像,响,享,现,县,限,先,显,鲜,险,嫌,𠃰,𠃱,𠃲
+atomic|xiangku|想 -> 想哭,相,向,想,香,相库,相苦,相哭,相酷,向库,相裤,相窟,像,响,享
+covered|bushi| -> 不是,不,部,布,步,补,捕,卜,哺,埠,簿,𠃜,𠃝,𠃞
+atomic|bushi| -> 不是,不,部,布,步,补,捕,卜,哺,埠,簿,不时,部是,不实,布是,部时,部实,步是,𠃜,𠃝,𠃞
+covered|bushi|不 -> 不是,不,部,布,步,补,捕,卜,哺,埠,簿,𠃜,𠃝,𠃞
+atomic|bushi|不 -> 不是,不,不时,不实,不事,不市,不十,部,布,步,补,捕,卜,哺,埠,簿,部是,部时,𠃜,𠃝,𠃞
+covered|jiujian| -> 九键,九,就,久,酒,旧,救
+atomic|jiujian| -> 九键,九,就,久,酒,旧,救,就键,九见,久键,就见,酒键,久见,酒见
+"""
+    }
+}
