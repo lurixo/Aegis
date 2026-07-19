@@ -183,6 +183,7 @@ class ImeKeyFeedback(
         x >= -touchSlop && y >= -touchSlop && x < view.width + touchSlop && y < view.height + touchSlop
 
     internal fun levelForTest(): Float = press.level
+    internal fun drawableForTest(): Drawable = surface
 
     companion object {
         const val DEFAULT_FACE_INSET_DP = 3f
