@@ -119,6 +119,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private val st = ClipboardPanelState()
     private var phraseCat = ""
     private var swipeRevealed: String? = null
+    private var pendingSwipeRefresh = false
     private var categoryScrollX = 0
 
     private var sortMode = false
@@ -562,6 +563,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
 
     private fun rebuildContent() {
+        pendingSwipeRefresh = false
         invalidateListRender()
         fixedChromeOriginalHeights.clear()
         fixedDescendantOriginalHeights.clear()
@@ -683,7 +685,6 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
 
     private fun card(text: String, index: Int, category: String): View {
         val expanded = st.expanded == text
-        val swiped = swipeRevealed == text
         val phrase = st.tab == Tab.PHRASE
         val display = if (phrase) phraseDisplayText(category, text) else text
         val revealWidthDp = swipeRevealWidthDp(phrase)
@@ -691,7 +692,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val headerFrame = object : FrameLayout(context) {
             override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
                 super.onLayout(changed, left, top, right, bottom)
-                header.translationX = if (swiped) -minOf(dp(revealWidthDp), (right - left).coerceAtLeast(0)).toFloat() else 0f
+                header.translationX = if (!expanded && swipeRevealed == text) -swipeRevealPx(this, revealWidthDp) else 0f
             }
         }
         val column = LinearLayout(context).apply {
@@ -732,9 +733,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         }
         header.addView(body, ll(0, WC, 1f))
         header.addView(chevron, ll(dp(40), MP))
-        if (swiped) {
+        if (!expanded) {
             headerFrame.addView(
-                swipeActionStrip(text, category, phrase),
+                swipeActionStrip(text, category, phrase, header, headerFrame, revealWidthDp),
                 FrameLayout.LayoutParams(dp(revealWidthDp), MP, Gravity.RIGHT),
             )
         }
@@ -742,8 +743,14 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         surface.addView(headerFrame, ll(MP, WC))
         if (expanded) surface.addView(if (phrase) phraseActionRow(text, category) else actionRow(text), ll(MP, WC))
         column.addView(surface, ll(MP, WC))
-        attachSwipeReveal(chevron, text)
-        if (phrase && !expanded && !swiped) attachDragHandle(body, column, index, text) else attachSwipeReveal(body, text)
+        if (expanded) {
+            attachSwipeReveal(chevron, text)
+            attachSwipeReveal(body, text)
+        } else {
+            attachSwipeReveal(chevron, text, header, headerFrame, revealWidthDp)
+            if (phrase) attachDragHandle(body, column, index, text, header, headerFrame, revealWidthDp)
+            else attachSwipeReveal(body, text, header, headerFrame, revealWidthDp)
+        }
         return column
     }
 
@@ -752,7 +759,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         return count * (SWIPE_ACTION_SIZE_DP + SWIPE_ACTION_GAP_DP)
     }
 
-    private fun swipeActionStrip(text: String, category: String, phrase: Boolean): LinearLayout = LinearLayout(context).apply {
+    private fun swipeActionStrip(text: String, category: String, phrase: Boolean, header: View, frame: View, revealWidthDp: Int): LinearLayout = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         layoutDirection = View.LAYOUT_DIRECTION_LTR
         gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT
@@ -764,7 +771,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             addView(action, ll(dp(SWIPE_ACTION_SIZE_DP), dp(SWIPE_ACTION_SIZE_DP)).apply {
                 marginStart = dp(SWIPE_ACTION_GAP_DP)
             })
-            attachSwipeReveal(action, text)
+            attachSwipeReveal(action, text, header, frame, revealWidthDp)
         }
         fun addGlyphSwipeAction(desc: String, onClick: () -> Unit, render: (Canvas, Paint, Float, Float, Float) -> Unit) {
             addSwipeAction(glyphToolbarBtn(desc, onClick = onClick, render = render))
@@ -812,16 +819,20 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     }
 
 
-    private fun attachDragHandle(touchTarget: View, card: View, index: Int, text: String) {
+    private fun attachDragHandle(touchTarget: View, card: View, index: Int, text: String, header: View, frame: View, revealWidthDp: Int) {
         val slop = ViewConfiguration.get(context).scaledTouchSlop
         var downX = 0f; var downY = 0f
         var mode = 0
+        var startTx = 0f
+        var revealPx = 0f
         val longPress = Runnable { startDrag(index, downY); requestDragCapture() }
         touchTarget.setOnTouchListener { _, e ->
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     downX = e.rawX; downY = e.rawY; mode = 0
-                    dragHandler.postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
+                    revealPx = swipeRevealPx(frame, revealWidthDp)
+                    startTx = if (swipeRevealed == text) -revealPx else 0f
+                    if (swipeRevealed != text) dragHandler.postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
                     false
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -833,8 +844,12 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                         if (mode == 0 && (abs(dx) > slop || abs(dy) > slop)) {
                             dragHandler.removeCallbacks(longPress)
                             mode = if (abs(dy) > abs(dx) * SWIPE_VERTICAL_BIAS) 2 else 1
-                            if (mode == 1) card.parent?.requestDisallowInterceptTouchEvent(true)
+                            if (mode == 1) {
+                                card.parent?.requestDisallowInterceptTouchEvent(true)
+                                header.animate().cancel()
+                            }
                         }
+                        if (mode == 1) header.translationX = (startTx + dx).coerceIn(-revealPx, 0f)
                         mode == 1
                     }
                 }
@@ -843,7 +858,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                     when {
                         isDragging && e.actionMasked == MotionEvent.ACTION_UP -> { endDrag(); true }
                         isDragging -> { cancelDrag(); true }
-                        mode == 1 && e.actionMasked == MotionEvent.ACTION_UP -> { settleSwipe(e.rawX - downX, text); true }
+                        mode == 1 && e.actionMasked == MotionEvent.ACTION_UP -> { settleSwipe(header, revealPx, text, header.translationX < -revealPx / 2f); true }
+                        mode == 1 -> { settleSwipe(header, revealPx, text, startTx != 0f); true }
                         else -> false
                     }
                 }
@@ -852,12 +868,45 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         }
     }
 
-    private fun attachSwipeReveal(target: View, text: String, retainDown: Boolean = false) {
+    private fun attachSwipeReveal(target: View, text: String, header: View, frame: View, revealWidthDp: Int) {
+        val slop = ViewConfiguration.get(context).scaledTouchSlop
+        var downX = 0f; var downY = 0f; var mode = 0
+        var startTx = 0f
+        var revealPx = 0f
+        target.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = e.rawX; downY = e.rawY; mode = 0
+                    revealPx = swipeRevealPx(frame, revealWidthDp)
+                    startTx = if (swipeRevealed == text) -revealPx else 0f
+                    false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = e.rawX - downX; val dy = e.rawY - downY
+                    if (mode == 0 && (abs(dx) > slop || abs(dy) > slop)) {
+                        mode = if (abs(dy) > abs(dx) * SWIPE_VERTICAL_BIAS) 2 else 1
+                        if (mode == 1) {
+                            target.cancelLongPress()
+                            target.parent?.requestDisallowInterceptTouchEvent(true)
+                            header.animate().cancel()
+                        }
+                    }
+                    if (mode == 1) header.translationX = (startTx + dx).coerceIn(-revealPx, 0f)
+                    mode == 1
+                }
+                MotionEvent.ACTION_UP -> { if (mode == 1) { settleSwipe(header, revealPx, text, header.translationX < -revealPx / 2f); true } else false }
+                MotionEvent.ACTION_CANCEL -> { if (mode == 1) { settleSwipe(header, revealPx, text, startTx != 0f); true } else false }
+                else -> false
+            }
+        }
+    }
+
+    private fun attachSwipeReveal(target: View, text: String) {
         val slop = ViewConfiguration.get(context).scaledTouchSlop
         var downX = 0f; var downY = 0f; var mode = 0
         target.setOnTouchListener { _, e ->
             when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { downX = e.rawX; downY = e.rawY; mode = 0; retainDown }
+                MotionEvent.ACTION_DOWN -> { downX = e.rawX; downY = e.rawY; mode = 0; false }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = e.rawX - downX; val dy = e.rawY - downY
                     if (mode == 0 && (abs(dx) > slop || abs(dy) > slop)) {
@@ -870,6 +919,40 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 else -> false
             }
         }
+    }
+
+    private fun swipeRevealPx(frame: View, revealWidthDp: Int): Float {
+        val full = dp(revealWidthDp)
+        return (if (frame.width > 0) minOf(full, frame.width) else full).toFloat()
+    }
+
+    private fun settleSwipe(header: View, revealPx: Float, text: String, reveal: Boolean) {
+        if (reveal) {
+            if (st.expanded != null || (swipeRevealed != null && swipeRevealed != text)) pendingSwipeRefresh = true
+            st.collapse()
+            swipeRevealed = text
+        } else if (swipeRevealed == text) {
+            swipeRevealed = null
+        }
+        val target = if (reveal) -revealPx else 0f
+        header.animate().cancel()
+        if (!header.isAttachedToWindow || !Motion.enabled()) {
+            header.translationX = target
+            flushPendingSwipeRefresh()
+            return
+        }
+        header.animate()
+            .translationX(target)
+            .setDuration(Motion.SHORT2)
+            .setInterpolator(Motion.STANDARD_DECEL)
+            .withEndAction { flushPendingSwipeRefresh() }
+            .start()
+    }
+
+    private fun flushPendingSwipeRefresh() {
+        if (!pendingSwipeRefresh) return
+        pendingSwipeRefresh = false
+        refresh()
     }
 
     private fun settleSwipe(dx: Float, text: String) {
