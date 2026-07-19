@@ -68,39 +68,48 @@ class KeyboardContentSwapTest {
 
     private fun settle() = shadowOf(Looper.getMainLooper()).idleFor(300, TimeUnit.MILLISECONDS)
 
-    @Test fun real_layout_switch_starts_a_swap_with_the_new_touch_geometry_already_live() {
+    @Test fun real_layout_switch_is_instant_with_the_new_touch_geometry_already_live() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
             val kv = attach(controller.get(), alphaKeyboard())
             val swaps = kv.contentSwapsForTest()
+            val modes = kv.modeSwitchesForTest()
             assertNotNull(kv.centerOfLabelForTest("a"))
 
             kv.setLayout(Layouts.nine(Lang.CN, Layouts.ninePunctuation(), composing = false), false, false, Lang.CN)
 
-            assertTrue("a real mode change starts the fade-through", kv.contentSwapActiveForTest())
-            assertTrue("a layout id change phase-separates the two faces", kv.contentSwapSequentialForTest())
-            assertEquals(swaps + 1, kv.contentSwapsForTest())
+            assertFalse("a real mode change is deliberately instant, never a fade", kv.contentSwapActiveForTest())
+            assertEquals("a mode change starts no swap", swaps, kv.contentSwapsForTest())
+            assertEquals("the mode change is still counted", modes + 1, kv.modeSwitchesForTest())
             assertNotNull("touch targets are the new layout in the same call", kv.centerOfLabelForTest("ABC"))
             assertNull("no stale key of the old layout remains hittable", kv.centerOfLabelForTest("a"))
-
-            settle()
-            assertFalse("the fade-through is fire-and-forget and ends on its own", kv.contentSwapActiveForTest())
         } finally {
             controller.pause().stop().destroy()
         }
     }
 
-    @Test fun layout_id_switch_fades_through_sequentially() {
+    @Test fun layout_id_switch_is_instant_while_a_shift_change_still_crossfades() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
-            val kv = attach(controller.get(), alphaKeyboard())
+            val kv = KeyboardView(ctx).apply {
+                setLayout(Layouts.forId(LayoutId.ALPHA, Lang.EN), false, false, Lang.EN)
+            }
+            attach(controller.get(), kv)
+            val swaps = kv.contentSwapsForTest()
 
-            kv.setLayout(Layouts.forId(LayoutId.SYMBOL, Lang.CN), false, false, Lang.CN)
+            kv.setLayout(Layouts.forId(LayoutId.SYMBOL, Lang.EN), false, false, Lang.EN)
+            assertFalse("a layout id switch lands with no active swap", kv.contentSwapActiveForTest())
+            assertEquals(swaps, kv.contentSwapsForTest())
 
-            assertTrue(kv.contentSwapActiveForTest())
-            assertTrue("a layout id switch never blends both keyfaces", kv.contentSwapSequentialForTest())
+            kv.setLayout(Layouts.forId(LayoutId.ALPHA, Lang.EN), false, false, Lang.EN)
+            assertFalse("the way back is instant too", kv.contentSwapActiveForTest())
+            assertEquals(swaps, kv.contentSwapsForTest())
+
+            kv.setLayout(Layouts.forId(LayoutId.ALPHA, Lang.EN), true, false, Lang.EN)
+            assertTrue("an aligned shift change on the same layout still crossfades", kv.contentSwapActiveForTest())
+            assertEquals(swaps + 1, kv.contentSwapsForTest())
 
             settle()
             assertFalse(kv.contentSwapActiveForTest())
@@ -109,17 +118,21 @@ class KeyboardContentSwapTest {
         }
     }
 
-    @Test fun reduced_motion_layout_switch_is_fully_instant() {
+    @Test fun reduced_motion_shift_and_layout_changes_are_fully_instant() {
         animationsOff()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
             val kv = attach(controller.get(), alphaKeyboard())
             val swaps = kv.contentSwapsForTest()
 
+            kv.setLayout(Layouts.forId(LayoutId.ALPHA, Lang.CN), true, false, Lang.CN)
+            assertFalse("reduced motion never runs the crossfade", kv.contentSwapActiveForTest())
+            assertEquals("reduced motion starts no swap at all", swaps, kv.contentSwapsForTest())
+
             kv.setLayout(Layouts.forId(LayoutId.SYMBOL, Lang.CN), false, false, Lang.CN)
 
-            assertFalse("reduced motion never runs the fade-through", kv.contentSwapActiveForTest())
-            assertEquals("reduced motion starts no swap at all", swaps, kv.contentSwapsForTest())
+            assertFalse(kv.contentSwapActiveForTest())
+            assertEquals(swaps, kv.contentSwapsForTest())
             assertNotNull("the new layout still applies immediately", kv.boundsOfLabelForTest("€"))
         } finally {
             controller.pause().stop().destroy()
@@ -160,12 +173,10 @@ class KeyboardContentSwapTest {
             kv.setLayout(Layouts.forId(LayoutId.ALPHA, Lang.EN), true, false, Lang.EN)
             assertEquals("a shift change crossfades", swaps + 1, kv.contentSwapsForTest())
             assertTrue(kv.contentSwapActiveForTest())
-            assertFalse("a shift change keeps the aligned crossfade", kv.contentSwapSequentialForTest())
             assertEquals("ONCE", kv.shiftRenderState())
 
             kv.setLayout(Layouts.forId(LayoutId.ALPHA, Lang.EN), true, true, Lang.EN)
             assertEquals("a lock change crossfades", swaps + 2, kv.contentSwapsForTest())
-            assertFalse("a lock change keeps the aligned crossfade", kv.contentSwapSequentialForTest())
             assertEquals("LOCK", kv.shiftRenderState())
             assertTrue("a rapid re-swap restarts cleanly", kv.contentSwapActiveForTest())
 
@@ -189,7 +200,6 @@ class KeyboardContentSwapTest {
             kv.caseMode = LetterCase.UPPER
             assertEquals("a case-mode change crossfades", swaps + 1, kv.contentSwapsForTest())
             assertTrue(kv.contentSwapActiveForTest())
-            assertFalse("a case-mode change keeps the aligned crossfade", kv.contentSwapSequentialForTest())
 
             settle()
             kv.caseMode = LetterCase.UPPER
@@ -222,11 +232,13 @@ class KeyboardContentSwapTest {
         }
     }
 
-    @Test fun detached_layout_switch_never_swaps() {
+    @Test fun detached_shift_change_never_swaps() {
         animationsOn()
-        val kv = alphaKeyboard()
+        val kv = KeyboardView(ctx).apply {
+            setLayout(Layouts.forId(LayoutId.ALPHA, Lang.EN), false, false, Lang.EN)
+        }
         val swaps = kv.contentSwapsForTest()
-        kv.setLayout(Layouts.forId(LayoutId.SYMBOL, Lang.CN), false, false, Lang.CN)
+        kv.setLayout(Layouts.forId(LayoutId.ALPHA, Lang.EN), true, false, Lang.EN)
         assertEquals(swaps, kv.contentSwapsForTest())
         assertFalse(kv.contentSwapActiveForTest())
     }
@@ -235,8 +247,11 @@ class KeyboardContentSwapTest {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
-            val kv = attach(controller.get(), alphaKeyboard())
-            kv.setLayout(Layouts.forId(LayoutId.SYMBOL, Lang.CN), false, false, Lang.CN)
+            val kv = KeyboardView(ctx).apply {
+                setLayout(Layouts.forId(LayoutId.ALPHA, Lang.EN), false, false, Lang.EN)
+            }
+            attach(controller.get(), kv)
+            kv.setLayout(Layouts.forId(LayoutId.ALPHA, Lang.EN), true, false, Lang.EN)
             assertTrue(kv.contentSwapActiveForTest())
 
             val w = (360 * density).toInt()
@@ -257,8 +272,11 @@ class KeyboardContentSwapTest {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
-            val kv = attach(controller.get(), alphaKeyboard())
-            kv.setLayout(Layouts.forId(LayoutId.SYMBOL, Lang.CN), false, false, Lang.CN)
+            val kv = KeyboardView(ctx).apply {
+                setLayout(Layouts.forId(LayoutId.ALPHA, Lang.EN), false, false, Lang.EN)
+            }
+            attach(controller.get(), kv)
+            kv.setLayout(Layouts.forId(LayoutId.ALPHA, Lang.EN), true, false, Lang.EN)
             assertTrue(kv.contentSwapActiveForTest())
 
             (kv.parent as FrameLayout).removeView(kv)
@@ -278,7 +296,6 @@ class KeyboardContentSwapTest {
             kv.setLayout(Layouts.forId(LayoutId.ALPHA, Lang.EN), false, false, Lang.EN)
             assertEquals("a language toggle crossfades", swaps + 1, kv.contentSwapsForTest())
             assertTrue(kv.contentSwapActiveForTest())
-            assertFalse("a same-id language toggle keeps the aligned crossfade", kv.contentSwapSequentialForTest())
             settle()
             assertFalse(kv.contentSwapActiveForTest())
         } finally {

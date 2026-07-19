@@ -25,6 +25,7 @@ import android.widget.FrameLayout
 import com.aegis.ime.ime.theme.ImePalette
 import java.time.Duration
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -76,7 +77,7 @@ class SwitchFlickerTest {
         }
     }
 
-    @Test fun composing_dismisses_the_copy_bar_once_during_its_animated_exit() {
+    @Test fun composing_dismisses_the_copy_bar_once_and_synchronously() {
         Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -93,12 +94,77 @@ class SwitchFlickerTest {
             input.showCandidates(listOf("你"), "ni", listOf("ni"))
 
             assertEquals(1, dismissals)
-            assertTrue(input.copyBarShown)
+            assertFalse("the dismissal lands in the same call", input.copyBarShown)
             input.showCandidates(listOf("你好", "你"), "nihao", listOf("ni"))
-            assertEquals(1, dismissals)
+            assertEquals("composing updates never re-dismiss", 1, dismissals)
         } finally {
             controller.pause().stop().destroy()
         }
+    }
+
+    @Test fun repeated_field_switch_copy_bar_hides_are_no_ops_and_never_dip_the_candidate_bar() {
+        Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val input = attached(activity, InputView(activity).apply { applyPalette(light) })
+            layoutInput(input)
+            val candidates = descendant<CandidateView>(input)
+            val bar = descendant<CopyBarView>(input)
+            assertEquals(View.VISIBLE, candidates.visibility)
+
+            repeat(3) {
+                input.hideCopyBar()
+                assertEquals("a field switch with no copy bar leaves the candidate bar alone", View.VISIBLE, candidates.visibility)
+                assertEquals("the candidate bar never leaves full opacity", 1f, candidates.alpha, 0f)
+                assertFalse("an already-settled hide starts no animation", Motion.coverActiveForTest(candidates))
+            }
+
+            input.showCopyBar("copied")
+            assertEquals("the slot is never empty mid-swap", View.VISIBLE, bar.visibility)
+            assertEquals(View.GONE, candidates.visibility)
+            flushMotion()
+            layoutInput(input)
+
+            input.hideCopyBar()
+            assertEquals("the candidate bar returns in the same call", View.VISIBLE, candidates.visibility)
+            assertEquals(1f, candidates.alpha, 0f)
+            repeat(3) {
+                input.hideCopyBar()
+                assertEquals("repeated field-switch hides never dip the candidate bar", 1f, candidates.alpha, 0f)
+                assertEquals(View.VISIBLE, candidates.visibility)
+            }
+            flushMotion()
+            assertFalse(Motion.coverActiveForTest(candidates))
+            assertEquals(1f, candidates.alpha, 0f)
+            assertEquals(View.VISIBLE, candidates.visibility)
+            assertEquals(View.GONE, bar.visibility)
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    private fun layoutInput(input: InputView) {
+        val host = input.parent as FrameLayout
+        val density = input.resources.displayMetrics.density
+        val width = (360 * density).toInt()
+        val height = (560 * density).toInt()
+        host.measure(
+            View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY),
+        )
+        host.layout(0, 0, width, height)
+    }
+
+    private inline fun <reified T : View> descendant(root: View): T {
+        val found = ArrayList<T>()
+        val stack = ArrayDeque<View>().apply { add(root) }
+        while (stack.isNotEmpty()) {
+            val v = stack.removeLast()
+            if (v is T) found.add(v)
+            if (v is android.view.ViewGroup) for (i in 0 until v.childCount) stack.add(v.getChildAt(i))
+        }
+        return found.single()
     }
 
     @Test fun every_panel_root_carries_an_opaque_floor() {
@@ -120,7 +186,7 @@ class SwitchFlickerTest {
 
     private fun flushMotion() = shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
 
-    @Test fun emoji_category_switch_swaps_synchronously_and_runs_the_entrance_fade_when_animated() {
+    @Test fun emoji_category_switch_swaps_synchronously_at_full_opacity_when_animated() {
         Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -134,9 +200,9 @@ class SwitchFlickerTest {
             assertEquals("the selected category updates synchronously", 2, v.selectedCategoryForTest())
             assertNotEquals("the animated switch swaps the grid content synchronously", first, v.gridCellTextsForTest())
             assertTrue("the swapped-in grid is populated (never blank)", v.gridCellTextsForTest().isNotEmpty())
-            assertEquals("the viewport entrance fade starts transparent", 0f, v.gridViewportForTest().alpha, 0f)
+            assertEquals("the viewport never leaves full opacity", 1f, v.gridViewportForTest().alpha, 0f)
             flushMotion()
-            assertEquals("the entrance fade settles fully opaque", 1f, v.gridViewportForTest().alpha, 0f)
+            assertEquals("the viewport settles fully opaque", 1f, v.gridViewportForTest().alpha, 0f)
             assertTrue("the settled grid stays populated", v.gridCellTextsForTest().isNotEmpty())
         } finally {
             controller.pause().stop().destroy()
@@ -162,7 +228,7 @@ class SwitchFlickerTest {
         }
     }
 
-    @Test fun symbol_category_switch_swaps_synchronously_and_runs_the_entrance_fade_when_animated() {
+    @Test fun symbol_category_switch_swaps_synchronously_at_full_opacity_when_animated() {
         Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -176,9 +242,9 @@ class SwitchFlickerTest {
             assertEquals("the selected category updates synchronously", 2, v.selectedCategoryForTest())
             assertNotEquals("the animated switch swaps the tile content synchronously", first, v.gridCellTextsForTest())
             assertTrue("the swapped-in grid is populated (never blank)", v.gridCellTextsForTest().isNotEmpty())
-            assertEquals("the viewport entrance fade starts transparent", 0f, v.gridViewportForTest().alpha, 0f)
+            assertEquals("the viewport never leaves full opacity", 1f, v.gridViewportForTest().alpha, 0f)
             flushMotion()
-            assertEquals("the entrance fade settles fully opaque", 1f, v.gridViewportForTest().alpha, 0f)
+            assertEquals("the viewport settles fully opaque", 1f, v.gridViewportForTest().alpha, 0f)
             assertTrue("the settled grid stays populated", v.gridCellTextsForTest().isNotEmpty())
         } finally {
             controller.pause().stop().destroy()

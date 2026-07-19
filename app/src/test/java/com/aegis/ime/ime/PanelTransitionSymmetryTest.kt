@@ -47,7 +47,20 @@ class PanelTransitionSymmetryTest {
         val host = FrameLayout(activity)
         host.addView(iv)
         activity.setContentView(host)
+        layoutHost(iv)
         return iv
+    }
+
+    private fun layoutHost(iv: InputView) {
+        val host = iv.parent as FrameLayout
+        val density = iv.resources.displayMetrics.density
+        val width = (360 * density).toInt()
+        val height = (560 * density).toInt()
+        host.measure(
+            View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY),
+        )
+        host.layout(0, 0, width, height)
     }
 
     private fun settle() = shadowOf(Looper.getMainLooper()).idleFor(400, TimeUnit.MILLISECONDS)
@@ -61,32 +74,34 @@ class PanelTransitionSymmetryTest {
     private fun keyboard(iv: InputView): View = innerView(iv, "keyboardView")
     private fun container(iv: InputView): ViewGroup = innerView(iv, "panelContainer") as ViewGroup
 
-    @Test fun keyboard_to_panel_lets_the_keyboard_exit_before_the_panel_attaches() {
+    @Test fun keyboard_to_panel_swaps_synchronously_with_a_residual_cover_fade() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
             val iv = attach(controller.get(), InputView(ctx))
+            settle()
             val panel = View(ctx)
 
             iv.showPanel(panel)
 
-            assertEquals("the keyboard stays visible while its exit fade runs", View.VISIBLE, keyboard(iv).visibility)
-            assertNull("the panel only attaches once the outgoing settles", panel.parent)
-            assertTrue("the logical panel state flips at once", iv.panelShown)
-            assertFalse("only one of keyboard and panel occupies the slot", container(iv).visibility == View.VISIBLE)
+            assertTrue("the panel attaches in the same call", panel.parent === container(iv))
+            assertEquals("the keyboard leaves in the same call", View.GONE, keyboard(iv).visibility)
+            assertEquals(View.VISIBLE, container(iv).visibility)
+            assertEquals("the incoming panel is fully opaque from the first frame", 1f, panel.alpha, 0f)
+            assertEquals(0f, panel.translationY, 0f)
+            assertTrue(iv.panelShown)
+            assertTrue("the old keyface survives only as a cover residue", Motion.coverActiveForTest(container(iv)))
 
             settle()
-            assertEquals("the exit hands over to the panel reveal", View.GONE, keyboard(iv).visibility)
+            assertFalse("the residue ends on its own", Motion.coverActiveForTest(container(iv)))
             assertTrue(panel.parent === container(iv))
-            assertEquals(View.VISIBLE, container(iv).visibility)
             assertEquals(1f, panel.alpha, 0f)
-            assertEquals(0f, panel.translationY, 0f)
         } finally {
             controller.pause().stop().destroy()
         }
     }
 
-    @Test fun panel_to_panel_lets_the_outgoing_exit_before_the_incoming_attaches() {
+    @Test fun panel_to_panel_swaps_synchronously_with_a_residual_cover_fade() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -95,27 +110,29 @@ class PanelTransitionSymmetryTest {
             val b = View(ctx)
             iv.showPanel(a)
             settle()
+            layoutHost(iv)
             assertTrue(a.parent === container(iv))
 
             iv.showPanel(b)
 
-            assertTrue("the outgoing panel keeps its slot while fading", a.parent === container(iv))
-            assertEquals(View.VISIBLE, a.visibility)
-            assertNull("the incoming panel waits for the exit to settle", b.parent)
+            assertNull("the outgoing panel detaches in the same call", a.parent)
+            assertTrue("the incoming panel attaches in the same call", b.parent === container(iv))
             assertEquals("the slot never doubles in height", View.VISIBLE, container(iv).visibility)
-
-            settle()
-            assertNull("the outgoing panel is detached at the handover", a.parent)
-            assertTrue(b.parent === container(iv))
             assertEquals(1f, b.alpha, 0f)
             assertEquals(0f, b.translationY, 0f)
             assertTrue(iv.isPanelShowing(b))
+            assertTrue("the outgoing face survives only as a cover residue", Motion.coverActiveForTest(container(iv)))
+
+            settle()
+            assertFalse(Motion.coverActiveForTest(container(iv)))
+            assertTrue(b.parent === container(iv))
+            assertEquals(1f, b.alpha, 0f)
         } finally {
             controller.pause().stop().destroy()
         }
     }
 
-    @Test fun reduced_motion_takes_the_settle_path_to_the_same_end_states() {
+    @Test fun reduced_motion_takes_the_instant_path_to_the_same_end_states() {
         animationsOff()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -142,7 +159,7 @@ class PanelTransitionSymmetryTest {
         }
     }
 
-    @Test fun a_transition_mash_settles_each_pending_handover_with_no_lost_panels() {
+    @Test fun a_transition_mash_lands_every_step_with_no_lost_panels() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -152,28 +169,34 @@ class PanelTransitionSymmetryTest {
             val c = View(ctx)
 
             iv.showPanel(a)
+            assertTrue("the first leg lands its attach at once", a.parent === container(iv))
             iv.showPanel(b)
-            assertTrue("the interrupted keyboard exit lands its attach before the next leg", a.parent === container(iv))
-            iv.showPanel(c)
-            assertTrue("the interrupted a→b leg lands b before c starts", b.parent === container(iv))
+            assertTrue("the a→b leg lands b at once", b.parent === container(iv))
             assertNull(a.parent)
+            iv.showPanel(c)
+            assertTrue("the b→c leg lands c at once", c.parent === container(iv))
+            assertNull(b.parent)
             iv.showPanel(null)
-            assertTrue(c.parent === container(iv))
-            assertFalse(iv.hasOverlay())
-
-            settle()
             assertNull("the final close leaves no orphaned panel", c.parent)
+            assertFalse(iv.hasOverlay())
             assertEquals(0, container(iv).childCount)
             assertEquals(View.GONE, container(iv).visibility)
             assertEquals("no orphaned GONE keyboard after the mash", View.VISIBLE, keyboard(iv).visibility)
             assertEquals(1f, keyboard(iv).alpha, 0f)
             assertFalse(iv.panelShown)
+
+            settle()
+            assertEquals("the settled state is unchanged once the residues finish", View.VISIBLE, keyboard(iv).visibility)
+            assertEquals(1f, keyboard(iv).alpha, 0f)
+            assertEquals(View.GONE, container(iv).visibility)
+            assertFalse(Motion.coverActiveForTest(keyboard(iv)))
+            assertFalse(Motion.coverActiveForTest(container(iv)))
         } finally {
             controller.pause().stop().destroy()
         }
     }
 
-    @Test fun show_immediately_mid_transition_settles_then_attaches_instantly() {
+    @Test fun show_immediately_mid_switch_attaches_instantly_with_no_residue() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -189,12 +212,13 @@ class PanelTransitionSymmetryTest {
             assertEquals(0f, clip.translationY, 0f)
             assertEquals(View.GONE, keyboard(iv).visibility)
             assertTrue(iv.isPanelShowing(clip))
+            assertFalse("the immediate path clears any running residue", Motion.coverActiveForTest(container(iv)))
         } finally {
             controller.pause().stop().destroy()
         }
     }
 
-    @Test fun panel_to_keyboard_keeps_the_existing_exit_then_keyboard_return() {
+    @Test fun panel_to_keyboard_swaps_synchronously_with_a_residual_cover_fade() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -202,35 +226,41 @@ class PanelTransitionSymmetryTest {
             val a = View(ctx)
             iv.showPanel(a)
             settle()
+            layoutHost(iv)
 
             iv.showPanel(null)
 
-            assertEquals("the leaving panel fades before the keyboard returns", View.VISIBLE, container(iv).visibility)
-            assertTrue(a.parent === container(iv))
-            assertEquals("the keyboard waits for the handover", View.GONE, keyboard(iv).visibility)
+            assertEquals("the keyboard returns in the same call", View.VISIBLE, keyboard(iv).visibility)
+            assertEquals(1f, keyboard(iv).alpha, 0f)
+            assertEquals("the panel slot empties in the same call", View.GONE, container(iv).visibility)
+            assertNull(a.parent)
+            assertFalse(iv.panelShown)
+            assertTrue("the leaving panel survives only as a cover residue on the keyboard", Motion.coverActiveForTest(keyboard(iv)))
 
             settle()
-            assertEquals(View.GONE, container(iv).visibility)
+            assertFalse(Motion.coverActiveForTest(keyboard(iv)))
             assertEquals(View.VISIBLE, keyboard(iv).visibility)
-            assertFalse(iv.panelShown)
+            assertEquals(1f, keyboard(iv).alpha, 0f)
         } finally {
             controller.pause().stop().destroy()
         }
     }
 
-    @Test fun detach_mid_transition_settles_the_pending_handover() {
+    @Test fun detach_keeps_the_attached_panel_and_ends_any_residue() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
             val iv = attach(controller.get(), InputView(ctx))
             val a = View(ctx)
             iv.showPanel(a)
-            assertNull(a.parent)
+            assertTrue(a.parent === container(iv))
 
             (iv.parent as FrameLayout).removeView(iv)
 
-            assertTrue("detach lands the pending attach so the panel is not lost", a.parent === container(iv))
+            assertTrue("the shown panel survives a detach", a.parent === container(iv))
             assertTrue(iv.panelShown)
+            assertFalse(Motion.coverActiveForTest(container(iv)))
+            assertFalse(Motion.coverActiveForTest(keyboard(iv)))
         } finally {
             controller.pause().stop().destroy()
         }

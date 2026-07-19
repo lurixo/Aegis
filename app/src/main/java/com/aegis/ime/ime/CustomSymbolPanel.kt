@@ -108,7 +108,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     }
 
     fun refresh() {
-        if (contentColumn.isShown) Motion.fadeThrough(contentColumn) { rebuildFlows() } else rebuildFlows()
+        rebuildFlows()
     }
 
     private fun rebuildFlows() {

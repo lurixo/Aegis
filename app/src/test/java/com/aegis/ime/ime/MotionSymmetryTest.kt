@@ -16,6 +16,7 @@
 package com.aegis.ime.ime
 
 import android.app.Activity
+import android.graphics.Color
 import android.provider.Settings
 import android.view.View
 import android.widget.FrameLayout
@@ -87,32 +88,34 @@ class MotionSymmetryTest {
     }
 
 
-    @Test fun swapIn_under_reduced_motion_swaps_to_the_end_state_immediately() {
+    @Test fun coverSwap_under_reduced_motion_swaps_to_the_end_state_immediately() {
         animationsOff()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
             val host = host(controller.get())
             val outgoing = View(ctx).apply { visibility = View.VISIBLE }.also { host.addView(it) }
             val incoming = View(ctx).apply { visibility = View.GONE }.also { host.addView(it) }
-            Motion.swapIn(incoming, outgoing)
+            Motion.coverSwap(incoming, outgoing, Color.WHITE)
             assertEquals(View.GONE, outgoing.visibility)
             assertEquals(View.VISIBLE, incoming.visibility)
             assertEquals(1f, incoming.alpha, 0f)
+            assertFalse("reduced motion leaves no cover residue", Motion.coverActiveForTest(incoming))
         } finally {
             controller.pause().stop().destroy()
         }
     }
 
-    @Test fun swapIn_when_attached_and_animated_defers_showing_the_incoming() {
+    @Test fun coverSwap_when_attached_and_animated_shows_the_incoming_in_the_same_call() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
             val host = host(controller.get())
             val outgoing = View(ctx).apply { visibility = View.VISIBLE }.also { host.addView(it) }
             val incoming = View(ctx).apply { visibility = View.GONE }.also { host.addView(it) }
-            Motion.swapIn(incoming, outgoing)
-            assertEquals("outgoing fades out first (still visible)", View.VISIBLE, outgoing.visibility)
-            assertEquals("incoming only appears at the trough — never both at full height at once", View.GONE, incoming.visibility)
+            Motion.coverSwap(incoming, outgoing, Color.WHITE)
+            assertEquals("the outgoing view leaves in the same call", View.GONE, outgoing.visibility)
+            assertEquals("the incoming view shows in the same call — the slot is never empty", View.VISIBLE, incoming.visibility)
+            assertEquals("the incoming view is fully opaque from the first frame", 1f, incoming.alpha, 0f)
         } finally {
             controller.pause().stop().destroy()
         }

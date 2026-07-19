@@ -51,7 +51,6 @@ class CandidateView(context: Context) : View(context) {
     private val functions = BarFunction.entries
     private val funcRects = ArrayList<RectF>().also { l -> repeat(functions.size) { l.add(RectF()) } }
     private val collapseRect = RectF()
-    private var showingFunctions = false
     private enum class PressKind { CANDIDATE, FUNCTION, EXPAND, COLLAPSE }
     private data class PressTarget(val kind: PressKind, val index: Int = -1)
     private var pressedTarget: PressTarget? = null
@@ -118,13 +117,21 @@ class CandidateView(context: Context) : View(context) {
     fun setContent(candidates: List<String>, composingText: String) {
         if (candidates == items && composingText == composing) return
         val roleChanged = stripRole(items.isEmpty(), composing) != stripRole(candidates.isEmpty(), composingText)
+        if (roleChanged) {
+            contentTransitions++
+            Motion.coverThrough(this, palette.keyboardBg, Motion.FADE_IN) { applyContent(candidates, composingText) }
+        } else {
+            applyContent(candidates, composingText)
+        }
+    }
+
+    private fun applyContent(candidates: List<String>, composingText: String) {
         items = candidates.toList()
         composing = composingText
         fling.forceFinish()
         scrollX = 0f
         layoutCells()
         invalidate()
-        if (roleChanged) { contentTransitions++; Motion.fadeIn(this, Motion.FADE_IN) }
     }
 
     private fun stripRole(itemsEmpty: Boolean, composingText: String): Int =
@@ -187,11 +194,9 @@ class CandidateView(context: Context) : View(context) {
         val baseline = height / 2f - (textPaint.descent() + textPaint.ascent()) / 2
 
         if (items.isEmpty()) {
-            showingFunctions = composing.isEmpty()
-            if (showingFunctions) drawFunctions(canvas, baseline)
+            if (isFunctionMode()) drawFunctions(canvas, baseline)
             return
         }
-        showingFunctions = false
         scrollX = scrollX.coerceIn(0f, maxScroll())
 
         val visibleW = width - expandW
@@ -286,7 +291,7 @@ class CandidateView(context: Context) : View(context) {
                 setPressedTarget(targetAt(event.x, event.y))
             }
             MotionEvent.ACTION_MOVE -> {
-                if (!showingFunctions && items.isNotEmpty()) {
+                if (items.isNotEmpty()) {
                     fling.addSample(event.eventTime, event.x)
                     val dx = event.x - downX
                     if (!dragging && abs(dx) > touchSlop) dragging = true
@@ -304,7 +309,7 @@ class CandidateView(context: Context) : View(context) {
                 releasePressedTarget()
                 if (dragging) { dragging = false; if (fling.fling(scrollX, maxScroll())) postInvalidateOnAnimation(); return true }
                 if (fling.stopArmed) return true
-                if (showingFunctions) {
+                if (isFunctionMode()) {
                     val upTarget = toolbarTargetAt(event.x, event.y)
                     if (downTarget == upTarget) {
                         when (upTarget?.kind) {

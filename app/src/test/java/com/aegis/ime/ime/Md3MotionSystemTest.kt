@@ -19,12 +19,16 @@ import android.app.Activity
 import android.content.ContentResolver
 import android.content.Context
 import android.content.ContextWrapper
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
 import android.os.Looper
 import android.provider.Settings
 import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.ScrollView
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
@@ -97,39 +101,62 @@ class Md3MotionSystemTest {
     }
 
 
-    @Test fun fadeThrough_under_reduced_motion_swaps_immediately_at_full_opacity() {
+    private fun drawnPixel(view: View): Int {
+        val bitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+        view.draw(Canvas(bitmap))
+        return bitmap.getPixel(0, 0)
+    }
+
+    @Test fun coverThrough_under_reduced_motion_swaps_immediately_at_full_opacity() {
         animationsOff()
         val v = View(ctx)
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
             attach(controller.get(), v).apply { alpha = 0.2f }
             var swapped = false
-            Motion.fadeThrough(v) { swapped = true }
+            Motion.coverThrough(v, Color.WHITE) { swapped = true }
             assertTrue("reduced motion runs the content swap immediately", swapped)
             assertEquals("reduced motion jumps straight to full opacity", 1f, v.alpha, 0f)
+            assertFalse("reduced motion leaves no cover residue", Motion.coverActiveForTest(v))
         } finally {
             controller.pause().stop().destroy()
         }
     }
 
-    @Test fun fadeThrough_when_detached_swaps_immediately() {
+    @Test fun coverThrough_when_detached_swaps_immediately() {
         animationsOn()
         val v = View(ctx)
         var swapped = false
-        Motion.fadeThrough(v) { swapped = true }
+        Motion.coverThrough(v, Color.WHITE) { swapped = true }
         assertTrue("a detached view swaps immediately (no frame loop to run the fade)", swapped)
         assertEquals(1f, v.alpha, 0f)
+        assertFalse(Motion.coverActiveForTest(v))
     }
 
-    @Test fun fadeThrough_when_attached_and_animated_defers_the_swap_to_the_trough() {
+    @Test fun coverThrough_when_attached_and_animated_swaps_synchronously_and_never_dips() {
         animationsOn()
-        val v = View(ctx)
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
-            attach(controller.get(), v)
+            val v = attach(controller.get(), View(ctx).apply { setBackgroundColor(Color.GREEN) }, 80, 80)
             var swapped = false
-            Motion.fadeThrough(v) { swapped = true }
-            assertFalse("the animated fade-through defers the swap until the alpha-0 trough", swapped)
+            Motion.coverThrough(v, Color.WHITE) {
+                swapped = true
+                v.setBackgroundColor(Color.RED)
+            }
+            assertTrue("the content swap runs synchronously, never deferred to a trough", swapped)
+            assertEquals(View.VISIBLE, v.visibility)
+            assertEquals("the content stays fully opaque under the residue", 1f, v.alpha, 0f)
+            assertTrue("the residue fade runs on top of the new content", Motion.coverActiveForTest(v))
+            assertEquals("the residue starts as the old face at full strength", Color.GREEN, drawnPixel(v))
+            repeat(4) {
+                shadowOf(Looper.getMainLooper()).idleFor(20, TimeUnit.MILLISECONDS)
+                assertEquals("no frame ever dips the content", 1f, v.alpha, 0f)
+                assertEquals(View.VISIBLE, v.visibility)
+                assertEquals("combined opacity never drops below one", 0xFF, Color.alpha(drawnPixel(v)))
+            }
+            shadowOf(Looper.getMainLooper()).idleFor(300, TimeUnit.MILLISECONDS)
+            assertFalse("the residue fade ends on its own", Motion.coverActiveForTest(v))
+            assertEquals("the settled view shows the new face", Color.RED, drawnPixel(v))
         } finally {
             controller.pause().stop().destroy()
         }
@@ -183,86 +210,124 @@ class Md3MotionSystemTest {
         }
     }
 
-    @Test fun contentSwap_sequential_under_reduced_motion_lands_on_the_end_state_immediately() {
-        animationsOff()
-        val v = View(ctx)
-        val controller = Robolectric.buildActivity(Activity::class.java).setup()
-        try {
-            attach(controller.get(), v)
-            val swap = Motion.ContentSwap(v)
-            swap.start(sequential = true)
-            assertFalse("reduced motion never leaves the swap active", swap.active)
-            assertEquals("the incoming content shows at full opacity", 1f, swap.inAlpha, 0f)
-            assertEquals("the outgoing snapshot is fully gone", 0f, swap.outAlpha, 0f)
-        } finally {
-            controller.pause().stop().destroy()
+    private fun coverPair(activity: Activity): Pair<View, View> {
+        val host = FrameLayout(activity)
+        val outgoing = View(ctx).apply { setBackgroundColor(Color.GREEN) }
+        val incoming = View(ctx).apply {
+            setBackgroundColor(Color.RED)
+            visibility = View.GONE
         }
+        host.addView(outgoing, FrameLayout.LayoutParams(80, 80))
+        host.addView(incoming, FrameLayout.LayoutParams(80, 80))
+        activity.setContentView(host)
+        host.measure(
+            View.MeasureSpec.makeMeasureSpec(80, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(80, View.MeasureSpec.EXACTLY),
+        )
+        host.layout(0, 0, 80, 80)
+        return incoming to outgoing
     }
 
-    @Test fun contentSwap_sequential_when_detached_lands_on_the_end_state_immediately() {
+    @Test fun coverSwap_keeps_the_incoming_fully_opaque_while_the_residue_fades() {
         animationsOn()
-        val swap = Motion.ContentSwap(View(ctx))
-        swap.start(sequential = true)
-        assertFalse(swap.active)
-        assertEquals(1f, swap.inAlpha, 0f)
-        assertEquals(0f, swap.outAlpha, 0f)
-    }
-
-    @Test fun contentSwap_sequential_starts_with_only_the_outgoing_face_shown() {
-        animationsOn()
-        val v = View(ctx)
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
-            attach(controller.get(), v)
-            val swap = Motion.ContentSwap(v)
-            swap.start(sequential = true)
-            assertTrue("an attached, animated sequential swap runs", swap.active)
-            assertEquals("the incoming face starts hidden", 0f, swap.inAlpha, 0f)
-            assertEquals("the outgoing face starts fully shown", 1f, swap.outAlpha, 0f)
-        } finally {
-            controller.pause().stop().destroy()
-        }
-    }
+            val (incoming, outgoing) = coverPair(controller.get())
 
-    @Test fun contentSwap_sequential_separates_the_out_phase_from_the_in_phase() {
-        animationsOn()
-        val v = SwapProbe(ctx)
-        val controller = Robolectric.buildActivity(Activity::class.java).setup()
-        try {
-            attach(controller.get(), v)
-            val swap = Motion.ContentSwap(v)
-            v.swap = swap
-            swap.start(sequential = true)
-            shadowOf(Looper.getMainLooper()).idleFor(300, TimeUnit.MILLISECONDS)
-            assertFalse(swap.active)
-            assertEquals(1f, swap.inAlpha, 0f)
-            assertEquals(0f, swap.outAlpha, 0f)
-            val lastOut = v.samples.indexOfLast { it.first > 0f }
-            val firstIn = v.samples.indexOfFirst { it.second > 0f }
-            assertTrue("the outgoing face fades while the incoming face is still hidden", v.samples.any { it.first > 0f && it.second == 0f })
-            assertTrue("the incoming face rises only once the outgoing face is gone", firstIn >= 0 && v.samples[firstIn].first == 0f)
-            assertTrue("the out phase ends before the in phase begins", lastOut < firstIn)
-        } finally {
-            controller.pause().stop().destroy()
-        }
-    }
+            Motion.coverSwap(incoming, outgoing, Color.WHITE)
 
-    @Test fun contentSwap_sequential_never_shows_both_faces_at_once() {
-        animationsOn()
-        val v = SwapProbe(ctx)
-        val controller = Robolectric.buildActivity(Activity::class.java).setup()
-        try {
-            attach(controller.get(), v)
-            val swap = Motion.ContentSwap(v)
-            v.swap = swap
-            swap.start(sequential = true)
-            assertFalse(swap.outAlpha > 0f && swap.inAlpha > 0f)
-            repeat(15) {
-                shadowOf(Looper.getMainLooper()).idleFor(10, TimeUnit.MILLISECONDS)
-                assertFalse("the sequential swap never blends both faces", swap.outAlpha > 0f && swap.inAlpha > 0f)
+            assertEquals("the incoming face shows immediately", View.VISIBLE, incoming.visibility)
+            assertEquals(1f, incoming.alpha, 0f)
+            assertEquals("the outgoing view is gone in the same call", View.GONE, outgoing.visibility)
+            assertTrue("the residue fade runs on the incoming view", Motion.coverActiveForTest(incoming))
+            assertEquals("the residue starts as the outgoing face at full strength", Color.GREEN, drawnPixel(incoming))
+            repeat(4) {
+                shadowOf(Looper.getMainLooper()).idleFor(20, TimeUnit.MILLISECONDS)
+                assertEquals("no frame ever dips the incoming content", 1f, incoming.alpha, 0f)
+                assertEquals(View.VISIBLE, incoming.visibility)
+                assertEquals("combined opacity never drops below one", 0xFF, Color.alpha(drawnPixel(incoming)))
             }
-            assertTrue(v.samples.isNotEmpty())
-            assertFalse("no animation frame ever blends both faces", v.samples.any { it.first > 0f && it.second > 0f })
+            shadowOf(Looper.getMainLooper()).idleFor(300, TimeUnit.MILLISECONDS)
+            assertFalse(Motion.coverActiveForTest(incoming))
+            assertEquals("the settled swap shows the incoming face", Color.RED, drawnPixel(incoming))
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun coverSwap_toward_the_settled_state_is_an_idempotent_no_op() {
+        animationsOn()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val (incoming, outgoing) = coverPair(controller.get())
+            Motion.coverSwap(incoming, outgoing, Color.WHITE)
+            shadowOf(Looper.getMainLooper()).idleFor(300, TimeUnit.MILLISECONDS)
+            assertFalse(Motion.coverActiveForTest(incoming))
+
+            repeat(3) { Motion.coverSwap(incoming, outgoing, Color.WHITE) }
+
+            assertFalse("a repeated swap toward the settled state starts nothing", Motion.coverActiveForTest(incoming))
+            assertEquals(1f, incoming.alpha, 0f)
+            assertEquals(View.VISIBLE, incoming.visibility)
+            assertEquals(View.GONE, outgoing.visibility)
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun cancelCover_and_reset_land_the_final_state_with_no_residue() {
+        animationsOn()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val v = attach(controller.get(), View(ctx).apply { setBackgroundColor(Color.GREEN) }, 80, 80)
+            Motion.coverThrough(v, Color.WHITE) { v.setBackgroundColor(Color.RED) }
+            assertTrue(Motion.coverActiveForTest(v))
+            Motion.cancelCover(v)
+            assertFalse("cancel ends the residue fade", Motion.coverActiveForTest(v))
+            assertEquals("cancel jumps to the final content with the overlay cleared", Color.RED, drawnPixel(v))
+            assertEquals(1f, v.alpha, 0f)
+            assertEquals(View.VISIBLE, v.visibility)
+
+            v.setBackgroundColor(Color.GREEN)
+            Motion.coverThrough(v, Color.WHITE) { v.setBackgroundColor(Color.RED) }
+            assertTrue(Motion.coverActiveForTest(v))
+            Motion.reset(v)
+            assertFalse("reset ends the residue fade", Motion.coverActiveForTest(v))
+            assertEquals(Color.RED, drawnPixel(v))
+            assertEquals(1f, v.alpha, 0f)
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun snapshot_gates_to_the_instant_branch_when_detached_zero_sized_or_reduced() {
+        animationsOn()
+        assertNull("a detached view yields no snapshot", Motion.snapshot(View(ctx), Color.WHITE))
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val zero = attach(controller.get(), View(ctx))
+            assertNull("a zero-sized view yields no snapshot", Motion.snapshot(zero, Color.WHITE))
+            val sized = attach(controller.get(), View(ctx), 80, 80)
+            assertNotNull("an attached, sized view yields the cover snapshot", Motion.snapshot(sized, Color.WHITE))
+            animationsOff()
+            assertNull("reduced motion yields no snapshot", Motion.snapshot(sized, Color.WHITE))
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun snapshot_captures_the_scrolled_viewport() {
+        animationsOn()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val column = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+            column.addView(View(ctx).apply { setBackgroundColor(Color.BLUE) }, LinearLayout.LayoutParams(40, 40))
+            column.addView(View(ctx).apply { setBackgroundColor(Color.MAGENTA) }, LinearLayout.LayoutParams(40, 40))
+            val scroll = attach(activity, ScrollView(activity).apply { addView(column) }, 40, 40)
+            scroll.scrollTo(0, 40)
+            val snap = requireNotNull(Motion.snapshot(scroll, Color.WHITE))
+            assertEquals("the snapshot shows what the scrolled viewport showed", Color.MAGENTA, snap.getPixel(0, 0))
         } finally {
             controller.pause().stop().destroy()
         }

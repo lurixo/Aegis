@@ -257,7 +257,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
     fun setSelecting(selecting: Boolean) {
         val changed = this.selecting != selecting
         this.selecting = selecting
-        if (changed) Motion.fadeThrough(selectBtn) { renderSelectingLabel() } else renderSelectingLabel()
+        if (changed) Motion.coverThrough(selectBtn, palette.keyboardBg) { renderSelectingLabel() } else renderSelectingLabel()
     }
 
     private fun renderSelectingLabel() {

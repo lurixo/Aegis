@@ -221,7 +221,7 @@ class KeyboardView(context: Context) : View(context) {
         layoutApplies++
         val sameColumn = newLayout.scrollColumn?.items?.map { it.label } == layout.scrollColumn?.items?.map { it.label }
         val modeChanged = newLayout.id != layout.id
-        val swapWorthy = modeChanged || isShifted != shifted || isLocked != shiftLocked || language != lang
+        val swapWorthy = !modeChanged && (isShifted != shifted || isLocked != shiftLocked || language != lang)
         val swapping = swapWorthy && prepareContentSwap()
         layout = newLayout
         shifted = isShifted
@@ -231,7 +231,7 @@ class KeyboardView(context: Context) : View(context) {
         if (!sameColumn) { fling.forceFinish(); scrollY = 0f }
         if (width > 0) relayout()
         requestLayout()
-        if (swapping) startContentSwap(modeChanged)
+        if (swapping) startContentSwap()
         invalidate()
         if (modeChanged && width > 0) { modeSwitches++ }
     }
@@ -256,9 +256,9 @@ class KeyboardView(context: Context) : View(context) {
         return true
     }
 
-    private fun startContentSwap(sequential: Boolean = false) {
+    private fun startContentSwap() {
         contentSwaps++
-        contentSwap.start(sequential)
+        contentSwap.start()
     }
 
     private fun dropSwapSnapshot() {
@@ -274,8 +274,6 @@ class KeyboardView(context: Context) : View(context) {
     internal fun contentSwapsForTest(): Int = contentSwaps
 
     internal fun contentSwapActiveForTest(): Boolean = contentSwap.active
-
-    internal fun contentSwapSequentialForTest(): Boolean = contentSwap.sequential
 
     internal fun rowCountForSizing(): Int = layout.rowCount
     internal fun usesFractionalCellsForSizing(): Boolean = layout.cells != null && layout.id != LayoutId.ALPHA
