@@ -131,7 +131,7 @@ object Layouts {
         listOf(
             KeyboardRow(letters("1234567890")),
             row(
-                Key("@"), Key("#"), Key("￥"), Key("_"), Key("&"),
+                Key("@"), Key("#"), Key("$"), Key("_"), Key("&"),
                 Key("-"), Key("+"), Key("("), Key(")"), Key("/"),
             ),
             row(
