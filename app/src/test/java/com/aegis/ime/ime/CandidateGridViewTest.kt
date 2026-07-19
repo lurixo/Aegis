@@ -15,10 +15,12 @@
 
 package com.aegis.ime.ime
 
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
+import com.aegis.ime.ime.theme.ImePalette
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -28,8 +30,10 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34])
 class CandidateGridViewTest {
 
@@ -37,6 +41,16 @@ class CandidateGridViewTest {
     private val density = ctx.resources.displayMetrics.density
 
     private fun rowPx() = (46 * density).toInt()
+
+    private fun dp(v: Int) = (v * density).toInt()
+
+    private fun measured(v: CandidateGridView = CandidateGridView(ctx)): CandidateGridView = v.apply {
+        measure(
+            View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec((250 * density).toInt(), View.MeasureSpec.EXACTLY),
+        )
+        layout(0, 0, measuredWidth, measuredHeight)
+    }
 
     @Test fun right_controls_align_to_candidate_rows() {
         val v = CandidateGridView(ctx)
@@ -130,5 +144,142 @@ class CandidateGridViewTest {
 
         assertTrue("up-swipe on expanded-grid backspace must clear the preedit", cleared)
         assertFalse("up-swipe must not also fire one-unit backspace", deleted)
+    }
+
+    @Test fun single_grapheme_candidates_pack_six_columns_per_row() {
+        val v = measured()
+        v.setCandidates(listOf("一", "二", "三", "四", "五", "六", "七", "八", "九", "十", "百", "千"))
+        assertEquals(listOf(6, 6), v.rowColumnCountsForTest())
+        assertEquals(listOf(6, 6), v.rowTextsForTest().map { it.size })
+    }
+
+    @Test fun two_grapheme_candidates_pack_four_columns_per_row() {
+        val v = measured()
+        v.setCandidates(listOf("你好", "再见", "谢谢", "不用", "可以", "没有", "什么", "怎么"))
+        assertEquals(listOf(4, 4), v.rowColumnCountsForTest())
+        assertEquals(listOf(4, 4), v.rowTextsForTest().map { it.size })
+    }
+
+    @Test fun row_closes_early_when_a_wider_word_would_shrink_its_cap() {
+        val v = measured()
+        v.setCandidates(listOf("一", "二", "三", "四", "五", "六六"))
+        assertEquals(listOf(6, 4), v.rowColumnCountsForTest())
+        assertEquals(listOf(listOf("一", "二", "三", "四", "五"), listOf("六六")), v.rowTextsForTest())
+    }
+
+    @Test fun rows_holding_a_word_of_three_or_more_graphemes_use_three_columns() {
+        val v = measured()
+        v.setCandidates(listOf("你好吗", "一", "二二"))
+        assertEquals(listOf(3), v.rowColumnCountsForTest())
+        assertEquals(listOf(listOf("你好吗", "一", "二二")), v.rowTextsForTest())
+        v.setCandidates(listOf("一", "四个字啦"))
+        assertEquals(listOf(3), v.rowColumnCountsForTest())
+        assertEquals(listOf(listOf("一", "四个字啦")), v.rowTextsForTest())
+    }
+
+    @Test fun engine_order_is_preserved_and_picks_stay_global_across_rows() {
+        val v = measured()
+        val words = listOf("你", "你好", "尼", "拟", "泥", "逆", "妮", "倪", "你好吗", "腻")
+        v.setCandidates(words)
+        assertEquals(words, v.renderedCandidateTextsForTest())
+        val picked = ArrayList<Int>()
+        v.onPick = { picked.add(it) }
+        for (i in words.indices) assertTrue(v.tapCandidateForTest(i))
+        assertEquals(words.indices.toList(), picked)
+    }
+
+    @Test fun trailing_empty_cells_are_not_clickable_ghosts() {
+        val v = measured()
+        var picked = -1
+        v.onPick = { picked = it }
+        v.setCandidates(listOf("一", "二", "三", "四", "五", "六六"))
+        assertTrue(v.tapCandidateForTest(5))
+        assertEquals(5, picked)
+        assertFalse("there is no tappable cell past the last candidate", v.tapCandidateForTest(6))
+        assertEquals(listOf(5, 1), v.rowTextsForTest().map { it.size })
+    }
+
+    @Test fun column_capacity_counts_grapheme_clusters_not_chars() {
+        assertEquals(1, GraphemeText.clusterCount("👨‍👩‍👧"))
+        assertEquals(2, GraphemeText.clusterCount("你好"))
+        assertEquals(0, GraphemeText.clusterCount(""))
+        val v = measured()
+        v.setCandidates(listOf("👨‍👩‍👧", "一", "二", "三", "四", "五"))
+        assertEquals(listOf(6), v.rowColumnCountsForTest())
+        assertEquals(listOf(6), v.rowTextsForTest().map { it.size })
+    }
+
+    @Test fun cells_span_the_table_in_equal_widths() {
+        val v = measured()
+        v.setCandidates(listOf("一", "二", "三", "四", "五", "六"))
+        val tableW = (360 * density).toInt() - dp(60 + 64) - dp(4 + 4)
+        val widths = (0..5).map { v.chipCellWidthForTest(it) }
+        assertEquals(tableW, widths.sum())
+        assertTrue("cell widths differ by at most a rounding pixel", widths.max() - widths.min() <= 1)
+    }
+
+    @Test fun candidate_text_sizes_step_down_with_grapheme_length() {
+        val v = measured()
+        v.setCandidates(listOf("一", "二二", "三三三", "四四四四"))
+        assertEquals(18f, v.chipTextSizeSpForTest(0), 0.01f)
+        assertEquals(18f, v.chipTextSizeSpForTest(1), 0.01f)
+        assertEquals(16f, v.chipTextSizeSpForTest(2), 0.01f)
+        assertEquals(14f, v.chipTextSizeSpForTest(3), 0.01f)
+    }
+
+    @Test fun overlong_candidates_shrink_to_the_floor_and_ellipsize() {
+        val v = measured()
+        v.setCandidates(listOf("超".repeat(20)))
+        assertEquals(10f, v.chipTextSizeSpForTest(0), 0.01f)
+        assertEquals(TextUtils.TruncateAt.END, v.chipEllipsizeForTest(0))
+    }
+
+    @Test fun reading_rail_is_an_inset_card_matching_the_scroll_column_style() {
+        val v = measured()
+        assertEquals(listOf(dp(51), dp(6), dp(3), dp(8), dp(8)), v.railLayoutForTest().toList())
+        assertEquals(8f * density, v.railCornerRadiusForTest(), 0.001f)
+        assertFalse("platform scrollbar must stay off in favour of the custom thumb", v.railScrollbarEnabledForTest())
+        assertEquals(listOf(dp(4), dp(4), dp(8), dp(8)), v.tableLayoutForTest().toList())
+        assertEquals(8f * density, v.tableCornerRadiusForTest(), 0.001f)
+        assertNull("the table paints no fill of its own", v.tableBackgroundForTest())
+    }
+
+    @Test fun rail_thumb_is_absent_without_overflow() {
+        val v = measured(CandidateGridView(ctx).apply { setReadings(listOf("ni", "hao")) })
+        assertNull(v.railThumbRectForTest())
+    }
+
+    @Test fun rail_thumb_follows_the_scroll_column_math() {
+        val v = measured(CandidateGridView(ctx).apply { setReadings((1..30).map { "r$it" }) })
+        val (trackH, contentH) = v.railTrackAndContentForTest()
+        assertTrue("precondition: reading content overflows the rail", contentH > trackH)
+        val rect = requireNotNull(v.railThumbRectForTest())
+        val expectedH = maxOf(18f * density, trackH.toFloat() * trackH / contentH)
+        assertEquals(expectedH, rect.height(), 0.01f)
+        assertEquals(2.5f * density, rect.width(), 0.01f)
+        assertEquals(dp(51) - 2f * density, rect.right, 0.01f)
+        assertEquals(0f, rect.top, 0.01f)
+
+        v.scrollForTest(gridY = 0, readingY = 120)
+        val scrolled = requireNotNull(v.railThumbRectForTest())
+        val expectedTop = 120f + 120f / (contentH - trackH) * (trackH - expectedH)
+        assertEquals(expectedTop, scrolled.top, 0.01f)
+    }
+
+    @Test fun readings_shrink_to_fit_the_rail_and_short_readings_keep_title_size() {
+        val v = CandidateGridView(ctx)
+        v.setReadings(listOf("ni", "zhuang"))
+        assertEquals(18f, v.readingTextSizeSpForTest(0), 0.01f)
+        val fitted = v.readingTextSizeSpForTest(1)
+        assertTrue("zhuang must shrink below the title size, got $fitted", fitted < 18f)
+        assertTrue("zhuang must not shrink past the floor, got $fitted", fitted >= 11f)
+    }
+
+    @Test fun palette_flows_to_rail_and_table_in_static_light_and_dark() {
+        for (pal in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
+            val v = CandidateGridView(ctx).apply { applyPalette(pal) }
+            assertEquals(Triple(pal.railBg, pal.separator, Motion.withAlpha(pal.icon, 0x55)), v.railColorsForTest())
+            assertEquals(pal.separator, v.tableSeparatorColorForTest())
+        }
     }
 }
