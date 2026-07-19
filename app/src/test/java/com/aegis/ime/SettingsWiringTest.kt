@@ -72,6 +72,15 @@ class SettingsWiringTest {
         assertTrue("expected the onStartInput call plus both build-site re-checks, found $calls", calls >= 3)
     }
 
+    @Test fun opening_settings_hides_the_keyboard_before_launching_the_activity() {
+        val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
+        val body = svc.substringAfter("private fun openSettings()").substringBefore("private fun launchPhraseTransfer")
+        val hide = body.indexOf("requestHideSelf(0)")
+        val launch = body.indexOf("startActivity(")
+        assertTrue("openSettings must request the IME hide", hide >= 0)
+        assertTrue("the hide request must precede the activity launch", launch > hide)
+    }
+
     @Test fun download_work_is_screen_independent_and_observed_by_cards() {
         val runtime = src("src/main/java/com/aegis/ime/ui/DownloadCardWork.kt")
         assertTrue("download runtime must use the application context, not a screen context", runtime.contains("context.applicationContext"))
