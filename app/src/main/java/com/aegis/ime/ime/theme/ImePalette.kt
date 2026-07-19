@@ -47,9 +47,9 @@ data class ImePalette(
 ) {
     companion object {
         val STATIC_LIGHT = ImePalette(
-            keyboardBg = 0xFFE6E9EF.toInt(),
-            keySurface = 0xFFFFFFFF.toInt(),
-            keySurfacePressed = 0xFFDCE0E6.toInt(),
+            keyboardBg = 0xFFE2E6EC.toInt(),
+            keySurface = 0xFFF2F4F7.toInt(),
+            keySurfacePressed = 0xFFD9DEE5.toInt(),
             keyLabel = 0xFF202124.toInt(),
             keyLabelSecondary = 0xFF37474F.toInt(),
             keyHint = 0xFF90A4AE.toInt(),
@@ -57,10 +57,10 @@ data class ImePalette(
             accentLabel = 0xFFFFFFFF.toInt(),
             candidateFirst = 0xFF2E7D32.toInt(),
             candidateText = 0xFF202124.toInt(),
-            preeditText = 0xFF1565C0.toInt(),
+            preeditText = 0xFF33639C.toInt(),
             separator = 0xFFD2D7DE.toInt(),
-            railBg = 0xFFEFF1F5.toInt(),
-            chipBg = 0xFFE2E5E9.toInt(),
+            railBg = 0xFFE9EDF2.toInt(),
+            chipBg = 0xFFDDE2E8.toInt(),
             chipText = 0xFF202124.toInt(),
             icon = 0xFF455A64.toInt(),
             deletable = 0xFFD32F2F.toInt(),
@@ -99,9 +99,9 @@ data class ImePalette(
         fun from(ctx: Context, dark: Boolean): ImePalette = runCatching {
             val cs: ColorScheme = if (dark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
             ImePalette(
-                keyboardBg = cs.surfaceContainer.toArgb(),
-                keySurface = cs.surfaceBright.toArgb(),
-                keySurfacePressed = cs.surfaceContainerHigh.toArgb(),
+                keyboardBg = (if (dark) cs.surfaceContainer else cs.surfaceContainerHigh).toArgb(),
+                keySurface = (if (dark) cs.surfaceBright else cs.surfaceContainerLow).toArgb(),
+                keySurfacePressed = (if (dark) cs.surfaceContainerHigh else cs.surfaceContainerHighest).toArgb(),
                 keyLabel = cs.onSurface.toArgb(),
                 keyLabelSecondary = cs.onSurfaceVariant.toArgb(),
                 keyHint = cs.outline.toArgb(),
@@ -111,7 +111,7 @@ data class ImePalette(
                 candidateText = cs.onSurface.toArgb(),
                 preeditText = cs.primary.toArgb(),
                 separator = cs.outlineVariant.toArgb(),
-                railBg = cs.surfaceContainerLow.toArgb(),
+                railBg = (if (dark) cs.surfaceContainerLow else cs.surfaceContainer).toArgb(),
                 chipBg = cs.secondaryContainer.toArgb(),
                 chipText = cs.onSecondaryContainer.toArgb(),
                 icon = cs.onSurfaceVariant.toArgb(),

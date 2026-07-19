@@ -22,6 +22,7 @@ import android.graphics.Path
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import com.aegis.ime.R
+import com.aegis.ime.ime.theme.ImePalette
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -134,8 +135,8 @@ class BrandingRenderTest {
             write(monochrome(s, dark = false), "mono_${s}_light.png")
             write(monochrome(s, dark = true), "mono_${s}_dark.png")
         }
-        write(glyph(R.drawable.ic_subtype_zh, 96, 0xFF202124.toInt(), 0xFFEFF1F5.toInt()), "subtype_zh_light.png")
-        write(glyph(R.drawable.ic_subtype_en, 96, 0xFF202124.toInt(), 0xFFEFF1F5.toInt()), "subtype_en_light.png")
+        write(glyph(R.drawable.ic_subtype_zh, 96, 0xFF202124.toInt(), ImePalette.STATIC_LIGHT.railBg), "subtype_zh_light.png")
+        write(glyph(R.drawable.ic_subtype_en, 96, 0xFF202124.toInt(), ImePalette.STATIC_LIGHT.railBg), "subtype_en_light.png")
 
         val icon = composeIcon(192)
         val black = inkFraction(icon, intArrayOf(0, 0, 0), intArrayOf(255, 255, 255))
