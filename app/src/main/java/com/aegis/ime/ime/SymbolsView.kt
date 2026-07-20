@@ -24,6 +24,7 @@ import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
@@ -96,6 +97,9 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     private val tilePool = ArrayList<FrameLayout>()
     private var emptySpanView: TextView? = null
     private val colorAnimators = HashMap<TextView, ValueAnimator>()
+    private val glyphInk = Rect()
+    private val glyphMetrics = Paint.FontMetrics()
+    private val badgeClearancePx = dp(BADGE_CLEARANCE_DP).toFloat()
     private val symbolClick = View.OnClickListener { v ->
         val s = ((v as FrameLayout).getChildAt(0) as TextView).text.toString()
         onSymbol(s, originForCurrent(s)); if (!locked) onBack()
@@ -104,6 +108,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     internal companion object {
         const val COLUMNS = 7
         const val WIDE_GLYPH_SCALE = 0.82f
+        const val BADGE_CLEARANCE_DP = 6
 
         fun wideMetricGlyph(ch: Char): Boolean {
             val c = ch.code
@@ -363,9 +368,25 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     }
 
     private fun bindTile(tile: FrameLayout, symbol: String, badge: String?) {
-        bindGlyph(tile.getChildAt(0) as TextView, symbol)
+        val glyph = tile.getChildAt(0) as TextView
+        bindGlyph(glyph, symbol)
+        inkCenterGlyph(glyph, symbol, badged = badge != null)
         val badgeView = tile.getChildAt(1) as TextView
         if (badge != null) { badgeView.text = badge; badgeView.visibility = View.VISIBLE } else badgeView.visibility = View.GONE
+    }
+
+    private fun inkCenterGlyph(tv: TextView, symbol: String, badged: Boolean) {
+        if (symbol.length != 1) {
+            tv.translationX = 0f
+            tv.translationY = 0f
+            return
+        }
+        val paint = tv.paint
+        paint.getTextBounds(symbol, 0, 1, glyphInk)
+        paint.getFontMetrics(glyphMetrics)
+        val clearance = if (badged) badgeClearancePx else 0f
+        tv.translationX = paint.measureText(symbol) / 2f - glyphInk.exactCenterX() - clearance
+        tv.translationY = (glyphMetrics.ascent + glyphMetrics.descent) / 2f - glyphInk.exactCenterY()
     }
 
     private fun bindGlyph(tv: TextView, symbol: String) {
