@@ -30,10 +30,12 @@ class AssociationsAndCalcTest {
         val sb = StringBuilder()
         var cursor = 0
         var selectionActive = false
+        var deletedSelection = false
         val learned = mutableListOf<String>()
         override fun hasSelection(): Boolean = selectionActive
         override fun commitText(text: CharSequence) { sb.insert(cursor, text); cursor += text.length }
         override fun deleteBackward() { if (cursor > 0) { sb.deleteCharAt(cursor - 1); cursor-- } }
+        override fun deleteSelection() { deletedSelection = true; selectionActive = false }
         override fun performEnter() {}
         override fun textBeforeCursor(n: Int): CharSequence = sb.substring(maxOf(0, cursor - n), cursor)
         override fun replaceBeforeCursor(length: Int, text: CharSequence) {
@@ -249,14 +251,14 @@ class AssociationsAndCalcTest {
         assertEquals("重输 leaves the typed expression untouched", "12+34*2", h.text)
     }
 
-    @Test fun backspace_dismisses_the_calc_result_and_deletes_the_last_expression_char() {
+    @Test fun the_first_backspace_dismisses_the_calc_result_and_leaves_the_expression_untouched() {
         val h = EditorHost()
         val c = KeyboardController(h, emptyEngine)
         "12+345".forEach { c.onKey(digit(it.toString())) }
         assertEquals(listOf("=357"), c.candidateWords())
         c.onKey(Key("", action = KeyAction.BACKSPACE))
         assertTrue("退格 clears the calc result instead of surfacing a new one", c.candidateWords().isEmpty())
-        assertEquals("退格 removes the last character of the expression", "12+34", h.text)
+        assertEquals("the first 退格 consumes only the calc step; the expression stays intact", "12+345", h.text)
     }
 
     @Test fun a_dismissed_calc_result_returns_once_new_input_extends_the_expression() {
@@ -271,14 +273,27 @@ class AssociationsAndCalcTest {
         assertEquals("5*23", h.text)
     }
 
-    @Test fun repeated_backspace_keeps_the_calc_result_dismissed() {
+    @Test fun repeated_backspace_dismisses_the_result_then_deletes_one_char_per_press() {
         val h = EditorHost()
         val c = KeyboardController(h, emptyEngine)
         "100+200".forEach { c.onKey(digit(it.toString())) }
         assertEquals(listOf("=300"), c.candidateWords())
         c.onKey(Key("", action = KeyAction.BACKSPACE))
+        assertEquals("the first press keeps the full expression", "100+200", h.text)
         c.onKey(Key("", action = KeyAction.BACKSPACE))
         assertTrue("no result lingers across successive backspaces", c.candidateWords().isEmpty())
-        assertEquals("100+2", h.text)
+        assertEquals("the second press deletes exactly one trailing char", "100+20", h.text)
+    }
+
+    @Test fun backspace_with_an_active_selection_deletes_the_selection_not_the_calc_step() {
+        val h = EditorHost()
+        val c = KeyboardController(h, emptyEngine)
+        "5*2".forEach { c.onKey(digit(it.toString())) }
+        assertEquals(listOf("=10"), c.candidateWords())
+        h.selectionActive = true
+        c.onKey(Key("", action = KeyAction.BACKSPACE))
+        assertTrue("退格 deletes the active selection instead of being swallowed by the calc step", h.deletedSelection)
+        assertEquals("no expression char is removed when a selection takes the backspace", "5*2", h.text)
+        assertTrue("the calc result clears alongside the selection delete", c.candidateWords().isEmpty())
     }
 }
