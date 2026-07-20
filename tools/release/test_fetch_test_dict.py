@@ -690,5 +690,78 @@ class CommittedPinTest(unittest.TestCase):
             self.assertEqual(ftd.GRAMMAR_URL, grammar[0])
             self.assertGreater(grammar[3], 1024)
 
+
+class FixedInputsTest(unittest.TestCase):
+    def fixture(self, directory):
+        import zipfile
+        root = Path(directory)
+        pack = root / ftd.PACK_NAME
+        components = []
+        with zipfile.ZipFile(pack, "w") as archive:
+            archive.writestr("NOTICE.txt", "attribution")
+            for index, (name, entry) in enumerate(zip(ftd.TEST_BINS, (
+                "aegis_dict_full.bin", "aegis_t9_full.bin", "aegis_jianpin_full.bin", ftd.LM_NAME, ftd.EN_PACK_NAME,
+            ))):
+                data = bytes([index + 1]) * 2048
+                archive.writestr(entry, data)
+                components.append({"runtime_name": name, "zip_entry": entry,
+                                   "size_bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+        info = CommittedPinTest().build_info(ftd.sha256_file(pack))
+        asset = info["resources"][0]["physical_asset"]
+        asset.update(size_bytes=pack.stat().st_size, release_tag=ftd.DICT_LATEST_TAG, prerelease=False)
+        source = {"repo": "https://github.com/amzxyz/rime-wanxiang", "ref_type": "tag",
+                  "tag": "v1.0.0", "branch": None, "commit": "a" * 40}
+        info["resources"][0].update(source=source, build={"output_bins": components})
+        grammar = b"grammar" * 1024
+        info["external_resource_references"][0]["physical_asset"].update(
+            size_bytes=len(grammar), sha256=hashlib.sha256(grammar).hexdigest())
+        (root / ftd.GRAMMAR_NAME).write_bytes(grammar)
+        lock = {"schema_version": 1, "kind": "aegis.grammar-lock", "release_tag": ftd.GRAMMAR_TAG,
+                "asset": {"name": ftd.GRAMMAR_NAME, "url": ftd.GRAMMAR_URL, "github_asset_id": 7,
+                          "sha256": hashlib.sha256(grammar).hexdigest(), "size_bytes": len(grammar)}}
+        (root / "grammar-lock.json").write_text(json.dumps(lock))
+        manifest = {"schema_version": 1, "kind": "dictionary_update", "asset": asset, "source": source}
+        manifest_path = root / "manifest.json"
+        info_path = root / "info.json"
+        manifest_path.write_text(json.dumps(manifest))
+        info_path.write_text(json.dumps(info))
+        return pack, manifest_path, info_path
+
+    def test_fixed_inputs_reject_malformed_and_duplicate_components(self):
+        for mutation in ("duplicate", "missing", "hash", "zip_entry", "size"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
+                _, manifest, info = self.fixture(directory)
+                data = json.loads(info.read_text()); components = data["resources"][0]["build"]["output_bins"]
+                if mutation == "duplicate": components.append(components[0])
+                elif mutation == "missing": components.pop()
+                elif mutation == "hash": components[0]["sha256"] = None
+                elif mutation == "zip_entry": components[0]["zip_entry"] = "../aegis_dict_full.bin"
+                else: components[0]["size_bytes"] = True
+                info.write_text(json.dumps(data))
+                with self.assertRaises(SystemExit): ftd.fixed_input_metadata(manifest, info)
+
+    def test_fixed_pack_checks_actual_components_and_archive_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            pack, manifest, info = self.fixture(directory)
+            asset, components, _ = ftd.fixed_input_metadata(manifest, info)
+            ftd.verify_fixed_pack(pack, asset, components)
+            components[ftd.LM_NAME]["sha256"] = "f" * 64
+            with self.assertRaisesRegex(SystemExit, "component sha256"):
+                ftd.verify_fixed_pack(pack, asset, components)
+            pack.write_bytes(pack.read_bytes() + b"extra")
+            with self.assertRaisesRegex(SystemExit, "pack size or sha256"):
+                ftd.verify_fixed_pack(pack, asset, components)
+
+    def test_duplicate_json_fields_and_source_mismatch_are_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            _, manifest, info = self.fixture(directory)
+            data = json.loads(info.read_text()); data["resources"][0]["source"]["commit"] = "b" * 40
+            info.write_text(json.dumps(data))
+            with self.assertRaisesRegex(SystemExit, "source identities disagree"):
+                ftd.fixed_input_metadata(manifest, info)
+            manifest.write_text('{"schema_version":1,"schema_version":2}')
+            with self.assertRaisesRegex(SystemExit, "duplicate JSON key"):
+                ftd.fixed_input_metadata(manifest, info)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
