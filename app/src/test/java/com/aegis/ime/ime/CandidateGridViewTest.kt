@@ -15,6 +15,11 @@
 
 package com.aegis.ime.ime
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.RectF
+import android.graphics.drawable.Drawable
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.MotionEvent
@@ -52,20 +57,94 @@ class CandidateGridViewTest {
         layout(0, 0, measuredWidth, measuredHeight)
     }
 
-    @Test fun right_controls_align_to_candidate_rows() {
+    @Test fun right_controls_distribute_evenly_and_bottom_anchor_clear_in_the_tall_column() {
+        val h = (290 * density).toInt()
         val v = CandidateGridView(ctx)
+        v.measure(
+            View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY),
+        )
+        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
         val back = v.returnButtonForTest().layoutParams as FrameLayout.LayoutParams
         val delete = v.backspaceButtonForTest().layoutParams as FrameLayout.LayoutParams
         val clear = v.clearButtonForTest().layoutParams as FrameLayout.LayoutParams
 
-        assertEquals("返回 aligns with the first candidate row", Gravity.TOP, back.gravity)
-        assertEquals(0, back.topMargin)
         assertEquals(rowPx(), back.height)
-        assertEquals("退格 is vertically centered", Gravity.CENTER, delete.gravity)
         assertEquals(rowPx(), delete.height)
-        assertEquals("重输 aligns with the fifth candidate row", Gravity.TOP, clear.gravity)
-        assertEquals(rowPx() * 4, clear.topMargin)
         assertEquals(rowPx(), clear.height)
+        assertEquals("返回 anchors to the top of the column", 0, back.topMargin)
+        assertEquals("重输 bottom-anchors to the real column bottom, leaving no dead space", h, clear.topMargin + clear.height)
+
+        val backCenter = back.topMargin + back.height / 2f
+        val deleteCenter = delete.topMargin + delete.height / 2f
+        val clearCenter = clear.topMargin + clear.height / 2f
+        assertEquals("退格 sits at the column centre", h / 2f, deleteCenter, 1f)
+        assertEquals("the three controls are evenly spaced", deleteCenter - backCenter, clearCenter - deleteCenter, 1f)
+    }
+
+    @Test fun short_column_still_squeezes_and_bottom_anchors_the_three_controls() {
+        val h = (120 * density).toInt()
+        val v = CandidateGridView(ctx)
+        v.measure(
+            View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY),
+        )
+        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+        val back = v.returnButtonForTest().layoutParams as FrameLayout.LayoutParams
+        val delete = v.backspaceButtonForTest().layoutParams as FrameLayout.LayoutParams
+        val clear = v.clearButtonForTest().layoutParams as FrameLayout.LayoutParams
+
+        assertTrue("controls shrink below the preferred row height when the column is short", back.height < rowPx())
+        assertEquals(0, back.topMargin)
+        assertEquals(h, clear.topMargin + clear.height)
+        val backCenter = back.topMargin + back.height / 2f
+        val deleteCenter = delete.topMargin + delete.height / 2f
+        val clearCenter = clear.topMargin + clear.height / 2f
+        assertEquals(deleteCenter - backCenter, clearCenter - deleteCenter, 1f)
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test fun grid_collapse_glyph_reads_at_the_backspace_size_family() {
+        val v = CandidateGridView(ctx)
+        val collapse = glyphInkBounds(v.collapseGlyphForTest())
+        val backspace = glyphInkBounds(v.backspaceGlyphForTest())
+        assertTrue(
+            "collapse chevron must rise out of the flat ~7dp mark into the backspace family: " +
+                "collapse=${collapse.height()} backspace=${backspace.height()}",
+            collapse.height() >= backspace.height() * 0.8f,
+        )
+        assertTrue(
+            "collapse chevron must not overshoot the backspace height: " +
+                "collapse=${collapse.height()} backspace=${backspace.height()}",
+            collapse.height() <= backspace.height() * 1.1f,
+        )
+        assertTrue(
+            "collapse chevron width stays in the backspace width family: " +
+                "collapse=${collapse.width()} backspace=${backspace.width()}",
+            collapse.width() <= backspace.width() * 1.2f,
+        )
+    }
+
+    private fun glyphInkBounds(d: Drawable): RectF {
+        val w = d.intrinsicWidth
+        val h = d.intrinsicHeight
+        d.setBounds(0, 0, w, h)
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        d.draw(Canvas(bmp))
+        var left = w
+        var top = h
+        var right = -1
+        var bottom = -1
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                if (Color.alpha(bmp.getPixel(x, y)) == 0) continue
+                if (x < left) left = x
+                if (x > right) right = x
+                if (y < top) top = y
+                if (y > bottom) bottom = y
+            }
+        }
+        return RectF(left.toFloat(), top.toFloat(), (right + 1).toFloat(), (bottom + 1).toFloat())
     }
 
     @Test fun selected_reading_uses_text_state_without_a_rectangular_background() {

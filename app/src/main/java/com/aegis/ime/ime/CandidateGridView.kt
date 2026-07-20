@@ -64,7 +64,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private val gridScroll = ScrollView(context)
     private val rightColumn = FrameLayout(context)
     private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
-    private val collapseGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawChevron(c, p, x, y, s, down = false) }
+    private val collapseGlyph = IconDrawable(density, 0.62f) { c, p, x, y, s -> Glyphs.drawChevron(c, p, x, y, s, down = false) }
     private val measurePaint = Paint()
     private val readingMeasurePaint = Paint().apply { typeface = Typeface.DEFAULT_BOLD }
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
@@ -191,18 +191,10 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     }
 
     private fun updateRightActionLayout(availableHeight: Int) {
-        val preferred = dp(46)
-        val fullRail = preferred * 5
+        val actionHeight = minOf(dp(46), availableHeight.coerceAtLeast(0) / 3)
         val back = returnButtonForTest()
         val delete = backspaceButtonForTest()
         val clear = clearButtonForTest()
-        if (availableHeight >= fullRail) {
-            setActionFrame(back, preferred, Gravity.TOP, 0)
-            setActionFrame(delete, preferred, Gravity.CENTER, 0)
-            setActionFrame(clear, preferred, Gravity.TOP, preferred * 4)
-            return
-        }
-        val actionHeight = minOf(preferred, availableHeight.coerceAtLeast(0) / 3)
         setActionFrame(back, actionHeight, Gravity.TOP, 0)
         setActionFrame(delete, actionHeight, Gravity.TOP, (availableHeight - actionHeight) / 2)
         setActionFrame(clear, actionHeight, Gravity.TOP, (availableHeight - actionHeight).coerceAtLeast(0))
@@ -541,6 +533,8 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     internal fun returnButtonForTest(): TextView = rightColumn.getChildAt(0) as TextView
     internal fun backspaceButtonForTest(): TextView = rightColumn.getChildAt(1) as TextView
     internal fun clearButtonForTest(): TextView = rightColumn.getChildAt(2) as TextView
+    internal fun collapseGlyphForTest(): Drawable = collapseGlyph
+    internal fun backspaceGlyphForTest(): Drawable = backspaceGlyph
     internal fun gridScrollYForTest(): Int = gridScroll.scrollY
     internal fun readingScrollYForTest(): Int = readingScroll.scrollY
     internal fun gridCanScrollForwardForTest(): Boolean = gridScroll.canScrollVertically(1)

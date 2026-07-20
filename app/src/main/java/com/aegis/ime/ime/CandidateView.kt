@@ -176,6 +176,10 @@ class CandidateView(context: Context) : View(context) {
     internal fun taskbarPressRadiusDpForTest(): Float = ImeShapes.toolbarFeedbackRadiusDp
     internal fun keyPressRadiusDpForTest(): Float = ImeShapes.keyRadiusDp
     internal fun toolbarControlBoundsForTest(): List<RectF> = funcRects.map(::RectF) + RectF(collapseRect)
+    internal fun toolbarPressHighlightBoundsForTest(): List<RectF> {
+        val half = toolbarBounds.width() / (functions.size + 2) / 2f
+        return iconCentersX.map { cx -> RectF(cx - half, toolbarBounds.top, cx + half, toolbarBounds.bottom) }
+    }
     internal fun toolbarCapsuleBoundsForTest(): RectF = RectF(toolbarBounds)
     internal fun toolbarOuterRadiusForTest(): Float = toolbarOuterRadius()
     internal fun expandControlBoundsForTest(): RectF = RectF(width - expandW, 0f, width.toFloat(), height.toFloat())
@@ -263,6 +267,7 @@ class CandidateView(context: Context) : View(context) {
         val areaL = capL
         val areaR = capR
         val gap = (areaR - areaL) / (functions.size + 2)
+        val half = gap / 2f
         val s = 9f * density
         toolbarClipPath.reset()
         toolbarClipPath.addRoundRect(toolbarBounds, rad, rad, Path.Direction.CW)
@@ -272,13 +277,13 @@ class CandidateView(context: Context) : View(context) {
                 iconCentersX[i] = cx
                 val cellL = if (i == 0) areaL else areaL + gap * (i + 0.5f)
                 funcRects[i].set(cellL, capT, areaL + gap * (i + 1.5f), capB)
-                drawPressLayer(canvas, PressTarget(PressKind.FUNCTION, i), funcRects[i].left, funcRects[i].top, funcRects[i].right, funcRects[i].bottom)
+                drawPressLayer(canvas, PressTarget(PressKind.FUNCTION, i), cx - half, capT, cx + half, capB)
                 drawIcon(canvas, f, cx, cy, s)
             }
             val chevronCx = areaL + gap * (functions.size + 1)
             iconCentersX[functions.size] = chevronCx
             collapseRect.set(areaL + gap * (functions.size + 0.5f), capT, areaR, capB)
-            drawPressLayer(canvas, PressTarget(PressKind.COLLAPSE), collapseRect.left, collapseRect.top, collapseRect.right, collapseRect.bottom)
+            drawPressLayer(canvas, PressTarget(PressKind.COLLAPSE), chevronCx - half, capT, chevronCx + half, capB)
             Glyphs.drawChevron(canvas, iconPaint, chevronCx, cy, s * CHEVRON_SCALE, down = true)
         }
     }
@@ -312,10 +317,11 @@ class CandidateView(context: Context) : View(context) {
     }
 
     private fun iconScale(f: BarFunction): Float = when (f) {
-        BarFunction.EDIT, BarFunction.EMOJI -> 1f
-        BarFunction.BRAND -> ICON_FAMILY_HEIGHT / BRAND_GLYPH_HEIGHT
-        BarFunction.LAYOUT -> ICON_FAMILY_HEIGHT / LAYOUT_GLYPH_HEIGHT
-        BarFunction.CLIPBOARD -> ICON_FAMILY_HEIGHT / CLIPBOARD_GLYPH_HEIGHT
+        BarFunction.BRAND -> fitScale(BRAND_GLYPH_WIDTH, BRAND_GLYPH_HEIGHT)
+        BarFunction.LAYOUT -> fitScale(LAYOUT_GLYPH_WIDTH, LAYOUT_GLYPH_HEIGHT)
+        BarFunction.EMOJI -> fitScale(EMOJI_GLYPH_WIDTH, EMOJI_GLYPH_HEIGHT)
+        BarFunction.EDIT -> fitScale(EDIT_GLYPH_WIDTH, EDIT_GLYPH_HEIGHT)
+        BarFunction.CLIPBOARD -> fitScale(CLIPBOARD_GLYPH_WIDTH, CLIPBOARD_GLYPH_HEIGHT)
     }
 
     override fun computeScroll() {
@@ -450,11 +456,21 @@ class CandidateView(context: Context) : View(context) {
         private const val ROLE_FUNCTIONS = 1
         private const val ROLE_BLANK = 2
 
-        private const val ICON_FAMILY_HEIGHT = 1.64f
+        private const val ICON_BOX = 1.64f
+        private const val BRAND_GLYPH_WIDTH = 1.28f
         private const val BRAND_GLYPH_HEIGHT = 1.59f
+        private const val LAYOUT_GLYPH_WIDTH = 1.40f
         private const val LAYOUT_GLYPH_HEIGHT = 0.8334f
+        private const val EMOJI_GLYPH_WIDTH = 1.64f
+        private const val EMOJI_GLYPH_HEIGHT = 1.64f
+        private const val EDIT_GLYPH_WIDTH = 1.00f
+        private const val EDIT_GLYPH_HEIGHT = 1.64f
+        private const val CLIPBOARD_GLYPH_WIDTH = 1.16f
         private const val CLIPBOARD_GLYPH_HEIGHT = 1.58f
+        private const val CHEVRON_GLYPH_WIDTH = 1.40f
         private const val CHEVRON_GLYPH_HEIGHT = 0.76f
-        private const val CHEVRON_SCALE = ICON_FAMILY_HEIGHT / CHEVRON_GLYPH_HEIGHT
+        private val CHEVRON_SCALE = fitScale(CHEVRON_GLYPH_WIDTH, CHEVRON_GLYPH_HEIGHT)
+
+        private fun fitScale(w: Float, h: Float): Float = minOf(ICON_BOX / w, ICON_BOX / h)
     }
 }

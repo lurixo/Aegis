@@ -119,8 +119,8 @@ class CandidateBarChevronTest {
         assertEquals(taskbarHit.centerY(), taskbarGlyph.centerY(), 0.01f)
         assertEquals(candidateGlyph.width(), taskbarGlyph.width(), 0.01f)
         assertEquals(candidateGlyph.height(), taskbarGlyph.height(), 0.01f)
-        assertEquals("chevron rises to the EDIT family height", 1.64f * 9f * density, taskbarGlyph.height(), 0.02f * density)
-        assertEquals("chevron width follows its aspect", taskbarGlyph.height() * (1.4f / 0.76f), taskbarGlyph.width(), 0.02f * density)
+        assertEquals("chevron width fills the common icon box", 1.64f * 9f * density, taskbarGlyph.width(), 0.02f * density)
+        assertEquals("chevron height follows its aspect inside the box", taskbarGlyph.width() * (0.76f / 1.4f), taskbarGlyph.height(), 0.02f * density)
         assertTrue(candidateHit.contains(candidateGlyph))
         assertTrue(taskbarHit.contains(taskbarGlyph))
     }
@@ -435,22 +435,86 @@ class CandidateBarChevronTest {
         assertEquals(listOf("BRAND", "COLLAPSE"), actions)
     }
 
+    @Test fun toolbar_press_highlights_are_equal_and_centered_on_each_icon() {
+        val view = idleBar(360)
+        val centers = view.toolbarIconCentersForTest()
+        val highlights = view.toolbarPressHighlightBoundsForTest()
+        val hits = view.toolbarControlBoundsForTest()
+        assertEquals(6, highlights.size)
+        for (i in highlights.indices) {
+            assertEquals("highlight $i is centered on its icon", centers[i], highlights[i].centerX(), 0.01f)
+        }
+        assertTrue(
+            "all six highlights share one width",
+            highlights.all { abs(it.width() - highlights.first().width()) <= 0.01f },
+        )
+        for (i in highlights.indices) {
+            assertTrue(
+                "highlight $i stays within its own hit cell so it never bleeds past a neighbour",
+                hits[i].left - 0.01f <= highlights[i].left && highlights[i].right <= hits[i].right + 0.01f,
+            )
+        }
+    }
+
+    @Test fun six_toolbar_glyphs_fit_one_common_icon_box() {
+        val view = idleBar(360)
+        val s = 9f * density
+        val box = 1.64f * s
+        val natural = listOf(
+            BarFunction.BRAND to (1.28f to 1.59f),
+            BarFunction.LAYOUT to (1.40f to 0.8334f),
+            BarFunction.EMOJI to (1.64f to 1.64f),
+            BarFunction.EDIT to (1.00f to 1.64f),
+            BarFunction.CLIPBOARD to (1.16f to 1.58f),
+        )
+        for ((f, wh) in natural) {
+            val scale = view.toolbarIconScaleForTest(f)
+            val w = wh.first * s * scale
+            val h = wh.second * s * scale
+            assertTrue("$f width fits the box", w <= box + 0.02f * density)
+            assertTrue("$f height fits the box", h <= box + 0.02f * density)
+            assertTrue(
+                "$f fills the box in exactly one dimension",
+                abs(w - box) <= 0.02f * density || abs(h - box) <= 0.02f * density,
+            )
+        }
+        assertEquals("EDIT keeps its size", 1f, view.toolbarIconScaleForTest(BarFunction.EDIT), 0.001f)
+        assertEquals("EMOJI keeps its size", 1f, view.toolbarIconScaleForTest(BarFunction.EMOJI), 0.001f)
+        assertTrue(
+            "the flat keyboard glyph is width-bounded, no longer the widest",
+            1.40f * s * view.toolbarIconScaleForTest(BarFunction.LAYOUT) <= box + 0.02f * density,
+        )
+        val chevron = view.toolbarChevronBoundsForTest()
+        assertEquals("the collapse chevron is width-bounded to the box", box, chevron.width(), 0.02f * density)
+        assertTrue("the collapse chevron is no longer over-wide", chevron.width() < 1.64f * 9f * density * 1.2f)
+    }
+
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
-    @Test fun idle_toolbar_end_feedback_is_clipped_to_the_capsule() {
+    @Test fun idle_toolbar_press_highlight_is_centered_on_the_icon_and_clipped() {
         val view = idleBar(320)
         val capsule = view.toolbarCapsuleBoundsForTest()
+        val gap = capsule.width() / 7f
+        val brandCx = view.toolbarIconCentersForTest().first()
         val resting = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
         view.draw(Canvas(resting))
         view.dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, capsule.left + density, capsule.centerY(), 0))
         val pressed = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
         view.draw(Canvas(pressed))
+        val edgeX = (capsule.left + density).toInt()
         assertEquals(
-            resting.getPixel((capsule.left + density).toInt(), (capsule.top + density).toInt()),
-            pressed.getPixel((capsule.left + density).toInt(), (capsule.top + density).toInt()),
+            "the rounded corner stays clipped out of the feedback",
+            resting.getPixel(edgeX, (capsule.top + density).toInt()),
+            pressed.getPixel(edgeX, (capsule.top + density).toInt()),
         )
+        assertEquals(
+            "the extreme capsule edge shows no feedback — the highlight is centered on the icon",
+            resting.getPixel(edgeX, capsule.centerY().toInt()),
+            pressed.getPixel(edgeX, capsule.centerY().toInt()),
+        )
+        val probe = (brandCx - gap * 0.4f).toInt()
         assertTrue(
-            resting.getPixel((capsule.left + density).toInt(), capsule.centerY().toInt()) !=
-                pressed.getPixel((capsule.left + density).toInt(), capsule.centerY().toInt()),
+            "the icon-centered highlight paints around the brand icon",
+            resting.getPixel(probe, capsule.centerY().toInt()) != pressed.getPixel(probe, capsule.centerY().toInt()),
         )
         view.dispatchTouchEvent(MotionEvent.obtain(0, 10, MotionEvent.ACTION_CANCEL, capsule.left + density, capsule.centerY(), 0))
     }
