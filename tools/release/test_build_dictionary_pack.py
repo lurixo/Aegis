@@ -1083,5 +1083,73 @@ class GitHubApiAuthenticationBoundaryTest(unittest.TestCase):
             ftd.http_get("https://api.github.com/repos/example/project/releases", 19)
         self.assertIsNone(get.call_args.args[0].get_header("Authorization"))
 
+
+class GrammarCacheTest(unittest.TestCase):
+    URL = "https://example.invalid/model.gram"
+
+    def test_valid_cache_is_reused_without_a_download(self):
+        payload = b"g" * 4096
+        digest = hashlib.sha256(payload).hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            model = Path(directory) / ftd.GRAMMAR_NAME
+            model.write_bytes(payload)
+            with mock.patch.object(ftd, "open_once") as get:
+                self.assertEqual(
+                    model,
+                    ftd.ensure_grammar(self.URL, digest, len(payload), model, 17),
+                )
+            get.assert_not_called()
+            self.assertEqual(payload, model.read_bytes())
+
+    def test_invalid_cache_is_replaced_by_a_verified_download(self):
+        payload = b"new-grammar" * 512
+        digest = hashlib.sha256(payload).hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            model = Path(directory) / ftd.GRAMMAR_NAME
+            model.write_bytes(b"stale")
+            with mock.patch.object(
+                ftd, "open_once", return_value=io.BytesIO(payload)
+            ) as get:
+                result = ftd.ensure_grammar(self.URL, digest, len(payload), model, 23)
+            get.assert_called_once_with(self.URL, 23)
+            self.assertEqual(model, result)
+            self.assertEqual(payload, model.read_bytes())
+            self.assertFalse(model.with_name(model.name + ".part").exists())
+
+    def test_bad_download_size_or_digest_leaves_no_cache_or_partial(self):
+        payload = b"download" * 512
+        cases = [
+            (hashlib.sha256(payload).hexdigest(), len(payload) + 1),
+            ("00" * 32, len(payload)),
+        ]
+        for digest, size in cases:
+            with self.subTest(digest=digest, size=size), tempfile.TemporaryDirectory() as directory:
+                model = Path(directory) / ftd.GRAMMAR_NAME
+                model.write_bytes(b"stale")
+                model.with_name(model.name + ".part").write_bytes(b"old-partial")
+                with mock.patch.object(
+                    ftd, "open_once", return_value=io.BytesIO(payload)
+                ):
+                    with self.assertRaisesRegex(SystemExit, "downloaded grammar mismatch"):
+                        ftd.ensure_grammar(self.URL, digest, size, model, 29)
+                self.assertFalse(model.exists())
+                self.assertFalse(model.with_name(model.name + ".part").exists())
+
+    def test_download_failure_leaves_no_invalid_cache_or_partial(self):
+        with tempfile.TemporaryDirectory() as directory:
+            model = Path(directory) / ftd.GRAMMAR_NAME
+            model.write_bytes(b"stale")
+            model.with_name(model.name + ".part").write_bytes(b"old-partial")
+            with mock.patch.object(ftd.time, "sleep"), mock.patch.object(
+                ftd, "open_once", side_effect=OSError("offline")
+            ) as get:
+                with self.assertRaisesRegex(SystemExit, "failed after bounded retries: offline"):
+                    ftd.ensure_grammar(self.URL, "11" * 32, 4096, model, 31)
+            self.assertEqual(ftd.RETRY_ATTEMPTS, get.call_count)
+            get.assert_called_with(self.URL, 31)
+            self.assertFalse(model.exists())
+            self.assertFalse(model.with_name(model.name + ".part").exists())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

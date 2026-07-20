@@ -460,5 +460,23 @@ class BodyTransferRetryTest(unittest.TestCase):
             self.assertFalse(destination.exists())
             self.assertFalse(part.exists())
 
+    def test_sha_mismatches_remain_fatal_and_remove_the_download(self):
+        payload = b"incorrect payload" * 256
+        expected = "ab" * 32
+        for kind in ("pack", "grammar"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory:
+                destination = Path(directory) / "asset"
+                with mock.patch.object(
+                    ftd.urllib.request, "urlopen", return_value=io.BytesIO(payload)
+                ) as opened:
+                    with self.assertRaisesRegex(SystemExit, "mismatch"):
+                        if kind == "pack":
+                            ftd.ensure_pack(self.URL, expected, destination, None, 30)
+                        else:
+                            ftd.ensure_grammar(self.URL, expected, len(payload), destination, 30)
+                self.assertEqual(1, opened.call_count)
+                self.assertFalse(destination.exists())
+                self.assertFalse(destination.with_name(destination.name + ".part").exists())
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -9,6 +9,7 @@ import re
 import time
 import urllib.request
 from http.client import IncompleteRead
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 
@@ -159,3 +160,44 @@ def download_to(url, dest, timeout, **retry):
             part.unlink(missing_ok=True)
 
     with_retry(f"download {url}", attempt, **retry)
+
+
+def ensure_pack(url, expected_sha256, zip_path, local_zip, timeout):
+    if local_zip is not None:
+        source = Path(local_zip)
+        if not source.exists():
+            raise SystemExit(f"--zip not found: {source}")
+        actual = sha256_file(source)
+        if actual != expected_sha256:
+            raise SystemExit(f"--zip sha256 mismatch: {actual} != {expected_sha256}")
+        return source
+    if zip_path.exists():
+        if sha256_file(zip_path) == expected_sha256:
+            return zip_path
+        zip_path.unlink()
+    download_to(url, zip_path, timeout)
+    actual = sha256_file(zip_path)
+    if actual != expected_sha256:
+        zip_path.unlink(missing_ok=True)
+        raise SystemExit(f"downloaded pack sha256 mismatch: {actual} != {expected_sha256}")
+    return zip_path
+
+
+def ensure_grammar(url, expected_sha256, expected_size, grammar_path, timeout):
+    if grammar_path.exists():
+        if (
+            grammar_path.stat().st_size == expected_size
+            and sha256_file(grammar_path) == expected_sha256
+        ):
+            return grammar_path
+        grammar_path.unlink()
+    download_to(url, grammar_path, timeout)
+    actual_size = grammar_path.stat().st_size
+    actual_sha256 = sha256_file(grammar_path)
+    if actual_size != expected_size or actual_sha256 != expected_sha256:
+        grammar_path.unlink(missing_ok=True)
+        raise SystemExit(
+            "downloaded grammar mismatch: "
+            f"size {actual_size} != {expected_size} or sha256 {actual_sha256} != {expected_sha256}"
+        )
+    return grammar_path
