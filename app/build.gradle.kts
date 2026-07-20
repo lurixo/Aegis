@@ -37,6 +37,10 @@ android {
         compose = true
     }
 
+    androidResources {
+        ignoreAssetsPatterns += listOf("aegis_dict.bin", "aegis_t9.bin", "aegis_jianpin.bin")
+    }
+
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
