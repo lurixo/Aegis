@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import time
 import urllib.request
 import zipfile
@@ -37,6 +38,8 @@ GRAMMAR_RELEASE_API = (
 GRAMMAR_URL = (
     f"https://github.com/amzxyz/RIME-LMDG/releases/download/{GRAMMAR_TAG}/{GRAMMAR_NAME}"
 )
+BUILD_INFO_NAME = "aegis-build-info.json"
+BUILD_INFO_SCHEMA = "aegis.resource-build-info"
 PACK_NAME = f"aegis_dict_pack_{DICT_LATEST_TAG}.zip"
 PACK_URL = f"https://github.com/lurixo/Aegis/releases/download/{DICT_LATEST_TAG}/{PACK_NAME}"
 
@@ -145,6 +148,93 @@ def resolve_grammar_asset(release_api, **retry):
     if not isinstance(size, int) or size <= 1024:
         raise SystemExit("grammar release carries an invalid asset size")
     return GRAMMAR_URL, sha256, GRAMMAR_NAME, size
+
+def load_build_info(path):
+    try:
+        info = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError) as error:
+        return None, f"{path} is unreadable: {error}"
+    if not isinstance(info, dict) or info.get("schema_name") != BUILD_INFO_SCHEMA or info.get("schema_version") != 1:
+        return None, f"{path} is not a version 1 {BUILD_INFO_SCHEMA} document"
+    return info, None
+
+
+def pinned_asset(info, kind, section):
+    entries = info.get(section, [])
+    if not isinstance(entries, list):
+        return None
+    for entry in entries:
+        if isinstance(entry, dict) and entry.get("kind") == kind:
+            asset = entry.get("physical_asset")
+            return asset if isinstance(asset, dict) else {}
+    return None
+
+
+def pinned_pack(info):
+    asset = pinned_asset(info, "dictionary", "resources")
+    if asset is None:
+        return None, "it describes no dictionary resource"
+    sha256 = normalize_sha256(asset.get("sha256"))
+    if asset.get("name") != PACK_NAME or asset.get("url") != PACK_URL or sha256 is None:
+        return None, "its dictionary resource is not the expected dict-latest pack"
+    return (PACK_URL, sha256, PACK_NAME), None
+
+
+def pinned_grammar(info):
+    asset = pinned_asset(info, "grammar_model", "external_resource_references")
+    if asset is None:
+        return None, "it references no grammar model"
+    sha256 = normalize_sha256(asset.get("sha256"))
+    size = asset.get("size_bytes")
+    if asset.get("url") != GRAMMAR_URL or sha256 is None:
+        return None, f"its grammar reference is not the expected {GRAMMAR_TAG} asset"
+    if isinstance(size, bool) or not isinstance(size, int) or size <= 1024:
+        return None, "its grammar reference carries an invalid asset size"
+    return (GRAMMAR_URL, sha256, GRAMMAR_NAME, size), None
+
+
+def note(message):
+    print(f"[fetch_test_dict] {message}", file=sys.stderr)
+
+
+def resolve_against_pin(label, build_info_path, read_pin, resolve_live):
+    info, problem = load_build_info(build_info_path)
+    if info is None:
+        pin, pin_problem = None, problem
+    else:
+        pin, pin_problem = read_pin(info)
+    if pin is None:
+        note(f"{label}: no usable pin ({pin_problem})")
+    try:
+        live = resolve_live()
+    except (SystemExit, ValueError, OSError) as error:
+        if pin is None:
+            raise
+        note(f"{label}: the live channel is unusable ({error})")
+        note(f"{label}: continuing on the supplied pin {pin[1]}")
+        return pin
+    if pin is not None and pin[1] != live[1]:
+        note(f"{label}: resolved metadata selects {live[1]} instead of the supplied pin {pin[1]}")
+    return live
+
+
+def resolve_dictionary(manifest_url, build_info_path, **retry):
+    return resolve_against_pin(
+        "dictionary pack",
+        build_info_path,
+        pinned_pack,
+        lambda: resolve_asset(manifest_url, **retry),
+    )
+
+
+def resolve_grammar(release_api, build_info_path, **retry):
+    return resolve_against_pin(
+        "grammar model",
+        build_info_path,
+        pinned_grammar,
+        lambda: resolve_grammar_asset(release_api, **retry),
+    )
+
 
 def download_to(url, dest, timeout, **retry):
     dest.parent.mkdir(parents=True, exist_ok=True)
