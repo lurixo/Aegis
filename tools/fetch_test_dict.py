@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-only
 
+import hashlib
 import json
 import os
 import re
@@ -39,6 +40,15 @@ def normalize_sha256(value):
     if raw.startswith("sha256:"):
         raw = raw[len("sha256:"):]
     return raw if re.fullmatch(r"[0-9a-f]{64}", raw) else None
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
 
 def retryable(error):
     if isinstance(error, HTTPError):
@@ -127,3 +137,25 @@ def resolve_grammar_asset(release_api, **retry):
     if not isinstance(size, int) or size <= 1024:
         raise SystemExit("grammar release carries an invalid asset size")
     return GRAMMAR_URL, sha256, GRAMMAR_NAME, size
+
+def download_to(url, dest, timeout, **retry):
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    part = dest.with_name(dest.name + ".part")
+    part.unlink(missing_ok=True)
+
+    def attempt(remaining):
+        try:
+            with open_once(url, min(timeout, remaining)) as response, part.open("wb") as out:
+                length = getattr(response, "headers", {}).get("Content-Length")
+                expected_size = int(length) if length is not None else None
+                copied = 0
+                for chunk in iter(lambda: response.read(1024 * 1024), b""):
+                    out.write(chunk)
+                    copied += len(chunk)
+                if expected_size is not None and copied < expected_size:
+                    raise IncompleteRead(b"", expected_size - copied)
+            part.replace(dest)
+        finally:
+            part.unlink(missing_ok=True)
+
+    with_retry(f"download {url}", attempt, **retry)

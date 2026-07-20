@@ -3,9 +3,11 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 
+import hashlib
 import io
 import json
 import sys
+import tempfile
 import unittest
 import urllib.error
 from http.client import HTTPResponse, IncompleteRead
@@ -242,6 +244,38 @@ class ResolutionAfterTransientFailuresTest(unittest.TestCase):
         self.assertEqual([mock.call(2.0)], sleep.call_args_list)
         self.assertEqual([], responses)
 
+    def test_a_download_retries_transient_http_errors_and_cleans_up_on_failure(self):
+        payload = b"pack" * 512
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "aegis_dict_pack.zip"
+            responses = [http_error(404), io.BytesIO(payload)]
+
+            def urlopen(request, timeout=None):
+                outcome = responses.pop(0)
+                if isinstance(outcome, Exception):
+                    raise outcome
+                return outcome
+
+            with mock.patch.object(ftd.time, "sleep"), mock.patch.object(
+                ftd.urllib.request, "urlopen", side_effect=urlopen
+            ):
+                ftd.download_to("https://example.invalid/pack.zip", destination, 13)
+            self.assertEqual(payload, destination.read_bytes())
+            self.assertEqual(
+                hashlib.sha256(payload).hexdigest(), ftd.sha256_file(destination)
+            )
+            self.assertFalse(destination.with_name(destination.name + ".part").exists())
+
+            destination.unlink()
+            with mock.patch.object(ftd.time, "sleep"), mock.patch.object(
+                ftd.urllib.request, "urlopen", side_effect=http_error(404)
+            ):
+                with self.assertRaisesRegex(SystemExit, "failed after bounded retries"):
+                    ftd.download_to("https://example.invalid/pack.zip", destination, 13)
+            self.assertFalse(destination.exists())
+            self.assertFalse(destination.with_name(destination.name + ".part").exists())
+
+
 class BodyTransferRetryTest(unittest.TestCase):
     URL = "https://example.invalid/asset"
 
@@ -304,6 +338,127 @@ class BodyTransferRetryTest(unittest.TestCase):
         self.assertEqual(3, opened.call_count)
         self.assertEqual([2.0, 4.0], clock.slept)
         self.assertTrue(all(response.closed for response in responses))
+
+    def test_truncated_http_responses_retry_for_metadata_and_streamed_downloads(self):
+        incomplete_responses = (
+            b"HTTP/1.1 200 OK\r\nContent-Length: 20\r\n\r\nshort",
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n9\r\nshort",
+        )
+        for wire_bytes in incomplete_responses:
+            for download in (False, True):
+                with self.subTest(wire_bytes=wire_bytes, download=download):
+                    clock = RecordingClock()
+                    socket = mock.Mock()
+                    socket.makefile.return_value = io.BytesIO(wire_bytes)
+                    broken = HTTPResponse(socket)
+                    broken.begin()
+                    with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+                        ftd.urllib.request, "urlopen",
+                        side_effect=[broken, io.BytesIO(b"complete")],
+                    ) as opened:
+                        if download:
+                            destination = Path(directory) / "asset"
+                            ftd.download_to(
+                                self.URL, destination, 30,
+                                sleep=clock.sleep, clock=clock.monotonic,
+                            )
+                            self.assertEqual(b"complete", destination.read_bytes())
+                            self.assertFalse(destination.with_name("asset.part").exists())
+                        else:
+                            self.assertEqual(
+                                b"complete",
+                                ftd.http_get(
+                                    self.URL, 30, sleep=clock.sleep, clock=clock.monotonic
+                                ),
+                            )
+                    self.assertEqual(2, opened.call_count)
+                    self.assertTrue(broken.closed)
+
+    def test_download_restarts_from_zero_after_body_failure_or_short_content_length(self):
+        failures = (
+            ([b"discarded prefix", ConnectionResetError("reset")], None),
+            ([b"discarded prefix", TimeoutError("timeout")], None),
+            ([b"discarded prefix", IncompleteRead(b"partial", 5)], None),
+            ([b"discarded prefix"], 100),
+        )
+        for chunks, length in failures:
+            with self.subTest(chunks=chunks, length=length), tempfile.TemporaryDirectory() as directory:
+                clock = RecordingClock()
+                destination = Path(directory) / "asset"
+                part = destination.with_name(destination.name + ".part")
+                part.write_bytes(b"stale partial")
+                broken = ScriptedResponse(chunks, length)
+                success = ScriptedResponse([b"complete", b" payload"], 16)
+                responses = [broken, success]
+
+                def urlopen(request, timeout=None):
+                    self.assertFalse(part.exists())
+                    return responses.pop(0)
+
+                with mock.patch.object(ftd.urllib.request, "urlopen", side_effect=urlopen) as opened:
+                    ftd.download_to(
+                        self.URL, destination, 30, sleep=clock.sleep, clock=clock.monotonic
+                    )
+                self.assertEqual(2, opened.call_count)
+                self.assertEqual(b"complete payload", destination.read_bytes())
+                self.assertFalse(part.exists())
+                self.assertTrue(broken.closed)
+                self.assertTrue(success.closed)
+
+    def test_persistent_download_body_failures_remove_part_and_preserve_destination(self):
+        with tempfile.TemporaryDirectory() as directory:
+            clock = RecordingClock()
+            destination = Path(directory) / "asset"
+            destination.write_bytes(b"previous complete asset")
+            part = destination.with_name(destination.name + ".part")
+            responses = [
+                ScriptedResponse([b"partial", ConnectionResetError("reset")])
+                for _ in range(3)
+            ]
+            with mock.patch.object(ftd.urllib.request, "urlopen", side_effect=responses) as opened:
+                with self.assertRaisesRegex(SystemExit, "failed after bounded retries"):
+                    ftd.download_to(
+                        self.URL, destination, 30, attempts=3,
+                        sleep=clock.sleep, clock=clock.monotonic,
+                    )
+            self.assertEqual(3, opened.call_count)
+            self.assertEqual(b"previous complete asset", destination.read_bytes())
+            self.assertFalse(part.exists())
+            self.assertTrue(all(response.closed for response in responses))
+
+    def test_an_expired_download_window_cleans_stale_part_without_starting_a_request(self):
+        with tempfile.TemporaryDirectory() as directory:
+            clock = RecordingClock()
+            destination = Path(directory) / "asset"
+            part = destination.with_name(destination.name + ".part")
+            part.write_bytes(b"stale partial")
+            with mock.patch.object(ftd.urllib.request, "urlopen") as opened:
+                with self.assertRaisesRegex(SystemExit, "before the first attempt"):
+                    ftd.download_to(
+                        self.URL, destination, 30, window=0,
+                        sleep=clock.sleep, clock=clock.monotonic,
+                    )
+            opened.assert_not_called()
+            self.assertFalse(destination.exists())
+            self.assertFalse(part.exists())
+
+    def test_a_download_http_403_fails_immediately_and_removes_stale_part(self):
+        with tempfile.TemporaryDirectory() as directory:
+            clock = RecordingClock()
+            destination = Path(directory) / "asset"
+            part = destination.with_name(destination.name + ".part")
+            part.write_bytes(b"stale partial")
+            with mock.patch.object(
+                ftd.urllib.request, "urlopen", side_effect=http_error(403)
+            ) as opened:
+                with self.assertRaisesRegex(SystemExit, "failed: HTTP Error 403"):
+                    ftd.download_to(
+                        self.URL, destination, 30, sleep=clock.sleep, clock=clock.monotonic
+                    )
+            self.assertEqual(1, opened.call_count)
+            self.assertEqual([], clock.slept)
+            self.assertFalse(destination.exists())
+            self.assertFalse(part.exists())
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
