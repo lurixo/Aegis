@@ -243,9 +243,13 @@ internal object DictDownloadWork {
         return runtime.observe(context, observer)
     }
 
-    fun start(context: Context, asset: ModelDownload.DictionaryAsset? = null) {
+    fun start(
+        context: Context,
+        asset: ModelDownload.DictionaryAsset? = null,
+        startTask: (Thread) -> Unit = Thread::start,
+    ) {
         ModelDownload.reconcileInterruptedDownloads(context.filesDir)
-        runtime.start(context) worker@ { app, onProgress, onStatus ->
+        runtime.start(context, startTask) worker@ { app, onProgress, onStatus ->
             ModelDownload.recoverInterruptedDictionaryInstall(app.filesDir)
             val prefs = app.getSharedPreferences("aegis", Context.MODE_PRIVATE)
             val selected = asset ?: ModelDownload.resolveDictionaryDownloadAsset()
