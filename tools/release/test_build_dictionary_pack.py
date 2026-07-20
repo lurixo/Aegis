@@ -957,6 +957,71 @@ class SourceCheckoutValidationTest(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "must be clean"):
                 bp.ensure_source_checkout(self.args(repo), root / "work")
 
+class GrammarAssetResolutionTest(unittest.TestCase):
+    DIGEST = "ab" * 32
+    API = "https://api.example.invalid/releases/tags/LTS"
+
+    def release(self, **asset_overrides):
+        asset = {
+            "name": ftd.GRAMMAR_NAME,
+            "browser_download_url": ftd.GRAMMAR_URL,
+            "digest": "sha256:" + self.DIGEST,
+            "size": 4096,
+        }
+        asset.update(asset_overrides)
+        return {"tag_name": ftd.GRAMMAR_TAG, "assets": [asset]}
+
+    def resolve(self, release):
+        payload = json.dumps(release).encode("utf-8")
+        with mock.patch.object(ftd, "http_get", return_value=payload) as get:
+            result = ftd.resolve_grammar_asset(self.API)
+        get.assert_called_once_with(self.API, 60)
+        return result
+
+    def test_accepts_the_exact_lts_asset_and_normalizes_its_digest(self):
+        self.assertEqual(
+            (ftd.GRAMMAR_URL, self.DIGEST, ftd.GRAMMAR_NAME, 4096),
+            self.resolve(self.release()),
+        )
+
+    def test_rejects_a_grammar_asset_from_another_url(self):
+        with self.assertRaisesRegex(SystemExit, "expected LTS asset"):
+            self.resolve(self.release(browser_download_url="https://example.invalid/model.gram"))
+
+    def test_rejects_a_missing_or_malformed_grammar_digest(self):
+        for digest in (None, "sha256:not-a-digest", "ab" * 31):
+            with self.subTest(digest=digest), self.assertRaisesRegex(
+                SystemExit, "expected LTS asset"
+            ):
+                self.resolve(self.release(digest=digest))
+
+    def test_rejects_an_invalid_grammar_size(self):
+        for size in (None, "4096", 0, 1024):
+            with self.subTest(size=size), self.assertRaisesRegex(
+                SystemExit, "invalid asset size"
+            ):
+                self.resolve(self.release(size=size))
+
+    def test_rejects_an_unexpected_tag_or_asset_cardinality(self):
+        bad_releases = [
+            {"tag_name": "latest", "assets": self.release()["assets"]},
+            {"tag_name": ftd.GRAMMAR_TAG, "assets": []},
+            {
+                "tag_name": ftd.GRAMMAR_TAG,
+                "assets": self.release()["assets"] * 2,
+            },
+        ]
+        for release in bad_releases:
+            with self.subTest(release=release), self.assertRaises(SystemExit):
+                self.resolve(release)
+
+    def test_api_failure_does_not_produce_a_reference(self):
+        with mock.patch.object(ftd, "http_get", side_effect=OSError("offline")) as get:
+            with self.assertRaisesRegex(OSError, "offline"):
+                ftd.resolve_grammar_asset(self.API)
+        get.assert_called_once_with(self.API, 60)
+
+
 class GitHubApiAuthenticationBoundaryTest(unittest.TestCase):
     def request_for(self, url, token="test-token"):
         with mock.patch.dict(os.environ, {"GITHUB_TOKEN": token}, clear=False), mock.patch.object(

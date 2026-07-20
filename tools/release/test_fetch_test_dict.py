@@ -4,6 +4,7 @@
 #
 
 import io
+import json
 import sys
 import unittest
 import urllib.error
@@ -32,6 +33,26 @@ class RecordingClock:
     def monotonic(self):
         self.now += self.step
         return self.now
+
+
+class ScriptedResponse:
+    def __init__(self, chunks, length=None):
+        self.chunks = list(chunks)
+        self.headers = {} if length is None else {"Content-Length": str(length)}
+        self.closed = False
+
+    def read(self, size=-1):
+        chunk = self.chunks.pop(0) if self.chunks else b""
+        if isinstance(chunk, Exception):
+            raise chunk
+        return chunk
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.closed = True
+
 
 class BoundedRetryTest(unittest.TestCase):
     URL = "https://example.invalid/asset"
@@ -184,6 +205,105 @@ class BoundedRetryTest(unittest.TestCase):
             )
         self.assertEqual(1, opened.call_count)
         self.assertEqual(20, opened.call_args.kwargs["timeout"])
+
+
+class ResolutionAfterTransientFailuresTest(unittest.TestCase):
+    def manifest(self):
+        return json.dumps(
+            {
+                "schema_version": 1,
+                "kind": "dictionary_update",
+                "asset": {
+                    "name": f"aegis_dict_pack_{ftd.DICT_LATEST_TAG}.zip",
+                    "url": (
+                        "https://github.com/lurixo/Aegis/releases/download/"
+                        f"{ftd.DICT_LATEST_TAG}/aegis_dict_pack_{ftd.DICT_LATEST_TAG}.zip"
+                    ),
+                    "sha256": "ab" * 32,
+                },
+            }
+        ).encode("utf-8")
+
+    def test_the_manifest_resolves_after_a_transient_404(self):
+        responses = [http_error(404), io.BytesIO(self.manifest())]
+
+        def urlopen(request, timeout=None):
+            outcome = responses.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        with mock.patch.object(ftd.time, "sleep") as sleep, mock.patch.object(
+            ftd.urllib.request, "urlopen", side_effect=urlopen
+        ):
+            url, sha256, name = ftd.resolve_asset(ftd.MANIFEST_URL)
+        self.assertEqual(f"aegis_dict_pack_{ftd.DICT_LATEST_TAG}.zip", name)
+        self.assertEqual("ab" * 32, sha256)
+        self.assertEqual([mock.call(2.0)], sleep.call_args_list)
+        self.assertEqual([], responses)
+
+class BodyTransferRetryTest(unittest.TestCase):
+    URL = "https://example.invalid/asset"
+
+    def test_metadata_body_failures_retry_the_entire_response(self):
+        for failure in (
+            ConnectionResetError("reset during body"),
+            TimeoutError("timeout during body"),
+            IncompleteRead(b"partial", 10),
+        ):
+            with self.subTest(failure=type(failure).__name__):
+                clock = RecordingClock()
+                broken = ScriptedResponse([failure])
+                success = ScriptedResponse([b"complete body"])
+                with mock.patch.object(
+                    ftd.urllib.request, "urlopen", side_effect=[broken, success]
+                ) as opened:
+                    self.assertEqual(
+                        b"complete body",
+                        ftd.http_get(self.URL, 30, sleep=clock.sleep, clock=clock.monotonic),
+                    )
+                self.assertEqual(2, opened.call_count)
+                self.assertEqual([2.0], clock.slept)
+                self.assertTrue(broken.closed)
+                self.assertTrue(success.closed)
+
+    def test_both_metadata_resolvers_retry_a_body_reset(self):
+        grammar = json.dumps(
+            {
+                "tag_name": ftd.GRAMMAR_TAG,
+                "assets": [{
+                    "name": ftd.GRAMMAR_NAME,
+                    "digest": "sha256:" + "cd" * 32,
+                    "size": 2048,
+                    "browser_download_url": ftd.GRAMMAR_URL,
+                }],
+            }
+        ).encode("utf-8")
+        manifest = ResolutionAfterTransientFailuresTest().manifest()
+        for resolve, url, payload, expected in (
+            (ftd.resolve_asset, ftd.MANIFEST_URL, manifest, "ab" * 32),
+            (ftd.resolve_grammar_asset, ftd.GRAMMAR_RELEASE_API, grammar, "cd" * 32),
+        ):
+            with self.subTest(resolve=resolve.__name__):
+                broken = ScriptedResponse([ConnectionResetError("reset during body")])
+                with mock.patch.object(ftd.time, "sleep"), mock.patch.object(
+                    ftd.urllib.request, "urlopen", side_effect=[broken, io.BytesIO(payload)]
+                ) as opened:
+                    self.assertEqual(expected, resolve(url)[1])
+                self.assertEqual(2, opened.call_count)
+                self.assertTrue(broken.closed)
+
+    def test_persistent_body_failure_exhausts_attempts_and_closes_each_response(self):
+        clock = RecordingClock()
+        responses = [ScriptedResponse([IncompleteRead(b"partial", 5)]) for _ in range(3)]
+        with mock.patch.object(ftd.urllib.request, "urlopen", side_effect=responses) as opened:
+            with self.assertRaisesRegex(SystemExit, "failed after bounded retries"):
+                ftd.http_get(
+                    self.URL, 30, attempts=3, sleep=clock.sleep, clock=clock.monotonic
+                )
+        self.assertEqual(3, opened.call_count)
+        self.assertEqual([2.0, 4.0], clock.slept)
+        self.assertTrue(all(response.closed for response in responses))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
