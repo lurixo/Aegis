@@ -72,24 +72,27 @@ class DownloadCardWorkTest {
         failureStatus = failed,
     )
 
-    private fun awaitTerminal(runtime: DownloadRuntime): DownloadCardSnapshot {
-        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
-        var snapshot = runtime.snapshot(context)
-        while (snapshot.downloading && System.nanoTime() < deadline) {
-            Thread.yield()
-            snapshot = runtime.snapshot(context)
-        }
-        return snapshot
+    private fun capture(holder: AtomicReference<Thread>): (Thread) -> Unit = { thread ->
+        holder.set(thread)
+        thread.start()
     }
 
-    private fun awaitDictionaryTerminal(): DownloadCardSnapshot {
-        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
-        var snapshot = DictDownloadWork.snapshot(context)
-        while (snapshot.downloading && System.nanoTime() < deadline) {
-            Thread.yield()
-            snapshot = DictDownloadWork.snapshot(context)
+    private fun awaitWorker(holder: AtomicReference<Thread>) {
+        holder.get()?.let { thread ->
+            thread.join(TimeUnit.SECONDS.toMillis(30))
+            assertFalse("download worker did not reach a terminal state", thread.isAlive)
         }
-        return snapshot
+    }
+
+    private fun joinWorker(start: ((Thread) -> Unit) -> Unit) {
+        val holder = AtomicReference<Thread>()
+        start(capture(holder))
+        awaitWorker(holder)
+    }
+
+    private fun startDictionary(asset: ModelDownload.DictionaryAsset?): DownloadCardSnapshot {
+        joinWorker { startTask -> DictDownloadWork.start(context, asset, startTask = startTask) }
+        return DictDownloadWork.snapshot(context)
     }
 
     private fun dictionaryArchive(entries: Map<String, ByteArray>): ByteArray {
@@ -109,8 +112,9 @@ class DownloadCardWorkTest {
         val progressReported = CountDownLatch(1)
         val allowFinish = CountDownLatch(1)
         val runtime = runtime()
+        val holder = AtomicReference<Thread>()
 
-        runtime.start(context) { _, onProgress, _ ->
+        runtime.start(context, capture(holder)) { _, onProgress, _ ->
             allowProgress.await(2, TimeUnit.SECONDS)
             onProgress(0.4f)
             progressReported.countDown()
@@ -125,7 +129,8 @@ class DownloadCardWorkTest {
         assertTrue(progressReported.await(2, TimeUnit.SECONDS))
         assertEquals(0.4f, runtime.snapshot(context).progress!!, 0f)
         allowFinish.countDown()
-        val terminal = awaitTerminal(runtime)
+        awaitWorker(holder)
+        val terminal = runtime.snapshot(context)
         assertFalse(terminal.downloading)
         assertEquals(done, terminal.status)
     }
@@ -142,26 +147,20 @@ class DownloadCardWorkTest {
         val failedSnapshot = runtime.snapshot(context)
         assertFalse(failedSnapshot.downloading)
         assertEquals(failed, failedSnapshot.status)
-        val completed = CountDownLatch(1)
-        runtime.start(context) { _, _, _ -> runs += 1; completed.countDown(); done }
-        assertTrue(completed.await(2, TimeUnit.SECONDS))
-        assertFalse(awaitTerminal(runtime).downloading)
+        joinWorker { startTask -> runtime.start(context, startTask) { _, _, _ -> runs += 1; done } }
+        assertFalse(runtime.snapshot(context).downloading)
         assertEquals(1, runs)
     }
 
     @Test fun worker_failure_ends_and_allows_an_immediate_retry() {
         val runtime = runtime()
-        val failedWorkerRan = CountDownLatch(1)
-        runtime.start(context) { _, _, _ -> failedWorkerRan.countDown(); error("worker failed") }
-        assertTrue(failedWorkerRan.await(2, TimeUnit.SECONDS))
-        val failedSnapshot = awaitTerminal(runtime)
+        joinWorker { startTask -> runtime.start(context, startTask) { _, _, _ -> error("worker failed") } }
+        val failedSnapshot = runtime.snapshot(context)
         assertFalse(failedSnapshot.downloading)
         assertEquals(failed, failedSnapshot.status)
 
-        val completed = CountDownLatch(1)
-        runtime.start(context) { _, _, _ -> completed.countDown(); done }
-        assertTrue(completed.await(2, TimeUnit.SECONDS))
-        val retried = awaitTerminal(runtime)
+        joinWorker { startTask -> runtime.start(context, startTask) { _, _, _ -> done } }
+        val retried = runtime.snapshot(context)
         assertFalse(retried.downloading)
         assertEquals(done, retried.status)
     }
@@ -276,8 +275,7 @@ class DownloadCardWorkTest {
             assertTrue(ModelDownload.unmarkedDictionaryRecoveryRequired(base))
             assertNull(EngineAssets.downloadedOverride(downloaded, survivorName, minBytes = 0L))
 
-            DictDownloadWork.start(context, asset)
-            val blocked = awaitDictionaryTerminal()
+            val blocked = startDictionary(asset)
 
             assertFalse(blocked.downloading)
             assertEquals(LocalizedText.Resource(R.string.dict_status_download_failed), blocked.status)
@@ -306,8 +304,7 @@ class DownloadCardWorkTest {
             assertFalse(zip.exists())
             assertFalse(ModelDownload.unmarkedDictionaryRecoveryRequired(base))
 
-            DictDownloadWork.start(context, asset)
-            val installed = awaitDictionaryTerminal()
+            val installed = startDictionary(asset)
 
             assertFalse(installed.downloading)
             assertTrue(installed.present)
