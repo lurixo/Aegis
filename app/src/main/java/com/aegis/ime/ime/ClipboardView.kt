@@ -153,6 +153,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
     private var dragTouchOffsetY = 0f
     private var dragLastRawY = 0f
     private var dragView: View? = null
+    private val dragRowTargets = WeakHashMap<View, Float>()
     private enum class DragKind { NONE, PHRASE, CATEGORY }
     private var dragKind = DragKind.NONE
     private val dragHandler = Handler(Looper.getMainLooper())
@@ -219,6 +220,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         const val DRAG_AUTO_SCROLL_INTERVAL_MS = 16L
         const val DRAG_AUTO_SCROLL_MIN_STEP_DP = 2
         const val DRAG_AUTO_SCROLL_MAX_STEP_DP = 8
+        const val DRAG_HYSTERESIS_FRACTION = 0.25f
     }
 
     private fun preview(s: String): CharSequence = if (s.length > DISPLAY_CAP) s.substring(0, DISPLAY_CAP) + "…" else s
@@ -977,14 +979,18 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         val n = listColumn.childCount
         if (n == 0) return null
         val contentTop = listContentRawTop()
+        val current = dragCurrent
         var target = (n - 1).coerceAtLeast(0)
         for (i in 0 until n) {
             if (i == dragFrom) continue
             val child = listColumn.getChildAt(i)
             if (child.height <= 0) return null
-            val center = contentTop + child.top + child.height / 2f
-            if (rawY < center) {
-                target = if (i < dragFrom) i else i - 1
+            val center = contentTop + child.top + child.translationY + child.height / 2f
+            val mapped = if (i < dragFrom) i else i - 1
+            val margin = child.height * DRAG_HYSTERESIS_FRACTION
+            val bias = if (mapped >= current) margin else -margin
+            if (rawY < center + bias) {
+                target = mapped
                 break
             }
         }
@@ -1136,13 +1142,33 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
                 to < from && i in to until from -> listColumn.getChildAt(i + 1).top
                 else -> child.top
             }
-            child.translationY = (targetTop - child.top).toFloat()
+            settleRowTranslation(child, (targetTop - child.top).toFloat())
         }
         listColumn.invalidate()
     }
 
+    private fun settleRowTranslation(child: View, target: Float) {
+        if (dragRowTargets[child] == target) return
+        dragRowTargets[child] = target
+        child.animate().cancel()
+        if (!child.isAttachedToWindow || !Motion.enabled()) {
+            child.translationY = target
+            return
+        }
+        child.animate()
+            .translationY(target)
+            .setDuration(Motion.SHORT2)
+            .setInterpolator(Motion.STANDARD_DECEL)
+            .start()
+    }
+
     private fun resetDragPreviewTranslations() {
-        for (i in 0 until listColumn.childCount) listColumn.getChildAt(i).translationY = 0f
+        for (i in 0 until listColumn.childCount) {
+            val child = listColumn.getChildAt(i)
+            child.animate().cancel()
+            child.translationY = 0f
+        }
+        dragRowTargets.clear()
     }
 
     private fun updateDraggedTranslation(rawY: Float) {
@@ -1156,12 +1182,38 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
         stopDragAutoScroll()
         val from = dragFrom; val to = dragCurrent
         val kind = dragKind
-        resetDragState()
-        if (from >= 0 && to >= 0 && from != to) {
+        val lifted = dragView
+        val reordered = from >= 0 && to >= 0 && from != to
+        val settleTarget = if (lifted != null && from in 0 until listColumn.childCount && to in 0 until listColumn.childCount)
+            (listColumn.getChildAt(to).top - lifted.top).toFloat() else 0f
+        if (reordered) {
             if (kind == DragKind.CATEGORY) onReorderCategory(from, to) else onReorderPhrase(currentCategory(), from, to)
+        }
+        if (reordered && lifted != null && lifted.isAttachedToWindow && Motion.enabled()) {
+            dragFrom = -1; dragCurrent = -1; dragVisualIndex = -1; dragTouchOffsetY = 0f; dragLastRawY = 0f; dragKind = DragKind.NONE
+            settleLiftedThenRefresh(lifted, settleTarget)
+        } else {
+            resetDragState()
             refresh()
         }
-        else refresh()
+    }
+
+    private fun settleLiftedThenRefresh(lifted: View, target: Float) {
+        lifted.animate()
+            .translationY(target)
+            .translationZ(0f)
+            .alpha(1f)
+            .setDuration(Motion.SHORT2)
+            .setInterpolator(Motion.STANDARD_DECEL)
+            .withEndAction {
+                if (dragView === lifted) {
+                    resetDragPreviewTranslations()
+                    lifted.translationZ = 0f; lifted.alpha = 1f; lifted.translationY = 0f
+                    dragView = null
+                    refresh()
+                }
+            }
+            .start()
     }
 
     private fun cancelDrag() {
