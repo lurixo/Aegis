@@ -957,6 +957,161 @@ class SourceCheckoutValidationTest(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "must be clean"):
                 bp.ensure_source_checkout(self.args(repo), root / "work")
 
+
+class PackEntryRoutingTest(unittest.TestCase):
+    def test_every_published_entry_routes_to_the_name_the_producer_declared(self):
+        expected = {bp.NOTICE_NAME: None, bp.LM_ENTRY: bp.LM_RUNTIME_NAME}
+        expected.update({entry: runtime for entry, runtime, _ in bp.OUTPUTS})
+        self.assertEqual(sorted(expected), sorted(bp.PACK_ENTRIES))
+        self.assertEqual(
+            expected, {name: ftd.target_for(name) for name in bp.PACK_ENTRIES}
+        )
+        self.assertEqual(
+            sorted(ftd.RUNTIME_BINS),
+            sorted(name for name in expected.values() if name is not None),
+        )
+
+    def test_routing_reads_the_base_name_and_refuses_everything_else(self):
+        self.assertEqual(bp.LM_RUNTIME_NAME, ftd.target_for("pack/AEGIS_LM.BIN"))
+        self.assertEqual(bp.LM_RUNTIME_NAME, ftd.target_for("pack\\aegis_lm.bin"))
+        self.assertIsNone(ftd.target_for("aegis_lm.bin.sha256"))
+        self.assertIsNone(ftd.target_for("aegis_pfx_letter.idx"))
+        self.assertIsNone(ftd.target_for("NOTICE.txt"))
+
+    def test_unpacking_a_published_pack_installs_exactly_the_runtime_bins(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "pack.zip"
+            with zipfile.ZipFile(archive, "w") as zf:
+                for name in bp.PACK_ENTRIES:
+                    zf.writestr(name, b"x" * 2048)
+            assets = root / "assets"
+
+            produced = ftd.extract_pack(archive, assets)
+
+            self.assertEqual(sorted(ftd.RUNTIME_BINS), sorted(produced))
+            self.assertEqual(
+                sorted(ftd.RUNTIME_BINS), sorted(item.name for item in assets.iterdir())
+            )
+
+
+class ExternalEnglishExtractionTest(unittest.TestCase):
+    ENTRY_FOR_RUNTIME = {
+        "aegis_dict.bin": "aegis_dict_full.bin",
+        "aegis_t9.bin": "aegis_t9_full.bin",
+        "aegis_jianpin.bin": "aegis_jianpin_full.bin",
+        ftd.LM_NAME: ftd.LM_NAME,
+        ftd.EN_NAME: ftd.EN_PACK_NAME,
+    }
+
+    def write_pack(self, path, omit=(), extra=(), small=()):
+        with zipfile.ZipFile(path, "w") as archive:
+            for runtime, entry in self.ENTRY_FOR_RUNTIME.items():
+                if runtime not in omit:
+                    size = 32 if runtime in small else 2048
+                    archive.writestr(entry, runtime.encode("ascii").ljust(size, b"x"))
+            for entry, payload in extra:
+                archive.writestr(entry, payload)
+
+    def destinations(self, root):
+        assets = root / "assets"
+        english = root / "models" / ftd.EN_NAME
+        return assets, english
+
+    def seed_destinations(self, assets, english):
+        assets.mkdir(parents=True)
+        english.parent.mkdir(parents=True)
+        for name in ftd.RUNTIME_BINS:
+            (assets / name).write_bytes(b"existing-" + name.encode("ascii"))
+        english.write_bytes(b"existing-english")
+
+    def assert_seed_destinations_unchanged(self, assets, english):
+        for name in ftd.RUNTIME_BINS:
+            self.assertEqual(b"existing-" + name.encode("ascii"), (assets / name).read_bytes())
+            self.assertFalse((assets / (name + ".part")).exists())
+        self.assertEqual(b"existing-english", english.read_bytes())
+        self.assertFalse(english.with_name(english.name + ".part").exists())
+
+    def test_real_english_is_extracted_outside_app_assets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "pack.zip"
+            assets, english = self.destinations(root)
+            self.write_pack(archive)
+
+            produced = ftd.extract_pack(archive, assets, english)
+
+            self.assertEqual(set(ftd.TEST_BINS), set(produced))
+            self.assertEqual(
+                sorted(ftd.RUNTIME_BINS), sorted(item.name for item in assets.iterdir())
+            )
+            self.assertNotIn(ftd.EN_NAME, [item.name for item in assets.iterdir()])
+            self.assertEqual(
+                ftd.EN_NAME.encode("ascii").ljust(2048, b"x"), english.read_bytes()
+            )
+            self.assertEqual(english, produced[ftd.EN_NAME][0])
+
+    def test_missing_english_fails_before_replacing_existing_tables(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "pack.zip"
+            assets, english = self.destinations(root)
+            self.seed_destinations(assets, english)
+            self.write_pack(archive, omit={ftd.EN_NAME})
+
+            with self.assertRaisesRegex(SystemExit, "missing expected tables: aegis_english.bin"):
+                ftd.extract_pack(archive, assets, english)
+
+            self.assert_seed_destinations_unchanged(assets, english)
+
+    def test_duplicate_runtime_route_fails_before_replacing_existing_tables(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "pack.zip"
+            assets, english = self.destinations(root)
+            self.seed_destinations(assets, english)
+            self.write_pack(archive, extra=[("nested/alternate_dict.bin", b"z" * 2048)])
+
+            with self.assertRaisesRegex(SystemExit, "more than one entry for aegis_dict.bin"):
+                ftd.extract_pack(archive, assets, english)
+
+            self.assert_seed_destinations_unchanged(assets, english)
+
+    def test_small_english_fails_without_replacing_existing_tables(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "pack.zip"
+            assets, english = self.destinations(root)
+            self.seed_destinations(assets, english)
+            self.write_pack(archive, small={ftd.EN_NAME})
+
+            with self.assertRaisesRegex(SystemExit, "implausibly small: aegis_english.bin"):
+                ftd.extract_pack(archive, assets, english)
+
+            self.assert_seed_destinations_unchanged(assets, english)
+
+    def test_copy_failure_leaves_no_partial_file_or_replaced_table(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "pack.zip"
+            assets, english = self.destinations(root)
+            self.seed_destinations(assets, english)
+            self.write_pack(archive)
+
+            def fail_during_copy(source, output, _length):
+                output.write(source.read(64))
+                raise OSError("copy interrupted")
+
+            with mock.patch.object(
+                ftd.shutil,
+                "copyfileobj",
+                side_effect=fail_during_copy,
+            ), self.assertRaisesRegex(OSError, "copy interrupted"):
+                ftd.extract_pack(archive, assets, english)
+
+            self.assert_seed_destinations_unchanged(assets, english)
+
+
 class GrammarAssetResolutionTest(unittest.TestCase):
     DIGEST = "ab" * 32
     API = "https://api.example.invalid/releases/tags/LTS"

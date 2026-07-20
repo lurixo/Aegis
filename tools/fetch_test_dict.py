@@ -6,8 +6,10 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import time
 import urllib.request
+import zipfile
 from http.client import IncompleteRead
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -22,6 +24,11 @@ DICT_LATEST_TAG = "dict-latest"
 MANIFEST_URL = (
     f"https://github.com/lurixo/Aegis/releases/download/{DICT_LATEST_TAG}/aegis-dictionary-update.json"
 )
+LM_NAME = "aegis_lm.bin"
+EN_PACK_NAME = "aegis_en_full.bin"
+EN_NAME = "aegis_english.bin"
+RUNTIME_BINS = ("aegis_dict.bin", "aegis_t9.bin", "aegis_jianpin.bin", LM_NAME)
+TEST_BINS = RUNTIME_BINS + (EN_NAME,)
 GRAMMAR_TAG = "LTS"
 GRAMMAR_NAME = "wanxiang-lts-zh-hans.gram"
 GRAMMAR_RELEASE_API = (
@@ -201,3 +208,65 @@ def ensure_grammar(url, expected_sha256, expected_size, grammar_path, timeout):
             f"size {actual_size} != {expected_size} or sha256 {actual_sha256} != {expected_sha256}"
         )
     return grammar_path
+
+
+def target_for(entry_name):
+    name = entry_name.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if name == LM_NAME:
+        return LM_NAME
+    if name == EN_PACK_NAME:
+        return EN_NAME
+    if "jianpin" in name:
+        return "aegis_jianpin.bin"
+    if "t9" in name:
+        return "aegis_t9.bin"
+    if "dict" in name:
+        return "aegis_dict.bin"
+    return None
+
+
+def extract_pack(zip_path, assets_dir, english_file=None):
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    if english_file is not None:
+        english_file.parent.mkdir(parents=True, exist_ok=True)
+    expected = TEST_BINS if english_file is not None else RUNTIME_BINS
+    selected = {}
+    with zipfile.ZipFile(zip_path) as archive:
+        for entry in archive.infolist():
+            if entry.is_dir():
+                continue
+            target = target_for(entry.filename)
+            if target is None:
+                continue
+            if target == EN_NAME and english_file is None:
+                continue
+            if target in selected:
+                raise SystemExit(f"pack contains more than one entry for {target}")
+            selected[target] = entry
+        missing = [name for name in expected if name not in selected]
+        if missing:
+            raise SystemExit("pack is missing expected tables: " + ", ".join(missing))
+        staged = {}
+        parts = set()
+        try:
+            for target in expected:
+                destination = english_file if target == EN_NAME else assets_dir / target
+                part = destination.with_name(destination.name + ".part")
+                part.unlink(missing_ok=True)
+                parts.add(part)
+                with archive.open(selected[target]) as source, part.open("wb") as out:
+                    shutil.copyfileobj(source, out, 1024 * 1024)
+                staged[target] = (destination, part, part.stat().st_size)
+            small = [name for name in expected if staged[name][2] <= 1024]
+            if small:
+                raise SystemExit("pack tables are implausibly small: " + ", ".join(small))
+            for target in expected:
+                destination, part, _ = staged[target]
+                part.replace(destination)
+            return {
+                target: (destination, size)
+                for target, (destination, _, size) in staged.items()
+            }
+        finally:
+            for part in parts:
+                part.unlink(missing_ok=True)
