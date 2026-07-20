@@ -413,6 +413,7 @@ class KeyboardController(
                 if (committedPrefix.isEmpty()) lastWord = null
                 return
             }
+            if (calcCand != null && !host.hasSelection()) { calcDismissed = true; return }
             if (host.hasSelection()) host.deleteSelection() else host.deleteBackward()
             lastWord = null
             if (calcCand != null) calcDismissed = true
