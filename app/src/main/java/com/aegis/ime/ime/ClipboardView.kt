@@ -1579,7 +1579,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel {
             gravity = Gravity.CENTER_VERTICAL
             background = rounded(CARD, ImeShapes.cardRadiusDp)
             layoutParams = ll(MP, WC).apply { topMargin = dp(8) }
-            addView(radio, ll(dp(40), MP))
+            addView(radio, ll(dp(14), MP))
             addView(label, ll(0, WC, 1f))
         }
         return SelectRowHolder(row, radio, label).also { selectRowPool.add(it) }
