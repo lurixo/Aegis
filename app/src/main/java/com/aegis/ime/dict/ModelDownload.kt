@@ -271,10 +271,7 @@ object ModelDownload {
     const val DICT_NAME = "aegis_dict_pack.zip"
     internal const val DICT_INSTALLED_SHA_NAME = "aegis_dict_pack.sha256"
     private const val DICT_PENDING_SHA_NAME = "aegis_dict_pack.pending.sha256"
-    const val FALLBACK_DICT_NAME = "aegis_dict_pack_debug13.zip"
-    const val FALLBACK_DICT_URL =
-        "https://github.com/lurixo/Aegis/releases/download/v0.1.0-debug.13/$FALLBACK_DICT_NAME"
-    const val FALLBACK_DICT_SHA256 = "d048435631623513a9d6a6ccb877a6ba06fb15a293ade72bb101d1e0d4feaa60"
+    private const val LEGACY_DICT_ZIP_NAME = "aegis_dict_pack_debug13.zip"
 
     val DICT_PACK_FILES = listOf("aegis_dict.bin", "aegis_t9.bin", "aegis_jianpin.bin")
 
@@ -309,22 +306,11 @@ object ModelDownload {
         val asset: DictionaryAsset? = null,
     )
 
-    val FALLBACK_DICT_ASSET = DictionaryAsset(
-        url = FALLBACK_DICT_URL,
-        assetName = FALLBACK_DICT_NAME,
-        sizeBytes = 98_214_288L,
-        sha256 = FALLBACK_DICT_SHA256,
-        releaseTag = "v0.1.0-debug.13",
-        releaseUrl = "https://github.com/lurixo/Aegis/releases/tag/v0.1.0-debug.13",
-        prerelease = true,
-        publishedAt = "2026-06-28T18:46:56Z",
-    )
-
     private fun downloadedDir(filesDir: File) = File(filesDir, "downloaded")
     fun dictZipFile(filesDir: File): File = File(downloadedDir(filesDir), DICT_NAME)
     fun dictPartFile(filesDir: File): File = File(downloadedDir(filesDir), "$DICT_NAME.part")
-    private fun legacyDictZipFile(filesDir: File): File = File(downloadedDir(filesDir), FALLBACK_DICT_NAME)
-    private fun legacyDictPartFile(filesDir: File): File = File(downloadedDir(filesDir), "$FALLBACK_DICT_NAME.part")
+    private fun legacyDictZipFile(filesDir: File): File = File(downloadedDir(filesDir), LEGACY_DICT_ZIP_NAME)
+    private fun legacyDictPartFile(filesDir: File): File = File(downloadedDir(filesDir), "$LEGACY_DICT_ZIP_NAME.part")
     private fun dictStagingDir(filesDir: File) = File(downloadedDir(filesDir), "dict-install")
     private fun dictBackupFile(filesDir: File, name: String) = File(downloadedDir(filesDir), "$name.backup")
     private fun dictInstalledShaFile(filesDir: File) = File(downloadedDir(filesDir), DICT_INSTALLED_SHA_NAME)
@@ -423,24 +409,12 @@ object ModelDownload {
             reconcileInterruptedDownloads(filesDir)
             val key = filesDir.absolutePath
             val zip = dictZipFile(filesDir)
-            val legacyZip = legacyDictZipFile(filesDir)
-            if (!zip.exists() && !legacyZip.exists()) return
+            legacyDictZipFile(filesDir).delete()
+            legacyDictPartFile(filesDir).delete()
+            if (!zip.exists()) return
             if (zip.absolutePath in inFlight || key in installingDicts) return
             recoveringDicts.add(key)
             try {
-                if (!zip.exists()) {
-                    val legacyMatches = runCatching {
-                        sha256Of(legacyZip).equals(FALLBACK_DICT_SHA256, ignoreCase = true)
-                    }.getOrDefault(false)
-                    if (!legacyMatches) {
-                        legacyZip.delete()
-                        return
-                    }
-                    val moved = runCatching { moveReplacing(legacyZip, zip); true }.getOrDefault(false)
-                    if (!moved) return
-                    runCatching { installDictPack(filesDir, FALLBACK_DICT_SHA256) }
-                    return
-                }
                 val expectedSha = pendingDictionarySha(filesDir)
                 if (expectedSha == null) {
                     if (unmarkedDictionaryRecoveryRequired(filesDir)) {
@@ -464,7 +438,6 @@ object ModelDownload {
                 }
             } finally {
                 clearPendingDictionarySha(filesDir)
-                if (isDictDownloaded(filesDir)) legacyZip.delete()
                 recoveringDicts.remove(key)
             }
         }
@@ -490,7 +463,7 @@ object ModelDownload {
 
     fun installDictPack(
         filesDir: File,
-        expectedSha256: String = FALLBACK_DICT_SHA256,
+        expectedSha256: String,
         persistMetadata: () -> Boolean = { true },
     ): Boolean = dictionaryRecoveryLock.withLock {
         installDictPackLocked(filesDir, expectedSha256, persistMetadata)
@@ -555,11 +528,11 @@ object ModelDownload {
         }
     }
 
-    fun resolveDictionaryDownloadAsset(): DictionaryAsset =
+    fun resolveDictionaryDownloadAsset(): DictionaryAsset? =
         resolveDictionaryDownloadAsset { fetchText(DICT_UPDATE_URL) }
 
-    internal fun resolveDictionaryDownloadAsset(fetch: () -> String): DictionaryAsset =
-        runCatching { dictionaryAssetFromUpdateJson(fetch()) }.getOrNull() ?: FALLBACK_DICT_ASSET
+    internal fun resolveDictionaryDownloadAsset(fetch: () -> String): DictionaryAsset? =
+        runCatching { dictionaryAssetFromUpdateJson(fetch()) }.getOrNull()
 
     fun checkDictionaryUpdate(current: DictionaryInstallMetadata): DictionaryUpdateCheck =
         checkDictionaryUpdate(DICT_UPDATE_URL, current)
