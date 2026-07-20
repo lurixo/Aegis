@@ -355,7 +355,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private fun startGateMonitoring() {
         if (gateDisposer != null) return
         gateDisposer = DictDownloadWork.observe(context) { snap ->
-            post { candidateView.setGateStatus(gateLabelFor(snap)) }
+            post { candidateView.setGateStatus(gateLabelFor(snap), gateShowsFailure(snap)) }
         }
     }
 
@@ -370,14 +370,19 @@ class InputView(context: Context) : LinearLayout(context) {
             snap.downloading && progress != null ->
                 context.getString(R.string.dict_gate_downloading) + " " + (progress * 100).toInt() + "%"
             snap.downloading -> context.getString(R.string.dict_gate_verifying)
-            !snap.present && gateStatusIsFailure(snap.status) -> context.getString(R.string.dict_gate_failed)
+            gateShowsFailure(snap) -> context.getString(R.string.dict_gate_failed)
             else -> context.getString(R.string.dict_gate_cta)
         }
     }
 
+    private fun gateShowsFailure(snap: DownloadCardSnapshot): Boolean =
+        !snap.downloading && !snap.present && gateStatusIsFailure(snap.status)
+
     private fun gateStatusIsFailure(status: LocalizedText): Boolean =
         status is LocalizedText.Resource &&
             (status.id == R.string.dict_status_download_failed || status.id == R.string.dict_status_install_failed)
+
+    internal fun gateShowsFailureForTest(snap: DownloadCardSnapshot): Boolean = gateShowsFailure(snap)
 
     internal fun candidateGateActiveForTest(): Boolean = candidateView.gateActiveForTest()
 

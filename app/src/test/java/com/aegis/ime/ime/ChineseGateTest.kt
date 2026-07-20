@@ -17,11 +17,16 @@ package com.aegis.ime.ime
 
 import android.view.MotionEvent
 import android.view.View
+import com.aegis.ime.R
 import com.aegis.ime.decoder.EngineFixture
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.engine.DictEngine
+import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
+import com.aegis.ime.ui.DownloadCardSnapshot
+import com.aegis.ime.ui.LocalizedText
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -113,4 +118,37 @@ class ChineseGateTest {
         v.dispatchTouchEvent(MotionEvent.obtain(0, 10, MotionEvent.ACTION_UP, cx, cy, 0))
         assertTrue("a tap anywhere on the gated strip must start the download", tapped)
     }
+
+    @Test fun gate_failed_state_draws_red_while_the_other_states_stay_green() {
+        val v = CandidateView(ctx)
+        val palette = ImePalette.STATIC_LIGHT
+        assertTrue("the red error colour must differ from the green accent", palette.deletable != palette.candidateFirst)
+        v.setContent(emptyList(), "ni", gate = true)
+
+        v.setGateStatus(ctx.getString(R.string.dict_gate_cta), failed = false)
+        assertEquals("idle gate stays green", palette.candidateFirst, v.gateTextColorForTest())
+        v.setGateStatus(ctx.getString(R.string.dict_gate_downloading) + " 40%", failed = false)
+        assertEquals("downloading gate stays green", palette.candidateFirst, v.gateTextColorForTest())
+        v.setGateStatus(ctx.getString(R.string.dict_gate_verifying), failed = false)
+        assertEquals("verifying gate stays green", palette.candidateFirst, v.gateTextColorForTest())
+        v.setGateStatus(ctx.getString(R.string.dict_gate_failed), failed = true)
+        assertEquals("failed gate turns red", palette.deletable, v.gateTextColorForTest())
+    }
+
+    @Test fun only_a_failed_download_with_no_pack_flags_the_gate_as_failed() {
+        val view = InputView(ctx)
+        val notDownloaded = LocalizedText.Resource(R.string.dict_status_not_downloaded)
+        val downloadFailed = LocalizedText.Resource(R.string.dict_status_download_failed)
+        val installFailed = LocalizedText.Resource(R.string.dict_status_install_failed)
+
+        assertFalse("idle", view.gateShowsFailureForTest(snap(false, false, null, notDownloaded)))
+        assertFalse("downloading", view.gateShowsFailureForTest(snap(false, true, 0.4f, notDownloaded)))
+        assertFalse("verifying", view.gateShowsFailureForTest(snap(false, true, null, notDownloaded)))
+        assertTrue("download failed", view.gateShowsFailureForTest(snap(false, false, null, downloadFailed)))
+        assertTrue("install failed", view.gateShowsFailureForTest(snap(false, false, null, installFailed)))
+        assertFalse("a failed status is moot once the pack is present", view.gateShowsFailureForTest(snap(true, false, null, downloadFailed)))
+    }
+
+    private fun snap(present: Boolean, downloading: Boolean, progress: Float?, status: LocalizedText) =
+        DownloadCardSnapshot(present = present, downloading = downloading, progress = progress, status = status)
 }
