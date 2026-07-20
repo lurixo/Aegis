@@ -249,6 +249,7 @@ internal object DictDownloadWork {
             ModelDownload.recoverInterruptedDictionaryInstall(app.filesDir)
             val prefs = app.getSharedPreferences("aegis", Context.MODE_PRIVATE)
             val selected = asset ?: ModelDownload.resolveDictionaryDownloadAsset()
+                ?: return@worker LocalizedText.Resource(R.string.dict_status_download_failed)
             val recoveredSha = ModelDownload.installedDictionaryFileSha(app.filesDir)
             if (
                 asset == null &&

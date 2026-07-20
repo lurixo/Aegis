@@ -49,7 +49,6 @@ class BuildInfoJsonTest {
         assertEquals(97_927_377L, asset.getLong("size_bytes"))
         assertEquals("dict-latest", asset.getString("release_tag"))
         assertTrue(asset.getBoolean("prerelease"))
-        assertNotEquals(ModelDownload.FALLBACK_DICT_SHA256, asset.getString("sha256"))
         assertEquals(ModelDownload.DICT_REPO_URL, source.getString("repo"))
         assertNotEquals("source URL and physical download URL must stay separate", source.getString("repo"), asset.getString("url"))
     }

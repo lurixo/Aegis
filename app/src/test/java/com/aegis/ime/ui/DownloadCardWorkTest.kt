@@ -261,10 +261,15 @@ class DownloadCardWorkTest {
                 exchange.close()
             }
         }
-        val asset = ModelDownload.FALLBACK_DICT_ASSET.copy(
+        val asset = ModelDownload.DictionaryAsset(
             url = "http://127.0.0.1:${server.address.port}/dict",
+            assetName = "aegis_dict_pack_dict-latest.zip",
             sizeBytes = body.size.toLong(),
             sha256 = sha256,
+            releaseTag = "dict-latest",
+            releaseUrl = "https://github.com/lurixo/Aegis/releases/tag/dict-latest",
+            prerelease = true,
+            publishedAt = null,
         )
         server.start()
         try {
