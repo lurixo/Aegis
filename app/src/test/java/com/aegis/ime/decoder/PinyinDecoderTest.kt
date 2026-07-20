@@ -37,7 +37,7 @@ class PinyinDecoderTest {
         return PinyinDecoder(BinaryDict.fromFile(t9File))
     }
 
-    private fun biangChar(): String = String(Character.toChars(0x30EDE))
+    private fun biangChar(): String = String(Character.toChars(0x30EDD))
 
     private fun dictSingles(key: String): Set<String> =
         BinaryDict.fromFile(dictFile).exact(key)

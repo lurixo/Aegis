@@ -405,7 +405,7 @@ class Ui12SyllableColumnTest {
     }
 
     private fun isSingleChar(word: String): Boolean = word.codePointCount(0, word.length) == 1
-    private fun biangChar(): String = String(Character.toChars(0x30EDE))
+    private fun biangChar(): String = String(Character.toChars(0x30EDD))
 
     @Test fun real_dict_drill_surfaces_every_homophone_the_dict_holds() {
         val eng = realEngine(); assumeTrue("dict assets present", eng != null)
