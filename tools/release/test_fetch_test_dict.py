@@ -727,6 +727,29 @@ class FixedInputsTest(unittest.TestCase):
         info_path.write_text(json.dumps(info))
         return pack, manifest_path, info_path
 
+    def test_fixed_inputs_materialize_offline_and_keep_english_outside_assets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pack, manifest, info = self.fixture(directory)
+            with mock.patch.object(ftd, "open_once", side_effect=AssertionError("network forbidden")):
+                result = ftd.main(["--manifest-file", str(manifest), "--build-info", str(info),
+                                   "--zip", str(pack), "--assets-dir", str(root / "assets"),
+                                   "--english-file", str(root / "models" / ftd.EN_NAME),
+                                   "--grammar-cache-dir", str(root), "--grammar-lock-file", str(root / "grammar-lock.json"), "--with-grammar"])
+            self.assertEqual(0, result)
+            self.assertEqual(set(ftd.RUNTIME_BINS), {p.name for p in (root / "assets").iterdir()})
+            self.assertEqual(2048, (root / "models" / ftd.EN_NAME).stat().st_size)
+
+    def test_fixed_inputs_reject_conflicting_metadata_before_extraction(self):
+        for field, value in (("sha256", "b" * 64), ("size_bytes", 9999), ("name", "other.zip")):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as directory:
+                pack, manifest, info = self.fixture(directory)
+                data = json.loads(manifest.read_text()); data["asset"][field] = value
+                manifest.write_text(json.dumps(data))
+                with mock.patch.object(ftd, "extract_pack") as extracted, self.assertRaisesRegex(SystemExit, "disagree"):
+                    ftd.main(["--manifest-file", str(manifest), "--build-info", str(info), "--zip", str(pack)])
+                extracted.assert_not_called()
+
     def test_fixed_inputs_reject_malformed_and_duplicate_components(self):
         for mutation in ("duplicate", "missing", "hash", "zip_entry", "size"):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
@@ -751,6 +774,21 @@ class FixedInputsTest(unittest.TestCase):
             pack.write_bytes(pack.read_bytes() + b"extra")
             with self.assertRaisesRegex(SystemExit, "pack size or sha256"):
                 ftd.verify_fixed_pack(pack, asset, components)
+
+    def test_fixed_mode_refuses_live_manifest_override_and_missing_build_info(self):
+        with tempfile.TemporaryDirectory() as directory:
+            _, manifest, info = self.fixture(directory)
+            with self.assertRaises(SystemExit):
+                ftd.main(["--manifest-file", str(manifest), "--build-info", str(info), "--manifest-url", ftd.MANIFEST_URL])
+            with mock.patch.dict(ftd.os.environ, {}, clear=True), self.assertRaises(SystemExit):
+                ftd.main(["--manifest-file", str(manifest)])
+
+    def test_fixed_metadata_cache_keys_never_resolve_live_channels(self):
+        with tempfile.TemporaryDirectory() as directory:
+            _, manifest, info = self.fixture(directory)
+            with mock.patch.object(ftd, "open_once", side_effect=AssertionError("network forbidden")):
+                for option in ("--print-sha", "--print-grammar-sha"):
+                    self.assertEqual(0, ftd.main(["--manifest-file", str(manifest), "--build-info", str(info), "--grammar-lock-file", str(Path(directory) / "grammar-lock.json"), option]))
 
     def test_duplicate_json_fields_and_source_mismatch_are_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -795,6 +833,22 @@ class CurrentGrammarLockTest(unittest.TestCase):
             with self.subTest(field=field, value=value):
                 lock = ftd.grammar_lock_from_release(self.release()); lock["asset"][field] = value
                 with self.assertRaises(SystemExit): ftd.validate_grammar_lock(lock)
+
+    def test_lock_mode_does_not_reselect_lts_or_use_historical_model_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pack, manifest, info = FixedInputsTest().fixture(directory)
+            document = json.loads(info.read_text())
+            document["external_resource_references"][0]["physical_asset"]["sha256"] = "f" * 64
+            document["external_resource_references"][0]["physical_asset"]["size_bytes"] = 4096
+            info.write_text(json.dumps(document))
+            with mock.patch.object(ftd, "open_once", side_effect=AssertionError("network forbidden")), \
+                 mock.patch.object(ftd, "resolve_grammar", side_effect=AssertionError("must not reselect")):
+                self.assertEqual(0, ftd.main(["--manifest-file", str(manifest), "--build-info", str(info),
+                    "--zip", str(pack), "--assets-dir", str(root / "assets"),
+                    "--english-file", str(root / "models" / ftd.EN_NAME), "--grammar-cache-dir", str(root),
+                    "--grammar-lock-file", str(root / "grammar-lock.json"), "--with-grammar"]))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

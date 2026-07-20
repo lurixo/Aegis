@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-only
 
+import argparse
 import hashlib
 import json
 import os
@@ -539,3 +540,140 @@ def verify_fixed_pack(pack_path, asset, components):
     except (OSError, zipfile.BadZipFile, RuntimeError) as error:
         raise SystemExit(f"invalid fixed pack: {error}") from error
     return pack_path
+
+
+def main(argv):
+    repo_root = Path(__file__).resolve().parents[1]
+    parser = argparse.ArgumentParser(
+        description=(
+            "Fetch the full dict-latest dictionary pack and unpack its tables into the app assets "
+            "and the English test-model directory so the quality tests run against current data."
+        )
+    )
+    parser.add_argument("--manifest-url", help="Dictionary update manifest URL in remote-release mode.")
+    parser.add_argument("--manifest-file", help="Local manifest bound to --build-info and the pack bytes.")
+    parser.add_argument("--grammar-lock-file", help="Use this independently frozen current grammar identity.")
+    parser.add_argument("--write-grammar-lock", help="Freeze the official current LTS grammar identity and exit.")
+    parser.add_argument(
+        "--build-info",
+        default=os.environ.get("AEGIS_BUILD_INFO"),
+        help=(
+            "External build-info required in fixed-input mode, or a fallback pin in remote-release mode."
+        ),
+    )
+    parser.add_argument(
+        "--assets-dir",
+        default=str(repo_root / "app" / "src" / "main" / "assets"),
+        help="Directory that receives " + " / ".join(RUNTIME_BINS) + ".",
+    )
+    parser.add_argument(
+        "--cache-dir",
+        default=str(repo_root / "build" / "test-dict-cache"),
+        help="Directory that keeps the downloaded pack between runs.",
+    )
+    parser.add_argument(
+        "--english-file",
+        default=str(repo_root / "build" / "test-models" / EN_NAME),
+        help=f"Path that receives the real {EN_NAME} test table.",
+    )
+    parser.add_argument(
+        "--grammar-release-api",
+        default=GRAMMAR_RELEASE_API,
+        help="GitHub API URL for the pinned grammar release tag.",
+    )
+    parser.add_argument(
+        "--grammar-cache-dir",
+        default=str(repo_root / "build" / "test-model-cache"),
+        help="Directory that keeps the verified grammar model between runs.",
+    )
+    parser.add_argument("--zip", dest="local_zip", help="Use a local pack zip instead of downloading.")
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=300,
+        help=(
+            "Download socket inactivity timeout in seconds, capped by the time left "
+            "to start retries. An active transfer can outlast the retry window."
+        ),
+    )
+    parser.add_argument(
+        "--with-grammar",
+        action="store_true",
+        help=f"Also fetch and verify the current {GRAMMAR_TAG} {GRAMMAR_NAME} asset.",
+    )
+    print_group = parser.add_mutually_exclusive_group()
+    print_group.add_argument(
+        "--print-sha",
+        action="store_true",
+        help="Print the manifest pack sha256 and exit (for the CI cache key).",
+    )
+    print_group.add_argument(
+        "--print-grammar-sha",
+        action="store_true",
+        help="Print the current LTS grammar sha256 and exit (for the CI cache key).",
+    )
+    args = parser.parse_args(argv)
+
+    if args.write_grammar_lock:
+        if args.grammar_lock_file or args.manifest_file or args.local_zip or args.print_sha or args.print_grammar_sha:
+            parser.error("--write-grammar-lock must be a standalone operation")
+        freeze_grammar(args.write_grammar_lock, args.grammar_release_api)
+        return 0
+    fixed_grammar = validate_grammar_lock(load_json_document(args.grammar_lock_file)) if args.grammar_lock_file else None
+    if args.manifest_file:
+        if args.manifest_url is not None:
+            parser.error("--manifest-file cannot be combined with --manifest-url")
+        if not args.build_info:
+            parser.error("--manifest-file requires --build-info")
+        asset, components, _ = fixed_input_metadata(args.manifest_file, args.build_info)
+        if (args.with_grammar or args.print_grammar_sha) and fixed_grammar is None:
+            parser.error("fixed dictionary inputs require --grammar-lock-file for current grammar")
+        url, expected_sha256, asset_name = asset["url"], asset["sha256"], asset["name"]
+        if args.print_grammar_sha:
+            print(fixed_grammar[1])
+            return 0
+        if args.print_sha:
+            print(expected_sha256)
+            return 0
+        fixed_pack = ensure_pack(
+            url, expected_sha256, Path(args.cache_dir) / asset_name, args.local_zip, args.timeout
+        )
+        zip_path = verify_fixed_pack(fixed_pack, asset, components)
+    else:
+        if args.print_grammar_sha:
+            _, grammar_sha256, _, _ = fixed_grammar or resolve_grammar(args.grammar_release_api, args.build_info)
+            print(grammar_sha256)
+            return 0
+        url, expected_sha256, asset_name = resolve_dictionary(args.manifest_url or MANIFEST_URL, args.build_info)
+        if args.print_sha:
+            print(expected_sha256)
+            return 0
+        zip_path = ensure_pack(
+            url, expected_sha256, Path(args.cache_dir) / asset_name, args.local_zip, args.timeout
+        )
+    assets_dir = Path(args.assets_dir)
+    produced = extract_pack(zip_path, assets_dir, Path(args.english_file))
+    print(f"dictionary pack {expected_sha256} unpacked into {assets_dir}")
+    for name in TEST_BINS:
+        path, size = produced[name]
+        print(f"  {name}  {size} bytes  {path}")
+    if args.with_grammar:
+        grammar_url, grammar_sha256, grammar_name, grammar_size = fixed_grammar or resolve_grammar(
+            args.grammar_release_api, args.build_info
+        )
+        grammar_path = ensure_grammar(
+            grammar_url,
+            grammar_sha256,
+            grammar_size,
+            Path(args.grammar_cache_dir) / grammar_name,
+            args.timeout,
+        )
+        print(
+            f"grammar {grammar_sha256} verified at {grammar_path} "
+            f"({grammar_path.stat().st_size} bytes)"
+        )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
