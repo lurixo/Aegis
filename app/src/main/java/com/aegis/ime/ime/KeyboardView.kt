@@ -167,7 +167,7 @@ class KeyboardView(context: Context) : View(context) {
     private val boldLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(18f); typeface = android.graphics.Typeface.DEFAULT }
     private val shiftActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.accentBottom; textAlign = Paint.Align.CENTER; textSize = sp(20f) }
     private val accentLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.accentLabel; textAlign = Paint.Align.CENTER; textSize = sp(20f); typeface = android.graphics.Typeface.DEFAULT }
-    private val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyHint; textAlign = Paint.Align.CENTER; textSize = sp(10f); typeface = android.graphics.Typeface.DEFAULT }
+    private val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabelSecondary; textAlign = Paint.Align.CENTER; textSize = sp(12f); typeface = android.graphics.Typeface.DEFAULT }
     private val langActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabelSecondary; textAlign = Paint.Align.CENTER; textSize = sp(17f); typeface = android.graphics.Typeface.DEFAULT }
     private val langSmallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyHint; textAlign = Paint.Align.RIGHT; textSize = sp(11f); typeface = android.graphics.Typeface.DEFAULT }
 
@@ -190,7 +190,7 @@ class KeyboardView(context: Context) : View(context) {
         boldLabelPaint.color = p.keyLabel
         shiftActivePaint.color = p.accentBottom
         accentLabelPaint.color = p.accentLabel
-        subPaint.color = p.keyHint
+        subPaint.color = p.keyLabelSecondary
         langActivePaint.color = p.keyLabelSecondary
         langSmallPaint.color = p.keyHint
         sepLinePaint.color = p.separator

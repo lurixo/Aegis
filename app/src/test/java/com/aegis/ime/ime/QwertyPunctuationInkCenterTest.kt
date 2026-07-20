@@ -90,16 +90,18 @@ class QwertyPunctuationInkCenterTest {
         assertTrue("CN qwerty fullwidth marks not ink-centred: $fails", fails.isEmpty())
     }
 
-    private class Anchor(val x: Float, val y: Float, val align: Paint.Align, val metricCenter: Float)
+    private class Anchor(val x: Float, val y: Float, val align: Paint.Align, val metricCenter: Float, val textSize: Float, val color: Int)
 
     private class AnchorRecordingCanvas(bitmap: Bitmap) : Canvas(bitmap) {
         val texts = ArrayList<Pair<String, Anchor>>()
 
         override fun drawText(text: String, x: Float, y: Float, paint: Paint) {
             super.drawText(text, x, y, paint)
-            texts.add(text to Anchor(x, y, paint.textAlign, (paint.descent() + paint.ascent()) / 2f))
+            texts.add(text to Anchor(x, y, paint.textAlign, (paint.descent() + paint.ascent()) / 2f, paint.textSize, paint.color))
         }
     }
+
+    private fun sp(v: Float) = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, v, ctx.resources.displayMetrics)
 
     @Test fun en_qwerty_comma_and_period_keep_font_metric_centring() {
         val v = layOut(qwerty(Lang.CN))
@@ -150,6 +152,27 @@ class QwertyPunctuationInkCenterTest {
                 if (h.y >= l.y) fails.add("$lang $label hint not above the letter")
             }
             assertTrue("qwerty sub-hint geometry wrong ($lang): $fails", fails.isEmpty())
+        }
+    }
+
+    @Test fun qwerty_sub_hint_is_enlarged_and_deepened() {
+        for (lang in listOf(Lang.CN, Lang.EN)) {
+            val v = layOut(qwerty(lang))
+            val canvas = AnchorRecordingCanvas(Bitmap.createBitmap(v.measuredWidth, v.measuredHeight, Bitmap.Config.ARGB_8888))
+            v.draw(canvas)
+            val rects = v.keyBoundsForTest().associate { it.first.label to it.second }
+            val fails = ArrayList<String>()
+            for ((label, sub) in listOf("q" to "1", "a" to "~", "z" to "(")) {
+                val rect = requireNotNull(rects[label]) { "$lang $label key missing" }
+                val scale = kotlin.math.min(1f, rect.height() / (52f * density))
+                val hint = canvas.texts.filter { it.first == sub }.map { it.second }
+                if (hint.size != 1) { fails.add("$lang hint '$sub' drawn ${hint.size} times"); continue }
+                val h = hint[0]
+                val expected = sp(12f) * scale
+                if (kotlin.math.abs(h.textSize - expected) > 0.5f) fails.add("$lang '$sub' size ${h.textSize} != $expected")
+                if (h.color != pal.keyLabelSecondary) fails.add("$lang '$sub' color ${Integer.toHexString(h.color)} != keyLabelSecondary ${Integer.toHexString(pal.keyLabelSecondary)}")
+            }
+            assertTrue("qwerty sub-hint size/color not pinned ($lang): $fails", fails.isEmpty())
         }
     }
 }
