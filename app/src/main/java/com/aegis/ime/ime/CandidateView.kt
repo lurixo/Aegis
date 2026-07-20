@@ -44,6 +44,7 @@ class CandidateView(context: Context) : View(context) {
     private var composing: String = ""
     private var gateActive = false
     private var gateLabel = ""
+    private var gateFailed = false
     private var expanded = false
     private val hitRects = ArrayList<RectF>()
     private var hitCount = 0
@@ -135,9 +136,10 @@ class CandidateView(context: Context) : View(context) {
         }
     }
 
-    fun setGateStatus(text: String) {
-        if (text == gateLabel) return
+    fun setGateStatus(text: String, failed: Boolean = false) {
+        if (text == gateLabel && failed == gateFailed) return
         gateLabel = text
+        gateFailed = failed
         invalidate()
     }
 
@@ -248,9 +250,12 @@ class CandidateView(context: Context) : View(context) {
     private fun drawGate(canvas: Canvas, baseline: Float) {
         val text = gateLabel
         if (text.isEmpty()) return
+        gatePaint.color = gateColor()
         val x = ((width - gatePaint.measureText(text)) / 2f).coerceAtLeast(padding)
         canvas.drawText(text, x, baseline, gatePaint)
     }
+
+    private fun gateColor(): Int = if (gateFailed) palette.deletable else palette.candidateFirst
 
     private fun drawFunctions(canvas: Canvas, baseline: Float) {
         val capL = capMarginH
@@ -390,6 +395,8 @@ class CandidateView(context: Context) : View(context) {
     private fun isGateMode(): Boolean = gateActive && items.isEmpty()
 
     internal fun gateActiveForTest(): Boolean = gateActive
+
+    internal fun gateTextColorForTest(): Int = gateColor()
 
     private fun targetAt(x: Float, y: Float): PressTarget? {
         if (isFunctionMode()) {
