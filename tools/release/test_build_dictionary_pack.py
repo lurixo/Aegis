@@ -8,6 +8,7 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 import struct
 import subprocess
 import sys
@@ -22,6 +23,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import build_dictionary_pack as bp
+import fetch_test_dict as ftd
 
 REPO = "https://github.com/amzxyz/rime-wanxiang"
 COMMIT = "7db7c588fd5ea90c13e4bf1814d7dd7fa8a2effc"
@@ -954,6 +956,67 @@ class SourceCheckoutValidationTest(unittest.TestCase):
 
             with self.assertRaisesRegex(SystemExit, "must be clean"):
                 bp.ensure_source_checkout(self.args(repo), root / "work")
+
+class GitHubApiAuthenticationBoundaryTest(unittest.TestCase):
+    def request_for(self, url, token="test-token"):
+        with mock.patch.dict(os.environ, {"GITHUB_TOKEN": token}, clear=False), mock.patch.object(
+            ftd.urllib.request,
+            "urlopen",
+            return_value=io.BytesIO(b"ok"),
+        ) as get:
+            ftd.http_get(url, 17)
+        request = get.call_args.args[0]
+        self.assertEqual(17, get.call_args.kwargs["timeout"])
+        return request
+
+    def test_token_is_sent_to_the_exact_https_api_host(self):
+        request = self.request_for("https://api.github.com/repos/example/project/releases")
+        self.assertEqual("Bearer test-token", request.get_header("Authorization"))
+
+    def test_token_is_not_sent_to_downloads_or_lookalike_hosts(self):
+        for url in [
+            "https://github.com/example/project/releases/download/LTS/model.gram",
+            "http://api.github.com/repos/example/project/releases",
+            "https://api.github.com.example.invalid/repos/example/project/releases",
+        ]:
+            with self.subTest(url=url):
+                self.assertIsNone(self.request_for(url).get_header("Authorization"))
+
+    def test_token_is_not_reused_after_any_redirect(self):
+        original = self.request_for("https://api.github.com/repos/example/project/releases")
+        statuses = [
+            (301, "Moved Permanently"),
+            (302, "Found"),
+            (303, "See Other"),
+            (307, "Temporary Redirect"),
+            (308, "Permanent Redirect"),
+        ]
+        urls = [
+            "https://api.github.com/repositories/1/releases",
+            "https://github.com/example/project/releases/download/LTS/model.gram",
+            "http://api.github.com/repos/example/project/releases",
+        ]
+        for code, message in statuses:
+            for url in urls:
+                with self.subTest(code=code, url=url):
+                    redirected = ftd.urllib.request.HTTPRedirectHandler().redirect_request(
+                        original,
+                        None,
+                        code,
+                        message,
+                        {},
+                        url,
+                    )
+                    self.assertIsNone(redirected.get_header("Authorization"))
+
+    def test_missing_token_keeps_the_request_anonymous(self):
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(
+            ftd.urllib.request,
+            "urlopen",
+            return_value=io.BytesIO(b"ok"),
+        ) as get:
+            ftd.http_get("https://api.github.com/repos/example/project/releases", 19)
+        self.assertIsNone(get.call_args.args[0].get_header("Authorization"))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
