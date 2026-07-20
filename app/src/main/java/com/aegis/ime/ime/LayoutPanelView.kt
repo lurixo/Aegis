@@ -45,18 +45,20 @@ class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel
     private fun sp(v: Float) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, v, resources.displayMetrics)
 
     private val TITLE_SP = 16f
-    private val ICON_BOX_DP = 46
+    private val ICON_BOX_DP = 34
     private val ICON_STROKE_DP = 2f
-    private val ICON_RADIUS_DP = 9f
-    private val CN_CHAR_SP = 26f
-    private val EN_CHAR_SP = 16f
-    private val BADGE_SP = 11f
+    private val ICON_RADIUS_DP = 7f
+    private val CN_CHAR_SP = 18f
+    private val EN_CHAR_SP = 13f
+    private val BADGE_SP = 9f
 
     private var palette = ImePalette.STATIC_LIGHT
     private var active = LayoutChoice.CN_NINE
     private val backIcon = GlyphDrawable(dp(16), 0.56f, 2f * density) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }
     private val titleBtn: TextView
     private val cards: List<Card>
+    private val cardRow: LinearLayout
+    private val content: LinearLayout
 
     init {
         orientation = VERTICAL
@@ -88,7 +90,7 @@ class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel
             Card(LayoutChoice.CN_ALPHA, context.getString(R.string.layout_alpha), "拼", CN_CHAR_SP, "26"),
             Card(LayoutChoice.EN_ALPHA, context.getString(R.string.layout_en), "EN", EN_CHAR_SP, "26"),
         )
-        val cardRow = LinearLayout(context).apply {
+        cardRow = LinearLayout(context).apply {
             orientation = HORIZONTAL
             setPadding(dp(8), 0, dp(8), 0)
             for (card in cards) {
@@ -98,10 +100,12 @@ class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel
                 })
             }
         }
-        val content = LinearLayout(context).apply {
+        content = LinearLayout(context).apply {
             orientation = VERTICAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(cardRow, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+            gravity = Gravity.TOP
+            addView(cardRow, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(18)
+            })
         }
         addView(content, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         restyle()
@@ -133,6 +137,8 @@ class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel
     internal fun badgeDigitsForTest(choice: LayoutChoice): String = card(choice).icon.badge
     internal fun iconCharForTest(choice: LayoutChoice): String = card(choice).icon.symbol
     internal fun titleButtonForTest(): TextView = titleBtn
+    internal fun cardIconForTest(choice: LayoutChoice): Drawable = card(choice).icon
+    internal fun cardRowTopForTest(): Int = content.top + cardRow.top
 
     private fun card(choice: LayoutChoice): Card = cards.first { it.choice == choice }
 
@@ -142,7 +148,7 @@ class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel
         val view: TextView = TextView(context).apply {
             text = label
             gravity = Gravity.CENTER
-            setPadding(dp(6), dp(8), dp(6), dp(12))
+            setPadding(dp(6), dp(6), dp(6), dp(8))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
             setCompoundDrawablesWithIntrinsicBounds(null, icon, null, null)
             compoundDrawablePadding = dp(2)
@@ -166,7 +172,7 @@ class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel
     }
 
     private inner class CardIcon(val symbol: String, charSp: Float, val badge: String) : Drawable() {
-        private val overflow = dp(8).toFloat()
+        private val overflow = dp(6).toFloat()
         private val boxSide = dp(ICON_BOX_DP).toFloat()
         private val stroke = ICON_STROKE_DP * density
         private val radius = ICON_RADIUS_DP * density
@@ -223,10 +229,10 @@ class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel
                 charPaint,
             )
             val corner = radius * 0.2929f
-            val cx = right - corner
-            val cy = bottom - corner
             val halfW = badgeInk.width() / 2f + badgePadX
             val halfH = badgeInk.height() / 2f + badgePadY
+            val cx = right - halfW
+            val cy = bottom - corner
             canvas.drawRoundRect(cx - halfW, cy - halfH, cx + halfW, cy + halfH, halfH, halfH, badgeFill)
             canvas.drawText(badge, cx - badgeInk.exactCenterX(), cy - badgeInk.exactCenterY(), badgePaint)
         }

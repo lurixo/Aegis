@@ -17,6 +17,7 @@ package com.aegis.ime.ime
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.view.View
@@ -230,6 +231,52 @@ class LayoutPanelTest {
             }
         }
         assertTrue(accent > 0)
+    }
+
+    @Test fun the_card_icons_shrink_to_the_new_metrics() {
+        val panel = fixture().panel
+        val expected = (34 * density).toInt() + 2 * (6 * density).toInt()
+        for (choice in LayoutChoice.entries) {
+            val icon = panel.cardIconForTest(choice)
+            assertEquals(expected, icon.intrinsicWidth)
+            assertEquals(expected, icon.intrinsicHeight)
+        }
+    }
+
+    @Test fun the_card_row_sits_at_the_clipboard_first_card_offset() {
+        val panel = fixture().panel
+        val w = (360 * density).toInt()
+        val h = (240 * density).toInt()
+        panel.measure(
+            View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY),
+        )
+        panel.layout(0, 0, panel.measuredWidth, panel.measuredHeight)
+        assertEquals((40 * density).toInt() + (18 * density).toInt(), panel.cardRowTopForTest())
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Config(sdk = [34], qualifiers = "zh-xxhdpi")
+    @Test fun the_card_icon_ink_stays_centered_despite_the_badge() {
+        val panel = LayoutPanelView(ctx).apply { applyPalette(light) }
+        val icon = panel.cardIconForTest(LayoutChoice.CN_ALPHA)
+        val w = icon.intrinsicWidth
+        val h = icon.intrinsicHeight
+        icon.setBounds(0, 0, w, h)
+        val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        icon.draw(Canvas(bitmap))
+        var minX = w
+        var maxX = -1
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                if (Color.alpha(bitmap.getPixel(x, y)) > 128) {
+                    if (x < minX) minX = x
+                    if (x > maxX) maxX = x
+                }
+            }
+        }
+        assertTrue(maxX >= 0)
+        assertEquals(w / 2f, (minX + maxX) / 2f, 2f * density)
     }
 
     @Test fun back_and_predictive_back_close_the_panel_without_changing_the_layout() {
