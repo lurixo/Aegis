@@ -12,3 +12,6 @@
 *.aab
 build/
 /dist/
+/app/src/main/assets/aegis_dict.bin
+/app/src/main/assets/aegis_t9.bin
+/app/src/main/assets/aegis_jianpin.bin

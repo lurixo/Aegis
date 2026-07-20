@@ -41,6 +41,19 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
+      - name: Resolve the dictionary pack sha256
+        id: dictpack
+        run: echo "sha256=$(python3 tools/fetch_test_dict.py --print-sha)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the full dictionary pack
+        uses: actions/cache@v4
+        with:
+          path: build/test-dict-cache
+          key: aegis-test-dict-${{ steps.dictpack.outputs.sha256 }}
+
+      - name: Fetch the full dictionary pack for the decode tests
+        run: python3 tools/fetch_test_dict.py
+
       - name: Build, test & lint
         run: ./gradlew :app:testDebugUnitTest :app:lintDebug assembleDebug --stacktrace
 
