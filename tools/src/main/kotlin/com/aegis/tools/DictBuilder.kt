@@ -76,7 +76,7 @@ fun main(rawArgs: Array<String>) {
     externalSort(tmpRecords, tmpSorted)
     println("sorted -> ${tmpSorted.length()} bytes")
 
-    val (numKeys, numEntries) = writeBinary(tmpSorted, out, maxPerKey)
+    val (numKeys, numEntries) = writeBinary(tmpSorted, out, maxPerKey, t2s?.mappedSourceForms())
     println("wrote ${out.path}: keys=$numKeys entries=$numEntries size=${out.length()} bytes")
 
     syllablesOut?.let { writeSyllables(it, syllableCounts) }
@@ -229,7 +229,7 @@ internal fun externalSort(input: File, output: File) {
     check(code == 0) { "sort failed with exit code $code" }
 }
 
-internal fun writeBinary(sorted: File, out: File, maxPerKey: Int): Pair<Int, Int> {
+internal fun writeBinary(sorted: File, out: File, maxPerKey: Int, mappedForms: Set<String>? = null): Pair<Int, Int> {
     val keyBlob = ByteArrayOutputStream(1 shl 20)
     val wordBlob = ByteArrayOutputStream(1 shl 22)
     val keyArr = IntList()
@@ -241,6 +241,8 @@ internal fun writeBinary(sorted: File, out: File, maxPerKey: Int): Pair<Int, Int
     var curKey: String? = null
     var curWords: HashSet<String>? = null
     var perKeyCount = 0
+    var leakCount = 0L
+    val leakSamples = LinkedHashMap<String, String>()
 
     sorted.bufferedReader().use { r ->
         while (true) {
@@ -261,6 +263,10 @@ internal fun writeBinary(sorted: File, out: File, maxPerKey: Int): Pair<Int, Int
                 numKeys++
             }
             if (curWords!!.add(word) && perKeyCount < maxPerKey) {
+                if (mappedForms != null && containsMappedForm(word, mappedForms)) {
+                    leakCount++
+                    if (leakSamples.size < 20) leakSamples.putIfAbsent(word, key)
+                }
                 val wb = word.toByteArray(Charsets.UTF_8)
                 entryArr.add(wordBlob.size()); entryArr.add(wb.size); entryArr.add(freq)
                 wordBlob.write(wb)
@@ -269,6 +275,14 @@ internal fun writeBinary(sorted: File, out: File, maxPerKey: Int): Pair<Int, Int
                 totalFreq += freq.toLong()
             }
         }
+    }
+
+    if (mappedForms != null && leakCount > 0L) {
+        val examples = leakSamples.entries.joinToString(", ") { "${it.value}->${it.key}" }
+        error(
+            "t2s guard: $leakCount emitted words still contain a traditional/variant form the merge " +
+                "maps away — the t2s merge did not cover the full vocabulary. Examples: $examples"
+        )
     }
 
     val keyBytes = keyBlob.toByteArray()
@@ -285,6 +299,16 @@ internal fun writeBinary(sorted: File, out: File, maxPerKey: Int): Pair<Int, Int
         for (i in 0 until entryArr.size) os.writeLeInt(entryArr[i])
     }
     return numKeys to numEntries
+}
+
+private fun containsMappedForm(word: String, forms: Set<String>): Boolean {
+    var i = 0
+    while (i < word.length) {
+        val cp = word.codePointAt(i)
+        if (String(Character.toChars(cp)) in forms) return true
+        i += Character.charCount(cp)
+    }
+    return false
 }
 
 private fun writeSyllables(file: File, counts: Map<String, Long>) {
