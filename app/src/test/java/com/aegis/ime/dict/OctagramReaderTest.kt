@@ -41,7 +41,7 @@ class OctagramReaderTest {
             sb.append("  ${p} -> ${s?.let { "%.3f".format(it) } ?: "null"}\n")
         }
         println(sb)
-        File("build/octagram_probe.txt").apply { parentFile.mkdirs(); writeText(sb.toString()) }
+        File("build/octagram_probe.txt").apply { parentFile?.mkdirs(); writeText(sb.toString()) }
         assertTrue("at least some collocations resolve", nonNull > 0)
     }
 }
