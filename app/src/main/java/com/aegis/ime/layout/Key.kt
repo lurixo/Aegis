@@ -52,7 +52,6 @@ data class Key(
     val verbatim: Boolean = false,
     val accent: Boolean = false,
     val rail: Boolean = false,
-    val bold: Boolean = false,
     val labelRes: Int? = null,
 )
 
