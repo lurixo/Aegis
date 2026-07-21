@@ -36,7 +36,7 @@ import android.widget.TextView
 
 enum class EditAction { UP, DOWN, LEFT, RIGHT, START_SELECT, DELETE, COPY, CUT, SELECT_ALL, HOME, END, PASTE, BACK }
 
-class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
+class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, CoversToolbar {
 
     var onAction: (EditAction) -> Unit = {}
 
@@ -108,23 +108,35 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
         val mid = LinearLayout(context).apply { orientation = HORIZONTAL }
         val dpad = LinearLayout(context).apply { orientation = VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
         selectBtn = textBtn(context.getString(R.string.edit_start_select), EditAction.START_SELECT, sp = 16f).apply { includeFontPadding = false }
+        val upRow = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+            addView(arrowBtn(EditAction.UP, icon(38, 0.40f) { c, p, x, y, s -> Glyphs.drawArrow(c, p, x, y, s, Glyphs.Arrow.UP) }).apply { isFocusable = false }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+            addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        }
         val centerRow = LinearLayout(context).apply {
             orientation = HORIZONTAL
-            addView(arrowBtn(EditAction.LEFT, icon(38, 0.40f) { c, p, x, y, s -> Glyphs.drawArrow(c, p, x, y, s, Glyphs.Arrow.LEFT) }).apply { isFocusable = false }, LayoutParams(dp(54), dp(48)))
-            addView(selectBtn, LayoutParams(dp(88), dp(48)))
-            addView(arrowBtn(EditAction.RIGHT, icon(38, 0.40f) { c, p, x, y, s -> Glyphs.drawArrow(c, p, x, y, s, Glyphs.Arrow.RIGHT) }).apply { isFocusable = false }, LayoutParams(dp(54), dp(48)))
+            addView(arrowBtn(EditAction.LEFT, icon(38, 0.40f) { c, p, x, y, s -> Glyphs.drawArrow(c, p, x, y, s, Glyphs.Arrow.LEFT) }).apply { isFocusable = false }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+            addView(selectBtn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+            addView(arrowBtn(EditAction.RIGHT, icon(38, 0.40f) { c, p, x, y, s -> Glyphs.drawArrow(c, p, x, y, s, Glyphs.Arrow.RIGHT) }).apply { isFocusable = false }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         }
-        dpad.addView(arrowBtn(EditAction.UP, icon(38, 0.40f) { c, p, x, y, s -> Glyphs.drawArrow(c, p, x, y, s, Glyphs.Arrow.UP) }).apply { isFocusable = false }, LayoutParams(dp(54), dp(48)))
-        dpad.addView(centerRow, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
-        dpad.addView(arrowBtn(EditAction.DOWN, icon(38, 0.40f) { c, p, x, y, s -> Glyphs.drawArrow(c, p, x, y, s, Glyphs.Arrow.DOWN) }).apply { isFocusable = false }, LayoutParams(dp(54), dp(48)))
+        val downRow = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+            addView(arrowBtn(EditAction.DOWN, icon(38, 0.40f) { c, p, x, y, s -> Glyphs.drawArrow(c, p, x, y, s, Glyphs.Arrow.DOWN) }).apply { isFocusable = false }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+            addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        }
+        dpad.addView(upRow, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+        dpad.addView(centerRow, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+        dpad.addView(downRow, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         mid.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 0.1f))
         mid.addView(dpad, LayoutParams(0, LayoutParams.MATCH_PARENT, 3f))
 
-        copyIcon = icon(27, 0.34f, 0.8f) { c, p, x, y, s -> Glyphs.drawCopy(c, p, x, y, s) }
-        cutIcon = icon(27, 0.34f, 0.68f) { c, p, x, y, s -> Glyphs.drawCut(c, p, x, y, s) }
+        copyIcon = icon(27, 0.299f, 0.8f) { c, p, x, y, s -> Glyphs.drawCopy(c, p, x, y, s) }
+        cutIcon = icon(27, 0.359f, 0.68f) { c, p, x, y, s -> Glyphs.drawCut(c, p, x, y, s) }
         copyBtn = iconBtn(context.getString(R.string.edit_copy), EditAction.COPY, copyIcon, iconOnStart = true)
         cutBtn = iconBtn(context.getString(R.string.edit_cut), EditAction.CUT, cutIcon, iconOnStart = true)
-        val deleteBtn = iconBtn(context.getString(R.string.edit_delete), EditAction.DELETE, icon(27, 0.34f, 1f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }, iconOnStart = true)
+        val deleteBtn = iconBtn(context.getString(R.string.edit_delete), EditAction.DELETE, icon(27, 0.319f, 0.9f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }, iconOnStart = true)
         val rightActions = listOf(deleteBtn, copyBtn, cutBtn)
         val rightCol = LinearLayout(context).apply { orientation = VERTICAL }
         rightCol.addView(deleteBtn, rowLp())
@@ -151,7 +163,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
             },
             LayoutParams(0, LayoutParams.MATCH_PARENT, 1f),
         )
-        bottom.addView(iconBtn(context.getString(R.string.edit_select_all), EditAction.SELECT_ALL, icon(27, 0.34f, 0.74f) { c, p, x, y, s -> Glyphs.drawSelectAll(c, p, x, y, s) }, iconOnStart = true), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        bottom.addView(iconBtn(context.getString(R.string.edit_select_all), EditAction.SELECT_ALL, icon(27, 0.388f, 0.74f) { c, p, x, y, s -> Glyphs.drawSelectAll(c, p, x, y, s) }, iconOnStart = true), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         bottom.addView(
             arrowBtn(EditAction.END, icon(32, 0.40f) { c, p, x, y, s -> Glyphs.drawArrowToEdge(c, p, x, y, s, toStart = false) }).apply {
                 isFocusable = false
@@ -160,7 +172,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel {
             LayoutParams(0, LayoutParams.MATCH_PARENT, 1f),
         )
         bottom.addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 0.9f))
-        bottom.addView(iconBtn(context.getString(R.string.edit_paste), EditAction.PASTE, icon(27, 0.34f, 0.58f) { c, p, x, y, s -> Glyphs.drawClipboard(c, p, x, y, s) }, iconOnStart = true), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        bottom.addView(iconBtn(context.getString(R.string.edit_paste), EditAction.PASTE, icon(27, 0.363f, 0.58f) { c, p, x, y, s -> Glyphs.drawClipboard(c, p, x, y, s) }, iconOnStart = true), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         val pasteBtn = requireNotNull(actionViews[EditAction.PASTE])
         val navigationActions = listOf(EditAction.HOME, EditAction.SELECT_ALL, EditAction.END).map { requireNotNull(actionViews[it]) }
 
