@@ -417,8 +417,9 @@ class CandidateView(context: Context) : View(context) {
     }
 
     private fun toolbarTargetAt(x: Float, y: Float): PressTarget? {
-        if (!toolbarContains(x, y)) return null
+        if (funcRects[0].contains(x, y)) return PressTarget(PressKind.FUNCTION, 0)
         if (collapseRect.contains(x, y)) return PressTarget(PressKind.COLLAPSE)
+        if (!toolbarContains(x, y)) return null
         val idx = funcRects.indexOfFirst { it.contains(x, y) }
         return if (idx >= 0) PressTarget(PressKind.FUNCTION, idx) else null
     }
