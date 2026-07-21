@@ -122,14 +122,14 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         rightColumn.addView(
             funcButton("") { onClose() }.apply {
                 contentDescription = context.getString(R.string.panel_back)
-                setCompoundDrawablesWithIntrinsicBounds(null, collapseGlyph, null, null)
+                setCompoundDrawablesWithIntrinsicBounds(collapseGlyph, null, null, null)
                 collapseGlyph.tint(palette.keyLabelSecondary)
             },
             rowAlignedLp(0),
         )
         rightColumn.addView(
             backspaceButton().apply {
-                setCompoundDrawablesWithIntrinsicBounds(null, backspaceGlyph, null, null)
+                setCompoundDrawablesWithIntrinsicBounds(backspaceGlyph, null, null, null)
                 backspaceGlyph.tint(palette.keyLabelSecondary)
             },
             centeredLp(),

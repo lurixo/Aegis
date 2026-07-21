@@ -230,7 +230,7 @@ class CandidateBarChevronTest {
 
         val collapse = iv.expandedGridForTest().returnButtonForTest()
         assertEquals("the in-surface collapse control is icon-only", "", collapse.text.toString())
-        assertTrue("the collapse control shows a chevron glyph", collapse.compoundDrawables[1] != null)
+        assertTrue("the collapse control shows a chevron glyph", collapse.compoundDrawables[0] != null)
 
         assertTrue("collapse is reachable inside the expanded surface", collapse.performClick())
         layoutRoot(root)
@@ -416,7 +416,7 @@ class CandidateBarChevronTest {
         assertEquals(listOf("BRAND", "EMOJI", "LAYOUT", "EDIT", "CLIPBOARD", "COLLAPSE"), actions)
     }
 
-    @Test fun idle_toolbar_end_targets_fill_only_the_rounded_capsule() {
+    @Test fun idle_toolbar_end_targets_fill_the_entire_capsule_end_including_corners() {
         val view = idleBar(320)
         val capsule = view.toolbarCapsuleBoundsForTest()
         val actions = ArrayList<String>()
@@ -432,7 +432,8 @@ class CandidateBarChevronTest {
         tap(capsule.right - 0.5f * density, capsule.centerY(), 60L)
         tap(capsule.left - density, capsule.centerY(), 80L)
         tap(capsule.right + density, capsule.centerY(), 100L)
-        assertEquals(listOf("BRAND", "COLLAPSE"), actions)
+        assertEquals("the rounded corners of each end now register; the outer margin stays dead",
+            listOf("BRAND", "BRAND", "COLLAPSE", "COLLAPSE"), actions)
     }
 
     @Test fun toolbar_press_highlights_are_equal_and_centered_on_each_icon() {
