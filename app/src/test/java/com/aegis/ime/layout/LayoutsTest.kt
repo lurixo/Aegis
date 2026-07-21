@@ -34,7 +34,7 @@ class LayoutsTest {
         }
         assertTrue(
             "9-key must not label keys with digits",
-            nine.cells!!.none { it.key.action == KeyAction.COMMIT && it.key.label.length == 1 && it.key.label[0] in '0'..'9' },
+            nine.cells.none { it.key.action == KeyAction.COMMIT && it.key.label.length == 1 && it.key.label[0] in '0'..'9' },
         )
     }
 
@@ -69,7 +69,7 @@ class LayoutsTest {
                 "no standalone digit key remains on the 26-key",
                 layout.cells!!.none { it.key.action == KeyAction.COMMIT && it.key.label.length == 1 && it.key.label[0] in '0'..'9' },
             )
-            val topRow = layout.cells!!.filter { it.y < 0.1f }.sortedBy { it.x }
+            val topRow = layout.cells.filter { it.y < 0.1f }.sortedBy { it.x }
             assertEquals("qwertyuiop".map { it.toString() }, topRow.map { it.key.label })
             assertEquals(
                 listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"),
@@ -182,7 +182,7 @@ class LayoutsTest {
         val grid = np.cells!!.map { it.key.label }
         assertTrue("the digit grid is intact", (0..9).all { it.toString() in grid })
         assertTrue("backspace + enter present", "⌫" in grid && "↵" in grid)
-        assertTrue("operator column is the leftmost strip", np.scrollColumn!!.x <= 1e-4f)
+        assertTrue("operator column is the leftmost strip", np.scrollColumn.x <= 1e-4f)
     }
 
     @Test fun qwerty_has_no_nine_switch_key_and_pen_opens_symbols() {
