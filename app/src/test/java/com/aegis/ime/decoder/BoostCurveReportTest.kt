@@ -218,7 +218,7 @@ class BoostCurveReportTest {
 
         runParallel(syls.map { s ->
             Callable {
-                val ctx = tl.get()
+                val ctx = tl.get()!!
                 val singleFreq = LinkedHashMap<String, Int>()
                 var aliasWords = emptySet<String>()
                 for (wf in fullDict.exact(s)) if (isSingleChar(wf.word)) singleFreq.putIfAbsent(wf.word, wf.freq)
@@ -297,7 +297,7 @@ class BoostCurveReportTest {
 
         runParallel(syls.map { s1 ->
             Callable {
-                val ctx = tl.get()
+                val ctx = tl.get()!!
                 for (s2 in syls) {
                     val key = s1 + s2
                     val multi = fullDict.exact(key).filter { !isSingleChar(it.word) }
@@ -392,7 +392,7 @@ class BoostCurveReportTest {
 
         runParallel(syls.map { s1 ->
             Callable {
-                val ctx = tl.get()
+                val ctx = tl.get()!!
                 for (s2 in syls) probe(ctx, s1 + s2, 2)
                 val d = done.incrementAndGet()
                 if (d % 25 == 0) println("S3 $d/${syls.size} first-syllable rows, ${System.currentTimeMillis() - t0}ms")
@@ -401,7 +401,7 @@ class BoostCurveReportTest {
         val n = syls.size
         runParallel(syls.mapIndexed { i, s1 ->
             Callable {
-                val ctx = tl.get()
+                val ctx = tl.get()!!
                 probe(ctx, s1 + syls[(i * 7 + 3) % n] + syls[(i * 13 + 11) % n], 3)
             }
         })
