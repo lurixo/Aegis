@@ -107,6 +107,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var inputPurpose: InputPurpose? = null
     private var inputCat = ""
     private var inputOld = ""
+    private var inlineOriginPhrasesTab = false
     private var pendingPhraseAdds: List<String> = emptyList()
     private var pendingMoveFrom = ""
     private var pendingMoveTexts: List<String> = emptyList()
@@ -771,9 +772,6 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (!restoreClipboardWithoutCapture) {
         if (iv.isPanelShowing(clipboardView)) { iv.showPanel(null); return }
         }
-        if (captureCurrentClip) {
-        captureClip()
-        }
         if (captureCurrentClip) clipboardRecreationState = null
         val recreationState = clipboardRecreationState
         val cv = clipboardView ?: ClipboardView(this).also {
@@ -815,11 +813,15 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (captureCurrentClip) {
         cv.resetToDefault()
         }
-        clipboardStore.reloadPhrases()
         cv.applyPalette(imePalette)
         recreationState?.let(cv::restoreRecreationState)
         clipboardRecreationState = null
         iv.showPanelImmediately(cv)
+        iv.post {
+            if (captureCurrentClip) captureClip()
+            clipboardStore.reloadPhrases()
+            refreshOpenClipboardPanel()
+        }
     }
 
     private fun showCustomSymbolPanel() {
@@ -922,6 +924,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun startInlineInput(title: String, initial: String) {
         val iv = inputView ?: return
+        inlineOriginPhrasesTab = clipboardView?.recreationState()?.phrasesTab == true
         iv.showPanel(null)
         panelInputTitle = title
         panelInput.begin(initial)
@@ -970,10 +973,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (returningView == null) return
         returningView.dismissEditBarForPanelReturn()
         if (returningClipboard != null) {
-            returningClipboard.showPhraseTab(reopenCat)
+            if (inlineOriginPhrasesTab) returningClipboard.showPhraseTab(reopenCat) else returningClipboard.reopenAfterInline(reopenCat)
             returningView.showPanelImmediately(returningClipboard)
         } else {
-            clipboardRecreationState = ClipboardView.RecreationState(true, reopenCat)
+            clipboardRecreationState = ClipboardView.RecreationState(inlineOriginPhrasesTab, reopenCat)
             restoreClipboardPanel()
         }
     }

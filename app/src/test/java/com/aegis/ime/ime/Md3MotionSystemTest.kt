@@ -123,7 +123,7 @@ class Md3MotionSystemTest {
         assertFalse(Motion.coverActiveForTest(v))
     }
 
-    @Test fun coverThrough_when_attached_and_animated_swaps_synchronously_and_never_dips() {
+    @Test fun coverThrough_when_attached_and_animated_crossfades_the_residue_without_dipping_below_full_opacity() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -135,19 +135,18 @@ class Md3MotionSystemTest {
             }
             assertTrue("the content swap runs synchronously, never deferred to a trough", swapped)
             assertEquals(View.VISIBLE, v.visibility)
-            assertEquals("the content stays fully opaque under the residue", 1f, v.alpha, 0f)
-            assertTrue("the residue hold runs on top of the new content", Motion.coverActiveForTest(v))
-            assertEquals("the residue holds the old face at full strength", Color.GREEN, drawnPixel(v))
-            repeat(4) {
-                shadowOf(Looper.getMainLooper()).idleFor(20, TimeUnit.MILLISECONDS)
-                assertEquals("no frame ever dips the content", 1f, v.alpha, 0f)
-                assertEquals(View.VISIBLE, v.visibility)
-                assertEquals("combined opacity never drops below one", 0xFF, Color.alpha(drawnPixel(v)))
-                val px = drawnPixel(v)
-                assertTrue("a frame is either the held old face or the new face — never a fading blend", px == Color.GREEN || px == Color.RED)
-                if (Motion.coverActiveForTest(v)) assertEquals("while present the residue stays at full opacity", Color.GREEN, px)
-            }
-            assertFalse("the residue is removed in one step once the hold elapses", Motion.coverActiveForTest(v))
+            assertEquals("the new content stays fully opaque under the residue", 1f, v.alpha, 0f)
+            assertTrue("the residue starts on top of the new content", Motion.coverActiveForTest(v))
+            assertEquals("the residue starts on the old face at full strength", Color.GREEN, drawnPixel(v))
+            val anim = Motion.coverAnimatorForTest(v)
+            assertNotNull("an attached, animated cover runs an animator", anim)
+            assertEquals("the residue starts fully opaque", 255, Motion.coverResidueAlphaForTest(v))
+            anim!!.currentPlayTime = anim.duration / 2
+            val midAlpha = Motion.coverResidueAlphaForTest(v) ?: 255
+            assertTrue("the residue crossfades — its alpha is driven below full part-way through, not held opaque then hard-cut", midAlpha < 255)
+            assertEquals("the new face underneath keeps combined opacity full — no flash to background", 0xFF, Color.alpha(drawnPixel(v)))
+            shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS)
+            assertFalse("the residue is gone once the crossfade elapses", Motion.coverActiveForTest(v))
             assertEquals("the settled view shows the new face", Color.RED, drawnPixel(v))
         } finally {
             controller.pause().stop().destroy()
@@ -172,7 +171,7 @@ class Md3MotionSystemTest {
         return incoming to outgoing
     }
 
-    @Test fun coverSwap_keeps_the_incoming_fully_opaque_while_the_residue_holds() {
+    @Test fun coverSwap_crossfades_the_residue_over_the_incoming_without_dipping() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -183,18 +182,17 @@ class Md3MotionSystemTest {
             assertEquals("the incoming face shows immediately", View.VISIBLE, incoming.visibility)
             assertEquals(1f, incoming.alpha, 0f)
             assertEquals("the outgoing view is gone in the same call", View.GONE, outgoing.visibility)
-            assertTrue("the residue hold runs on the incoming view", Motion.coverActiveForTest(incoming))
-            assertEquals("the residue holds the outgoing face at full strength", Color.GREEN, drawnPixel(incoming))
-            repeat(4) {
-                shadowOf(Looper.getMainLooper()).idleFor(20, TimeUnit.MILLISECONDS)
-                assertEquals("no frame ever dips the incoming content", 1f, incoming.alpha, 0f)
-                assertEquals(View.VISIBLE, incoming.visibility)
-                val px = drawnPixel(incoming)
-                assertEquals("combined opacity never drops below one", 0xFF, Color.alpha(px))
-                assertTrue("a frame is either the held old face or the new face — never a fading blend", px == Color.GREEN || px == Color.RED)
-                if (Motion.coverActiveForTest(incoming)) assertEquals("while present the residue stays at full opacity", Color.GREEN, px)
-            }
-            assertFalse("the residue is removed in one step once the hold elapses", Motion.coverActiveForTest(incoming))
+            assertTrue("the residue starts on the incoming view", Motion.coverActiveForTest(incoming))
+            assertEquals("the residue starts on the outgoing face at full strength", Color.GREEN, drawnPixel(incoming))
+            val anim = Motion.coverAnimatorForTest(incoming)
+            assertNotNull("an attached, animated swap runs an animator", anim)
+            assertEquals("the residue starts fully opaque", 255, Motion.coverResidueAlphaForTest(incoming))
+            anim!!.currentPlayTime = anim.duration / 2
+            val midAlpha = Motion.coverResidueAlphaForTest(incoming) ?: 255
+            assertTrue("the residue crossfades — its alpha is driven below full part-way through, not held opaque then hard-cut", midAlpha < 255)
+            assertEquals("the incoming face underneath keeps combined opacity full — no flash to background", 0xFF, Color.alpha(drawnPixel(incoming)))
+            shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS)
+            assertFalse("the residue is gone once the crossfade elapses", Motion.coverActiveForTest(incoming))
             assertEquals("the settled swap shows the incoming face", Color.RED, drawnPixel(incoming))
         } finally {
             controller.pause().stop().destroy()
