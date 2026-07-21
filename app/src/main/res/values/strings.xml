@@ -231,7 +231,7 @@
     <string name="kbd_split">Split</string>
     <string name="kbd_redo">Retype</string>
     <string name="kbd_custom">Custom</string>
-    <string name="lang_cn">CN</string>
+    <string name="lang_cn" translatable="false">中</string>
     <string name="lang_en">EN</string>
     <string name="panel_back">Back</string>
     <string name="panel_lock">Lock</string>
