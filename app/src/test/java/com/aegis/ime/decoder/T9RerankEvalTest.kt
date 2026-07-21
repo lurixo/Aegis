@@ -190,6 +190,6 @@ class T9RerankEvalTest {
             }
         }
         println(sb)
-        File("build/oct_probe.txt").apply { parentFile.mkdirs(); writeText(sb.toString()) }
+        File("build/oct_probe.txt").apply { parentFile?.mkdirs(); writeText(sb.toString()) }
     }
 }
