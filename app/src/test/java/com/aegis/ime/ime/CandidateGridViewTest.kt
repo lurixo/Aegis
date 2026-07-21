@@ -100,6 +100,17 @@ class CandidateGridViewTest {
         assertEquals(deleteCenter - backCenter, clearCenter - deleteCenter, 1f)
     }
 
+    @Test fun right_controls_share_one_vertical_center_line() {
+        val v = measured()
+        val columnCenter = dp(64) / 2
+        val backCenter = v.returnButtonForTest().paddingLeft + v.collapseGlyphForTest().intrinsicWidth / 2
+        val deleteCenter = v.backspaceButtonForTest().paddingLeft + v.backspaceGlyphForTest().intrinsicWidth / 2
+        assertTrue("collapse glyph centers on the column center line, got $backCenter vs $columnCenter", kotlin.math.abs(columnCenter - backCenter) <= 1)
+        assertTrue("backspace glyph centers on the same line, got $deleteCenter vs $columnCenter", kotlin.math.abs(columnCenter - deleteCenter) <= 1)
+        assertEquals("collapse and backspace shift right by the same padding", v.returnButtonForTest().paddingLeft, v.backspaceButtonForTest().paddingLeft)
+        assertEquals("redo keeps its label centered so the three share one line", Gravity.CENTER, v.clearButtonForTest().gravity)
+    }
+
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun grid_collapse_glyph_matches_the_toolbar_collapse_chevron_box() {
         val v = CandidateGridView(ctx)
