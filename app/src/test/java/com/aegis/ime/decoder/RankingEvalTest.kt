@@ -70,7 +70,7 @@ class RankingEvalTest {
         }
         val report = sb.toString()
         println(report)
-        File("build/eval_report.txt").apply { parentFile.mkdirs(); writeText(report) }
+        File("build/eval_report.txt").apply { parentFile?.mkdirs(); writeText(report) }
 
         assertTrue("bigram should not hurt top-1", bestBigramTop1 >= unigramTop1 - 0.5)
     }

@@ -52,6 +52,6 @@ class OctagramEvalTest {
             sb.append(String.format("+octagram (w=%.1f)     : %.1f%%%n", w, top1(d)))
         }
         println(sb)
-        File("build/octagram_eval.txt").apply { parentFile.mkdirs(); writeText(sb.toString()) }
+        File("build/octagram_eval.txt").apply { parentFile?.mkdirs(); writeText(sb.toString()) }
     }
 }
