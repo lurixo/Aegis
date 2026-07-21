@@ -254,7 +254,7 @@
     <string name="sym_cat_ipa">音标</string>
     <string name="sym_cat_pinyin">拼音</string>
 
-    <string name="emoji_cat_recent">最近</string>
+    <string name="emoji_cat_recent">常用</string>
     <string name="emoji_cat_face">黄脸</string>
     <string name="emoji_cat_hand">手势</string>
     <string name="emoji_cat_flag">旗帜</string>

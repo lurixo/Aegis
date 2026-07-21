@@ -212,7 +212,7 @@ class BilingualScreenshotTest {
         assertEquals("locale switch did not reach the clipboard back label", "返回", ctx.getString(R.string.clip_back))
         assertEquals("locale switch did not reach the clipboard tabs", "剪贴板", ctx.getString(R.string.clip_clipboard))
         assertEquals("locale switch did not reach the phrases tab", "常用语", ctx.getString(R.string.clip_phrases))
-        assertEquals("locale switch did not reach the emoji recent rail", "最近", ctx.getString(R.string.emoji_cat_recent))
+        assertEquals("locale switch did not reach the emoji recent rail", "常用", ctx.getString(R.string.emoji_cat_recent))
         assertEquals("locale switch did not reach the emoji smileys rail", "黄脸", ctx.getString(R.string.emoji_cat_face))
         renderSet(
             lang = Lang.CN,
