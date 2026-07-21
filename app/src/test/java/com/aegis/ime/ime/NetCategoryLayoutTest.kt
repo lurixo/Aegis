@@ -47,9 +47,11 @@ class NetCategoryLayoutTest {
         val chips = sv.netChipTextsForTest()
         assertTrue("https:// is shown in full (not truncated)", "https://" in chips)
         assertEquals(
-            listOf("://", "http://", "https://", "www.").sorted(),
+            listOf("http://", "http://www.", "https://", "https://www.").sorted(),
             chips.sorted(),
         )
+        assertFalse("standalone www. no longer chips", "www." in chips)
+        assertFalse("standalone :// no longer chips", "://" in chips)
         assertEquals(11, sv.gridCellCountForTest())
     }
 

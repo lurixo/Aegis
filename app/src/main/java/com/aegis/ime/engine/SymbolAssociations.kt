@@ -43,7 +43,7 @@ internal object SymbolAssociations {
         Exemption("参考记号(日式米印),中文无通用固定名", "※"),
         Exemption("重复记号(ditto),中文无通用词名", "〃"),
         Exemption("and 符号,中文无通用拼音词名", "&", "＆"),
-        Exemption("URL 协议片段,无自然读音词", "://"),
+        Exemption("URL 前缀变体(含 www),无自然读音词", "http://www.", "https://www."),
         Exemption("历史货币符号 ECU,无通用中文名", "₠"),
         Exemption("汉字本身,词库候选直接可得(yuan)", "元", "圆"),
         Exemption("多义几何/代数圈号(圆/点积),无唯一通用名", "⊙"),
@@ -145,7 +145,7 @@ internal object SymbolAssociations {
     )
 
     private fun net(): List<Row> = listOf(
-        Row("网址", "wangzhi", "www.", "http://", "https://"),
+        Row("网址", "wangzhi", "http://", "https://"),
     )
 
     private fun math(): List<Row> = listOf(
@@ -159,6 +159,8 @@ internal object SymbolAssociations {
         Row("负正号", "fuzhenghao", "∓"),
         Row("小于等于", "xiaoyudengyu", "≤"),
         Row("大于等于", "dayudengyu", "≥"),
+        Row("小于", "xiaoyu", "<"),
+        Row("大于", "dayu", ">"),
         Row("无穷/无穷大/无限", "wuqiong wuqiongda wuxian", "∞"),
         Row("根号/平方根", "genhao pingfanggen", "√"),
         Row("对勾/对号", "duigou duihao", "√"),
