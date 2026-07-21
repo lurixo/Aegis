@@ -31,7 +31,7 @@ class OctagramEvalTest {
 
     @Test
     fun octagramRanking() {
-        assumeTrue(dictFile.exists() && lmFile.exists() && evalFile.exists() && gram != null && gram!!.exists())
+        assumeTrue(dictFile.exists() && lmFile.exists() && evalFile.exists() && gram != null && gram.exists())
         val dict = BinaryDict.fromFile(dictFile)
         val lm = CharBigramLM.fromFile(lmFile)
         val oct = OctagramReader.fromFile(gram!!)
