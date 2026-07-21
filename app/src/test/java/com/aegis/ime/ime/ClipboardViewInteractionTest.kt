@@ -244,6 +244,49 @@ class ClipboardViewInteractionTest {
         assertNull(picked)
     }
 
+    @Test fun a_slow_horizontal_swipe_on_a_phrase_card_never_enters_drag() {
+        val v = phraseView(listOf("你好", "在吗"))
+        layout(v)
+        val body = bodyOf(v, "你好")
+        val slop = ViewConfiguration.get(ctx).scaledTouchSlop
+        send(body, MotionEvent.ACTION_DOWN, 320f, 12f, 0)
+        send(body, MotionEvent.ACTION_MOVE, 320f - slop * 0.75f, 12f, 16)
+        shadowOf(Looper.getMainLooper()).idleFor(
+            Duration.ofMillis(ViewConfiguration.getLongPressTimeout().toLong() + 100),
+        )
+        assertFalse("horizontal intent must cancel the pending long-press-drag", v.isDraggingForTest())
+        send(body, MotionEvent.ACTION_MOVE, 120f, 12f, 32)
+        send(body, MotionEvent.ACTION_UP, 120f, 12f, 48)
+        assertEquals("the gesture settles as a swipe reveal, not a drag", "你好", v.swipeRevealedForTest())
+        assertFalse(v.isDraggingForTest())
+    }
+
+    @Test fun a_swipe_clears_the_clipboard_card_press_highlight() {
+        val v = clipView(listOf("第一条", "第二条"))
+        layout(v)
+        val body = bodyOf(v, "第一条")
+        send(body, MotionEvent.ACTION_DOWN, 320f, 12f, 0)
+        body.isPressed = true
+        send(body, MotionEvent.ACTION_MOVE, 120f, 12f, 16)
+        assertFalse("the swipe clears the pressed state as soon as it is recognized", body.isPressed)
+        send(body, MotionEvent.ACTION_UP, 120f, 12f, 32)
+        assertFalse("the item never stays stuck darkened after the swipe", body.isPressed)
+        assertEquals("and the swipe still reveals", "第一条", v.swipeRevealedForTest())
+    }
+
+    @Test fun a_swipe_clears_the_phrase_card_press_highlight() {
+        val v = phraseView(listOf("你好", "在吗"))
+        layout(v)
+        val body = bodyOf(v, "你好")
+        send(body, MotionEvent.ACTION_DOWN, 320f, 12f, 0)
+        body.isPressed = true
+        send(body, MotionEvent.ACTION_MOVE, 120f, 12f, 16)
+        assertFalse("the phrase swipe clears the pressed state on recognition", body.isPressed)
+        send(body, MotionEvent.ACTION_UP, 120f, 12f, 32)
+        assertFalse("the phrase item never stays stuck darkened after the swipe", body.isPressed)
+        assertEquals("你好", v.swipeRevealedForTest())
+    }
+
     @Test fun a_plain_tap_does_not_reveal_and_still_commits() {
         var picked: String? = null
         val v = clipView(listOf("第一条")).apply { onPick = { picked = it } }
@@ -843,5 +886,119 @@ class ClipboardViewInteractionTest {
             assertTrue("x" in labels(mainOf(phrase)))
             assertNeutral(phrase)
         }
+    }
+
+    @Test fun a_full_rebuild_re_applies_scroll_once_the_deferred_rows_land() {
+        val v = clipView((1..40).map { "item$it" })
+        val activity = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            activity.get().setContentView(v)
+            while (v.runPendingListAppendForTest()) {}
+            layout(v, h = 220)
+            val viewport = v.listViewportForTest() as ViewGroup
+            val maxScroll = (viewport.getChildAt(0).height - viewport.height).coerceAtLeast(0)
+            assertTrue("precondition: the long list overflows the viewport", maxScroll > 0)
+            val target = maxScroll / 2
+            viewport.scrollTo(0, target)
+            assertEquals(target, v.listScrollYForTest())
+            v.applyPalette(pal)
+            layout(v, h = 220)
+            assertTrue("the intermediate short list cannot reach the old offset", v.listScrollYForTest() < target)
+            while (v.runPendingListAppendForTest()) {}
+            layout(v, h = 220)
+            assertEquals("scroll is re-applied after the deferred rows append", target, v.listScrollYForTest())
+        } finally {
+            activity.pause().stop().destroy()
+        }
+    }
+
+    @Test fun a_split_copy_style_refresh_preserves_scroll_and_reuses_existing_rows() {
+        val history = (1..40).map { "item$it" }.toMutableList()
+        val v = clipView(history)
+        val activity = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            activity.get().setContentView(v)
+            while (v.runPendingListAppendForTest()) {}
+            layout(v, h = 220)
+            val viewport = v.listViewportForTest() as ViewGroup
+            val maxScroll = (viewport.getChildAt(0).height - viewport.height).coerceAtLeast(0)
+            assertTrue("precondition: the long list overflows the viewport", maxScroll > 0)
+            val target = maxScroll / 2
+            viewport.scrollTo(0, target)
+            assertEquals(target, v.listScrollYForTest())
+            val keptRow = requireNotNull(v.listRowViewForTest(5))
+            history.add(0, "copied-block")
+            v.refresh()
+            layout(v, h = 220)
+            assertEquals("the split→copy refresh keeps the scroll offset, no jump to top", target, v.listScrollYForTest())
+            assertTrue("existing rows are reused in place, not rebuilt from scratch", keptRow === v.listRowViewForTest(6))
+            assertTrue("the copied block is prepended", "copied-block" in v.listRowTextsForTest())
+        } finally {
+            activity.pause().stop().destroy()
+        }
+    }
+
+    @Test fun ticking_a_select_row_updates_the_count_and_enables_actions_in_place() {
+        val v = clipView(listOf("a", "b", "c")).apply { enterSelectForTest() }
+        layout(v)
+        val row0 = requireNotNull(v.listRowViewForTest(0))
+        val delete = textViews(v).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_delete) }
+        assertFalse("batch delete is disabled with an empty selection", delete.isClickable)
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_selected_count, 0) in labels(v))
+        row0.performClick()
+        assertTrue("the tick updates the header count in place", ctx.getString(com.aegis.ime.R.string.clip_selected_count, 1) in labels(v))
+        assertTrue("the tick enables the batch actions in place", delete.isClickable)
+        assertTrue("the tapped row is mutated, not rebuilt", row0 === v.listRowViewForTest(0))
+    }
+
+    @Test fun select_all_rebinds_every_row_and_the_count_without_a_rebuild() {
+        val v = clipView(listOf("a", "b", "c")).apply { enterSelectForTest() }
+        layout(v)
+        val row0 = requireNotNull(v.listRowViewForTest(0))
+        val row2 = requireNotNull(v.listRowViewForTest(2))
+        requireNotNull(v.selectAllActionForTest()).performClick()
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_selected_count, 3) in labels(v))
+        assertTrue("select-all rebinds rows in place", row0 === v.listRowViewForTest(0) && row2 === v.listRowViewForTest(2))
+        assertTrue(v.isSelectModeForTest())
+    }
+
+    @Test fun expanding_a_card_leaves_its_sibling_rows_untouched() {
+        val v = clipView(listOf("a", "b", "c"))
+        layout(v)
+        val row1 = v.listRowViewForTest(1)
+        val row2 = v.listRowViewForTest(2)
+        val chevron = allViews(requireNotNull(v.listRowViewForTest(0))).first {
+            it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_expand) && it.hasOnClickListeners()
+        }
+        chevron.performClick()
+        layout(v)
+        assertTrue("sibling rows keep their identity through a targeted expand", row1 === v.listRowViewForTest(1))
+        assertTrue(row2 === v.listRowViewForTest(2))
+        assertTrue("the expanded card renders its action row", actionButtons(v).isNotEmpty())
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_collapse) in allViews(v).mapNotNull { it.contentDescription?.toString() })
+    }
+
+    @Test fun reopen_after_inline_from_the_clipboard_tab_stays_on_the_clipboard_tab() {
+        val v = clipView(listOf("clip")).apply {
+            categoriesProvider = { listOf("默认") }
+            phrasesInProvider = { emptyList() }
+        }
+        layout(v)
+        assertTrue(v.isClipboardTabForTest())
+        v.reopenAfterInline("新建分类")
+        layout(v)
+        assertTrue("a clipboard-launched inline return does not jump to phrases", v.isClipboardTabForTest())
+        assertTrue("the clipboard content is intact", "clip" in labels(mainOf(v)))
+    }
+
+    @Test fun reopen_after_inline_on_the_phrase_tab_retargets_the_category() {
+        val v = phraseView(listOf("你好"))
+        layout(v)
+        assertFalse(v.isClipboardTabForTest())
+        assertEquals("默认", v.phraseCatForTest())
+        v.reopenAfterInline("工作")
+        layout(v)
+        assertFalse("an inline return keeps the phrase tab", v.isClipboardTabForTest())
+        assertEquals("an inline return retargets the phrase category", "工作", v.phraseCatForTest())
     }
 }
