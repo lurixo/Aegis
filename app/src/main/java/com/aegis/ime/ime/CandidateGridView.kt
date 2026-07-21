@@ -328,14 +328,8 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         retintRipple(tile, target)
     }
 
-    private fun candidateBaseSize(len: Int): Float = when {
-        len <= 2 -> ImeType.title
-        len == 3 -> ImeType.body
-        else -> ImeType.label
-    }
-
     private fun capFor(len: Int, tableW: Int): Int {
-        val natural = (spPx(candidateBaseSize(len)) * len).toInt() + dp(8 + 8)
+        val natural = (spPx(ImeType.title) * len).toInt() + dp(8 + 8)
         return (tableW / natural).coerceAtLeast(1)
     }
 
@@ -401,7 +395,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     }
 
     private fun candidateTextSize(text: String, len: Int, rowWidth: Int): Float {
-        val base = candidateBaseSize(len)
+        val base = ImeType.title
         if (len <= 4) return base
         val avail = (rowWidth - dp(8 + 8)).toFloat()
         if (avail <= 0f) return 10f

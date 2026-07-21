@@ -247,13 +247,13 @@ class CandidateGridViewTest {
         assertEquals(listOf(listOf("一", "二", "三", "四", "五"), listOf("六六")), v.rowTextsForTest())
     }
 
-    @Test fun rows_holding_a_word_of_three_or_more_graphemes_use_three_columns() {
+    @Test fun longer_words_take_wider_cells_with_fewer_columns_to_keep_base_size() {
         val v = measured()
         v.setCandidates(listOf("你好吗", "一", "二二"))
         assertEquals(listOf(3), v.rowColumnCountsForTest())
         assertEquals(listOf(listOf("你好吗", "一", "二二")), v.rowTextsForTest())
         v.setCandidates(listOf("一", "四个字啦"))
-        assertEquals(listOf(3), v.rowColumnCountsForTest())
+        assertEquals(listOf(2), v.rowColumnCountsForTest())
         assertEquals(listOf(listOf("一", "四个字啦")), v.rowTextsForTest())
     }
 
@@ -298,13 +298,19 @@ class CandidateGridViewTest {
         assertTrue("cell widths differ by at most a rounding pixel", widths.max() - widths.min() <= 1)
     }
 
-    @Test fun candidate_text_sizes_step_down_with_grapheme_length() {
+    @Test fun candidates_keep_the_base_size_regardless_of_grapheme_length_when_they_fit() {
         val v = measured()
         v.setCandidates(listOf("一", "二二", "三三三", "四四四四"))
-        assertEquals(18f, v.chipTextSizeSpForTest(0), 0.01f)
-        assertEquals(18f, v.chipTextSizeSpForTest(1), 0.01f)
-        assertEquals(16f, v.chipTextSizeSpForTest(2), 0.01f)
-        assertEquals(14f, v.chipTextSizeSpForTest(3), 0.01f)
+        for (i in 0..3) assertEquals("candidate $i stays at base 18sp", 18f, v.chipTextSizeSpForTest(i), 0.01f)
+    }
+
+    @Test fun a_seven_grapheme_candidate_fills_a_full_row_at_base_size_not_smaller_than_a_neighbor() {
+        val v = measured()
+        v.setCandidates(listOf("你让我说什么说", "你"))
+        assertEquals(listOf(1, 6), v.rowColumnCountsForTest())
+        assertEquals(listOf(listOf("你让我说什么说"), listOf("你")), v.rowTextsForTest())
+        assertEquals("the long candidate stays at base size", 18f, v.chipTextSizeSpForTest(0), 0.01f)
+        assertEquals("never smaller than the single-char candidate", 18f, v.chipTextSizeSpForTest(1), 0.01f)
     }
 
     @Test fun overlong_candidates_shrink_to_the_floor_and_ellipsize() {
@@ -318,7 +324,7 @@ class CandidateGridViewTest {
         val alone = measured()
         alone.setCandidates(listOf("一二三四五"))
         val soloSize = alone.chipTextSizeSpForTest(0)
-        assertEquals("a five-grapheme candidate that fits a full row keeps its base size", 14f, soloSize, 0.01f)
+        assertEquals("a five-grapheme candidate that fits a full row keeps its base size", 18f, soloSize, 0.01f)
 
         val packed = measured()
         packed.setCandidates(listOf("一二三四五", "六七八九十", "上中下左右"))
