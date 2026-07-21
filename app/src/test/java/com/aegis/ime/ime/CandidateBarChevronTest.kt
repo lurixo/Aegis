@@ -413,7 +413,7 @@ class CandidateBarChevronTest {
             view.dispatchTouchEvent(MotionEvent.obtain(0, index * 20L, MotionEvent.ACTION_DOWN, rect.centerX(), rect.centerY(), 0))
             view.dispatchTouchEvent(MotionEvent.obtain(0, index * 20L + 10L, MotionEvent.ACTION_UP, rect.centerX(), rect.centerY(), 0))
         }
-        assertEquals(listOf("BRAND", "LAYOUT", "EMOJI", "EDIT", "CLIPBOARD", "COLLAPSE"), actions)
+        assertEquals(listOf("BRAND", "EMOJI", "LAYOUT", "EDIT", "CLIPBOARD", "COLLAPSE"), actions)
     }
 
     @Test fun idle_toolbar_end_targets_fill_only_the_rounded_capsule() {
@@ -462,7 +462,7 @@ class CandidateBarChevronTest {
         val box = 1.64f * s
         val natural = listOf(
             BarFunction.BRAND to (1.28f to 1.59f),
-            BarFunction.LAYOUT to (1.40f to 0.8334f),
+            BarFunction.LAYOUT to (1.40f to 1.40f),
             BarFunction.EMOJI to (1.64f to 1.64f),
             BarFunction.EDIT to (1.00f to 1.64f),
             BarFunction.CLIPBOARD to (1.16f to 1.58f),
@@ -480,9 +480,11 @@ class CandidateBarChevronTest {
         }
         assertEquals("EDIT keeps its size", 1f, view.toolbarIconScaleForTest(BarFunction.EDIT), 0.001f)
         assertEquals("EMOJI keeps its size", 1f, view.toolbarIconScaleForTest(BarFunction.EMOJI), 0.001f)
-        assertTrue(
-            "the flat keyboard glyph is width-bounded, no longer the widest",
-            1.40f * s * view.toolbarIconScaleForTest(BarFunction.LAYOUT) <= box + 0.02f * density,
+        assertEquals(
+            "the keyboard glyph now fills the common box height",
+            box,
+            1.40f * s * view.toolbarIconScaleForTest(BarFunction.LAYOUT),
+            0.02f * density,
         )
         val chevron = view.toolbarChevronBoundsForTest()
         assertEquals("the collapse chevron is width-bounded to the box", box, chevron.width(), 0.02f * density)

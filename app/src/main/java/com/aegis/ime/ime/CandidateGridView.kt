@@ -45,7 +45,7 @@ import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.ime.theme.ImeType
 import kotlin.math.abs
 
-class CandidateGridView(context: Context) : LinearLayout(context), ResettablePanel {
+class CandidateGridView(context: Context) : LinearLayout(context), ResettablePanel, CoversToolbar {
 
     var onPick: (Int) -> Unit = {}
     var onPickReading: (Int) -> Unit = {}
@@ -64,7 +64,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private val gridScroll = ScrollView(context)
     private val rightColumn = FrameLayout(context)
     private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
-    private val collapseGlyph = IconDrawable(density, 0.62f) { c, p, x, y, s -> Glyphs.drawChevron(c, p, x, y, s, down = false) }
+    private val collapseGlyph = IconDrawable(density, 9f * (1.64f / 1.40f) / 22f) { c, p, x, y, s -> Glyphs.drawChevron(c, p, x, y, s, down = false) }
     private val measurePaint = Paint()
     private val readingMeasurePaint = Paint().apply { typeface = Typeface.DEFAULT_BOLD }
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
@@ -75,6 +75,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private var candidateRebuilds = 0
     private var readingRebuilds = 0
     private var measuringWidthOverride = 0
+    private var lastMeasuredWidth = 0
 
     private val chipPool = ArrayList<TextView>()
     private val rowPool = ArrayList<LinearLayout>()
@@ -133,7 +134,13 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             },
             centeredLp(),
         )
-        rightColumn.addView(funcButton(context.getString(R.string.kbd_redo)) { onClear() }, rowAlignedLp(4))
+        rightColumn.addView(
+            funcButton(context.getString(R.string.kbd_redo)) { onClear() }.apply {
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+                setTypeface(null, Typeface.BOLD)
+            },
+            rowAlignedLp(5),
+        )
         addView(rightColumn, LayoutParams(dp(64), LayoutParams.MATCH_PARENT))
     }
 
@@ -181,23 +188,33 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         val mode = MeasureSpec.getMode(heightMeasureSpec)
         if (mode != MeasureSpec.UNSPECIFIED) updateRightActionLayout(MeasureSpec.getSize(heightMeasureSpec))
         val incomingWidth = MeasureSpec.getSize(widthMeasureSpec)
-        if (incomingWidth > 0) {
-
-            measuringWidthOverride = incomingWidth
-            renderedCandidates?.let { setCandidates(it) }
-            measuringWidthOverride = 0
+        if (incomingWidth > 0 && incomingWidth != lastMeasuredWidth) {
+            lastMeasuredWidth = incomingWidth
+            renderedCandidates?.let {
+                measuringWidthOverride = incomingWidth
+                setCandidates(it)
+                measuringWidthOverride = 0
+            }
         }
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
     }
 
     private fun updateRightActionLayout(availableHeight: Int) {
-        val actionHeight = minOf(dp(46), availableHeight.coerceAtLeast(0) / 3)
+        val rowH = dp(46)
+        val topInset = dp(8)
         val back = returnButtonForTest()
         val delete = backspaceButtonForTest()
         val clear = clearButtonForTest()
-        setActionFrame(back, actionHeight, Gravity.TOP, 0)
-        setActionFrame(delete, actionHeight, Gravity.TOP, (availableHeight - actionHeight) / 2)
-        setActionFrame(clear, actionHeight, Gravity.TOP, (availableHeight - actionHeight).coerceAtLeast(0))
+        if (availableHeight >= topInset + rowH * 6) {
+            setActionFrame(back, rowH, Gravity.TOP, topInset)
+            setActionFrame(delete, rowH, Gravity.TOP, topInset + rowH * 3 - rowH / 2)
+            setActionFrame(clear, rowH, Gravity.TOP, topInset + rowH * 5)
+        } else {
+            val actionHeight = minOf(rowH, availableHeight.coerceAtLeast(0) / 3)
+            setActionFrame(back, actionHeight, Gravity.TOP, 0)
+            setActionFrame(delete, actionHeight, Gravity.TOP, (availableHeight - actionHeight) / 2)
+            setActionFrame(clear, actionHeight, Gravity.TOP, (availableHeight - actionHeight).coerceAtLeast(0))
+        }
     }
 
     private fun setActionFrame(view: View, height: Int, gravity: Int, topMargin: Int) {
@@ -311,10 +328,15 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         retintRipple(tile, target)
     }
 
-    private fun capFor(len: Int): Int = when {
-        len <= 1 -> 6
-        len == 2 -> 4
-        else -> 3
+    private fun candidateBaseSize(len: Int): Float = when {
+        len <= 2 -> ImeType.title
+        len == 3 -> ImeType.body
+        else -> ImeType.label
+    }
+
+    private fun capFor(len: Int, tableW: Int): Int {
+        val natural = (spPx(candidateBaseSize(len)) * len).toInt() + dp(8 + 8)
+        return (tableW / natural).coerceAtLeast(1)
     }
 
     fun setCandidates(candidates: List<String>) {
@@ -340,9 +362,9 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         for (i in candidates.indices) {
             lens[i] = GraphemeText.clusterCount(candidates[i])
             val newMax = maxOf(rowMaxLen, lens[i])
-            if (count + 1 > capFor(newMax)) {
+            if (count + 1 > capFor(newMax, tableW)) {
                 rowStarts.add(start)
-                rowCols.add(capFor(rowMaxLen))
+                rowCols.add(capFor(rowMaxLen, tableW))
                 start = i
                 count = 1
                 rowMaxLen = lens[i]
@@ -353,7 +375,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         }
         if (count > 0) {
             rowStarts.add(start)
-            rowCols.add(capFor(rowMaxLen))
+            rowCols.add(capFor(rowMaxLen, tableW))
         }
         for (r in rowStarts.indices) {
             val from = rowStarts[r]
@@ -362,7 +384,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             for (k in 0 until to - from) {
                 val i = from + k
                 chipWidths[i] = tableW * (k + 1) / cols - tableW * k / cols
-                chipTextSizes[i] = candidateTextSize(candidates[i], lens[i], chipWidths[i])
+                chipTextSizes[i] = candidateTextSize(candidates[i], lens[i], tableW)
                 val chip = obtainChip(i)
                 if (chip.text != candidates[i]) chip.text = candidates[i]
                 chip.tag = i
@@ -378,14 +400,10 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         }
     }
 
-    private fun candidateTextSize(text: String, len: Int, cellWidth: Int): Float {
-        val base = when {
-            len <= 2 -> ImeType.title
-            len == 3 -> ImeType.body
-            else -> ImeType.label
-        }
+    private fun candidateTextSize(text: String, len: Int, rowWidth: Int): Float {
+        val base = candidateBaseSize(len)
         if (len <= 4) return base
-        val avail = (cellWidth - dp(8 + 8)).toFloat()
+        val avail = (rowWidth - dp(8 + 8)).toFloat()
         if (avail <= 0f) return 10f
         measurePaint.textSize = spPx(base)
         val w = measurePaint.measureText(text)
