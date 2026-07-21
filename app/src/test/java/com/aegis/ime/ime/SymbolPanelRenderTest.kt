@@ -186,8 +186,23 @@ class SymbolPanelRenderTest {
         assertEquals(disp, greek.gridGlyphForTest("Ω")!!.textSize, 0.5f)
 
         val net = SymbolsView(ctx).apply { applyPalette(light); openCategoryForTest(idx("net")) }
-        assertTrue("网络 still shows its url chip bar", net.netBarVisibleForTest())
-        assertTrue("https:// chip still present", "https://" in net.netChipTextsForTest())
+        assertFalse("网络 no longer uses a separate url chip bar", net.netBarVisibleForTest())
+        assertTrue("https:// rides the merged grid", "https://" in net.gridCellTextsForTest())
+        assertTrue("网络 cells stay uniform height", net.gridTileHeightsForTest().all { it == net.cellHeightForTest() })
+    }
+
+    @Test fun recents_url_chips_share_the_one_fixed_cell_height() {
+        val sv = SymbolsView(ctx).apply {
+            recentProvider = { listOf("https://", ".", "。") }
+            applyPalette(light)
+            openCategoryForTest(0)
+        }
+        val chipHeights = sv.netChipMeasuredHeightsForTest()
+        assertTrue("recents surfaced a url chip", chipHeights.isNotEmpty())
+        assertTrue(
+            "multi-char url chips are no taller than a single-char cell: $chipHeights vs ${sv.cellHeightForTest()}",
+            chipHeights.all { it == sv.cellHeightForTest() },
+        )
     }
 
     @Test fun wide_metric_classifier_covers_exactly_the_heavy_fallback_glyphs() {

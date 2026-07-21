@@ -243,8 +243,20 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         val symbols = symbolsFor(index)
         if (symbols.isEmpty()) { netBar.visibility = View.GONE; grid.addView(obtainEmptySpan()); return }
         val isNet = index != 0 && SymbolCatalog.categories.getOrNull(index - 1)?.id == "net"
+        if (isNet) {
+            netBar.visibility = View.GONE
+            showingUrlCompletions = false
+            val (wide, single) = symbols.partition { it.length > 1 }
+            for ((slot, s) in (wide + single).withIndex()) {
+                val tile = obtainTile(slot)
+                setTileSpan(tile, if (s.length > 1) 2 else 1)
+                bindTile(tile, s, badge = null)
+                grid.addView(tile)
+            }
+            return
+        }
         val completions = symbols.filter { it.length > 1 }
-        val urlCompletions = if (completions.isNotEmpty() && (isNet || completions.any { isUrlLike(it) }))
+        val urlCompletions = if (completions.isNotEmpty() && completions.any { isUrlLike(it) })
             completions.filter { isUrlLike(it) } else emptyList()
         showingUrlCompletions = urlCompletions.isNotEmpty()
         if (showingUrlCompletions) {
@@ -256,9 +268,16 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         var slot = 0
         for (s in symbols) if (s !in urlCompletions) {
             val tile = obtainTile(slot); slot++
+            setTileSpan(tile, 1)
             bindTile(tile, s, badge = if (index == 0) badgeFor(s) else null)
             grid.addView(tile)
         }
+    }
+
+    private fun setTileSpan(tile: FrameLayout, span: Int) {
+        val lp = tile.layoutParams as GridLayout.LayoutParams
+        lp.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, span, GridLayout.FILL, span.toFloat())
+        tile.layoutParams = lp
     }
 
     private fun crossfadeTabColor(tab: TextView, color: Int) {
@@ -319,12 +338,12 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         text = symbol
         maxLines = 1
         ellipsize = null
-        minimumHeight = dp(44)
+        minimumHeight = cellHeightPx
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
         setTextColor(palette.keyLabel)
         background = GradientDrawable().apply { setColor(palette.keySurface); cornerRadius = ImeShapes.keyRadiusDp * density }
-        val ph = dp(14); setPadding(ph, dp(8), ph, dp(8))
+        val ph = dp(14); setPadding(ph, 0, ph, 0)
         isClickable = true
         Motion.applyTapFeedback(this, palette.keyLabel)
         setOnClickListener { onSymbol(symbol, originForCurrent(symbol)); if (!locked) onBack() }
@@ -505,6 +524,19 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
     internal fun cellHeightForTest(): Int = cellHeightPx
     internal fun gridTileHeightsForTest(): List<Int> =
         (0 until grid.childCount).map { grid.getChildAt(it).layoutParams.height }
+    internal fun netChipMeasuredHeightsForTest(): List<Int> {
+        val out = ArrayList<Int>()
+        val unspec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        for (i in 0 until netBar.childCount) {
+            val row = netBar.getChildAt(i) as? LinearLayout ?: continue
+            for (j in 0 until row.childCount) {
+                val chip = row.getChildAt(j)
+                chip.measure(unspec, unspec)
+                out.add(chip.measuredHeight)
+            }
+        }
+        return out
+    }
     private fun tileFor(symbol: String): android.view.ViewGroup? {
         for (i in 0 until grid.childCount) {
             val tile = grid.getChildAt(i) as? android.view.ViewGroup ?: continue
@@ -521,6 +553,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
                 ?.takeIf { it.visibility == View.VISIBLE }?.text?.toString()
         }
     internal fun tapCellForTest(symbol: String): Boolean = tileFor(symbol)?.performClick() ?: false
+    internal fun gridCellPixelWidthForTest(symbol: String): Int = tileFor(symbol)?.width ?: -1
     internal fun tilesAllocatedForTest(): Int = tilePool.size
 
     private fun updateLockFace() {

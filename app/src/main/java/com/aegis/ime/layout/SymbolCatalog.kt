@@ -34,7 +34,7 @@ object SymbolCatalog {
         )),
         Category("currency", R.string.sym_cat_currency, tokens("$ ¥ € £ ₩ ₹ ₽ ₺ ฿ ₫ ₴ ₦ ¢ ₱ ₪ ₸ ₮ ₭ ₲ ₡ ₵ ₿ ﷼ ₠ ₣ ₤ ₥ 元 円 圆")),
         Category("net", R.string.sym_cat_net, listOf(
-            ".", "/", "@", "-", "_", "http://", "https://", "http://www.", "https://www.", ":", "#", "?", "&", "=", "%",
+            ".", "/", "@", "-", "_", "http://", "https://", ":", "#", "?", "&", "=", "%",
         )),
         Category("math", R.string.sym_cat_math, tokens("+ − × ÷ = ≠ ≈ ≡ ± ∓ < > ≤ ≥ ∞ √ ∛ ∑ ∏ ∫ ∬ ∭ ∮ ∂ ∇ ∆ ％ ‰ ∝ ∴ ∵ ∠ ⊥ ∥ ° ′ ″ π θ φ λ μ Σ Ω ½ ⅓ ¼ ¾ ⅔ ∈ ∉ ⊂ ⊃ ⊆ ⊇ ∪ ∩ ∅ ∀ ∃ ≅ ∽ ⊕ ⊗ ⊙ ℝ ℕ ℤ ℚ ℂ sin cos tan cot sec csc arcsin arccos arctan sinh cosh tanh ℃ ℉ ㎏ ㎜ ㎝ ㎞ ㎡ ㎥ ㎎ ㎖")),
         Category("greek", R.string.sym_cat_greek, tokens("α β γ δ ε ζ η θ ι κ λ μ ν ξ ο π ρ σ ς τ υ φ χ ψ ω Α Β Γ Δ Ε Ζ Η Θ Ι Κ Λ Μ Ν Ξ Ο Π Ρ Σ Τ Υ Φ Χ Ψ Ω")),

@@ -43,7 +43,6 @@ internal object SymbolAssociations {
         Exemption("参考记号(日式米印),中文无通用固定名", "※"),
         Exemption("重复记号(ditto),中文无通用词名", "〃"),
         Exemption("and 符号,中文无通用拼音词名", "&", "＆"),
-        Exemption("URL 前缀变体(含 www),无自然读音词", "http://www.", "https://www."),
         Exemption("历史货币符号 ECU,无通用中文名", "₠"),
         Exemption("汉字本身,词库候选直接可得(yuan)", "元", "圆"),
         Exemption("多义几何/代数圈号(圆/点积),无唯一通用名", "⊙"),
