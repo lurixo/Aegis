@@ -43,7 +43,7 @@ import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.layout.SymbolCatalog
 
-class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
+class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, CoversToolbar {
 
     var onSymbol: (String, String?) -> Unit = { _, _ -> }
     var onClearRecents: () -> Unit = {}
@@ -109,6 +109,32 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         const val COLUMNS = 7
         const val WIDE_GLYPH_SCALE = 0.82f
         const val BADGE_CLEARANCE_DP = 6
+
+        private val CELL_PLACEMENT: Map<String, Pair<Float, Float>> = mapOf(
+            "，" to (-0.20f to 0.24f),
+            "。" to (-0.20f to 0.24f),
+            "、" to (-0.20f to 0.24f),
+            "「" to (0.20f to -0.22f),
+            "『" to (0.20f to -0.22f),
+            "」" to (-0.20f to 0.22f),
+            "』" to (-0.20f to 0.22f),
+            "（" to (0.18f to 0.0f),
+            "）" to (-0.18f to 0.0f),
+            "《" to (0.16f to 0.0f),
+            "》" to (-0.16f to 0.0f),
+            "〈" to (0.16f to 0.0f),
+            "〉" to (-0.16f to 0.0f),
+            "【" to (0.16f to 0.0f),
+            "】" to (-0.16f to 0.0f),
+            "〖" to (0.16f to 0.0f),
+            "〗" to (-0.16f to 0.0f),
+            "〔" to (0.16f to 0.0f),
+            "〕" to (-0.16f to 0.0f),
+            "“" to (0.16f to -0.20f),
+            "”" to (-0.16f to -0.20f),
+            "‘" to (0.16f to -0.20f),
+            "’" to (-0.16f to -0.20f),
+        )
 
         fun wideMetricGlyph(ch: Char): Boolean {
             val c = ch.code
@@ -187,24 +213,28 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         }
         emptySpanView?.setTextColor(p.keyHint)
         updateLockFace()
-        showCategory(selected)
+        styleRail(-1)
     }
 
     private fun showCategory(index: Int, animate: Boolean = true) {
         val tabChanged = index != selected
         val prev = selected
         selected = index
+        styleRail(if (tabChanged) prev else -1)
+        if (animate && tabChanged && gridScroll.isShown) Motion.coverThrough(gridScroll, palette.keyboardBg) { bindGrid(selected) }
+        else bindGrid(index)
+    }
+
+    private fun styleRail(crossfadeFrom: Int) {
         for (i in 0 until rail.childCount) {
             val tab = rail.getChildAt(i) as TextView
-            val on = i == index
+            val on = i == selected
             tab.background = railTabBackground(on)
             tab.setTypeface(null, if (on) Typeface.BOLD else Typeface.NORMAL)
             val color = if (on) palette.candidateFirst else palette.keyLabelSecondary
-            if (tabChanged && (i == index || i == prev)) crossfadeTabColor(tab, color) else tab.setTextColor(color)
+            if (crossfadeFrom >= 0 && (i == selected || i == crossfadeFrom)) crossfadeTabColor(tab, color) else tab.setTextColor(color)
             retintRipple(tab, color, ImeShapes.chipRadiusDp)
         }
-        if (animate && tabChanged && gridScroll.isShown) Motion.coverThrough(gridScroll, palette.keyboardBg) { bindGrid(selected) }
-        else bindGrid(index)
     }
 
     private fun bindGrid(index: Int) {
@@ -270,10 +300,12 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val incomingWidth = MeasureSpec.getSize(widthMeasureSpec)
         if (incomingWidth > 0 && incomingWidth != lastFlowWidth) {
-            measuringWidthOverride = incomingWidth
             lastFlowWidth = incomingWidth
-            showCategory(selected)
-            measuringWidthOverride = 0
+            if (showingUrlCompletions) {
+                measuringWidthOverride = incomingWidth
+                showCategory(selected)
+                measuringWidthOverride = 0
+            }
         }
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
     }
@@ -320,6 +352,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         gravity = Gravity.CENTER
         maxLines = 1
         setPadding(dp(2), dp(13), dp(2), dp(13))
+        if (index == 0) layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) + dp(3) }
         TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(this, 11, ImeType.label.toInt(), 1, TypedValue.COMPLEX_UNIT_SP)
         background = railTabBackground(index == selected)
         isClickable = true
@@ -385,8 +418,16 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel {
         paint.getTextBounds(symbol, 0, 1, glyphInk)
         paint.getFontMetrics(glyphMetrics)
         val clearance = if (badged) badgeClearancePx else 0f
-        tv.translationX = paint.measureText(symbol) / 2f - glyphInk.exactCenterX() - clearance
-        tv.translationY = (glyphMetrics.ascent + glyphMetrics.descent) / 2f - glyphInk.exactCenterY()
+        val em = paint.textSize
+        val inkCenterX = paint.measureText(symbol) / 2f - glyphInk.exactCenterX() - clearance
+        val placement = CELL_PLACEMENT[symbol]
+        if (placement == null) {
+            tv.translationX = inkCenterX
+            tv.translationY = 0f
+        } else {
+            tv.translationX = inkCenterX + placement.first * em
+            tv.translationY = (glyphMetrics.ascent + glyphMetrics.descent) / 2f - glyphInk.exactCenterY() + placement.second * em
+        }
     }
 
     private fun bindGlyph(tv: TextView, symbol: String) {

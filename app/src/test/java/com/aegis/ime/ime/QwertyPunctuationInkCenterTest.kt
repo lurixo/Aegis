@@ -134,7 +134,7 @@ class QwertyPunctuationInkCenterTest {
             for ((label, sub) in listOf("q" to "1", "a" to "~", "z" to "(")) {
                 val rect = requireNotNull(rects[label]) { "$lang $label key missing" }
                 val scale = kotlin.math.min(1f, rect.height() / (52f * density))
-                val drop = 5f * density * scale
+                val drop = 7f * density * scale
                 val letter = canvas.texts.filter { it.first == label }.map { it.second }
                 val hint = canvas.texts.filter { it.first == sub }.map { it.second }
                 if (letter.size != 1) { fails.add("$lang $label letter drawn ${letter.size} times"); continue }

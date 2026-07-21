@@ -61,6 +61,7 @@ class RecentClearConfirmationTest {
                 recents.clear()
             }
             applyPalette(ImePalette.STATIC_LIGHT)
+            resetToDefault()
         }
 
         assertEquals(listOf("★", "→"), view.gridCellTextsForTest())
@@ -107,6 +108,7 @@ class RecentClearConfirmationTest {
                 recents.clear()
             }
             applyPalette(ImePalette.STATIC_LIGHT)
+            resetToDefault()
         }
 
         assertEquals(listOf("👋", "😀"), view.gridCellTextsForTest())

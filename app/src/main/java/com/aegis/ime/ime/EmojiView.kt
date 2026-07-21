@@ -46,7 +46,7 @@ import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.layout.EmojiCatalog
 import com.aegis.ime.layout.EmojiVariants
 
-class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
+class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, CoversToolbar {
 
     var onEmoji: (String) -> Unit = {}
     var onClearRecents: () -> Unit = {}
@@ -178,7 +178,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         for (cell in emojiPool) retintRipple(cell, p.keyLabel)
         emptyHintView?.setTextColor(p.keyHint)
         updateLockFace()
-        showCategory(selected)
+        styleRail(-1)
     }
 
     override fun resetToDefault() {
@@ -235,17 +235,21 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         val tabChanged = index != selected
         val prev = selected
         selected = index
+        styleRail(if (tabChanged) prev else -1)
+        if (animate && tabChanged && gridScroll.isShown) Motion.coverThrough(gridScroll, palette.keyboardBg) { bindGrid(selected) }
+        else bindGrid(index)
+    }
+
+    private fun styleRail(crossfadeFrom: Int) {
         for (i in 0 until rail.childCount) {
             val tab = rail.getChildAt(i) as TextView
-            val on = i == index
+            val on = i == selected
             tab.background = railTabBackground(on)
             tab.setTypeface(null, if (on) Typeface.BOLD else Typeface.NORMAL)
             val color = if (on) palette.candidateFirst else palette.keyLabelSecondary
-            if (tabChanged && (i == index || i == prev)) crossfadeTabColor(tab, color) else tab.setTextColor(color)
+            if (crossfadeFrom >= 0 && (i == selected || i == crossfadeFrom)) crossfadeTabColor(tab, color) else tab.setTextColor(color)
             retintRipple(tab, color)
         }
-        if (animate && tabChanged && gridScroll.isShown) Motion.coverThrough(gridScroll, palette.keyboardBg) { bindGrid(selected) }
-        else bindGrid(index)
     }
 
     private fun bindGrid(index: Int) {
@@ -289,6 +293,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel {
         gravity = Gravity.CENTER
         maxLines = 1
         setPadding(dp(2), dp(13), dp(2), dp(13))
+        if (index == 0) layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) }
         TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(this, 11, ImeType.label.toInt(), 1, TypedValue.COMPLEX_UNIT_SP)
         background = railTabBackground(index == selected)
         isClickable = true
