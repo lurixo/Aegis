@@ -73,7 +73,7 @@ class FuzzyEvalTest {
                 100.0 * exactOff / pairs.size, 100.0 * exactOn / pairs.size))
         }
         println(report)
-        File("build/fuzzy_report.txt").apply { parentFile.mkdirs(); writeText(report) }
+        File("build/fuzzy_report.txt").apply { parentFile?.mkdirs(); writeText(report) }
 
         assertTrue("fuzzy must not reduce recall", singleOn >= singleOff && maxOn >= maxOff)
         assertTrue("fuzzy must not erode exact-input precision much",

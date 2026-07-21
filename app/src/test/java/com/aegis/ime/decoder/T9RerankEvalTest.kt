@@ -104,7 +104,7 @@ class T9RerankEvalTest {
             .append(PinyinDecoder(t9, lm, userModel = umXie).decodeCovered("943943", 8).map { it.word }).append("\n")
 
         println(sb)
-        File("build/t9_report.txt").apply { parentFile.mkdirs(); writeText(sb.toString()) }
+        File("build/t9_report.txt").apply { parentFile?.mkdirs(); writeText(sb.toString()) }
     }
 
     private val flipSet = listOf(
@@ -148,7 +148,7 @@ class T9RerankEvalTest {
             sb.append("  「$c」+$code 前:$before 后:$after (exp $e)${if (after == e && before != e) " ✦flip" else if (after != e) " ✗" else ""}\n")
         }
         println(sb)
-        File("build/t9_context_report.txt").apply { parentFile.mkdirs(); writeText(sb.toString()) }
+        File("build/t9_context_report.txt").apply { parentFile?.mkdirs(); writeText(sb.toString()) }
     }
 
     @Test
@@ -174,7 +174,7 @@ class T9RerankEvalTest {
         }
         sb.append("char-bigram-only flips: $flips/${cases.size}\n")
         println(sb)
-        File("build/t9_context_nooct.txt").apply { parentFile.mkdirs(); writeText(sb.toString()) }
+        File("build/t9_context_nooct.txt").apply { parentFile?.mkdirs(); writeText(sb.toString()) }
     }
 
     @Test
