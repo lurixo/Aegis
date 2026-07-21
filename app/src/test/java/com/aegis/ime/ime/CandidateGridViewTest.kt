@@ -20,6 +20,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.RippleDrawable
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.MotionEvent
@@ -213,6 +214,17 @@ class CandidateGridViewTest {
 
         assertEquals("candidate grid scroll resets to top", 0, v.gridScrollYForTest())
         assertEquals("reading column scroll resets to top", 0, v.readingScrollYForTest())
+    }
+
+    @Test fun grid_backspace_shows_press_feedback_on_touch_down_like_the_other_controls() {
+        val v = measured()
+        val b = v.backspaceButtonForTest()
+        assertTrue("backspace carries a ripple foreground like collapse and redo", b.foreground is RippleDrawable)
+        val x = b.width / 2f
+        b.dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, x, b.height / 2f, 0))
+        assertTrue("touch-down puts backspace into the pressed state so its ripple fires", b.isPressed)
+        b.dispatchTouchEvent(MotionEvent.obtain(0, 16, MotionEvent.ACTION_UP, x, b.height / 2f, 0))
+        assertFalse("release clears the pressed state", b.isPressed)
     }
 
     @Test fun up_swipe_on_grid_backspace_clears_instead_of_deleting_one_unit() {

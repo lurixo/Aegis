@@ -245,9 +245,12 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
                     MotionEvent.ACTION_DOWN -> {
                         downX = e.x
                         downY = e.y
+                        v.drawableHotspotChanged(e.x, e.y)
+                        v.isPressed = true
                         true
                     }
                     MotionEvent.ACTION_UP -> {
+                        v.isPressed = false
                         val upSwipe = downY - e.y > touchSlop && abs(e.x - downX) <= dp(28)
                         if (upSwipe) {
                             onClear()
@@ -256,7 +259,10 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
                         }
                         true
                     }
-                    MotionEvent.ACTION_CANCEL -> true
+                    MotionEvent.ACTION_CANCEL -> {
+                        v.isPressed = false
+                        true
+                    }
                     else -> true
                 }
             }
