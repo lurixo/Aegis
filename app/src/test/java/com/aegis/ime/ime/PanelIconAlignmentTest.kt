@@ -129,7 +129,8 @@ class PanelIconAlignmentTest {
 
     @Test fun edit_left_group_moves_together_and_right_actions_use_leading_icons() {
         val v = EditPanelView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
-        layout(v, width = 600, height = 320)
+        val panelHeight = 320
+        layout(v, width = 600, height = panelHeight)
 
         fun viewFor(item: EditAction): View = requireNotNull(v.actionViewForTest(item))
         fun centerX(item: EditAction): Float {
@@ -159,12 +160,16 @@ class PanelIconAlignmentTest {
         assertEquals(select.top, rightArrow.top)
         assertEquals(select.top, upArrow.bottom)
         assertEquals(select.bottom, downArrow.top)
+        val titleHeight = (40 * density).toInt()
+        val bottomHeight = (56 * density).toInt()
+        val contentHeight = maxOf((48 * 3 * density).toInt() + bottomHeight, panelHeight - titleHeight)
+        val midHeight = contentHeight - bottomHeight
         for (arrow in listOf(leftArrow, rightArrow, upArrow, downArrow)) {
-            assertEquals((54 * density).toInt(), arrow.width())
-            assertEquals((48 * density).toInt(), arrow.height())
+            assertTrue(kotlin.math.abs(arrow.width() - v.width / 5) <= 1)
+            assertTrue(kotlin.math.abs(arrow.height() - midHeight / 3) <= 1)
         }
-        assertEquals((88 * density).toInt(), select.width())
-        assertEquals((48 * density).toInt(), select.height())
+        assertTrue(kotlin.math.abs(select.width() - v.width / 5) <= 1)
+        assertTrue(kotlin.math.abs(select.height() - midHeight / 3) <= 1)
 
         val navWidths = listOf(EditAction.HOME, EditAction.SELECT_ALL, EditAction.END).map { viewFor(it).width }
         assertTrue(navWidths.max() - navWidths.min() <= 1)
@@ -257,12 +262,10 @@ class PanelIconAlignmentTest {
                 val target = requireNotNull(v.actionViewForTest(action))
                 Rect(0, 0, target.width, target.height).also { v.offsetDescendantRectToMyCoords(target, it) }
             }
-            val clusterRowHeight = (48 * density).toInt()
             assertEquals(bounds.first().top, dpadBounds.first().top)
-            assertEquals(List(3) { clusterRowHeight }, dpadBounds.map { it.height() })
+            assertTrue(dpadBounds.all { kotlin.math.abs(it.height() - midHeight / 3) <= 1 })
             dpadBounds.zipWithNext().forEach { (upper, lower) -> assertEquals(upper.bottom, lower.top) }
-            assertEquals(titleHeight + 3 * clusterRowHeight, dpadBounds.last().bottom)
-            assertTrue(dpadBounds.last().bottom <= titleHeight + midHeight)
+            assertEquals(titleHeight + midHeight, dpadBounds.last().bottom)
             val navigationBounds = listOf(EditAction.HOME, EditAction.SELECT_ALL, EditAction.END).map { action ->
                 val target = requireNotNull(v.actionViewForTest(action))
                 Rect(0, 0, target.width, target.height).also { v.offsetDescendantRectToMyCoords(target, it) }
