@@ -262,7 +262,7 @@ class InputView(context: Context) : LinearLayout(context) {
     }
 
     private fun panelHeightFor(keyboardHeight: Int): Int =
-        keyboardHeight + if (currentPanel === gridView) coveredBarHeightPx() else 0
+        keyboardHeight + if (currentPanel is CoversToolbar) coveredBarHeightPx() else 0
 
     private fun coveredBarHeightPx(): Int = lastDockHeightSpec?.barHeight ?: dp(BAR_HEIGHT_DP)
 
@@ -441,8 +441,8 @@ class InputView(context: Context) : LinearLayout(context) {
         currentPanel = panel
         if (panel !== gridView) pendingGridBind = null
         candidateView.setExpanded(panel === gridView)
-        val gridCoversBar = panel === gridView
-        val restoredBar = outgoing === gridView && !gridCoversBar
+        val coversBar = panel is CoversToolbar
+        val restoredBar = outgoing is CoversToolbar && !coversBar
         if (panel == null) {
             if (outgoing != null) {
                 val snap = Motion.snapshot(outgoing, palette.keyboardBg)
@@ -472,12 +472,12 @@ class InputView(context: Context) : LinearLayout(context) {
             val snap = when {
                 !animateReveal -> null
                 outgoing != null && outgoing !== panel -> Motion.snapshot(outgoing, palette.keyboardBg)
-                outgoing == null && gridCoversBar && candidateView.visibility == VISIBLE -> expandCoverSnapshot()
+                outgoing == null && coversBar && candidateView.visibility == VISIBLE -> expandCoverSnapshot()
                 outgoing == null && keyboardView.visibility == VISIBLE -> Motion.snapshot(keyboardView, palette.keyboardBg)
                 else -> null
             }
             attachPanel(panel)
-            if (gridCoversBar) candidateView.visibility = GONE
+            if (coversBar) candidateView.visibility = GONE
             keyboardView.visibility = GONE
             panel.visibility = VISIBLE
             Motion.reset(panel)
@@ -521,7 +521,7 @@ class InputView(context: Context) : LinearLayout(context) {
         currentPanel = null
         pendingGridBind = null
         candidateView.setExpanded(false)
-        if (outgoing === gridView) candidateView.visibility = VISIBLE
+        if (outgoing is CoversToolbar) candidateView.visibility = VISIBLE
         outgoing?.let(Motion::reset)
         Motion.cancelCover(panelContainer)
         panelContainer.removeAllViews()
@@ -808,7 +808,7 @@ class InputView(context: Context) : LinearLayout(context) {
         private const val SIDE_PADDING_DP = 4
         private const val PREEDIT_HEIGHT_DP = 26
         private const val BAR_HEIGHT_DP = 44
-        private const val BOTTOM_RAISE_DP = 28
+        private const val BOTTOM_RAISE_DP = 34
 
         private var lastNavBottomPx = 0
     }
