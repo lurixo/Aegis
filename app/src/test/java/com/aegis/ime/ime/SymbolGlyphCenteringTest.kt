@@ -66,7 +66,15 @@ class SymbolGlyphCenteringTest {
 
     private fun clearancePx(): Float = (SymbolsView.BADGE_CLEARANCE_DP * density).toInt().toFloat()
 
-    @Test fun other_tab_asymmetric_glyphs_draw_at_tile_center() {
+    private fun realVerticalCenter(tv: TextView): Float {
+        val ink = Rect()
+        val sym = tv.text.toString()
+        tv.paint.getTextBounds(sym, 0, sym.length, ink)
+        val fm = tv.paint.fontMetrics
+        return tv.height / 2f + (ink.exactCenterY() - (fm.ascent + fm.descent) / 2f)
+    }
+
+    @Test fun other_tab_glyphs_stay_horizontally_ink_centred_with_real_vertical_positions() {
         val sv = SymbolsView(ctx).apply { applyPalette(light); openCategoryForTest(idx("en")) }
         layout(sv)
 
@@ -76,14 +84,20 @@ class SymbolGlyphCenteringTest {
             val tv = sv.gridGlyphForTest(s) ?: throw AssertionError("$s missing from the 英文 tab")
             assertTrue("$s tile must be laid out", tv.width > 0 && tv.height > 0)
             val (cx, cy) = drawnInkCenter(tv)
-            assertEquals("$s ink x-centre sits at the tile centre", tv.width / 2f, cx, 1.5f)
-            assertEquals("$s ink y-centre sits at the tile centre", tv.height / 2f, cy, 1.5f)
-            maxOffset = max(maxOffset, max(abs(tv.translationX), abs(tv.translationY)))
+            assertEquals("$s ink x-centre stays at the tile centre", tv.width / 2f, cx, 1.5f)
+            assertEquals("$s draws at its real vertical em-box position, not a forced centre", realVerticalCenter(tv), cy, 0.75f)
+            maxOffset = max(maxOffset, abs(tv.translationX))
         }
         assertTrue(
-            "under real fonts ink-centering must actually displace at least one asymmetric glyph",
+            "under real fonts horizontal ink-centering must actually displace at least one asymmetric glyph",
             maxOffset > 0.5f,
         )
+
+        for (high in listOf("^", "*")) {
+            val tv = sv.gridGlyphForTest(high)!!
+            val (_, cy) = drawnInkCenter(tv)
+            assertTrue("$high sits high in the em-box, not dead-centre (cy=$cy)", cy < tv.height / 2f - 1f)
+        }
     }
 
     @Test fun common_tab_badged_glyph_shifts_left_to_clear_the_badge() {
@@ -109,7 +123,7 @@ class SymbolGlyphCenteringTest {
         )
         assertTrue("the badged glyph is strictly left of the un-badged placement", badged.translationX < plain.translationX)
         assertEquals(
-            "the horizontal clearance must not disturb vertical centring",
+            "the horizontal clearance must not disturb the glyph's real vertical position",
             plain.translationY,
             badged.translationY,
             0.5f,
@@ -117,7 +131,7 @@ class SymbolGlyphCenteringTest {
 
         val (cx, cy) = drawnInkCenter(badged)
         assertEquals("the badged glyph draws one clearance left of the tile centre", badged.width / 2f - shift, cx, 1.5f)
-        assertEquals("the badged glyph stays vertically centred", badged.height / 2f, cy, 1.5f)
+        assertEquals("the badge clearance leaves the glyph at its real vertical em-box position", realVerticalCenter(badged), cy, 0.75f)
         assertTrue("the badged glyph is biased away from the bottom-right badge", cx < badged.width / 2f - 1f)
     }
 
@@ -140,6 +154,39 @@ class SymbolGlyphCenteringTest {
             val tv = sv.gridGlyphForTest(s) ?: throw AssertionError("$s missing from the 数学 tab")
             assertEquals("$s keeps zero horizontal offset", 0f, tv.translationX, 0f)
             assertEquals("$s keeps zero vertical offset", 0f, tv.translationY, 0f)
+        }
+    }
+
+    @Test fun cjk_punctuation_sits_at_its_em_box_position_not_dead_centre() {
+        val sv = SymbolsView(ctx).apply { applyPalette(light); openCategoryForTest(idx("zh")) }
+        layout(sv)
+
+        fun offset(sym: String): Pair<Float, Float> {
+            val tv = sv.gridGlyphForTest(sym) ?: throw AssertionError("$sym missing from the 中文 tab")
+            assertTrue("$sym tile must be laid out", tv.width > 0 && tv.height > 0)
+            val (cx, cy) = drawnInkCenter(tv)
+            return (cx - tv.width / 2f) to (cy - tv.height / 2f)
+        }
+
+        for (lowerLeft in listOf("，", "。", "、", "』")) {
+            val (dx, dy) = offset(lowerLeft)
+            assertTrue("$lowerLeft draws left of the tile centre (dx=$dx)", dx < -1f)
+            assertTrue("$lowerLeft draws below the tile centre (dy=$dy)", dy > 1f)
+        }
+
+        val (ux, uy) = offset("『")
+        assertTrue("『 draws right of the tile centre (dx=$ux)", ux > 1f)
+        assertTrue("『 draws above the tile centre (dy=$uy)", uy < -1f)
+    }
+
+    @Test fun operators_absent_from_the_placement_table_sit_at_their_real_em_box_position() {
+        val sv = SymbolsView(ctx).apply { applyPalette(light); openCategoryForTest(idx("math")) }
+        layout(sv)
+        for (op in listOf("×", "÷", "±", "=")) {
+            val tv = sv.gridGlyphForTest(op) ?: throw AssertionError("$op missing from the 数学 tab")
+            val (cx, cy) = drawnInkCenter(tv)
+            assertEquals("$op stays horizontally ink-centred", tv.width / 2f, cx, 1.5f)
+            assertEquals("$op sits at its real vertical em-box position", realVerticalCenter(tv), cy, 0.75f)
         }
     }
 }
