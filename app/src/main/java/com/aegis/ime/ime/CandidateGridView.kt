@@ -357,7 +357,6 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         while (chipTextSizes.size < candidates.size) chipTextSizes.add(ImeType.title)
         val lens = IntArray(candidates.size)
         val rowStarts = ArrayList<Int>()
-        val rowCols = ArrayList<Int>()
         var start = 0
         var count = 0
         var rowMaxLen = 0
@@ -366,7 +365,6 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             val newMax = maxOf(rowMaxLen, lens[i])
             if (count + 1 > capFor(newMax, tableW)) {
                 rowStarts.add(start)
-                rowCols.add(capFor(rowMaxLen, tableW))
                 start = i
                 count = 1
                 rowMaxLen = lens[i]
@@ -375,18 +373,21 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
                 rowMaxLen = newMax
             }
         }
-        if (count > 0) {
-            rowStarts.add(start)
-            rowCols.add(capFor(rowMaxLen, tableW))
-        }
+        if (count > 0) rowStarts.add(start)
+        val rowCounts = ArrayList<Int>(rowStarts.size)
         for (r in rowStarts.indices) {
             val from = rowStarts[r]
             val to = if (r + 1 < rowStarts.size) rowStarts[r + 1] else candidates.size
-            val cols = rowCols[r]
-            for (k in 0 until to - from) {
+            val n = to - from
+            rowCounts.add(n)
+            var maxLen = 0
+            for (i in from until to) maxLen = maxOf(maxLen, lens[i])
+            val underFilled = n < capFor(maxLen, tableW)
+            val size = rowTextSize(candidates, from, to, tableW / n, underFilled)
+            for (k in 0 until n) {
                 val i = from + k
-                chipWidths[i] = tableW * (k + 1) / cols - tableW * k / cols
-                chipTextSizes[i] = candidateTextSize(candidates[i], lens[i], tableW)
+                chipWidths[i] = tableW * (k + 1) / n - tableW * k / n
+                chipTextSizes[i] = size
                 val chip = obtainChip(i)
                 if (chip.text != candidates[i]) chip.text = candidates[i]
                 chip.tag = i
@@ -394,7 +395,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         }
         while (table.childCount < rowStarts.size) table.addView(obtainRow(table.childCount))
         while (table.childCount > rowStarts.size) table.removeViewAt(table.childCount - 1)
-        table.setRowColumns(rowCols)
+        table.setRowColumns(rowCounts)
         for (r in rowStarts.indices) {
             val from = rowStarts[r]
             val to = if (r + 1 < rowStarts.size) rowStarts[r + 1] else candidates.size
@@ -402,15 +403,23 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         }
     }
 
-    private fun candidateTextSize(text: String, len: Int, rowWidth: Int): Float {
+    private fun rowTextSize(candidates: List<String>, from: Int, to: Int, cellWidth: Int, underFilled: Boolean): Float {
         val base = ImeType.title
-        if (len <= 4) return base
-        val avail = (rowWidth - dp(8 + 8)).toFloat()
+        val avail = (cellWidth - dp(8 + 8)).toFloat()
         if (avail <= 0f) return 10f
         measurePaint.textSize = spPx(base)
-        val w = measurePaint.measureText(text)
-        if (w <= avail) return base
-        return (base * avail / w).coerceAtLeast(10f)
+        var widest = 0f
+        for (i in from until to) widest = maxOf(widest, measurePaint.measureText(candidates[i]))
+        if (widest <= 0f) return base
+        val ceiling = if (underFilled) rowHeightTextCap() else base
+        return (base * avail / widest).coerceIn(10f, ceiling)
+    }
+
+    private fun rowHeightTextCap(): Float {
+        measurePaint.textSize = spPx(ImeType.title)
+        val lineAtBase = measurePaint.descent() - measurePaint.ascent()
+        if (lineAtBase <= 0f) return ImeType.title
+        return ImeType.title * (dp(46) - dp(10)).toFloat() / lineAtBase
     }
 
     private fun obtainChip(index: Int): TextView {
@@ -504,6 +513,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     }
     internal fun rowColumnCountsForTest(): List<Int> = table.rowColumnsForTest()
     internal fun chipTextSizeSpForTest(index: Int): Float = chipPool[index].textSize / spPx(1f)
+    internal fun rowTextCapSpForTest(): Float = rowHeightTextCap()
     internal fun chipEllipsizeForTest(index: Int): TextUtils.TruncateAt? = chipPool[index].ellipsize
     internal fun chipCellWidthForTest(index: Int): Int = chipPool[index].layoutParams.width
     internal fun readingTextSizeSpForTest(index: Int): Float = readingPool[index].textSize / spPx(1f)
