@@ -468,6 +468,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     internal fun chipsAllocatedForTest(): Int = chipsAllocated
     internal fun needsPoolGrowth(candidateCount: Int, readingCount: Int): Boolean =
         candidateCount > chipPool.size || readingCount > readingPool.size
+    internal fun candidatesWouldChange(candidates: List<String>): Boolean = candidates != renderedCandidates
     internal fun setSelectionContentVisible(visible: Boolean) {
         val target = if (visible) View.VISIBLE else View.INVISIBLE
         readingScroll.visibility = target

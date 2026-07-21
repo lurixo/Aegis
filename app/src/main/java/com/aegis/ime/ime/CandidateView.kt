@@ -127,12 +127,15 @@ class CandidateView(context: Context) : View(context) {
     fun setContent(candidates: List<String>, composingText: String, gate: Boolean = false) {
         if (candidates == items && composingText == composing && gate == gateActive) return
         val roleChanged = stripRole(items.isEmpty(), composing) != stripRole(candidates.isEmpty(), composingText)
+        val visualChange = candidates != items || gate != gateActive
         gateActive = gate
-        if (roleChanged) {
-            contentTransitions++
-            Motion.coverThrough(this, palette.keyboardBg) { applyContent(candidates, composingText) }
-        } else {
-            applyContent(candidates, composingText)
+        when {
+            roleChanged -> {
+                contentTransitions++
+                Motion.coverThrough(this, palette.keyboardBg) { applyContent(candidates, composingText) }
+            }
+            visualChange -> applyContent(candidates, composingText)
+            else -> composing = composingText
         }
     }
 
