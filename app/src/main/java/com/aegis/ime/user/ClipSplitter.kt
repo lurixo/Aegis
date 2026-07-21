@@ -91,13 +91,19 @@ object ClipSplitter {
 
     private fun splitLink(url: String, out: ArrayList<String>) {
         val schemeEnd = url.indexOf("://")
-        val authorityStart = if (schemeEnd >= 0) schemeEnd + 3 else 0
+        val authorityStart: Int
+        if (schemeEnd >= 0) {
+            out.add(url.substring(0, schemeEnd + 3))
+            authorityStart = schemeEnd + 3
+        } else {
+            authorityStart = 0
+        }
         var cut = url.length
         for (i in authorityStart until url.length) {
             val c = url[i]
             if (c == '/' || c == '?' || c == '#') { cut = i; break }
         }
-        out.add(url.substring(0, cut))
+        if (cut > authorityStart) out.add(url.substring(authorityStart, cut))
         if (cut >= url.length) return
         val rest = url.substring(cut)
         val hashIdx = rest.indexOf('#')
