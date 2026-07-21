@@ -81,6 +81,36 @@ object ClipSplitter {
 
     fun blocks(s: String): List<String> = split(s).map { it.text }
 
+    fun copyBlocks(s: String): List<String> {
+        val out = ArrayList<String>()
+        for (b in split(s)) {
+            if (b.kind == Kind.LINK) splitLink(b.text, out) else out.add(b.text)
+        }
+        return out
+    }
+
+    private fun splitLink(url: String, out: ArrayList<String>) {
+        val schemeEnd = url.indexOf("://")
+        val authorityStart = if (schemeEnd >= 0) schemeEnd + 3 else 0
+        var cut = url.length
+        for (i in authorityStart until url.length) {
+            val c = url[i]
+            if (c == '/' || c == '?' || c == '#') { cut = i; break }
+        }
+        out.add(url.substring(0, cut))
+        if (cut >= url.length) return
+        val rest = url.substring(cut)
+        val hashIdx = rest.indexOf('#')
+        val fragment = if (hashIdx >= 0) rest.substring(hashIdx) else ""
+        val beforeHash = if (hashIdx >= 0) rest.substring(0, hashIdx) else rest
+        val queryIdx = beforeHash.indexOf('?')
+        val query = if (queryIdx >= 0) beforeHash.substring(queryIdx) else ""
+        val path = if (queryIdx >= 0) beforeHash.substring(0, queryIdx) else beforeHash
+        for (segment in path.split('/')) if (segment.isNotEmpty()) out.add(segment)
+        if (query.isNotEmpty()) out.add(query)
+        if (fragment.isNotEmpty()) out.add(fragment)
+    }
+
     private fun clusterBounds(s: String): IntArray {
         val it = BreakIterator.getCharacterInstance()
         it.setText(s)
