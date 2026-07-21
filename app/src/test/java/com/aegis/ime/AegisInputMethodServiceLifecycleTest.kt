@@ -164,6 +164,7 @@ class AegisInputMethodServiceLifecycleTest {
         }
         StateKind.PHRASES_PANEL -> {
             val cv = clipboard(f.service)
+            cv.switchTabForTest(false)
             cv.onAddCategory()
             f.service.commitText("lifecycle-category")
             f.view.onEditConfirm()
@@ -269,6 +270,7 @@ class AegisInputMethodServiceLifecycleTest {
                     )
                     f.view.layout(0, 0, f.view.measuredWidth, f.view.measuredHeight)
                     val cv = clipboard(f.service)
+                    cv.switchTabForTest(false)
                     when (purpose) {
                         "CATEGORY" -> cv.onAddCategory()
                         "RENAME" -> cv.onRenameCategory("默认")
@@ -306,6 +308,7 @@ class AegisInputMethodServiceLifecycleTest {
     @Test fun density_change_during_inline_edit_recreates_the_final_phrase_panel() {
         val f = fixture()
         val oldClipboard = clipboard(f.service)
+        oldClipboard.switchTabForTest(false)
         oldClipboard.onEditNote("默认", "原文")
         f.service.commitText("density-draft")
         val frameworkInputFrame = installFrameworkInputFrame(f)

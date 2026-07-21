@@ -81,6 +81,7 @@ object Motion {
     }
 
     private val coverAnimators = WeakHashMap<View, ValueAnimator>()
+    private val coverResidues = WeakHashMap<View, BitmapDrawable>()
 
     fun snapshot(view: View, backdrop: Int): Bitmap? {
         if (!view.isAttachedToWindow || !enabled()) return null
@@ -109,12 +110,19 @@ object Motion {
             setBounds(left, top, left + snapshot.width, top + snapshot.height)
         }
         host.overlay.add(drawable)
-        coverAnimators[host] = ValueAnimator.ofFloat(0f, 1f).apply {
+        coverResidues[host] = drawable
+        coverAnimators[host] = ValueAnimator.ofFloat(1f, 0f).apply {
             duration = COVER_HOLD
+            interpolator = STANDARD
+            addUpdateListener {
+                drawable.alpha = ((it.animatedValue as Float) * 255f).roundToInt().coerceIn(0, 255)
+                host.invalidate()
+            }
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     host.overlay.remove(drawable)
                     if (coverAnimators[host] === animation) coverAnimators.remove(host)
+                    if (coverResidues[host] === drawable) coverResidues.remove(host)
                     snapshot.recycle()
                 }
             })
@@ -146,6 +154,10 @@ object Motion {
     }
 
     internal fun coverActiveForTest(view: View): Boolean = coverAnimators[view] != null
+
+    internal fun coverAnimatorForTest(view: View): ValueAnimator? = coverAnimators[view]
+
+    internal fun coverResidueAlphaForTest(view: View): Int? = coverResidues[view]?.alpha
 
     fun crossfadeColor(view: View, from: Int, to: Int, duration: Long = STATE_CHANGE, apply: (Int) -> Unit): ValueAnimator? {
         if (from == to) { apply(to); return null }
