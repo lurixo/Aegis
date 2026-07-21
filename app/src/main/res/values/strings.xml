@@ -255,7 +255,7 @@
     <string name="sym_cat_ipa">IPA</string>
     <string name="sym_cat_pinyin">Pinyin</string>
 
-    <string name="emoji_cat_recent">Recent</string>
+    <string name="emoji_cat_recent">Common</string>
     <string name="emoji_cat_face">Smileys</string>
     <string name="emoji_cat_hand">Gestures</string>
     <string name="emoji_cat_flag">Flags</string>

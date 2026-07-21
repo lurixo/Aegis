@@ -68,7 +68,7 @@ class ImeVisualPolishTest {
         val emoji = EmojiView(ctx).apply { applyPalette(palette) }
 
         assertRoundedRailTab(symbols.railTabForTest(0), "symbols 常用")
-        assertRoundedRailTab(emoji.railTabForTest(0), "emoji 最近")
+        assertRoundedRailTab(emoji.railTabForTest(0), "emoji 常用")
         assertTrue("symbols unselected tabs also use rounded ripple", symbols.railTabForTest(1).foreground is RippleDrawable)
         assertTrue("emoji unselected tabs also use rounded ripple", emoji.railTabForTest(1).foreground is RippleDrawable)
         assertEquals(palette.keyboardBg, effectiveBackgroundColor(symbols.railTabForTest(1)))
