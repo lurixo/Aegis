@@ -224,7 +224,7 @@ class PanelIconAlignmentTest {
             EditAction.END to ctx.getString(com.aegis.ime.R.string.edit_paragraph_end),
         )) {
             val button = requireNotNull(v.actionViewForTest(action))
-            assertEquals("$action glyph box", (32 * density).toInt(), requireNotNull(button.background).intrinsicWidth)
+            assertEquals("$action glyph box", (38 * density).toInt(), requireNotNull(button.background).intrinsicWidth)
             assertEquals(label, button.contentDescription)
         }
         val selectAll = requireNotNull(v.actionViewForTest(EditAction.SELECT_ALL)) as TextView
