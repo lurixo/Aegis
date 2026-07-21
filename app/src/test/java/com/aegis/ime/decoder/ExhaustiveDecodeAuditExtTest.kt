@@ -1041,7 +1041,7 @@ class ExhaustiveDecodeAuditExtTest {
     }
 
     private val lmTableFields by lazy {
-        fun f(n: String): Any = CharBigramLM::class.java.getDeclaredField(n).apply { isAccessible = true }.get(lmModel)
+        fun f(n: String): Any = CharBigramLM::class.java.getDeclaredField(n).apply { isAccessible = true }.get(lmModel)!!
         val buf = f("buf") as java.nio.ByteBuffer
         val offs = intArrayOf(
             f("numChars") as Int, f("charCodesOff") as Int, f("rowStartOff") as Int,
