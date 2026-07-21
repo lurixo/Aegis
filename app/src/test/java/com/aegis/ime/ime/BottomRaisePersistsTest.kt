@@ -55,7 +55,7 @@ class BottomRaisePersistsTest {
         val view = InputView(ctx)
         ViewCompat.dispatchApplyWindowInsets(view, navInsets(120))
         assertEquals("the real listener cached the >0 navbar inset", 120, view.cachedNavBottomForTest())
-        assertEquals("and applied the raise", 120, view.bodyBottomPaddingPx() - dp(28))
+        assertEquals("and applied the raise", 120, view.bodyBottomPaddingPx() - dp(34))
 
         ViewCompat.dispatchApplyWindowInsets(view, navInsets(0))
         assertEquals("the >0 guard blocked the transient 0 from poisoning the cache", 120, view.cachedNavBottomForTest())
