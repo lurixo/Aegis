@@ -35,7 +35,7 @@ import com.aegis.ime.ime.theme.ImeType
 
 enum class LayoutChoice { CN_NINE, CN_ALPHA, EN_ALPHA }
 
-class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel {
+class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel, CoversToolbar {
 
     var onPick: (LayoutChoice) -> Unit = {}
     var onBack: () -> Unit = {}

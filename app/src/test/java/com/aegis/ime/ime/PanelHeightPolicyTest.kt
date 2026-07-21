@@ -15,11 +15,13 @@
 
 package com.aegis.ime.ime
 
+import android.content.Context
 import android.view.View
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.Key
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -74,5 +76,24 @@ class PanelHeightPolicyTest {
         qwerty.showPanel(View(ctx))
         assertEquals("9-key panel matches the 9-key", hNine, nine.panelHeightPx())
         assertEquals("26-key panel matches the 26-key", hQwerty, qwerty.panelHeightPx())
+    }
+
+    @Test fun a_toolbar_covering_panel_grows_by_the_bar_and_hides_the_toolbar() {
+        val iv = laidOut(switchToNine = true)
+        val kb = iv.keyboardHeightPx()
+        val bar = iv.dockHeightSpecForTest()!!.barHeight
+        assertTrue("keyboard laid out with a real height", kb > 0)
+        assertTrue("toolbar visible before a panel opens", iv.toolbarShownForTest())
+        iv.showPanel(CoveringPanelStub(ctx))
+        assertEquals(
+            "a CoversToolbar panel grows into the covered bar row",
+            kb + bar,
+            iv.panelHeightPx(),
+        )
+        assertFalse("the covering panel hides the toolbar", iv.toolbarShownForTest())
+    }
+
+    private class CoveringPanelStub(context: Context) : View(context), CoversToolbar, ResettablePanel {
+        override fun resetToDefault() {}
     }
 }
