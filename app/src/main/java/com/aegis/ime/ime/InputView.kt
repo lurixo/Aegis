@@ -348,7 +348,7 @@ class InputView(context: Context) : LinearLayout(context) {
         if (copyBarActive && composingNow) { hideCopyBar(); onCopyDismiss() }
         if (currentPanel === gridView) {
             if (preedit.isEmpty()) showPanel(null)
-            else if (pendingGridBind == null) bindExpandedCandidates()
+            else if (pendingGridBind == null) bindExpandedCandidates(animateContentChange = true)
         }
     }
 
@@ -414,11 +414,18 @@ class InputView(context: Context) : LinearLayout(context) {
         }
     }
 
-    private fun bindExpandedCandidates() {
+    private fun bindExpandedCandidates(animateContentChange: Boolean = false) {
         if (currentPanel !== gridView) return
-        gridView.setCandidates(lastCandidates)
-        gridView.setReadings(lastReadings, lastSelectedReading)
-        gridView.setSelectionContentVisible(true)
+        val swap = {
+            gridView.setCandidates(lastCandidates)
+            gridView.setReadings(lastReadings, lastSelectedReading)
+            gridView.setSelectionContentVisible(true)
+        }
+        if (animateContentChange && gridView.candidatesWouldChange(lastCandidates)) {
+            Motion.coverThrough(gridView, palette.keyboardBg, swap)
+        } else {
+            swap()
+        }
     }
 
     internal fun shownCandidateCount(): Int = candidateView.itemCount()
