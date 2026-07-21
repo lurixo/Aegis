@@ -380,10 +380,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             val to = if (r + 1 < rowStarts.size) rowStarts[r + 1] else candidates.size
             val n = to - from
             rowCounts.add(n)
-            var maxLen = 0
-            for (i in from until to) maxLen = maxOf(maxLen, lens[i])
-            val underFilled = n < capFor(maxLen, tableW)
-            val size = rowTextSize(candidates, from, to, tableW / n, underFilled)
+            val size = rowTextSize(candidates, from, to, tableW / n)
             for (k in 0 until n) {
                 val i = from + k
                 chipWidths[i] = tableW * (k + 1) / n - tableW * k / n
@@ -403,7 +400,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         }
     }
 
-    private fun rowTextSize(candidates: List<String>, from: Int, to: Int, cellWidth: Int, underFilled: Boolean): Float {
+    private fun rowTextSize(candidates: List<String>, from: Int, to: Int, cellWidth: Int): Float {
         val base = ImeType.title
         val avail = (cellWidth - dp(8 + 8)).toFloat()
         if (avail <= 0f) return 10f
@@ -411,15 +408,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         var widest = 0f
         for (i in from until to) widest = maxOf(widest, measurePaint.measureText(candidates[i]))
         if (widest <= 0f) return base
-        val ceiling = if (underFilled) rowHeightTextCap() else base
-        return (base * avail / widest).coerceIn(10f, ceiling)
-    }
-
-    private fun rowHeightTextCap(): Float {
-        measurePaint.textSize = spPx(ImeType.title)
-        val lineAtBase = measurePaint.descent() - measurePaint.ascent()
-        if (lineAtBase <= 0f) return ImeType.title
-        return ImeType.title * (dp(46) - dp(10)).toFloat() / lineAtBase
+        return (base * avail / widest).coerceIn(10f, base)
     }
 
     private fun obtainChip(index: Int): TextView {
@@ -513,7 +502,6 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     }
     internal fun rowColumnCountsForTest(): List<Int> = table.rowColumnsForTest()
     internal fun chipTextSizeSpForTest(index: Int): Float = chipPool[index].textSize / spPx(1f)
-    internal fun rowTextCapSpForTest(): Float = rowHeightTextCap()
     internal fun chipEllipsizeForTest(index: Int): TextUtils.TruncateAt? = chipPool[index].ellipsize
     internal fun chipCellWidthForTest(index: Int): Int = chipPool[index].layoutParams.width
     internal fun readingTextSizeSpForTest(index: Int): Float = readingPool[index].textSize / spPx(1f)

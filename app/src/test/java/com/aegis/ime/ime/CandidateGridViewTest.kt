@@ -333,28 +333,22 @@ class CandidateGridViewTest {
         for (i in 0..2) assertEquals("candidate $i in a filled row stays at base 18sp", 18f, v.chipTextSizeSpForTest(i), 0.01f)
     }
 
-    @Test fun an_under_filled_row_enlarges_its_candidates_to_fill_the_width() {
+    @Test fun an_under_filled_row_keeps_the_base_size_and_still_fills_the_width() {
         val v = measured()
         v.setCandidates(listOf("优", "沃", "卧", "奏", "窝"))
         assertEquals("five single-grapheme candidates share one row", listOf(5), v.rowColumnCountsForTest())
-        val cap = v.rowTextCapSpForTest()
-        assertTrue("the ceiling leaves room above the base size", cap > 18f)
-        for (i in 0..4) {
-            val size = v.chipTextSizeSpForTest(i)
-            assertTrue("under-filled candidate $i enlarges above base 18sp, got $size", size > 18f)
-            assertTrue("under-filled candidate $i stays within the row-height ceiling, got $size", size <= cap + 0.01f)
-        }
-        val first = v.chipTextSizeSpForTest(0)
-        for (i in 1..4) assertEquals("every candidate in the row shares one size", first, v.chipTextSizeSpForTest(i), 0.01f)
+        for (i in 0..4) assertEquals("under-filled candidate $i stays at base 18sp, never enlarged", 18f, v.chipTextSizeSpForTest(i), 0.01f)
+        val tableW = (360 * density).toInt() - dp(60 + 64) - dp(4 + 4)
+        assertEquals("the sparse row still spreads edge to edge with no trailing empty cell", tableW, (0..4).sumOf { v.chipCellWidthForTest(it) })
     }
 
-    @Test fun a_maxed_long_row_keeps_base_while_a_lone_short_candidate_enlarges() {
+    @Test fun a_long_row_and_a_lone_short_candidate_both_keep_the_base_size() {
         val v = measured()
         v.setCandidates(listOf("你让我说什么说", "你"))
         assertEquals("each candidate lands on its own full-width row", listOf(1, 1), v.rowColumnCountsForTest())
         assertEquals(listOf(listOf("你让我说什么说"), listOf("你")), v.rowTextsForTest())
-        assertEquals("a long candidate whose row is already at capacity stays at base size", 18f, v.chipTextSizeSpForTest(0), 0.01f)
-        assertTrue("a lone short candidate has room to spare, so it enlarges to fill", v.chipTextSizeSpForTest(1) > 18f)
+        assertEquals("a long candidate stays at base size", 18f, v.chipTextSizeSpForTest(0), 0.01f)
+        assertEquals("a lone short candidate stays at base size too, never enlarged", 18f, v.chipTextSizeSpForTest(1), 0.01f)
     }
 
     @Test fun overlong_candidates_shrink_to_the_floor_and_ellipsize() {
@@ -364,17 +358,17 @@ class CandidateGridViewTest {
         assertEquals(TextUtils.TruncateAt.END, v.chipEllipsizeForTest(0))
     }
 
-    @Test fun sharing_a_full_row_keeps_base_but_a_lone_candidate_enlarges() {
+    @Test fun sharing_a_full_row_and_a_lone_candidate_all_keep_the_base_size() {
         val packed = measured()
         packed.setCandidates(listOf("一二三四五", "六七八九十", "上中下左右"))
         assertEquals("two five-grapheme candidates fill the first row; the third takes its own", listOf(2, 1), packed.rowColumnCountsForTest())
         assertEquals("a candidate sharing a filled row keeps base size", 18f, packed.chipTextSizeSpForTest(0), 0.01f)
         assertEquals("its row-mate also keeps base size", 18f, packed.chipTextSizeSpForTest(1), 0.01f)
-        assertTrue("the lone third candidate enlarges to fill its own row", packed.chipTextSizeSpForTest(2) > 18f)
+        assertEquals("the lone third candidate keeps base size too, never enlarged", 18f, packed.chipTextSizeSpForTest(2), 0.01f)
 
         val alone = measured()
         alone.setCandidates(listOf("一二三四五"))
-        assertTrue("a five-grapheme candidate alone on a wide row enlarges past base", alone.chipTextSizeSpForTest(0) > 18f)
+        assertEquals("a five-grapheme candidate alone on a wide row keeps base size", 18f, alone.chipTextSizeSpForTest(0), 0.01f)
     }
 
     @Test fun reading_rail_is_an_inset_card_matching_the_scroll_column_style() {
