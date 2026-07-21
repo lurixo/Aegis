@@ -84,7 +84,10 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         row.removeAllViews()
         row.addView(icon(), lp(dp(26), dp(26)))
         if (!ctl.splitMode) {
-            row.addView(content(ctl.content.orEmpty()), lp(0, WC, 1f))
+            row.addView(
+                HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(content(ctl.content.orEmpty())) },
+                lp(0, WC, 1f),
+            )
             row.addView(divider(), lp(dp(1), dp(18)))
             row.addView(pill(context.getString(R.string.copybar_split)) { toggleSplit() }, lp(WC, WC))
         } else {
@@ -102,7 +105,11 @@ class CopyBarView(context: Context) : LinearLayout(context) {
 
     internal fun toggleSplitForTest() = toggleSplit()
     internal fun splitModeForTest(): Boolean = ctl.splitMode
-    internal fun splitRenderedForTest(): Boolean = row.childCount > 1 && row.getChildAt(1) is HorizontalScrollView
+    internal fun splitRenderedForTest(): Boolean = scrollerForTest { it is LinearLayout } != null
+    internal fun contentScrollerForTest(): HorizontalScrollView? = scrollerForTest { it is TextView }
+    private fun scrollerForTest(childIs: (View) -> Boolean): HorizontalScrollView? =
+        (0 until row.childCount).map(row::getChildAt).filterIsInstance<HorizontalScrollView>()
+            .firstOrNull { childIs(it.getChildAt(0)) }
 
     private fun icon(): View = object : View(context) {
         private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -122,7 +129,6 @@ class CopyBarView(context: Context) : LinearLayout(context) {
     private fun content(s: String): TextView = TextView(context).apply {
         text = if (s.length > DISPLAY_CAP) s.substring(0, DISPLAY_CAP) else s
         maxLines = 1
-        ellipsize = android.text.TextUtils.TruncateAt.END
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         setTextColor(palette.candidateText)
         setPadding(dp(8), 0, dp(8), 0)

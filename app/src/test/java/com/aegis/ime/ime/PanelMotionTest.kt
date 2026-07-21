@@ -378,6 +378,16 @@ class PanelMotionTest {
         }
     }
 
+    @Test fun long_copied_content_scrolls_horizontally_instead_of_being_ellipsized() {
+        val v = CopyBarView(ctx).apply { applyPalette(light); show("很长的复制内容".repeat(40)) }
+        assertFalse("a freshly copied passage is not in split mode", v.splitModeForTest())
+        val scroller = requireNotNull(v.contentScrollerForTest()) { "copied content should sit inside a horizontal scroller" }
+        assertFalse("the scroller hides its scrollbar chrome like the clipboard scrollers", scroller.isHorizontalScrollBarEnabled)
+        val text = scroller.getChildAt(0) as TextView
+        assertEquals("copied content stays a single line so it pans left/right", 1, text.maxLines)
+        assertNull("the remainder is revealed by scrolling, not cut off with an ellipsis", text.ellipsize)
+    }
+
     @Test fun copy_bar_split_toggle_residue_matches_the_bar_backdrop() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
