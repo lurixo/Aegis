@@ -104,7 +104,7 @@ object Layouts {
         val leftColumn = ScrollColumn(left, xL, 0f, wL, 0.75f, cellHFrac = 0.75f / 4f)
         cells.add(PlacedKey(Key(labelRes = R.string.kbd_symbols, action = SHOW_SYMBOLS, rail = true), xL, 0.75f, wL, 0.25f))
         cells.add(PlacedKey(
-            if (composing) Key(labelRes = R.string.kbd_split, action = SEGMENT, bold = true) else Key("@#", action = SWITCH_NUMBERS, bold = true),
+            if (composing) Key(labelRes = R.string.kbd_split, action = SEGMENT) else Key("@#", action = SWITCH_NUMBERS),
             x1, 0f, wM, 0.25f,
         ))
         cells.add(PlacedKey(t9key("ABC", "2"), x2, 0f, wM, 0.25f))

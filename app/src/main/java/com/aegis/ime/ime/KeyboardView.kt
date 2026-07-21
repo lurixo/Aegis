@@ -163,12 +163,11 @@ class KeyboardView(context: Context) : View(context) {
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, resources.displayMetrics)
 
     private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(20f); typeface = android.graphics.Typeface.DEFAULT }
-    private val specialLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabelSecondary; textAlign = Paint.Align.CENTER; textSize = sp(15f); typeface = android.graphics.Typeface.DEFAULT }
-    private val boldLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(18f); typeface = android.graphics.Typeface.DEFAULT }
+    private val specialLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabelSecondary; textAlign = Paint.Align.CENTER; textSize = sp(20f); typeface = android.graphics.Typeface.DEFAULT }
     private val shiftActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.accentBottom; textAlign = Paint.Align.CENTER; textSize = sp(20f) }
     private val accentLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.accentLabel; textAlign = Paint.Align.CENTER; textSize = sp(20f); typeface = android.graphics.Typeface.DEFAULT }
     private val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabelSecondary; textAlign = Paint.Align.CENTER; textSize = sp(12f); typeface = android.graphics.Typeface.DEFAULT }
-    private val langActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabelSecondary; textAlign = Paint.Align.CENTER; textSize = sp(17f); typeface = android.graphics.Typeface.DEFAULT }
+    private val langActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabelSecondary; textAlign = Paint.Align.CENTER; textSize = sp(20f); typeface = android.graphics.Typeface.DEFAULT }
     private val langSmallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyHint; textAlign = Paint.Align.RIGHT; textSize = sp(11f); typeface = android.graphics.Typeface.DEFAULT }
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySurface }
@@ -187,7 +186,6 @@ class KeyboardView(context: Context) : View(context) {
         palette = p
         labelPaint.color = p.keyLabel
         specialLabelPaint.color = p.keyLabelSecondary
-        boldLabelPaint.color = p.keyLabel
         shiftActivePaint.color = p.accentBottom
         accentLabelPaint.color = p.accentLabel
         subPaint.color = p.keyLabelSecondary
@@ -210,6 +208,8 @@ class KeyboardView(context: Context) : View(context) {
 
     fun setLayout(newLayout: KeyboardLayout, isShifted: Boolean, isLocked: Boolean, language: Lang) {
         if (newLayout == layout && isShifted == shifted && isLocked == shiftLocked && language == lang) return
+        val faceSwap = newLayout.id != layout.id || language != lang
+        val snap = if (faceSwap && width > 0) Motion.snapshot(this, palette.keyboardBg) else null
         layoutApplies++
         val sameColumn = newLayout.scrollColumn?.items?.map { it.label } == layout.scrollColumn?.items?.map { it.label }
         val modeChanged = newLayout.id != layout.id
@@ -223,6 +223,7 @@ class KeyboardView(context: Context) : View(context) {
         requestLayout()
         invalidate()
         if (modeChanged && width > 0) { modeSwitches++ }
+        if (snap != null) Motion.coverWith(this, snap)
     }
 
     internal fun modeSwitchesForTest(): Int = modeSwitches
@@ -587,7 +588,6 @@ class KeyboardView(context: Context) : View(context) {
         val display = displayLabel(p.key)
         val paint = when {
             p.key.accent -> accentLabelPaint
-            p.key.bold -> boldLabelPaint
             display.length > 1 && p.key.action != KeyAction.COMMIT -> specialLabelPaint
             else -> labelPaint
         }
@@ -602,7 +602,7 @@ class KeyboardView(context: Context) : View(context) {
             val fw = paint.measureText(display)
             if (fw > face && face > 0f) paint.textSize = paint.textSize * face / fw
         }
-        val labelDrop = if (p.key.sub != null) 5f * density * scale else 0f
+        val labelDrop = if (p.key.sub != null) 7f * density * scale else 0f
         if (display.length == 1 && display[0] in INK_CENTERED_GLYPHS) {
             val baseAlign = paint.textAlign
             paint.textAlign = Paint.Align.LEFT
@@ -672,7 +672,6 @@ class KeyboardView(context: Context) : View(context) {
     internal fun keyLabelPaintsUseNormalWeightForTest(): Boolean = listOf(
         labelPaint,
         specialLabelPaint,
-        boldLabelPaint,
         accentLabelPaint,
         subPaint,
         langActivePaint,
