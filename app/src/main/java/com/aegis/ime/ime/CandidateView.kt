@@ -52,7 +52,7 @@ class CandidateView(context: Context) : View(context) {
     private var scrollX = 0f
     private var contentTransitions = 0
 
-    private val functions = BarFunction.entries
+    private val functions = listOf(BarFunction.BRAND, BarFunction.EMOJI, BarFunction.EDIT, BarFunction.LAYOUT, BarFunction.CLIPBOARD)
     private val funcRects = ArrayList<RectF>().also { l -> repeat(functions.size) { l.add(RectF()) } }
     private val collapseRect = RectF()
     private val iconCentersX = FloatArray(functions.size + 1)
@@ -196,6 +196,7 @@ class CandidateView(context: Context) : View(context) {
     }
     internal fun toolbarIconCentersForTest(): FloatArray = iconCentersX.copyOf()
     internal fun toolbarIconScaleForTest(f: BarFunction): Float = iconScale(f)
+    internal fun toolbarFunctionsForTest(): List<BarFunction> = functions
 
     internal fun centerOfCandidateForTest(index: Int): Pair<Float, Float>? {
         if (index !in 0 until hitCount) return null

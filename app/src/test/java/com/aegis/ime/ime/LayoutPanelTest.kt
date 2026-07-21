@@ -89,19 +89,23 @@ class LayoutPanelTest {
         return view
     }
 
-    @Test fun the_layout_function_sits_third_on_the_toolbar() {
+    @Test fun the_edit_function_sits_third_and_layout_fourth_on_the_toolbar() {
         assertEquals(
             listOf("BRAND", "EMOJI", "LAYOUT", "EDIT", "CLIPBOARD"),
             BarFunction.entries.map { it.name },
         )
         val view = idleBar(360)
-        assertEquals(BarFunction.entries.size + 1, view.toolbarControlBoundsForTest().size)
+        assertEquals(
+            listOf("BRAND", "EMOJI", "EDIT", "LAYOUT", "CLIPBOARD"),
+            view.toolbarFunctionsForTest().map { it.name },
+        )
+        assertEquals(view.toolbarFunctionsForTest().size + 1, view.toolbarControlBoundsForTest().size)
     }
 
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun idle_toolbar_layout_slot_renders_the_keyboard_icon() {
         val view = idleBar(320)
-        val slot = view.toolbarControlBoundsForTest()[2]
+        val slot = view.toolbarControlBoundsForTest()[3]
         val s = 9f * density * view.toolbarIconScaleForTest(BarFunction.LAYOUT)
         val glyph = RectF(
             slot.centerX() - s * 0.70f,

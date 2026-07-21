@@ -413,7 +413,7 @@ class CandidateBarChevronTest {
             view.dispatchTouchEvent(MotionEvent.obtain(0, index * 20L, MotionEvent.ACTION_DOWN, rect.centerX(), rect.centerY(), 0))
             view.dispatchTouchEvent(MotionEvent.obtain(0, index * 20L + 10L, MotionEvent.ACTION_UP, rect.centerX(), rect.centerY(), 0))
         }
-        assertEquals(listOf("BRAND", "EMOJI", "LAYOUT", "EDIT", "CLIPBOARD", "COLLAPSE"), actions)
+        assertEquals(listOf("BRAND", "EMOJI", "EDIT", "LAYOUT", "CLIPBOARD", "COLLAPSE"), actions)
     }
 
     @Test fun idle_toolbar_end_targets_fill_the_entire_capsule_end_including_corners() {
