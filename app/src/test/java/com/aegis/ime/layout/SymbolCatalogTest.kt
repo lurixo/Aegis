@@ -71,10 +71,11 @@ class SymbolCatalogTest {
         for (c in listOf("$", "¥", "€", "£", "₩", "₹", "₽")) assertTrue("missing $c", c in cur)
     }
 
-    @Test fun net_drops_domain_suffixes_but_keeps_url_completions() {
+    @Test fun net_drops_domain_suffixes_and_www_variants_but_keeps_scheme_completions() {
         val net = SymbolCatalog.categories.first { it.id == "net" }.symbols
         for (suffix in listOf(".com", ".cn", ".net", ".org")) assertTrue("$suffix should be removed", suffix !in net)
-        for (c in listOf("http://", "https://", "http://www.", "https://www.")) assertTrue("missing completion $c", c in net)
+        for (c in listOf("http://", "https://")) assertTrue("missing completion $c", c in net)
+        for (c in listOf("http://www.", "https://www.")) assertTrue("$c should be removed", c !in net)
         assertTrue("standalone www. is gone", "www." !in net)
         assertTrue("standalone :// is gone", "://" !in net)
     }

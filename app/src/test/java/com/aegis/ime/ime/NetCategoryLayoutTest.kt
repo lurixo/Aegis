@@ -35,24 +35,56 @@ class NetCategoryLayoutTest {
 
     private val ctx = RuntimeEnvironment.getApplication()
     private val light = ImePalette.STATIC_LIGHT
+    private val density = ctx.resources.displayMetrics.density
     private val netIndex = SymbolCatalog.categories.indexOfFirst { it.id == "net" } + 1
     private val mathIndex = SymbolCatalog.categories.indexOfFirst { it.id == "math" } + 1
 
-    @Test fun net_completions_render_as_full_chips_and_glyphs_stay_in_the_grid() {
+    @Test fun net_merges_url_keys_and_symbols_into_one_span_grid() {
         val sv = SymbolsView(ctx)
         sv.applyPalette(light)
         sv.openCategoryForTest(netIndex)
 
-        assertTrue("网址补全 bar is visible on the 网络 tab", sv.netBarVisibleForTest())
-        val chips = sv.netChipTextsForTest()
-        assertTrue("https:// is shown in full (not truncated)", "https://" in chips)
+        assertFalse("no separate 网址补全 strip on the 网络 tab", sv.netBarVisibleForTest())
+        assertFalse("no chip bar container shown", sv.chipBarVisibleForTest())
+        val cells = sv.gridCellTextsForTest()
         assertEquals(
-            listOf("http://", "http://www.", "https://", "https://www.").sorted(),
-            chips.sorted(),
+            "url keys ride the front of the merged grid, then the single symbols in order",
+            listOf("http://", "https://", ".", "/", "@", "-", "_", ":", "#", "?", "&", "=", "%"),
+            cells,
         )
-        assertFalse("standalone www. no longer chips", "www." in chips)
-        assertFalse("standalone :// no longer chips", "://" in chips)
-        assertEquals(11, sv.gridCellCountForTest())
+        assertFalse("http://www. variant dropped", "http://www." in cells)
+        assertFalse("https://www. variant dropped", "https://www." in cells)
+        assertFalse("standalone www. gone", "www." in cells)
+        assertFalse("standalone :// gone", "://" in cells)
+        assertEquals("all 13 net keys are grid cells", 13, sv.gridCellCountForTest())
+    }
+
+    @Test fun net_url_key_spans_two_single_cells_and_columns_line_up() {
+        val sv = SymbolsView(ctx)
+        sv.applyPalette(light)
+        sv.openCategoryForTest(netIndex)
+        val widthPx = (600 * density).toInt()
+        sv.measure(
+            View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+        )
+        sv.layout(0, 0, sv.measuredWidth, sv.measuredHeight)
+
+        val single = listOf(".", "/", "@", "-", "_", ":", "#", "?", "&", "=", "%")
+            .map { sv.gridCellPixelWidthForTest(it) }
+        assertTrue("every single cell is laid out", single.all { it > 0 })
+        assertTrue("single-char columns line up (equal width): $single", single.max() - single.min() <= 2)
+
+        val gap = 2 * (3 * density).toInt()
+        val col0 = sv.gridCellPixelWidthForTest("-")
+        val col1 = sv.gridCellPixelWidthForTest("_")
+        val urlW = sv.gridCellPixelWidthForTest("http://")
+        assertEquals(
+            "a url key spans exactly two single cells plus the one inter-cell gap",
+            (col0 + col1 + gap).toFloat(),
+            urlW.toFloat(),
+            1.5f,
+        )
     }
 
     @Test fun a_completion_surfaced_in_recents_is_chipped_not_truncated_in_the_grid() {
@@ -75,15 +107,16 @@ class NetCategoryLayoutTest {
         assertTrue("数学 grid is populated", sv.gridCellCountForTest() > 0)
     }
 
-    @Test fun leaving_the_net_tab_hides_the_net_bar() {
+    @Test fun leaving_a_recents_url_bar_for_net_hides_the_bar() {
         val sv = SymbolsView(ctx)
+        sv.recentProvider = { listOf("https://", ".") }
         sv.applyPalette(light)
-        sv.openCategoryForTest(netIndex)
-        assertTrue(sv.netBarVisibleForTest())
+        sv.openCategoryForTest(0)
+        assertTrue("recents holding a url shows the url bar", sv.netBarVisibleForTest())
 
-        sv.openCategoryForTest(1)
-        assertFalse("net bar hidden after leaving 网络", sv.netBarVisibleForTest())
-        assertTrue("中文 grid populated", sv.gridCellCountForTest() > 0)
+        sv.openCategoryForTest(netIndex)
+        assertFalse("网络 uses the merged grid, no separate url bar", sv.netBarVisibleForTest())
+        assertTrue("http:// rides the 网络 grid", "http://" in sv.gridCellTextsForTest())
     }
 
 
