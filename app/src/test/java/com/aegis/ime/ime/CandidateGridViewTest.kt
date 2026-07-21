@@ -57,8 +57,8 @@ class CandidateGridViewTest {
         layout(0, 0, measuredWidth, measuredHeight)
     }
 
-    @Test fun right_controls_distribute_evenly_and_bottom_anchor_clear_in_the_tall_column() {
-        val h = (290 * density).toInt()
+    @Test fun right_controls_align_collapse_to_row_one_backspace_to_the_row_three_four_seam_and_redo_to_row_six() {
+        val h = (320 * density).toInt()
         val v = CandidateGridView(ctx)
         v.measure(
             View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
@@ -72,14 +72,11 @@ class CandidateGridViewTest {
         assertEquals(rowPx(), back.height)
         assertEquals(rowPx(), delete.height)
         assertEquals(rowPx(), clear.height)
-        assertEquals("返回 anchors to the top of the column", 0, back.topMargin)
-        assertEquals("重输 bottom-anchors to the real column bottom, leaving no dead space", h, clear.topMargin + clear.height)
-
-        val backCenter = back.topMargin + back.height / 2f
-        val deleteCenter = delete.topMargin + delete.height / 2f
-        val clearCenter = clear.topMargin + clear.height / 2f
-        assertEquals("退格 sits at the column centre", h / 2f, deleteCenter, 1f)
-        assertEquals("the three controls are evenly spaced", deleteCenter - backCenter, clearCenter - deleteCenter, 1f)
+        assertEquals("收起 centers on candidate row 1", dp(8), back.topMargin)
+        assertEquals("退格 centers on the seam between candidate row 3 and row 4", dp(8) + rowPx() * 3 - rowPx() / 2, delete.topMargin)
+        assertEquals("退格 center sits on the row 3 / row 4 boundary", dp(8) + rowPx() * 3, delete.topMargin + delete.height / 2)
+        assertEquals("重输 centers on candidate row 6", dp(8) + rowPx() * 5, clear.topMargin)
+        assertTrue("the three controls stay inside the tall column", clear.topMargin + clear.height <= h)
     }
 
     @Test fun short_column_still_squeezes_and_bottom_anchors_the_three_controls() {
@@ -104,24 +101,28 @@ class CandidateGridViewTest {
     }
 
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
-    @Test fun grid_collapse_glyph_reads_at_the_backspace_size_family() {
+    @Test fun grid_collapse_glyph_matches_the_toolbar_collapse_chevron_box() {
         val v = CandidateGridView(ctx)
         val collapse = glyphInkBounds(v.collapseGlyphForTest())
         val backspace = glyphInkBounds(v.backspaceGlyphForTest())
-        assertTrue(
-            "collapse chevron must rise out of the flat ~7dp mark into the backspace family: " +
-                "collapse=${collapse.height()} backspace=${backspace.height()}",
-            collapse.height() >= backspace.height() * 0.8f,
+        val boxWidth = 1.64f * 9f * density
+        val stroke = 2f * density
+        assertEquals(
+            "collapse chevron ink fills the toolbar collapse icon box width: collapse=${collapse.width()}",
+            boxWidth + stroke,
+            collapse.width(),
+            3f * density,
+        )
+        assertEquals(
+            "collapse chevron keeps the toolbar chevron aspect: collapse=${collapse.height()}",
+            boxWidth * (0.76f / 1.40f) + stroke,
+            collapse.height(),
+            3f * density,
         )
         assertTrue(
-            "collapse chevron must not overshoot the backspace height: " +
+            "resized collapse chevron is shorter than the backspace glyph: " +
                 "collapse=${collapse.height()} backspace=${backspace.height()}",
-            collapse.height() <= backspace.height() * 1.1f,
-        )
-        assertTrue(
-            "collapse chevron width stays in the backspace width family: " +
-                "collapse=${collapse.width()} backspace=${backspace.width()}",
-            collapse.width() <= backspace.width() * 1.2f,
+            collapse.height() < backspace.height(),
         )
     }
 
@@ -308,9 +309,28 @@ class CandidateGridViewTest {
 
     @Test fun overlong_candidates_shrink_to_the_floor_and_ellipsize() {
         val v = measured()
-        v.setCandidates(listOf("超".repeat(20)))
+        v.setCandidates(listOf("超".repeat(80)))
         assertEquals(10f, v.chipTextSizeSpForTest(0), 0.01f)
         assertEquals(TextUtils.TruncateAt.END, v.chipEllipsizeForTest(0))
+    }
+
+    @Test fun a_candidate_that_fits_a_full_row_keeps_base_size_no_matter_its_column() {
+        val alone = measured()
+        alone.setCandidates(listOf("一二三四五"))
+        val soloSize = alone.chipTextSizeSpForTest(0)
+        assertEquals("a five-grapheme candidate that fits a full row keeps its base size", 14f, soloSize, 0.01f)
+
+        val packed = measured()
+        packed.setCandidates(listOf("一二三四五", "六七八九十", "上中下左右"))
+        assertTrue("the five-grapheme candidates pack more than one per row", packed.rowColumnCountsForTest().first() > 1)
+        for (i in 0..2) {
+            assertEquals(
+                "a candidate that fits a full row is never scaled down just because it shares columns",
+                soloSize,
+                packed.chipTextSizeSpForTest(i),
+                0.01f,
+            )
+        }
     }
 
     @Test fun reading_rail_is_an_inset_card_matching_the_scroll_column_style() {

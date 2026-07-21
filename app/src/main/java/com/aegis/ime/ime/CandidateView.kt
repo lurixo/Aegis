@@ -29,7 +29,7 @@ import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 import kotlin.math.abs
 
-enum class BarFunction { BRAND, LAYOUT, EMOJI, EDIT, CLIPBOARD }
+enum class BarFunction { BRAND, EMOJI, LAYOUT, EDIT, CLIPBOARD }
 
 class CandidateView(context: Context) : View(context) {
 
@@ -156,7 +156,7 @@ class CandidateView(context: Context) : View(context) {
         when {
             !itemsEmpty -> ROLE_CANDIDATES
             composingText.isEmpty() -> ROLE_FUNCTIONS
-            else -> ROLE_BLANK
+            else -> ROLE_CANDIDATES
         }
 
     internal fun contentTransitionsForTest(): Int = contentTransitions
@@ -461,13 +461,12 @@ class CandidateView(context: Context) : View(context) {
     private companion object {
         private const val ROLE_CANDIDATES = 0
         private const val ROLE_FUNCTIONS = 1
-        private const val ROLE_BLANK = 2
 
         private const val ICON_BOX = 1.64f
         private const val BRAND_GLYPH_WIDTH = 1.28f
         private const val BRAND_GLYPH_HEIGHT = 1.59f
         private const val LAYOUT_GLYPH_WIDTH = 1.40f
-        private const val LAYOUT_GLYPH_HEIGHT = 0.8334f
+        private const val LAYOUT_GLYPH_HEIGHT = 1.40f
         private const val EMOJI_GLYPH_WIDTH = 1.64f
         private const val EMOJI_GLYPH_HEIGHT = 1.64f
         private const val EDIT_GLYPH_WIDTH = 1.00f
