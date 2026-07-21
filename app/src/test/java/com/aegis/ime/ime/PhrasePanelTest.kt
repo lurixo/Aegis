@@ -520,30 +520,29 @@ class PhrasePanelTest {
                 val firstRow = checkNotNull(view.listRowViewForTest(0)) as ViewGroup
                 val itemCircle = firstRow.getChildAt(0)
                 val itemLabel = firstRow.getChildAt(1) as TextView
-                val rowLeft = boundsInRoot(view, firstRow).left
-                assertEquals(rowLeft, boundsInRoot(view, itemCircle).left)
-                assertEquals(rowLeft + dp(14), boundsInRoot(view, itemLabel).left)
+                val selectAllCircleCenterX = selectBounds.left + selectAll.paddingLeft + selectAll.compoundDrawables[0].intrinsicWidth / 2
+                assertEquals("the per-item circle center lines up with the select-all circle center", selectAllCircleCenterX, boundsInRoot(view, itemCircle).left + itemCircle.width / 2)
+                assertTrue(boundsInRoot(view, itemCircle).right <= boundsInRoot(view, itemLabel).left)
                 listOf(selectAll.left, selectAll.top, selectAll.right, selectAll.bottom, cancel.left, cancel.top, cancel.right, cancel.bottom)
             }
             assertEquals(1, geometries.toSet().size)
         }
     }
 
-    @Test fun entering_select_mode_does_not_indent_the_row_text() {
-        val normal = phraseView()
-        layout(normal)
-        val normalBody = textViews(normal).first { it.text?.toString() == "你好" }
-        val normalTextLeft = boundsInRoot(normal, normalBody).left + normalBody.totalPaddingLeft
-
+    @Test fun select_mode_row_circle_and_text_line_up_with_the_select_all_control() {
         val select = phraseView().apply { enterSelectForTest() }
         layout(select)
         val row = checkNotNull(select.listRowViewForTest(0)) as ViewGroup
         val radio = row.getChildAt(0)
         val label = row.getChildAt(1) as TextView
-        val selectTextLeft = boundsInRoot(select, label).left + label.totalPaddingLeft
+        val selectAll = checkNotNull(select.selectAllActionForTest())
+        val selectAllBounds = boundsInRoot(select, selectAll)
 
-        assertEquals("entering select mode must not shift the row text", normalTextLeft, selectTextLeft)
-        assertEquals("the radio sits in the card's existing leading gutter", boundsInRoot(select, row).left, boundsInRoot(select, radio).left)
+        val selectAllCircleCenterX = selectAllBounds.left + selectAll.paddingLeft + selectAll.compoundDrawables[0].intrinsicWidth / 2
+        assertEquals("the per-item circle center lines up with the select-all circle center", selectAllCircleCenterX, boundsInRoot(select, radio).left + radio.width / 2)
+        val selectAllTextLeft = selectAllBounds.left + selectAll.totalPaddingLeft
+        val rowTextLeft = boundsInRoot(select, label).left + label.totalPaddingLeft
+        assertEquals("the row text lines up with the select-all button text", selectAllTextLeft, rowTextLeft)
         assertTrue("the radio stays left of the text", boundsInRoot(select, radio).right <= boundsInRoot(select, label).left)
     }
 
