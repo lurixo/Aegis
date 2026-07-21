@@ -84,17 +84,19 @@ object Glyphs {
     }
 
     fun drawBackspace(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
-        val h = s * 0.62f
+        val hw = s * 0.9f
+        val hh = s * 0.7f
+        val notch = cx - s * 0.3f
         val path = Path().apply {
-            moveTo(cx - s, cy)
-            lineTo(cx - s * 0.34f, cy - h)
-            lineTo(cx + s, cy - h)
-            lineTo(cx + s, cy + h)
-            lineTo(cx - s * 0.34f, cy + h)
+            moveTo(cx - hw, cy)
+            lineTo(notch, cy - hh)
+            lineTo(cx + hw, cy - hh)
+            lineTo(cx + hw, cy + hh)
+            lineTo(notch, cy + hh)
             close()
         }
         c.drawPath(path, paint)
-        val xc = cx + s * 0.36f; val a = s * 0.24f
+        val xc = cx + s * 0.34f; val a = s * 0.24f
         c.drawLine(xc - a, cy - a, xc + a, cy + a, paint)
         c.drawLine(xc - a, cy + a, xc + a, cy - a, paint)
     }
@@ -183,13 +185,13 @@ object Glyphs {
     }
 
     fun drawKeyboard(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
-        val w = s * 0.70f; val h = s * 0.4167f; val r = s * 0.15f
-        c.drawRoundRect(cx - w, cy - h, cx + w, cy + h, r, r, paint)
-        val dotY = cy - s * 0.1333f; val dotX = s * 0.3667f
+        val w = s * 0.70f; val h = s * 0.700f; val rx = s * 0.15f; val ry = s * 0.22f
+        c.drawRoundRect(cx - w, cy - h, cx + w, cy + h, rx, ry, paint)
+        val dotY = cy - s * 0.224f; val dotX = s * 0.3667f
         c.drawPoint(cx - dotX, dotY, paint)
         c.drawPoint(cx, dotY, paint)
         c.drawPoint(cx + dotX, dotY, paint)
-        val barY = cy + s * 0.1583f; val barX = s * 0.30f
+        val barY = cy + s * 0.266f; val barX = s * 0.30f
         c.drawLine(cx - barX, barY, cx + barX, barY, paint)
     }
 
@@ -201,8 +203,8 @@ object Glyphs {
     }
 
     fun drawShift(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, locked: Boolean) {
-        val tipY = cy - s * 0.85f; val headW = s * 0.8f; val midY = cy - s * 0.04f
-        val stemW = s * 0.34f; val botY = cy + s * 0.66f
+        val tipY = cy - s * 0.7f; val headW = s * 0.9f; val midY = cy + s * 0.02f
+        val stemW = s * 0.38f; val botY = cy + s * 0.7f
         c.drawLine(cx, tipY, cx - headW, midY, paint)
         c.drawLine(cx, tipY, cx + headW, midY, paint)
         c.drawLine(cx - headW, midY, cx - stemW, midY, paint)
@@ -210,7 +212,7 @@ object Glyphs {
         c.drawLine(cx - stemW, midY, cx - stemW, botY, paint)
         c.drawLine(cx + stemW, midY, cx + stemW, botY, paint)
         c.drawLine(cx - stemW, botY, cx + stemW, botY, paint)
-        if (locked) c.drawLine(cx - headW, botY + s * 0.3f, cx + headW, botY + s * 0.3f, paint)
+        if (locked) c.drawLine(cx - headW, botY + s * 0.28f, cx + headW, botY + s * 0.28f, paint)
     }
 
     fun drawEditSquare(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
