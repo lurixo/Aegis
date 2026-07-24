@@ -187,12 +187,13 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
                 }
                 val bottomHeight = dp(56)
                 val contentHeight = maxOf(dp(44 * 3) + bottomHeight, viewport)
-                val midHeight = contentHeight - bottomHeight
+                val bottomContainerHeight = maxOf(bottomHeight, (contentHeight + 3) / 4)
+                val midHeight = contentHeight - bottomContainerHeight
                 for (action in rightActions) {
                     (action.layoutParams as LayoutParams).apply { height = 0; weight = 1f }
                 }
                 (mid.layoutParams as LayoutParams).height = midHeight
-                (bottom.layoutParams as LayoutParams).height = bottomHeight
+                (bottom.layoutParams as LayoutParams).height = bottomContainerHeight
                 for (action in navigationActions) (action.layoutParams as LayoutParams).height = bottomHeight
                 (pasteBtn.layoutParams as LayoutParams).height = bottomHeight
                 super.onMeasure(
@@ -204,7 +205,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
                     (action.layoutParams as LayoutParams).apply { height = referenceHeight; weight = 0f }
                 }
                 (pasteBtn.layoutParams as LayoutParams).height = referenceHeight
-                val measuredBottomHeight = maxOf(bottomHeight, referenceHeight)
+                val measuredBottomHeight = maxOf(bottomContainerHeight, referenceHeight)
                 (bottom.layoutParams as LayoutParams).height = measuredBottomHeight
                 super.onMeasure(
                     widthMeasureSpec,
