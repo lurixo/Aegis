@@ -40,6 +40,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -115,11 +116,21 @@ class PanelIconAlignmentTest {
         assertFalse("the normal edit panel must fit without vertical paging", v.actionContentCanScrollForTest())
     }
 
-    @Test fun edit_panel_arrow_glyphs_are_centered_in_their_feedback_boxes() {
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test fun edit_panel_arrow_glyphs_use_option_a_line_geometry_and_stay_centered() {
         val v = EditPanelView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
         layout(v, width = 600, height = 320)
 
-        for (action in listOf(EditAction.UP, EditAction.DOWN, EditAction.LEFT, EditAction.RIGHT, EditAction.HOME, EditAction.END)) {
+        val directions = mapOf(
+            EditAction.UP to (0f to -1f),
+            EditAction.DOWN to (0f to 1f),
+            EditAction.LEFT to (-1f to 0f),
+            EditAction.RIGHT to (1f to 0f),
+            EditAction.HOME to (-1f to 0f),
+            EditAction.END to (1f to 0f),
+        )
+        val scale = 13f * density
+        for ((action, direction) in directions) {
             val button = v.actionViewForTest(action)
                 ?: throw AssertionError("$action arrow button must exist")
             assertTrue("$action arrow keeps rounded tap feedback", button.foreground is RippleDrawable)
@@ -130,7 +141,56 @@ class PanelIconAlignmentTest {
                 ?: throw AssertionError("$action arrow glyph must draw during button rendering")
             assertEquals("$action glyph x center", button.width / 2f, center.first, 0.5f)
             assertEquals("$action glyph y center", button.height / 2f, center.second, 0.5f)
+
+            val (dx, dy) = direction
+            val px = -dy
+            val py = dx
+            assertTrue(
+                "$action keeps the open arrow's center shaft",
+                bitmap.hasInkNear(
+                    center.first - dx * scale * 0.55f,
+                    center.second - dy * scale * 0.55f,
+                ),
+            )
+            for (side in listOf(-1f, 1f)) {
+                assertFalse(
+                    "$action must not retain a hollow shaft edge",
+                    bitmap.hasInkNear(
+                        center.first - dx * scale * 0.55f + px * scale * 0.40f * side,
+                        center.second - dy * scale * 0.55f + py * scale * 0.40f * side,
+                    ),
+                )
+                assertTrue(
+                    "$action keeps both open arrowhead wings",
+                    bitmap.hasInkNear(
+                        center.first + dx * scale * 0.18f + px * scale * 0.62f * side,
+                        center.second + dy * scale * 0.18f + py * scale * 0.62f * side,
+                    ),
+                )
+            }
+            if (action == EditAction.HOME || action == EditAction.END) {
+                for (side in listOf(-1f, 1f)) {
+                    assertTrue(
+                        "$action keeps the paragraph-edge bar",
+                        bitmap.hasInkNear(
+                            center.first + dx * scale * 1.10f + px * scale * 0.62f * side,
+                            center.second + dy * scale * 1.10f + py * scale * 0.62f * side,
+                        ),
+                    )
+                }
+            }
         }
+    }
+
+    private fun Bitmap.hasInkNear(x: Float, y: Float): Boolean {
+        val centerX = x.roundToInt()
+        val centerY = y.roundToInt()
+        for (pixelY in (centerY - 1).coerceAtLeast(0)..(centerY + 1).coerceAtMost(height - 1)) {
+            for (pixelX in (centerX - 1).coerceAtLeast(0)..(centerX + 1).coerceAtMost(width - 1)) {
+                if (getPixel(pixelX, pixelY).ushr(24) != 0) return true
+            }
+        }
+        return false
     }
 
     @Test fun edit_left_group_moves_together_and_right_actions_use_leading_icons() {

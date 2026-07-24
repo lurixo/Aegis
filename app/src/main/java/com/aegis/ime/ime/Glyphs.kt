@@ -58,21 +58,9 @@ object Glyphs {
             Arrow.DOWN -> 180f
             Arrow.LEFT -> 270f
         }
-        val tipY = cy - s * 1.10f; val headW = s * 0.8f; val midY = cy - s * 0.29f
-        val stemW = s * 0.34f; val botY = cy + s * 1.10f
-        val path = Path().apply {
-            moveTo(cx, tipY)
-            lineTo(cx + headW, midY)
-            lineTo(cx + stemW, midY)
-            lineTo(cx + stemW, botY)
-            lineTo(cx - stemW, botY)
-            lineTo(cx - stemW, midY)
-            lineTo(cx - headW, midY)
-            close()
-        }
         c.save()
         c.rotate(angle, cx, cy)
-        c.drawPath(path, paint)
+        drawUpArrow(c, paint, cx, cy, s)
         c.restore()
     }
 
@@ -137,24 +125,22 @@ object Glyphs {
 
     fun drawArrowToEdge(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, toStart: Boolean) {
         val angle = if (toStart) 270f else 90f
-        val ay = cy + s * 0.22f
-        val tipY = ay - s * 1.10f; val headW = s * 0.8f; val midY = ay - s * 0.29f
-        val stemW = s * 0.34f; val botY = ay + s * 1.10f
-        val path = Path().apply {
-            moveTo(cx, tipY)
-            lineTo(cx + headW, midY)
-            lineTo(cx + stemW, midY)
-            lineTo(cx + stemW, botY)
-            lineTo(cx - stemW, botY)
-            lineTo(cx - stemW, midY)
-            lineTo(cx - headW, midY)
-            close()
-        }
+        val wingX = s * 0.62f
         c.save()
         c.rotate(angle, cx, cy)
-        c.drawPath(path, paint)
-        c.drawLine(cx - headW, cy - s * 1.32f, cx + headW, cy - s * 1.32f, paint)
+        drawUpArrow(c, paint, cx, cy, s)
+        c.drawLine(cx - wingX, cy - s * 1.10f, cx + wingX, cy - s * 1.10f, paint)
         c.restore()
+    }
+
+    private fun drawUpArrow(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val tipY = cy - s * 0.82f
+        val tailY = cy + s * 0.82f
+        val wingY = cy - s * 0.18f
+        val wingX = s * 0.62f
+        c.drawLine(cx, tailY, cx, tipY, paint)
+        c.drawLine(cx, tipY, cx - wingX, wingY, paint)
+        c.drawLine(cx, tipY, cx + wingX, wingY, paint)
     }
 
 
