@@ -128,6 +128,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private var listScrollRestoreTarget = 0
     private var listScrollRestoreActive = false
     private var applyingListScroll = false
+    private var listTouchActive = false
 
     private var sortMode = false
     private var categorySortMode = false
@@ -199,6 +200,22 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private val overlay = FrameLayout(context).apply { visibility = GONE }
     private val listColumn = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(8), 0, dp(8), dp(8)) }
     private val listScroll = object : ScrollView(context) {
+        override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    listTouchActive = true
+                    if (listScrollRestoreActive) {
+                        listScrollRestoreActive = false
+                        listScrollY = scrollY
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> listTouchActive = false
+            }
+            val handled = super.dispatchTouchEvent(ev)
+            if (ev.actionMasked == MotionEvent.ACTION_DOWN && !handled) listTouchActive = false
+            return handled
+        }
+
         override fun onScrollChanged(l: Int, t: Int, oldl: Int, oldt: Int) {
             super.onScrollChanged(l, t, oldl, oldt)
             if (!applyingListScroll && !listScrollRestoreActive) listScrollY = t
@@ -503,6 +520,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
 
     fun reset() {
         invalidateListRender()
+        listTouchActive = false
         st.reset(); hideOverlayImmediately(); swipeRevealed = null; sortMode = false; categorySortMode = false
     }
 
@@ -715,8 +733,6 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
 
     private fun canReconcileEntriesOnly(): Boolean {
         if (!hasRenderedOnce || st.selectMode || sortMode || categorySortMode || isDragging) return false
-        if (pendingListAppend != null) return false
-        if (renderedEntriesSig.isEmpty() || listColumn.childCount != renderedEntriesSig.size) return false
         if (st.expanded != renderedExpanded || swipeRevealed != renderedSwipe) return false
         if (st.selected.toList() != renderedSelectedSig) return false
         val categories = if (st.tab == Tab.PHRASE) categoriesProvider() else emptyList()
@@ -729,18 +745,27 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         val categories = if (st.tab == Tab.PHRASE) categoriesProvider() else emptyList()
         val category = if (st.tab == Tab.PHRASE) currentCategory(categories) else ""
         val entries = if (st.tab == Tab.CLIPBOARD) historyProvider() else phrasesInProvider(category)
-        val reuse = HashMap<String, ArrayDeque<View>>()
-        for (i in renderedEntriesSig.indices) {
-            val child = listColumn.getChildAt(i) ?: continue
-            reuse.getOrPut(renderedEntriesSig[i]) { ArrayDeque() }.addLast(child)
-        }
-        listColumn.removeAllViews()
-        if (entries.isEmpty()) {
-            listColumn.addView(emptyHint())
-        } else {
-            for ((i, e) in entries.withIndex()) {
-                listColumn.addView(reuse[e]?.removeFirstOrNull() ?: card(e, i, category))
+        if (pendingListAppend == null && renderedEntriesSig.isNotEmpty() && listColumn.childCount == renderedEntriesSig.size) {
+            val reuse = HashMap<String, ArrayDeque<View>>()
+            for (i in renderedEntriesSig.indices) {
+                val child = listColumn.getChildAt(i) ?: continue
+                reuse.getOrPut(renderedEntriesSig[i]) { ArrayDeque() }.addLast(child)
             }
+            listColumn.removeAllViews()
+            if (entries.isEmpty()) {
+                listColumn.addView(emptyHint())
+            } else {
+                for ((i, e) in entries.withIndex()) {
+                    listColumn.addView(reuse[e]?.removeFirstOrNull() ?: card(e, i, category))
+                }
+            }
+        } else {
+            val target = listScroll.scrollY
+            invalidateListRender()
+            listScrollY = target
+            listScrollRestoreTarget = target
+            listScrollRestoreActive = !listTouchActive
+            populateListRows(entries) { e, i -> card(e, i, category) }
         }
         recordRenderSignature(categories, category, entries)
         renderedExpanded = st.expanded
