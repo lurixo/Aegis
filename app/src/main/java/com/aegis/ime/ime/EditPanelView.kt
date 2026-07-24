@@ -186,7 +186,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
                     MeasureSpec.getSize(heightMeasureSpec).coerceAtLeast(0)
                 }
                 val bottomHeight = dp(56)
-                val contentHeight = maxOf(dp(48 * 3) + bottomHeight, viewport)
+                val contentHeight = maxOf(dp(44 * 3) + bottomHeight, viewport)
                 val midHeight = contentHeight - bottomHeight
                 for (action in rightActions) {
                     (action.layoutParams as LayoutParams).apply { height = 0; weight = 1f }

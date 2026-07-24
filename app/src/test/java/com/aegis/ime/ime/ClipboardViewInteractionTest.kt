@@ -912,6 +912,69 @@ class ClipboardViewInteractionTest {
         }
     }
 
+    @Test fun a_rapid_scroll_reversal_overrides_deferred_restoration_on_both_tabs() {
+        val cases = listOf(
+            "clipboard" to clipView((1..40).map { "clip$it" }),
+            "phrases" to phraseView((1..40).map { "phrase$it" }),
+        )
+        for ((name, v) in cases) {
+            val activity = Robolectric.buildActivity(Activity::class.java).setup()
+            try {
+                activity.get().setContentView(v)
+                layout(v, h = 220)
+                val viewport = v.listViewportForTest() as ViewGroup
+                val maxScroll = (viewport.getChildAt(0).height - viewport.height).coerceAtLeast(0)
+                assertTrue("$name precondition: initial rows overflow", maxScroll > 0)
+                val target = maxScroll / 2
+                send(viewport, MotionEvent.ACTION_DOWN, viewport.width / 2f, viewport.height / 2f, 0)
+                viewport.scrollTo(0, target)
+                send(viewport, MotionEvent.ACTION_CANCEL, viewport.width / 2f, viewport.height / 2f, 16)
+                val reversedTarget = target / 2
+                send(viewport, MotionEvent.ACTION_DOWN, viewport.width / 2f, viewport.height / 2f, 32)
+                viewport.scrollTo(0, reversedTarget)
+                send(viewport, MotionEvent.ACTION_CANCEL, viewport.width / 2f, viewport.height / 2f, 48)
+                while (v.runPendingListAppendForTest()) {}
+                layout(v, h = 220)
+                assertEquals("$name keeps the reversed user offset", reversedTarget, v.listScrollYForTest())
+            } finally {
+                activity.pause().stop().destroy()
+            }
+        }
+    }
+
+    @Test fun an_entries_refresh_does_not_replace_a_pressed_back_button_on_either_tab() {
+        val clips = (1..40).map { "clip$it" }.toMutableList()
+        val phrases = (1..40).map { "phrase$it" }.toMutableList()
+        val cases = listOf(
+            "clipboard" to (clipView(clips) to { clips.add(0, "new clip") }),
+            "phrases" to (phraseView(phrases) to { phrases.add(0, "new phrase") }),
+        )
+        for ((name, pair) in cases) {
+            val (v, mutate) = pair
+            var backs = 0
+            v.onBack = { backs++ }
+            val activity = Robolectric.buildActivity(Activity::class.java).setup()
+            try {
+                activity.get().setContentView(v)
+                layout(v, h = 220)
+                val desc = ctx.getString(com.aegis.ime.R.string.clip_back)
+                val before = allViews(v).single { it.contentDescription?.toString() == desc }
+                val bounds = boundsInRoot(v, before)
+                send(v, MotionEvent.ACTION_DOWN, bounds.exactCenterX(), bounds.exactCenterY(), 0)
+                mutate()
+                v.refresh()
+                layout(v, h = 220)
+                val after = allViews(v).single { it.contentDescription?.toString() == desc }
+                assertTrue("$name keeps the pressed back target attached", before === after)
+                send(v, MotionEvent.ACTION_UP, bounds.exactCenterX(), bounds.exactCenterY(), 16)
+                shadowOf(Looper.getMainLooper()).idle()
+                assertEquals("$name delivers the back click", 1, backs)
+            } finally {
+                activity.pause().stop().destroy()
+            }
+        }
+    }
+
     @Test fun a_split_copy_style_refresh_preserves_scroll_and_reuses_existing_rows() {
         val history = (1..40).map { "item$it" }.toMutableList()
         val v = clipView(history)

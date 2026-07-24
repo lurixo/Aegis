@@ -109,6 +109,12 @@ class PanelIconAlignmentTest {
         assertEquals(listOf(EditAction.BACK), actions)
     }
 
+    @Test fun edit_panel_does_not_scroll_at_its_normal_height() {
+        val v = EditPanelView(ctx)
+        layout(v, width = (411 * density).roundToInt(), height = (230 * density).roundToInt())
+        assertFalse("the normal edit panel must fit without vertical paging", v.actionContentCanScrollForTest())
+    }
+
     @Test fun edit_panel_arrow_glyphs_are_centered_in_their_feedback_boxes() {
         val v = EditPanelView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
         layout(v, width = 600, height = 320)
