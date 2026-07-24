@@ -46,7 +46,7 @@ jobs:
         run: echo "sha256=$(python3 tools/fetch_test_dict.py --print-sha)" >> "$GITHUB_OUTPUT"
 
       - name: Cache the full dictionary pack
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: build/test-dict-cache
           key: aegis-test-dict-${{ steps.dictpack.outputs.sha256 }}
