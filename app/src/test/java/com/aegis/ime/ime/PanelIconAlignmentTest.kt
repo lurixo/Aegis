@@ -74,6 +74,13 @@ class PanelIconAlignmentTest {
         dispatchTouchEvent(MotionEvent.obtain(0, 10, MotionEvent.ACTION_UP, x, y, 0))
     }
 
+    private fun View.dragVertically(from: Float, to: Float) {
+        val x = width / 2f
+        dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, x, height * from, 0))
+        dispatchTouchEvent(MotionEvent.obtain(0, 16, MotionEvent.ACTION_MOVE, x, height * to, 0))
+        dispatchTouchEvent(MotionEvent.obtain(0, 32, MotionEvent.ACTION_UP, x, height * to, 0))
+    }
+
     @Test fun edit_panel_back_icon_matches_right_action_label_height() {
         val v = EditPanelView(ctx)
         val labels = textViews(v)
@@ -110,10 +117,19 @@ class PanelIconAlignmentTest {
         assertEquals(listOf(EditAction.BACK), actions)
     }
 
-    @Test fun edit_panel_does_not_scroll_at_its_normal_height() {
-        val v = EditPanelView(ctx)
-        layout(v, width = (411 * density).roundToInt(), height = (230 * density).roundToInt())
-        assertFalse("the normal edit panel must fit without vertical paging", v.actionContentCanScrollForTest())
+    @Test fun edit_panel_does_not_page_at_portrait_panel_heights() {
+        for (heightDp in listOf(230, 290)) {
+            val v = EditPanelView(ctx)
+            layout(v, width = (411 * density).roundToInt(), height = (heightDp * density).roundToInt())
+            val viewport = v.actionViewportForTest()
+
+            viewport.dragVertically(0.75f, 0.25f)
+            assertEquals("$heightDp dp panel must not move after an upward drag", 0, viewport.scrollY)
+            viewport.dragVertically(0.25f, 0.75f)
+            assertEquals("$heightDp dp panel must not move after a downward drag", 0, viewport.scrollY)
+            assertFalse("$heightDp dp panel must not page upward", viewport.canScrollVertically(-1))
+            assertFalse("$heightDp dp panel must not page downward", v.actionContentCanScrollForTest())
+        }
     }
 
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -228,8 +244,9 @@ class PanelIconAlignmentTest {
         assertEquals(select.bottom, downArrow.top)
         val titleHeight = (40 * density).toInt()
         val bottomHeight = (56 * density).toInt()
-        val contentHeight = maxOf((48 * 3 * density).toInt() + bottomHeight, panelHeight - titleHeight)
-        val midHeight = contentHeight - bottomHeight
+        val contentHeight = maxOf((44 * 3 * density).toInt() + bottomHeight, panelHeight - titleHeight)
+        val bottomContainerHeight = maxOf(bottomHeight, (contentHeight + 3) / 4)
+        val midHeight = contentHeight - bottomContainerHeight
         for (arrow in listOf(leftArrow, rightArrow, upArrow, downArrow)) {
             assertTrue(kotlin.math.abs(arrow.width() - v.width / 5) <= 1)
             assertTrue(kotlin.math.abs(arrow.height() - midHeight / 3) <= 1)
@@ -320,8 +337,9 @@ class PanelIconAlignmentTest {
             bounds.zipWithNext().forEach { (upper, lower) -> assertTrue(upper.bottom <= lower.top) }
             val titleHeight = (40 * density).toInt()
             val bottomHeight = (56 * density).toInt()
-            val contentHeight = maxOf((48 * 3 * density).toInt() + bottomHeight, height - titleHeight)
-            val midHeight = contentHeight - bottomHeight
+            val contentHeight = maxOf((44 * 3 * density).toInt() + bottomHeight, height - titleHeight)
+            val bottomContainerHeight = maxOf(bottomHeight, (contentHeight + 3) / 4)
+            val midHeight = contentHeight - bottomContainerHeight
             assertEquals(midHeight / 3, reference.height)
             assertEquals(titleHeight, bounds.first().top)
             val dpadBounds = listOf(EditAction.UP, EditAction.START_SELECT, EditAction.DOWN).map { action ->
@@ -336,7 +354,7 @@ class PanelIconAlignmentTest {
                 val target = requireNotNull(v.actionViewForTest(action))
                 Rect(0, 0, target.width, target.height).also { v.offsetDescendantRectToMyCoords(target, it) }
             }
-            val measuredBottomHeight = maxOf(bottomHeight, reference.height)
+            val measuredBottomHeight = maxOf(bottomContainerHeight, reference.height)
             assertTrue(navigationBounds.all { it.top == titleHeight + midHeight + (measuredBottomHeight - bottomHeight) / 2 })
             assertTrue(navigationBounds.all { it.height() == bottomHeight })
             assertTrue(navigationBounds.all { kotlin.math.abs(it.centerY() - bounds.last().centerY()) <= 1 })
