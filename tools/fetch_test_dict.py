@@ -10,18 +10,13 @@ import shutil
 import sys
 import urllib.request
 import zipfile
-from datetime import datetime
 from pathlib import Path
 
-RELEASES_URL = "https://api.github.com/repos/lurixo/Aegis/releases?per_page=100"
-RELEASE_TAG_PATTERN = re.compile(r"dict-(v\d+\.\d+\.\d+)-r([1-9]\d*)")
-RELEASE_URL_PREFIX = "https://github.com/lurixo/Aegis/releases/tag"
-DOWNLOAD_URL_PREFIX = "https://github.com/lurixo/Aegis/releases/download"
-UPDATE_ASSET_NAME = "aegis-dictionary-update.json"
-BUILD_INFO_ASSET_NAME = "aegis-build-info.json"
-SOURCE_REPO = "https://github.com/amzxyz/rime-wanxiang"
+DICT_LATEST_TAG = "dict-latest"
+MANIFEST_URL = (
+    f"https://github.com/lurixo/Aegis/releases/download/{DICT_LATEST_TAG}/aegis-dictionary-update.json"
+)
 RUNTIME_BINS = ("aegis_dict.bin", "aegis_t9.bin", "aegis_jianpin.bin")
-RELEASES_PAGE_SIZE = 100
 
 
 def normalize_sha256(value):
@@ -40,152 +35,26 @@ def sha256_file(path):
 
 
 def http_get(url, timeout):
-    request = urllib.request.Request(
-        url,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "User-Agent": "Aegis-test-dict-fetch",
-        },
-    )
+    request = urllib.request.Request(url, headers={"User-Agent": "Aegis-test-dict-fetch"})
     return urllib.request.urlopen(request, timeout=timeout)
 
 
-def parse_published_at(value):
-    if not isinstance(value, str) or not value.endswith("Z"):
-        raise ValueError("dictionary release has no valid published_at")
-    parsed = datetime.fromisoformat(value[:-1] + "+00:00")
-    if parsed.tzinfo is None:
-        raise ValueError("dictionary release published_at has no timezone")
-    return parsed
-
-
-def expected_asset_url(tag, name):
-    return f"{DOWNLOAD_URL_PREFIX}/{tag}/{name}"
-
-
-def select_dictionary_release(releases):
-    if not isinstance(releases, list):
-        raise ValueError("GitHub Releases response is not a list")
-    candidates = []
-    for release in releases:
-        if not isinstance(release, dict):
-            raise ValueError("GitHub Releases response contains a non-object")
-        tag = release.get("tag_name")
-        match = RELEASE_TAG_PATTERN.fullmatch(tag or "")
-        if match is None:
-            continue
-        if not isinstance(release.get("draft"), bool) or not isinstance(release.get("prerelease"), bool):
-            raise ValueError(f"{tag} has invalid release flags")
-        if release["draft"] or release["prerelease"]:
-            continue
-        published_at = release.get("published_at")
-        published = parse_published_at(published_at)
-        release_url = release.get("html_url")
-        if release_url != f"{RELEASE_URL_PREFIX}/{tag}":
-            raise ValueError(f"{tag} has an unexpected release URL")
-
-        pack_name = f"aegis_dict_pack_{tag}.zip"
-        expected_names = {pack_name, UPDATE_ASSET_NAME, BUILD_INFO_ASSET_NAME}
-        assets = release.get("assets")
-        if not isinstance(assets, list) or len(assets) != len(expected_names):
-            raise ValueError(f"{tag} does not have the exact dictionary asset set")
-        by_name = {}
-        for asset in assets:
-            if not isinstance(asset, dict):
-                raise ValueError(f"{tag} has a non-object asset")
-            name = asset.get("name")
-            if name not in expected_names or name in by_name:
-                raise ValueError(f"{tag} has an unexpected or duplicate asset")
-            size = asset.get("size")
-            digest = normalize_sha256(asset.get("digest"))
-            if not isinstance(size, int) or size <= 0 or digest is None:
-                raise ValueError(f"{tag} has invalid asset metadata")
-            if asset.get("browser_download_url") != expected_asset_url(tag, name):
-                raise ValueError(f"{tag} has an unexpected asset URL")
-            by_name[name] = asset
-        if set(by_name) != expected_names:
-            raise ValueError(f"{tag} is missing a dictionary asset")
-
-        pack = by_name[pack_name]
-        candidates.append(
-            (
-                published,
-                {
-                    "tag": tag,
-                    "source_tag": match.group(1),
-                    "release_url": release_url,
-                    "published_at": published_at,
-                    "manifest_url": by_name[UPDATE_ASSET_NAME]["browser_download_url"],
-                    "pack_name": pack_name,
-                    "pack_url": pack["browser_download_url"],
-                    "pack_size": pack["size"],
-                    "pack_sha256": normalize_sha256(pack["digest"]),
-                },
-            )
-        )
-    if not candidates:
-        raise ValueError("no eligible versioned dictionary release")
-    latest = max(item[0] for item in candidates)
-    selected = [item[1] for item in candidates if item[0] == latest]
-    if len(selected) != 1:
-        raise ValueError("latest versioned dictionary release is tied")
-    return selected[0]
-
-
-def dictionary_asset_from_manifest(manifest, release):
-    if not isinstance(manifest, dict):
-        raise ValueError("dictionary manifest is not an object")
-    if manifest.get("schema_version") != 1 or manifest.get("kind") != "dictionary_update":
-        raise ValueError("unexpected dictionary manifest")
-    asset = manifest.get("asset")
-    source = manifest.get("source")
-    if not isinstance(asset, dict) or not isinstance(source, dict):
-        raise ValueError("dictionary manifest is missing metadata")
-    name = asset.get("name")
-    url = asset.get("url")
-    sha256 = normalize_sha256(asset.get("sha256"))
-    published_at = asset.get("published_at")
-    if (
-        name != release["pack_name"]
-        or url != release["pack_url"]
-        or sha256 != release["pack_sha256"]
-        or asset.get("size_bytes") != release["pack_size"]
-        or asset.get("release_tag") != release["tag"]
-        or asset.get("release_url") != release["release_url"]
-        or asset.get("prerelease") is not False
-        or published_at not in (None, release["published_at"])
-        or source.get("repo") != SOURCE_REPO
-        or source.get("ref_type") != "tag"
-        or source.get("tag") != release["source_tag"]
-        or source.get("branch") is not None
-        or re.fullmatch(r"[0-9a-f]{40}", source.get("commit") or "") is None
-    ):
-        raise ValueError("dictionary manifest does not match its versioned release")
-    return url, sha256, name
-
-
-def fetch_release_pages(releases_url):
-    releases = []
-    page = 1
-    separator = "&" if "?" in releases_url else "?"
-    while True:
-        page_url = releases_url if page == 1 else f"{releases_url}{separator}page={page}"
-        with http_get(page_url, 60) as response:
-            page_releases = json.loads(response.read().decode("utf-8"))
-        if not isinstance(page_releases, list):
-            raise ValueError("GitHub Releases response is not a list")
-        releases.extend(page_releases)
-        if len(page_releases) < RELEASES_PAGE_SIZE:
-            return releases
-        page += 1
-
-
-def resolve_asset(releases_url):
-    releases = fetch_release_pages(releases_url)
-    release = select_dictionary_release(releases)
-    with http_get(release["manifest_url"], 60) as response:
+def resolve_asset(manifest_url):
+    with http_get(manifest_url, 60) as response:
         manifest = json.loads(response.read().decode("utf-8"))
-    return dictionary_asset_from_manifest(manifest, release)
+    if manifest.get("schema_version") != 1 or manifest.get("kind") != "dictionary_update":
+        raise SystemExit(f"unexpected dictionary manifest at {manifest_url}")
+    asset = manifest["asset"]
+    name = asset["name"]
+    url = asset["url"]
+    sha256 = normalize_sha256(asset["sha256"])
+    expected_name = f"aegis_dict_pack_{DICT_LATEST_TAG}.zip"
+    expected_url = (
+        f"https://github.com/lurixo/Aegis/releases/download/{DICT_LATEST_TAG}/{expected_name}"
+    )
+    if name != expected_name or url != expected_url or sha256 is None:
+        raise SystemExit("dictionary manifest does not describe the expected dict-latest pack")
+    return url, sha256, name
 
 
 def download_to(url, dest, timeout):
@@ -255,11 +124,11 @@ def main(argv):
     repo_root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(
         description=(
-            "Discover the latest versioned dictionary release and unpack its tables into the app assets "
+            "Fetch the full dict-latest dictionary pack and unpack its tables into the app assets "
             "so the decode-quality unit tests run against the full dictionary."
         )
     )
-    parser.add_argument("--releases-url", default=RELEASES_URL, help="GitHub Releases API URL.")
+    parser.add_argument("--manifest-url", default=MANIFEST_URL, help="Dictionary update manifest URL.")
     parser.add_argument(
         "--assets-dir",
         default=str(repo_root / "app" / "src" / "main" / "assets"),
@@ -279,10 +148,7 @@ def main(argv):
     )
     args = parser.parse_args(argv)
 
-    try:
-        url, expected_sha256, asset_name = resolve_asset(args.releases_url)
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
-        raise SystemExit(str(error)) from error
+    url, expected_sha256, asset_name = resolve_asset(args.manifest_url)
     if args.print_sha:
         print(expected_sha256)
         return 0
