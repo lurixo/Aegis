@@ -40,6 +40,8 @@ LM_ENTRY = "aegis_lm.bin"
 LM_MIN_BIGRAM = 1
 PACK_ENTRIES = [NOTICE_NAME] + [item[0] for item in OUTPUTS] + [LM_ENTRY]
 DANGEROUS_NEW_ENTRY_SUBSTRINGS = ("dict", "t9", "jianpin")
+GRAMMAR_NAME = "wanxiang-lts-zh-hans.gram"
+GRAMMAR_REPO_HTTPS = "https://github.com/amzxyz/RIME-LMDG"
 
 def attribution_text(repo_https, source_tag, source_branch, source_commit):
     """The pack's third-party attribution, deterministic (no timestamps — only the pinned source
@@ -141,6 +143,54 @@ def default_asset_name(release_tag):
         return f"aegis_dict_pack_debug{match.group(1)}.zip"
     safe = re.sub(r"[^A-Za-z0-9._-]+", "-", release_tag).strip("-")
     return f"aegis_dict_pack_{safe}.zip"
+
+
+def grammar_reference(release):
+    assets = [item for item in release.get("assets", []) if item.get("name") == GRAMMAR_NAME]
+    if len(assets) != 1:
+        raise ValueError(f"expected exactly one {GRAMMAR_NAME} asset")
+    asset = assets[0]
+    digest = asset.get("digest")
+    if not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", digest):
+        raise ValueError(f"{GRAMMAR_NAME} has no trustworthy SHA-256 digest")
+    size = asset.get("size")
+    if not isinstance(size, int) or size <= 0:
+        raise ValueError(f"{GRAMMAR_NAME} has no valid size")
+    tag = release.get("tag_name")
+    if not isinstance(tag, str) or not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9._-]*", tag):
+        raise ValueError(f"{GRAMMAR_NAME} names no plain release tag: {tag!r}")
+    expected_asset_url = f"{GRAMMAR_REPO_HTTPS}/releases/download/{tag}/{GRAMMAR_NAME}"
+    if asset.get("browser_download_url") != expected_asset_url:
+        raise ValueError(
+            f"{GRAMMAR_NAME} is not served from {expected_asset_url}: {asset.get('browser_download_url')!r}"
+        )
+    expected_release_url = f"{GRAMMAR_REPO_HTTPS}/releases/tag/{tag}"
+    if release.get("html_url") != expected_release_url:
+        raise ValueError(
+            f"{GRAMMAR_NAME} is not released at {expected_release_url}: {release.get('html_url')!r}"
+        )
+    return {
+        "kind": "grammar_model",
+        "physical_asset": {
+            "name": GRAMMAR_NAME,
+            "url": asset["browser_download_url"],
+            "release_tag": tag,
+            "release_url": release["html_url"],
+            "prerelease": bool(release.get("prerelease")),
+            "published_at": asset.get("updated_at") or release.get("published_at"),
+            "sha256": digest.removeprefix("sha256:").lower(),
+            "size_bytes": size,
+            "github_asset_id": asset.get("id"),
+        },
+        "source": {
+            "repo": GRAMMAR_REPO_HTTPS,
+            "branch": None,
+            "commit": None,
+        },
+        "attestation": {
+            "status": "external_resource_not_attested_by_aegis",
+        },
+    }
 
 def ensure_source_checkout(args, work_dir):
     if args.source_dir:

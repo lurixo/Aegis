@@ -235,6 +235,97 @@ class LanguageModelProtocolTest(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, message):
                         self.require(root, bytes(data))
 
+class GrammarReferenceTest(unittest.TestCase):
+    def release(self, tag="LTS", url=None, release_url=None):
+        return {
+            "tag_name": tag,
+            "html_url": release_url
+            if release_url is not None
+            else f"{bp.GRAMMAR_REPO_HTTPS}/releases/tag/{tag}",
+            "prerelease": False,
+            "published_at": "2026-07-23T13:20:00Z",
+            "assets": [
+                {
+                    "id": 487206811,
+                    "name": bp.GRAMMAR_NAME,
+                    "browser_download_url": url
+                    if url is not None
+                    else f"{bp.GRAMMAR_REPO_HTTPS}/releases/download/{tag}/{bp.GRAMMAR_NAME}",
+                    "updated_at": "2026-07-23T13:19:40Z",
+                    "digest": "sha256:" + "a" * 64,
+                    "size": 420012076,
+                }
+            ],
+        }
+
+    def test_records_the_exact_mutable_lts_asset_snapshot(self):
+        ref = bp.grammar_reference(self.release())
+        asset = ref["physical_asset"]
+        self.assertEqual("a" * 64, asset["sha256"])
+        self.assertEqual(420012076, asset["size_bytes"])
+        self.assertEqual(487206811, asset["github_asset_id"])
+        self.assertEqual("2026-07-23T13:19:40Z", asset["published_at"])
+        self.assertEqual(f"{bp.GRAMMAR_REPO_HTTPS}/releases/download/LTS/{bp.GRAMMAR_NAME}", asset["url"])
+        self.assertEqual("LTS", asset["release_tag"])
+        self.assertEqual(f"{bp.GRAMMAR_REPO_HTTPS}/releases/tag/LTS", asset["release_url"])
+
+    def test_rejects_a_snapshot_without_a_digest(self):
+        release = self.release()
+        del release["assets"][0]["digest"]
+        with self.assertRaises(ValueError):
+            bp.grammar_reference(release)
+
+    def test_rejects_an_asset_served_by_another_host(self):
+        for url in [
+            f"https://example.test/releases/download/LTS/{bp.GRAMMAR_NAME}",
+            f"https://github.com.example.test/amzxyz/RIME-LMDG/releases/download/LTS/{bp.GRAMMAR_NAME}",
+            f"https://github.com/attacker/RIME-LMDG/releases/download/LTS/{bp.GRAMMAR_NAME}",
+        ]:
+            with self.assertRaises(ValueError):
+                bp.grammar_reference(self.release(url=url))
+
+    def test_rejects_an_asset_url_that_is_not_https(self):
+        for scheme in ["http", "ftp"]:
+            url = f"{scheme}://github.com/amzxyz/RIME-LMDG/releases/download/LTS/{bp.GRAMMAR_NAME}"
+            with self.assertRaises(ValueError):
+                bp.grammar_reference(self.release(url=url))
+
+    def test_rejects_an_asset_url_outside_the_release_download_form(self):
+        for url in [
+            f"{bp.GRAMMAR_REPO_HTTPS}/releases/download/{bp.GRAMMAR_NAME}",
+            f"{bp.GRAMMAR_REPO_HTTPS}/raw/LTS/{bp.GRAMMAR_NAME}",
+            f"{bp.GRAMMAR_REPO_HTTPS}/releases/download/LTS/somethingelse.gram",
+            f"{bp.GRAMMAR_REPO_HTTPS}/releases/download/LTS/{bp.GRAMMAR_NAME}?host=example.test",
+        ]:
+            with self.assertRaises(ValueError):
+                bp.grammar_reference(self.release(url=url))
+
+    def test_rejects_a_release_page_served_by_another_host(self):
+        for release_url in [
+            "https://example.test/amzxyz/RIME-LMDG/releases/tag/LTS",
+            "https://github.com.example.test/amzxyz/RIME-LMDG/releases/tag/LTS",
+            "https://github.com/attacker/RIME-LMDG/releases/tag/LTS",
+            "http://github.com/amzxyz/RIME-LMDG/releases/tag/LTS",
+        ]:
+            with self.assertRaises(ValueError):
+                bp.grammar_reference(self.release(release_url=release_url))
+
+    def test_rejects_a_release_page_outside_the_release_tag_form(self):
+        for release_url in [
+            f"{bp.GRAMMAR_REPO_HTTPS}/releases/tag",
+            f"{bp.GRAMMAR_REPO_HTTPS}/releases/tag/OTHER",
+            f"{bp.GRAMMAR_REPO_HTTPS}/tree/LTS",
+            f"{bp.GRAMMAR_REPO_HTTPS}/releases/tag/LTS?host=example.test",
+        ]:
+            with self.assertRaises(ValueError):
+                bp.grammar_reference(self.release(release_url=release_url))
+
+    def test_rejects_a_release_tag_that_walks_out_of_the_repository(self):
+        for tag in ["../../attacker/evil", ".."]:
+            with self.assertRaises(ValueError):
+                bp.grammar_reference(self.release(tag=tag))
+
+
 class DefaultAssetNameTest(unittest.TestCase):
     def test_rolling_tag_keeps_the_name_the_installed_app_asks_for(self):
         self.assertEqual("aegis_dict_pack_dict-latest.zip", bp.default_asset_name("dict-latest"))
