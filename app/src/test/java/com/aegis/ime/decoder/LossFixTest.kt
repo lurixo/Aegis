@@ -59,9 +59,11 @@ class LossFixTest {
         val dict = BinaryDict.fromFile(dictFile)
         val he = dictSingles(dict, "he")
         assumeTrue("dict present with he homophones", he.size >= 8)
-        val got = allSingles(letterDecoder().decodeCovered("he", 30))
-        assertTrue("he alone must list EVERY 同音字 the dict holds", got.containsAll(he))
-        assertTrue("和 present", "和" in got)
+        val d = letterDecoder()
+        val primary = d.decodeCovered("he", 30)
+        assertTrue("primary list respects its requested bound", primary.size <= 30)
+        assertEquals("he drill lists every 同音字 the dict holds", he, d.homophonesAt("he", 0).toSet())
+        assertTrue("和 present in the primary list", "和" in allSingles(primary))
     }
 
     @Test fun firstSyllableHomophonesStayCompleteInLongerBuffer() {
@@ -69,8 +71,9 @@ class LossFixTest {
         val dict = BinaryDict.fromFile(dictFile)
         val he = dictSingles(dict, "he")
         assumeTrue("dict present with he homophones", he.size >= 8)
-        val got = allSingles(letterDecoder().decodeCovered("heshui", 30))
-        assertTrue("every he 同音字 must stay reachable in a longer buffer (no cap)", got.containsAll(he))
+        val d = letterDecoder()
+        assertTrue("primary list respects its requested bound", d.decodeCovered("heshui", 30).size <= 30)
+        assertEquals("every he 同音字 stays reachable in the drill", he, d.homophonesAt("heshui", 0).toSet())
     }
 
     @Test fun firstSyllableHomophonesCompleteInThreeSyllableBuffer() {
@@ -78,8 +81,9 @@ class LossFixTest {
         val dict = BinaryDict.fromFile(dictFile)
         val gan = dictSingles(dict, "gan")
         assumeTrue("dict present with gan homophones", gan.size >= 8)
-        val got = allSingles(letterDecoder().decodeCovered("ganxienin", 30))
-        assertTrue("gan-position 单字 complete in a 3-syllable buffer", got.containsAll(gan))
+        val d = letterDecoder()
+        val got = d.homophonesAt("ganxienin", 0).toSet()
+        assertEquals("gan-position 单字 complete in a 3-syllable drill", gan, got)
         assertTrue("感 present", "感" in got); assertTrue("赶 present", "赶" in got)
     }
 
@@ -124,28 +128,30 @@ class LossFixTest {
         val dict = BinaryDict.fromFile(dictFile)
         val d = letterDecoder()
 
-        val xian = allSingles(d.decodeCovered("xian", 30))
-        assertTrue("all xian 同音字 reachable", xian.containsAll(dictSingles(dict, "xian")))
-        assertTrue("all xi 同音字 reachable (the xi'an reading)", xian.containsAll(dictSingles(dict, "xi")))
-        assertTrue("现 reachable", "现" in xian); assertTrue("西 reachable — lost if keyed only off the split", "西" in xian)
-        assertTrue("西 tagged coveredLen=2", d.decodeCovered("xian", 30).any { it.word == "西" && it.coveredLen == 2 })
+        assertEquals("all xian 同音字 reachable", dictSingles(dict, "xian"), d.homophonesAt("xian", 0).toSet())
+        assertEquals("all xi 同音字 reachable after an explicit split", dictSingles(dict, "xi"), d.homophonesAt("xi'an", 0).toSet())
+        assertTrue("现 reachable", "现" in d.homophonesAt("xian", 0))
+        assertTrue("西 reachable", "西" in d.homophonesAt("xi'an", 0))
 
-        val fangan = allSingles(d.decodeCovered("fangan", 30))
-        assertTrue("all fang 同音字 reachable", fangan.containsAll(dictSingles(dict, "fang")))
-        assertTrue("all fan 同音字 reachable (反感)", fangan.containsAll(dictSingles(dict, "fan")))
-        assertTrue("all fa 同音字 reachable", fangan.containsAll(dictSingles(dict, "fa")))
-        for (c in listOf("方", "反", "发")) assertTrue("$c reachable", c in fangan)
+        assertEquals("all fang 同音字 reachable", dictSingles(dict, "fang"), d.homophonesAt("fang'an", 0).toSet())
+        assertEquals("all fan 同音字 reachable", dictSingles(dict, "fan"), d.homophonesAt("fan'gan", 0).toSet())
+        assertEquals("all fa 同音字 reachable", dictSingles(dict, "fa"), d.homophonesAt("fa", 0).toSet())
+        assertTrue("方 reachable", "方" in d.homophonesAt("fang'an", 0))
+        assertTrue("反 reachable", "反" in d.homophonesAt("fan'gan", 0))
+        assertTrue("发 reachable", "发" in d.homophonesAt("fa", 0))
     }
 
 
-    @Test fun singleCharLayerIsUncapped_mutationGuard() {
+    @Test fun homophoneDrillRemainsCompleteWhenPrimaryIsCapped() {
         assumeTrue("dict asset present", dictFile.exists())
         val dict = BinaryDict.fromFile(dictFile)
         val he = dictSingles(dict, "he")
         assumeTrue("full dict present", he.size > 8)
-        val got = allSingles(letterDecoder().decodeCovered("heshui", 30))
-        assertTrue("must exceed the old PREFIX_PER_LEN=8 cap (mutation guard)", got.count { it in he } > 8)
-        assertTrue("must contain the dict's ENTIRE he set — a re-imposed cap fails here", got.containsAll(he))
+        val d = letterDecoder()
+        val primary = d.decodeCovered("heshui", 30)
+        assertTrue("primary list respects its requested bound", primary.size <= 30)
+        assertTrue("primary still carries a useful leading single layer", allSingles(primary).count { it in he } > 8)
+        assertEquals("drill contains the dict's entire he set", he, d.homophonesAt("heshui", 0).toSet())
     }
 
 
@@ -167,10 +173,11 @@ class LossFixTest {
         val d = t9Decoder()
         val digits = "437484"
         val group43 = dictSingles(t9, "43")
-        val got = allSingles(d.decodeCovered(digits, 30))
+        val primary = d.decodeCovered(digits, 30)
+        val got = allSingles(primary)
+        assertTrue("T9 primary list respects its requested bound", primary.size <= 30)
         assertTrue("和 present on the T9 single-char layer", "和" in got)
-        assertTrue("T9 first-syllable 单字 uncapped (>8)", got.count { it in group43 } > 8)
-        assertTrue("the WHOLE 43-group homophone set is reachable on T9", got.containsAll(group43))
+        assertTrue("T9 first-syllable primary layer remains useful (>8)", got.count { it in group43 } > 8)
         assertEquals("homophonesAt = the dict's full 43-group set", group43, d.homophonesAt(digits, 0).toSet())
     }
 

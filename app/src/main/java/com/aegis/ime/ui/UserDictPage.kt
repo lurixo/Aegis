@@ -56,6 +56,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.aegis.ime.R
 import com.aegis.ime.user.UserDictEdit
+import com.aegis.ime.user.UserDictImport
 import com.aegis.ime.user.UserDictSearch
 import com.aegis.ime.user.UserModel
 import java.io.File
@@ -99,10 +100,8 @@ internal fun UserDictPage(onBack: () -> Unit) {
         val ok = runCatching {
             val tmp = File(context.cacheDir, "import_userdb.txt")
             tmp.delete()
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                tmp.outputStream().use { input.copyTo(it) }
-            }
-            UserDictEdit.applyImport(userDb, tmp, merge, System.currentTimeMillis())
+            val staged = context.contentResolver.openInputStream(uri)?.use { UserDictImport.stage(it, tmp) } ?: false
+            (staged && UserDictEdit.applyImport(userDb, tmp, merge, System.currentTimeMillis()))
                 .also { tmp.delete() }
         }.getOrDefault(false)
         if (ok) reload()

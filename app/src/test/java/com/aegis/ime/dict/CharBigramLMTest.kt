@@ -22,6 +22,7 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import java.security.MessageDigest
 import kotlin.math.ln
 
 class CharBigramLMTest {
@@ -95,16 +96,13 @@ class CharBigramLMTest {
         assertEquals(backoff + ln(40.0) - ln(90.0), lm.logCond(ni, hao), 1e-9)
     }
 
-    @Test fun truncated_bigram_region_degrades_to_backoff_and_never_reads_out_of_bounds() {
+    @Test fun truncated_bigram_region_is_rejected_before_queries_can_read_out_of_bounds() {
         val full = roundTripFile(sampleLines).readBytes()
         val truncated = File.createTempFile("lm_trunc", ".bin")
         truncated.deleteOnExit()
         truncated.writeBytes(full.copyOf(full.size - 8))
 
-        val lm = CharBigramLM.fromFile(truncated)
-        val total = 550.0
-        assertEquals(backoff + ln(170.0) - ln(total), lm.logCond(ni, hao), 1e-9)
-        assertEquals(backoff + ln(230.0) - ln(total), lm.logCond(hao, de), 1e-9)
+        assertThrows(IllegalArgumentException::class.java) { CharBigramLM.fromFile(truncated) }
     }
 
     @Test fun header_truncated_before_the_bigram_count_is_rejected_cleanly() {
@@ -131,6 +129,71 @@ class CharBigramLMTest {
         assertThrows(IllegalArgumentException::class.java) { CharBigramLM.fromFile(writeTemp(negChars)) }
     }
 
+    @Test fun corrupt_internal_indexes_counts_and_denominators_are_rejected_at_load() {
+        val full = roundTripFile(sampleLines).readBytes()
+        val offsets = offsets(full)
+        val firstRow = (0 until offsets.numChars).first {
+            getLeInt(full, offsets.rowStart + it * 4) < getLeInt(full, offsets.rowStart + (it + 1) * 4)
+        }
+        val firstBigram = getLeInt(full, offsets.rowStart + firstRow * 4)
+
+        val unsortedChars = full.copyOf()
+        putLeInt(unsortedChars, 24, getLeInt(unsortedChars, 20))
+        assertThrows(IllegalArgumentException::class.java) { CharBigramLM.fromFile(writeTemp(unsortedChars)) }
+
+        val badRows = full.copyOf()
+        putLeInt(badRows, offsets.rowStart, 1)
+        assertThrows(IllegalArgumentException::class.java) { CharBigramLM.fromFile(writeTemp(badRows)) }
+
+        val badTarget = full.copyOf()
+        putLeInt(badTarget, offsets.biC2 + firstBigram * 4, offsets.numChars)
+        assertThrows(IllegalArgumentException::class.java) { CharBigramLM.fromFile(writeTemp(badTarget)) }
+
+        val badCount = full.copyOf()
+        putLeLong(badCount, offsets.biCount + firstBigram * 8, 0L)
+        assertThrows(IllegalArgumentException::class.java) { CharBigramLM.fromFile(writeTemp(badCount)) }
+
+        val badDenominator = full.copyOf()
+        putLeLong(badDenominator, offsets.rowTotal + firstRow * 8, 0L)
+        assertThrows(IllegalArgumentException::class.java) { CharBigramLM.fromFile(writeTemp(badDenominator)) }
+
+    }
+
+    @Test fun packaged_asset_identity_matchesAndItsInternalInvariantsValidate() {
+        val asset = File("src/main/assets/aegis_lm.bin")
+        val identity = File("src/main/assets/aegis_lm.bin.sha256")
+        assertEquals(identity.readText().trim(), sha256(asset))
+        CharBigramLM.fromFile(asset)
+    }
+
+    @Test fun assetInstallRefreshesStaleContentAndRepairsCorruptionWithoutRecopyingAValidModel() {
+        val old = roundTripFile(listOf("你\tni\t5", "好\thao\t4"))
+        val current = roundTripFile(sampleLines)
+        val dir = File.createTempFile("lm-install", "").let { it.delete(); it.mkdirs(); it }
+        val installed = File(dir, "model.bin").apply { writeBytes(old.readBytes()) }
+        val expected = sha256(current)
+        var opens = 0
+
+        CharBigramLM.fromAsset(dir, installed.name, expected) {
+            opens++
+            current.inputStream()
+        }
+        assertTrue(installed.readBytes().contentEquals(current.readBytes()))
+        assertEquals(1, opens)
+
+        CharBigramLM.fromAsset(dir, installed.name, expected) {
+            throw AssertionError("valid model must not be recopied")
+        }
+
+        installed.writeBytes(installed.readBytes().also { it[0] = 'X'.code.toByte() })
+        CharBigramLM.fromAsset(dir, installed.name, expected) {
+            opens++
+            current.inputStream()
+        }
+        assertTrue(installed.readBytes().contentEquals(current.readBytes()))
+        assertEquals(2, opens)
+    }
+
     @Test fun builder_clamps_non_positive_source_freq_so_uni_prob_stays_finite() {
         val lm = CharBigramLM.fromFile(roundTripFile(listOf("世界\tshijie\t0", "你\tni\t5")))
         val world = "世".codePointAt(0)
@@ -151,6 +214,39 @@ class CharBigramLMTest {
         bytes[off + 1] = ((v ushr 8) and 0xFF).toByte()
         bytes[off + 2] = ((v ushr 16) and 0xFF).toByte()
         bytes[off + 3] = ((v ushr 24) and 0xFF).toByte()
+    }
+
+    private fun getLeInt(bytes: ByteArray, off: Int): Int =
+        (bytes[off].toInt() and 0xFF) or
+            ((bytes[off + 1].toInt() and 0xFF) shl 8) or
+            ((bytes[off + 2].toInt() and 0xFF) shl 16) or
+            ((bytes[off + 3].toInt() and 0xFF) shl 24)
+
+    private fun putLeLong(bytes: ByteArray, off: Int, value: Long) {
+        for (i in 0 until 8) bytes[off + i] = ((value ushr (i * 8)) and 0xFF).toByte()
+    }
+
+    private data class Offsets(
+        val numChars: Int,
+        val rowTotal: Int,
+        val rowStart: Int,
+        val biC2: Int,
+        val biCount: Int,
+    )
+
+    private fun offsets(bytes: ByteArray): Offsets {
+        val numChars = getLeInt(bytes, 8)
+        val rowTotal = 20 + numChars * 4 + numChars * 8
+        val rowStart = rowTotal + numChars * 8
+        val numBigramsOffset = rowStart + (numChars + 1) * 4
+        val numBigrams = getLeInt(bytes, numBigramsOffset)
+        val biC2 = numBigramsOffset + 4
+        return Offsets(numChars, rowTotal, rowStart, biC2, biC2 + numBigrams * 4)
+    }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(file.readBytes())
+        return digest.joinToString("") { "%02x".format(it) }
     }
 
     private companion object {

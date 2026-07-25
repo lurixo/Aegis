@@ -17,9 +17,11 @@ package com.aegis.ime.user
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import kotlin.math.abs
 
 class UserModelTest {
 
@@ -34,6 +36,34 @@ class UserModelTest {
         assertTrue("seen word gets positive boost", m.wordBoost("你好") > 0.0)
         assertEquals(listOf("世界", "啊"), m.successors("你好", 8))
         assertTrue(m.dirty)
+    }
+
+    @Test
+    fun recentUseRaisesEqualFrequencyWordsAndSuccessorsThenDecays() {
+        val day = 24L * 60L * 60L * 1000L
+        var now = 60L * day
+        val m = UserModel { now }
+        m.record("前", "旧词", now - 28L * day)
+        m.record("前", "新词", now)
+
+        assertTrue(m.wordBoost("新词") > m.wordBoost("旧词"))
+        assertEquals(listOf("新词", "旧词"), m.successors("前", 2))
+
+        now += 140L * day
+        assertTrue(abs(m.wordBoost("新词") - m.wordBoost("旧词")) < 0.001)
+    }
+
+    @Test
+    fun malformedReloadLeavesTheLiveModelUnchanged() {
+        val m = UserModel().apply { recordWord("ceshi", "测试", 10, incrementCount = true) }
+        val malformed = File.createTempFile("userdb-bad", ".txt").apply {
+            writeText("wrong header\nW\t毒化\t-2\t0\n")
+        }
+
+        assertThrows(IllegalArgumentException::class.java) { m.reload(malformed) }
+        assertEquals(listOf("测试"), m.readingSnapshot()["ceshi"])
+        assertTrue(m.wordBoost("测试").isFinite())
+        malformed.delete()
     }
 
     @Test
