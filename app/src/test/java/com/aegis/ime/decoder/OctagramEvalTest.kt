@@ -18,6 +18,7 @@ package com.aegis.ime.decoder
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.OctagramReader
+import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
@@ -53,5 +54,8 @@ class OctagramEvalTest {
         }
         println(sb)
         File("build/octagram_eval.txt").apply { parentFile?.mkdirs(); writeText(sb.toString()) }
+        val calibrated = top1(PinyinDecoder(dict, lm, octagram = oct))
+        val previous = top1(PinyinDecoder(dict, lm, octagram = oct, octagramWeight = 0.3))
+        assertTrue("calibrated grammar weight must not trail the previous default", calibrated >= previous)
     }
 }

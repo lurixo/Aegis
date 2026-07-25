@@ -19,6 +19,7 @@ import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.OctagramReader
 import com.aegis.ime.user.UserModel
+import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
@@ -97,6 +98,11 @@ class T9RerankEvalTest {
         if (oct != null) row("+ octagram", PinyinDecoder(t9, lm, octagram = oct), PinyinDecoder(dict, lm, octagram = oct))
         val um5 = UserModel().apply { t9Set.forEach { repeat(5) { _ -> record(null, it.second, 1) } } }
         row("+ learning x5", PinyinDecoder(t9, lm, userModel = um5), PinyinDecoder(dict, lm))
+        if (oct != null) {
+            val calibrated = t9Top1(PinyinDecoder(t9, lm, octagram = oct))
+            val previous = t9Top1(PinyinDecoder(t9, lm, octagram = oct, octagramWeight = 0.3))
+            assertTrue("calibrated grammar weight must not trail the previous default on T9", calibrated >= previous)
+        }
 
         sb.append("\n943943 list (bundled)   = ").append(PinyinDecoder(t9, lm).decodeCovered("943943", 8).map { it.word })
         val umXie = UserModel().apply { repeat(30) { record(null, "谢谢", 1) } }
