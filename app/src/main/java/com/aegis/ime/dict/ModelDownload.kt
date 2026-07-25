@@ -23,13 +23,10 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.security.MessageDigest
-import java.time.Instant
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
-import org.json.JSONArray
-import org.json.JSONException
 import org.json.JSONObject
 
 object ModelDownload {
@@ -274,15 +271,10 @@ object ModelDownload {
 
     const val DICT_REPO_URL = "https://github.com/amzxyz/rime-wanxiang"
 
-    const val DICT_RELEASES_URL =
-        "https://api.github.com/repos/lurixo/Aegis/releases?per_page=100"
+    const val DICT_LATEST_TAG = "dict-latest"
 
-    private const val DICT_RELEASE_URL_PREFIX = "https://github.com/lurixo/Aegis/releases/tag"
-    private const val DICT_DOWNLOAD_URL_PREFIX = "https://github.com/lurixo/Aegis/releases/download"
-    private const val DICT_UPDATE_ASSET_NAME = "aegis-dictionary-update.json"
-    private const val DICT_BUILD_INFO_ASSET_NAME = "aegis-build-info.json"
-    private const val DICT_RELEASES_PAGE_SIZE = 100
-    private val DICT_RELEASE_TAG_PATTERN = Regex("""dict-(v\d+\.\d+\.\d+)-r([1-9]\d*)""")
+    const val DICT_UPDATE_URL =
+        "https://github.com/lurixo/Aegis/releases/download/$DICT_LATEST_TAG/aegis-dictionary-update.json"
 
     const val DICT_NAME = "aegis_dict_pack.zip"
     internal const val DICT_INSTALLED_SHA_NAME = "aegis_dict_pack.sha256"
@@ -320,18 +312,6 @@ object ModelDownload {
     data class DictionaryUpdateCheck(
         val state: UpdateCheck,
         val asset: DictionaryAsset? = null,
-    )
-
-    private data class DictionaryRelease(
-        val tag: String,
-        val sourceTag: String,
-        val releaseUrl: String,
-        val publishedAt: String,
-        val manifestUrl: String,
-        val packName: String,
-        val packUrl: String,
-        val packSizeBytes: Long,
-        val packSha256: String,
     )
 
     private fun downloadedDir(filesDir: File) = File(filesDir, "downloaded")
@@ -557,40 +537,30 @@ object ModelDownload {
     }
 
     fun resolveDictionaryDownloadAsset(): DictionaryAsset? =
-        resolveDictionaryDownloadAsset(::fetchText)
+        resolveDictionaryDownloadAsset { fetchText(DICT_UPDATE_URL) }
 
-    internal fun resolveDictionaryDownloadAsset(fetch: (String) -> String): DictionaryAsset? =
-        runCatching {
-            val release = dictionaryReleaseFromListJson(fetchDictionaryReleaseList(fetch))
-            dictionaryAssetFromUpdateJson(fetch(release.manifestUrl), release)
-        }.getOrNull()
+    internal fun resolveDictionaryDownloadAsset(fetch: () -> String): DictionaryAsset? =
+        runCatching { dictionaryAssetFromUpdateJson(fetch()) }.getOrNull()
 
     fun checkDictionaryUpdate(current: DictionaryInstallMetadata): DictionaryUpdateCheck =
-        dictionaryUpdateFromFetch(::fetchText, current)
+        checkDictionaryUpdate(DICT_UPDATE_URL, current)
+
+    internal fun checkDictionaryUpdate(
+        metadataUrl: String,
+        current: DictionaryInstallMetadata,
+    ): DictionaryUpdateCheck = dictionaryUpdateFromFetch({ fetchText(metadataUrl) }, current)
 
     internal fun dictionaryUpdateFromFetch(
-        fetch: (String) -> String,
+        fetch: () -> String,
         current: DictionaryInstallMetadata,
     ): DictionaryUpdateCheck {
-        val releasesJson = try {
-            fetchDictionaryReleaseList(fetch)
-        } catch (t: JSONException) {
-            return DictionaryUpdateCheck(UpdateCheck.PARSE_ERROR)
-        } catch (t: Exception) {
-            return DictionaryUpdateCheck(classifyRequestFailure(t).toUpdateCheck())
-        }
-        val release = try {
-            dictionaryReleaseFromListJson(releasesJson)
-        } catch (t: Exception) {
-            return DictionaryUpdateCheck(UpdateCheck.PARSE_ERROR)
-        }
-        val updateJson = try {
-            fetch(release.manifestUrl)
+        val json = try {
+            fetch()
         } catch (t: Exception) {
             return DictionaryUpdateCheck(classifyRequestFailure(t).toUpdateCheck())
         }
         return try {
-            val asset = dictionaryAssetFromUpdateJson(updateJson, release)
+            val asset = dictionaryAssetFromUpdateJson(json)
             if (isNewerDictionaryAsset(asset, current)) DictionaryUpdateCheck(UpdateCheck.UPDATE, asset)
             else DictionaryUpdateCheck(UpdateCheck.UP_TO_DATE)
         } catch (t: Exception) {
@@ -598,78 +568,7 @@ object ModelDownload {
         }
     }
 
-    private fun fetchDictionaryReleaseList(fetch: (String) -> String): String {
-        val releases = JSONArray()
-        var page = 1
-        while (true) {
-            val url = if (page == 1) DICT_RELEASES_URL else "$DICT_RELEASES_URL&page=$page"
-            val pageReleases = JSONArray(fetch(url))
-            for (i in 0 until pageReleases.length()) {
-                releases.put(pageReleases.get(i))
-            }
-            if (pageReleases.length() < DICT_RELEASES_PAGE_SIZE) return releases.toString()
-            page++
-        }
-    }
-
-    private fun dictionaryReleaseFromListJson(releasesJson: String): DictionaryRelease {
-        val releases = JSONArray(releasesJson)
-        val candidates = ArrayList<Pair<Instant, DictionaryRelease>>()
-        for (i in 0 until releases.length()) {
-            val release = releases.getJSONObject(i)
-            val tag = release.optString("tag_name")
-            val tagMatch = DICT_RELEASE_TAG_PATTERN.matchEntire(tag) ?: continue
-            require(release.has("draft") && release.has("prerelease"))
-            if (release.getBoolean("draft") || release.getBoolean("prerelease")) continue
-            val publishedAt = release.getString("published_at")
-            val publishedInstant = Instant.parse(publishedAt)
-            val releaseUrl = release.getString("html_url")
-            require(releaseUrl == "$DICT_RELEASE_URL_PREFIX/$tag")
-
-            val packName = "aegis_dict_pack_$tag.zip"
-            val expectedNames = setOf(packName, DICT_UPDATE_ASSET_NAME, DICT_BUILD_INFO_ASSET_NAME)
-            val assets = release.getJSONArray("assets")
-            require(assets.length() == expectedNames.size)
-            val assetsByName = HashMap<String, JSONObject>()
-            for (j in 0 until assets.length()) {
-                val asset = assets.getJSONObject(j)
-                val name = asset.getString("name")
-                require(name in expectedNames && assetsByName.put(name, asset) == null)
-                require(asset.getLong("size") > 0L)
-                require(normalizeSha256(asset.getString("digest")) != null)
-                require(
-                    asset.getString("browser_download_url") ==
-                        "$DICT_DOWNLOAD_URL_PREFIX/$tag/$name",
-                )
-            }
-            require(assetsByName.keys == expectedNames)
-            val pack = requireNotNull(assetsByName[packName])
-            candidates.add(
-                publishedInstant to DictionaryRelease(
-                    tag = tag,
-                    sourceTag = tagMatch.groupValues[1],
-                    releaseUrl = releaseUrl,
-                    publishedAt = publishedAt,
-                    manifestUrl = requireNotNull(assetsByName[DICT_UPDATE_ASSET_NAME])
-                        .getString("browser_download_url"),
-                    packName = packName,
-                    packUrl = pack.getString("browser_download_url"),
-                    packSizeBytes = pack.getLong("size"),
-                    packSha256 = requireNotNull(normalizeSha256(pack.getString("digest"))),
-                ),
-            )
-        }
-        require(candidates.isNotEmpty())
-        val latest = requireNotNull(candidates.maxOfOrNull { it.first })
-        val selected = candidates.filter { it.first == latest }
-        require(selected.size == 1)
-        return selected.single().second
-    }
-
-    private fun dictionaryAssetFromUpdateJson(
-        updateJson: String,
-        release: DictionaryRelease,
-    ): DictionaryAsset {
+    internal fun dictionaryAssetFromUpdateJson(updateJson: String): DictionaryAsset {
         val update = JSONObject(updateJson)
         require(update.getInt("schema_version") == 1)
         require(update.getString("kind") == "dictionary_update")
@@ -681,23 +580,13 @@ object ModelDownload {
         val releaseTag = asset.getString("release_tag")
         val releaseUrl = asset.getString("release_url")
         val prerelease = asset.getBoolean("prerelease")
-        val publishedAt = asset.optStringOrNull("published_at")
-        val source = update.getJSONObject("source")
         require(
             sizeBytes > 0L &&
-                name == release.packName &&
-                url == release.packUrl &&
-                sizeBytes == release.packSizeBytes &&
-                sha256 == release.packSha256 &&
-                releaseTag == release.tag &&
-                releaseUrl == release.releaseUrl &&
-                !prerelease &&
-                (publishedAt == null || publishedAt == release.publishedAt) &&
-                source.getString("repo") == DICT_REPO_URL &&
-                source.getString("ref_type") == "tag" &&
-                source.getString("tag") == release.sourceTag &&
-                source.isNull("branch") &&
-                source.getString("commit").matches(Regex("[0-9a-f]{40}"))
+                name == "aegis_dict_pack_$DICT_LATEST_TAG.zip" &&
+                url == "https://github.com/lurixo/Aegis/releases/download/$DICT_LATEST_TAG/$name" &&
+                releaseTag == DICT_LATEST_TAG &&
+                releaseUrl == "https://github.com/lurixo/Aegis/releases/tag/$DICT_LATEST_TAG" &&
+                !prerelease
         )
         return DictionaryAsset(
             url = url,
@@ -707,7 +596,7 @@ object ModelDownload {
             releaseTag = releaseTag,
             releaseUrl = releaseUrl,
             prerelease = prerelease,
-            publishedAt = release.publishedAt,
+            publishedAt = asset.optStringOrNull("published_at"),
         )
     }
 

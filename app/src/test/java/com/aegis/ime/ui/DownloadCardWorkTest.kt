@@ -284,13 +284,13 @@ class DownloadCardWorkTest {
         }
         val asset = ModelDownload.DictionaryAsset(
             url = "http://127.0.0.1:${server.address.port}/dict",
-            assetName = "aegis_dict_pack_dict-v16.2.3-r1.zip",
+            assetName = "aegis_dict_pack_dict-latest.zip",
             sizeBytes = body.size.toLong(),
             sha256 = sha256,
-            releaseTag = "dict-v16.2.3-r1",
-            releaseUrl = "https://github.com/lurixo/Aegis/releases/tag/dict-v16.2.3-r1",
-            prerelease = false,
-            publishedAt = "2026-07-25T03:00:00Z",
+            releaseTag = "dict-latest",
+            releaseUrl = "https://github.com/lurixo/Aegis/releases/tag/dict-latest",
+            prerelease = true,
+            publishedAt = null,
         )
         server.start()
         try {
@@ -480,23 +480,15 @@ class ResourceUpdateCardTest {
     }
 
     @Test
-    fun dictionaryCardUsesRedirectedReleaseDiscoveryAndHandsOffItsAsset() {
+    fun dictionaryCardUsesRedirectedManifestAndHandsOffItsAsset() {
         val requests = CopyOnWriteArrayList<Triple<String, String?, String?>>()
         val downloaded = AtomicReference<ModelDownload.DictionaryAsset>()
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         val base = "http://127.0.0.1:${server.address.port}"
         server.createContext("/metadata") { exchange ->
             requests += requestOf(exchange)
-            exchange.responseHeaders.add("Location", "$base/releases")
+            exchange.responseHeaders.add("Location", "$base/manifest")
             exchange.sendResponseHeaders(302, -1)
-            exchange.close()
-        }
-        server.createContext("/releases") { exchange ->
-            requests += requestOf(exchange)
-            val body = dictionaryReleases().toByteArray()
-            exchange.responseHeaders.add("Content-Type", "application/json")
-            exchange.sendResponseHeaders(200, body.size.toLong())
-            exchange.responseBody.use { it.write(body) }
             exchange.close()
         }
         server.createContext("/manifest") { exchange ->
@@ -520,18 +512,7 @@ class ResourceUpdateCardTest {
                 compose.activity.setContent {
                     AegisTheme {
                         DictDownloadCard(
-                            check = {
-                                ModelDownload.dictionaryUpdateFromFetch(
-                                    { url ->
-                                        if (url == ModelDownload.DICT_RELEASES_URL) {
-                                            ModelDownload.fetchText("$base/metadata")
-                                        } else {
-                                            ModelDownload.fetchText("$base/manifest")
-                                        }
-                                    },
-                                    it,
-                                )
-                            },
+                            check = { ModelDownload.checkDictionaryUpdate("$base/metadata", it) },
                             downloader = { _, asset -> downloaded.set(asset) },
                         )
                     }
@@ -542,12 +523,12 @@ class ResourceUpdateCardTest {
             compose.onNodeWithText(context.getString(R.string.check_dict_update_button)).assertIsEnabled().performClick()
             awaitMain { downloaded.get() != null }
 
-            assertEquals(listOf("GET", "GET", "GET"), requests.map { it.first })
+            assertEquals(listOf("GET", "GET"), requests.map { it.first })
             assertTrue(requests.all { it.second == "application/vnd.github+json" })
             assertTrue(requests.all { it.third == "Aegis-resource-updater" })
             assertEquals(DICT_ASSET_URL, downloaded.get().url)
             assertEquals(DICT_SHA, downloaded.get().sha256)
-            assertEquals(DICT_PUBLISHED, downloaded.get().publishedAt)
+            assertNull(downloaded.get().publishedAt)
             assertEquals(context.getString(R.string.download_toast_update_found), ShadowToast.getTextOfLatestToast())
             compose.onNodeWithText(context.getString(R.string.check_dict_update_button)).assertIsEnabled()
         } finally {
@@ -569,7 +550,7 @@ class ResourceUpdateCardTest {
                     DictDownloadCard(
                         check = {
                             checked.set(it)
-                            ModelDownload.dictionaryUpdateFromFetch(dictionaryFetch(), it)
+                            ModelDownload.dictionaryUpdateFromFetch({ dictionaryManifest() }, it)
                         },
                         downloader = { _, asset -> downloaded.set(asset) },
                     )
@@ -751,63 +732,25 @@ class ResourceUpdateCardTest {
         compose.waitForIdle()
     }
 
-    private fun dictionaryFetch(): (String) -> String = { url ->
-        if (url == ModelDownload.DICT_RELEASES_URL) dictionaryReleases()
-        else dictionaryManifest()
-    }
-
-    private fun dictionaryReleases(): String =
-        """
-        [
-          {
-            "tag_name": "$DICT_TAG",
-            "html_url": "https://github.com/lurixo/Aegis/releases/tag/$DICT_TAG",
-            "draft": false,
-            "prerelease": false,
-            "published_at": "$DICT_PUBLISHED",
-            "assets": [
-              {
-                "name": "aegis_dict_pack_$DICT_TAG.zip",
-                "size": $DICT_SIZE,
-                "digest": "sha256:$DICT_SHA",
-                "browser_download_url": "$DICT_ASSET_URL"
-              },
-              {
-                "name": "aegis-dictionary-update.json",
-                "size": 720,
-                "digest": "sha256:${"3".repeat(64)}",
-                "browser_download_url": "$DICT_MANIFEST_URL"
-              },
-              {
-                "name": "aegis-build-info.json",
-                "size": 8370,
-                "digest": "sha256:${"4".repeat(64)}",
-                "browser_download_url": "https://github.com/lurixo/Aegis/releases/download/$DICT_TAG/aegis-build-info.json"
-              }
-            ]
-          }
-        ]
-        """.trimIndent()
-
     private fun dictionaryManifest(): String =
         """
         {
           "schema_version": 1,
           "kind": "dictionary_update",
           "asset": {
-            "name": "aegis_dict_pack_$DICT_TAG.zip",
+            "name": "aegis_dict_pack_dict-latest.zip",
             "url": "$DICT_ASSET_URL",
-            "release_tag": "$DICT_TAG",
-            "release_url": "https://github.com/lurixo/Aegis/releases/tag/$DICT_TAG",
+            "release_tag": "dict-latest",
+            "release_url": "https://github.com/lurixo/Aegis/releases/tag/dict-latest",
             "prerelease": false,
             "published_at": null,
             "sha256": "$DICT_SHA",
-            "size_bytes": $DICT_SIZE
+            "size_bytes": 98236647
           },
           "source": {
             "repo": "https://github.com/amzxyz/rime-wanxiang",
             "ref_type": "tag",
-            "tag": "v16.2.3",
+            "tag": "v16.1.0",
             "branch": null,
             "commit": "6c792a2e68c8382f9c63e8bed74c5cf247f1b1a9"
           }
@@ -815,13 +758,8 @@ class ResourceUpdateCardTest {
         """.trimIndent()
 
     private companion object {
-        const val DICT_TAG = "dict-v16.2.3-r1"
-        const val DICT_PUBLISHED = "2026-07-25T03:00:00Z"
-        const val DICT_SIZE = 98_236_647L
         const val DICT_ASSET_URL =
-            "https://github.com/lurixo/Aegis/releases/download/$DICT_TAG/aegis_dict_pack_$DICT_TAG.zip"
-        const val DICT_MANIFEST_URL =
-            "https://github.com/lurixo/Aegis/releases/download/$DICT_TAG/aegis-dictionary-update.json"
+            "https://github.com/lurixo/Aegis/releases/download/dict-latest/aegis_dict_pack_dict-latest.zip"
         const val DICT_SHA = "53b6d4c98f4431777dd0c7cbbc397d0738631c5697df2f3a4d401d316c411182"
     }
 }
