@@ -109,7 +109,14 @@ class CandidateBarChevronTest {
         val candidateGlyph = candidate.candidateChevronBoundsForTest()
         assertEquals(candidateHit.centerX(), candidateGlyph.centerX(), 0.01f)
         assertEquals(candidateHit.centerY(), candidateGlyph.centerY(), 0.01f)
-        assertEquals((candidate.width * Layouts.NINE_SIDE_FRACTION).roundToInt().toFloat(), candidateHit.width(), 0.01f)
+        assertEquals(
+            minOf(
+                (candidate.width * Layouts.NINE_SIDE_FRACTION).roundToInt().toFloat(),
+                Layouts.CANDIDATE_ACTION_WIDTH_DP * density,
+            ),
+            candidateHit.width(),
+            0.01f,
+        )
 
         candidate.setExpanded(true)
         assertEquals(candidateGlyph, candidate.candidateChevronBoundsForTest())

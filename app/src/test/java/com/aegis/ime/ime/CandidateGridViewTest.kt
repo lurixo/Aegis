@@ -54,7 +54,8 @@ class CandidateGridViewTest {
 
     private fun dp(v: Int) = (v * density).toInt()
     private fun sideWidth() = ((360 * density) * Layouts.NINE_SIDE_FRACTION).roundToInt()
-    private fun tableWidth() = (360 * density).toInt() - sideWidth() * 2 - dp(4 + 4)
+    private fun actionWidth() = minOf(sideWidth(), dp(Layouts.CANDIDATE_ACTION_WIDTH_DP))
+    private fun tableWidth() = (360 * density).toInt() - sideWidth() - actionWidth() - dp(4 + 4)
 
     private fun measured(v: CandidateGridView = CandidateGridView(ctx)): CandidateGridView = v.apply {
         measure(
@@ -109,7 +110,7 @@ class CandidateGridViewTest {
 
     @Test fun right_controls_share_one_vertical_center_line() {
         val v = measured()
-        val columnCenter = sideWidth() / 2
+        val columnCenter = actionWidth() / 2
         val backCenter = v.returnButtonForTest().paddingLeft + v.collapseGlyphForTest().intrinsicWidth / 2
         val deleteCenter = v.backspaceButtonForTest().paddingLeft + v.backspaceGlyphForTest().intrinsicWidth / 2
         assertTrue("collapse glyph centers on the column center line, got $backCenter vs $columnCenter", kotlin.math.abs(columnCenter - backCenter) <= 1)
@@ -255,11 +256,11 @@ class CandidateGridViewTest {
         assertFalse("up-swipe must not also fire one-unit backspace", deleted)
     }
 
-    @Test fun single_grapheme_candidates_pack_six_columns_per_row() {
+    @Test fun single_grapheme_candidates_pack_five_columns_per_row() {
         val v = measured()
-        v.setCandidates(listOf("一", "二", "三", "四", "五", "六", "七", "八", "九", "十", "百", "千"))
-        assertEquals(listOf(6, 6), v.rowColumnCountsForTest())
-        assertEquals(listOf(6, 6), v.rowTextsForTest().map { it.size })
+        v.setCandidates(listOf("一", "二", "三", "四", "五", "六", "七", "八", "九", "十"))
+        assertEquals(listOf(5, 5), v.rowColumnCountsForTest())
+        assertEquals(listOf(5, 5), v.rowTextsForTest().map { it.size })
     }
 
     @Test fun two_grapheme_candidates_pack_four_columns_per_row() {
@@ -318,17 +319,52 @@ class CandidateGridViewTest {
         assertEquals(0, GraphemeText.clusterCount(""))
         val v = measured()
         v.setCandidates(listOf("👨‍👩‍👧", "一", "二", "三", "四", "五"))
-        assertEquals(listOf(6), v.rowColumnCountsForTest())
-        assertEquals(listOf(6), v.rowTextsForTest().map { it.size })
+        assertEquals(listOf(5, 1), v.rowColumnCountsForTest())
+        assertEquals(listOf(5, 1), v.rowTextsForTest().map { it.size })
     }
 
     @Test fun cells_span_the_table_in_equal_widths() {
         val v = measured()
-        v.setCandidates(listOf("一", "二", "三", "四", "五", "六"))
+        v.setCandidates(listOf("一", "二", "三", "四", "五"))
         val tableW = tableWidth()
-        val widths = (0..5).map { v.chipCellWidthForTest(it) }
+        val widths = (0..4).map { v.chipCellWidthForTest(it) }
         assertEquals(tableW, widths.sum())
         assertTrue("cell widths differ by at most a rounding pixel", widths.max() - widths.min() <= 1)
+    }
+
+    @Test fun wide_mixed_grid_keeps_five_single_character_columns_at_the_first_row_text_size() {
+        val width = dp(411)
+        val v = CandidateGridView(ctx)
+        v.measure(
+            View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(dp(300), View.MeasureSpec.EXACTLY),
+        )
+        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+        v.setCandidates(
+            listOf(
+                "目前", "没有", "内容", "美国",
+                "你", "泥", "拟", "逆", "妮", "倪", "腻", "匿", "昵", "旎",
+            ),
+        )
+
+        assertEquals(listOf(4, 5, 5), v.rowColumnCountsForTest())
+        for (i in 4..13) {
+            assertEquals(v.chipTextSizeSpForTest(0), v.chipTextSizeSpForTest(i), 0.01f)
+        }
+    }
+
+    @Test fun candidate_table_and_action_hit_columns_use_the_narrower_right_boundary() {
+        val v = measured()
+        val actionColumn = v.returnButtonForTest().parent as View
+        val controls = listOf(v.returnButtonForTest(), v.backspaceButtonForTest(), v.clearButtonForTest())
+
+        assertEquals(actionWidth(), actionColumn.width)
+        assertEquals(v.width - actionWidth(), actionColumn.left)
+        assertTrue(actionWidth() < sideWidth())
+        controls.forEach {
+            assertEquals(actionWidth(), it.width)
+            assertTrue(it.isClickable)
+        }
     }
 
     @Test fun a_full_row_keeps_the_base_size_regardless_of_grapheme_length() {
@@ -381,7 +417,7 @@ class CandidateGridViewTest {
         val v = measured()
         val side = sideWidth()
         assertEquals(listOf(side - dp(6), dp(3), dp(3), dp(8), dp(8)), v.railLayoutForTest().toList())
-        assertEquals(side, v.rightColumnWidthForTest())
+        assertEquals(actionWidth(), v.rightColumnWidthForTest())
         assertEquals(8f * density, v.railCornerRadiusForTest(), 0.001f)
         assertFalse("platform scrollbar must stay off in favour of the custom thumb", v.railScrollbarEnabledForTest())
         assertEquals(listOf(dp(4), dp(4), dp(8), dp(8)), v.tableLayoutForTest().toList())
