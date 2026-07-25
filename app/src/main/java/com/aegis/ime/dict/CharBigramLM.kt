@@ -17,11 +17,15 @@ package com.aegis.ime.dict
 
 import android.content.Context
 import java.io.File
-import java.io.IOException
+import java.io.InputStream
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.FileChannel
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
 import kotlin.math.ln
 
 class CharBigramLM private constructor(private val buf: ByteBuffer) {
@@ -44,8 +48,9 @@ class CharBigramLM private constructor(private val buf: ByteBuffer) {
             buf.get(2) == 'G'.code.toByte() && buf.get(3) == 'L'.code.toByte()) { "bad lm magic" }
         require(buf.getInt(4) == 1) { "unsupported lm version" }
         val nc = buf.getInt(8)
-        require(nc >= 0) { "bad lm char count" }
+        require(nc > 0) { "bad lm char count" }
         totalUni = buf.getLong(12)
+        require(totalUni > 0L) { "bad lm unigram total" }
         val charCodes = 20L
         val uniCount = charCodes + nc.toLong() * 4
         val rowTotal = uniCount + nc.toLong() * 8
@@ -57,6 +62,7 @@ class CharBigramLM private constructor(private val buf: ByteBuffer) {
         val biC2 = numBigramsOff + 4
         val biCount = biC2 + nb.toLong() * 4
         val fullExtent = biCount + nb.toLong() * 8
+        require(fullExtent == cap) { "bad lm file extent" }
         numChars = nc
         charCodesOff = charCodes.toInt()
         uniCountOff = uniCount.toInt()
@@ -64,7 +70,8 @@ class CharBigramLM private constructor(private val buf: ByteBuffer) {
         rowStartOff = rowStart.toInt()
         biC2Off = biC2.toInt()
         biCountOff = biCount.toInt()
-        hasBigrams = nb > 0 && fullExtent <= cap
+        hasBigrams = nb > 0
+        validate(nb)
     }
 
     private val lnTotalUni = ln(totalUni.coerceAtLeast(1).toDouble())
@@ -109,6 +116,49 @@ class CharBigramLM private constructor(private val buf: ByteBuffer) {
         return if (lo < end && buf.getInt(biC2Off + lo * 4) == c2Id) buf.getLong(biCountOff + lo * 8) else 0L
     }
 
+    private fun validate(numBigrams: Int) {
+        var previousCode = -1
+        var unigramSum = 0L
+        for (i in 0 until numChars) {
+            val code = buf.getInt(charCodesOff + i * 4)
+            require(code > previousCode && Character.isValidCodePoint(code) && code !in 0xD800..0xDFFF) {
+                "bad lm character index"
+            }
+            previousCode = code
+            val value = buf.getLong(uniCountOff + i * 8)
+            require(value > 0L && unigramSum <= Long.MAX_VALUE - value) { "bad lm unigram count" }
+            unigramSum += value
+        }
+        require(unigramSum == totalUni) { "bad lm unigram total" }
+
+        var previousStart = 0
+        require(buf.getInt(rowStartOff) == 0) { "bad lm first row index" }
+        for (i in 0..numChars) {
+            val start = buf.getInt(rowStartOff + i * 4)
+            require(start in previousStart..numBigrams) { "bad lm row index" }
+            previousStart = start
+        }
+        require(previousStart == numBigrams) { "bad lm final row index" }
+
+        for (i in 0 until numChars) {
+            val start = buf.getInt(rowStartOff + i * 4)
+            val end = buf.getInt(rowStartOff + (i + 1) * 4)
+            val total = buf.getLong(rowTotalOff + i * 8)
+            require(total >= 0L && (start == end || total > 0L)) { "bad lm row total" }
+            var previousC2 = -1
+            var retained = 0L
+            for (j in start until end) {
+                val c2 = buf.getInt(biC2Off + j * 4)
+                require(c2 in 0 until numChars && c2 > previousC2) { "bad lm bigram index" }
+                previousC2 = c2
+                val value = buf.getLong(biCountOff + j * 8)
+                require(value > 0L && retained <= Long.MAX_VALUE - value) { "bad lm bigram count" }
+                retained += value
+            }
+            require(total >= retained) { "bad lm row denominator" }
+        }
+    }
+
     companion object {
         private val BACKOFF_LN = ln(0.4)
 
@@ -119,18 +169,68 @@ class CharBigramLM private constructor(private val buf: ByteBuffer) {
             }
 
         fun fromAssets(context: Context, assetName: String): CharBigramLM {
-            val outFile = File(context.filesDir, assetName)
-            if (!outFile.exists() || outFile.length() == 0L) {
-                val tmp = File(context.filesDir, "$assetName.part")
-                context.assets.open(assetName).use { input ->
-                    tmp.outputStream().use { input.copyTo(it) }
+            val expected = context.assets.open("$assetName.sha256").bufferedReader().use { it.readText().trim() }
+            return fromAsset(context.filesDir, assetName, expected) { context.assets.open(assetName) }
+        }
+
+        @Synchronized
+        internal fun fromAsset(
+            filesDir: File,
+            assetName: String,
+            expectedSha256: String,
+            openAsset: () -> InputStream,
+        ): CharBigramLM {
+            val expected = expectedSha256.lowercase()
+            require(expected.matches(Regex("[0-9a-f]{64}"))) { "bad lm asset identity" }
+            require(filesDir.isDirectory || filesDir.mkdirs()) { "failed to create lm directory" }
+            val outFile = File(filesDir, assetName)
+            if (outFile.isFile && sha256(outFile) == expected) {
+                runCatching { return fromFile(outFile) }
+            }
+
+            val tmp = File(filesDir, "$assetName.part")
+            tmp.delete()
+            try {
+                openAsset().use { input ->
+                    tmp.outputStream().use { output ->
+                        input.copyTo(output)
+                        output.fd.sync()
+                    }
                 }
-                if (!tmp.renameTo(outFile)) {
-                    tmp.delete()
-                    throw IOException("failed to install $assetName")
-                }
+                require(sha256(tmp) == expected) { "lm asset identity mismatch" }
+                fromFile(tmp)
+                moveReplacing(tmp, outFile)
+            } catch (e: Exception) {
+                tmp.delete()
+                throw e
             }
             return fromFile(outFile)
+        }
+
+        private fun sha256(file: File): String {
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    digest.update(buffer, 0, read)
+                }
+            }
+            return digest.digest().joinToString("") { "%02x".format(it) }
+        }
+
+        private fun moveReplacing(source: File, target: File) {
+            try {
+                Files.move(
+                    source.toPath(),
+                    target.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            } catch (_: AtomicMoveNotSupportedException) {
+                Files.move(source.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            }
         }
     }
 }

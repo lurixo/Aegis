@@ -520,7 +520,6 @@ class ExhaustiveDecodeAuditExtTest {
         source: BinaryDict,
         sylKeys: List<String>,
         cands: List<Cand>,
-        checkLossless: Boolean,
     ): List<String> {
         val rows = ArrayList<String>()
         val cum = IntArray(sylKeys.size + 1)
@@ -535,12 +534,10 @@ class ExhaustiveDecodeAuditExtTest {
         var rareSingleSeen: String? = null
         var anySingleSeen: String? = null
         val singleBucket = ArrayList<Pair<String, Int>>()
-        val emittedFirstSingles = HashSet<String>()
+        if (cands.size > 30) rows.add("$tag\tB\tprimary candidate bound exceeded: ${cands.size}")
         for ((pos, c) in cands.withIndex()) {
-            val ncp0 = c.word.codePointCount(0, c.word.length)
-            if (ncp0 == 1 && coveredSyls(c.coveredLen) == 1) emittedFirstSingles.add(c.word)
             if (pos == 0) continue
-            val ncp = ncp0
+            val ncp = c.word.codePointCount(0, c.word.length)
             val ks = coveredSyls(c.coveredLen)
             if (ncp == 1 && anySingleSeen == null) anySingleSeen = "${c.word}@pos$pos"
             if (ncp >= 2 && anySingleSeen != null) {
@@ -570,9 +567,6 @@ class ExhaustiveDecodeAuditExtTest {
             if (f > prev) rows.add("$tag\tO1\t$w@$f after a lower-freq same-reading single")
             prev = f
         }
-        if (checkLossless) for (w in nativeSinglesOf(source, sylKeys[0]).keys) {
-            if (w !in emittedFirstSingles) rows.add("$tag\tL\t$w native single of ${sylKeys[0]} dropped from the locked grid")
-        }
         return rows
     }
 
@@ -581,7 +575,7 @@ class ExhaustiveDecodeAuditExtTest {
         val input = syls.joinToString("")
         val cuts = HashSet<Int>(); var acc = 0
         for (k in 0 until syls.size - 1) { acc += syls[k].length; cuts.add(acc) }
-        return lockedOrderViolations(dict, syls, d.decodeCoveredAtomic(input, 30, cuts), checkLossless = true)
+        return lockedOrderViolations(dict, syls, d.decodeCoveredAtomic(input, 30, cuts))
     }
 
     private fun lockedDigit(d: PinyinDecoder, s1: String, vararg rest: String): List<String> {
@@ -589,7 +583,7 @@ class ExhaustiveDecodeAuditExtTest {
         val input = syls.joinToString("")
         val cuts = HashSet<Int>(); var acc = 0
         for (k in 0 until syls.size - 1) { acc += syls[k].length; cuts.add(acc) }
-        return lockedOrderViolations(t9Dict, syls, d.decodeCoveredAtomic(input, 30, cuts), checkLossless = false)
+        return lockedOrderViolations(t9Dict, syls, d.decodeCoveredAtomic(input, 30, cuts))
     }
 
     @Test fun e7_lockedOrderingInvariant_allPairs_bothKeyspaces() {
@@ -976,7 +970,7 @@ class ExhaustiveDecodeAuditExtTest {
         if (cutsOwn != cutsDisplayed) {
             if (parse.all { it.third.codePointCount(0, it.third.length) == 1 }) {
                 val sep = StringBuilder(key)
-                for (c in cutsOwn.reversed()) sep.insert(c, PinyinDecoder.SEP)
+                for (c in cutsOwn.toList().asReversed()) sep.insert(c, PinyinDecoder.SEP)
                 val sepInput = sep.toString()
                 var ok = true
                 for ((idx, edge) in parse.withIndex()) {

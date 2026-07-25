@@ -42,13 +42,14 @@ class T9RerankTest {
     }
 
     @Test
-    fun listTailConsumesLearning_theFix() {
+    fun learningCanPromoteAnExhaustiveTailEntryIntoTheBoundedWindow() {
         val before = decoder().decodeCovered("943943", 30).map { it.word }
         val user = UserModel().apply { repeat(40) { record(null, "写者", 1) } }
         val after = decoder(user).decodeCovered("943943", 30).map { it.word }
-        assertTrue("写者 present before", before.contains("写者"))
-        assertTrue("learned 写者 climbs the list tail (was pure-freq, now model-scored)",
-            after.indexOf("写者") < before.indexOf("写者"))
+        assertEquals(30, before.size)
+        assertEquals(30, after.size)
+        assertTrue("the unlearned exhaustive tail stays outside the primary window", "写者" !in before)
+        assertTrue("learning promotes 写者 into the bounded primary window", "写者" in after)
     }
 
     @Test

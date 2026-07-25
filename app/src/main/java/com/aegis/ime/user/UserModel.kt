@@ -16,10 +16,13 @@
 package com.aegis.ime.user
 
 import java.io.File
-import java.io.IOException
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import kotlin.math.exp
 import kotlin.math.ln
 
-class UserModel {
+class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
     private val count = HashMap<String, Int>()
     private val lastUsed = HashMap<String, Long>()
     private val bigram = HashMap<String, HashMap<String, Int>>()
@@ -35,12 +38,12 @@ class UserModel {
 
     @Synchronized
     fun record(prevWord: String?, word: String, now: Long) {
-        if (word.isEmpty()) return
-        count[word] = (count[word] ?: 0) + 1
-        lastUsed[word] = now
-        if (!prevWord.isNullOrEmpty()) {
+        if (!isValidWord(word)) return
+        count[word] = saturatingAdd(count[word] ?: 0, 1)
+        lastUsed[word] = now.coerceAtLeast(0L)
+        if (!prevWord.isNullOrEmpty() && isValidWord(prevWord)) {
             val m = bigram.getOrPut(prevWord) { HashMap() }
-            m[word] = (m[word] ?: 0) + 1
+            m[word] = saturatingAdd(m[word] ?: 0, 1)
         }
         dirty = true
         version++
@@ -49,15 +52,14 @@ class UserModel {
     @Synchronized
     fun recordWord(reading: String, word: String, now: Long, incrementCount: Boolean) {
         val r = sanitizeReading(reading)
-        if (word.isEmpty() || r.isEmpty() || !isStorableWord(word)) return
+        if (!isValidWord(word) || r.isEmpty() || r.length > MAX_READING_LENGTH) return
         readings.getOrPut(r) { LinkedHashSet() }.add(word)
         if (incrementCount) {
-            count[word] = (count[word] ?: 0) + 1
-            lastUsed[word] = now
+            count[word] = saturatingAdd(count[word] ?: 0, 1)
         } else if (word !in count) {
             count[word] = 1
-            lastUsed[word] = now
         }
+        lastUsed[word] = now.coerceAtLeast(0L)
         dirty = true
         version++
     }
@@ -65,11 +67,11 @@ class UserModel {
     @Synchronized
     fun addManualWord(reading: String, word: String, now: Long) {
         val w = word.trim()
-        if (w.isEmpty() || !isStorableWord(w)) return
+        if (!isValidWord(w)) return
         val r = sanitizeReading(reading)
-        if (r.isNotEmpty()) readings.getOrPut(r) { LinkedHashSet() }.add(w)
-        count[w] = (count[w] ?: 0) + 1
-        lastUsed[w] = now
+        if (r.isNotEmpty() && r.length <= MAX_READING_LENGTH) readings.getOrPut(r) { LinkedHashSet() }.add(w)
+        count[w] = saturatingAdd(count[w] ?: 0, 1)
+        lastUsed[w] = now.coerceAtLeast(0L)
         dirty = true
         version++
     }
@@ -116,8 +118,12 @@ class UserModel {
     @Synchronized
     fun readingSnapshot(): Map<String, List<String>> {
         val out = HashMap<String, List<String>>(readings.size)
+        val now = clock()
         for ((r, ws) in readings) {
-            out[r] = ws.sortedByDescending { count[it] ?: 0 }
+            out[r] = ws.sortedWith(
+                compareByDescending<String> { usageScore(count[it] ?: 0, lastUsed[it] ?: 0L, now) }
+                    .thenBy { it },
+            )
         }
         return out
     }
@@ -125,13 +131,22 @@ class UserModel {
     @Synchronized
     fun wordBoost(word: String): Double {
         val c = count[word] ?: return 0.0
-        return BOOST_WEIGHT * ln(1.0 + c)
+        return usageScore(c, lastUsed[word] ?: 0L, clock())
     }
 
     @Synchronized
     fun successors(prevWord: String, limit: Int): List<String> {
+        if (limit <= 0) return emptyList()
         val m = bigram[prevWord] ?: return emptyList()
-        return m.entries.sortedByDescending { it.value }.take(limit).map { it.key }
+        val now = clock()
+        return m.entries
+            .sortedWith(
+                compareByDescending<Map.Entry<String, Int>> {
+                    usageScore(it.value, lastUsed[it.key] ?: 0L, now)
+                }.thenBy { it.key },
+            )
+            .take(limit)
+            .map { it.key }
     }
 
     @Synchronized
@@ -142,15 +157,24 @@ class UserModel {
     fun save(file: File) {
         val tmp = File(file.absoluteFile.parentFile, file.name + ".tmp")
         try {
+            val rows = count.size + bigram.values.sumOf { it.size } + readings.values.sumOf { it.size }
+            require(rows <= MAX_ENTRIES) { "userdb has too many entries" }
             tmp.bufferedWriter().use { w ->
-                w.write("aegis-userdb 1\n")
+                w.write("$HEADER\n")
                 for ((word, c) in count) w.write("W\t$word\t$c\t${lastUsed[word] ?: 0}\n")
                 for ((prev, m) in bigram) for ((word, c) in m) w.write("B\t$prev\t$word\t$c\n")
                 for ((reading, ws) in readings) for (word in ws) w.write("R\t$reading\t$word\n")
             }
-            if (!tmp.renameTo(file)) {
-                file.delete()
-                if (!tmp.renameTo(file)) throw IOException("userdb swap failed")
+            require(tmp.length() <= MAX_FILE_BYTES) { "userdb exceeds size limit" }
+            try {
+                Files.move(
+                    tmp.toPath(),
+                    file.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            } catch (_: AtomicMoveNotSupportedException) {
+                Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
             }
         } catch (e: Exception) {
             tmp.delete()
@@ -161,64 +185,139 @@ class UserModel {
 
     @Synchronized
     fun reload(file: File) {
+        val parsed = parse(file)
         count.clear()
         lastUsed.clear()
         bigram.clear()
         readings.clear()
-        loadLocked(file)
+        applyParsed(parsed)
         version++
     }
 
     @Synchronized
     fun load(file: File) {
-        loadLocked(file)
+        applyParsed(parse(file))
         version++
     }
 
-    private fun loadLocked(file: File) {
-        if (!file.exists()) return
-        file.bufferedReader().useLines { lines ->
-            for (line in lines) {
-                val p = line.split('\t')
-                when {
-                    p.size == 4 && p[0] == "W" -> {
-                        val word = p[1]
-                        count[word] = p[2].toIntOrNull() ?: continue
-                        lastUsed[word] = p[3].toLongOrNull() ?: 0
-                    }
-                    p.size == 4 && p[0] == "B" ->
-                        bigram.getOrPut(p[1]) { HashMap() }[p[2]] = p[3].toIntOrNull() ?: continue
-                    p.size == 3 && p[0] == "R" -> {
-                        val r = sanitizeReading(p[1])
-                        if (r.isNotEmpty() && p[2].isNotEmpty()) readings.getOrPut(r) { LinkedHashSet() }.add(p[2])
-                    }
-                }
-            }
+    private fun applyParsed(parsed: Parsed) {
+        count.putAll(parsed.count)
+        lastUsed.putAll(parsed.lastUsed)
+        for ((prev, words) in parsed.bigram) {
+            bigram.getOrPut(prev) { HashMap() }.putAll(words)
+        }
+        for ((reading, words) in parsed.readings) {
+            readings.getOrPut(reading) { LinkedHashSet() }.addAll(words)
         }
         dirty = false
     }
 
     @Synchronized
-    fun importFrom(file: File, now: Long) {
-        val other = UserModel().apply { load(file) }
-        for ((word, c) in other.count) {
-            count[word] = (count[word] ?: 0) + c
-            lastUsed[word] = maxOf(lastUsed[word] ?: 0, other.lastUsed[word] ?: now)
+    fun importFrom(file: File, now: Long): Boolean {
+        val parsed = parse(file)
+        if (parsed.count.isEmpty() && parsed.readings.isEmpty()) return false
+        for ((word, c) in parsed.count) {
+            count[word] = saturatingAdd(count[word] ?: 0, c)
+            lastUsed[word] = maxOf(lastUsed[word] ?: 0, parsed.lastUsed[word] ?: now)
         }
-        for ((prev, m) in other.bigram) {
+        for ((prev, m) in parsed.bigram) {
             val dst = bigram.getOrPut(prev) { HashMap() }
-            for ((word, c) in m) dst[word] = (dst[word] ?: 0) + c
+            for ((word, c) in m) dst[word] = saturatingAdd(dst[word] ?: 0, c)
         }
-        for ((reading, ws) in other.readings) readings.getOrPut(reading) { LinkedHashSet() }.addAll(ws)
-        if (!other.isEmpty()) { dirty = true; version++ }
+        for ((reading, ws) in parsed.readings) readings.getOrPut(reading) { LinkedHashSet() }.addAll(ws)
+        dirty = true
+        version++
+        return true
     }
 
-    private companion object {
-        const val BOOST_WEIGHT = 3.5
+    private data class Parsed(
+        val count: HashMap<String, Int> = HashMap(),
+        val lastUsed: HashMap<String, Long> = HashMap(),
+        val bigram: HashMap<String, HashMap<String, Int>> = HashMap(),
+        val readings: HashMap<String, LinkedHashSet<String>> = HashMap(),
+    )
 
-        fun isStorableWord(word: String): Boolean = word.none { it == '\t' || it == '\n' || it == '\r' }
+    companion object {
+        internal const val MAX_FILE_BYTES = 4L * 1024L * 1024L
+        private const val HEADER = "aegis-userdb 1"
+        private const val MAX_ENTRIES = 250_000
+        private const val MAX_LINE_LENGTH = 4_096
+        private const val MAX_WORD_LENGTH = 256
+        private const val MAX_READING_LENGTH = 256
+        private const val MAX_COUNT = 1_000_000_000
+        private const val BOOST_WEIGHT = 3.5
+        private const val RECENCY_WEIGHT = 2.0
+        private const val RECENCY_HALF_LIFE_MILLIS = 7L * 24L * 60L * 60L * 1000L
+        private val LN_2 = ln(2.0)
 
-        fun sanitizeReading(reading: String): String {
+        private fun parse(file: File): Parsed {
+            if (!file.exists() || file.length() == 0L) return Parsed()
+            require(file.length() <= MAX_FILE_BYTES) { "userdb size is invalid" }
+            val parsed = Parsed()
+            file.bufferedReader().use { reader ->
+                require(reader.readLine() == HEADER) { "unsupported userdb header" }
+                var entries = 0
+                while (true) {
+                    val line = reader.readLine() ?: break
+                    require(line.length <= MAX_LINE_LENGTH) { "userdb line is too long" }
+                    require(++entries <= MAX_ENTRIES) { "userdb has too many entries" }
+                    val p = line.split('\t')
+                    when (p.firstOrNull()) {
+                        "W" -> {
+                            require(p.size == 4 && isValidWord(p[1])) { "invalid userdb word row" }
+                            val value = p[2].toIntOrNull()
+                            val used = p[3].toLongOrNull()
+                            require(value != null && value in 1..MAX_COUNT && used != null && used >= 0L) {
+                                "invalid userdb word values"
+                            }
+                            require(parsed.count.put(p[1], value) == null) { "duplicate userdb word" }
+                            parsed.lastUsed[p[1]] = used
+                        }
+                        "B" -> {
+                            require(p.size == 4 && isValidWord(p[1]) && isValidWord(p[2])) {
+                                "invalid userdb bigram row"
+                            }
+                            val value = p[3].toIntOrNull()
+                            require(value != null && value in 1..MAX_COUNT) { "invalid userdb bigram count" }
+                            val words = parsed.bigram.getOrPut(p[1]) { HashMap() }
+                            require(words.put(p[2], value) == null) { "duplicate userdb bigram" }
+                        }
+                        "R" -> {
+                            require(
+                                p.size == 3 && p[1].isNotEmpty() && p[1].length <= MAX_READING_LENGTH &&
+                                    p[1] == sanitizeReading(p[1]) && isValidWord(p[2]),
+                            ) { "invalid userdb reading row" }
+                            require(parsed.readings.getOrPut(p[1]) { LinkedHashSet() }.add(p[2])) {
+                                "duplicate userdb reading"
+                            }
+                        }
+                        else -> throw IllegalArgumentException("invalid userdb row")
+                    }
+                }
+            }
+            require(parsed.bigram.values.all { words -> words.keys.all { it in parsed.count } }) {
+                "userdb bigram target is missing"
+            }
+            return parsed
+        }
+
+        private fun usageScore(count: Int, lastUsed: Long, now: Long): Double {
+            val frequency = BOOST_WEIGHT * ln(1.0 + count.coerceIn(0, MAX_COUNT))
+            if (lastUsed <= 0L) return frequency
+            val age = (now - lastUsed).coerceAtLeast(0L)
+            return frequency + RECENCY_WEIGHT * exp(-LN_2 * age.toDouble() / RECENCY_HALF_LIFE_MILLIS)
+        }
+
+        private fun saturatingAdd(left: Int, right: Int): Int =
+            minOf(MAX_COUNT.toLong(), left.toLong() + right.toLong()).toInt()
+
+        private fun isValidWord(word: String): Boolean =
+            word.isNotEmpty() && word.length <= MAX_WORD_LENGTH && isStorableWord(word)
+
+        private fun isStorableWord(word: String): Boolean =
+            word.none { it == '\t' || it == '\n' || it == '\r' }
+
+        private fun sanitizeReading(reading: String): String {
             val sb = StringBuilder(reading.length)
             for (ch in reading.lowercase()) if (ch in 'a'..'z') sb.append(ch)
             return sb.toString()

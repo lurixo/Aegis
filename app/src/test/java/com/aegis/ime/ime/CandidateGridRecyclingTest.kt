@@ -38,22 +38,28 @@ class CandidateGridRecyclingTest {
     private val ctx = RuntimeEnvironment.getApplication()
     private val density = ctx.resources.displayMetrics.density
 
-    private fun grid() = CandidateGridView(ctx).apply {
-        applyPalette(ImePalette.STATIC_LIGHT)
-        measure(
+    private fun layout(v: CandidateGridView) {
+        v.measure(
             View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec((250 * density).toInt(), View.MeasureSpec.EXACTLY),
         )
-        layout(0, 0, measuredWidth, measuredHeight)
+        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
     }
 
+    private fun grid() = CandidateGridView(ctx).apply {
+        applyPalette(ImePalette.STATIC_LIGHT)
+        layout(this)
+    }
 
-    @Test fun middle_grid_allocates_at_peak_not_sum_across_a_typing_burst() {
+    @Test fun middle_grid_allocates_only_visible_rows_across_a_typing_burst() {
         val v = grid()
         val passes = 20
         val perList = 60
-        for (p in 0 until passes) v.setCandidates((0 until perList).map { "候$p-$it" })
-        assertEquals("chip allocations must equal the peak list size, not the sum over passes", perList, v.chipsAllocatedForTest())
+        for (p in 0 until passes) {
+            v.setCandidates((0 until perList).map { "候$p-$it" })
+            layout(v)
+        }
+        assertTrue("the visible-row pool stays below the logical list size", v.chipsAllocatedForTest() < perList)
         assertTrue("recycling must beat the old O(sum)=1200 allocations by an order of magnitude", v.chipsAllocatedForTest() * 10 <= passes * perList)
     }
 
@@ -65,15 +71,19 @@ class CandidateGridRecyclingTest {
         assertEquals("reading allocations must equal the peak list size, not the sum over passes", perList, v.readingsAllocatedForTest())
     }
 
-    @Test fun click_frame_after_warmup_allocates_zero_views() {
+    @Test fun contentChangeAfterWarmupOnlyGrowsTheVisiblePool() {
         val v = grid()
         v.setCandidates((0 until 80).map { "暖$it" })
         v.setReadings((0 until 12).map { "w$it" }, selected = 0)
+        layout(v)
         val chipsBefore = v.chipsAllocatedForTest()
         val readingsBefore = v.readingsAllocatedForTest()
         v.setReadings((0 until 12).map { "w$it" }, selected = 5)
         v.setCandidates((0 until 80).map { "候$it" })
-        assertEquals("a warm click frame must allocate zero new chips (old code: 80)", chipsBefore, v.chipsAllocatedForTest())
+        layout(v)
+        assertTrue("a content change may grow the visible recycler pool, never by the 80 logical items",
+            v.chipsAllocatedForTest() - chipsBefore < 20)
+        assertTrue(v.chipsAllocatedForTest() < 80)
         assertEquals("a warm click frame must allocate zero new reading tiles (old code: 12)", readingsBefore, v.readingsAllocatedForTest())
     }
 
@@ -128,10 +138,27 @@ class CandidateGridRecyclingTest {
         val v = grid()
         v.setCandidates(listOf("你", "好"))
         v.setReadings(listOf("ni", "hao"), selected = 0)
+        layout(v)
         v.setCandidates(listOf("我"))
         v.setReadings(listOf("wo"), selected = 0)
+        layout(v)
         assertNotNull("recycled chip keeps its ripple", v.firstChipForegroundForTest())
         assertTrue("recycled chip foreground is a RippleDrawable", v.firstChipForegroundForTest() is RippleDrawable)
+    }
+
+    @Test fun exhaustive_candidate_sets_keep_all_logical_entries_with_a_bounded_visible_pool() {
+        val v = grid()
+        val candidates = List(2_120) { "候选$it" }
+        v.setCandidates(candidates)
+        layout(v)
+        assertEquals(candidates, v.renderedCandidateTextsForTest())
+        assertTrue("the attached chip pool must stay independent of the 2,120-item result", v.chipsAllocatedForTest() < 100)
+    }
+
+    @Test fun collapsed_strip_caps_an_exhaustive_candidate_set() {
+        val v = CandidateView(ctx)
+        v.setContent(List(2_120) { "候选$it" }, "943943")
+        assertEquals(30, v.itemCount())
     }
 
 

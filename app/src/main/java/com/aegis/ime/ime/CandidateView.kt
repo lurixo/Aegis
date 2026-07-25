@@ -125,16 +125,18 @@ class CandidateView(context: Context) : View(context) {
     }
 
     fun setContent(candidates: List<String>, composingText: String, gate: Boolean = false) {
-        if (candidates == items && composingText == composing && gate == gateActive) return
-        val roleChanged = stripRole(items.isEmpty(), composing) != stripRole(candidates.isEmpty(), composingText)
-        val visualChange = candidates != items || gate != gateActive
+        val visibleCandidates =
+            if (candidates.size <= MAX_VISIBLE_CANDIDATES) candidates else candidates.subList(0, MAX_VISIBLE_CANDIDATES)
+        if (visibleCandidates == items && composingText == composing && gate == gateActive) return
+        val roleChanged = stripRole(items.isEmpty(), composing) != stripRole(visibleCandidates.isEmpty(), composingText)
+        val visualChange = visibleCandidates != items || gate != gateActive
         gateActive = gate
         when {
             roleChanged -> {
                 contentTransitions++
-                Motion.coverThrough(this, palette.keyboardBg) { applyContent(candidates, composingText) }
+                Motion.coverThrough(this, palette.keyboardBg) { applyContent(visibleCandidates, composingText) }
             }
-            visualChange -> applyContent(candidates, composingText)
+            visualChange -> applyContent(visibleCandidates, composingText)
             else -> composing = composingText
         }
     }
@@ -217,6 +219,16 @@ class CandidateView(context: Context) : View(context) {
 
     private fun maxScroll(): Float = maxOf(0f, contentWidth - (width - expandW))
 
+    private fun candidateIndexAt(contentX: Float): Int {
+        var lo = 0
+        var hi = hitCount
+        while (lo < hi) {
+            val mid = (lo + hi) ushr 1
+            if (hitRects[mid].right <= contentX) lo = mid + 1 else hi = mid
+        }
+        return if (lo < hitCount && contentX >= hitRects[lo].left) lo else -1
+    }
+
     override fun onDraw(canvas: Canvas) {
         canvas.drawColor(palette.keyboardBg)
         val baseline = height / 2f - (textPaint.descent() + textPaint.ascent()) / 2
@@ -233,11 +245,13 @@ class CandidateView(context: Context) : View(context) {
         val visibleW = width - expandW
         canvas.save()
         canvas.clipRect(0f, 0f, visibleW, height.toFloat())
-        for (i in 0 until hitCount) {
+        val first = candidateIndexAt(scrollX).coerceAtLeast(0)
+        for (i in first until hitCount) {
             val r = hitRects[i]
+            if (r.left >= scrollX + visibleW) break
             r.bottom = height.toFloat()
             val left = r.left - scrollX
-            drawPressLayer(canvas, PressTarget(PressKind.CANDIDATE, i), left, 4f * density, left + r.width(), height - 4f * density)
+            drawPressLayer(canvas, PressKind.CANDIDATE, i, left, 4f * density, left + r.width(), height - 4f * density)
             canvas.drawText(items[i], left + padding, baseline, if (i == 0) firstPaint else textPaint)
             if (i != hitCount - 1) {
                 canvas.drawRect(r.right - scrollX, height * 0.25f, r.right - scrollX + density, height * 0.75f, sepPaint)
@@ -246,7 +260,7 @@ class CandidateView(context: Context) : View(context) {
         canvas.restore()
 
         canvas.drawRect(visibleW, height * 0.25f, visibleW + density, height * 0.75f, sepPaint)
-        drawPressLayer(canvas, PressTarget(PressKind.EXPAND), visibleW, 4f * density, width.toFloat(), height - 4f * density)
+        drawPressLayer(canvas, PressKind.EXPAND, -1, visibleW, 4f * density, width.toFloat(), height - 4f * density)
         val chCx = visibleW + expandW / 2f; val chCy = height / 2f; val chS = 9f * density * CHEVRON_SCALE
         Glyphs.drawChevron(canvas, iconPaint, chCx, chCy, chS, down = !expanded)
     }
@@ -286,13 +300,13 @@ class CandidateView(context: Context) : View(context) {
                 iconCentersX[i] = cx
                 val cellL = if (i == 0) areaL else areaL + gap * (i + 0.5f)
                 funcRects[i].set(cellL, capT, areaL + gap * (i + 1.5f), capB)
-                drawPressLayer(canvas, PressTarget(PressKind.FUNCTION, i), cx - half, capT, cx + half, capB)
+                drawPressLayer(canvas, PressKind.FUNCTION, i, cx - half, capT, cx + half, capB)
                 drawIcon(canvas, f, cx, cy, s)
             }
             val chevronCx = areaL + gap * (functions.size + 1)
             iconCentersX[functions.size] = chevronCx
             collapseRect.set(areaL + gap * (functions.size + 0.5f), capT, areaR, capB)
-            drawPressLayer(canvas, PressTarget(PressKind.COLLAPSE), chevronCx - half, capT, chevronCx + half, capB)
+            drawPressLayer(canvas, PressKind.COLLAPSE, -1, chevronCx - half, capT, chevronCx + half, capB)
             Glyphs.drawChevron(canvas, iconPaint, chevronCx, cy, s * CHEVRON_SCALE, down = true)
         }
     }
@@ -300,16 +314,25 @@ class CandidateView(context: Context) : View(context) {
     private fun toolbarOuterRadius(): Float =
         minOf((height - capMarginV * 2f) / 2f, ImeShapes.toolbarPillRadiusDp * density)
 
-    private fun drawPressLayer(canvas: Canvas, target: PressTarget, left: Float, top: Float, right: Float, bottom: Float) {
-        val level = if (target == visualPressedTarget) pressFeedback.level else 0f
+    private fun drawPressLayer(
+        canvas: Canvas,
+        kind: PressKind,
+        index: Int,
+        left: Float,
+        top: Float,
+        right: Float,
+        bottom: Float,
+    ) {
+        val pressed = visualPressedTarget
+        val level = if (pressed?.kind == kind && pressed.index == index) pressFeedback.level else 0f
         if (level <= 0f || right <= left || bottom <= top) return
         pressPaint.color = Motion.stateLayerColor(palette.keyLabel, level, 0x22)
         tmpRect.set(left, top, right, bottom)
-        val r = pressRadiusDp(target) * density
+        val r = pressRadiusDp(kind) * density
         canvas.drawRoundRect(tmpRect, r, r, pressPaint)
     }
 
-    private fun pressRadiusDp(target: PressTarget): Float = when (target.kind) {
+    private fun pressRadiusDp(kind: PressKind): Float = when (kind) {
         PressKind.FUNCTION, PressKind.COLLAPSE -> ImeShapes.toolbarFeedbackRadiusDp
         PressKind.CANDIDATE, PressKind.EXPAND -> ImeShapes.keyRadiusDp
     }
@@ -384,9 +407,10 @@ class CandidateView(context: Context) : View(context) {
                     return true
                 }
                 val cx = event.x + scrollX
-                for (i in 0 until hitCount) {
-                    val r = hitRects[i]
-                    if (cx >= r.left && cx < r.right) { performClick(); onPick(i); break }
+                val index = candidateIndexAt(cx)
+                if (index >= 0) {
+                    performClick()
+                    onPick(index)
                 }
             }
             MotionEvent.ACTION_CANCEL -> releasePressedTarget()
@@ -409,10 +433,8 @@ class CandidateView(context: Context) : View(context) {
         if (items.isNotEmpty()) {
             if (isExpandTarget(x, y)) return PressTarget(PressKind.EXPAND)
             val cx = x + scrollX
-            for (i in 0 until hitCount) {
-                val r = hitRects[i]
-                if (cx >= r.left && cx < r.right && y >= 0f && y <= height) return PressTarget(PressKind.CANDIDATE, i)
-            }
+            val index = candidateIndexAt(cx)
+            if (index >= 0 && y >= 0f && y <= height) return PressTarget(PressKind.CANDIDATE, index)
         }
         return null
     }
@@ -466,6 +488,7 @@ class CandidateView(context: Context) : View(context) {
     private companion object {
         private const val ROLE_CANDIDATES = 0
         private const val ROLE_FUNCTIONS = 1
+        private const val MAX_VISIBLE_CANDIDATES = 30
 
         private const val ICON_BOX = 1.64f
         private const val BRAND_GLYPH_WIDTH = 1.28f

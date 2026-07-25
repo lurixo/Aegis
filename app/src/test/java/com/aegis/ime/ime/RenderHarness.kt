@@ -268,8 +268,8 @@ class RenderHarness {
                 setReadings(listOf("ni", "ní", "nǐ", "nì"))
                 setCandidates(listOf("你", "你好", "尼", "拟", "泥", "逆", "妮", "倪", "腻", "匿", "昵", "旎"))
             }
-            assertTrue("grid_$t: middle candidate grid did not populate", v.hasTextLeaf("你好"))
-            assertTrue("grid_$t: left reading column did not populate", v.hasTextLeaf("nǐ"))
+            assertTrue("grid_$t: middle candidate grid did not populate", "你好" in v.renderedCandidateTextsForTest())
+            assertTrue("grid_$t: left reading column did not populate", "nǐ" in v.renderedReadingTextsForTest())
             snap(v, h, "grid_$t.png")
         }
     }

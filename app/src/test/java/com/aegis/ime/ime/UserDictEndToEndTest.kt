@@ -163,8 +163,7 @@ class UserDictEndToEndTest {
         pick(c, "词库")
         assertEquals("次词库", h.text)
         assertEquals(listOf("词库"), um.readingSnapshot()["ciku"])
-        val once = UserModel().apply { record(null, "词库", 1L) }
-        assertEquals(once.wordBoost("词库"), um.wordBoost("词库"), 0.0)
+        assertEquals(1, um.userWordEntries().single { it.word == "词库" }.count)
 
         val file = File.createTempFile("userdb-exact", ".txt").also { it.deleteOnExit() }
         um.save(file)

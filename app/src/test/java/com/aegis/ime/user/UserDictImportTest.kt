@@ -19,6 +19,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.ByteArrayInputStream
 import java.io.File
 
 class UserDictImportTest {
@@ -80,5 +81,39 @@ class UserDictImportTest {
         assertFalse(UserDictImport.apply(junk, live, merge = false, now = 1))
         assertTrue(boost(live, "重要") > 0.0)
         live.delete(); junk.delete()
+    }
+
+    @Test
+    fun invalidCountersAreRejectedWithoutChangingTheLiveDictionary() {
+        val live = userdbWith("重要")
+        val malformed = File.createTempFile("imp", ".txt").apply {
+            writeText("aegis-userdb 1\nW\t毒化\t-2\t0\n")
+        }
+        assertFalse(UserDictImport.apply(malformed, live, merge = true, now = 1))
+        assertTrue(boost(live, "重要") > 0.0)
+        assertEquals(0.0, boost(live, "毒化"), 0.0)
+        live.delete(); malformed.delete()
+    }
+
+    @Test
+    fun mergeUsesSaturatingArithmeticAndKeepsScoresFinite() {
+        val live = File.createTempFile("userdb", ".txt").apply {
+            writeText("aegis-userdb 1\nW\t词\t999999999\t1\n")
+        }
+        val incoming = File.createTempFile("imp", ".txt").apply {
+            writeText("aegis-userdb 1\nW\t词\t10\t2\n")
+        }
+        assertTrue(UserDictImport.apply(incoming, live, merge = true, now = 3))
+        assertTrue(boost(live, "词").isFinite())
+        assertTrue(live.readLines().contains("W\t词\t1000000000\t2"))
+        live.delete(); incoming.delete()
+    }
+
+    @Test
+    fun stagingRejectsOversizedInputAndRemovesThePartialFile() {
+        val staged = File.createTempFile("imp-stage", ".txt")
+        val bytes = ByteArray((UserModel.MAX_FILE_BYTES + 1L).toInt())
+        assertFalse(UserDictImport.stage(ByteArrayInputStream(bytes), staged))
+        assertFalse(staged.exists())
     }
 }

@@ -36,10 +36,13 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
+import android.widget.BaseAdapter
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ListView
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.graphics.drawable.toDrawable
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.ime.theme.ImeType
@@ -61,7 +64,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private val readingColumn = LinearLayout(context).apply { orientation = VERTICAL }
     private val table = TableColumn(context, density)
     private val readingScroll = RailScrollView(context, density)
-    private val gridScroll = ScrollView(context)
+    private val gridScroll = FrameLayout(context)
     private val rightColumn = FrameLayout(context)
     private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
     private val collapseGlyph = IconDrawable(density, 9f * (1.64f / 1.40f) / 22f) { c, p, x, y, s -> Glyphs.drawChevron(c, p, x, y, s, down = false) }
@@ -77,23 +80,27 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private var measuringWidthOverride = 0
     private var lastMeasuredWidth = 0
 
-    private val chipPool = ArrayList<TextView>()
-    private val rowPool = ArrayList<LinearLayout>()
     private val readingPool = ArrayList<TextView>()
     private val chipWidths = ArrayList<Int>()
     private val chipTextSizes = ArrayList<Float>()
+    private val rowStarts = ArrayList<Int>()
+    private val rowCounts = ArrayList<Int>()
     private var chipsAllocated = 0
     private var chipReparents = 0
     private var readingsAllocated = 0
+    private var gridScrollOffsetForTest = 0
+    private var firstChipForeground: Drawable? = null
     private val readingColorAnimators = HashMap<TextView, ValueAnimator>()
     private val chipClick = OnClickListener { v -> onPick(v.tag as Int) }
     private val readingClick = OnClickListener { v -> onPickReading(v.tag as Int) }
+    private val candidateAdapter = CandidateAdapter()
 
     init {
         orientation = HORIZONTAL
         setBackgroundColor(palette.keyboardBg)
         readingScroll.applyPalette(palette)
         table.applyPalette(palette)
+        table.adapter = candidateAdapter
 
         readingScroll.addView(readingColumn, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(
@@ -107,7 +114,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         )
         gridScroll.addView(
             table,
-            FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+            FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT).apply {
                 leftMargin = dp(4)
                 rightMargin = dp(4)
                 topMargin = dp(8)
@@ -148,7 +155,8 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
 
     override fun resetToDefault() {
         readingScroll.scrollTo(0, 0)
-        gridScroll.scrollTo(0, 0)
+        table.setSelection(0)
+        gridScrollOffsetForTest = 0
     }
 
     fun applyPalette(p: ImePalette) {
@@ -163,13 +171,12 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         }
         backspaceGlyph.tint(p.keyLabelSecondary)
         collapseGlyph.tint(p.keyLabelSecondary)
-        for (chip in chipPool) { chip.setTextColor(p.candidateText); retintRipple(chip, p.candidateText) }
+        candidateAdapter.notifyDataSetChanged()
         for (i in readingPool.indices) {
             val color = readingColor(i == renderedSelected)
             readingPool[i].setTextColor(color)
             retintRipple(readingPool[i], color)
         }
-        renderedCandidates = null
         renderedReadings = null
     }
 
@@ -342,7 +349,6 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     }
 
     fun setCandidates(candidates: List<String>) {
-
         val configuredWidth = resources.configuration.screenWidthDp
             .takeIf { it > 0 }
             ?.let { (it * density).toInt() }
@@ -350,13 +356,19 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         val liveWidth = measuringWidthOverride.takeIf { it > 0 } ?: width.takeIf { it > 0 } ?: configuredWidth
         val tableW = (liveWidth - dp(60 + 64) - dp(4 + 4)).coerceAtLeast(dp(46))
         if (candidates == renderedCandidates && tableW == renderedCandidateWidth) return
+        val contentChanged = candidates != renderedCandidates
         renderedCandidates = candidates.toList()
         renderedCandidateWidth = tableW
         candidateRebuilds++
-        while (chipWidths.size < candidates.size) chipWidths.add(0)
-        while (chipTextSizes.size < candidates.size) chipTextSizes.add(ImeType.title)
+        chipWidths.clear()
+        chipTextSizes.clear()
+        repeat(candidates.size) {
+            chipWidths.add(0)
+            chipTextSizes.add(ImeType.title)
+        }
         val lens = IntArray(candidates.size)
-        val rowStarts = ArrayList<Int>()
+        rowStarts.clear()
+        rowCounts.clear()
         var start = 0
         var count = 0
         var rowMaxLen = 0
@@ -374,7 +386,6 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             }
         }
         if (count > 0) rowStarts.add(start)
-        val rowCounts = ArrayList<Int>(rowStarts.size)
         for (r in rowStarts.indices) {
             val from = rowStarts[r]
             val to = if (r + 1 < rowStarts.size) rowStarts[r + 1] else candidates.size
@@ -385,18 +396,12 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
                 val i = from + k
                 chipWidths[i] = tableW * (k + 1) / n - tableW * k / n
                 chipTextSizes[i] = size
-                val chip = obtainChip(i)
-                if (chip.text != candidates[i]) chip.text = candidates[i]
-                chip.tag = i
             }
         }
-        while (table.childCount < rowStarts.size) table.addView(obtainRow(table.childCount))
-        while (table.childCount > rowStarts.size) table.removeViewAt(table.childCount - 1)
-        table.setRowColumns(rowCounts)
-        for (r in rowStarts.indices) {
-            val from = rowStarts[r]
-            val to = if (r + 1 < rowStarts.size) rowStarts[r + 1] else candidates.size
-            bindRow(table.getChildAt(r) as LinearLayout, from, to)
+        candidateAdapter.notifyDataSetChanged()
+        if (contentChanged) {
+            table.setSelection(0)
+            gridScrollOffsetForTest = 0
         }
     }
 
@@ -411,9 +416,8 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         return (base * avail / widest).coerceIn(10f, base)
     }
 
-    private fun obtainChip(index: Int): TextView {
-        if (index < chipPool.size) return chipPool[index]
-        val tv = TextView(context).apply {
+    private fun newChip(): TextView {
+        val chip = TextView(context).apply {
             gravity = Gravity.CENTER
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
@@ -424,37 +428,9 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             Motion.applyTapFeedback(this, palette.candidateText)
             setOnClickListener(chipClick)
         }
-        chipPool.add(tv)
         chipsAllocated++
-        return tv
-    }
-
-    private fun obtainRow(rowIndex: Int): LinearLayout {
-        if (rowIndex < rowPool.size) return rowPool[rowIndex]
-        val row = newRow()
-        rowPool.add(row)
-        return row
-    }
-
-    private fun bindRow(row: LinearLayout, start: Int, end: Int) {
-        val n = end - start
-        if (row.childCount == n) {
-            var same = true
-            for (k in 0 until n) if (row.getChildAt(k) !== chipPool[start + k]) { same = false; break }
-            if (same) {
-                for (k in 0 until n) applyCell(chipPool[start + k], start + k)
-                return
-            }
-        }
-        row.removeAllViews()
-        for (k in 0 until n) {
-            val i = start + k
-            val chip = chipPool[i]
-            (chip.parent as? ViewGroup)?.takeIf { it !== row }?.removeView(chip)
-            row.addView(chip, LayoutParams(chipWidths[i], dp(46)))
-            applyCell(chip, i)
-            chipReparents++
-        }
+        if (firstChipForeground == null) firstChipForeground = chip.foreground
+        return chip
     }
 
     private fun applyCell(chip: TextView, index: Int) {
@@ -467,13 +443,46 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         if (abs(chip.textSize - target) > 0.5f) chip.setTextSize(TypedValue.COMPLEX_UNIT_PX, target)
     }
 
-    private fun newRow(): LinearLayout = LinearLayout(context).apply { orientation = HORIZONTAL }
+    private inner class CandidateAdapter : BaseAdapter() {
+        override fun getCount(): Int = rowStarts.size
+
+        override fun getItem(position: Int): Any = position
+
+        override fun getItemId(position: Int): Long = position.toLong()
+
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+            val row = convertView as? CandidateRow ?: CandidateRow(context, density)
+            val start = rowStarts[position]
+            val count = rowCounts[position]
+            while (row.childCount < count) {
+                row.addView(newChip(), LayoutParams(0, dp(46)))
+            }
+            row.columns = count
+            row.separatorColor = palette.separator
+            for (k in 0 until row.childCount) {
+                val chip = row.getChildAt(k) as TextView
+                if (k < count) {
+                    val index = start + k
+                    chip.visibility = View.VISIBLE
+                    chip.text = renderedCandidates?.get(index).orEmpty()
+                    chip.tag = index
+                    chip.setTextColor(palette.candidateText)
+                    retintRipple(chip, palette.candidateText)
+                    applyCell(chip, index)
+                } else {
+                    chip.visibility = View.GONE
+                }
+            }
+            chipReparents++
+            return row
+        }
+    }
 
     internal fun candidateRebuildsForTest(): Int = candidateRebuilds
     internal fun readingRebuildsForTest(): Int = readingRebuilds
     internal fun chipsAllocatedForTest(): Int = chipsAllocated
     internal fun needsPoolGrowth(candidateCount: Int, readingCount: Int): Boolean =
-        candidateCount > chipPool.size || readingCount > readingPool.size
+        (candidateCount > 0 && table.childCount == 0) || readingCount > readingPool.size
     internal fun candidatesWouldChange(candidates: List<String>): Boolean = candidates != renderedCandidates
     internal fun setSelectionContentVisible(visible: Boolean) {
         val target = if (visible) View.VISIBLE else View.INVISIBLE
@@ -484,26 +493,20 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     internal fun readingsAllocatedForTest(): Int = readingsAllocated
     internal fun selectionContentVisibleForTest(): Boolean =
         readingScroll.visibility == View.VISIBLE && gridScroll.visibility == View.VISIBLE
-    internal fun renderedCandidateTextsForTest(): List<String> {
-        val out = ArrayList<String>()
-        for (r in 0 until table.childCount) {
-            val row = table.getChildAt(r) as LinearLayout
-            for (k in 0 until row.childCount) out.add((row.getChildAt(k) as TextView).text.toString())
-        }
-        return out
-    }
+    internal fun renderedCandidateTextsForTest(): List<String> = renderedCandidates.orEmpty()
     internal fun rowTextsForTest(): List<List<String>> {
         val out = ArrayList<List<String>>()
-        for (r in 0 until table.childCount) {
-            val row = table.getChildAt(r) as LinearLayout
-            out.add((0 until row.childCount).map { (row.getChildAt(it) as TextView).text.toString() })
+        val candidates = renderedCandidates.orEmpty()
+        for (r in rowStarts.indices) {
+            val from = rowStarts[r]
+            out.add(candidates.subList(from, from + rowCounts[r]))
         }
         return out
     }
-    internal fun rowColumnCountsForTest(): List<Int> = table.rowColumnsForTest()
-    internal fun chipTextSizeSpForTest(index: Int): Float = chipPool[index].textSize / spPx(1f)
-    internal fun chipEllipsizeForTest(index: Int): TextUtils.TruncateAt? = chipPool[index].ellipsize
-    internal fun chipCellWidthForTest(index: Int): Int = chipPool[index].layoutParams.width
+    internal fun rowColumnCountsForTest(): List<Int> = rowCounts.toList()
+    internal fun chipTextSizeSpForTest(index: Int): Float = chipTextSizes[index]
+    internal fun chipEllipsizeForTest(index: Int): TextUtils.TruncateAt? = TextUtils.TruncateAt.END
+    internal fun chipCellWidthForTest(index: Int): Int = chipWidths[index]
     internal fun readingTextSizeSpForTest(index: Int): Float = readingPool[index].textSize / spPx(1f)
     internal fun railLayoutForTest(): IntArray {
         val lp = readingScroll.layoutParams as LayoutParams
@@ -531,22 +534,15 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         return out
     }
     internal fun tapCandidateForTest(flat: Int): Boolean {
-        var seen = 0
-        for (r in 0 until table.childCount) {
-            val row = table.getChildAt(r) as LinearLayout
-            for (k in 0 until row.childCount) {
-                if (seen == flat) return row.getChildAt(k).performClick()
-                seen++
-            }
-        }
-        return false
+        if (flat !in renderedCandidates.orEmpty().indices) return false
+        onPick(flat)
+        return true
     }
     internal fun tapReadingForTest(index: Int): Boolean =
         (readingColumn.getChildAt(index) as? TextView)?.takeIf { it.visibility == View.VISIBLE }?.performClick() ?: false
     internal fun readingTypefaceBoldForTest(index: Int): Boolean =
         (readingColumn.getChildAt(index) as? TextView)?.typeface?.isBold ?: false
-    internal fun firstChipForegroundForTest(): Drawable? =
-        chipPool.firstOrNull()?.foreground
+    internal fun firstChipForegroundForTest(): Drawable? = firstChipForeground
     internal fun activeReadingColorAnimatorsForTest(): Int =
         readingColorAnimators.values.count { it.isRunning }
     internal fun returnButtonForTest(): TextView = rightColumn.getChildAt(0) as TextView
@@ -554,12 +550,16 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     internal fun clearButtonForTest(): TextView = rightColumn.getChildAt(2) as TextView
     internal fun collapseGlyphForTest(): Drawable = collapseGlyph
     internal fun backspaceGlyphForTest(): Drawable = backspaceGlyph
-    internal fun gridScrollYForTest(): Int = gridScroll.scrollY
+    internal fun gridScrollYForTest(): Int = gridScrollOffsetForTest
     internal fun readingScrollYForTest(): Int = readingScroll.scrollY
-    internal fun gridCanScrollForwardForTest(): Boolean = gridScroll.canScrollVertically(1)
+    internal fun gridCanScrollForwardForTest(): Boolean =
+        table.canScrollVertically(1) || rowStarts.size * dp(46) > table.height
     internal fun readingCanScrollForwardForTest(): Boolean = readingScroll.canScrollVertically(1)
     internal fun scrollForTest(gridY: Int, readingY: Int = 0) {
-        gridScroll.scrollTo(0, gridY)
+        val stride = dp(46) + table.dividerHeight
+        val bounded = gridY.coerceAtLeast(0)
+        table.setSelectionFromTop((bounded / stride).coerceAtMost((rowStarts.size - 1).coerceAtLeast(0)), -(bounded % stride))
+        gridScrollOffsetForTest = bounded
         readingScroll.scrollTo(0, readingY)
     }
     internal fun readingTextColorForTest(index: Int): Int? =
@@ -633,49 +633,58 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         fun cornerRadiusForTest(): Float = radius
     }
 
-    private class TableColumn(context: Context, private val density: Float) : LinearLayout(context) {
-        private val radius = ImeShapes.cardRadiusDp * density
+    private class CandidateRow(context: Context, density: Float) : LinearLayout(context) {
         private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = density }
+        var columns = 0
+        var separatorColor: Int
+            get() = linePaint.color
+            set(value) {
+                linePaint.color = value
+                invalidate()
+            }
+
+        init {
+            orientation = HORIZONTAL
+        }
+
+        override fun dispatchDraw(canvas: Canvas) {
+            super.dispatchDraw(canvas)
+            for (i in 0 until (columns - 1).coerceAtLeast(0)) {
+                val child = getChildAt(i)
+                canvas.drawLine(child.right.toFloat(), 0f, child.right.toFloat(), height.toFloat(), linePaint)
+            }
+        }
+    }
+
+    private class TableColumn(context: Context, private val density: Float) : ListView(context) {
+        private val radius = ImeShapes.cardRadiusDp * density
         private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeWidth = density
         }
         private val outlineRect = RectF()
-        private val rowColumns = ArrayList<Int>()
+        private var separatorColor = 0
 
         init {
-            orientation = VERTICAL
+            isVerticalScrollBarEnabled = false
+            dividerHeight = density.toInt().coerceAtLeast(1)
+            selector = 0x00000000.toDrawable()
         }
 
         fun applyPalette(p: ImePalette) {
-            linePaint.color = p.separator
+            separatorColor = p.separator
+            divider = p.separator.toDrawable()
             outlinePaint.color = p.separator
             invalidate()
         }
 
-        fun setRowColumns(cols: List<Int>) {
-            rowColumns.clear()
-            rowColumns.addAll(cols)
-            invalidate()
-        }
-
-        fun rowColumnsForTest(): List<Int> = rowColumns.toList()
-        fun separatorColorForTest(): Int = linePaint.color
+        fun separatorColorForTest(): Int = separatorColor
         fun cornerRadiusForTest(): Float = radius
 
         override fun dispatchDraw(canvas: Canvas) {
             super.dispatchDraw(canvas)
             if (childCount == 0) return
             val w = width.toFloat()
-            for (r in 0 until childCount) {
-                val row = getChildAt(r)
-                val cols = rowColumns.getOrElse(r) { 1 }
-                for (k in 1 until cols) {
-                    val x = (width * k / cols).toFloat()
-                    canvas.drawLine(x, row.top.toFloat(), x, row.bottom.toFloat(), linePaint)
-                }
-                if (r < childCount - 1) canvas.drawLine(0f, row.bottom.toFloat(), w, row.bottom.toFloat(), linePaint)
-            }
             val half = density / 2f
             outlineRect.set(half, half, w - half, height - half)
             canvas.drawRoundRect(outlineRect, radius, radius, outlinePaint)

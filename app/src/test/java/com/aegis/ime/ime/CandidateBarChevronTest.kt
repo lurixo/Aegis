@@ -263,7 +263,8 @@ class CandidateBarChevronTest {
         root.postOnAnimation { root.viewTreeObserver.dispatchOnPreDraw() }
         mainLooper.runToEndOfTasks()
         assertEquals(0 to 0, firstPreDrawPools)
-        assertEquals(candidates.size, grid.chipsAllocatedForTest())
+        val initialCandidatePool = grid.chipsAllocatedForTest()
+        assertTrue(initialCandidatePool in 1 until candidates.size)
         assertEquals(candidates, grid.renderedCandidateTextsForTest())
         assertEquals(readings, grid.renderedReadingTextsForTest())
         assertEquals(ImePalette.STATIC_LIGHT.accentBottom, grid.readingTextColorForTest(0))
@@ -288,7 +289,7 @@ class CandidateBarChevronTest {
         val latestCandidates = List(63) { "最新$it" }
         val latestReadings = listOf("chi", "shi", "si")
         iv.showCandidates(latestCandidates, "shi", latestReadings, 1)
-        assertEquals(candidates.size, grid.chipsAllocatedForTest())
+        assertEquals(initialCandidatePool, grid.chipsAllocatedForTest())
         assertEquals(1, grid.readingsAllocatedForTest())
         assertEquals(candidateRebuilds, grid.candidateRebuildsForTest())
         assertEquals(readingRebuilds, grid.readingRebuildsForTest())
@@ -299,8 +300,8 @@ class CandidateBarChevronTest {
         assertTrue(grid.returnButtonForTest().isClickable)
         root.postOnAnimation { root.viewTreeObserver.dispatchOnPreDraw() }
         mainLooper.runToEndOfTasks()
-        assertEquals(candidates.size to 1, growthPreDrawPools)
-        assertEquals(latestCandidates.size, grid.chipsAllocatedForTest())
+        assertEquals(initialCandidatePool to 1, growthPreDrawPools)
+        assertTrue(grid.chipsAllocatedForTest() in 1 until latestCandidates.size)
         assertEquals(latestReadings.size, grid.readingsAllocatedForTest())
         assertEquals(latestCandidates, grid.renderedCandidateTextsForTest())
         assertEquals(latestReadings, grid.renderedReadingTextsForTest())
@@ -335,7 +336,7 @@ class CandidateBarChevronTest {
         root.postOnAnimation { root.viewTreeObserver.dispatchOnPreDraw() }
         mainLooper.runToEndOfTasks()
         assertEquals(0 to 0, checkpointPools)
-        assertEquals(12, grid.chipsAllocatedForTest())
+        assertTrue(grid.chipsAllocatedForTest() in 1..12)
         assertEquals(2, grid.readingsAllocatedForTest())
         assertEquals(List(12) { "重开$it" }, grid.renderedCandidateTextsForTest())
         assertEquals(listOf("si", "shi"), grid.renderedReadingTextsForTest())
@@ -373,7 +374,7 @@ class CandidateBarChevronTest {
         assertTrue(iv.isAttachedToWindow)
         assertEquals(0, grid.chipsAllocatedForTest())
         mainLooper.runToEndOfTasks()
-        assertEquals(latestCandidates.size, grid.chipsAllocatedForTest())
+        assertTrue(grid.chipsAllocatedForTest() in 1 until latestCandidates.size)
         assertEquals(latestReadings.size, grid.readingsAllocatedForTest())
         assertEquals(latestCandidates, grid.renderedCandidateTextsForTest())
         assertEquals(latestReadings, grid.renderedReadingTextsForTest())

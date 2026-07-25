@@ -16,6 +16,7 @@
 package com.aegis.ime.user
 
 import java.io.File
+import java.io.IOException
 
 class LiveUserDictHost(
     private val model: UserModel,
@@ -39,12 +40,18 @@ class LiveUserDictHost(
 
     override fun importUserDict(importFile: File, merge: Boolean, now: Long): Boolean {
         if (!importFile.exists() || importFile.length() == 0L) return false
-        if (merge) {
-            model.importFrom(importFile, now)
-        } else {
-            val incoming = UserModel().apply { load(importFile) }
-            if (incoming.isEmpty()) return false
-            model.reload(importFile)
+        try {
+            if (merge) {
+                if (!model.importFrom(importFile, now)) return false
+            } else {
+                val incoming = UserModel().apply { load(importFile) }
+                if (incoming.isEmpty()) return false
+                model.reload(importFile)
+            }
+        } catch (_: IllegalArgumentException) {
+            return false
+        } catch (_: IOException) {
+            return false
         }
         save()
         return true
