@@ -116,12 +116,12 @@ class UpdateCheckClassificationTest {
 
     @Test
     fun dictionaryCheckOverTheUpdateManifestReturnsRealVerdict() {
-        val update = ModelDownload.dictionaryUpdateFromFetch(dictionaryFetch(sha2), ModelDownload.DictionaryInstallMetadata())
+        val update = ModelDownload.dictionaryUpdateFromFetch({ dictionaryManifest(sha2) }, ModelDownload.DictionaryInstallMetadata())
         assertEquals(ModelDownload.UpdateCheck.UPDATE, update.state)
         assertEquals(sha2, update.asset?.sha256)
 
         val current = ModelDownload.dictionaryUpdateFromFetch(
-            dictionaryFetch(sha2),
+            { dictionaryManifest(sha2) },
             ModelDownload.DictionaryInstallMetadata(sha256 = sha2, publishedAt = PUBLISHED),
         )
         assertEquals(ModelDownload.UpdateCheck.UP_TO_DATE, current.state)
@@ -130,7 +130,7 @@ class UpdateCheckClassificationTest {
     @Test
     fun trulyOfflineDictionaryCheckReportsOffline() {
         val result = ModelDownload.dictionaryUpdateFromFetch(
-            { _ -> throw UnknownHostException("api.github.com") },
+            { throw UnknownHostException("api.github.com") },
             ModelDownload.DictionaryInstallMetadata(),
         )
         assertEquals(ModelDownload.UpdateCheck.OFFLINE, result.state)
@@ -140,7 +140,7 @@ class UpdateCheckClassificationTest {
     @Test
     fun dictionaryHttpFailureReportsServerNotOffline() {
         val result = ModelDownload.dictionaryUpdateFromFetch(
-            { _ -> throw ModelDownload.HttpStatusException(403) },
+            { throw ModelDownload.HttpStatusException(403) },
             ModelDownload.DictionaryInstallMetadata(),
         )
         assertEquals(ModelDownload.UpdateCheck.SERVER_ERROR, result.state)
@@ -149,12 +149,12 @@ class UpdateCheckClassificationTest {
 
     @Test
     fun errorObjectBodyDictionaryCheckReportsParseNotOffline() {
-        val result = ModelDownload.dictionaryUpdateFromFetch({ _ -> GITHUB_ERROR_OBJECT }, ModelDownload.DictionaryInstallMetadata())
+        val result = ModelDownload.dictionaryUpdateFromFetch({ GITHUB_ERROR_OBJECT }, ModelDownload.DictionaryInstallMetadata())
         assertEquals(ModelDownload.UpdateCheck.PARSE_ERROR, result.state)
         assertNotEquals("a malformed body must NOT read as offline", ModelDownload.UpdateCheck.OFFLINE, result.state)
         assertNull(result.asset)
 
-        assertEquals(ModelDownload.UpdateCheck.PARSE_ERROR, ModelDownload.dictionaryUpdateFromFetch({ _ -> "<html>502 Bad Gateway</html>" }, ModelDownload.DictionaryInstallMetadata()).state)
+        assertEquals(ModelDownload.UpdateCheck.PARSE_ERROR, ModelDownload.dictionaryUpdateFromFetch({ "<html>502 Bad Gateway</html>" }, ModelDownload.DictionaryInstallMetadata()).state)
     }
 
 
@@ -228,77 +228,26 @@ class UpdateCheckClassificationTest {
         }
     }
 
-    private fun dictionaryFetch(sha256: String): (String) -> String = { url ->
-        if (url == ModelDownload.DICT_RELEASES_URL) dictionaryReleases(sha256)
-        else dictionaryManifest(sha256)
-    }
-
-    private fun dictionaryReleases(sha256: String): String =
-        """
-        [
-          {
-            "tag_name": "$DICT_TAG",
-            "html_url": "https://github.com/lurixo/Aegis/releases/tag/$DICT_TAG",
-            "draft": false,
-            "prerelease": false,
-            "published_at": "$PUBLISHED",
-            "assets": [
-              {
-                "name": "aegis_dict_pack_$DICT_TAG.zip",
-                "size": $PACK_SIZE,
-                "digest": "sha256:$sha256",
-                "browser_download_url": "$PACK_URL"
-              },
-              {
-                "name": "aegis-dictionary-update.json",
-                "size": 720,
-                "digest": "sha256:${"3".repeat(64)}",
-                "browser_download_url": "$MANIFEST_URL"
-              },
-              {
-                "name": "aegis-build-info.json",
-                "size": 8370,
-                "digest": "sha256:${"4".repeat(64)}",
-                "browser_download_url": "https://github.com/lurixo/Aegis/releases/download/$DICT_TAG/aegis-build-info.json"
-              }
-            ]
-          }
-        ]
-        """.trimIndent()
-
-    private fun dictionaryManifest(sha256: String): String =
+    private fun dictionaryManifest(sha256: String, tag: String = "dict-latest"): String =
         """
         {
           "schema_version": 1,
           "kind": "dictionary_update",
           "asset": {
-            "name": "aegis_dict_pack_$DICT_TAG.zip",
-            "url": "$PACK_URL",
-            "release_tag": "$DICT_TAG",
-            "release_url": "https://github.com/lurixo/Aegis/releases/tag/$DICT_TAG",
+            "name": "aegis_dict_pack_$tag.zip",
+            "url": "https://github.com/lurixo/Aegis/releases/download/$tag/aegis_dict_pack_$tag.zip",
+            "release_tag": "$tag",
+            "release_url": "https://github.com/lurixo/Aegis/releases/tag/$tag",
             "prerelease": false,
             "published_at": null,
             "sha256": "$sha256",
-            "size_bytes": $PACK_SIZE
-          },
-          "source": {
-            "repo": "https://github.com/amzxyz/rime-wanxiang",
-            "ref_type": "tag",
-            "tag": "v16.2.3",
-            "branch": null,
-            "commit": "${"5".repeat(40)}"
+            "size_bytes": 97927377
           }
         }
         """.trimIndent()
 
     private companion object {
         const val PUBLISHED = "2026-07-05T00:00:00Z"
-        const val DICT_TAG = "dict-v16.2.3-r1"
-        const val PACK_SIZE = 97_927_377L
-        const val PACK_URL =
-            "https://github.com/lurixo/Aegis/releases/download/$DICT_TAG/aegis_dict_pack_$DICT_TAG.zip"
-        const val MANIFEST_URL =
-            "https://github.com/lurixo/Aegis/releases/download/$DICT_TAG/aegis-dictionary-update.json"
 
         const val GITHUB_ERROR_OBJECT =
             """{"message":"API rate limit exceeded for 1.2.3.4","documentation_url":"https://docs.github.com/rest#rate-limiting"}"""
