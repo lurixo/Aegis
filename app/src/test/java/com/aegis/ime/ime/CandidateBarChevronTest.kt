@@ -26,7 +26,9 @@ import android.view.View
 import android.widget.FrameLayout
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.layout.Layouts
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -107,7 +109,7 @@ class CandidateBarChevronTest {
         val candidateGlyph = candidate.candidateChevronBoundsForTest()
         assertEquals(candidateHit.centerX(), candidateGlyph.centerX(), 0.01f)
         assertEquals(candidateHit.centerY(), candidateGlyph.centerY(), 0.01f)
-        assertEquals(64f * density, candidateHit.width(), 0.01f)
+        assertEquals((candidate.width * Layouts.NINE_SIDE_FRACTION).roundToInt().toFloat(), candidateHit.width(), 0.01f)
 
         candidate.setExpanded(true)
         assertEquals(candidateGlyph, candidate.candidateChevronBoundsForTest())

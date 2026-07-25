@@ -257,6 +257,8 @@ class SettingsHotApplyTest {
         assertEquals(
             setOf(
                 ModelDownload.VALIDATOR_PREF,
+                ModelDownload.GRAM_SHA256_PREF,
+                ModelDownload.GRAM_SIZE_PREF,
                 ModelDownload.DICT_VALIDATOR_PREF,
                 ModelDownload.DICT_SHA256_PREF,
                 SettingsHotApply.ENGINE_PACK_TOUCH_PREF,
@@ -283,7 +285,7 @@ class SettingsHotApplyTest {
         )
         enumerated += Fuzzy.RULES.map { Fuzzy.prefKey(it.key) }
         enumerated += SettingsHotApply.ENGINE_ASSET_PREF_KEYS
-        assertEquals(9 + Fuzzy.RULES.size + 4, enumerated.size)
+        assertEquals(9 + Fuzzy.RULES.size + 6, enumerated.size)
         for (key in enumerated) {
             val before = totalActions()
             put { putString("probe_reset", key) }

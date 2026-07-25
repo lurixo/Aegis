@@ -46,7 +46,9 @@ import androidx.core.graphics.drawable.toDrawable
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.ime.theme.ImeType
+import com.aegis.ime.layout.Layouts
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 class CandidateGridView(context: Context) : LinearLayout(context), ResettablePanel, CoversToolbar {
 
@@ -69,7 +71,6 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
     private val collapseGlyph = IconDrawable(density, 9f * (1.64f / 1.40f) / 22f) { c, p, x, y, s -> Glyphs.drawChevron(c, p, x, y, s, down = false) }
     private val measurePaint = Paint()
-    private val readingMeasurePaint = Paint().apply { typeface = Typeface.DEFAULT_BOLD }
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private var renderedCandidates: List<String>? = null
     private var renderedCandidateWidth = 0
@@ -105,8 +106,8 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         readingScroll.addView(readingColumn, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(
             readingScroll,
-            LayoutParams(dp(60 - 6 - 3), LayoutParams.MATCH_PARENT).apply {
-                leftMargin = dp(6)
+            LayoutParams(dp(51), LayoutParams.MATCH_PARENT).apply {
+                leftMargin = dp(3)
                 rightMargin = dp(3)
                 topMargin = dp(8)
                 bottomMargin = dp(8)
@@ -130,7 +131,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             funcButton("") { onClose() }.apply {
                 contentDescription = context.getString(R.string.panel_back)
                 setCompoundDrawablesWithIntrinsicBounds(collapseGlyph, null, null, null)
-                setPadding((dp(64) - collapseGlyph.intrinsicWidth) / 2, 0, 0, 0)
+                setPadding(0, 0, 0, 0)
                 collapseGlyph.tint(palette.keyLabelSecondary)
             },
             rowAlignedLp(0),
@@ -138,7 +139,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         rightColumn.addView(
             backspaceButton().apply {
                 setCompoundDrawablesWithIntrinsicBounds(backspaceGlyph, null, null, null)
-                setPadding((dp(64) - backspaceGlyph.intrinsicWidth) / 2, 0, 0, 0)
+                setPadding(0, 0, 0, 0)
                 backspaceGlyph.tint(palette.keyLabelSecondary)
             },
             centeredLp(),
@@ -197,6 +198,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         val mode = MeasureSpec.getMode(heightMeasureSpec)
         if (mode != MeasureSpec.UNSPECIFIED) updateRightActionLayout(MeasureSpec.getSize(heightMeasureSpec))
         val incomingWidth = MeasureSpec.getSize(widthMeasureSpec)
+        if (incomingWidth > 0) updateSideColumns(incomingWidth)
         if (incomingWidth > 0 && incomingWidth != lastMeasuredWidth) {
             lastMeasuredWidth = incomingWidth
             renderedCandidates?.let {
@@ -206,6 +208,20 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             }
         }
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+    }
+
+    private fun sideSpan(width: Int): Int = (width * Layouts.NINE_SIDE_FRACTION).roundToInt()
+
+    private fun updateSideColumns(width: Int) {
+        val span = sideSpan(width)
+        (readingScroll.layoutParams as LayoutParams).apply {
+            this.width = (span - dp(6)).coerceAtLeast(1)
+            leftMargin = dp(3)
+            rightMargin = dp(3)
+        }
+        (rightColumn.layoutParams as LayoutParams).width = span
+        returnButtonForTest().setPadding((span - collapseGlyph.intrinsicWidth) / 2, 0, 0, 0)
+        backspaceButtonForTest().setPadding((span - backspaceGlyph.intrinsicWidth) / 2, 0, 0, 0)
     }
 
     private fun updateRightActionLayout(availableHeight: Int) {
@@ -288,9 +304,9 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             tile.tag = i
             if (tile.text != readings[i]) {
                 tile.text = readings[i]
-                val target = spPx(readingTextSize(readings[i]))
-                if (abs(tile.textSize - target) > 0.5f) tile.setTextSize(TypedValue.COMPLEX_UNIT_PX, target)
             }
+            val target = spPx(ImeType.title)
+            if (abs(tile.textSize - target) > 0.5f) tile.setTextSize(TypedValue.COMPLEX_UNIT_PX, target)
             tile.visibility = View.VISIBLE
         }
         for (i in readings.size until readingColumn.childCount) readingColumn.getChildAt(i).visibility = View.GONE
@@ -300,15 +316,6 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             if (prevSelected in readings.indices && prevSelected != selected) styleReading(prevSelected, on = false, animate = true)
             if (selected in readings.indices) styleReading(selected, on = true, animate = true)
         }
-    }
-
-    private fun readingTextSize(text: String): Float {
-        val avail = (dp(60 - 6 - 3) - dp(12)).toFloat()
-        if (avail <= 0f) return 11f
-        readingMeasurePaint.textSize = spPx(ImeType.title)
-        val w = readingMeasurePaint.measureText(text)
-        if (w <= avail) return ImeType.title
-        return (ImeType.title * avail / w).coerceAtLeast(11f)
     }
 
     private fun obtainReading(index: Int): TextView {
@@ -354,7 +361,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             ?.let { (it * density).toInt() }
             ?: resources.displayMetrics.widthPixels
         val liveWidth = measuringWidthOverride.takeIf { it > 0 } ?: width.takeIf { it > 0 } ?: configuredWidth
-        val tableW = (liveWidth - dp(60 + 64) - dp(4 + 4)).coerceAtLeast(dp(46))
+        val tableW = (liveWidth - sideSpan(liveWidth) * 2 - dp(4 + 4)).coerceAtLeast(dp(46))
         if (candidates == renderedCandidates && tableW == renderedCandidateWidth) return
         val contentChanged = candidates != renderedCandidates
         renderedCandidates = candidates.toList()
@@ -523,6 +530,8 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     internal fun railCornerRadiusForTest(): Float = readingScroll.cornerRadiusForTest()
     internal fun railScrollbarEnabledForTest(): Boolean = readingScroll.isVerticalScrollBarEnabled
     internal fun tableSeparatorColorForTest(): Int = table.separatorColorForTest()
+    internal fun tableDividerHeightForTest(): Int = table.dividerHeight
+    internal fun rightColumnWidthForTest(): Int = rightColumn.layoutParams.width
     internal fun tableCornerRadiusForTest(): Float = table.cornerRadiusForTest()
     internal fun tableBackgroundForTest(): Drawable? = table.background
     internal fun renderedReadingTextsForTest(): List<String> {
@@ -674,6 +683,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         fun applyPalette(p: ImePalette) {
             separatorColor = p.separator
             divider = p.separator.toDrawable()
+            dividerHeight = density.toInt().coerceAtLeast(1)
             outlinePaint.color = p.separator
             invalidate()
         }

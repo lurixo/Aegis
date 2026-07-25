@@ -45,6 +45,7 @@ object Layouts {
     private const val NINE_MAIN_U = 1.0f
     private const val NINE_RIGHT_U = 0.85f
     private const val NINE_TOTAL_U = NINE_LEFT_U + 3f * NINE_MAIN_U + NINE_RIGHT_U
+    internal const val NINE_SIDE_FRACTION = NINE_LEFT_U / NINE_TOTAL_U
 
     val nineFixedPunctuation: List<String> = listOf("，", "。", "？", "！", "…", "：", "；", "~", ".", "-", "@")
 

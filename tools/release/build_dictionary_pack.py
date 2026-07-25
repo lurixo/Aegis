@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.request
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,6 +39,8 @@ OUTPUTS = [
 ]
 
 NOTICE_NAME = "NOTICE.txt"
+GRAMMAR_NAME = "wanxiang-lts-zh-hans.gram"
+GRAMMAR_RELEASE_API = "https://api.github.com/repos/amzxyz/RIME-LMDG/releases/tags/LTS"
 
 
 def attribution_text(repo_https, source_tag, source_branch, source_commit):
@@ -100,6 +103,57 @@ def default_asset_name(release_tag):
     return f"aegis_dict_pack_{safe}.zip"
 
 
+def grammar_reference(release):
+    assets = [item for item in release.get("assets", []) if item.get("name") == GRAMMAR_NAME]
+    if len(assets) != 1:
+        raise ValueError(f"expected exactly one {GRAMMAR_NAME} asset")
+    asset = assets[0]
+    digest = asset.get("digest")
+    if not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", digest):
+        raise ValueError(f"{GRAMMAR_NAME} has no trustworthy SHA-256 digest")
+    size = asset.get("size")
+    if not isinstance(size, int) or size <= 0:
+        raise ValueError(f"{GRAMMAR_NAME} has no valid size")
+    return {
+        "kind": "grammar_model",
+        "physical_asset": {
+            "name": GRAMMAR_NAME,
+            "url": asset["browser_download_url"],
+            "release_tag": release["tag_name"],
+            "release_url": release["html_url"],
+            "prerelease": bool(release.get("prerelease")),
+            "published_at": asset.get("updated_at") or release.get("published_at"),
+            "sha256": digest.removeprefix("sha256:").lower(),
+            "size_bytes": size,
+            "github_asset_id": asset.get("id"),
+        },
+        "source": {
+            "repo": "https://github.com/amzxyz/RIME-LMDG",
+            "branch": None,
+            "commit": None,
+        },
+        "attestation": {
+            "status": "external_resource_not_attested_by_aegis",
+        },
+    }
+
+
+def load_grammar_reference(args):
+    if args.grammar_release_json:
+        release = json.loads(Path(args.grammar_release_json).read_text())
+    else:
+        request = urllib.request.Request(
+            args.grammar_release_api,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "Aegis-resource-builder",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=30) as response:
+            release = json.load(response)
+    return grammar_reference(release)
+
+
 def ensure_source_checkout(args, work_dir):
     if args.source_dir:
         source = Path(args.source_dir).resolve()
@@ -136,7 +190,7 @@ def write_zip(zip_path, entries):
             zf.writestr(info, file_path.read_bytes())
 
 
-def build_info(args, repo_root, source_commit, asset_name, zip_path, bin_infos, source_infos):
+def build_info(args, repo_root, source_commit, asset_name, zip_path, bin_infos, source_infos, grammar_info):
     release_url = f"https://github.com/lurixo/Aegis/releases/tag/{args.release_tag}"
     asset_url = f"https://github.com/lurixo/Aegis/releases/download/{args.release_tag}/{asset_name}"
     builder_commit = output(["git", "rev-parse", "HEAD"], cwd=repo_root)
@@ -224,29 +278,7 @@ def build_info(args, repo_root, source_commit, asset_name, zip_path, bin_infos, 
                 },
             }
         ],
-        "external_resource_references": [
-            {
-                "kind": "grammar_model",
-                "physical_asset": {
-                    "name": "wanxiang-lts-zh-hans.gram",
-                    "url": "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/wanxiang-lts-zh-hans.gram",
-                    "release_tag": "LTS",
-                    "release_url": "https://github.com/amzxyz/RIME-LMDG/releases/tag/LTS",
-                    "prerelease": False,
-                    "published_at": None,
-                    "sha256": None,
-                    "size_bytes": 420538412,
-                },
-                "source": {
-                    "repo": "https://github.com/amzxyz/RIME-LMDG",
-                    "branch": None,
-                    "commit": None,
-                },
-                "attestation": {
-                    "status": "external_resource_not_attested_by_aegis",
-                },
-            }
-        ],
+        "external_resource_references": [grammar_info],
     }
 
 
@@ -275,6 +307,8 @@ def main(argv):
     parser.add_argument("--source-repo-https", default="https://github.com/amzxyz/rime-wanxiang")
     parser.add_argument("--source-branch", default="wanxiang")
     parser.add_argument("--source-tag", help="Upstream release tag to pin (records source.tag and clones this tag instead of the branch HEAD). Prefer the latest stable tag that carries the dicts/ tables.")
+    parser.add_argument("--grammar-release-api", default=GRAMMAR_RELEASE_API)
+    parser.add_argument("--grammar-release-json")
     parser.add_argument("--asset-name", help="Dictionary ZIP asset name. Defaults to the debug.13 naming pattern.")
     parser.add_argument("--release", dest="prerelease", action="store_false", help="Mark generated metadata as a normal release.")
     parser.set_defaults(prerelease=True)
@@ -348,7 +382,16 @@ def main(argv):
         }
         for table, path in zip(TABLES, input_paths)
     ]
-    info = build_info(args, repo_root, source_commit, asset_name, zip_path, bin_infos, source_infos)
+    info = build_info(
+        args,
+        repo_root,
+        source_commit,
+        asset_name,
+        zip_path,
+        bin_infos,
+        source_infos,
+        load_grammar_reference(args),
+    )
     (output_dir / "aegis-build-info.json").write_text(json.dumps(info, ensure_ascii=True, indent=2) + "\n")
     (output_dir / "aegis-dictionary-update.json").write_text(json.dumps(update_payload(info), ensure_ascii=True, indent=2) + "\n")
 

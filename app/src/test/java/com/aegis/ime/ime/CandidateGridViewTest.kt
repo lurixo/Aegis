@@ -27,6 +27,10 @@ import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.layout.Lang
+import com.aegis.ime.layout.LayoutId
+import com.aegis.ime.layout.Layouts
+import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -49,6 +53,8 @@ class CandidateGridViewTest {
     private fun rowPx() = (46 * density).toInt()
 
     private fun dp(v: Int) = (v * density).toInt()
+    private fun sideWidth() = ((360 * density) * Layouts.NINE_SIDE_FRACTION).roundToInt()
+    private fun tableWidth() = (360 * density).toInt() - sideWidth() * 2 - dp(4 + 4)
 
     private fun measured(v: CandidateGridView = CandidateGridView(ctx)): CandidateGridView = v.apply {
         measure(
@@ -103,7 +109,7 @@ class CandidateGridViewTest {
 
     @Test fun right_controls_share_one_vertical_center_line() {
         val v = measured()
-        val columnCenter = dp(64) / 2
+        val columnCenter = sideWidth() / 2
         val backCenter = v.returnButtonForTest().paddingLeft + v.collapseGlyphForTest().intrinsicWidth / 2
         val deleteCenter = v.backspaceButtonForTest().paddingLeft + v.backspaceGlyphForTest().intrinsicWidth / 2
         assertTrue("collapse glyph centers on the column center line, got $backCenter vs $columnCenter", kotlin.math.abs(columnCenter - backCenter) <= 1)
@@ -301,7 +307,7 @@ class CandidateGridViewTest {
         assertFalse("there is no tappable cell past the last candidate", v.tapCandidateForTest(6))
         assertEquals("each row holds exactly its candidates, with no padded-out empty cells", listOf(5, 1), v.rowTextsForTest().map { it.size })
         assertEquals("columns match the candidate count, so every cell is real", listOf(5, 1), v.rowColumnCountsForTest())
-        val tableW = (360 * density).toInt() - dp(60 + 64) - dp(4 + 4)
+        val tableW = tableWidth()
         assertEquals("the five-candidate row spreads edge to edge", tableW, (0..4).sumOf { v.chipCellWidthForTest(it) })
         assertEquals("the lone candidate fills the whole row width", tableW, v.chipCellWidthForTest(5))
     }
@@ -319,7 +325,7 @@ class CandidateGridViewTest {
     @Test fun cells_span_the_table_in_equal_widths() {
         val v = measured()
         v.setCandidates(listOf("一", "二", "三", "四", "五", "六"))
-        val tableW = (360 * density).toInt() - dp(60 + 64) - dp(4 + 4)
+        val tableW = tableWidth()
         val widths = (0..5).map { v.chipCellWidthForTest(it) }
         assertEquals(tableW, widths.sum())
         assertTrue("cell widths differ by at most a rounding pixel", widths.max() - widths.min() <= 1)
@@ -338,7 +344,7 @@ class CandidateGridViewTest {
         v.setCandidates(listOf("优", "沃", "卧", "奏", "窝"))
         assertEquals("five single-grapheme candidates share one row", listOf(5), v.rowColumnCountsForTest())
         for (i in 0..4) assertEquals("under-filled candidate $i stays at base 18sp, never enlarged", 18f, v.chipTextSizeSpForTest(i), 0.01f)
-        val tableW = (360 * density).toInt() - dp(60 + 64) - dp(4 + 4)
+        val tableW = tableWidth()
         assertEquals("the sparse row still spreads edge to edge with no trailing empty cell", tableW, (0..4).sumOf { v.chipCellWidthForTest(it) })
     }
 
@@ -373,12 +379,28 @@ class CandidateGridViewTest {
 
     @Test fun reading_rail_is_an_inset_card_matching_the_scroll_column_style() {
         val v = measured()
-        assertEquals(listOf(dp(51), dp(6), dp(3), dp(8), dp(8)), v.railLayoutForTest().toList())
+        val side = sideWidth()
+        assertEquals(listOf(side - dp(6), dp(3), dp(3), dp(8), dp(8)), v.railLayoutForTest().toList())
+        assertEquals(side, v.rightColumnWidthForTest())
         assertEquals(8f * density, v.railCornerRadiusForTest(), 0.001f)
         assertFalse("platform scrollbar must stay off in favour of the custom thumb", v.railScrollbarEnabledForTest())
         assertEquals(listOf(dp(4), dp(4), dp(8), dp(8)), v.tableLayoutForTest().toList())
         assertEquals(8f * density, v.tableCornerRadiusForTest(), 0.001f)
         assertNull("the table paints no fill of its own", v.tableBackgroundForTest())
+    }
+
+    @Test fun expanded_reading_rail_matches_the_unexpanded_nine_key_scroll_card_width() {
+        val expanded = measured()
+        val keyboard = KeyboardView(ctx).apply {
+            setLayout(Layouts.forId(LayoutId.NINE, Lang.CN), false, false, Lang.CN)
+            measure(
+                View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec((250 * density).toInt(), View.MeasureSpec.EXACTLY),
+            )
+            layout(0, 0, measuredWidth, measuredHeight)
+        }
+
+        assertEquals(keyboard.scrollRegionForTest().width(), expanded.railLayoutForTest()[0].toFloat(), 1f)
     }
 
     @Test fun rail_thumb_is_absent_without_overflow() {
@@ -394,7 +416,7 @@ class CandidateGridViewTest {
         val expectedH = maxOf(18f * density, trackH.toFloat() * trackH / contentH)
         assertEquals(expectedH, rect.height(), 0.01f)
         assertEquals(2.5f * density, rect.width(), 0.01f)
-        assertEquals(dp(51) - 2f * density, rect.right, 0.01f)
+        assertEquals(v.railLayoutForTest()[0] - 2f * density, rect.right, 0.01f)
         assertEquals(0f, rect.top, 0.01f)
 
         v.scrollForTest(gridY = 0, readingY = 120)
@@ -403,13 +425,11 @@ class CandidateGridViewTest {
         assertEquals(expectedTop, scrolled.top, 0.01f)
     }
 
-    @Test fun readings_shrink_to_fit_the_rail_and_short_readings_keep_title_size() {
+    @Test fun readings_keep_title_size_without_scaling() {
         val v = CandidateGridView(ctx)
         v.setReadings(listOf("ni", "zhuang"))
         assertEquals(18f, v.readingTextSizeSpForTest(0), 0.01f)
-        val fitted = v.readingTextSizeSpForTest(1)
-        assertTrue("zhuang must shrink below the title size, got $fitted", fitted < 18f)
-        assertTrue("zhuang must not shrink past the floor, got $fitted", fitted >= 11f)
+        assertEquals(18f, v.readingTextSizeSpForTest(1), 0.01f)
     }
 
     @Test fun palette_flows_to_rail_and_table_in_static_light_and_dark() {
@@ -417,6 +437,7 @@ class CandidateGridViewTest {
             val v = CandidateGridView(ctx).apply { applyPalette(pal) }
             assertEquals(Triple(pal.railBg, pal.separator, Motion.withAlpha(pal.icon, 0x55)), v.railColorsForTest())
             assertEquals(pal.separator, v.tableSeparatorColorForTest())
+            assertEquals(dp(1), v.tableDividerHeightForTest())
         }
     }
 }

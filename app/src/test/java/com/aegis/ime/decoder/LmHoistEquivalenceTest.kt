@@ -55,7 +55,7 @@ class LmHoistEquivalenceTest {
     )
 
     private fun report(): String {
-        val decoder = PinyinDecoder(EngineFixture.dict(), lm())
+        val decoder = PinyinDecoder(EngineFixture.dict(), lm(), lambda = 1.0, contextWeight = 2.0)
         val sb = StringBuilder()
         for ((input, ctx) in cases) {
             sb.append("decode|$input|$ctx -> ")
@@ -82,7 +82,7 @@ class LmHoistEquivalenceTest {
     }
 
     @Test fun repeated_and_interleaved_decodes_do_not_leak_state_across_calls() {
-        val decoder = PinyinDecoder(EngineFixture.dict(), lm())
+        val decoder = PinyinDecoder(EngineFixture.dict(), lm(), lambda = 1.0, contextWeight = 2.0)
         val a1 = decoder.decode("ku", 12, "想")
         val b = decoder.decode("shi", 12, "不")
         val a2 = decoder.decode("ku", 12, "想")
@@ -108,13 +108,13 @@ decode|ku|不 -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
 covered|ku|不 -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
 atomic|ku|不 -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
 decode|shi| -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
-covered|shi| -> 是,时,实,实现,事,市,十,始,试,视,𠃦,𠃧,𠃨
+covered|shi| -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
 atomic|shi| -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
 decode|shi|不 -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
-covered|shi|不 -> 是,时,实,实现,事,市,十,始,试,视,𠃦,𠃧,𠃨
+covered|shi|不 -> 是,时,实,事,实现,市,十,始,试,视,𠃦,𠃧
 atomic|shi|不 -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
 decode|shi|我 -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
-covered|shi|我 -> 是,时,实,实现,事,市,十,始,试,视,𠃦,𠃧,𠃨
+covered|shi|我 -> 是,时,实,事,实现,市,十,始,试,视,𠃦,𠃧
 atomic|shi|我 -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
 decode|ci| -> 次,此,词,刺,辞,磁,慈,茨,瓷,赐,雌,祠
 covered|ci| -> 次,此,词库,词,刺,辞,磁,慈,茨,瓷,赐,雌,祠,疵,伺,𠀀,𠀁,𠀂,𠀃,𠀄,𠀅,𠀆,𠀇,𠀈,𠀉,𠀊,𠀋,𠀌,𠀍,𠀎,𠀏
@@ -135,20 +135,20 @@ decode|zi|字 -> 字,子,自,紫,资,仔,籽,𠃒,𠃓,𠃔
 covered|zi|字 -> 字,子,自,紫,资,仔,籽,𠃒,𠃓,𠃔
 atomic|zi|字 -> 字,子,自,紫,资,仔,籽,𠃒,𠃓,𠃔
 decode|xiang| -> 向,想,相,像,香,响,享,想哭
-covered|xiang| -> 向,想,相,想哭,像,香,响,享,西安,现,下,县,西,限,先,显,夏,鲜,霞,险,嫌,𠃰,𠃱,𠃲
+covered|xiang| -> 向,想,相,像,想哭,香,响,享,现,下,县,西,西安,限,先,显,夏,鲜,霞,险,嫌,𠃰,𠃱,𠃲
 atomic|xiang| -> 向,想,相,像,香,响,享
 decode|xiang|想 -> 相,向,想,香,像,响,享,想哭
-covered|xiang|想 -> 相,向,想,想哭,香,像,响,享,西安,现,下,县,西,限,先,显,夏,鲜,霞,险,嫌,𠃰,𠃱,𠃲
+covered|xiang|想 -> 相,向,想,想哭,香,像,响,享,现,下,县,西,西安,限,先,显,夏,鲜,霞,险,嫌,𠃰,𠃱,𠃲
 atomic|xiang|想 -> 相,向,想,香,像,响,享
 decode|xiangku| -> 想哭
-covered|xiangku| -> 想哭,西安,向,想,相,现,下,像,县,西,香,限,先,响,显,夏,享,鲜,霞,险,嫌,𠃰,𠃱,𠃲
+covered|xiangku| -> 想哭,向,想,相,现,下,像,县,西,香,限,先,西安,响,显,夏,享,鲜,霞,险,嫌,𠃰,𠃱,𠃲
 atomic|xiangku| -> 想哭,向库,想库,相库,像库,向苦,想苦,相苦,向,想,相,像,香,响,享
 decode|xiangku|想 -> 想哭
-covered|xiangku|想 -> 想哭,相,向,想,香,西安,现,下,像,县,西,限,先,响,显,夏,享,鲜,霞,险,嫌,𠃰,𠃱,𠃲
-atomic|xiangku|想 -> 想哭,相库,相苦,相哭,相酷,向库,向苦,想库,相,向,想,香,像,响,享
+covered|xiangku|想 -> 想哭,相,向,想,香,现,下,像,县,西,限,先,西安,响,显,夏,享,鲜,霞,险,嫌,𠃰,𠃱,𠃲
+atomic|xiangku|想 -> 想哭,相库,相苦,相哭,相酷,向库,想库,向苦,相,向,想,香,像,响,享
 decode|bushi| -> 不是
 covered|bushi| -> 不是,不,部,布,步,补,捕,卜,哺,埠,簿,𠃜,𠃝,𠃞
-atomic|bushi| -> 不是,不时,部是,不实,部时,部实,布是,步是,不,部,布,步,补,捕,卜,哺,埠,簿,𠃜,𠃝,𠃞
+atomic|bushi| -> 不是,不时,部是,部时,不实,部实,布是,步是,不,部,布,步,补,捕,卜,哺,埠,簿,𠃜,𠃝,𠃞
 decode|bushi|不 -> 不是
 covered|bushi|不 -> 不是,不,部,布,步,补,捕,卜,哺,埠,簿,𠃜,𠃝,𠃞
 atomic|bushi|不 -> 不是,不时,不实,不事,不市,不十,部是,布是,不,部,布,步,补,捕,卜,哺,埠,簿,𠃜,𠃝,𠃞

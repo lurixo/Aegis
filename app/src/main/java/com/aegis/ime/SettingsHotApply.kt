@@ -62,6 +62,8 @@ internal class SettingsHotApply(
 
         val ENGINE_ASSET_PREF_KEYS: Set<String> = setOf(
             ModelDownload.VALIDATOR_PREF,
+            ModelDownload.GRAM_SHA256_PREF,
+            ModelDownload.GRAM_SIZE_PREF,
             ModelDownload.DICT_VALIDATOR_PREF,
             ModelDownload.DICT_SHA256_PREF,
             ENGINE_PACK_TOUCH_PREF,

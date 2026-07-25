@@ -20,6 +20,7 @@ import java.io.File
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.security.MessageDigest
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -245,19 +246,24 @@ class ModelDownloadTest {
             val target = ModelDownload.destFile(base)
             target.parentFile?.mkdirs()
             target.writeBytes(old)
-            var attemptedValidator: String? = null
+            var attemptedSnapshot: ModelDownload.ModelSnapshot? = null
 
             val result = ModelDownload.downloadModel(
                 "http://127.0.0.1:${server.address.port}/asset",
                 target,
                 { _, _ -> },
-            ) { validator ->
-                attemptedValidator = validator
+            ) { snapshot ->
+                attemptedSnapshot = snapshot
                 false
             }
 
             assertFalse(result.ok)
-            assertEquals("candidate-model", attemptedValidator)
+            val snapshot = requireNotNull(attemptedSnapshot)
+            assertEquals("candidate-model", snapshot.validator)
+            val expectedSha = MessageDigest.getInstance("SHA-256").digest(body)
+                .joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+            assertEquals(expectedSha, snapshot.sha256)
+            assertEquals(body.size.toLong(), snapshot.sizeBytes)
             assertArrayEquals(old, target.readBytes())
             assertFalse(ModelDownload.partFile(base).exists())
             assertFalse(File(target.parentFile, "${target.name}.backup").exists())

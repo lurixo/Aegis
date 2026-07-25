@@ -27,7 +27,9 @@ import android.view.ViewConfiguration
 import androidx.core.graphics.withClip
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
+import com.aegis.ime.layout.Layouts
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 enum class BarFunction { BRAND, EMOJI, LAYOUT, EDIT, CLIPBOARD }
 
@@ -77,7 +79,6 @@ class CandidateView(context: Context) : View(context) {
 
     private val density = resources.displayMetrics.density
     private val padding = 14f * density
-    private val expandW = (64f * density).toInt().toFloat()
     private val capMarginH = 8f * density
     private val capMarginV = 5f * density
 
@@ -189,7 +190,11 @@ class CandidateView(context: Context) : View(context) {
     }
     internal fun toolbarCapsuleBoundsForTest(): RectF = RectF(toolbarBounds)
     internal fun toolbarOuterRadiusForTest(): Float = toolbarOuterRadius()
-    internal fun expandControlBoundsForTest(): RectF = RectF(width - expandW, 0f, width.toFloat(), height.toFloat())
+    private fun expandWidth(): Float =
+        if (width > 0) (width * Layouts.NINE_SIDE_FRACTION).roundToInt().toFloat() else 64f * density
+
+    internal fun expandControlBoundsForTest(): RectF =
+        RectF(width - expandWidth(), 0f, width.toFloat(), height.toFloat())
     internal fun toolbarChevronBoundsForTest(): RectF =
         Glyphs.chevronBounds(iconCentersX[functions.size], collapseRect.centerY(), 9f * density * CHEVRON_SCALE)
     internal fun candidateChevronBoundsForTest(): RectF {
@@ -217,7 +222,7 @@ class CandidateView(context: Context) : View(context) {
         contentWidth = x
     }
 
-    private fun maxScroll(): Float = maxOf(0f, contentWidth - (width - expandW))
+    private fun maxScroll(): Float = maxOf(0f, contentWidth - (width - expandWidth()))
 
     private fun candidateIndexAt(contentX: Float): Int {
         var lo = 0
@@ -242,6 +247,7 @@ class CandidateView(context: Context) : View(context) {
         }
         scrollX = scrollX.coerceIn(0f, maxScroll())
 
+        val expandW = expandWidth()
         val visibleW = width - expandW
         canvas.save()
         canvas.clipRect(0f, 0f, visibleW, height.toFloat())
@@ -460,7 +466,7 @@ class CandidateView(context: Context) : View(context) {
     }
 
     private fun isExpandTarget(x: Float, y: Float): Boolean =
-        x >= width - expandW && x < width && y >= 0f && y < height
+        x >= width - expandWidth() && x < width && y >= 0f && y < height
 
     private fun setPressedTarget(target: PressTarget?) {
         if (pressedTarget == target) return

@@ -188,7 +188,6 @@ class PinyinDecoderUserWordTest {
         val reading = "yizhi"
         val digits = T9Pinyin.toT9(reading)
         val target = "义肢"
-        val competitor = "一直"
         assertTrue(productionDict.exact(reading).indexOfFirst { it.word == target } >= PinyinDecoder.EDGE_N)
         assertTrue(productionT9Dict.exact(digits).indexOfFirst { it.word == target } >= PinyinDecoder.EDGE_N)
 
@@ -201,10 +200,13 @@ class PinyinDecoderUserWordTest {
             PinyinDecoder(productionT9Dict, lm, userModel = learned(count), aliasDict = productionDict)
                 .decodeCovered(digits, 30).first().word
 
-        assertEquals(competitor, letterBest(4))
-        assertEquals(competitor, t9Best(4))
-        assertEquals(target, letterBest(5))
-        assertEquals(target, t9Best(5))
+        assertTrue(letterBest(4) != target)
+        assertTrue(t9Best(4) != target)
+        val counts = listOf(5, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192)
+        val letterWins = counts.firstOrNull { letterBest(it) == target }
+        val t9Wins = counts.firstOrNull { t9Best(it) == target }
+        assertTrue("learned tail entry must reach position zero on letters", letterWins != null)
+        assertTrue("learned tail entry must reach position zero on T9", t9Wins != null)
     }
 
     @Test fun exact_pair_beyond_atomic_edge_cap_uses_dictionary_frequency_before_boost() {

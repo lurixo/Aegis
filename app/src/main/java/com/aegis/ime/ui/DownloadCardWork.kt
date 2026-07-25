@@ -191,7 +191,7 @@ internal object GramDownloadWork {
                         onProgress(pct / 100f)
                     }
                 }
-            }) { validator -> persistModelValidator(prefs, validator) }
+            }) { snapshot -> persistModelSnapshot(prefs, snapshot) }
             if (result.ok) {
                 SettingsHotApply.noteEnginePackChanged(prefs)
                 LocalizedText.ResourceLong(
@@ -206,15 +206,26 @@ internal object GramDownloadWork {
 
     fun setIdleStatus(context: Context, status: LocalizedText) = runtime.setIdleStatus(context, status)
 
-    internal fun persistModelValidator(prefs: SharedPreferences, validator: String?): Boolean {
+    internal fun persistModelSnapshot(
+        prefs: SharedPreferences,
+        snapshot: ModelDownload.ModelSnapshot,
+    ): Boolean {
         val previous = prefs.all[ModelDownload.VALIDATOR_PREF] as? String
+        val previousSha = prefs.all[ModelDownload.GRAM_SHA256_PREF] as? String
+        val previousSize = prefs.all[ModelDownload.GRAM_SIZE_PREF] as? Long
         val editor = prefs.edit()
-        if (validator == null) editor.remove(ModelDownload.VALIDATOR_PREF)
-        else editor.putString(ModelDownload.VALIDATOR_PREF, validator)
+        if (snapshot.validator == null) editor.remove(ModelDownload.VALIDATOR_PREF)
+        else editor.putString(ModelDownload.VALIDATOR_PREF, snapshot.validator)
+        editor.putString(ModelDownload.GRAM_SHA256_PREF, snapshot.sha256)
+        editor.putLong(ModelDownload.GRAM_SIZE_PREF, snapshot.sizeBytes)
         if (editor.commit()) return true
         val rollback = prefs.edit()
         if (previous == null) rollback.remove(ModelDownload.VALIDATOR_PREF)
         else rollback.putString(ModelDownload.VALIDATOR_PREF, previous)
+        if (previousSha == null) rollback.remove(ModelDownload.GRAM_SHA256_PREF)
+        else rollback.putString(ModelDownload.GRAM_SHA256_PREF, previousSha)
+        if (previousSize == null) rollback.remove(ModelDownload.GRAM_SIZE_PREF)
+        else rollback.putLong(ModelDownload.GRAM_SIZE_PREF, previousSize)
         rollback.apply()
         return false
     }
