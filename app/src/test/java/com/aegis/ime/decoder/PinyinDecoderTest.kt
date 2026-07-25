@@ -88,18 +88,18 @@ class PinyinDecoderTest {
     }
 
     @Test
-    fun rareBiangReadingIsSegmentableAndReachableThroughTheDrill() {
+    fun rareBiangReadingIsSegmentableAndNavigable() {
         val rare = biangChar()
         val d = decoder()
         assumeTrue("dict has the biang rare character", rare in dictSingles("biang"))
 
         assertEquals(listOf("biang"), d.syllables("biang").map { it.reading })
-        assertTrue("the primary strip stays within its requested window", d.decodeCovered("biang", 30).size <= 30)
+        assertTrue("biang free typing recalls the rare character", d.decodeCovered("biang", 30).any { it.word == rare && it.coveredLen == 5 })
         assertTrue("biang homophone drill includes the rare character", rare in d.homophonesAt("biang", 0))
     }
 
     @Test
-    fun t9BiangReadingIsLockableAndReachableThroughTheDrill() {
+    fun t9BiangReadingIsLockableAndNavigable() {
         val rare = biangChar()
         val digits = T9Pinyin.toT9("biang")
         assumeTrue("T9 dict asset present", t9File.exists())
@@ -107,7 +107,7 @@ class PinyinDecoderTest {
         assumeTrue("T9 dict has the biang rare character", t9.exact(digits).any { it.word == rare })
 
         assertTrue("9-key reading list offers biang for $digits", "biang" in T9Pinyin.leftColumnReadings(digits, 24))
-        assertTrue("the T9 primary strip stays within its requested window", t9Decoder().decodeCovered(digits, 30).size <= 30)
+        assertTrue("T9 free typing recalls the rare character", t9Decoder().decodeCovered(digits, 30).any { it.word == rare })
         assertTrue("T9 homophone drill includes the rare character", rare in t9Decoder().homophonesAt(digits, 0))
     }
 

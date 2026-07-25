@@ -415,10 +415,7 @@ class PinyinDecoder(
         for ((w, len) in cover) { out.add(Cand(w, len)); if (out.size >= limit) break }
         if (userModel != null) {
             val present = out.mapTo(HashSet()) { it.word }
-            for (uw in userWordsFor(input)) {
-                if (out.size >= limit) break
-                if (present.add(uw)) out.add(Cand(uw, input.length))
-            }
+            for (uw in userWordsFor(input)) if (present.add(uw)) out.add(Cand(uw, input.length))
         }
         val remainderStart = out.size
         appendLeadingSingles(input, input.length, out, limit, ctxCp, ctxWord)
@@ -494,10 +491,7 @@ class PinyinDecoder(
             if (out.size >= limit) break
             if (seen.add(w)) out.add(Cand(w, leadCov.getValue(w)))
         }
-        for (c in tailRanked) {
-            if (out.size >= limit) break
-            if (seen.add(c.word)) out.add(c)
-        }
+        for (c in tailRanked) if (seen.add(c.word)) out.add(c)
         return out
     }
 
@@ -676,7 +670,6 @@ class PinyinDecoder(
         )
         enforceRareAfterCommon(entries, word = { it.word }, frequency = { it.frequency })
         for (e in entries) {
-            if (out.size >= limit) break
             if (!e.single) { if (wordBudget <= 0) continue; wordBudget-- }
             out.add(Cand(e.word, e.cov))
         }

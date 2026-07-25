@@ -71,12 +71,10 @@ class SeparatorLossTest {
 
     @Test fun apostropheAndPlainAreEquivalentForLeadingSingles() {
         val d = decoder()
-        val withSep = d.homophonesAt("chai'ci", 0).toSet()
-        val plain = d.homophonesAt("chaici", 0).toSet()
-        assertEquals("chai drill homophones identical with/without '", plain, withSep)
-        assertEquals("and complete vs the dict", dictSingles("chai"), withSep)
-        assertTrue(d.decodeCovered("chai'ci", 30).size <= 30)
-        assertTrue(d.decodeCovered("chaici", 30).size <= 30)
+        val withSep = singles(d.decodeCovered("chai'ci", 30)).filter { it in dictSingles("chai") }
+        val plain = singles(d.decodeCovered("chaici", 30)).filter { it in dictSingles("chai") }
+        assertEquals("chai homophones identical with/without '", plain, withSep)
+        assertTrue("and complete vs the dict", withSep.toSet().containsAll(dictSingles("chai")))
     }
 
 
