@@ -134,18 +134,12 @@ class GrammarReferenceTest(unittest.TestCase):
             bp.grammar_reference(release)
 
 
-class VersionedDictionaryReleaseTest(unittest.TestCase):
-    def test_release_tag_and_asset_name_preserve_the_upstream_version(self):
-        self.assertEqual("v16.2.3", bp.dictionary_release_source_tag("dict-v16.2.3-r1"))
-        self.assertEqual(
-            "aegis_dict_pack_dict-v16.2.3-r1.zip",
-            bp.default_asset_name("dict-v16.2.3-r1"),
-        )
+class DefaultAssetNameTest(unittest.TestCase):
+    def test_rolling_tag_keeps_the_name_the_installed_app_asks_for(self):
+        self.assertEqual("aegis_dict_pack_dict-latest.zip", bp.default_asset_name("dict-latest"))
 
-    def test_rejects_rolling_app_and_zero_revision_tags(self):
-        for tag in ["dict-latest", "v0.1.0-beta.23", "dict-v16.2.3-r0"]:
-            with self.assertRaises(ValueError):
-                bp.dictionary_release_source_tag(tag)
+    def test_debug_tag_keeps_the_short_numbered_name(self):
+        self.assertEqual("aegis_dict_pack_debug13.zip", bp.default_asset_name("v0.1.0-debug.13"))
 
 
 class SourceCheckoutValidationTest(unittest.TestCase):
@@ -172,8 +166,8 @@ class SourceCheckoutValidationTest(unittest.TestCase):
         self.git(repo, "tag", "v16.2.3")
         return repo, table
 
-    def args(self, repo):
-        return SimpleNamespace(source_dir=str(repo), source_tag="v16.2.3")
+    def args(self, repo, source_tag="v16.2.3"):
+        return SimpleNamespace(source_dir=str(repo), source_tag=source_tag)
 
     def test_accepts_clean_source_dir_at_the_source_tag(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -183,6 +177,16 @@ class SourceCheckoutValidationTest(unittest.TestCase):
             self.assertEqual(
                 repo.resolve(),
                 bp.ensure_source_checkout(self.args(repo), root / "work"),
+            )
+
+    def test_accepts_clean_source_dir_with_no_pinned_source_tag(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo, _ = self.repository(root)
+
+            self.assertEqual(
+                repo.resolve(),
+                bp.ensure_source_checkout(self.args(repo, None), root / "work"),
             )
 
     def test_rejects_source_dir_whose_head_does_not_match_the_source_tag(self):
