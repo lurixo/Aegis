@@ -976,14 +976,7 @@ class KeyboardController(
         val readings = expandedReadings()
         if (index !in readings.indices) return
         expirePreeditChoiceUndo()
-        val reading = readings[index]
-        if (layoutId == LayoutId.NINE && mode() == Mode.PINYIN && composing.isNotEmpty() &&
-            activeDigits().isEmpty() && lockedReadings.size == 1 && lockedReadings.single() == reading
-        ) {
-            drillSyllable = 0
-        } else {
-            handlePickReading(Key(reading, output = reading, action = KeyAction.PICK_READING))
-        }
+        handlePickReading(Key(readings[index], output = readings[index], action = KeyAction.PICK_READING))
         refreshCandidates()
         render()
     }
