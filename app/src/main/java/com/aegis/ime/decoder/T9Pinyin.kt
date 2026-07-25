@@ -47,9 +47,9 @@ object T9Pinyin {
         ba bo bai bei bao ban ben bang beng bi bie biao bian bin bing bu
         pa po pai pei pao pou pan pen pang peng pi pie piao pian pin ping pu
         ma mo me mai mei mao mou man men mang meng mi mie miao miu mian min ming mu
-        fa fo fei fou fan fen fang feng fu
+        fa fo fei fiao fou fan fen fang feng fu
         da de dai dei dao dou dan den dang deng dong di dia die diao diu dian ding du duo dui duan dun
-        ta te tai tao tou tan tang teng tong ti tie tiao tian ting tu tuo tui tuan tun
+        ta te tai tei tao tou tan tang teng tong ti tie tiao tian ting tu tuo tui tuan tun
         na ne nai nei nao nou nan nen nang neng nong ni nie niao niu nian nin niang ning nu nuo nuan nun nv nve
         la lo le lai lei lao lou lan lang leng long li lia lie liao liu lian lin liang ling lu luo luan lun lv lve
         ga ge gai gei gao gou gan gen gang geng gong gu gua guo guai gui guan gun guang
@@ -63,7 +63,7 @@ object T9Pinyin {
         sha she shi shai shei shao shou shan shen shang sheng shu shua shuo shuai shui shuan shun shuang
         re ri rao rou ran ren rang reng rong ru rua ruo rui ruan run
         za ze zi zai zei zao zou zan zen zang zeng zong zu zuo zui zuan zun
-        ca ce ci cai cao cou can cen cang ceng cong cu cuo cui cuan cun
+        ca ce cei ci cai cao cou can cen cang ceng cong cu cuo cui cuan cun
         sa se si sai sao sou san sen sang seng song su suo sui suan sun
         n ng m biang
     """.trim().split(Regex("\\s+")).toSet()
