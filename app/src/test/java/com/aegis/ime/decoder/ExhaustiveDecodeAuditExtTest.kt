@@ -208,7 +208,7 @@ class ExhaustiveDecodeAuditExtTest {
         }
         writeTsv(File(outDir(), "ext_e1.tsv"), fails)
         summary(File(outDir(), "ext_e1_summary.txt"), "E1 — 9-key sequential locking",
-            "pairs covered: ${syls.size.toLong() * syls.size} (all ordered 415²)", fails)
+            "pairs covered: ${syls.size.toLong() * syls.size} (all ordered ${syls.size}²)", fails)
         val escaped = fails.filter { it.check == "E1-crossing-escaped" || it.check == "E1-aligned-but-mismatch" }
         assertTrue("lock-boundary filter escaped on ${escaped.size} pairs: ${escaped.take(5)}", escaped.isEmpty())
         assertTrue("E1 report written", File(outDir(), "ext_e1.tsv").exists())
@@ -311,7 +311,7 @@ class ExhaustiveDecodeAuditExtTest {
         }
         writeTsv(File(outDir(), "ext_e3.tsv"), fails)
         summary(File(outDir(), "ext_e3_summary.txt"), "E3 — partial commit then continue",
-            "pairs covered: ${syls.size.toLong() * syls.size} on letters AND T9; remainder integrity per distinct S2 (415)", fails)
+            "pairs covered: ${syls.size.toLong() * syls.size} on letters AND T9; remainder integrity per distinct S2 (${syls.size})", fails)
         assertTrue("E3 report written", File(outDir(), "ext_e3.tsv").exists())
     }
 

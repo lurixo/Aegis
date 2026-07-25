@@ -60,6 +60,16 @@ class T9PinyinTest {
         assertEquals("ni", T9Pinyin.preedit("64"))
     }
 
+    @Test fun source_backed_rare_readings_are_segmentable_and_selectable() {
+        for (reading in listOf("cei", "fiao", "tei")) {
+            assertEquals(listOf(reading), T9Pinyin.segmentLetters(reading))
+            assertTrue(
+                "$reading should be selectable from its T9 code",
+                reading in T9Pinyin.leftColumnReadings(T9Pinyin.toT9(reading), 32),
+            )
+        }
+    }
+
     @Test fun jiangzhi_keeps_the_jiang_boundary_in_continuous_input() {
         assertEquals(listOf("jiang", "zhi"), T9Pinyin.segmentLetters("jiangzhi"))
 

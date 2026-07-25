@@ -138,8 +138,9 @@ private fun parseDict(
 ) {
     scanNormalizedDict(r, t2s, { row ->
         tally(Skip.ROW)
-        if (row.freq < minFreq) {
-            completeness?.offerBelowThreshold(row.syllables, row.word, row.freq)
+        val freq = row.freq.coerceAtLeast(1)
+        if (freq < minFreq) {
+            completeness?.offerBelowThreshold(row.syllables, row.word, freq)
             tally(Skip.LOW_FREQ)
         } else {
             completeness?.noteKept(row.syllables, row.word)
@@ -150,7 +151,7 @@ private fun parseDict(
                 "initials" -> row.syllables.joinToString("") { it.substring(0, 1) }
                 else -> letterKey
             }
-            w.write(key); w.write("\t"); w.write(row.word); w.write("\t"); w.write(row.freq.toString())
+            w.write(key); w.write("\t"); w.write(row.word); w.write("\t"); w.write(freq.toString())
             if (row.sourceTag.isNotEmpty()) { w.write("\t"); w.write(row.sourceTag) }
             w.write("\n")
             tally(Skip.KEPT)
