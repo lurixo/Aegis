@@ -795,14 +795,22 @@ class KeyboardController(
     }
 
     private fun computeDrill(req: DecodeRequest): List<Cand> {
-        val syls = req.engine.syllablesForReading(req.raw)
+        val reading = if (req.isNine && req.lockedNonEmpty) req.full else req.raw
+        val syls = req.engine.syllablesForReading(reading)
         if (req.drillSyllable !in syls.indices) return emptyList()
-        val coveredLen = syls[req.drillSyllable].end.coerceIn(1, req.composingLen)
-        return req.engine.homophonesForReadingAt(req.raw, req.drillSyllable).map { Cand(it, coveredLen) }
+        val readingEnd = syls[req.drillSyllable].end
+        val coveredLen = if (req.isNine) req.bounds[readingEnd] ?: readingEnd else readingEnd
+        return req.engine.homophonesForReadingAt(reading, req.drillSyllable)
+            .map { Cand(it, coveredLen.coerceIn(1, req.composingLen)) }
     }
 
     private fun currentSyllables(): List<Syllable> =
-        if (composing.isEmpty()) emptyList() else engine.syllablesForReading(composing.toString())
+        when {
+            composing.isEmpty() -> emptyList()
+            layoutId == LayoutId.NINE && activeDigits().isEmpty() && lockedReadings.size == 1 ->
+                engine.syllablesForReading(lockedReadings.single())
+            else -> engine.syllablesForReading(composing.toString())
+        }
 
     private fun savePreeditChoiceUndo() {
         preeditChoiceUndo.addLast(PreeditChoiceUndo(
@@ -968,7 +976,14 @@ class KeyboardController(
         val readings = expandedReadings()
         if (index !in readings.indices) return
         expirePreeditChoiceUndo()
-        handlePickReading(Key(readings[index], output = readings[index], action = KeyAction.PICK_READING))
+        val reading = readings[index]
+        if (layoutId == LayoutId.NINE && mode() == Mode.PINYIN && composing.isNotEmpty() &&
+            activeDigits().isEmpty() && lockedReadings.size == 1 && lockedReadings.single() == reading
+        ) {
+            drillSyllable = 0
+        } else {
+            handlePickReading(Key(reading, output = reading, action = KeyAction.PICK_READING))
+        }
         refreshCandidates()
         render()
     }

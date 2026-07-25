@@ -388,10 +388,10 @@ class Ui12SyllableColumnTest {
         assertEquals("the close path drops the drill", -1, c.drilledSyllableForTest())
     }
 
-    @Test fun nine_key_reading_pick_still_locks_and_never_drills() {
+    @Test fun nine_key_reading_pick_still_locks_before_drilling() {
         val (_, c) = nineWithBuffer("6443")
         c.onPickReadingIndex(c.expandedReadings().indexOf("ni"))
-        assertEquals("the 9-key path locks (★E), it never sets a drill", -1, c.drilledSyllableForTest())
+        assertEquals("the 9-key path locks before a selected reading can drill", -1, c.drilledSyllableForTest())
         assertEquals("locking advances the preedit", "ni'ge", c.preeditForTest())
     }
 
@@ -423,6 +423,37 @@ class Ui12SyllableColumnTest {
         assertTrue("the UI lists EVERY he 同音字 the dict holds (no re-cap)", shown.containsAll(heSet))
         assertTrue("…and more than the old 30-cap", c.candidateWords().size > 30 || heSet.size <= 30)
         assertTrue("和 reachable through the drill", "和" in shown)
+    }
+
+    @Test fun real_dict_nine_key_selected_reading_repick_surfaces_every_homophone() {
+        val eng = realEngine(); assumeTrue("dict assets present", eng != null)
+        val dict = BinaryDict.fromFile(File("src/main/assets/aegis_dict.bin"))
+        val heSet = dict.exact("he").filter { isSingleChar(it.word) }.map { it.word }.toSet()
+        assumeTrue("dict has more homophones than the primary cap", heSet.size > 30)
+
+        val host = RecordingHost()
+        val c = KeyboardController(host, eng!!)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        T9Pinyin.toT9("he").forEach { c.onKey(out(it.toString())) }
+        val firstPick = c.expandedReadings().indexOf("he")
+        assertTrue("9-key exposes he as a lockable reading, was ${c.expandedReadings()}", firstPick >= 0)
+        c.onPickReadingIndex(firstPick)
+
+        val primary = c.candidateWords().toSet()
+        assertTrue("locked primary candidates remain capped", primary.size <= 30)
+        assertTrue("precondition: the primary cap omits at least one he homophone", !primary.containsAll(heSet))
+
+        val selected = c.expandedReadings().indexOf("he")
+        assertTrue("the locked he reading remains selectable, was ${c.expandedReadings()}", selected >= 0)
+        c.onPickReadingIndex(selected)
+
+        val shown = c.candidateWords().toSet()
+        assertEquals("re-picking the selected 9-key reading enters its drill", 0, c.drilledSyllableForTest())
+        assertTrue("the 9-key drill lists every he homophone the dictionary holds", shown.containsAll(heSet))
+        assertTrue("the 9-key drill is not capped at the primary limit", c.candidateWords().size > 30)
+        val omitted = heSet.first { it !in primary }
+        c.onPickCandidate(c.candidateWords().indexOf(omitted))
+        assertEquals("a homophone omitted from the primary list remains committable", listOf(omitted), host.commits)
     }
 
     @Test fun real_dict_biang_is_available_in_expanded_reading_paths() {
