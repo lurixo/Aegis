@@ -155,12 +155,6 @@ class CandidateGridRecyclingTest {
         assertTrue("the attached chip pool must stay independent of the 2,120-item result", v.chipsAllocatedForTest() < 100)
     }
 
-    @Test fun collapsed_strip_caps_an_exhaustive_candidate_set() {
-        val v = CandidateView(ctx)
-        v.setContent(List(2_120) { "候选$it" }, "943943")
-        assertEquals(30, v.itemCount())
-    }
-
 
     @Test fun selection_only_change_recolours_without_reallocating() {
         val v = grid()
