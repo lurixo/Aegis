@@ -375,10 +375,17 @@ class PinyinDecoder(
         val cover = LinkedHashMap<String, Int>()
         val completionCap = maxOf(1, limit * 2 / 3)
         bestSentence(input, emptySet(), ctxCp, ctxWord)?.let { cover[it] = input.length }
-        val pool = ArrayList<Pair<BinaryDict.WordFreq, Double>>()
+        val pool = ArrayList<RankedWord>()
         val offered = HashSet<String>()
         fun offer(wf: BinaryDict.WordFreq, penalty: Double) {
-            if (offered.add(wf.word)) pool.add(wf to (wordModelScore(wf.word, wf.freq, ctxId, ctxWord, condMemo) - penalty))
+            if (offered.add(wf.word)) {
+                pool.add(
+                    RankedWord(
+                        wf,
+                        wordModelScore(wf.word, wf.freq, ctxId, ctxWord, condMemo) - penalty,
+                    ),
+                )
+            }
         }
         dict.exact(input).forEach { offer(it, 0.0) }
         inputAliasWordFreqs(input).forEach { offer(it, ALIAS_PENALTY) }
@@ -392,8 +399,13 @@ class PinyinDecoder(
         }
         initialsDict?.let { id -> id.prefixByFreq(input, completionCap).forEach { offer(it, INITIALS_PENALTY) } }
         pool.sortWith(
-            compareByDescending<Pair<BinaryDict.WordFreq, Double>> { it.second }
-                .thenBy { supplementarySingleTieRank(it.first.word) },
+            compareByDescending<RankedWord> { it.score }
+                .thenBy { supplementarySingleTieRank(it.wordFreq.word) },
+        )
+        enforceRareAfterCommon(
+            pool,
+            word = { it.wordFreq.word },
+            frequency = { it.wordFreq.freq.toDouble() },
         )
         for ((wf, _) in pool) {
             if (cover.size >= completionCap) break
@@ -613,13 +625,29 @@ class PinyinDecoder(
                 var added = 0
                 for (wf in preferredExact(dict, input.substring(0, q))) {
                     if (isSingleChar(wf.word) || !seen.add(wf.word)) continue
-                    entries.add(Entry(wf.word, q, wordModelScore(wf.word, wf.freq, ctxId, ctxWord, condMemo), single = false))
+                    entries.add(
+                        Entry(
+                            wf.word,
+                            q,
+                            wordModelScore(wf.word, wf.freq, ctxId, ctxWord, condMemo),
+                            single = false,
+                            frequency = wf.freq.toDouble(),
+                        ),
+                    )
                     if (++added >= PREFIX_PER_LEN) break
                 }
             }
             if (q in lensSet) {
                 for ((w, f) in homophoneFreqs(input.substring(0, q))) if (seen.add(w))
-                    entries.add(Entry(w, q, wordModelScore(w, f, ctxId, ctxWord, condMemo), single = true))
+                    entries.add(
+                        Entry(
+                            w,
+                            q,
+                            wordModelScore(w, f, ctxId, ctxWord, condMemo),
+                            single = true,
+                            frequency = f,
+                        ),
+                    )
             }
         }
         if (lens.firstOrNull() != input.length) for (k in lens) {
@@ -632,12 +660,21 @@ class PinyinDecoder(
             for (c in out) if (c.coveredLen == k) present.add(c.word)
             for (e in entries) if (e.cov == k) present.add(e.word)
             for ((w, f) in homophoneFreqs(input.substring(0, k))) if (present.add(w))
-                entries.add(Entry(w, k, wordModelScore(w, f, ctxId, ctxWord, condMemo), single = true))
+                entries.add(
+                    Entry(
+                        w,
+                        k,
+                        wordModelScore(w, f, ctxId, ctxWord, condMemo),
+                        single = true,
+                        frequency = f,
+                    ),
+                )
         }
         entries.sortWith(
             compareByDescending<Entry> { it.score }
                 .thenBy { supplementarySingleTieRank(it.word) },
         )
+        enforceRareAfterCommon(entries, word = { it.word }, frequency = { it.frequency })
         for (e in entries) {
             if (out.size >= limit) break
             if (!e.single) { if (wordBudget <= 0) continue; wordBudget-- }
@@ -645,7 +682,48 @@ class PinyinDecoder(
         }
     }
 
-    private class Entry(val word: String, val cov: Int, val score: Double, val single: Boolean)
+    private fun <T> enforceRareAfterCommon(
+        entries: MutableList<T>,
+        word: (T) -> String,
+        frequency: (T) -> Double,
+    ) {
+        fun classification(entry: T): Int {
+            if ((userModel?.wordBoost(word(entry)) ?: 0.0) > 0.0) return 0
+            val freq = frequency(entry)
+            return when {
+                freq >= ORDERING_COMMON_FREQ -> 1
+                freq <= ORDERING_RARE_FREQ -> -1
+                else -> 0
+            }
+        }
+        val lastCommon = entries.indexOfLast { classification(it) > 0 }
+        if (lastCommon <= 0 || entries.subList(0, lastCommon).none { classification(it) < 0 }) return
+        val ordered = ArrayList<T>(entries.size)
+        val delayed = ArrayList<T>()
+        for ((index, entry) in entries.withIndex()) {
+            if (index < lastCommon && classification(entry) < 0) {
+                delayed.add(entry)
+            } else {
+                ordered.add(entry)
+                if (index == lastCommon) ordered.addAll(delayed)
+            }
+        }
+        entries.clear()
+        entries.addAll(ordered)
+    }
+
+    private data class RankedWord(
+        val wordFreq: BinaryDict.WordFreq,
+        val score: Double,
+    )
+
+    private class Entry(
+        val word: String,
+        val cov: Int,
+        val score: Double,
+        val single: Boolean,
+        val frequency: Double,
+    )
 
     fun syllables(input: String): List<Syllable> {
         if (input.isEmpty()) return emptyList()
@@ -807,6 +885,8 @@ class PinyinDecoder(
         const val CTX_WORD_MAX = 4
         const val MAX_SYLLABLE_KEY_LEN = 6
         const val EXACT_TIE_LOOKAHEAD = 16
+        const val ORDERING_RARE_FREQ = 100.0
+        const val ORDERING_COMMON_FREQ = 1000.0
         val ALIAS_FREQ_DISCOUNT = exp(-ALIAS_PENALTY)
         const val DEFAULT_CONTEXT_WEIGHT = 1.0
         val INPUT_ALIASES = mapOf("en" to listOf("ng"))
