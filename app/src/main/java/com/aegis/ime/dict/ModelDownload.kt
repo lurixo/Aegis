@@ -29,6 +29,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 
 object ModelDownload {
@@ -280,6 +281,7 @@ object ModelDownload {
     private const val DICT_DOWNLOAD_URL_PREFIX = "https://github.com/lurixo/Aegis/releases/download"
     private const val DICT_UPDATE_ASSET_NAME = "aegis-dictionary-update.json"
     private const val DICT_BUILD_INFO_ASSET_NAME = "aegis-build-info.json"
+    private const val DICT_RELEASES_PAGE_SIZE = 100
     private val DICT_RELEASE_TAG_PATTERN = Regex("""dict-(v\d+\.\d+\.\d+)-r([1-9]\d*)""")
 
     const val DICT_NAME = "aegis_dict_pack.zip"
@@ -559,7 +561,7 @@ object ModelDownload {
 
     internal fun resolveDictionaryDownloadAsset(fetch: (String) -> String): DictionaryAsset? =
         runCatching {
-            val release = dictionaryReleaseFromListJson(fetch(DICT_RELEASES_URL))
+            val release = dictionaryReleaseFromListJson(fetchDictionaryReleaseList(fetch))
             dictionaryAssetFromUpdateJson(fetch(release.manifestUrl), release)
         }.getOrNull()
 
@@ -571,7 +573,9 @@ object ModelDownload {
         current: DictionaryInstallMetadata,
     ): DictionaryUpdateCheck {
         val releasesJson = try {
-            fetch(DICT_RELEASES_URL)
+            fetchDictionaryReleaseList(fetch)
+        } catch (t: JSONException) {
+            return DictionaryUpdateCheck(UpdateCheck.PARSE_ERROR)
         } catch (t: Exception) {
             return DictionaryUpdateCheck(classifyRequestFailure(t).toUpdateCheck())
         }
@@ -591,6 +595,20 @@ object ModelDownload {
             else DictionaryUpdateCheck(UpdateCheck.UP_TO_DATE)
         } catch (t: Exception) {
             DictionaryUpdateCheck(UpdateCheck.PARSE_ERROR)
+        }
+    }
+
+    private fun fetchDictionaryReleaseList(fetch: (String) -> String): String {
+        val releases = JSONArray()
+        var page = 1
+        while (true) {
+            val url = if (page == 1) DICT_RELEASES_URL else "$DICT_RELEASES_URL&page=$page"
+            val pageReleases = JSONArray(fetch(url))
+            for (i in 0 until pageReleases.length()) {
+                releases.put(pageReleases.get(i))
+            }
+            if (pageReleases.length() < DICT_RELEASES_PAGE_SIZE) return releases.toString()
+            page++
         }
     }
 
