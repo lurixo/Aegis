@@ -23,7 +23,7 @@ import java.io.File
 class ReleaseDictionaryBuildToolTest {
 
     @Test
-    fun releaseDictionaryToolBuildsLatestFullPackMetadataWithoutUploading() {
+    fun releaseDictionaryToolBuildsVersionedFullPackMetadataWithoutUploading() {
         val script = File("../tools/release/build_dictionary_pack.py").readText()
 
         listOf("zi", "jichu", "lianxiang", "cuoyin", "duoyin", "shici", "diming", "yixue", "huaxue", "yaopin", "mingren", "yiren", "wuzhong", "renming").forEach {
@@ -32,9 +32,10 @@ class ReleaseDictionaryBuildToolTest {
         assertTrue(script.contains("\"--min-freq\""))
         assertTrue(script.contains("\"1\""))
         assertTrue(script.contains("\"--keytype\""))
-        assertTrue(script.contains("aegis_dict_pack_debug"))
-        assertTrue(script.contains("dict-latest"))
-        assertTrue(script.contains("rolling dict-latest GitHub release"))
+        assertTrue(script.contains("dict-vX.Y.Z-rN"))
+        assertTrue(script.contains("dictionary_release_source_tag"))
+        assertTrue(script.contains("aegis_dict_pack_{release_tag}.zip"))
+        assertTrue(script.contains("\"prerelease\": False"))
         assertTrue(script.contains("aegis-build-info.json"))
         assertTrue(script.contains("aegis-dictionary-update.json"))
         assertTrue(script.contains("sha256_file(zip_path)"))
@@ -44,5 +45,7 @@ class ReleaseDictionaryBuildToolTest {
         assertFalse(script.contains("upload_url"))
         assertFalse(script.contains("GITHUB_TOKEN"))
         assertFalse(script.contains("GH_TOKEN"))
+        assertFalse(script.contains("dict-latest"))
+        assertFalse(script.contains("rolling"))
     }
 }

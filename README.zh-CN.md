@@ -127,23 +127,24 @@ tools/build/install/tools/bin/tools lm --out <lm> --t2s-data tools/t2s-data <14 
 
 ## 发布词库包
 
-应用 APK 发布与可下载词库包分开发布。带版本号的应用 release 只携带 APK，不参与词库更新发现。完整词库包与
-随附的 `aegis-dictionary-update.json` 与 `aegis-build-info.json` 元数据发布在滚动的
-[`dict-latest`](https://github.com/lurixo/Aegis/releases/tag/dict-latest) GitHub release 上；应用只从
-这个 release tag 读取词库元数据，按已安装包与当前 ZIP 的 SHA-256 和内容元数据判断是否更新。
+应用 APK 发布与可下载词库包分开发布。带版本号的应用 release 只携带 APK，不参与词库更新发现。每个完整词库包
+使用正式、不可变的 `dict-vX.Y.Z-rN` GitHub Release，其中 `vX.Y.Z` 必须是精确的上游词库版本，
+`N` 是该版本从正整数开始的 Aegis 发布修订号。应用按 `published_at` 选出唯一最新的合格 Release，
+核验其精确的三附件集合与 manifest，再按已安装包和所选 ZIP 的 SHA-256 判断是否更新。旧
+[`dict-latest`](https://github.com/lurixo/Aegis/releases/tag/dict-latest) 对象只为旧版应用冻结保留，
+当前发现流程不再使用它。
 
 ```
-tools/release/build_dictionary_pack.py --release-tag dict-latest
+tools/release/build_dictionary_pack.py --release-tag dict-v16.2.3-r1 --source-tag v16.2.3
 ```
 
-该命令默认克隆 `amzxyz/rime-wanxiang`（默认取某个稳定 tag，或用 `--source-dir` 指定本地目录），
+该命令克隆精确的 `amzxyz/rime-wanxiang` 稳定 tag（也可用 `--source-dir` 指定本地目录），
 用 `tools/DictBuilder` 以 `--min-freq 1`、无每键上限构建 14 张已核验表，并在
 `build/release-dictionary/` 下写出词库包 ZIP、`aegis-build-info.json` 与
-`aegis-dictionary-update.json`。把这些生成文件上传到滚动的 `dict-latest` release，不要上传到带
-版本号的应用 release。已签入的 `aegis-build-info.json` 记录当前滚动词库包溯源链（来源 tag 与
-commit、逐表输入哈希、构建参数、输出 bin 哈希和物理附件 URL）及其尚存的溯源缺口；滚动词库包重新
-发布时需要同步更新它。在 release 同时携带确切
-输入哈希、可确定复现的配方以及签名或证明之前，词库包还不是完全可复现的公共供应链产物。
+`aegis-dictionary-update.json`。只把这三个生成文件发布到匹配的不可变词库 Release，不要上传到带
+版本号的应用 release。该 Release 中的 `aegis-build-info.json` 记录来源 tag 与 commit、逐表输入
+哈希、构建参数、输出 bin 哈希、物理附件 URL 及尚存的溯源缺口。在 Release 同时携带确切输入哈希、
+可确定复现的配方以及签名或证明之前，词库包还不是完全可复现的公共供应链产物。
 
 ## 架构
 
