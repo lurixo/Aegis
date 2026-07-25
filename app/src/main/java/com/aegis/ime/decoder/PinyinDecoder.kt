@@ -196,6 +196,21 @@ class PinyinDecoder(
         return v
     }
 
+    private fun internalBigramScore(word: String, model: CharBigramLM, memo: HashMap<Long, Double>): Double {
+        if (word.isEmpty()) return 0.0
+        var offset = 0
+        var previous = word.codePointAt(offset)
+        offset += Character.charCount(previous)
+        var score = 0.0
+        while (offset < word.length) {
+            val next = word.codePointAt(offset)
+            score += logCondMemo(memo, model, model.charId(previous), model.charId(next))
+            previous = next
+            offset += Character.charCount(next)
+        }
+        return score
+    }
+
     private fun wordModelScore(word: String, freq: Int, ctxId: Int, ctxWord: String, condMemo: HashMap<Long, Double>): Double =
         wordModelScore(word, freq.toDouble(), ctxId, ctxWord, condMemo)
 
@@ -203,7 +218,10 @@ class PinyinDecoder(
         (ln(freq) - lnTotal) +
             (userModel?.wordBoost(word) ?: 0.0) +
             (octagram?.let { octagramWeight * (it.rawScore(word) ?: 0.0) } ?: 0.0) +
-            (lm?.let { if (ctxId != NO_CTX) contextWeight * logCondMemo(condMemo, it, ctxId, it.charId(word.codePointAt(0))) else 0.0 } ?: 0.0) +
+            (lm?.let {
+                lambda * internalBigramScore(word, it, condMemo) +
+                    if (ctxId != NO_CTX) contextWeight * logCondMemo(condMemo, it, ctxId, it.charId(word.codePointAt(0))) else 0.0
+            } ?: 0.0) +
             (if (octagram != null && ctxWord.isNotEmpty()) octagramWeight * (octagram.rawScore(ctxWord + word) ?: 0.0) else 0.0)
 
     private fun rerankedWholeInputAndAliases(input: String, ctxCp: Int, ctxWord: String): List<String> {
@@ -558,12 +576,13 @@ class PinyinDecoder(
                     val lastCp = w.codePointBefore(w.length)
                     val uni = ln(wf.freq.toDouble()) - lnTotal
                     val boost = userModel?.wordBoost(w) ?: 0.0
+                    val inner = if (model == null) 0.0 else lambda * internalBigramScore(w, model, condMemo)
                     for (p in src) {
                         val bw = if (p.text.isEmpty() && p.lastCp != BOS) contextWeight else lambda
                         val bi = if (model == null || p.lastCp == BOS) 0.0 else bw * logCondMemo(condMemo, model, model.charId(p.lastCp), idFirst)
                         val og = if (octagram != null && p.lastWord.isNotEmpty())
                             octagramWeight * (octagram.rawScore(p.lastWord + w) ?: 0.0) else 0.0
-                        dp[j].add(APath(p.text + w, lastCp, w, p.score + uni + bi + boost + og))
+                        dp[j].add(APath(p.text + w, lastCp, w, p.score + uni + bi + inner + boost + og))
                     }
                 }
             }
@@ -734,13 +753,14 @@ class PinyinDecoder(
                     val firstCp = w.codePointAt(0)
                     val idFirst = model?.charId(firstCp) ?: -1
                     val lastCp = w.codePointBefore(w.length)
+                    val inner = if (model == null) 0.0 else lambda * internalBigramScore(w, model, condMemo)
                     for ((prevChar, cell) in from) {
                         val bw = if (cell.prevPos < 0 && prevChar != BOS) contextWeight else lambda
                         val bi = if (model == null || prevChar == BOS) 0.0
                         else bw * logCondMemo(condMemo, model, model.charId(prevChar), idFirst)
                         val og = if (octagram != null && cell.word.isNotEmpty())
                             octagramWeight * (octagram.rawScore(cell.word + w) ?: 0.0) else 0.0
-                        val score = cell.score + uni + bi + boost - e.penalty + og
+                        val score = cell.score + uni + bi + inner + boost - e.penalty + og
                         val cur = dp[q][lastCp]
                         if (cur == null || score > cur.score) {
                             dp[q][lastCp] = Cell(score, p, prevChar, w)
@@ -775,7 +795,7 @@ class PinyinDecoder(
         const val BOS = -1
         const val NO_CTX = Int.MIN_VALUE
         const val EDGE_N = 20
-        const val DEFAULT_LAMBDA = 1.0
+        const val DEFAULT_LAMBDA = 0.5
         const val FUZZY_PENALTY = 3.0
         const val ALIAS_PENALTY = 3.5
         const val INITIALS_PENALTY = 5.0
@@ -788,7 +808,7 @@ class PinyinDecoder(
         const val MAX_SYLLABLE_KEY_LEN = 6
         const val EXACT_TIE_LOOKAHEAD = 16
         val ALIAS_FREQ_DISCOUNT = exp(-ALIAS_PENALTY)
-        const val DEFAULT_CONTEXT_WEIGHT = 2.0
+        const val DEFAULT_CONTEXT_WEIGHT = 1.0
         val INPUT_ALIASES = mapOf("en" to listOf("ng"))
         val T9_INPUT_ALIASES: Map<String, List<String>> =
             INPUT_ALIASES.entries.associate { (k, v) -> T9Pinyin.toT9(k) to v }

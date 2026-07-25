@@ -55,8 +55,8 @@ fun main(rawArgs: Array<String>) {
                 when (kind) {
                     Skip.ROW -> totalRows++
                     Skip.KEPT -> kept++
-                    Skip.NON_ASCII -> { totalRows++; skippedNonAscii++ }
-                    Skip.LOW_FREQ -> { totalRows++; skippedLowFreq++ }
+                    Skip.NON_ASCII -> skippedNonAscii++
+                    Skip.LOW_FREQ -> skippedLowFreq++
                 }
             } }
         }
@@ -64,13 +64,13 @@ fun main(rawArgs: Array<String>) {
     }
     println("parsed rows=$totalRows kept=$kept skippedNonAscii=$skippedNonAscii skippedLowFreq=$skippedLowFreq")
 
+    val tmpByWord = File.createTempFile("aegis-dict-byword-", ".tsv").apply { deleteOnExit() }
+    val tmpMerged = File.createTempFile("aegis-dict-merged-", ".tsv").apply { deleteOnExit() }
+    externalSortByKeyWord(tmpRecords, tmpByWord)
+    val mergedCount = mergeAdjacentDuplicates(tmpByWord, tmpMerged)
+    println("canonical merge: $mergedCount duplicate (key, word) rows folded")
+    tmpMerged.copyTo(tmpRecords, overwrite = true)
     if (t2s != null) {
-        val tmpByWord = File.createTempFile("aegis-dict-byword-", ".tsv").apply { deleteOnExit() }
-        val tmpMerged = File.createTempFile("aegis-dict-merged-", ".tsv").apply { deleteOnExit() }
-        externalSortByKeyWord(tmpRecords, tmpByWord)
-        val mergedCount = mergeAdjacentDuplicates(tmpByWord, tmpMerged)
-        println("t2s merge: $mergedCount duplicate (key, word) rows folded (frequencies summed)")
-        tmpMerged.copyTo(tmpRecords, overwrite = true)
         println("t2s: converted words=${t2s.convertedWords} phraseHits=${t2s.phraseHits} charHits=${t2s.charHits} readingOverrides=${t2s.overrideHits} misaligned=${t2s.misaligned}")
     }
     externalSort(tmpRecords, tmpSorted)
@@ -85,15 +85,18 @@ fun main(rawArgs: Array<String>) {
 
 private enum class Skip { ROW, KEPT, NON_ASCII, LOW_FREQ }
 
-private fun parseDict(
+internal data class NormalizedDictRow(
+    val word: String,
+    val syllables: List<String>,
+    val freq: Int,
+    val sourceTag: String,
+)
+
+internal fun scanNormalizedDict(
     r: BufferedReader,
-    w: BufferedWriter,
-    minFreq: Int,
-    keyType: String,
-    syllableCounts: HashMap<String, Long>,
-    completeness: SyllableCompleteness?,
     t2s: T2SMerge?,
-    tally: (Skip) -> Unit,
+    onRow: (NormalizedDictRow) -> Unit,
+    onNonAscii: () -> Unit,
 ) {
     var inData = false
     while (true) {
@@ -105,33 +108,57 @@ private fun parseDict(
         if (line.isEmpty() || line.startsWith('#')) continue
         val cols = line.split('\t')
         if (cols.size < 2) continue
-        tally(Skip.ROW)
         val rawWord = cols[0]
-        val pinyin = cols[1]
-        val freq = cols.getOrNull(2)?.trim()?.toIntOrNull() ?: 1
-        val syllables = Pinyin.stripTones(pinyin).split(' ').filter { it.isNotEmpty() }
+        val syllables = Pinyin.stripTones(cols[1]).split(' ').filter { it.isNotEmpty() }
         val word = t2s?.convert(rawWord, syllables) ?: rawWord
-        val srcTag = if (t2s != null && word != rawWord) rawWord else ""
         if (syllables.isEmpty() || syllables.any { !Pinyin.isAsciiSyllable(it) }) {
-            tally(Skip.NON_ASCII); continue
+            onNonAscii()
+            continue
         }
-        if (freq < minFreq) {
-            completeness?.offerBelowThreshold(syllables, word, freq)
-            tally(Skip.LOW_FREQ); continue
-        }
-        completeness?.noteKept(syllables, word)
-        for (s in syllables) syllableCounts.merge(s, 1L, Long::plus)
-        val letterKey = syllables.joinToString("")
-        val key = when (keyType) {
-            "digit" -> Pinyin.toT9(letterKey)
-            "initials" -> syllables.joinToString("") { it.substring(0, 1) }
-            else -> letterKey
-        }
-        w.write(key); w.write("\t"); w.write(word); w.write("\t"); w.write(freq.toString())
-        if (srcTag.isNotEmpty()) { w.write("\t"); w.write(srcTag) }
-        w.write("\n")
-        tally(Skip.KEPT)
+        onRow(
+            NormalizedDictRow(
+                word,
+                syllables,
+                cols.getOrNull(2)?.trim()?.toIntOrNull() ?: 1,
+                if (t2s != null && word != rawWord) rawWord else "",
+            ),
+        )
     }
+}
+
+private fun parseDict(
+    r: BufferedReader,
+    w: BufferedWriter,
+    minFreq: Int,
+    keyType: String,
+    syllableCounts: HashMap<String, Long>,
+    completeness: SyllableCompleteness?,
+    t2s: T2SMerge?,
+    tally: (Skip) -> Unit,
+) {
+    scanNormalizedDict(r, t2s, { row ->
+        tally(Skip.ROW)
+        if (row.freq < minFreq) {
+            completeness?.offerBelowThreshold(row.syllables, row.word, row.freq)
+            tally(Skip.LOW_FREQ)
+        } else {
+            completeness?.noteKept(row.syllables, row.word)
+            for (s in row.syllables) syllableCounts.merge(s, 1L, Long::plus)
+            val letterKey = row.syllables.joinToString("")
+            val key = when (keyType) {
+                "digit" -> Pinyin.toT9(letterKey)
+                "initials" -> row.syllables.joinToString("") { it.substring(0, 1) }
+                else -> letterKey
+            }
+            w.write(key); w.write("\t"); w.write(row.word); w.write("\t"); w.write(row.freq.toString())
+            if (row.sourceTag.isNotEmpty()) { w.write("\t"); w.write(row.sourceTag) }
+            w.write("\n")
+            tally(Skip.KEPT)
+        }
+    }, {
+        tally(Skip.ROW)
+        tally(Skip.NON_ASCII)
+    })
 }
 
 private class SyllableCompleteness(private val target: Int) {
@@ -153,15 +180,18 @@ private class SyllableCompleteness(private val target: Int) {
         var syllablesToppedUp = 0
         var entries = 0
         for ((syllable, below) in belowBySyllable.entries.sortedBy { it.key }) {
-            if (!keptBySyllable[syllable].isNullOrEmpty()) continue
+            val kept = keptBySyllable[syllable].orEmpty()
+            val needed = target - kept.size
+            if (needed <= 0) continue
             val key = when (keyType) {
                 "digit" -> Pinyin.toT9(syllable)
                 "initials" -> syllable.substring(0, 1)
                 else -> syllable
             }
             val picks = below.entries.asSequence()
+                .filter { it.key !in kept }
                 .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
-                .take(target)
+                .take(needed)
             var any = false
             for ((word, freq) in picks) {
                 w.write(key); w.write("\t"); w.write(word); w.write("\t"); w.write(freq.toString()); w.write("\n")
@@ -169,7 +199,7 @@ private class SyllableCompleteness(private val target: Int) {
             }
             if (any) syllablesToppedUp++
         }
-        println("syllable completeness: filled $syllablesToppedUp empty syllables with $entries single-char entries (top-$target)")
+        println("syllable completeness: topped up $syllablesToppedUp syllables with $entries single-char entries (minimum $target)")
     }
 }
 

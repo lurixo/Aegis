@@ -16,6 +16,7 @@
 package com.aegis.ime.dict
 
 import com.aegis.tools.LmBuilder
+import com.aegis.tools.T2SMerge
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertThrows
@@ -35,13 +36,16 @@ class CharBigramLMTest {
     private val above = 0x9FA5
     private val backoff = ln(0.4)
 
-    private fun roundTripFile(lines: List<String>): File {
+    private fun roundTripFile(lines: List<String>, normalize: Boolean = false): File {
         val dir = File.createTempFile("lm_src", "").let { it.delete(); it.mkdirs(); it }
         val src = File(dir, "dict.txt")
         val header = listOf("# tiny dict", "name: test", "...")
         src.writeText((header + lines).joinToString("\n") + "\n")
         val out = File(dir, "test_lm.bin")
-        LmBuilder.build(arrayOf("--out", out.path, src.path))
+        val args = arrayListOf("--out", out.path)
+        if (normalize) args.addAll(listOf("--t2s-data", "../tools/t2s-data"))
+        args.add(src.path)
+        LmBuilder.build(args.toTypedArray())
         return out
     }
 
@@ -94,6 +98,24 @@ class CharBigramLMTest {
         val lm = CharBigramLM.fromFile(roundTripFile(listOf("你\tni\t50", "好\thao\t40")))
         assertEquals(backoff + ln(50.0) - ln(90.0), lm.logCond(hao, ni), 1e-9)
         assertEquals(backoff + ln(40.0) - ln(90.0), lm.logCond(ni, hao), 1e-9)
+    }
+
+    @Test fun builder_uses_the_dictionary_normalization_and_duplicate_merge_stream() {
+        val lm = CharBigramLM.fromFile(
+            roundTripFile(
+                listOf(
+                    "电脑\tdian nao\t10",
+                    "電腦\tdian nao\t20",
+                    "电脑\tdian nao\t5",
+                ),
+                normalize = true,
+            ),
+        )
+        assertEquals(-1, lm.charId("電".codePointAt(0)))
+        assertEquals(-1, lm.charId("腦".codePointAt(0)))
+        assertTrue(lm.charId("电".codePointAt(0)) >= 0)
+        assertTrue(lm.charId("脑".codePointAt(0)) >= 0)
+        assertEquals(0.0, lm.logCond("电".codePointAt(0), "脑".codePointAt(0)), 1e-9)
     }
 
     @Test fun truncated_bigram_region_is_rejected_before_queries_can_read_out_of_bounds() {
@@ -164,6 +186,15 @@ class CharBigramLMTest {
         val identity = File("src/main/assets/aegis_lm.bin.sha256")
         assertEquals(identity.readText().trim(), sha256(asset))
         CharBigramLM.fromFile(asset)
+    }
+
+    @Test fun packaged_asset_excludes_forms_mapped_away_by_dictionary_normalization() {
+        val lm = CharBigramLM.fromFile(File("src/main/assets/aegis_lm.bin"))
+        val mapped = T2SMerge.load(File("../tools/t2s-data")).mappedSourceForms()
+        val leaked = mapped.filter {
+            it.codePointCount(0, it.length) == 1 && lm.charId(it.codePointAt(0)) >= 0
+        }
+        assertTrue("mapped-away forms remain in the packaged LM: ${leaked.take(20)}", leaked.isEmpty())
     }
 
     @Test fun assetInstallRefreshesStaleContentAndRepairsCorruptionWithoutRecopyingAValidModel() {

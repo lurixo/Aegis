@@ -90,5 +90,47 @@ class DeterministicPackWithNoticeTest(unittest.TestCase):
                 self.assertIn("amzxyz", body)
 
 
+class GrammarReferenceTest(unittest.TestCase):
+    def test_records_the_exact_mutable_lts_asset_snapshot(self):
+        release = {
+            "tag_name": "LTS",
+            "html_url": "https://github.com/amzxyz/RIME-LMDG/releases/tag/LTS",
+            "prerelease": False,
+            "published_at": "2026-07-23T13:20:00Z",
+            "assets": [
+                {
+                    "id": 487206811,
+                    "name": bp.GRAMMAR_NAME,
+                    "browser_download_url": f"https://example.test/{bp.GRAMMAR_NAME}",
+                    "updated_at": "2026-07-23T13:19:40Z",
+                    "digest": "sha256:" + "a" * 64,
+                    "size": 420012076,
+                }
+            ],
+        }
+
+        ref = bp.grammar_reference(release)
+        asset = ref["physical_asset"]
+        self.assertEqual("a" * 64, asset["sha256"])
+        self.assertEqual(420012076, asset["size_bytes"])
+        self.assertEqual(487206811, asset["github_asset_id"])
+        self.assertEqual("2026-07-23T13:19:40Z", asset["published_at"])
+
+    def test_rejects_a_snapshot_without_a_digest(self):
+        release = {
+            "tag_name": "LTS",
+            "html_url": "https://example.test/LTS",
+            "assets": [
+                {
+                    "name": bp.GRAMMAR_NAME,
+                    "browser_download_url": "https://example.test/model",
+                    "size": 1,
+                }
+            ],
+        }
+        with self.assertRaises(ValueError):
+            bp.grammar_reference(release)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

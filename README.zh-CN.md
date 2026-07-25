@@ -112,7 +112,7 @@ Aegis 暂未上架应用商店，目前以可下载的 APK 形式分发。
 内置词库（`app/src/main/assets/aegis_*.bin`，合计约 75 MB）是**种子**包——由 `:tools` 模块从全部
 14 张万象表（`zi jichu lianxiang cuoyin duoyin shici diming yixue huaxue yaopin mingren yiren
 wuzhong renming`）以 `--min-freq 400` 预构建。种子构建额外加 `--keep-syllable-singles 3`：若某音节
-的单字**全部**低于裁剪阈值，则仍保留其（按来源词频）前 3 个单字，让稀有但有效的音节
+的单字跨越裁剪阈值后仍至少保留其（按来源词频）前 3 个单字，让稀有但有效的音节
 （cen/chua/den/kei/m/nou/rua）可打。**完整**包（同样 14 表，`--min-freq 1`，无每键上限）以相同方式
 构建并作为可下载附件托管；运行时，`filesDir/downloaded/` 下已下载的 `aegis_*.bin` 会覆盖种子包。
 
@@ -122,7 +122,7 @@ wuzhong renming`）以 `--min-freq 400` 预构建。种子构建额外加 `--kee
 tools/build/install/tools/bin/tools --out <dict> --min-freq 400 --keytype letter   --keep-syllable-singles 3 --t2s-data tools/t2s-data <14 张万象 .dict.yaml ...>
 tools/build/install/tools/bin/tools --out <t9>   --min-freq 400 --keytype digit    --keep-syllable-singles 3 --t2s-data tools/t2s-data <14 ...>
 tools/build/install/tools/bin/tools --out <jp>   --min-freq 400 --keytype initials --t2s-data tools/t2s-data <14 ...>
-tools/build/install/tools/bin/tools lm --out <lm> <14 张万象 .dict.yaml ...>
+tools/build/install/tools/bin/tools lm --out <lm> --t2s-data tools/t2s-data <14 张万象 .dict.yaml ...>
 ```
 
 ## 发布词库包

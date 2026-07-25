@@ -39,6 +39,8 @@ object ModelDownload {
     const val GRAM_NAME = "wanxiang-lts-zh-hans.gram"
 
     const val VALIDATOR_PREF = "gram_validator"
+    const val GRAM_SHA256_PREF = "gram_sha256"
+    const val GRAM_SIZE_PREF = "gram_size_bytes"
 
     fun destFile(filesDir: File): File = File(File(filesDir, "downloaded"), GRAM_NAME)
 
@@ -51,6 +53,7 @@ object ModelDownload {
     fun bytesToDisplayMb(bytes: Long): Long = Math.round(bytes / 1_000_000.0)
 
     data class DownloadResult(val ok: Boolean, val validator: String?)
+    data class ModelSnapshot(val validator: String?, val sha256: String, val sizeBytes: Long)
 
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
     private val installingDicts = ConcurrentHashMap.newKeySet<String>()
@@ -67,10 +70,15 @@ object ModelDownload {
         url: String,
         dest: File,
         onProgress: (Long, Long) -> Unit,
-        persistValidator: (String?) -> Boolean,
+        persistSnapshot: (ModelSnapshot) -> Boolean,
     ): DownloadResult = downloadStaged(url, dest, onProgress) { staged, validator ->
         if (runCatching { OctagramReader.fromFile(staged) }.isFailure) return@downloadStaged false
-        replaceModel(staged, dest, validator, persistValidator)
+        replaceModel(
+            staged,
+            dest,
+            ModelSnapshot(validator, sha256Of(staged), staged.length()),
+            persistSnapshot,
+        )
     }
 
     private fun downloadStaged(
@@ -124,8 +132,8 @@ object ModelDownload {
     private fun replaceModel(
         staged: File,
         dest: File,
-        validator: String?,
-        persistValidator: (String?) -> Boolean,
+        snapshot: ModelSnapshot,
+        persistSnapshot: (ModelSnapshot) -> Boolean,
     ): Boolean {
         val backup = File(dest.parentFile, "${dest.name}.backup")
         backup.delete()
@@ -138,7 +146,7 @@ object ModelDownload {
             }
             moveReplacing(staged, dest)
             installed = true
-            if (!persistValidator(validator)) throw IOException("validator commit failed")
+            if (!persistSnapshot(snapshot)) throw IOException("snapshot commit failed")
             backup.delete()
             true
         } catch (t: Throwable) {

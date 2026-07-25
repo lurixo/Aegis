@@ -47,6 +47,8 @@ object BackupManager {
     private val DOWNLOAD_STATE_KEYS = setOf(
         "engine_pack_touch",
         "gram_validator",
+        "gram_sha256",
+        "gram_size_bytes",
         "dict_validator",
         "dict_sha256",
         "dict_asset_name",

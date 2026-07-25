@@ -28,28 +28,51 @@ object LmBuilder {
         val inputs = args.positionals.map { File(it) }
         require(inputs.isNotEmpty()) { "no input dict files for lm" }
         val minBigram = args.optional("--min-bigram")?.toLong() ?: 1L
+        val t2s = args.optional("--t2s-data")?.let { T2SMerge.load(File(it)) }
 
         val uni = HashMap<Int, Long>(1 shl 16)
         val bi = HashMap<Long, Long>(1 shl 22)
+        val records = File.createTempFile("aegis-lm-", ".tsv").apply { deleteOnExit() }
+        val byWord = File.createTempFile("aegis-lm-byword-", ".tsv").apply { deleteOnExit() }
+        val canonical = File.createTempFile("aegis-lm-canonical-", ".tsv").apply { deleteOnExit() }
 
-        for (file in inputs) {
-            println("lm: scanning ${file.name} ...")
-            file.bufferedReader().use { r ->
-                var inData = false
-                while (true) {
-                    val line = r.readLine() ?: break
-                    if (!inData) { if (line.trim() == "...") inData = true; continue }
-                    if (line.isEmpty() || line.startsWith('#')) continue
-                    val tab = line.indexOf('\t'); if (tab < 0) continue
-                    val word = line.substring(0, tab)
-                    val freq = (line.lastIndexOf('\t').let { i ->
-                        if (i > tab) line.substring(i + 1).trim().toLongOrNull() else null
-                    } ?: 1L).coerceAtLeast(1L)
-                    val cps = word.codePoints().toArray()
-                    for (cp in cps) uni.merge(cp, freq, Long::plus)
-                    for (i in 0 until cps.size - 1) bi.merge(pack(cps[i], cps[i + 1]), freq, Long::plus)
+        records.bufferedWriter().use { w ->
+            for (file in inputs) {
+                println("lm: normalizing ${file.name} ...")
+                file.bufferedReader().use { r ->
+                    scanNormalizedDict(r, t2s, { row ->
+                        w.write(row.syllables.joinToString(""))
+                        w.write("\t")
+                        w.write(row.word)
+                        w.write("\t")
+                        w.write(row.freq.toString())
+                        if (row.sourceTag.isNotEmpty()) {
+                            w.write("\t")
+                            w.write(row.sourceTag)
+                        }
+                        w.write("\n")
+                    }, {})
                 }
             }
+        }
+        externalSortByKeyWord(records, byWord)
+        val folded = mergeAdjacentDuplicates(byWord, canonical)
+        println("lm: canonical merge folded=$folded")
+
+        canonical.bufferedReader().use { r ->
+            while (true) {
+                val line = r.readLine() ?: break
+                val cols = line.split('\t')
+                if (cols.size < 3) continue
+                val word = cols[1]
+                val freq = (cols[2].toLongOrNull() ?: 1L).coerceAtLeast(1L)
+                val cps = word.codePoints().toArray()
+                for (cp in cps) uni.merge(cp, freq, Long::plus)
+                for (i in 0 until cps.size - 1) bi.merge(pack(cps[i], cps[i + 1]), freq, Long::plus)
+            }
+        }
+        if (t2s != null) {
+            println("lm t2s: converted words=${t2s.convertedWords} phraseHits=${t2s.phraseHits} charHits=${t2s.charHits} readingOverrides=${t2s.overrideHits} misaligned=${t2s.misaligned}")
         }
 
         val charCodes = uni.keys.toIntArray().also { it.sort() }

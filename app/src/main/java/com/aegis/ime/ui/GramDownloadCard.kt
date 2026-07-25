@@ -192,7 +192,11 @@ internal fun GramDownloadCard(
                         val purged = ModelDownload.purge(context.filesDir)
                         present = ModelDownload.isDownloaded(context.filesDir)
                         if (!present) {
-                            prefs.edit().remove(ModelDownload.VALIDATOR_PREF).commit()
+                            prefs.edit()
+                                .remove(ModelDownload.VALIDATOR_PREF)
+                                .remove(ModelDownload.GRAM_SHA256_PREF)
+                                .remove(ModelDownload.GRAM_SIZE_PREF)
+                                .commit()
                             SettingsHotApply.noteEnginePackChanged(prefs)
                         }
                         progress = if (present) 1f else 0f

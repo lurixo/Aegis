@@ -185,13 +185,35 @@ class DownloadCardWorkTest {
         assertEquals(absent, runtime.snapshot(context).status)
     }
 
-    @Test fun model_validator_commit_failure_restores_the_previous_preference() {
+    @Test fun model_snapshot_commit_failure_restores_the_previous_preferences() {
         val prefs = context.getSharedPreferences("model-validator-failure", 0)
-        prefs.edit().putString(ModelDownload.VALIDATOR_PREF, "installed-model").commit()
+        prefs.edit()
+            .putString(ModelDownload.VALIDATOR_PREF, "installed-model")
+            .putString(ModelDownload.GRAM_SHA256_PREF, "installed-sha")
+            .putLong(ModelDownload.GRAM_SIZE_PREF, 123L)
+            .commit()
         val failing = CommitFailingPreferences(prefs)
 
-        assertFalse(GramDownloadWork.persistModelValidator(failing, "candidate-model"))
+        assertFalse(
+            GramDownloadWork.persistModelSnapshot(
+                failing,
+                ModelDownload.ModelSnapshot("candidate-model", "candidate-sha", 456L),
+            ),
+        )
         assertEquals("installed-model", prefs.getString(ModelDownload.VALIDATOR_PREF, null))
+        assertEquals("installed-sha", prefs.getString(ModelDownload.GRAM_SHA256_PREF, null))
+        assertEquals(123L, prefs.getLong(ModelDownload.GRAM_SIZE_PREF, -1L))
+    }
+
+    @Test fun model_snapshot_persists_validator_digest_and_size_together() {
+        val prefs = context.getSharedPreferences("model-snapshot-success", 0)
+        prefs.edit().clear().commit()
+        val snapshot = ModelDownload.ModelSnapshot("remote-model", "a".repeat(64), 420_012_076L)
+
+        assertTrue(GramDownloadWork.persistModelSnapshot(prefs, snapshot))
+        assertEquals("remote-model", prefs.getString(ModelDownload.VALIDATOR_PREF, null))
+        assertEquals("a".repeat(64), prefs.getString(ModelDownload.GRAM_SHA256_PREF, null))
+        assertEquals(420_012_076L, prefs.getLong(ModelDownload.GRAM_SIZE_PREF, -1L))
     }
 
     @Test fun model_and_dictionary_cards_report_their_activated_files_and_refresh_after_changes() {
@@ -367,6 +389,8 @@ class ResourceUpdateCardTest {
         ShadowToast.reset()
         prefs.edit()
             .remove(ModelDownload.VALIDATOR_PREF)
+            .remove(ModelDownload.GRAM_SHA256_PREF)
+            .remove(ModelDownload.GRAM_SIZE_PREF)
             .remove(ModelDownload.DICT_SHA256_PREF)
             .remove(ModelDownload.DICT_RELEASE_PUBLISHED_PREF)
             .commit()

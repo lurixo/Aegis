@@ -124,8 +124,8 @@ Prerequisites:
 The bundled dictionaries (`app/src/main/assets/aegis_*.bin`, roughly 75 MB in total) are the
 **seed** pack: prebuilt from all 14 wanxiang tables (`zi jichu lianxiang cuoyin duoyin shici diming
 yixue huaxue yaopin mingren yiren wuzhong renming`) at `--min-freq 400` by the `:tools` module. The
-seed build adds `--keep-syllable-singles 3`: a syllable whose single characters *all* fall below the
-trim threshold keeps its top-3 single characters (by source frequency) anyway, so rare-but-valid
+seed build adds `--keep-syllable-singles 3`: every syllable keeps at least its top-3 single
+characters (by source frequency) across the trim threshold, so rare-but-valid
 syllables (cen/chua/den/kei/m/nou/rua) stay typeable. The **full** pack (the same 14 tables at
 `--min-freq 1`, no per-key cap) is built the same way and hosted as a downloadable asset; at runtime
 a downloaded `aegis_*.bin` under `filesDir/downloaded/` overrides the seed.
@@ -136,7 +136,7 @@ a downloaded `aegis_*.bin` under `filesDir/downloaded/` overrides the seed.
 tools/build/install/tools/bin/tools --out <dict> --min-freq 400 --keytype letter   --keep-syllable-singles 3 --t2s-data tools/t2s-data <14 wanxiang .dict.yaml ...>
 tools/build/install/tools/bin/tools --out <t9>   --min-freq 400 --keytype digit    --keep-syllable-singles 3 --t2s-data tools/t2s-data <14 ...>
 tools/build/install/tools/bin/tools --out <jp>   --min-freq 400 --keytype initials --t2s-data tools/t2s-data <14 ...>
-tools/build/install/tools/bin/tools lm --out <lm> <14 wanxiang .dict.yaml ...>
+tools/build/install/tools/bin/tools lm --out <lm> --t2s-data tools/t2s-data <14 wanxiang .dict.yaml ...>
 ```
 
 ## Release dictionary pack
