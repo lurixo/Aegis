@@ -21,6 +21,7 @@ UPDATE_ASSET_NAME = "aegis-dictionary-update.json"
 BUILD_INFO_ASSET_NAME = "aegis-build-info.json"
 SOURCE_REPO = "https://github.com/amzxyz/rime-wanxiang"
 RUNTIME_BINS = ("aegis_dict.bin", "aegis_t9.bin", "aegis_jianpin.bin")
+RELEASES_PAGE_SIZE = 100
 
 
 def normalize_sha256(value):
@@ -163,9 +164,24 @@ def dictionary_asset_from_manifest(manifest, release):
     return url, sha256, name
 
 
+def fetch_release_pages(releases_url):
+    releases = []
+    page = 1
+    separator = "&" if "?" in releases_url else "?"
+    while True:
+        page_url = releases_url if page == 1 else f"{releases_url}{separator}page={page}"
+        with http_get(page_url, 60) as response:
+            page_releases = json.loads(response.read().decode("utf-8"))
+        if not isinstance(page_releases, list):
+            raise ValueError("GitHub Releases response is not a list")
+        releases.extend(page_releases)
+        if len(page_releases) < RELEASES_PAGE_SIZE:
+            return releases
+        page += 1
+
+
 def resolve_asset(releases_url):
-    with http_get(releases_url, 60) as response:
-        releases = json.loads(response.read().decode("utf-8"))
+    releases = fetch_release_pages(releases_url)
     release = select_dictionary_release(releases)
     with http_get(release["manifest_url"], 60) as response:
         manifest = json.loads(response.read().decode("utf-8"))

@@ -94,6 +94,34 @@ class DictionaryReleaseDiscoveryTest {
     }
 
     @Test
+    fun versionedReleaseOnASecondPageIsDiscovered() {
+        val tag = "dict-v16.2.3-r1"
+        val nextPage = "${ModelDownload.DICT_RELEASES_URL}&page=2"
+        val firstPage = (1..100).joinToString(prefix = "[", postfix = "]") {
+            """{"tag_name":"v0.1.0-beta.$it"}"""
+        }
+        val requests = ArrayList<String>()
+        val result = ModelDownload.dictionaryUpdateFromFetch(
+            { url ->
+                requests.add(url)
+                when (url) {
+                    ModelDownload.DICT_RELEASES_URL -> firstPage
+                    nextPage -> releases(release(tag, PUBLISHED, sha2))
+                    else -> manifest(tag, "v16.2.3", sha2)
+                }
+            },
+            ModelDownload.DictionaryInstallMetadata(sha256 = sha1),
+        )
+
+        assertEquals(ModelDownload.UpdateCheck.UPDATE, result.state)
+        assertEquals(tag, result.asset?.releaseTag)
+        assertEquals(
+            listOf(ModelDownload.DICT_RELEASES_URL, nextPage, manifestUrl(tag)),
+            requests,
+        )
+    }
+
+    @Test
     fun matchingPackHashIsUpToDate() {
         val tag = "dict-v16.2.3-r1"
         val result = update(

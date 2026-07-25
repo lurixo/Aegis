@@ -2,9 +2,12 @@
 #
 # SPDX-License-Identifier: GPL-3.0-only
 
+import io
+import json
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fetch_test_dict as fd
@@ -67,6 +70,35 @@ class VersionedDictionaryDiscoveryTest(unittest.TestCase):
         self.assertEqual("dict-v16.2.4-r1", selected["tag"])
         self.assertEqual("v16.2.4", selected["source_tag"])
         self.assertEqual("b" * 64, selected["pack_sha256"])
+
+    def test_resolve_asset_discovers_a_versioned_release_on_a_second_page(self):
+        releases_url = "https://example.test/releases?per_page=100"
+        next_page = releases_url + "&page=2"
+        first_page = [{"tag_name": f"v0.1.0-beta.{index}"} for index in range(100)]
+        versioned = self.release("dict-v16.2.3-r1", "2026-07-25T03:00:00Z")
+        selected = fd.select_dictionary_release([versioned])
+        responses = {
+            releases_url: first_page,
+            next_page: [versioned],
+            selected["manifest_url"]: self.manifest(selected),
+        }
+        requests = []
+
+        def get(url, timeout):
+            requests.append((url, timeout))
+            return io.BytesIO(json.dumps(responses[url]).encode("utf-8"))
+
+        with mock.patch.object(fd, "http_get", side_effect=get):
+            result = fd.resolve_asset(releases_url)
+
+        self.assertEqual(
+            (selected["pack_url"], selected["pack_sha256"], selected["pack_name"]),
+            result,
+        )
+        self.assertEqual(
+            [(releases_url, 60), (next_page, 60), (selected["manifest_url"], 60)],
+            requests,
+        )
 
     def test_rejects_tied_latest_release_times(self):
         releases = [
