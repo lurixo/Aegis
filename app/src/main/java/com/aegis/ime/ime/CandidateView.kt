@@ -126,18 +126,16 @@ class CandidateView(context: Context) : View(context) {
     }
 
     fun setContent(candidates: List<String>, composingText: String, gate: Boolean = false) {
-        val visibleCandidates =
-            if (candidates.size <= MAX_VISIBLE_CANDIDATES) candidates else candidates.subList(0, MAX_VISIBLE_CANDIDATES)
-        if (visibleCandidates == items && composingText == composing && gate == gateActive) return
-        val roleChanged = stripRole(items.isEmpty(), composing) != stripRole(visibleCandidates.isEmpty(), composingText)
-        val visualChange = visibleCandidates != items || gate != gateActive
+        if (candidates == items && composingText == composing && gate == gateActive) return
+        val roleChanged = stripRole(items.isEmpty(), composing) != stripRole(candidates.isEmpty(), composingText)
+        val visualChange = candidates != items || gate != gateActive
         gateActive = gate
         when {
             roleChanged -> {
                 contentTransitions++
-                Motion.coverThrough(this, palette.keyboardBg) { applyContent(visibleCandidates, composingText) }
+                Motion.coverThrough(this, palette.keyboardBg) { applyContent(candidates, composingText) }
             }
-            visualChange -> applyContent(visibleCandidates, composingText)
+            visualChange -> applyContent(candidates, composingText)
             else -> composing = composingText
         }
     }
@@ -154,7 +152,8 @@ class CandidateView(context: Context) : View(context) {
         composing = composingText
         fling.forceFinish()
         scrollX = 0f
-        layoutCells()
+        hitCount = 0
+        contentWidth = 0f
         invalidate()
     }
 
@@ -213,25 +212,38 @@ class CandidateView(context: Context) : View(context) {
     internal fun toolbarFunctionsForTest(): List<BarFunction> = functions
 
     internal fun centerOfCandidateForTest(index: Int): Pair<Float, Float>? {
-        if (index !in 0 until hitCount) return null
+        if (index !in items.indices) return null
+        layoutCellsThrough(index)
         val r = hitRects[index]
         return (r.centerX() - scrollX) to (height / 2f)
     }
 
-    private fun layoutCells() {
-        hitCount = items.size
-        var x = 0f
-        for ((i, item) in items.withIndex()) {
-            val cellW = (if (i == 0) firstPaint else textPaint).measureText(item) + padding * 2
-            hitRect(i).set(x, 0f, x + cellW, 0f)
-            x += cellW
-        }
-        contentWidth = x
+    internal fun laidOutCellsForTest(): Int = hitCount
+
+    private fun layoutNextCell() {
+        val i = hitCount
+        val cellW = (if (i == 0) firstPaint else textPaint).measureText(items[i]) + padding * 2
+        hitRect(i).set(contentWidth, 0f, contentWidth + cellW, 0f)
+        contentWidth += cellW
+        hitCount = i + 1
     }
 
-    private fun maxScroll(): Float = maxOf(0f, contentWidth - (width - expandWidth()))
+    private fun layoutCellsTo(contentX: Float) {
+        while (hitCount < items.size && contentWidth < contentX) layoutNextCell()
+    }
+
+    private fun layoutCellsThrough(index: Int) {
+        while (hitCount <= index && hitCount < items.size) layoutNextCell()
+    }
+
+    private fun maxScroll(): Float {
+        val visibleW = width - expandWidth()
+        layoutCellsTo(scrollX + visibleW * LAYOUT_AHEAD_SCREENS)
+        return maxOf(0f, contentWidth - visibleW)
+    }
 
     private fun candidateIndexAt(contentX: Float): Int {
+        layoutCellsTo(contentX + 1f)
         var lo = 0
         var hi = hitCount
         while (lo < hi) {
@@ -266,7 +278,7 @@ class CandidateView(context: Context) : View(context) {
             val left = r.left - scrollX
             drawPressLayer(canvas, PressKind.CANDIDATE, i, left, 4f * density, left + r.width(), height - 4f * density)
             canvas.drawText(items[i], left + padding, baseline, if (i == 0) firstPaint else textPaint)
-            if (i != hitCount - 1) {
+            if (i != items.size - 1) {
                 canvas.drawRect(r.right - scrollX, height * 0.25f, r.right - scrollX + density, height * 0.75f, sepPaint)
             }
         }
@@ -501,7 +513,7 @@ class CandidateView(context: Context) : View(context) {
     private companion object {
         private const val ROLE_CANDIDATES = 0
         private const val ROLE_FUNCTIONS = 1
-        private const val MAX_VISIBLE_CANDIDATES = 30
+        private const val LAYOUT_AHEAD_SCREENS = 8f
 
         private const val ICON_BOX = 1.64f
         private const val BRAND_GLYPH_WIDTH = 1.28f
