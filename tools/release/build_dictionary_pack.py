@@ -164,6 +164,19 @@ def ensure_source_checkout(args, work_dir):
         source = Path(args.source_dir).resolve()
         if not source.exists():
             raise SystemExit(f"source dir does not exist: {source}")
+        try:
+            head = output(["git", "rev-parse", "--verify", "HEAD^{commit}"], cwd=source)
+            tag_commit = output(
+                ["git", "rev-parse", "--verify", f"{args.source_tag}^{{commit}}"],
+                cwd=source,
+            )
+            dirty = output(["git", "status", "--short"], cwd=source)
+        except subprocess.CalledProcessError as error:
+            raise SystemExit("source dir is not a valid checkout of the requested source tag") from error
+        if dirty:
+            raise SystemExit("source dir must be clean")
+        if head != tag_commit:
+            raise SystemExit(f"source dir HEAD does not match source tag {args.source_tag}")
         return source
 
     source = work_dir / "rime-wanxiang"
