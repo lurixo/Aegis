@@ -151,7 +151,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             },
             rowAlignedLp(5),
         )
-        addView(rightColumn, LayoutParams(dp(64), LayoutParams.MATCH_PARENT))
+        addView(rightColumn, LayoutParams(dp(Layouts.CANDIDATE_ACTION_WIDTH_DP), LayoutParams.MATCH_PARENT))
     }
 
     override fun resetToDefault() {
@@ -211,17 +211,19 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     }
 
     private fun sideSpan(width: Int): Int = (width * Layouts.NINE_SIDE_FRACTION).roundToInt()
+    private fun actionSpan(width: Int): Int = minOf(sideSpan(width), dp(Layouts.CANDIDATE_ACTION_WIDTH_DP))
 
     private fun updateSideColumns(width: Int) {
         val span = sideSpan(width)
+        val actions = actionSpan(width)
         (readingScroll.layoutParams as LayoutParams).apply {
             this.width = (span - dp(6)).coerceAtLeast(1)
             leftMargin = dp(3)
             rightMargin = dp(3)
         }
-        (rightColumn.layoutParams as LayoutParams).width = span
-        returnButtonForTest().setPadding((span - collapseGlyph.intrinsicWidth) / 2, 0, 0, 0)
-        backspaceButtonForTest().setPadding((span - backspaceGlyph.intrinsicWidth) / 2, 0, 0, 0)
+        (rightColumn.layoutParams as LayoutParams).width = actions
+        returnButtonForTest().setPadding((actions - collapseGlyph.intrinsicWidth) / 2, 0, 0, 0)
+        backspaceButtonForTest().setPadding((actions - backspaceGlyph.intrinsicWidth) / 2, 0, 0, 0)
     }
 
     private fun updateRightActionLayout(availableHeight: Int) {
@@ -352,7 +354,12 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
 
     private fun capFor(len: Int, tableW: Int): Int {
         val natural = (spPx(ImeType.title) * len).toInt() + dp(8 + 8)
-        return (tableW / natural).coerceAtLeast(1)
+        val naturalCap = (tableW / natural).coerceAtLeast(1)
+        return when (len) {
+            1 -> minOf(5, naturalCap)
+            2 -> minOf(4, naturalCap)
+            else -> naturalCap
+        }
     }
 
     fun setCandidates(candidates: List<String>) {
@@ -361,7 +368,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             ?.let { (it * density).toInt() }
             ?: resources.displayMetrics.widthPixels
         val liveWidth = measuringWidthOverride.takeIf { it > 0 } ?: width.takeIf { it > 0 } ?: configuredWidth
-        val tableW = (liveWidth - sideSpan(liveWidth) * 2 - dp(4 + 4)).coerceAtLeast(dp(46))
+        val tableW = (liveWidth - sideSpan(liveWidth) - actionSpan(liveWidth) - dp(4 + 4)).coerceAtLeast(dp(46))
         if (candidates == renderedCandidates && tableW == renderedCandidateWidth) return
         val contentChanged = candidates != renderedCandidates
         renderedCandidates = candidates.toList()

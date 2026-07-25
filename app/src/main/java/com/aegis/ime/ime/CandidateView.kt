@@ -191,7 +191,14 @@ class CandidateView(context: Context) : View(context) {
     internal fun toolbarCapsuleBoundsForTest(): RectF = RectF(toolbarBounds)
     internal fun toolbarOuterRadiusForTest(): Float = toolbarOuterRadius()
     private fun expandWidth(): Float =
-        if (width > 0) (width * Layouts.NINE_SIDE_FRACTION).roundToInt().toFloat() else 64f * density
+        if (width > 0) {
+            minOf(
+                (width * Layouts.NINE_SIDE_FRACTION).roundToInt().toFloat(),
+                (Layouts.CANDIDATE_ACTION_WIDTH_DP * density).toInt().toFloat(),
+            )
+        } else {
+            (Layouts.CANDIDATE_ACTION_WIDTH_DP * density).toInt().toFloat()
+        }
 
     internal fun expandControlBoundsForTest(): RectF =
         RectF(width - expandWidth(), 0f, width.toFloat(), height.toFloat())
