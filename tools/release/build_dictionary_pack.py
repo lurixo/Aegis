@@ -41,6 +41,7 @@ OUTPUTS = [
 NOTICE_NAME = "NOTICE.txt"
 GRAMMAR_NAME = "wanxiang-lts-zh-hans.gram"
 GRAMMAR_RELEASE_API = "https://api.github.com/repos/amzxyz/RIME-LMDG/releases/tags/LTS"
+DICT_RELEASE_TAG_PATTERN = re.compile(r"dict-(v\d+\.\d+\.\d+)-r([1-9]\d*)")
 
 
 def attribution_text(repo_https, source_tag, source_branch, source_commit):
@@ -95,12 +96,16 @@ def sha256_file(path):
     return digest.hexdigest()
 
 
+def dictionary_release_source_tag(release_tag):
+    match = DICT_RELEASE_TAG_PATTERN.fullmatch(release_tag)
+    if match is None:
+        raise ValueError("release tag must match dict-vX.Y.Z-rN with N starting at 1")
+    return match.group(1)
+
+
 def default_asset_name(release_tag):
-    match = re.fullmatch(r"v\d+\.\d+\.\d+-debug\.(\d+)", release_tag)
-    if match:
-        return f"aegis_dict_pack_debug{match.group(1)}.zip"
-    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", release_tag).strip("-").replace(".", "")
-    return f"aegis_dict_pack_{safe}.zip"
+    dictionary_release_source_tag(release_tag)
+    return f"aegis_dict_pack_{release_tag}.zip"
 
 
 def grammar_reference(release):
@@ -214,7 +219,7 @@ def build_info(args, repo_root, source_commit, asset_name, zip_path, bin_infos, 
                     "url": asset_url,
                     "release_tag": args.release_tag,
                     "release_url": release_url,
-                    "prerelease": args.prerelease,
+                    "prerelease": False,
                     "published_at": None,
                     "sha256": sha256_file(zip_path),
                     "size_bytes": zip_path.stat().st_size,
@@ -299,20 +304,23 @@ def update_payload(build_info_json):
 
 
 def main(argv):
-    parser = argparse.ArgumentParser(description="Build the latest Aegis full dictionary release pack.")
-    parser.add_argument("--release-tag", required=True, help="GitHub release tag that will host the dictionary asset (use dict-latest for the rolling production dictionary pack).")
+    parser = argparse.ArgumentParser(description="Build an immutable versioned Aegis dictionary release pack.")
+    parser.add_argument("--release-tag", required=True, help="Versioned dictionary tag in dict-vX.Y.Z-rN form.")
     parser.add_argument("--output-dir", default="build/release-dictionary", help="Directory for generated artifacts.")
     parser.add_argument("--source-dir", help="Existing rime-wanxiang checkout to use instead of cloning.")
     parser.add_argument("--source-repo", default="https://github.com/amzxyz/rime-wanxiang.git")
     parser.add_argument("--source-repo-https", default="https://github.com/amzxyz/rime-wanxiang")
     parser.add_argument("--source-branch", default="wanxiang")
-    parser.add_argument("--source-tag", help="Upstream release tag to pin (records source.tag and clones this tag instead of the branch HEAD). Prefer the latest stable tag that carries the dicts/ tables.")
+    parser.add_argument("--source-tag", required=True, help="Upstream stable vX.Y.Z tag embedded in the dictionary release tag.")
     parser.add_argument("--grammar-release-api", default=GRAMMAR_RELEASE_API)
     parser.add_argument("--grammar-release-json")
-    parser.add_argument("--asset-name", help="Dictionary ZIP asset name. Defaults to the debug.13 naming pattern.")
-    parser.add_argument("--release", dest="prerelease", action="store_false", help="Mark generated metadata as a normal release.")
-    parser.set_defaults(prerelease=True)
     args = parser.parse_args(argv)
+    try:
+        expected_source_tag = dictionary_release_source_tag(args.release_tag)
+    except ValueError as error:
+        parser.error(str(error))
+    if args.source_tag != expected_source_tag:
+        parser.error("--source-tag must exactly match the upstream version embedded in --release-tag")
 
     repo_root = Path(__file__).resolve().parents[2]
     output_dir = (repo_root / args.output_dir).resolve()
@@ -363,7 +371,7 @@ def main(argv):
             }
         )
 
-    asset_name = args.asset_name or default_asset_name(args.release_tag)
+    asset_name = default_asset_name(args.release_tag)
     zip_path = output_dir / asset_name
     source_commit = output(["git", "rev-parse", "HEAD"], cwd=source)
     notice_path = staging_dir / NOTICE_NAME
@@ -399,7 +407,7 @@ def main(argv):
     print(zip_path)
     print(output_dir / "aegis-build-info.json")
     print(output_dir / "aegis-dictionary-update.json")
-    print("\nUpload these files to the rolling dict-latest GitHub release; this script does not upload or tag.")
+    print(f"\nPublish these files together on the immutable {args.release_tag} GitHub release; this script does not upload or tag.")
     return 0
 
 

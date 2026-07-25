@@ -132,5 +132,19 @@ class GrammarReferenceTest(unittest.TestCase):
             bp.grammar_reference(release)
 
 
+class VersionedDictionaryReleaseTest(unittest.TestCase):
+    def test_release_tag_and_asset_name_preserve_the_upstream_version(self):
+        self.assertEqual("v16.2.3", bp.dictionary_release_source_tag("dict-v16.2.3-r1"))
+        self.assertEqual(
+            "aegis_dict_pack_dict-v16.2.3-r1.zip",
+            bp.default_asset_name("dict-v16.2.3-r1"),
+        )
+
+    def test_rejects_rolling_app_and_zero_revision_tags(self):
+        for tag in ["dict-latest", "v0.1.0-beta.23", "dict-v16.2.3-r0"]:
+            with self.assertRaises(ValueError):
+                bp.dictionary_release_source_tag(tag)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

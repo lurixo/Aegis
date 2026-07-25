@@ -32,37 +32,73 @@ class DictionaryReleaseDiscoveryTest {
     private val sha2 = "2".repeat(64)
 
     @Test
-    fun discoveryReadsTheDedicatedRollingManifest() {
-        assertEquals("dict-latest", ModelDownload.DICT_LATEST_TAG)
+    fun discoveryReadsTheGitHubReleaseList() {
         assertEquals(
-            "https://github.com/lurixo/Aegis/releases/download/dict-latest/aegis-dictionary-update.json",
-            ModelDownload.DICT_UPDATE_URL,
+            "https://api.github.com/repos/lurixo/Aegis/releases?per_page=100",
+            ModelDownload.DICT_RELEASES_URL,
         )
+        assertFalse(ModelDownload.DICT_RELEASES_URL.endsWith(".apk"))
+        assertFalse(ModelDownload.DICT_RELEASES_URL.contains("dict-latest"))
     }
 
     @Test
-    fun nullablePublishedAtManifestReturnsTheResolvedPack() {
+    fun newestPublishedVersionedReleaseResolvesItsManifestPack() {
+        val requests = ArrayList<String>()
+        val latestTag = "dict-v16.2.4-r1"
         val result = ModelDownload.dictionaryUpdateFromFetch(
-            { manifest(" SHA256:${sha2.uppercase()} ") },
+            { url ->
+                requests.add(url)
+                if (url == ModelDownload.DICT_RELEASES_URL) {
+                    releases(
+                        release(latestTag, "2026-07-25T03:00:00Z", sha2),
+                        release("dict-v16.2.3-r2", "2026-07-25T02:00:00Z", sha1),
+                    )
+                } else {
+                    manifest(latestTag, "v16.2.4", sha2)
+                }
+            },
             ModelDownload.DictionaryInstallMetadata(sha256 = sha1),
         )
 
         assertEquals(ModelDownload.UpdateCheck.UPDATE, result.state)
         val asset = requireNotNull(result.asset)
-        assertEquals("aegis_dict_pack_dict-latest.zip", asset.assetName)
-        assertEquals(ASSET_URL, asset.url)
+        assertEquals("aegis_dict_pack_$latestTag.zip", asset.assetName)
+        assertEquals(packUrl(latestTag), asset.url)
         assertEquals(sha2, asset.sha256)
-        assertEquals(98_236_647L, asset.sizeBytes)
-        assertEquals("dict-latest", asset.releaseTag)
-        assertEquals("https://github.com/lurixo/Aegis/releases/tag/dict-latest", asset.releaseUrl)
+        assertEquals(PACK_SIZE, asset.sizeBytes)
+        assertEquals(latestTag, asset.releaseTag)
+        assertEquals(releaseUrl(latestTag), asset.releaseUrl)
         assertFalse(asset.prerelease)
-        assertNull(asset.publishedAt)
+        assertEquals("2026-07-25T03:00:00Z", asset.publishedAt)
+        assertEquals(
+            listOf(ModelDownload.DICT_RELEASES_URL, manifestUrl(latestTag)),
+            requests,
+        )
+    }
+
+    @Test
+    fun releaseListOrderDoesNotOverridePublishedAt() {
+        val latestTag = "dict-v16.2.3-r2"
+        val result = update(
+            releases(
+                release("dict-v16.2.3-r1", "2026-07-25T01:00:00Z", sha1),
+                release(latestTag, "2026-07-25T03:00:00Z", sha2),
+                release("dict-v16.2.4-r1", "2026-07-25T02:00:00Z", sha1),
+            ),
+            manifest(latestTag, "v16.2.3", sha2),
+            ModelDownload.DictionaryInstallMetadata(sha256 = sha1),
+        )
+
+        assertEquals(ModelDownload.UpdateCheck.UPDATE, result.state)
+        assertEquals(latestTag, result.asset?.releaseTag)
     }
 
     @Test
     fun matchingPackHashIsUpToDate() {
-        val result = ModelDownload.dictionaryUpdateFromFetch(
-            { manifest(sha2) },
+        val tag = "dict-v16.2.3-r1"
+        val result = update(
+            releases(release(tag, PUBLISHED, sha2)),
+            manifest(tag, "v16.2.3", sha2),
             ModelDownload.DictionaryInstallMetadata(sha256 = sha2),
         )
 
@@ -71,9 +107,11 @@ class DictionaryReleaseDiscoveryTest {
     }
 
     @Test
-    fun malformedLocalHashOffersTheManifestPack() {
-        val result = ModelDownload.dictionaryUpdateFromFetch(
-            { manifest(sha2) },
+    fun malformedLocalHashOffersTheSelectedPack() {
+        val tag = "dict-v16.2.3-r1"
+        val result = update(
+            releases(release(tag, PUBLISHED, sha2)),
+            manifest(tag, "v16.2.3", sha2),
             ModelDownload.DictionaryInstallMetadata(sha256 = "not-a-sha"),
         )
 
@@ -82,35 +120,12 @@ class DictionaryReleaseDiscoveryTest {
     }
 
     @Test
-    fun wrongManifestContractIsAParseFailure() {
-        val wrongSchema = manifest(sha2).replace("\"schema_version\": 1", "\"schema_version\": 2")
-        val wrongKind = manifest(sha2).replace("dictionary_update", "app_update")
-
-        assertEquals(
-            ModelDownload.UpdateCheck.PARSE_ERROR,
-            ModelDownload.dictionaryUpdateFromFetch(
-                { wrongSchema },
-                ModelDownload.DictionaryInstallMetadata(),
-            ).state,
-        )
-        assertEquals(
-            ModelDownload.UpdateCheck.PARSE_ERROR,
-            ModelDownload.dictionaryUpdateFromFetch(
-                { wrongKind },
-                ModelDownload.DictionaryInstallMetadata(),
-            ).state,
-        )
-    }
-
-    @Test
-    fun mismatchedRollingReleasePathIsAParseFailure() {
-        val mismatched = manifest(sha2).replace(
-            "/releases/download/dict-latest/",
-            "/releases/download/other-release/",
-        )
-        val result = ModelDownload.dictionaryUpdateFromFetch(
-            { mismatched },
-            ModelDownload.DictionaryInstallMetadata(sha256 = sha2),
+    fun frozenRollingReleaseIsNotADiscoveryFallback() {
+        val rolling = release("dict-latest", "2026-07-25T04:00:00Z", sha2)
+        val result = update(
+            releases(rolling),
+            manifest("dict-latest", "v16.2.3", sha2),
+            ModelDownload.DictionaryInstallMetadata(),
         )
 
         assertEquals(ModelDownload.UpdateCheck.PARSE_ERROR, result.state)
@@ -118,46 +133,177 @@ class DictionaryReleaseDiscoveryTest {
     }
 
     @Test
-    fun downloadDiscoveryUsesTheManifestAndResolvesNoAssetWhenUnavailable() {
-        val resolved = ModelDownload.resolveDictionaryDownloadAsset { manifest(sha2) }
+    fun tiedLatestPublicationTimesAreAParseFailure() {
+        val result = update(
+            releases(
+                release("dict-v16.2.3-r2", PUBLISHED, sha1),
+                release("dict-v16.2.4-r1", PUBLISHED, sha2),
+            ),
+            manifest("dict-v16.2.4-r1", "v16.2.4", sha2),
+            ModelDownload.DictionaryInstallMetadata(),
+        )
+
+        assertEquals(ModelDownload.UpdateCheck.PARSE_ERROR, result.state)
+        assertNull(result.asset)
+    }
+
+    @Test
+    fun invalidVersionedReleaseStructureDoesNotFallBack() {
+        val invalidLatest = release("dict-v16.2.4-r1", "2026-07-25T03:00:00Z", sha2)
+            .replace("\"size\": $BUILD_INFO_SIZE", "\"size\": 0")
+        val result = update(
+            releases(
+                release("dict-v16.2.3-r1", "2026-07-25T02:00:00Z", sha1),
+                invalidLatest,
+            ),
+            manifest("dict-v16.2.3-r1", "v16.2.3", sha1),
+            ModelDownload.DictionaryInstallMetadata(),
+        )
+
+        assertEquals(ModelDownload.UpdateCheck.PARSE_ERROR, result.state)
+        assertNull(result.asset)
+    }
+
+    @Test
+    fun mismatchedManifestReleaseIsAParseFailure() {
+        val tag = "dict-v16.2.3-r1"
+        val mismatched = manifest(tag, "v16.2.3", sha2)
+            .replace("\"release_tag\": \"$tag\"", "\"release_tag\": \"dict-v16.2.3-r2\"")
+        val result = update(
+            releases(release(tag, PUBLISHED, sha2)),
+            mismatched,
+            ModelDownload.DictionaryInstallMetadata(sha256 = sha1),
+        )
+
+        assertEquals(ModelDownload.UpdateCheck.PARSE_ERROR, result.state)
+        assertNull(result.asset)
+    }
+
+    @Test
+    fun manifestConnectivityFailureKeepsItsOfflineClassification() {
+        val tag = "dict-v16.2.3-r1"
+        val result = ModelDownload.dictionaryUpdateFromFetch(
+            { url ->
+                if (url == ModelDownload.DICT_RELEASES_URL) {
+                    releases(release(tag, PUBLISHED, sha2))
+                } else {
+                    throw UnknownHostException("github.com")
+                }
+            },
+            ModelDownload.DictionaryInstallMetadata(),
+        )
+
+        assertEquals(ModelDownload.UpdateCheck.OFFLINE, result.state)
+        assertNull(result.asset)
+    }
+
+    @Test
+    fun downloadDiscoveryRequiresBothReleaseListAndManifest() {
+        val tag = "dict-v16.2.3-r1"
+        val resolved = ModelDownload.resolveDictionaryDownloadAsset { url ->
+            if (url == ModelDownload.DICT_RELEASES_URL) {
+                releases(release(tag, PUBLISHED, sha2))
+            } else {
+                manifest(tag, "v16.2.3", sha2)
+            }
+        }
         val offline = ModelDownload.resolveDictionaryDownloadAsset {
             throw UnknownHostException("github.com")
         }
         val malformed = ModelDownload.resolveDictionaryDownloadAsset { "{}" }
 
         assertEquals(sha2, resolved?.sha256)
-        assertEquals(ASSET_URL, resolved?.url)
+        assertEquals(packUrl(tag), resolved?.url)
+        assertEquals(PUBLISHED, resolved?.publishedAt)
         assertNull(offline)
         assertNull(malformed)
     }
 
-    private fun manifest(sha256: String): String =
+    private fun update(
+        releasesJson: String,
+        manifestJson: String,
+        current: ModelDownload.DictionaryInstallMetadata,
+    ): ModelDownload.DictionaryUpdateCheck =
+        ModelDownload.dictionaryUpdateFromFetch(
+            { url -> if (url == ModelDownload.DICT_RELEASES_URL) releasesJson else manifestJson },
+            current,
+        )
+
+    private fun releases(vararg releases: String): String =
+        releases.joinToString(prefix = "[", postfix = "]")
+
+    private fun release(tag: String, publishedAt: String, packSha: String): String =
+        """
+        {
+          "tag_name": "$tag",
+          "html_url": "${releaseUrl(tag)}",
+          "draft": false,
+          "prerelease": false,
+          "published_at": "$publishedAt",
+          "assets": [
+            {
+              "name": "aegis_dict_pack_$tag.zip",
+              "size": $PACK_SIZE,
+              "digest": "sha256:$packSha",
+              "browser_download_url": "${packUrl(tag)}"
+            },
+            {
+              "name": "aegis-dictionary-update.json",
+              "size": $MANIFEST_SIZE,
+              "digest": "sha256:${"3".repeat(64)}",
+              "browser_download_url": "${manifestUrl(tag)}"
+            },
+            {
+              "name": "aegis-build-info.json",
+              "size": $BUILD_INFO_SIZE,
+              "digest": "sha256:${"4".repeat(64)}",
+              "browser_download_url": "${buildInfoUrl(tag)}"
+            }
+          ]
+        }
+        """.trimIndent()
+
+    private fun manifest(tag: String, sourceTag: String, sha256: String): String =
         """
         {
           "schema_version": 1,
           "kind": "dictionary_update",
           "asset": {
-            "name": "aegis_dict_pack_dict-latest.zip",
-            "url": "$ASSET_URL",
-            "release_tag": "dict-latest",
-            "release_url": "https://github.com/lurixo/Aegis/releases/tag/dict-latest",
+            "name": "aegis_dict_pack_$tag.zip",
+            "url": "${packUrl(tag)}",
+            "release_tag": "$tag",
+            "release_url": "${releaseUrl(tag)}",
             "prerelease": false,
             "published_at": null,
             "sha256": "$sha256",
-            "size_bytes": 98236647
+            "size_bytes": $PACK_SIZE
           },
           "source": {
             "repo": "https://github.com/amzxyz/rime-wanxiang",
             "ref_type": "tag",
-            "tag": "v16.1.0",
+            "tag": "$sourceTag",
             "branch": null,
-            "commit": "6c792a2e68c8382f9c63e8bed74c5cf247f1b1a9"
+            "commit": "${"5".repeat(40)}"
           }
         }
         """.trimIndent()
 
+    private fun releaseUrl(tag: String) =
+        "https://github.com/lurixo/Aegis/releases/tag/$tag"
+
+    private fun packUrl(tag: String) =
+        "https://github.com/lurixo/Aegis/releases/download/$tag/aegis_dict_pack_$tag.zip"
+
+    private fun manifestUrl(tag: String) =
+        "https://github.com/lurixo/Aegis/releases/download/$tag/aegis-dictionary-update.json"
+
+    private fun buildInfoUrl(tag: String) =
+        "https://github.com/lurixo/Aegis/releases/download/$tag/aegis-build-info.json"
+
     private companion object {
-        const val ASSET_URL =
-            "https://github.com/lurixo/Aegis/releases/download/dict-latest/aegis_dict_pack_dict-latest.zip"
+        const val PACK_SIZE = 98_236_647L
+        const val MANIFEST_SIZE = 720
+        const val BUILD_INFO_SIZE = 8_370
+        const val PUBLISHED = "2026-07-25T03:00:00Z"
     }
 }
