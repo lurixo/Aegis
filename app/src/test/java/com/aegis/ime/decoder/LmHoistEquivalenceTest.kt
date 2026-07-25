@@ -54,8 +54,7 @@ class LmHoistEquivalenceTest {
         "jiujian" to "",
     )
 
-    private fun report(): String {
-        val decoder = PinyinDecoder(EngineFixture.dict(), lm(), lambda = 1.0, contextWeight = 2.0)
+    private fun report(decoder: PinyinDecoder): String {
         val sb = StringBuilder()
         for ((input, ctx) in cases) {
             sb.append("decode|$input|$ctx -> ")
@@ -68,18 +67,18 @@ class LmHoistEquivalenceTest {
         return sb.toString()
     }
 
-    private fun boundedGolden(limit: Int): String =
-        GOLDEN.trim().lineSequence().joinToString("\n") { line ->
-            val marker = " -> "
-            val split = line.indexOf(marker)
-            if (split < 0) line
-            else line.take(split + marker.length) +
-                line.drop(split + marker.length).split(',').take(limit).joinToString(",")
-        }
-
-    @Test fun optimized_decoder_output_matches_the_pre_optimization_order_within_the_bound() {
-        assertEquals(boundedGolden(12), report().trim())
+    @Test fun optimized_decoder_output_is_identical_to_the_pre_optimization_baseline() {
+        assertEquals(GOLDEN.trim(), report(hoistDecoder()).trim())
     }
+
+    @Test fun shipped_default_weights_hold_their_own_recorded_output() {
+        assertEquals(PRODUCTION_GOLDEN.trim(), report(productionDecoder()).trim())
+    }
+
+    private fun hoistDecoder(): PinyinDecoder =
+        PinyinDecoder(EngineFixture.dict(), lm(), lambda = 1.0, contextWeight = 2.0)
+
+    private fun productionDecoder(): PinyinDecoder = PinyinDecoder(EngineFixture.dict(), lm())
 
     @Test fun repeated_and_interleaved_decodes_do_not_leak_state_across_calls() {
         val decoder = PinyinDecoder(EngineFixture.dict(), lm(), lambda = 1.0, contextWeight = 2.0)
@@ -94,7 +93,7 @@ class LmHoistEquivalenceTest {
     }
 
     private companion object {
-        const val GOLDEN = """
+        const val PRODUCTION_GOLDEN = """
 decode|ku| -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
 covered|ku| -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
 atomic|ku| -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
@@ -111,10 +110,10 @@ decode|shi| -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
 covered|shi| -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
 atomic|shi| -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
 decode|shi|不 -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
-covered|shi|不 -> 是,时,实,事,实现,市,十,始,试,视,𠃦,𠃧
+covered|shi|不 -> 是,时,实,事,实现,市,十,始,试,视,𠃦,𠃧,𠃨
 atomic|shi|不 -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
 decode|shi|我 -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
-covered|shi|我 -> 是,时,实,事,实现,市,十,始,试,视,𠃦,𠃧
+covered|shi|我 -> 是,时,实,事,实现,市,十,始,试,视,𠃦,𠃧,𠃨
 atomic|shi|我 -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
 decode|ci| -> 次,此,词,刺,辞,磁,慈,茨,瓷,赐,雌,祠
 covered|ci| -> 次,此,词库,词,刺,辞,磁,慈,茨,瓷,赐,雌,祠,疵,伺,𠀀,𠀁,𠀂,𠀃,𠀄,𠀅,𠀆,𠀇,𠀈,𠀉,𠀊,𠀋,𠀌,𠀍,𠀎,𠀏
@@ -135,16 +134,79 @@ decode|zi|字 -> 字,子,自,紫,资,仔,籽,𠃒,𠃓,𠃔
 covered|zi|字 -> 字,子,自,紫,资,仔,籽,𠃒,𠃓,𠃔
 atomic|zi|字 -> 字,子,自,紫,资,仔,籽,𠃒,𠃓,𠃔
 decode|xiang| -> 向,想,相,像,香,响,享,想哭
-covered|xiang| -> 向,想,相,像,想哭,香,响,享,现,下,县,西,西安,限,先,显,夏,鲜,霞,险,嫌,𠃰,𠃱,𠃲
+covered|xiang| -> 向,想,相,像,想哭,香,响,享,现,下,县,西,限,先,显,夏,鲜,霞,险,嫌,西安,𠃰,𠃱,𠃲
 atomic|xiang| -> 向,想,相,像,香,响,享
 decode|xiang|想 -> 相,向,想,香,像,响,享,想哭
-covered|xiang|想 -> 相,向,想,想哭,香,像,响,享,现,下,县,西,西安,限,先,显,夏,鲜,霞,险,嫌,𠃰,𠃱,𠃲
+covered|xiang|想 -> 相,向,想,想哭,香,像,响,享,现,下,县,西,限,先,显,夏,鲜,霞,险,嫌,西安,𠃰,𠃱,𠃲
 atomic|xiang|想 -> 相,向,想,香,像,响,享
 decode|xiangku| -> 想哭
-covered|xiangku| -> 想哭,向,想,相,现,下,像,县,西,香,限,先,西安,响,显,夏,享,鲜,霞,险,嫌,𠃰,𠃱,𠃲
+covered|xiangku| -> 想哭,向,想,相,现,下,像,县,西,香,限,先,响,显,夏,享,鲜,霞,险,嫌,西安,𠃰,𠃱,𠃲
 atomic|xiangku| -> 想哭,向库,想库,相库,像库,向苦,想苦,相苦,向,想,相,像,香,响,享
 decode|xiangku|想 -> 想哭
-covered|xiangku|想 -> 想哭,相,向,想,香,现,下,像,县,西,限,先,西安,响,显,夏,享,鲜,霞,险,嫌,𠃰,𠃱,𠃲
+covered|xiangku|想 -> 想哭,相,向,想,香,现,下,像,县,西,限,先,响,显,夏,享,鲜,霞,险,嫌,西安,𠃰,𠃱,𠃲
+atomic|xiangku|想 -> 想哭,相库,相苦,相哭,相酷,向库,想库,向苦,相,向,想,香,像,响,享
+decode|bushi| -> 不是
+covered|bushi| -> 不是,不,部,布,步,补,捕,卜,哺,埠,簿,𠃜,𠃝,𠃞
+atomic|bushi| -> 不是,不时,部是,部时,不实,部实,布是,不事,不,部,布,步,补,捕,卜,哺,埠,簿,𠃜,𠃝,𠃞
+decode|bushi|不 -> 不是
+covered|bushi|不 -> 不是,不,部,布,步,补,捕,卜,哺,埠,簿,𠃜,𠃝,𠃞
+atomic|bushi|不 -> 不是,不时,不实,不事,不市,不十,部是,部时,不,部,布,步,补,捕,卜,哺,埠,簿,𠃜,𠃝,𠃞
+decode|jiujian| -> 九键
+covered|jiujian| -> 九键,九,就,久,酒,旧,救
+atomic|jiujian| -> 九键,就键,九见,就见,久键,久见,酒键,酒见,九,就,久,酒,旧,救
+"""
+
+        const val GOLDEN = """
+decode|ku| -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+covered|ku| -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+atomic|ku| -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+decode|ku|想 -> 哭,库,苦,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+covered|ku|想 -> 哭,库,苦,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+atomic|ku|想 -> 哭,库,苦,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+decode|ku|词 -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+covered|ku|词 -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+atomic|ku|词 -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+decode|ku|不 -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+covered|ku|不 -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+atomic|ku|不 -> 库,苦,哭,酷,裤,窟,𠁤,𠁥,𠁦,𠁧
+decode|shi| -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
+covered|shi| -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
+atomic|shi| -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
+decode|shi|不 -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
+covered|shi|不 -> 是,时,实,事,实现,市,十,始,试,视,𠃦,𠃧,𠃨
+atomic|shi|不 -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
+decode|shi|我 -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
+covered|shi|我 -> 是,时,实,事,实现,市,十,始,试,视,𠃦,𠃧,𠃨
+atomic|shi|我 -> 是,时,实,事,市,十,始,试,视,𠃦,𠃧,𠃨
+decode|ci| -> 次,此,词,刺,辞,磁,慈,茨,瓷,赐,雌,祠
+covered|ci| -> 次,此,词库,词,刺,辞,磁,慈,茨,瓷,赐,雌,祠,疵,伺,𠀀,𠀁,𠀂,𠀃,𠀄,𠀅,𠀆,𠀇,𠀈,𠀉,𠀊,𠀋,𠀌,𠀍,𠀎,𠀏
+atomic|ci| -> 次,此,词,刺,辞,磁,慈,茨,瓷,赐,雌,祠,疵,伺,𠀀,𠀁,𠀂,𠀃,𠀄,𠀅,𠀆,𠀇,𠀈,𠀉,𠀊,𠀋,𠀌,𠀍,𠀎,𠀏
+decode|ci|词 -> 词,次,此,刺,辞,磁,慈,茨,瓷,赐,雌,祠
+covered|ci|词 -> 词,词库,次,此,刺,辞,磁,慈,茨,瓷,赐,雌,祠,疵,伺,𠀀,𠀁,𠀂,𠀃,𠀄,𠀅,𠀆,𠀇,𠀈,𠀉,𠀊,𠀋,𠀌,𠀍,𠀎,𠀏
+atomic|ci|词 -> 词,次,此,刺,辞,磁,慈,茨,瓷,赐,雌,祠,疵,伺,𠀀,𠀁,𠀂,𠀃,𠀄,𠀅,𠀆,𠀇,𠀈,𠀉,𠀊,𠀋,𠀌,𠀍,𠀎,𠀏
+decode|jian| -> 键,见,件,间,简,减,建,𠄄,𠄅,𠄆
+covered|jian| -> 键,见,件,间,简,减,建,𠄄,𠄅,𠄆
+atomic|jian| -> 键,见,件,间,简,减,建,𠄄,𠄅,𠄆
+decode|jian|九 -> 键,见,间,件,简,减,建,𠄄,𠄅,𠄆
+covered|jian|九 -> 键,见,间,件,简,减,建,𠄄,𠄅,𠄆
+atomic|jian|九 -> 键,见,间,件,简,减,建,𠄄,𠄅,𠄆
+decode|zi| -> 字,子,自,紫,资,仔,籽,𠃒,𠃓,𠃔
+covered|zi| -> 字,子,自,紫,资,仔,籽,𠃒,𠃓,𠃔
+atomic|zi| -> 字,子,自,紫,资,仔,籽,𠃒,𠃓,𠃔
+decode|zi|字 -> 字,子,自,紫,资,仔,籽,𠃒,𠃓,𠃔
+covered|zi|字 -> 字,子,自,紫,资,仔,籽,𠃒,𠃓,𠃔
+atomic|zi|字 -> 字,子,自,紫,资,仔,籽,𠃒,𠃓,𠃔
+decode|xiang| -> 向,想,相,像,香,响,享,想哭
+covered|xiang| -> 向,想,相,像,想哭,香,响,享,现,下,县,西,限,先,显,夏,鲜,霞,险,嫌,西安,𠃰,𠃱,𠃲
+atomic|xiang| -> 向,想,相,像,香,响,享
+decode|xiang|想 -> 相,向,想,香,像,响,享,想哭
+covered|xiang|想 -> 相,向,想,想哭,香,像,响,享,现,下,县,西,限,先,显,夏,鲜,霞,险,嫌,西安,𠃰,𠃱,𠃲
+atomic|xiang|想 -> 相,向,想,香,像,响,享
+decode|xiangku| -> 想哭
+covered|xiangku| -> 想哭,向,想,相,现,下,像,县,西,香,限,先,响,显,夏,享,鲜,霞,险,嫌,西安,𠃰,𠃱,𠃲
+atomic|xiangku| -> 想哭,向库,想库,相库,像库,向苦,想苦,相苦,向,想,相,像,香,响,享
+decode|xiangku|想 -> 想哭
+covered|xiangku|想 -> 想哭,相,向,想,香,现,下,像,县,西,限,先,响,显,夏,享,鲜,霞,险,嫌,西安,𠃰,𠃱,𠃲
 atomic|xiangku|想 -> 想哭,相库,相苦,相哭,相酷,向库,想库,向苦,相,向,想,香,像,响,享
 decode|bushi| -> 不是
 covered|bushi| -> 不是,不,部,布,步,补,捕,卜,哺,埠,簿,𠃜,𠃝,𠃞

@@ -34,13 +34,65 @@ class ExhaustiveDecodeAuditTest {
         return PinyinDecoder(BinaryDict.fromFile(dictFile), CharBigramLM.fromFile(lmFile), initialsDict = initials)
     }
 
+    private fun t9Decoder(): PinyinDecoder =
+        PinyinDecoder(BinaryDict.fromFile(t9File), CharBigramLM.fromFile(lmFile), aliasDict = dict)
+
     private val dict: BinaryDict by lazy { BinaryDict.fromFile(dictFile) }
+    private val t9Dict: BinaryDict by lazy { BinaryDict.fromFile(t9File) }
 
     private fun isSingleChar(w: String): Boolean = w.codePointCount(0, w.length) == 1
     private fun dictSingles(key: String): Set<String> =
         dict.exact(key).filter { isSingleChar(it.word) }.map { it.word }.toSet()
+    private fun t9Singles(key: String): Set<String> =
+        t9Dict.exact(key).filter { isSingleChar(it.word) }.map { it.word }.toSet()
     private fun allSingles(cands: List<Cand>): Set<String> =
         cands.filter { isSingleChar(it.word) }.map { it.word }.toSet()
+
+    private fun leadingKey(d: PinyinDecoder, input: String, cuts: Set<Int>): String {
+        val head = input.substring(0, cuts.filter { it in 1 until input.length }.minOrNull() ?: input.length)
+        val end = d.syllables(head).firstOrNull()?.end ?: head.length
+        return head.substring(0, end.coerceIn(1, head.length))
+    }
+
+    private fun lossFail(
+        input: String, layout: String, path: String,
+        key: String, oracle: Set<String>, shown: Set<String>,
+    ): Fail? {
+        val missing = oracle - shown
+        if (missing.isEmpty()) return null
+        return Fail(
+            input, layout, "L1-char-loss", key, path, sample(oracle), sample(missing),
+            "$path drops ${missing.size} of ${oracle.size} singles the dictionary holds for '$key'",
+        )
+    }
+
+    private fun leadingLoss(
+        dLetters: PinyinDecoder, dDigits: PinyinDecoder,
+        letters: String, digits: String, letterCuts: Set<Int>, digitCuts: Set<Int>,
+    ): List<Fail> {
+        val freeLetterKey = leadingKey(dLetters, letters, emptySet())
+        val freeDigitKey = leadingKey(dDigits, digits, emptySet())
+        val atomLetterKey = leadingKey(dLetters, letters, letterCuts)
+        val atomDigitKey = leadingKey(dDigits, digits, digitCuts)
+        return listOfNotNull(
+            lossFail(
+                letters, "26key", "decodeCovered", freeLetterKey, dictSingles(freeLetterKey),
+                allSingles(dLetters.decodeCovered(letters, 30)),
+            ),
+            lossFail(
+                letters, "26key", "decodeCoveredAtomic", atomLetterKey, dictSingles(atomLetterKey),
+                allSingles(dLetters.decodeCoveredAtomic(letters, 30, letterCuts)),
+            ),
+            lossFail(
+                digits, "9key", "decodeCovered", freeDigitKey, t9Singles(freeDigitKey),
+                allSingles(dDigits.decodeCovered(digits, 30)),
+            ),
+            lossFail(
+                digits, "9key", "decodeCoveredAtomic", atomDigitKey, t9Singles(atomDigitKey),
+                allSingles(dDigits.decodeCoveredAtomic(digits, 30, digitCuts)),
+            ),
+        )
+    }
 
     private fun sample(s: Collection<String>, n: Int = 8): String =
         s.take(n).joinToString(" ") + if (s.size > n) " …(${s.size})" else ""
@@ -100,7 +152,28 @@ class ExhaustiveDecodeAuditTest {
         }
     }
 
-    private fun sweepN1(d: PinyinDecoder, syls: List<String>): List<Fail> {
+    private fun sweepLeftToRight(d: PinyinDecoder, t9: PinyinDecoder, inputs: List<List<String>>): List<Fail> {
+        val fails = ArrayList<Fail>()
+        for (sylList in inputs) {
+            for (k in sylList.indices) {
+                val rest = sylList.subList(k, sylList.size)
+                val letters = rest.joinToString("")
+                val digits = rest.joinToString("") { T9Pinyin.toT9(it) }
+                val letterCuts = HashSet<Int>()
+                val digitCuts = HashSet<Int>()
+                var la = 0
+                var da = 0
+                for (j in 0 until rest.size - 1) {
+                    la += rest[j].length; letterCuts.add(la)
+                    da += T9Pinyin.toT9(rest[j]).length; digitCuts.add(da)
+                }
+                fails += leadingLoss(d, t9, letters, digits, letterCuts, digitCuts)
+            }
+        }
+        return fails
+    }
+
+    private fun sweepN1(d: PinyinDecoder, t9: PinyinDecoder, syls: List<String>): List<Fail> {
         val fails = ArrayList<Fail>()
         for (s in syls) {
             val oracle = dictSingles(s)
@@ -177,6 +250,8 @@ class ExhaustiveDecodeAuditTest {
                         "9-key lock '${s}' (letters='${lock.letters}') yields chars not reading S")
                 }
             }
+
+            fails += leadingLoss(d, t9, s, digits, emptySet(), emptySet())
         }
         return fails
     }
@@ -188,7 +263,7 @@ class ExhaustiveDecodeAuditTest {
             syls.size in 400..430 && syls.isNotEmpty())
 
         val d = letterDecoder()
-        val fails = sweepN1(d, syls)
+        val fails = sweepN1(d, t9Decoder(), syls)
 
         writeTsv(File(outDir(), "levelA_n1.tsv"), fails.sortedWith(compareBy({ it.inv }, { it.layout }, { it.input })))
         val byInvLayout = fails.groupingBy { it.inv to it.layout }.eachCount()
@@ -196,6 +271,8 @@ class ExhaustiveDecodeAuditTest {
         File(outDir(), "levelA_n1_summary.txt").writeText(buildString {
             appendLine("Level A — n=1 exhaustive syllable audit")
             appendLine("syllables tested: ${syls.size}")
+            appendLine("syllables holding single characters: letters ${syls.count { dictSingles(it).isNotEmpty() }}" +
+                ", digits ${syls.count { t9Singles(T9Pinyin.toT9(it)).isNotEmpty() }}")
             appendLine("distinct offending syllables: ${failedInputs.size}")
             appendLine("total invariant violations: ${fails.size}")
             appendLine("per invariant×layout:")
@@ -208,6 +285,34 @@ class ExhaustiveDecodeAuditTest {
         assertTrue("no-traditional gate: traditional/variant forms leaked into candidates: ${tradLeaks.take(6)}", tradLeaks.isEmpty())
         assertTrue("n=1 offenders must be 0 after the fix; remaining: ${failedInputs.sorted()}", fails.isEmpty())
         assertTrue("report written", File(outDir(), "levelA_n1.tsv").length() > 0)
+    }
+
+    @Test fun leftToRightReachability_bothLayouts_writesReport() {
+        assumeTrue("assets present", dictFile.exists() && lmFile.exists() && t9File.exists())
+        val syls = runtimeSyllables().sorted()
+        val pairTails = listOf("hao", "an")
+        val tripleStride = 10
+        val tripleSlice = syls.filterIndexed { i, _ -> i % tripleStride == 0 }
+        val inputs = syls.flatMap { head -> pairTails.map { listOf(head, it) } } +
+            tripleSlice.map { head -> listOf(head, "hao", "ma") }
+
+        val fails = sweepLeftToRight(letterDecoder(), t9Decoder(), inputs)
+
+        writeTsv(File(outDir(), "levelA_left_to_right.tsv"), fails.sortedWith(compareBy({ it.layout }, { it.input })))
+        File(outDir(), "levelA_left_to_right_summary.txt").writeText(buildString {
+            appendLine("Level A — leading-syllable reachability walked left to right")
+            appendLine("pairs: ${syls.size} syllables x ${pairTails.size} tails ($pairTails)")
+            appendLine("triples: every ${tripleStride}th syllable (${tripleSlice.size} of ${syls.size}) x hao x ma")
+            appendLine("syllable positions checked: ${inputs.sumOf { it.size }}")
+            appendLine("keyspaces: letters + digits; paths: decodeCovered + decodeCoveredAtomic")
+            appendLine("character-loss violations: ${fails.size}")
+        })
+
+        assertTrue(
+            "characters unreachable at some syllable index: ${fails.take(6).map { "${it.input}/${it.layout}/${it.shownReading}" }}",
+            fails.isEmpty(),
+        )
+        assertTrue("report written", File(outDir(), "levelA_left_to_right.tsv").length() > 0)
     }
 
     @Test fun exhaustiveN2_allPairs_writesReport() {
