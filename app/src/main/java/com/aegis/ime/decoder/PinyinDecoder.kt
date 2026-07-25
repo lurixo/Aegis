@@ -799,7 +799,7 @@ class PinyinDecoder(
         const val FUZZY_PENALTY = 3.0
         const val ALIAS_PENALTY = 3.5
         const val INITIALS_PENALTY = 5.0
-        const val DEFAULT_OCTAGRAM_WEIGHT = 0.3
+        const val DEFAULT_OCTAGRAM_WEIGHT = 0.1
         const val PREFIX_PER_LEN = 16
         const val BEAM_W = 12
         const val SENTENCE_EDGE_N = 6
