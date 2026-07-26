@@ -118,6 +118,23 @@ class ExhaustiveDecodeAuditTest {
         javaClass.classLoader!!.getResourceAsStream("tc1_mapped_forms.txt")!!
             .bufferedReader().readLines().filter { it.isNotBlank() && !it.startsWith("#") }.toSet()
     }
+    private val readingScopedMappedForms: Map<String, Set<String>> by lazy {
+        val out = HashMap<String, MutableSet<String>>()
+        for (line in File("../tools/t2s-data/adjudications.tsv").readLines()) {
+            if (line.isBlank() || line.startsWith("#")) continue
+            val cols = line.split("\t")
+            if (cols.size < 3) continue
+            val (source, reading, target) = cols
+            if (reading != "*" && source != target) out.getOrPut(source) { HashSet() }.add(reading)
+        }
+        out
+    }
+
+    private fun isStandalone(word: String): Boolean = word.codePointCount(0, word.length) == 1
+
+    private fun mappedAwayUnderReading(word: String, reading: String): Boolean =
+        isStandalone(word) && reading in readingScopedMappedForms[word].orEmpty()
+
     private fun containsMappedForm(word: String): Boolean {
         var i = 0
         while (i < word.length) {
@@ -221,6 +238,10 @@ class ExhaustiveDecodeAuditTest {
             for (h in homo) if (containsMappedForm(h)) {
                 fails += Fail(s, "26key", "TC1-traditional-leak", s, h,
                     sample(oracle), h, "homophone drill contains a mapped-away form")
+            }
+            for (w in oracle) if (mappedAwayUnderReading(w, s)) {
+                fails += Fail(s, "26key", "TC1-traditional-leak", s, w,
+                    sample(oracle), w, "standalone entry under a reading the build maps away")
             }
             for (c in t9.decodeCovered(digits, 30)) if (containsMappedForm(c.word)) {
                 fails += Fail(s, "9key", "TC1-traditional-leak", s, c.word,
@@ -421,6 +442,10 @@ class ExhaustiveDecodeAuditTest {
             appendLine("TC1 leak scan covers n=1 only: 26-key decodeCovered top-30 and homophonesAt, " +
                 "9-key decodeCovered top-30, homophonesAt and the locked-reading path; " +
                 "longer inputs are not scanned for mapped-away forms")
+            appendLine("TC1 occurrence list: ${mappedForms.size} forms, any codepoint of any candidate; " +
+                "reading-scoped list: ${readingScopedMappedForms.values.sumOf { it.size }} form/reading pairs " +
+                "over ${readingScopedMappedForms.size} forms, held against the letter dictionary's own " +
+                "standalone entries, whose key is the reading; digit and initials keys cannot name a reading")
             appendLine("distinct offending syllables: ${failedInputs.size}")
             appendLine("total invariant violations: ${fails.size}")
             appendLine("per invariant×layout:")
@@ -429,6 +454,8 @@ class ExhaustiveDecodeAuditTest {
             }
         })
 
+        assertTrue("reading-scoped mapped-away list is empty, so the standalone arm covers nothing",
+            readingScopedMappedForms.isNotEmpty())
         val tradLeaks = fails.filter { it.inv == "TC1-traditional-leak" }
         assertTrue("no-traditional gate: traditional/variant forms leaked into candidates: ${tradLeaks.take(6)}", tradLeaks.isEmpty())
         assertTrue("n=1 offenders must be 0 after the fix; remaining: ${failedInputs.sorted()}", fails.isEmpty())
