@@ -44,15 +44,15 @@ class BoostCurveReportTest {
         val RATIO_TARGETS = listOf(2.0, 5.0, 10.0, 100.0)
         const val RATIO_TOL = 0.05
 
-        val seedDictFile = File("src/main/assets/aegis_dict.bin")
-        val seedT9File = File("src/main/assets/aegis_t9.bin")
-        val seedJianpinFile = File("src/main/assets/aegis_jianpin.bin")
+        val assetsDictFile = File("src/main/assets/aegis_dict.bin")
+        val assetsT9File = File("src/main/assets/aegis_t9.bin")
+        val assetsJianpinFile = File("src/main/assets/aegis_jianpin.bin")
         val lmFile = File("src/main/assets/aegis_lm.bin")
 
         val lm: CharBigramLM by lazy { CharBigramLM.fromFile(lmFile) }
-        val seedDict: BinaryDict by lazy { BinaryDict.fromFile(seedDictFile) }
-        val seedT9: BinaryDict by lazy { BinaryDict.fromFile(seedT9File) }
-        val seedJianpin: BinaryDict by lazy { BinaryDict.fromFile(seedJianpinFile) }
+        val assetsDict: BinaryDict by lazy { BinaryDict.fromFile(assetsDictFile) }
+        val assetsT9: BinaryDict by lazy { BinaryDict.fromFile(assetsT9File) }
+        val assetsJianpin: BinaryDict by lazy { BinaryDict.fromFile(assetsJianpinFile) }
         val fullDict: BinaryDict by lazy { BinaryDict.fromFile(File(env("AEGIS_FULLDICT_DIR")!!, "aegis_dict.bin")) }
         val fullT9: BinaryDict by lazy { BinaryDict.fromFile(File(env("AEGIS_FULLDICT_DIR")!!, "aegis_t9.bin")) }
         val fullJianpin: BinaryDict by lazy { BinaryDict.fromFile(File(env("AEGIS_FULLDICT_DIR")!!, "aegis_jianpin.bin")) }
@@ -413,7 +413,7 @@ class BoostCurveReportTest {
 
     @Test fun s4_selfCreatedWord_recheck() {
         assumeTrue("gated: set AEGIS_BOOST_REPORT=1", enabled)
-        assumeTrue("seed assets present", seedDictFile.exists() && seedT9File.exists() && seedJianpinFile.exists() && lmFile.exists())
+        assumeTrue("assets pack present", assetsDictFile.exists() && assetsT9File.exists() && assetsJianpinFile.exists() && lmFile.exists())
         val cases = listOf(
             "shide" to "是得", "ceguo" to "测国", "nihaoma" to "你豪马", "shishi" to "是时", "cishi" to "此是",
         )
@@ -422,7 +422,7 @@ class BoostCurveReportTest {
 
         data class Config(val name: String, val dict: BinaryDict, val t9: BinaryDict, val jp: BinaryDict?, val oct: OctagramReader?)
         val configs = buildList {
-            add(Config("seed-noOctagram", seedDict, seedT9, seedJianpin, null))
+            add(Config("assets-noOctagram", assetsDict, assetsT9, assetsJianpin, null))
             if (env("AEGIS_FULLDICT_DIR") != null && env("AEGIS_GRAM") != null) {
                 add(Config("full-production", fullDict, fullT9, fullJianpin, octagram))
             }
