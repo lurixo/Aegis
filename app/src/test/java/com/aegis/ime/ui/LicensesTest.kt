@@ -72,7 +72,7 @@ class LicensesTest {
         val doc = File("../THIRD_PARTY_LICENSES.md").readText()
         for (needle in listOf(
             "rime-wanxiang", "amzxyz", "CC BY 4.0", "creativecommons.org/licenses/by/4.0",
-            "v16.0.1", "7db7c588", "character-bigram",
+            "v16.3.0", "ef047401", "character-bigram",
             "RIME-LMDG", "OpenCC", "BYVoid", "Apache-2.0",
             "Unicode", "unicode.org/license",
             "AndroidX", "Compose", "Material 3", "Kotlin",
