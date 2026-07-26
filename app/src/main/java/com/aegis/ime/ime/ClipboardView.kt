@@ -91,7 +91,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun dp(v: Int) = (v * density).toInt()
 
     private var palette = ImePalette.STATIC_LIGHT
-    private var GREEN = palette.candidateFirst
+    private var ACCENT = palette.candidateFirst
     private var RED = palette.onErrorContainer
     private var GREY_PILL = palette.chipBg
     private var SPLIT_BLOCK_BG = palette.accentBottom
@@ -108,7 +108,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
 
     fun applyPalette(p: ImePalette) {
         palette = p
-        GREEN = p.candidateFirst; RED = p.onErrorContainer
+        ACCENT = p.candidateFirst; RED = p.onErrorContainer
         GREY_PILL = p.chipBg; SPLIT_BLOCK_BG = p.accentBottom; SPLIT_BLOCK_TEXT = p.accentLabel
         SPLIT_BLOCK_COPIED_BG = p.chipBg; SPLIT_BLOCK_COPIED_TEXT = p.chipText
         TEXT_DARK = p.keyLabel; TEXT_SECONDARY = p.keyLabelSecondary; HINT = p.keyHint; CARD = p.keySurface
@@ -1529,8 +1529,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             }, ll(0, WC, 1f))
             addView(TextView(context).apply {
                 text = context.getString(R.string.clip_done); gravity = Gravity.END
-                setTextColor(GREEN); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
-                Motion.applyTapFeedback(this, GREEN)
+                setTextColor(ACCENT); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+                Motion.applyTapFeedback(this, ACCENT)
                 setOnClickListener { exitSortMode() }
             }, ll(0, WC, 1f))
         }
@@ -1734,9 +1734,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
         setPadding(dp(10), dp(6), dp(10), dp(6))
         background = if (on) rounded(GREY_PILL, ImeShapes.toolbarPillRadiusDp) else null
-        setTextColor(if (on) GREEN else TEXT_DARK)
+        setTextColor(if (on) ACCENT else TEXT_DARK)
         setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
-        Motion.applyTapFeedback(this, if (on) GREEN else TEXT_DARK, radiusDp = ImeShapes.toolbarPillRadiusDp)
+        Motion.applyTapFeedback(this, if (on) ACCENT else TEXT_DARK, radiusDp = ImeShapes.toolbarPillRadiusDp)
         setOnClickListener { selectPhraseCategory(name) }
         setOnLongClickListener { showCategoryMenu(name); true }
         layoutParams = ll(WC, WC).apply { rightMargin = dp(2) }
@@ -1771,7 +1771,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
                 gravity = Gravity.CENTER_VERTICAL or Gravity.START
                 setTextColor(TEXT_DARK)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
-                setCompoundDrawablesWithIntrinsicBounds(glyphIcon(if (allSel) GREEN else TEXT_DARK, 22) { c, p, x, y, s -> Glyphs.drawRadio(c, p, x, y, s, allSel) }, null, null, null)
+                setCompoundDrawablesWithIntrinsicBounds(glyphIcon(if (allSel) ACCENT else TEXT_DARK, 22) { c, p, x, y, s -> Glyphs.drawRadio(c, p, x, y, s, allSel) }, null, null, null)
                 compoundDrawablePadding = paint.measureText(" ").roundToInt().coerceAtLeast(1)
                 setPadding(dp(9), 0, dp(10), 0)
                 background = rounded(CARD, ImeShapes.toolbarFeedbackRadiusDp)
@@ -1840,7 +1840,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
 
         applySelectionState = {
             val nowAll = st.isAllSelected(all)
-            selectAll.setCompoundDrawablesWithIntrinsicBounds(glyphIcon(if (nowAll) GREEN else TEXT_DARK, 22) { c, p, x, y, s -> Glyphs.drawRadio(c, p, x, y, s, nowAll) }, null, null, null)
+            selectAll.setCompoundDrawablesWithIntrinsicBounds(glyphIcon(if (nowAll) ACCENT else TEXT_DARK, 22) { c, p, x, y, s -> Glyphs.drawRadio(c, p, x, y, s, nowAll) }, null, null, null)
             countView.text = context.getString(R.string.clip_selected_count, st.selected.size)
             val nowHasSel = st.hasSelection()
             updateCompactActionEnabled(primaryAction, nowHasSel, primaryClick)
@@ -1852,14 +1852,14 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun selectRowFor(text: String, index: Int, category: String): View {
         val h = if (index < selectRowPool.size) selectRowPool[index] else buildSelectRow()
         val on = text in st.selected
-        val tint = if (on) GREEN else TEXT_DARK
+        val tint = if (on) ACCENT else TEXT_DARK
         Motion.reset(h.row)
         h.radio.bind(tint, on)
         h.label.text = if (st.tab == Tab.PHRASE) phraseDisplayText(category, text) else text
         retintRow(h.row, tint)
         h.row.setOnClickListener {
             val nowOn = st.toggleSelect(text)
-            val nowTint = if (nowOn) GREEN else TEXT_DARK
+            val nowTint = if (nowOn) ACCENT else TEXT_DARK
             h.radio.bind(nowTint, nowOn)
             retintRow(h.row, nowTint)
             applySelectionState?.invoke()
@@ -1873,7 +1873,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             val holder = selectRowPool[i]
             if (listColumn.getChildAt(i) !== holder.row) continue
             val on = i < all.size && all[i] in st.selected
-            val tint = if (on) GREEN else TEXT_DARK
+            val tint = if (on) ACCENT else TEXT_DARK
             holder.radio.bind(tint, on)
             retintRow(holder.row, tint)
         }
@@ -2126,10 +2126,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         text = label; gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         background = if (on) tabSegment(GREY_PILL, left) else null
-        setTextColor(if (on) GREEN else TEXT_DARK)
+        setTextColor(if (on) ACCENT else TEXT_DARK)
         setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         foreground = RippleDrawable(
-            ColorStateList.valueOf(Motion.withAlpha(if (on) GREEN else TEXT_DARK, 0x24)),
+            ColorStateList.valueOf(Motion.withAlpha(if (on) ACCENT else TEXT_DARK, 0x24)),
             null,
             tabSegment(Color.WHITE, left),
         )

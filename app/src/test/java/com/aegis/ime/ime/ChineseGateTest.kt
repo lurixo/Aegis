@@ -119,20 +119,20 @@ class ChineseGateTest {
         assertTrue("a tap anywhere on the gated strip must start the download", tapped)
     }
 
-    @Test fun gate_failed_state_draws_red_while_the_other_states_stay_green() {
+    @Test fun gate_failed_state_draws_the_error_colour_while_the_others_keep_the_accent() {
         val v = CandidateView(ctx)
         val palette = ImePalette.STATIC_LIGHT
-        assertTrue("the red error colour must differ from the green accent", palette.deletable != palette.candidateFirst)
+        assertTrue("the error colour must differ from the accent", palette.deletable != palette.candidateFirst)
         v.setContent(emptyList(), "ni", gate = true)
 
         v.setGateStatus(ctx.getString(R.string.dict_gate_cta), failed = false)
-        assertEquals("idle gate stays green", palette.candidateFirst, v.gateTextColorForTest())
+        assertEquals("idle gate keeps the accent", palette.candidateFirst, v.gateTextColorForTest())
         v.setGateStatus(ctx.getString(R.string.dict_gate_downloading) + " 40%", failed = false)
-        assertEquals("downloading gate stays green", palette.candidateFirst, v.gateTextColorForTest())
+        assertEquals("downloading gate keeps the accent", palette.candidateFirst, v.gateTextColorForTest())
         v.setGateStatus(ctx.getString(R.string.dict_gate_verifying), failed = false)
-        assertEquals("verifying gate stays green", palette.candidateFirst, v.gateTextColorForTest())
+        assertEquals("verifying gate keeps the accent", palette.candidateFirst, v.gateTextColorForTest())
         v.setGateStatus(ctx.getString(R.string.dict_gate_failed), failed = true)
-        assertEquals("failed gate turns red", palette.deletable, v.gateTextColorForTest())
+        assertEquals("failed gate turns to the error colour", palette.deletable, v.gateTextColorForTest())
     }
 
     @Test fun only_a_failed_download_with_no_pack_flags_the_gate_as_failed() {
