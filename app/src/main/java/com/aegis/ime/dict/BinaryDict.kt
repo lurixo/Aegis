@@ -103,7 +103,7 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
         if (prefix.isEmpty() || limit <= 0 || numKeys == 0) return emptyList()
         shortPrefixIndex(prefix)?.let { return it.take(limit) }
         val q = prefix.toByteArray(Charsets.US_ASCII)
-        val top = PriorityQueue<PrefixHit>(limit, Comparator { a, b -> comparePrefixWorstFirst(a, b) })
+        val top = PriorityQueue<PrefixHit>(Comparator { a, b -> comparePrefixWorstFirst(a, b) })
         var order = 0
         var i = lowerBound(q)
         while (i < numKeys && startsWith(i, q)) {

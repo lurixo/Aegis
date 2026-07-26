@@ -15,6 +15,7 @@
 
 package com.aegis.ime.dict
 
+import com.aegis.ime.decoder.EngineFixture
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -56,5 +57,20 @@ class BinaryDictTest {
         assertEquals("zero limit returns no rows", emptyList<BinaryDict.WordFreq>(), dict.exact("nihao", limit = 0))
         assertTrue("contains existing exact word", dict.containsExactWord("nihao", "你好"))
         assertTrue("does not claim the word under the wrong key", !dict.containsExactWord("ceshi", "你好"))
+    }
+
+    @Test
+    fun prefixByFreqServesALimitLargerThanAnyAllocatableHeap() {
+        val rows = (0 until 40).map { EngineFixture.Row("sh" + ('a' + it % 4), "词$it", 1000 - it) }
+        val dict = EngineFixture.build(rows)
+
+        val everyHit = dict.prefixByFreq("sh", rows.size)
+        assertEquals("multi-character prefix reaches every fixture row", rows.size, everyHit.size)
+        assertEquals(
+            "a limit past every allocatable size returns the same hits in the same order",
+            everyHit,
+            dict.prefixByFreq("sh", Int.MAX_VALUE),
+        )
+        assertEquals("a small limit still returns the leading slice", everyHit.take(3), dict.prefixByFreq("sh", 3))
     }
 }
