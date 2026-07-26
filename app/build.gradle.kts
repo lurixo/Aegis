@@ -187,9 +187,32 @@ tasks.withType<Test>().configureEach {
         layout.projectDirectory.file("src/main/assets/aegis_lm.bin"),
     ).withPropertyName("runtimeDictionaryAssets")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(
+        layout.projectDirectory.file("../tools/release/build_dictionary_pack.py"),
+        layout.projectDirectory.file("../tools/t2s-data/adjudications.tsv"),
+        layout.projectDirectory.file("src/main/AndroidManifest.xml"),
+    ).withPropertyName("repositoryFilesReadByTests")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.dir(layout.projectDirectory.dir("../tools/t2s-data"))
         .withPropertyName("t2sDataReadByTests")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir(layout.projectDirectory.dir("src/main/res"))
+        .withPropertyName("sourceResourcesReadByTests")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.property("auditSweepGate", providers.environmentVariable("AEGIS_AUDIT_FULL").orElse(""))
+    inputs.property("heavyAuditSweepGate", providers.environmentVariable("AEGIS_AUDIT_HEAVY").orElse(""))
+    inputs.property("boostReportGate", providers.environmentVariable("AEGIS_BOOST_REPORT").orElse(""))
+    inputs.property("boostSmokeGate", providers.environmentVariable("AEGIS_BOOST_SMOKE").orElse(""))
+    inputs.property("boostThreads", providers.environmentVariable("AEGIS_BOOST_THREADS").orElse(""))
+    inputs.property(
+        "coverageIdentityDigestDump",
+        providers.environmentVariable("AEGIS_COVERAGE_DIGEST_DUMP").orElse(""),
+    )
+    inputs.property("dictionaryReleaseVerification", providers.environmentVariable("AEGIS_DICTIONARY_RELEASE_VERIFY").orElse(""))
+    inputs.file(providers.environmentVariable("AEGIS_COVERAGE_DIGEST_BASELINE").map(::file))
+        .optional()
+        .withPropertyName("coverageIdentityDigestBaseline")
+        .withPathSensitivity(PathSensitivity.NONE)
     inputs.file(providers.environmentVariable("AEGIS_BUILD_INFO").map(::file))
         .optional()
         .withPropertyName("externalBuildInfo")
