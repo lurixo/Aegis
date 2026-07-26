@@ -38,6 +38,7 @@
     <string name="download_toast_update_parse_error">Unable to check for updates (unexpected response from server)</string>
     <string name="download_toast_up_to_date">Up to date, no update</string>
     <string name="download_toast_update_found">Update found, starting update</string>
+    <string name="download_toast_update_unknown">Cannot tell whether a newer file exists (tap Download to fetch it again)</string>
     <string name="download_storage_format">Storage: %1$s (app-private directory, hidden from file managers; local only and removable).</string>
 
     <string name="gram_card_title">Enhancement model (Wanxiang offline model)</string>

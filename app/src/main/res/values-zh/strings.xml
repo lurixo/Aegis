@@ -38,6 +38,7 @@
     <string name="download_toast_update_parse_error">无法检查更新（服务器返回的数据无法解析）</string>
     <string name="download_toast_up_to_date">已是最新，无更新</string>
     <string name="download_toast_update_found">发现更新，开始更新</string>
+    <string name="download_toast_update_unknown">无法判断是否有新版本（可点按“下载”重新获取）</string>
     <string name="download_storage_format">存放位置：%1$s（应用私有目录，文件管理器不可见，仅本机、可删除）。</string>
 
     <string name="gram_card_title">增强模型（万象离线大模型）</string>

@@ -19,6 +19,7 @@ import android.content.SharedPreferences
 import android.os.Looper
 import androidx.activity.compose.setContent
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -439,11 +440,15 @@ class ResourceUpdateCardTest {
             compose.waitForIdle()
 
             compose.onNodeWithText(context.getString(R.string.check_model_update_button)).assertIsEnabled().performClick()
-            awaitMain { downloaded.get() != null }
+            awaitMain { ShadowToast.shownToastCount() == 1 }
 
             assertEquals(listOf("HEAD", "HEAD"), requests.toList())
-            assertEquals(ModelDownload.GRAM_URL, downloaded.get())
-            assertEquals(context.getString(R.string.download_toast_update_found), ShadowToast.getTextOfLatestToast())
+            assertNull("an unreadable local validator is not a newer file", downloaded.get())
+            assertEquals(
+                context.getString(R.string.download_toast_update_unknown),
+                ShadowToast.getTextOfLatestToast(),
+            )
+            compose.onNodeWithText(context.getString(R.string.download_button)).assertIsEnabled()
             compose.onNodeWithText(context.getString(R.string.check_model_update_button)).assertIsEnabled()
         } finally {
             server.stop(0)
@@ -451,7 +456,41 @@ class ResourceUpdateCardTest {
     }
 
     @Test
-    fun unidentifiedGrammarFileOffersTheUpdateWithoutAdoptingTheHeadValidator() {
+    fun newerGrammarFileHandsTheModelUrlToTheDownloader() {
+        val downloaded = AtomicReference<String>()
+        ModelDownload.destFile(context.filesDir).apply {
+            parentFile?.mkdirs()
+            writeBytes(ByteArray(2_048))
+        }
+        prefs.edit().putString(ModelDownload.VALIDATOR_PREF, "installed-model").commit()
+        ShadowToast.reset()
+        compose.runOnUiThread {
+            compose.activity.setContent {
+                AegisTheme {
+                    GramDownloadCard(
+                        probe = { ModelDownload.ValidatorProbe.Reached("remote-model") },
+                        downloader = { _, url -> downloaded.set(url) },
+                    )
+                }
+            }
+        }
+        compose.waitForIdle()
+
+        compose.onNodeWithText(context.getString(R.string.check_model_update_button))
+            .assertIsEnabled()
+            .performClick()
+        awaitMain { downloaded.get() != null }
+
+        assertEquals(ModelDownload.GRAM_URL, downloaded.get())
+        assertEquals(
+            context.getString(R.string.download_toast_update_found),
+            ShadowToast.getTextOfLatestToast(),
+        )
+        compose.onNodeWithText(context.getString(R.string.check_model_update_button)).assertIsEnabled()
+    }
+
+    @Test
+    fun unidentifiedGrammarFileReportsUnknownAndLeavesTheTransferToTheUser() {
         val downloads = AtomicInteger()
         ModelDownload.destFile(context.filesDir).apply {
             parentFile?.mkdirs()
@@ -471,12 +510,21 @@ class ResourceUpdateCardTest {
         }
         compose.waitForIdle()
 
+        compose.onNodeWithText(context.getString(R.string.download_button)).assertIsNotEnabled()
         compose.onNodeWithText(context.getString(R.string.check_model_update_button)).performClick()
-        awaitMain { downloads.get() == 1 }
+        awaitMain { ShadowToast.shownToastCount() == 1 }
 
+        assertEquals("no local validator is not a newer file", 0, downloads.get())
         assertFalse(prefs.contains(ModelDownload.VALIDATOR_PREF))
         assertTrue(ModelDownload.isDownloaded(context.filesDir))
-        assertEquals(context.getString(R.string.download_toast_update_found), ShadowToast.getTextOfLatestToast())
+        assertEquals(
+            context.getString(R.string.download_toast_update_unknown),
+            ShadowToast.getTextOfLatestToast(),
+        )
+        compose.onNodeWithText(context.getString(R.string.download_button))
+            .assertIsEnabled()
+            .performClick()
+        awaitMain { downloads.get() == 1 }
     }
 
     @Test
@@ -504,7 +552,7 @@ class ResourceUpdateCardTest {
             val dir = ModelDownload.destFile(context.filesDir).parentFile!!.apply { mkdirs() }
             ModelDownload.DICT_PACK_FILES.forEach { File(dir, it).writeBytes(ByteArray(2_048)) }
             prefs.edit()
-                .putInt(ModelDownload.DICT_SHA256_PREF, 7)
+                .putString(ModelDownload.DICT_SHA256_PREF, "1".repeat(64))
                 .putInt(ModelDownload.DICT_RELEASE_PUBLISHED_PREF, 7)
                 .commit()
             ShadowToast.reset()
@@ -537,9 +585,9 @@ class ResourceUpdateCardTest {
     }
 
     @Test
-    fun unknownDictionaryFilesRequireTheTrustedManifestUpdate() {
+    fun unknownDictionaryFilesReportUnknownAndLeaveTheTransferToTheUser() {
         val checked = AtomicReference<ModelDownload.DictionaryInstallMetadata?>()
-        val downloaded = AtomicReference<ModelDownload.DictionaryAsset?>()
+        val downloads = AtomicInteger()
         val dir = ModelDownload.destFile(context.filesDir).parentFile!!.apply { mkdirs() }
         ModelDownload.DICT_PACK_FILES.forEach { File(dir, it).writeBytes(ByteArray(2_048)) }
         prefs.edit().remove(ModelDownload.DICT_SHA256_PREF).commit()
@@ -552,21 +600,29 @@ class ResourceUpdateCardTest {
                             checked.set(it)
                             ModelDownload.dictionaryUpdateFromFetch({ dictionaryManifest() }, it)
                         },
-                        downloader = { _, asset -> downloaded.set(asset) },
+                        downloader = { _, _ -> downloads.incrementAndGet() },
                     )
                 }
             }
         }
         compose.waitForIdle()
 
+        compose.onNodeWithText(context.getString(R.string.download_button)).assertIsNotEnabled()
         compose.onNodeWithText(context.getString(R.string.check_dict_update_button)).performClick()
-        awaitMain { checked.get() != null && downloaded.get() != null }
+        awaitMain { checked.get() != null && ShadowToast.shownToastCount() == 1 }
 
         assertNull(checked.get()!!.sha256)
+        assertEquals("an unidentified pack is not an out-of-date pack", 0, downloads.get())
         assertFalse(prefs.contains(ModelDownload.DICT_SHA256_PREF))
-        assertEquals(DICT_SHA, downloaded.get()!!.sha256)
         assertTrue(ModelDownload.isDictDownloaded(context.filesDir))
-        assertEquals(context.getString(R.string.download_toast_update_found), ShadowToast.getTextOfLatestToast())
+        assertEquals(
+            context.getString(R.string.download_toast_update_unknown),
+            ShadowToast.getTextOfLatestToast(),
+        )
+        compose.onNodeWithText(context.getString(R.string.download_button))
+            .assertIsEnabled()
+            .performClick()
+        awaitMain { downloads.get() == 1 }
     }
 
     @Test

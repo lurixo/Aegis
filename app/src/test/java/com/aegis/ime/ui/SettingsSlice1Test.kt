@@ -158,11 +158,27 @@ class SettingsSlice1Test {
         ModelDownload.DICT_PACK_FILES.forEach { assertFalse(File(dir, it).exists()) }
     }
 
-    @Test fun updateAvailable_semantics_reused_for_the_dict_card() {
-        assertTrue("never recorded → offer", ModelDownload.updateAvailable(null, "etag-1"))
-        assertFalse("identical → suppress", ModelDownload.updateAvailable("etag-1", "etag-1"))
-        assertTrue("differ → offer", ModelDownload.updateAvailable("etag-1", "etag-2"))
-        assertTrue("remote unknown → fall back to offer", ModelDownload.updateAvailable("etag-1", null))
+    @Test fun validator_comparison_semantics_reused_for_the_dict_card() {
+        assertEquals(
+            "never recorded → unknown",
+            ModelDownload.UpdateCheck.UNKNOWN,
+            ModelDownload.validatorComparison(null, "etag-1"),
+        )
+        assertEquals(
+            "identical → suppress",
+            ModelDownload.UpdateCheck.UP_TO_DATE,
+            ModelDownload.validatorComparison("etag-1", "etag-1"),
+        )
+        assertEquals(
+            "differ → offer",
+            ModelDownload.UpdateCheck.UPDATE,
+            ModelDownload.validatorComparison("etag-1", "etag-2"),
+        )
+        assertEquals(
+            "remote unknown → unknown",
+            ModelDownload.UpdateCheck.UNKNOWN,
+            ModelDownload.validatorComparison("etag-1", null),
+        )
     }
 
 
@@ -184,8 +200,8 @@ class SettingsSlice1Test {
             ModelDownload.modelUpdateAction(true, "etag-1", ModelDownload.ValidatorProbe.Reached("etag-2")),
         )
         assertEquals(
-            "never recorded but remote present → update",
-            ModelDownload.UpdateCheck.UPDATE,
+            "never recorded but remote present → unknown, not update",
+            ModelDownload.UpdateCheck.UNKNOWN,
             ModelDownload.modelUpdateAction(true, null, ModelDownload.ValidatorProbe.Reached("etag-1")),
         )
     }

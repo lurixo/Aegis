@@ -100,8 +100,8 @@ class UpdateCheckClassificationTest {
     fun modelUpdateActionReportsEachOutcomeDistinctly() {
         assertEquals(ModelDownload.UpdateCheck.UP_TO_DATE, ModelDownload.modelUpdateAction(true, "e1", ModelDownload.ValidatorProbe.Reached("e1")))
         assertEquals(ModelDownload.UpdateCheck.UPDATE, ModelDownload.modelUpdateAction(true, "e1", ModelDownload.ValidatorProbe.Reached("e2")))
-        assertEquals(ModelDownload.UpdateCheck.UPDATE, ModelDownload.modelUpdateAction(true, null, ModelDownload.ValidatorProbe.Reached("e2")))
-        assertEquals(ModelDownload.UpdateCheck.UPDATE, ModelDownload.modelUpdateAction(true, "e1", ModelDownload.ValidatorProbe.Reached(null)))
+        assertEquals(ModelDownload.UpdateCheck.UNKNOWN, ModelDownload.modelUpdateAction(true, null, ModelDownload.ValidatorProbe.Reached("e2")))
+        assertEquals(ModelDownload.UpdateCheck.UNKNOWN, ModelDownload.modelUpdateAction(true, "e1", ModelDownload.ValidatorProbe.Reached(null)))
         assertEquals(ModelDownload.UpdateCheck.OFFLINE, ModelDownload.modelUpdateAction(true, "e1", ModelDownload.ValidatorProbe.Failed(ModelDownload.CheckFailure.OFFLINE)))
         assertEquals(ModelDownload.UpdateCheck.TIMEOUT, ModelDownload.modelUpdateAction(true, "e1", ModelDownload.ValidatorProbe.Failed(ModelDownload.CheckFailure.TIMEOUT)))
         assertEquals(ModelDownload.UpdateCheck.SERVER_ERROR, ModelDownload.modelUpdateAction(true, "e1", ModelDownload.ValidatorProbe.Failed(ModelDownload.CheckFailure.SERVER)))
@@ -116,9 +116,19 @@ class UpdateCheckClassificationTest {
 
     @Test
     fun dictionaryCheckOverTheUpdateManifestReturnsRealVerdict() {
-        val update = ModelDownload.dictionaryUpdateFromFetch({ dictionaryManifest(sha2) }, ModelDownload.DictionaryInstallMetadata())
+        val update = ModelDownload.dictionaryUpdateFromFetch(
+            { dictionaryManifest(sha2) },
+            ModelDownload.DictionaryInstallMetadata(sha256 = sha1),
+        )
         assertEquals(ModelDownload.UpdateCheck.UPDATE, update.state)
         assertEquals(sha2, update.asset?.sha256)
+
+        val unidentified = ModelDownload.dictionaryUpdateFromFetch(
+            { dictionaryManifest(sha2) },
+            ModelDownload.DictionaryInstallMetadata(),
+        )
+        assertEquals(ModelDownload.UpdateCheck.UNKNOWN, unidentified.state)
+        assertNull("an unknown local pack must not carry a download asset", unidentified.asset)
 
         val current = ModelDownload.dictionaryUpdateFromFetch(
             { dictionaryManifest(sha2) },
