@@ -23,6 +23,7 @@ internal sealed interface LocalizedText {
     data class Raw(val value: String) : LocalizedText
     data class Resource(@StringRes val id: Int) : LocalizedText
     data class ResourceLong(@StringRes val id: Int, val value: Long) : LocalizedText
+    data class ResourceNested(@StringRes val id: Int, @StringRes val argId: Int) : LocalizedText
 }
 
 @Composable
@@ -31,4 +32,5 @@ internal fun LocalizedText.asString(): String =
         is LocalizedText.Raw -> value
         is LocalizedText.Resource -> stringResource(id)
         is LocalizedText.ResourceLong -> stringResource(id, value)
+        is LocalizedText.ResourceNested -> stringResource(id, stringResource(argId))
     }

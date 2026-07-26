@@ -33,6 +33,8 @@ import com.sun.net.httpserver.HttpServer
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.InetSocketAddress
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
@@ -45,6 +47,7 @@ import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -67,6 +70,7 @@ class DownloadCardWorkTest {
     private val failed = LocalizedText.Raw("failed")
 
     private fun runtime() = DownloadRuntime(
+        resource = "test",
         isPresent = { false },
         doneStatus = { done },
         notDownloadedStatus = absent,
@@ -169,6 +173,7 @@ class DownloadCardWorkTest {
     @Test fun idle_status_override_yields_when_the_persisted_presence_changes() {
         var present = false
         val runtime = DownloadRuntime(
+            resource = "test",
             isPresent = { present },
             doneStatus = { done },
             notDownloadedStatus = absent,
@@ -257,6 +262,159 @@ class DownloadCardWorkTest {
         }
     }
 
+    @Test fun a_failed_dictionary_transfer_names_only_the_cause_it_established() {
+        val base = context.filesDir
+        assertTrue(ModelDownload.purgeDict(base))
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/unavailable") { exchange ->
+                exchange.sendResponseHeaders(503, -1)
+                exchange.close()
+            }
+            createContext("/short") { exchange ->
+                val body = ByteArray(16)
+                exchange.sendResponseHeaders(200, body.size.toLong())
+                exchange.responseBody.use { it.write(body) }
+                exchange.close()
+            }
+        }
+        server.start()
+        try {
+            val port = server.address.port
+            val serverError = startDictionary(dictionaryAsset("http://127.0.0.1:$port/unavailable"))
+            val shortBody = startDictionary(dictionaryAsset("http://127.0.0.1:$port/short"))
+
+            assertEquals(
+                LocalizedText.ResourceNested(
+                    R.string.download_status_failed_format,
+                    R.string.download_cause_server,
+                ),
+                serverError.status,
+            )
+            assertEquals(
+                "a complete body that is too small was not truncated",
+                LocalizedText.Resource(R.string.dict_status_download_failed),
+                shortBody.status,
+            )
+            assertNotEquals(serverError.status, shortBody.status)
+            assertNotEquals(
+                LocalizedText.Resource(R.string.dict_status_download_blocked),
+                serverError.status,
+            )
+            assertNotEquals(
+                LocalizedText.Resource(R.string.dict_status_metadata_failed),
+                serverError.status,
+            )
+            assertFalse(ModelDownload.isDictDownloaded(base))
+        } finally {
+            server.stop(0)
+            ModelDownload.purgeDict(base)
+            DictDownloadWork.setIdleStatus(context, LocalizedText.Resource(R.string.dict_status_not_downloaded))
+        }
+    }
+
+    @Test fun a_failed_dictionary_metadata_lookup_names_only_the_cause_it_established() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/unavailable") { exchange ->
+                exchange.sendResponseHeaders(503, -1)
+                exchange.close()
+            }
+            createContext("/garbage") { exchange ->
+                val body = "<html>not the update document</html>".toByteArray()
+                exchange.sendResponseHeaders(200, body.size.toLong())
+                exchange.responseBody.use { it.write(body) }
+                exchange.close()
+            }
+        }
+        server.start()
+        try {
+            val port = server.address.port
+            val serverError = ModelDownload.resolveDictionaryDownloadAsset {
+                ModelDownload.fetchText("http://127.0.0.1:$port/unavailable")
+            }.exceptionOrNull()!!
+            val unreadable = ModelDownload.resolveDictionaryDownloadAsset {
+                ModelDownload.fetchText("http://127.0.0.1:$port/garbage")
+            }.exceptionOrNull()!!
+
+            assertEquals(
+                LocalizedText.ResourceNested(
+                    R.string.dict_status_metadata_failed_format,
+                    R.string.download_cause_server,
+                ),
+                metadataFailureStatus(serverError),
+            )
+            assertEquals(
+                LocalizedText.ResourceNested(
+                    R.string.dict_status_metadata_failed_format,
+                    R.string.download_cause_offline,
+                ),
+                metadataFailureStatus(UnknownHostException("Unable to resolve host \"github.com\"")),
+            )
+            assertEquals(
+                LocalizedText.ResourceNested(
+                    R.string.dict_status_metadata_failed_format,
+                    R.string.download_cause_timeout,
+                ),
+                metadataFailureStatus(SocketTimeoutException("timeout")),
+            )
+            assertEquals(
+                "a response that cannot be read does not establish a cause",
+                LocalizedText.Resource(R.string.dict_status_metadata_failed),
+                metadataFailureStatus(unreadable),
+            )
+            assertNotEquals(
+                metadataFailureStatus(serverError),
+                metadataFailureStatus(unreadable),
+            )
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test fun an_unusable_staging_path_is_not_reported_as_a_server_failure() {
+        val base = context.filesDir
+        assertTrue(ModelDownload.purgeDict(base))
+        val body = ByteArray(4_096)
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/pack") { exchange ->
+                exchange.sendResponseHeaders(200, body.size.toLong())
+                exchange.responseBody.use { it.write(body) }
+                exchange.close()
+            }
+        }
+        server.start()
+        val staging = ModelDownload.dictPartFile(base)
+        try {
+            assertTrue(staging.mkdirs())
+            File(staging, "occupied").writeBytes(ByteArray(8))
+
+            val outcome = startDictionary(dictionaryAsset("http://127.0.0.1:${server.address.port}/pack"))
+
+            assertEquals(
+                "a local staging failure is not the server's fault",
+                LocalizedText.Resource(R.string.dict_status_download_failed),
+                outcome.status,
+            )
+            assertTrue(staging.isDirectory)
+            assertFalse(ModelDownload.isDictDownloaded(base))
+        } finally {
+            server.stop(0)
+            staging.deleteRecursively()
+            ModelDownload.purgeDict(base)
+            DictDownloadWork.setIdleStatus(context, LocalizedText.Resource(R.string.dict_status_not_downloaded))
+        }
+    }
+
+    private fun dictionaryAsset(url: String) = ModelDownload.DictionaryAsset(
+        url = url,
+        assetName = "aegis_dict_pack_dict-latest.zip",
+        sizeBytes = 16L,
+        sha256 = "a".repeat(64),
+        releaseTag = "dict-latest",
+        releaseUrl = "https://github.com/lurixo/Aegis/releases/tag/dict-latest",
+        prerelease = false,
+        publishedAt = null,
+    )
+
     @Test fun dictionary_recovery_blocks_marked_download_until_live_member_cleanup_succeeds() {
         val base = context.filesDir
         assertTrue(ModelDownload.purgeDict(base))
@@ -301,7 +459,7 @@ class DownloadCardWorkTest {
             val blocked = startDictionary(asset)
 
             assertFalse(blocked.downloading)
-            assertEquals(LocalizedText.Resource(R.string.dict_status_download_failed), blocked.status)
+            assertEquals(LocalizedText.Resource(R.string.dict_status_download_blocked), blocked.status)
             assertEquals(0, requests.get())
             assertTrue(survivor.exists())
             ModelDownload.DICT_PACK_FILES.drop(1).forEach { name ->
@@ -357,6 +515,39 @@ class DownloadCardWorkTest {
                 .remove(ModelDownload.DICT_RELEASE_PUBLISHED_PREF)
                 .remove(SettingsHotApply.ENGINE_PACK_TOUCH_PREF)
                 .commit()
+        }
+    }
+
+    @Test fun a_pending_marker_that_cannot_be_written_is_not_reported_as_an_unfinished_install() {
+        val base = context.filesDir
+        ModelDownload.purgeDict(base)
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        val marker = File(downloaded, "aegis_dict_pack.pending.sha256").apply { mkdirs() }
+        File(marker, "occupant").writeText("x")
+        val requests = AtomicInteger()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/dict") { exchange ->
+                requests.incrementAndGet()
+                exchange.sendResponseHeaders(200, 0L)
+                exchange.close()
+            }
+        }
+        server.start()
+        try {
+            assertFalse(ModelDownload.dictZipFile(base).exists())
+            assertFalse(ModelDownload.unmarkedDictionaryRecoveryRequired(base))
+
+            val failed = startDictionary(dictionaryAsset("http://127.0.0.1:${server.address.port}/dict"))
+
+            assertEquals(LocalizedText.Resource(R.string.dict_status_download_failed), failed.status)
+            assertNotEquals(LocalizedText.Resource(R.string.dict_status_download_blocked), failed.status)
+            assertEquals(0, requests.get())
+            assertFalse(ModelDownload.dictPartFile(base).exists())
+        } finally {
+            server.stop(0)
+            marker.deleteRecursively()
+            ModelDownload.purgeDict(base)
+            DictDownloadWork.setIdleStatus(context, LocalizedText.Resource(R.string.dict_status_not_downloaded))
         }
     }
 

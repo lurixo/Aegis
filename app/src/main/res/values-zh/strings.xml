@@ -40,6 +40,12 @@
     <string name="download_toast_update_found">发现更新，开始更新</string>
     <string name="download_toast_update_unknown">无法判断是否有新版本（可点按“下载”重新获取）</string>
     <string name="download_storage_format">存放位置：%1$s（应用私有目录，文件管理器不可见，仅本机、可删除）。</string>
+    <string name="download_status_failed_format">下载失败（%1$s）</string>
+    <string name="download_cause_offline">网络不可用</string>
+    <string name="download_cause_timeout">连接超时</string>
+    <string name="download_cause_server">服务器不可用或响应异常</string>
+    <string name="download_cause_incomplete">传输在文件完整前中断</string>
+    <string name="download_cause_install">下载的文件无法安装</string>
 
     <string name="gram_card_title">增强模型（万象离线大模型）</string>
     <string name="gram_card_description">可选下载增强模型。下载后中文候选明显更准；仅存本机，输入过程仍全程离线。</string>
@@ -58,6 +64,9 @@
     <string name="dict_status_verifying_extracting">校验并解压…</string>
     <string name="dict_status_install_failed">校验或解压失败（文件可能损坏，请重试）</string>
     <string name="dict_status_download_failed">下载失败</string>
+    <string name="dict_status_metadata_failed">无法获取下载信息</string>
+    <string name="dict_status_metadata_failed_format">无法获取下载信息（%1$s）</string>
+    <string name="dict_status_download_blocked">无法开始下载（存在未完成安装的残留文件）。请删除词库后重新下载。</string>
     <string name="dict_status_update_current">已是最新，无更新（全量词库已是最新版本）</string>
     <string name="dict_status_deleted">⚠ 中文词库已删除 —— 需重新下载后才能中文输入（英文可离线使用）</string>
     <string name="dict_gate_cta">下载词库解锁中文</string>

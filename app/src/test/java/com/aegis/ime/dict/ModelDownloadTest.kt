@@ -29,6 +29,7 @@ import java.util.zip.ZipOutputStream
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -135,6 +136,8 @@ class ModelDownloadTest {
                 ) { _, _ -> }
 
                 assertFalse(result.ok)
+                assertEquals(ModelDownload.TransferFailure.SERVER, result.failure)
+                assertEquals(503, (result.error as ModelDownload.HttpStatusException).code)
                 assertArrayEquals(old, target.readBytes())
                 assertFalse(File(target.parentFile, "${target.name}.part").exists())
             }
@@ -170,6 +173,38 @@ class ModelDownloadTest {
             assertNull(result.validator)
             assertArrayEquals(body, target.readBytes())
             assertFalse(ModelDownload.partFile(base).exists())
+        } finally {
+            server.stop(0)
+            base.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun sharedDownloadReportsAnInstallFailureWhenTheTargetCannotBeReplaced() {
+        val base = tempFilesDir()
+        val body = ByteArray(4_096) { (it % 251).toByte() }
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/asset") { exchange ->
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+            exchange.close()
+        }
+        server.start()
+        try {
+            val target = ModelDownload.dictZipFile(base)
+            assertTrue(target.mkdirs())
+            File(target, "occupied").writeBytes(ByteArray(8))
+
+            val result = ModelDownload.download(
+                "http://127.0.0.1:${server.address.port}/asset",
+                target,
+            ) { _, _ -> }
+
+            assertFalse(result.ok)
+            assertEquals(ModelDownload.TransferFailure.INSTALL, result.failure)
+            assertEquals(body.size.toLong(), result.bytesRead)
+            assertNotNull("an install failure keeps its throwable", result.error)
+            assertFalse(ModelDownload.dictPartFile(base).exists())
         } finally {
             server.stop(0)
             base.deleteRecursively()
@@ -225,6 +260,7 @@ class ModelDownloadTest {
             }
 
             assertFalse(result.ok)
+            assertEquals(ModelDownload.TransferFailure.INSTALL, result.failure)
             assertFalse(persisted)
             assertArrayEquals(old, target.readBytes())
             assertFalse(ModelDownload.partFile(base).exists())
@@ -258,6 +294,7 @@ class ModelDownloadTest {
             }
 
             assertFalse(result.ok)
+            assertEquals(ModelDownload.TransferFailure.INSTALL, result.failure)
             val snapshot = requireNotNull(attemptedSnapshot)
             assertEquals("candidate-model", snapshot.validator)
             val expectedSha = MessageDigest.getInstance("SHA-256").digest(body)
@@ -267,6 +304,38 @@ class ModelDownloadTest {
             assertArrayEquals(old, target.readBytes())
             assertFalse(ModelDownload.partFile(base).exists())
             assertFalse(File(target.parentFile, "${target.name}.backup").exists())
+        } finally {
+            server.stop(0)
+            base.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun truncatedDownloadIsReportedAsIncomplete() {
+        val base = tempFilesDir()
+        val declared = 4_096L
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/asset") { exchange ->
+            exchange.sendResponseHeaders(200, declared)
+            exchange.responseBody.use { it.write(ByteArray(1_500)) }
+            exchange.close()
+        }
+        server.start()
+        try {
+            val target = ModelDownload.destFile(base)
+            target.parentFile?.mkdirs()
+
+            val result = ModelDownload.download(
+                "http://127.0.0.1:${server.address.port}/asset",
+                target,
+            ) { _, _ -> }
+
+            assertFalse(result.ok)
+            assertEquals(ModelDownload.TransferFailure.INCOMPLETE, result.failure)
+            assertEquals(1_500L, result.bytesRead)
+            assertEquals(declared, result.contentLength)
+            assertFalse(target.exists())
+            assertFalse(ModelDownload.partFile(base).exists())
         } finally {
             server.stop(0)
             base.deleteRecursively()
@@ -296,6 +365,10 @@ class ModelDownloadTest {
             ) { _, _ -> }
 
             assertFalse(result.ok)
+            assertNull("a body delivered in full was not truncated", result.failure)
+            assertEquals(body.size.toLong(), result.bytesRead)
+            assertEquals(body.size.toLong(), result.contentLength)
+            assertNull(result.error)
             assertArrayEquals(old, target.readBytes())
             assertFalse(ModelDownload.partFile(base).exists())
         } finally {
@@ -439,6 +512,22 @@ class ModelDownloadTest {
     }
 
     @Test
+    fun aPendingMarkerThatCannotBeWrittenKeepsItsCause() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        val marker = File(downloaded, "aegis_dict_pack.pending.sha256").apply { mkdirs() }
+        File(marker, "occupant").writeText("x")
+
+        val outcome = ModelDownload.recordPendingDictionarySha(base, "a".repeat(64))
+
+        assertTrue(outcome is ModelDownload.PendingMarker.NotWritten)
+        assertNotNull((outcome as ModelDownload.PendingMarker.NotWritten).error)
+        assertFalse(ModelDownload.unmarkedDictionaryRecoveryRequired(base))
+
+        base.deleteRecursively()
+    }
+
+    @Test
     fun verifiedCanonicalArchiveRecoveryReplacesAMixedDictionaryPack() {
         val base = tempFilesDir()
         val downloaded = File(base, "downloaded").apply { mkdirs() }
@@ -455,7 +544,7 @@ class ModelDownloadTest {
         val sha = ModelDownload.sha256Of(zip)
         val archive = zip.readBytes()
         assertTrue(zip.delete())
-        assertTrue(ModelDownload.recordPendingDictionarySha(base, sha))
+        assertEquals(ModelDownload.PendingMarker.Recorded, ModelDownload.recordPendingDictionarySha(base, sha))
         zip.writeBytes(archive)
 
         ModelDownload.recoverInterruptedDictionaryInstall(base)

@@ -19,9 +19,52 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import com.aegis.ime.R
 import com.aegis.ime.SettingsHotApply
 import com.aegis.ime.dict.ModelDownload
+
+private const val DOWNLOAD_LOG_TAG = "AegisDownload"
+
+private fun logDownloadFailure(what: String, detail: String, error: Throwable? = null) {
+    val thrown = error?.let { " ${it.javaClass.name}: ${it.message}" }.orEmpty()
+    Log.w(DOWNLOAD_LOG_TAG, "$what: $detail$thrown", error)
+}
+
+private fun transferFailureStatus(
+    result: ModelDownload.DownloadResult,
+    fallback: Int,
+): LocalizedText {
+    val cause = when (result.failure) {
+        ModelDownload.TransferFailure.OFFLINE -> R.string.download_cause_offline
+        ModelDownload.TransferFailure.TIMEOUT -> R.string.download_cause_timeout
+        ModelDownload.TransferFailure.SERVER -> R.string.download_cause_server
+        ModelDownload.TransferFailure.INCOMPLETE -> R.string.download_cause_incomplete
+        ModelDownload.TransferFailure.INSTALL -> R.string.download_cause_install
+        null -> return LocalizedText.Resource(fallback)
+    }
+    return LocalizedText.ResourceNested(R.string.download_status_failed_format, cause)
+}
+
+internal fun metadataFailureStatus(error: Throwable): LocalizedText {
+    val cause = when (ModelDownload.identifyRequestFailure(error)) {
+        ModelDownload.CheckFailure.OFFLINE -> R.string.download_cause_offline
+        ModelDownload.CheckFailure.TIMEOUT -> R.string.download_cause_timeout
+        ModelDownload.CheckFailure.SERVER, ModelDownload.CheckFailure.PARSE ->
+            R.string.download_cause_server
+        null -> return LocalizedText.Resource(R.string.dict_status_metadata_failed)
+    }
+    return LocalizedText.ResourceNested(R.string.dict_status_metadata_failed_format, cause)
+}
+
+private fun logTransferFailure(what: String, result: ModelDownload.DownloadResult) {
+    val cause = result.failure?.name ?: "unclassified"
+    logDownloadFailure(
+        what,
+        "transfer failed cause=$cause bytes=${result.bytesRead}/${result.contentLength}",
+        result.error,
+    )
+}
 
 internal data class DownloadCardSnapshot(
     val present: Boolean,
@@ -31,6 +74,7 @@ internal data class DownloadCardSnapshot(
 )
 
 internal class DownloadRuntime(
+    private val resource: String,
     private val isPresent: (Context) -> Boolean,
     private val doneStatus: (Context) -> LocalizedText,
     private val notDownloadedStatus: LocalizedText,
@@ -82,10 +126,16 @@ internal class DownloadRuntime(
         }
         val task = Thread {
             val finalStatus = runCatching { worker(app, ::updateProgress, ::updateRunningStatus) }
-                .getOrDefault(failureStatus)
+                .getOrElse { error ->
+                    logDownloadFailure(resource, "download task failed", error)
+                    failureStatus
+                }
             finish(app, finalStatus)
         }.apply { isDaemon = true }
-        if (runCatching { startTask(task) }.isFailure) {
+        val started = runCatching { startTask(task) }
+            .onFailure { logDownloadFailure(resource, "download task not started", it) }
+            .isSuccess
+        if (!started) {
             finish(app, failureStatus)
             return
         }
@@ -156,6 +206,7 @@ internal class DownloadRuntime(
 
 internal object GramDownloadWork {
     private val runtime = DownloadRuntime(
+        resource = "model",
         isPresent = { ModelDownload.isDownloaded(it.filesDir) },
         doneStatus = { context ->
             LocalizedText.ResourceLong(
@@ -199,7 +250,8 @@ internal object GramDownloadWork {
                     ModelDownload.bytesToDisplayMb(ModelDownload.installedGramBytes(app.filesDir)),
                 )
             } else {
-                LocalizedText.Resource(R.string.gram_status_download_failed)
+                logTransferFailure("model", result)
+                transferFailureStatus(result, R.string.gram_status_download_failed)
             }
         }
     }
@@ -233,6 +285,7 @@ internal object GramDownloadWork {
 
 internal object DictDownloadWork {
     private val runtime = DownloadRuntime(
+        resource = "dictionary",
         isPresent = { ModelDownload.isDictDownloaded(it.filesDir) },
         doneStatus = { context ->
             LocalizedText.ResourceLong(
@@ -263,8 +316,10 @@ internal object DictDownloadWork {
         runtime.start(context, startTask) worker@ { app, onProgress, onStatus ->
             ModelDownload.recoverInterruptedDictionaryInstall(app.filesDir)
             val prefs = app.getSharedPreferences("aegis", Context.MODE_PRIVATE)
-            val selected = asset ?: ModelDownload.resolveDictionaryDownloadAsset()
-                ?: return@worker LocalizedText.Resource(R.string.dict_status_download_failed)
+            val selected = asset ?: ModelDownload.resolveDictionaryDownloadAsset().getOrElse { error ->
+                logDownloadFailure("dictionary", "metadata unavailable", error)
+                return@worker metadataFailureStatus(error)
+            }
             val recoveredSha = ModelDownload.installedDictionaryFileSha(app.filesDir)
             if (
                 asset == null &&
@@ -286,8 +341,16 @@ internal object DictDownloadWork {
                     ModelDownload.bytesToDisplayMb(ModelDownload.installedDictionaryBytes(app.filesDir)),
                 )
             }
-            if (!ModelDownload.recordPendingDictionarySha(app.filesDir, selected.sha256)) {
-                return@worker LocalizedText.Resource(R.string.dict_status_download_failed)
+            when (val marker = ModelDownload.recordPendingDictionarySha(app.filesDir, selected.sha256)) {
+                ModelDownload.PendingMarker.Recorded -> Unit
+                ModelDownload.PendingMarker.UnfinishedInstall -> {
+                    logDownloadFailure("dictionary", "pending marker refused, unfinished install present")
+                    return@worker LocalizedText.Resource(R.string.dict_status_download_blocked)
+                }
+                is ModelDownload.PendingMarker.NotWritten -> {
+                    logDownloadFailure("dictionary", "pending marker not written", marker.error)
+                    return@worker LocalizedText.Resource(R.string.dict_status_download_failed)
+                }
             }
             val zip = ModelDownload.dictZipFile(app.filesDir)
             var lastPct = -1
@@ -300,7 +363,10 @@ internal object DictDownloadWork {
                     }
                 }
             }
-            if (!result.ok) ModelDownload.clearPendingDictionarySha(app.filesDir)
+            if (!result.ok) {
+                logTransferFailure("dictionary", result)
+                ModelDownload.clearPendingDictionarySha(app.filesDir)
+            }
             if (result.ok) onStatus(LocalizedText.Resource(R.string.dict_status_verifying_extracting))
             val installed = result.ok && ModelDownload.installDictPack(app.filesDir, selected.sha256) {
                 prefs.edit()
@@ -320,8 +386,11 @@ internal object DictDownloadWork {
                         ModelDownload.bytesToDisplayMb(ModelDownload.installedDictionaryBytes(app.filesDir)),
                     )
                 }
-                !result.ok -> LocalizedText.Resource(R.string.dict_status_download_failed)
-                else -> LocalizedText.Resource(R.string.dict_status_install_failed)
+                !result.ok -> transferFailureStatus(result, R.string.dict_status_download_failed)
+                else -> {
+                    logDownloadFailure("dictionary", "verification or extraction failed")
+                    LocalizedText.Resource(R.string.dict_status_install_failed)
+                }
             }
         }
     }

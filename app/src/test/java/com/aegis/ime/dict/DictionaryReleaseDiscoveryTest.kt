@@ -18,7 +18,9 @@ package com.aegis.ime.dict
 import java.net.UnknownHostException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -118,17 +120,18 @@ class DictionaryReleaseDiscoveryTest {
     }
 
     @Test
-    fun downloadDiscoveryUsesTheManifestAndResolvesNoAssetWhenUnavailable() {
+    fun downloadDiscoveryUsesTheManifestAndKeepsTheFailureWhenUnavailable() {
         val resolved = ModelDownload.resolveDictionaryDownloadAsset { manifest(sha2) }
         val offline = ModelDownload.resolveDictionaryDownloadAsset {
             throw UnknownHostException("github.com")
         }
         val malformed = ModelDownload.resolveDictionaryDownloadAsset { "{}" }
 
-        assertEquals(sha2, resolved?.sha256)
-        assertEquals(ASSET_URL, resolved?.url)
-        assertNull(offline)
-        assertNull(malformed)
+        assertEquals(sha2, resolved.getOrNull()?.sha256)
+        assertEquals(ASSET_URL, resolved.getOrNull()?.url)
+        assertTrue(offline.exceptionOrNull() is UnknownHostException)
+        assertTrue(malformed.isFailure)
+        assertNotNull(malformed.exceptionOrNull())
     }
 
     private fun manifest(sha256: String): String =

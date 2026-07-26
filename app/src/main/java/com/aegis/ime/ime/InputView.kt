@@ -378,9 +378,17 @@ class InputView(context: Context) : LinearLayout(context) {
     private fun gateShowsFailure(snap: DownloadCardSnapshot): Boolean =
         !snap.downloading && !snap.present && gateStatusIsFailure(snap.status)
 
-    private fun gateStatusIsFailure(status: LocalizedText): Boolean =
-        status is LocalizedText.Resource &&
-            (status.id == R.string.dict_status_download_failed || status.id == R.string.dict_status_install_failed)
+    private fun gateStatusIsFailure(status: LocalizedText): Boolean = when (status) {
+        is LocalizedText.Resource ->
+            status.id == R.string.dict_status_download_failed ||
+                status.id == R.string.dict_status_install_failed ||
+                status.id == R.string.dict_status_metadata_failed ||
+                status.id == R.string.dict_status_download_blocked
+        is LocalizedText.ResourceNested ->
+            status.id == R.string.download_status_failed_format ||
+                status.id == R.string.dict_status_metadata_failed_format
+        else -> false
+    }
 
     internal fun gateShowsFailureForTest(snap: DownloadCardSnapshot): Boolean = gateShowsFailure(snap)
 
