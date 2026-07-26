@@ -140,12 +140,26 @@ class ChineseGateTest {
         val notDownloaded = LocalizedText.Resource(R.string.dict_status_not_downloaded)
         val downloadFailed = LocalizedText.Resource(R.string.dict_status_download_failed)
         val installFailed = LocalizedText.Resource(R.string.dict_status_install_failed)
+        val metadataFailed = LocalizedText.Resource(R.string.dict_status_metadata_failed)
+        val blocked = LocalizedText.Resource(R.string.dict_status_download_blocked)
+        val offline = LocalizedText.ResourceNested(
+            R.string.download_status_failed_format,
+            R.string.download_cause_offline,
+        )
+        val metadataOffline = LocalizedText.ResourceNested(
+            R.string.dict_status_metadata_failed_format,
+            R.string.download_cause_offline,
+        )
 
         assertFalse("idle", view.gateShowsFailureForTest(snap(false, false, null, notDownloaded)))
         assertFalse("downloading", view.gateShowsFailureForTest(snap(false, true, 0.4f, notDownloaded)))
         assertFalse("verifying", view.gateShowsFailureForTest(snap(false, true, null, notDownloaded)))
         assertTrue("download failed", view.gateShowsFailureForTest(snap(false, false, null, downloadFailed)))
         assertTrue("install failed", view.gateShowsFailureForTest(snap(false, false, null, installFailed)))
+        assertTrue("metadata failed", view.gateShowsFailureForTest(snap(false, false, null, metadataFailed)))
+        assertTrue("download blocked", view.gateShowsFailureForTest(snap(false, false, null, blocked)))
+        assertTrue("named transfer cause", view.gateShowsFailureForTest(snap(false, false, null, offline)))
+        assertTrue("named metadata cause", view.gateShowsFailureForTest(snap(false, false, null, metadataOffline)))
         assertFalse("a failed status is moot once the pack is present", view.gateShowsFailureForTest(snap(true, false, null, downloadFailed)))
     }
 

@@ -40,6 +40,12 @@
     <string name="download_toast_update_found">Update found, starting update</string>
     <string name="download_toast_update_unknown">Cannot tell whether a newer file exists (tap Download to fetch it again)</string>
     <string name="download_storage_format">Storage: %1$s (app-private directory, hidden from file managers; local only and removable).</string>
+    <string name="download_status_failed_format">Download failed (%1$s)</string>
+    <string name="download_cause_offline">network unavailable</string>
+    <string name="download_cause_timeout">connection timed out</string>
+    <string name="download_cause_server">server unavailable or unexpected response</string>
+    <string name="download_cause_incomplete">the transfer ended before the file was complete</string>
+    <string name="download_cause_install">the downloaded file could not be installed</string>
 
     <string name="gram_card_title">Enhancement model (Wanxiang offline model)</string>
     <string name="gram_card_description">Optional enhancement model. Chinese candidates become noticeably more accurate after download. Stored locally only; input remains fully offline.</string>
@@ -58,6 +64,9 @@
     <string name="dict_status_verifying_extracting">Verifying and extracting…</string>
     <string name="dict_status_install_failed">Verification or extraction failed (file may be corrupt, please retry)</string>
     <string name="dict_status_download_failed">Download failed</string>
+    <string name="dict_status_metadata_failed">Could not get the download details</string>
+    <string name="dict_status_metadata_failed_format">Could not get the download details (%1$s)</string>
+    <string name="dict_status_download_blocked">Could not start the download (leftover files from an unfinished install). Delete the dictionary, then download it again.</string>
     <string name="dict_status_update_current">Up to date, no update (full dictionary is already current)</string>
     <string name="dict_status_deleted">⚠ Chinese dictionary deleted — Chinese input is locked until you download it again (English works offline)</string>
     <string name="dict_gate_cta">Tap to download the Chinese dictionary</string>

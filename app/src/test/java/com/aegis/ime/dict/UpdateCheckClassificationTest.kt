@@ -25,11 +25,13 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.FileNotFoundException
 import java.io.IOException
 import java.net.ConnectException
 import java.net.InetSocketAddress
 import java.net.NoRouteToHostException
 import java.net.PortUnreachableException
+import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import javax.net.ssl.SSLException
@@ -75,6 +77,18 @@ class UpdateCheckClassificationTest {
                 ModelDownload.UpdateCheck.SERVER_ERROR,
                 ModelDownload.modelUpdateAction(true, "local", ModelDownload.ValidatorProbe.Failed(failure)),
             )
+        }
+    }
+
+    @Test
+    fun failuresWithoutARecognisedSignalAreNotIdentified() {
+        listOf(
+            FileNotFoundException("aegis_dict_pack.zip.part: open failed: EISDIR (Is a directory)"),
+            IOException("write failed: ENOSPC (No space left on device)"),
+            SocketException("Connection reset"),
+        ).forEach { error ->
+            assertNull(ModelDownload.identifyRequestFailure(error))
+            assertEquals(ModelDownload.CheckFailure.SERVER, ModelDownload.classifyRequestFailure(error))
         }
     }
 

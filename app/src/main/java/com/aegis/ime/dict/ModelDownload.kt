@@ -52,7 +52,17 @@ object ModelDownload {
 
     fun bytesToDisplayMb(bytes: Long): Long = Math.round(bytes / 1_000_000.0)
 
-    data class DownloadResult(val ok: Boolean, val validator: String?)
+    enum class TransferFailure { OFFLINE, TIMEOUT, SERVER, INCOMPLETE, INSTALL }
+
+    data class DownloadResult(
+        val ok: Boolean,
+        val validator: String?,
+        val failure: TransferFailure? = null,
+        val bytesRead: Long = 0L,
+        val contentLength: Long = -1L,
+        val error: Throwable? = null,
+    )
+
     data class ModelSnapshot(val validator: String?, val sha256: String, val sizeBytes: Long)
 
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
@@ -91,6 +101,8 @@ object ModelDownload {
         if (!inFlight.add(key)) return DownloadResult(false, null)
         var conn: HttpURLConnection? = null
         val tmp = File(dest.parentFile, dest.name + ".part")
+        var total = -1L
+        var done = 0L
         return try {
             dest.parentFile?.mkdirs()
             tmp.delete()
@@ -100,10 +112,9 @@ object ModelDownload {
                 readTimeout = 30_000
             }
             if (conn.responseCode !in 200..299) throw HttpStatusException(conn.responseCode)
-            val total = conn.contentLengthLong
+            total = conn.contentLengthLong
             val validator = trustworthyValidator(conn.getHeaderField("ETag"))
                 ?: trustworthyValidator(conn.getHeaderField("Last-Modified"))
-            var done = 0L
             conn.inputStream.use { input ->
                 tmp.outputStream().use { out ->
                     val buf = ByteArray(1 shl 16)
@@ -116,17 +127,32 @@ object ModelDownload {
                     }
                 }
             }
-            if (total >= 0L && done != total) throw IOException("incomplete download")
-            if (done <= 1024L) throw IOException("invalid download")
-            if (!install(tmp, validator)) throw IOException("install failed")
-            DownloadResult(true, validator)
+            when {
+                total >= 0L && done != total ->
+                    DownloadResult(false, null, TransferFailure.INCOMPLETE, done, total)
+                done <= 1024L -> DownloadResult(false, null, bytesRead = done, contentLength = total)
+                else -> installStaged(tmp, validator, done, total, install)
+            }
         } catch (e: Exception) {
-            DownloadResult(false, null)
+            DownloadResult(false, null, identifyRequestFailure(e)?.toTransferFailure(), done, total, e)
         } finally {
             tmp.delete()
             conn?.disconnect()
             inFlight.remove(key)
         }
+    }
+
+    private fun installStaged(
+        staged: File,
+        validator: String?,
+        done: Long,
+        total: Long,
+        install: (File, String?) -> Boolean,
+    ): DownloadResult = try {
+        if (install(staged, validator)) DownloadResult(true, validator)
+        else DownloadResult(false, null, TransferFailure.INSTALL, done, total)
+    } catch (e: Exception) {
+        DownloadResult(false, null, TransferFailure.INSTALL, done, total, e)
     }
 
     private fun replaceModel(
@@ -167,9 +193,18 @@ object ModelDownload {
         CheckFailure.PARSE -> UpdateCheck.PARSE_ERROR
     }
 
+    private fun CheckFailure.toTransferFailure(): TransferFailure = when (this) {
+        CheckFailure.OFFLINE -> TransferFailure.OFFLINE
+        CheckFailure.TIMEOUT -> TransferFailure.TIMEOUT
+        CheckFailure.SERVER, CheckFailure.PARSE -> TransferFailure.SERVER
+    }
+
     class HttpStatusException(val code: Int) : IOException("HTTP $code")
 
-    internal fun classifyRequestFailure(t: Throwable): CheckFailure = when (t) {
+    internal fun classifyRequestFailure(t: Throwable): CheckFailure =
+        identifyRequestFailure(t) ?: CheckFailure.SERVER
+
+    internal fun identifyRequestFailure(t: Throwable): CheckFailure? = when (t) {
         is HttpStatusException -> CheckFailure.SERVER
         else -> when {
             t.hasTimeoutSignal() -> CheckFailure.TIMEOUT
@@ -177,7 +212,7 @@ object ModelDownload {
             t is java.net.NoRouteToHostException -> CheckFailure.OFFLINE
             t is java.net.PortUnreachableException -> CheckFailure.OFFLINE
             t is java.net.ConnectException && t.hasExplicitOfflineConnectSignal() -> CheckFailure.OFFLINE
-            else -> CheckFailure.SERVER
+            else -> null
         }
     }
 
@@ -345,17 +380,24 @@ object ModelDownload {
     internal fun dictionaryVersionUnknown(filesDir: File): Boolean =
         dictInstalledShaFile(filesDir).exists() && installedDictionaryFileSha(filesDir) == null
 
-    internal fun recordPendingDictionarySha(filesDir: File, value: String): Boolean {
-        val sha256 = normalizeSha256(value) ?: return false
-        return dictionaryRecoveryLock.withLock {
-            if (unmarkedDictionaryRecoveryRequired(filesDir)) return@withLock false
+    sealed interface PendingMarker {
+        data object Recorded : PendingMarker
+        data object UnfinishedInstall : PendingMarker
+        data class NotWritten(val error: Throwable) : PendingMarker
+    }
+
+    internal fun recordPendingDictionarySha(filesDir: File, value: String): PendingMarker =
+        dictionaryRecoveryLock.withLock {
+            if (unmarkedDictionaryRecoveryRequired(filesDir)) {
+                return@withLock PendingMarker.UnfinishedInstall
+            }
             runCatching {
+                val sha256 = requireNotNull(normalizeSha256(value)) { "unrecognised dictionary sha256" }
                 downloadedDir(filesDir).mkdirs()
                 dictPendingShaFile(filesDir).writeText(sha256)
-                true
-            }.getOrDefault(false)
+                PendingMarker.Recorded
+            }.getOrElse { PendingMarker.NotWritten(it) }
         }
-    }
 
     private fun pendingDictionarySha(filesDir: File): String? =
         runCatching { normalizeSha256(dictPendingShaFile(filesDir).readText()) }.getOrNull()
@@ -539,11 +581,11 @@ object ModelDownload {
         }
     }
 
-    fun resolveDictionaryDownloadAsset(): DictionaryAsset? =
+    fun resolveDictionaryDownloadAsset(): Result<DictionaryAsset> =
         resolveDictionaryDownloadAsset { fetchText(DICT_UPDATE_URL) }
 
-    internal fun resolveDictionaryDownloadAsset(fetch: () -> String): DictionaryAsset? =
-        runCatching { dictionaryAssetFromUpdateJson(fetch()) }.getOrNull()
+    internal fun resolveDictionaryDownloadAsset(fetch: () -> String): Result<DictionaryAsset> =
+        runCatching { dictionaryAssetFromUpdateJson(fetch()) }
 
     fun checkDictionaryUpdate(current: DictionaryInstallMetadata): DictionaryUpdateCheck =
         checkDictionaryUpdate(DICT_UPDATE_URL, current)
