@@ -411,7 +411,11 @@ class ExhaustiveDecodeAuditExtTest {
     private val E6_COMMON = 1000
 
     private class E6View(val exact: Map<String, Int>, val alias: Map<String, Int>, val prefix: Map<String, Int>)
-    private val e6KeyView = HashMap<String, E6View>()
+    private val E6_VIEW_CACHE = 128
+    private val e6KeyView = object : LinkedHashMap<String, E6View>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, E6View>): Boolean =
+            size > E6_VIEW_CACHE
+    }
     private fun e6RawFreq(source: BinaryDict, key: String, word: String): Int? {
         val view = e6KeyView.getOrPut((if (source === dict) "L:" else "D:") + key) {
             fun collect(entries: List<BinaryDict.WordFreq>): Map<String, Int> {
