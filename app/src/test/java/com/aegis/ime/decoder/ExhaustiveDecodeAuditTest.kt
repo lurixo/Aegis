@@ -446,7 +446,7 @@ class ExhaustiveDecodeAuditTest {
     }
 
     @Test fun exhaustiveN2_allPairs_writesReport() {
-        assumeTrue("heavy sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
+        assumeTrue("full sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
         assumeTrue("assets present", dictFile.exists() && lmFile.exists())
         val syls = runtimeSyllables()
         val d = letterDecoder()
@@ -488,7 +488,7 @@ class ExhaustiveDecodeAuditTest {
     }
 
     @Test fun coveringN3_writesReport() {
-        assumeTrue("heavy sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
+        assumeTrue("full sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
         assumeTrue("assets present", dictFile.exists() && lmFile.exists())
         val syls = runtimeSyllables()
         val d = letterDecoder()
