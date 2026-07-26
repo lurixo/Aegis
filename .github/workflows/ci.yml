@@ -43,7 +43,13 @@ jobs:
 
       - name: Resolve the dictionary pack sha256
         id: dictpack
-        run: echo "sha256=$(python3 tools/fetch_test_dict.py --print-sha)" >> "$GITHUB_OUTPUT"
+        run: |
+          sha256="$(python3 tools/fetch_test_dict.py --print-sha)"
+          if [[ ! "$sha256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "the dictionary pack sha256 is not a 64-hex digest: '$sha256'" >&2
+            exit 1
+          fi
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
 
       - name: Cache the full dictionary pack
         uses: actions/cache@v6
