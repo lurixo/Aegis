@@ -259,17 +259,6 @@ def build_info(args, repo_root, source_commit, asset_name, zip_path, bin_infos, 
                             "--out aegis_jianpin_full.bin --min-freq 1 --keytype initials --t2s-data tools/t2s-data",
                         ],
                     },
-                    "seed_parameters": {
-                        "min_freq": 400,
-                        "max_per_key": None,
-                        "keep_syllable_singles": 3,
-                        "keep_syllable_singles_keytypes": ["letter", "digit"],
-                        "commands": [
-                            "--out aegis_dict.bin --min-freq 400 --keep-syllable-singles 3 --keytype letter --t2s-data tools/t2s-data",
-                            "--out aegis_t9.bin --min-freq 400 --keep-syllable-singles 3 --keytype digit --t2s-data tools/t2s-data",
-                            "--out aegis_jianpin.bin --min-freq 400 --keytype initials --t2s-data tools/t2s-data",
-                        ],
-                    },
                     "t2s_data": {
                         "path": "tools/t2s-data",
                         "provenance": "tools/t2s-data/PROVENANCE.md",

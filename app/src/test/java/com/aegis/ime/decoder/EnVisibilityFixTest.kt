@@ -71,14 +71,14 @@ class EnVisibilityFixTest {
         assertTrue("en-visibility failures: $bad", bad.isEmpty())
     }
 
-    @Test fun seed_bothLayouts_enOffers嗯() {
+    @Test fun assets_bothLayouts_enOffers嗯() {
         assumeTrue("assets present", File(assets, "aegis_dict.bin").exists() && lmFile.exists())
         assertEnOffers嗯(
             BinaryDict.fromFile(File(assets, "aegis_dict.bin")),
             BinaryDict.fromFile(File(assets, "aegis_t9.bin")),
             BinaryDict.fromFile(File(assets, "aegis_jianpin.bin")),
             gram = null,
-            cfg = "seed",
+            cfg = "assets",
         )
     }
 

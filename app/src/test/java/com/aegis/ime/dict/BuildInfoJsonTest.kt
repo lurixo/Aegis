@@ -72,14 +72,12 @@ class BuildInfoJsonTest {
         assertEquals("tools/src/main/kotlin/com/aegis/tools/DictBuilder.kt", build.getString("builder_path"))
         assertEquals(1, build.getJSONObject("full_pack_parameters").getInt("min_freq"))
         assertTrue(build.getJSONObject("full_pack_parameters").isNull("max_per_key"))
-        assertEquals(400, build.getJSONObject("seed_parameters").getInt("min_freq"))
-        assertTrue(build.getJSONObject("seed_parameters").isNull("max_per_key"))
+        assertFalse("no seed pack is built, so no seed parameters are published", build.has("seed_parameters"))
 
         val fullCommands = build.getJSONObject("full_pack_parameters").getJSONArray("commands")
         for (i in 0 until fullCommands.length()) {
             assertTrue(fullCommands.getString(i).contains("--t2s-data tools/t2s-data"))
         }
-        assertEquals(3, build.getJSONObject("seed_parameters").getInt("keep_syllable_singles"))
         assertEquals("tools/t2s-data", build.getJSONObject("t2s_data").getString("path"))
         assertTrue(build.getJSONObject("t2s_data").getString("license").contains("Apache-2.0"))
         assertTrue(build.has("builder_tree_dirty"))
