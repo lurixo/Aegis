@@ -9,7 +9,7 @@
     <string name="setup_title">Aegis IME</string>
     <string name="setup_summary">Chinese / English input method. Self-built Pinyin engine (full Pinyin and T9), fuzzy Pinyin, abbreviated Pinyin, mixed Chinese/English input, English completion and correction, offline self-learning, and optional Wanxiang model enhancement. The Chinese dictionary is downloaded after install; once installed, all input runs offline.</string>
     <string name="setup_first_run_title">First use</string>
-    <string name="setup_first_run_body">Chinese input needs a one-time dictionary download. It starts automatically the first time you use the keyboard, and you can also start it from the dictionary settings below. English typing works offline right away. Downloaded data is stored locally only.</string>
+    <string name="setup_first_run_body">Chinese input needs a one-time dictionary download. The keyboard starts it on its own when it is shown with no dictionary installed, and you can also start it from the dictionary settings below. English typing works offline right away. Downloaded data is stored locally only.</string>
     <string name="setup_first_run_ack">Got it</string>
     <string name="setup_steps_title">Setup steps</string>
     <string name="setup_enable_button">1 · Enable Aegis in system settings</string>
