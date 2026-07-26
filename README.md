@@ -66,10 +66,15 @@ Menu names vary slightly by device, but the flow is the standard Android one:
 
 ### First run
 
-The bundled seed dictionary and base grammar can already type offline, so nothing else is required.
-If you want broader coverage or more accurate candidates, the settings screen offers **optional**
-downloads (full dictionary pack and enhancement model). Those are the *only* things that ever use
-the network, and only when you tap to start them.
+**English typing works straight away; Chinese needs one download first.** The APK carries no Chinese
+dictionary, so the first time the keyboard opens it starts fetching the dictionary pack on its own —
+a ~98 MB download that expands to ~256 MB in the app's private storage. It is not restricted to
+Wi-Fi. Until it finishes, the candidate strip offers to fetch the pack and Chinese input stays
+locked, while English and every panel keep working.
+
+The settings screen additionally offers an **optional** enhancement model (the ~420 MB octagram
+grammar) for sharper next-word and whole-sentence ranking; that one is fetched only when you tap to
+start it. Those two downloads are the *only* things that ever use the network.
 
 ## Features
 
@@ -90,7 +95,8 @@ the network, and only when you tap to start them.
   arrows, and more, with a lock toggle) and a cursor/text-editing panel.
 - **Simplified-Chinese normalization:** every candidate Aegis proposes is Simplified. Traditional
   and variant character forms from the upstream data are folded to their Simplified image (with
-  frequency merging) when the dictionary is built, using the bundled OpenCC tables.
+  frequency merging) when the dictionary pack is built, using the OpenCC tables in
+  `tools/t2s-data`. That happens on the build host; no conversion table ships in the APK.
 - **Material 3** setup screen.
 
 ## Privacy & permissions
@@ -99,8 +105,10 @@ A keyboard sees everything you type, so trust is the whole point. Aegis is built
 not depend on our word alone:
 
 - The app declares exactly **one** Android permission: **`INTERNET`**.
-- That permission is used **only** when *you* tap to download the optional full dictionary pack or
-  the optional enhancement model. **The typing path makes no network calls at all.**
+- That permission is used **only** to fetch the dictionary pack (which the keyboard starts on its
+  own the first time it opens, because no Chinese dictionary ships in the APK) and the optional
+  enhancement model (only when *you* tap to start it). **The typing path makes no network calls at
+  all.**
 - Your **keystrokes, candidates, learned words, user dictionary, and clipboard never leave the
   device**: they live in the app's private storage (`filesDir`).
 - There is **no analytics, no telemetry, and no account.**
@@ -121,28 +129,29 @@ Prerequisites:
 ./gradlew :app:lintDebug          # Android lint
 ```
 
-The bundled dictionaries (`app/src/main/assets/aegis_*.bin`, roughly 75 MB in total) are the
-**seed** pack: prebuilt from all 14 wanxiang tables (`zi jichu lianxiang cuoyin duoyin shici diming
-yixue huaxue yaopin mingren yiren wuzhong renming`) at `--min-freq 400` by the `:tools` module. The
-seed build adds `--keep-syllable-singles 3`: every syllable keeps at least its top-3 single
-characters (by source frequency) across the trim threshold, so rare-but-valid
-syllables (cen/chua/den/kei/m/nou/rua) stay typeable. The **full** pack (the same 14 tables at
-`--min-freq 1`, no per-key cap) is built the same way and hosted as a downloadable asset; at runtime
-a downloaded `aegis_*.bin` under `filesDir/downloaded/` overrides the seed.
+The only dictionary-derived asset in the APK is `app/src/main/assets/aegis_lm.bin`, the ~16 MB
+character-bigram context model, next to its `.sha256` sidecar. No pinyin dictionary is packaged:
+`app/build.gradle.kts` excludes `aegis_dict.bin`, `aegis_t9.bin` and `aegis_jianpin.bin` from the
+packaged assets, which is what keeps the APK around 28 MB. Those three are downloaded at runtime
+into `filesDir/downloaded/` and are the only source of Chinese candidates. Locally built copies
+dropped into `app/src/main/assets/` stay out of the APK but are picked up by the decoder tests.
+
+The pack is prebuilt by the `:tools` module from all 14 wanxiang tables (`zi jichu lianxiang cuoyin
+duoyin shici diming yixue huaxue yaopin mingren yiren wuzhong renming`) at `--min-freq 1` with no
+per-key cap, so it keeps every entry.
 
 ```
 ./gradlew :tools:installDist
-# seed pack (bundled): --min-freq 400 ; full pack (download): --min-freq 1
-tools/build/install/tools/bin/tools --out <dict> --min-freq 400 --keytype letter   --keep-syllable-singles 3 --t2s-data tools/t2s-data <14 wanxiang .dict.yaml ...>
-tools/build/install/tools/bin/tools --out <t9>   --min-freq 400 --keytype digit    --keep-syllable-singles 3 --t2s-data tools/t2s-data <14 ...>
-tools/build/install/tools/bin/tools --out <jp>   --min-freq 400 --keytype initials --t2s-data tools/t2s-data <14 ...>
+tools/build/install/tools/bin/tools --out <dict> --min-freq 1 --keytype letter   --t2s-data tools/t2s-data <14 wanxiang .dict.yaml ...>
+tools/build/install/tools/bin/tools --out <t9>   --min-freq 1 --keytype digit    --t2s-data tools/t2s-data <14 ...>
+tools/build/install/tools/bin/tools --out <jp>   --min-freq 1 --keytype initials --t2s-data tools/t2s-data <14 ...>
 tools/build/install/tools/bin/tools lm --out <lm> --t2s-data tools/t2s-data <14 wanxiang .dict.yaml ...>
 ```
 
 ## Release dictionary pack
 
 App APK releases and downloadable dictionary packs are published separately. Versioned app releases
-carry the APK only. The full dictionary pack is published on the rolling
+carry the APK only. The dictionary pack is published on the rolling
 [`dict-latest`](https://github.com/lurixo/Aegis/releases/tag/dict-latest) GitHub release, and the
 app discovers dictionary updates from that single release tag by comparing the installed pack's
 SHA-256 with the current dictionary ZIP asset.
@@ -179,13 +188,12 @@ with our deepest thanks. The third-party attribution / ShareAlike obligations be
 by Aegis's own license.
 
 **rime-wanxiang dictionaries:** (c) amzxyz and rime-wanxiang contributors, **CC BY 4.0**
-([rime-wanxiang](https://github.com/amzxyz/rime-wanxiang)). The bundled
-`assets/aegis_{dict,t9,jianpin}.bin` and
-`aegis_lm.bin` are derivatives of the full 14 tables (字 基础 联想 错音 多音 诗词 地名 医学 化学
-药品 名人 异体 物种 人名). **Changes:** tones stripped (`ü` -> `v`), syllables concatenated into toneless
-keys, traditional/variant forms folded to Simplified (OpenCC tables), repacked into Aegis's binary
-format; the bundled seed is frequency-filtered (`--min-freq 400`) for size, the downloadable full
-pack keeps every entry (`--min-freq 1`).
+([rime-wanxiang](https://github.com/amzxyz/rime-wanxiang)). The downloadable
+`aegis_{dict,t9,jianpin}.bin` and the bundled `assets/aegis_lm.bin` are derivatives of the full 14
+tables (字 基础 联想 错音 多音 诗词 地名 医学 化学 药品 名人 异体 物种 人名). **Changes:** tones
+stripped (`ü` -> `v`), syllables concatenated into toneless keys, traditional/variant forms folded
+to Simplified (OpenCC tables), repacked into Aegis's binary format; the pack keeps every entry
+(`--min-freq 1`).
 
 **wanxiang octagram model** (`wanxiang-lts-zh-hans.gram`): (c) amzxyz, **CC BY 4.0**
 ([RIME-LMDG](https://github.com/amzxyz/RIME-LMDG)). The optional top-tier context model behind next-word /
