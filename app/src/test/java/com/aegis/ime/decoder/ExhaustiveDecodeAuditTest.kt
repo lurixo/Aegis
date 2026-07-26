@@ -222,6 +222,18 @@ class ExhaustiveDecodeAuditTest {
                 fails += Fail(s, "26key", "TC1-traditional-leak", s, h,
                     sample(oracle), h, "homophone drill contains a mapped-away form")
             }
+            for (c in t9.decodeCovered(digits, 30)) if (containsMappedForm(c.word)) {
+                fails += Fail(s, "9key", "TC1-traditional-leak", s, c.word,
+                    sample(oracle), c.word, "candidate contains a traditional/variant form the build maps away")
+            }
+            for (h in t9.homophonesAt(digits, 0)) if (containsMappedForm(h)) {
+                fails += Fail(s, "9key", "TC1-traditional-leak", s, h,
+                    sample(oracle), h, "homophone drill contains a mapped-away form")
+            }
+            if (lock != null) for (c in d.decodeCoveredAtomic(lock.letters, 30)) if (containsMappedForm(c.word)) {
+                fails += Fail(s, "9key", "TC1-traditional-leak", s, c.word,
+                    sample(oracle), c.word, "locked-reading candidate contains a mapped-away form")
+            }
 
             for (target in PinyinDecoder.INPUT_ALIASES[s].orEmpty()) {
                 val topAlias = dict.exact(target).filter { isSingleChar(it.word) }.maxByOrNull { it.freq }?.word ?: continue
@@ -406,6 +418,9 @@ class ExhaustiveDecodeAuditTest {
             appendLine("syllables tested: ${syls.size}")
             appendLine("syllables holding single characters: letters ${syls.count { dictSingles(it).isNotEmpty() }}" +
                 ", digits ${syls.count { t9Singles(T9Pinyin.toT9(it)).isNotEmpty() }}")
+            appendLine("TC1 leak scan covers n=1 only: 26-key decodeCovered top-30 and homophonesAt, " +
+                "9-key decodeCovered top-30, homophonesAt and the locked-reading path; " +
+                "longer inputs are not scanned for mapped-away forms")
             appendLine("distinct offending syllables: ${failedInputs.size}")
             appendLine("total invariant violations: ${fails.size}")
             appendLine("per invariant×layout:")
