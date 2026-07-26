@@ -250,6 +250,53 @@ class BuilderTreeDirtTest(unittest.TestCase):
                 self.assertEqual(len(content), rows[path]["size_bytes"])
             self.assertNotIn("kept.txt", rows)
 
+    def test_a_working_tree_rename_is_described_as_one_row(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = self.builder(root)
+            (repo / "moved.txt").rename(repo / "renamed.txt")
+            self.git(repo, "add", "-N", "renamed.txt")
+
+            rows = self.build(repo, root)["builder_tree_dirt"]
+
+            self.assertEqual([" R"], [row["status"] for row in rows])
+            self.assertEqual(
+                ["renamed.txt"],
+                [row["path"] for row in rows],
+                "the from-path of a working-tree rename must not become a row of its own",
+            )
+            self.assertEqual("moved.txt", rows[0]["renamed_from"])
+            content = (repo / "renamed.txt").read_bytes()
+            self.assertEqual(hashlib.sha256(content).hexdigest(), rows[0]["sha256"])
+            self.assertEqual(len(content), rows[0]["size_bytes"])
+
+    def test_a_working_tree_copy_is_described_as_one_row(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = self.builder(root)
+            self.git(repo, "config", "status.renames", "copies")
+            (repo / "copied.txt").write_bytes((repo / "changed.txt").read_bytes())
+            (repo / "changed.txt").write_text("changed.txt overlay\n")
+            self.git(repo, "add", "-N", "copied.txt")
+
+            rows = self.build(repo, root)["builder_tree_dirt"]
+
+            self.assertEqual([" M", " C"], [row["status"] for row in rows])
+            self.assertEqual(
+                ["changed.txt", "copied.txt"],
+                [row["path"] for row in rows],
+                "the from-path of a working-tree copy must not become a row of its own",
+            )
+            self.assertEqual("changed.txt", rows[1]["renamed_from"])
+
+    def test_a_path_outside_the_repository_is_refused_instead_of_hashed(self):
+        repo = Path("/nonexistent/builder")
+
+        self.assertEqual(repo / "app" / "kept.txt", bp.path_in_repo(repo, "app/kept.txt"))
+        for outside in ("/etc/hostname", "app/../../etc/hostname"):
+            with self.assertRaises(ValueError):
+                bp.path_in_repo(repo, outside)
+
 
 class SourceCheckoutValidationTest(unittest.TestCase):
     def git(self, repo, *args):
