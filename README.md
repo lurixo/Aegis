@@ -74,7 +74,9 @@ locked, while English and every panel keep working.
 
 The settings screen additionally offers an **optional** enhancement model (the ~420 MB octagram
 grammar) for sharper next-word and whole-sentence ranking; that one is fetched only when you tap to
-start it. Those two downloads are the *only* things that ever use the network.
+start it. Beyond those two downloads and the update checks that go with them — a small metadata file
+for the dictionary, a `HEAD` request for the model — Aegis makes no network requests, and once the
+dictionary pack is installed nothing reaches the network unless you ask it to.
 
 ## Features
 
@@ -104,11 +106,13 @@ start it. Those two downloads are the *only* things that ever use the network.
 A keyboard sees everything you type, so trust is the whole point. Aegis is built so that trust does
 not depend on our word alone:
 
-- The app declares exactly **one** Android permission: **`INTERNET`**.
-- That permission is used **only** to fetch the dictionary pack (which the keyboard starts on its
-  own the first time it opens, because no Chinese dictionary ships in the APK) and the optional
-  enhancement model (only when *you* tap to start it). **The typing path makes no network calls at
-  all.**
+- The app declares **two** Android permissions: **`INTERNET`** and **`USE_BIOMETRIC`**.
+- **`INTERNET`** fetches the dictionary pack (which the keyboard starts on its own the first time it
+  opens, because no Chinese dictionary ships in the APK), the optional enhancement model (only when
+  *you* tap to start it), and the update checks for those two. **No keystroke ever makes a network
+  call, and nothing you type is ever sent.**
+- **`USE_BIOMETRIC`** is used only for the default backup password: saving it, or filling it into a
+  backup dialog, needs a biometric or screen-lock confirmation first.
 - Your **keystrokes, candidates, learned words, user dictionary, and clipboard never leave the
   device**: they live in the app's private storage (`filesDir`).
 - There is **no analytics, no telemetry, and no account.**
