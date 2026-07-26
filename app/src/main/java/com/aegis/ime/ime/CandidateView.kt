@@ -180,6 +180,7 @@ class CandidateView(context: Context) : View(context) {
     internal fun maxScrollForTest(): Float = maxScroll()
     internal fun isFlingingForTest(): Boolean = !fling.isFinished
     internal fun flingVelocityForTest(): Float = fling.velocity()
+    internal fun flingFinalForTest(): Float = fling.finalOffset()
     internal fun taskbarPressRadiusDpForTest(): Float = ImeShapes.toolbarFeedbackRadiusDp
     internal fun keyPressRadiusDpForTest(): Float = ImeShapes.keyRadiusDp
     internal fun toolbarControlBoundsForTest(): List<RectF> = funcRects.map(::RectF) + RectF(collapseRect)
@@ -411,7 +412,12 @@ class CandidateView(context: Context) : View(context) {
             MotionEvent.ACTION_UP -> {
                 val downTarget = pressedTarget
                 releasePressedTarget()
-                if (dragging) { dragging = false; if (fling.fling(scrollX, maxScroll())) postInvalidateOnAnimation(); return true }
+                if (dragging) {
+                    dragging = false
+                    layoutCellsTo(fling.predictFinalOffset(scrollX) + (width - expandWidth()))
+                    if (fling.fling(scrollX, maxScroll())) postInvalidateOnAnimation()
+                    return true
+                }
                 if (fling.stopArmed) return true
                 if (isGateMode()) { performClick(); onDictGate?.invoke(); return true }
                 if (isFunctionMode()) {
