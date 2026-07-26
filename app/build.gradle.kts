@@ -54,6 +54,14 @@ kotlin {
     }
 }
 
+tasks.withType<Test>().configureEach {
+    inputs.files(
+        layout.projectDirectory.file("src/main/assets/aegis_dict.bin"),
+        layout.projectDirectory.file("src/main/assets/aegis_t9.bin"),
+        layout.projectDirectory.file("src/main/assets/aegis_jianpin.bin"),
+    ).withPropertyName("runtimeDictionaryAssets")
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
