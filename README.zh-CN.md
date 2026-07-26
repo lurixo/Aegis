@@ -156,7 +156,8 @@ tools/build/install/tools/bin/tools lm --out <lm> --t2s-data tools/t2s-data <14 
 tools/release/build_dictionary_pack.py --release-tag dict-latest
 ```
 
-该命令默认克隆 `amzxyz/rime-wanxiang`（默认取某个稳定 tag，或用 `--source-dir` 指定本地目录），
+该命令克隆 `amzxyz/rime-wanxiang`（默认取 `wanxiang` 分支，用 `--source-tag` 改为固定到某个
+release tag，或用 `--source-dir` 指定已有的本地目录），
 用 `tools/DictBuilder` 以 `--min-freq 1`、无每键上限构建 14 张已核验表，并在
 `build/release-dictionary/` 下写出词库包 ZIP、`aegis-build-info.json` 与
 `aegis-dictionary-update.json`。把这些生成文件上传到滚动的 `dict-latest` release，不要上传到带

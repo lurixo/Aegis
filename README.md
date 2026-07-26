@@ -174,9 +174,10 @@ SHA-256 with the current dictionary ZIP asset.
 tools/release/build_dictionary_pack.py --release-tag dict-latest
 ```
 
-The command clones `amzxyz/rime-wanxiang` (a stable tag by default, or use `--source-dir`), builds
-the 14 verified tables with `tools/DictBuilder` at `--min-freq 1` and no per-key cap, and writes the
-pack ZIP, `aegis-build-info.json`, and `aegis-dictionary-update.json` under `build/release-dictionary/`.
+The command clones `amzxyz/rime-wanxiang` — the `wanxiang` branch by default, `--source-tag` to pin
+a release tag instead, `--source-dir` to use an existing checkout — builds the 14 verified tables
+with `tools/DictBuilder` at `--min-freq 1` and no per-key cap, and writes the pack ZIP,
+`aegis-build-info.json`, and `aegis-dictionary-update.json` under `build/release-dictionary/`.
 Upload those generated files to the rolling `dict-latest` release, not to versioned app releases.
 The checked-in `aegis-build-info.json` records the current rolling pack trail (source tag & commit,
 per-table input hashes, build parameters, output-bin hashes, and physical asset URL) and its
