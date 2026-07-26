@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "schema_name": "aegis.resource-build-info",
-  "generated_at": "2026-07-25T06:49:47Z",
+  "generated_at": "2026-07-26T01:46:43Z",
   "app": {
     "project": "Aegis",
     "repository": "https://github.com/lurixo/Aegis",
@@ -17,15 +17,15 @@
         "release_url": "https://github.com/lurixo/Aegis/releases/tag/dict-latest",
         "prerelease": false,
         "published_at": null,
-        "sha256": "02c38590541921e17a36c81c1630fbffeaa6ddfbbcd8f9fbbc8396908dc75ee4",
-        "size_bytes": 98360489
+        "sha256": "a118ce13bbff1a73c72a6a2d8cb11f93d8265290b01943aa2902a056cf6f143b",
+        "size_bytes": 98315223
       },
       "source": {
         "repo": "https://github.com/amzxyz/rime-wanxiang",
         "ref_type": "tag",
-        "tag": "v16.2.3",
+        "tag": "v16.3.0",
         "branch": null,
-        "commit": "c22ed3e474b67100ad4e938ee96e3b570fdc6bf1",
+        "commit": "ef047401ef5d2f80cb7f88641722da24e222a017",
         "license": "CC-BY-4.0",
         "attribution_file_in_pack": "NOTICE.txt",
         "tables": [
@@ -48,20 +48,20 @@
           {
             "table": "zi",
             "path": "dicts/zi.dict.yaml",
-            "sha256": "32c5246b4429beba9986fbfc05bc92d72db4355ce0110c79bee48b149b435567",
+            "sha256": "85495765b9a515ded882b5ced685f10e4e07c2c816f492c51b10d92a93b4755a",
             "size_bytes": 607416
           },
           {
             "table": "jichu",
             "path": "dicts/jichu.dict.yaml",
-            "sha256": "df8b72a72ddae0ae48a2fac81ebb8ffa3d84fa832dad9666500bff15bc045525",
-            "size_bytes": 45009887
+            "sha256": "509bdf1a07100206d9625349e9984da4975c438aeab47ca24e9a08c7acd50923",
+            "size_bytes": 45010351
           },
           {
             "table": "lianxiang",
             "path": "dicts/lianxiang.dict.yaml",
-            "sha256": "bffb4f86dcce35ac67b3ec4f20090632c5aed2d48da0c3f8b27a9bdb82afa696",
-            "size_bytes": 7834336
+            "sha256": "82a96136923c439dc1abc01ece358d327afb9bb2408f453aa5e6eebeb1809b1d",
+            "size_bytes": 7833990
           },
           {
             "table": "cuoyin",
@@ -72,14 +72,14 @@
           {
             "table": "duoyin",
             "path": "dicts/duoyin.dict.yaml",
-            "sha256": "1286a7e29499d78381e7f9a7302f5d8df230756cacbb6e544e60617c89ace896",
-            "size_bytes": 174212
+            "sha256": "52c07f9cb2ad435bb9cd00642632e6aa299eb8e96c0aac3e4023d6bda718a921",
+            "size_bytes": 174213
           },
           {
             "table": "shici",
             "path": "dicts/shici.dict.yaml",
-            "sha256": "311d462b31b1569e7e6a41cffc03df4739c28efa90bad726b01848edbc080310",
-            "size_bytes": 16423793
+            "sha256": "943873220de69cb821ff4e62570fb70ace45131264516229e66dcbbef975e589",
+            "size_bytes": 16423732
           },
           {
             "table": "diming",
@@ -108,33 +108,33 @@
           {
             "table": "mingren",
             "path": "dicts/mingren.dict.yaml",
-            "sha256": "66176bf98a44872e6c87344eeec704a8fa7f0a2e8cdde2aefb2342d952a44ebf",
-            "size_bytes": 164714
+            "sha256": "41687cadcb433430b124a03b76e2cf9b17cc71c0f820eaaf16fa63bbd611335c",
+            "size_bytes": 164634
           },
           {
             "table": "yiren",
             "path": "dicts/yiren.dict.yaml",
-            "sha256": "623926dd9e3ddd4d93b8ab375b288f4732a668bfce0cc6922ccf0d59b5dae209",
-            "size_bytes": 263551
+            "sha256": "60f91b4fbfb1790f5aca50ca8aff7cf37a9f5b4c8faa5bb1248c3f37f6452b1c",
+            "size_bytes": 263550
           },
           {
             "table": "wuzhong",
             "path": "dicts/wuzhong.dict.yaml",
-            "sha256": "f772508ab1c4d81d707463232c94466096e2705b14703dd7e7603b922c4d1545",
-            "size_bytes": 2008676
+            "sha256": "f7c889030bfd81a1808f539e38f5d6db0c9b347a01a5cdca2cd4849b47b4ef42",
+            "size_bytes": 2013720
           },
           {
             "table": "renming",
             "path": "dicts/renming.dict.yaml",
-            "sha256": "d3613c6a46e955c9a5829a7d819e738e157c1cf81c0365023489596e9d7bb55a",
-            "size_bytes": 554042
+            "sha256": "ef6aa1fcc998c31ab440f95990a84167c0f1546ed0adf0d6c0259805c31f8d0f",
+            "size_bytes": 554021
           }
         ]
       },
       "build": {
         "builder_path": "tools/src/main/kotlin/com/aegis/tools/DictBuilder.kt",
-        "builder_commit": "a2eb3e731349b53b31e1388b4fd7934de870813f",
-        "builder_tree_dirty": false,
+        "builder_commit": "a9a68d6abecfbd6f60847a66f3994fd3929755cb",
+        "builder_tree_dirty": true,
         "full_pack_parameters": {
           "min_freq": 1,
           "max_per_key": null,
@@ -168,20 +168,20 @@
           {
             "zip_entry": "aegis_dict_full.bin",
             "runtime_name": "aegis_dict.bin",
-            "sha256": "c770c113930cd2b02865dffdd0f3a3ab52e4f7dfe8969661e237ee415bc16464",
-            "size_bytes": 98874598
+            "sha256": "177cbb8b468f0061a9b1fd272293998d929564df29fae37cd71e63df88c5f378",
+            "size_bytes": 98859540
           },
           {
             "zip_entry": "aegis_t9_full.bin",
             "runtime_name": "aegis_t9.bin",
-            "sha256": "904105a5988a8d13df4ec1ffe5686960785e32615111647ec0865ee7b20f5262",
-            "size_bytes": 94796769
+            "sha256": "2c4786c2ace871fcb9f33f531b27d860a89fbe263e256a67c5c8c92a6ce328fb",
+            "size_bytes": 94778358
           },
           {
             "zip_entry": "aegis_jianpin_full.bin",
             "runtime_name": "aegis_jianpin.bin",
-            "sha256": "ec00f8d777ed134a48825095b46ccc32ac95f5bd8dc3fc756161b7904d672379",
-            "size_bytes": 62808215
+            "sha256": "150c320686e062b33b5e62d1ceb2bc0c41379ae55b04884367ed11200cb6ce6c",
+            "size_bytes": 62775838
           }
         ],
         "zip_packaging": {
@@ -194,6 +194,41 @@
           "timestamp_utc": "1980-01-01T00:00:00Z",
           "unix_mode": "0644",
           "compression": "zip_deflated_level_9"
+        },
+        "gb18030_level2_pinyin_support": {
+          "mode": "standalone_codepoint_reachability_after_simplified_conversion",
+          "injected_frequency": 1,
+          "conflict_rule": "Unicode 17.0 kMandarin replaces Wanxiang; Wanxiang is fallback only when kMandarin is absent",
+          "support_policy": {
+            "name": "gb18030-level2-pinyin-support.tsv",
+            "sha256": "43e44f57c2c1a307c4320929dc50e424c4bdaccf5216b934f03b93392fd306f0",
+            "supported_codepoints": 27023,
+            "reading_rows": 27091,
+            "by_source": {
+              "unicode_17_kMandarin": 26889,
+              "wanxiang_v16.0.1_fallback": 134
+            },
+            "by_minimum_level": {
+              "1": 26827,
+              "2": 196
+            }
+          },
+          "unsupported_policy": {
+            "name": "gb18030-level2-pinyin-unsupported.tsv",
+            "sha256": "eec3052f53c28b6f62e78bf251ae77103d8c34bb7c1f6239d9c03470483de1d3",
+            "unsupported_codepoints": 757,
+            "by_category": {
+              "component": 14,
+              "han": 743
+            }
+          },
+          "core_adjudicated_deny_policy": {
+            "name": "reviewed-han-adjudications.tsv",
+            "sha256": "615df28f84b10616464f79317534c906ddf6fbb63b76f6f11a0db87246b4750a",
+            "denied_codepoints": 2876,
+            "effect": "drop phrases and non-standard standalone keys; approved level-1/2 standalone pinyin entries are re-injected"
+          },
+          "postprocessor": "bin/inject_gb18030_pinyin_support.py"
         }
       },
       "attestation": {
@@ -215,10 +250,10 @@
         "release_tag": "LTS",
         "release_url": "https://github.com/amzxyz/RIME-LMDG/releases/tag/LTS",
         "prerelease": false,
-        "published_at": "2026-07-23T13:19:40Z",
-        "sha256": "280cceaec45f10e96a4fd7d40926a78d2daa409cb1ad42cae4d05ef7f022eef3",
-        "size_bytes": 420012076,
-        "github_asset_id": 487206811
+        "published_at": "2026-07-25T10:38:01Z",
+        "sha256": "b4e1d9fd1bcdbe6c80f6c7d5fba2e99c236b09599f05f009a8317dbac1eada26",
+        "size_bytes": 420251692,
+        "github_asset_id": 489363062
       },
       "source": {
         "repo": "https://github.com/amzxyz/RIME-LMDG",
