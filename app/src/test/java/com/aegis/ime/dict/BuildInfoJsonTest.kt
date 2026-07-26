@@ -45,8 +45,8 @@ class BuildInfoJsonTest {
             "https://github.com/lurixo/Aegis/releases/download/dict-latest/aegis_dict_pack_dict-latest.zip",
             asset.getString("url"),
         )
-        assertEquals("02c38590541921e17a36c81c1630fbffeaa6ddfbbcd8f9fbbc8396908dc75ee4", asset.getString("sha256"))
-        assertEquals(98_360_489L, asset.getLong("size_bytes"))
+        assertEquals("a118ce13bbff1a73c72a6a2d8cb11f93d8265290b01943aa2902a056cf6f143b", asset.getString("sha256"))
+        assertEquals(98_315_223L, asset.getLong("size_bytes"))
         assertEquals("dict-latest", asset.getString("release_tag"))
         assertFalse("the rolling dictionary release is a full release", asset.getBoolean("prerelease"))
         assertEquals(ModelDownload.DICT_REPO_URL, source.getString("repo"))
@@ -66,9 +66,9 @@ class BuildInfoJsonTest {
             actualTables,
         )
         assertEquals("tag", source.getString("ref_type"))
-        assertEquals("v16.2.3", source.getString("tag"))
+        assertEquals("v16.3.0", source.getString("tag"))
         assertTrue("branch is null when pinned to a tag", source.isNull("branch"))
-        assertEquals("c22ed3e474b67100ad4e938ee96e3b570fdc6bf1", source.getString("commit"))
+        assertEquals("ef047401ef5d2f80cb7f88641722da24e222a017", source.getString("commit"))
         assertEquals("tools/src/main/kotlin/com/aegis/tools/DictBuilder.kt", build.getString("builder_path"))
         assertEquals(1, build.getJSONObject("full_pack_parameters").getInt("min_freq"))
         assertTrue(build.getJSONObject("full_pack_parameters").isNull("max_per_key"))
