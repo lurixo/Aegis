@@ -377,15 +377,15 @@ class PinyinDecoder(
         bestSentence(input, emptySet(), ctxCp, ctxWord)?.let { cover[it] = input.length }
         val pool = ArrayList<RankedWord>()
         val offered = HashSet<String>()
-        fun offer(wf: BinaryDict.WordFreq, penalty: Double) {
-            if (offered.add(wf.word)) {
-                pool.add(
-                    RankedWord(
-                        wf,
-                        wordModelScore(wf.word, wf.freq, ctxId, ctxWord, condMemo) - penalty,
-                    ),
-                )
-            }
+        fun offer(wf: BinaryDict.WordFreq, penalty: Double): Boolean {
+            if (!offered.add(wf.word)) return false
+            pool.add(
+                RankedWord(
+                    wf,
+                    wordModelScore(wf.word, wf.freq, ctxId, ctxWord, condMemo) - penalty,
+                ),
+            )
+            return true
         }
         val exactWords = HashSet<String>()
         for (wf in dict.exact(input)) {
@@ -401,7 +401,15 @@ class PinyinDecoder(
                 dict.prefixByFreq(variant, completionCap).forEach { offer(it, FUZZY_PENALTY) }
             }
         }
-        initialsDict?.let { id -> id.prefixByFreq(input, completionCap).forEach { offer(it, INITIALS_PENALTY) } }
+        val reservedInitials = HashSet<String>()
+        initialsDict?.let { id ->
+            if (input.length >= INITIALS_RESERVE_MIN_LEN) {
+                for (wf in preferredExact(id, input, INITIALS_RESERVE)) {
+                    if (offer(wf, INITIALS_PENALTY)) reservedInitials.add(wf.word)
+                }
+            }
+            id.prefixByFreq(input, completionCap).forEach { offer(it, INITIALS_PENALTY) }
+        }
         pool.sortWith(
             compareByDescending<RankedWord> { it.score }
                 .thenBy { supplementarySingleTieRank(it.wordFreq.word) },
@@ -411,9 +419,11 @@ class PinyinDecoder(
             word = { it.wordFreq.word },
             frequency = { it.wordFreq.freq.toDouble() },
         )
+        var pendingInitials = reservedInitials.count { it !in cover }
         for ((wf, _) in pool) {
-            if (cover.size >= completionCap && wf.word !in exactWords) continue
-            cover.putIfAbsent(wf.word, input.length)
+            val reserved = wf.word in reservedInitials
+            if (!reserved && cover.size >= completionCap - pendingInitials && wf.word !in exactWords) continue
+            if (cover.putIfAbsent(wf.word, input.length) == null && reserved) pendingInitials--
         }
         val out = ArrayList<Cand>(cover.size + 20)
         for ((w, len) in cover) out.add(Cand(w, len))
@@ -865,6 +875,8 @@ class PinyinDecoder(
         const val FUZZY_PENALTY = 3.0
         const val ALIAS_PENALTY = 3.5
         const val INITIALS_PENALTY = 5.0
+        const val INITIALS_RESERVE = 1
+        const val INITIALS_RESERVE_MIN_LEN = 2
         const val DEFAULT_OCTAGRAM_WEIGHT = 0.1
         const val BEAM_W = 12
         const val SENTENCE_EDGE_N = 6
