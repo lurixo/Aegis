@@ -405,6 +405,7 @@ class PinyinDecoder(
         initialsDict?.let { id ->
             if (input.length >= INITIALS_RESERVE_MIN_LEN) {
                 for (wf in preferredExact(id, input, INITIALS_RESERVE)) {
+                    if (wf.freq <= ORDERING_RARE_FREQ) continue
                     if (offer(wf, INITIALS_PENALTY)) reservedInitials.add(wf.word)
                 }
             }
