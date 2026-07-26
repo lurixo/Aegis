@@ -192,7 +192,7 @@ class ModelDownloadTest {
 
             assertEquals(ModelDownload.ValidatorProbe.Reached(null), probe)
             assertEquals(
-                ModelDownload.UpdateCheck.UPDATE,
+                ModelDownload.UpdateCheck.UNKNOWN,
                 ModelDownload.modelUpdateAction(true, null, probe),
             )
         } finally {
@@ -741,9 +741,9 @@ class ModelDownloadTest {
     }
 
     @Test
-    fun unidentifiedInstalledModelAlwaysOffersTheUpdate() {
+    fun unidentifiedInstalledModelReportsUnknownRatherThanAnUpdate() {
         assertEquals(
-            ModelDownload.UpdateCheck.UPDATE,
+            ModelDownload.UpdateCheck.UNKNOWN,
             ModelDownload.modelUpdateAction(
                 true,
                 null,
@@ -751,7 +751,7 @@ class ModelDownloadTest {
             ),
         )
         assertEquals(
-            ModelDownload.UpdateCheck.UPDATE,
+            ModelDownload.UpdateCheck.UNKNOWN,
             ModelDownload.modelUpdateAction(
                 true,
                 "size:2048",
@@ -759,18 +759,33 @@ class ModelDownloadTest {
             ),
         )
         assertEquals(
-            ModelDownload.UpdateCheck.UPDATE,
+            ModelDownload.UpdateCheck.UNKNOWN,
             ModelDownload.modelUpdateAction(true, "remote-etag", ModelDownload.ValidatorProbe.Reached(null)),
         )
     }
 
     @Test
-    fun updateAvailableOnlySuppressedByConfirmedMatch() {
-        assertFalse(ModelDownload.updateAvailable(local = "etag-1", remote = "etag-1"))
-        assertTrue(ModelDownload.updateAvailable(local = "etag-1", remote = "etag-2"))
-        assertTrue(ModelDownload.updateAvailable(local = null, remote = "etag-2"))
-        assertTrue(ModelDownload.updateAvailable(local = "etag-1", remote = null))
-        assertTrue(ModelDownload.updateAvailable(local = null, remote = null))
+    fun validatorComparisonSeparatesUnknownFromNewer() {
+        assertEquals(
+            ModelDownload.UpdateCheck.UP_TO_DATE,
+            ModelDownload.validatorComparison(local = "etag-1", remote = "etag-1"),
+        )
+        assertEquals(
+            ModelDownload.UpdateCheck.UPDATE,
+            ModelDownload.validatorComparison(local = "etag-1", remote = "etag-2"),
+        )
+        assertEquals(
+            ModelDownload.UpdateCheck.UNKNOWN,
+            ModelDownload.validatorComparison(local = null, remote = "etag-2"),
+        )
+        assertEquals(
+            ModelDownload.UpdateCheck.UNKNOWN,
+            ModelDownload.validatorComparison(local = "etag-1", remote = null),
+        )
+        assertEquals(
+            ModelDownload.UpdateCheck.UNKNOWN,
+            ModelDownload.validatorComparison(local = null, remote = null),
+        )
     }
 
     @Test

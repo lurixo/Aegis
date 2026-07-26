@@ -158,7 +158,7 @@ object ModelDownload {
 
     enum class CheckFailure { OFFLINE, TIMEOUT, SERVER, PARSE }
 
-    enum class UpdateCheck { OFFLINE, TIMEOUT, UP_TO_DATE, UPDATE, SERVER_ERROR, PARSE_ERROR }
+    enum class UpdateCheck { OFFLINE, TIMEOUT, UP_TO_DATE, UPDATE, UNKNOWN, SERVER_ERROR, PARSE_ERROR }
 
     private fun CheckFailure.toUpdateCheck(): UpdateCheck = when (this) {
         CheckFailure.OFFLINE -> UpdateCheck.OFFLINE
@@ -240,10 +240,14 @@ object ModelDownload {
         }
     }
 
-    fun updateAvailable(local: String?, remote: String?): Boolean {
+    fun validatorComparison(local: String?, remote: String?): UpdateCheck {
         val localValidator = trustworthyValidator(local)
         val remoteValidator = trustworthyValidator(remote)
-        return localValidator == null || remoteValidator == null || remoteValidator != localValidator
+        return when {
+            localValidator == null || remoteValidator == null -> UpdateCheck.UNKNOWN
+            remoteValidator == localValidator -> UpdateCheck.UP_TO_DATE
+            else -> UpdateCheck.UPDATE
+        }
     }
 
     fun modelUpdateAction(
@@ -254,8 +258,7 @@ object ModelDownload {
         if (!present) return null
         return when (probe) {
             is ValidatorProbe.Failed -> probe.failure.toUpdateCheck()
-            is ValidatorProbe.Reached ->
-                if (updateAvailable(local, probe.validator)) UpdateCheck.UPDATE else UpdateCheck.UP_TO_DATE
+            is ValidatorProbe.Reached -> validatorComparison(local, probe.validator)
         }
     }
 
@@ -561,8 +564,9 @@ object ModelDownload {
         }
         return try {
             val asset = dictionaryAssetFromUpdateJson(json)
-            if (isNewerDictionaryAsset(asset, current)) DictionaryUpdateCheck(UpdateCheck.UPDATE, asset)
-            else DictionaryUpdateCheck(UpdateCheck.UP_TO_DATE)
+            val comparison = dictionaryComparison(asset, current)
+            if (comparison == UpdateCheck.UPDATE) DictionaryUpdateCheck(comparison, asset)
+            else DictionaryUpdateCheck(comparison)
         } catch (t: Exception) {
             DictionaryUpdateCheck(UpdateCheck.PARSE_ERROR)
         }
@@ -600,9 +604,13 @@ object ModelDownload {
         )
     }
 
-    private fun isNewerDictionaryAsset(asset: DictionaryAsset, current: DictionaryInstallMetadata): Boolean {
-        val currentSha = normalizeSha256(current.sha256) ?: return true
-        return !asset.sha256.equals(currentSha, ignoreCase = true)
+    private fun dictionaryComparison(
+        asset: DictionaryAsset,
+        current: DictionaryInstallMetadata,
+    ): UpdateCheck {
+        val currentSha = normalizeSha256(current.sha256) ?: return UpdateCheck.UNKNOWN
+        return if (asset.sha256.equals(currentSha, ignoreCase = true)) UpdateCheck.UP_TO_DATE
+        else UpdateCheck.UPDATE
     }
 
     internal fun normalizeSha256(value: String?): String? {

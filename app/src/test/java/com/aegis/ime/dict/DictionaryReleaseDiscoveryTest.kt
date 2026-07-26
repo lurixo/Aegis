@@ -71,14 +71,14 @@ class DictionaryReleaseDiscoveryTest {
     }
 
     @Test
-    fun malformedLocalHashOffersTheManifestPack() {
+    fun malformedLocalHashIsReportedAsUnknownNotAsAnUpdate() {
         val result = ModelDownload.dictionaryUpdateFromFetch(
             { manifest(sha2) },
             ModelDownload.DictionaryInstallMetadata(sha256 = "not-a-sha"),
         )
 
-        assertEquals(ModelDownload.UpdateCheck.UPDATE, result.state)
-        assertEquals(sha2, result.asset?.sha256)
+        assertEquals(ModelDownload.UpdateCheck.UNKNOWN, result.state)
+        assertNull(result.asset)
     }
 
     @Test

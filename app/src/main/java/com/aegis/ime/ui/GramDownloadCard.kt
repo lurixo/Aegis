@@ -66,6 +66,7 @@ internal fun GramDownloadCard(
     var progress by remember { mutableStateOf(if (preview == null) initial.progress else null) }
     var downloading by remember { mutableStateOf(if (preview == null) initial.downloading else false) }
     var checking by remember { mutableStateOf(preview?.checking ?: false) }
+    var redownloadOffered by remember { mutableStateOf(false) }
 
     val handler = remember { Handler(Looper.getMainLooper()) }
 
@@ -83,6 +84,7 @@ internal fun GramDownloadCard(
     }
 
     fun startDownload(url: String = ModelDownload.GRAM_URL) {
+        redownloadOffered = false
         if (preview == null) downloader(context, url)
     }
 
@@ -107,8 +109,10 @@ internal fun GramDownloadCard(
                     },
                     onFailure = { ModelDownload.UpdateCheck.PARSE_ERROR },
                 )
+                redownloadOffered = action == ModelDownload.UpdateCheck.UNKNOWN
                 when (action) {
                     null -> {}
+                    ModelDownload.UpdateCheck.UNKNOWN -> showCheckFailure(R.string.download_toast_update_unknown)
                     ModelDownload.UpdateCheck.OFFLINE -> showCheckFailure(R.string.download_toast_update_offline)
                     ModelDownload.UpdateCheck.TIMEOUT -> showCheckFailure(R.string.download_toast_update_timeout)
                     ModelDownload.UpdateCheck.SERVER_ERROR -> showCheckFailure(R.string.download_toast_update_server_error)
@@ -177,7 +181,7 @@ internal fun GramDownloadCard(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Button(
-                    enabled = !downloading && !present,
+                    enabled = !downloading && (!present || redownloadOffered),
                     onClick = { startDownload() },
                 ) { Text(stringResource(R.string.download_button)) }
                 if (present) {
