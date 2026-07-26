@@ -5,6 +5,7 @@
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -94,6 +95,13 @@ def sha256_file(path):
     return digest.hexdigest()
 
 
+def path_in_repo(repo_root, relative):
+    target = Path(os.path.normpath(repo_root / relative))
+    if repo_root not in target.parents:
+        raise ValueError(f"git reported a path outside the repository: {relative!r}")
+    return target
+
+
 def tree_dirt(repo_root):
     fields = subprocess.check_output(
         ["git", "status", "--porcelain", "-z", "--untracked-files=all"],
@@ -108,10 +116,10 @@ def tree_dirt(repo_root):
         if not entry:
             continue
         row = {"status": entry[:2], "path": entry[3:]}
-        if entry[0] in ("R", "C"):
+        if "R" in entry[:2] or "C" in entry[:2]:
             row["renamed_from"] = fields[index]
             index += 1
-        target = repo_root / row["path"]
+        target = path_in_repo(repo_root, row["path"])
         stat = target.stat() if target.is_file() else None
         row["sha256"] = sha256_file(target) if stat else None
         row["size_bytes"] = stat.st_size if stat else None
