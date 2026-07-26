@@ -65,6 +65,7 @@ tasks.withType<Test>().configureEach {
         layout.projectDirectory.file("../THIRD_PARTY_LICENSES.md"),
         layout.projectDirectory.file("../aegis-build-info.json"),
         layout.projectDirectory.file("../tools/release/build_dictionary_pack.py"),
+        layout.projectDirectory.file("../tools/t2s-data/adjudications.tsv"),
         layout.projectDirectory.file("src/main/AndroidManifest.xml"),
     ).withPropertyName("repositoryFilesReadByTests")
         .withPathSensitivity(PathSensitivity.RELATIVE)
