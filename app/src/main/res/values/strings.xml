@@ -171,7 +171,7 @@
     <string name="backup_export_button">Export backup</string>
     <string name="backup_import_button">Import backup</string>
     <string name="backup_default_password_title">Default backup password</string>
-    <string name="backup_default_password_desc">Save a local default password for backup dialogs. It is encrypted on this device and can be filled only after biometric or screen-lock authentication.</string>
+    <string name="backup_default_password_desc">Save a local default password for backup dialogs. It is encrypted on this device, and saving it and filling it both require biometric or screen-lock authentication.</string>
     <string name="backup_default_password_status_saved">Default password saved on this device</string>
     <string name="backup_default_password_status_not_set">No default password saved</string>
     <string name="backup_default_password_set_button">Set default</string>

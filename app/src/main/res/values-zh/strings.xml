@@ -170,7 +170,7 @@
     <string name="backup_export_button">导出备份</string>
     <string name="backup_import_button">导入备份</string>
     <string name="backup_default_password_title">默认备份密码</string>
-    <string name="backup_default_password_desc">为备份对话框保存一个本机默认密码。它会在此设备上加密保存，且只能在通过生物识别或锁屏验证后填入。</string>
+    <string name="backup_default_password_desc">为备份对话框保存一个本机默认密码。它会在此设备上加密保存，保存和填入都需要先通过生物识别或锁屏验证。</string>
     <string name="backup_default_password_status_saved">此设备已保存默认密码</string>
     <string name="backup_default_password_status_not_set">尚未保存默认密码</string>
     <string name="backup_default_password_set_button">设置默认</string>
