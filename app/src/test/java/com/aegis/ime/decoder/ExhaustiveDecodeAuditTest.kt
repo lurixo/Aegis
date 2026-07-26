@@ -375,6 +375,8 @@ class ExhaustiveDecodeAuditTest {
             .filter { it.codePointCount(0, it.length) == 1 }
         val missing = derived.filterNot { it in mappedForms }
 
+        assertTrue("tools/t2s-data maps away ~4300 single characters (drift guard): ${derived.size}",
+            derived.size > 4000)
         assertTrue(
             "tc1_mapped_forms.txt omits ${missing.size} of ${derived.size} forms tools/t2s-data maps away: ${sample(missing)}",
             missing.isEmpty(),
