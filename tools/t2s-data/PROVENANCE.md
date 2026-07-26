@@ -14,8 +14,10 @@ adjudications.tsv: per-reading rulings for OpenCC's reading-sensitive characters
 whose source char appears among its own mappings): 乾/徵/彷/祇/衹/藉/麽 map per pinyin syllable;
 瞭/薹/覆/阪 are kept unconverted (standard simplified forms); 剋→克 for all readings (this is a
 simplified-only IME; kei stays typeable through 克). 夥→伙 and 於→于 follow the OpenCC
-first mapping. 牴 is left unconverted: OpenCC's first image for it is 牴 itself and no row here
-overrides that, so a pack built from this directory alone keeps 牴.
+first mapping. 牴 is left unconverted at the character level: OpenCC's first image for it is 牴
+itself and no row in adjudications.tsv names it. TSPhrases.txt does convert it, in the two
+whole-word entries 牴牾→抵牾 and 牴觸→抵触, and the phrase table is applied before any character
+mapping, so a pack built from this directory keeps 牴 in every entry except those two words.
 
 Addendum (chain collisions & phrase-protected forms): 苧 is BOTH a traditional form (zhù→苎) and the
 standard simplified image of 薴 (níng) — mapped per reading (zhu→苎, else kept). 於 maps yu→于 but is
