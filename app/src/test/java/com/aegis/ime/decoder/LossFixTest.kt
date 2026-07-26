@@ -227,7 +227,7 @@ class LossFixTest {
         assertTrue(
             "only the completion budget may precede the word layer, not the ${singles.size} 单字 of '$key': " +
                 "${ahead.size} candidates ahead of the last word, ${ahead.count { it in singles }} of them 单字",
-            ahead.size <= limit * 2 / 3,
+            ahead.size <= PinyinDecoder.completionCap(limit),
         )
     }
 
