@@ -230,7 +230,7 @@ def build_info(args, repo_root, source_commit, asset_name, zip_path, bin_infos, 
                     "url": asset_url,
                     "release_tag": args.release_tag,
                     "release_url": release_url,
-                    "prerelease": args.prerelease,
+                    "prerelease": False,
                     "published_at": None,
                     "sha256": sha256_file(zip_path),
                     "size_bytes": zip_path.stat().st_size,
@@ -324,8 +324,6 @@ def main(argv):
     parser.add_argument("--source-branch", default="wanxiang")
     parser.add_argument("--source-tag", help="Upstream release tag to pin (records source.tag and clones this tag instead of the branch HEAD). Prefer the latest stable tag that carries the dicts/ tables.")
     parser.add_argument("--asset-name", help="Dictionary ZIP asset name. Defaults to the debug.13 naming pattern.")
-    parser.add_argument("--release", dest="prerelease", action="store_false", help="Mark generated metadata as a normal release.")
-    parser.set_defaults(prerelease=True)
     parser.add_argument("--grammar-release-api", default=GRAMMAR_RELEASE_API)
     parser.add_argument("--grammar-release-json")
     args = parser.parse_args(argv)
