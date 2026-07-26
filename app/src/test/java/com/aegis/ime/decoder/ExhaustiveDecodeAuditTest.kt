@@ -31,8 +31,11 @@ class ExhaustiveDecodeAuditTest {
     private val jianpinFile = File("src/main/assets/aegis_jianpin.bin")
 
     private fun letterDecoder(): PinyinDecoder {
-        val initials = if (jianpinFile.exists()) BinaryDict.fromFile(jianpinFile) else null
-        return PinyinDecoder(BinaryDict.fromFile(dictFile), CharBigramLM.fromFile(lmFile), initialsDict = initials)
+        return PinyinDecoder(
+            BinaryDict.fromFile(dictFile),
+            CharBigramLM.fromFile(lmFile),
+            initialsDict = BinaryDict.fromFile(jianpinFile),
+        )
     }
 
     private fun t9Decoder(): PinyinDecoder =
@@ -341,7 +344,7 @@ class ExhaustiveDecodeAuditTest {
     }
 
     @Test fun wordReachability_stratifiedKeys_bothLayouts_writesReport() {
-        assumeTrue("assets present", dictFile.exists() && lmFile.exists() && t9File.exists())
+        assumeTrue("assets present", dictFile.exists() && lmFile.exists() && t9File.exists() && jianpinFile.exists())
         val universe = syllableKeyUniverse()
         val letterKeys = stratifiedWordKeys(dict, universe)
         val digitKeys = stratifiedWordKeys(t9Dict, universe.mapTo(LinkedHashSet()) { T9Pinyin.toT9(it) }.toList())
@@ -387,7 +390,7 @@ class ExhaustiveDecodeAuditTest {
     }
 
     @Test fun exhaustiveN1_bothLayouts_writesReport() {
-        assumeTrue("assets present", dictFile.exists() && lmFile.exists() && t9File.exists())
+        assumeTrue("assets present", dictFile.exists() && lmFile.exists() && t9File.exists() && jianpinFile.exists())
         val syls = runtimeSyllables()
         assertTrue("runtime SYLLABLES set looks like ~415 (drift guard): ${syls.size}",
             syls.size in 400..430 && syls.isNotEmpty())
@@ -418,7 +421,7 @@ class ExhaustiveDecodeAuditTest {
     }
 
     @Test fun leftToRightReachability_bothLayouts_writesReport() {
-        assumeTrue("assets present", dictFile.exists() && lmFile.exists() && t9File.exists())
+        assumeTrue("assets present", dictFile.exists() && lmFile.exists() && t9File.exists() && jianpinFile.exists())
         val syls = runtimeSyllables().sorted()
         val pairTails = listOf("hao", "an")
         val tripleStride = 10
@@ -447,7 +450,7 @@ class ExhaustiveDecodeAuditTest {
 
     @Test fun exhaustiveN2_allPairs_writesReport() {
         assumeTrue("full sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
-        assumeTrue("assets present", dictFile.exists() && lmFile.exists())
+        assumeTrue("assets present", dictFile.exists() && lmFile.exists() && jianpinFile.exists())
         val syls = runtimeSyllables()
         val d = letterDecoder()
         val fails = ArrayList<Fail>()
@@ -489,7 +492,7 @@ class ExhaustiveDecodeAuditTest {
 
     @Test fun coveringN3_writesReport() {
         assumeTrue("full sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
-        assumeTrue("assets present", dictFile.exists() && lmFile.exists())
+        assumeTrue("assets present", dictFile.exists() && lmFile.exists() && jianpinFile.exists())
         val syls = runtimeSyllables()
         val d = letterDecoder()
         val fails = ArrayList<Fail>()
