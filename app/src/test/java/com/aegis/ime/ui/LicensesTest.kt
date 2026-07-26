@@ -55,12 +55,24 @@ class LicensesTest {
         R.string.license_androidx_name,
     )
 
+    private val dictionaryBins =
+        listOf("aegis_dict.bin", "aegis_t9.bin", "aegis_jianpin.bin", "aegis_lm.bin")
+
+    private val braceShorthand = Regex("""([\w./-]*)\{([^{}]*)\}([\w.-]*)""")
+
+    private fun unnamedDictionaryBins(doc: String): List<String> {
+        val expanded = braceShorthand.replace(doc) { m ->
+            val (prefix, body, suffix) = m.destructured
+            body.split(',').joinToString(" ") { prefix + it.trim() + suffix }
+        }
+        return dictionaryBins.filterNot { expanded.contains(it) }
+    }
+
     @Test fun third_party_licenses_doc_covers_every_component_and_carries_the_apache_full_text() {
         val doc = File("../THIRD_PARTY_LICENSES.md").readText()
         for (needle in listOf(
             "rime-wanxiang", "amzxyz", "CC BY 4.0", "creativecommons.org/licenses/by/4.0",
-            "v16.0.1", "7db7c588",
-            "aegis_{dict,t9,jianpin,lm}.bin", "aegis_lm.bin", "character-bigram",
+            "v16.0.1", "7db7c588", "character-bigram",
             "RIME-LMDG", "OpenCC", "BYVoid", "Apache-2.0",
             "Unicode", "unicode.org/license",
             "AndroidX", "Compose", "Material 3", "Kotlin",
@@ -70,6 +82,31 @@ class LicensesTest {
         )) {
             assertTrue("THIRD_PARTY_LICENSES.md must contain '$needle'", doc.contains(needle))
         }
+        assertEquals(
+            "THIRD_PARTY_LICENSES.md must name every dictionary-derived binary",
+            emptyList<String>(),
+            unnamedDictionaryBins(doc),
+        )
+    }
+
+    @Test fun the_binary_coverage_check_fails_when_a_binary_goes_unnamed() {
+        assertEquals(
+            emptyList<String>(),
+            unnamedDictionaryBins("`aegis_{dict,t9,jianpin}.bin` and `assets/aegis_lm.bin`"),
+        )
+        assertEquals(
+            emptyList<String>(),
+            unnamedDictionaryBins("aegis_dict.bin, aegis_t9.bin, aegis_jianpin.bin, aegis_lm.bin"),
+        )
+        assertEquals(
+            emptyList<String>(),
+            unnamedDictionaryBins("all of `assets/aegis_{lm,dict,jianpin,t9}.bin` are derived"),
+        )
+        assertEquals(
+            listOf("aegis_t9.bin"),
+            unnamedDictionaryBins("`aegis_{dict,jianpin}.bin` and `assets/aegis_lm.bin`"),
+        )
+        assertEquals(dictionaryBins, unnamedDictionaryBins("no binary is named here"))
     }
 
     @Test fun license_strings_exist_in_both_locales() {
