@@ -15,13 +15,13 @@ CC BY 词库，配以**自研解码器**——运行时不依赖 rime 或 librim
 [English](README.md) · **简体中文**
 
 <p align="center">
-  <img src="docs/screenshots/zh/keyboard-qwerty.png" alt="26 键全拼键盘" width="375">
-  <img src="docs/screenshots/zh/keyboard-t9.png" alt="9 键 T9 键盘" width="375">
+  <img src="docs/screenshots/zh/keyboard-qwerty.png" alt="26 键全拼键盘" width="420">
+  <img src="docs/screenshots/zh/keyboard-t9.png" alt="9 键 T9 键盘" width="420">
 </p>
 <p align="center">
-  <img src="docs/screenshots/zh/emoji.png" alt="Emoji 选择器" width="250">
-  <img src="docs/screenshots/zh/clipboard.png" alt="剪贴板历史与常用语" width="250">
-  <img src="docs/screenshots/zh/symbols.png" alt="符号面板" width="250">
+  <img src="docs/screenshots/zh/emoji.png" alt="Emoji 选择器" width="280">
+  <img src="docs/screenshots/zh/clipboard.png" alt="剪贴板历史与常用语" width="280">
+  <img src="docs/screenshots/zh/symbols.png" alt="符号面板" width="280">
 </p>
 
 ## 目录
