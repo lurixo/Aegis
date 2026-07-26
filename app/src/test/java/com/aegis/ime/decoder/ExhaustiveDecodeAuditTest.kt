@@ -48,6 +48,9 @@ class ExhaustiveDecodeAuditTest {
     private fun allSingles(cands: List<Cand>): Set<String> =
         cands.filter { isSingleChar(it.word) }.map { it.word }.toSet()
 
+    private fun dictWords(source: BinaryDict, key: String): Set<String> =
+        source.exact(key).filter { !isSingleChar(it.word) }.map { it.word }.toSet()
+
     private fun leadingKey(d: PinyinDecoder, input: String, cuts: Set<Int>): String {
         val head = input.substring(0, cuts.filter { it in 1 until input.length }.minOrNull() ?: input.length)
         val end = d.syllables(head).firstOrNull()?.end ?: head.length
@@ -254,6 +257,121 @@ class ExhaustiveDecodeAuditTest {
             fails += leadingLoss(d, t9, s, digits, emptySet(), emptySet())
         }
         return fails
+    }
+
+    private class WordSweep {
+        var words = 0
+        var unreachable = 0
+        var deepest = -1
+        val fails = ArrayList<Fail>()
+    }
+
+    private fun strideSample(keys: List<String>, cap: Int): List<String> {
+        if (keys.size <= cap) return keys
+        val step = keys.size.toDouble() / cap
+        return (0 until cap).mapTo(LinkedHashSet()) { keys[(it * step).toInt()] }.toList()
+    }
+
+    private fun syllableKeyUniverse(): List<String> {
+        val syls = runtimeSyllables().sorted()
+        val n = syls.size
+        val maxKeyLen = 14
+        val out = LinkedHashSet<String>()
+        fun add(key: String) { if (key.length in 2..maxKeyLen) out.add(key) }
+        for (s in syls) add(s)
+        for (i in syls.indices) for (j in syls.indices) {
+            add(syls[i] + syls[j])
+            add(syls[i] + syls[j] + syls[(i + j) % n])
+        }
+        return out.toList()
+    }
+
+    private fun stratifiedWordKeys(source: BinaryDict, universe: List<String>): List<String> {
+        val keysPerLen = 1200
+        val byLen = sortedMapOf<Int, MutableList<String>>()
+        for (key in universe) {
+            if (source.exact(key).any { !isSingleChar(it.word) }) {
+                byLen.getOrPut(key.length) { ArrayList() }.add(key)
+            }
+        }
+        return byLen.values.flatMap { strideSample(it.sorted(), keysPerLen) }
+    }
+
+    private fun sweepWords(
+        d: PinyinDecoder,
+        source: BinaryDict,
+        layout: String,
+        keys: List<String>,
+        path: String = "decodeCovered",
+        decode: (String) -> List<Cand> = { d.decodeCovered(it, 30) },
+    ): WordSweep {
+        val st = WordSweep()
+        for (key in keys) {
+            val oracle = dictWords(source, key)
+            if (oracle.isEmpty()) continue
+            st.words += oracle.size
+            val shown = decode(key)
+            val at = HashMap<String, Int>(shown.size * 2)
+            for ((i, c) in shown.withIndex()) at.putIfAbsent(c.word, i)
+            for (w in oracle) at[w]?.let { if (it > st.deepest) st.deepest = it }
+            val missing = oracle.filterNot { it in at }
+            if (missing.isEmpty()) continue
+            st.unreachable += missing.size
+            st.fails.add(
+                Fail(
+                    key, layout, "W1-word-loss", key, path,
+                    sample(oracle), sample(missing),
+                    "$path drops ${missing.size} of ${oracle.size} words the dictionary holds for '$key'",
+                ),
+            )
+        }
+        return st
+    }
+
+    @Test fun wordReachability_stratifiedKeys_bothLayouts_writesReport() {
+        assumeTrue("assets present", dictFile.exists() && lmFile.exists() && t9File.exists())
+        val universe = syllableKeyUniverse()
+        val letterKeys = stratifiedWordKeys(dict, universe)
+        val digitKeys = stratifiedWordKeys(t9Dict, universe.mapTo(LinkedHashSet()) { T9Pinyin.toT9(it) }.toList())
+
+        val letterD = letterDecoder()
+        val digitD = t9Decoder()
+        val letters = sweepWords(letterD, dict, "26key", letterKeys)
+        val digits = sweepWords(digitD, t9Dict, "9key", digitKeys)
+
+        val letterAtomicKeys = letterKeys.filter { letterD.syllables(it).size >= 2 }
+        val digitAtomicKeys = digitKeys.filter { digitD.syllables(it).size >= 2 }
+        val lettersAtomic = sweepWords(letterD, dict, "26key", letterAtomicKeys, "decodeCoveredAtomic") {
+            letterD.decodeCoveredAtomic(it, 30, emptySet())
+        }
+        val digitsAtomic = sweepWords(digitD, t9Dict, "9key", digitAtomicKeys, "decodeCoveredAtomic") {
+            digitD.decodeCoveredAtomic(it, 30, emptySet())
+        }
+        val fails = letters.fails + digits.fails + lettersAtomic.fails + digitsAtomic.fails
+
+        writeTsv(File(outDir(), "levelA_word_reachability.tsv"), fails.sortedWith(compareBy({ it.layout }, { it.input })))
+        File(outDir(), "levelA_word_reachability_summary.txt").writeText(buildString {
+            appendLine("Level A — every word the dictionary holds for the typed key must be reachable")
+            appendLine("keys swept: 26-key ${letterKeys.size}, 9-key ${digitKeys.size}")
+            appendLine("words checked: 26-key ${letters.words}, 9-key ${digits.words}")
+            appendLine("words unreachable: 26-key ${letters.unreachable}, 9-key ${digits.unreachable}")
+            appendLine("deepest reachable word: 26-key ${letters.deepest}, 9-key ${digits.deepest}")
+            appendLine("locked path, keys of at least two syllables: 26-key ${letterAtomicKeys.size}, 9-key ${digitAtomicKeys.size}")
+            appendLine("locked path words checked: 26-key ${lettersAtomic.words}, 9-key ${digitsAtomic.words}")
+            appendLine("locked path words unreachable: 26-key ${lettersAtomic.unreachable}, 9-key ${digitsAtomic.unreachable}")
+            appendLine("locked path deepest reachable word: 26-key ${lettersAtomic.deepest}, 9-key ${digitsAtomic.deepest}")
+            appendLine("keys losing at least one word: ${fails.size}")
+        })
+
+        assertTrue(
+            "words the dictionary holds for the typed key are unreachable: " +
+                "26-key ${letters.unreachable}/${letters.words}, 9-key ${digits.unreachable}/${digits.words}; " +
+                "locked path 26-key ${lettersAtomic.unreachable}/${lettersAtomic.words}, " +
+                "9-key ${digitsAtomic.unreachable}/${digitsAtomic.words}; " +
+                "first offenders ${fails.take(6).map { "${it.layout}/${it.input}/${it.shownReading}/${it.shownChars}" }}",
+            fails.isEmpty(),
+        )
+        assertTrue("report written", File(outDir(), "levelA_word_reachability.tsv").length() > 0)
     }
 
     @Test fun exhaustiveN1_bothLayouts_writesReport() {

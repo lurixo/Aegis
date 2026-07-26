@@ -175,6 +175,72 @@ class LossFixTest {
     }
 
 
+    @Test fun t9WordLayerIsUncapped_mutationGuard() {
+        assumeTrue("t9 asset present", t9File.exists())
+        val t9 = BinaryDict.fromFile(t9File)
+        val d = t9Decoder()
+        val digits = "943943"
+        val words = t9.exact(digits).filterNot { isSingleChar(it.word) }.map { it.word }.toSet()
+        assumeTrue("full dict present", words.size > 8)
+        val shown = d.decodeCovered(digits, 30).map { it.word }
+        val missing = words - shown.toSet()
+        assertTrue("every word the dict holds for '$digits' is reachable; missing $missing", missing.isEmpty())
+        assertTrue("写者 reachable", "写者" in shown)
+        val firstSingleIdx = shown.indexOfFirst { isSingleChar(it) }
+        for (w in words) assertTrue(
+            "$w precedes the appended 单字 layer (at ${shown.indexOf(w)}, singles start at $firstSingleIdx)",
+            shown.indexOf(w) in 0 until firstSingleIdx,
+        )
+    }
+
+    @Test fun letterWordLayerIsUncapped_mutationGuard() {
+        assumeTrue("dict asset present", dictFile.exists())
+        val dict = BinaryDict.fromFile(dictFile)
+        val d = letterDecoder()
+        val key = "jishi"
+        val words = dict.exact(key).filterNot { isSingleChar(it.word) }.map { it.word }.toSet()
+        assumeTrue("full dict present", words.size > 8)
+        val shown = d.decodeCovered(key, 30).map { it.word }
+        val missing = words - shown.toSet()
+        assertTrue("every word the dict holds for '$key' is reachable; missing $missing", missing.isEmpty())
+        val firstSingleIdx = shown.indexOfFirst { isSingleChar(it) }
+        for (w in words) assertTrue(
+            "$w precedes the appended 单字 layer (at ${shown.indexOf(w)}, singles start at $firstSingleIdx)",
+            shown.indexOf(w) in 0 until firstSingleIdx,
+        )
+    }
+
+    private fun assertWordLayerPrecedesTheSingleCharLayer(source: BinaryDict, d: PinyinDecoder, key: String) {
+        val limit = 30
+        val words = source.exact(key).filterNot { isSingleChar(it.word) }.map { it.word }.toSet()
+        val singles = dictSingles(source, key)
+        assumeTrue("full dict present", words.isNotEmpty() && singles.size > 8)
+        val (cands, remainderStart) = d.decodeCoveredLayered(key, limit)
+        val shown = cands.map { it.word }
+        val missing = words - shown.toSet()
+        assertTrue("every word the dict holds for '$key' is reachable; missing $missing", missing.isEmpty())
+        for (w in words) assertTrue(
+            "$w precedes the appended 单字 layer (at ${shown.indexOf(w)}, the layer starts at $remainderStart)",
+            shown.indexOf(w) in 0 until remainderStart,
+        )
+        val ahead = shown.take(shown.indexOfLast { it in words }).filterNot { it in words }
+        assertTrue(
+            "only the completion budget may precede the word layer, not the ${singles.size} 单字 of '$key': " +
+                "${ahead.size} candidates ahead of the last word, ${ahead.count { it in singles }} of them 单字",
+            ahead.size <= limit * 2 / 3,
+        )
+    }
+
+    @Test fun t9WordLayerPrecedesTheSingleCharLayer_mutationGuard() {
+        assumeTrue("t9 asset present", t9File.exists())
+        assertWordLayerPrecedesTheSingleCharLayer(BinaryDict.fromFile(t9File), t9Decoder(), "2264")
+    }
+
+    @Test fun letterWordLayerPrecedesTheSingleCharLayer_mutationGuard() {
+        assumeTrue("dict asset present", dictFile.exists())
+        assertWordLayerPrecedesTheSingleCharLayer(BinaryDict.fromFile(dictFile), letterDecoder(), "xian")
+    }
+
     @Test fun robustOnEmptyAndNonPinyin() {
         val d = letterDecoder()
         assertTrue(d.syllables("").isEmpty())
