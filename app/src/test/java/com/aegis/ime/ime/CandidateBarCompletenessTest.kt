@@ -108,6 +108,35 @@ class CandidateBarCompletenessTest {
         assertEquals("tapping the last candidate picks it", items.lastIndex, picked)
     }
 
+    private fun CandidateView.hardFlick() {
+        val y = height / 2f
+        val x0 = width.toFloat()
+        dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, x0, y, 0))
+        for (k in 1..5) {
+            dispatchTouchEvent(MotionEvent.obtain(0, 16L * k, MotionEvent.ACTION_MOVE, x0 - 200f * k, y, 0))
+        }
+        dispatchTouchEvent(MotionEvent.obtain(0, 96, MotionEvent.ACTION_UP, x0 - 1000f, y, 0))
+    }
+
+    @Test fun a_hard_fling_is_not_clamped_by_the_lazy_layout_frontier() {
+        val items = List(3000) { "候$it" }
+        val v = bar(items)
+
+        v.hardFlick()
+
+        assertTrue("a hard flick hands off to a fling", v.isFlingingForTest())
+        assertTrue(
+            "cells past the flung extent are not measured up front: ${v.laidOutCellsForTest()}",
+            v.laidOutCellsForTest() < items.size,
+        )
+        assertTrue(
+            "the fling stops short of the measured frontier instead of reaching the list end: " +
+                "final=${v.flingFinalForTest()} max=${v.maxScrollForTest()} " +
+                "laidOut=${v.laidOutCellsForTest()} of ${items.size}",
+            v.laidOutCellsForTest() == items.size || v.flingFinalForTest() < v.maxScrollForTest(),
+        )
+    }
+
     @Test fun hit_testing_stays_aligned_with_the_drawn_cells_after_scrolling() {
         val items = List(500) { "字$it" }
         val v = bar(items)

@@ -91,6 +91,23 @@ class FlingScrollerTest {
         assertFalse("a DOWN with no running fling does not arm stopArmed", f.stopArmed)
     }
 
+    @Test fun aPredictedFinalOffsetMatchesAnUnclampedFlingAndLeavesTheScrollerIdle() {
+        val f = FlingScroller(ctx)
+        steadyFlick(f)
+        val predicted = f.predictFinalOffset(start = 100f)
+        assertTrue("the prediction looks ahead of the release point", predicted > 100f)
+        assertTrue("predicting does not leave a fling running", f.isFinished)
+
+        assertTrue("a fling still starts afterwards", f.fling(start = 100f, max = Float.MAX_VALUE))
+        assertEquals("an unclamped fling lands where the prediction said", predicted, f.finalOffset(), 1f)
+    }
+
+    @Test fun aPredictedFinalOffsetOfASlowDragIsTheReleasePoint() {
+        val f = FlingScroller(ctx)
+        f.addSample(0, 100f); f.addSample(100, 98f)
+        assertEquals("a drag too slow to fling predicts no travel", 250f, f.predictFinalOffset(start = 250f), 0f)
+    }
+
     @Test fun onDownResetsTheVelocityWindow() {
         val f = FlingScroller(ctx)
         steadyFlick(f)

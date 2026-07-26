@@ -1217,6 +1217,15 @@ class FlingScroller(context: Context) {
         return true
     }
 
+    fun predictFinalOffset(start: Float): Float {
+        val v = velocity()
+        if (kotlin.math.abs(v) <= minVel) return start
+        scroller.fling(0, start.toInt(), 0, (-v).toInt(), 0, 0, 0, Int.MAX_VALUE)
+        val end = scroller.finalY.toFloat()
+        scroller.forceFinished(true)
+        return end
+    }
+
     fun computeOffset(): Float? = if (scroller.computeScrollOffset()) scroller.currY.toFloat() else null
 
     val isFinished: Boolean get() = scroller.isFinished
