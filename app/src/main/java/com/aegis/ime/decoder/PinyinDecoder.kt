@@ -357,7 +357,7 @@ class PinyinDecoder(
         if (clean.isEmpty()) return emptyList()
         val passedClean = if (norm == null) cuts else cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
         val interior = ((norm?.cuts ?: emptySet()) + passedClean).filter { it in 1 until clean.length }.toSet()
-        val decoded = decodeAtomic(clean, limit, interior, ctxCp, ctxWord)
+        val decoded = decodeAtomic(clean, interior, ctxCp, ctxWord)
         return if (norm == null) {
             decoded
         } else {
@@ -368,7 +368,7 @@ class PinyinDecoder(
     private fun decodeCoveredClean(input: String, limit: Int, cuts: Set<Int>, context: CharSequence): Pair<List<Cand>, Int> {
         val (ctxCp, ctxWord) = parseContext(context)
         val interior = cuts.filter { it in 1 until input.length }.toSortedSet()
-        if (interior.isNotEmpty()) return decodeAtomic(input, limit, interior, ctxCp, ctxWord).let { it to it.size }
+        if (interior.isNotEmpty()) return decodeAtomic(input, interior, ctxCp, ctxWord).let { it to it.size }
 
         val ctxId = resolveCtxId(ctxCp)
         val condMemo = HashMap<Long, Double>()
@@ -387,7 +387,11 @@ class PinyinDecoder(
                 )
             }
         }
-        dict.exact(input).forEach { offer(it, 0.0) }
+        val exactWords = HashSet<String>()
+        for (wf in dict.exact(input)) {
+            if (!isSingleChar(wf.word)) exactWords.add(wf.word)
+            offer(wf, 0.0)
+        }
         inputAliasWordFreqs(input).forEach { offer(it, ALIAS_PENALTY) }
         dict.prefixByFreq(input, completionCap).forEach { offer(it, 0.0) }
         for (uw in userWordsFor(input)) offer(BinaryDict.WordFreq(uw, userWordFreq(uw, input).toInt().coerceAtLeast(1)), 0.0)
@@ -408,21 +412,21 @@ class PinyinDecoder(
             frequency = { it.wordFreq.freq.toDouble() },
         )
         for ((wf, _) in pool) {
-            if (cover.size >= completionCap) break
+            if (cover.size >= completionCap && wf.word !in exactWords) continue
             cover.putIfAbsent(wf.word, input.length)
         }
-        val out = ArrayList<Cand>(minOf(cover.size, limit) + 20)
-        for ((w, len) in cover) { out.add(Cand(w, len)); if (out.size >= limit) break }
+        val out = ArrayList<Cand>(cover.size + 20)
+        for ((w, len) in cover) out.add(Cand(w, len))
         if (userModel != null) {
             val present = out.mapTo(HashSet()) { it.word }
             for (uw in userWordsFor(input)) if (present.add(uw)) out.add(Cand(uw, input.length))
         }
         val remainderStart = out.size
-        appendLeadingSingles(input, input.length, out, limit, ctxCp, ctxWord)
+        appendLeadingSingles(input, input.length, out, ctxCp, ctxWord)
         return out to remainderStart
     }
 
-    private fun decodeAtomic(input: String, limit: Int, interior: Set<Int>, ctxCp: Int, ctxWord: String): List<Cand> {
+    private fun decodeAtomic(input: String, interior: Set<Int>, ctxCp: Int, ctxWord: String): List<Cand> {
         val ctxId = resolveCtxId(ctxCp)
         val condMemo = HashMap<Long, Double>()
         val bset = sortedSetOf(0, input.length)
@@ -488,7 +492,6 @@ class PinyinDecoder(
         val seen = HashSet<String>()
         best?.let { if (seen.add(it)) out.add(Cand(it, input.length)) }
         for ((w, _) in leadFreq.entries.sortedByDescending { wordModelScore(it.key, it.value, ctxId, ctxWord, condMemo) }) {
-            if (out.size >= limit) break
             if (seen.add(w)) out.add(Cand(w, leadCov.getValue(w)))
         }
         for (c in tailRanked) if (seen.add(c.word)) out.add(c)
@@ -602,7 +605,7 @@ class PinyinDecoder(
         return ordered
     }
 
-    private fun appendLeadingSingles(input: String, span: Int, out: ArrayList<Cand>, limit: Int, ctxCp: Int, ctxWord: String) {
+    private fun appendLeadingSingles(input: String, span: Int, out: ArrayList<Cand>, ctxCp: Int, ctxWord: String) {
         val ctxId = resolveCtxId(ctxCp)
         val condMemo = HashMap<Long, Double>()
         val head = input.substring(0, span)
@@ -613,23 +616,18 @@ class PinyinDecoder(
         val seen = HashSet<String>(out.size * 2)
         for (c in out) seen.add(c.word)
         val entries = ArrayList<Entry>()
-        var wordBudget = maxOf(0, limit - out.size)
         for (q in span downTo 1) {
-            if (wordBudget > 0) {
-                var added = 0
-                for (wf in preferredExact(dict, input.substring(0, q))) {
-                    if (isSingleChar(wf.word) || !seen.add(wf.word)) continue
-                    entries.add(
-                        Entry(
-                            wf.word,
-                            q,
-                            wordModelScore(wf.word, wf.freq, ctxId, ctxWord, condMemo),
-                            single = false,
-                            frequency = wf.freq.toDouble(),
-                        ),
-                    )
-                    if (++added >= PREFIX_PER_LEN) break
-                }
+            for (wf in preferredExact(dict, input.substring(0, q))) {
+                if (isSingleChar(wf.word) || !seen.add(wf.word)) continue
+                entries.add(
+                    Entry(
+                        wf.word,
+                        q,
+                        wordModelScore(wf.word, wf.freq, ctxId, ctxWord, condMemo),
+                        single = false,
+                        frequency = wf.freq.toDouble(),
+                    ),
+                )
             }
             if (q in lensSet) {
                 for ((w, f) in homophoneFreqs(input.substring(0, q))) if (seen.add(w))
@@ -669,10 +667,7 @@ class PinyinDecoder(
                 .thenBy { supplementarySingleTieRank(it.word) },
         )
         enforceRareAfterCommon(entries, word = { it.word }, frequency = { it.frequency })
-        for (e in entries) {
-            if (!e.single) { if (wordBudget <= 0) continue; wordBudget-- }
-            out.add(Cand(e.word, e.cov))
-        }
+        for (e in entries) out.add(Cand(e.word, e.cov))
     }
 
     private fun <T> enforceRareAfterCommon(
@@ -871,7 +866,6 @@ class PinyinDecoder(
         const val ALIAS_PENALTY = 3.5
         const val INITIALS_PENALTY = 5.0
         const val DEFAULT_OCTAGRAM_WEIGHT = 0.1
-        const val PREFIX_PER_LEN = 16
         const val BEAM_W = 12
         const val SENTENCE_EDGE_N = 6
         const val ATOMIC_BEAM_N = 8

@@ -434,6 +434,7 @@ class ExhaustiveDecodeAuditExtTest {
     private fun e6Check(source: BinaryDict, input: String, layered: Pair<List<Cand>, Int>): List<String> {
         val (cands, remainderStart) = layered
         val rows = ArrayList<String>()
+        val exactWords = source.exact(input).filterNot { isSingleChar(it.word) }.mapTo(HashSet()) { it.word }
         val buckets = LinkedHashMap<Int, MutableList<Pair<String, Int?>>>()
         val atLonger = HashMap<String, Int>()
         for ((pos, c) in cands.withIndex()) {
@@ -448,7 +449,7 @@ class ExhaustiveDecodeAuditExtTest {
             var commonAfter: String? = null
             for (i in ws.indices.reversed()) {
                 val (w, f) = ws[i]
-                if (f != null && f <= E6_RARE && commonAfter != null) {
+                if (f != null && f <= E6_RARE && commonAfter != null && w !in exactWords) {
                     rows.add("$input\tcov$cov\tO2\t$w@$f before ${commonAfter}")
                 }
                 if (f != null && f >= E6_COMMON) commonAfter = w
