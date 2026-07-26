@@ -3,6 +3,8 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 
+import contextlib
+import io
 import subprocess
 import sys
 import tempfile
@@ -145,6 +147,42 @@ class DefaultAssetNameTest(unittest.TestCase):
 
     def test_debug_tag_keeps_the_short_numbered_name(self):
         self.assertEqual("aegis_dict_pack_debug13.zip", bp.default_asset_name("v0.1.0-debug.13"))
+
+
+class ManifestReleaseTypeTest(unittest.TestCase):
+    def manifest(self, root):
+        repo = root / "builder"
+        repo.mkdir()
+        for command in (
+            ["init", "-q"],
+            ["config", "user.name", "Test User"],
+            ["config", "user.email", "test@example.com"],
+            ["commit", "-qm", "Create builder", "--allow-empty"],
+        ):
+            subprocess.run(["git", *command], cwd=repo, check=True, capture_output=True, text=True)
+        pack = root / "pack.zip"
+        pack.write_bytes(b"pack")
+        args = SimpleNamespace(
+            release_tag="dict-latest",
+            source_repo_https=REPO,
+            source_tag="v16.3.0",
+            source_branch="wanxiang",
+        )
+        return bp.build_info(args, repo, COMMIT, "aegis_dict_pack_dict-latest.zip", pack, [], [], {})
+
+    def test_the_dictionary_asset_is_never_published_as_a_prerelease(self):
+        with tempfile.TemporaryDirectory() as directory:
+            info = self.manifest(Path(directory))
+
+            self.assertIs(False, info["resources"][0]["physical_asset"]["prerelease"])
+            self.assertIs(False, bp.update_payload(info)["asset"]["prerelease"])
+
+    def test_no_command_line_flag_can_request_a_prerelease_manifest(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as raised:
+                bp.main(["--release-tag", "dict-latest", "--prerelease"])
+
+        self.assertEqual(2, raised.exception.code)
 
 
 class SourceCheckoutValidationTest(unittest.TestCase):
