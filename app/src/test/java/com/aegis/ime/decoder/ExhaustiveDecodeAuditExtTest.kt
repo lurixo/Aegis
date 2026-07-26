@@ -118,6 +118,9 @@ class ExhaustiveDecodeAuditExtTest {
     private fun fullEnabled(): Boolean =
         (System.getenv("AEGIS_AUDIT_FULL") ?: System.getProperty("aegis.audit.full")) == "1"
 
+    private fun heavyEnabled(): Boolean =
+        (System.getenv("AEGIS_AUDIT_HEAVY") ?: System.getProperty("aegis.audit.heavy")) == "1"
+
     private fun writeTsv(file: File, fails: List<Fail>) {
         file.bufferedWriter().use { w ->
             w.write("# $runStamp\n")
@@ -138,7 +141,7 @@ class ExhaustiveDecodeAuditExtTest {
     }
 
     @Test fun e1_sequentialLock_allPairs() {
-        assumeTrue("heavy sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
+        assumeTrue("full sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
         assumeTrue(dictFile.exists() && lmFile.exists())
         val syls = runtimeSyllables()
         val d = letterDecoder()
@@ -215,7 +218,7 @@ class ExhaustiveDecodeAuditExtTest {
     }
 
     @Test fun e2_laterSyllableHomophones_allPairs() {
-        assumeTrue("heavy sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
+        assumeTrue("full sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
         assumeTrue(dictFile.exists() && lmFile.exists())
         val syls = runtimeSyllables()
         val d = letterDecoder()
@@ -251,7 +254,7 @@ class ExhaustiveDecodeAuditExtTest {
     }
 
     @Test fun e3_partialCommitContinue_allPairs() {
-        assumeTrue("heavy sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
+        assumeTrue("scheduled sweep gated: set AEGIS_AUDIT_HEAVY=1", heavyEnabled())
         assumeTrue(dictFile.exists() && lmFile.exists() && t9File.exists())
         val syls = runtimeSyllables()
         val d = letterDecoder()
@@ -601,7 +604,7 @@ class ExhaustiveDecodeAuditExtTest {
     }
 
     @Test fun e7_lockedOrderingInvariant_allPairs_bothKeyspaces() {
-        assumeTrue("heavy sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
+        assumeTrue("full sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
         assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
         val syls = runtimeSyllables()
         val dL = e6Decoder(letters = true)
@@ -717,7 +720,7 @@ class ExhaustiveDecodeAuditExtTest {
     }
 
     @Test fun e8_userWords_freeTypingOrdering_full() {
-        assumeTrue("heavy sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
+        assumeTrue("full sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
         assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
         val words = generatedUserWords(runtimeSyllables(), listOf("shi", "de", "hao", "jian", "guo", "cong", "en"))
         val rows = runFreeTypingOrdering(words)
@@ -748,7 +751,7 @@ class ExhaustiveDecodeAuditExtTest {
     }
 
     @Test fun e8_userWords_lockedOrdering_full() {
-        assumeTrue("heavy sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
+        assumeTrue("full sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
         assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
         val words = generatedUserWords(runtimeSyllables(), listOf("shi", "de", "hao", "jian", "guo", "cong", "en"))
         val rows = runLockedOrdering(words)
@@ -1131,7 +1134,7 @@ class ExhaustiveDecodeAuditExtTest {
     }
 
     @Test fun e9_pos0MarginAware_full() {
-        assumeTrue("heavy sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
+        assumeTrue("scheduled sweep gated: set AEGIS_AUDIT_HEAVY=1", heavyEnabled())
         assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
         val syls = runtimeSyllables()
         val st2 = pos0Sweep(tuples2(syls, syls), progressEvery = 20000)
@@ -1147,7 +1150,7 @@ class ExhaustiveDecodeAuditExtTest {
     }
 
     @Test fun e9_pos0_widenedTailBaseline() {
-        assumeTrue("heavy sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
+        assumeTrue("scheduled sweep gated: set AEGIS_AUDIT_HEAVY=1", heavyEnabled())
         assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
         val syls0 = runtimeSyllables()
         for (i in 0 until 200) {
