@@ -62,8 +62,12 @@ Aegis 暂未上架应用商店，目前以可下载的 APK 形式分发。
 
 ### 首次使用
 
-内置的种子词库与基础语法已经可以离线打字，无需其他步骤。若想要更广的覆盖或更准的候选，设置页
-提供**可选**下载（完整词库包与增强模型）。这些是唯一会用到网络的内容，且仅在你点击开始时才发起。
+**英文可以立即输入，中文需要先下载一次。**APK 内不含中文词库，因此键盘首次打开时会自行开始下载
+词库包——下载约 98 MB，安装到应用私有存储后约 256 MB，且不限于 Wi-Fi。在它完成之前，候选栏会提示
+获取词库、中文输入处于锁定状态，而英文与各面板照常可用。
+
+设置页另外提供**可选**的增强模型（约 420 MB 的八元语法模型），用于更准的下一词与整句排序；这一项
+仅在你点击开始时才下载。这两项下载是唯一会用到网络的内容。
 
 ## 功能
 
@@ -79,8 +83,9 @@ Aegis 暂未上架应用商店，目前以可下载的 APK 形式分发。
 - **剪贴板历史与常用语** —— 近期剪贴与可复用常用语同在一个面板，支持逐条管理。
 - **符号与编辑面板** —— 分类符号板（中文、英文、货币、数学、希腊、箭头等，带锁定开关）以及
   光标与文本编辑面板。
-- **简体归一** —— Aegis 给出的每一个候选都是简体。上游数据中的繁体与异体字形，在构建词库时被
-  归并到其简体形态（并合并词频），使用内置的 OpenCC 映射表。
+- **简体归一** —— Aegis 给出的每一个候选都是简体。上游数据中的繁体与异体字形，在构建词库包时被
+  归并到其简体形态（并合并词频），使用 `tools/t2s-data` 下的 OpenCC 映射表。该过程只在构建主机上
+  进行，APK 内不含任何转换表。
 - **Material 3** 设置界面。
 
 ## 隐私与权限
@@ -88,7 +93,8 @@ Aegis 暂未上架应用商店，目前以可下载的 APK 形式分发。
 键盘能看到你输入的一切，所以信任是关键。Aegis 的设计让这份信任不必只靠我们的口头承诺：
 
 - 应用仅声明**一项**安卓权限：**`INTERNET`**。
-- 该权限**仅**在*你*点击下载可选的完整词库包或可选增强模型时使用。**打字路径不发起任何网络请求。**
+- 该权限**仅**用于获取词库包（因为 APK 内不含中文词库，键盘首次打开时会自行开始下载）与可选的
+  增强模型（仅在*你*点击开始时才下载）。**打字路径不发起任何网络请求。**
 - 你的**击键、候选、已学词、用户词库与剪贴板都不会离开设备**——它们存放在应用私有存储
   （`filesDir`）。
 - **无任何分析、无遥测、无账号。**
@@ -109,25 +115,26 @@ Aegis 暂未上架应用商店，目前以可下载的 APK 形式分发。
 ./gradlew :app:lintDebug          # Android lint
 ```
 
-内置词库（`app/src/main/assets/aegis_*.bin`，合计约 75 MB）是**种子**包——由 `:tools` 模块从全部
-14 张万象表（`zi jichu lianxiang cuoyin duoyin shici diming yixue huaxue yaopin mingren yiren
-wuzhong renming`）以 `--min-freq 400` 预构建。种子构建额外加 `--keep-syllable-singles 3`：若某音节
-的单字跨越裁剪阈值后仍至少保留其（按来源词频）前 3 个单字，让稀有但有效的音节
-（cen/chua/den/kei/m/nou/rua）可打。**完整**包（同样 14 表，`--min-freq 1`，无每键上限）以相同方式
-构建并作为可下载附件托管；运行时，`filesDir/downloaded/` 下已下载的 `aegis_*.bin` 会覆盖种子包。
+APK 内唯一由词库派生的资源是 `app/src/main/assets/aegis_lm.bin`——约 16 MB 的字级二元上下文
+模型，以及与之相邻的 `.sha256` 校验文件。拼音词库并不打包：`app/build.gradle.kts` 把
+`aegis_dict.bin`、`aegis_t9.bin`、`aegis_jianpin.bin` 排除在打包资源之外，APK 因此保持在 28 MB
+左右。这三者在运行时下载到 `filesDir/downloaded/`，是中文候选的唯一来源。放进
+`app/src/main/assets/` 的本地构建产物不会进入 APK，但会被解码器测试读取。
+
+词库包由 `:tools` 模块从全部 14 张万象表（`zi jichu lianxiang cuoyin duoyin shici diming yixue
+huaxue yaopin mingren yiren wuzhong renming`）以 `--min-freq 1`、无每键上限预构建，保留每一条。
 
 ```
 ./gradlew :tools:installDist
-# 种子包（内置）：--min-freq 400；完整包（下载）：--min-freq 1
-tools/build/install/tools/bin/tools --out <dict> --min-freq 400 --keytype letter   --keep-syllable-singles 3 --t2s-data tools/t2s-data <14 张万象 .dict.yaml ...>
-tools/build/install/tools/bin/tools --out <t9>   --min-freq 400 --keytype digit    --keep-syllable-singles 3 --t2s-data tools/t2s-data <14 ...>
-tools/build/install/tools/bin/tools --out <jp>   --min-freq 400 --keytype initials --t2s-data tools/t2s-data <14 ...>
+tools/build/install/tools/bin/tools --out <dict> --min-freq 1 --keytype letter   --t2s-data tools/t2s-data <14 张万象 .dict.yaml ...>
+tools/build/install/tools/bin/tools --out <t9>   --min-freq 1 --keytype digit    --t2s-data tools/t2s-data <14 ...>
+tools/build/install/tools/bin/tools --out <jp>   --min-freq 1 --keytype initials --t2s-data tools/t2s-data <14 ...>
 tools/build/install/tools/bin/tools lm --out <lm> --t2s-data tools/t2s-data <14 张万象 .dict.yaml ...>
 ```
 
 ## 发布词库包
 
-应用 APK 发布与可下载词库包分开发布。带版本号的应用 release 只携带 APK，不参与词库更新发现。完整词库包与
+应用 APK 发布与可下载词库包分开发布。带版本号的应用 release 只携带 APK，不参与词库更新发现。词库包与
 随附的 `aegis-dictionary-update.json` 与 `aegis-build-info.json` 元数据发布在滚动的
 [`dict-latest`](https://github.com/lurixo/Aegis/releases/tag/dict-latest) GitHub release 上；应用只从
 这个 release tag 读取词库元数据，按已安装包与当前 ZIP 的 SHA-256 和内容元数据判断是否更新。
@@ -162,11 +169,10 @@ Aegis 自身代码为 **GPL-3.0**（见 [`LICENSE`](LICENSE)）。Aegis 采用**
 不因 Aegis 自身许可而被免除。
 
 **rime-wanxiang 词库** —— © amzxyz 及 rime-wanxiang 贡献者，**CC BY 4.0**，见
-[rime-wanxiang](https://github.com/amzxyz/rime-wanxiang)。内置的 `assets/aegis_{dict,t9,jianpin}.bin`
-与 `aegis_lm.bin` 是全部 14 张表（字 基础 联想 错音 多音 诗词 地名 医学 化学 药品 名人 异体
-物种 人名）的衍生物。**改动：**去声调（ü→v），音节拼接为无调键，繁体与异体归并到简体
-（OpenCC 表），重新打包为 Aegis 的二进制格式；内置种子为控制体积做了词频过滤（`--min-freq 400`），
-可下载的完整包保留每一条（`--min-freq 1`）。
+[rime-wanxiang](https://github.com/amzxyz/rime-wanxiang)。可下载的 `aegis_{dict,t9,jianpin}.bin`
+与内置的 `assets/aegis_lm.bin` 是全部 14 张表（字 基础 联想 错音 多音 诗词 地名 医学 化学 药品
+名人 异体 物种 人名）的衍生物。**改动：**去声调（ü→v），音节拼接为无调键，繁体与异体归并到简体
+（OpenCC 表），重新打包为 Aegis 的二进制格式；词库包保留每一条（`--min-freq 1`）。
 
 **万象八元语法模型**（`wanxiang-lts-zh-hans.gram`）—— © amzxyz，**CC BY 4.0**，见
 [RIME-LMDG](https://github.com/amzxyz/RIME-LMDG)。用于下一词和整句排序的可选顶层上下文模型；仅在明确
