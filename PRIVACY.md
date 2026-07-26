@@ -5,8 +5,9 @@ what Aegis does and does not do with that data. It is consistent with the
 [Privacy & permissions](README.md#privacy--permissions) section of the README.
 
 **Short version:** what you type stays on your device. Aegis has no analytics, no telemetry, and no
-account, and nothing you type is ever sent anywhere. Its only network use is fetching the Chinese
-dictionary pack and the optional enhancement model, and checking whether a newer one exists.
+account, and nothing you type is ever sent anywhere. The only network use in Aegis's own code is
+fetching the Chinese dictionary pack and the optional enhancement model, and checking whether a
+newer one exists.
 
 ## What Aegis stores, and where
 
@@ -22,7 +23,7 @@ All of the following is kept **only** in the app's private storage on your devic
 
 ## Permissions
 
-Aegis declares **two** Android permissions:
+Aegis's own manifest declares **two** Android permissions:
 
 - **`INTERNET`** — used for the downloads and update checks described under
   [Network use](#network-use), and for nothing else.
@@ -30,31 +31,56 @@ Aegis declares **two** Android permissions:
   filling it into a backup dialog, requires a biometric or screen-lock confirmation first. The
   password is stored encrypted on this device and is never transmitted.
 
+The APK that Android installs lists a third, `com.aegis.ime.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`.
+It is not an Android platform permission and asks for nothing on your device: the AndroidX libraries
+add it when the manifests are merged, and it is declared by Aegis's own package at `signature`
+protection level, so only code signed with the same key could ever hold it. It is named here so that
+counting the permissions in the installed APK gives the same answer as counting them here.
+
 There is **no** permission for contacts, location, microphone, storage of your personal files,
 device identifiers, or similar. No keystroke ever triggers a network request, and nothing you type
 is ever sent.
 
 ## Network use
 
-Aegis goes online for two kinds of thing only: fetching a resource file, and checking whether a
-newer one exists. All of it is over HTTPS.
+Aegis's own code goes online for two kinds of thing only: fetching a resource file, and checking
+whether a newer one exists. All of it is over HTTPS.
 
-- **The Chinese dictionary pack.** The keyboard starts this download itself the first time it opens
-  with no pack installed, because no Chinese dictionary ships in the APK; you can also start or
-  retry it yourself, from the prompt in the candidate strip or the dictionary card in the settings
-  screen. Before downloading, Aegis fetches a small metadata file from the same GitHub release to
-  learn which asset to get.
+- **The Chinese dictionary pack.** The keyboard starts this download itself when it is shown with no
+  pack installed, because no Chinese dictionary ships in the APK. Each run of the keyboard service
+  makes at most one automatic attempt — the first time that run shows the keyboard with no pack
+  installed — and nothing records that it was made, so while no pack is installed the next run
+  attempts it again: after switching to another keyboard and back, for example, or after a restart
+  of the phone, or after Android has stopped the keyboard. You can also start or retry it yourself,
+  from the prompt in the candidate strip or the dictionary card in the settings screen. Before
+  downloading, Aegis fetches a small metadata file from the same GitHub release to learn which asset
+  to get.
 - **The optional enhancement model.** Fetched from the upstream project's GitHub release, and only
   when *you* tap to start it.
 - **Update checks.** *Check for update* on the dictionary card re-fetches that metadata file; on the
   enhancement-model card it sends a `HEAD` request to the model's URL to compare version markers.
   Both happen only when you tap, and if either finds a newer file it goes straight on to download
-  it. Once the dictionary pack is installed, Aegis makes no automatic request of any kind.
+  it. Once the dictionary pack is installed, nothing in Aegis's own code makes an automatic request
+  of any kind.
 - As with any download, the server that hosts the file necessarily sees a normal request (for
   example, your IP address and the file requested). Aegis does not add identifiers, tracking
   parameters, or analytics to these requests, and sends none of your typing data with them.
 
 Nothing else — no keystrokes, no candidates, no learned words, no clipboard — is ever sent.
+
+**One part of the APK is not Aegis's own code.** The APK carries `androidx.emoji2`, which arrives as
+part of Jetpack Compose. It registers a start-up task
+(`androidx.emoji2.text.EmojiCompatInitializer`) that waits for one of Aegis's own screens to be
+opened and then, a moment later, looks through the packages on your device for one that offers an
+emoji font: if it finds one that is part of the system image it asks that package for the font, and
+where no system package offers one, nothing is asked. Typing does not trigger it; the trigger is one
+of Aegis's screens being opened. The search itself is a local lookup that reaches no network. It
+happens at most once for each run of the app, and nothing records that it happened, so it comes
+round again the next time Android starts the app afresh. Aegis opens no connection for any of this
+and sends nothing of yours with it; whether a system package that is asked then goes to the network
+is that package's own behaviour in its own process — we have not measured it. It is written down
+here because a statement about automatic requests should cover the whole APK and not only the part
+we wrote.
 
 ## What Aegis does not do
 
