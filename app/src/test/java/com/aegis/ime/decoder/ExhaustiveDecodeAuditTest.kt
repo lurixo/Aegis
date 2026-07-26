@@ -17,6 +17,7 @@ package com.aegis.ime.decoder
 
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import com.aegis.tools.T2SMerge
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -326,6 +327,17 @@ class ExhaustiveDecodeAuditTest {
             )
         }
         return st
+    }
+
+    @Test fun mappedFormList_coversEveryFormThisRepoOwnConversionDataMapsAway() {
+        val derived = T2SMerge.load(File("../tools/t2s-data")).mappedSourceForms()
+            .filter { it.codePointCount(0, it.length) == 1 }
+        val missing = derived.filterNot { it in mappedForms }
+
+        assertTrue(
+            "tc1_mapped_forms.txt omits ${missing.size} of ${derived.size} forms tools/t2s-data maps away: ${sample(missing)}",
+            missing.isEmpty(),
+        )
     }
 
     @Test fun wordReachability_stratifiedKeys_bothLayouts_writesReport() {
