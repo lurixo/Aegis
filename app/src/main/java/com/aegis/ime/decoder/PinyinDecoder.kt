@@ -373,7 +373,7 @@ class PinyinDecoder(
         val ctxId = resolveCtxId(ctxCp)
         val condMemo = HashMap<Long, Double>()
         val cover = LinkedHashMap<String, Int>()
-        val completionCap = maxOf(1, (limit.toLong() * 2 / 3).toInt())
+        val completionCap = completionCap(limit)
         bestSentence(input, emptySet(), ctxCp, ctxWord)?.let { cover[it] = input.length }
         val pool = ArrayList<RankedWord>()
         val offered = HashSet<String>()
@@ -889,6 +889,7 @@ class PinyinDecoder(
         const val ORDERING_COMMON_FREQ = 1000.0
         val ALIAS_FREQ_DISCOUNT = exp(-ALIAS_PENALTY)
         const val DEFAULT_CONTEXT_WEIGHT = 1.0
+        fun completionCap(limit: Int): Int = maxOf(1, (limit.toLong() * 2 / 3).toInt())
         val INPUT_ALIASES = mapOf("en" to listOf("ng"))
         val T9_INPUT_ALIASES: Map<String, List<String>> =
             INPUT_ALIASES.entries.associate { (k, v) -> T9Pinyin.toT9(k) to v }

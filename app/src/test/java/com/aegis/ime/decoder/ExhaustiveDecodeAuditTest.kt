@@ -325,13 +325,18 @@ class ExhaustiveDecodeAuditTest {
 
     private fun stratifiedWordKeys(source: BinaryDict, universe: List<String>): List<String> {
         val keysPerLen = 1200
-        val byLen = sortedMapOf<Int, MutableList<String>>()
+        val densestPerLen = 50
+        val byLen = sortedMapOf<Int, MutableList<Pair<String, Int>>>()
         for (key in universe) {
-            if (source.exact(key).any { !isSingleChar(it.word) }) {
-                byLen.getOrPut(key.length) { ArrayList() }.add(key)
-            }
+            val words = source.exact(key).count { !isSingleChar(it.word) }
+            if (words > 0) byLen.getOrPut(key.length) { ArrayList() }.add(key to words)
         }
-        return byLen.values.flatMap { strideSample(it.sorted(), keysPerLen) }
+        return byLen.values.flatMap { rows ->
+            val densest = rows
+                .sortedWith(compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first })
+                .take(densestPerLen).map { it.first }
+            (strideSample(rows.map { it.first }.sorted(), keysPerLen) + densest).distinct()
+        }
     }
 
     private fun sweepWords(
@@ -401,6 +406,8 @@ class ExhaustiveDecodeAuditTest {
         File(outDir(), "levelA_word_reachability_summary.txt").writeText(buildString {
             appendLine("Level A — every word the dictionary holds for the typed key must be reachable")
             appendLine("keys swept: 26-key ${letterKeys.size}, 9-key ${digitKeys.size}")
+            appendLine("per key length the sample is a uniform stride plus the word-densest keys, " +
+                "so the densest keys stay in the sample whatever the stride")
             appendLine("words checked: 26-key ${letters.words}, 9-key ${digits.words}")
             appendLine("words unreachable: 26-key ${letters.unreachable}, 9-key ${digits.unreachable}")
             appendLine("deepest reachable word: 26-key ${letters.deepest}, 9-key ${digits.deepest}")
