@@ -47,6 +47,11 @@ class AttributionTextTest(unittest.TestCase):
         self.assertIn("branch wanxiang", self.notice(tag=None))
         self.assertNotIn("tag ", self.notice(tag=None))
 
+    def test_claims_no_dictionary_seed_inside_the_app(self):
+        text = self.notice()
+        self.assertIn("this full pack keeps every entry (min-freq 1).", text)
+        self.assertNotIn("seed", text.lower(), "the app ships no dictionary, so the pack may not claim one")
+
     def test_notice_name_is_never_mistaken_for_a_runtime_bin(self):
         low = bp.NOTICE_NAME.lower()
         for keyword in ("dict", "t9", "jianpin"):
