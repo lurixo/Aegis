@@ -60,6 +60,20 @@ tasks.withType<Test>().configureEach {
         layout.projectDirectory.file("src/main/assets/aegis_t9.bin"),
         layout.projectDirectory.file("src/main/assets/aegis_jianpin.bin"),
     ).withPropertyName("runtimeDictionaryAssets")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(
+        layout.projectDirectory.file("../THIRD_PARTY_LICENSES.md"),
+        layout.projectDirectory.file("../aegis-build-info.json"),
+        layout.projectDirectory.file("../tools/release/build_dictionary_pack.py"),
+        layout.projectDirectory.file("src/main/AndroidManifest.xml"),
+    ).withPropertyName("repositoryFilesReadByTests")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir(layout.projectDirectory.dir("../tools/t2s-data"))
+        .withPropertyName("t2sDataReadByTests")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir(layout.projectDirectory.dir("src/main/res"))
+        .withPropertyName("sourceResourcesReadByTests")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 dependencies {
