@@ -130,6 +130,27 @@ class PinyinDecoderTest {
     }
 
     @Test
+    fun aLimitBeyondHalfTheIntRangeStillGrowsTheCandidateList() {
+        val d = decoder()
+        val at30 = d.decodeCovered("h", 30).map { it.word }
+        val atMax = d.decodeCovered("h", Int.MAX_VALUE).map { it.word }
+
+        assertTrue("26-key: a huge limit keeps every candidate the small limit shows", atMax.containsAll(at30))
+        assertTrue("26-key: a huge limit offers more completions than the small limit", atMax.size > at30.size)
+    }
+
+    @Test
+    fun t9LimitBeyondHalfTheIntRangeStillGrowsTheCandidateList() {
+        val d = t9Decoder()
+        val digits = T9Pinyin.toT9("h")
+        val at30 = d.decodeCovered(digits, 30).map { it.word }
+        val atMax = d.decodeCovered(digits, Int.MAX_VALUE).map { it.word }
+
+        assertTrue("9-key: a huge limit keeps every candidate the small limit shows", atMax.containsAll(at30))
+        assertTrue("9-key: a huge limit offers more completions than the small limit", atMax.size > at30.size)
+    }
+
+    @Test
     fun selectedXiangUsesOnlyTheChosenReadingInTheAssetDict() {
         val d = decoder()
         val words = d.decodeCoveredAtomic("xiang", 30).map { it.word }

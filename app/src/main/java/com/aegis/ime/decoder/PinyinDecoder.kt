@@ -373,7 +373,7 @@ class PinyinDecoder(
         val ctxId = resolveCtxId(ctxCp)
         val condMemo = HashMap<Long, Double>()
         val cover = LinkedHashMap<String, Int>()
-        val completionCap = maxOf(1, limit * 2 / 3)
+        val completionCap = maxOf(1, (limit.toLong() * 2 / 3).toInt())
         bestSentence(input, emptySet(), ctxCp, ctxWord)?.let { cover[it] = input.length }
         val pool = ArrayList<RankedWord>()
         val offered = HashSet<String>()
