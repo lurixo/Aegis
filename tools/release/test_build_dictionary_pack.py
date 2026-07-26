@@ -4,6 +4,7 @@
 #
 
 import contextlib
+import hashlib
 import io
 import subprocess
 import sys
@@ -183,6 +184,71 @@ class ManifestReleaseTypeTest(unittest.TestCase):
                 bp.main(["--release-tag", "dict-latest", "--prerelease"])
 
         self.assertEqual(2, raised.exception.code)
+
+
+class BuilderTreeDirtTest(unittest.TestCase):
+    def git(self, repo, *args):
+        subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
+
+    def builder(self, root):
+        repo = root / "builder"
+        repo.mkdir()
+        self.git(repo, "init", "-q")
+        self.git(repo, "config", "user.name", "Test User")
+        self.git(repo, "config", "user.email", "test@example.com")
+        for name in ("kept.txt", "changed.txt", "moved.txt", "removed.txt"):
+            (repo / name).write_text(f"{name} original\n")
+        self.git(repo, "add", "-A")
+        self.git(repo, "commit", "-qm", "Create builder")
+        return repo
+
+    def build(self, repo, root):
+        pack = root / "pack.zip"
+        pack.write_bytes(b"pack")
+        args = SimpleNamespace(
+            release_tag="dict-latest",
+            source_repo_https=REPO,
+            source_tag="v16.3.0",
+            source_branch="wanxiang",
+        )
+        info = bp.build_info(args, repo, COMMIT, "aegis_dict_pack_dict-latest.zip", pack, [], [], {})
+        return info["resources"][0]["build"]
+
+    def test_a_clean_builder_tree_reports_no_dirt_at_all(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            build = self.build(self.builder(root), root)
+
+            self.assertIs(False, build["builder_tree_dirty"])
+            self.assertEqual([], build["builder_tree_dirt"], "a clean tree must not be described as dirty")
+
+    def test_every_dirty_path_is_listed_with_its_working_tree_digest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = self.builder(root)
+            (repo / "changed.txt").write_text("changed.txt overlay\n")
+            self.git(repo, "mv", "moved.txt", "renamed.txt")
+            (repo / "removed.txt").unlink()
+            (repo / "untracked").mkdir()
+            (repo / "untracked" / "added.txt").write_text("added\n")
+
+            build = self.build(repo, root)
+            rows = {row["path"]: row for row in build["builder_tree_dirt"]}
+
+            self.assertIs(True, build["builder_tree_dirty"])
+            self.assertEqual(
+                {"changed.txt", "renamed.txt", "removed.txt", "untracked/added.txt"},
+                set(rows),
+                "every dirty path must be described, and no clean path may be",
+            )
+            self.assertEqual("moved.txt", rows["renamed.txt"]["renamed_from"])
+            self.assertIsNone(rows["removed.txt"]["sha256"], "a deleted path has no working-tree content")
+            self.assertIsNone(rows["removed.txt"]["size_bytes"])
+            for path in ("changed.txt", "renamed.txt", "untracked/added.txt"):
+                content = (repo / path).read_bytes()
+                self.assertEqual(hashlib.sha256(content).hexdigest(), rows[path]["sha256"])
+                self.assertEqual(len(content), rows[path]["size_bytes"])
+            self.assertNotIn("kept.txt", rows)
 
 
 class SourceCheckoutValidationTest(unittest.TestCase):
