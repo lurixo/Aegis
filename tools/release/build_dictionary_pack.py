@@ -94,6 +94,31 @@ def sha256_file(path):
     return digest.hexdigest()
 
 
+def tree_dirt(repo_root):
+    fields = subprocess.check_output(
+        ["git", "status", "--porcelain", "-z", "--untracked-files=all"],
+        cwd=repo_root,
+        text=True,
+    ).split("\0")
+    rows = []
+    index = 0
+    while index < len(fields):
+        entry = fields[index]
+        index += 1
+        if not entry:
+            continue
+        row = {"status": entry[:2], "path": entry[3:]}
+        if entry[0] in ("R", "C"):
+            row["renamed_from"] = fields[index]
+            index += 1
+        target = repo_root / row["path"]
+        stat = target.stat() if target.is_file() else None
+        row["sha256"] = sha256_file(target) if stat else None
+        row["size_bytes"] = stat.st_size if stat else None
+        rows.append(row)
+    return rows
+
+
 def default_asset_name(release_tag):
     match = re.fullmatch(r"v\d+\.\d+\.\d+-debug\.(\d+)", release_tag)
     if match:
@@ -210,7 +235,7 @@ def build_info(args, repo_root, source_commit, asset_name, zip_path, bin_infos, 
     release_url = f"https://github.com/lurixo/Aegis/releases/tag/{args.release_tag}"
     asset_url = f"https://github.com/lurixo/Aegis/releases/download/{args.release_tag}/{asset_name}"
     builder_commit = output(["git", "rev-parse", "HEAD"], cwd=repo_root)
-    dirty = output(["git", "status", "--short"], cwd=repo_root)
+    dirt = tree_dirt(repo_root)
     generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
     return {
@@ -249,7 +274,8 @@ def build_info(args, repo_root, source_commit, asset_name, zip_path, bin_infos, 
                 "build": {
                     "builder_path": "tools/src/main/kotlin/com/aegis/tools/DictBuilder.kt",
                     "builder_commit": builder_commit,
-                    "builder_tree_dirty": bool(dirty),
+                    "builder_tree_dirty": bool(dirt),
+                    "builder_tree_dirt": dirt,
                     "full_pack_parameters": {
                         "min_freq": 1,
                         "max_per_key": None,
