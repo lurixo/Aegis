@@ -135,6 +135,13 @@ class ExhaustiveDecodeAuditTest {
 
     private val READING_SCOPED_WINDOW = 4096
 
+    private val READING_SCOPED_RESIDUE = setOf(
+        "aegis_jianpin.bin 徵 z",
+        "aegis_jianpin.bin 藉 j",
+        "aegis_jianpin.bin 麽 m",
+        "aegis_t9.bin 於 98",
+    )
+
     private data class ReadingScopedArm(
         val asset: String, val layout: String, val dict: BinaryDict, val key: (String) -> String,
     )
@@ -161,6 +168,7 @@ class ExhaustiveDecodeAuditTest {
         var probes = 0
         val probed = HashSet<Pair<String, String>>()
         val suppressed = ArrayList<SuppressedArm>()
+        val unresolvedKeys = ArrayList<String>()
         val fails = ArrayList<Fail>()
     }
 
@@ -184,6 +192,7 @@ class ExhaustiveDecodeAuditTest {
                     val allowed = keep.mapTo(HashSet()) { arm.key(it) }
                     out.probes++
                     out.probed += form to reading
+                    if (arm.dict.exact(key, 1).isEmpty()) out.unresolvedKeys += "${arm.asset} '$key'"
                     val exact = arm.dict.containsExactWord(key, form)
                     val extended = arm.dict.prefixByFreq(key, READING_SCOPED_WINDOW).any { it.word == form }
                     if (!exact && !extended) continue
@@ -536,6 +545,9 @@ class ExhaustiveDecodeAuditTest {
                 "probes — the derived key is also derived by a keep reading the letter dictionary holds for " +
                 "the same form, so that binary cannot flag that form and only the remaining binaries gate it")
             suppressedArms.forEach { appendLine("  $it") }
+            appendLine("reading-scoped probe keys the binary holds entries at: " +
+                "${readingScoped.probes - readingScoped.unresolvedKeys.size} of ${readingScoped.probes}; " +
+                "the probe count alone counts loop passes, so it does not establish that an arm can fail")
             appendLine("distinct offending syllables: ${failedInputs.size}")
             appendLine("total invariant violations: ${fails.size}")
             appendLine("per invariant×layout:")
@@ -551,6 +563,12 @@ class ExhaustiveDecodeAuditTest {
             "form/reading pairs over ${readingScopedArms.size} binaries in ${readingScoped.probes} probes",
             deniedPairs.isNotEmpty() && readingScoped.probed == deniedPairs &&
                 readingScoped.probes == deniedPairs.size * readingScopedArms.size)
+        assertTrue("every reading-scoped probe key must be a key its binary holds entries at: " +
+            sample(readingScoped.unresolvedKeys.sorted()), readingScoped.unresolvedKeys.isEmpty())
+        val residue = readingScoped.suppressed.map { "${it.asset} ${it.form} ${it.key}" }
+        assertTrue("reading-scoped exempted arms must be exactly the recorded residue; measured " +
+            "${residue.sorted()}, recorded ${READING_SCOPED_RESIDUE.sorted()}",
+            residue.size == READING_SCOPED_RESIDUE.size && residue.toSet() == READING_SCOPED_RESIDUE)
         val tradLeaks = fails.filter { it.inv == "TC1-traditional-leak" }
         assertTrue("no-traditional gate: traditional/variant forms leaked into candidates: ${tradLeaks.take(6)}", tradLeaks.isEmpty())
         assertTrue("n=1 offenders must be 0 after the fix; remaining: ${failedInputs.sorted()}", fails.isEmpty())
