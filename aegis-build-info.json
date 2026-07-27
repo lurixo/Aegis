@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "schema_name": "aegis.resource-build-info",
-  "generated_at": "2026-07-26T01:46:43Z",
+  "generated_at": "2026-07-27T10:17:52Z",
   "app": {
     "project": "Aegis",
     "repository": "https://github.com/lurixo/Aegis",
@@ -17,15 +17,15 @@
         "release_url": "https://github.com/lurixo/Aegis/releases/tag/dict-latest",
         "prerelease": false,
         "published_at": null,
-        "sha256": "a118ce13bbff1a73c72a6a2d8cb11f93d8265290b01943aa2902a056cf6f143b",
-        "size_bytes": 98315223
+        "sha256": "c11dc2581165674ce9cc832589a1d4ddc8222fb096c144eca4ba8176aaa6fa83",
+        "size_bytes": 98307679
       },
       "source": {
         "repo": "https://github.com/amzxyz/rime-wanxiang",
         "ref_type": "tag",
-        "tag": "v16.3.0",
+        "tag": "v16.3.1",
         "branch": null,
-        "commit": "ef047401ef5d2f80cb7f88641722da24e222a017",
+        "commit": "1daf1e973001271331517fef3fb86eceb7e69afd",
         "license": "CC-BY-4.0",
         "attribution_file_in_pack": "NOTICE.txt",
         "tables": [
@@ -48,20 +48,20 @@
           {
             "table": "zi",
             "path": "dicts/zi.dict.yaml",
-            "sha256": "85495765b9a515ded882b5ced685f10e4e07c2c816f492c51b10d92a93b4755a",
-            "size_bytes": 607416
+            "sha256": "4daabd961e1d1b129d9a19f00af4901373ee250ac4bd47a2c524a5289588ae04",
+            "size_bytes": 616971
           },
           {
             "table": "jichu",
             "path": "dicts/jichu.dict.yaml",
-            "sha256": "509bdf1a07100206d9625349e9984da4975c438aeab47ca24e9a08c7acd50923",
-            "size_bytes": 45010351
+            "sha256": "ef6e95d006f6e6170f625661d399dc47a565dc590d6708091236b4c75dd29748",
+            "size_bytes": 44991275
           },
           {
             "table": "lianxiang",
             "path": "dicts/lianxiang.dict.yaml",
-            "sha256": "82a96136923c439dc1abc01ece358d327afb9bb2408f453aa5e6eebeb1809b1d",
-            "size_bytes": 7833990
+            "sha256": "04facdf2e0b45287b9115ab23ae901cce82c9e02a651160aad356907a17f812d",
+            "size_bytes": 7833982
           },
           {
             "table": "cuoyin",
@@ -78,14 +78,14 @@
           {
             "table": "shici",
             "path": "dicts/shici.dict.yaml",
-            "sha256": "943873220de69cb821ff4e62570fb70ace45131264516229e66dcbbef975e589",
-            "size_bytes": 16423732
+            "sha256": "5fa126b46252c049664342b6726faee35838ae1f3c0d7008272870ceff7ae034",
+            "size_bytes": 16423637
           },
           {
             "table": "diming",
             "path": "dicts/diming.dict.yaml",
-            "sha256": "d123c739d12aff61eae281730f918719f72992ea9959117a6e1eedd5c3c55738",
-            "size_bytes": 3148464
+            "sha256": "49dfaa24143d27db5e5418e65930411dfd4088f66e8fb9f8f944b310c24e3f89",
+            "size_bytes": 3148457
           },
           {
             "table": "yixue",
@@ -108,8 +108,8 @@
           {
             "table": "mingren",
             "path": "dicts/mingren.dict.yaml",
-            "sha256": "41687cadcb433430b124a03b76e2cf9b17cc71c0f820eaaf16fa63bbd611335c",
-            "size_bytes": 164634
+            "sha256": "c8e5ea3dc1a775e5d4c03a1e00e78f321909da004f76bca8f0ea012a2fd2378f",
+            "size_bytes": 164655
           },
           {
             "table": "yiren",
@@ -120,8 +120,8 @@
           {
             "table": "wuzhong",
             "path": "dicts/wuzhong.dict.yaml",
-            "sha256": "f7c889030bfd81a1808f539e38f5d6db0c9b347a01a5cdca2cd4849b47b4ef42",
-            "size_bytes": 2013720
+            "sha256": "0dfeb24fbe4e397a7beb483586b52fbdf22705fa622e0dfc02977c5e370a3af2",
+            "size_bytes": 2013704
           },
           {
             "table": "renming",
@@ -133,8 +133,22 @@
       },
       "build": {
         "builder_path": "tools/src/main/kotlin/com/aegis/tools/DictBuilder.kt",
-        "builder_commit": "a9a68d6abecfbd6f60847a66f3994fd3929755cb",
+        "builder_commit": "0c9f041b7fceda28aa6ad078745f49bdcfd00dfc",
         "builder_tree_dirty": true,
+        "builder_tree_dirt": [
+          {
+            "status": " M",
+            "path": "tools/t2s-data/adjudications.tsv",
+            "sha256": "b6ef7478c0d2b97124a085c2ae3c013eca35d0b3285f5091c4242173999cf475",
+            "size_bytes": 337
+          },
+          {
+            "status": " M",
+            "path": "tools/t2s-data/variant_to_simplified.tsv",
+            "sha256": "6a7fcd55ff126cd5332f90bec260752044e93cc3110c05df0453400ad2989add",
+            "size_bytes": 2320
+          }
+        ],
         "full_pack_parameters": {
           "min_freq": 1,
           "max_per_key": null,
@@ -154,20 +168,20 @@
           {
             "zip_entry": "aegis_dict_full.bin",
             "runtime_name": "aegis_dict.bin",
-            "sha256": "177cbb8b468f0061a9b1fd272293998d929564df29fae37cd71e63df88c5f378",
-            "size_bytes": 98859540
+            "sha256": "47222c139b8626d6c92fbfc1ec2b9c1db7576ab71a5acffa3e245ac19a479d34",
+            "size_bytes": 98840281
           },
           {
             "zip_entry": "aegis_t9_full.bin",
             "runtime_name": "aegis_t9.bin",
-            "sha256": "2c4786c2ace871fcb9f33f531b27d860a89fbe263e256a67c5c8c92a6ce328fb",
-            "size_bytes": 94778358
+            "sha256": "222a051738e91e0e730aa3f82f59902987f22071942fcf2c79f934638f33dba1",
+            "size_bytes": 94762650
           },
           {
             "zip_entry": "aegis_jianpin_full.bin",
             "runtime_name": "aegis_jianpin.bin",
-            "sha256": "150c320686e062b33b5e62d1ceb2bc0c41379ae55b04884367ed11200cb6ce6c",
-            "size_bytes": 62775838
+            "sha256": "c01ba9486fb3014b347ad9707292f22635b2f97d48212fafab4ff12086e54604",
+            "size_bytes": 62762294
           }
         ],
         "zip_packaging": {
@@ -214,7 +228,13 @@
             "denied_codepoints": 2876,
             "effect": "drop phrases and non-standard standalone keys; approved level-1/2 standalone pinyin entries are re-injected"
           },
-          "postprocessor": "bin/inject_gb18030_pinyin_support.py"
+          "postprocessor": {
+            "path": "aegis-dict-automation/bin/inject_gb18030_pinyin_support.py",
+            "repo_remotes": [],
+            "repo_commit": "9c813588b2a00cfdc073e2af45345d5a7be14843",
+            "repo_tree_dirty": false,
+            "repo_tree_dirt": []
+          }
         }
       },
       "attestation": {
@@ -236,10 +256,10 @@
         "release_tag": "LTS",
         "release_url": "https://github.com/amzxyz/RIME-LMDG/releases/tag/LTS",
         "prerelease": false,
-        "published_at": "2026-07-25T10:38:01Z",
-        "sha256": "b4e1d9fd1bcdbe6c80f6c7d5fba2e99c236b09599f05f009a8317dbac1eada26",
+        "published_at": "2026-07-26T11:45:52Z",
+        "sha256": "7bb774bd64a552251a3cbb3cc76d76bd306e57ac6cb276d526931e2b71bfc94a",
         "size_bytes": 420251692,
-        "github_asset_id": 489363062
+        "github_asset_id": 490289655
       },
       "source": {
         "repo": "https://github.com/amzxyz/RIME-LMDG",

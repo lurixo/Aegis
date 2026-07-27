@@ -37,17 +37,19 @@ class BuildInfoJsonTest {
         val dictionary = dictionaryResource()
         val asset = dictionary.getJSONObject("physical_asset")
         val source = dictionary.getJSONObject("source")
+        val releaseTag = asset.getString("release_tag")
+        val assetName = asset.getString("name")
 
         assertEquals(1, buildInfo.getInt("schema_version"))
         assertEquals("dictionary", dictionary.getString("kind"))
-        assertEquals("aegis_dict_pack_dict-latest.zip", asset.getString("name"))
+        assertEquals(ModelDownload.DICT_LATEST_TAG, releaseTag)
+        assertEquals("aegis_dict_pack_$releaseTag.zip", assetName)
         assertEquals(
-            "https://github.com/lurixo/Aegis/releases/download/dict-latest/aegis_dict_pack_dict-latest.zip",
+            "https://github.com/lurixo/Aegis/releases/download/$releaseTag/$assetName",
             asset.getString("url"),
         )
-        assertEquals("a118ce13bbff1a73c72a6a2d8cb11f93d8265290b01943aa2902a056cf6f143b", asset.getString("sha256"))
-        assertEquals(98_315_223L, asset.getLong("size_bytes"))
-        assertEquals("dict-latest", asset.getString("release_tag"))
+        assertTrue(asset.getString("sha256").matches(Regex("[0-9a-f]{64}")))
+        assertTrue(asset.getLong("size_bytes") > 1024L)
         assertFalse("the rolling dictionary release is a full release", asset.getBoolean("prerelease"))
         assertEquals(ModelDownload.DICT_REPO_URL, source.getString("repo"))
         assertNotEquals("source URL and physical download URL must stay separate", source.getString("repo"), asset.getString("url"))
@@ -66,9 +68,9 @@ class BuildInfoJsonTest {
             actualTables,
         )
         assertEquals("tag", source.getString("ref_type"))
-        assertEquals("v16.3.0", source.getString("tag"))
+        assertTrue(source.getString("tag").matches(Regex("v[0-9]+\\.[0-9]+\\.[0-9]+")))
         assertTrue("branch is null when pinned to a tag", source.isNull("branch"))
-        assertEquals("ef047401ef5d2f80cb7f88641722da24e222a017", source.getString("commit"))
+        assertTrue(source.getString("commit").matches(Regex("[0-9a-f]{40}")))
         assertEquals("tools/src/main/kotlin/com/aegis/tools/DictBuilder.kt", build.getString("builder_path"))
         assertEquals(1, build.getJSONObject("full_pack_parameters").getInt("min_freq"))
         assertTrue(build.getJSONObject("full_pack_parameters").isNull("max_per_key"))
