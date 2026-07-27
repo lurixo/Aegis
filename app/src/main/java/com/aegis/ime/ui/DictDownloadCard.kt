@@ -125,8 +125,16 @@ internal fun DictDownloadCard(
             val checked = runCatching { check(currentInstallMetadata()) }
             handler.post {
                 checking = false
-                val result = checked.getOrElse {
-                    ModelDownload.DictionaryUpdateCheck(ModelDownload.UpdateCheck.PARSE_ERROR)
+                val result = checked.getOrElse { error ->
+                    ModelDownload.DictionaryUpdateCheck(
+                        when (ModelDownload.identifyRequestFailure(error)) {
+                            ModelDownload.CheckFailure.OFFLINE -> ModelDownload.UpdateCheck.OFFLINE
+                            ModelDownload.CheckFailure.TIMEOUT -> ModelDownload.UpdateCheck.TIMEOUT
+                            ModelDownload.CheckFailure.SERVER -> ModelDownload.UpdateCheck.SERVER_ERROR
+                            ModelDownload.CheckFailure.PARSE -> ModelDownload.UpdateCheck.PARSE_ERROR
+                            null -> ModelDownload.UpdateCheck.UNKNOWN
+                        },
+                    )
                 }
                 val action = if (present) result.state else null
                 redownloadOffered = action == ModelDownload.UpdateCheck.UNKNOWN

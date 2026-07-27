@@ -951,13 +951,40 @@ class ResourceUpdateCardTest {
         val button = compose.onNodeWithText(context.getString(R.string.check_dict_update_button))
         button.assertIsEnabled().performClick()
         awaitMain { calls.get() == 1 && ShadowToast.shownToastCount() == 1 }
-        compose.onNodeWithText(context.getString(R.string.download_toast_update_parse_error)).assertExists()
-        assertEquals(context.getString(R.string.download_toast_update_parse_error), ShadowToast.getTextOfLatestToast())
+        compose.onNodeWithText(context.getString(R.string.download_toast_update_unknown)).assertExists()
+        assertEquals(context.getString(R.string.download_toast_update_unknown), ShadowToast.getTextOfLatestToast())
+        compose.onNodeWithText(context.getString(R.string.download_button)).assertIsEnabled()
         button.assertIsEnabled().performClick()
         awaitMain { calls.get() == 2 && ShadowToast.shownToastCount() == 2 }
 
-        assertEquals(context.getString(R.string.download_toast_update_parse_error), ShadowToast.getTextOfLatestToast())
+        assertEquals(context.getString(R.string.download_toast_update_unknown), ShadowToast.getTextOfLatestToast())
         button.assertIsEnabled()
+    }
+
+    @Test
+    fun dictionaryCheckExceptionsWithANetworkSignalKeepTheirCause() {
+        val calls = AtomicInteger()
+        val dir = ModelDownload.destFile(context.filesDir).parentFile!!.apply { mkdirs() }
+        ModelDownload.DICT_PACK_FILES.forEach { File(dir, it).writeBytes(ByteArray(2_048)) }
+        ShadowToast.reset()
+        compose.runOnUiThread {
+            compose.activity.setContent {
+                AegisTheme {
+                    DictDownloadCard(
+                        check = {
+                            calls.incrementAndGet()
+                            throw SocketTimeoutException("connect timed out")
+                        },
+                        downloader = { _, _ -> },
+                    )
+                }
+            }
+        }
+        compose.waitForIdle()
+
+        compose.onNodeWithText(context.getString(R.string.check_dict_update_button)).assertIsEnabled().performClick()
+        awaitMain { calls.get() == 1 && ShadowToast.shownToastCount() == 1 }
+        assertEquals(context.getString(R.string.download_toast_update_timeout), ShadowToast.getTextOfLatestToast())
     }
 
     private fun requestOf(exchange: HttpExchange): Triple<String, String?, String?> =
