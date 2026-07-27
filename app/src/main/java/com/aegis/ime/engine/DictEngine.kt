@@ -56,21 +56,33 @@ class DictEngine(
         return decoder?.decodeCoveredAtomic(letters, MAX_CANDIDATES, cuts, context) ?: emptyList()
     }
 
-    override fun syllables(composing: String, t9: Boolean): List<Syllable> {
+    override fun syllables(composing: String, t9: Boolean): List<Syllable> =
+        syllables(composing, t9, emptySet())
+
+    override fun syllables(composing: String, t9: Boolean, cuts: Set<Int>): List<Syllable> {
         if (composing.isEmpty()) return emptyList()
-        return (if (t9) t9Decoder else decoder)?.syllables(composing) ?: emptyList()
+        return (if (t9) t9Decoder else decoder)?.syllables(composing, cuts) ?: emptyList()
     }
 
-    override fun homophonesAt(composing: String, t9: Boolean, index: Int): List<String> {
+    override fun homophonesAt(composing: String, t9: Boolean, index: Int): List<String> =
+        homophonesAt(composing, t9, index, emptySet())
+
+    override fun homophonesAt(composing: String, t9: Boolean, index: Int, cuts: Set<Int>): List<String> {
         if (composing.isEmpty()) return emptyList()
-        return (if (t9) t9Decoder else decoder)?.homophonesAt(composing, index) ?: emptyList()
+        return (if (t9) t9Decoder else decoder)?.homophonesAt(composing, index, cuts) ?: emptyList()
     }
 
     override fun syllablesForReading(letters: String): List<Syllable> =
-        if (letters.isEmpty()) emptyList() else decoder?.syllables(letters) ?: emptyList()
+        syllablesForReading(letters, emptySet())
+
+    override fun syllablesForReading(letters: String, cuts: Set<Int>): List<Syllable> =
+        if (letters.isEmpty()) emptyList() else decoder?.syllables(letters, cuts) ?: emptyList()
 
     override fun homophonesForReadingAt(letters: String, index: Int): List<String> =
-        if (letters.isEmpty()) emptyList() else decoder?.homophonesAt(letters, index) ?: emptyList()
+        homophonesForReadingAt(letters, index, emptySet())
+
+    override fun homophonesForReadingAt(letters: String, index: Int, cuts: Set<Int>): List<String> =
+        if (letters.isEmpty()) emptyList() else decoder?.homophonesAt(letters, index, cuts) ?: emptyList()
 
     override fun predict(prevWord: String?): List<String> {
         if (prevWord.isNullOrEmpty()) return emptyList()
