@@ -856,8 +856,11 @@ class ExhaustiveDecodeAuditExtTest {
     }
 
     private class Pos0Stats {
-        var cases = 0; var canonical = 0; var strong = 0; var weak = 0
+        var cases = 0; var casesT9 = 0; var canonical = 0; var strong = 0; var weak = 0
         var weakFlips = 0; var weakFlips2cp = 0; var weakFlipsT9 = 0
+        var userWordListed = 0; var userWordListedT9 = 0
+        var userWordAtTop = 0; var userWordAtTopT9 = 0
+        var topChanged = 0; var topChangedT9 = 0
         var retainFree = 0; var retainPickable = 0; var retainPieces = 0; var retainAtomic = 0
         var retainResegment = 0; var retainJianpinGuess = 0
         var canonicalTieSwap = 0
@@ -908,7 +911,10 @@ class ExhaustiveDecodeAuditExtTest {
             um.recordWord(r, uw, 1L, incrementCount = true)
             val listL = dLu.decodeCovered(r, 30).map { it.word }
             val topL = listL.firstOrNull()
+            if (uw in listL) st.userWordListed++
+            if (topL == uw) st.userWordAtTop++
             if (topL != nat) {
+                st.topChanged++
                 when {
                     isCanonical -> {
                         if (canonicalTieSwap(dict, r, nat, topL, uw)) st.canonicalTieSwap++
@@ -929,9 +935,13 @@ class ExhaustiveDecodeAuditExtTest {
             val digits = T9Pinyin.toT9(r)
             val natT = natTCache.getOrPut(digits) { dT.decodeCovered(digits, 30).firstOrNull()?.word }
             if (natT != null) {
+                st.casesT9++
                 val listT = dTu.decodeCovered(digits, 30).map { it.word }
                 val topT = listT.firstOrNull()
+                if (uw in listT) st.userWordListedT9++
+                if (topT == uw) st.userWordAtTopT9++
                 if (topT != natT) {
+                    st.topChangedT9++
                     val canonicalT = t9Dict.exact(digits).any { it.word == natT }
                     val strongT = !canonicalT &&
                         (oracleT.natScore(digits, natT) - oracleT.uwScoreNoBoost(digits, uw)) > boost1
@@ -1111,7 +1121,10 @@ class ExhaustiveDecodeAuditExtTest {
             "weakFlipsLetters=${st.weakFlips} (2cp=${st.weakFlips2cp}) weakFlipsT9=${st.weakFlipsT9} " +
             "retention(free=${st.retainFree} pickable=${st.retainPickable} pieces=${st.retainPieces} atomic=${st.retainAtomic} resegment=${st.retainResegment} jianpinGuess=${st.retainJianpinGuess}) canonicalTieSwap=${st.canonicalTieSwap} " +
             "weakFlipUnseenBigram=${st.weakFlipUnseenBigram} canonicalMarginMin=${"%.2f".format(st.canonicalMarginMin)} " +
-            "boost1=${"%.3f".format(boost1)} violations=${st.violations.size}"
+            "boost1=${"%.3f".format(boost1)} " +
+            "singleUse(compared=${st.cases}/${st.casesT9} userWordListed=${st.userWordListed}/${st.userWordListedT9} " +
+            "userWordAtTop=${st.userWordAtTop}/${st.userWordAtTopT9} topChanged=${st.topChanged}/${st.topChangedT9}) " +
+            "violations=${st.violations.size}"
 
     private fun tuples2(syls: List<String>, tails: List<String>): Sequence<List<String>> = sequence {
         for (s1 in syls) for (s2 in tails) yield(listOf(s1, s2))
@@ -1153,7 +1166,13 @@ class ExhaustiveDecodeAuditExtTest {
         )
         assertTrue("E9 full pair violations must be zero: ${st2.violations.take(8)}", st2.violations.isEmpty())
         assertTrue("E9 full triple violations must be zero: ${st3.violations.take(8)}", st3.violations.isEmpty())
-        assertTrue("full sweep exercises the weak class (flips observed and all conformant)", st2.weakFlips > 0)
+        assertTrue("E9 full pair sweep: a word used once must not take position 0: ${pos0Summary(st2)}",
+            st2.userWordAtTop == 0 && st2.userWordAtTopT9 == 0)
+        assertTrue("E9 full triple sweep: a word used once must not take position 0: ${pos0Summary(st3)}",
+            st3.userWordAtTop == 0 && st3.userWordAtTopT9 == 0)
+        assertTrue("E9 full pair sweep: that comparison must be live — a non-empty population on both " +
+            "keyspaces with the user word ranked among the candidates: ${pos0Summary(st2)}",
+            st2.cases > 0 && st2.casesT9 > 0 && st2.userWordListed > 0 && st2.userWordListedT9 > 0)
     }
 
     @Test fun e9_pos0_widenedTailBaseline() {
@@ -1178,7 +1197,11 @@ class ExhaustiveDecodeAuditExtTest {
         )
         assertTrue("baseline violations (canonical/strong flips, wrong seizer, lost natural) must be zero: " +
             "${st.violations.take(8)}", st.violations.isEmpty())
-        assertTrue("the widened boundary must actually exercise weak flips (previously-residual class)", st.weakFlips > 0)
+        assertTrue("widened baseline: a word used once must not take position 0: ${pos0Summary(st)}",
+            st.userWordAtTop == 0 && st.userWordAtTopT9 == 0)
+        assertTrue("widened baseline: that comparison must be live — a non-empty population on both " +
+            "keyspaces with the user word ranked among the candidates: ${pos0Summary(st)}",
+            st.cases > 0 && st.casesT9 > 0 && st.userWordListed > 0 && st.userWordListedT9 > 0)
     }
 
     @Test fun e9_riseCurve_productionConfig() {
