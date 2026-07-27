@@ -413,11 +413,17 @@ class ExhaustiveDecodeAuditExtTest {
     private val E6_RARE = 100
     private val E6_COMMON = 1000
 
-    private class E6View(val exact: Map<String, Int>, val alias: Map<String, Int>, val prefix: Map<String, Int>)
-    private val E6_VIEW_CACHE = 128
+    private class E6View(val exact: Map<String, Int>, val alias: Map<String, Int>, val prefix: Map<String, Int>) {
+        val entries = exact.size + alias.size + prefix.size
+    }
+    private val E6_VIEW_ENTRY_BUDGET = 4_000_000
+    private var e6ViewEntries = 0
     private val e6KeyView = object : LinkedHashMap<String, E6View>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, E6View>): Boolean =
-            size > E6_VIEW_CACHE
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, E6View>): Boolean {
+            if (e6ViewEntries <= E6_VIEW_ENTRY_BUDGET) return false
+            e6ViewEntries -= eldest.value.entries
+            return true
+        }
     }
     private fun e6RawFreq(source: BinaryDict, key: String, word: String): Int? {
         val view = e6KeyView.getOrPut((if (source === dict) "L:" else "D:") + key) {
@@ -431,6 +437,7 @@ class ExhaustiveDecodeAuditExtTest {
             val prefixEntries = source.prefixByFreq(key, E6_PREFIX_SCAN) +
                 (if (jianpinFile.exists()) jianpin.prefixByFreq(key, E6_PREFIX_SCAN) else emptyList())
             E6View(collect(source.exact(key)), collect(aliasEntries), collect(prefixEntries))
+                .also { e6ViewEntries += it.entries }
         }
         return view.exact[word] ?: view.alias[word] ?: view.prefix[word]
     }
