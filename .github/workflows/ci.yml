@@ -8,9 +8,14 @@ on:
   schedule:
     - cron: "0 18 * * *"
   workflow_dispatch:
+    inputs:
+      heavy:
+        description: Run the scheduled audit sweeps
+        type: boolean
+        default: false
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-heavy${{ (github.event_name == 'schedule' || github.event.inputs.heavy == 'true') && '1' || '0' }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -24,7 +29,7 @@ jobs:
     env:
       AEGIS_FULLDICT_DIR: ${{ github.workspace }}/app/src/main/assets
       AEGIS_AUDIT_FULL: "1"
-      AEGIS_AUDIT_HEAVY: ${{ github.event_name == 'schedule' && '1' || '0' }}
+      AEGIS_AUDIT_HEAVY: ${{ (github.event_name == 'schedule' || github.event.inputs.heavy == 'true') && '1' || '0' }}
     steps:
       - name: Check out the repository
         uses: actions/checkout@v7
