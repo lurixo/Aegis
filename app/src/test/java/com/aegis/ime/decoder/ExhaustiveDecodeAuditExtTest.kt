@@ -1178,6 +1178,9 @@ class ExhaustiveDecodeAuditExtTest {
         assertTrue("E9 full pair sweep: that comparison must be live — a non-empty population on both " +
             "keyspaces with the user word ranked among the candidates: ${pos0Summary(st2)}",
             st2.cases > 0 && st2.casesT9 > 0 && st2.userWordListed > 0 && st2.userWordListedT9 > 0)
+        assertTrue("E9 full triple sweep: that comparison must be live — a non-empty population on both " +
+            "keyspaces with the user word ranked among the candidates: ${pos0Summary(st3)}",
+            st3.cases > 0 && st3.casesT9 > 0 && st3.userWordListed > 0 && st3.userWordListedT9 > 0)
     }
 
     @Test fun e9_pos0_widenedTailBaseline() {
