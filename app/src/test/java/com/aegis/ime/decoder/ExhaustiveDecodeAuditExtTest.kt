@@ -1181,7 +1181,7 @@ class ExhaustiveDecodeAuditExtTest {
     }
 
     @Test fun e9_pos0_widenedTailBaseline() {
-        assumeTrue("scheduled sweep gated: set AEGIS_AUDIT_HEAVY=1", heavyEnabled())
+        assumeTrue("full sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
         assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
         val syls0 = runtimeSyllables()
         for (i in 0 until 200) {
