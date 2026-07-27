@@ -67,6 +67,14 @@ class ChineseGateTest {
         assertTrue("the strip must receive the gate flag", view.candidateGateActiveForTest())
     }
 
+    @Test fun gate_locks_chinese_on_the_nine_key_keyboard_too() {
+        val (c, view) = controller(DictEngine(null, null, null))
+        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        type(c, "64")
+        assertTrue("no Chinese dict + 9-key digits typed must gate", c.chineseGateActiveForTest())
+        assertTrue("the strip must receive the gate flag", view.candidateGateActiveForTest())
+    }
+
     @Test fun gate_is_inactive_before_the_user_types() {
         val (c, view) = controller(DictEngine(null, null, null))
         c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
