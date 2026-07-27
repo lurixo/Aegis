@@ -171,7 +171,7 @@ class ExhaustiveDecodeAuditTest {
                     val exact = arm.dict.containsExactWord(key, form)
                     val extended = arm.dict.prefixByFreq(key, READING_SCOPED_WINDOW).any { it.word == form }
                     if (!exact && !extended) continue
-                    if (allowed.any { it.startsWith(key) && arm.dict.containsExactWord(it, form) }) continue
+                    if (allowed.any { it == key && arm.dict.containsExactWord(it, form) }) continue
                     out.fails += Fail(
                         key, arm.layout, "TC1-traditional-leak", reading, form,
                         sample(allowed.sorted()), form,
