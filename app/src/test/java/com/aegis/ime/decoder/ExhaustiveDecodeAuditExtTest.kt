@@ -1151,6 +1151,11 @@ class ExhaustiveDecodeAuditExtTest {
             "${st.violations.size} ${st.violations.take(6)}", st.violations.isEmpty())
         assertTrue("canonical minimum analytic margin must exceed the single-use boost (zero-tolerance backing): " +
             "min=${st.canonicalMarginMin} boost1=$boost1", st.canonicalMarginMin > boost1)
+        assertTrue("representative sweep: a word used once must not displace the natural reading at position 0: ${pos0Summary(st)}",
+            st.userWordDisplacedNatural == 0 && st.userWordDisplacedNaturalT9 == 0)
+        assertTrue("representative sweep: that comparison must be live — a non-empty population on both " +
+            "keyspaces with the user word ranked among the candidates: ${pos0Summary(st)}",
+            st.cases > 0 && st.casesT9 > 0 && st.userWordListed > 0 && st.userWordListedT9 > 0)
     }
 
     @Test fun e9_pos0MarginAware_full() {
