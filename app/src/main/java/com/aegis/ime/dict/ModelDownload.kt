@@ -362,6 +362,13 @@ object ModelDownload {
     private fun dictInstalledShaFile(filesDir: File) = File(downloadedDir(filesDir), DICT_INSTALLED_SHA_NAME)
     private fun dictPendingShaFile(filesDir: File) = File(downloadedDir(filesDir), DICT_PENDING_SHA_NAME)
 
+    private fun bundledDictCacheFiles(filesDir: File): List<File> =
+        DICT_PACK_FILES.flatMap { listOf(File(filesDir, it), File(filesDir, "$it.part")) }
+
+    private fun deleteBundledDictCache(filesDir: File) {
+        bundledDictCacheFiles(filesDir).forEach { it.delete() }
+    }
+
     fun isDictDownloaded(filesDir: File): Boolean =
         DICT_PACK_FILES.all { File(downloadedDir(filesDir), it).let { f -> f.exists() && f.length() > 1024 } }
 
@@ -415,6 +422,7 @@ object ModelDownload {
         if (!dictionaryRecoveryLock.tryLock()) return
         try {
             val key = filesDir.absolutePath
+            deleteBundledDictCache(filesDir)
             if (destFile(filesDir).absolutePath !in inFlight) partFile(filesDir).delete()
             val dictActive = dictZipFile(filesDir).absolutePath in inFlight ||
                 key in installingDicts ||
@@ -752,11 +760,13 @@ object ModelDownload {
             dictPartFile(filesDir).delete()
             legacyDictZipFile(filesDir).delete()
             legacyDictPartFile(filesDir).delete()
+            deleteBundledDictCache(filesDir)
             return DICT_PACK_FILES.none {
                 File(downloadedDir(filesDir), it).exists() ||
                     File(downloadedDir(filesDir), "$it.part").exists() ||
                     dictBackupFile(filesDir, it).exists()
-            } && !dictInstalledShaFile(filesDir).exists() &&
+            } && bundledDictCacheFiles(filesDir).none(File::exists) &&
+                !dictInstalledShaFile(filesDir).exists() &&
                 !dictBackupFile(filesDir, DICT_INSTALLED_SHA_NAME).exists() &&
                 !dictPendingShaFile(filesDir).exists() &&
                 !dictStagingDir(filesDir).exists() &&

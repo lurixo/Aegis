@@ -78,6 +78,64 @@ class ModelDownloadTest {
     }
 
     @Test
+    fun deletingTheDictionaryAlsoRemovesTheBundledEraCopiesOutsideTheManagedDirectory() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        ModelDownload.DICT_PACK_FILES.forEach { name ->
+            File(downloaded, name).writeBytes(ByteArray(2_048) { 1 })
+            File(base, name).writeBytes(ByteArray(4_096) { 2 })
+            File(base, "$name.part").writeBytes(ByteArray(512))
+        }
+        File(downloaded, ModelDownload.DICT_INSTALLED_SHA_NAME).writeText("d".repeat(64))
+        val grammar = File(base, "aegis_lm.bin").apply { writeBytes(ByteArray(2_048) { 3 }) }
+
+        assertTrue(ModelDownload.isDictDownloaded(base))
+        assertTrue(ModelDownload.purgeDict(base))
+
+        assertFalse(ModelDownload.isDictDownloaded(base))
+        ModelDownload.DICT_PACK_FILES.forEach { name ->
+            assertFalse(File(base, name).exists())
+            assertFalse(File(base, "$name.part").exists())
+        }
+        assertTrue("the bundled grammar model is not dictionary state", grammar.exists())
+        assertEquals(2_048L, grammar.length())
+
+        base.deleteRecursively()
+    }
+
+    @Test
+    fun purgeOnlyConfirmsSuccessOnceTheBundledEraCopiesAreGone() {
+        val base = tempFilesDir()
+        val blocked = File(base, ModelDownload.DICT_PACK_FILES.first()).apply {
+            mkdirs()
+            File(this, "retained").writeText("cache")
+        }
+
+        assertFalse(ModelDownload.purgeDict(base))
+        assertTrue(blocked.exists())
+        assertTrue(blocked.deleteRecursively())
+        assertTrue(ModelDownload.purgeDict(base))
+
+        base.deleteRecursively()
+    }
+
+    @Test
+    fun reconciliationRemovesTheBundledEraCopiesOnAnUpgradedInstall() {
+        val base = tempFilesDir()
+        ModelDownload.DICT_PACK_FILES.forEach { name ->
+            File(base, name).writeBytes(ByteArray(4_096) { 2 })
+        }
+
+        ModelDownload.reconcileInterruptedDownloads(base)
+
+        ModelDownload.DICT_PACK_FILES.forEach { name -> assertFalse(File(base, name).exists()) }
+        assertFalse(ModelDownload.isDictDownloaded(base))
+        assertEquals(0L, ModelDownload.installedDictionaryBytes(base))
+
+        base.deleteRecursively()
+    }
+
+    @Test
     fun abandonedTransactionsAreReconciledWithoutRemovingInstalledResources() {
         val base = tempFilesDir()
         val downloaded = File(base, "downloaded").apply { mkdirs() }
