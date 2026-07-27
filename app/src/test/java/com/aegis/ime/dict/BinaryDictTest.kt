@@ -25,6 +25,7 @@ import java.io.File
 class BinaryDictTest {
 
     private val dictFile = File("src/main/assets/aegis_dict.bin")
+    private val t9File = File("src/main/assets/aegis_t9.bin")
 
     @Test
     fun looksUpCommonWords() {
@@ -57,6 +58,93 @@ class BinaryDictTest {
         assertEquals("zero limit returns no rows", emptyList<BinaryDict.WordFreq>(), dict.exact("nihao", limit = 0))
         assertTrue("contains existing exact word", dict.containsExactWord("nihao", "你好"))
         assertTrue("does not claim the word under the wrong key", !dict.containsExactWord("ceshi", "你好"))
+    }
+
+    @Test
+    fun prefixByFreqSpendsEverySupplySlotOnADistinctWord() {
+        assumeTrue("full dict assets present", dictFile.exists() && t9File.exists())
+        val letter = BinaryDict.fromFile(dictFile)
+        val digit = BinaryDict.fromFile(t9File)
+        val arms = listOf(
+            Triple("26-key", letter, "d"),
+            Triple("26-key", letter, "n"),
+            Triple("9-key", digit, "6"),
+        )
+        for ((layout, dict, key) in arms) {
+            val hits = dict.prefixByFreq(key, 20)
+            assertEquals("$layout '$key' fills all 20 supply slots", 20, hits.size)
+            assertEquals(
+                "$layout '$key' spends every slot on a distinct word: ${hits.map { it.word }}",
+                20,
+                hits.map { it.word }.distinct().size,
+            )
+            for (k in 1 until hits.size) {
+                assertTrue(
+                    "$layout '$key' stays ordered by frequency at slot $k",
+                    hits[k - 1].freq >= hits[k].freq,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun prefixByFreqKeepsTheStrongestReadingOfADuplicatedWord() {
+        val rows = listOf(
+            EngineFixture.Row("shga", "同词", 900),
+            EngineFixture.Row("shgb", "同词", 700),
+            EngineFixture.Row("shgc", "另词", 800),
+            EngineFixture.Row("shgd", "三词", 600),
+            EngineFixture.Row("shge", "四词", 500),
+        )
+        val dict = EngineFixture.build(rows)
+
+        val top3 = dict.prefixByFreq("shg", 3)
+        assertEquals(listOf("同词" to 900, "另词" to 800, "三词" to 600), top3.map { it.word to it.freq })
+
+        val all = dict.prefixByFreq("shg", 10)
+        assertEquals(listOf("同词", "另词", "三词", "四词"), all.map { it.word })
+        assertEquals(900, all.first { it.word == "同词" }.freq)
+    }
+
+    @Test
+    fun oneUnitPrefixIndexDeduplicatesByWordForLettersAndDigits() {
+        val letterRows = listOf(
+            EngineFixture.Row("de", "地", 900),
+            EngineFixture.Row("di", "地", 700),
+            EngineFixture.Row("da", "大", 800),
+            EngineFixture.Row("du", "读", 600),
+        )
+        val letterDict = EngineFixture.build(letterRows)
+        assertEquals(
+            listOf("地" to 900, "大" to 800, "读" to 600),
+            letterDict.prefixByFreq("d", 3).map { it.word to it.freq },
+        )
+
+        val digitRows = listOf(
+            EngineFixture.Row("33", "地", 900),
+            EngineFixture.Row("34", "地", 700),
+            EngineFixture.Row("32", "大", 800),
+            EngineFixture.Row("38", "读", 600),
+        )
+        val digitDict = EngineFixture.build(digitRows)
+        assertEquals(
+            listOf("地" to 900, "大" to 800, "读" to 600),
+            digitDict.prefixByFreq("3", 3).map { it.word to it.freq },
+        )
+    }
+
+    @Test
+    fun prefixByFreqKeepsTheEarlierEntryOfAnEqualFrequencyDuplicate() {
+        val rows = listOf(
+            EngineFixture.Row("shga", "同词", 500),
+            EngineFixture.Row("shgb", "同词", 500),
+            EngineFixture.Row("shgc", "另词", 400),
+        )
+        val dict = EngineFixture.build(rows)
+        assertEquals(
+            listOf("同词" to 500, "另词" to 400),
+            dict.prefixByFreq("shg", 2).map { it.word to it.freq },
+        )
     }
 
     @Test

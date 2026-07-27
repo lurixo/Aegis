@@ -102,6 +102,7 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
         shortPrefixIndex(prefix)?.let { return it.take(limit) }
         val q = prefix.toByteArray(Charsets.US_ASCII)
         val top = PriorityQueue<PrefixHit>(Comparator { a, b -> comparePrefixWorstFirst(a, b) })
+        val byWord = HashMap<String, PrefixHit>()
         var order = 0
         var i = lowerBound(q)
         while (i < numKeys && startsWith(i, q)) {
@@ -119,7 +120,7 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
                 val wl = buf.getInt(entryOff + 4)
                 val word = readWord(wo, wl)
                 val hit = PrefixHit(word, fr, supplementarySingleTieRank(word), order++)
-                offerPrefixHit(top, hit, limit)
+                offerPrefixHit(top, byWord, hit, limit)
                 j++
             }
             i++
@@ -197,6 +198,7 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
 
     private fun buildShortPrefixTop(): Array<List<WordFreq>> {
         val heaps = arrayOfNulls<PriorityQueue<PrefixHit>>(SHORT_PREFIX_BUCKETS)
+        val maps = arrayOfNulls<HashMap<String, PrefixHit>>(SHORT_PREFIX_BUCKETS)
         val order = IntArray(SHORT_PREFIX_BUCKETS)
         var i = 0
         while (i < numKeys) {
@@ -206,6 +208,7 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
                     SHORT_PREFIX_TOP_N,
                     Comparator { a, b -> comparePrefixWorstFirst(a, b) },
                 ).also { heaps[first] = it }
+                val byWord = maps[first] ?: HashMap<String, PrefixHit>().also { maps[first] = it }
                 val es = entryStart(i)
                 val ee = if (i + 1 < numKeys) entryStart(i + 1) else numEntries
                 var j = es
@@ -221,6 +224,7 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
                     val word = readWord(wo, wl)
                     offerPrefixHit(
                         top,
+                        byWord,
                         PrefixHit(word, fr, supplementarySingleTieRank(word), order[first]++),
                         SHORT_PREFIX_TOP_N,
                     )
@@ -240,15 +244,29 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
     private fun isShortPrefixByte(b: Int): Boolean =
         b in 'a'.code..'z'.code || b in '2'.code..'9'.code
 
-    private fun offerPrefixHit(top: PriorityQueue<PrefixHit>, hit: PrefixHit, limit: Int) {
+    private fun offerPrefixHit(
+        top: PriorityQueue<PrefixHit>,
+        byWord: HashMap<String, PrefixHit>,
+        hit: PrefixHit,
+        limit: Int,
+    ) {
+        val existing = byWord[hit.word]
+        if (existing != null) {
+            if (comparePrefixBestFirst(existing, hit) <= 0) return
+            top.remove(existing)
+            byWord.remove(hit.word)
+        }
         if (top.size < limit) {
             top.add(hit)
+            byWord[hit.word] = hit
             return
         }
         val worst = top.peek() ?: return
         if (comparePrefixBestFirst(hit, worst) < 0) {
             top.poll()
+            byWord.remove(worst.word)
             top.add(hit)
+            byWord[hit.word] = hit
         }
     }
 
