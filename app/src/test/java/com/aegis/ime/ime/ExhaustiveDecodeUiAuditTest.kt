@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.decoder.FullDictTestAssets
 import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
@@ -37,8 +38,13 @@ import java.io.File
 class ExhaustiveDecodeUiAuditTest {
 
     private val ctx = RuntimeEnvironment.getApplication()
-    private val assets = File("src/main/assets")
-    private fun assetsPresent() = File(assets, "aegis_dict.bin").exists() && File(assets, "aegis_t9.bin").exists()
+    private val assets = FullDictTestAssets.directory
+    private fun assetsPresent() = FullDictTestAssets.available(
+        File(assets, FullDictTestAssets.DICT),
+        File(assets, FullDictTestAssets.T9),
+        File(assets, FullDictTestAssets.LM),
+        File(assets, FullDictTestAssets.JIANPIN),
+    )
 
     private class Host : ImeHost {
         override fun commitText(text: CharSequence) {}
@@ -47,9 +53,10 @@ class ExhaustiveDecodeUiAuditTest {
     }
 
     private fun realEngine() = DictEngine(
-        BinaryDict.fromFile(File(assets, "aegis_dict.bin")),
-        BinaryDict.fromFile(File(assets, "aegis_t9.bin")),
-        CharBigramLM.fromFile(File(assets, "aegis_lm.bin")),
+        BinaryDict.fromFile(File(assets, FullDictTestAssets.DICT)),
+        BinaryDict.fromFile(File(assets, FullDictTestAssets.T9)),
+        CharBigramLM.fromFile(File(assets, FullDictTestAssets.LM)),
+        initialsDict = BinaryDict.fromFile(File(assets, FullDictTestAssets.JIANPIN)),
     )
     private fun controller(e: CandidateEngine): KeyboardController =
         KeyboardController(Host(), e).apply { attachView(InputView(ctx)) }
@@ -58,7 +65,7 @@ class ExhaustiveDecodeUiAuditTest {
         c.onKey(Key(reading, output = reading, action = KeyAction.PICK_READING))
     private fun isSingleChar(w: String): Boolean = w.codePointCount(0, w.length) == 1
 
-    private val dict by lazy { BinaryDict.fromFile(File(assets, "aegis_dict.bin")) }
+    private val dict by lazy { BinaryDict.fromFile(File(assets, FullDictTestAssets.DICT)) }
     private fun dictSingles(key: String): Set<String> =
         dict.exact(key).filter { isSingleChar(it.word) }.map { it.word }.toSet()
 

@@ -22,23 +22,28 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
-import java.io.File
 
 class SeparatorLossTest {
 
-    private val dictFile = File("src/main/assets/aegis_dict.bin")
-    private val t9File = File("src/main/assets/aegis_t9.bin")
-    private val lmFile = File("src/main/assets/aegis_lm.bin")
-    private val jianpinFile = File("src/main/assets/aegis_jianpin.bin")
+    private val dictFile = FullDictTestAssets.file(FullDictTestAssets.DICT)
+    private val t9File = FullDictTestAssets.file(FullDictTestAssets.T9)
+    private val lmFile = FullDictTestAssets.file(FullDictTestAssets.LM)
+    private val jianpinFile = FullDictTestAssets.file(FullDictTestAssets.JIANPIN)
 
     private fun decoder(): PinyinDecoder {
-        assumeTrue("26-key dict + LM assets present", dictFile.exists() && lmFile.exists())
-        val initials = if (jianpinFile.exists()) BinaryDict.fromFile(jianpinFile) else null
-        return PinyinDecoder(BinaryDict.fromFile(dictFile), CharBigramLM.fromFile(lmFile), initialsDict = initials)
+        assumeTrue(
+            "26-key dict + LM + jianpin assets present",
+            FullDictTestAssets.available(dictFile, lmFile, jianpinFile),
+        )
+        return PinyinDecoder(
+            BinaryDict.fromFile(dictFile),
+            CharBigramLM.fromFile(lmFile),
+            initialsDict = BinaryDict.fromFile(jianpinFile),
+        )
     }
 
     private fun t9Decoder(): PinyinDecoder {
-        assumeTrue("T9 dict + LM assets present", t9File.exists() && lmFile.exists())
+        assumeTrue("T9 dict + LM assets present", FullDictTestAssets.available(t9File, lmFile))
         return PinyinDecoder(BinaryDict.fromFile(t9File), CharBigramLM.fromFile(lmFile))
     }
 

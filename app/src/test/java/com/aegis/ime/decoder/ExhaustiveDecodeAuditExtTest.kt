@@ -27,20 +27,25 @@ import kotlin.math.ln
 
 class ExhaustiveDecodeAuditExtTest {
 
-    private val dictFile = File("src/main/assets/aegis_dict.bin")
-    private val t9File = File("src/main/assets/aegis_t9.bin")
-    private val lmFile = File("src/main/assets/aegis_lm.bin")
-    private val jianpinFile = File("src/main/assets/aegis_jianpin.bin")
+    private val dictFile = FullDictTestAssets.file(FullDictTestAssets.DICT)
+    private val t9File = FullDictTestAssets.file(FullDictTestAssets.T9)
+    private val lmFile = FullDictTestAssets.file(FullDictTestAssets.LM)
+    private val jianpinFile = FullDictTestAssets.file(FullDictTestAssets.JIANPIN)
 
     private fun letterDecoder(fuzzy: Set<String> = emptySet()): PinyinDecoder {
-        assumeTrue("jianpin asset present", jianpinFile.exists())
+        assumeTrue(
+            "26-key dict + LM + jianpin assets present",
+            FullDictTestAssets.available(dictFile, lmFile, jianpinFile),
+        )
         return PinyinDecoder(
             BinaryDict.fromFile(dictFile), CharBigramLM.fromFile(lmFile),
             fuzzyRules = fuzzy, initialsDict = BinaryDict.fromFile(jianpinFile),
         )
     }
-    private fun t9Decoder(): PinyinDecoder =
-        PinyinDecoder(BinaryDict.fromFile(t9File), CharBigramLM.fromFile(lmFile))
+    private fun t9Decoder(): PinyinDecoder {
+        assumeTrue("T9 dict + LM assets present", FullDictTestAssets.available(t9File, lmFile))
+        return PinyinDecoder(BinaryDict.fromFile(t9File), CharBigramLM.fromFile(lmFile))
+    }
 
     private val dict: BinaryDict by lazy { BinaryDict.fromFile(dictFile) }
     private val t9Dict: BinaryDict by lazy { BinaryDict.fromFile(t9File) }
@@ -142,7 +147,7 @@ class ExhaustiveDecodeAuditExtTest {
 
     @Test fun e1_sequentialLock_allPairs() {
         assumeTrue("full sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
-        assumeTrue(dictFile.exists() && lmFile.exists())
+        assumeTrue(FullDictTestAssets.available(dictFile, lmFile, jianpinFile))
         val syls = runtimeSyllables()
         val d = letterDecoder()
         val fails = ArrayList<Fail>()
@@ -219,7 +224,7 @@ class ExhaustiveDecodeAuditExtTest {
 
     @Test fun e2_laterSyllableHomophones_allPairs() {
         assumeTrue("full sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
-        assumeTrue(dictFile.exists() && lmFile.exists())
+        assumeTrue(FullDictTestAssets.available(dictFile, lmFile, jianpinFile))
         val syls = runtimeSyllables()
         val d = letterDecoder()
         val fails = ArrayList<Fail>()
@@ -255,7 +260,7 @@ class ExhaustiveDecodeAuditExtTest {
 
     @Test fun e3_partialCommitContinue_allPairs() {
         assumeTrue("scheduled sweep gated: set AEGIS_AUDIT_HEAVY=1", heavyEnabled())
-        assumeTrue(dictFile.exists() && lmFile.exists() && t9File.exists())
+        assumeTrue(FullDictTestAssets.available(dictFile, lmFile, t9File, jianpinFile))
         val syls = runtimeSyllables()
         val d = letterDecoder()
         val t9 = t9Decoder()
@@ -319,7 +324,7 @@ class ExhaustiveDecodeAuditExtTest {
     }
 
     @Test fun e4_fuzzyOn_allSyllables_andRuleIsolation() {
-        assumeTrue(dictFile.exists() && lmFile.exists())
+        assumeTrue(FullDictTestAssets.available(dictFile, lmFile, jianpinFile))
         val syls = runtimeSyllables()
         val allKeys = Fuzzy.RULES.map { it.key }.toSet()
         val fails = ArrayList<Fail>()
@@ -376,7 +381,7 @@ class ExhaustiveDecodeAuditExtTest {
     }
 
     @Test fun e5_orderAdvisory_allSyllables() {
-        assumeTrue(dictFile.exists() && lmFile.exists())
+        assumeTrue(FullDictTestAssets.available(dictFile, lmFile, jianpinFile))
         val syls = runtimeSyllables()
         val d = letterDecoder()
         val rows = ArrayList<String>()
@@ -406,7 +411,7 @@ class ExhaustiveDecodeAuditExtTest {
     private fun e6Decoder(letters: Boolean): PinyinDecoder =
         if (letters) PinyinDecoder(
             dict, CharBigramLM.fromFile(lmFile),
-            initialsDict = if (jianpinFile.exists()) BinaryDict.fromFile(jianpinFile) else null,
+            initialsDict = BinaryDict.fromFile(jianpinFile),
         )
         else PinyinDecoder(t9Dict, CharBigramLM.fromFile(lmFile), aliasDict = dict)
 
@@ -435,7 +440,7 @@ class ExhaustiveDecodeAuditExtTest {
             val aliasEntries = (if (key.firstOrNull() in '2'..'9') PinyinDecoder.T9_INPUT_ALIASES[key].orEmpty()
             else PinyinDecoder.INPUT_ALIASES[key].orEmpty()).flatMap { dict.exact(it) }
             val prefixEntries = source.prefixByFreq(key, E6_PREFIX_SCAN) +
-                (if (jianpinFile.exists()) jianpin.prefixByFreq(key, E6_PREFIX_SCAN) else emptyList())
+                jianpin.prefixByFreq(key, E6_PREFIX_SCAN)
             E6View(collect(source.exact(key)), collect(aliasEntries), collect(prefixEntries))
                 .also { e6ViewEntries += it.entries }
         }
@@ -492,7 +497,7 @@ class ExhaustiveDecodeAuditExtTest {
     }
 
     @Test fun e6_orderingInvariant_allSyllables_bothKeyspaces() {
-        assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
+        assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
         val syls = runtimeSyllables()
         val dL = e6Decoder(letters = true)
         val dT = e6Decoder(letters = false)
@@ -612,7 +617,7 @@ class ExhaustiveDecodeAuditExtTest {
 
     @Test fun e7_lockedOrderingInvariant_allPairs_bothKeyspaces() {
         assumeTrue("full sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
-        assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
+        assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
         val syls = runtimeSyllables()
         val dL = e6Decoder(letters = true)
         val dT = e6Decoder(letters = false)
@@ -645,7 +650,7 @@ class ExhaustiveDecodeAuditExtTest {
     }
 
     @Test fun e7b_lockedOrderingInvariant_representative_alwaysOn() {
-        assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
+        assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
         val dL = e6Decoder(letters = true)
         val dT = e6Decoder(letters = false)
         val firstSyllables = listOf(
@@ -694,7 +699,7 @@ class ExhaustiveDecodeAuditExtTest {
         UserModel().apply { for (gw in words) recordWord(gw.reading, gw.word, 1L, incrementCount = true) }
 
     private val lmModel: CharBigramLM by lazy { CharBigramLM.fromFile(lmFile) }
-    private val jianpinDict: BinaryDict? by lazy { if (jianpinFile.exists()) BinaryDict.fromFile(jianpinFile) else null }
+    private val jianpinDict: BinaryDict by lazy { BinaryDict.fromFile(jianpinFile) }
 
     private fun userDecoder(letters: Boolean, um: UserModel): PinyinDecoder =
         if (letters) PinyinDecoder(dict, lmModel, userModel = um, initialsDict = jianpinDict)
@@ -719,7 +724,7 @@ class ExhaustiveDecodeAuditExtTest {
     }
 
     @Test fun e8_userWords_freeTypingOrdering_representative_alwaysOn() {
-        assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
+        assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
         val words = generatedUserWords(runtimeSyllables(), listOf("shi", "en"))
         assertTrue("generator produced a diverse word set", words.size > 200)
         val rows = runFreeTypingOrdering(words)
@@ -728,7 +733,7 @@ class ExhaustiveDecodeAuditExtTest {
 
     @Test fun e8_userWords_freeTypingOrdering_full() {
         assumeTrue("full sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
-        assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
+        assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
         val words = generatedUserWords(runtimeSyllables(), listOf("shi", "de", "hao", "jian", "guo", "cong", "en"))
         val rows = runFreeTypingOrdering(words)
         writeTsv(File(outDir(), "ext_e8.tsv"), rows.map { Fail("", "user", "O", "", "", it) })
@@ -751,7 +756,7 @@ class ExhaustiveDecodeAuditExtTest {
     }
 
     @Test fun e8_userWords_lockedOrdering_representative_alwaysOn() {
-        assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
+        assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
         val words = generatedUserWords(runtimeSyllables(), listOf("shi", "en"))
         val rows = runLockedOrdering(words)
         assertTrue("E8 locked ordering with user words merged must be zero (${rows.size}): ${rows.take(8)}", rows.isEmpty())
@@ -759,14 +764,14 @@ class ExhaustiveDecodeAuditExtTest {
 
     @Test fun e8_userWords_lockedOrdering_full() {
         assumeTrue("full sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
-        assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
+        assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
         val words = generatedUserWords(runtimeSyllables(), listOf("shi", "de", "hao", "jian", "guo", "cong", "en"))
         val rows = runLockedOrdering(words)
         assertTrue("E8 locked ordering violations must be zero (${rows.size}): ${rows.take(8)}", rows.isEmpty())
     }
 
     @Test fun e8_userWords_recall_bothKeyspaces_andLocked() {
-        assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
+        assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
         val words = generatedUserWords(runtimeSyllables(), listOf("shi", "en"))
         val um = populatedModel(words)
         val dL = userDecoder(letters = true, um)
@@ -1027,7 +1032,7 @@ class ExhaustiveDecodeAuditExtTest {
             source.exact(span) +
                 (if (t9) PinyinDecoder.T9_INPUT_ALIASES[span] else PinyinDecoder.INPUT_ALIASES[span])
                     .orEmpty().flatMap { dict.exact(it) } +
-                (if (includeJianpin) jianpinDict?.exact(span).orEmpty() else emptyList())
+                (if (includeJianpin) jianpinDict.exact(span) else emptyList())
         edges[0][0] = 0
         for (p in 0 until n) for (ii in 0 until m) {
             if (edges[p][ii] < 0) continue
@@ -1135,7 +1140,7 @@ class ExhaustiveDecodeAuditExtTest {
     }
 
     @Test fun e9_pos0MarginAware_representative_alwaysOn() {
-        assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
+        assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
         val syls = runtimeSyllables()
         val tails = syls.filterIndexed { i, _ -> i % 21 == 0 }
         val mids = syls.filterIndexed { i, _ -> i % 83 == 0 }
@@ -1160,7 +1165,7 @@ class ExhaustiveDecodeAuditExtTest {
 
     @Test fun e9_pos0MarginAware_full() {
         assumeTrue("scheduled sweep gated: set AEGIS_AUDIT_HEAVY=1", heavyEnabled())
-        assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
+        assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
         val syls = runtimeSyllables()
         val st2 = pos0Sweep(tuples2(syls, syls), progressEvery = 20000)
         val st3 = pos0Sweep(tuples3Covering(syls), progressEvery = 20000)
@@ -1185,7 +1190,7 @@ class ExhaustiveDecodeAuditExtTest {
 
     @Test fun e9_pos0_widenedTailBaseline() {
         assumeTrue("full sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
-        assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
+        assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
         val syls0 = runtimeSyllables()
         for (i in 0 until 200) {
             val a = singlesByFreq(syls0[(i * 7) % syls0.size]).firstOrNull() ?: continue
@@ -1213,7 +1218,7 @@ class ExhaustiveDecodeAuditExtTest {
     }
 
     @Test fun e9_riseCurve_productionConfig() {
-        assumeTrue(dictFile.exists() && t9File.exists() && lmFile.exists())
+        assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
         val syls = runtimeSyllables()
         val tails = syls.filterIndexed { i, _ -> i % 21 == 0 }
         val dL = e6Decoder(letters = true)
@@ -1287,7 +1292,7 @@ class ExhaustiveDecodeAuditExtTest {
     }
 
     @Test fun e8_userWords_doNotDisturbAliasPresence() {
-        assumeTrue(dictFile.exists() && lmFile.exists())
+        assumeTrue(FullDictTestAssets.available(dictFile, lmFile, jianpinFile))
         val um = populatedModel(generatedUserWords(runtimeSyllables(), listOf("shi", "en")))
         val dL = userDecoder(letters = true, um)
         for ((s, targets) in PinyinDecoder.INPUT_ALIASES) {
