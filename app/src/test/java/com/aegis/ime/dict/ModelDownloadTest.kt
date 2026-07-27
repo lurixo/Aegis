@@ -87,8 +87,11 @@ class ModelDownloadTest {
     fun deletingTheDictionaryAlsoRemovesTheBundledEraCopiesOutsideTheManagedDirectory() {
         val base = tempFilesDir()
         val downloaded = File(base, "downloaded").apply { mkdirs() }
+        val bundledEraNames = ModelDownload.DICT_PACK_FILES + listOf("aegis_en.bin", "aegis_fuzzy.bin")
         ModelDownload.DICT_PACK_FILES.forEach { name ->
             File(downloaded, name).writeBytes(ByteArray(2_048) { 1 })
+        }
+        bundledEraNames.forEach { name ->
             File(base, name).writeBytes(ByteArray(4_096) { 2 })
             File(base, "$name.part").writeBytes(ByteArray(512))
         }
@@ -99,7 +102,7 @@ class ModelDownloadTest {
         assertTrue(ModelDownload.purgeDict(base))
 
         assertFalse(ModelDownload.isDictDownloaded(base))
-        ModelDownload.DICT_PACK_FILES.forEach { name ->
+        bundledEraNames.forEach { name ->
             assertFalse(File(base, name).exists())
             assertFalse(File(base, "$name.part").exists())
         }
@@ -120,6 +123,15 @@ class ModelDownloadTest {
         assertFalse(ModelDownload.purgeDict(base))
         assertTrue(blocked.exists())
         assertTrue(blocked.deleteRecursively())
+
+        val debugEra = File(base, "aegis_en.bin").apply {
+            mkdirs()
+            File(this, "retained").writeText("cache")
+        }
+
+        assertFalse(ModelDownload.purgeDict(base))
+        assertTrue(debugEra.exists())
+        assertTrue(debugEra.deleteRecursively())
         assertTrue(ModelDownload.purgeDict(base))
 
         base.deleteRecursively()
@@ -128,13 +140,14 @@ class ModelDownloadTest {
     @Test
     fun reconciliationRemovesTheBundledEraCopiesOnAnUpgradedInstall() {
         val base = tempFilesDir()
-        ModelDownload.DICT_PACK_FILES.forEach { name ->
+        val bundledEraNames = ModelDownload.DICT_PACK_FILES + listOf("aegis_en.bin", "aegis_fuzzy.bin")
+        bundledEraNames.forEach { name ->
             File(base, name).writeBytes(ByteArray(4_096) { 2 })
         }
 
         ModelDownload.reconcileInterruptedDownloads(base)
 
-        ModelDownload.DICT_PACK_FILES.forEach { name -> assertFalse(File(base, name).exists()) }
+        bundledEraNames.forEach { name -> assertFalse(File(base, name).exists()) }
         assertFalse(ModelDownload.isDictDownloaded(base))
         assertEquals(0L, ModelDownload.installedDictionaryBytes(base))
 

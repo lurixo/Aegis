@@ -473,8 +473,10 @@ object ModelDownload {
     private fun dictInstalledShaFile(filesDir: File) = File(downloadedDir(filesDir), DICT_INSTALLED_SHA_NAME)
     private fun dictPendingShaFile(filesDir: File) = File(downloadedDir(filesDir), DICT_PENDING_SHA_NAME)
 
+    private val BUNDLED_DICT_CACHE_NAMES = DICT_PACK_FILES + listOf("aegis_en.bin", "aegis_fuzzy.bin")
+
     private fun bundledDictCacheFiles(filesDir: File): List<File> =
-        DICT_PACK_FILES.flatMap { listOf(File(filesDir, it), File(filesDir, "$it.part")) }
+        BUNDLED_DICT_CACHE_NAMES.flatMap { listOf(File(filesDir, it), File(filesDir, "$it.part")) }
 
     private fun deleteBundledDictCache(filesDir: File) {
         bundledDictCacheFiles(filesDir).forEach { it.delete() }
