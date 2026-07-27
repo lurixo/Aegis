@@ -393,10 +393,7 @@ class PinyinDecoder(
     private fun decodeAtomic(input: String, interior: Set<Int>, ctxCp: Int, ctxWord: String): List<Cand> {
         val ctxId = resolveCtxId(ctxCp)
         val condMemo = HashMap<Long, Double>()
-        val bset = sortedSetOf(0, input.length)
-        bset.addAll(interior)
-        for (s in syllablesCleanCut(input, interior)) bset.add(s.end)
-        val B = bset.toList()
+        val B = atomicBounds(input, interior)
         val nSyl = B.size - 1
 
         val singlesCache = HashMap<String, Set<String>>()
@@ -678,44 +675,65 @@ class PinyinDecoder(
         val frequency: Double,
     )
 
-    fun syllables(input: String): List<Syllable> {
+    fun syllables(input: String, cuts: Set<Int> = emptySet()): List<Syllable> {
         if (input.isEmpty()) return emptyList()
-        normalizeSeparators(input)?.let { n ->
-            if (n.clean.isEmpty()) return emptyList()
-            return syllablesCleanCut(n.clean, n.cuts).map { Syllable(it.reading, n.origLen[it.start], n.origLen[it.end]) }
-        }
-        return syllablesClean(input)
+        val norm = normalizeSeparators(input)
+        val clean = norm?.clean ?: input
+        if (clean.isEmpty()) return emptyList()
+        val spans = atomicSyllables(clean, cleanInterior(norm, clean, cuts))
+        return if (norm == null) spans
+        else spans.map { Syllable(it.reading, norm.origLen[it.start], norm.origLen[it.end]) }
+    }
+
+    private fun cleanInterior(norm: Norm?, clean: String, cuts: Set<Int>): Set<Int> {
+        val passedClean = if (norm == null) cuts else cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
+        return ((norm?.cuts ?: emptySet()) + passedClean).filterTo(HashSet()) { it in 1 until clean.length }
     }
 
     private fun syllablesClean(input: String): List<Syllable> =
         if (input[0] in '2'..'9') t9Syllables(input) else letterSyllables(input)
 
-    private fun syllablesCleanCut(clean: String, cuts: Set<Int>): List<Syllable> {
-        val interior = cuts.filter { it in 1 until clean.length }.sorted()
-        if (interior.isEmpty()) return syllablesClean(clean)
+    private fun wholeSegmentReading(segment: String): String? =
+        if (segment[0] in '2'..'9') T9Pinyin.syllableReading(segment).takeIf { it.isNotEmpty() }
+        else segment.takeIf { T9Pinyin.firstSyllableLetters(it) == it }
+
+    private fun atomicSyllables(clean: String, interior: Set<Int>): List<Syllable> {
+        val bounds = listOf(0) + interior.filter { it in 1 until clean.length }.sorted() + listOf(clean.length)
         val out = ArrayList<Syllable>()
-        val bounds = listOf(0) + interior + listOf(clean.length)
         for (b in 0 until bounds.size - 1) {
             val lo = bounds[b]; val hi = bounds[b + 1]
             if (lo >= hi) continue
-            for (s in syllablesClean(clean.substring(lo, hi))) out.add(Syllable(s.reading, lo + s.start, lo + s.end))
+            val segment = clean.substring(lo, hi)
+            val whole = wholeSegmentReading(segment)
+            if (whole != null) {
+                out.add(Syllable(whole, lo, hi))
+            } else {
+                for (s in syllablesClean(segment)) out.add(Syllable(s.reading, lo + s.start, lo + s.end))
+            }
         }
         return out
     }
 
-    fun homophonesAt(input: String, index: Int): List<String> {
+    private fun atomicBounds(clean: String, interior: Set<Int>): List<Int> {
+        val bset = sortedSetOf(0, clean.length)
+        bset.addAll(interior)
+        for (s in atomicSyllables(clean, interior)) bset.add(s.end)
+        return bset.toList()
+    }
+
+    fun homophonesAt(input: String, index: Int, cuts: Set<Int> = emptySet()): List<String> {
+        if (index < 0) return emptyList()
         val norm = normalizeSeparators(input)
         val clean = norm?.clean ?: input
         if (clean.isEmpty()) return emptyList()
-        val syls = syllablesCleanCut(clean, norm?.cuts ?: emptySet())
-        if (index !in syls.indices) return emptyList()
-        val s = syls[index]
-        return homophonesOf(clean.substring(s.start, s.end))
+        val b = atomicBounds(clean, cleanInterior(norm, clean, cuts))
+        if (index >= b.size - 1) return emptyList()
+        return homophonesOf(clean.substring(b[index], b[index + 1]))
     }
 
     private fun homophonesOf(key: String): List<String> = homophoneFreqs(key).map { it.first }
 
-    private fun homophoneFreqs(key: String): List<Pair<String, Double>> {
+    internal fun homophoneFreqs(key: String): List<Pair<String, Double>> {
         val out = ArrayList<Pair<String, Double>>()
         val seen = HashSet<String>()
         for (wf in preferredExact(dict, key)) {
