@@ -67,17 +67,17 @@ Menu names vary slightly by device, but the flow is the standard Android one:
 ### First run
 
 **English typing works straight away; Chinese needs one download first.** The APK carries no Chinese
-dictionary, so the keyboard starts fetching the dictionary pack on its own when it is shown with no
-pack installed — a ~98 MB download that expands to ~256 MB in the app's private storage. It is not
-restricted to Wi-Fi. Each run of the keyboard service makes at most one such automatic attempt, so
-while no pack is installed the next run tries again. Until it finishes, the candidate strip offers
-to fetch the pack and Chinese input stays locked, while English and every panel keep working.
+dictionary, and the keyboard never fetches the dictionary pack on its own. When you type Chinese with
+no pack installed, the candidate strip offers the download — a ~98 MB transfer that expands to
+~256 MB in the app's private storage, not restricted to Wi-Fi — and it starts only when you tap
+there, or on the dictionary card in the settings screen. Until it finishes, Chinese input stays
+locked, while English and every panel keep working.
 
 The settings screen additionally offers an **optional** enhancement model (the ~420 MB octagram
 grammar) for sharper next-word and whole-sentence ranking; that one is fetched only when you tap to
 start it. Beyond those two downloads and the update checks that go with them — a small metadata file
 for the dictionary, a `HEAD` request for the model — Aegis's own code makes no network requests, and
-once the dictionary pack is installed nothing Aegis does reaches the network unless you ask it to.
+nothing Aegis does reaches the network unless you ask it to.
 
 ## Features
 
@@ -112,10 +112,10 @@ not depend on our word alone:
   `com.aegis.ime.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`, which the AndroidX libraries add when the
   manifests are merged; it is not a platform permission, is declared at `signature` level in Aegis's
   own namespace, and asks for nothing on your device.
-- **`INTERNET`** fetches the dictionary pack (which the keyboard starts on its own while no pack is
-  installed, at most once per run of the keyboard service, because no Chinese dictionary ships in
-  the APK), the optional enhancement model (only when *you* tap to start it), and the update checks
-  for those two. **No keystroke ever makes a network call, and nothing you type is ever sent.**
+- **`INTERNET`** fetches the dictionary pack (offered by the keyboard while no pack is installed,
+  because no Chinese dictionary ships in the APK, and started only when you tap), the optional
+  enhancement model (only when *you* tap to start it), and the update checks for those two. **No
+  keystroke ever makes a network call, and nothing you type is ever sent.**
 - **`USE_BIOMETRIC`** is used only for the default backup password: saving it, or filling it into a
   backup dialog, needs a biometric or screen-lock confirmation first.
 - Your **keystrokes, candidates, learned words, user dictionary, and clipboard never leave the
