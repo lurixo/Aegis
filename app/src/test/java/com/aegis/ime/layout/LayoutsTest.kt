@@ -92,6 +92,23 @@ class LayoutsTest {
         }
     }
 
+    @Test fun chinese_qwerty_flanking_symbols_match_english_positions_but_keep_fullwidth_outputs() {
+        fun flanking(layout: KeyboardLayout): List<PlacedKey> {
+            val bottom = layout.cells!!.filter { it.y >= 0.75f }.sortedBy { it.x }
+            val space = bottom.indexOfFirst { it.key.action == KeyAction.SPACE }
+            return listOf(bottom[space - 1], bottom[space + 1])
+        }
+
+        val cn = flanking(qwerty)
+        val en = flanking(qwertyEn)
+        assertEquals(listOf(",", "."), cn.map { it.key.label })
+        assertEquals(listOf(",", "."), en.map { it.key.label })
+        assertEquals(listOf("，", "。"), cn.map { it.key.output })
+        assertEquals(listOf(",", "."), en.map { it.key.output })
+        assertEquals(en.map { listOf(it.x, it.y, it.w, it.h) }, cn.map { listOf(it.x, it.y, it.w, it.h) })
+        assertTrue((cn + en).all { it.key.direct })
+    }
+
     @Test fun nine_space_is_in_bottom_row_not_right_column() {
         val cells = nine.cells!!
         val space = cells.first { it.key.action == KeyAction.SPACE }

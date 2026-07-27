@@ -722,6 +722,7 @@ class KeyboardControllerTest {
         assertEquals(listOf("shu"), c.expandedReadings())
 
         c.onPickReadingIndex(0)
+        c.onPickReadingIndex(c.expandedReadings().indexOf("shu"))
         assertEquals(listOf("输", "书"), c.candidateWords())
         c.onPickCandidate(c.candidateWords().indexOf("输"))
         assertEquals("输ru", c.preeditForTest())
@@ -768,6 +769,7 @@ class KeyboardControllerTest {
         assertEquals(listOf("shu"), c.expandedReadings())
 
         c.onPickReadingIndex(0)
+        c.onPickReadingIndex(c.expandedReadings().indexOf("shu"))
         assertEquals(listOf("输", "书"), c.candidateWords())
         c.onPickCandidate(c.candidateWords().indexOf("输"))
         assertEquals("输ru", c.preeditForTest())

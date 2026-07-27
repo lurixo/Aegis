@@ -62,6 +62,7 @@ class KeyboardController(
     private val committedPrefix = StringBuilder()
 
     private val lockedReadings = mutableListOf<String>()
+    private val lockedInputLengths = mutableListOf<Int>()
     private var activeStart = 0
 
     private val forcedCuts = sortedSetOf<Int>()
@@ -72,6 +73,7 @@ class KeyboardController(
         val composing: String,
         val committedPrefix: String,
         val lockedReadings: List<String>,
+        val lockedInputLengths: List<Int>,
         val activeStart: Int,
         val forcedCuts: Set<Int>,
         val history: List<StepKind>,
@@ -189,6 +191,7 @@ class KeyboardController(
         composing.setLength(0)
         candidates = emptyList()
         lockedReadings.clear()
+        lockedInputLengths.clear()
         activeStart = 0
         forcedCuts.clear()
         history.clear()
@@ -301,19 +304,24 @@ class KeyboardController(
     private fun handlePickReading(key: Key) {
         val reading = key.output
         if (reading.isEmpty()) return
-        val digits = T9Pinyin.toT9(reading)
-        if (activeDigits().isEmpty() && lockedReadings.isNotEmpty()) {
-            val lastDigits = T9Pinyin.toT9(lockedReadings.last())
-            if (!lastDigits.startsWith(digits)) return
+        val input = inputForReading(reading)
+        if (activeInput().isEmpty() && lockedReadings.isNotEmpty()) {
+            val lastInput = inputForReading(lockedReadings.last())
+            if (!lastInput.startsWith(input)) return
             lockedReadings.removeAt(lockedReadings.lastIndex)
-            activeStart = (activeStart - lastDigits.length).coerceAtLeast(0)
+            val oldLength = lockedInputLengths.removeAt(lockedInputLengths.lastIndex)
+            activeStart = (activeStart - oldLength).coerceAtLeast(0)
             lockedReadings.add(reading)
-            activeStart = (activeStart + digits.length).coerceAtMost(composing.length)
+            lockedInputLengths.add(input.length)
+            activeStart = (activeStart + input.length).coerceAtMost(composing.length)
             return
         }
-        if (!activeDigits().startsWith(digits)) return
+        val active = activeInput()
+        val separatorPrefix = if (layoutId == LayoutId.ALPHA) active.takeWhile { it == '\'' }.length else 0
+        if (!active.substring(separatorPrefix).startsWith(input)) return
         lockedReadings.add(reading)
-        activeStart = (activeStart + digits.length).coerceAtMost(composing.length)
+        lockedInputLengths.add(separatorPrefix + input.length)
+        activeStart = (activeStart + separatorPrefix + input.length).coerceAtMost(composing.length)
         history.addLast(StepKind.LOCK)
     }
 
@@ -421,8 +429,9 @@ class KeyboardController(
         }
         when (history.removeLastOrNull()) {
             StepKind.LOCK -> if (lockedReadings.isNotEmpty()) {
-                val r = lockedReadings.removeAt(lockedReadings.lastIndex)
-                activeStart = (activeStart - T9Pinyin.toT9(r).length).coerceAtLeast(0)
+                lockedReadings.removeAt(lockedReadings.lastIndex)
+                val inputLength = lockedInputLengths.removeAt(lockedInputLengths.lastIndex)
+                activeStart = (activeStart - inputLength).coerceAtLeast(0)
             }
             StepKind.CUT -> forcedCuts.remove(composing.length)
             StepKind.DIGIT, null -> {
@@ -493,15 +502,18 @@ class KeyboardController(
             composing.delete(0, cand.coveredLen)
             val shifted = forcedCuts.filter { it > cand.coveredLen }.map { it - cand.coveredLen }
             forcedCuts.clear(); forcedCuts.addAll(shifted)
-            var consumedDigits = 0; var dropLocks = 0
-            while (dropLocks < lockedReadings.size && consumedDigits < cand.coveredLen) {
-                consumedDigits += T9Pinyin.toT9(lockedReadings[dropLocks]).length; dropLocks++
+            var consumedInput = 0; var dropLocks = 0
+            while (dropLocks < lockedReadings.size && consumedInput < cand.coveredLen) {
+                consumedInput += lockedInputLengths[dropLocks]; dropLocks++
             }
-            if (lockedReadings.isNotEmpty() && consumedDigits == cand.coveredLen) {
-                repeat(dropLocks) { lockedReadings.removeAt(0) }
+            if (lockedReadings.isNotEmpty() && consumedInput == cand.coveredLen) {
+                repeat(dropLocks) {
+                    lockedReadings.removeAt(0)
+                    lockedInputLengths.removeAt(0)
+                }
                 activeStart = (activeStart - cand.coveredLen).coerceAtLeast(0)
             } else {
-                lockedReadings.clear(); activeStart = 0
+                lockedReadings.clear(); lockedInputLengths.clear(); activeStart = 0
             }
             drillSyllable = -1
             rebuildHistory()
@@ -565,7 +577,10 @@ class KeyboardController(
         lastWord = null
     }
 
-    private fun activeDigits(): String =
+    private fun inputForReading(reading: String): String =
+        if (layoutId == LayoutId.NINE) T9Pinyin.toT9(reading) else reading
+
+    private fun activeInput(): String =
         if (activeStart < composing.length) composing.substring(activeStart) else ""
 
     private fun activeCuts(): List<Int> =
@@ -580,28 +595,39 @@ class KeyboardController(
         return out
     }
 
-    private fun fullLetters(): String =
-        lockedReadings.joinToString("") +
-            chunked(activeDigits(), activeCuts()).joinToString("") { T9Pinyin.preedit(it).replace("'", "") }
+    private fun fullLetters(): String {
+        val active = if (layoutId == LayoutId.NINE) {
+            chunked(activeInput(), activeCuts()).joinToString("") { T9Pinyin.preedit(it).replace("'", "") }
+        } else {
+            activeInput()
+        }
+        return lockedReadings.joinToString("") + active
+    }
 
-    private fun readingLetterToDigit(): Map<Int, Int> {
+    private fun readingToInputBounds(): Map<Int, Int> {
         val map = HashMap<Int, Int>()
-        var letters = 0
-        var digits = 0
-        for (r in lockedReadings) {
-            letters += r.length
-            digits += T9Pinyin.toT9(r).length
-            map[letters] = digits
-        }
-        for (chunk in chunked(activeDigits(), activeCuts())) {
-            for (syl in T9Pinyin.preedit(chunk).split("'")) {
-                if (syl.isEmpty()) continue
-                letters += syl.length
-                digits = (digits + T9Pinyin.toT9(syl).length).coerceAtMost(composing.length)
-                map[letters] = digits
+        var readingPos = 0
+        var inputPos = 0
+        for ((index, reading) in lockedReadings.withIndex()) {
+            val inputLength = lockedInputLengths[index]
+            val leading = (inputLength - inputForReading(reading).length).coerceAtLeast(0)
+            for (offset in reading.indices) {
+                readingPos++
+                map[readingPos] = inputPos + leading + offset + 1
             }
+            inputPos += inputLength
         }
-        map[letters] = composing.length
+        val activeReading = if (layoutId == LayoutId.NINE) {
+            chunked(activeInput(), activeCuts()).joinToString("") { T9Pinyin.preedit(it).replace("'", "") }
+        } else {
+            activeInput()
+        }
+        for (offset in activeReading.indices) {
+            readingPos++
+            inputPos++
+            map[readingPos] = inputPos
+        }
+        map[readingPos] = composing.length
         return map
     }
 
@@ -615,6 +641,7 @@ class KeyboardController(
         composing.setLength(0)
         candidates = emptyList()
         lockedReadings.clear()
+        lockedInputLengths.clear()
         activeStart = 0
         forcedCuts.clear()
         history.clear()
@@ -701,10 +728,14 @@ class KeyboardController(
     private fun buildDecodeRequest(): DecodeRequest {
         val locked = mode() == Mode.PINYIN && composing.isNotEmpty() && lockedReadings.isNotEmpty()
         val full = if (locked) fullLetters() else ""
+        val bounds = if (locked) readingToInputBounds() else emptyMap()
         val readingCuts = if (locked) {
             val lockCuts = ArrayList<Int>(lockedReadings.size); var acc = 0
             for (r in lockedReadings) { acc += r.length; if (acc < full.length) lockCuts.add(acc) }
-            (forcedCuts.filter { it in (activeStart + 1) until composing.length } + lockCuts).toSet()
+            val forced = forcedCuts
+                .filter { it in (activeStart + 1) until composing.length }
+                .mapNotNull { inputCut -> bounds.entries.firstOrNull { it.value == inputCut }?.key }
+            (forced + lockCuts).toSet()
         } else {
             emptySet()
         }
@@ -721,7 +752,7 @@ class KeyboardController(
             lockedNonEmpty = locked,
             full = full,
             readingCuts = readingCuts,
-            bounds = if (locked) readingLetterToDigit() else emptyMap(),
+            bounds = bounds,
             isNine = layoutId == LayoutId.NINE,
             forcedCuts = forcedCuts.toSet(),
             associationsEnabled = associationsEnabled,
@@ -795,28 +826,28 @@ class KeyboardController(
     }
 
     private fun computeDrill(req: DecodeRequest): List<Cand> {
-        val reading = if (req.isNine && req.lockedNonEmpty) req.full else req.raw
-        val syls = req.engine.syllablesForReading(reading)
+        val reading = if (req.lockedNonEmpty) req.full else req.raw
+        val syls = req.engine.syllablesForReading(reading, req.readingCuts)
         if (req.drillSyllable !in syls.indices) return emptyList()
         val readingEnd = syls[req.drillSyllable].end
-        val coveredLen = if (req.isNine) req.bounds[readingEnd] ?: readingEnd else readingEnd
-        return req.engine.homophonesForReadingAt(reading, req.drillSyllable)
+        val coveredLen = if (req.lockedNonEmpty) req.bounds[readingEnd] ?: readingEnd else readingEnd
+        return req.engine.homophonesForReadingAt(reading, req.drillSyllable, req.readingCuts)
             .map { Cand(it, coveredLen.coerceIn(1, req.composingLen)) }
     }
 
-    private fun currentSyllables(): List<Syllable> =
-        when {
-            composing.isEmpty() -> emptyList()
-            layoutId == LayoutId.NINE && activeDigits().isEmpty() && lockedReadings.size == 1 ->
-                engine.syllablesForReading(lockedReadings.single())
-            else -> engine.syllablesForReading(composing.toString())
-        }
+    private fun currentSyllables(): List<Syllable> {
+        if (composing.isEmpty()) return emptyList()
+        val req = buildDecodeRequest()
+        val reading = if (req.lockedNonEmpty) req.full else req.raw
+        return req.engine.syllablesForReading(reading, req.readingCuts)
+    }
 
     private fun savePreeditChoiceUndo() {
         preeditChoiceUndo.addLast(PreeditChoiceUndo(
             composing = composing.toString(),
             committedPrefix = committedPrefix.toString(),
             lockedReadings = lockedReadings.toList(),
+            lockedInputLengths = lockedInputLengths.toList(),
             activeStart = activeStart,
             forcedCuts = forcedCuts.toSet(),
             history = history.toList(),
@@ -846,6 +877,7 @@ class KeyboardController(
         composing.setLength(0); composing.append(snap.composing)
         committedPrefix.setLength(0); committedPrefix.append(snap.committedPrefix)
         lockedReadings.clear(); lockedReadings.addAll(snap.lockedReadings)
+        lockedInputLengths.clear(); lockedInputLengths.addAll(snap.lockedInputLengths)
         activeStart = snap.activeStart
         forcedCuts.clear(); forcedCuts.addAll(snap.forcedCuts)
         history.clear(); for (step in snap.history) history.addLast(step)
@@ -892,7 +924,7 @@ class KeyboardController(
         if (composing.isEmpty()) return prefix
         val tail = if (mode() == Mode.PINYIN && layoutId == LayoutId.NINE) {
             val locked = lockedReadings.joinToString("'")
-            val rest = T9Pinyin.preedit(activeDigits(), activeCuts().toSet())
+            val rest = T9Pinyin.preedit(activeInput(), activeCuts().toSet())
             when {
                 locked.isEmpty() -> rest
                 rest.isEmpty() -> locked
@@ -905,7 +937,7 @@ class KeyboardController(
     internal fun nineLeftColumn(): List<Key> {
         val w = 0.85f
         if (composing.isEmpty()) return Layouts.ninePunctuation(customSymbols)
-        val active = activeDigits()
+        val active = activeInput()
         if (active.isEmpty()) {
             if (lockedReadings.isEmpty()) return emptyList()
             val lastDigits = T9Pinyin.toT9(lockedReadings.last())
@@ -914,8 +946,9 @@ class KeyboardController(
         }
         val firstCut = activeCuts().firstOrNull()
         val chunk = if (firstCut != null) active.substring(0, firstCut) else active
-        return T9Pinyin.leftColumnReadings(chunk, NINE_LEFT_MAX)
-            .map { Key(it, output = it, action = KeyAction.PICK_READING, weight = w) }
+        val readings = T9Pinyin.leftColumnReadings(chunk, NINE_LEFT_MAX)
+        val visible = if (lockedReadings.isEmpty()) readings else listOf(lockedReadings.last()) + readings
+        return visible.map { Key(it, output = it, action = KeyAction.PICK_READING, weight = w) }
     }
 
     private fun render() {
@@ -933,15 +966,21 @@ class KeyboardController(
     internal fun shiftStateName(): String = shiftState.name
 
     internal fun expandedReadings(): List<String> = when {
-        layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty() ->
-            currentSyllables().firstOrNull()?.let { listOf(it.reading) } ?: emptyList()
+        layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty() -> {
+            val syllables = currentSyllables()
+            val next = syllables.getOrNull(lockedReadings.size)?.reading
+            when {
+                lockedReadings.isEmpty() -> next?.let(::listOf) ?: emptyList()
+                next == null -> listOf(lockedReadings.last())
+                else -> listOf(lockedReadings.last(), next)
+            }
+        }
         else -> nineLeftColumn().filter { it.action == KeyAction.PICK_READING }.map { it.label }
     }
 
     private fun selectedExpandedReadingIndex(readings: List<String>): Int = when {
-        layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty() -> drillSyllable
-        layoutId == LayoutId.NINE && mode() == Mode.PINYIN && composing.isNotEmpty() &&
-            activeDigits().isEmpty() && lockedReadings.isNotEmpty() -> readings.indexOf(lockedReadings.last())
+        mode() == Mode.PINYIN && composing.isNotEmpty() && lockedReadings.isNotEmpty() ->
+            readings.indexOf(lockedReadings.last())
         else -> -1
     }
 
@@ -965,18 +1004,20 @@ class KeyboardController(
 
     fun onPickReadingIndex(index: Int) {
         if (decodeLane?.pending == true) return
-        if (layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty()) {
-            if (index != 0 || currentSyllables().isEmpty()) return
-            expirePreeditChoiceUndo()
-            drillSyllable = 0
-            refreshCandidates()
-            render()
-            return
-        }
         val readings = expandedReadings()
         if (index !in readings.indices) return
         expirePreeditChoiceUndo()
-        handlePickReading(Key(readings[index], output = readings[index], action = KeyAction.PICK_READING))
+        val reading = readings[index]
+        val lockedIndex = lockedReadings.singleOrNull()?.let(readings::indexOf) ?: -1
+        if (mode() == Mode.PINYIN && composing.isNotEmpty() &&
+            index == lockedIndex && lockedReadings.singleOrNull() == reading
+        ) {
+            drillSyllable = 0
+        } else {
+            drillSyllable = -1
+            drillChoices.clear()
+            handlePickReading(Key(reading, output = reading, action = KeyAction.PICK_READING))
+        }
         refreshCandidates()
         render()
     }

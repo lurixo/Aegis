@@ -177,6 +177,7 @@ object T9Pinyin {
 
     fun preedit(digits: String): String {
         if (digits.isEmpty()) return ""
+        syllableReading(digits).takeIf { it.isNotEmpty() }?.let { return it }
         segment(digits)?.let { return it.joinToString("'") }
         val sb = StringBuilder()
         var i = 0

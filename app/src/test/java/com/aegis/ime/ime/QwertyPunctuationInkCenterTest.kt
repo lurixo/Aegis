@@ -18,7 +18,6 @@ package com.aegis.ime.ime
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.RectF
 import android.view.View
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.layout.Lang
@@ -61,33 +60,22 @@ class QwertyPunctuationInkCenterTest {
         return bmp
     }
 
-    private fun inkBox(bmp: Bitmap, box: RectF): IntArray? {
-        var minX = Int.MAX_VALUE; var minY = Int.MAX_VALUE; var maxX = Int.MIN_VALUE; var maxY = Int.MIN_VALUE
-        for (y in (box.top.toInt() + 1) until box.bottom.toInt()) for (x in (box.left.toInt() + 1) until box.right.toInt()) {
-            val p = bmp.getPixel(x, y)
-            val r = (p shr 16) and 0xFF; val g = (p shr 8) and 0xFF; val b = p and 0xFF
-            if ((r + g + b) / 3 < 110) {
-                if (x < minX) minX = x; if (x > maxX) maxX = x
-                if (y < minY) minY = y; if (y > maxY) maxY = y
-            }
-        }
-        return if (maxX < minX) null else intArrayOf(minX, minY, maxX, maxY)
-    }
-
-    @Test fun cn_qwerty_fullwidth_comma_and_period_are_ink_centred() {
+    @Test fun cn_qwerty_comma_and_period_keep_font_metric_centring() {
         val v = layOut(qwerty(Lang.CN))
-        val bmp = render(v)
+        val canvas = AnchorRecordingCanvas(Bitmap.createBitmap(v.measuredWidth, v.measuredHeight, Bitmap.Config.ARGB_8888))
+        v.draw(canvas)
+        val rects = v.keyBoundsForTest().associate { it.first.label to it.second }
         val fails = ArrayList<String>()
-        for (label in listOf("，", "。")) {
-            val rect = requireNotNull(v.boundsOfLabelForTest(label)) { "$label key missing" }
-            val box = inkBox(bmp, rect)
-            if (box == null) { fails.add("$label rendered no ink"); continue }
-            val inkCx = (box[0] + box[2]) / 2f
-            val inkCy = (box[1] + box[3]) / 2f
-            if (kotlin.math.abs(inkCx - rect.centerX()) > rect.width() * 0.05f) fails.add("$label X off by ${inkCx - rect.centerX()} (keyW=${rect.width()})")
-            if (kotlin.math.abs(inkCy - rect.centerY()) > rect.height() * 0.05f) fails.add("$label Y off by ${inkCy - rect.centerY()} (keyH=${rect.height()})")
+        for (label in listOf(",", ".")) {
+            val rect = requireNotNull(rects[label]) { "$label key missing" }
+            val drawn = canvas.texts.filter { it.first == label }.map { it.second }
+            if (drawn.size != 1) { fails.add("$label drawn ${drawn.size} times"); continue }
+            val a = drawn[0]
+            if (a.align != Paint.Align.CENTER) fails.add("$label align ${a.align}")
+            if (kotlin.math.abs(a.x - rect.centerX()) > 0.5f) fails.add("$label anchor X off by ${a.x - rect.centerX()}")
+            if (kotlin.math.abs(a.y - (rect.centerY() - a.metricCenter)) > 0.5f) fails.add("$label anchor Y off by ${a.y - (rect.centerY() - a.metricCenter)}")
         }
-        assertTrue("CN qwerty fullwidth marks not ink-centred: $fails", fails.isEmpty())
+        assertTrue("CN qwerty punctuation left the English centring path: $fails", fails.isEmpty())
     }
 
     private class Anchor(val x: Float, val y: Float, val align: Paint.Align, val metricCenter: Float, val textSize: Float, val color: Int)

@@ -122,4 +122,15 @@ class HomophoneDrillAgreementTest {
         assertEquals(letter.homophoneFreqs("xi").map { it.first }, letter.homophonesAt("xian", 0, setOf(2)))
         assertEquals(letter.homophoneFreqs("an").map { it.first }, letter.homophonesAt("xian", 1, setOf(2)))
     }
+
+    @Test fun midRemnantDoesNotShiftTheDisplayedDrillIndex() {
+        assumeAssets()
+        val cuts = setOf(3)
+        assertEquals(listOf("ni", "hao"), letter.syllables("niihao", cuts).map { it.reading })
+        assertEquals(
+            letter.homophoneFreqs("hao").map { it.first },
+            letter.homophonesAt("niihao", 1, cuts),
+        )
+        assertEquals(emptyList<String>(), letter.homophonesAt("niihao", 2, cuts))
+    }
 }
