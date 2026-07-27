@@ -75,6 +75,8 @@ tasks.withType<Test>().configureEach {
     inputs.dir(layout.projectDirectory.dir("src/main/res"))
         .withPropertyName("sourceResourcesReadByTests")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.property("auditSweepGate", providers.environmentVariable("AEGIS_AUDIT_FULL").orElse(""))
+    inputs.property("heavyAuditSweepGate", providers.environmentVariable("AEGIS_AUDIT_HEAVY").orElse(""))
 }
 
 dependencies {
