@@ -16,6 +16,7 @@
 package com.aegis.ime.dict
 
 import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -61,6 +62,7 @@ object ModelDownload {
         val bytesRead: Long = 0L,
         val contentLength: Long = -1L,
         val error: Throwable? = null,
+        val resumedFrom: Long = 0L,
     )
 
     data class ModelSnapshot(val validator: String?, val sha256: String, val sizeBytes: Long)
@@ -70,8 +72,13 @@ object ModelDownload {
     private val recoveringDicts = ConcurrentHashMap.newKeySet<String>()
     private val dictionaryRecoveryLock = ReentrantLock()
 
-    fun download(url: String, dest: File, onProgress: (Long, Long) -> Unit): DownloadResult =
-        downloadStaged(url, dest, onProgress) { staged, _ ->
+    fun download(
+        url: String,
+        dest: File,
+        expectedSha256: String? = null,
+        onProgress: (Long, Long) -> Unit,
+    ): DownloadResult =
+        downloadStaged(url, dest, expectedSha256, onProgress) { staged, _ ->
             moveReplacing(staged, dest)
             true
         }
@@ -81,7 +88,7 @@ object ModelDownload {
         dest: File,
         onProgress: (Long, Long) -> Unit,
         persistSnapshot: (ModelSnapshot) -> Boolean,
-    ): DownloadResult = downloadStaged(url, dest, onProgress) { staged, validator ->
+    ): DownloadResult = downloadStaged(url, dest, null, onProgress) { staged, validator ->
         if (runCatching { OctagramReader.fromFile(staged) }.isFailure) return@downloadStaged false
         replaceModel(
             staged,
@@ -94,6 +101,7 @@ object ModelDownload {
     private fun downloadStaged(
         url: String,
         dest: File,
+        expectedSha256: String?,
         onProgress: (Long, Long) -> Unit,
         install: (File, String?) -> Boolean,
     ): DownloadResult {
@@ -101,22 +109,61 @@ object ModelDownload {
         if (!inFlight.add(key)) return DownloadResult(false, null)
         var conn: HttpURLConnection? = null
         val tmp = File(dest.parentFile, dest.name + ".part")
+        val meta = partMetaOf(tmp)
         var total = -1L
         var done = 0L
+        var resumedFrom = 0L
         return try {
             dest.parentFile?.mkdirs()
-            tmp.delete()
+            val resume = resumeIdentity(tmp, meta, url, expectedSha256)
+            if (resume == null) {
+                tmp.delete()
+                meta.delete()
+            }
+            val offset = if (resume != null) tmp.length() else 0L
             conn = (URL(url).openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = true
                 connectTimeout = 20_000
                 readTimeout = 30_000
+                if (resume != null) {
+                    setRequestProperty("Range", "bytes=$offset-")
+                    resume.validator?.let { setRequestProperty("If-Range", it) }
+                }
             }
             if (conn.responseCode !in 200..299) throw HttpStatusException(conn.responseCode)
-            total = conn.contentLengthLong
             val validator = trustworthyValidator(conn.getHeaderField("ETag"))
                 ?: trustworthyValidator(conn.getHeaderField("Last-Modified"))
+            if (resume != null && conn.responseCode == HttpURLConnection.HTTP_PARTIAL) {
+                val range = parseContentRange(conn.getHeaderField("Content-Range"))
+                val consistent = range != null &&
+                    range.first == offset &&
+                    range.second == resume.sizeBytes &&
+                    (resume.validator == null || validator == resume.validator)
+                if (!consistent) {
+                    tmp.delete()
+                    meta.delete()
+                    throw IOException("partial content does not continue the stored partial file")
+                }
+                total = resume.sizeBytes
+                done = offset
+                resumedFrom = offset
+            } else {
+                total = conn.contentLengthLong
+                val identity = PartialIdentity(
+                    url = url,
+                    sizeBytes = total,
+                    sha256 = normalizeSha256(expectedSha256),
+                    validator = validator?.takeIf { !it.startsWith("W/") },
+                )
+                if (total > 0L && (identity.sha256 != null || identity.validator != null)) {
+                    if (!writePartialIdentity(meta, identity)) meta.delete()
+                } else {
+                    meta.delete()
+                }
+            }
             conn.inputStream.use { input ->
-                tmp.outputStream().use { out ->
+                FileOutputStream(tmp, resumedFrom > 0L).use { out ->
+                    if (done > 0L) onProgress(done, total)
                     val buf = ByteArray(1 shl 16)
                     while (true) {
                         val n = input.read(buf)
@@ -129,16 +176,74 @@ object ModelDownload {
             }
             when {
                 total >= 0L && done != total ->
-                    DownloadResult(false, null, TransferFailure.INCOMPLETE, done, total)
-                done <= 1024L -> DownloadResult(false, null, bytesRead = done, contentLength = total)
-                else -> installStaged(tmp, validator, done, total, install)
+                    DownloadResult(false, null, TransferFailure.INCOMPLETE, done, total, resumedFrom = resumedFrom)
+                done <= 1024L ->
+                    DownloadResult(false, null, bytesRead = done, contentLength = total, resumedFrom = resumedFrom)
+                else -> installStaged(tmp, validator, done, total, resumedFrom, install)
             }
         } catch (e: Exception) {
-            DownloadResult(false, null, identifyRequestFailure(e)?.toTransferFailure(), done, total, e)
+            DownloadResult(false, null, identifyRequestFailure(e)?.toTransferFailure(), done, total, e, resumedFrom)
         } finally {
-            tmp.delete()
+            discardUnresumablePartial(tmp)
             conn?.disconnect()
             inFlight.remove(key)
+        }
+    }
+
+    private data class PartialIdentity(
+        val url: String,
+        val sizeBytes: Long,
+        val sha256: String?,
+        val validator: String?,
+    )
+
+    private fun partMetaOf(part: File): File = File(part.parentFile, "${part.name}.meta")
+
+    private fun readPartialIdentity(meta: File): PartialIdentity? = runCatching {
+        val lines = meta.readText().split('\n')
+        if (lines.size != 4) return@runCatching null
+        PartialIdentity(
+            url = lines[0],
+            sizeBytes = lines[1].toLong(),
+            sha256 = normalizeSha256(lines[2].takeIf { it != "-" }),
+            validator = lines[3].takeIf { it != "-" },
+        )
+    }.getOrNull()?.takeIf { it.sizeBytes > 0L && (it.sha256 != null || it.validator != null) }
+
+    private fun writePartialIdentity(meta: File, identity: PartialIdentity): Boolean = runCatching {
+        meta.writeText(
+            listOf(
+                identity.url,
+                identity.sizeBytes.toString(),
+                identity.sha256 ?: "-",
+                identity.validator ?: "-",
+            ).joinToString("\n"),
+        )
+    }.isSuccess
+
+    private fun resumeIdentity(tmp: File, meta: File, url: String, expectedSha256: String?): PartialIdentity? =
+        readPartialIdentity(meta)?.takeIf { identity ->
+            identity.url == url &&
+                identity.sha256 == normalizeSha256(expectedSha256) &&
+                tmp.isFile &&
+                tmp.length() > 0L &&
+                tmp.length() < identity.sizeBytes
+        }
+
+    private fun parseContentRange(value: String?): Pair<Long, Long>? {
+        val match = Regex("bytes (\\d+)-(\\d+)/(\\d+)").matchEntire(value?.trim() ?: return null) ?: return null
+        val start = match.groupValues[1].toLongOrNull() ?: return null
+        val entity = match.groupValues[3].toLongOrNull() ?: return null
+        return start to entity
+    }
+
+    private fun discardUnresumablePartial(part: File) {
+        val meta = partMetaOf(part)
+        val identity = readPartialIdentity(meta)
+        val resumable = identity != null && part.isFile && part.length() > 0L && part.length() < identity.sizeBytes
+        if (!resumable) {
+            part.delete()
+            meta.delete()
         }
     }
 
@@ -147,12 +252,16 @@ object ModelDownload {
         validator: String?,
         done: Long,
         total: Long,
+        resumedFrom: Long,
         install: (File, String?) -> Boolean,
     ): DownloadResult = try {
-        if (install(staged, validator)) DownloadResult(true, validator)
-        else DownloadResult(false, null, TransferFailure.INSTALL, done, total)
+        if (install(staged, validator)) {
+            DownloadResult(true, validator, bytesRead = done, contentLength = total, resumedFrom = resumedFrom)
+        } else {
+            DownloadResult(false, null, TransferFailure.INSTALL, done, total, resumedFrom = resumedFrom)
+        }
     } catch (e: Exception) {
-        DownloadResult(false, null, TransferFailure.INSTALL, done, total, e)
+        DownloadResult(false, null, TransferFailure.INSTALL, done, total, e, resumedFrom)
     }
 
     private fun replaceModel(
@@ -303,7 +412,9 @@ object ModelDownload {
     fun purge(filesDir: File): Boolean {
         destFile(filesDir).delete()
         partFile(filesDir).delete()
-        return !destFile(filesDir).exists() && !partFile(filesDir).exists()
+        partMetaOf(partFile(filesDir)).delete()
+        return !destFile(filesDir).exists() && !partFile(filesDir).exists() &&
+            !partMetaOf(partFile(filesDir)).exists()
     }
 
 
@@ -423,7 +534,7 @@ object ModelDownload {
         try {
             val key = filesDir.absolutePath
             deleteBundledDictCache(filesDir)
-            if (destFile(filesDir).absolutePath !in inFlight) partFile(filesDir).delete()
+            if (destFile(filesDir).absolutePath !in inFlight) discardUnresumablePartial(partFile(filesDir))
             val dictActive = dictZipFile(filesDir).absolutePath in inFlight ||
                 key in installingDicts ||
                 key in recoveringDicts
@@ -457,7 +568,7 @@ object ModelDownload {
             dictStagingDir(filesDir).deleteRecursively()
             if (completeNewGeneration || recoveryRequired) dictZipFile(filesDir).delete()
             if (!dictZipFile(filesDir).exists()) clearPendingDictionarySha(filesDir)
-            dictPartFile(filesDir).delete()
+            discardUnresumablePartial(dictPartFile(filesDir))
             if (isDictDownloaded(filesDir)) legacyDictZipFile(filesDir).delete()
             legacyDictPartFile(filesDir).delete()
         } finally {
@@ -758,6 +869,7 @@ object ModelDownload {
             dictStagingDir(filesDir).deleteRecursively()
             dictZipFile(filesDir).delete()
             dictPartFile(filesDir).delete()
+            partMetaOf(dictPartFile(filesDir)).delete()
             legacyDictZipFile(filesDir).delete()
             legacyDictPartFile(filesDir).delete()
             deleteBundledDictCache(filesDir)
@@ -772,6 +884,7 @@ object ModelDownload {
                 !dictStagingDir(filesDir).exists() &&
                 !dictZipFile(filesDir).exists() &&
                 !dictPartFile(filesDir).exists() &&
+                !partMetaOf(dictPartFile(filesDir)).exists() &&
                 !legacyDictZipFile(filesDir).exists() &&
                 !legacyDictPartFile(filesDir).exists()
         } finally {

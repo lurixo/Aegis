@@ -518,6 +518,94 @@ class DownloadCardWorkTest {
         }
     }
 
+    @Test fun an_interrupted_dictionary_download_resumes_and_installs_the_verified_pack() {
+        val base = context.filesDir
+        assertTrue(ModelDownload.purgeDict(base))
+        val downloaded = File(base, "downloaded")
+        val replacements = ModelDownload.DICT_PACK_FILES.mapIndexed { index, name ->
+            name to ByteArray(60_000).also { Random(index + 41).nextBytes(it) }
+        }.toMap()
+        val body = dictionaryArchive(replacements)
+        val cut = body.size / 2
+        val archive = File.createTempFile("archive", ".zip").apply { writeBytes(body) }
+        val sha256 = ModelDownload.sha256Of(archive)
+        archive.delete()
+        val ranges = CopyOnWriteArrayList<String?>()
+        val served = CopyOnWriteArrayList<Int>()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/dict") { exchange ->
+                ranges += exchange.requestHeaders.getFirst("Range")
+                exchange.responseHeaders.add("ETag", "dict-pack-1")
+                if (ranges.size == 1) {
+                    served += cut
+                    exchange.sendResponseHeaders(200, body.size.toLong())
+                    exchange.responseBody.use { it.write(body, 0, cut) }
+                } else {
+                    served += body.size - cut
+                    exchange.responseHeaders.add("Content-Range", "bytes $cut-${body.size - 1}/${body.size}")
+                    exchange.sendResponseHeaders(206, (body.size - cut).toLong())
+                    exchange.responseBody.use { it.write(body, cut, body.size - cut) }
+                }
+                exchange.close()
+            }
+        }
+        server.start()
+        val asset = ModelDownload.DictionaryAsset(
+            url = "http://127.0.0.1:${server.address.port}/dict",
+            assetName = "aegis_dict_pack_dict-latest.zip",
+            sizeBytes = body.size.toLong(),
+            sha256 = sha256,
+            releaseTag = "dict-latest",
+            releaseUrl = "https://github.com/lurixo/Aegis/releases/tag/dict-latest",
+            prerelease = false,
+            publishedAt = null,
+        )
+        try {
+            val part = ModelDownload.dictPartFile(base)
+
+            val interrupted = startDictionary(asset)
+
+            assertEquals(
+                LocalizedText.ResourceNested(
+                    R.string.download_status_failed_format,
+                    R.string.download_cause_incomplete,
+                ),
+                interrupted.status,
+            )
+            assertEquals(cut.toLong(), part.length())
+
+            val betweenAttempts = DictDownloadWork.snapshot(context)
+            assertFalse(betweenAttempts.present)
+            assertTrue("reconciliation keeps the bound partial", part.exists())
+
+            val resumed = startDictionary(asset)
+
+            assertTrue(resumed.present)
+            assertEquals(listOf<String?>(null, "bytes=$cut-"), ranges.toList())
+            assertEquals(listOf(cut, body.size - cut), served.toList())
+            assertTrue(ModelDownload.isDictDownloaded(base))
+            assertEquals(sha256, ModelDownload.installedDictionaryFileSha(base))
+            replacements.forEach { (name, bytes) ->
+                assertArrayEquals(bytes, File(downloaded, name).readBytes())
+            }
+            assertFalse(part.exists())
+            assertFalse(ModelDownload.dictZipFile(base).exists())
+        } finally {
+            server.stop(0)
+            ModelDownload.purgeDict(base)
+            DictDownloadWork.setIdleStatus(context, LocalizedText.Resource(R.string.dict_status_not_downloaded))
+            context.getSharedPreferences("aegis", 0).edit()
+                .remove(ModelDownload.DICT_VALIDATOR_PREF)
+                .remove(ModelDownload.DICT_SHA256_PREF)
+                .remove(ModelDownload.DICT_ASSET_NAME_PREF)
+                .remove(ModelDownload.DICT_ASSET_URL_PREF)
+                .remove(ModelDownload.DICT_RELEASE_TAG_PREF)
+                .remove(ModelDownload.DICT_RELEASE_PUBLISHED_PREF)
+                .remove(SettingsHotApply.ENGINE_PACK_TOUCH_PREF)
+                .commit()
+        }
+    }
+
     @Test fun a_pending_marker_that_cannot_be_written_is_not_reported_as_an_unfinished_install() {
         val base = context.filesDir
         ModelDownload.purgeDict(base)
