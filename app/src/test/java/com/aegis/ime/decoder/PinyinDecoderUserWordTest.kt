@@ -17,6 +17,7 @@ package com.aegis.ime.decoder
 
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -239,5 +240,38 @@ class PinyinDecoderUserWordTest {
 
         assertEquals(blocker, best(2))
         assertEquals(target, best(3))
+    }
+
+    @Test fun formed_and_committed_boosts_stack_without_either_one_winning_alone() {
+        val now = 1_000L
+        val reading = "zici"
+        val target = "自词"
+        val competitor = "常词"
+        val controlledDict = EngineFixture.build(
+            listOf(
+                EngineFixture.Row(reading, competitor, 50_000),
+                EngineFixture.Row(reading, target, 10),
+            ),
+        )
+        val learning = UserLearning { now }
+        repeat(3) {
+            learning.observeCommit(null, "自", "zi", now)
+            learning.observeCommit("自", "词", "ci", now)
+            learning.observeBreak()
+        }
+        val model = UserModel { now }.apply {
+            recordWord(reading, target, now, incrementCount = true)
+        }
+        fun best(userModel: UserModel?, userLearning: UserLearning?) =
+            PinyinDecoder(
+                controlledDict,
+                null,
+                userModel = userModel,
+                userLearning = userLearning,
+            ).decodeCovered(reading, 30).first().word
+
+        assertEquals(competitor, best(null, learning))
+        assertEquals(competitor, best(model, null))
+        assertEquals(target, best(model, learning))
     }
 }

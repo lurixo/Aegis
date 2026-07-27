@@ -187,6 +187,14 @@ class UserLearningTest {
     }
 
     @Test
+    fun collocationPreviousWordIsCappedAtFourHanCharacters() {
+        store.observeCommit("甲乙丙丁", "允许", "", now)
+        store.observeCommit("甲乙丙丁戊", "拒绝", "", now)
+        assertEquals(listOf("允许"), store.follows("甲乙丙丁").map { it.first })
+        assertTrue(store.follows("甲乙丙丁戊").isEmpty())
+    }
+
+    @Test
     fun corruptStoreFilesLoadEmpty() {
         val variants = listOf(
             "garbage\n",

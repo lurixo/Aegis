@@ -34,6 +34,10 @@ object UserDictEdit {
         val m = UserModel().apply { if (userDb.exists()) load(userDb) }
         m.removeWord(reading, word)
         m.save(userDb)
+        val userLearn = File(userDb.absoluteFile.parentFile, "userlearn.txt")
+        val learning = UserLearning().apply { if (userLearn.exists()) load(userLearn) }
+        learning.removeWord(word)
+        if (learning.dirty) learning.save(userLearn)
         return true
     }
 

@@ -105,7 +105,7 @@ class BackupArchiveTest {
     }
 
     @Test fun allows_only_known_relative_paths() {
-        for (ok in listOf("userdb.txt", "phrases.txt", "clipboard.txt", "symbol_usage.txt", "emoji/symbol_usage.txt", "clips/AB12cd.txt")) {
+        for (ok in listOf("userdb.txt", "userlearn.txt", "phrases.txt", "clipboard.txt", "symbol_usage.txt", "emoji/symbol_usage.txt", "clips/AB12cd.txt")) {
             assertEquals(ok, BackupArchive.sanitizedRelativePath(ok))
         }
         for (bad in listOf(

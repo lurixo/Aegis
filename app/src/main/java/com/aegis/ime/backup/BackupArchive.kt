@@ -125,6 +125,7 @@ internal object BackupArchive {
 
     private val TOP_LEVEL_FILES = setOf(
         "userdb.txt",
+        "userlearn.txt",
         "phrases.txt",
         "clipboard.txt",
         "symbol_usage.txt",

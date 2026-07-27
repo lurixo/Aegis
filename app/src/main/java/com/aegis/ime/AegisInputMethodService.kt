@@ -58,6 +58,7 @@ import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.LiveUserDictHost
 import com.aegis.ime.user.SymbolUsageStore
 import com.aegis.ime.user.UserDictHot
+import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
 import java.io.File
 
@@ -76,8 +77,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     )
     @Volatile private var panelTextSnapshot: String? = null
     private val userModel = UserModel()
+    private val userLearning = UserLearning()
     private val userDbFile by lazy { File(filesDir, "userdb.txt") }
+    private val userLearnFile by lazy { File(filesDir, "userlearn.txt") }
     @Volatile private var userDbMtime = 0L
+    @Volatile private var userLearnMtime = 0L
 
     private var inputView: InputView? = null
 
@@ -234,7 +238,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     )
 
     private val liveUserDictHost by lazy {
-        LiveUserDictHost(userModel, userDbFile) { userDbMtime = it }
+        LiveUserDictHost(userModel, userDbFile, userLearning, userLearnFile) {
+            userDbMtime = it
+            userLearnMtime = userLearnFile.lastModified()
+        }
     }
 
     override fun onCreate() {
@@ -249,6 +256,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 runCatching { clipboardStore.load() }
                 runCatching { symbolUsageStore.load() }
                 runCatching { emojiUsageStore.load() }
+                runCatching {
+                    userLearning.load(userLearnFile)
+                    userLearnMtime = userLearnFile.lastModified()
+                }
                 LiveUserData.restoreInProgress = false
             }
         }
@@ -263,11 +274,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.onShowCustomSymbols = { showCustomSymbolPanel() }
         controller.onShowCustomOperators = { showCustomOperatorPanel() }
         controller.onClosePanel = { inputView?.showPanel(null) }
+        controller.userLearning = userLearning
         controller.setCustomSymbols(customSymbolStore.list())
         controller.setCustomOperators(customOperatorStore.list())
         Thread {
             runCatching { com.aegis.ime.engine.InputAssociations.lookup("nihao") }
             runCatching { userModel.load(userDbFile); userDbMtime = userDbFile.lastModified() }
+            userLearning.load(userLearnFile)
+            userLearnMtime = userLearnFile.lastModified()
             userDbLoaded = true
             UserDictHot.host = liveUserDictHost
             val engine = buildEngine()
@@ -289,7 +303,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val lm = loadLm("aegis_lm.bin")
         val octagram = runCatching { OctagramReader.fromDownloads(this, "wanxiang-lts-zh-hans.gram") }
             .onFailure { Log.e("Aegis", "octagram load failed", it) }.getOrNull()
-        val engine = DictEngine(dict, t9Dict, lm, userModel, fuzzyRules, initialsDict, octagram)
+        val engine = DictEngine(dict, t9Dict, lm, userModel, fuzzyRules, initialsDict, octagram, userLearning)
         engineSig = sig
         return engine
     }
@@ -365,6 +379,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (userDbLoaded && !userModel.dirty && userDbFile.lastModified() > userDbMtime) {
             runCatching { userModel.reload(userDbFile); userDbMtime = userDbFile.lastModified() }
         }
+        if (userDbLoaded && !userLearning.dirty && userLearnFile.lastModified() > userLearnMtime) {
+            userLearning.load(userLearnFile)
+            userLearnMtime = userLearnFile.lastModified()
+        }
         maybeReloadEngine()
     }
 
@@ -379,6 +397,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (userModel.dirty) runCatching {
             userModel.save(userDbFile)
             userDbMtime = userDbFile.lastModified()
+        }
+        if (userLearning.dirty) runCatching {
+            userLearning.save(userLearnFile)
+            userLearnMtime = userLearnFile.lastModified()
         }
     }
 

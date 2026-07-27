@@ -17,6 +17,9 @@ package com.aegis.ime.engine
 
 import com.aegis.ime.decoder.Cand
 import com.aegis.ime.decoder.EngineFixture
+import com.aegis.ime.decoder.T9Pinyin
+import com.aegis.ime.user.UserLearning
+import com.aegis.ime.user.UserModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -57,5 +60,44 @@ class DictEngineTest {
     fun a_t9_dictionary_unlocks_chinese_support() {
         val dict = EngineFixture.build(listOf(EngineFixture.Row("ni", "你", 900)))
         assertTrue(DictEngine(null, dict, null).supportsChinese)
+    }
+
+    @Test
+    fun learnedWordsRefreshThroughBothDecoders() {
+        val reading = "zici"
+        val target = "自词"
+        val rows = listOf(
+            EngineFixture.Row(reading, "常词", 5_000),
+            EngineFixture.Row(reading, target, 10),
+        )
+        val letters = EngineFixture.build(rows)
+        val digits = EngineFixture.build(rows.map { EngineFixture.Row(T9Pinyin.toT9(it.key), it.word, it.freq) })
+        val learning = UserLearning { 1_000L }
+        val engine = DictEngine(letters, digits, null, userLearning = learning)
+
+        assertEquals("常词", engine.candidates(reading, false).first())
+        assertEquals("常词", engine.candidates(T9Pinyin.toT9(reading), true).first())
+        repeat(3) {
+            learning.observeCommit(null, "自", "zi", 1_000L)
+            learning.observeCommit("自", "词", "ci", 1_000L)
+            learning.observeBreak()
+        }
+        assertEquals(target, engine.candidates(reading, false).first())
+        assertEquals(target, engine.candidates(T9Pinyin.toT9(reading), true).first())
+    }
+
+    @Test
+    fun learnedPredictionsPrecedeModelPredictionsAndStayDeduplicated() {
+        val learning = UserLearning { 1_000L }.apply {
+            repeat(3) { observeCommit("前", "甲", "", 1_000L) }
+            repeat(2) { observeCommit("前", "乙", "", 1_000L) }
+        }
+        val model = UserModel { 1_000L }.apply {
+            record("前", "乙", 1_000L)
+            record("前", "丙", 1_000L)
+        }
+        val engine = DictEngine(null, null, null, model, userLearning = learning)
+
+        assertEquals(listOf("甲", "乙", "丙"), engine.predict("前"))
     }
 }
