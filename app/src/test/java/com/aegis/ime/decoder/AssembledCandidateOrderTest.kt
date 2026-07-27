@@ -133,4 +133,11 @@ class AssembledCandidateOrderTest {
             assertTrue("$path: the glued sentence stays reachable behind it, was at $at", at > 0)
         }
     }
+
+    @Test fun theSentenceStillLeadsWhenTheDictionaryHasNoWordForTheReading() {
+        assets()
+        assertTrue("the reading has no dictionary word", BinaryDict.fromFile(dictFile).exact("nidepingguo").none { it.word.length > 1 })
+        val staged = letters().decodeCoveredAtomic("nidepingguo", 80, setOf(2, 4, 8))
+        assertEquals("the sentence covering every reading still leads", "你的苹果", staged.first().word)
+    }
 }

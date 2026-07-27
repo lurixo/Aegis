@@ -148,6 +148,22 @@ class CandidateTailInvariantTest {
         assertEquals("every anchor run must carry a rare closing run", runs.size, checked)
     }
 
+    @Test fun assembledCombinationsStayInTheListOnBothKeyboards() {
+        assumeTrue(assetsPresent())
+        val offeredOn = HashMap<String, MutableSet<String>>()
+        for (run in anchorRuns()) {
+            for (word in ASSEMBLED) if (word in run.words) offeredOn.getOrPut(word) { HashSet() }.add(run.board.name)
+        }
+        assertEquals(
+            "no assembled combination may leave the list, absent: ${ASSEMBLED - offeredOn.keys}",
+            ASSEMBLED.toSet(), offeredOn.keys,
+        )
+        assertEquals(
+            "the assembled anchors must be exercised on both keyboards",
+            boards.map { it.name }.toSet(), offeredOn.values.flatten().toSet(),
+        )
+    }
+
     @Test fun frequentEntriesKeepTheirSlotUnderLongerInputsOnBothKeyboards() {
         assumeTrue(assetsPresent())
         val missing = ArrayList<String>()
@@ -185,6 +201,38 @@ class CandidateTailInvariantTest {
         }
         assertTrue("the sweep must cover dictionary entries, saw $entries", entries > 0)
         assertTrue("no dictionary entry may leave the candidate list, lost: $lost", lost.isEmpty())
+    }
+
+    @Test fun supportedSentencesKeepTheirSlotOnBothKeyboards() {
+        assumeTrue(assetsPresent())
+        val missing = ArrayList<String>()
+        for ((sentence, reading) in SUPPORTED) {
+            for (board in boards) {
+                val input = board.keys(reading)
+                val cands = board.decoder.decodeCoveredAtomic(input, LIMIT)
+                val at = cands.indexOfFirst { it.word == sentence }
+                if (at < 0) {
+                    missing.add("${board.name} $input drops $sentence")
+                    continue
+                }
+                val rare = rarity(board, input, cands)
+                val firstRare = rare.indexOfFirst { it }
+                if (firstRare in 0 until at) missing.add("${board.name} $input sinks $sentence below the rare run")
+            }
+        }
+        assertTrue("supported sentences must stay ahead of the rare run, wrong: $missing", missing.isEmpty())
+    }
+
+    @Test fun theLeadingSentenceKeepsTheFirstSlotOnBothKeyboards() {
+        assumeTrue(assetsPresent())
+        for ((leading, first, second) in LEADING) {
+            for (board in boards) {
+                for (run in runsFor(board, first, second, "")) {
+                    if (run.label.endsWith("typed straight")) continue
+                    assertEquals("${run.label} must lead with $leading", leading, run.words.first())
+                }
+            }
+        }
     }
 
     @Test fun dictionaryEntriesAndSinglesSurviveOnBothKeyboards() {
@@ -246,6 +294,13 @@ class CandidateTailInvariantTest {
             "思力" to "silianxi",
             "弃家" to "qijiaren",
             "七价" to "qijiaren",
+        )
+
+        val ASSEMBLED = listOf("块了", "筷了", "脍了", "哙了", "快勒", "皮两", "皮量")
+
+        val SUPPORTED = listOf(
+            "伤害很大" to "shanghaihenda",
+            "去超市买东西" to "quchaoshimaidongxi",
         )
 
         val LEADING = listOf(
