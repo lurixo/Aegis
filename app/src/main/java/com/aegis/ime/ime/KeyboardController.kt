@@ -27,6 +27,7 @@ import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.SymbolCatalog
+import com.aegis.ime.user.UserLearning
 
 private enum class ShiftState { OFF, ONCE, LOCK }
 
@@ -118,6 +119,7 @@ class KeyboardController(
     var onShowCustomSymbols: () -> Unit = {}
     var onShowCustomOperators: () -> Unit = {}
     var onClosePanel: () -> Unit = {}
+    var userLearning: UserLearning? = null
 
     private var view: InputView? = null
 
@@ -187,6 +189,7 @@ class KeyboardController(
     }
 
     fun reset(preserveLayout: Boolean = false) {
+        userLearning?.observeBreak()
         decodeLane?.markSatisfiedSynchronously()
         composing.setLength(0)
         candidates = emptyList()
@@ -368,6 +371,9 @@ class KeyboardController(
                 expirePreeditChoiceUndo()
                 host.commitText(cand.word)
                 if (!learningBlocked) engine.learn(lastWord, cand.word)
+                if (!learningBlocked) {
+                    userLearning?.observeCommit(lastWord, cand.word, "", System.currentTimeMillis())
+                }
                 lastWord = cand.word
             }
             else -> {
@@ -525,7 +531,7 @@ class KeyboardController(
             val wholeWord = committedPrefix.toString() + cand.word
             val wholeReading = deferredLearnEvents.joinToString("") { it.reading } + finalReading
             host.commitText(wholeWord)
-            applyDeferredLearning(cand.word)
+            applyDeferredLearning(cand.word, finalReading)
             maybeLearnAssembledWord(wholeWord, wholeReading, assembled)
             lastWord = cand.word
             clearComposingState()
@@ -652,10 +658,17 @@ class KeyboardController(
         drillChoices.clear()
     }
 
-    private fun applyDeferredLearning(finalWord: String? = null) {
+    private fun applyDeferredLearning(finalWord: String? = null, finalReading: String = "") {
         if (!learningBlocked) {
-            for (event in deferredLearnEvents) engine.learn(event.prevWord, event.word)
-            if (finalWord != null) engine.learn(lastWord, finalWord)
+            val now = System.currentTimeMillis()
+            for (event in deferredLearnEvents) {
+                engine.learn(event.prevWord, event.word)
+                userLearning?.observeCommit(event.prevWord, event.word, event.reading, now)
+            }
+            if (finalWord != null) {
+                engine.learn(lastWord, finalWord)
+                userLearning?.observeCommit(lastWord, finalWord, finalReading, now)
+            }
         }
         deferredLearnEvents.clear()
     }

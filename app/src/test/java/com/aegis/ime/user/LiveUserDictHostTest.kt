@@ -90,6 +90,27 @@ class LiveUserDictHostTest {
         assertTrue(disk.readingSnapshot()["nihao"] == null)
     }
 
+    @Test fun remove_scrubs_the_secondary_learning_store() {
+        db = File(tmp.root, "userdb.txt")
+        val userLearnFile = File(tmp.root, "userlearn.txt")
+        val learning = UserLearning { 1_000L }
+        repeat(3) {
+            learning.observeCommit(null, "你", "ni", 1_000L)
+            learning.observeCommit("你", "好", "hao", 1_000L)
+            learning.observeBreak()
+        }
+        learning.observeCommit("前", "你好", "", 1_000L)
+        val h = LiveUserDictHost(model, db, learning, userLearnFile)
+        h.addWord("nihao", "你好", now = 1_000L)
+
+        assertTrue(h.removeWord("nihao", "你好"))
+        assertTrue(learning.formedWordsFor("nihao").isEmpty())
+        assertTrue(learning.follows("前").isEmpty())
+        val reloaded = UserLearning { 1_000L }.apply { load(userLearnFile) }
+        assertTrue(reloaded.formedWordsFor("nihao").isEmpty())
+        assertTrue(reloaded.follows("前").isEmpty())
+    }
+
 
     @Test fun import_merge_while_dirty_unions_unsaved_learning_with_the_import() {
         val h = host()

@@ -22,7 +22,9 @@ import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.LiveUserDictHost
 import com.aegis.ime.user.SymbolUsageStore
 import com.aegis.ime.user.UserDictHot
+import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -68,7 +70,7 @@ class BackupRoundTripTest {
         LiveUserData.onBeforeExport = null
         LiveUserData.onBeforeRestore = null
         LiveUserData.restoreInProgress = false
-        listOf("userdb.txt", "phrases.txt", "clipboard.txt", "symbol_usage.txt").forEach {
+        listOf("userdb.txt", "userlearn.txt", "phrases.txt", "clipboard.txt", "symbol_usage.txt").forEach {
             File(filesDir, it).deleteRecursively()
         }
         File(filesDir, "clips").deleteRecursively()
@@ -127,7 +129,7 @@ class BackupRoundTripTest {
         BackupManager.restore(filesDir, prefs, pass.toCharArray(), ByteArrayInputStream(bytes), mode)
 
     private fun wipeUserData() {
-        listOf("userdb.txt", "phrases.txt", "clipboard.txt", "symbol_usage.txt").forEach {
+        listOf("userdb.txt", "userlearn.txt", "phrases.txt", "clipboard.txt", "symbol_usage.txt").forEach {
             File(filesDir, it).deleteRecursively()
         }
         File(filesDir, "clips").deleteRecursively()
@@ -241,6 +243,72 @@ class BackupRoundTripTest {
             }
         }
         return names
+    }
+
+    @Test fun user_learning_file_obeys_overwrite_and_minimal_merge_semantics() {
+        val userLearn = File(filesDir, "userlearn.txt")
+        UserLearning { 1_000L }.apply {
+            observeCommit("备份", "内容", "", 1_000L)
+            save(userLearn)
+        }
+        val backedUp = userLearn.readBytes()
+        val backup = export()
+        assertTrue("user learning must be present in the archive", "userlearn.txt" in decodeFileNamesFromBackup(backup))
+
+        userLearn.delete()
+        restore(backup, BackupManager.Mode.OVERWRITE)
+        assertArrayEquals(backedUp, userLearn.readBytes())
+
+        UserLearning { 2_000L }.apply {
+            observeCommit("本机", "保留", "", 2_000L)
+            save(userLearn)
+        }
+        val local = userLearn.readBytes()
+        restore(backup, BackupManager.Mode.MERGE)
+        assertArrayEquals(local, userLearn.readBytes())
+    }
+
+    @Test fun export_flushes_live_user_learning_before_archiving() {
+        val userLearn = File(filesDir, "userlearn.txt")
+        val learning = UserLearning { 1_000L }.apply {
+            observeCommit("实时", "学习", "", 1_000L)
+        }
+        UserDictHot.host = LiveUserDictHost(UserModel(), userdbFile(), learning, userLearn)
+        try {
+            val backup = export()
+            assertFalse("export must flush the secondary store", learning.dirty)
+            assertTrue("the flushed file must enter the archive", "userlearn.txt" in decodeFileNamesFromBackup(backup))
+            UserDictHot.host = null
+            userLearn.delete()
+            restore(backup, BackupManager.Mode.OVERWRITE)
+            val restored = UserLearning { 1_000L }.apply { load(userLearn) }
+            assertEquals(listOf("学习"), restored.follows("实时").map { it.first })
+        } finally {
+            UserDictHot.host = null
+        }
+    }
+
+    @Test fun merge_restore_flushes_live_user_learning_before_preserving_the_local_file() {
+        val userLearn = File(filesDir, "userlearn.txt")
+        UserLearning { 1_000L }.apply {
+            observeCommit("备份", "内容", "", 1_000L)
+            save(userLearn)
+        }
+        val backup = export()
+        userLearn.delete()
+
+        val learning = UserLearning { 2_000L }.apply {
+            observeCommit("本机", "保留", "", 2_000L)
+        }
+        UserDictHot.host = LiveUserDictHost(UserModel(), userdbFile(), learning, userLearn)
+        try {
+            restore(backup, BackupManager.Mode.MERGE)
+            val reloaded = UserLearning { 2_000L }.apply { load(userLearn) }
+            assertEquals(listOf("保留"), reloaded.follows("本机").map { it.first })
+            assertTrue(reloaded.follows("备份").isEmpty())
+        } finally {
+            UserDictHot.host = null
+        }
     }
 
 

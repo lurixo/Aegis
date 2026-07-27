@@ -20,6 +20,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import java.nio.file.Files
 
 class UserDictEditTest {
 
@@ -58,6 +59,27 @@ class UserDictEditTest {
         assertEquals("only the chang reading dropped", null, m.readingSnapshot()["chang"])
         assertEquals("the zhang reading of the same word survives", listOf("长"), m.readingSnapshot()["zhang"])
         assertTrue("word still boosted while a reading recalls it", m.wordBoost("长") > 0.0)
+    }
+
+    @Test fun file_fallback_remove_scrubs_and_persists_user_learning() {
+        val dir = Files.createTempDirectory("userdict-edit-learning").toFile().also { it.deleteOnExit() }
+        val db = File(dir, "userdb.txt")
+        UserModel().apply { addManualWord("nihao", "你好", 1_000L) }.save(db)
+        val userLearn = File(dir, "userlearn.txt")
+        UserLearning { 1_000L }.apply {
+            repeat(3) {
+                observeCommit(null, "你", "ni", 1_000L)
+                observeCommit("你", "好", "hao", 1_000L)
+                observeBreak()
+            }
+            observeCommit("前", "你好", "", 1_000L)
+            save(userLearn)
+        }
+
+        assertTrue(UserDictEdit.remove(db, "nihao", "你好"))
+        val reloaded = UserLearning { 1_000L }.apply { load(userLearn) }
+        assertTrue(reloaded.formedWordsFor("nihao").isEmpty())
+        assertTrue(reloaded.follows("前").isEmpty())
     }
 
     @Test fun add_isConsistentWithImportedEntries() {

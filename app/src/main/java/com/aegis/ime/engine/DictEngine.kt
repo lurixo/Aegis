@@ -21,6 +21,7 @@ import com.aegis.ime.decoder.Syllable
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.OctagramReader
+import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
 
 class DictEngine(
@@ -31,12 +32,28 @@ class DictEngine(
     fuzzyRules: Set<String> = emptySet(),
     initialsDict: BinaryDict? = null,
     octagram: OctagramReader? = null,
+    private val userLearning: UserLearning? = null,
 ) : CandidateEngine {
     private val decoder = pinyinDict?.let {
-        PinyinDecoder(it, lm, userModel = userModel, fuzzyRules = fuzzyRules, initialsDict = initialsDict, octagram = octagram)
+        PinyinDecoder(
+            it,
+            lm,
+            userModel = userModel,
+            fuzzyRules = fuzzyRules,
+            initialsDict = initialsDict,
+            octagram = octagram,
+            userLearning = userLearning,
+        )
     }
     private val t9Decoder = t9Dict?.let {
-        PinyinDecoder(it, lm, userModel = userModel, octagram = octagram, aliasDict = pinyinDict)
+        PinyinDecoder(
+            it,
+            lm,
+            userModel = userModel,
+            octagram = octagram,
+            aliasDict = pinyinDict,
+            userLearning = userLearning,
+        )
     }
 
     override val supportsChinese: Boolean = decoder != null || t9Decoder != null
@@ -86,7 +103,10 @@ class DictEngine(
 
     override fun predict(prevWord: String?): List<String> {
         if (prevWord.isNullOrEmpty()) return emptyList()
-        return userModel?.successors(prevWord, MAX_PREDICTIONS) ?: emptyList()
+        val out = LinkedHashSet<String>()
+        userLearning?.follows(prevWord)?.forEach { out.add(it.first) }
+        userModel?.successors(prevWord, MAX_PREDICTIONS)?.forEach(out::add)
+        return out.take(MAX_PREDICTIONS)
     }
 
     override fun learn(prevWord: String?, word: String) {

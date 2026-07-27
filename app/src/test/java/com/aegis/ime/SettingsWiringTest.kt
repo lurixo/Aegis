@@ -53,6 +53,23 @@ class SettingsWiringTest {
         assertTrue("host registration must follow the userDbLoaded gate", loadGate in 1 until hostReg)
     }
 
+    @Test fun service_loads_saves_reloads_and_routes_user_learning() {
+        val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
+        assertTrue(svc.contains("private val userLearning = UserLearning()"))
+        assertTrue(svc.contains("private val userLearnFile by lazy { File(filesDir, \"userlearn.txt\") }"))
+        val initialLoad = svc.substringAfter("runCatching { com.aegis.ime.engine.InputAssociations.lookup(\"nihao\") }")
+            .substringBefore("userDbLoaded = true")
+        val userDbLoad = initialLoad.indexOf("userModel.load(userDbFile)")
+        val userLearnLoad = initialLoad.indexOf("userLearning.load(userLearnFile)")
+        assertTrue("secondary learning must load after userdb", userDbLoad in 1 until userLearnLoad)
+        assertTrue(svc.contains("controller.userLearning = userLearning"))
+        assertTrue(svc.contains("octagram, userLearning)"))
+        assertTrue(svc.contains("if (userLearning.dirty) runCatching"))
+        assertTrue(svc.contains("userLearnFile.lastModified() > userLearnMtime"))
+        val restored = svc.substringAfter("LiveUserData.onRestored = {").substringBefore("LiveUserData.registerClipboardPersistenceHooks")
+        assertTrue(restored.contains("userLearning.load(userLearnFile)"))
+    }
+
     @Test fun service_teardown_drains_clipboard_persistence_without_clearing_the_restore_guard() {
         val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
         val onDestroy = svc.substringAfter("override fun onDestroy()").substringBefore("// --- ImeHost ---")

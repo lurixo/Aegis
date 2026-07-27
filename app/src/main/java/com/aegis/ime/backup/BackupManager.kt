@@ -35,6 +35,7 @@ object BackupManager {
 
 
     private const val USERDB = "userdb.txt"
+    private const val USERLEARN = "userlearn.txt"
     private const val PHRASES = "phrases.txt"
     private const val CLIPBOARD = "clipboard.txt"
     private const val CLIPS_DIR = "clips"
@@ -79,7 +80,7 @@ object BackupManager {
 
     private fun backupRelPaths(filesDir: File): List<String> {
         val paths = ArrayList<String>()
-        for (name in listOf(USERDB, PHRASES, CLIPBOARD, SYMBOL_USAGE)) {
+        for (name in listOf(USERDB, USERLEARN, PHRASES, CLIPBOARD, SYMBOL_USAGE)) {
             if (File(filesDir, name).isFile) paths.add(name)
         }
         if (File(filesDir, EMOJI_USAGE).isFile) paths.add(EMOJI_USAGE)
@@ -122,6 +123,7 @@ object BackupManager {
         var handedOff = false
         try {
             try {
+                UserDictHot.host?.flush()
                 LiveUserData.flushBeforeRestore()
             } catch (e: Exception) {
                 throw BackupException(BackupError.IO_ERROR, e)
@@ -183,6 +185,7 @@ object BackupManager {
         val merge = mode == Mode.MERGE
         applyPrefs(prefs, prefsBlob, merge)
         applyUserDb(filesDir, staging, merge)
+        applyUserLearning(filesDir, staging, merge)
         applyPhrases(filesDir, staging, merge)
         applyClipboard(filesDir, staging, merge)
         applySymbolUsage(filesDir, staging, merge)
@@ -218,6 +221,14 @@ object BackupManager {
             UserDictImport.apply(staged, File(filesDir, USERDB), merge, now)
         }
         if (!applied) throw IOException("user dictionary import failed")
+    }
+
+    private fun applyUserLearning(filesDir: File, staging: File, merge: Boolean) {
+        val staged = File(staging, USERLEARN)
+        if (!staged.isFile) return
+        val target = File(filesDir, USERLEARN)
+        if (merge && target.isFile) return
+        staged.copyTo(target, overwrite = true)
     }
 
     private fun applyPhrases(filesDir: File, staging: File, merge: Boolean) {
