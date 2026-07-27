@@ -32,14 +32,14 @@ class PinyinDecoderFuzzyHotToggleTest {
         assumeTrue("demo dict asset present", dictFile.exists())
         val decoder = PinyinDecoder(BinaryDict.fromFile(dictFile))
 
-        assertTrue("correct spelling reaches 中国", decoder.decode("zhongguo", 30).contains("中国"))
-        assertFalse("fuzzy off: zongguo must NOT reach 中国", decoder.decode("zongguo", 30).contains("中国"))
+        assertTrue("correct spelling reaches 中国", decoder.decodeCovered("zhongguo", 30).any { it.word == "中国" })
+        assertFalse("fuzzy off: zongguo must NOT reach 中国", decoder.decodeCovered("zongguo", 30).any { it.word == "中国" })
 
         decoder.setFuzzyRules(setOf("zh"))
-        assertTrue("fuzzy on: zongguo now reaches 中国", decoder.decode("zongguo", 30).contains("中国"))
+        assertTrue("fuzzy on: zongguo now reaches 中国", decoder.decodeCovered("zongguo", 30).any { it.word == "中国" })
 
         decoder.setFuzzyRules(emptySet())
-        assertFalse("fuzzy off again: zongguo loses 中国", decoder.decode("zongguo", 30).contains("中国"))
+        assertFalse("fuzzy off again: zongguo loses 中国", decoder.decodeCovered("zongguo", 30).any { it.word == "中国" })
     }
 
     @Test

@@ -34,9 +34,7 @@ class PinyinDecoderInternalLmTest {
         val letter = PinyinDecoder(EngineFixture.build(rows), lm)
         val t9 = PinyinDecoder(EngineFixture.build(t9Rows), lm)
 
-        assertEquals("丙丁", letter.decode("ceshi", 2).first())
         assertEquals("丙丁", letter.decodeCovered("ceshi", 2).first().word)
-        assertEquals("丙丁", t9.decode(T9Pinyin.toT9("ceshi"), 2).first())
         assertEquals("丙丁", t9.decodeCovered(T9Pinyin.toT9("ceshi"), 2).first().word)
     }
 }

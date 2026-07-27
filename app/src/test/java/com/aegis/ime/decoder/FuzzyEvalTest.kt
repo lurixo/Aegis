@@ -48,8 +48,8 @@ class FuzzyEvalTest {
             var o = 0; var n = 0
             for ((py, expected) in relevant) {
                 val sloppy = perturb(py)
-                if (off.decode(sloppy, 5).firstOrNull() == expected) o++
-                if (on.decode(sloppy, 5).firstOrNull() == expected) n++
+                if (off.decodeCovered(sloppy, 30).firstOrNull()?.word == expected) o++
+                if (on.decodeCovered(sloppy, 30).firstOrNull()?.word == expected) n++
             }
             return o to n
         }
@@ -60,8 +60,8 @@ class FuzzyEvalTest {
         var exactOff = 0
         var exactOn = 0
         for ((py, expected) in pairs) {
-            if (off.decode(py, 5).firstOrNull() == expected) exactOff++
-            if (on.decode(py, 5).firstOrNull() == expected) exactOn++
+            if (off.decodeCovered(py, 30).firstOrNull()?.word == expected) exactOff++
+            if (on.decodeCovered(py, 30).firstOrNull()?.word == expected) exactOn++
         }
 
         val report = buildString {

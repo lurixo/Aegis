@@ -63,9 +63,9 @@ class JianpinTest {
             CharBigramLM.fromFile(lmFile),
             initialsDict = BinaryDict.fromFile(jianpinFile),
         )
-        assertTrue("zg -> 中国", d.decode("zg", 12).contains("中国"))
-        assertTrue("bjdx -> 北京大学", d.decode("bjdx", 12).contains("北京大学"))
-        assertTrue("wm -> 我们", d.decode("wm", 12).contains("我们"))
+        assertTrue("zg -> 中国", d.decodeCovered("zg", 30).any { it.word == "中国" })
+        assertTrue("bjdx -> 北京大学", d.decodeCovered("bjdx", 30).any { it.word == "北京大学" })
+        assertTrue("wm -> 我们", d.decodeCovered("wm", 30).any { it.word == "我们" })
     }
 
     @Test

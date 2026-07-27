@@ -39,7 +39,7 @@ class Debug12FixATest {
             candidatesCovered(composing, t9).map { it.word }
         override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
             if (composing.isEmpty()) emptyList() else listOf(Cand("好", composing.length))
-        override fun candidatesForReadingCovered(letters: String, cuts: Set<Int>, context: CharSequence): List<Cand> {
+        override fun candidatesForLockedReadingCovered(letters: String, cuts: Set<Int>, context: CharSequence): List<Cand> {
             lastReadingCuts = cuts
             val spanning = if (4 !in cuts) listOf(Cand("好的", letters.length)) else emptyList()
             return spanning + listOf(Cand("X", 4))

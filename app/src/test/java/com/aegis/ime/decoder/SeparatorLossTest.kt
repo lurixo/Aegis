@@ -53,7 +53,7 @@ class SeparatorLossTest {
 
     @Test fun apostropheInputNeverDropsTheTailSyllable() {
         val d = decoder()
-        val decoded = d.decode("chai'ci", 20)
+        val decoded = d.decodeCovered("chai'ci", 30).map { it.word }
         assertFalse("decode(chai'ci) must NOT be empty (the 丢字 regression)", decoded.isEmpty())
         assertTrue("拆次 (chai|ci best sentence, honouring the boundary) surfaces", "拆次" in decoded)
 
@@ -134,7 +134,7 @@ class SeparatorLossTest {
         assertTrue("a ' in a T9 buffer keeps BOTH chunks (tail not dropped)", syl.size >= 2)
         assertTrue("no empty syllable", syl.none { it.isEmpty() })
         assertTrue("tail syllable navigable (homophones non-empty)", d.homophonesAt("64'426", syl.size - 1).isNotEmpty())
-        assertFalse("decode of a separated T9 buffer is non-empty, no crash", d.decode("64'426", 20).isEmpty())
+        assertFalse("decode of a separated T9 buffer is non-empty, no crash", d.decodeCovered("64'426", 30).isEmpty())
     }
 
 
@@ -144,7 +144,7 @@ class SeparatorLossTest {
         assertEquals("trailing ' is ignored", listOf("ni", "hao"), d.syllables("nihao'").map { it.reading })
         assertEquals("doubled '' collapses to one boundary", listOf("chai", "ci"), d.syllables("chai''ci").map { it.reading })
         assertTrue("an all-separator buffer is empty, no crash", d.syllables("'''").isEmpty())
-        assertTrue("decode of an all-separator buffer is empty, no crash", d.decode("'''", 20).isEmpty())
+        assertTrue("decode of an all-separator buffer is empty, no crash", d.decodeCovered("'''", 30).isEmpty())
         assertTrue("拆 still reachable with a trailing '", "拆" in singles(d.decodeCovered("chai'", 30)))
     }
 }

@@ -66,13 +66,12 @@ class T9RerankEvalTest {
     private fun t9Top1(d: PinyinDecoder): Int =
         t9Set.count { (py, exp) -> d.decodeCovered(toT9(py), 30).firstOrNull()?.word == exp }
 
-    private fun pyTop1(d: PinyinDecoder, ps: List<Pair<String, String>>): Pair<Int, Int> {
-        var dec = 0; var cov = 0
+    private fun pyTop1(d: PinyinDecoder, ps: List<Pair<String, String>>): Int {
+        var cov = 0
         for ((p, e) in ps) {
-            if (d.decode(p, 5).firstOrNull() == e) dec++
             if (d.decodeCovered(p, 30).firstOrNull()?.word == e) cov++
         }
-        return dec to cov
+        return cov
     }
 
     @Test
@@ -85,12 +84,11 @@ class T9RerankEvalTest {
         val oct = if (gramFile.exists()) OctagramReader.fromFile(gramFile) else null
 
         val sb = StringBuilder("T9 set=${t9Set.size}, full-pinyin set=${ps.size}, octagram=${oct != null}\n\n")
-        sb.append(String.format("%-24s %-15s %-16s %-16s%n", "config", "T9 top1", "PY decode top1", "PY covered top1"))
+        sb.append(String.format("%-24s %-15s %-16s%n", "config", "T9 top1", "PY covered top1"))
         fun row(label: String, t9d: PinyinDecoder, pyd: PinyinDecoder) {
-            val t = t9Top1(t9d); val (d, c) = pyTop1(pyd, ps)
-            sb.append(String.format("%-24s %-15s %-16s %-16s%n", label,
+            val t = t9Top1(t9d); val c = pyTop1(pyd, ps)
+            sb.append(String.format("%-24s %-15s %-16s%n", label,
                 "${t}/${t9Set.size} (${"%.1f".format(100.0 * t / t9Set.size)}%)",
-                "${d}/${ps.size} (${"%.1f".format(100.0 * d / ps.size)}%)",
                 "${c}/${ps.size} (${"%.1f".format(100.0 * c / ps.size)}%)"))
         }
 

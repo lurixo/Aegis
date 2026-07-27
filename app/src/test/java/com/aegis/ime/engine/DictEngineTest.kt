@@ -34,8 +34,6 @@ class DictEngineTest {
         val engine: CandidateEngine = DictEngine(null, null, null)
         assertEquals(emptyList<Cand>(), engine.candidatesCovered("nihao", false))
         assertEquals(emptyList<Cand>(), engine.candidatesCovered("236", true))
-        assertEquals(emptyList<String>(), engine.candidatesForReading("nihao"))
-        assertEquals(emptyList<Cand>(), engine.candidatesForReadingCovered("nihao"))
         assertEquals(emptyList<Cand>(), engine.candidatesForLockedReadingCovered("nihao"))
         assertEquals(emptyList<String>(), engine.candidates("nihao", false))
     }
@@ -45,7 +43,7 @@ class DictEngineTest {
         val lm = EngineFixture.buildLm(mapOf('你'.code to 10L, '好'.code to 8L), emptyMap())
         val engine: CandidateEngine = DictEngine(null, null, lm)
         assertFalse(engine.supportsChinese)
-        assertEquals(emptyList<String>(), engine.candidatesForReading("nihao"))
+        assertEquals(emptyList<Cand>(), engine.candidatesForLockedReadingCovered("nihao"))
         assertTrue(engine.candidatesCovered("ni", false).isEmpty())
     }
 

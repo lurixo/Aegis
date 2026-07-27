@@ -26,13 +26,8 @@ interface CandidateEngine {
     fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =
         candidates(composing, t9).map { Cand(it, composing.length) }
 
-    fun candidatesForReading(letters: String): List<String> = emptyList()
-
-    fun candidatesForReadingCovered(letters: String, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =
-        candidatesForReading(letters).map { Cand(it, letters.length) }
-
     fun candidatesForLockedReadingCovered(letters: String, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =
-        candidatesForReadingCovered(letters, cuts, context)
+        emptyList()
 
     fun syllables(composing: String, t9: Boolean): List<Syllable> = emptyList()
 

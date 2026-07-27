@@ -34,15 +34,15 @@ class T9DecoderTest {
     @Test
     fun decodesT9() {
         val d = decoder()
-        assertTrue("64426 -> 你好", d.decode("64426", 30).contains("你好"))
-        assertTrue("23744 -> 测试", d.decode("23744", 30).contains("测试"))
-        assertEquals("我是中国人", d.decode("9674494664486736", 30).firstOrNull())
+        assertTrue("64426 -> 你好", d.decodeCovered("64426", 30).any { it.word == "你好" })
+        assertTrue("23744 -> 测试", d.decodeCovered("23744", 30).any { it.word == "测试" })
+        assertEquals("我是中国人", d.decodeCovered("9674494664486736", 30).firstOrNull()?.word)
     }
 
     @Test
     fun can_type_xuan_选() {
         val d = decoder()
-        assertTrue("9826 must surface 选", d.decode("9826", 30).contains("选"))
+        assertTrue("9826 must surface 选", d.decodeCovered("9826", 30).any { it.word == "选" })
     }
 
     @Test

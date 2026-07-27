@@ -224,27 +224,6 @@ class PinyinDecoder(
             } ?: 0.0) +
             (if (octagram != null && ctxWord.isNotEmpty()) octagramWeight * (octagram.rawScore(ctxWord + word) ?: 0.0) else 0.0)
 
-    private fun rerankedWholeInputAndAliases(input: String, ctxCp: Int, ctxWord: String): List<String> {
-        val ctxId = resolveCtxId(ctxCp)
-        val condMemo = HashMap<Long, Double>()
-        val own = dict.exact(input)
-        val alias = inputAliasWordFreqs(input)
-        val scored = ArrayList<Pair<BinaryDict.WordFreq, Double>>(own.size + alias.size)
-        for (wf in own) scored.add(wf to wordModelScore(wf.word, wf.freq, ctxId, ctxWord, condMemo))
-        if (alias.isNotEmpty()) {
-            val ownWords = own.mapTo(HashSet()) { it.word }
-            for (wf in alias) {
-                if (wf.word !in ownWords) scored.add(wf to (wordModelScore(wf.word, wf.freq, ctxId, ctxWord, condMemo) - ALIAS_PENALTY))
-            }
-        }
-        return scored
-            .sortedWith(
-                compareByDescending<Pair<BinaryDict.WordFreq, Double>> { it.second }
-                    .thenBy { supplementarySingleTieRank(it.first.word) },
-            )
-            .map { it.first.word }
-    }
-
     private fun parseContext(context: CharSequence): Pair<Int, String> {
         val s = context.toString()
         if (s.isEmpty()) return BOS to ""
@@ -278,9 +257,6 @@ class PinyinDecoder(
         return if (preferred.size <= limit) preferred else preferred.subList(0, limit)
     }
 
-    private fun prefixWords(source: BinaryDict, input: String, limit: Int): List<String> =
-        source.prefixByFreq(input, limit).map { it.word }
-
     private class Norm(val clean: String, val cuts: Set<Int>, val origLen: IntArray, private val cleanLenAtOrig: IntArray) {
         fun cleanIndexOfOrig(o: Int): Int? = cleanLenAtOrig.getOrNull(o)
     }
@@ -307,29 +283,6 @@ class PinyinDecoder(
         cleanLenAtOrig[input.length] = ci
         val interiorCuts = cuts.filterTo(HashSet()) { it in 1 until ci }
         return Norm(clean.toString(), interiorCuts, origLen.copyOf(ci + 1), cleanLenAtOrig)
-    }
-
-    fun decode(input: String, limit: Int, context: CharSequence = ""): List<String> {
-        if (input.isEmpty() || limit <= 0) return emptyList()
-        val norm = normalizeSeparators(input)
-        val clean = norm?.clean ?: input
-        if (clean.isEmpty()) return emptyList()
-        val cuts = norm?.cuts ?: emptySet()
-        val (ctxCp, ctxWord) = parseContext(context)
-        val out = LinkedHashSet<String>()
-        bestSentence(clean, cuts, ctxCp = ctxCp, ctxWord = ctxWord)?.let { out.add(it) }
-        out.addAll(rerankedWholeInputAndAliases(clean, ctxCp, ctxWord))
-        out.addAll(userWordsFor(clean))
-        out.addAll(prefixWords(dict, clean, limit))
-        if (out.size < limit && fuzzyRules.isNotEmpty()) {
-            for (variant in Fuzzy.variants(clean, fuzzyRules)) {
-                if (variant == clean) continue
-                out.addAll(prefixWords(dict, variant, limit))
-                if (out.size >= limit) break
-            }
-        }
-        if (out.size < limit) initialsDict?.let { out.addAll(prefixWords(it, clean, limit)) }
-        return if (out.size <= limit) out.toList() else out.toList().subList(0, limit)
     }
 
     fun decodeCovered(input: String, limit: Int, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =
