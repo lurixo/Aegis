@@ -49,4 +49,14 @@ class UserWordIndexVersionTest {
         assertEquals(false, m.dirty)
         assertEquals(m.userWordEntries(), UserModel { 10L }.apply { load(file, sweepStale = false) }.userWordEntries())
     }
+
+    @Test fun followingWordsLeavesTheFormedIndexAlone() {
+        val l = UserLearning { 10L }
+        val formed = l.formedVersion
+        l.observeCommit("你好", "世界", "shijie", 1L)
+        l.observeCommit("世界", "和平", "heping", 2L)
+        assertEquals(formed, l.formedVersion)
+        l.enabled = false
+        assertNotEquals(formed, l.formedVersion)
+    }
 }

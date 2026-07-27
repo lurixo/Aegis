@@ -28,6 +28,9 @@ class NoSilentDataLossTest {
     val tmp = TemporaryFolder()
 
     private val clock = 1_700_000_000_000L
+    private var learnNow = 1_000_000_000_000L
+
+    private fun han(codePoint: Int): String = String(Character.toChars(codePoint))
 
     private fun letters(index: Int): String {
         val sb = StringBuilder(4)
@@ -43,6 +46,15 @@ class NoSilentDataLossTest {
         var rows = 0
         file.bufferedReader().use { r -> while (r.readLine() != null) rows++ }
         return rows - 1
+    }
+
+    private fun typeRun(l: UserLearning, vararg commits: Pair<String, String>) {
+        var prev: String? = null
+        for ((word, reading) in commits) {
+            l.observeCommit(prev, word, reading, learnNow)
+            prev = word
+        }
+        l.observeBreak()
     }
 
     private fun writeTallUserDb(file: File, words: Int) {
@@ -104,8 +116,151 @@ class NoSilentDataLossTest {
         }
     }
 
+    @Test fun gluedWordsFarPastTheOldCapSurviveSaveAndLoad() {
+        val store = UserLearning { learnNow }
+        val total = OLD_FORMED_CEILING + 700
+        val words = ArrayList<String>(total)
+        for (i in 0 until total) {
+            val a = han(0x4E00 + i)
+            val b = han(0x6E00 + i)
+            words.add(a + b)
+            repeat(3) { typeRun(store, a to "ma", b to "ma") }
+            learnNow += 60_000L
+        }
+        assertEquals("no glued word is evicted while learning", total, store.formedEntries().size)
+
+        val file = File(tmp.root, "userlearn.txt")
+        store.save(file)
+        val reloaded = UserLearning { learnNow }.apply { load(file) }
+        assertEquals("no glued word is dropped on the way back in", total, reloaded.formedEntries().size)
+        val kept = reloaded.formedWordsFor("mama").toHashSet()
+        for (w in words) if (w !in kept) throw AssertionError("glued word $w is gone after a reload")
+    }
+
+    @Test fun aLearningFileWithMoreGluedWordsThanTheOldCapLoadsWhole() {
+        val rows = OLD_FORMED_CEILING + 400
+        val file = File(tmp.root, "formed.txt")
+        file.bufferedWriter().use { w ->
+            w.write("aegis-userlearn 1\n")
+            for (i in 0 until rows) {
+                w.write("F\t${letters(i)}\t${han(0x4E00 + i)}${han(0x6E00 + i)}\t2.5\t$learnNow\n")
+            }
+        }
+        assertTrue(
+            "the fixture must stay under the old byte ceiling, it is ${file.length()}",
+            file.length() < OLD_LEARN_BYTE_CEILING,
+        )
+        val store = UserLearning { learnNow }.apply { load(file) }
+        assertEquals("every glued word in the old file is back", rows, store.formedEntries().size)
+    }
+
+    @Test fun aLearningFileWithMorePendingRunsThanTheOldCapLoadsWhole() {
+        val rows = OLD_PENDING_CEILING + 500
+        val a = han(0x9000)
+        val b = han(0x9100)
+        val file = File(tmp.root, "pending.txt")
+        file.bufferedWriter().use { w ->
+            w.write("aegis-userlearn 1\n")
+            w.write("F\tzhaa\t${han(0x9200)}${han(0x9300)}\t2.5\t$learnNow\n")
+            w.write("P\tmama\t$a$b\t2.0\t$learnNow\n")
+            for (i in 1 until rows) {
+                w.write("P\t${letters(i)}\t${han(0x4E00 + i)}${han(0x6E00 + i)}\t1.0\t$learnNow\n")
+            }
+        }
+        assertTrue(
+            "the fixture must stay under the old byte ceiling, it is ${file.length()}",
+            file.length() < OLD_LEARN_BYTE_CEILING,
+        )
+
+        val store = UserLearning { learnNow }.apply { load(file) }
+        assertEquals("the oversized file is loaded rather than thrown away", 1, store.formedEntries().size)
+        typeRun(store, a to "ma", b to "ma")
+        assertTrue(
+            "a pending run past the old cap is still one sighting away from promotion",
+            a + b in store.formedWordsFor("mama"),
+        )
+    }
+
+    @Test fun aLearningFileWithMoreCollocationKeysThanTheOldCapLoadsWhole() {
+        val keys = OLD_FOLLOW_PREV_CEILING + 200
+        val file = File(tmp.root, "follows.txt")
+        file.bufferedWriter().use { w ->
+            w.write("aegis-userlearn 1\n")
+            w.write("F\tzhaa\t${han(0x9200)}${han(0x9300)}\t2.5\t$learnNow\n")
+            for (i in 0 until keys) {
+                w.write("C\t${han(0x4E00 + i)}\t${han(0x7000 + i)}\t1.0\t$learnNow\n")
+            }
+        }
+        assertTrue(
+            "the fixture must stay under the old byte ceiling, it is ${file.length()}",
+            file.length() < OLD_LEARN_BYTE_CEILING,
+        )
+
+        val store = UserLearning { learnNow }.apply { load(file) }
+        assertEquals("the oversized file is loaded rather than thrown away", 1, store.formedEntries().size)
+        for (i in 0 until keys) {
+            val got = store.follows(han(0x4E00 + i))
+            if (got.size != 1 || got[0].first != han(0x7000 + i)) {
+                throw AssertionError("collocation key $i came back as $got")
+            }
+        }
+    }
+
+    @Test fun collocationsPastTheOldFileCeilingSaveAndReloadWhole() {
+        val prevs = 10_000
+        val perPrev = UserLearning.FOLLOW_PER_PREV
+        val store = UserLearning { learnNow }
+        for (i in 0 until prevs) {
+            val prev = han(0x4E00 + i) + han(0x4E00)
+            for (j in 0 until perPrev) store.observeCommit(prev, han(0x6000 + j) + han(0x7000), "", learnNow)
+        }
+        for (i in 0 until prevs) {
+            val got = store.follows(han(0x4E00 + i) + han(0x4E00))
+            if (got.size != perPrev) throw AssertionError("collocation key $i holds ${got.size} of $perPrev")
+        }
+
+        val file = File(tmp.root, "biglearn.txt")
+        store.save(file)
+        assertTrue(
+            "the fixture must be past the old byte ceiling, it is ${file.length()}",
+            file.length() > OLD_LEARN_BYTE_CEILING,
+        )
+
+        val reloaded = UserLearning { learnNow }.apply { load(file) }
+        for (i in 0 until prevs) {
+            val got = reloaded.follows(han(0x4E00 + i) + han(0x4E00))
+            if (got.size != perPrev) throw AssertionError("collocation key $i came back with ${got.size} of $perPrev")
+            for (j in 0 until perPrev) {
+                val word = han(0x6000 + j) + han(0x7000)
+                if (got.none { it.first == word }) throw AssertionError("collocation $i lost $word")
+            }
+        }
+    }
+
+    @Test fun pendingRunsPastTheOldCapAreNotEvicted() {
+        val store = UserLearning { learnNow }
+        val a = han(0x9000)
+        val b = han(0x9100)
+        typeRun(store, a to "ma", b to "ma")
+        for (i in 0 until OLD_PENDING_CEILING + 500) {
+            val x = han(0x4E00 + i)
+            val y = han(0x6E00 + i)
+            repeat(2) { typeRun(store, x to "ma", y to "ma") }
+        }
+        typeRun(store, a to "ma", b to "ma")
+        typeRun(store, a to "ma", b to "ma")
+        assertTrue(
+            "a pending run that outlived the old cap still promotes on its third sighting",
+            a + b in store.formedWordsFor("mama"),
+        )
+    }
+
     private companion object {
         const val OLD_USERDB_ROW_CEILING = 250_000
         const val OLD_USERDB_BYTE_CEILING = 4L * 1024L * 1024L
+        const val OLD_FORMED_CEILING = 500
+        const val OLD_PENDING_CEILING = 2_000
+        const val OLD_FOLLOW_PREV_CEILING = 1_500
+        const val OLD_LEARN_BYTE_CEILING = 2L * 1024L * 1024L
     }
 }

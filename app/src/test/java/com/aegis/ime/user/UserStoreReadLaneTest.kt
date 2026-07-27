@@ -52,6 +52,24 @@ class UserStoreReadLaneTest {
         return file
     }
 
+    private fun userLearnWithGlue(): File {
+        val file = temp.newFile("userlearn.txt")
+        UserLearning().apply { glue(this, listOf("你" to "ni", "呢" to "ne", "嗯" to "n")) }.save(file)
+        return file
+    }
+
+    private fun glue(learning: UserLearning, run: List<Pair<String, String>>) {
+        val recently = System.currentTimeMillis()
+        repeat(8) {
+            var prev: String? = null
+            for ((word, reading) in run) {
+                learning.observeCommit(prev, word, reading, recently)
+                prev = word
+            }
+            learning.observeBreak()
+        }
+    }
+
     private fun onItsOwnThread(name: String, work: () -> Unit): Thread =
         Thread(work, name).apply { isDaemon = true }.also { it.start() }
 
@@ -79,6 +97,54 @@ class UserStoreReadLaneTest {
         assertFalse(reader.isAlive)
     }
 
+    @Test fun a_learning_store_reparse_parses_outside_the_lock_the_keyboard_types_through() {
+        val file = userLearnWithGlue()
+        val learning = UserLearning().apply { load(file) }
+        val reader = onItsOwnThread("aegis-test-reader") { learning.loadIfUnchanged(HeldFile(file.path)) }
+
+        assertFinishesWhileTheFileIsBeingRead("a committed word") {
+            learning.observeCommit(null, "你", "ni", System.currentTimeMillis())
+        }
+        assertFinishesWhileTheFileIsBeingRead("a candidate lookup") { learning.formedWordsFor("ninen") }
+
+        releaseRead.countDown()
+        reader.join(10_000)
+        assertFalse(reader.isAlive)
+    }
+
+    @Test fun a_word_formed_while_the_learning_store_is_first_read_is_not_thrown_away() {
+        val file = userLearnWithGlue()
+        val learning = UserLearning()
+        val reader = onItsOwnThread("aegis-test-reader") { learning.load(HeldFile(file.path)) }
+        assertTrue("precondition: the read really is in flight", readStarted.await(10, TimeUnit.SECONDS))
+
+        val typed = CountDownLatch(1)
+        val typist = onItsOwnThread("aegis-test-typist") {
+            glue(learning, listOf("大" to "da", "家" to "jia"))
+            typed.countDown()
+        }
+        awaitTypedOrHeldOff(typist, typed)
+
+        releaseRead.countDown()
+        reader.join(10_000)
+        typist.join(10_000)
+
+        assertEquals("the store that was read must be in place", listOf("你呢嗯"), learning.formedWordsFor("ninen"))
+        assertEquals(
+            "a word formed while the store was being read must not go down with the read",
+            listOf("大家"),
+            learning.formedWordsFor("dajia"),
+        )
+        assertTrue("and it must still be owed to the file", learning.dirty)
+    }
+
+    private fun awaitTypedOrHeldOff(typist: Thread, typed: CountDownLatch) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (typed.count > 0L && typist.state != Thread.State.BLOCKED && System.nanoTime() < deadline) {
+            Thread.yield()
+        }
+    }
+
     @Test fun a_word_typed_while_the_dictionary_is_being_read_survives_the_reload() {
         val file = userDbWith("wb" to "外部")
         val model = UserModel().apply { load(file) }
@@ -98,6 +164,24 @@ class UserStoreReadLaneTest {
         )
     }
 
+    @Test fun a_learned_word_formed_while_the_store_is_being_read_survives_the_load() {
+        val file = userLearnWithGlue()
+        val learning = UserLearning()
+        val declined = booleanArrayOf(true)
+        val reader = onItsOwnThread("aegis-test-reader") {
+            declined[0] = learning.loadIfUnchanged(HeldFile(file.path))
+        }
+
+        assertFinishesWhileTheFileIsBeingRead("a committed word") {
+            glue(learning, listOf("大" to "da", "家" to "jia"))
+        }
+        releaseRead.countDown()
+        reader.join(10_000)
+
+        assertFalse("a load that lost the race must say so", declined[0])
+        assertEquals(listOf("大家"), learning.formedWordsFor("dajia"))
+    }
+
     @Test fun an_undisturbed_reload_still_replaces_the_dictionary() {
         val file = userDbWith("wb" to "外部")
         val model = UserModel().apply { addManualWord("bd", "本地", 1L) }
@@ -106,6 +190,15 @@ class UserStoreReadLaneTest {
 
         assertEquals(listOf("外部"), model.readingSnapshot()["wb"])
         assertNull("the reload replaces the store, it does not merge into it", model.readingSnapshot()["bd"])
+    }
+
+    @Test fun an_undisturbed_load_still_replaces_the_learning_store() {
+        val file = userLearnWithGlue()
+        val learning = UserLearning()
+
+        assertTrue("an undisturbed read must adopt what it read", learning.loadIfUnchanged(file))
+
+        assertEquals(listOf("你呢嗯"), learning.formedWordsFor("ninen"))
     }
 
     @Test fun a_restore_replaces_the_dictionary_even_when_the_keyboard_holds_unwritten_words() {
@@ -117,5 +210,14 @@ class UserStoreReadLaneTest {
 
         assertEquals("an archive must win over memory, that is what restoring means", listOf("外部"), model.readingSnapshot()["wb"])
         assertEquals(0.0, model.wordBoost("内存里的"), 0.0)
+    }
+
+    @Test fun a_file_that_will_not_parse_leaves_the_learning_store_marked_unreadable() {
+        val file = temp.newFile("userlearn.txt").apply { writeText("aegis-userlearn 99\n") }
+        val learning = UserLearning()
+
+        assertFalse("a store that could not be read must not claim it adopted anything", learning.loadIfUnchanged(file))
+
+        assertFalse("and it must say so, or a later save writes over a file nobody could read", learning.readable)
     }
 }
