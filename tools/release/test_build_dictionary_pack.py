@@ -149,6 +149,10 @@ class DefaultAssetNameTest(unittest.TestCase):
     def test_debug_tag_keeps_the_short_numbered_name(self):
         self.assertEqual("aegis_dict_pack_debug13.zip", bp.default_asset_name("v0.1.0-debug.13"))
 
+    def test_a_dotted_tag_keeps_its_dots_so_two_versions_cannot_share_a_name(self):
+        self.assertEqual("aegis_dict_pack_dict-v16.2.3.zip", bp.default_asset_name("dict-v16.2.3"))
+        self.assertEqual("aegis_dict_pack_dict-v1.6.23.zip", bp.default_asset_name("dict-v1.6.23"))
+
 
 class ManifestReleaseTypeTest(unittest.TestCase):
     def manifest(self, root):
