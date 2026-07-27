@@ -561,10 +561,11 @@ class PinyinDecoder(
             }
         }
         if (dp[nSyl].isEmpty()) return emptyList()
-        val ordered = ArrayList<Pair<String, Double>>(ATOMIC_BEAM_N)
+        val emit = ATOMIC_BEAM_N + ATOMIC_BEAM_PER_SYL * (nSyl - 2).coerceAtLeast(0)
+        val ordered = ArrayList<Pair<String, Double>>(emit)
         val seen = HashSet<String>()
         for (p in dp[nSyl].sortedByDescending { it.score }) {
-            if (seen.add(p.text)) { ordered.add(p.text to p.score); if (ordered.size >= ATOMIC_BEAM_N) break }
+            if (seen.add(p.text)) { ordered.add(p.text to p.score); if (ordered.size >= emit) break }
         }
         return ordered
     }
@@ -835,6 +836,7 @@ class PinyinDecoder(
         const val BEAM_W = 12
         const val SENTENCE_EDGE_N = 6
         const val ATOMIC_BEAM_N = 8
+        const val ATOMIC_BEAM_PER_SYL = 40
         const val CTX_WORD_MAX = 4
         const val MAX_SYLLABLE_KEY_LEN = 6
         const val EXACT_TIE_LOOKAHEAD = 16
