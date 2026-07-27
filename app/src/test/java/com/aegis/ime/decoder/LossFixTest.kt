@@ -19,26 +19,64 @@ import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
 
+internal object FullDictTestAssets {
+    const val DICT = "aegis_dict.bin"
+    const val T9 = "aegis_t9.bin"
+    const val LM = "aegis_lm.bin"
+    const val JIANPIN = "aegis_jianpin.bin"
+
+    val productionNames = listOf(DICT, T9, LM, JIANPIN)
+    private val configuredDirectory = System.getenv("AEGIS_FULLDICT_DIR")
+        ?.let { File(it) }
+    val directory: File = configuredDirectory ?: File("src/main/assets")
+
+    fun file(name: String): File = File(directory, name)
+
+    fun available(vararg required: File): Boolean =
+        available(required.map { it.name }, configuredDirectory != null) { file(it).exists() }
+
+    fun available(
+        required: Collection<String>,
+        configured: Boolean,
+        exists: (String) -> Boolean,
+    ): Boolean {
+        if (configured) {
+            val missing = productionNames.filterNot(exists)
+            if (missing.isNotEmpty()) {
+                throw AssertionError("AEGIS_FULLDICT_DIR missing production assets: ${missing.joinToString()}")
+            }
+        }
+        return required.all(exists)
+    }
+}
+
 class LossFixTest {
 
-    private val dictFile = File("src/main/assets/aegis_dict.bin")
-    private val t9File = File("src/main/assets/aegis_t9.bin")
-    private val lmFile = File("src/main/assets/aegis_lm.bin")
-    private val jianpinFile = File("src/main/assets/aegis_jianpin.bin")
+    private val dictFile = FullDictTestAssets.file(FullDictTestAssets.DICT)
+    private val t9File = FullDictTestAssets.file(FullDictTestAssets.T9)
+    private val lmFile = FullDictTestAssets.file(FullDictTestAssets.LM)
+    private val jianpinFile = FullDictTestAssets.file(FullDictTestAssets.JIANPIN)
 
     private fun letterDecoder(): PinyinDecoder {
-        assumeTrue("26-key dict + LM assets present", dictFile.exists() && lmFile.exists())
-        val initials = if (jianpinFile.exists()) BinaryDict.fromFile(jianpinFile) else null
-        return PinyinDecoder(BinaryDict.fromFile(dictFile), CharBigramLM.fromFile(lmFile), initialsDict = initials)
+        assumeTrue(
+            "26-key dict + LM + jianpin assets present",
+            FullDictTestAssets.available(dictFile, lmFile, jianpinFile),
+        )
+        return PinyinDecoder(
+            BinaryDict.fromFile(dictFile),
+            CharBigramLM.fromFile(lmFile),
+            initialsDict = BinaryDict.fromFile(jianpinFile),
+        )
     }
 
     private fun t9Decoder(): PinyinDecoder {
-        assumeTrue("T9 dict + LM assets present", t9File.exists() && lmFile.exists())
+        assumeTrue("T9 dict + LM assets present", FullDictTestAssets.available(t9File, lmFile))
         return PinyinDecoder(BinaryDict.fromFile(t9File), CharBigramLM.fromFile(lmFile))
     }
 
@@ -53,9 +91,26 @@ class LossFixTest {
     private fun singlesAt(cands: List<Cand>, coveredLen: Int): List<String> =
         cands.filter { isSingleChar(it.word) && it.coveredLen == coveredLen }.map { it.word }.distinct()
 
+    @Test fun explicitFullDictDirectoryFailsClosedForEveryMissingAsset() {
+        for (missing in FullDictTestAssets.productionNames) {
+            val error = assertThrows(AssertionError::class.java) {
+                FullDictTestAssets.available(
+                    FullDictTestAssets.productionNames,
+                    configured = true,
+                ) { it != missing }
+            }
+            assertTrue(error.message.orEmpty().contains(missing))
+        }
+        assertFalse(
+            FullDictTestAssets.available(
+                FullDictTestAssets.productionNames,
+                configured = false,
+            ) { false },
+        )
+    }
 
     @Test fun firstSyllableHomophonesCompleteWhenAlone() {
-        assumeTrue("dict asset present", dictFile.exists())
+        assumeTrue("dict asset present", FullDictTestAssets.available(dictFile))
         val dict = BinaryDict.fromFile(dictFile)
         val he = dictSingles(dict, "he")
         assumeTrue("dict present with he homophones", he.size >= 8)
@@ -65,7 +120,7 @@ class LossFixTest {
     }
 
     @Test fun firstSyllableHomophonesStayCompleteInLongerBuffer() {
-        assumeTrue("dict asset present", dictFile.exists())
+        assumeTrue("dict asset present", FullDictTestAssets.available(dictFile))
         val dict = BinaryDict.fromFile(dictFile)
         val he = dictSingles(dict, "he")
         assumeTrue("dict present with he homophones", he.size >= 8)
@@ -74,7 +129,7 @@ class LossFixTest {
     }
 
     @Test fun firstSyllableHomophonesCompleteInThreeSyllableBuffer() {
-        assumeTrue("dict asset present", dictFile.exists())
+        assumeTrue("dict asset present", FullDictTestAssets.available(dictFile))
         val dict = BinaryDict.fromFile(dictFile)
         val gan = dictSingles(dict, "gan")
         assumeTrue("dict present with gan homophones", gan.size >= 8)
@@ -85,7 +140,7 @@ class LossFixTest {
 
 
     @Test fun everySyllablePositionExposesAllHomophones() {
-        assumeTrue("dict asset present", dictFile.exists())
+        assumeTrue("dict asset present", FullDictTestAssets.available(dictFile))
         val dict = BinaryDict.fromFile(dictFile)
         val d = letterDecoder()
         assertEquals("syllable 0 = he → the dict's full he set", dictSingles(dict, "he"), d.homophonesAt("heshui", 0).toSet())
@@ -120,7 +175,7 @@ class LossFixTest {
 
 
     @Test fun ambiguousLeadingSyllablesAllReachable() {
-        assumeTrue("dict asset present", dictFile.exists())
+        assumeTrue("dict asset present", FullDictTestAssets.available(dictFile))
         val dict = BinaryDict.fromFile(dictFile)
         val d = letterDecoder()
 
@@ -139,7 +194,7 @@ class LossFixTest {
 
 
     @Test fun singleCharLayerIsUncapped_mutationGuard() {
-        assumeTrue("dict asset present", dictFile.exists())
+        assumeTrue("dict asset present", FullDictTestAssets.available(dictFile))
         val dict = BinaryDict.fromFile(dictFile)
         val he = dictSingles(dict, "he")
         assumeTrue("full dict present", he.size > 8)
@@ -162,7 +217,7 @@ class LossFixTest {
 
 
     @Test fun t9PathAlsoLossless() {
-        assumeTrue("t9 asset present", t9File.exists())
+        assumeTrue("t9 asset present", FullDictTestAssets.available(t9File))
         val t9 = BinaryDict.fromFile(t9File)
         val d = t9Decoder()
         val digits = "437484"
@@ -176,7 +231,7 @@ class LossFixTest {
 
 
     @Test fun t9WordLayerIsUncapped_mutationGuard() {
-        assumeTrue("t9 asset present", t9File.exists())
+        assumeTrue("t9 asset present", FullDictTestAssets.available(t9File))
         val t9 = BinaryDict.fromFile(t9File)
         val d = t9Decoder()
         val digits = "943943"
@@ -194,7 +249,7 @@ class LossFixTest {
     }
 
     @Test fun letterWordLayerIsUncapped_mutationGuard() {
-        assumeTrue("dict asset present", dictFile.exists())
+        assumeTrue("dict asset present", FullDictTestAssets.available(dictFile))
         val dict = BinaryDict.fromFile(dictFile)
         val d = letterDecoder()
         val key = "jishi"
@@ -232,12 +287,12 @@ class LossFixTest {
     }
 
     @Test fun t9WordLayerPrecedesTheSingleCharLayer_mutationGuard() {
-        assumeTrue("t9 asset present", t9File.exists())
+        assumeTrue("t9 asset present", FullDictTestAssets.available(t9File))
         assertWordLayerPrecedesTheSingleCharLayer(BinaryDict.fromFile(t9File), t9Decoder(), "2264")
     }
 
     @Test fun letterWordLayerPrecedesTheSingleCharLayer_mutationGuard() {
-        assumeTrue("dict asset present", dictFile.exists())
+        assumeTrue("dict asset present", FullDictTestAssets.available(dictFile))
         assertWordLayerPrecedesTheSingleCharLayer(BinaryDict.fromFile(dictFile), letterDecoder(), "xian")
     }
 

@@ -16,6 +16,7 @@
 package com.aegis.ime.ime
 
 import com.aegis.ime.decoder.Cand
+import com.aegis.ime.decoder.FullDictTestAssets
 import com.aegis.ime.decoder.Syllable
 import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.dict.BinaryDict
@@ -41,8 +42,13 @@ import java.util.concurrent.Executor
 class AsyncDecodeEquivalenceTest {
 
     private val ctx = RuntimeEnvironment.getApplication()
-    private val assets = File("src/main/assets")
-    private fun assetsPresent() = File(assets, "aegis_dict.bin").exists() && File(assets, "aegis_t9.bin").exists()
+    private val assets = FullDictTestAssets.directory
+    private fun assetsPresent() = FullDictTestAssets.available(
+        File(assets, FullDictTestAssets.DICT),
+        File(assets, FullDictTestAssets.T9),
+        File(assets, FullDictTestAssets.LM),
+        File(assets, FullDictTestAssets.JIANPIN),
+    )
 
     private open class Host : ImeHost {
         override fun commitText(text: CharSequence) {}
@@ -53,9 +59,10 @@ class AsyncDecodeEquivalenceTest {
 
     private val engine: CandidateEngine by lazy {
         DictEngine(
-            BinaryDict.fromFile(File(assets, "aegis_dict.bin")),
-            BinaryDict.fromFile(File(assets, "aegis_t9.bin")),
-            CharBigramLM.fromFile(File(assets, "aegis_lm.bin")),
+            BinaryDict.fromFile(File(assets, FullDictTestAssets.DICT)),
+            BinaryDict.fromFile(File(assets, FullDictTestAssets.T9)),
+            CharBigramLM.fromFile(File(assets, FullDictTestAssets.LM)),
+            initialsDict = BinaryDict.fromFile(File(assets, FullDictTestAssets.JIANPIN)),
         )
     }
 

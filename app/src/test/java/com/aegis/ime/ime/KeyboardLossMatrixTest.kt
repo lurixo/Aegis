@@ -16,6 +16,7 @@
 package com.aegis.ime.ime
 
 import com.aegis.ime.decoder.Cand
+import com.aegis.ime.decoder.FullDictTestAssets
 import com.aegis.ime.decoder.PinyinDecoder
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
@@ -39,8 +40,13 @@ import java.io.File
 class KeyboardLossMatrixTest {
 
     private val ctx = RuntimeEnvironment.getApplication()
-    private val assets = File("src/main/assets")
-    private fun assetsPresent() = File(assets, "aegis_dict.bin").exists() && File(assets, "aegis_t9.bin").exists()
+    private val assets = FullDictTestAssets.directory
+    private fun assetsPresent() = FullDictTestAssets.available(
+        File(assets, FullDictTestAssets.DICT),
+        File(assets, FullDictTestAssets.T9),
+        File(assets, FullDictTestAssets.LM),
+        File(assets, FullDictTestAssets.JIANPIN),
+    )
 
     private class Host : ImeHost {
         override fun commitText(text: CharSequence) {}
@@ -49,9 +55,10 @@ class KeyboardLossMatrixTest {
     }
 
     private fun realEngine() = DictEngine(
-        BinaryDict.fromFile(File(assets, "aegis_dict.bin")),
-        BinaryDict.fromFile(File(assets, "aegis_t9.bin")),
-        CharBigramLM.fromFile(File(assets, "aegis_lm.bin")),
+        BinaryDict.fromFile(File(assets, FullDictTestAssets.DICT)),
+        BinaryDict.fromFile(File(assets, FullDictTestAssets.T9)),
+        CharBigramLM.fromFile(File(assets, FullDictTestAssets.LM)),
+        initialsDict = BinaryDict.fromFile(File(assets, FullDictTestAssets.JIANPIN)),
     )
 
     private fun controller(e: CandidateEngine): KeyboardController =
@@ -63,7 +70,9 @@ class KeyboardLossMatrixTest {
     private fun isSingleChar(word: String): Boolean = word.codePointCount(0, word.length) == 1
 
     private fun chaiSingles() =
-        BinaryDict.fromFile(File(assets, "aegis_dict.bin")).exact("chai").filter { isSingleChar(it.word) }.map { it.word }
+        BinaryDict.fromFile(File(assets, FullDictTestAssets.DICT)).exact("chai")
+            .filter { isSingleChar(it.word) }
+            .map { it.word }
 
     private fun assertChaiReachableAndRanked(words: List<String>) {
         assertTrue("拆 must be reachable (was buried/lost)", "拆" in words)
@@ -149,10 +158,11 @@ class KeyboardLossMatrixTest {
     }
 
     @Test fun aDeclaredBoundaryCutExcludesCrossBoundaryCompletions() {
-        assumeTrue(File(assets, "aegis_dict.bin").exists())
+        assumeTrue(assetsPresent())
         val dec = PinyinDecoder(
-            BinaryDict.fromFile(File(assets, "aegis_dict.bin")),
-            CharBigramLM.fromFile(File(assets, "aegis_lm.bin")),
+            BinaryDict.fromFile(File(assets, FullDictTestAssets.DICT)),
+            CharBigramLM.fromFile(File(assets, FullDictTestAssets.LM)),
+            initialsDict = BinaryDict.fromFile(File(assets, FullDictTestAssets.JIANPIN)),
         )
         val noCut = dec.decodeCovered("nihao", 30).map { it.word }
         val withCut = dec.decodeCovered("nihao", 30, setOf(2)).map { it.word }
