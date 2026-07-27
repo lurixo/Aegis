@@ -9,7 +9,7 @@
     <string name="setup_title">Aegis 输入法</string>
     <string name="setup_summary">中文 / 英文输入法。自建拼音引擎（全拼 + 九宫格 T9），模糊拼音、简拼、中英混输、英文补全纠错、离线自学习；可选下载万象大模型增强。中文词库在安装后下载；下载完成后全程离线，输入不联网。</string>
     <string name="setup_first_run_title">首次使用</string>
-    <string name="setup_first_run_body">中文输入需要一次性下载词库。在没有词库时，键盘每次启动都会自行尝试下载一次；若未成功，下次启动会再试。也可在下方词库设置中手动下载。英文输入无需下载即可离线使用。下载的数据仅存本机。</string>
+    <string name="setup_first_run_body">中文输入需要一次性下载词库，Aegis 不会自行开始下载。在没有词库时输入拼音，候选栏会出现下载提示，点按即开始；也可在下方词库设置中下载。英文输入无需下载即可离线使用。下载的数据仅存本机。</string>
     <string name="setup_first_run_ack">知道了</string>
     <string name="setup_steps_title">启用步骤</string>
     <string name="setup_enable_button">1 · 在系统设置中启用 Aegis</string>
@@ -69,7 +69,7 @@
     <string name="dict_status_download_blocked">无法开始下载（存在未完成安装的残留文件）。请删除词库后重新下载。</string>
     <string name="dict_status_update_current">已是最新，无更新（全量词库已是最新版本）</string>
     <string name="dict_status_deleted">⚠ 中文词库已删除 —— 需重新下载后才能中文输入（英文可离线使用）</string>
-    <string name="dict_gate_cta">下载词库解锁中文</string>
+    <string name="dict_gate_cta">点按下载词库，解锁中文输入</string>
     <string name="dict_gate_downloading">正在下载词库…</string>
     <string name="dict_gate_verifying">正在校验安装…</string>
     <string name="dict_gate_failed">下载失败，点按重试</string>

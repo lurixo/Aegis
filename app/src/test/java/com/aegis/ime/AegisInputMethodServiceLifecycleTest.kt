@@ -23,6 +23,7 @@ import android.text.InputType
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.FrameLayout
+import com.aegis.ime.dict.ModelDownload
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.ime.ClipboardView
 import com.aegis.ime.ime.CustomSymbolPanel
@@ -36,6 +37,7 @@ import com.aegis.ime.ime.SymbolsView
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.LayoutId
+import com.aegis.ime.ui.DictDownloadWork
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotSame
@@ -223,6 +225,19 @@ class AegisInputMethodServiceLifecycleTest {
 
         f.service.onStartInputView(f.info, false)
         assertTrue("hide/show keeps the framework view", sameView === f.view)
+    }
+
+    @Test fun starting_the_keyboard_with_no_dictionary_starts_no_download() {
+        val f = fixture()
+
+        f.service.onStartInputView(f.info, true)
+        f.service.onFinishInputView(false)
+        f.service.onStartInputView(f.info, false)
+
+        assertFalse(ModelDownload.isDictDownloaded(f.service.filesDir))
+        assertFalse("the keyboard must not start the dictionary download on its own", DictDownloadWork.snapshot(f.service).downloading)
+        assertFalse(ModelDownload.dictZipFile(f.service.filesDir).exists())
+        assertFalse(ModelDownload.dictPartFile(f.service.filesDir).exists())
     }
 
     @Test fun composition_survives_same_editor_restart_real_rotation_and_real_hide_show() {
