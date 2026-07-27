@@ -70,9 +70,9 @@ object Layouts {
         val bottom = listOf(
             Key(labelRes = R.string.kbd_symbols, action = SHOW_SYMBOLS, rail = true, weight = 1.5f),
             Key("123", action = SWITCH_NUMPAD, rail = true, weight = 1.5f),
-            Key(comma, direct = true),
+            Key(",", output = comma, direct = true),
             Key(labelRes = R.string.kbd_space, output = " ", action = SPACE, weight = 3.5f),
-            Key(period, direct = true),
+            Key(".", output = period, direct = true),
             Key(action = TOGGLE_LANG, rail = true, weight = 1.5f),
             Key("↵", action = ENTER, accent = true, weight = 1.6f),
         )

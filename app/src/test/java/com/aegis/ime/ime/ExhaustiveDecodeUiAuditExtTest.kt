@@ -191,6 +191,7 @@ class ExhaustiveDecodeUiAuditExtTest {
                 fails.add("$s1+$s2\tlabel-S1\t${c.expandedReadings()}"); continue
             }
             c.onPickReadingIndex(0)
+            c.onPickReadingIndex(c.expandedReadings().indexOf(s1))
             val o1 = dictSingles(s1) + allowed(s1)
             val grid1 = c.candidateWords()
             val leak1 = grid1.filter { it !in o1 }
@@ -202,6 +203,7 @@ class ExhaustiveDecodeUiAuditExtTest {
                 fails.add("$s1+$s2\tlabel-S2\t${c.expandedReadings()} prefix='${c.composingPrefix()}'"); continue
             }
             c.onPickReadingIndex(0)
+            c.onPickReadingIndex(c.expandedReadings().indexOf(s2))
             val o2 = dictSingles(s2) + allowed(s2)
             val grid2 = c.candidateWords()
             val leak2 = grid2.filter { it !in o2 }

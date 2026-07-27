@@ -94,7 +94,7 @@ class AssociationsReplayTest {
             c.onKey(act(KeyAction.SWITCH_NINE))
             T9Pinyin.toT9(key).forEach { c.onKey(out(it.toString())) }
             for (syl in syllables!!) {
-                val idx = c.expandedReadings().indexOf(syl)
+                val idx = c.expandedReadings().indexOfLast { it == syl }
                 assertTrue(
                     "9-key '$key': syllable '$syl' must be offered in the left column (got ${c.expandedReadings()})",
                     idx >= 0,

@@ -38,6 +38,20 @@ class T9PinyinTest {
         assertEquals("ni'de", T9Pinyin.preedit("6433"))
     }
 
+    @Test fun whole_syllable_digit_groups_stay_atomic_in_preedit() {
+        val readings = listOf(
+            "deng", "feng", "geng", "heng", "keng", "leng", "mang", "nang",
+            "tang", "weng", "xing", "ying", "zeng", "zhei", "zhua",
+        )
+        for (reading in readings) {
+            val digits = T9Pinyin.toT9(reading)
+            val canonical = T9Pinyin.syllableReading(digits)
+            assertTrue("$reading must have a whole-syllable reading for $digits", canonical.isNotEmpty())
+            assertEquals("$reading ($digits) must use the atomic reading", canonical, T9Pinyin.preedit(digits))
+            assertTrue("$reading ($digits) must stay whole", '\'' !in T9Pinyin.preedit(digits))
+        }
+    }
+
     @Test fun first_syllable_options_nonEmpty_and_pinyin() {
         val opts = T9Pinyin.firstSyllableOptions("6433", 4)
         assertTrue(opts.isNotEmpty())

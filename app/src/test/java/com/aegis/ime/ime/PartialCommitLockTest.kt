@@ -97,6 +97,7 @@ class PartialCommitLockTest {
         "yougailvchuxian".forEach { c.onKey(Key(it.toString(), output = it.toString())) }
         assertEquals(listOf("you"), c.expandedReadings())
         c.onPickReadingIndex(0)
+        c.onPickReadingIndex(c.expandedReadings().indexOf("you"))
         assertEquals("drilled into syllable 0", 0, c.drilledSyllableForTest())
 
         val yi = c.candidateWords().indexOf("有")

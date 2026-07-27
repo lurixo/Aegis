@@ -167,6 +167,8 @@ class AsyncDecodeEquivalenceTest {
         val async = asyncController(lane).also { switchTo(it, KeyAction.SWITCH_ALPHA); type(it, "nihao"); lane.drain() }
         sync.onPickReadingIndex(0)
         async.onPickReadingIndex(0); lane.drain()
+        sync.onPickReadingIndex(sync.expandedReadings().indexOf("ni"))
+        async.onPickReadingIndex(async.expandedReadings().indexOf("ni")); lane.drain()
         assertEquals("drilled homophone grid matches", sync.decodeStateForTest(), async.decodeStateForTest())
     }
 
@@ -224,6 +226,8 @@ class AsyncDecodeEquivalenceTest {
         type(controller, "nihao")
         lane.drain()
         controller.onPickReadingIndex(0)
+        lane.drain()
+        controller.onPickReadingIndex(controller.expandedReadings().indexOf("ni"))
         lane.drain()
         view.showExpandedCandidates()
         val grid = view.expandedGridForTest()
@@ -333,7 +337,7 @@ class AsyncDecodeEquivalenceTest {
 
         assertEquals("nihao", controller.preeditForTest())
         assertEquals("", controller.composingPrefix())
-        assertEquals(listOf("ni"), controller.expandedReadings())
+        assertEquals(listOf("ni", "hao"), controller.expandedReadings())
         assertTrue(host.commits.isEmpty())
         assertEquals(restoredDrillDecodesBeforeUndo, restoredDrillDecodes)
         assertTrue(controller.candidateWords().isNotEmpty())
@@ -354,7 +358,7 @@ class AsyncDecodeEquivalenceTest {
         assertEquals(restoredDrillDecodesBeforeUndo + 1, restoredDrillDecodes)
         assertEquals("nihao", controller.preeditForTest())
         assertEquals("", controller.composingPrefix())
-        assertEquals(listOf("ni"), controller.expandedReadings())
+        assertEquals(listOf("ni", "hao"), controller.expandedReadings())
         assertEquals("你", controller.candidateWords().first())
         assertEquals(candidatesBefore, controller.candidateWords())
         assertEquals(controller.candidateWords(), grid.renderedCandidateTextsForTest())
