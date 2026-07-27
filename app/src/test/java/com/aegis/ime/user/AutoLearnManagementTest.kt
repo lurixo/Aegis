@@ -15,6 +15,8 @@
 
 package com.aegis.ime.user
 
+import com.aegis.ime.decoder.EngineFixture
+import com.aegis.ime.decoder.PinyinDecoder
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -68,6 +70,22 @@ class AutoLearnManagementTest {
         learning.observeBreak()
     }
 
+    private fun rows() = listOf(
+        EngineFixture.Row("ni", "你", 900),
+        EngineFixture.Row("ne", "讷", 950),
+        EngineFixture.Row("ne", "呢", 100),
+        EngineFixture.Row("n", "嗯", 700),
+        EngineFixture.Row("men", "们", 600),
+        EngineFixture.Row("men", "门", 500),
+        EngineFixture.Row("ni", "拟", 50),
+        EngineFixture.Row("nimen", "你们", 500),
+    )
+
+    private fun decoder(learning: UserLearning?, model: UserModel? = null) =
+        PinyinDecoder(EngineFixture.build(rows()), userModel = model, userLearning = learning)
+
+    private fun words(d: PinyinDecoder, key: String) = d.decodeCovered(key, 40).map { it.word }
+
     @Test fun the_page_lists_every_glued_word_with_the_reading_it_was_glued_under() {
         val learning = chain("你" to "ni", "呢" to "ne", "嗯" to "n")
         val entries = learning.formedEntries()
@@ -78,6 +96,35 @@ class AutoLearnManagementTest {
         for (e in entries) {
             assertTrue("no entry may be blank, was $e", e.word.isNotEmpty() && e.reading.isNotEmpty())
         }
+    }
+
+    @Test fun deleting_one_entry_drops_it_from_the_candidates_of_the_very_same_decoder() {
+        assertFalse(
+            "without learning the fixture never offers this word by itself",
+            "你呢嗯" in words(decoder(null), "ninen"),
+        )
+        val learning = chain("你" to "ni", "呢" to "ne", "嗯" to "n")
+        val d = decoder(learning)
+        assertTrue("the glued word is offered while it is learned", "你呢嗯" in words(d, "ninen"))
+
+        learning.removeFormed("你呢嗯", "ninen")
+
+        assertFalse("the deleted word is gone right away", "你呢嗯" in words(d, "ninen"))
+        assertTrue("deleting one entry clears its row", learning.formedEntries().none { it.word == "你呢嗯" })
+    }
+
+    @Test fun clearing_drops_every_learned_word_and_leaves_the_user_dictionary_alone() {
+        val learning = chain("你" to "ni", "呢" to "ne", "嗯" to "n")
+        val model = UserModel { clock }.apply { addManualWord("nimen", "拟门", clock) }
+        val d = decoder(learning, model)
+        assertTrue("the glued word starts out reachable", "你呢嗯" in words(d, "ninen"))
+
+        learning.clear()
+
+        assertEquals("nothing is left to show", emptyList<UserLearning.Formed>(), learning.formedEntries())
+        assertTrue("clearing empties the learning store", learning.isEmpty())
+        assertFalse("the cleared word is gone from candidates", "你呢嗯" in words(d, "ninen"))
+        assertTrue("the word the user added by hand survives", "拟门" in words(d, "nimen"))
     }
 
     @Test fun the_settings_path_edits_the_learning_file_when_no_keyboard_is_live() {
@@ -226,6 +273,26 @@ class AutoLearnManagementTest {
         assertEquals(listOf("张伟明"), model.userWordEntries().map { it.word })
         assertEquals("and it counts as added by hand", mapOf("zwm" to setOf("张伟明")), model.manualSnapshot())
         assertTrue("the store reached the file", db.readLines().contains("M\tzwm\t张伟明"))
+    }
+
+    @Test fun turning_auto_learning_off_keeps_the_data_and_takes_it_out_of_the_candidates() {
+        val learning = chain("你" to "ni", "呢" to "ne", "嗯" to "n")
+        val d = decoder(learning)
+        assertTrue("the glued word is offered while the switch is on", "你呢嗯" in words(d, "ninen"))
+
+        learning.enabled = false
+
+        assertFalse("the glued word leaves the candidates", "你呢嗯" in words(d, "ninen"))
+        assertEquals(
+            "the learned data itself is kept so the page can still show and clear it",
+            listOf("你呢嗯"),
+            learning.formedEntries().map { it.word },
+        )
+        assertEquals("the boost goes with it", 0.0, learning.formedWeight("你呢嗯"), 0.0)
+
+        learning.enabled = true
+
+        assertTrue("turning it back on restores what was learned", "你呢嗯" in words(d, "ninen"))
     }
 
     @Test fun a_chain_in_flight_when_the_switch_goes_off_is_not_promoted_later() {

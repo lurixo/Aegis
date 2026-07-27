@@ -15,13 +15,105 @@
 
 package com.aegis.ime.decoder
 
+import com.aegis.ime.dict.BinaryDict
+import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.user.UserLearning
+import com.aegis.ime.user.UserModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 class AssembledCandidateOrderTest {
 
+    private val dictFile = FullDictTestAssets.file(FullDictTestAssets.DICT)
+    private val t9File = FullDictTestAssets.file(FullDictTestAssets.T9)
+    private val lmFile = FullDictTestAssets.file(FullDictTestAssets.LM)
+    private val jianpinFile = FullDictTestAssets.file(FullDictTestAssets.JIANPIN)
+
+    private val clock = 1_700_000_000_000L
+
+    private val CHAIN_REPS = 128
+
+    private fun assets() = assumeTrue(
+        "production dictionary, T9 table, language model and jianpin table present",
+        FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile),
+    )
+
+    private fun letters(um: UserModel? = null, ul: UserLearning? = null) = PinyinDecoder(
+        BinaryDict.fromFile(dictFile),
+        CharBigramLM.fromFile(lmFile),
+        userModel = um,
+        initialsDict = BinaryDict.fromFile(jianpinFile),
+        userLearning = ul,
+    )
+
+    private fun digits(um: UserModel? = null, ul: UserLearning? = null) = PinyinDecoder(
+        BinaryDict.fromFile(t9File),
+        CharBigramLM.fromFile(lmFile),
+        userModel = um,
+        aliasDict = BinaryDict.fromFile(dictFile),
+        userLearning = ul,
+    )
+
+    private fun chain(vararg steps: Pair<String, String>): UserLearning {
+        val learning = UserLearning { clock }
+        repeat(CHAIN_REPS) {
+            var prev: String? = null
+            for ((word, reading) in steps) {
+                learning.observeCommit(prev, word, reading, clock)
+                prev = word
+            }
+            learning.observeBreak()
+        }
+        return learning
+    }
+
     private fun words(cands: List<Cand>) = cands.map { it.word }
+
+    private fun paths(d: PinyinDecoder, key: String, cuts: Set<Int>): List<Pair<String, List<String>>> = listOf(
+        "free" to words(d.decodeCovered(key, 80)),
+        "cut" to words(d.decodeCovered(key, 80, cuts)),
+        "locked" to words(d.decodeCoveredAtomic(key, 80, cuts)),
+    )
+
+    private fun assertLeads(arm: String, lead: String, assembled: String, runs: List<Pair<String, List<String>>>) {
+        for ((path, got) in runs) {
+            assertEquals("$arm/$path: the dictionary word of this reading leads, was ${got.take(6)}", lead, got.first())
+            val at = got.indexOf(assembled)
+            assertTrue("$arm/$path: the assembled word may not lead, was at $at", at != 0)
+        }
+    }
+
+    @Test fun aGluedWordNeverLeadsTheDictionaryWordOfTheSameReadingOnBothKeyboards() {
+        assets()
+        val sameReading = chain("你" to "ni", "门" to "men")
+        assertTrue("the chain forms the glued word", "你门" in sameReading.formedWordsFor("nimen"))
+        val letterRuns = paths(letters(ul = sameReading), "nimen", setOf(2))
+        for ((path, got) in letterRuns) {
+            assertTrue("26-key/$path: the glued word must be in the list at all, was ${got.take(6)}", "你门" in got)
+        }
+        assertLeads("26-key", "你们", "你门", letterRuns)
+
+        val collided = chain("你" to "ni", "呢" to "ne", "嗯" to "n")
+        assertTrue("the chain forms the colliding word", "你呢嗯" in collided.formedWordsFor("ninen"))
+        val digitRuns = paths(digits(ul = collided), "64636", setOf(2))
+        for ((path, got) in digitRuns) {
+            assertTrue("9-key/$path: the colliding word must be in the list at all, was ${got.take(6)}", "你呢嗯" in got)
+        }
+        assertLeads("9-key", "你们", "你呢嗯", digitRuns)
+    }
+
+    @Test fun theGluedWordStaysReachableRightBehindTheDictionaryWord() {
+        assets()
+        val learning = chain("我" to "wo", "呢" to "ne", "嗯" to "n", "的" to "de")
+        assertTrue("the chain forms the glued word", "我呢嗯的" in learning.formedWordsFor("wonende"))
+        for ((path, got) in paths(digits(ul = learning), "9663633", setOf(2, 5))) {
+            assertEquals("9-key/$path: 我们的 leads, was ${got.take(6)}", "我们的", got.first())
+            val at = got.indexOf("我呢嗯的")
+            assertTrue("9-key/$path: the glued word stays on the first screen, was at $at", at in 1..8)
+        }
+    }
 
     @Test fun aGluedSentenceNeverLeadsTheDictionaryWordOfTheSameReading() {
         val rows = listOf(

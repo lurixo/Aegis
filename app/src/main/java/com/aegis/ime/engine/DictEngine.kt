@@ -22,6 +22,7 @@ import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.OctagramReader
+import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
 
 class DictEngine(
@@ -32,6 +33,7 @@ class DictEngine(
     fuzzyRules: Set<String> = emptySet(),
     initialsDict: BinaryDict? = null,
     octagram: OctagramReader? = null,
+    private val userLearning: UserLearning? = null,
 ) : CandidateEngine {
     private val decoder = pinyinDict?.let {
         PinyinDecoder(
@@ -41,6 +43,7 @@ class DictEngine(
             fuzzyRules = fuzzyRules,
             initialsDict = initialsDict,
             octagram = octagram,
+            userLearning = userLearning,
         )
     }
     private val t9Decoder = t9Dict?.let {
@@ -51,6 +54,7 @@ class DictEngine(
             fuzzyRules = fuzzyRules,
             octagram = octagram,
             aliasDict = pinyinDict,
+            userLearning = userLearning,
             fuzzyVariants = { s, rules -> T9Pinyin.fuzzyVariants(s, rules) },
             fuzzyPenalty = T9_FUZZY_PENALTY,
         )

@@ -20,6 +20,7 @@ import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.DecodeCancellation
 import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.dict.TghGrading
+import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
 import kotlin.math.exp
 import kotlin.math.ln
@@ -43,6 +44,7 @@ class PinyinDecoder(
     private val octagramWeight: Double = DEFAULT_OCTAGRAM_WEIGHT,
     private val contextWeight: Double = DEFAULT_CONTEXT_WEIGHT,
     private val aliasDict: BinaryDict? = null,
+    private val userLearning: UserLearning? = null,
     private val fuzzyVariants: (String, Set<String>) -> List<String> = { s, rules -> Fuzzy.variants(s, rules).filter { it != s } },
     private val fuzzyPenalty: Double = FUZZY_PENALTY,
 ) {
@@ -55,6 +57,7 @@ class PinyinDecoder(
         if (lm != null || fuzzyRules.isNotEmpty() || initialsDict != null || octagram != null) EDGE_N else 1
 
     private var userIndexVersion = Long.MIN_VALUE
+    private var learnIndexVersion = Long.MIN_VALUE
     private var userLetterIndex: Map<String, UserWords> = emptyMap()
     private var userDigitIndex: Map<String, UserWords> = emptyMap()
     private var manualLetterIndex: Map<String, Set<String>> = emptyMap()
@@ -67,10 +70,11 @@ class PinyinDecoder(
 
     private class Edge(val word: String, val freq: Int, val penalty: Double)
 
-    private class RankedWords(val userVersion: Long, val words: List<String>)
+    private class RankedWords(val userVersion: Long, val learnVersion: Long, val words: List<String>)
 
     private class UserWords {
         val used = ArrayList<List<String>>()
+        val formed = ArrayList<Pair<String, List<String>>>()
         @Volatile var ranked: RankedWords? = null
     }
 
@@ -104,16 +108,26 @@ class PinyinDecoder(
     }
 
     private fun refreshUserIndex() {
-        if (userModel == null) return
+        if (userModel == null && userLearning == null) return
         val userVersion = userModel?.readingsVersion ?: Long.MIN_VALUE
-        if (userVersion == userIndexVersion) return
+        val learnVersion = userLearning?.formedVersion ?: Long.MIN_VALUE
+        if (userVersion == userIndexVersion && learnVersion == learnIndexVersion) return
         val userSnapshot = userModel?.readingSnapshot().orEmpty()
+        val learnSnapshot = userLearning?.readingSnapshot().orEmpty()
         val letter = HashMap<String, UserWords>()
         val digit = HashMap<String, UserWords>()
+        val singles = HashMap<String, Set<String>>()
         for ((reading, words) in userSnapshot) {
             if (reading.isEmpty() || words.isEmpty()) continue
             letter.getOrPut(reading) { UserWords() }.used.add(words)
             digit.getOrPut(T9Pinyin.toT9(reading)) { UserWords() }.used.add(words)
+        }
+        for ((reading, words) in learnSnapshot) {
+            if (reading.isEmpty()) continue
+            val readable = words.filter { readsAs(it, reading, singles) }
+            if (readable.isEmpty()) continue
+            letter.getOrPut(reading) { UserWords() }.formed.add(reading to readable)
+            digit.getOrPut(T9Pinyin.toT9(reading)) { UserWords() }.formed.add(reading to readable)
         }
         val manualLetter = HashMap<String, MutableSet<String>>()
         val manualDigit = HashMap<String, MutableSet<String>>()
@@ -128,6 +142,7 @@ class PinyinDecoder(
         manualLetterIndex = manualLetter
         manualDigitIndex = manualDigit
         userIndexVersion = userVersion
+        learnIndexVersion = learnVersion
     }
 
     private fun readsAs(word: String, reading: String, cache: HashMap<String, Set<String>>): Boolean =
@@ -178,16 +193,20 @@ class PinyinDecoder(
         else readsAs(word, input, cache)
 
     private fun userWordsFor(key: String): List<String> {
-        if (userModel == null || key.isEmpty()) return emptyList()
+        if ((userModel == null && userLearning == null) || key.isEmpty()) return emptyList()
         refreshUserIndex()
         val words = (if (key[0] in '2'..'9') userDigitIndex[key] else userLetterIndex[key]) ?: return emptyList()
         val userVersion = userModel?.version ?: Long.MIN_VALUE
-        words.ranked?.let { if (it.userVersion == userVersion) return it.words }
+        val learnVersion = userLearning?.version ?: Long.MIN_VALUE
+        words.ranked?.let { if (it.userVersion == userVersion && it.learnVersion == learnVersion) return it.words }
         val out = ArrayList<String>()
         for (group in words.used) {
             for (w in userModel?.rankedByUsage(group).orEmpty()) if (w !in out) out.add(w)
         }
-        words.ranked = RankedWords(userVersion, out)
+        for ((reading, group) in words.formed) {
+            for (w in userLearning?.rankedFormed(reading, group).orEmpty()) if (w !in out) out.add(w)
+        }
+        words.ranked = RankedWords(userVersion, learnVersion, out)
         return out
     }
 
@@ -364,6 +383,7 @@ class PinyinDecoder(
     private fun wordModelScore(word: String, freq: Double, ctxId: Int, ctx: Ctx): Double {
         return (ln(freq) - lnTotal) +
             (userModel?.wordBoost(word) ?: 0.0) +
+            userLearningScore(ctx.tail, word) +
             (octagram?.let { octagramWeight * (it.rawScore(word) ?: 0.0) } ?: 0.0) +
             (lm?.let {
                 val lam = activeLambda(ctx)
@@ -409,11 +429,16 @@ class PinyinDecoder(
         if (contextTail.isEmpty()) 0.0
         else bestSuffixGram(joined, contextTail.length)
 
+    private val activeLearning: UserLearning? get() = userLearning?.takeIf { it.enabled }
+
+    private fun userLearningScore(contextTail: String, word: String): Double =
+        activeLearning?.let { it.formedWeight(word) + it.followBoost(contextTail, word) } ?: 0.0
+
     private fun joinTail(contextTail: String, word: String): String =
         if (contextTail.isEmpty()) word else contextTail + word
 
     private fun advanceJoinedTail(joined: String): String =
-        if (octagram == null) "" else hanTail(joined)
+        if (octagram == null && userLearning == null) "" else hanTail(joined)
 
     internal fun wholeSentenceArm(contextTail: String, text: String): Double {
         if (text.isEmpty()) return 0.0
@@ -940,10 +965,11 @@ class PinyinDecoder(
         singlesCache: HashMap<String, Set<String>>,
     ): List<SentencePath> {
         val model = lm
+        val learn = activeLearning
         val lam = activeLambda(ctx)
         val nSyl = B.size - 1
         val dp = Array(B.size) { ArrayList<APath>() }
-        dp[0].add(APath("", ctx.cp, if (octagram == null) "" else ctx.tail, 0.0))
+        dp[0].add(APath("", ctx.cp, if (octagram == null && userLearning == null) "" else ctx.tail, 0.0))
         val initial = initialSegments(input, B)
         for (i in 0 until nSyl) {
             DecodeCancellation.checkpoint()
@@ -973,19 +999,21 @@ class PinyinDecoder(
                     val idFirst = model?.charId(firstCp) ?: -1
                     val lastCp = w.codePointBefore(w.length)
                     val uni = ln(wf.freq.toDouble()) - lnTotal - penalty
-                    val boost = (userModel?.wordBoost(w) ?: 0.0)
+                    val boost = (userModel?.wordBoost(w) ?: 0.0) +
+                        (learn?.formedWeight(w) ?: 0.0)
                     val inner = if (model == null || lam == 0.0) 0.0 else lam * internalBigramScore(w, model)
                     for (p in src) {
                         val bw = if (p.text.isEmpty() && p.lastCp != BOS) contextWeight else lam
                         val bi = if (model == null || p.lastCp == BOS || bw == 0.0) 0.0 else bw * logCondMemo(model, model.charId(p.lastCp), idFirst)
                         val joined = joinTail(p.tail, w)
                         val og = octagramWeight * joinedArm(p.tail, joined)
+                        val follow = learn?.followBoost(p.tail, w) ?: 0.0
                         dp[j].add(
                             APath(
                                 p.text + w,
                                 lastCp,
                                 advanceJoinedTail(joined),
-                                p.score + uni + bi + inner + boost + og
+                                p.score + uni + bi + inner + boost + follow + og
                             ),
                         )
                     }
@@ -1290,12 +1318,13 @@ class PinyinDecoder(
         ctx: Ctx,
     ): SentencePath? {
         val model = lm
+        val learn = activeLearning
         val lam = activeLambda(ctx)
         val n = input.length
         val dp = Array<MutableMap<SentenceState, Cell>>(n + 1) {
-                        if (octagram == null) HashMap() else LinkedHashMap(SENTENCE_STATE_CAPACITY)
+                        if (octagram == null && userLearning == null) HashMap() else LinkedHashMap(SENTENCE_STATE_CAPACITY)
         }
-        val initial = SentenceState(ctx.cp, if (octagram == null) "" else ctx.tail)
+        val initial = SentenceState(ctx.cp, if (octagram == null && userLearning == null) "" else ctx.tail)
         dp[0][initial] = Cell(0.0, -1, null, "")
 
         for (q in 1..n) {
@@ -1312,7 +1341,8 @@ class PinyinDecoder(
                     val firstCp = w.codePointAt(0)
                     val idFirst = model?.charId(firstCp) ?: -1
                     val lastCp = w.codePointBefore(w.length)
-                    val boost = (userModel?.wordBoost(w) ?: 0.0)
+                    val boost = (userModel?.wordBoost(w) ?: 0.0) +
+                        (learn?.formedWeight(w) ?: 0.0)
                     val inner = if (model == null || lam == 0.0) 0.0 else lam * internalBigramScore(w, model)
                     for ((state, cell) in from) {
                         val bw = if (cell.prevPos < 0 && state.lastCp != BOS) contextWeight else lam
@@ -1320,7 +1350,8 @@ class PinyinDecoder(
                         else bw * logCondMemo(model, model.charId(state.lastCp), idFirst)
                         val joined = joinTail(state.tail, w)
                         val og = octagramWeight * joinedArm(state.tail, joined)
-                        val score = cell.score + uni + bi + inner + boost - e.penalty + og
+                        val follow = learn?.followBoost(state.tail, w) ?: 0.0
+                        val score = cell.score + uni + bi + inner + boost + follow - e.penalty + og
                         val nextState = SentenceState(lastCp, advanceJoinedTail(joined))
                         val cur = dp[q][nextState]
                         if (cur == null || score > cur.score) {
@@ -1329,7 +1360,7 @@ class PinyinDecoder(
                     }
                 }
             }
-            if (octagram != null && dp[q].size > BEAM_W) {
+            if ((octagram != null || userLearning != null) && dp[q].size > BEAM_W) {
                 val keep = dp[q].entries
                     .sortedByDescending { it.value.score }
                     .take(BEAM_W)

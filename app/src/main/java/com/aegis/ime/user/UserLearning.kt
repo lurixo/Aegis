@@ -133,6 +133,17 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
     }
 
     @Synchronized
+    fun rankedFormed(reading: String, words: List<String>): List<String> {
+        if (!enabled) return emptyList()
+        val now = clock()
+        return words.sortedWith(
+            compareByDescending<String> { word ->
+                formedByWord[word]?.get(reading)?.let { decayed(it.count, it.lastSeen, now, FORMED_HALF_LIFE_MILLIS) } ?: 0.0
+            }.thenBy { it },
+        )
+    }
+
+    @Synchronized
     fun formedWordsFor(key: String): List<String> {
         if (!enabled || key.isEmpty()) return emptyList()
         val t9 = key[0] in '2'..'9'

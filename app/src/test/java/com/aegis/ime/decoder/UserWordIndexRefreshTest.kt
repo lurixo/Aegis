@@ -15,6 +15,7 @@
 
 package com.aegis.ime.decoder
 
+import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -40,6 +41,19 @@ class UserWordIndexRefreshTest {
         assertTrue("丢籽" in words(d, "diuzi"))
     }
 
+    @Test fun aWordFormedAfterTheFirstDecodeIsOfferedOnTheNextOne() {
+        val learning = UserLearning { clock }
+        val d = PinyinDecoder(EngineFixture.dict(), userLearning = learning)
+        assertFalse("丢仔" in words(d, "diuzi"))
+        repeat(4) {
+            learning.observeCommit(null, "丢", "diu", clock)
+            learning.observeCommit("丢", "仔", "zi", clock)
+            learning.observeBreak()
+        }
+        assertTrue("the chain formed the word", "丢仔" in learning.formedWordsFor("diuzi"))
+        assertTrue("丢仔" in words(d, "diuzi"))
+    }
+
     private val rankRows = listOf(
         EngineFixture.Row("ce", "测", 5000), EngineFixture.Row("ce", "侧", 500), EngineFixture.Row("ce", "策", 500),
         EngineFixture.Row("shi", "试", 5000), EngineFixture.Row("shi", "视", 500), EngineFixture.Row("shi", "式", 500),
@@ -47,16 +61,17 @@ class UserWordIndexRefreshTest {
     private val letterDict by lazy { EngineFixture.build(rankRows) }
     private val digitDict by lazy { EngineFixture.build(rankRows.map { EngineFixture.Row(T9Pinyin.toT9(it.key), it.word, it.freq) }) }
 
-    private fun decoder(nine: Boolean, um: UserModel? = null) =
+    private fun decoder(nine: Boolean, um: UserModel? = null, learning: UserLearning? = null) =
         if (nine) {
             PinyinDecoder(
                 digitDict,
                 userModel = um,
+                userLearning = learning,
                 aliasDict = letterDict,
                 fuzzyVariants = { s, rules -> T9Pinyin.fuzzyVariants(s, rules) },
             )
         } else {
-            PinyinDecoder(letterDict, userModel = um)
+            PinyinDecoder(letterDict, userModel = um, userLearning = learning)
         }
 
     private fun input(nine: Boolean) = if (nine) T9Pinyin.toT9("ceshi") else "ceshi"
@@ -88,4 +103,30 @@ class UserWordIndexRefreshTest {
     @Test fun aCountOnlyChangeReordersUserWordsOn26Key() = countOnlyChangeKeepsUserWordOrderFresh(nine = false)
 
     @Test fun aCountOnlyChangeReordersUserWordsOn9Key() = countOnlyChangeKeepsUserWordOrderFresh(nine = true)
+
+    private fun observeWord(learning: UserLearning, chars: String) {
+        learning.observeCommit(null, chars.substring(0, 1), "ce", clock)
+        learning.observeCommit(chars.substring(0, 1), chars.substring(1), "shi", clock)
+        learning.observeBreak()
+    }
+
+    private fun formedUseKeepsOrderFresh(nine: Boolean) {
+        val learning = UserLearning { clock }
+        repeat(4) { observeWord(learning, "策式") }
+        repeat(3) { observeWord(learning, "侧视") }
+        val live = decoder(nine, learning = learning)
+        val before = decodedOrder(live, nine)
+        assertEquals(listOf("策式", "侧视"), relative(before))
+        val formed = learning.formedVersion
+        observeWord(learning, "侧视")
+        assertEquals("touching a formed word leaves the formed index version alone", formed, learning.formedVersion)
+        val after = decodedOrder(live, nine)
+        val fresh = decodedOrder(decoder(nine, learning = learning), nine)
+        assertEquals(fresh, after)
+        assertNotEquals(relative(before), relative(fresh))
+    }
+
+    @Test fun aFormedWordUsedAgainIsReorderedOn26Key() = formedUseKeepsOrderFresh(nine = false)
+
+    @Test fun aFormedWordUsedAgainIsReorderedOn9Key() = formedUseKeepsOrderFresh(nine = true)
 }
