@@ -101,10 +101,12 @@ class DeterministicPackWithNoticeTest(unittest.TestCase):
 
 
 class GrammarReferenceTest(unittest.TestCase):
-    def release(self, tag="LTS", url=None):
+    def release(self, tag="LTS", url=None, release_url=None):
         return {
             "tag_name": tag,
-            "html_url": f"{bp.GRAMMAR_REPO_HTTPS}/releases/tag/{tag}",
+            "html_url": release_url
+            if release_url is not None
+            else f"{bp.GRAMMAR_REPO_HTTPS}/releases/tag/{tag}",
             "prerelease": False,
             "published_at": "2026-07-23T13:20:00Z",
             "assets": [
@@ -130,6 +132,7 @@ class GrammarReferenceTest(unittest.TestCase):
         self.assertEqual("2026-07-23T13:19:40Z", asset["published_at"])
         self.assertEqual(f"{bp.GRAMMAR_REPO_HTTPS}/releases/download/LTS/{bp.GRAMMAR_NAME}", asset["url"])
         self.assertEqual("LTS", asset["release_tag"])
+        self.assertEqual(f"{bp.GRAMMAR_REPO_HTTPS}/releases/tag/LTS", asset["release_url"])
 
     def test_rejects_a_snapshot_without_a_digest(self):
         release = self.release()
@@ -161,6 +164,26 @@ class GrammarReferenceTest(unittest.TestCase):
         ]:
             with self.assertRaises(ValueError):
                 bp.grammar_reference(self.release(url=url))
+
+    def test_rejects_a_release_page_served_by_another_host(self):
+        for release_url in [
+            "https://example.test/amzxyz/RIME-LMDG/releases/tag/LTS",
+            "https://github.com.example.test/amzxyz/RIME-LMDG/releases/tag/LTS",
+            "https://github.com/attacker/RIME-LMDG/releases/tag/LTS",
+            "http://github.com/amzxyz/RIME-LMDG/releases/tag/LTS",
+        ]:
+            with self.assertRaises(ValueError):
+                bp.grammar_reference(self.release(release_url=release_url))
+
+    def test_rejects_a_release_page_outside_the_release_tag_form(self):
+        for release_url in [
+            f"{bp.GRAMMAR_REPO_HTTPS}/releases/tag",
+            f"{bp.GRAMMAR_REPO_HTTPS}/releases/tag/OTHER",
+            f"{bp.GRAMMAR_REPO_HTTPS}/tree/LTS",
+            f"{bp.GRAMMAR_REPO_HTTPS}/releases/tag/LTS?host=example.test",
+        ]:
+            with self.assertRaises(ValueError):
+                bp.grammar_reference(self.release(release_url=release_url))
 
     def test_rejects_a_release_tag_that_walks_out_of_the_repository(self):
         for tag in ["../../attacker/evil", ".."]:
