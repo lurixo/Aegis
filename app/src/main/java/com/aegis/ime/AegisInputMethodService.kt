@@ -387,12 +387,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         EngineAssets.downloadedOverride(File(filesDir, "downloaded"), name)
 
     private fun loadDict(name: String): BinaryDict? {
-        downloadedOverride(name)?.let { f ->
-            runCatching { BinaryDict.fromFile(f) }
-                .onFailure { Log.e("Aegis", "downloaded dict unreadable, falling back to bundled: $name", it) }
-                .getOrNull()?.let { return it }
-        }
-        return runCatching { BinaryDict.fromAssets(this, name) }
+        val file = downloadedOverride(name) ?: return null
+        return runCatching { BinaryDict.fromFile(file) }
             .onFailure { Log.e("Aegis", "dict load failed: $name", it) }
             .getOrNull()
     }
