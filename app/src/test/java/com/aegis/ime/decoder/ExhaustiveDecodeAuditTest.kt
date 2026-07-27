@@ -152,11 +152,27 @@ class ExhaustiveDecodeAuditTest {
         return syllableSet.filterTo(HashSet()) { it !in denied && dict.containsExactWord(it, form) }
     }
 
+    private data class SuppressedArm(
+        val asset: String, val form: String, val key: String,
+        val denied: List<String>, val keep: List<String>,
+    )
+
     private class ReadingScopedSweep {
         var probes = 0
         val probed = HashSet<Pair<String, String>>()
+        val suppressed = ArrayList<SuppressedArm>()
         val fails = ArrayList<Fail>()
     }
+
+    private fun suppressedArmRows(arms: List<SuppressedArm>): List<String> =
+        arms.groupBy { it.asset to it.form }.entries
+            .sortedWith(compareBy({ it.key.first }, { it.key.second }))
+            .map { (id, rows) ->
+                "bin=${id.first} word=${id.second} " +
+                    "codepoint=${String.format("U+%04X", id.second.codePointAt(0))} " +
+                    "keys=${rows.map { it.key }.distinct().sorted()} " +
+                    "mapped_away_readings=${rows.first().denied} keep_readings=${rows.first().keep}"
+            }
 
     private fun sweepReadingScopedStandalone(): ReadingScopedSweep {
         val out = ReadingScopedSweep()
@@ -171,7 +187,12 @@ class ExhaustiveDecodeAuditTest {
                     val exact = arm.dict.containsExactWord(key, form)
                     val extended = arm.dict.prefixByFreq(key, READING_SCOPED_WINDOW).any { it.word == form }
                     if (!exact && !extended) continue
-                    if (allowed.any { it == key && arm.dict.containsExactWord(it, form) }) continue
+                    if (allowed.any { it == key && arm.dict.containsExactWord(it, form) }) {
+                        out.suppressed += SuppressedArm(
+                            arm.asset, form, key, denied.sorted(), keep.sorted(),
+                        )
+                        continue
+                    }
                     out.fails += Fail(
                         key, arm.layout, "TC1-traditional-leak", reading, form,
                         sample(allowed.sorted()), form,
@@ -488,6 +509,7 @@ class ExhaustiveDecodeAuditTest {
         val fails = sweepN1(d, t9Decoder(), syls) + readingScoped.fails
         val deniedPairs = readingScopedMappedForms.entries
             .flatMap { (form, readings) -> readings.map { form to it } }.toSet()
+        val suppressedArms = suppressedArmRows(readingScoped.suppressed)
 
         writeTsv(File(outDir(), "levelA_n1.tsv"), fails.sortedWith(compareBy({ it.inv }, { it.layout }, { it.input })))
         val byInvLayout = fails.groupingBy { it.inv to it.layout }.eachCount()
@@ -510,10 +532,10 @@ class ExhaustiveDecodeAuditTest {
                 "checked exactly, and longer keys carrying it as a prefix over the top-$READING_SCOPED_WINDOW " +
                 "of that prefix, which for a single-letter initials key is the dictionary's own 128-entry " +
                 "short-prefix index")
-            appendLine("reading-scoped residue: a key also derivable from a keep reading the letter dictionary " +
-                "holds for the same form is exempt, so on the digit and initials keys one keep reading " +
-                "colliding on the derived key suppresses that form's arm — 徵 keeps cheng and zhi, whose " +
-                "initials key z is also the denied reading zheng's, so 徵 under initials z is not flagged")
+            appendLine("reading-scoped suppressed_arms: ${suppressedArms.size} of ${readingScoped.probes} " +
+                "probes — the derived key is also derived by a keep reading the letter dictionary holds for " +
+                "the same form, so that binary cannot flag that form and only the remaining binaries gate it")
+            suppressedArms.forEach { appendLine("  $it") }
             appendLine("distinct offending syllables: ${failedInputs.size}")
             appendLine("total invariant violations: ${fails.size}")
             appendLine("per invariant×layout:")
