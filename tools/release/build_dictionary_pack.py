@@ -150,10 +150,15 @@ def grammar_reference(release):
     tag = release.get("tag_name")
     if not isinstance(tag, str) or not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9._-]*", tag):
         raise ValueError(f"{GRAMMAR_NAME} names no plain release tag: {tag!r}")
-    expected_url = f"{GRAMMAR_REPO_HTTPS}/releases/download/{tag}/{GRAMMAR_NAME}"
-    if asset.get("browser_download_url") != expected_url:
+    expected_asset_url = f"{GRAMMAR_REPO_HTTPS}/releases/download/{tag}/{GRAMMAR_NAME}"
+    if asset.get("browser_download_url") != expected_asset_url:
         raise ValueError(
-            f"{GRAMMAR_NAME} is not served from {expected_url}: {asset.get('browser_download_url')!r}"
+            f"{GRAMMAR_NAME} is not served from {expected_asset_url}: {asset.get('browser_download_url')!r}"
+        )
+    expected_release_url = f"{GRAMMAR_REPO_HTTPS}/releases/tag/{tag}"
+    if release.get("html_url") != expected_release_url:
+        raise ValueError(
+            f"{GRAMMAR_NAME} is not released at {expected_release_url}: {release.get('html_url')!r}"
         )
     return {
         "kind": "grammar_model",
