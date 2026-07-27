@@ -46,22 +46,17 @@ is ever sent.
 Aegis's own code goes online for two kinds of thing only: fetching a resource file, and checking
 whether a newer one exists. All of it is over HTTPS.
 
-- **The Chinese dictionary pack.** The keyboard starts this download itself when it is shown with no
-  pack installed, because no Chinese dictionary ships in the APK. Each run of the keyboard service
-  makes at most one automatic attempt — the first time that run shows the keyboard with no pack
-  installed — and nothing records that it was made, so while no pack is installed the next run
-  attempts it again: after switching to another keyboard and back, for example, or after a restart
-  of the phone, or after Android has stopped the keyboard. You can also start or retry it yourself,
-  from the prompt in the candidate strip or the dictionary card in the settings screen. Before
-  downloading, Aegis fetches a small metadata file from the same GitHub release to learn which asset
-  to get.
+- **The Chinese dictionary pack.** No Chinese dictionary ships in the APK, and the keyboard never
+  starts this download by itself. When you type Chinese with no pack installed, the candidate strip
+  shows a download prompt; the transfer begins only when you tap that prompt, or the Download button
+  on the dictionary card in the settings screen. Before downloading, Aegis fetches a small metadata
+  file from the same GitHub release to learn which asset to get.
 - **The optional enhancement model.** Fetched from the upstream project's GitHub release, and only
   when *you* tap to start it.
 - **Update checks.** *Check for update* on the dictionary card re-fetches that metadata file; on the
   enhancement-model card it sends a `HEAD` request to the model's URL to compare version markers.
   Both happen only when you tap, and if either finds a newer file it goes straight on to download
-  it. Once the dictionary pack is installed, nothing in Aegis's own code makes an automatic request
-  of any kind.
+  it. Nothing in Aegis's own code makes an automatic request of any kind.
 - As with any download, the server that hosts the file necessarily sees a normal request (for
   example, your IP address and the file requested). Aegis does not add identifiers, tracking
   parameters, or analytics to these requests, and sends none of your typing data with them.
