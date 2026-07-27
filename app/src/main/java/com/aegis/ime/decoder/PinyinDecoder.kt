@@ -722,13 +722,13 @@ class PinyinDecoder(
     }
 
     fun homophonesAt(input: String, index: Int, cuts: Set<Int> = emptySet()): List<String> {
-        if (index < 0) return emptyList()
         val norm = normalizeSeparators(input)
         val clean = norm?.clean ?: input
         if (clean.isEmpty()) return emptyList()
-        val b = atomicBounds(clean, cleanInterior(norm, clean, cuts))
-        if (index >= b.size - 1) return emptyList()
-        return homophonesOf(clean.substring(b[index], b[index + 1]))
+        val syls = atomicSyllables(clean, cleanInterior(norm, clean, cuts))
+        if (index !in syls.indices) return emptyList()
+        val s = syls[index]
+        return homophonesOf(clean.substring(s.start, s.end))
     }
 
     private fun homophonesOf(key: String): List<String> = homophoneFreqs(key).map { it.first }
