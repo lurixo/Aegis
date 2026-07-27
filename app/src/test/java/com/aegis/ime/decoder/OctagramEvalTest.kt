@@ -42,7 +42,7 @@ class OctagramEvalTest {
 
         fun top1(decoder: PinyinDecoder): Double {
             var hit = 0
-            for ((py, expected) in pairs) if (decoder.decode(py, 5).firstOrNull() == expected) hit++
+            for ((py, expected) in pairs) if (decoder.decodeCovered(py, 30).firstOrNull()?.word == expected) hit++
             return 100.0 * hit / pairs.size
         }
 

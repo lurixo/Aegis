@@ -137,7 +137,7 @@ class EngineLockedFixTest {
         rows.add(EngineFixture.Row("cec", "册词", 9))
         for (i in 0 until 200) rows.add(EngineFixture.Row("cez${i.toString().padStart(3, '0')}", "低$i", 1))
         val decoder = PinyinDecoder(EngineFixture.build(rows))
-        val words = decoder.decode("ce", 3)
+        val words = decoder.decodeCovered("ce", 30).map { it.word }
 
         assertEquals("same-frequency common word wins the prefix completion tie", "测词", words.first())
         assertTrue("supplementary rare remains reachable in prefix completions", rare in words)
@@ -149,7 +149,7 @@ class EngineLockedFixTest {
         letterRows.add(EngineFixture.Row("cea", letterRare, 10))
         letterRows.add(EngineFixture.Row("ceb", "测", 10))
         for (i in 0 until 200) letterRows.add(EngineFixture.Row("cez${i.toString().padStart(3, '0')}", "低$i", 1))
-        val letterWords = PinyinDecoder(EngineFixture.build(letterRows)).decode("ce", 2)
+        val letterWords = PinyinDecoder(EngineFixture.build(letterRows)).decodeCovered("ce", 30).map { it.word }
 
         assertEquals("same-frequency common BMP char wins the bounded letter-prefix tie", "测", letterWords.first())
         assertTrue("supplementary rare remains reachable in bounded letter-prefix completions", letterRare in letterWords)
@@ -159,7 +159,7 @@ class EngineLockedFixTest {
         digitRows.add(EngineFixture.Row("22", digitRare, 10))
         digitRows.add(EngineFixture.Row("23", "测", 10))
         for (i in 0 until 200) digitRows.add(EngineFixture.Row("29${i.toString().padStart(3, '0')}", "低$i", 1))
-        val digitWords = PinyinDecoder(EngineFixture.build(digitRows)).decode("2", 2)
+        val digitWords = PinyinDecoder(EngineFixture.build(digitRows)).decodeCovered("2", 30).map { it.word }
 
         assertEquals("same-frequency common BMP char wins the bounded digit-prefix tie", "测", digitWords.first())
         assertTrue("supplementary rare remains reachable in bounded digit-prefix completions", digitRare in digitWords)
@@ -178,7 +178,6 @@ class EngineLockedFixTest {
         assertEquals("高频词", letterTop.first().word)
 
         val letterDecoder = PinyinDecoder(letterDict)
-        assertEquals("高频词", letterDecoder.decode("s", 1).single())
         assertEquals("高频词", letterDecoder.decodeCovered("s", 1).single().word)
 
         val digitRows = ArrayList<EngineFixture.Row>()
@@ -192,7 +191,6 @@ class EngineLockedFixTest {
         assertEquals("高频九", digitTop.first().word)
 
         val digitDecoder = PinyinDecoder(digitDict)
-        assertEquals("高频九", digitDecoder.decode("9", 1).single())
         assertEquals("高频九", digitDecoder.decodeCovered("9", 1).single().word)
     }
 

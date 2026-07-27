@@ -35,14 +35,15 @@ class UserAdaptTest {
         val dict = BinaryDict.fromFile(dictFile)
         val lm = CharBigramLM.fromFile(lmFile)
 
-        val base = PinyinDecoder(dict, lm).decode("shi", 5)
-        assumeTrue("need >=2 candidates", base.size >= 2)
-        val target = base[1]
+        val base = PinyinDecoder(dict, lm).decodeCovered("shi", 30).map { it.word }
+        val homophones = base.filter { it.codePointCount(0, it.length) == 1 }
+        assumeTrue("need >=2 homophones", homophones.size >= 2)
+        val target = homophones[1]
 
         val um = UserModel()
         repeat(200) { um.record(null, target, it.toLong()) }
 
-        val withUser = PinyinDecoder(dict, lm, userModel = um).decode("shi", 5)
+        val withUser = PinyinDecoder(dict, lm, userModel = um).decodeCovered("shi", 30).map { it.word }
         assertEquals("user-preferred word ranks first", target, withUser.firstOrNull())
     }
 
@@ -51,15 +52,16 @@ class UserAdaptTest {
         assumeTrue(dictFile.exists() && lmFile.exists())
         val dict = BinaryDict.fromFile(dictFile)
         val lm = CharBigramLM.fromFile(lmFile)
-        val base = PinyinDecoder(dict, lm).decode("shi", 5)
-        assumeTrue("need >=2 candidates", base.size >= 2)
-        val target = base[1]
+        val base = PinyinDecoder(dict, lm).decodeCovered("shi", 30).map { it.word }
+        val homophones = base.filter { it.codePointCount(0, it.length) == 1 }
+        assumeTrue("need >=2 homophones", homophones.size >= 2)
+        val target = homophones[1]
 
         var uses = -1
         for (n in 1..100) {
             val um = UserModel()
             repeat(n) { um.record(null, target, it.toLong()) }
-            if (PinyinDecoder(dict, lm, userModel = um).decode("shi", 5).firstOrNull() == target) { uses = n; break }
+            if (PinyinDecoder(dict, lm, userModel = um).decodeCovered("shi", 30).firstOrNull()?.word == target) { uses = n; break }
         }
         assertTrue("a chosen homophone should reach the front within a few dozen uses (got $uses), far under the old ~200",
             uses in 1..40)

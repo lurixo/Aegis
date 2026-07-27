@@ -51,16 +51,6 @@ class DictEngine(
         return if (t9) out.filterNot { c -> c.word.all { it.code < 128 } } else out
     }
 
-    override fun candidatesForReading(letters: String): List<String> {
-        if (letters.isEmpty()) return emptyList()
-        return decoder?.decode(letters, MAX_CANDIDATES) ?: emptyList()
-    }
-
-    override fun candidatesForReadingCovered(letters: String, cuts: Set<Int>, context: CharSequence): List<Cand> {
-        if (letters.isEmpty()) return emptyList()
-        return decoder?.decodeCovered(letters, MAX_CANDIDATES, cuts, context) ?: emptyList()
-    }
-
     override fun candidatesForLockedReadingCovered(letters: String, cuts: Set<Int>, context: CharSequence): List<Cand> {
         if (letters.isEmpty()) return emptyList()
         return decoder?.decodeCoveredAtomic(letters, MAX_CANDIDATES, cuts, context) ?: emptyList()

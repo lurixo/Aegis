@@ -53,7 +53,6 @@ class EnVisibilityFixTest {
         }
         checkStrip("$cfg 26k decodeCovered(en)", d.decodeCovered("en", 30), 2, "恩")
         checkStrip("$cfg 9k decodeCovered(36)", d9.decodeCovered("36", 30), 2, "恩")
-        if ("嗯" !in d.decode("en", 30)) bad.add("$cfg 26k decode(en) misses 嗯")
 
         if ("嗯" !in d.homophonesAt("en", 0)) bad.add("$cfg 26k homophonesAt(en,0) misses 嗯")
         if ("嗯" !in d9.homophonesAt("36", 0)) bad.add("$cfg 9k homophonesAt(36,0) misses 嗯")

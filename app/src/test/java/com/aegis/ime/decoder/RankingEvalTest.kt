@@ -59,7 +59,7 @@ class RankingEvalTest {
             var top1 = 0
             var top5 = 0
             for ((py, expected) in pairs) {
-                val cands = decoder.decode(py, 5)
+                val cands = decoder.decodeCovered(py, 30).take(5).map { it.word }
                 if (cands.isNotEmpty() && cands[0] == expected) top1++
                 if (cands.contains(expected)) top5++
             }

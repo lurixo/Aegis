@@ -117,7 +117,7 @@ class KeyboardLossMatrixTest {
             override fun candidates(composing: String, t9: Boolean) = listOf("拆")
             override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence) =
                 listOf(Cand("拆", composing.length))
-            override fun candidatesForReadingCovered(letters: String, cuts: Set<Int>, context: CharSequence): List<Cand> {
+            override fun candidatesForLockedReadingCovered(letters: String, cuts: Set<Int>, context: CharSequence): List<Cand> {
                 seenLetters = letters; seenCuts = cuts
                 return listOf(Cand("拆次", letters.length), Cand("拆", 4))
             }

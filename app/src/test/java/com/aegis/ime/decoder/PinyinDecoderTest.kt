@@ -48,7 +48,7 @@ class PinyinDecoderTest {
     @Test
     fun decodesSentences() {
         val d = decoder()
-        fun top(s: String) = d.decode(s, 30).firstOrNull()
+        fun top(s: String) = d.decodeCovered(s, 30).firstOrNull()?.word
         assertEquals("测试", top("ceshi"))
         assertEquals("你好世界", top("nihaoshijie"))
         assertEquals("我是中国人", top("woshizhongguoren"))
@@ -60,7 +60,6 @@ class PinyinDecoderTest {
     fun enCompatibilityAliasSurfacesNasalInterjection() {
         val d = decoder()
 
-        assertTrue("en should offer 嗯 through the ng compatibility alias", "嗯" in d.decode("en", 30))
         assertTrue(
             "covered en candidates should include 嗯 covering the whole input",
             d.decodeCovered("en", 30).any { it.word == "嗯" && it.coveredLen == 2 },
