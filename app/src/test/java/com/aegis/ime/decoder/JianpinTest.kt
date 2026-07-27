@@ -108,6 +108,18 @@ class JianpinTest {
     }
 
     @Test
+    fun rareAbbreviationReservesNothing() {
+        fun words(freq: Int) = PinyinDecoder(
+            crowdedDict(),
+            initialsDict = EngineFixture.build(listOf(EngineFixture.Row("de", "第二", freq))),
+        ).decodeCovered("de", 30).map { it.word }
+        val rare = PinyinDecoder.ORDERING_RARE_FREQ.toInt()
+
+        assertFalse("no slot is reserved at the rare frequency", words(rare).contains("第二"))
+        assertTrue("a slot is reserved one frequency above it", words(rare + 1).contains("第二"))
+    }
+
+    @Test
     fun nineKeyGetsNoInitialsDictionary() {
         val engine = DictEngine(
             crowdedDict(),
