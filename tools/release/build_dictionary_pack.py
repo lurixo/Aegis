@@ -131,7 +131,7 @@ def default_asset_name(release_tag):
     match = re.fullmatch(r"v\d+\.\d+\.\d+-debug\.(\d+)", release_tag)
     if match:
         return f"aegis_dict_pack_debug{match.group(1)}.zip"
-    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", release_tag).strip("-").replace(".", "")
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", release_tag).strip("-")
     return f"aegis_dict_pack_{safe}.zip"
 
 
