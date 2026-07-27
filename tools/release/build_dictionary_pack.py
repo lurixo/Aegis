@@ -41,6 +41,7 @@ OUTPUTS = [
 
 NOTICE_NAME = "NOTICE.txt"
 GRAMMAR_NAME = "wanxiang-lts-zh-hans.gram"
+GRAMMAR_REPO_HTTPS = "https://github.com/amzxyz/RIME-LMDG"
 GRAMMAR_RELEASE_API = "https://api.github.com/repos/amzxyz/RIME-LMDG/releases/tags/LTS"
 
 
@@ -146,12 +147,20 @@ def grammar_reference(release):
     size = asset.get("size")
     if not isinstance(size, int) or size <= 0:
         raise ValueError(f"{GRAMMAR_NAME} has no valid size")
+    tag = release.get("tag_name")
+    if not isinstance(tag, str) or not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9._-]*", tag):
+        raise ValueError(f"{GRAMMAR_NAME} names no plain release tag: {tag!r}")
+    expected_url = f"{GRAMMAR_REPO_HTTPS}/releases/download/{tag}/{GRAMMAR_NAME}"
+    if asset.get("browser_download_url") != expected_url:
+        raise ValueError(
+            f"{GRAMMAR_NAME} is not served from {expected_url}: {asset.get('browser_download_url')!r}"
+        )
     return {
         "kind": "grammar_model",
         "physical_asset": {
             "name": GRAMMAR_NAME,
             "url": asset["browser_download_url"],
-            "release_tag": release["tag_name"],
+            "release_tag": tag,
             "release_url": release["html_url"],
             "prerelease": bool(release.get("prerelease")),
             "published_at": asset.get("updated_at") or release.get("published_at"),
@@ -160,7 +169,7 @@ def grammar_reference(release):
             "github_asset_id": asset.get("id"),
         },
         "source": {
-            "repo": "https://github.com/amzxyz/RIME-LMDG",
+            "repo": GRAMMAR_REPO_HTTPS,
             "branch": None,
             "commit": None,
         },
