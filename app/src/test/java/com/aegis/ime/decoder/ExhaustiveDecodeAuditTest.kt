@@ -43,6 +43,7 @@ class ExhaustiveDecodeAuditTest {
 
     private val dict: BinaryDict by lazy { BinaryDict.fromFile(dictFile) }
     private val t9Dict: BinaryDict by lazy { BinaryDict.fromFile(t9File) }
+    private val jianpinDict: BinaryDict by lazy { BinaryDict.fromFile(jianpinFile) }
 
     private fun isSingleChar(w: String): Boolean = w.codePointCount(0, w.length) == 1
     private fun dictSingles(key: String): Set<String> =
@@ -132,8 +133,57 @@ class ExhaustiveDecodeAuditTest {
 
     private fun isStandalone(word: String): Boolean = word.codePointCount(0, word.length) == 1
 
-    private fun mappedAwayUnderReading(word: String, reading: String): Boolean =
-        isStandalone(word) && reading in readingScopedMappedForms[word].orEmpty()
+    private val READING_SCOPED_WINDOW = 4096
+
+    private data class ReadingScopedArm(
+        val asset: String, val layout: String, val dict: BinaryDict, val key: (String) -> String,
+    )
+
+    private val readingScopedArms: List<ReadingScopedArm> by lazy {
+        listOf(
+            ReadingScopedArm("aegis_dict.bin", "26key", dict) { it },
+            ReadingScopedArm("aegis_t9.bin", "9key", t9Dict) { T9Pinyin.toT9(it) },
+            ReadingScopedArm("aegis_jianpin.bin", "26key-initials", jianpinDict) { it.substring(0, 1) },
+        )
+    }
+
+    private fun keepReadings(form: String): Set<String> {
+        val denied = readingScopedMappedForms[form].orEmpty()
+        return syllableSet.filterTo(HashSet()) { it !in denied && dict.containsExactWord(it, form) }
+    }
+
+    private class ReadingScopedSweep {
+        var probes = 0
+        val probed = HashSet<Pair<String, String>>()
+        val fails = ArrayList<Fail>()
+    }
+
+    private fun sweepReadingScopedStandalone(): ReadingScopedSweep {
+        val out = ReadingScopedSweep()
+        for ((form, denied) in readingScopedMappedForms.toSortedMap()) {
+            val keep = keepReadings(form)
+            for (reading in denied.sorted()) {
+                for (arm in readingScopedArms) {
+                    val key = arm.key(reading)
+                    val allowed = keep.mapTo(HashSet()) { arm.key(it) }
+                    out.probes++
+                    out.probed += form to reading
+                    val exact = arm.dict.containsExactWord(key, form)
+                    val extended = arm.dict.prefixByFreq(key, READING_SCOPED_WINDOW).any { it.word == form }
+                    if (!exact && !extended) continue
+                    if (allowed.any { it.startsWith(key) && arm.dict.containsExactWord(it, form) }) continue
+                    out.fails += Fail(
+                        key, arm.layout, "TC1-traditional-leak", reading, form,
+                        sample(allowed.sorted()), form,
+                        "${arm.asset} holds standalone $form at " +
+                            (if (exact) "key '$key'" else "a key extending '$key'") +
+                            ", a reading the build maps away; keep-reading keys ${allowed.sorted()}",
+                    )
+                }
+            }
+        }
+        return out
+    }
 
     private fun containsMappedForm(word: String): Boolean {
         var i = 0
@@ -238,10 +288,6 @@ class ExhaustiveDecodeAuditTest {
             for (h in homo) if (containsMappedForm(h)) {
                 fails += Fail(s, "26key", "TC1-traditional-leak", s, h,
                     sample(oracle), h, "homophone drill contains a mapped-away form")
-            }
-            for (w in oracle) if (mappedAwayUnderReading(w, s)) {
-                fails += Fail(s, "26key", "TC1-traditional-leak", s, w,
-                    sample(oracle), w, "standalone entry under a reading the build maps away")
             }
             for (c in t9.decodeCovered(digits, 30)) if (containsMappedForm(c.word)) {
                 fails += Fail(s, "9key", "TC1-traditional-leak", s, c.word,
@@ -438,7 +484,10 @@ class ExhaustiveDecodeAuditTest {
             syls.size in 400..430 && syls.isNotEmpty())
 
         val d = letterDecoder()
-        val fails = sweepN1(d, t9Decoder(), syls)
+        val readingScoped = sweepReadingScopedStandalone()
+        val fails = sweepN1(d, t9Decoder(), syls) + readingScoped.fails
+        val deniedPairs = readingScopedMappedForms.entries
+            .flatMap { (form, readings) -> readings.map { form to it } }.toSet()
 
         writeTsv(File(outDir(), "levelA_n1.tsv"), fails.sortedWith(compareBy({ it.inv }, { it.layout }, { it.input })))
         val byInvLayout = fails.groupingBy { it.inv to it.layout }.eachCount()
@@ -451,10 +500,20 @@ class ExhaustiveDecodeAuditTest {
             appendLine("TC1 leak scan covers n=1 only: 26-key decodeCovered top-30 and homophonesAt, " +
                 "9-key decodeCovered top-30, homophonesAt and the locked-reading path; " +
                 "longer inputs are not scanned for mapped-away forms")
-            appendLine("TC1 occurrence list: ${mappedForms.size} forms, any codepoint of any candidate; " +
-                "reading-scoped list: ${readingScopedMappedForms.values.sumOf { it.size }} form/reading pairs " +
-                "over ${readingScopedMappedForms.size} forms, held against the letter dictionary's own " +
-                "standalone entries, whose key is the reading; digit and initials keys cannot name a reading")
+            appendLine("TC1 occurrence list: ${mappedForms.size} forms, any codepoint of any candidate")
+            appendLine("TC1 reading-scoped list: ${deniedPairs.size} adjudicated form/reading pairs over " +
+                "${readingScopedMappedForms.size} forms, driven from the denied readings themselves and held " +
+                "against the standalone entries of all three runtime binaries in ${readingScoped.probes} probes: " +
+                readingScopedArms.joinToString(", ") { "${it.asset} (${it.layout})" })
+            appendLine("reading-scoped keys are derived as the build derives them: the letter key is the " +
+                "reading, the digit key its T9 form, the initials key its first letter; the derived key is " +
+                "checked exactly, and longer keys carrying it as a prefix over the top-$READING_SCOPED_WINDOW " +
+                "of that prefix, which for a single-letter initials key is the dictionary's own 128-entry " +
+                "short-prefix index")
+            appendLine("reading-scoped residue: a key also derivable from a keep reading the letter dictionary " +
+                "holds for the same form is exempt, so on the digit and initials keys one keep reading " +
+                "colliding on the derived key suppresses that form's arm — 徵 keeps cheng and zhi, whose " +
+                "initials key z is also the denied reading zheng's, so 徵 under initials z is not flagged")
             appendLine("distinct offending syllables: ${failedInputs.size}")
             appendLine("total invariant violations: ${fails.size}")
             appendLine("per invariant×layout:")
@@ -463,8 +522,13 @@ class ExhaustiveDecodeAuditTest {
             }
         })
 
-        assertTrue("reading-scoped mapped-away list is empty, so the standalone arm covers nothing",
-            readingScopedMappedForms.isNotEmpty())
+        assertTrue("every adjudicated reading-scoped form must be a single codepoint: " +
+            sample(readingScopedMappedForms.keys.filterNot { isStandalone(it) }),
+            readingScopedMappedForms.keys.all { isStandalone(it) })
+        assertTrue("reading-scoped arm probed ${readingScoped.probed.size} of ${deniedPairs.size} adjudicated " +
+            "form/reading pairs over ${readingScopedArms.size} binaries in ${readingScoped.probes} probes",
+            deniedPairs.isNotEmpty() && readingScoped.probed == deniedPairs &&
+                readingScoped.probes == deniedPairs.size * readingScopedArms.size)
         val tradLeaks = fails.filter { it.inv == "TC1-traditional-leak" }
         assertTrue("no-traditional gate: traditional/variant forms leaked into candidates: ${tradLeaks.take(6)}", tradLeaks.isEmpty())
         assertTrue("n=1 offenders must be 0 after the fix; remaining: ${failedInputs.sorted()}", fails.isEmpty())
