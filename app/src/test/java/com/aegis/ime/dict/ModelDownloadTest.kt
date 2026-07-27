@@ -15,17 +15,20 @@
 
 package com.aegis.ime.dict
 
+import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import java.io.File
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import kotlin.random.Random
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -44,13 +47,16 @@ class ModelDownloadTest {
         val base = tempFilesDir()
         val gram = ModelDownload.destFile(base)
         val part = ModelDownload.partFile(base)
+        val sidecar = File(part.parentFile, "${part.name}.meta")
         gram.parentFile?.mkdirs()
         gram.writeText("model")
         part.writeText("leftover")
+        sidecar.writeText("identity")
 
         assertTrue("first purge removes leftovers", ModelDownload.purge(base))
         assertFalse(gram.exists())
         assertFalse("interrupted .part is cleaned too", part.exists())
+        assertFalse("the partial identity sidecar is cleaned too", sidecar.exists())
         assertTrue("second purge still confirms absence", ModelDownload.purge(base))
 
         base.deleteRecursively()
@@ -967,6 +973,292 @@ class ModelDownloadTest {
         assertEquals(2L, ModelDownload.bytesToDisplayMb(ModelDownload.installedDictionaryBytes(base)))
         base.deleteRecursively()
     }
+
+    @Test
+    fun interruptedModelDownloadResumesWithARangeRequestAndTransfersOnlyTheRemainder() {
+        val base = tempFilesDir()
+        val body = validGramBytes(200_000, 5)
+        val cut = 80_000
+        val requests = CopyOnWriteArrayList<Pair<String?, String?>>()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/asset") { exchange ->
+            requests += exchange.requestHeaders.getFirst("Range") to exchange.requestHeaders.getFirst("If-Range")
+            if (requests.size == 1) serveTruncated(exchange, body, cut, etag = "model-1")
+            else serveRemainder(exchange, body, cut, etag = "model-1")
+        }
+        server.start()
+        try {
+            val target = ModelDownload.destFile(base)
+            val part = ModelDownload.partFile(base)
+            val sidecar = File(part.parentFile, "${part.name}.meta")
+            val url = "http://127.0.0.1:${server.address.port}/asset"
+
+            val first = ModelDownload.downloadModel(url, target, { _, _ -> }) { true }
+
+            assertFalse(first.ok)
+            assertEquals(ModelDownload.TransferFailure.INCOMPLETE, first.failure)
+            assertEquals(cut.toLong(), first.bytesRead)
+            assertEquals(0L, first.resumedFrom)
+            assertEquals(cut.toLong(), part.length())
+            assertTrue(sidecar.exists())
+
+            var snapshot: ModelDownload.ModelSnapshot? = null
+            val second = ModelDownload.downloadModel(url, target, { _, _ -> }) { snapshot = it; true }
+
+            assertTrue(second.ok)
+            assertEquals(cut.toLong(), second.resumedFrom)
+            assertEquals(body.size.toLong(), second.bytesRead)
+            assertEquals(listOf<String?>(null, "bytes=$cut-"), requests.map { it.first })
+            assertEquals(listOf<String?>(null, "model-1"), requests.map { it.second })
+            assertArrayEquals(body, target.readBytes())
+            assertEquals("model-1", requireNotNull(snapshot).validator)
+            assertEquals(sha256Hex(body), snapshot!!.sha256)
+            assertFalse(part.exists())
+            assertFalse(sidecar.exists())
+        } finally {
+            server.stop(0)
+            base.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun aServerThatIgnoresRangeRestartsTheTransferFromZeroWithoutAppending() {
+        val base = tempFilesDir()
+        val body = ByteArray(100_000) { (it % 249).toByte() }
+        val cut = 40_000
+        val ranges = CopyOnWriteArrayList<String?>()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/asset") { exchange ->
+            ranges += exchange.requestHeaders.getFirst("Range")
+            if (ranges.size == 1) serveTruncated(exchange, body, cut)
+            else serveFull(exchange, body)
+        }
+        server.start()
+        try {
+            val zip = ModelDownload.dictZipFile(base)
+            val part = ModelDownload.dictPartFile(base)
+            val url = "http://127.0.0.1:${server.address.port}/asset"
+            val sha = sha256Hex(body)
+
+            val first = ModelDownload.download(url, zip, sha) { _, _ -> }
+
+            assertFalse(first.ok)
+            assertEquals(ModelDownload.TransferFailure.INCOMPLETE, first.failure)
+            assertEquals(cut.toLong(), part.length())
+
+            val second = ModelDownload.download(url, zip, sha) { _, _ -> }
+
+            assertTrue(second.ok)
+            assertEquals(0L, second.resumedFrom)
+            assertEquals("bytes=$cut-", ranges[1])
+            assertArrayEquals(body, zip.readBytes())
+            assertFalse(part.exists())
+            assertFalse(File(part.parentFile, "${part.name}.meta").exists())
+        } finally {
+            server.stop(0)
+            base.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun aPartialBoundToADifferentExpectedArchiveIsDiscardedBeforeTheRequest() {
+        val base = tempFilesDir()
+        val v1 = ByteArray(120_000) { (it % 241).toByte() }
+        val v2 = ByteArray(110_000) { (it % 239 + 7).toByte() }
+        val ranges = CopyOnWriteArrayList<String?>()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/asset") { exchange ->
+            ranges += exchange.requestHeaders.getFirst("Range")
+            if (ranges.size == 1) serveTruncated(exchange, v1, 50_000)
+            else serveFull(exchange, v2)
+        }
+        server.start()
+        try {
+            val zip = ModelDownload.dictZipFile(base)
+            val part = ModelDownload.dictPartFile(base)
+            val url = "http://127.0.0.1:${server.address.port}/asset"
+
+            val first = ModelDownload.download(url, zip, sha256Hex(v1)) { _, _ -> }
+
+            assertFalse(first.ok)
+            assertEquals(50_000L, part.length())
+
+            val second = ModelDownload.download(url, zip, sha256Hex(v2)) { _, _ -> }
+
+            assertTrue(second.ok)
+            assertEquals(0L, second.resumedFrom)
+            assertNull("a partial of another archive must not be continued", ranges[1])
+            assertArrayEquals(v2, zip.readBytes())
+            assertFalse(part.exists())
+        } finally {
+            server.stop(0)
+            base.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun aRangeResponseForADifferentEntityIsRefusedAndTheNextAttemptStartsClean() {
+        val base = tempFilesDir()
+        val v1 = ByteArray(200_000) { (it % 251).toByte() }
+        val v2 = ByteArray(200_000) { (it % 253 + 2).toByte() }
+        val cut = 80_000
+        val requests = CopyOnWriteArrayList<Pair<String?, String?>>()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/asset") { exchange ->
+            requests += exchange.requestHeaders.getFirst("Range") to exchange.requestHeaders.getFirst("If-Range")
+            when (requests.size) {
+                1 -> serveTruncated(exchange, v1, cut, etag = "model-1")
+                2 -> serveRemainder(exchange, v2, cut, etag = "model-2")
+                else -> serveFull(exchange, v2, etag = "model-2")
+            }
+        }
+        server.start()
+        try {
+            val target = ModelDownload.destFile(base)
+            val part = ModelDownload.partFile(base)
+            val sidecar = File(part.parentFile, "${part.name}.meta")
+            val url = "http://127.0.0.1:${server.address.port}/asset"
+
+            val first = ModelDownload.download(url, target) { _, _ -> }
+
+            assertFalse(first.ok)
+            assertEquals(cut.toLong(), part.length())
+
+            val second = ModelDownload.download(url, target) { _, _ -> }
+
+            assertFalse("a 206 for another entity must not be appended", second.ok)
+            assertNotNull(second.error)
+            assertFalse(target.exists())
+            assertFalse(part.exists())
+            assertFalse(sidecar.exists())
+
+            val third = ModelDownload.download(url, target) { _, _ -> }
+
+            assertTrue(third.ok)
+            assertEquals(0L, third.resumedFrom)
+            assertEquals("model-1", requests[1].second)
+            assertNull("the refused partial must not be offered again", requests[2].first)
+            assertArrayEquals(v2, target.readBytes())
+        } finally {
+            server.stop(0)
+            base.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun aSplicedArchiveThatEvadesTransportChecksFailsTheDigestGate() {
+        val base = tempFilesDir()
+        val source = File(base, "origin.zip")
+        writeZip(
+            source,
+            ModelDownload.DICT_PACK_FILES.mapIndexed { index, name ->
+                name to ByteArray(40_000).also { Random(index + 1).nextBytes(it) }
+            }.toMap(),
+        )
+        val v1 = source.readBytes()
+        assertTrue(source.delete())
+        val expectedSha = sha256Hex(v1)
+        val cut = v1.size / 2
+        val v2 = v1.copyOf().also { swapped ->
+            for (i in cut until swapped.size) swapped[i] = (swapped[i] + 1).toByte()
+        }
+        val ranges = CopyOnWriteArrayList<String?>()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/asset") { exchange ->
+            ranges += exchange.requestHeaders.getFirst("Range")
+            if (ranges.size == 1) serveTruncated(exchange, v1, cut)
+            else serveRemainder(exchange, v2, cut)
+        }
+        server.start()
+        try {
+            val zip = ModelDownload.dictZipFile(base)
+            val url = "http://127.0.0.1:${server.address.port}/asset"
+
+            val first = ModelDownload.download(url, zip, expectedSha) { _, _ -> }
+            assertFalse(first.ok)
+
+            val second = ModelDownload.download(url, zip, expectedSha) { _, _ -> }
+
+            assertTrue("the transport layer alone cannot see the swap", second.ok)
+            assertEquals(cut.toLong(), second.resumedFrom)
+            assertEquals("bytes=$cut-", ranges[1])
+
+            assertFalse("the digest gate has the last word", ModelDownload.installDictPack(base, expectedSha))
+            assertFalse(ModelDownload.isDictDownloaded(base))
+            ModelDownload.DICT_PACK_FILES.forEach { name ->
+                assertFalse(File(File(base, "downloaded"), name).exists())
+            }
+            assertFalse(zip.exists())
+            assertFalse(ModelDownload.dictPartFile(base).exists())
+        } finally {
+            server.stop(0)
+            base.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun reconciliationKeepsABoundPartialAndDropsAnUnboundOne() {
+        val base = tempFilesDir()
+        val body = ByteArray(100_000) { (it % 245).toByte() }
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/asset") { exchange -> serveTruncated(exchange, body, 30_000, etag = "model-1") }
+        server.start()
+        try {
+            val target = ModelDownload.destFile(base)
+            val part = ModelDownload.partFile(base)
+            val sidecar = File(part.parentFile, "${part.name}.meta")
+
+            val first = ModelDownload.download("http://127.0.0.1:${server.address.port}/asset", target) { _, _ -> }
+
+            assertFalse(first.ok)
+            assertEquals(30_000L, part.length())
+            assertTrue(sidecar.exists())
+
+            ModelDownload.reconcileInterruptedDownloads(base)
+            assertTrue("a bound partial survives reconciliation", part.exists())
+            assertTrue(sidecar.exists())
+
+            sidecar.writeText("not the recorded identity")
+            ModelDownload.reconcileInterruptedDownloads(base)
+            assertFalse("an unbound partial is discarded", part.exists())
+            assertFalse(sidecar.exists())
+
+            val dictPart = ModelDownload.dictPartFile(base).apply { parentFile?.mkdirs(); writeBytes(ByteArray(5_000)) }
+            val dictSidecar = File(dictPart.parentFile, "${dictPart.name}.meta").apply { writeText("stale") }
+            assertTrue(ModelDownload.purgeDict(base))
+            assertFalse(dictPart.exists())
+            assertFalse(dictSidecar.exists())
+        } finally {
+            server.stop(0)
+            base.deleteRecursively()
+        }
+    }
+
+    private fun serveTruncated(exchange: HttpExchange, body: ByteArray, cut: Int, etag: String? = null) {
+        if (etag != null) exchange.responseHeaders.add("ETag", etag)
+        exchange.sendResponseHeaders(200, body.size.toLong())
+        exchange.responseBody.use { it.write(body, 0, cut) }
+        exchange.close()
+    }
+
+    private fun serveRemainder(exchange: HttpExchange, body: ByteArray, offset: Int, etag: String? = null) {
+        if (etag != null) exchange.responseHeaders.add("ETag", etag)
+        exchange.responseHeaders.add("Content-Range", "bytes $offset-${body.size - 1}/${body.size}")
+        exchange.sendResponseHeaders(206, (body.size - offset).toLong())
+        exchange.responseBody.use { it.write(body, offset, body.size - offset) }
+        exchange.close()
+    }
+
+    private fun serveFull(exchange: HttpExchange, body: ByteArray, etag: String? = null) {
+        if (etag != null) exchange.responseHeaders.add("ETag", etag)
+        exchange.sendResponseHeaders(200, body.size.toLong())
+        exchange.responseBody.use { it.write(body) }
+        exchange.close()
+    }
+
+    private fun sha256Hex(bytes: ByteArray): String =
+        MessageDigest.getInstance("SHA-256").digest(bytes)
+            .joinToString("") { "%02x".format(it.toInt() and 0xFF) }
 
     private fun writeZip(dest: File, entries: Map<String, ByteArray>) {
         dest.parentFile?.mkdirs()

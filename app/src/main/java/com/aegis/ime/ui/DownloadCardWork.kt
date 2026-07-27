@@ -61,9 +61,16 @@ private fun logTransferFailure(what: String, result: ModelDownload.DownloadResul
     val cause = result.failure?.name ?: "unclassified"
     logDownloadFailure(
         what,
-        "transfer failed cause=$cause bytes=${result.bytesRead}/${result.contentLength}",
+        "transfer failed cause=$cause bytes=${result.bytesRead}/${result.contentLength}" +
+            if (result.resumedFrom > 0L) " resumedFrom=${result.resumedFrom}" else "",
         result.error,
     )
+}
+
+private fun logResumedTransfer(what: String, result: ModelDownload.DownloadResult) {
+    if (result.resumedFrom > 0L) {
+        Log.i(DOWNLOAD_LOG_TAG, "$what: resumed transfer at byte ${result.resumedFrom} of ${result.contentLength}")
+    }
 }
 
 internal data class DownloadCardSnapshot(
@@ -243,6 +250,7 @@ internal object GramDownloadWork {
                     }
                 }
             }) { snapshot -> persistModelSnapshot(prefs, snapshot) }
+            logResumedTransfer("model", result)
             if (result.ok) {
                 SettingsHotApply.noteEnginePackChanged(prefs)
                 LocalizedText.ResourceLong(
@@ -354,7 +362,7 @@ internal object DictDownloadWork {
             }
             val zip = ModelDownload.dictZipFile(app.filesDir)
             var lastPct = -1
-            val result = ModelDownload.download(selected.url, zip) { done, total ->
+            val result = ModelDownload.download(selected.url, zip, selected.sha256) { done, total ->
                 if (total > 0) {
                     val pct = (done * 100 / total).toInt()
                     if (pct != lastPct) {
@@ -363,6 +371,7 @@ internal object DictDownloadWork {
                     }
                 }
             }
+            logResumedTransfer("dictionary", result)
             if (!result.ok) {
                 logTransferFailure("dictionary", result)
                 ModelDownload.clearPendingDictionarySha(app.filesDir)
