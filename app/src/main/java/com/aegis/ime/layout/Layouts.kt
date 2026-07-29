@@ -33,8 +33,8 @@ import com.aegis.ime.layout.KeyAction.TOGGLE_LANG
 
 object Layouts {
 
-    fun forId(id: LayoutId, lang: Lang): KeyboardLayout = when (id) {
-        LayoutId.ALPHA -> qwerty(lang)
+    fun forId(id: LayoutId, lang: Lang, composing: Boolean = false): KeyboardLayout = when (id) {
+        LayoutId.ALPHA -> qwerty(lang, composing)
         LayoutId.NINE -> nine(lang, ninePunctuation())
         LayoutId.NUMBER -> number()
         LayoutId.SYMBOL -> symbol()
@@ -61,18 +61,26 @@ object Layouts {
     private fun subRow(letters: String, subs: List<String>): List<Key> =
         letters.mapIndexed { i, c -> Key(c.toString(), sub = subs.getOrNull(i)) }
 
-    private fun qwerty(lang: Lang): KeyboardLayout {
+    private fun qwerty(lang: Lang, composing: Boolean): KeyboardLayout {
         val q = subRow("qwertyuiop", listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"))
-        val a = subRow("asdfghjkl", listOf("~", "!", "@", "#", "%", "'", "&", "*", "?"))
-        val z = subRow("zxcvbnm", listOf("(", ")", "-", "_", ":", ";", "/"))
+        val a = subRow(
+            "asdfghjkl",
+            if (lang == Lang.CN) listOf("～", "！", "＠", "＃", "％", "＇", "＆", "＊", "？")
+            else listOf("~", "!", "@", "#", "%", "'", "&", "*", "?"),
+        )
+        val z = subRow(
+            "zxcvbnm",
+            if (lang == Lang.CN) listOf("（", "）", "－", "＿", "：", "；", "／")
+            else listOf("(", ")", "-", "_", ":", ";", "/"),
+        )
         val comma = if (lang == Lang.CN) "，" else ","
         val period = if (lang == Lang.CN) "。" else "."
         val bottom = listOf(
             Key(labelRes = R.string.kbd_symbols, action = SHOW_SYMBOLS, rail = true, weight = 1.5f),
             Key("123", action = SWITCH_NUMPAD, rail = true, weight = 1.5f),
-            Key(",", output = comma, direct = true),
+            Key(comma, output = comma, direct = true),
             Key(labelRes = R.string.kbd_space, output = " ", action = SPACE, weight = 3.5f),
-            Key(".", output = period, direct = true),
+            Key(period, output = period, direct = true),
             Key(action = TOGGLE_LANG, rail = true, weight = 1.5f),
             Key("↵", action = ENTER, accent = true, weight = 1.6f),
         )
@@ -82,7 +90,14 @@ object Layouts {
         }
         addRow(q, 0f, 0f)
         addRow(a, 0.05f, 0.25f)
-        cells.add(PlacedKey(Key("⇧", action = SHIFT, rail = true, weight = 1.5f), 0f, 0.5f, 0.15f, 0.25f))
+        cells.add(PlacedKey(
+            if (lang == Lang.CN && composing) Key(labelRes = R.string.kbd_split, action = SEGMENT, rail = true, weight = 1.5f)
+            else Key("⇧", action = SHIFT, rail = true, weight = 1.5f),
+            0f,
+            0.5f,
+            0.15f,
+            0.25f,
+        ))
         addRow(z, 0.15f, 0.5f)
         cells.add(PlacedKey(Key("⌫", action = BACKSPACE, rail = true, weight = 1.5f), 0.85f, 0.5f, 0.15f, 0.25f))
         val bottomWeight = bottom.sumOf { it.weight.toDouble() }.toFloat()

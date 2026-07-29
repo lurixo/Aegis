@@ -78,17 +78,22 @@ class LayoutsTest {
         }
     }
 
-    @Test fun both_languages_carry_the_identical_qwerty_sub_symbol_set() {
-        val expected = listOf(
+    @Test fun chinese_qwerty_uses_fullwidth_sub_symbols_while_english_stays_halfwidth() {
+        val english = listOf(
             "1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
             "~", "!", "@", "#", "%", "'", "&", "*", "?",
             "(", ")", "-", "_", ":", ";", "/",
         )
-        for (layout in listOf(qwerty, qwertyEn)) {
+        val chinese = listOf(
+            "1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
+            "～", "！", "＠", "＃", "％", "＇", "＆", "＊", "？",
+            "（", "）", "－", "＿", "：", "；", "／",
+        )
+        for ((layout, expected) in listOf(qwerty to chinese, qwertyEn to english)) {
             val letters = keysOf(layout)
                 .filter { it.action == KeyAction.COMMIT && it.label.length == 1 && it.label[0] in 'a'..'z' }
             assertEquals(26, letters.size)
-            assertEquals("both languages share one sub-symbol assignment", expected, letters.map { it.sub })
+            assertEquals(expected, letters.map { it.sub })
         }
     }
 
@@ -101,12 +106,27 @@ class LayoutsTest {
 
         val cn = flanking(qwerty)
         val en = flanking(qwertyEn)
-        assertEquals(listOf(",", "."), cn.map { it.key.label })
+        assertEquals(listOf("，", "。"), cn.map { it.key.label })
         assertEquals(listOf(",", "."), en.map { it.key.label })
         assertEquals(listOf("，", "。"), cn.map { it.key.output })
         assertEquals(listOf(",", "."), en.map { it.key.output })
         assertEquals(en.map { listOf(it.x, it.y, it.w, it.h) }, cn.map { listOf(it.x, it.y, it.w, it.h) })
         assertTrue((cn + en).all { it.key.direct })
+    }
+
+    @Test fun chinese_qwerty_replaces_shift_with_segment_only_while_composing() {
+        val resting = Layouts.forId(LayoutId.ALPHA, Lang.CN)
+        val composing = Layouts.forId(LayoutId.ALPHA, Lang.CN, composing = true)
+        val english = Layouts.forId(LayoutId.ALPHA, Lang.EN, composing = true)
+
+        assertEquals(1, keysOf(resting).count { it.action == KeyAction.SHIFT })
+        assertEquals(0, keysOf(resting).count { it.action == KeyAction.SEGMENT })
+        assertEquals(0, keysOf(composing).count { it.action == KeyAction.SHIFT })
+        assertEquals(1, keysOf(composing).count {
+            it.action == KeyAction.SEGMENT && it.labelRes == com.aegis.ime.R.string.kbd_split
+        })
+        assertEquals(1, keysOf(english).count { it.action == KeyAction.SHIFT })
+        assertEquals(0, keysOf(english).count { it.action == KeyAction.SEGMENT })
     }
 
     @Test fun nine_space_is_in_bottom_row_not_right_column() {

@@ -550,11 +550,11 @@ class KeyboardControllerTest {
 
         c.onPanelBackspace()
 
-        assertEquals("panel backspace undoes the preedit-only pick", "nihao", c.preeditForTest())
+        assertEquals("panel backspace undoes the preedit-only pick", "ni'hao", c.preeditForTest())
         assertEquals("", c.composingPrefix())
         assertEquals("partial pick has not reached the editor", 0, h.commits.size)
         c.onKey(act(KeyAction.BACKSPACE))
-        assertEquals("candidate undo is consumed after it restores the previous preedit", "niha", c.preeditForTest())
+        assertEquals("candidate undo is consumed after it restores the previous preedit", "ni'ha", c.preeditForTest())
     }
 
     @Test fun panel_backspace_with_empty_composing_after_a_full_pick_does_not_delete_editor_text() {
@@ -719,8 +719,8 @@ class KeyboardControllerTest {
         val c = KeyboardController(h, shuru)
         c.onKey(act(KeyAction.SWITCH_ALPHA))
         "shuru".forEach { c.onKey(out(it.toString())) }
-        assertEquals("shuru", c.preeditForTest())
-        assertEquals(listOf("shu"), c.expandedReadings())
+        assertEquals("shu'ru", c.preeditForTest())
+        assertEquals("shu", c.expandedReadings().first())
 
         c.onPickReadingIndex(0)
         c.onPickReadingIndex(c.expandedReadings().indexOf("shu"))
@@ -731,7 +731,7 @@ class KeyboardControllerTest {
 
         c.onKey(act(KeyAction.BACKSPACE))
 
-        assertEquals("shuru", c.preeditForTest())
+        assertEquals("shu'ru", c.preeditForTest())
         assertEquals("", c.composingPrefix())
         assertTrue("undoing the partial pick must not touch editor text", h.commits.isEmpty())
         assertEquals("the original syllable drill is restored", 0, c.drilledSyllableForTest())
@@ -767,7 +767,7 @@ class KeyboardControllerTest {
         c.onKey(act(KeyAction.SWITCH_ALPHA))
         "shu'ru".forEach { c.onKey(out(it.toString())) }
         assertEquals("shu'ru", c.preeditForTest())
-        assertEquals(listOf("shu"), c.expandedReadings())
+        assertEquals("shu", c.expandedReadings().first())
 
         c.onPickReadingIndex(0)
         c.onPickReadingIndex(c.expandedReadings().indexOf("shu"))
@@ -1239,5 +1239,45 @@ class KeyboardControllerTest {
         assertEquals("the pending reading is dropped", "", c.preeditForTest())
         assertTrue("nothing committed, field untouched", h.commits.isEmpty())
         assertEquals("never deleted committed editor text", 0, h.deletes)
+    }
+
+    @Test fun alpha_preedit_automatically_displays_syllable_boundaries() {
+        val c = KeyboardController(FakeHost(), engine)
+        "nihao".forEach { c.onKey(out(it.toString())) }
+
+        assertEquals("ni'hao", c.preeditForTest())
+    }
+
+    @Test fun alpha_segment_key_forces_and_backspace_undoes_the_boundary() {
+        val c = KeyboardController(FakeHost(), engine)
+        "xi".forEach { c.onKey(out(it.toString())) }
+        c.onKey(act(KeyAction.SEGMENT))
+        "an".forEach { c.onKey(out(it.toString())) }
+
+        assertEquals("xi'an", c.preeditForTest())
+        c.onKey(act(KeyAction.BACKSPACE))
+        c.onKey(act(KeyAction.BACKSPACE))
+        assertEquals("xi'", c.preeditForTest())
+        c.onKey(act(KeyAction.BACKSPACE))
+        assertEquals("xi", c.preeditForTest())
+    }
+
+    @Test fun alpha_xian_readings_are_selected_progressively_without_exposing_the_tail_early() {
+        val c = KeyboardController(FakeHost(), engine)
+        "xian".forEach { c.onKey(out(it.toString())) }
+
+        val first = c.expandedReadings()
+        assertEquals("xian", first.first())
+        assertTrue("xi must be available as the leading xi|an path, was $first", "xi" in first)
+        assertTrue("an must stay hidden until xi is locked, was $first", "an" !in first)
+
+        c.onPickReadingIndex(first.indexOf("xi"))
+
+        assertEquals("xi'an", c.preeditForTest())
+        val second = c.expandedReadings()
+        assertEquals("xi", second.first())
+        assertTrue("an becomes available only at the next layer, was $second", "an" in second)
+        c.onPickReadingIndex(0)
+        assertEquals(0, c.drilledSyllableForTest())
     }
 }

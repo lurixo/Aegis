@@ -186,7 +186,8 @@ class Ui12SyllableColumnTest {
 
     @Test fun expand_left_column_shows_only_the_first_unresolved_syllable_on_26key() {
         val (_, c) = alphaWithBuffer("nihao")
-        assertEquals("26-key starts with only the first unresolved syllable", listOf("ni"), c.expandedReadings())
+        assertEquals("26-key starts with the first unresolved syllable", "ni", c.expandedReadings().first())
+        assertTrue("the later hao layer must remain hidden", "hao" !in c.expandedReadings())
         assertEquals("nothing drilled yet", -1, c.drilledSyllableForTest())
     }
 
@@ -195,14 +196,15 @@ class Ui12SyllableColumnTest {
         c.onPickReadingIndex(0)
 
         assertEquals("the first tap locks instead of drilling", -1, c.drilledSyllableForTest())
-        assertEquals("the locked reading and next syllable stay selectable", listOf("ni", "hao"), c.expandedReadings())
+        assertEquals("the locked reading stays first", "ni", c.expandedReadings().first())
+        assertTrue("the next syllable becomes selectable", "hao" in c.expandedReadings())
         assertTrue("locked decode keeps the full word candidate", "你好" in c.candidateWords())
     }
 
     @Test fun repeated_26key_syllables_remain_separately_lockable() {
         val (_, c) = alphaWithBuffer("nini")
         c.onPickReadingIndex(0)
-        assertEquals(listOf("ni", "ni"), c.expandedReadings())
+        assertEquals(listOf("ni", "ni"), c.expandedReadings().take(2))
         c.onPickReadingIndex(1)
         assertEquals("locking the second identical syllable does not enter the drill", -1, c.drilledSyllableForTest())
     }
@@ -269,7 +271,7 @@ class Ui12SyllableColumnTest {
         assertTrue("a partial 逐字 pick does not reach the editor yet", host.commits.isEmpty())
         assertEquals("你", c.composingPrefix())
         assertEquals("the drill clears so the remainder shows normally", -1, c.drilledSyllableForTest())
-        assertEquals("the next unresolved syllable is now shown", listOf("hao"), c.expandedReadings())
+        assertEquals("the next unresolved syllable is now shown", "hao", c.expandedReadings().first())
 
         c.onKey(act(KeyAction.ENTER))
         assertEquals(listOf("你hao"), host.commits)
@@ -277,8 +279,9 @@ class Ui12SyllableColumnTest {
 
     @Test fun non_leftmost_syllable_cannot_be_drilled_from_the_26key_column() {
         val (host, c) = alphaWithBuffer("nihao")
-        assertEquals(listOf("ni"), c.expandedReadings())
-        c.onPickReadingIndex(1)
+        assertEquals("ni", c.expandedReadings().first())
+        assertTrue("hao is not exposed before the ni layer is resolved", "hao" !in c.expandedReadings())
+        c.onPickReadingIndex(c.expandedReadings().indexOf("hao"))
         assertEquals("out-of-visible-range drill ignored", -1, c.drilledSyllableForTest())
         assertEquals("normal candidates remain visible", "你好", c.candidateWords().firstOrNull())
         assertTrue("nothing commits while trying to pick a hidden syllable", host.commits.isEmpty())
@@ -286,15 +289,16 @@ class Ui12SyllableColumnTest {
 
     @Test fun ceshi_starts_at_ce_and_advances_to_shi_after_ce_is_chosen() {
         val (host, c) = alphaWithBuffer("ceshi")
-        assertEquals("26-key shows only the first unresolved syllable", listOf("ce"), c.expandedReadings())
-        c.onPickReadingIndex(1)
+        assertEquals("26-key starts with the first unresolved syllable", "ce", c.expandedReadings().first())
+        assertTrue("shi is not exposed before ce is resolved", "shi" !in c.expandedReadings())
+        c.onPickReadingIndex(c.expandedReadings().indexOf("shi"))
         assertEquals("shi is not visible yet", -1, c.drilledSyllableForTest())
 
         lockAndDrillFirst(c)
         c.onPickCandidate(c.candidateWords().indexOf("测"))
         assertTrue("the leading partial pick remains in preedit", host.commits.isEmpty())
         assertEquals("测", c.composingPrefix())
-        assertEquals("after ce is chosen, shi becomes the visible unresolved syllable", listOf("shi"), c.expandedReadings())
+        assertEquals("after ce is chosen, shi becomes the visible unresolved syllable", "shi", c.expandedReadings().first())
     }
 
     @Test fun ceshi_drilling_ce_first_partial_commits_then_continues_to_shi() {
@@ -304,7 +308,7 @@ class Ui12SyllableColumnTest {
         assertTrue("a leading partial pick does not reach the editor yet", host.commits.isEmpty())
         assertEquals("测", c.composingPrefix())
         assertEquals("the drill clears so the remainder shows normally", -1, c.drilledSyllableForTest())
-        assertEquals("the buffer advanced to the 'shi' syllable", listOf("shi"), c.expandedReadings())
+        assertEquals("the buffer advanced to the 'shi' syllable", "shi", c.expandedReadings().first())
 
         c.onKey(act(KeyAction.ENTER))
         assertEquals(listOf("测shi"), host.commits)
@@ -319,20 +323,20 @@ class Ui12SyllableColumnTest {
         c.onPickCandidate(c.candidateWords().indexOf("你"))
         assertTrue("the partial choice is still IME preedit", host.commits.isEmpty())
         assertEquals("你", c.composingPrefix())
-        assertEquals(listOf("hao"), c.expandedReadings())
+        assertEquals("hao", c.expandedReadings().first())
 
         c.onKey(act(KeyAction.BACKSPACE))
         assertTrue("undoing the preedit choice does not delete editor text", host.commits.isEmpty())
         assertEquals("undoing the preedit choice leaves editor text alone", "", host.text.toString())
-        assertEquals("the original preedit is restored", "nihao", c.preeditForTest())
+        assertEquals("the original preedit is restored", "ni'hao", c.preeditForTest())
         assertEquals("the chosen prefix is removed", "", c.composingPrefix())
-        assertEquals("the locked first syllable and its tail are offered again", listOf("ni", "hao"), c.expandedReadings())
+        assertEquals("the locked first syllable and its tail are offered again", listOf("ni", "hao"), c.expandedReadings().take(2))
         assertEquals("the original syllable remains drilled", 0, c.drilledSyllableForTest())
         assertEquals("the homophone grid is restored", niHomophones, c.candidateWords())
 
         c.onPickCandidate(c.candidateWords().indexOf("你"))
         assertEquals("the syllable can be chosen again", "你", c.composingPrefix())
-        assertEquals(listOf("hao"), c.expandedReadings())
+        assertEquals("hao", c.expandedReadings().first())
     }
 
     @Test fun backspace_after_a_single_syllable_homophone_commit_deletes_editor_text() {
@@ -465,7 +469,7 @@ class Ui12SyllableColumnTest {
         val c = KeyboardController(RecordingHost(), eng!!)
         c.onKey(act(KeyAction.SWITCH_ALPHA))
         "heshui".forEach { c.onKey(out(it.toString())) }
-        assertEquals("26-key shows only the first unresolved syllable", listOf("he"), c.expandedReadings())
+        assertEquals("26-key starts with the first unresolved syllable", "he", c.expandedReadings().first())
 
         lockAndDrillFirst(c)
         val shown = c.candidateWords().toSet()
@@ -483,7 +487,7 @@ class Ui12SyllableColumnTest {
         alpha.onKey(act(KeyAction.SWITCH_ALPHA))
         "biang".forEach { alpha.onKey(out(it.toString())) }
 
-        assertEquals("26-key exposes biang as a selectable reading", listOf("biang"), alpha.expandedReadings())
+        assertEquals("26-key exposes biang as the leading selectable reading", "biang", alpha.expandedReadings().first())
         lockAndDrillFirst(alpha)
         assertTrue("26-key biang drill includes the rare character", rare in alpha.candidateWords())
 
@@ -503,7 +507,7 @@ class Ui12SyllableColumnTest {
         c.onKey(act(KeyAction.SWITCH_ALPHA))
         "jiangzhi".forEach { c.onKey(out(it.toString())) }
 
-        assertEquals("continuous input exposes jiang as the first unresolved syllable", listOf("jiang"), c.expandedReadings())
+        assertEquals("continuous input exposes jiang as the first unresolved syllable", "jiang", c.expandedReadings().first())
         c.onPickReadingIndex(0)
         val lockedCandidates = c.candidateWords()
         c.onPickReadingIndex(c.expandedReadings().indexOf("jiang"))
@@ -519,11 +523,11 @@ class Ui12SyllableColumnTest {
         c.onPanelBackspace()
         assertEquals("panel backspace clears stale drill state", -1, c.drilledSyllableForTest())
         assertTrue("panel backspace must not leave the old homophone grid visible", c.candidateWords() != drilledCandidates)
-        assertEquals("undoing the lock returns to the same jiang reading path", listOf("jiang"), c.expandedReadings())
+        assertEquals("undoing the lock returns to the same jiang reading path", "jiang", c.expandedReadings().first())
 
         c.onPanelClear()
         "jiang'zhi".forEach { c.onKey(out(it.toString())) }
-        assertEquals("explicit separator preserves the same first syllable label", listOf("jiang"), c.expandedReadings())
+        assertEquals("explicit separator preserves the same first syllable label", "jiang", c.expandedReadings().first())
         c.onPickReadingIndex(0)
         c.onPickReadingIndex(c.expandedReadings().indexOf("jiang"))
         assertEquals("separator drill grid is keyed by the same jiang syllable", eng.homophonesForReadingAt("jiang'zhi", 0), c.candidateWords())

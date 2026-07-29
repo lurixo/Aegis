@@ -217,6 +217,49 @@ object T9Pinyin {
         return sb.toString()
     }
 
+    fun preeditLetters(letters: String): String {
+        if (letters.isEmpty()) return ""
+        val parts = letters.split('\'')
+        return buildString {
+            parts.forEachIndexed { index, part ->
+                if (index > 0) append('\'')
+                append(preeditLetterChunk(part))
+            }
+        }
+    }
+
+    fun preeditLetters(letters: String, cuts: Set<Int>): String {
+        if (cuts.isEmpty()) return preeditLetters(letters)
+        val sb = StringBuilder()
+        var prev = 0
+        for (c in cuts.filter { it in 1..letters.length }.toSortedSet()) {
+            if (c > prev) {
+                if (sb.isNotEmpty()) sb.append('\'')
+                sb.append(preeditLetters(letters.substring(prev, c)))
+            }
+            prev = c
+        }
+        when {
+            prev < letters.length -> {
+                if (sb.isNotEmpty()) sb.append('\'')
+                sb.append(preeditLetters(letters.substring(prev)))
+            }
+            letters.isNotEmpty() -> sb.append('\'')
+        }
+        return sb.toString()
+    }
+
+    private fun preeditLetterChunk(letters: String): String {
+        if (letters.isEmpty()) return ""
+        if (letters in SYLLABLES) return letters
+        segmentLetters(letters)?.let { return it.joinToString("'") }
+        for (end in letters.length - 1 downTo 1) {
+            val prefix = segmentLetters(letters.substring(0, end)) ?: continue
+            return prefix.joinToString("'") + "'" + letters.substring(end)
+        }
+        return letters
+    }
+
     fun longestDecodablePrefix(digits: String): String {
         for (p in digits.length downTo 1) {
             if (segment(digits.substring(0, p)) != null) return digits.substring(0, p)
@@ -243,6 +286,38 @@ object T9Pinyin {
             ?.sortedByDescending { it.toString() in SYLLABLES }
             ?.forEach { out.add(it.toString()) }
         return out.toList().take(limit)
+    }
+
+    fun leftColumnLetterReadings(letters: String, limit: Int): List<String> {
+        if (letters.isEmpty() || letters.any { it !in 'a'..'z' }) return emptyList()
+        val out = LinkedHashSet<String>()
+        out.addAll(firstLetterSyllableOptions(letters))
+        out.add(letters.first().toString())
+        return out.toList().take(limit)
+    }
+
+    private fun firstLetterSyllableOptions(letters: String): List<String> {
+        val reachable = BooleanArray(letters.length + 1)
+        reachable[letters.length] = true
+        for (start in letters.length - 1 downTo 0) {
+            val hi = minOf(letters.length, start + maxLetters)
+            for (end in start + 1..hi) {
+                if (letters.substring(start, end) in SYLLABLES && reachable[end]) {
+                    reachable[start] = true
+                    break
+                }
+            }
+        }
+        val requireReach = reachable[0]
+        val out = ArrayList<String>()
+        val hi = minOf(letters.length, maxLetters)
+        for (end in 1..hi) {
+            val syllable = letters.substring(0, end)
+            if (syllable !in SYLLABLES) continue
+            if (requireReach && !reachable[end]) continue
+            out.add(syllable)
+        }
+        return out.sortedBy { rankOf(it) - LEN_BONUS * it.length }
     }
 
     fun firstSyllableOptions(digits: String, limit: Int): List<String> {

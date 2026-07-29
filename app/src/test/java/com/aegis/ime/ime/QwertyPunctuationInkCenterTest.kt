@@ -18,6 +18,7 @@ package com.aegis.ime.ime
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Rect
 import android.view.View
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.layout.Lang
@@ -60,32 +61,58 @@ class QwertyPunctuationInkCenterTest {
         return bmp
     }
 
-    @Test fun cn_qwerty_comma_and_period_keep_font_metric_centring() {
+    @Test fun cn_qwerty_comma_and_period_keep_ink_centring() {
         val v = layOut(qwerty(Lang.CN))
         val canvas = AnchorRecordingCanvas(Bitmap.createBitmap(v.measuredWidth, v.measuredHeight, Bitmap.Config.ARGB_8888))
         v.draw(canvas)
         val rects = v.keyBoundsForTest().associate { it.first.label to it.second }
         val fails = ArrayList<String>()
-        for (label in listOf(",", ".")) {
+        for (label in listOf("，", "。")) {
             val rect = requireNotNull(rects[label]) { "$label key missing" }
             val drawn = canvas.texts.filter { it.first == label }.map { it.second }
             if (drawn.size != 1) { fails.add("$label drawn ${drawn.size} times"); continue }
             val a = drawn[0]
-            if (a.align != Paint.Align.CENTER) fails.add("$label align ${a.align}")
-            if (kotlin.math.abs(a.x - rect.centerX()) > 0.5f) fails.add("$label anchor X off by ${a.x - rect.centerX()}")
-            if (kotlin.math.abs(a.y - (rect.centerY() - a.metricCenter)) > 0.5f) fails.add("$label anchor Y off by ${a.y - (rect.centerY() - a.metricCenter)}")
+            if (a.align != Paint.Align.LEFT) fails.add("$label align ${a.align}")
+            if (kotlin.math.abs(a.x + a.inkCenterX - rect.centerX()) > 0.5f) {
+                fails.add("$label ink X off by ${a.x + a.inkCenterX - rect.centerX()}")
+            }
+            if (kotlin.math.abs(a.y + a.inkCenterY - rect.centerY()) > 0.5f) {
+                fails.add("$label ink Y off by ${a.y + a.inkCenterY - rect.centerY()}")
+            }
         }
-        assertTrue("CN qwerty punctuation left the English centring path: $fails", fails.isEmpty())
+        assertTrue("CN qwerty punctuation left the full-width ink-centring path: $fails", fails.isEmpty())
     }
 
-    private class Anchor(val x: Float, val y: Float, val align: Paint.Align, val metricCenter: Float, val textSize: Float, val color: Int)
+    private class Anchor(
+        val x: Float,
+        val y: Float,
+        val align: Paint.Align,
+        val metricCenter: Float,
+        val inkCenterX: Float,
+        val inkCenterY: Float,
+        val textSize: Float,
+        val color: Int,
+    )
 
     private class AnchorRecordingCanvas(bitmap: Bitmap) : Canvas(bitmap) {
         val texts = ArrayList<Pair<String, Anchor>>()
 
         override fun drawText(text: String, x: Float, y: Float, paint: Paint) {
             super.drawText(text, x, y, paint)
-            texts.add(text to Anchor(x, y, paint.textAlign, (paint.descent() + paint.ascent()) / 2f, paint.textSize, paint.color))
+            val bounds = Rect()
+            paint.getTextBounds(text, 0, text.length, bounds)
+            texts.add(
+                text to Anchor(
+                    x,
+                    y,
+                    paint.textAlign,
+                    (paint.descent() + paint.ascent()) / 2f,
+                    bounds.exactCenterX(),
+                    bounds.exactCenterY(),
+                    paint.textSize,
+                    paint.color,
+                ),
+            )
         }
     }
 
@@ -119,7 +146,12 @@ class QwertyPunctuationInkCenterTest {
             v.draw(canvas)
             val rects = v.keyBoundsForTest().associate { it.first.label to it.second }
             val fails = ArrayList<String>()
-            for ((label, sub) in listOf("q" to "1", "a" to "~", "z" to "(")) {
+            val hints = if (lang == Lang.CN) {
+                listOf("q" to "1", "a" to "～", "z" to "（")
+            } else {
+                listOf("q" to "1", "a" to "~", "z" to "(")
+            }
+            for ((label, sub) in hints) {
                 val rect = requireNotNull(rects[label]) { "$lang $label key missing" }
                 val scale = kotlin.math.min(1f, rect.height() / (52f * density))
                 val drop = 7f * density * scale
@@ -150,7 +182,12 @@ class QwertyPunctuationInkCenterTest {
             v.draw(canvas)
             val rects = v.keyBoundsForTest().associate { it.first.label to it.second }
             val fails = ArrayList<String>()
-            for ((label, sub) in listOf("q" to "1", "a" to "~", "z" to "(")) {
+            val hints = if (lang == Lang.CN) {
+                listOf("q" to "1", "a" to "～", "z" to "（")
+            } else {
+                listOf("q" to "1", "a" to "~", "z" to "(")
+            }
+            for ((label, sub) in hints) {
                 val rect = requireNotNull(rects[label]) { "$lang $label key missing" }
                 val scale = kotlin.math.min(1f, rect.height() / (52f * density))
                 val hint = canvas.texts.filter { it.first == sub }.map { it.second }

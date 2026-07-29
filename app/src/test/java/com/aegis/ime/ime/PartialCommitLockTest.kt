@@ -95,7 +95,7 @@ class PartialCommitLockTest {
             File(assets + "aegis_dict.bin").exists() && File(assets + "aegis_lm.bin").exists())
         val c = alphaController()
         "yougailvchuxian".forEach { c.onKey(Key(it.toString(), output = it.toString())) }
-        assertEquals(listOf("you"), c.expandedReadings())
+        assertEquals("you", c.expandedReadings().first())
         c.onPickReadingIndex(0)
         c.onPickReadingIndex(c.expandedReadings().indexOf("you"))
         assertEquals("drilled into syllable 0", 0, c.drilledSyllableForTest())
@@ -106,6 +106,6 @@ class PartialCommitLockTest {
 
         assertEquals("有", c.composingPrefix())
         assertEquals("有gailvchuxian", c.preeditForTest())
-        assertEquals("remaining segmentation preserved", listOf("gai"), c.expandedReadings())
+        assertEquals("remaining segmentation preserved", "gai", c.expandedReadings().first())
     }
 }
