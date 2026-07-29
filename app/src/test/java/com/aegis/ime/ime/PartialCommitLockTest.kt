@@ -105,7 +105,7 @@ class PartialCommitLockTest {
         c.onPickCandidate(yi)
 
         assertEquals("有", c.composingPrefix())
-        assertEquals("有gailvchuxian", c.preeditForTest())
+        assertEquals("有gai'lv'chu'xian", c.preeditForTest())
         assertEquals("remaining segmentation preserved", "gai", c.expandedReadings().first())
     }
 }

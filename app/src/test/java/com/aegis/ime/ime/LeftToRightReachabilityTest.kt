@@ -120,7 +120,7 @@ class LeftToRightReachabilityTest {
 
         val c = controller()
         type(c, "nihao")
-        assertEquals("nihao", c.preeditForTest())
+        assertEquals("ni'hao", c.preeditForTest())
 
         assertComplete("26-key nihao", ni, c)
 
