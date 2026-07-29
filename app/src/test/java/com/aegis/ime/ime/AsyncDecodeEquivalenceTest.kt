@@ -266,7 +266,7 @@ class AsyncDecodeEquivalenceTest {
         val compositionBeforePendingReadingPick =
             controller.preeditForTest() to controller.composingPrefix()
 
-        assertEquals(listOf("hao"), readingsBeforePendingReadingPick.first)
+        assertEquals("hao", readingsBeforePendingReadingPick.first.first())
         assertEquals(readingsBeforePendingReadingPick.first, readingsBeforePendingReadingPick.second)
         assertTrue(grid.tapReadingForTest(readingsBeforePendingReadingPick.second.indexOf("hao")))
 
@@ -299,7 +299,7 @@ class AsyncDecodeEquivalenceTest {
 
         assertEquals("你hao", controller.preeditForTest())
         assertEquals("你", controller.composingPrefix())
-        assertEquals(listOf("hao"), controller.expandedReadings())
+        assertEquals("hao", controller.expandedReadings().first())
         assertTrue(host.commits.isEmpty())
         assertEquals(0, remainderDecodes)
         assertTrue(controller.candidateWords().isNotEmpty())
@@ -319,7 +319,7 @@ class AsyncDecodeEquivalenceTest {
         assertEquals(1, remainderDecodes)
         assertEquals("你hao", controller.preeditForTest())
         assertEquals("你", controller.composingPrefix())
-        assertEquals(listOf("hao"), controller.expandedReadings())
+        assertEquals(readingsBeforePendingReadingPick.first, controller.expandedReadings())
         assertEquals("好", controller.candidateWords().first())
         assertEquals(controller.candidateWords(), grid.renderedCandidateTextsForTest())
         assertTrue(view.shownCandidateCount() > 0)
@@ -342,9 +342,10 @@ class AsyncDecodeEquivalenceTest {
         assertTrue(grid.tapCandidateForTest(candidatesBeforeUndo.indexOf("好")))
         assertTrue(lane.lane.pending)
 
-        assertEquals("nihao", controller.preeditForTest())
+        assertEquals("ni'hao", controller.preeditForTest())
         assertEquals("", controller.composingPrefix())
-        assertEquals(listOf("ni", "hao"), controller.expandedReadings())
+        assertEquals("ni", controller.expandedReadings().first())
+        assertTrue(controller.expandedReadings().contains("hao"))
         assertTrue(host.commits.isEmpty())
         assertEquals(restoredDrillDecodesBeforeUndo, restoredDrillDecodes)
         assertTrue(controller.candidateWords().isNotEmpty())
@@ -363,9 +364,10 @@ class AsyncDecodeEquivalenceTest {
 
         assertEquals(1, remainderDecodes)
         assertEquals(restoredDrillDecodesBeforeUndo + 1, restoredDrillDecodes)
-        assertEquals("nihao", controller.preeditForTest())
+        assertEquals("ni'hao", controller.preeditForTest())
         assertEquals("", controller.composingPrefix())
-        assertEquals(listOf("ni", "hao"), controller.expandedReadings())
+        assertEquals("ni", controller.expandedReadings().first())
+        assertTrue(controller.expandedReadings().contains("hao"))
         assertEquals("你", controller.candidateWords().first())
         assertEquals(candidatesBefore, controller.candidateWords())
         assertEquals(controller.candidateWords(), grid.renderedCandidateTextsForTest())

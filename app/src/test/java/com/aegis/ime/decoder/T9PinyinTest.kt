@@ -111,6 +111,26 @@ class T9PinyinTest {
         assertEquals(T9Pinyin.preedit("6433"), T9Pinyin.preedit("6433", emptySet()))
     }
 
+    @Test fun letter_preedit_prefers_whole_syllables_and_segments_complete_sequences() {
+        assertEquals("ni'hao", T9Pinyin.preeditLetters("nihao"))
+        assertEquals("xian", T9Pinyin.preeditLetters("xian"))
+        assertEquals("ni'hao'z", T9Pinyin.preeditLetters("nihaoz"))
+    }
+
+    @Test fun letter_preedit_renders_forced_cuts_without_changing_the_raw_letters() {
+        assertEquals("xi'an", T9Pinyin.preeditLetters("xian", setOf(2)))
+        assertEquals("xi'", T9Pinyin.preeditLetters("xi", setOf(2)))
+        assertEquals("chai'ci", T9Pinyin.preeditLetters("chai'ci"))
+    }
+
+    @Test fun letter_reading_column_exposes_every_reachable_leading_syllable_and_fallback() {
+        val readings = T9Pinyin.leftColumnLetterReadings("xian", 24)
+        assertEquals("xian", readings.first())
+        assertTrue("xian must keep the xi|an path reachable, was $readings", "xi" in readings)
+        assertTrue("single-letter fallback must remain reachable, was $readings", "x" in readings)
+        assertTrue("the next layer must not appear early", "an" !in readings)
+    }
+
     @Test fun longest_decodable_prefix_drops_unfinished_tail() {
         assertEquals("64", T9Pinyin.longestDecodablePrefix("647"))
         assertEquals("6433", T9Pinyin.longestDecodablePrefix("6433"))

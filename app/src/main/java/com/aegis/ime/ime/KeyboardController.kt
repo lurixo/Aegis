@@ -935,13 +935,17 @@ class KeyboardController(
     private fun preeditText(): String {
         val prefix = committedPrefix.toString()
         if (composing.isEmpty()) return prefix
-        val tail = if (mode() == Mode.PINYIN && layoutId == LayoutId.NINE) {
+        val tail = if (mode() == Mode.PINYIN) {
             val locked = lockedReadings.joinToString("'")
-            val rest = T9Pinyin.preedit(activeInput(), activeCuts().toSet())
+            val rest = if (layoutId == LayoutId.NINE) {
+                T9Pinyin.preedit(activeInput(), activeCuts().toSet())
+            } else {
+                T9Pinyin.preeditLetters(activeInput(), activeCuts().toSet())
+            }
             when {
                 locked.isEmpty() -> rest
                 rest.isEmpty() -> locked
-                else -> "$locked'$rest"
+                else -> "$locked'${rest.trimStart('\'')}"
             }
         } else composing.toString()
         return prefix + tail
@@ -969,7 +973,7 @@ class KeyboardController(
         val layout = when (layoutId) {
             LayoutId.NINE -> Layouts.nine(lang, nineLeftColumn(), composing.isNotEmpty())
             LayoutId.NUMPAD -> Layouts.numpad(Layouts.numpadOperators(customOperators))
-            else -> Layouts.forId(layoutId, lang)
+            else -> Layouts.forId(layoutId, lang, composing.isNotEmpty())
         }
         v.showKeyboard(layout, shifted, shiftState == ShiftState.LOCK, lang)
         val readings = expandedReadings()
@@ -980,12 +984,18 @@ class KeyboardController(
 
     internal fun expandedReadings(): List<String> = when {
         layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty() -> {
-            val syllables = currentSyllables()
-            val next = syllables.getOrNull(lockedReadings.size)?.reading
+            val active = activeInput()
+            val separatorPrefix = active.takeWhile { it == '\'' }.length
+            val body = active.substring(separatorPrefix)
+            val forcedEnd = activeCuts().firstOrNull { it > separatorPrefix }?.minus(separatorPrefix)
+            val separatorEnd = body.indexOf('\'').takeIf { it >= 0 }
+            val chunkEnd = listOfNotNull(forcedEnd, separatorEnd).minOrNull() ?: body.length
+            val chunk = body.substring(0, chunkEnd.coerceIn(0, body.length))
+            val next = T9Pinyin.leftColumnLetterReadings(chunk, NINE_LEFT_MAX)
             when {
-                lockedReadings.isEmpty() -> next?.let(::listOf) ?: emptyList()
-                next == null -> listOf(lockedReadings.last())
-                else -> listOf(lockedReadings.last(), next)
+                lockedReadings.isEmpty() -> next
+                next.isEmpty() -> listOf(lockedReadings.last())
+                else -> listOf(lockedReadings.last()) + next
             }
         }
         else -> nineLeftColumn().filter { it.action == KeyAction.PICK_READING }.map { it.label }
