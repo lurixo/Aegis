@@ -17,6 +17,7 @@ package com.aegis.ime.user
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -30,6 +31,14 @@ class ClipboardStoreTest {
         val s = ClipboardStore(newDir()).apply { load() }
         s.record("a"); s.record("b"); s.record("a")
         assertEquals(listOf("a", "b"), s.history())
+    }
+
+    @Test fun latest_returns_the_newest_aegis_entry_or_null_for_empty_history() {
+        val s = ClipboardStore(newDir()).apply { load() }
+        assertNull(s.latest())
+        s.record("older")
+        s.record("latest")
+        assertEquals("latest", s.latest())
     }
 
     @Test fun blank_ignored() {

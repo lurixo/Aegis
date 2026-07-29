@@ -64,6 +64,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
         palette = p
         setBackgroundColor(p.keyboardBg)
         recolor(this)
+        Motion.applyTapFeedback(selectBtn, p.keyLabel, pressedOnly = true)
         for (action in listOf(EditAction.DELETE, EditAction.COPY, EditAction.CUT, EditAction.PASTE)) {
             actionViews[action]?.let { Motion.applyTapFeedback(it, p.keyLabel, radiusDp = ImeShapes.keyRadiusDp) }
         }
@@ -107,7 +108,12 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
 
         val mid = LinearLayout(context).apply { orientation = HORIZONTAL }
         val dpad = LinearLayout(context).apply { orientation = VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
-        selectBtn = textBtn(context.getString(R.string.edit_start_select), EditAction.START_SELECT, sp = 16f).apply { includeFontPadding = false }
+        selectBtn = textBtn(
+            context.getString(R.string.edit_start_select),
+            EditAction.START_SELECT,
+            sp = 16f,
+            pressedOnly = true,
+        ).apply { includeFontPadding = false }
         val upRow = LinearLayout(context).apply {
             orientation = HORIZONTAL
             addView(spacer(), LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
@@ -305,13 +311,18 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
 
     private fun spacer(): View = View(context)
 
-    private fun textBtn(label: String, action: EditAction, sp: Float): TextView = TextView(context).apply {
+    private fun textBtn(
+        label: String,
+        action: EditAction,
+        sp: Float,
+        pressedOnly: Boolean = false,
+    ): TextView = TextView(context).apply {
         text = label
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
         setTextColor(palette.keyLabel)
         isClickable = true
-        Motion.applyTapFeedback(this, palette.keyLabel)
+        Motion.applyTapFeedback(this, palette.keyLabel, pressedOnly = pressedOnly)
         setOnClickListener { onAction(action) }
         actionViews[action] = this
     }

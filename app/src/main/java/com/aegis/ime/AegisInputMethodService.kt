@@ -714,7 +714,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             EditAction.COPY -> currentInputConnection?.performContextMenuAction(android.R.id.copy)
             EditAction.CUT -> currentInputConnection?.performContextMenuAction(android.R.id.cut)
             EditAction.SELECT_ALL -> currentInputConnection?.performContextMenuAction(android.R.id.selectAll)
-            EditAction.PASTE -> currentInputConnection?.performContextMenuAction(android.R.id.paste)
+            EditAction.PASTE -> clipboardStore.latest()?.let(::commitLargeText)
             EditAction.BACK -> { stopSelecting(); inputView?.showPanel(null) }
         }
     }
