@@ -912,7 +912,11 @@ class KeyboardController(
         val commitsToEditor = k > 0 && syls[k - 1].end >= composing.length
         if (!commitsToEditor) savePreeditChoiceUndo()
         drillChoices[drillSyllable] = charWord
-        if (drillChoices.containsKey(0)) commitChosenLeftPrefix()
+        if (drillChoices.containsKey(0)) {
+            commitChosenLeftPrefix()
+        } else {
+            drillSyllable = syls.indices.firstOrNull { !drillChoices.containsKey(it) } ?: -1
+        }
     }
 
     private fun commitChosenLeftPrefix() {
@@ -983,6 +987,8 @@ class KeyboardController(
     internal fun shiftStateName(): String = shiftState.name
 
     internal fun expandedReadings(): List<String> = when {
+        drillChoices.isNotEmpty() && drillSyllable >= 0 ->
+            currentSyllables().getOrNull(drillSyllable)?.reading?.let(::listOf) ?: emptyList()
         layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty() -> {
             val active = activeInput()
             val separatorPrefix = active.takeWhile { it == '\'' }.length
@@ -1002,6 +1008,8 @@ class KeyboardController(
     }
 
     private fun selectedExpandedReadingIndex(readings: List<String>): Int = when {
+        drillSyllable >= 0 ->
+            currentSyllables().getOrNull(drillSyllable)?.reading?.let(readings::indexOf) ?: -1
         mode() == Mode.PINYIN && composing.isNotEmpty() && lockedReadings.isNotEmpty() ->
             readings.indexOf(lockedReadings.last())
         else -> -1
