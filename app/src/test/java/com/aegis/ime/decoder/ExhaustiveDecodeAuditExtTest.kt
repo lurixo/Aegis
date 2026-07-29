@@ -423,15 +423,10 @@ class ExhaustiveDecodeAuditExtTest {
     }
     private val E6_VIEW_ENTRY_BUDGET = 4_000_000
     private var e6ViewEntries = 0
-    private val e6KeyView = object : LinkedHashMap<String, E6View>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, E6View>): Boolean {
-            if (e6ViewEntries <= E6_VIEW_ENTRY_BUDGET) return false
-            e6ViewEntries -= eldest.value.entries
-            return true
-        }
-    }
+    private val e6KeyView = LinkedHashMap<String, E6View>(16, 0.75f, true)
     private fun e6RawFreq(source: BinaryDict, key: String, word: String): Int? {
-        val view = e6KeyView.getOrPut((if (source === dict) "L:" else "D:") + key) {
+        val cacheKey = (if (source === dict) "L:" else "D:") + key
+        val view = e6KeyView[cacheKey] ?: run {
             fun collect(entries: List<BinaryDict.WordFreq>): Map<String, Int> {
                 val m = HashMap<String, Int>()
                 for (wf in entries) if (wf.freq > (m[wf.word] ?: -1)) m[wf.word] = wf.freq
@@ -442,7 +437,16 @@ class ExhaustiveDecodeAuditExtTest {
             val prefixEntries = source.prefixByFreq(key, E6_PREFIX_SCAN) +
                 jianpin.prefixByFreq(key, E6_PREFIX_SCAN)
             E6View(collect(source.exact(key)), collect(aliasEntries), collect(prefixEntries))
-                .also { e6ViewEntries += it.entries }
+                .also {
+                    e6KeyView[cacheKey] = it
+                    e6ViewEntries += it.entries
+                    val eldest = e6KeyView.entries.iterator()
+                    while (e6ViewEntries > E6_VIEW_ENTRY_BUDGET && eldest.hasNext()) {
+                        val removed = eldest.next()
+                        e6ViewEntries -= removed.value.entries
+                        eldest.remove()
+                    }
+                }
         }
         return view.exact[word] ?: view.alias[word] ?: view.prefix[word]
     }
