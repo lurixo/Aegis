@@ -920,18 +920,29 @@ class KeyboardController(
     }
 
     private fun commitChosenLeftPrefix() {
-        val syls = currentSyllables()
+        val req = buildDecodeRequest()
+        val reading = if (req.lockedNonEmpty) req.full else req.raw
+        val syls = req.engine.syllablesForReading(reading, req.readingCuts)
         var k = 0
         while (drillChoices.containsKey(k) && k < syls.size) k++
         if (k == 0) return
         val word = (0 until k).joinToString("") { drillChoices[it] ?: "" }
-        val coveredLen = syls[k - 1].end.coerceIn(1, composing.length)
+        val readingEnd = syls[k - 1].end
+        val coveredLen = (
+            if (req.lockedNonEmpty) req.bounds[readingEnd] ?: readingEnd else readingEnd
+        ).coerceIn(1, composing.length)
         val carried = HashMap<Int, String>()
         for ((idx, ch) in drillChoices) if (idx >= k) carried[idx - k] = ch
         drillSyllable = -1
         commitCandidate(Cand(word, coveredLen))
         drillChoices.clear()
         drillChoices.putAll(carried)
+        if (drillChoices.isNotEmpty() && composing.isNotEmpty()) {
+            val remainingSyllables = currentSyllables()
+            drillSyllable = remainingSyllables.indices.firstOrNull {
+                !drillChoices.containsKey(it)
+            } ?: -1
+        }
     }
 
     private fun applyCase(s: String): String = if (shifted) s.uppercase() else s
