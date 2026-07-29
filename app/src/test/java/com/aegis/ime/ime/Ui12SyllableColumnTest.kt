@@ -130,6 +130,7 @@ class Ui12SyllableColumnTest {
             "ni" -> listOf(Syllable("ni", 0, 2))
             "nihao" -> listOf(Syllable("ni", 0, 2), Syllable("hao", 2, 5))
             "nihaoni" -> listOf(Syllable("ni", 0, 2), Syllable("hao", 2, 5), Syllable("ni", 5, 7))
+            "haoni" -> listOf(Syllable("hao", 0, 3), Syllable("ni", 3, 5))
             "nini" -> listOf(Syllable("ni", 0, 2), Syllable("ni", 2, 4))
             "ceshi" -> listOf(Syllable("ce", 0, 2), Syllable("shi", 2, 5))
             "hao" -> listOf(Syllable("hao", 0, 3))
@@ -142,6 +143,9 @@ class Ui12SyllableColumnTest {
             letters == "nihao" && index == 1 -> haoHomophones
             letters == "nihaoni" && index == 0 -> niHomophones
             letters == "nihaoni" && index == 1 -> haoHomophones
+            letters == "nihaoni" && index == 2 -> niHomophones
+            letters == "haoni" && index == 0 -> haoHomophones
+            letters == "haoni" && index == 1 -> niHomophones
             letters == "ceshi" && index == 0 -> ceHomophones
             letters == "ceshi" && index == 1 -> shiHomophones
             letters == "hao" && index == 0 -> haoHomophones
@@ -280,6 +284,47 @@ class Ui12SyllableColumnTest {
         c.onPickCandidate(c.candidateWords().indexOf("你"))
 
         assertEquals("both 9-key choices commit in source order", listOf("你号"), host.commits)
+    }
+
+    @Test fun deferred_multi_lock_choices_keep_advancing_after_a_partial_prefix() {
+        val (host, c) = alphaWithBuffer("nihaoni")
+        c.onPickReadingIndex(c.expandedReadings().indexOf("ni"))
+        c.onPickReadingIndex(c.expandedReadings().indexOf("hao"))
+        c.onPickReadingIndex(c.expandedReadings().indexOf("ni"))
+        c.onPickReadingIndex(c.expandedReadings().indexOf("ni"))
+
+        assertEquals("the third locked syllable drills at its full index", 2, c.drilledSyllableForTest())
+        c.onPickCandidate(c.candidateWords().indexOf("你"))
+        assertEquals("the final choice defers and advances to the first syllable", 0, c.drilledSyllableForTest())
+        assertEquals(listOf("ni"), c.expandedReadings())
+
+        val firstChoice = niHomophones[1]
+        c.onPickCandidate(c.candidateWords().indexOf(firstChoice))
+
+        assertTrue("the first chosen character remains in preedit", host.commits.isEmpty())
+        assertEquals(firstChoice, c.composingPrefix())
+        assertEquals("the carried final choice advances to the missing middle syllable", 0, c.drilledSyllableForTest())
+        assertEquals("the remaining reading column points at hao", listOf("hao"), c.expandedReadings())
+        assertEquals(haoHomophones, c.candidateWords())
+        c.onPickCandidate(c.candidateWords().indexOf("号"))
+
+        assertEquals("all three explicit choices commit once in source order", listOf(firstChoice + "号你"), host.commits)
+        assertEquals("", c.preeditForTest())
+    }
+
+    @Test fun deferred_choices_consume_literal_separator_input_bounds() {
+        val host = RecordingHost()
+        val c = KeyboardController(host, syllabic)
+        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        "ni'hao".forEach { c.onKey(out(it.toString())) }
+        c.onPickReadingIndex(c.expandedReadings().indexOf("ni"))
+        c.onPickReadingIndex(c.expandedReadings().indexOf("hao"))
+        c.onPickReadingIndex(c.expandedReadings().indexOf("hao"))
+        c.onPickCandidate(c.candidateWords().indexOf("号"))
+        c.onPickCandidate(c.candidateWords().indexOf("你"))
+
+        assertEquals("the separator is consumed through reading-to-input bounds", listOf("你号"), host.commits)
+        assertEquals("no separator suffix remains in preedit", "", c.preeditForTest())
     }
 
     @Test fun drilling_a_syllable_shows_its_complete_uncapped_homophone_set() {

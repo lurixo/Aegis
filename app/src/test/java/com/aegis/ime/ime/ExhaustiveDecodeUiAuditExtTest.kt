@@ -194,10 +194,12 @@ class ExhaustiveDecodeUiAuditExtTest {
             val c = controller()
             c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
             type(c, s1 + s2)
-            if (c.expandedReadings() != listOf(s1)) {
-                fails.add("$s1+$s2\tlabel-S1\t${c.expandedReadings()}"); continue
+            val firstReadings = c.expandedReadings()
+            val expectedFirstReadings = T9Pinyin.leftColumnLetterReadings(s1 + s2, 24)
+            if (firstReadings != expectedFirstReadings || s1 !in firstReadings) {
+                fails.add("$s1+$s2\tlabel-S1\texpected=$expectedFirstReadings actual=$firstReadings"); continue
             }
-            c.onPickReadingIndex(0)
+            c.onPickReadingIndex(firstReadings.indexOf(s1))
             c.onPickReadingIndex(c.expandedReadings().indexOf(s1))
             val o1 = dictSingles(s1) + allowed(s1)
             val grid1 = c.candidateWords()
@@ -206,10 +208,16 @@ class ExhaustiveDecodeUiAuditExtTest {
             val idx = grid1.indexOfFirst { it in dictSingles(s1) }
             if (idx < 0) { fails.add("$s1+$s2\tdrill1-empty\tno S1 char to pick"); continue }
             c.onPickCandidate(idx)
-            if (c.expandedReadings() != listOf(s2)) {
-                fails.add("$s1+$s2\tlabel-S2\t${c.expandedReadings()} prefix='${c.composingPrefix()}'"); continue
+            val secondReadings = c.expandedReadings()
+            val expectedSecondReadings = T9Pinyin.leftColumnLetterReadings(s2, 24)
+            if (secondReadings != expectedSecondReadings || s2 !in secondReadings) {
+                fails.add(
+                    "$s1+$s2\tlabel-S2\texpected=$expectedSecondReadings actual=$secondReadings " +
+                        "prefix='${c.composingPrefix()}'"
+                )
+                continue
             }
-            c.onPickReadingIndex(0)
+            c.onPickReadingIndex(secondReadings.indexOf(s2))
             c.onPickReadingIndex(c.expandedReadings().indexOf(s2))
             val o2 = dictSingles(s2) + allowed(s2)
             val grid2 = c.candidateWords()
