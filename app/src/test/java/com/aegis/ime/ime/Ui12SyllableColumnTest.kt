@@ -140,6 +140,7 @@ class Ui12SyllableColumnTest {
             letters == "ni" && index == 0 -> niHomophones
             letters == "nihao" && index == 0 -> niHomophones
             letters == "nihao" && index == 1 -> haoHomophones
+            letters == "nihaoni" && index == 0 -> niHomophones
             letters == "nihaoni" && index == 1 -> haoHomophones
             letters == "ceshi" && index == 0 -> ceHomophones
             letters == "ceshi" && index == 1 -> shiHomophones
@@ -212,7 +213,7 @@ class Ui12SyllableColumnTest {
     }
 
     @Test fun repicking_the_recent_reading_drills_it_after_all_syllables_are_locked() {
-        val (_, c) = alphaWithBuffer("nihao")
+        val (host, c) = alphaWithBuffer("nihao")
         c.onPickReadingIndex(c.expandedReadings().indexOf("ni"))
         c.onPickReadingIndex(c.expandedReadings().indexOf("hao"))
 
@@ -221,10 +222,20 @@ class Ui12SyllableColumnTest {
 
         assertEquals("the final locked syllable is drilled by its full-reading index", 1, c.drilledSyllableForTest())
         assertEquals("the final locked syllable exposes its homophones", haoHomophones, c.candidateWords())
+        c.onPickCandidate(c.candidateWords().indexOf("号"))
+
+        assertTrue("the later choice waits for the unresolved leading syllable", host.commits.isEmpty())
+        assertEquals("the drill advances to the earliest missing leading syllable", 0, c.drilledSyllableForTest())
+        assertEquals("the reading column follows the advanced drill", listOf("ni"), c.expandedReadings())
+        assertEquals("the leading syllable now exposes its homophones", niHomophones, c.candidateWords())
+        c.onPickCandidate(c.candidateWords().indexOf("你"))
+
+        assertEquals("both explicit choices commit in source order", listOf("你号"), host.commits)
+        assertEquals("the completed choice clears the preedit", "", c.preeditForTest())
     }
 
     @Test fun repicking_the_recent_middle_reading_drills_it_while_a_tail_remains() {
-        val (_, c) = alphaWithBuffer("nihaoni")
+        val (host, c) = alphaWithBuffer("nihaoni")
         c.onPickReadingIndex(c.expandedReadings().indexOf("ni"))
         c.onPickReadingIndex(c.expandedReadings().indexOf("hao"))
 
@@ -235,6 +246,40 @@ class Ui12SyllableColumnTest {
 
         assertEquals("the middle locked syllable is drilled by its full-reading index", 1, c.drilledSyllableForTest())
         assertEquals("the middle locked syllable exposes its homophones", haoHomophones, c.candidateWords())
+        c.onPickCandidate(c.candidateWords().indexOf("号"))
+
+        assertTrue("the later choice stays in preedit while the leading syllable is unresolved", host.commits.isEmpty())
+        assertEquals("the drill advances to the earliest missing leading syllable", 0, c.drilledSyllableForTest())
+        assertEquals("the reading column follows the advanced drill", listOf("ni"), c.expandedReadings())
+        assertEquals("the leading syllable now exposes its homophones", niHomophones, c.candidateWords())
+        c.onPickCandidate(c.candidateWords().indexOf("你"))
+
+        assertTrue("the chosen prefix remains preedit while the tail is unresolved", host.commits.isEmpty())
+        assertEquals("both explicit choices are retained in source order", "你号", c.composingPrefix())
+        assertEquals("the drill clears after consuming the chosen prefix", -1, c.drilledSyllableForTest())
+        assertEquals("the unresolved tail becomes the next reading layer", "ni", c.expandedReadings().first())
+    }
+
+    @Test fun nine_key_multi_lock_homophone_choice_advances_to_the_missing_prefix() {
+        val host = RecordingHost()
+        val c = KeyboardController(host, syllabic)
+        c.onKey(act(KeyAction.SWITCH_NINE))
+        "64426".forEach { c.onKey(out(it.toString())) }
+        c.onPickReadingIndex(c.expandedReadings().indexOf("ni"))
+        c.onPickReadingIndex(c.expandedReadings().indexOf("hao"))
+        c.onPickReadingIndex(c.expandedReadings().indexOf("hao"))
+
+        assertEquals("the recent locked 9-key syllable drills at its full index", 1, c.drilledSyllableForTest())
+        assertEquals(haoHomophones, c.candidateWords())
+        c.onPickCandidate(c.candidateWords().indexOf("号"))
+
+        assertTrue("the later 9-key choice waits for its missing prefix", host.commits.isEmpty())
+        assertEquals("the 9-key drill advances to the missing prefix", 0, c.drilledSyllableForTest())
+        assertEquals("the 9-key reading column follows the advanced drill", listOf("ni"), c.expandedReadings())
+        assertEquals(niHomophones, c.candidateWords())
+        c.onPickCandidate(c.candidateWords().indexOf("你"))
+
+        assertEquals("both 9-key choices commit in source order", listOf("你号"), host.commits)
     }
 
     @Test fun drilling_a_syllable_shows_its_complete_uncapped_homophone_set() {
