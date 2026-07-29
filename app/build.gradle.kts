@@ -55,6 +55,7 @@ kotlin {
 }
 
 tasks.withType<Test>().configureEach {
+    maxHeapSize = "1g"
     inputs.files(
         layout.projectDirectory.file("src/main/assets/aegis_dict.bin"),
         layout.projectDirectory.file("src/main/assets/aegis_t9.bin"),
