@@ -82,12 +82,18 @@ class ExhaustiveDecodeUiAuditTest {
     }
 
 
-    @Test fun deng_26key_readingLabelIsDeng_afterFix() {
+    @Test fun deng_26key_readingLabelStartsWithDeng_afterFix() {
         assumeTrue(assetsPresent())
         val c = controller(realEngine())
         c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
         type(c, "deng")
-        assertEquals("26-key deng reading label is 'deng'", listOf("deng"), c.expandedReadings())
+        val shown = c.expandedReadings()
+        assertEquals("26-key deng reading labels start with 'deng'", "deng", shown.firstOrNull())
+        assertEquals(
+            "26-key deng reading labels contain every legal leading option and the fallback",
+            T9Pinyin.leftColumnLetterReadings("deng", 24),
+            shown,
+        )
         assertTrue("correct deng char 等 is present among candidates", "等" in c.candidateWords())
     }
 
@@ -107,7 +113,7 @@ class ExhaustiveDecodeUiAuditTest {
     }
 
 
-    @Test fun controllerN1_26key_expandedReadingsLabel_writesReport() {
+    @Test fun controllerN1_26key_expandedReadings_writesReport() {
         assumeTrue(assetsPresent())
         val syls = runtimeSyllables()
         assertTrue("runtime SYLLABLES ~415: ${syls.size}", syls.size in 400..430)
@@ -116,17 +122,20 @@ class ExhaustiveDecodeUiAuditTest {
             val c = controller(realEngine())
             c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
             type(c, s)
-            val label = c.expandedReadings()
-            if (label != listOf(s)) fails.add("$s\t${label.joinToString("+")}")
+            val shown = c.expandedReadings()
+            val expected = T9Pinyin.leftColumnLetterReadings(s, 24)
+            if (shown.firstOrNull() != s || shown != expected) {
+                fails.add("$s\t${expected.joinToString("+")}\t${shown.joinToString("+")}")
+            }
         }
         File(outDir(), "levelB_n1_26key.tsv").writeText(
-            "input\tshownReadingLabel\n" + fails.joinToString("\n") + if (fails.isNotEmpty()) "\n" else ""
+            "input\texpectedReadings\tshownReadings\n" + fails.joinToString("\n") + if (fails.isNotEmpty()) "\n" else ""
         )
         File(outDir(), "levelB_n1_summary.txt").writeText(
-            "Level B — controller 26-key expandedReadings() label over ${syls.size} syllables\n" +
-                "syllables whose UI reading label != input: ${fails.size}\n"
+            "Level B — controller 26-key expandedReadings() over ${syls.size} syllables\n" +
+                "syllables whose first or complete UI reading options mismatch: ${fails.size}\n"
         )
-        assertTrue("no 26-key reading-label mismatches remain after the fix: ${fails.take(10)}", fails.isEmpty())
+        assertTrue("no 26-key reading-option mismatches remain after the fix: ${fails.take(10)}", fails.isEmpty())
     }
 
 

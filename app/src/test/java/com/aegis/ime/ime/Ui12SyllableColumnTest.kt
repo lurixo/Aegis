@@ -129,6 +129,7 @@ class Ui12SyllableColumnTest {
         override fun syllablesForReading(letters: String): List<Syllable> = when (letters) {
             "ni" -> listOf(Syllable("ni", 0, 2))
             "nihao" -> listOf(Syllable("ni", 0, 2), Syllable("hao", 2, 5))
+            "nihaoni" -> listOf(Syllable("ni", 0, 2), Syllable("hao", 2, 5), Syllable("ni", 5, 7))
             "nini" -> listOf(Syllable("ni", 0, 2), Syllable("ni", 2, 4))
             "ceshi" -> listOf(Syllable("ce", 0, 2), Syllable("shi", 2, 5))
             "hao" -> listOf(Syllable("hao", 0, 3))
@@ -139,6 +140,7 @@ class Ui12SyllableColumnTest {
             letters == "ni" && index == 0 -> niHomophones
             letters == "nihao" && index == 0 -> niHomophones
             letters == "nihao" && index == 1 -> haoHomophones
+            letters == "nihaoni" && index == 1 -> haoHomophones
             letters == "ceshi" && index == 0 -> ceHomophones
             letters == "ceshi" && index == 1 -> shiHomophones
             letters == "hao" && index == 0 -> haoHomophones
@@ -207,6 +209,32 @@ class Ui12SyllableColumnTest {
         assertEquals(listOf("ni", "ni"), c.expandedReadings().take(2))
         c.onPickReadingIndex(1)
         assertEquals("locking the second identical syllable does not enter the drill", -1, c.drilledSyllableForTest())
+    }
+
+    @Test fun repicking_the_recent_reading_drills_it_after_all_syllables_are_locked() {
+        val (_, c) = alphaWithBuffer("nihao")
+        c.onPickReadingIndex(c.expandedReadings().indexOf("ni"))
+        c.onPickReadingIndex(c.expandedReadings().indexOf("hao"))
+
+        assertEquals("the most recently locked reading remains visible", listOf("hao"), c.expandedReadings())
+        c.onPickReadingIndex(0)
+
+        assertEquals("the final locked syllable is drilled by its full-reading index", 1, c.drilledSyllableForTest())
+        assertEquals("the final locked syllable exposes its homophones", haoHomophones, c.candidateWords())
+    }
+
+    @Test fun repicking_the_recent_middle_reading_drills_it_while_a_tail_remains() {
+        val (_, c) = alphaWithBuffer("nihaoni")
+        c.onPickReadingIndex(c.expandedReadings().indexOf("ni"))
+        c.onPickReadingIndex(c.expandedReadings().indexOf("hao"))
+
+        val readings = c.expandedReadings()
+        assertEquals("the most recently locked middle reading stays first", "hao", readings.first())
+        assertTrue("the unresolved tail becomes selectable", "ni" in readings.drop(1))
+        c.onPickReadingIndex(0)
+
+        assertEquals("the middle locked syllable is drilled by its full-reading index", 1, c.drilledSyllableForTest())
+        assertEquals("the middle locked syllable exposes its homophones", haoHomophones, c.candidateWords())
     }
 
     @Test fun drilling_a_syllable_shows_its_complete_uncapped_homophone_set() {

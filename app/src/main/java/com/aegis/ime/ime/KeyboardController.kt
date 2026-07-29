@@ -1031,11 +1031,12 @@ class KeyboardController(
         if (index !in readings.indices) return
         expirePreeditChoiceUndo()
         val reading = readings[index]
-        val lockedIndex = lockedReadings.singleOrNull()?.let(readings::indexOf) ?: -1
+        val recentLockedReading = lockedReadings.lastOrNull()
+        val lockedIndex = recentLockedReading?.let(readings::indexOf) ?: -1
         if (mode() == Mode.PINYIN && composing.isNotEmpty() &&
-            index == lockedIndex && lockedReadings.singleOrNull() == reading
+            index == lockedIndex && recentLockedReading == reading
         ) {
-            drillSyllable = 0
+            drillSyllable = lockedReadings.lastIndex
         } else {
             drillSyllable = -1
             drillChoices.clear()
