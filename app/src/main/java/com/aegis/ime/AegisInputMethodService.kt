@@ -27,6 +27,7 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedTextRequest
+import android.view.inputmethod.InputConnection
 import android.widget.Toast
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
@@ -160,6 +161,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var panelCacheDensityDpi = 0
     private var clipboardRecreationState: ClipboardView.RecreationState? = null
     private var restoreClipboardWithoutCapture = false
+    private var splitSelectionInputConnection: InputConnection? = null
+    private var frameworkWillFinishInput = false
     private var panelInputTitle = ""
     private var lastCopy: String? = null
     @Volatile private var userDbLoaded = false
@@ -387,6 +390,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     override fun onFinishInput() {
+        frameworkWillFinishInput = true
+        try {
+            clipboardView?.finishSplitSelection()
+        } finally {
+            frameworkWillFinishInput = false
+        }
         super.onFinishInput()
         abortInlineInput()
         clearEditorTransientState(resetController = true, abortInline = false, preserveLayout = layoutSessionPackage != null)
@@ -791,8 +800,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.phrasesInProvider = { cat -> clipboardStore.phrasesIn(cat) }
             it.phraseNoteProvider = { cat, text -> clipboardStore.noteFor(cat, text) }
             it.onPick = { t -> commitLargeText(t); inputView?.showPanel(null) }
-            it.onCopyBlockToAegis = { b -> copyBlockToAegis(b) }
             it.onCopyBlocksToAegis = { blocks -> copyBlocksToAegis(blocks) }
+            it.onSplitSelectionChanged = { text -> updateSplitSelection(text) }
+            it.onSplitSelectionFinished = { finishSplitSelection() }
             it.onBack = { inputView?.showPanel(null) }
             it.onDeleteClips = { list -> clipboardStore.deleteAll(list) }
             it.onDeletePhrasesFrom = { cat, list -> list.forEach { clipboardStore.deletePhraseFrom(cat, it) } }
@@ -1042,6 +1052,19 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         for (block in blocks) clipboardStore.record(block)
         refreshOpenClipboardPanel()
         toast(getString(R.string.svc_saved_to_clipboard))
+    }
+
+    private fun updateSplitSelection(text: String) {
+        val connection = splitSelectionInputConnection ?: currentInputConnection?.also {
+            splitSelectionInputConnection = it
+        }
+        connection?.setComposingText(text, 1)
+    }
+
+    private fun finishSplitSelection() {
+        val connection = splitSelectionInputConnection ?: currentInputConnection
+        if (!frameworkWillFinishInput) connection?.finishComposingText()
+        splitSelectionInputConnection = null
     }
 
     private fun refreshOpenClipboardPanel() {

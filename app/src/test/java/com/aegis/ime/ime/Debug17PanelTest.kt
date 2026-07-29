@@ -485,43 +485,57 @@ class Debug17PanelTest {
         assertTrue("nothing copied yet", v.splitSelectedForTest().isEmpty())
     }
 
-    @Test fun split_block_tap_highlights_and_copies_panel_stays_open() {
-        val copied = ArrayList<String>()
-        val v = clipView().apply { onCopyBlockToAegis = { copied.add(it) } }
+    @Test fun split_block_tap_toggles_selection_without_copying_and_panel_stays_open() {
+        val changed = ArrayList<String>()
+        val copied = ArrayList<List<String>>()
+        val v = clipView().apply {
+            onSplitSelectionChanged = { changed.add(it) }
+            onCopyBlocksToAegis = { copied.add(it) }
+        }
         v.showSplitForTest("你好abc def")
         val a = chip(overlayOf(v), "你好")!!
         val b = chip(overlayOf(v), "abc")!!
         val defaultBg = bgColor(a)
         val defaultText = a.currentTextColor
         a.performClick()
-        assertEquals("tapped block copied to aegis", listOf("你好"), copied)
-        assertEquals("tapped block uses copied background", pal.chipBg, bgColor(a))
-        assertEquals("tapped block uses copied text", pal.chipText, a.currentTextColor)
-        assertNotEquals("copied background differs from default", defaultBg, bgColor(a))
-        assertNotEquals("copied text differs from default", defaultText, a.currentTextColor)
+        assertEquals(listOf("你好"), changed)
+        assertTrue("single-item selection does not invoke clipboard recording", copied.isEmpty())
+        assertEquals("selected block uses selected background", pal.chipBg, bgColor(a))
+        assertEquals("selected block uses selected text", pal.chipText, a.currentTextColor)
+        assertNotEquals("selected background differs from default", defaultBg, bgColor(a))
+        assertNotEquals("selected text differs from default", defaultText, a.currentTextColor)
         assertEquals("untapped block keeps default background", defaultBg, bgColor(b))
         assertEquals("untapped block keeps default text", defaultText, b.currentTextColor)
-        assertTrue("tracked as selected", "你好" in v.splitSelectedForTest())
+        assertEquals(setOf(0), v.splitSelectedForTest())
+        a.performClick()
+        assertEquals(listOf("你好", ""), changed)
+        assertEquals(defaultBg, bgColor(a))
+        assertEquals(defaultText, a.currentTextColor)
+        assertTrue(v.splitSelectedForTest().isEmpty())
+        assertTrue(copied.isEmpty())
         assertEquals("panel stays open", View.VISIBLE.toLong(), overlayOf(v).visibility.toLong())
     }
 
-    @Test fun split_copy_all_copies_each_block_separately_and_highlights_all() {
-        val copied = ArrayList<String>()
-        val v = clipView().apply { onCopyBlockToAegis = { copied.add(it) } }
+    @Test fun split_copy_all_uses_one_batch_without_changing_selection_or_chip_styles() {
+        val copied = ArrayList<List<String>>()
+        val changed = ArrayList<String>()
+        val v = clipView().apply {
+            onCopyBlocksToAegis = { copied.add(it) }
+            onSplitSelectionChanged = { changed.add(it) }
+        }
         v.showSplitForTest("你好abc def")
         val blockLabels = listOf("你好", "abc", "def")
         val chips = blockLabels.map { chip(overlayOf(v), it)!! }
-        val defaultBg = bgColor(chips.first())
-        val defaultText = chips.first().currentTextColor
+        chips[1].performClick()
+        val stateBefore = v.splitSelectedForTest()
+        val stylesBefore = chips.map { bgColor(it) to it.currentTextColor }
+        val changesBefore = changed.toList()
         assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_copy_all)))
-        assertEquals("全部复制 copies each block separately", listOf("你好", "abc", "def"), copied)
-        assertEquals("all blocks marked", setOf("你好", "abc", "def"), v.splitSelectedForTest())
-        chips.forEach { block ->
-            assertEquals("all blocks use copied background", pal.chipBg, bgColor(block))
-            assertEquals("all blocks use copied text", pal.chipText, block.currentTextColor)
-            assertNotEquals("copied background differs from default", defaultBg, bgColor(block))
-            assertNotEquals("copied text differs from default", defaultText, block.currentTextColor)
-        }
+        assertEquals(listOf(blockLabels), copied)
+        assertEquals(stateBefore, v.splitSelectedForTest())
+        assertEquals(stylesBefore, chips.map { bgColor(it) to it.currentTextColor })
+        assertEquals(changesBefore, changed)
+        assertEquals(View.VISIBLE, overlayOf(v).visibility)
     }
 
     @Test fun split_copy_all_uses_batch_callback_once_when_available() {

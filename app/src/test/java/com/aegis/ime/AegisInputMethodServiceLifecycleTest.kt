@@ -21,6 +21,7 @@ import android.os.Looper
 import android.provider.Settings
 import android.text.InputType
 import android.view.View
+import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.widget.FrameLayout
 import com.aegis.ime.dict.ModelDownload
@@ -68,6 +69,21 @@ class AegisInputMethodServiceLifecycleTest {
         val info: EditorInfo,
         var view: InputView,
     )
+
+    private class RecordingInputConnection(target: View) : BaseInputConnection(target, true) {
+        val composingUpdates = ArrayList<String>()
+        var finishes = 0
+
+        override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
+            composingUpdates.add(text?.toString().orEmpty())
+            return super.setComposingText(text, newCursorPosition)
+        }
+
+        override fun finishComposingText(): Boolean {
+            finishes++
+            return super.finishComposingText()
+        }
+    }
 
     private enum class StateKind { COMPOSITION, INLINE_EDIT, PHRASES_PANEL }
 
@@ -135,12 +151,60 @@ class AegisInputMethodServiceLifecycleTest {
         return frame
     }
 
+    private fun installInputConnection(service: AegisInputMethodService, connection: RecordingInputConnection) {
+        val framework = requireNotNull(service.javaClass.superclass)
+        for (fieldName in listOf("mInputConnection", "mStartedInputConnection")) {
+            framework.getDeclaredField(fieldName).apply {
+                isAccessible = true
+                set(service, connection)
+            }
+        }
+    }
+
     private fun clipboard(service: AegisInputMethodService): ClipboardView {
         service.javaClass.getDeclaredMethod("showClipboardPanel").apply { isAccessible = true }.invoke(service)
         return service.javaClass.getDeclaredField("clipboardView").run {
             isAccessible = true
             get(service) as ClipboardView
         }
+    }
+
+    @Test fun split_selection_composes_into_one_region_and_finishes_when_the_popup_closes() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        val cv = clipboard(f.service)
+        cv.showSplitForTest("检查一下，检查")
+
+        cv.onSplitSelectionChanged("检查")
+        cv.onSplitSelectionChanged("检查，")
+        cv.onSplitSelectionChanged("检查一下，")
+        cv.onSplitSelectionChanged("一下，")
+
+        assertEquals(listOf("检查", "检查，", "检查一下，", "一下，"), connection.composingUpdates)
+        assertEquals("一下，", connection.editable.toString())
+        assertEquals(0, connection.finishes)
+        cv.hideOverlayForTest()
+        assertEquals(1, connection.finishes)
+        assertEquals("一下，", connection.editable.toString())
+        cv.finishSplitSelection()
+        assertEquals("the ended session must not finish twice", 1, connection.finishes)
+    }
+
+    @Test fun active_split_selection_finishes_once_when_the_input_target_ends() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        val cv = clipboard(f.service)
+        cv.showSplitForTest("检查一下，检查")
+        cv.onSplitSelectionChanged("检查")
+
+        assertEquals(0, connection.finishes)
+        f.service.onFinishInput()
+        assertEquals(1, connection.finishes)
+        assertEquals("检查", connection.editable.toString())
+        cv.finishSplitSelection()
+        assertEquals("the ended target must not finish the split session twice", 1, connection.finishes)
     }
 
     private fun seed(f: Fixture, kind: StateKind): SeededState = when (kind) {
