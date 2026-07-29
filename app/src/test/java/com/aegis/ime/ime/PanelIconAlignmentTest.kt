@@ -15,8 +15,10 @@
 
 package com.aegis.ime.ime
 
+import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
@@ -48,6 +50,18 @@ class PanelIconAlignmentTest {
 
     private val ctx = RuntimeEnvironment.getApplication()
     private val density = ctx.resources.displayMetrics.density
+
+    private fun rippleColors(view: View): ColorStateList {
+        val ripple = view.foreground as RippleDrawable
+        val state = RippleDrawable::class.java.getDeclaredField("mState").run {
+            isAccessible = true
+            get(ripple)
+        }
+        return state.javaClass.getDeclaredField("mColor").run {
+            isAccessible = true
+            get(state) as ColorStateList
+        }
+    }
 
     private fun textViews(root: View): List<TextView> {
         val out = ArrayList<TextView>()
@@ -383,6 +397,7 @@ class PanelIconAlignmentTest {
         val actions = mutableListOf<EditAction>()
         v.onAction = actions::add
         layout(v, width = 600, height = 320)
+        val selectingLabel = v.selectingLabelForTest()
         val navigation = listOf(
             EditAction.UP,
             EditAction.DOWN,
@@ -400,6 +415,7 @@ class PanelIconAlignmentTest {
             assertFalse(button.requestFocus())
             assertTrue(button.performClick())
             assertFalse(back.isFocused)
+            assertEquals(selectingLabel, v.selectingLabelForTest())
         }
         for (action in listOf(
             EditAction.START_SELECT,
@@ -414,6 +430,27 @@ class PanelIconAlignmentTest {
         assertEquals(navigation, actions)
         assertTrue(back.performClick())
         assertEquals(navigation + EditAction.BACK, actions)
+    }
+
+    @Test fun start_select_ripple_is_transparent_when_focused_and_visible_when_pressed() {
+        for (palette in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
+            val v = EditPanelView(ctx).apply { applyPalette(palette) }
+            val select = requireNotNull(v.actionViewForTest(EditAction.START_SELECT))
+            val selectColors = rippleColors(select)
+            val focused = intArrayOf(android.R.attr.state_enabled, android.R.attr.state_focused)
+            val pressed = intArrayOf(android.R.attr.state_enabled, android.R.attr.state_pressed)
+            val expected = Motion.withAlpha(palette.keyLabel, 0x24)
+
+            assertEquals(Color.TRANSPARENT, selectColors.getColorForState(focused, Color.MAGENTA))
+            assertEquals(expected, selectColors.getColorForState(pressed, Color.MAGENTA))
+
+            val delete = requireNotNull(v.actionViewForTest(EditAction.DELETE))
+            assertEquals(
+                "default tap feedback remains visible for focused controls",
+                expected,
+                rippleColors(delete).getColorForState(focused, Color.MAGENTA),
+            )
+        }
     }
 
     @Test fun symbols_lock_control_fills_a_normal_bar_hit_target() {

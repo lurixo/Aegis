@@ -16,6 +16,8 @@
 package com.aegis.ime
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.res.Configuration
 import android.os.Looper
 import android.provider.Settings
@@ -29,16 +31,19 @@ import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.ime.ClipboardView
 import com.aegis.ime.ime.CustomSymbolPanel
 import com.aegis.ime.ime.DecodeLane
+import com.aegis.ime.ime.EditAction
 import com.aegis.ime.ime.EditPanelView
 import com.aegis.ime.ime.EmojiView
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
+import com.aegis.ime.ime.LargeCommit
 import com.aegis.ime.ime.LayoutPanelView
 import com.aegis.ime.ime.SymbolsView
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.ui.DictDownloadWork
+import com.aegis.ime.user.ClipboardStore
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotSame
@@ -72,6 +77,8 @@ class AegisInputMethodServiceLifecycleTest {
 
     private class RecordingInputConnection(target: View) : BaseInputConnection(target, true) {
         val composingUpdates = ArrayList<String>()
+        val committedChunks = ArrayList<String>()
+        val contextMenuActions = ArrayList<Int>()
         var finishes = 0
 
         override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
@@ -82,6 +89,17 @@ class AegisInputMethodServiceLifecycleTest {
         override fun finishComposingText(): Boolean {
             finishes++
             return super.finishComposingText()
+        }
+
+        override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+            committedChunks.add(text?.toString().orEmpty())
+            return super.commitText(text, newCursorPosition)
+        }
+
+        override fun performContextMenuAction(id: Int): Boolean {
+            contextMenuActions.add(id)
+            if (id == android.R.id.paste) commitText("SYSTEM_CLIPBOARD", 1)
+            return true
         }
     }
 
@@ -161,6 +179,21 @@ class AegisInputMethodServiceLifecycleTest {
         }
     }
 
+    private fun clipboardStore(service: AegisInputMethodService): ClipboardStore {
+        val delegate = service.javaClass.getDeclaredField("clipboardStore\$delegate").run {
+            isAccessible = true
+            get(service) as Lazy<*>
+        }
+        return delegate.value as ClipboardStore
+    }
+
+    private fun handleEdit(service: AegisInputMethodService, action: EditAction) {
+        service.javaClass.getDeclaredMethod("handleEdit", EditAction::class.java).apply {
+            isAccessible = true
+            invoke(service, action)
+        }
+    }
+
     private fun clipboard(service: AegisInputMethodService): ClipboardView {
         service.javaClass.getDeclaredMethod("showClipboardPanel").apply { isAccessible = true }.invoke(service)
         return service.javaClass.getDeclaredField("clipboardView").run {
@@ -205,6 +238,61 @@ class AegisInputMethodServiceLifecycleTest {
         assertEquals("检查", connection.editable.toString())
         cv.finishSplitSelection()
         assertEquals("the ended target must not finish the split session twice", 1, connection.finishes)
+    }
+
+    @Test fun edit_paste_replaces_the_selection_with_the_latest_aegis_entry_without_system_paste() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        val systemClipboard = f.service.getSystemService(ClipboardManager::class.java)
+        systemClipboard.setPrimaryClip(ClipData.newPlainText("system", "SYSTEM_CLIPBOARD"))
+        clipboardStore(f.service).apply {
+            clearHistory()
+            record("older")
+            record("Aegis latest")
+        }
+        connection.commitText("before TARGET after", 1)
+        connection.committedChunks.clear()
+        connection.setSelection(7, 13)
+
+        handleEdit(f.service, EditAction.PASTE)
+
+        assertEquals("before Aegis latest after", connection.editable.toString())
+        assertEquals(listOf("Aegis latest"), connection.committedChunks)
+        assertTrue(connection.contextMenuActions.isEmpty())
+    }
+
+    @Test fun edit_paste_keeps_large_aegis_entries_on_the_chunked_commit_path() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        val big = "大".repeat(LargeCommit.CHUNK + 1)
+        clipboardStore(f.service).apply {
+            clearHistory()
+            record(big)
+        }
+
+        handleEdit(f.service, EditAction.PASTE)
+
+        assertEquals(listOf(LargeCommit.CHUNK, 1), connection.committedChunks.map { it.length })
+        assertEquals(big, connection.committedChunks.joinToString(""))
+        assertEquals(big, connection.editable.toString())
+        assertTrue(connection.contextMenuActions.isEmpty())
+    }
+
+    @Test fun edit_paste_does_nothing_when_aegis_history_is_empty() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        f.service.getSystemService(ClipboardManager::class.java)
+            .setPrimaryClip(ClipData.newPlainText("system", "SYSTEM_CLIPBOARD"))
+        clipboardStore(f.service).clearHistory()
+
+        handleEdit(f.service, EditAction.PASTE)
+
+        assertEquals("", connection.editable.toString())
+        assertTrue(connection.committedChunks.isEmpty())
+        assertTrue(connection.contextMenuActions.isEmpty())
     }
 
     private fun seed(f: Fixture, kind: StateKind): SeededState = when (kind) {

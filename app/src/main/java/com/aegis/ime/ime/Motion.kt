@@ -52,13 +52,33 @@ object Motion {
     fun stateLayerColor(argb: Int, level: Float, maxAlpha: Int = 0x22): Int =
         withAlpha(argb, (maxAlpha * level.coerceIn(0f, 1f)).roundToInt())
 
-    fun applyTapFeedback(view: View, color: Int, alpha: Int = 0x24, radiusDp: Float = ImeShapes.keyRadiusDp) {
+    fun applyTapFeedback(
+        view: View,
+        color: Int,
+        alpha: Int = 0x24,
+        radiusDp: Float = ImeShapes.keyRadiusDp,
+        pressedOnly: Boolean = false,
+    ) {
         val mask = GradientDrawable().apply {
             setColor(Color.WHITE)
             cornerRadius = radiusDp * view.resources.displayMetrics.density
         }
+        val rippleColor = if (pressedOnly) {
+            ColorStateList(
+                arrayOf(
+                    intArrayOf(android.R.attr.state_pressed),
+                    intArrayOf(),
+                ),
+                intArrayOf(
+                    withAlpha(color, alpha),
+                    Color.TRANSPARENT,
+                ),
+            )
+        } else {
+            ColorStateList.valueOf(withAlpha(color, alpha))
+        }
         view.foreground = RippleDrawable(
-            ColorStateList.valueOf(withAlpha(color, alpha)),
+            rippleColor,
             null,
             mask,
         )

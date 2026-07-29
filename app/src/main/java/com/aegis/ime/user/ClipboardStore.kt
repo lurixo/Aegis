@@ -141,6 +141,8 @@ class ClipboardStore(private val dir: File) {
 
     fun history(): List<String> = history.toList()
 
+    internal fun latest(): String? = history.firstOrNull()
+
 
     fun reloadPhrases() = loadPhrases()
 
