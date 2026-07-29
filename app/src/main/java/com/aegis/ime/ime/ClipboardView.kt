@@ -57,8 +57,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     )
 
     var onPick: (String) -> Unit = {}
-    var onCopyBlockToAegis: (String) -> Unit = {}
-    var onCopyBlocksToAegis: (List<String>) -> Unit = { blocks -> blocks.forEach { onCopyBlockToAegis(it) } }
+    var onCopyBlocksToAegis: (List<String>) -> Unit = {}
+    var onSplitSelectionChanged: (String) -> Unit = {}
+    var onSplitSelectionFinished: () -> Unit = {}
     var onBack: () -> Unit = {}
     var historyProvider: () -> List<String> = { emptyList() }
     var categoriesProvider: () -> List<String> = { emptyList() }
@@ -132,7 +133,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
 
     private var sortMode = false
     private var categorySortMode = false
-    private val splitSelected = mutableSetOf<String>()
+    private val splitSelected = mutableSetOf<Int>()
+    private var splitSessionActive = false
     private var renderedTab: ClipboardPanelState.Tab? = null
     private var tabTransitions = 0
     private var renderedMode = -1
@@ -593,7 +595,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     internal fun enterCategorySortModeForTest() { enterCategorySortMode() }
     internal fun isCategorySortModeForTest(): Boolean = categorySortMode
     internal fun showSplitForTest(text: String) { showSplit(text) }
-    internal fun splitSelectedForTest(): Set<String> = splitSelected.toSet()
+    internal fun splitSelectedForTest(): Set<Int> = splitSelected.toSet()
     internal fun settleSwipeForTest(dxPx: Float, text: String) { settleSwipe(dxPx, text) }
     internal fun listRowTextsForTest(): List<String> {
         val out = ArrayList<String>()
@@ -1496,6 +1498,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
 
     override fun onDetachedFromWindow() {
+        finishSplitSelection()
         dragHandler.removeCallbacksAndMessages(null)
         cancelPendingListAppend()
         resetDragPreviewTranslations()
@@ -1916,6 +1919,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
 
 
     private fun hideOverlay() {
+        finishSplitSelection()
         if (overlay.visibility != VISIBLE) {
             overlay.removeAllViews()
             return
@@ -1927,6 +1931,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
 
     private fun hideOverlayImmediately() {
+        finishSplitSelection()
         overlay.setOnClickListener(null)
         overlay.isClickable = false
         Motion.reset(overlay)
@@ -1941,6 +1946,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
 
     private fun showOverlay(content: View, gravity: Int = Gravity.CENTER, maxWidthDp: Int? = null) {
+        finishSplitSelection()
         Motion.reset(overlay)
         overlay.removeAllViews()
         overlay.setBackgroundColor(0x00000000)
@@ -2025,6 +2031,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
 
     private fun showSplit(text: String) {
+        finishSplitSelection()
         splitSelected.clear()
         val panel = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(14), dp(16), dp(16))
@@ -2036,9 +2043,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         })
         val chips = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
         val blocks = ClipSplitter.copyBlocks(text)
-        val chipViews = ArrayList<TextView>()
         if (blocks.isEmpty()) chips.addView(TextView(context).apply { this.text = context.getString(R.string.clip_nothing_to_split); setTextColor(HINT) })
-        for (b in blocks) {
+        for ((index, b) in blocks.withIndex()) {
             val chip = TextView(context).apply {
                 this.text = b
                 setTextColor(SPLIT_BLOCK_TEXT); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
@@ -2047,14 +2053,30 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
                 layoutParams = ll(WC, WC).apply { rightMargin = dp(8) }
             }
             chip.setOnClickListener {
-                splitSelected.add(b)
-                chip.setTextColor(SPLIT_BLOCK_COPIED_TEXT)
-                chip.background = rounded(SPLIT_BLOCK_COPIED_BG, ImeShapes.chipRadiusDp)
-                Motion.applyTapFeedback(chip, SPLIT_BLOCK_COPIED_TEXT)
-                onCopyBlockToAegis(b)
+                val selected = if (index in splitSelected) {
+                    splitSelected.remove(index)
+                    false
+                } else {
+                    splitSelected.add(index)
+                    true
+                }
+                chip.setTextColor(if (selected) SPLIT_BLOCK_COPIED_TEXT else SPLIT_BLOCK_TEXT)
+                chip.background = rounded(
+                    if (selected) SPLIT_BLOCK_COPIED_BG else SPLIT_BLOCK_BG,
+                    ImeShapes.chipRadiusDp,
+                )
+                Motion.applyTapFeedback(
+                    chip,
+                    if (selected) SPLIT_BLOCK_COPIED_TEXT else SPLIT_BLOCK_TEXT,
+                )
+                onSplitSelectionChanged(
+                    blocks.indices
+                        .filter { it in splitSelected }
+                        .joinToString(separator = "") { blocks[it] },
+                )
             }
             Motion.applyTapFeedback(chip, SPLIT_BLOCK_TEXT)
-            chipViews.add(chip); chips.addView(chip)
+            chips.addView(chip)
         }
         panel.addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, ll(MP, WC))
         val footer = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(12), 0, 0) }
@@ -2072,17 +2094,17 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             setPadding(dp(12), 0, dp(12), 0)
             background = rounded(Motion.withAlpha(SPLIT_BLOCK_BG, 0x22), ImeShapes.toolbarFeedbackRadiusDp)
             Motion.applyTapFeedback(this, SPLIT_BLOCK_BG, radiusDp = ImeShapes.toolbarFeedbackRadiusDp)
-            setOnClickListener {
-                splitSelected.addAll(blocks)
-                for (c in chipViews) {
-                    c.setTextColor(SPLIT_BLOCK_COPIED_TEXT)
-                    c.background = rounded(SPLIT_BLOCK_COPIED_BG, ImeShapes.chipRadiusDp)
-                }
-                onCopyBlocksToAegis(blocks)
-            }
+            setOnClickListener { onCopyBlocksToAegis(blocks) }
         }, ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)))
         panel.addView(footer, ll(MP, WC))
         showOverlay(panel, maxWidthDp = 340)
+        splitSessionActive = true
+    }
+
+    internal fun finishSplitSelection() {
+        if (!splitSessionActive) return
+        splitSessionActive = false
+        onSplitSelectionFinished()
     }
 
 

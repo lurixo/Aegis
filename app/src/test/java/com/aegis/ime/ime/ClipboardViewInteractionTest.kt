@@ -489,18 +489,91 @@ class ClipboardViewInteractionTest {
         assertTrue("existing item remains visible", "old" in labels(v))
     }
 
-    @Test fun copy_block_callback_can_refresh_open_panel_without_reopening() {
-        val history = mutableListOf("old")
+    @Test fun split_selection_rebuilds_in_source_order_and_toggles_duplicate_items_by_index() {
+        val source = "检查一下，检查"
+        assertEquals(listOf("检查", "一下", "，", "检查"), ClipSplitter.copyBlocks(source))
+        val changed = ArrayList<String>()
+        val copied = ArrayList<List<String>>()
         val v = ClipboardView(ctx).apply {
-            historyProvider = { history.toList() }
-            onCopyBlockToAegis = { block -> history.add(0, block); refresh() }
+            onSplitSelectionChanged = { changed.add(it) }
+            onCopyBlocksToAegis = { copied.add(it) }
             applyPalette(pal)
             refresh()
         }
-        v.showSplitForTest("复制 block")
-        assertTrue(clickText(overlayOf(v), "block"))
-        assertTrue("copied block appears in the still-open panel", "block" in labels(mainOf(v)))
-        assertTrue("previous history remains visible", "old" in labels(mainOf(v)))
+        v.showSplitForTest(source)
+
+        assertTrue(clickText(overlayOf(v), "检查"))
+        assertEquals("检查", changed.last())
+        assertEquals(setOf(0), v.splitSelectedForTest())
+        assertTrue(clickText(overlayOf(v), "，"))
+        assertEquals("检查，", changed.last())
+        assertEquals(setOf(0, 2), v.splitSelectedForTest())
+        assertTrue(clickText(overlayOf(v), "一下"))
+        assertEquals("检查一下，", changed.last())
+        assertEquals(setOf(0, 1, 2), v.splitSelectedForTest())
+        assertTrue(clickText(overlayOf(v), "检查"))
+        assertEquals("一下，", changed.last())
+        assertEquals(setOf(1, 2), v.splitSelectedForTest())
+        assertTrue(copied.isEmpty())
+
+        assertTrue(clickText(overlayOf(v), "一下"))
+        assertEquals("，", changed.last())
+        assertTrue(clickText(overlayOf(v), "，"))
+        assertEquals("", changed.last())
+        assertTrue(v.splitSelectedForTest().isEmpty())
+        assertTrue(copied.isEmpty())
+
+        val duplicateChecks = textViews(overlayOf(v)).filter {
+            it.text?.toString() == "检查" && it.hasOnClickListeners()
+        }
+        assertEquals(2, duplicateChecks.size)
+        duplicateChecks[1].performClick()
+        assertEquals("检查", changed.last())
+        assertEquals(setOf(3), v.splitSelectedForTest())
+        duplicateChecks[1].performClick()
+        assertEquals("", changed.last())
+        assertTrue(v.splitSelectedForTest().isEmpty())
+    }
+
+    @Test fun every_split_popup_exit_finishes_the_composing_session_once() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup()
+        val input = InputView(ctx)
+        val v = ClipboardView(ctx).apply { applyPalette(pal); refresh() }
+        var finishes = 0
+        v.onSplitSelectionFinished = { finishes++ }
+        activity.get().setContentView(input)
+        input.showPanelImmediately(v)
+
+        fun assertSingleFinish(exit: () -> Unit) {
+            val before = finishes
+            v.showSplitForTest("检查一下，检查")
+            exit()
+            assertEquals(before + 1, finishes)
+            v.hideOverlayForTest()
+            assertEquals("a finished split session must not finish twice", before + 1, finishes)
+        }
+
+        try {
+            assertSingleFinish { v.hideOverlayForTest() }
+            assertSingleFinish {
+                assertTrue(clickText(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_back)))
+            }
+            assertSingleFinish { overlayOf(v).performClick() }
+            assertSingleFinish { v.resetToDefault() }
+
+            val beforeSwitch = finishes
+            v.showSplitForTest("检查一下，检查")
+            input.showPanelImmediately(TextView(ctx))
+            assertEquals(beforeSwitch + 1, finishes)
+
+            input.showPanelImmediately(v)
+            val beforeDetach = finishes
+            v.showSplitForTest("检查一下，检查")
+            (v.parent as ViewGroup).removeView(v)
+            assertEquals(beforeDetach + 1, finishes)
+        } finally {
+            activity.pause().stop().destroy()
+        }
     }
 
     @Test fun clipboard_swipe_reveals_three_icon_actions_while_dropdown_reveals_labeled_actions() {
@@ -809,14 +882,16 @@ class ClipboardViewInteractionTest {
         val text = "visit https://x.com and copy each block"
         val blocks = ClipSplitter.copyBlocks(text)
         assertTrue("precondition: the text splits into ≥2 blocks", blocks.size >= 2)
-        val collected = ArrayList<String>()
+        val batches = ArrayList<List<String>>()
         val v = ClipboardView(ctx).apply {
-            historyProvider = { listOf(text) }; onCopyBlockToAegis = { collected.add(it) }; applyPalette(pal); refresh()
+            historyProvider = { listOf(text) }
+            onCopyBlocksToAegis = { batches.add(it) }
+            applyPalette(pal)
+            refresh()
         }
         v.showSplitForTest(text)
         assertTrue(clickText(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_copy_all)))
-        assertEquals("每块各写一条 (N 条), not 1 merged entry", blocks.size, collected.size)
-        assertEquals("the blocks recorded are exactly the split blocks", blocks.toSet(), collected.toSet())
+        assertEquals("Copy All invokes the batch callback exactly once", listOf(blocks), batches)
     }
 
 
