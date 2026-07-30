@@ -28,6 +28,8 @@ import android.os.PerformanceHintManager
 import android.os.Process
 import android.os.SystemClock
 import android.text.InputType
+import android.text.Spanned
+import android.text.style.ReplacementSpan
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
@@ -1087,6 +1089,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             toast(uiString(if (cut) R.string.edit_cut_failed else R.string.edit_copy_failed))
             return
         }
+        val styledSelection = if (trackedSelectionSpan() <= ChunkedRead.DIRECT_MAX)
+            runCatching { ic.getSelectedText(InputConnection.GET_TEXT_WITH_STYLES) }.getOrNull() else null
+        val richSelection = styledSelection?.contains('\uFFFC') == true ||
+            (styledSelection is Spanned && styledSelection.getSpans(0, styledSelection.length, ReplacementSpan::class.java).isNotEmpty())
+        if (trackedSelectionSpan() < ChunkedRead.CHUNK / 2 || isWebEditor()) {
+            if (takeNativeSelection(ic, cut)) return
+        }
+        if (richSelection || editorUndo.selectionContainsRichContent(ic)) return
         val from = minOf(selStart, selEnd)
         val to = maxOf(selStart, selEnd)
         if (trackedSelectionSpan() <= ChunkedRead.DIRECT_MAX) {
@@ -1790,6 +1800,48 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun reportImageFailure(failure: Throwable) {
         toast(uiString(if (failure is ClipboardImageTooLargeException) R.string.clip_image_too_large else R.string.clip_image_save_failed))
+    }
+
+    private fun takeNativeSelection(ic: InputConnection, cut: Boolean, attempt: Int = 0, originalClip: ClipData? = null): Boolean {
+        val oldClip = if (attempt == 0) runCatching { clipboardManager.primaryClip }.getOrNull() else originalClip
+        if (attempt == 0) {
+            runCatching { ic.performContextMenuAction(android.R.id.copy) }.getOrElse { return false }
+        }
+        val selectedText = runCatching { ic.getSelectedText(0)?.toString() }.getOrNull()
+        val clip = runCatching { clipboardManager.primaryClip }.getOrNull()
+        if (clip == null || clip.itemCount == 0 || oldClip != null && oldClip.description.timestamp == clip.description.timestamp &&
+            oldClip.itemCount == clip.itemCount && (0 until clip.itemCount).all { index ->
+                val old = oldClip.getItemAt(index)
+                val new = clip.getItemAt(index)
+                old.uri == new.uri && old.text?.toString() == new.text?.toString() && old.htmlText == new.htmlText
+            }
+        ) {
+            if (!cut || !isWebEditor()) return false
+            if (attempt >= 10) {
+                toast(uiString(R.string.edit_cut_failed))
+                return true
+            }
+            val start = selStart
+            val end = selEnd
+            val editor = currentEditorTarget
+            mainHandler.postDelayed({
+                if (currentInputConnection === ic && currentEditorTarget == editor && !panelInput.active &&
+                    start == selStart && end == selEnd && ic.getSelectedText(0)?.toString() == selectedText) {
+                    takeNativeSelection(ic, cut, attempt + 1, oldClip)
+                } else toast(uiString(R.string.edit_cut_failed))
+            }, 50L)
+            return true
+        }
+        val item = clip.getItemAt(0)
+        if (keepsCopies()) captureSystemClip(clip, showText = true)
+        if (cut) {
+            if (!runCatching { editorUndo.cutCopiedSelection(ic, item.text) }.getOrDefault(false)) {
+                toast(uiString(R.string.edit_cut_failed))
+                return true
+            }
+            resetSelectionAnchor()
+        }
+        return true
     }
 
     private fun recordTextClip(t: String) {

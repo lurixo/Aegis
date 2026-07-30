@@ -20,6 +20,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Rect
+import android.os.Handler
 import android.os.Looper
 import android.text.InputType
 import android.text.Selection
@@ -54,6 +55,8 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import java.io.File
+import java.util.Base64
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -236,6 +239,13 @@ class AegisEditingIntegrationTest {
         return lazy.value as ClipboardStore
     }
     private fun clipboard(f: Fixture) = f.service.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    private fun finishImage(f: Fixture) { store(f).flushPendingWrites(); shadowOf(Looper.getMainLooper()).idle() }
+    private fun image(f: Fixture): ClipData {
+        val file = File(f.service.filesDir, "clips/images/source.png")
+        file.parentFile!!.mkdirs()
+        file.writeBytes(Base64.getDecoder().decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGMwKj/zHwAEyQJ1hXFYwAAAAABJRU5ErkJggg=="))
+        return ClipData("image", arrayOf("image/png"), ClipData.Item(FileProvider.getUriForFile(f.service, f.service.packageName + ".clipboard.images", file)))
+    }
 
     @Test fun edit_panel_back_remains_available_while_text_is_being_restored() {
         for (choice in listOf(LayoutChoice.CN_ALPHA, LayoutChoice.CN_NINE)) {
@@ -249,6 +259,62 @@ class AegisEditingIntegrationTest {
             assertFalse(input.isPanelShowing(panel))
             assertTrue(f.service.javaClass.getDeclaredField("restoring").apply { isAccessible = true }.getBoolean(f.service))
         }
+    }
+
+    @Test fun web_cut_waits_for_the_matching_clipboard_and_remains_undoable() {
+        val f = fixture(type = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_WEB_EDIT_TEXT)
+        f.connection.commitText("prefix two words suffix", 1)
+        f.connection.setSelection(7, 16)
+        syncSelection(f)
+        clipboard(f).setPrimaryClip(ClipData.newPlainText("old", "old clipboard"))
+        var nativeCut: Triple<String, Int, Int>? = null
+        f.connection.onMenu = { id ->
+            if (id == android.R.id.copy) Handler(Looper.getMainLooper()).postDelayed({
+                clipboard(f).setPrimaryClip(ClipData.newPlainText("copied", "two words"))
+            }, 100L)
+            if (id == android.R.id.cut) nativeCut = Triple(f.connection.editable.toString(),
+                Selection.getSelectionStart(f.connection.editable), Selection.getSelectionEnd(f.connection.editable))
+        }
+        f.connection.onKey = { event ->
+            if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_Z && event.isCtrlPressed) {
+                val saved = requireNotNull(nativeCut)
+                Handler(Looper.getMainLooper()).postDelayed({
+                    val body = requireNotNull(f.connection.editable)
+                    body.replace(0, body.length, saved.first)
+                    f.connection.setSelection(saved.second, saved.third)
+                }, 80L)
+            }
+        }
+        edit(f, EditAction.CUT)
+        assertEquals("copy has not completed", "prefix two words suffix", f.connection.editable.toString())
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(250))
+        assertEquals("prefix  suffix", f.connection.editable.toString())
+        assertEquals(listOf(android.R.id.copy, android.R.id.cut), f.connection.menus)
+        edit(f, EditAction.UNDO)
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(600))
+        assertEquals("prefix two words suffix", f.connection.editable.toString())
+        assertEquals(7, Selection.getSelectionStart(f.connection.editable))
+        assertEquals(16, Selection.getSelectionEnd(f.connection.editable))
+        assertEquals(1, f.connection.keys.count { it.action == KeyEvent.ACTION_DOWN && it.keyCode == KeyEvent.KEYCODE_Z && it.isCtrlPressed })
+    }
+
+    @Test fun delayed_web_copy_never_cuts_a_changed_selection() {
+        val f = fixture(type = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_WEB_EDIT_TEXT)
+        f.connection.commitText("prefix two words suffix", 1)
+        f.connection.setSelection(7, 16)
+        syncSelection(f)
+        clipboard(f).setPrimaryClip(ClipData.newPlainText("old", "old clipboard"))
+        f.connection.onMenu = { id ->
+            if (id == android.R.id.copy) Handler(Looper.getMainLooper()).postDelayed({
+                clipboard(f).setPrimaryClip(ClipData.newPlainText("copied", "two words"))
+            }, 100L)
+        }
+        edit(f, EditAction.CUT)
+        f.connection.setSelection(0, 6)
+        syncSelection(f)
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(600))
+        assertEquals("prefix two words suffix", f.connection.editable.toString())
+        assertEquals(listOf(android.R.id.copy), f.connection.menus)
     }
 
     @Test fun checking_backspace_gesture_availability_never_queries_the_host_editor() {
@@ -445,6 +511,68 @@ class AegisEditingIntegrationTest {
         f.service.onStartInput(f.info, false)
         edit(f, EditAction.UNDO)
         assertEquals("old", f.connection.editable.toString())
+    }
+
+    @Test fun image_cut_waits_for_remote_copy_to_complete_before_reading_the_clipboard() {
+        val f = fixture()
+        val clip = image(f)
+        f.connection.commitText("\uFFFC", 1)
+        f.connection.setSelection(0, 1)
+        f.service.onUpdateSelection(1, 1, 0, 1, -1, -1)
+        clipboard(f).setPrimaryClip(ClipData.newPlainText("old", "old"))
+        f.connection.deferCopy = true
+        f.connection.onMenu = { id -> if (id == android.R.id.copy) clipboard(f).setPrimaryClip(clip) }
+        edit(f, EditAction.CUT)
+        finishImage(f)
+        assertEquals(listOf(android.R.id.copy, android.R.id.cut), f.connection.menus)
+        assertEquals("", f.connection.editable.toString())
+        assertTrue(store(f).latestEntry()!!.isImage)
+    }
+
+    @Test fun native_copy_preserves_rich_clipboard_content_despite_a_false_menu_return() {
+        val f = fixture()
+        f.connection.commitText("opaque picture representation", 1)
+        f.connection.setSelection(0, f.connection.editable!!.length)
+        f.service.onUpdateSelection(0, 0, 0, f.connection.editable!!.length, -1, -1)
+        val clip = image(f)
+        clipboard(f).setPrimaryClip(ClipData.newPlainText("old", "old"))
+        f.connection.acceptMenus = false
+        f.connection.onMenu = { id -> if (id == android.R.id.copy) clipboard(f).setPrimaryClip(clip) }
+        edit(f, EditAction.COPY)
+        finishImage(f)
+        assertTrue(store(f).latestEntry()!!.isImage)
+        assertNotNull(clipboard(f).primaryClip!!.getItemAt(0).uri)
+        assertNull(clipboard(f).primaryClip!!.getItemAt(0).text)
+        assertEquals("opaque picture representation", f.connection.editable.toString())
+    }
+
+    @Test fun native_copy_keeps_the_hosts_html_instead_of_overwriting_it_with_plain_text() {
+        val f = fixture()
+        f.connection.commitText("bold", 1)
+        f.connection.setSelection(0, 4)
+        f.service.onUpdateSelection(4, 4, 0, 4, -1, -1)
+        f.connection.onMenu = { id -> if (id == android.R.id.copy)
+            clipboard(f).setPrimaryClip(ClipData.newHtmlText("host", "bold", "<b>bold</b>")) }
+        edit(f, EditAction.COPY)
+        assertEquals("<b>bold</b>", clipboard(f).primaryClip!!.getItemAt(0).htmlText)
+        assertEquals("bold", store(f).latest())
+    }
+
+    @Test fun image_copy_and_cut_with_history_paused_use_the_hosts_system_clipboard() {
+        for (cut in listOf(false, true)) {
+            val f = fixture()
+            f.service.getSharedPreferences("aegis", Context.MODE_PRIVATE).edit().putBoolean("clip_history", false).commit()
+            f.connection.commitText("\uFFFC", 1)
+            f.connection.setSelection(0, 1)
+            f.service.onUpdateSelection(1, 1, 0, 1, -1, -1)
+            val clip = image(f)
+            clipboard(f).setPrimaryClip(ClipData.newPlainText("old", "old"))
+            f.connection.onMenu = { id -> if (id == android.R.id.copy) clipboard(f).setPrimaryClip(clip) }
+            edit(f, if (cut) EditAction.CUT else EditAction.COPY)
+            assertEquals(clip.getItemAt(0).uri, clipboard(f).primaryClip!!.getItemAt(0).uri)
+            assertNull(store(f).latestEntry())
+            assertEquals(if (cut) "" else "\uFFFC", f.connection.editable.toString())
+        }
     }
 
 }
