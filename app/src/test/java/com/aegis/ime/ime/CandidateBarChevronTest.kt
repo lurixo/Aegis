@@ -395,21 +395,20 @@ class CandidateBarChevronTest {
         assertTrue(grid.selectionContentVisibleForTest())
     }
 
-    @Test fun six_idle_toolbar_controls_have_equal_centered_bounds_and_actions() {
+    @Test fun seven_idle_toolbar_controls_have_contiguous_bounds_and_actions() {
         for (widthDp in listOf(250, 320, 480)) {
             val view = idleBar(widthDp)
             val controls = view.toolbarControlBoundsForTest()
             val capsule = view.toolbarCapsuleBoundsForTest()
             val centers = view.toolbarIconCentersForTest()
-            assertEquals(6, controls.size)
-            assertEquals(6, centers.size)
+            assertEquals(7, controls.size)
+            assertEquals(7, centers.size)
             assertEquals(capsule.left, controls.first().left, 0.01f)
             assertEquals(capsule.right, controls.last().right, 0.01f)
             assertTrue(controls.all { it.top == capsule.top && it.bottom == capsule.bottom })
             controls.zipWithNext().forEach { (left, right) -> assertEquals(left.right, right.left, 0.01f) }
-            assertTrue(controls.all { abs(it.height() - controls.first().height()) <= 0.01f })
             val spacing = centers.toList().zipWithNext { a, b -> b - a }
-            assertTrue("the six icons are evenly spaced", spacing.all { abs(it - spacing.first()) <= 0.01f })
+            assertTrue("the seven icons are evenly spaced", spacing.all { abs(it - spacing.first()) <= 0.01f })
             val gap = spacing.first()
             assertEquals("left end margin equals inter-icon spacing", gap, centers.first() - capsule.left, 0.01f)
             assertEquals("right end margin equals inter-icon spacing", gap, capsule.right - centers.last(), 0.01f)
@@ -423,10 +422,10 @@ class CandidateBarChevronTest {
             view.dispatchTouchEvent(MotionEvent.obtain(0, index * 20L, MotionEvent.ACTION_DOWN, rect.centerX(), rect.centerY(), 0))
             view.dispatchTouchEvent(MotionEvent.obtain(0, index * 20L + 10L, MotionEvent.ACTION_UP, rect.centerX(), rect.centerY(), 0))
         }
-        assertEquals(listOf("BRAND", "EMOJI", "EDIT", "LAYOUT", "CLIPBOARD", "COLLAPSE"), actions)
+        assertEquals(listOf("BRAND", "EMOJI", "LAYOUT", "EDIT", "CLIPBOARD", "PHRASE", "COLLAPSE"), actions)
     }
 
-    @Test fun idle_toolbar_end_targets_fill_the_entire_capsule_end_including_corners() {
+    @Test fun idle_toolbar_end_targets_follow_the_visible_capsule_shape() {
         val view = idleBar(320)
         val capsule = view.toolbarCapsuleBoundsForTest()
         val actions = ArrayList<String>()
@@ -442,32 +441,27 @@ class CandidateBarChevronTest {
         tap(capsule.right - 0.5f * density, capsule.centerY(), 60L)
         tap(capsule.left - density, capsule.centerY(), 80L)
         tap(capsule.right + density, capsule.centerY(), 100L)
-        assertEquals("the rounded corners of each end now register; the outer margin stays dead",
-            listOf("BRAND", "BRAND", "COLLAPSE", "COLLAPSE"), actions)
+        assertEquals(
+            "visible end centers register while transparent and outer pixels stay dead",
+            listOf("BRAND", "COLLAPSE"),
+            actions,
+        )
     }
 
-    @Test fun toolbar_press_highlights_are_equal_and_centered_on_each_icon() {
+    @Test fun toolbar_press_highlights_match_their_complete_hit_cells() {
         val view = idleBar(360)
-        val centers = view.toolbarIconCentersForTest()
         val highlights = view.toolbarPressHighlightBoundsForTest()
         val hits = view.toolbarControlBoundsForTest()
-        assertEquals(6, highlights.size)
+        assertEquals(7, highlights.size)
         for (i in highlights.indices) {
-            assertEquals("highlight $i is centered on its icon", centers[i], highlights[i].centerX(), 0.01f)
-        }
-        assertTrue(
-            "all six highlights share one width",
-            highlights.all { abs(it.width() - highlights.first().width()) <= 0.01f },
-        )
-        for (i in highlights.indices) {
-            assertTrue(
-                "highlight $i stays within its own hit cell so it never bleeds past a neighbour",
-                hits[i].left - 0.01f <= highlights[i].left && highlights[i].right <= hits[i].right + 0.01f,
-            )
+            assertEquals("highlight $i left", hits[i].left, highlights[i].left, 0.01f)
+            assertEquals("highlight $i top", hits[i].top, highlights[i].top, 0.01f)
+            assertEquals("highlight $i right", hits[i].right, highlights[i].right, 0.01f)
+            assertEquals("highlight $i bottom", hits[i].bottom, highlights[i].bottom, 0.01f)
         }
     }
 
-    @Test fun six_toolbar_glyphs_fit_one_common_icon_box() {
+    @Test fun seven_toolbar_glyphs_fit_one_common_icon_box() {
         val view = idleBar(360)
         val s = 9f * density
         val box = 1.64f * s
@@ -477,6 +471,7 @@ class CandidateBarChevronTest {
             BarFunction.EMOJI to (1.64f to 1.64f),
             BarFunction.EDIT to (1.00f to 1.64f),
             BarFunction.CLIPBOARD to (1.16f to 1.58f),
+            BarFunction.PHRASE to (1.56f to 1.00f),
         )
         for ((f, wh) in natural) {
             val scale = view.toolbarIconScaleForTest(f)
@@ -503,11 +498,9 @@ class CandidateBarChevronTest {
     }
 
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
-    @Test fun idle_toolbar_press_highlight_is_centered_on_the_icon_and_clipped() {
+    @Test fun idle_toolbar_press_highlight_fills_the_visible_end_cell_and_is_clipped() {
         val view = idleBar(320)
         val capsule = view.toolbarCapsuleBoundsForTest()
-        val gap = capsule.width() / 7f
-        val brandCx = view.toolbarIconCentersForTest().first()
         val resting = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
         view.draw(Canvas(resting))
         view.dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, capsule.left + density, capsule.centerY(), 0))
@@ -519,15 +512,10 @@ class CandidateBarChevronTest {
             resting.getPixel(edgeX, (capsule.top + density).toInt()),
             pressed.getPixel(edgeX, (capsule.top + density).toInt()),
         )
-        assertEquals(
-            "the extreme capsule edge shows no feedback — the highlight is centered on the icon",
-            resting.getPixel(edgeX, capsule.centerY().toInt()),
-            pressed.getPixel(edgeX, capsule.centerY().toInt()),
-        )
-        val probe = (brandCx - gap * 0.4f).toInt()
         assertTrue(
-            "the icon-centered highlight paints around the brand icon",
-            resting.getPixel(probe, capsule.centerY().toInt()) != pressed.getPixel(probe, capsule.centerY().toInt()),
+            "the visible extreme capsule edge receives feedback",
+            resting.getPixel(edgeX, capsule.centerY().toInt()) !=
+                pressed.getPixel(edgeX, capsule.centerY().toInt()),
         )
         view.dispatchTouchEvent(MotionEvent.obtain(0, 10, MotionEvent.ACTION_CANCEL, capsule.left + density, capsule.centerY(), 0))
     }
