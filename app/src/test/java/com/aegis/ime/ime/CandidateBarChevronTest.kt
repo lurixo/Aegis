@@ -471,7 +471,7 @@ class CandidateBarChevronTest {
             BarFunction.EMOJI to (1.64f to 1.64f),
             BarFunction.EDIT to (1.00f to 1.64f),
             BarFunction.CLIPBOARD to (1.16f to 1.58f),
-            BarFunction.PHRASE to (1.56f to 1.00f),
+            BarFunction.PHRASE to (1.4266667f to 1.64f),
         )
         for ((f, wh) in natural) {
             val scale = view.toolbarIconScaleForTest(f)
@@ -486,6 +486,7 @@ class CandidateBarChevronTest {
         }
         assertEquals("EDIT keeps its size", 1f, view.toolbarIconScaleForTest(BarFunction.EDIT), 0.001f)
         assertEquals("EMOJI keeps its size", 1f, view.toolbarIconScaleForTest(BarFunction.EMOJI), 0.001f)
+        assertEquals("the approved phrase glyph keeps its source scale", 1f, view.toolbarIconScaleForTest(BarFunction.PHRASE), 0.001f)
         assertEquals(
             "the keyboard glyph now fills the common box height",
             box,
@@ -552,6 +553,39 @@ class CandidateBarChevronTest {
             }
         }
         assertTrue(found)
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test fun idle_toolbar_phrase_slot_renders_the_approved_v1_geometry() {
+        val view = idleBar(320)
+        val slot = view.toolbarControlBoundsForTest()[5]
+        val cx = view.toolbarIconCentersForTest()[5]
+        val cy = slot.centerY()
+        val s = 9f * density * view.toolbarIconScaleForTest(BarFunction.PHRASE)
+        val effectiveBounds = RectF(
+            cx - s * 0.8133333f,
+            cy - s * 0.9333333f,
+            cx + s * 0.8133333f,
+            cy + s * 0.9066667f,
+        )
+        assertTrue(slot.contains(effectiveBounds))
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        view.draw(Canvas(bitmap))
+
+        fun hasIconInkNear(x: Float, y: Float): Boolean {
+            val radius = (density * 1.5f).toInt().coerceAtLeast(1)
+            for (py in y.toInt() - radius..y.toInt() + radius) {
+                for (px in x.toInt() - radius..x.toInt() + radius) {
+                    if (bitmap.getPixel(px, py) == ImePalette.STATIC_LIGHT.icon) return true
+                }
+            }
+            return false
+        }
+
+        assertTrue("V1 bubble keeps its right wall", hasIconInkNear(cx + s * 0.7133333f, cy - s * 0.2f))
+        assertTrue("V1 bubble keeps its tail", hasIconInkNear(cx - s * 0.3333333f, cy + s * 0.8066667f))
+        assertTrue("V1 bubble keeps its first text line", hasIconInkNear(cx, cy - s * 0.3944444f))
+        assertTrue("V1 bubble keeps its second text line", hasIconInkNear(cx, cy - s * 0.0444444f))
     }
 
 

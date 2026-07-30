@@ -390,7 +390,7 @@ class CandidateView(context: Context) : View(context) {
             BarFunction.EMOJI -> Glyphs.drawEmoji(c, iconPaint, cx, cy, gs)
             BarFunction.EDIT -> Glyphs.drawEditCaret(c, iconPaint, cx, cy, gs)
             BarFunction.CLIPBOARD -> Glyphs.drawClipboard(c, iconPaint, cx, cy, gs)
-            BarFunction.PHRASE -> ToolbarPhrasePlaceholderGlyph.draw(c, iconPaint, cx, cy, gs)
+            BarFunction.PHRASE -> Glyphs.drawCommonPhrase(c, iconPaint, cx, cy, gs)
         }
     }
 
@@ -400,10 +400,7 @@ class CandidateView(context: Context) : View(context) {
         BarFunction.EMOJI -> fitScale(EMOJI_GLYPH_WIDTH, EMOJI_GLYPH_HEIGHT)
         BarFunction.EDIT -> fitScale(EDIT_GLYPH_WIDTH, EDIT_GLYPH_HEIGHT)
         BarFunction.CLIPBOARD -> fitScale(CLIPBOARD_GLYPH_WIDTH, CLIPBOARD_GLYPH_HEIGHT)
-        BarFunction.PHRASE -> fitScale(
-            ToolbarPhrasePlaceholderGlyph.NATURAL_WIDTH,
-            ToolbarPhrasePlaceholderGlyph.NATURAL_HEIGHT,
-        )
+        BarFunction.PHRASE -> fitScale(PHRASE_GLYPH_WIDTH, PHRASE_GLYPH_HEIGHT)
     }
 
     override fun computeScroll() {
@@ -555,6 +552,8 @@ class CandidateView(context: Context) : View(context) {
         private const val EDIT_GLYPH_HEIGHT = 1.64f
         private const val CLIPBOARD_GLYPH_WIDTH = 1.16f
         private const val CLIPBOARD_GLYPH_HEIGHT = 1.58f
+        private const val PHRASE_GLYPH_WIDTH = 1.4266667f
+        private const val PHRASE_GLYPH_HEIGHT = 1.64f
         private const val CHEVRON_GLYPH_WIDTH = 1.40f
         private const val CHEVRON_GLYPH_HEIGHT = 0.76f
         private val CHEVRON_SCALE = fitScale(CHEVRON_GLYPH_WIDTH, CHEVRON_GLYPH_HEIGHT)
