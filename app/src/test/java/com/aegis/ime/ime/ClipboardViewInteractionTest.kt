@@ -535,6 +535,32 @@ class ClipboardViewInteractionTest {
         assertTrue(v.splitSelectedForTest().isEmpty())
     }
 
+    @Test fun pure_punctuation_projections_match_the_taskbar_and_clipboard_entries() {
+        val taskbarChanges = ArrayList<String>()
+        val taskbar = CopyBarController(
+            commit = {},
+            selectionChanged = { taskbarChanges.add(it) },
+            selectionFinished = {},
+            dismiss = {},
+        )
+        taskbar.show("，。")
+        taskbar.toggleSplit()
+        assertEquals(listOf("，。"), taskbar.blocks)
+        assertTrue(taskbar.tapBlock(0) == true)
+
+        val clipboardChanges = ArrayList<String>()
+        val clipboard = ClipboardView(ctx).apply {
+            onSplitSelectionChanged = { clipboardChanges.add(it) }
+            applyPalette(pal)
+            refresh()
+        }
+        clipboard.showSplitForTest("，。")
+        assertTrue(clickText(overlayOf(clipboard), "，。"))
+
+        assertEquals(listOf("，。"), taskbarChanges)
+        assertEquals(taskbarChanges, clipboardChanges)
+    }
+
     @Test fun every_split_popup_exit_finishes_the_composing_session_once() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup()
         val input = InputView(ctx)
