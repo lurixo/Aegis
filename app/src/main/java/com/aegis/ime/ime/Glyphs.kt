@@ -30,6 +30,27 @@ object Glyphs {
         c.drawLine(cx - w * 0.5f, cy + h * 0.3f, cx + w * 0.5f, cy + h * 0.3f, paint)
     }
 
+    fun drawCommonPhrase(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val bubble = Path().apply {
+            moveTo(cx - s * 0.48f, cy - s * 0.8333333f)
+            lineTo(cx + s * 0.48f, cy - s * 0.8333333f)
+            quadTo(cx + s * 0.7133333f, cy - s * 0.8333333f, cx + s * 0.7133333f, cy - s * 0.6f)
+            lineTo(cx + s * 0.7133333f, cy + s * 0.1888889f)
+            quadTo(cx + s * 0.7133333f, cy + s * 0.4222222f, cx + s * 0.48f, cy + s * 0.4222222f)
+            lineTo(cx + s * 0.0277778f, cy + s * 0.4222222f)
+            lineTo(cx - s * 0.3333333f, cy + s * 0.8066667f)
+            lineTo(cx - s * 0.2488889f, cy + s * 0.4222222f)
+            lineTo(cx - s * 0.48f, cy + s * 0.4222222f)
+            quadTo(cx - s * 0.7133333f, cy + s * 0.4222222f, cx - s * 0.7133333f, cy + s * 0.1888889f)
+            lineTo(cx - s * 0.7133333f, cy - s * 0.6f)
+            quadTo(cx - s * 0.7133333f, cy - s * 0.8333333f, cx - s * 0.48f, cy - s * 0.8333333f)
+            close()
+        }
+        c.drawPath(bubble, paint)
+        c.drawLine(cx - s * 0.4166667f, cy - s * 0.3944444f, cx + s * 0.4166667f, cy - s * 0.3944444f, paint)
+        c.drawLine(cx - s * 0.4166667f, cy - s * 0.0444444f, cx + s * 0.1722222f, cy - s * 0.0444444f, paint)
+    }
+
     fun drawLock(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, closed: Boolean) {
         val bw = s * 0.62f
         val bTop = cy - s * 0.16f
