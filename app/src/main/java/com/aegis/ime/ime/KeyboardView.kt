@@ -603,7 +603,10 @@ class KeyboardView(context: Context) : View(context) {
             if (fw > face && face > 0f) paint.textSize = paint.textSize * face / fw
         }
         val labelDrop = if (p.key.sub != null) 7f * density * scale else 0f
-        if (display.length == 1 && display[0] in INK_CENTERED_GLYPHS) {
+        val naturalQwertyPunctuation =
+            layout.id == LayoutId.ALPHA && lang == Lang.CN && p.key.direct &&
+                display.length == 1 && display[0] in INK_CENTERED_GLYPHS
+        if (display.length == 1 && display[0] in INK_CENTERED_GLYPHS && !naturalQwertyPunctuation) {
             val baseAlign = paint.textAlign
             paint.textAlign = Paint.Align.LEFT
             paint.getTextBounds(display, 0, display.length, inkBounds)
