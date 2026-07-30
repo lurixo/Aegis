@@ -47,7 +47,6 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import com.aegis.ime.ime.ClipboardPanelState.Tab
-import com.aegis.ime.user.ClipSplitter
 
 class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, CoversToolbar {
 
@@ -133,7 +132,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
 
     private var sortMode = false
     private var categorySortMode = false
-    private val splitSelected = mutableSetOf<Int>()
+    private var splitSelection: SplitSelectionModel? = null
     private var splitSessionActive = false
     private var renderedTab: ClipboardPanelState.Tab? = null
     private var tabTransitions = 0
@@ -595,7 +594,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     internal fun enterCategorySortModeForTest() { enterCategorySortMode() }
     internal fun isCategorySortModeForTest(): Boolean = categorySortMode
     internal fun showSplitForTest(text: String) { showSplit(text) }
-    internal fun splitSelectedForTest(): Set<Int> = splitSelected.toSet()
+    internal fun splitSelectedForTest(): Set<Int> = splitSelection?.selectedIndices().orEmpty()
     internal fun settleSwipeForTest(dxPx: Float, text: String) { settleSwipe(dxPx, text) }
     internal fun listRowTextsForTest(): List<String> {
         val out = ArrayList<String>()
@@ -2032,7 +2031,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
 
     private fun showSplit(text: String) {
         finishSplitSelection()
-        splitSelected.clear()
+        val selection = SplitSelectionModel.from(text)
+        splitSelection = selection
         val panel = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(14), dp(16), dp(16))
         }
@@ -2042,7 +2042,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             setPadding(0, 0, 0, dp(10))
         })
         val chips = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
-        val blocks = ClipSplitter.copyBlocks(text)
+        val blocks = selection.blocks
         if (blocks.isEmpty()) chips.addView(TextView(context).apply { this.text = context.getString(R.string.clip_nothing_to_split); setTextColor(HINT) })
         for ((index, b) in blocks.withIndex()) {
             val chip = TextView(context).apply {
@@ -2053,13 +2053,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
                 layoutParams = ll(WC, WC).apply { rightMargin = dp(8) }
             }
             chip.setOnClickListener {
-                val selected = if (index in splitSelected) {
-                    splitSelected.remove(index)
-                    false
-                } else {
-                    splitSelected.add(index)
-                    true
-                }
+                val selected = selection.toggle(index)
                 chip.setTextColor(if (selected) SPLIT_BLOCK_COPIED_TEXT else SPLIT_BLOCK_TEXT)
                 chip.background = rounded(
                     if (selected) SPLIT_BLOCK_COPIED_BG else SPLIT_BLOCK_BG,
@@ -2069,11 +2063,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
                     chip,
                     if (selected) SPLIT_BLOCK_COPIED_TEXT else SPLIT_BLOCK_TEXT,
                 )
-                onSplitSelectionChanged(
-                    blocks.indices
-                        .filter { it in splitSelected }
-                        .joinToString(separator = "") { blocks[it] },
-                )
+                onSplitSelectionChanged(selection.projection())
             }
             Motion.applyTapFeedback(chip, SPLIT_BLOCK_TEXT)
             chips.addView(chip)

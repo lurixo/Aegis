@@ -54,7 +54,8 @@ class InputView(context: Context) : LinearLayout(context) {
     var onExpandClosed: () -> Unit = {}
     var onCollapse: () -> Unit = {}
     var onCopyCommit: (String) -> Unit = {}
-    var onCopyBlock: (String) -> Unit = {}
+    var onCopySelectionChanged: (String) -> Unit = {}
+    var onCopySelectionFinished: () -> Unit = {}
     var onCopyDismiss: () -> Unit = {}
     var onEditConfirm: () -> Unit = {}
     var onEditCancel: () -> Unit = {}
@@ -140,7 +141,8 @@ class InputView(context: Context) : LinearLayout(context) {
         keyboardView.onKey = { key -> onKey(key) }
         keyboardView.onBackspaceSwipe = { up -> onBackspaceSwipe(up) }
         copyBarView.onCommit = { t -> onCopyCommit(t) }
-        copyBarView.onCopyBlock = { b -> onCopyBlock(b) }
+        copyBarView.onSelectionChanged = { text -> onCopySelectionChanged(text) }
+        copyBarView.onSelectionFinished = { onCopySelectionFinished() }
         copyBarView.onDismiss = { hideCopyBar(); onCopyDismiss() }
         editBarView.onConfirm = { onEditConfirm() }
         editBarView.onCancel = { onEditCancel() }
@@ -328,12 +330,19 @@ class InputView(context: Context) : LinearLayout(context) {
     }
 
     fun hideCopyBar() {
+        copyBarView.finishSplitSelection()
+        if (!copyBarActive && copyBarView.visibility != VISIBLE) {
+            onOverlayChanged()
+            return
+        }
         copyBarActive = false
         Motion.coverSwap(candidateView, copyBarView, palette.keyboardBg)
         onOverlayChanged()
     }
 
     val copyBarShown: Boolean get() = copyBarView.visibility == VISIBLE
+    internal fun copyBarForTest(): CopyBarView = copyBarView
+    internal fun finishCopySplitSelection() = copyBarView.finishSplitSelection()
 
     fun isComposing(): Boolean = composingNow
 
@@ -530,6 +539,7 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun isExpandedCandidatePanel(panel: View): Boolean = panel === gridView
 
     internal fun clearEditorTransientUiImmediately() {
+        copyBarView.finishSplitSelection()
         val outgoing = currentPanel
         (outgoing as? ResettablePanel)?.resetToDefault()
         if (outgoing === gridView) onExpandClosed()

@@ -34,7 +34,8 @@ import android.widget.TextView
 class CopyBarView(context: Context) : LinearLayout(context) {
 
     var onCommit: (String) -> Unit = {}
-    var onCopyBlock: (String) -> Unit = {}
+    var onSelectionChanged: (String) -> Unit = {}
+    var onSelectionFinished: () -> Unit = {}
     var onDismiss: () -> Unit = {}
 
     private val density = resources.displayMetrics.density
@@ -44,7 +45,8 @@ class CopyBarView(context: Context) : LinearLayout(context) {
 
     private val ctl = CopyBarController(
         commit = { onCommit(it) },
-        copyToAegis = { onCopyBlock(it) },
+        selectionChanged = { onSelectionChanged(it) },
+        selectionFinished = { onSelectionFinished() },
         dismiss = { onDismiss() },
     )
 
@@ -96,7 +98,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
                 text = context.getString(R.string.copybar_no_splittable_content); setTextColor(palette.keyHint)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label); setPadding(dp(8), 0, dp(8), 0)
             })
-            for (b in ctl.blocks) chips.addView(chip(b) { ctl.tapBlock(b) })
+            for ((index, block) in ctl.blocks.withIndex()) chips.addView(chip(index, block))
             row.addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, lp(0, WC, 1f))
             row.addView(pill(context.getString(R.string.copybar_collapse)) { toggleSplit() }, lp(WC, WC))
         }
@@ -105,6 +107,11 @@ class CopyBarView(context: Context) : LinearLayout(context) {
 
     internal fun toggleSplitForTest() = toggleSplit()
     internal fun splitModeForTest(): Boolean = ctl.splitMode
+    internal fun contentForTest(): String? = ctl.content
+    internal fun splitBlocksForTest(): List<String> = ctl.blocks
+    internal fun splitSelectedForTest(): Set<Int> = ctl.selectedIndices()
+    internal fun tapSplitBlockForTest(index: Int): Boolean? = ctl.tapBlock(index)
+    internal fun finishSplitSelection() = ctl.finishSelection()
     internal fun splitRenderedForTest(): Boolean = scrollerForTest { it is LinearLayout } != null
     internal fun contentScrollerForTest(): HorizontalScrollView? = scrollerForTest { it is TextView }
     private fun scrollerForTest(childIs: (View) -> Boolean): HorizontalScrollView? =
@@ -137,16 +144,27 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         setOnClickListener { ctl.tapContent() }
     }
 
-    private fun chip(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
+    private fun chip(index: Int, label: String): TextView = TextView(context).apply {
         text = label
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
-        setTextColor(palette.chipText)
         setPadding(dp(12), dp(5), dp(12), dp(5))
-        background = GradientDrawable().apply { setColor(palette.chipBg); cornerRadius = ImeShapes.chipRadiusDp * density }
-        Motion.applyTapFeedback(this, palette.chipText)
-        setOnClickListener { onClick() }
+        applyChipState(this, index in ctl.selectedIndices())
+        setOnClickListener {
+            ctl.tapBlock(index)?.let { selected -> applyChipState(this, selected) }
+        }
         layoutParams = LinearLayout.LayoutParams(WC, WC).apply { rightMargin = dp(6) }
+    }
+
+    private fun applyChipState(chip: TextView, selected: Boolean) {
+        val textColor = if (selected) palette.chipText else palette.accentLabel
+        val backgroundColor = if (selected) palette.chipBg else palette.accentBottom
+        chip.setTextColor(textColor)
+        chip.background = GradientDrawable().apply {
+            setColor(backgroundColor)
+            cornerRadius = ImeShapes.chipRadiusDp * density
+        }
+        Motion.applyTapFeedback(chip, textColor)
     }
 
     private fun pill(label: String, onClick: () -> Unit): TextView = TextView(context).apply {

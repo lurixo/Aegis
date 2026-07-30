@@ -165,6 +165,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var frameworkWillFinishInput = false
     private var panelInputTitle = ""
     private var lastCopy: String? = null
+    private var deferredCopyBarFromEdit = false
     @Volatile private var userDbLoaded = false
     @Volatile private var engineSig = ""
     @Volatile private var engineReloading = false
@@ -346,6 +347,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun clearEditorTransientState(resetController: Boolean, abortInline: Boolean = true, preserveLayout: Boolean = false) {
         if (abortInline) abortInlineInput(hideBar = false)
 
+        deferredCopyBarFromEdit = false
         inputView?.clearEditorTransientUiImmediately()
         restorablePanel = null
         clipboardRecreationState = null
@@ -393,6 +395,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         frameworkWillFinishInput = true
         try {
             clipboardView?.finishSplitSelection()
+            inputView?.finishCopySplitSelection()
         } finally {
             frameworkWillFinishInput = false
         }
@@ -454,12 +457,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onExpandClosed = { controller.clearDrill() }
             onCollapse = { requestHideSelf(0) }
             onCopyCommit = { t -> commitLargeText(t) }
-            onCopyBlock = { b ->
+            onCopySelectionChanged = { text ->
                 controller.expireCandidateChoiceUndo()
-                copyBlockToAegis(b)
+                updateSplitSelection(text)
             }
+            onCopySelectionFinished = { finishSplitSelection() }
             onCopyDismiss = {
                 controller.expireCandidateChoiceUndo()
+                deferredCopyBarFromEdit = false
                 lastCopy = null
             }
             onEditConfirm = { confirmInlineInput() }
@@ -468,8 +473,15 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         inputView = view
         view.onPanelChanged = { panel ->
-
-            if (inputView === view) restorablePanel = classifyPanel(view, panel)
+            if (inputView === view) {
+                restorablePanel = classifyPanel(view, panel)
+                if (panel == null && deferredCopyBarFromEdit) {
+                    lastCopy?.let {
+                        deferredCopyBarFromEdit = false
+                        view.showCopyBar(it)
+                    }
+                }
+            }
         }
         panelInput.onChange = { txt ->
             panelTextSnapshot = txt
@@ -599,7 +611,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
 
         val lc = lastCopy
-        if (inputView?.isComposing() == true) {
+        if (deferredCopyBarFromEdit && restorablePanel == RestorablePanel.EDIT) {
+            inputView?.hideCopyBar()
+        } else if (inputView?.isComposing() == true) {
             inputView?.hideCopyBar()
         } else if (com.aegis.ime.user.ClipboardPolicy.shouldRestoreCopyBar(lc, secureField)) {
             inputView?.showCopyBar(lc!!)
@@ -1038,14 +1052,15 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         clipboardStore.record(t)
         refreshOpenClipboardPanel()
         lastCopy = t
-        if (inputView?.isComposing() != true) inputView?.showCopyBar(t)
+        if (inputView?.isPanelShowing(editPanelView) == true) {
+            deferredCopyBarFromEdit = true
+        } else {
+            deferredCopyBarFromEdit = false
+            if (inputView?.isComposing() != true) inputView?.showCopyBar(t)
+        }
     }
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
-
-    private fun copyBlockToAegis(block: String) {
-        copyBlocksToAegis(listOf(block))
-    }
 
     private fun copyBlocksToAegis(blocks: List<String>) {
         if (blocks.isEmpty()) return

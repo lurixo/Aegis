@@ -15,48 +15,77 @@
 
 package com.aegis.ime.ime
 
-import com.aegis.ime.user.ClipSplitter
-
 class CopyBarController(
     private val commit: (String) -> Unit,
-    private val copyToAegis: (String) -> Unit,
+    private val selectionChanged: (String) -> Unit,
+    private val selectionFinished: () -> Unit,
     private val dismiss: () -> Unit,
 ) {
     var content: String? = null
         private set
     var splitMode: Boolean = false
         private set
-    var blocks: List<String> = emptyList()
-        private set
+    private var selection: SplitSelectionModel? = null
+    private var selectionSessionActive = false
+
+    val blocks: List<String> get() = selection?.blocks.orEmpty()
 
     val active: Boolean get() = content != null
 
     fun show(text: String) {
         val t = text.trim()
         if (t.isEmpty()) return
+        finishSelection()
         content = t
         splitMode = false
-        blocks = emptyList()
+        selection = null
     }
 
     fun toggleSplit() {
         val c = content ?: return
-        if (splitMode) { splitMode = false; blocks = emptyList() } else { blocks = ClipSplitter.blocks(c); splitMode = true }
+        if (splitMode) {
+            finishSelection()
+            splitMode = false
+            selection = null
+        } else {
+            selection = SplitSelectionModel.from(c)
+            splitMode = true
+        }
     }
 
     fun tapContent() {
+        finishSelection()
         content?.let { commit(it) }
-        close()
-    }
-
-    fun tapBlock(block: String) {
-        if (block.isNotEmpty()) copyToAegis(block)
-    }
-
-    fun close() {
         clear()
         dismiss()
     }
 
-    private fun clear() { content = null; splitMode = false; blocks = emptyList() }
+    fun tapBlock(index: Int): Boolean? {
+        val current = selection ?: return null
+        if (index !in current.blocks.indices) return null
+        val selected = current.toggle(index)
+        selectionSessionActive = true
+        selectionChanged(current.projection())
+        return selected
+    }
+
+    fun close() {
+        finishSelection()
+        clear()
+        dismiss()
+    }
+
+    fun finishSelection() {
+        if (!selectionSessionActive) return
+        selectionSessionActive = false
+        selectionFinished()
+    }
+
+    fun selectedIndices(): Set<Int> = selection?.selectedIndices().orEmpty()
+
+    private fun clear() {
+        content = null
+        splitMode = false
+        selection = null
+    }
 }
