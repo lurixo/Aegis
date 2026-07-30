@@ -28,6 +28,7 @@ import android.view.inputmethod.EditorInfo
 import android.widget.FrameLayout
 import com.aegis.ime.dict.ModelDownload
 import com.aegis.ime.engine.CandidateEngine
+import com.aegis.ime.ime.BarFunction
 import com.aegis.ime.ime.ClipboardView
 import com.aegis.ime.ime.CustomSymbolPanel
 import com.aegis.ime.ime.DecodeLane
@@ -211,6 +212,13 @@ class AegisInputMethodServiceLifecycleTest {
         }
     }
 
+    private fun showPhrasePanel(service: AegisInputMethodService) {
+        service.javaClass.getDeclaredMethod("showPhrasePanel").apply {
+            isAccessible = true
+            invoke(service)
+        }
+    }
+
     private fun layoutInput(view: InputView) {
         val width = view.resources.displayMetrics.widthPixels
         view.measure(
@@ -226,6 +234,19 @@ class AegisInputMethodServiceLifecycleTest {
             isAccessible = true
             get(service) as ClipboardView
         }
+    }
+
+    @Test fun phrase_toolbar_entry_opens_the_existing_clipboard_panel_on_the_phrase_tab() {
+        val f = fixture()
+        f.controller.onShowPhrases = { showPhrasePanel(f.service) }
+
+        f.controller.onBarFunction(BarFunction.PHRASE)
+
+        val cv = cachedPanel(f.service, "clipboardView") as ClipboardView
+        assertTrue(f.view.isPanelShowing(cv))
+        assertFalse(cv.isClipboardTabForTest())
+        assertEquals("CLIPBOARD", f.service.transientStateForTest().panel)
+        assertEquals("PHRASES", f.service.transientStateForTest().panelDetail)
     }
 
     @Test fun split_selection_composes_into_one_region_and_finishes_when_the_popup_closes() {

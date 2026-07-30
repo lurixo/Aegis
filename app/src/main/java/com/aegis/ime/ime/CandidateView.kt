@@ -31,7 +31,7 @@ import com.aegis.ime.layout.Layouts
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-enum class BarFunction { BRAND, EMOJI, LAYOUT, EDIT, CLIPBOARD }
+enum class BarFunction { BRAND, EMOJI, LAYOUT, EDIT, CLIPBOARD, PHRASE }
 
 class CandidateView(context: Context) : View(context) {
 
@@ -54,7 +54,14 @@ class CandidateView(context: Context) : View(context) {
     private var scrollX = 0f
     private var contentTransitions = 0
 
-    private val functions = listOf(BarFunction.BRAND, BarFunction.EMOJI, BarFunction.EDIT, BarFunction.LAYOUT, BarFunction.CLIPBOARD)
+    private val functions = listOf(
+        BarFunction.BRAND,
+        BarFunction.EMOJI,
+        BarFunction.LAYOUT,
+        BarFunction.EDIT,
+        BarFunction.CLIPBOARD,
+        BarFunction.PHRASE,
+    )
     private val funcRects = ArrayList<RectF>().also { l -> repeat(functions.size) { l.add(RectF()) } }
     private val collapseRect = RectF()
     private val iconCentersX = FloatArray(functions.size + 1)
@@ -184,10 +191,7 @@ class CandidateView(context: Context) : View(context) {
     internal fun taskbarPressRadiusDpForTest(): Float = ImeShapes.toolbarFeedbackRadiusDp
     internal fun keyPressRadiusDpForTest(): Float = ImeShapes.keyRadiusDp
     internal fun toolbarControlBoundsForTest(): List<RectF> = funcRects.map(::RectF) + RectF(collapseRect)
-    internal fun toolbarPressHighlightBoundsForTest(): List<RectF> {
-        val half = toolbarBounds.width() / (functions.size + 2) / 2f
-        return iconCentersX.map { cx -> RectF(cx - half, toolbarBounds.top, cx + half, toolbarBounds.bottom) }
-    }
+    internal fun toolbarPressHighlightBoundsForTest(): List<RectF> = toolbarControlBoundsForTest()
     internal fun toolbarCapsuleBoundsForTest(): RectF = RectF(toolbarBounds)
     internal fun toolbarOuterRadiusForTest(): Float = toolbarOuterRadius()
     private fun expandWidth(): Float =
@@ -316,7 +320,6 @@ class CandidateView(context: Context) : View(context) {
         val areaL = capL
         val areaR = capR
         val gap = (areaR - areaL) / (functions.size + 2)
-        val half = gap / 2f
         val s = 9f * density
         toolbarClipPath.reset()
         toolbarClipPath.addRoundRect(toolbarBounds, rad, rad, Path.Direction.CW)
@@ -326,13 +329,29 @@ class CandidateView(context: Context) : View(context) {
                 iconCentersX[i] = cx
                 val cellL = if (i == 0) areaL else areaL + gap * (i + 0.5f)
                 funcRects[i].set(cellL, capT, areaL + gap * (i + 1.5f), capB)
-                drawPressLayer(canvas, PressKind.FUNCTION, i, cx - half, capT, cx + half, capB)
+                drawPressLayer(
+                    canvas,
+                    PressKind.FUNCTION,
+                    i,
+                    funcRects[i].left,
+                    funcRects[i].top,
+                    funcRects[i].right,
+                    funcRects[i].bottom,
+                )
                 drawIcon(canvas, f, cx, cy, s)
             }
             val chevronCx = areaL + gap * (functions.size + 1)
             iconCentersX[functions.size] = chevronCx
             collapseRect.set(areaL + gap * (functions.size + 0.5f), capT, areaR, capB)
-            drawPressLayer(canvas, PressKind.COLLAPSE, -1, chevronCx - half, capT, chevronCx + half, capB)
+            drawPressLayer(
+                canvas,
+                PressKind.COLLAPSE,
+                -1,
+                collapseRect.left,
+                collapseRect.top,
+                collapseRect.right,
+                collapseRect.bottom,
+            )
             Glyphs.drawChevron(canvas, iconPaint, chevronCx, cy, s * CHEVRON_SCALE, down = true)
         }
     }
@@ -371,6 +390,7 @@ class CandidateView(context: Context) : View(context) {
             BarFunction.EMOJI -> Glyphs.drawEmoji(c, iconPaint, cx, cy, gs)
             BarFunction.EDIT -> Glyphs.drawEditCaret(c, iconPaint, cx, cy, gs)
             BarFunction.CLIPBOARD -> Glyphs.drawClipboard(c, iconPaint, cx, cy, gs)
+            BarFunction.PHRASE -> ToolbarPhrasePlaceholderGlyph.draw(c, iconPaint, cx, cy, gs)
         }
     }
 
@@ -380,6 +400,10 @@ class CandidateView(context: Context) : View(context) {
         BarFunction.EMOJI -> fitScale(EMOJI_GLYPH_WIDTH, EMOJI_GLYPH_HEIGHT)
         BarFunction.EDIT -> fitScale(EDIT_GLYPH_WIDTH, EDIT_GLYPH_HEIGHT)
         BarFunction.CLIPBOARD -> fitScale(CLIPBOARD_GLYPH_WIDTH, CLIPBOARD_GLYPH_HEIGHT)
+        BarFunction.PHRASE -> fitScale(
+            ToolbarPhrasePlaceholderGlyph.NATURAL_WIDTH,
+            ToolbarPhrasePlaceholderGlyph.NATURAL_HEIGHT,
+        )
     }
 
     override fun computeScroll() {
@@ -471,9 +495,8 @@ class CandidateView(context: Context) : View(context) {
     }
 
     private fun toolbarTargetAt(x: Float, y: Float): PressTarget? {
-        if (funcRects[0].contains(x, y)) return PressTarget(PressKind.FUNCTION, 0)
-        if (collapseRect.contains(x, y)) return PressTarget(PressKind.COLLAPSE)
         if (!toolbarContains(x, y)) return null
+        if (collapseRect.contains(x, y)) return PressTarget(PressKind.COLLAPSE)
         val idx = funcRects.indexOfFirst { it.contains(x, y) }
         return if (idx >= 0) PressTarget(PressKind.FUNCTION, idx) else null
     }

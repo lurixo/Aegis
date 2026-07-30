@@ -271,6 +271,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller = KeyboardController(this, DictEngine(null, null, null), decodeLane)
         controller.onShowEmoji = { showEmojiPanel() }
         controller.onShowClipboard = { showClipboardPanel() }
+        controller.onShowPhrases = { showPhrasePanel() }
         controller.onShowEdit = { showEditPanel() }
         controller.onShowLayout = { showLayoutPanel() }
         controller.onShowSymbols = { showSymbolsPanel() }
@@ -857,6 +858,17 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             clipboardStore.reloadPhrases()
             refreshOpenClipboardPanel()
         }
+    }
+
+    private fun showPhrasePanel() {
+        val iv = inputView ?: return
+        val open = clipboardView
+        if (iv.isPanelShowing(open)) {
+            open?.showPhraseTab("")
+            return
+        }
+        showClipboardPanel()
+        clipboardView?.takeIf(iv::isPanelShowing)?.showPhraseTab("")
     }
 
     private fun showCustomSymbolPanel() {
