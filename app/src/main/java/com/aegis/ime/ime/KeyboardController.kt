@@ -130,10 +130,16 @@ class KeyboardController(
     }
 
     fun setEngine(newEngine: CandidateEngine) {
+        val clearDownloadTrigger = !engineSupportsChinese && newEngine.supportsChinese && chineseGateActive()
         engine = newEngine
         engineSupportsChinese = newEngine.supportsChinese
         pushedFuzzyRules?.let { newEngine.setFuzzyRules(it) }
-        refreshCandidates()
+        if (clearDownloadTrigger) {
+            clearComposingState()
+            applyDecodeResult(emptyDecodeResult())
+        } else {
+            refreshCandidates()
+        }
         render()
     }
 
