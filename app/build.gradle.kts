@@ -15,11 +15,14 @@ android {
         targetSdk = 37
         versionName = "0.1.0-beta.28"
         versionCode = 92
-        ndk { abiFilters += "arm64-v8a" }
     }
 
     buildTypes {
+        debug {
+            ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+        }
         release {
+            ndk { abiFilters += "arm64-v8a" }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
