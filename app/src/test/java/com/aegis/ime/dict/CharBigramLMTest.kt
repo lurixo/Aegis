@@ -50,10 +50,10 @@ class CharBigramLMTest {
     }
 
     private val sampleLines = listOf(
-        "你好\tnihao\t100",
+        "你好\tni hao\t100",
         "你\tni\t50",
         "好\thao\t40",
-        "好的\thaode\t30",
+        "好的\thao de\t30",
         "的\tde\t200",
     )
 
@@ -226,7 +226,7 @@ class CharBigramLMTest {
     }
 
     @Test fun builder_clamps_non_positive_source_freq_so_uni_prob_stays_finite() {
-        val lm = CharBigramLM.fromFile(roundTripFile(listOf("世界\tshijie\t0", "你\tni\t5")))
+        val lm = CharBigramLM.fromFile(roundTripFile(listOf("世界\tshi jie\t0", "你\tni\t5")))
         val world = "世".codePointAt(0)
         val cond = lm.logCond(ni, world)
         assertTrue("uni prob for a clamped-freq char must be finite", cond.isFinite())
