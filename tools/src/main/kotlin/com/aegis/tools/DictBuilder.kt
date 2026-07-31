@@ -34,7 +34,7 @@ fun main(rawArgs: Array<String>) {
     val keyType = args.optional("--keytype") ?: "letter"
     val maxPerKey = args.optional("--max-per-key")?.toInt() ?: Int.MAX_VALUE
     val keepSyllableSingles = args.optional("--keep-syllable-singles")?.toInt() ?: 0
-    val t2s = args.optional("--t2s-data")?.let { T2SMerge.load(File(it)) }
+    val t2s = args.optional("--t2s-data")?.let { T2SMerge.load(File(it), collectSourceReadings(inputs)) }
     val syllablesOut = args.optional("--syllables")?.let { File(it) }
     val coverageOut = args.optional("--coverage")?.let { File(it) }
 
@@ -45,6 +45,8 @@ fun main(rawArgs: Array<String>) {
     var totalRows = 0L
     var kept = 0L
     var skippedNonAscii = 0L
+    var skippedMalformed = 0L
+    var skippedNormalization = 0L
     var skippedLowFreq = 0L
 
     val completeness = if (keepSyllableSingles > 0) SyllableCompleteness(keepSyllableSingles) else null
@@ -56,13 +58,18 @@ fun main(rawArgs: Array<String>) {
                     Skip.ROW -> totalRows++
                     Skip.KEPT -> kept++
                     Skip.NON_ASCII -> skippedNonAscii++
+                    Skip.MALFORMED -> skippedMalformed++
+                    Skip.NORMALIZATION -> skippedNormalization++
                     Skip.LOW_FREQ -> skippedLowFreq++
                 }
             } }
         }
         completeness?.emitTopUps(w, keyType)
     }
-    println("parsed rows=$totalRows kept=$kept skippedNonAscii=$skippedNonAscii skippedLowFreq=$skippedLowFreq")
+    println(
+        "parsed rows=$totalRows kept=$kept skippedNonAscii=$skippedNonAscii " +
+            "skippedMalformed=$skippedMalformed skippedNormalization=$skippedNormalization skippedLowFreq=$skippedLowFreq"
+    )
 
     val tmpByWord = File.createTempFile("aegis-dict-byword-", ".tsv").apply { deleteOnExit() }
     val tmpMerged = File.createTempFile("aegis-dict-merged-", ".tsv").apply { deleteOnExit() }
@@ -71,7 +78,12 @@ fun main(rawArgs: Array<String>) {
     println("canonical merge: $mergedCount duplicate (key, word) rows folded")
     tmpMerged.copyTo(tmpRecords, overwrite = true)
     if (t2s != null) {
-        println("t2s: converted words=${t2s.convertedWords} phraseHits=${t2s.phraseHits} charHits=${t2s.charHits} readingOverrides=${t2s.overrideHits} misaligned=${t2s.misaligned}")
+        println(
+            "t2s: converted words=${t2s.convertedWords} phraseHits=${t2s.phraseHits} charHits=${t2s.charHits} " +
+                "readingOverrides=${t2s.overrideHits} rejectedMisaligned=${t2s.rejectedMisaligned} " +
+                "rejectedMissingReading=${t2s.rejectedMissingReading} " +
+                "rejectedIncompatibleReading=${t2s.rejectedIncompatibleReading}"
+        )
     }
     externalSort(tmpRecords, tmpSorted)
     println("sorted -> ${tmpSorted.length()} bytes")
@@ -83,7 +95,9 @@ fun main(rawArgs: Array<String>) {
     coverageOut?.let { writeCoverage(it, syllableCounts) }
 }
 
-private enum class Skip { ROW, KEPT, NON_ASCII, LOW_FREQ }
+private enum class Skip { ROW, KEPT, NON_ASCII, MALFORMED, NORMALIZATION, LOW_FREQ }
+
+internal enum class NormalizedRowReject { NON_ASCII, MALFORMED, NORMALIZATION }
 
 internal data class NormalizedDictRow(
     val word: String,
@@ -96,7 +110,7 @@ internal fun scanNormalizedDict(
     r: BufferedReader,
     t2s: T2SMerge?,
     onRow: (NormalizedDictRow) -> Unit,
-    onNonAscii: () -> Unit,
+    onRejected: (NormalizedRowReject) -> Unit,
 ) {
     var inData = false
     while (true) {
@@ -110,10 +124,21 @@ internal fun scanNormalizedDict(
         if (cols.size < 2) continue
         val rawWord = cols[0]
         val syllables = Pinyin.stripTones(cols[1]).split(' ').filter { it.isNotEmpty() }
-        val word = t2s?.convert(rawWord, syllables) ?: rawWord
         if (syllables.isEmpty() || syllables.any { !Pinyin.isAsciiSyllable(it) }) {
-            onNonAscii()
+            onRejected(NormalizedRowReject.NON_ASCII)
             continue
+        }
+        if (sourceWordIsMalformed(rawWord, syllables.size)) {
+            onRejected(NormalizedRowReject.MALFORMED)
+            continue
+        }
+        val word = if (t2s == null) rawWord else {
+            val converted = t2s.convert(rawWord, syllables)
+            if (converted.word == null) {
+                onRejected(NormalizedRowReject.NORMALIZATION)
+                continue
+            }
+            converted.word
         }
         onRow(
             NormalizedDictRow(
@@ -156,10 +181,48 @@ private fun parseDict(
             w.write("\n")
             tally(Skip.KEPT)
         }
-    }, {
+    }, { rejection ->
         tally(Skip.ROW)
-        tally(Skip.NON_ASCII)
+        tally(
+            when (rejection) {
+                NormalizedRowReject.NON_ASCII -> Skip.NON_ASCII
+                NormalizedRowReject.MALFORMED -> Skip.MALFORMED
+                NormalizedRowReject.NORMALIZATION -> Skip.NORMALIZATION
+            }
+        )
     })
+}
+
+internal fun collectSourceReadings(inputs: List<File>): Map<String, Set<String>> {
+    val readings = HashMap<String, HashSet<String>>()
+    for (file in inputs) {
+        var inData = false
+        file.bufferedReader().useLines { lines ->
+            lines.forEach { line ->
+                if (!inData) {
+                    if (line.trim() == "...") inData = true
+                } else if (line.isNotEmpty() && !line.startsWith('#')) {
+                    val cols = line.split('\t')
+                    if (cols.size >= 2) {
+                        val word = cols[0]
+                        val syllables = Pinyin.stripTones(cols[1]).split(' ').filter { it.isNotEmpty() }
+                        if (syllables.size == 1 && Pinyin.isAsciiSyllable(syllables[0]) &&
+                            !sourceWordIsMalformed(word, 1)
+                        ) {
+                            readings.getOrPut(word) { HashSet() }.add(syllables[0])
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return readings
+}
+
+private fun sourceWordIsMalformed(word: String, syllableCount: Int): Boolean {
+    val codePoints = word.codePoints().toArray()
+    if (codePoints.size != syllableCount) return true
+    return codePoints.any { Character.isWhitespace(it) || Character.isISOControl(it) }
 }
 
 private class SyllableCompleteness(private val target: Int) {

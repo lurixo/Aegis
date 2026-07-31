@@ -28,13 +28,14 @@ object LmBuilder {
         val inputs = args.positionals.map { File(it) }
         require(inputs.isNotEmpty()) { "no input dict files for lm" }
         val minBigram = args.optional("--min-bigram")?.toLong() ?: 1L
-        val t2s = args.optional("--t2s-data")?.let { T2SMerge.load(File(it)) }
+        val t2s = args.optional("--t2s-data")?.let { T2SMerge.load(File(it), collectSourceReadings(inputs)) }
 
         val uni = HashMap<Int, Long>(1 shl 16)
         val bi = HashMap<Long, Long>(1 shl 22)
         val records = File.createTempFile("aegis-lm-", ".tsv").apply { deleteOnExit() }
         val byWord = File.createTempFile("aegis-lm-byword-", ".tsv").apply { deleteOnExit() }
         val canonical = File.createTempFile("aegis-lm-canonical-", ".tsv").apply { deleteOnExit() }
+        val rejected = LongArray(NormalizedRowReject.entries.size)
 
         records.bufferedWriter().use { w ->
             for (file in inputs) {
@@ -51,10 +52,15 @@ object LmBuilder {
                             w.write(row.sourceTag)
                         }
                         w.write("\n")
-                    }, {})
+                    }, { reason -> rejected[reason.ordinal]++ })
                 }
             }
         }
+        println(
+            "lm rejected: nonAscii=${rejected[NormalizedRowReject.NON_ASCII.ordinal]} " +
+                "malformed=${rejected[NormalizedRowReject.MALFORMED.ordinal]} " +
+                "normalization=${rejected[NormalizedRowReject.NORMALIZATION.ordinal]}"
+        )
         externalSortByKeyWord(records, byWord)
         val folded = mergeAdjacentDuplicates(byWord, canonical)
         println("lm: canonical merge folded=$folded")
@@ -72,7 +78,13 @@ object LmBuilder {
             }
         }
         if (t2s != null) {
-            println("lm t2s: converted words=${t2s.convertedWords} phraseHits=${t2s.phraseHits} charHits=${t2s.charHits} readingOverrides=${t2s.overrideHits} misaligned=${t2s.misaligned}")
+            println(
+                "lm t2s: converted words=${t2s.convertedWords} phraseHits=${t2s.phraseHits} " +
+                    "charHits=${t2s.charHits} readingOverrides=${t2s.overrideHits} " +
+                    "rejectedMisaligned=${t2s.rejectedMisaligned} " +
+                    "rejectedMissingReading=${t2s.rejectedMissingReading} " +
+                    "rejectedIncompatibleReading=${t2s.rejectedIncompatibleReading}"
+            )
         }
 
         val charCodes = uni.keys.toIntArray().also { it.sort() }
