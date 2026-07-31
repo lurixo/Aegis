@@ -249,6 +249,37 @@ class CandidateBarChevronTest {
         assertEquals("the bar returns to its former position", barTop, iv.toolbarVisualTopPx())
     }
 
+    @Test fun reopening_the_expanded_grid_resets_the_real_list_and_reading_viewports() {
+        val (root, iv) = activityInput()
+        val mainLooper = Shadows.shadowOf(Looper.getMainLooper())
+        iv.showCandidates(List(120) { "候选$it" }, "shi", List(30) { "reading$it" }, 0)
+        iv.showExpandedCandidates()
+        layoutRoot(root)
+        mainLooper.runToEndOfTasks()
+        layoutRoot(root)
+        val grid = iv.expandedGridForTest()
+
+        grid.scrollForTest(gridY = 180, readingY = 96)
+        layoutRoot(root)
+        assertTrue(
+            "precondition: the real ListView moved away from its initial top",
+            grid.firstVisibleCandidateRowForTest() > 0 || grid.firstVisibleCandidateTopForTest() != 0,
+        )
+        assertTrue("precondition: reading rail moved", grid.readingScrollYForTest() > 0)
+
+        iv.showPanel(null)
+        layoutRoot(root)
+        mainLooper.runToEndOfTasks()
+        iv.showExpandedCandidates()
+        layoutRoot(root)
+        mainLooper.runToEndOfTasks()
+        layoutRoot(root)
+
+        assertEquals("reopened ListView starts at row zero", 0, grid.firstVisibleCandidateRowForTest())
+        assertEquals("reopened first row starts at its exact top", 0, grid.firstVisibleCandidateTopForTest())
+        assertEquals("reopened reading rail starts at its exact top", 0, grid.readingScrollYForTest())
+    }
+
     @Test fun pending_expand_coalesces_rapid_updates_and_repeated_open_requests() {
         val (root, iv) = activityInput()
         val candidates = List(54) { "候选$it" }

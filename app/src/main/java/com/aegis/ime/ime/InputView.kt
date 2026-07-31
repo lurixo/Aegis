@@ -410,6 +410,7 @@ class InputView(context: Context) : LinearLayout(context) {
             gridView.needsPoolGrowth(lastCandidates.size, lastReadings.size)
         val token = if (deferBinding) Any().also { pendingGridBind = it } else null
         if (token != null) gridView.setSelectionContentVisible(false)
+        if (currentPanel !== gridView) gridView.prepareForOpen()
         showPanel(gridView)
         if (token != null) {
             gridView.postOnAnimation {

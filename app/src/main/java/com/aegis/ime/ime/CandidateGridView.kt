@@ -80,6 +80,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private var readingRebuilds = 0
     private var measuringWidthOverride = 0
     private var lastMeasuredWidth = 0
+    private var resetViewportOnLayout = false
 
     private val readingPool = ArrayList<TextView>()
     private val chipWidths = ArrayList<Int>()
@@ -155,8 +156,18 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     }
 
     override fun resetToDefault() {
+        resetViewportToStart()
+    }
+
+    fun prepareForOpen() {
+        resetViewportOnLayout = true
+        resetViewportToStart()
+    }
+
+    private fun resetViewportToStart() {
+        table.fling(0)
         readingScroll.scrollTo(0, 0)
-        table.setSelection(0)
+        table.setSelectionFromTop(0, 0)
         gridScrollOffsetForTest = 0
     }
 
@@ -208,6 +219,15 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             }
         }
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+    }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        if (resetViewportOnLayout) resetViewportToStart()
+        super.onLayout(changed, left, top, right, bottom)
+        if (resetViewportOnLayout) {
+            resetViewportOnLayout = false
+            resetViewportToStart()
+        }
     }
 
     private fun sideSpan(width: Int): Int = (width * Layouts.NINE_SIDE_FRACTION).roundToInt()
@@ -567,6 +587,8 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     internal fun collapseGlyphForTest(): Drawable = collapseGlyph
     internal fun backspaceGlyphForTest(): Drawable = backspaceGlyph
     internal fun gridScrollYForTest(): Int = gridScrollOffsetForTest
+    internal fun firstVisibleCandidateRowForTest(): Int = table.firstVisiblePosition
+    internal fun firstVisibleCandidateTopForTest(): Int? = table.getChildAt(0)?.top
     internal fun readingScrollYForTest(): Int = readingScroll.scrollY
     internal fun gridCanScrollForwardForTest(): Boolean =
         table.canScrollVertically(1) || rowStarts.size * dp(46) > table.height
