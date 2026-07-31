@@ -603,10 +603,21 @@ class KeyboardView(context: Context) : View(context) {
             if (fw > face && face > 0f) paint.textSize = paint.textSize * face / fw
         }
         val labelDrop = if (p.key.sub != null) 7f * density * scale else 0f
-        val naturalQwertyPunctuation =
+        val horizontalInkQwertyPunctuation =
             layout.id == LayoutId.ALPHA && lang == Lang.CN && p.key.direct &&
                 display.length == 1 && display[0] in INK_CENTERED_GLYPHS
-        if (display.length == 1 && display[0] in INK_CENTERED_GLYPHS && !naturalQwertyPunctuation) {
+        if (horizontalInkQwertyPunctuation) {
+            val baseAlign = paint.textAlign
+            paint.textAlign = Paint.Align.LEFT
+            paint.getTextBounds(display, 0, display.length, inkBounds)
+            canvas.drawText(
+                display,
+                cx - inkBounds.exactCenterX(),
+                cy + labelDrop - (paint.descent() + paint.ascent()) / 2,
+                paint,
+            )
+            paint.textAlign = baseAlign
+        } else if (display.length == 1 && display[0] in INK_CENTERED_GLYPHS) {
             val baseAlign = paint.textAlign
             paint.textAlign = Paint.Align.LEFT
             paint.getTextBounds(display, 0, display.length, inkBounds)
@@ -619,7 +630,16 @@ class KeyboardView(context: Context) : View(context) {
         if (p.key.sub != null) {
             val subBaseTextSize = subPaint.textSize
             subPaint.textSize = subBaseTextSize * scale
-            canvas.drawText(p.key.sub, cx, p.rect.top + 15 * density * scale, subPaint)
+            val sub = p.key.sub
+            if (layout.id == LayoutId.ALPHA && lang == Lang.CN && sub.codePointCount(0, sub.length) == 1) {
+                val baseAlign = subPaint.textAlign
+                subPaint.textAlign = Paint.Align.LEFT
+                subPaint.getTextBounds(sub, 0, sub.length, inkBounds)
+                canvas.drawText(sub, cx - inkBounds.exactCenterX(), p.rect.top + 15 * density * scale, subPaint)
+                subPaint.textAlign = baseAlign
+            } else {
+                canvas.drawText(sub, cx, p.rect.top + 15 * density * scale, subPaint)
+            }
             subPaint.textSize = subBaseTextSize
         }
     }
