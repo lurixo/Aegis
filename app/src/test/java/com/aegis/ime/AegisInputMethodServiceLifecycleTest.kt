@@ -39,6 +39,7 @@ import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.ime.LargeCommit
 import com.aegis.ime.ime.LayoutPanelView
+import com.aegis.ime.ime.Motion
 import com.aegis.ime.ime.SymbolsView
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
@@ -393,7 +394,7 @@ class AegisInputMethodServiceLifecycleTest {
         assertTrue(connection.contextMenuActions.isEmpty())
     }
 
-    @Test fun edit_copy_and_cut_defer_the_result_bar_until_the_panel_closes_without_changing_height() {
+    @Test fun edit_copy_and_cut_stage_the_result_bar_before_the_panel_closes_without_changing_height() {
         val cases = listOf(
             Triple(EditAction.COPY, android.R.id.copy, "copied from edit panel"),
             Triple(EditAction.CUT, android.R.id.cut, "cut from edit panel"),
@@ -428,6 +429,9 @@ class AegisInputMethodServiceLifecycleTest {
             assertEquals(listOf(actionId), connection.contextMenuActions)
             assertTrue(f.view.isPanelShowing(editPanel))
             assertFalse(f.view.copyBarShown)
+            assertTrue("the prepared result is already the active bar", f.view.copyBarActiveForTest())
+            assertEquals(copiedText, f.view.copyBarForTest().contentForTest())
+            assertFalse(Motion.coverActiveForTest(f.view.copyBarForTest()))
             assertEquals(rootHeight, f.view.measuredHeight)
             assertEquals(panelHeight, f.view.panelHeightPx())
             assertEquals(copiedText, cachedPanel(f.service, "lastCopy"))
@@ -438,6 +442,12 @@ class AegisInputMethodServiceLifecycleTest {
             } else {
                 assertTrue(f.view.closeTopOverlay())
             }
+
+            assertFalse("the panel closes in the same call", f.view.isPanelShowing(editPanel))
+            assertTrue("the prepared result bar is visible in the same call", f.view.copyBarShown)
+            assertFalse("the candidate bar never becomes the intermediate surface", f.view.toolbarShownForTest())
+            assertEquals(copiedText, f.view.copyBarForTest().contentForTest())
+            assertFalse(Motion.coverActiveForTest(f.view.copyBarForTest()))
             shadowOf(Looper.getMainLooper()).idle()
             layoutInput(f.view)
 
@@ -448,7 +458,7 @@ class AegisInputMethodServiceLifecycleTest {
         }
     }
 
-    @Test fun same_editor_restart_keeps_a_deferred_copy_result_behind_the_edit_panel() {
+    @Test fun same_editor_restart_keeps_the_staged_copy_result_behind_the_edit_panel() {
         val f = fixture()
         val connection = RecordingInputConnection(FrameLayout(f.service))
         installInputConnection(f.service, connection)
@@ -473,6 +483,9 @@ class AegisInputMethodServiceLifecycleTest {
 
         assertTrue(f.view.isPanelShowing(editPanel))
         assertFalse(f.view.copyBarShown)
+        assertTrue(f.view.copyBarActiveForTest())
+        assertEquals("restart copy", f.view.copyBarForTest().contentForTest())
+        assertFalse(Motion.coverActiveForTest(f.view.copyBarForTest()))
         assertFalse(f.view.toolbarShownForTest())
         assertEquals(rootHeight, f.view.measuredHeight)
 
@@ -482,6 +495,42 @@ class AegisInputMethodServiceLifecycleTest {
         assertTrue(f.view.copyBarShown)
         assertEquals("restart copy", f.view.copyBarForTest().contentForTest())
         assertEquals(rootHeight, f.view.measuredHeight)
+    }
+
+    @Test fun repeated_copy_and_cut_keep_only_the_latest_staged_result() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        val systemClipboard = f.service.getSystemService(ClipboardManager::class.java)
+        connection.onContextMenuAction = { id ->
+            val text = when (id) {
+                android.R.id.copy -> "first copy"
+                android.R.id.cut -> "latest cut"
+                else -> null
+            }
+            if (text != null) {
+                systemClipboard.setPrimaryClip(ClipData.newPlainText("edit", text))
+                dispatchSystemClipChanged(f.service)
+            }
+        }
+        val editPanel = showEditPanel(f.service)
+
+        assertTrue(requireNotNull(editPanel.actionViewForTest(EditAction.COPY)).performClick())
+        assertEquals("first copy", f.view.copyBarForTest().contentForTest())
+        assertTrue(requireNotNull(editPanel.actionViewForTest(EditAction.CUT)).performClick())
+
+        assertTrue(f.view.isPanelShowing(editPanel))
+        assertFalse(f.view.copyBarShown)
+        assertTrue(f.view.copyBarActiveForTest())
+        assertEquals("latest cut", f.view.copyBarForTest().contentForTest())
+        assertEquals("latest cut", cachedPanel(f.service, "lastCopy"))
+        assertEquals("latest cut", clipboardStore(f.service).history().firstOrNull())
+
+        handleEdit(f.service, EditAction.BACK)
+
+        assertTrue(f.view.copyBarShown)
+        assertEquals("latest cut", f.view.copyBarForTest().contentForTest())
+        assertFalse(f.view.toolbarShownForTest())
     }
 
     private fun seed(f: Fixture, kind: StateKind): SeededState = when (kind) {

@@ -323,9 +323,21 @@ class InputView(context: Context) : LinearLayout(context) {
     fun setLetterCase(mode: com.aegis.ime.ui.LetterCase) { keyboardView.caseMode = mode }
 
     fun showCopyBar(text: String) {
+        if (currentPanel is CoversToolbar) {
+            stageCopyBar(text)
+            return
+        }
         copyBarActive = true
         copyBarView.show(text)
         Motion.coverSwap(copyBarView, candidateView, palette.keyboardBg)
+        onOverlayChanged()
+    }
+
+    fun stageCopyBar(text: String) {
+        copyBarActive = true
+        copyBarView.show(text)
+        Motion.reset(copyBarView)
+        copyBarView.visibility = GONE
         onOverlayChanged()
     }
 
@@ -341,6 +353,7 @@ class InputView(context: Context) : LinearLayout(context) {
     }
 
     val copyBarShown: Boolean get() = copyBarView.visibility == VISIBLE
+    internal fun copyBarActiveForTest(): Boolean = copyBarActive
     internal fun copyBarForTest(): CopyBarView = copyBarView
     internal fun finishCopySplitSelection() = copyBarView.finishSplitSelection()
 
@@ -474,7 +487,7 @@ class InputView(context: Context) : LinearLayout(context) {
                 Motion.reset(outgoing)
                 panelContainer.removeAllViews()
                 panelContainer.visibility = GONE
-                if (restoredBar) candidateView.visibility = VISIBLE
+                if (restoredBar) restoreCoveredBar()
                 keyboardView.visibility = VISIBLE
                 Motion.reset(keyboardView)
                 Motion.coverWith(keyboardView, snap, offsetY = if (restoredBar) -coveredBarHeightPx() else 0)
@@ -527,6 +540,17 @@ class InputView(context: Context) : LinearLayout(context) {
         return bitmap
     }
 
+    private fun restoreCoveredBar() {
+        if (copyBarActive) {
+            Motion.reset(candidateView)
+            candidateView.visibility = GONE
+            Motion.reset(copyBarView)
+            copyBarView.visibility = VISIBLE
+        } else {
+            candidateView.visibility = VISIBLE
+        }
+    }
+
     private fun attachPanel(panel: View) {
         panelContainer.removeAllViews()
         (panel.parent as? ViewGroup)?.removeView(panel)
@@ -567,12 +591,14 @@ class InputView(context: Context) : LinearLayout(context) {
 
     private enum class BackKind { NONE, PANEL, EDIT_BAR }
 
-    fun hasOverlay(): Boolean = !copyBarActive && (currentPanel != null || editBarActive)
+    fun hasOverlay(): Boolean =
+        if (copyBarActive && copyBarShown) false else currentPanel != null || editBarActive
 
     private fun topOverlay(): Pair<BackKind, View?> = when {
-        copyBarActive -> BackKind.NONE to null
+        copyBarActive && copyBarShown -> BackKind.NONE to null
         editBarActive -> BackKind.EDIT_BAR to editBarView
         currentPanel != null -> BackKind.PANEL to currentPanel
+        copyBarActive -> BackKind.NONE to null
         else -> BackKind.NONE to null
     }
 
