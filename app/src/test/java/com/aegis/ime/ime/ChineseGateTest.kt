@@ -34,6 +34,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import java.util.concurrent.Executor
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -42,7 +43,8 @@ class ChineseGateTest {
     private val ctx = RuntimeEnvironment.getApplication()
 
     private class Host : ImeHost {
-        override fun commitText(text: CharSequence) {}
+        val commits = mutableListOf<String>()
+        override fun commitText(text: CharSequence) { commits.add(text.toString()) }
         override fun deleteBackward() {}
         override fun performEnter() {}
     }
@@ -100,13 +102,69 @@ class ChineseGateTest {
     }
 
     @Test fun hot_reloading_a_chinese_engine_clears_the_gate() {
-        val (c, view) = controller(DictEngine(null, null, null))
+        val host = Host()
+        val view = InputView(ctx)
+        val c = KeyboardController(host, DictEngine(null, null, null)).apply { attachView(view) }
         c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
         type(c, "ni")
         assertTrue(c.chineseGateActiveForTest())
         c.setEngine(chineseCapableEngine())
         assertFalse("installing the pack (setEngine) clears the gate", c.chineseGateActiveForTest())
         assertFalse(view.candidateGateActiveForTest())
+        assertEquals("the download-trigger input is removed", "", c.preeditForTest())
+        assertTrue("download-trigger candidates are removed", c.candidateWords().isEmpty())
+        assertTrue("clearing the gate must not commit raw pinyin", host.commits.isEmpty())
+    }
+
+    @Test fun nine_key_download_trigger_is_cleared_without_committing_digits_or_pinyin() {
+        val host = Host()
+        val view = InputView(ctx)
+        val c = KeyboardController(host, DictEngine(null, null, null)).apply { attachView(view) }
+        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        type(c, "64")
+        assertTrue(c.chineseGateActiveForTest())
+        assertTrue("precondition: 9-key input is visible", c.preeditForTest().isNotEmpty())
+
+        c.setEngine(chineseCapableEngine())
+
+        assertEquals("9-key download-trigger input is removed", "", c.preeditForTest())
+        assertTrue(c.candidateWords().isEmpty())
+        assertFalse(view.candidateGateActiveForTest())
+        assertTrue("clearing the 9-key gate must not commit", host.commits.isEmpty())
+    }
+
+    @Test fun ordinary_chinese_engine_hot_swap_preserves_active_composition() {
+        val host = Host()
+        val c = KeyboardController(host, chineseCapableEngine())
+        c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+        type(c, "ni")
+        val preedit = c.preeditForTest()
+        val candidates = c.candidateWords()
+
+        c.setEngine(chineseCapableEngine())
+
+        assertEquals("an ordinary Chinese-to-Chinese swap keeps the preedit", preedit, c.preeditForTest())
+        assertEquals("an ordinary Chinese-to-Chinese swap re-decodes the same input", candidates, c.candidateWords())
+        assertTrue(host.commits.isEmpty())
+    }
+
+    @Test fun completing_a_download_invalidates_the_inflight_decode_for_the_old_engine() {
+        val workerQueue = ArrayDeque<Runnable>()
+        val mainQueue = ArrayDeque<Runnable>()
+        val lane = DecodeLane(Executor { workerQueue.addLast(it) }, Executor { mainQueue.addLast(it) })
+        val host = Host()
+        val c = KeyboardController(host, DictEngine(null, null, null), lane)
+        c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+        type(c, "ni")
+        assertTrue(c.chineseGateActiveForTest())
+
+        c.setEngine(chineseCapableEngine())
+        while (workerQueue.isNotEmpty()) workerQueue.removeFirst().run()
+        while (mainQueue.isNotEmpty()) mainQueue.removeFirst().run()
+
+        assertEquals("late decode output cannot restore the cleared preedit", "", c.preeditForTest())
+        assertTrue("late decode output cannot restore stale candidates", c.candidateWords().isEmpty())
+        assertTrue(host.commits.isEmpty())
     }
 
     @Test fun tapping_the_gated_strip_invokes_the_download_callback() {
