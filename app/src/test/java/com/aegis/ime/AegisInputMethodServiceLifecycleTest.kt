@@ -214,6 +214,17 @@ class AegisInputMethodServiceLifecycleTest {
         }
     }
 
+    private fun withClipboardHistoryEnabled(block: () -> Unit) {
+        val preferences = userSettings(RuntimeEnvironment.getApplication())
+        val previous = preferences.getBoolean("clip_history", false)
+        check(preferences.edit().putBoolean("clip_history", true).commit())
+        try {
+            block()
+        } finally {
+            check(preferences.edit().putBoolean("clip_history", previous).commit())
+        }
+    }
+
     private fun showPhrasePanel(service: AegisInputMethodService) {
         service.javaClass.getDeclaredMethod("showPhrasePanel").apply {
             isAccessible = true
@@ -395,7 +406,7 @@ class AegisInputMethodServiceLifecycleTest {
         assertTrue(connection.contextMenuActions.isEmpty())
     }
 
-    @Test fun edit_copy_and_cut_stage_the_result_bar_before_the_panel_closes_without_changing_height() {
+    @Test fun edit_copy_and_cut_stage_the_result_bar_before_the_panel_closes_without_changing_height() = withClipboardHistoryEnabled {
         val cases = listOf(
             Triple(EditAction.COPY, android.R.id.copy, "copied from edit panel"),
             Triple(EditAction.CUT, android.R.id.cut, "cut from edit panel"),
@@ -459,7 +470,7 @@ class AegisInputMethodServiceLifecycleTest {
         }
     }
 
-    @Test fun same_editor_restart_keeps_the_staged_copy_result_behind_the_edit_panel() {
+    @Test fun same_editor_restart_keeps_the_staged_copy_result_behind_the_edit_panel() = withClipboardHistoryEnabled {
         val f = fixture()
         val connection = RecordingInputConnection(FrameLayout(f.service))
         installInputConnection(f.service, connection)
@@ -498,7 +509,7 @@ class AegisInputMethodServiceLifecycleTest {
         assertEquals(rootHeight, f.view.measuredHeight)
     }
 
-    @Test fun repeated_copy_and_cut_keep_only_the_latest_staged_result() {
+    @Test fun repeated_copy_and_cut_keep_only_the_latest_staged_result() = withClipboardHistoryEnabled {
         val f = fixture()
         val connection = RecordingInputConnection(FrameLayout(f.service))
         installInputConnection(f.service, connection)
