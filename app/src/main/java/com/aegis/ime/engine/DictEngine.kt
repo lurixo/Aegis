@@ -62,6 +62,12 @@ class DictEngine(
 
     override val supportsChinese: Boolean = decoder != null || t9Decoder != null
 
+    override fun requiredContextCodePoints(): Int = maxOf(
+        decoder?.requiredContextCodePoints() ?: 0,
+        t9Decoder?.requiredContextCodePoints() ?: 0,
+        1,
+    )
+
     override fun candidates(composing: String, t9: Boolean): List<String> =
         candidatesCovered(composing, t9).map { it.word }
 

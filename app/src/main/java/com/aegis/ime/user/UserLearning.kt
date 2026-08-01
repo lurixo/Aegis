@@ -39,6 +39,8 @@ class UserLearning internal constructor(
     private val followsByPrev = HashMap<String, HashMap<String, Usage>>()
     private var maximumFollowVersion = Long.MIN_VALUE
     private var maximumFollow = 0.0
+    private var maximumFollowContextVersion = Long.MIN_VALUE
+    private var maximumFollowContext = 0
     private var maximumFormedVersion = Long.MIN_VALUE
     private var maximumFormed = 0.0
 
@@ -170,6 +172,18 @@ class UserLearning internal constructor(
         maximumFollow = if (maximum >= MIN_ACTIVE) FOLLOW_WEIGHT * ln(1.0 + maximum) else 0.0
         maximumFollowVersion = version
         return maximumFollow
+    }
+
+    @Synchronized
+    internal fun maximumFollowContextCodePoints(): Int {
+        if (maximumFollowContextVersion == version) return maximumFollowContext
+        var maximum = 0
+        for (context in followsByPrev.keys) {
+            maximum = maxOf(maximum, context.codePointCount(0, context.length))
+        }
+        maximumFollowContext = maximum
+        maximumFollowContextVersion = version
+        return maximum
     }
 
     @Synchronized

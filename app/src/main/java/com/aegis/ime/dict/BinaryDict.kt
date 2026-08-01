@@ -32,6 +32,9 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
     private val entryArrOff: Int
     private val shortPrefixTop: Array<List<WordFreq>>
 
+    internal var maximumKeyLength: Int = 0
+        private set
+
     val totalFreq: Long
 
     init {
@@ -357,6 +360,7 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
         val order = IntArray(SHORT_PREFIX_BUCKETS)
         var i = 0
         while (i < numKeys) {
+            maximumKeyLength = maxOf(maximumKeyLength, keyLen(i))
             val first = firstKeyByte(i)
             if (isShortPrefixByte(first)) {
                 val top = heaps[first] ?: PriorityQueue<PrefixHit>(

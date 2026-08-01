@@ -34,7 +34,7 @@ class GraphemeDeleteTest {
         val buf = StringBuilder(text)
         private fun before(n: Int) = buf.substring(maxOf(0, buf.length - n))
         private fun deleteLastCluster() {
-            val n = GraphemeText.lastClusterLength(before(GraphemeText.WINDOW))
+            val n = GraphemeText.lastClusterLength(::before)
             val take = if (n > 0) n else 1
             buf.delete(buf.length - take, buf.length)
         }
@@ -114,6 +114,30 @@ class GraphemeDeleteTest {
         assertEquals(1, GraphemeText.lastClusterLength("好"))
         assertEquals(1, GraphemeText.lastClusterLength("a"))
         assertEquals(0, GraphemeText.lastClusterLength(""))
+    }
+
+    @Test fun clustersBeyondTheInitialWindowDeleteAsOneUnit() {
+        val zwj = buildString {
+            repeat(40) { index ->
+                if (index > 0) append('\u200D')
+                append("👩")
+            }
+        }
+        val combining = "a" + "\u0301".repeat(100)
+        for (cluster in listOf(zwj, combining)) {
+            assertTrue(cluster.length > GraphemeText.WINDOW)
+            assertEquals(cluster.length, GraphemeText.lastClusterLength(cluster))
+            val editor = FakeEditor("x$cluster")
+            editor.mainKeyBackspace()
+            assertEquals("x", editor.buf.toString())
+        }
+    }
+
+    @Test fun regionalIndicatorParityIsResolvedBeyondTheInitialWindow() {
+        val flags = "🇨🇳".repeat(40)
+        val editor = FakeEditor(flags)
+        editor.mainKeyBackspace()
+        assertEquals("🇨🇳".repeat(39), editor.buf.toString())
     }
 
     @Test fun both_delete_routes_in_the_service_use_the_cluster_helper() {

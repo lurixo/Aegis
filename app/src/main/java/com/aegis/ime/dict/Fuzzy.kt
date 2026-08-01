@@ -44,9 +44,7 @@ object Fuzzy {
         if (!masterOn) emptySet()
         else RULES.filter { enabled(it.key) }.mapTo(LinkedHashSet()) { it.key }
 
-    private const val MAX_VARIANTS = 64
-    private const val TOGGLE_BITS = 6
-    private const val MAX_FUZZY_LEN = 40
+    internal const val VARIANT_BATCH_SIZE = 64
 
     fun normalize(s: String): String = collapse(s, FINAL_KEYS)
 
@@ -56,39 +54,149 @@ object Fuzzy {
         return r
     }
 
-    fun variants(s: String, enabled: Set<String>, cap: Int = MAX_VARIANTS): List<String> {
-        val active = RULES.filter { it.key in enabled }
-        if (active.isEmpty() || s.length > MAX_FUZZY_LEN) return listOf(s)
-        val finalRules = active.filter { !it.initial }
-        val initialRules = active.filter { it.initial }
-
-        val finalKeys = finalRules.mapTo(HashSet()) { it.key }
-        var finals: LinkedHashSet<String> = linkedSetOf(collapse(s, finalKeys))
-        for (rule in finalRules) {
-            val next = LinkedHashSet<String>()
-            for (v in finals) {
-                expandSitesInto(v, rule.short, rule.long, cap, next)
-                if (next.size >= cap) break
-            }
-            finals = next
-            if (finals.size >= cap) break
+    fun variants(s: String, enabled: Set<String>, cap: Int = VARIANT_BATCH_SIZE): List<String> {
+        if (cap <= 0) return emptyList()
+        val cursor = variantCursor(s, enabled)
+        val out = ArrayList<String>(cap)
+        while (out.size < cap) {
+            val variant = cursor.next() ?: break
+            out.add(variant)
         }
-
-        val base = LinkedHashSet<String>()
-        base.add(s)
-        for (v in finals) { if (base.size >= cap) break; base.add(v) }
-
-        return if (initialRules.isEmpty()) base.toList()
-        else initialClosure(base, initialRules, cap).toList()
+        return out
     }
 
-    private fun initialClosure(base: Set<String>, rules: List<Rule>, cap: Int): LinkedHashSet<String> {
-        val out = LinkedHashSet(base)
-        if (out.size >= cap) return out
-        val queue = ArrayDeque(base.toList())
+    internal fun variantCursor(
+        s: String,
+        enabled: Set<String>,
+        maximumLength: Int = Int.MAX_VALUE,
+    ): VariantCursor = VariantCursor(s, enabled, maximumLength)
+
+    internal class VariantCursor internal constructor(
+        private val input: String,
+        enabled: Set<String>,
+        private val maximumLength: Int,
+    ) {
+        private data class Token(val short: String, val long: String?)
+
+        private val initialRules = RULES.filter { it.initial && it.key in enabled }
+        private val tokens: List<Token>
+        private val choiceCount: Int
+        private val maximumToggleCount: Int
+        private val emitted = HashSet<String>()
+        private var originalPending = true
+        private var toggleCount = 0
+        private var toggles = IntArray(0)
+        private var combinationsExhausted = false
+        private var currentInitials = emptyList<String>()
+        private var currentInitialIndex = 0
+        private var pending: String? = null
+
+        init {
+            val finalRules = RULES.filter { !it.initial && it.key in enabled }
+            val canonical = collapse(input, finalRules.mapTo(HashSet()) { it.key })
+            val built = ArrayList<Token>()
+            var choices = 0
+            var offset = 0
+            while (offset < canonical.length) {
+                val rule = finalRules.firstOrNull { canonical.startsWith(it.short, offset) }
+                if (rule == null) {
+                    built.add(Token(canonical[offset].toString(), null))
+                    offset++
+                } else {
+                    built.add(Token(rule.short, rule.long))
+                    choices++
+                    offset += rule.short.length
+                }
+            }
+            tokens = built
+            choiceCount = choices
+            val minimumExpansion = built.mapNotNull { token ->
+                token.long?.let { it.length - token.short.length }
+            }.filter { it > 0 }.minOrNull() ?: 0
+            val available = maximumLength.toLong() - canonical.length.toLong()
+            maximumToggleCount = if (minimumExpansion == 0) {
+                choiceCount
+            } else {
+                minOf(choiceCount.toLong(), (available / minimumExpansion).coerceAtLeast(0L)).toInt()
+            }
+            if (canonical.length > maximumLength) combinationsExhausted = true
+            pending = pull()
+        }
+
+        fun peek(): String? = pending
+
+        fun next(): String? {
+            val item = pending
+            pending = pull()
+            return item
+        }
+
+        private fun pull(): String? {
+            while (true) {
+                if (originalPending) {
+                    originalPending = false
+                    if (emitted.add(input)) return input
+                }
+                while (currentInitialIndex < currentInitials.size) {
+                    val candidate = currentInitials[currentInitialIndex++]
+                    if (emitted.add(candidate)) return candidate
+                }
+                val base = nextFinalVariant() ?: return null
+                currentInitials = initialClosure(base, initialRules)
+                currentInitialIndex = 0
+            }
+        }
+
+        private fun nextFinalVariant(): String? {
+            while (!combinationsExhausted) {
+                val selected = BooleanArray(choiceCount)
+                for (index in toggles) selected[index] = true
+                val out = StringBuilder(input.length + toggleCount)
+                var choice = 0
+                for (token in tokens) {
+                    val long = token.long
+                    if (long == null) {
+                        out.append(token.short)
+                    } else {
+                        out.append(if (selected[choice++]) long else token.short)
+                    }
+                }
+                advanceCombination()
+                if (out.length <= maximumLength) return out.toString()
+            }
+            return null
+        }
+
+        private fun advanceCombination() {
+            if (toggleCount == 0) {
+                if (maximumToggleCount == 0) {
+                    combinationsExhausted = true
+                } else {
+                    toggleCount = 1
+                    toggles = intArrayOf(0)
+                }
+                return
+            }
+            var index = toggleCount - 1
+            while (index >= 0 && toggles[index] == choiceCount - toggleCount + index) index--
+            if (index >= 0) {
+                toggles[index]++
+                for (next in index + 1 until toggleCount) toggles[next] = toggles[next - 1] + 1
+            } else if (toggleCount < maximumToggleCount) {
+                toggleCount++
+                toggles = IntArray(toggleCount) { it }
+            } else {
+                combinationsExhausted = true
+            }
+        }
+    }
+
+    private fun initialClosure(base: String, rules: List<Rule>): List<String> {
+        if (rules.isEmpty() || base.isEmpty()) return listOf(base)
+        val out = linkedSetOf(base)
+        val queue = ArrayDeque(listOf(base))
         while (queue.isNotEmpty()) {
             val cur = queue.removeFirst()
-            if (cur.isEmpty()) continue
             val c0 = cur[0]
             for (rule in rules) {
                 val swapped = when (c0) {
@@ -97,31 +205,10 @@ object Fuzzy {
                     else -> null
                 }
                 if (swapped != null && out.add(swapped)) {
-                    if (out.size >= cap) return out
                     queue.addLast(swapped)
                 }
             }
         }
-        return out
-    }
-
-    private fun expandSitesInto(s: String, short: String, long: String, cap: Int, out: MutableSet<String>) {
-        val pos = ArrayList<Int>(TOGGLE_BITS)
-        var i = s.indexOf(short)
-        while (i >= 0 && pos.size < TOGGLE_BITS) { pos.add(i); i = s.indexOf(short, i + short.length) }
-        if (pos.isEmpty()) { out.add(s); return }
-        val n = pos.size
-        for (mask in 0 until (1 shl n)) {
-            val sb = StringBuilder(s.length + n)
-            var prev = 0
-            for (k in 0 until n) {
-                sb.append(s, prev, pos[k])
-                sb.append(if ((mask shr k) and 1 == 1) long else short)
-                prev = pos[k] + short.length
-            }
-            sb.append(s, prev, s.length)
-            out.add(sb.toString())
-            if (out.size >= cap) return
-        }
+        return out.toList()
     }
 }

@@ -16,6 +16,7 @@
 package com.aegis.ime.decoder
 
 import com.aegis.ime.dict.BinaryDict
+import com.aegis.ime.dict.Fuzzy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -76,6 +77,32 @@ class PinyinDecoderTest {
         assertTrue("the fixture crosses the former 20-edge sentence budget", first.size > 20)
         assertTrue(words.containsAll(first.map { it + tail }))
         assertTrue("the complete result set spans continuation pages", pageSizes.size > 3)
+    }
+
+    @Test
+    fun fuzzyVariantBeyondTheInitialBatchRemainsReachable() {
+        val input = "z".repeat(7)
+        val variants = Fuzzy.variantCursor(input, setOf("zh"))
+        var lateVariant = ""
+        repeat(Fuzzy.VARIANT_BATCH_SIZE + 2) { lateVariant = requireNotNull(variants.next()) }
+        val target = EngineFixture.supplementary(900)
+        val decoder = PinyinDecoder(EngineFixture.build(listOf(EngineFixture.Row(lateVariant, target, 1_000))))
+        decoder.setFuzzyRules(setOf("zh"))
+
+        assertTrue(lateVariant !in Fuzzy.variants(input, setOf("zh")))
+        assertTrue(pagedCandidates(decoder, input).any { it.word == target })
+    }
+
+    @Test
+    fun hugeFuzzySpaceYieldsAtBatchBoundaries() {
+        val decoder = PinyinDecoder(EngineFixture.build(listOf(EngineFixture.Row("a".repeat(22), "甲", 1_000))))
+        decoder.setFuzzyRules(setOf("zh"))
+        val source = decoder.coveredCandidateSource("z".repeat(20))
+
+        val first = source.next(1)
+        val second = source.next(1)
+        assertTrue(first.items.isEmpty() && second.items.isEmpty())
+        assertTrue(first.hasMore && second.hasMore)
     }
 
     @Test

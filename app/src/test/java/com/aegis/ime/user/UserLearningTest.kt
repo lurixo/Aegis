@@ -193,6 +193,7 @@ class UserLearningTest {
         store.observeCommit("甲乙丙丁戊己庚辛", "继续", "", now)
         assertEquals(listOf("允许"), store.follows("甲乙丙丁").map { it.first })
         assertEquals(listOf("继续"), store.follows("甲乙丙丁戊己庚辛").map { it.first })
+        assertEquals(8, store.maximumFollowContextCodePoints())
     }
 
     @Test

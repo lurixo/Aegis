@@ -27,6 +27,8 @@ import com.aegis.ime.decoder.firstCandidatePage
 interface CandidateEngine {
     val supportsChinese: Boolean get() = false
 
+    fun requiredContextCodePoints(): Int = 16
+
     fun candidates(composing: String, t9: Boolean): List<String>
 
     fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =

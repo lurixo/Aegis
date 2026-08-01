@@ -392,7 +392,7 @@ class KeyboardController(
         val cand = candidates[index]
         when (candidateRoles.getOrElse(index) { CandidateRole.NORMAL }) {
             CandidateRole.CALCULATOR -> {
-                val live = if (learningBlocked) null else Calculator.detect(host.textBeforeCursor(CALC_SCAN_LEN))
+                val live = if (learningBlocked) null else Calculator.detect(readCalculatorInput())
                 if (live != null && live.expr == calcExpr && live.result == calcResult && !host.hasSelection()) {
                     host.commitText(live.append)
                 }
@@ -873,6 +873,40 @@ class KeyboardController(
     private fun emptyDecodeResult(inputEpoch: Long = queryInputEpoch): DecodeResult =
         DecodeResult(CandidatePage(emptyList(), null, inputEpoch), "", "")
 
+    private fun expandingTextBeforeCursor(initialLength: Int, needsEarlier: (String) -> Boolean): String {
+        var requested = initialLength
+        var snapshot = host.textBeforeCursor(requested).toString()
+        while (snapshot.length >= requested && needsEarlier(snapshot)) {
+            val expandedLength = if (requested > Int.MAX_VALUE / 2) Int.MAX_VALUE else requested * 2
+            if (expandedLength == requested) break
+            val expanded = host.textBeforeCursor(expandedLength).toString()
+            if (expanded.length <= snapshot.length) break
+            requested = expandedLength
+            snapshot = expanded
+        }
+        return snapshot
+    }
+
+    private fun readCalculatorInput(): String =
+        expandingTextBeforeCursor(CALC_INITIAL_SCAN_LEN, Calculator::needsEarlierText)
+
+    private fun readCandidateContext(): String {
+        val required = engine.requiredContextCodePoints().coerceAtLeast(1)
+        return expandingTextBeforeCursor(CONTEXT_INITIAL_SCAN_LEN) { text ->
+            var offset = text.length
+            var count = 0
+            while (offset > 0 && count < required) {
+                val cp = text.codePointBefore(offset)
+                if (!Character.isIdeographic(cp)) {
+                    return@expandingTextBeforeCursor offset == 1 && Character.isLowSurrogate(text[0])
+                }
+                offset -= Character.charCount(cp)
+                count++
+            }
+            count < required
+        }
+    }
+
     private fun buildDecodeRequest(inputEpoch: Long): DecodeRequest {
         val locked = mode() == Mode.PINYIN && composing.isNotEmpty() && lockedReadings.isNotEmpty()
         val full = if (locked) fullLetters() else ""
@@ -907,8 +941,8 @@ class KeyboardController(
             learningBlocked = learningBlocked,
             calcDismissed = calcDismissed,
             lastWord = lastWord,
-            context = host.textBeforeCursor(CTX_SCAN_LEN),
-            calculatorInput = host.textBeforeCursor(CALC_SCAN_LEN),
+            context = readCandidateContext(),
+            calculatorInput = readCalculatorInput(),
         )
     }
 
@@ -1420,8 +1454,8 @@ class KeyboardController(
 
     private companion object {
         const val NINE_LEFT_MAX = 24
-        const val CALC_SCAN_LEN = 32
-        const val CTX_SCAN_LEN = 16
+        const val CALC_INITIAL_SCAN_LEN = 32
+        const val CONTEXT_INITIAL_SCAN_LEN = 16
     }
 }
 

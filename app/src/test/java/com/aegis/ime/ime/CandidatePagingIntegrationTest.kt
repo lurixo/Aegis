@@ -195,6 +195,19 @@ class CandidatePagingIntegrationTest {
     }
 
     @Test
+    fun emptyInitialBatchCanRequestTheNextLazyBatchFromTheExpandControl() {
+        val view = InputView(RuntimeEnvironment.getApplication())
+        var requests = 0
+        view.onRequestMoreCandidates = { requests++ }
+        view.showCandidates(emptyList(), "zzzz", emptyList())
+
+        view.showExpandedCandidates()
+
+        assertEquals(1, requests)
+        assertFalse(view.panelShown)
+    }
+
+    @Test
     fun appendingCandidatePagesPreservesTheExpandedListViewport() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
         val root = FrameLayout(activity)

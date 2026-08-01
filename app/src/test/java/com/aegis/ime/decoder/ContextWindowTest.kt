@@ -16,7 +16,9 @@
 package com.aegis.ime.decoder
 
 import com.aegis.ime.dict.OctagramFixture
+import com.aegis.ime.user.UserLearning
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ContextWindowTest {
@@ -51,10 +53,10 @@ class ContextWindowTest {
         assertEquals(null, reader.rawScore("中华人民"))
     }
 
-    @Test fun contextTailKeepsFourTrailingHanCodePoints() {
+    @Test fun contextTailKeepsOnlyWhatTheActiveModelsNeed() {
         val decoder = PinyinDecoder(fixtureDict())
-        assertEquals("二三四五", decoder.parseContext("一二三四五").tail)
-        assertEquals("去超市", decoder.parseContext("abc去超市").tail)
+        assertEquals("五", decoder.parseContext("一二三四五").tail)
+        assertEquals("市", decoder.parseContext("abc去超市").tail)
         assertEquals(PinyinDecoder.BOS, decoder.parseContext("你好。").cp)
         assertEquals("", decoder.parseContext("你好。").tail)
     }
@@ -67,8 +69,30 @@ class ContextWindowTest {
         val d = EngineFixture.supplementary(3)
         val e = EngineFixture.supplementary(4)
         val ctx = decoder.parseContext("好$a$b$c$d$e")
-        assertEquals("$b$c$d$e", ctx.tail)
+        assertEquals(e, ctx.tail)
         assertEquals(e.codePointAt(0), ctx.cp)
+    }
+
+    @Test fun octagramContextExtendsBeyondTheFormerFourCharacterTail() {
+        val grammar = OctagramFixture.reader(mapOf("一二三四五六买" to 30.0))
+        val decoder = PinyinDecoder(fixtureDict(), octagram = grammar)
+        assertEquals(7, decoder.requiredContextCodePoints())
+        assertEquals("零一二三四五六", decoder.parseContext("前零一二三四五六").tail)
+        assertEquals("买", decoder.decodeCovered("mai", 30, context = "一二三四五六").first().word)
+        assertEquals("买", decoder.decodeCoveredAtomic("mai", 30, context = "一二三四五六").first().word)
+    }
+
+    @Test fun learnedContextUsesTheActualLongestCollocationKey() {
+        val context = "甲乙丙丁戊己庚辛壬癸"
+        val learning = UserLearning { 1_000L }
+        repeat(2) { learning.observeCommit(context, "买", "", 1_000L) }
+        val decoder = PinyinDecoder(fixtureDict(), userLearning = learning)
+
+        assertEquals(10, decoder.requiredContextCodePoints())
+        assertEquals(context, decoder.parseContext("前$context").tail)
+        assertTrue(learning.followBoost(context, "买") > 0.0)
+        assertEquals("买", decoder.decodeCovered("mai", 30, context = context).first().word)
+        assertEquals("买", decoder.decodeCoveredAtomic("mai", 30, context = context).first().word)
     }
 
     @Test fun everyNonemptyContextSuffixCanReachTheGrammar() {

@@ -43,6 +43,18 @@ object Calculator {
         return Match(expr, result, append, s.length - start)
     }
 
+    fun needsEarlierText(textBeforeCursor: CharSequence): Boolean {
+        val s = textBeforeCursor
+        if (s.isEmpty()) return false
+        var end = s.length
+        while (end > 0 && s[end - 1] == ' ') end--
+        if (end > 0 && s[end - 1] == '=') end--
+        if (end == 0) return false
+        var start = end
+        while (start > 0 && isExprChar(s[start - 1])) start--
+        return start == 0
+    }
+
     private fun isExprChar(c: Char): Boolean =
         c.isDigit() || c == '.' || c == '(' || c == ')' || c == ' ' || c == '%' || c in OPS
 

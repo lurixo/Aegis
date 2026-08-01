@@ -187,7 +187,10 @@ class PinyinDecoder(
     }
 
     private fun edgesForLegacy(sub: String): List<Edge> {
-        val edgeLimit = if (lm != null || fuzzyRules.isNotEmpty() || initialsDict != null || octagram != null) {
+        val edgeLimit = if (
+            lm != null || fuzzyRules.isNotEmpty() || initialsDict != null || octagram != null ||
+            userModel != null || userLearning != null
+        ) {
             LEGACY_SENTENCE_EDGE_LIMIT
         } else {
             1
@@ -292,6 +295,12 @@ class PinyinDecoder(
         }
     }
 
+    internal fun requiredContextCodePoints(): Int = maxOf(
+        1,
+        if (octagram == null) 0 else OCTAGRAM_PRECEDING_CODE_POINTS,
+        userLearning?.maximumFollowContextCodePoints() ?: 0,
+    )
+
     internal fun parseContext(context: CharSequence): Ctx {
         val tail = rollingHanTail("", context.toString())
         return if (tail.isEmpty()) Ctx.EMPTY else Ctx(tail.codePointBefore(tail.length), tail)
@@ -301,7 +310,8 @@ class PinyinDecoder(
         val combined = tail + word
         var start = combined.length
         var chars = 0
-        while (start > 0 && chars < CTX_WORD_MAX) {
+        val limit = requiredContextCodePoints()
+        while (start > 0 && chars < limit) {
             val cp = combined.codePointBefore(start)
             if (!isHan(cp)) break
             start -= Character.charCount(cp)
@@ -464,7 +474,7 @@ class PinyinDecoder(
     )
 
     private inner class IncrementalPoolCursor(
-        input: String,
+        private val input: String,
         private val ctx: Ctx,
         blockedWords: Set<String>,
     ) {
@@ -476,6 +486,11 @@ class PinyinDecoder(
         private val ranked = PriorityQueue<RankedPoolItem>(::compareRankedPoolItems)
         private val sources = ArrayList<RawPoolSource>()
         private val delayedRare = ArrayDeque<RankedPoolItem>()
+        private val fuzzyVariants = if (fuzzyRules.isEmpty()) {
+            null
+        } else {
+            Fuzzy.variantCursor(input, fuzzyRules, dict.maximumKeyLength)
+        }
         private val maximumAdjustment =
                 (userModel?.maximumWordBoost() ?: 0.0) +
                 (userLearning?.maximumFormedBoost() ?: 0.0) +
@@ -486,28 +501,27 @@ class PinyinDecoder(
         private var lastCommon: RankedPoolItem? = null
         private var afterLastCommon = false
         private var delayedDrained = false
+        private var sourceOrder = 0
+        private var fuzzyExhausted = fuzzyVariants == null
+        private var fuzzyBatchAvailable = false
 
         init {
-            var sourceOrder = 0
             sources.add(RawPoolSource(dict.exactCursor(input), 0.0, sourceOrder++))
             for (alias in inputAliases(input)) {
                 sources.add(RawPoolSource(aliasSource.exactCursor(alias), ALIAS_PENALTY, sourceOrder++))
             }
             sources.add(RawPoolSource(dict.prefixByFreqCursor(input), 0.0, sourceOrder++))
-            if (fuzzyRules.isNotEmpty()) {
-                for (variant in Fuzzy.variants(input, fuzzyRules)) {
-                    if (variant != input) {
-                        sources.add(RawPoolSource(dict.prefixByFreqCursor(variant), FUZZY_PENALTY, sourceOrder++))
-                    }
-                }
-            }
             initialsDict?.let {
-                sources.add(RawPoolSource(it.prefixByFreqCursor(input), INITIALS_PENALTY, sourceOrder))
+                sources.add(RawPoolSource(it.prefixByFreqCursor(input), INITIALS_PENALTY, sourceOrder++))
             }
             for (word in userWordsFor(input)) {
                 val frequency = userWordFreq(word, input).toInt().coerceAtLeast(1)
                 offer(BinaryDict.WordFreq(word, frequency), 0.0)
             }
+        }
+
+        fun beginPage() {
+            fuzzyBatchAvailable = true
         }
 
         fun next(): RankedPoolItem? {
@@ -533,7 +547,24 @@ class PinyinDecoder(
 
         fun hasMore(): Boolean {
             cleanupRanked()
-            return delayedRare.isNotEmpty() || active.isNotEmpty() || sources.any { it.cursor.peek() != null }
+            return delayedRare.isNotEmpty() || active.isNotEmpty() ||
+                sources.any { it.cursor.peek() != null } || !fuzzyExhausted
+        }
+
+        private fun activateFuzzyBatch(): Boolean {
+            val variants = fuzzyVariants ?: return false
+            var activated = 0
+            while (activated < Fuzzy.VARIANT_BATCH_SIZE) {
+                val variant = variants.next()
+                if (variant == null) {
+                    fuzzyExhausted = true
+                    break
+                }
+                if (variant == input) continue
+                sources.add(RawPoolSource(dict.prefixByFreqCursor(variant), FUZZY_PENALTY, sourceOrder++))
+                activated++
+            }
+            return activated > 0
         }
 
         private fun prepareCommonBoundary() {
@@ -570,6 +601,10 @@ class PinyinDecoder(
                 if (source != null) {
                     pull(source)
                     continue
+                }
+                if (!fuzzyExhausted && fuzzyBatchAvailable) {
+                    fuzzyBatchAvailable = false
+                    if (activateFuzzyBatch()) continue
                 }
                 if (best != null) {
                     ranked.remove()
@@ -651,18 +686,23 @@ class PinyinDecoder(
 
             override fun next(pageSize: Int): CandidateSlice<Cand> {
                 if (headResultBudget < 0) headResultBudget = completionCap(pageSize)
+                pool.beginPage()
                 val items = ArrayList<Cand>(pageSize)
+                var poolPaused = false
                 while (items.size < pageSize && !exhausted) {
                     when {
                         bestPending -> {
                             bestPending = false
                             items.add(Cand(requireNotNull(best), input.length))
                         }
-                        leading == null && headResultCount < headResultBudget && pool.hasMore() -> {
+                        leading == null && headResultCount < headResultBudget && pool.hasMore() && !poolPaused -> {
                             val item = pool.next()
                             if (item != null && seen.add(item.wordFreq.word)) {
                                 items.add(Cand(item.wordFreq.word, input.length))
                                 headResultCount++
+                            } else if (item == null) {
+                                headResultCount = headResultBudget
+                                poolPaused = true
                             }
                         }
                         leading == null -> {
@@ -671,10 +711,12 @@ class PinyinDecoder(
                         leadingOffset < leading.orEmpty().size -> {
                             items.add(leading.orEmpty()[leadingOffset++])
                         }
-                        pool.hasMore() -> {
+                        pool.hasMore() && !poolPaused -> {
                             val item = pool.next()
                             if (item != null && seen.add(item.wordFreq.word)) {
                                 items.add(Cand(item.wordFreq.word, input.length))
+                            } else if (item == null) {
+                                poolPaused = true
                             }
                         }
                         !sentenceExhausted -> {
@@ -685,6 +727,7 @@ class PinyinDecoder(
                                 items.add(Cand(sentence.text, input.length))
                             }
                         }
+                        pool.hasMore() -> break
                         else -> {
                             exhausted = true
                         }
@@ -1696,7 +1739,7 @@ class PinyinDecoder(
         const val LEGACY_ATOMIC_BASE_RESULTS = 8
         const val LEGACY_ATOMIC_RESULTS_PER_SYLLABLE = 40
         const val LEGACY_SENTENCE_RERANK_RESULTS = 128
-        const val CTX_WORD_MAX = 4
+        const val OCTAGRAM_PRECEDING_CODE_POINTS = 7
         const val MAX_SYLLABLE_KEY_LEN = 6
         const val ORDERING_RARE_FREQ = 100.0
         const val ORDERING_COMMON_FREQ = 1000.0

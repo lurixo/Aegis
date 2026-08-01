@@ -32,12 +32,16 @@ class AssociationsAndCalcTest {
         var selectionActive = false
         var deletedSelection = false
         val learned = mutableListOf<String>()
+        val requestedBefore = mutableListOf<Int>()
         override fun hasSelection(): Boolean = selectionActive
         override fun commitText(text: CharSequence) { sb.insert(cursor, text); cursor += text.length }
         override fun deleteBackward() { if (cursor > 0) { sb.deleteCharAt(cursor - 1); cursor-- } }
         override fun deleteSelection() { deletedSelection = true; selectionActive = false }
         override fun performEnter() {}
-        override fun textBeforeCursor(n: Int): CharSequence = sb.substring(maxOf(0, cursor - n), cursor)
+        override fun textBeforeCursor(n: Int): CharSequence {
+            requestedBefore.add(n)
+            return sb.substring(maxOf(0, cursor - n), cursor)
+        }
         override fun replaceBeforeCursor(length: Int, text: CharSequence) {
             val from = maxOf(0, cursor - length)
             sb.delete(from, cursor); cursor = from
@@ -146,6 +150,43 @@ class AssociationsAndCalcTest {
         val c = KeyboardController(h, emptyEngine)
         "12+34*2".forEach { c.onKey(digit(it.toString())) }
         assertEquals("the calculator offers =80", listOf("=80"), c.candidateWords())
+    }
+
+    @Test fun calculatorExpandsToTheCompleteExpressionBoundary() {
+        val h = EditorHost()
+        val c = KeyboardController(h, emptyEngine)
+        val expression = List(40) { "1" }.joinToString("+")
+        expression.forEach { c.onKey(digit(it.toString())) }
+
+        assertEquals(listOf("=40"), c.candidateWords())
+        assertTrue(h.requestedBefore.any { it > 32 })
+        c.onPickCandidate(0)
+        assertEquals("$expression=40", h.text)
+    }
+
+    @Test fun candidateContextExpandsToTheEngineSemanticWindow() {
+        val h = EditorHost()
+        val context = "甲".repeat(48)
+        h.preset(context)
+        var observed = ""
+        val engine = object : CandidateEngine {
+            override fun requiredContextCodePoints(): Int = 40
+            override fun candidates(composing: String, t9: Boolean): List<String> = listOf("好")
+            override fun candidatesCovered(
+                composing: String,
+                t9: Boolean,
+                cuts: Set<Int>,
+                context: CharSequence,
+            ): List<Cand> {
+                observed = context.toString()
+                return listOf(Cand("好", composing.length))
+            }
+        }
+        val c = KeyboardController(h, engine)
+        c.onKey(out("a"))
+
+        assertEquals(context, observed)
+        assertTrue(h.requestedBefore.containsAll(listOf(16, 32, 64)))
     }
 
     @Test fun u25_picking_the_result_appends_it_after_the_expression() {

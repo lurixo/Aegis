@@ -1214,8 +1214,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun deleteLastEditorCluster() {
         val ic = currentInputConnection ?: return
-        val before = ic.getTextBeforeCursor(GraphemeText.WINDOW, 0) ?: ""
-        val n = GraphemeText.lastClusterLength(before)
+        val n = GraphemeText.lastClusterLength { requested ->
+            ic.getTextBeforeCursor(requested, 0) ?: ""
+        }
         ic.deleteSurroundingText(if (n > 0) n else 1, 0)
     }
 

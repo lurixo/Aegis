@@ -421,7 +421,10 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun candidateGateActiveForTest(): Boolean = candidateView.gateActiveForTest()
 
     internal fun showExpandedCandidates() {
-        if (lastCandidates.isEmpty()) return
+        if (lastCandidates.isEmpty()) {
+            if (composingNow) onRequestMoreCandidates()
+            return
+        }
         if (pendingGridBind != null && currentPanel === gridView) return
         val deferBinding = isAttachedToWindow &&
             gridView.needsPoolGrowth(lastCandidates.size, lastReadings.size)

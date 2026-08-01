@@ -73,14 +73,26 @@ class FuzzyVariantsTest {
     }
 
     @Test
-    fun longFuzzyRunIsBoundedAndNeverOverflows() {
-        for (len in intArrayOf(20, 31, 35, 200)) {
-            val s = "z".repeat(len)
-            val out = Fuzzy.variants(s, setOf("zh"))
-            assertTrue("bounded at len=$len (got ${out.size})", out.size <= 64)
-            assertTrue("keeps original at len=$len", out.contains(s))
-        }
-        assertTrue(Fuzzy.variants("an".repeat(15), setOf("ang")).size <= 64)
+    fun longFuzzyRunContinuesPastEveryFormerBound() {
+        val input = "z".repeat(41)
+        val cursor = Fuzzy.variantCursor(input, setOf("zh"))
+        val out = ArrayList<String>()
+        repeat(130) { cursor.next()?.let(out::add) }
+        assertEquals(130, out.size)
+        assertEquals(input, out.first())
+        assertTrue("a site beyond the former six-toggle window must change", out.any { it.takeLast(8).contains("zh") })
+        assertTrue("the original input length must not disable fuzzy matching", out.any { it.length > input.length })
+        assertTrue("generation must remain resumable after the first 64", cursor.peek() != null)
+    }
+
+    @Test
+    fun everyRepeatedSiteIsEventuallyReachable() {
+        val cursor = Fuzzy.variantCursor("z".repeat(8), setOf("zh"))
+        val out = LinkedHashSet<String>()
+        while (true) out.add(cursor.next() ?: break)
+        assertEquals(256, out.size)
+        assertTrue(out.contains("zh".repeat(8)))
+        assertEquals(null, cursor.peek())
     }
 
     @Test
