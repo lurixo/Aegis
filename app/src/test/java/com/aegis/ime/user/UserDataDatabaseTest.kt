@@ -15,6 +15,7 @@
 
 package com.aegis.ime.user
 
+import android.database.sqlite.SQLiteDatabase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -33,6 +34,19 @@ import java.nio.file.Files
 class UserDataDatabaseTest {
 
     private fun root() = Files.createTempDirectory("aegis-user-data").toFile().also { it.deleteOnExit() }
+
+    private fun rewriteSchema(file: File, statements: List<String>) {
+        SQLiteDatabase.openDatabase(file.absolutePath, null, SQLiteDatabase.OPEN_READWRITE).use { database ->
+            for (statement in statements) database.execSQL(statement)
+        }
+        File(file.parentFile, file.name + "-wal").delete()
+        File(file.parentFile, file.name + "-shm").delete()
+    }
+
+    private fun rewriteSnapshotDigest(root: File, databaseName: String, digestName: String) {
+        val file = File(root, databaseName)
+        File(root, digestName).writeText(UserDataDatabase.fileIdentity(file).substringAfter(':') + "\n")
+    }
 
     @Test
     fun everyConcurrentConnectionStartsInWalMode() {
@@ -139,6 +153,45 @@ class UserDataDatabaseTest {
     }
 
     @Test
+    fun integrityOkDatabaseWithMissingTableRestoresTheVerifiedLastGoodSnapshot() {
+        val root = root()
+        UserDataDatabase.open(root).use { database ->
+            assertTrue(UserModel(database = database).addManualWord("beijing", "北京", 10))
+            database.checkpointLastGood()
+        }
+        rewriteSchema(
+            root.resolve(UserDataDatabase.DATABASE_NAME),
+            listOf("DROP TABLE clipboard_history"),
+        )
+
+        UserDataDatabase.open(root).use { recovered ->
+            assertEquals(UserDataRecoveryKind.LAST_GOOD, recovered.recoveryReport.kind)
+            assertEquals(listOf("北京"), UserModel(database = recovered).readingSnapshot()["beijing"])
+        }
+    }
+
+    @Test
+    fun integrityOkDatabaseWithWrongColumnAndConstraintsRestoresLastGood() {
+        val root = root()
+        UserDataDatabase.open(root).use { database ->
+            assertTrue(UserModel(database = database).addManualWord("beijing", "北京", 10))
+            database.checkpointLastGood()
+        }
+        rewriteSchema(
+            root.resolve(UserDataDatabase.DATABASE_NAME),
+            listOf(
+                "DROP TABLE user_words",
+                "CREATE TABLE user_words (word TEXT PRIMARY KEY, count TEXT NOT NULL, last_used INTEGER NOT NULL)",
+            ),
+        )
+
+        UserDataDatabase.open(root).use { recovered ->
+            assertEquals(UserDataRecoveryKind.LAST_GOOD, recovered.recoveryReport.kind)
+            assertEquals(listOf("北京"), UserModel(database = recovered).readingSnapshot()["beijing"])
+        }
+    }
+
+    @Test
     fun corruptionWithoutSnapshotCreatesAndReportsAValidEmptyDatabase() {
         val root = root()
         root.resolve(UserDataDatabase.DATABASE_NAME).writeText("corrupt")
@@ -193,6 +246,59 @@ class UserDataDatabaseTest {
             assertEquals(listOf("第一"), readings["first"])
             assertFalse(readings.containsKey("second"))
             assertTrue(recovered.recoveryReport.detail.contains("previous"))
+        }
+    }
+
+    @Test
+    fun schemaInvalidLatestSnapshotFallsBackToTheVerifiedPreviousGeneration() {
+        val root = root()
+        UserDataDatabase.open(root).use { database ->
+            val model = UserModel(database = database)
+            assertTrue(model.addManualWord("first", "第一", 1))
+            database.checkpointLastGood()
+            assertTrue(model.addManualWord("second", "第二", 2))
+            database.checkpointLastGood()
+        }
+        rewriteSchema(File(root, UserDataDatabase.LAST_GOOD_NAME), listOf("DROP TABLE recent_items"))
+        rewriteSnapshotDigest(
+            root,
+            UserDataDatabase.LAST_GOOD_NAME,
+            "user-data-v2.last-good.sha256",
+        )
+        File(root, UserDataDatabase.DATABASE_NAME).writeText("corrupt")
+
+        UserDataDatabase.open(root).use { recovered ->
+            assertEquals(UserDataRecoveryKind.LAST_GOOD, recovered.recoveryReport.kind)
+            assertTrue(recovered.recoveryReport.detail.contains("previous"))
+            assertEquals(listOf("第一"), UserModel(database = recovered).readingSnapshot()["first"])
+            assertFalse(UserModel(database = recovered).readingSnapshot().containsKey("second"))
+        }
+    }
+
+    @Test
+    fun schemaInvalidMainAndBothSnapshotsCreateAndReportAValidEmptyDatabase() {
+        val root = root()
+        UserDataDatabase.open(root).use { database ->
+            val model = UserModel(database = database)
+            assertTrue(model.addManualWord("first", "第一", 1))
+            database.checkpointLastGood()
+            assertTrue(model.addManualWord("second", "第二", 2))
+            database.checkpointLastGood()
+        }
+        rewriteSchema(File(root, UserDataDatabase.LAST_GOOD_NAME), listOf("DROP TABLE recent_items"))
+        rewriteSnapshotDigest(root, UserDataDatabase.LAST_GOOD_NAME, "user-data-v2.last-good.sha256")
+        rewriteSchema(File(root, "user-data-v2.last-good.previous.db"), listOf("DROP TABLE custom_items"))
+        rewriteSnapshotDigest(
+            root,
+            "user-data-v2.last-good.previous.db",
+            "user-data-v2.last-good.previous.sha256",
+        )
+        rewriteSchema(File(root, UserDataDatabase.DATABASE_NAME), listOf("DROP TABLE clipboard_history"))
+
+        UserDataDatabase.open(root).use { recovered ->
+            assertEquals(UserDataRecoveryKind.EMPTY, recovered.recoveryReport.kind)
+            assertTrue(recovered.isEmpty())
+            assertTrue(recovered.integrityOk())
         }
     }
 

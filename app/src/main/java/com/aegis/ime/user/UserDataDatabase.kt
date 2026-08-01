@@ -17,7 +17,6 @@ package com.aegis.ime.user
 
 import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
-import android.database.sqlite.SQLiteException
 import java.io.Closeable
 import java.io.File
 import java.io.FileInputStream
@@ -29,6 +28,7 @@ import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
+import java.util.Locale
 
 internal data class StoredWord(val count: Int, val lastUsed: Long)
 
@@ -1476,18 +1476,19 @@ internal class UserDataDatabase private constructor(
 
     @Synchronized
     fun checkpointLastGood() = synchronized(checkpointLock) {
+        val tmp = File(root, "$LAST_GOOD_NAME.tmp")
+        val previousTmp = File(root, "$LAST_GOOD_PREVIOUS_NAME.tmp")
         try {
             val busy = database.rawQuery("PRAGMA wal_checkpoint(FULL)", null).use { cursor ->
                 if (!cursor.moveToFirst()) throw IOException("checkpoint returned no status")
                 cursor.getInt(0)
             }
             if (busy != 0) throw IOException("checkpoint remained busy")
-            val tmp = File(root, "$LAST_GOOD_NAME.tmp")
             copyFile(databaseFile, tmp)
-            if (!isValidDatabase(tmp)) throw IOException("last-good validation failed")
+            val validationFailure = restoreSourceValidationFailure(tmp, false)
+            if (validationFailure != null) throw IOException("last-good validation failed: $validationFailure")
             if (verifiedSnapshot(lastGoodFile, File(root, LAST_GOOD_DIGEST_NAME))) {
                 val previous = File(root, LAST_GOOD_PREVIOUS_NAME)
-                val previousTmp = File(root, "$LAST_GOOD_PREVIOUS_NAME.tmp")
                 copyFile(lastGoodFile, previousTmp)
                 atomicReplace(previousTmp, previous)
                 writeTextAtomically(File(root, LAST_GOOD_PREVIOUS_DIGEST_NAME), sha256(previous) + "\n")
@@ -1498,6 +1499,11 @@ internal class UserDataDatabase private constructor(
         } catch (e: Exception) {
             lastFailure = e.javaClass.simpleName + ": " + e.message.orEmpty()
             throw e
+        } finally {
+            tmp.delete()
+            previousTmp.delete()
+            deleteCompanions(tmp)
+            deleteCompanions(previousTmp)
         }
     }
 
@@ -2521,11 +2527,11 @@ internal class UserDataDatabase private constructor(
             val main = File(root, DATABASE_NAME)
             val lastGood = File(root, LAST_GOOD_NAME)
             var report = UserDataRecoveryReport(UserDataRecoveryKind.EXISTING, "database integrity verified")
-            if (main.isFile && !isValidDatabase(main)) {
+            if (main.isFile && !isValidDatabase(main, allowLegacy = true)) {
                 val previous = File(root, LAST_GOOD_PREVIOUS_NAME)
                 val restored = when {
-                    verifiedSnapshot(lastGood, File(root, LAST_GOOD_DIGEST_NAME)) -> lastGood
-                    verifiedSnapshot(previous, File(root, LAST_GOOD_PREVIOUS_DIGEST_NAME)) -> previous
+                    verifiedSnapshot(lastGood, File(root, LAST_GOOD_DIGEST_NAME), allowLegacy = true) -> lastGood
+                    verifiedSnapshot(previous, File(root, LAST_GOOD_PREVIOUS_DIGEST_NAME), allowLegacy = true) -> previous
                     else -> null
                 }
                 if (restored != null) {
@@ -2594,6 +2600,12 @@ internal class UserDataDatabase private constructor(
                     val foreignKeyViolation = db.rawQuery("PRAGMA foreign_key_check", null).use { cursor ->
                         cursor.moveToFirst()
                     }
+                    val expectedSchema = when (version) {
+                        SCHEMA_VERSION -> currentSchemaSignature
+                        LEGACY_SCHEMA_VERSION -> legacySchemaSignature
+                        else -> emptyList()
+                    }
+                    val actualSchema = schemaSignature(db)
                     when {
                         version == SCHEMA_VERSION && tables != EXPECTED_TABLES ->
                             "table set $tables does not match $EXPECTED_TABLES"
@@ -2601,6 +2613,7 @@ internal class UserDataDatabase private constructor(
                             "legacy table set $tables does not match $LEGACY_EXPECTED_TABLES"
                         version != SCHEMA_VERSION && !(allowLegacy && version == LEGACY_SCHEMA_VERSION) ->
                             "schema version $version is unsupported"
+                        actualSchema != expectedSchema -> "schema definition does not match version $version"
                         !integrity -> "integrity check failed"
                         foreignKeyViolation -> "foreign key check failed"
                         else -> null
@@ -2647,21 +2660,49 @@ internal class UserDataDatabase private constructor(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
                 null,
             ).use { cursor -> while (cursor.moveToNext()) tables.add(cursor.getString(0)) }
-            return tables == EXPECTED_TABLES
+            return tables == EXPECTED_TABLES && schemaSignature(db) == currentSchemaSignature
         }
 
-        private fun isValidDatabase(file: File): Boolean {
-            if (!file.isFile || file.length() == 0L) return false
-            return try {
-                SQLiteDatabase.openDatabase(file.absolutePath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
-                    db.rawQuery("PRAGMA integrity_check", null).use { cursor ->
-                        cursor.moveToFirst() && cursor.getString(0) == "ok"
-                    }
-                }
-            } catch (_: SQLiteException) {
-                false
-            }
+        private val currentSchemaSignature: List<String> by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+            referenceSchemaSignature(legacy = false)
         }
+
+        private val legacySchemaSignature: List<String> by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+            referenceSchemaSignature(legacy = true)
+        }
+
+        private fun referenceSchemaSignature(legacy: Boolean): List<String> = SQLiteDatabase.create(null).use { db ->
+            createSchema(db)
+            if (legacy) {
+                db.execSQL("DROP TABLE user_setting_set_values")
+                db.execSQL("DROP TABLE user_settings")
+                db.execSQL("PRAGMA user_version=$LEGACY_SCHEMA_VERSION")
+            }
+            schemaSignature(db)
+        }
+
+        private fun schemaSignature(db: SQLiteDatabase): List<String> {
+            val out = ArrayList<String>()
+            db.rawQuery(
+                "SELECT type,name,tbl_name,sql FROM sqlite_master " +
+                    "WHERE type IN ('table','index') AND name NOT LIKE 'sqlite_%' " +
+                    "AND name!='android_metadata' ORDER BY type,name",
+                null,
+            ).use { cursor ->
+                while (cursor.moveToNext()) {
+                    val sql = if (cursor.isNull(3)) "" else cursor.getString(3)
+                        .lowercase(Locale.ROOT)
+                        .replace(Regex("\\bif\\s+not\\s+exists\\b"), "")
+                        .replace(Regex("\\s+"), " ")
+                        .trim()
+                    out.add("${cursor.getString(0)}|${cursor.getString(1)}|${cursor.getString(2)}|$sql")
+                }
+            }
+            return out
+        }
+
+        private fun isValidDatabase(file: File, allowLegacy: Boolean = false): Boolean =
+            restoreSourceValidationFailure(file, allowLegacy) == null
 
         private fun copyFile(source: File, destination: File) {
             FileInputStream(source).use { input ->
@@ -2681,8 +2722,8 @@ internal class UserDataDatabase private constructor(
             atomicReplace(temporary, destination)
         }
 
-        private fun verifiedSnapshot(lastGood: File, digestFile: File): Boolean {
-            if (!lastGood.isFile || !isValidDatabase(lastGood)) return false
+        private fun verifiedSnapshot(lastGood: File, digestFile: File, allowLegacy: Boolean = false): Boolean {
+            if (!lastGood.isFile || !isValidDatabase(lastGood, allowLegacy)) return false
             val expected = runCatching { digestFile.readText().trim() }.getOrNull() ?: return false
             return expected.matches(Regex("[0-9a-f]{64}")) && expected == sha256(lastGood)
         }
