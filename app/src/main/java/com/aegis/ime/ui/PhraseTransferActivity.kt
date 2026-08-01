@@ -24,14 +24,14 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import com.aegis.ime.R
-import com.aegis.ime.user.ClipboardStore
-import com.aegis.ime.user.UserDataMigration
 
 class PhraseTransferActivity : ComponentActivity() {
 
     private val exportLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) {
-            val ok = PhraseTransferIo.exportPhrases(filesDir) { contentResolver.openOutputStream(uri) }
+            val ok = PhraseTransferIo.exportPhrases(filesDir, aegisPreferences()) {
+                contentResolver.openOutputStream(uri)
+            }
             toast(if (ok) R.string.phrase_transfer_toast_export_ok else R.string.phrase_transfer_toast_export_failed)
         }
         finish()
@@ -39,12 +39,21 @@ class PhraseTransferActivity : ComponentActivity() {
 
     private val importLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) { finish(); return@registerForActivityResult }
-        val text = runCatching { contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() } }.getOrNull()
-        if (text == null) {
+        val ok = runCatching {
+            contentResolver.openInputStream(uri)?.use { input ->
+                PhraseTransferIo.importPhrases(
+                    filesDir,
+                    aegisPreferences(),
+                    input,
+                    merge = intent.getBooleanExtra(EXTRA_IMPORT_MERGE, true),
+                )
+            }
+        }.getOrNull()
+        if (ok == null) {
             toast(R.string.phrase_transfer_toast_import_read_failed)
             finish()
         } else {
-            applyImport(text, merge = intent.getBooleanExtra(EXTRA_IMPORT_MERGE, true))
+            showImportResult(ok, merge = intent.getBooleanExtra(EXTRA_IMPORT_MERGE, true))
         }
     }
 
@@ -60,12 +69,7 @@ class PhraseTransferActivity : ComponentActivity() {
         suppressBridgeTransitions()
     }
 
-    private fun applyImport(text: String, merge: Boolean) {
-        val ok = runCatching {
-            UserDataMigration.open(filesDir, getSharedPreferences("aegis", MODE_PRIVATE)).use { database ->
-                ClipboardStore(filesDir, database).also { it.load() }.importPhrasesText(text, merge)
-            }
-        }.getOrDefault(false)
+    private fun showImportResult(ok: Boolean, merge: Boolean) {
         toast(
             if (ok) {
                 if (merge) R.string.phrase_transfer_toast_import_merged
@@ -76,6 +80,8 @@ class PhraseTransferActivity : ComponentActivity() {
         )
         finish()
     }
+
+    private fun aegisPreferences() = getSharedPreferences("aegis", MODE_PRIVATE)
 
     private fun toast(resId: Int) = Toast.makeText(this, resId, Toast.LENGTH_SHORT).show()
 

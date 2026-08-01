@@ -16,7 +16,6 @@
 package com.aegis.ime.user
 
 import java.io.File
-import java.io.IOException
 
 class LiveUserDictHost internal constructor(
     private val model: UserModel,
@@ -47,14 +46,14 @@ class LiveUserDictHost internal constructor(
         try {
             if (merge) {
                 if (!model.importFrom(importFile, now)) return false
+            } else if (database != null) {
+                model.reload(importFile)
             } else {
                 val incoming = UserModel().apply { load(importFile) }
                 if (incoming.isEmpty()) return false
-                model.reload(importFile)
+                model.replaceFromStorage(incoming.storageSnapshot())
             }
-        } catch (_: IllegalArgumentException) {
-            return false
-        } catch (_: IOException) {
+        } catch (_: Exception) {
             return false
         }
         save()

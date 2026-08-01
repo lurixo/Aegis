@@ -17,15 +17,18 @@ package com.aegis.ime.backup
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.database.sqlite.SQLiteDatabase
 import com.aegis.ime.user.ClipboardDataSnapshot
 import com.aegis.ime.user.ClipboardStore
 import com.aegis.ime.user.CustomSymbolStore
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.StoredPhraseCategory
 import com.aegis.ime.user.StoredRecentItem
+import com.aegis.ime.user.StoredSettingValue
 import com.aegis.ime.user.SymbolUsageStore
 import com.aegis.ime.user.UserDataDatabase
 import com.aegis.ime.user.UserDataMigration
+import com.aegis.ime.user.UserDataRestoreStage
 import com.aegis.ime.user.UserDataSnapshot
 import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserLearning
@@ -49,9 +52,9 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
-import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.GZIPInputStream
+import java.util.zip.GZIPOutputStream
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -83,6 +86,7 @@ class BackupRoundTripTest {
         val customOperators: List<String>,
         val recentSymbols: List<StoredRecentItem>,
         val recentEmoji: List<StoredRecentItem>,
+        val settings: Map<String, StoredSettingValue>,
     )
 
     @Before
@@ -112,6 +116,7 @@ class BackupRoundTripTest {
                     "backup_export",
                     "backup_verify",
                     "decoded-records",
+                    "decoded-database",
                     "userdb.txt",
                     "userlearn.txt",
                     "phrases.txt",
@@ -134,6 +139,10 @@ class BackupRoundTripTest {
             .putString("cn_layout", "alpha")
             .putBoolean("fuzzy", false)
             .putInt("some_int", 7)
+            .putLong("some_long", 9_876_543_210L)
+            .putFloat("some_float", -0.0f)
+            .putStringSet("some_set", linkedSetOf("乙", "甲", ""))
+            .putBoolean("clip_history", false)
             .apply {
                 for (key in downloadKeys) putString(key, "device-only-$key")
             }
@@ -186,6 +195,7 @@ class BackupRoundTripTest {
             customOperators = database.readCustomItems("custom_operators"),
             recentSymbols = database.readRecentItems("symbols"),
             recentEmoji = database.readRecentItems("emoji"),
+            settings = database.readSettings(),
         )
     }
 
@@ -212,7 +222,7 @@ class BackupRoundTripTest {
     }
 
     @Test
-    fun overwriteRoundTripRestoresEveryDatabaseStoreAndRemainingPreference() {
+    fun overwriteRoundTripRestoresEveryDatabaseStoreAndSettingWhileKeepingDeviceStateLocal() {
         seedTypicalData()
         val expected = snapshot()
         val backup = exportVerified()
@@ -222,9 +232,15 @@ class BackupRoundTripTest {
         restore(backup, BackupManager.Mode.OVERWRITE)
 
         assertEquals(expected, snapshot())
-        assertEquals("alpha", prefs.getString("cn_layout", null))
-        assertFalse(prefs.getBoolean("fuzzy", true))
-        assertEquals(7, prefs.getInt("some_int", -1))
+        withDatabase { database ->
+            assertEquals(StoredSettingValue.StringValue("alpha"), database.readSetting("cn_layout"))
+            assertEquals(StoredSettingValue.Bool(false), database.readSetting("fuzzy"))
+            assertEquals(StoredSettingValue.Integer(7), database.readSetting("some_int"))
+            assertEquals(StoredSettingValue.LongValue(9_876_543_210L), database.readSetting("some_long"))
+            assertEquals(StoredSettingValue.FloatValue(-0.0f), database.readSetting("some_float"))
+            assertEquals(StoredSettingValue.StringSetValue(setOf("乙", "甲", "")), database.readSetting("some_set"))
+            assertEquals(StoredSettingValue.Bool(false), database.readSetting("clip_history"))
+        }
         assertEquals("local-download-state", prefs.getString("dict_sha256", null))
         assertFalse(prefs.contains("custom_symbols"))
         assertFalse(prefs.contains("custom_operators"))
@@ -264,8 +280,10 @@ class BackupRoundTripTest {
             assertEquals("本", database.readRecentItems("symbols", limit = 1).single().value)
             assertTrue(database.readRecentItems("symbols").map { it.value }.containsAll(listOf("！", "？")))
         }
-        assertEquals("local", prefs.getString("cn_layout", null))
-        assertEquals(7, prefs.getInt("some_int", -1))
+        withDatabase { database ->
+            assertEquals(StoredSettingValue.StringValue("local"), database.readSetting("cn_layout"))
+            assertEquals(StoredSettingValue.Integer(7), database.readSetting("some_int"))
+        }
     }
 
     @Test
@@ -273,7 +291,7 @@ class BackupRoundTripTest {
         seedTypicalData()
         val backup = exportVerified()
         withDatabase { database -> assertTrue(ClipboardStore(filesDir, database).apply { load() }.record("target marker")) }
-        prefs.edit().putString("target_pref", "keep").commit()
+        withDatabase { database -> database.updateSettings(mapOf("target_pref" to StoredSettingValue.StringValue("keep"))) }
         val expected = snapshot()
 
         expectError(BackupError.WRONG_PASSWORD_OR_CORRUPT) {
@@ -288,7 +306,9 @@ class BackupRoundTripTest {
         }
 
         assertEquals(expected, snapshot())
-        assertEquals("keep", prefs.getString("target_pref", null))
+        withDatabase { database ->
+            assertEquals(StoredSettingValue.StringValue("keep"), database.readSetting("target_pref"))
+        }
         assertFalse(File(filesDir, "backup_staging").exists())
         assertFalse(LiveUserData.restoreInProgress)
     }
@@ -307,13 +327,12 @@ class BackupRoundTripTest {
     }
 
     @Test
-    fun dataAndSingleRecordsBeyondOldEightMiBBoundariesRoundTripExactly() {
+    fun databaseRecordsBeyondOldEightMiBBoundariesRoundTripExactly() {
         val history = List(9_000) { index ->
             "clip-$index-" + String(CharArray(1_024) { offset ->
                 ('a'.code + (index * 131 + offset * 17).mod(26)).toChar()
             })
         }
-        val largePreference = "p".repeat(8 * 1024 * 1024 + 1)
         withDatabase { database ->
             val clipboard = ClipboardStore(filesDir, database).apply { load() }
             assertTrue(clipboard.importHistory(history, merge = false))
@@ -324,8 +343,6 @@ class BackupRoundTripTest {
             database.checkpointLastGood()
         }
         assertTrue(File(filesDir, UserDataDatabase.DATABASE_NAME).length() > 8L * 1024L * 1024L)
-        assertTrue(prefs.edit().putString("large_preference", largePreference).commit())
-        val preferenceHash = sha256(largePreference)
 
         val backup = exportVerified()
         clearCanonicalData()
@@ -342,9 +359,6 @@ class BackupRoundTripTest {
             assertEquals(450, database.readCustomItems("custom_symbols").size)
             assertEquals(100, database.readRecentItems("symbols").size)
         }
-        val restoredPreference = prefs.getString("large_preference", null).orEmpty()
-        assertEquals(largePreference.length, restoredPreference.length)
-        assertEquals(preferenceHash, sha256(restoredPreference))
     }
 
     @Test
@@ -389,11 +403,66 @@ class BackupRoundTripTest {
     }
 
     @Test
-    fun preferenceCommitFailurePreventsDatabaseCommit() {
+    fun interruptionsBeforeCommitKeepTheOldSnapshotAndInterruptionsAfterCommitKeepTheWholeNewSnapshot() {
         seedTypicalData()
+        val source = snapshot()
+        val backup = exportVerified()
+        withDatabase { database ->
+            assertTrue(UserModel(database = database).addManualWord("target", "本机目标", 3_000L))
+            database.updateSettings(mapOf("target_only" to StoredSettingValue.StringValue("keep-before-commit")))
+        }
+        val target = snapshot()
+
+        expectError(BackupError.IO_ERROR) {
+            BackupManager.restoreForTest(
+                filesDir,
+                prefs,
+                password.toCharArray(),
+                ByteArrayInputStream(backup),
+                BackupManager.Mode.OVERWRITE,
+            ) { stage ->
+                if (stage == UserDataRestoreStage.BEFORE_DATABASE_COMMIT) throw IOException("interrupted")
+            }
+        }
+        assertEquals(target, snapshot())
+
+        expectError(BackupError.IO_ERROR) {
+            BackupManager.restoreForTest(
+                filesDir,
+                prefs,
+                password.toCharArray(),
+                ByteArrayInputStream(backup),
+                BackupManager.Mode.OVERWRITE,
+            ) { stage ->
+                if (stage == UserDataRestoreStage.AFTER_DATABASE_COMMIT) throw IOException("interrupted")
+            }
+        }
+        assertEquals(source, snapshot())
+
+        withDatabase { database ->
+            assertTrue(UserModel(database = database).addManualWord("again", "再次改变", 3_001L))
+        }
+        expectError(BackupError.IO_ERROR) {
+            BackupManager.restoreForTest(
+                filesDir,
+                prefs,
+                password.toCharArray(),
+                ByteArrayInputStream(backup),
+                BackupManager.Mode.OVERWRITE,
+            ) { stage ->
+                if (stage == UserDataRestoreStage.AFTER_CHECKPOINT) throw IOException("interrupted")
+            }
+        }
+        assertEquals(source, snapshot())
+        assertFalse(LiveUserData.restoreInProgress)
+    }
+
+    @Test
+    fun legacyPreferenceCleanupFailureCannotBlockOrPartiallyApplyDatabaseRestore() {
+        seedTypicalData()
+        val expected = snapshot()
         val backup = exportVerified()
         withDatabase { database -> assertTrue(ClipboardStore(filesDir, database).apply { load() }.record("local after export")) }
-        val expected = snapshot()
         assertTrue(prefs.edit().remove("cn_layout").putBoolean("fuzzy", true).commit())
         val failing = object : SharedPreferences by prefs {
             override fun edit(): SharedPreferences.Editor {
@@ -407,27 +476,26 @@ class BackupRoundTripTest {
             }
         }
 
-        expectError(BackupError.IO_ERROR) {
+        assertEquals(
+            BackupManager.Mode.OVERWRITE,
             BackupManager.restore(
                 filesDir,
                 failing,
                 password.toCharArray(),
                 ByteArrayInputStream(backup),
                 BackupManager.Mode.OVERWRITE,
-            )
-        }
+            ),
+        )
         assertEquals(expected, snapshot())
-        assertFalse(prefs.contains("cn_layout"))
-        assertTrue(prefs.getBoolean("fuzzy", false))
         assertFalse(LiveUserData.restoreInProgress)
     }
 
     @Test
-    fun databaseOpenFailureRollsBackPreferences() {
+    fun databaseOpenFailureLeavesDeviceSpecificStateUntouched() {
         seedTypicalData()
         val backup = exportVerified()
         clearCanonicalData()
-        prefs.edit().clear().putString("target_pref", "keep").commit()
+        prefs.edit().clear().putString("dict_sha256", "keep").commit()
         val blocker = File(filesDir, UserDataDatabase.DATABASE_NAME).apply {
             mkdirs()
             File(this, "blocker").writeText("x")
@@ -436,8 +504,7 @@ class BackupRoundTripTest {
         expectError(BackupError.IO_ERROR) {
             restore(backup, BackupManager.Mode.OVERWRITE)
         }
-        assertEquals("keep", prefs.getString("target_pref", null))
-        assertFalse(prefs.contains("cn_layout"))
+        assertEquals("keep", prefs.getString("dict_sha256", null))
         assertTrue(blocker.isDirectory)
     }
 
@@ -469,20 +536,57 @@ class BackupRoundTripTest {
     }
 
     @Test
-    fun archiveContainsOnlyTheDatabaseAndStreamedNonDevicePreferences() {
+    fun archiveContainsExactlyOneDatabaseRecordWithSettingsAndNoPreferenceDuplicates() {
         prefs.edit().putString("custom_symbols", "stale-legacy-value").commit()
         seedTypicalData()
         val backup = exportVerified()
         val decoded = decodeRecords(backup)
-        assertEquals("database", decoded.keys.first())
-        assertTrue(UserDataDatabase.validateRestoreSource(decoded.getValue("database")))
-        val preferenceKeys = decoded.filterKeys { it.startsWith("preference/") }.values.map { file ->
-            file.inputStream().use { PrefsCodec.readEntry(DataInputStream(it)).first }
-        }.toSet()
-        assertTrue(preferenceKeys.containsAll(listOf("cn_layout", "fuzzy", "some_int")))
-        for (key in downloadKeys) assertFalse(preferenceKeys.contains(key))
-        assertFalse(preferenceKeys.contains("custom_symbols"))
-        assertFalse(preferenceKeys.contains("custom_operators"))
+        assertEquals(setOf("database"), decoded.keys)
+        val databaseFile = decoded.getValue("database")
+        assertTrue(UserDataDatabase.validateRestoreSource(databaseFile))
+        val snapshotDir = File(filesDir, "decoded-database").apply { deleteRecursively(); mkdirs() }
+        databaseFile.copyTo(File(snapshotDir, UserDataDatabase.DATABASE_NAME))
+        UserDataDatabase.open(snapshotDir).use { database ->
+            assertEquals(StoredSettingValue.StringValue("alpha"), database.readSetting("cn_layout"))
+            assertEquals(StoredSettingValue.Bool(false), database.readSetting("fuzzy"))
+            assertEquals(StoredSettingValue.Integer(7), database.readSetting("some_int"))
+        }
+    }
+
+    @Test
+    fun beta29BackupPreferencesMigrateLosslesslyIntoTheStagedDatabaseBeforeAtomicRestore() {
+        seedTypicalData()
+        val expectedUserData = snapshot().user
+        val legacyValues = linkedMapOf<String, Any>(
+            "clip_history" to false,
+            "legacy_bool" to true,
+            "legacy_int" to 41,
+            "legacy_long" to 9_876_543_210L,
+            "legacy_float" to 1.25f,
+            "legacy_string" to "原始设置值",
+            "legacy_set" to linkedSetOf("乙", "甲"),
+        )
+        val backup = legacyBeta29Backup(legacyValues)
+
+        clearCanonicalData()
+        prefs.edit().clear().putString("dict_sha256", "device-local").commit()
+        restore(backup, BackupManager.Mode.OVERWRITE)
+
+        withDatabase { database ->
+            assertEquals(expectedUserData, database.readUserData())
+            assertEquals(StoredSettingValue.Bool(false), database.readSetting("clip_history"))
+            assertEquals(StoredSettingValue.Bool(true), database.readSetting("legacy_bool"))
+            assertEquals(StoredSettingValue.Integer(41), database.readSetting("legacy_int"))
+            assertEquals(StoredSettingValue.LongValue(9_876_543_210L), database.readSetting("legacy_long"))
+            assertEquals(StoredSettingValue.FloatValue(1.25f), database.readSetting("legacy_float"))
+            assertEquals(StoredSettingValue.StringValue("原始设置值"), database.readSetting("legacy_string"))
+            assertEquals(
+                StoredSettingValue.StringSetValue(setOf("乙", "甲")),
+                database.readSetting("legacy_set"),
+            )
+        }
+        assertEquals("device-local", prefs.getString("dict_sha256", null))
+        assertTrue(legacyValues.keys.none(prefs::contains))
     }
 
     @Test
@@ -519,9 +623,41 @@ class BackupRoundTripTest {
         return files
     }
 
-    private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
-        .digest(value.toByteArray(Charsets.UTF_8))
-        .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    private fun legacyBeta29Backup(settings: LinkedHashMap<String, Any>): ByteArray {
+        val directory = File(filesDir, "legacy-beta29-backup").apply { deleteRecursively(); mkdirs() }
+        val databaseFile = File(directory, UserDataDatabase.DATABASE_NAME)
+        withDatabase { database -> database.exportSnapshot(databaseFile) }
+        SQLiteDatabase.openDatabase(databaseFile.absolutePath, null, SQLiteDatabase.OPEN_READWRITE).use { database ->
+            database.execSQL("DROP TABLE user_setting_set_values")
+            database.execSQL("DROP TABLE user_settings")
+            database.execSQL(
+                "DELETE FROM metadata WHERE key LIKE 'beta29_settings_%' OR key='settings_checkpoint_pending'",
+            )
+            database.execSQL("PRAGMA user_version=3")
+        }
+        val output = ByteArrayOutputStream()
+        BackupCrypto.writeEncrypted(output, password.toCharArray()) { cipher ->
+            GZIPOutputStream(cipher).use { gzip ->
+                val writer = BackupArchive.Writer(java.io.DataOutputStream(gzip))
+                writer.writeRecord("database", BackupArchive.KIND_DATABASE) { record ->
+                    databaseFile.inputStream().use { input -> input.copyTo(record, 64 * 1024) }
+                }
+                settings.entries.forEachIndexed { index, (key, value) ->
+                    writer.writeRecord(
+                        "preference/${index.toString().padStart(8, '0')}",
+                        BackupArchive.KIND_PREFERENCE,
+                    ) { record ->
+                        val data = java.io.DataOutputStream(record)
+                        PrefsCodec.writeEntry(data, key, value)
+                        data.flush()
+                    }
+                }
+                writer.finish()
+                gzip.finish()
+            }
+        }
+        return output.toByteArray()
+    }
 
     private class FailingOutputStream(private val failAfter: Int) : OutputStream() {
         private var written = 0

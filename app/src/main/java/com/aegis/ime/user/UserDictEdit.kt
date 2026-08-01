@@ -16,6 +16,7 @@
 package com.aegis.ime.user
 
 import java.io.File
+import java.io.OutputStream
 
 object UserDictEdit {
 
@@ -50,17 +51,8 @@ object UserDictEdit {
         UserDictHot.host?.let { return it.importUserDict(importFile, merge, now) }
         if (!importFile.isFile || importFile.length() <= 0L) return false
         return runCatching {
-            val incoming = UserModel().apply { load(importFile) }
-            if (incoming.isEmpty()) return@runCatching false
             UserDataMigration.open(rootOf(userDb)).use { database ->
-                val model = UserModel(database = database)
-                val applied = if (merge) model.importFrom(importFile, now)
-                else {
-                    model.replaceFromStorage(incoming.storageSnapshot())
-                    true
-                }
-                if (applied) database.checkpointLastGood()
-                applied
+                importFile.inputStream().use { database.importUserDictionary(it, merge) }
             }
         }.getOrDefault(false)
     }
@@ -77,6 +69,12 @@ object UserDictEdit {
             }
         }
     }
+
+    fun export(userDb: File, output: OutputStream): Boolean = runCatching {
+        UserDictHot.host?.flush()
+        UserDataMigration.open(rootOf(userDb)).use { database -> database.writeUserDictionary(output) }
+        true
+    }.getOrDefault(false)
 
     fun list(userDb: File): List<UserModel.Entry> {
         UserDictHot.host?.let { return it.entries() }

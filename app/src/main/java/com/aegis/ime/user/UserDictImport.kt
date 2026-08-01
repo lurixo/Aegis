@@ -23,23 +23,6 @@ import java.nio.file.StandardCopyOption
 
 object UserDictImport {
 
-    fun apply(importFile: File, userDb: File, merge: Boolean, now: Long): Boolean {
-        if (!importFile.isFile || importFile.length() <= 0L) return false
-        return runCatching {
-            if (merge) {
-                val target = UserModel().apply { if (userDb.exists()) load(userDb) }
-                if (!target.importFrom(importFile, now)) return false
-                target.save(userDb)
-                true
-            } else {
-                val incoming = UserModel().apply { load(importFile) }
-                if (incoming.isEmpty()) return false
-                incoming.save(userDb)
-                true
-            }
-        }.getOrDefault(false)
-    }
-
     fun stage(input: InputStream, file: File): Boolean {
         val staged = File(file.parentFile, file.name + ".tmp")
         staged.delete()

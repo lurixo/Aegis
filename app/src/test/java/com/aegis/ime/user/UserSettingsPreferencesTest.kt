@@ -84,13 +84,14 @@ class UserSettingsPreferencesTest {
                 database.metadata(UserDataDatabase.SETTINGS_MIGRATION_RECORD_COUNT_KEY),
             )
             assertNotNull(database.metadata(UserDataDatabase.SETTINGS_MIGRATION_SOURCE_DIGEST_KEY))
+            assertEquals(listOf("甲", "乙"), database.readCustomItems("custom_symbols"))
         }
 
         for (key in listOf("typed_bool", "typed_int", "typed_long", "typed_float", "typed_string", "typed_set", "clip_history")) {
             assertFalse("migrated legacy key must be removed: $key", legacy.contains(key))
         }
         assertEquals("special-storage", legacy.getString("dict_sha256", null))
-        assertEquals("甲\n乙", legacy.getString("custom_symbols", null))
+        assertFalse(legacy.contains("custom_symbols"))
     }
 
     @Test fun committed_migration_never_replays_stale_preferences_after_cleanup_interruption() {

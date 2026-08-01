@@ -15,24 +15,34 @@
 
 package com.aegis.ime.ui
 
-import com.aegis.ime.user.ClipboardStore
+import android.content.SharedPreferences
 import com.aegis.ime.user.UserDataMigration
 import java.io.File
+import java.io.InputStream
 import java.io.OutputStream
 
 internal object PhraseTransferIo {
-    fun exportPhrases(filesDir: File, openOutput: () -> OutputStream?): Boolean = runCatching {
-        val bytes = UserDataMigration.open(filesDir).use { database ->
-            ClipboardStore(filesDir, database).also { it.load() }
-                .exportPhrasesText()
-                .toByteArray(Charsets.UTF_8)
-        }
-        if (bytes.isEmpty()) return@runCatching false
+    fun exportPhrases(
+        filesDir: File,
+        preferences: SharedPreferences? = null,
+        openOutput: () -> OutputStream?,
+    ): Boolean = runCatching {
         val output = openOutput() ?: return@runCatching false
         output.use {
-            it.write(bytes)
+            UserDataMigration.open(filesDir, preferences).use { database -> database.writePhrases(it) }
             it.flush()
         }
         true
+    }.getOrDefault(false)
+
+    fun importPhrases(
+        filesDir: File,
+        preferences: SharedPreferences?,
+        input: InputStream,
+        merge: Boolean,
+    ): Boolean = runCatching {
+        UserDataMigration.open(filesDir, preferences).use { database ->
+            database.importPhrases(input, merge)
+        }
     }.getOrDefault(false)
 }

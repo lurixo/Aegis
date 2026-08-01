@@ -58,12 +58,14 @@ import com.aegis.ime.R
 import com.aegis.ime.user.UserDictEdit
 import com.aegis.ime.user.UserDictImport
 import com.aegis.ime.user.UserModel
+import com.aegis.ime.user.UserDataDatabase
 import java.io.File
 
 @Composable
 internal fun UserDictPage(onBack: () -> Unit) {
     val context = LocalContext.current
     val userDb = File(context.filesDir, "userdb.txt")
+    val userDataPath = File(context.filesDir, UserDataDatabase.DATABASE_NAME).absolutePath
     val importMergedToast = stringResource(R.string.user_dict_toast_import_merged)
     val importOverwrittenToast = stringResource(R.string.user_dict_toast_import_overwritten)
     val importFailedToast = stringResource(R.string.user_dict_toast_import_failed)
@@ -91,10 +93,10 @@ internal fun UserDictPage(onBack: () -> Unit) {
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/plain"),
     ) { uri ->
-        if (uri != null && userDb.exists()) {
+        if (uri != null) {
             runCatching {
                 context.contentResolver.openOutputStream(uri)?.use { out ->
-                    userDb.inputStream().use { it.copyTo(out) }
+                    UserDictEdit.export(userDb, out)
                 }
             }
         }
@@ -190,12 +192,11 @@ internal fun UserDictPage(onBack: () -> Unit) {
                                 style = MaterialTheme.typography.bodySmall,
                             )
                             Text(
-                                stringResource(R.string.user_dict_default_path_format, userDb.absolutePath),
+                                stringResource(R.string.user_dict_default_path_format, userDataPath),
                                 style = MaterialTheme.typography.bodySmall,
                             )
                             Button(
                                 onClick = {
-                                    UserDictEdit.flushBeforeExport(userDb)
                                     exportLauncher.launch("aegis-userdb.txt")
                                 },
                                 modifier = Modifier.fillMaxWidth(),

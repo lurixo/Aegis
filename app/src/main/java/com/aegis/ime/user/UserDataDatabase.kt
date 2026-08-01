@@ -23,6 +23,8 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -90,6 +92,18 @@ internal data class UserDataRecoveryReport(
     val kind: UserDataRecoveryKind,
     val detail: String,
 )
+
+internal enum class UserDataTransferStage {
+    AFTER_VALIDATION,
+    BEFORE_DATABASE_COMMIT,
+    AFTER_DATABASE_COMMIT,
+}
+
+internal enum class UserDataRestoreStage {
+    BEFORE_DATABASE_COMMIT,
+    AFTER_DATABASE_COMMIT,
+    AFTER_CHECKPOINT,
+}
 
 internal class UserDataDatabase private constructor(
     private val root: File,
@@ -256,6 +270,135 @@ internal class UserDataDatabase private constructor(
             while (cursor.moveToNext()) readings.getOrPut(cursor.getString(0)) { LinkedHashSet() }.add(cursor.getString(1))
         }
         return UserDataSnapshot(words, bigrams, readings)
+    }
+
+    @Synchronized
+    fun writeUserDictionary(output: OutputStream) {
+        val writer = UserDataTransfer.writer(output)
+        writer.write(UserDataTransfer.USER_DICTIONARY_HEADER)
+        writer.newLine()
+        database.rawQuery("SELECT word,count,last_used FROM user_words ORDER BY word", null).use { cursor ->
+            while (cursor.moveToNext()) {
+                writer.write("W\t")
+                writer.write(cursor.getString(0))
+                writer.write('\t'.code)
+                writer.write(cursor.getInt(1).toString())
+                writer.write('\t'.code)
+                writer.write(cursor.getLong(2).toString())
+                writer.newLine()
+            }
+        }
+        database.rawQuery("SELECT prev_word,word,count FROM user_bigrams ORDER BY prev_word,word", null).use { cursor ->
+            while (cursor.moveToNext()) {
+                writer.write("B\t")
+                writer.write(cursor.getString(0))
+                writer.write('\t'.code)
+                writer.write(cursor.getString(1))
+                writer.write('\t'.code)
+                writer.write(cursor.getInt(2).toString())
+                writer.newLine()
+            }
+        }
+        database.rawQuery("SELECT reading,word FROM user_readings ORDER BY reading,word", null).use { cursor ->
+            while (cursor.moveToNext()) {
+                writer.write("R\t")
+                writer.write(cursor.getString(0))
+                writer.write('\t'.code)
+                writer.write(cursor.getString(1))
+                writer.newLine()
+            }
+        }
+        writer.flush()
+    }
+
+    @Synchronized
+    fun importUserDictionary(
+        input: InputStream,
+        merge: Boolean,
+        stage: ((UserDataTransferStage) -> Unit)? = null,
+    ): Boolean = synchronized(checkpointLock) {
+        val rollback = File(root, "$DATABASE_NAME.before-user-dictionary-import")
+        try {
+            exportSnapshot(rollback)
+            var imported = false
+            transaction {
+                database.execSQL("DROP TABLE IF EXISTS temp.stage_user_words")
+                database.execSQL("DROP TABLE IF EXISTS temp.stage_user_readings")
+                database.execSQL("DROP TABLE IF EXISTS temp.stage_user_bigrams")
+                database.execSQL(
+                    "CREATE TEMP TABLE stage_user_words (word TEXT PRIMARY KEY, count INTEGER NOT NULL " +
+                        "CHECK(count > 0), last_used INTEGER NOT NULL CHECK(last_used >= 0))",
+                )
+                database.execSQL(
+                    "CREATE TEMP TABLE stage_user_readings (reading TEXT NOT NULL, word TEXT NOT NULL, " +
+                        "PRIMARY KEY(reading,word))",
+                )
+                database.execSQL(
+                    "CREATE TEMP TABLE stage_user_bigrams (prev_word TEXT NOT NULL, word TEXT NOT NULL, " +
+                        "count INTEGER NOT NULL CHECK(count > 0), PRIMARY KEY(prev_word,word))",
+                )
+                UserDataTransfer.readUserDictionary(input) { row ->
+                    when (row) {
+                        is UserDataTransfer.UserDictionaryRow.Word -> {
+                            val values = ContentValues().apply {
+                                put("word", row.word)
+                                put("count", row.count)
+                                put("last_used", row.lastUsed)
+                            }
+                            database.insertOrThrow("stage_user_words", null, values)
+                        }
+                        is UserDataTransfer.UserDictionaryRow.Bigram -> {
+                            val values = ContentValues().apply {
+                                put("prev_word", row.previous)
+                                put("word", row.word)
+                                put("count", row.count)
+                            }
+                            database.insertOrThrow("stage_user_bigrams", null, values)
+                        }
+                        is UserDataTransfer.UserDictionaryRow.Reading -> {
+                            val values = ContentValues().apply {
+                                put("reading", row.reading)
+                                put("word", row.word)
+                            }
+                            database.insertOrThrow("stage_user_readings", null, values)
+                        }
+                    }
+                }
+                if (scalarLong("SELECT COUNT(*) FROM stage_user_words") == 0L) {
+                    throw IOException("user dictionary contains no words")
+                }
+                val missingReadingWord = database.rawQuery(
+                    "SELECT 1 FROM stage_user_readings reading LEFT JOIN stage_user_words word " +
+                        "ON word.word=reading.word WHERE word.word IS NULL LIMIT 1",
+                    null,
+                ).use { it.moveToFirst() }
+                val missingBigramWord = database.rawQuery(
+                    "SELECT 1 FROM stage_user_bigrams relation LEFT JOIN stage_user_words word " +
+                        "ON word.word=relation.word WHERE word.word IS NULL LIMIT 1",
+                    null,
+                ).use { it.moveToFirst() }
+                if (missingReadingWord || missingBigramWord) {
+                    throw IOException("user dictionary relation target is missing")
+                }
+                stage?.invoke(UserDataTransferStage.AFTER_VALIDATION)
+                if (merge) mergeStagedUserDictionary() else replaceFromStagedUserDictionary()
+                database.execSQL("DROP TABLE stage_user_readings")
+                database.execSQL("DROP TABLE stage_user_bigrams")
+                database.execSQL("DROP TABLE stage_user_words")
+                stage?.invoke(UserDataTransferStage.BEFORE_DATABASE_COMMIT)
+                imported = true
+            }
+            try {
+                stage?.invoke(UserDataTransferStage.AFTER_DATABASE_COMMIT)
+                checkpointLastGood()
+            } catch (failure: Exception) {
+                rollbackCommittedTransfer(rollback, failure)
+                throw failure
+            }
+            imported
+        } finally {
+            rollback.delete()
+        }
     }
 
     @Synchronized
@@ -722,6 +865,133 @@ internal class UserDataDatabase private constructor(
     }
 
     @Synchronized
+    fun writePhrases(output: OutputStream) {
+        val writer = UserDataTransfer.writer(output)
+        database.rawQuery("SELECT name FROM phrase_categories ORDER BY position,name", null).use { categoryCursor ->
+            while (categoryCursor.moveToNext()) {
+                val category = categoryCursor.getString(0)
+                UserDataTransfer.writeEscaped(writer, 'C', category)
+                database.rawQuery(
+                    "SELECT text,note FROM phrases WHERE category=? ORDER BY position,text",
+                    arrayOf(category),
+                ).use { phraseCursor ->
+                    while (phraseCursor.moveToNext()) {
+                        UserDataTransfer.writeEscaped(writer, 'P', phraseCursor.getString(0))
+                        val note = phraseCursor.getString(1)
+                        if (note.isNotEmpty()) UserDataTransfer.writeEscaped(writer, 'N', note)
+                    }
+                }
+            }
+        }
+        writer.flush()
+    }
+
+    @Synchronized
+    fun importPhrases(
+        input: InputStream,
+        merge: Boolean,
+        stage: ((UserDataTransferStage) -> Unit)? = null,
+    ): Boolean = synchronized(checkpointLock) {
+        val rollback = File(root, "$DATABASE_NAME.before-phrase-import")
+        try {
+            exportSnapshot(rollback)
+            var imported = false
+            transaction {
+                database.execSQL("DROP TABLE IF EXISTS temp.stage_phrase_categories")
+                database.execSQL("DROP TABLE IF EXISTS temp.stage_phrases")
+                database.execSQL(
+                    "CREATE TEMP TABLE stage_phrase_categories (name TEXT PRIMARY KEY, " +
+                        "position INTEGER NOT NULL UNIQUE CHECK(position >= 0))",
+                )
+                database.execSQL(
+                    "CREATE TEMP TABLE stage_phrases (category TEXT NOT NULL, text TEXT NOT NULL, " +
+                        "note TEXT NOT NULL, position INTEGER NOT NULL CHECK(position >= 0), " +
+                        "PRIMARY KEY(category,text), UNIQUE(category,position))",
+                )
+                var category: String? = null
+                var phrase: String? = null
+                var categoryPosition = 0L
+                var phrasePosition = 0L
+                UserDataTransfer.readPhrases(input) { row ->
+                    when (row) {
+                        is UserDataTransfer.PhraseRow.Category -> {
+                            category = row.name
+                            phrase = null
+                            val values = ContentValues().apply {
+                                put("name", row.name)
+                                put("position", categoryPosition)
+                            }
+                            if (database.insertWithOnConflict(
+                                    "stage_phrase_categories",
+                                    null,
+                                    values,
+                                    SQLiteDatabase.CONFLICT_IGNORE,
+                                ) != -1L
+                            ) {
+                                categoryPosition++
+                            }
+                            phrasePosition = database.rawQuery(
+                                "SELECT COALESCE(MAX(position),-1)+1 FROM stage_phrases WHERE category=?",
+                                arrayOf(row.name),
+                            ).use { cursor -> cursor.moveToFirst(); cursor.getLong(0) }
+                        }
+                        is UserDataTransfer.PhraseRow.Phrase -> {
+                            val currentCategory = category ?: throw IOException("phrase has no category")
+                            phrase = row.text
+                            val values = ContentValues().apply {
+                                put("category", currentCategory)
+                                put("text", row.text)
+                                put("note", "")
+                                put("position", phrasePosition)
+                            }
+                            if (database.insertWithOnConflict(
+                                    "stage_phrases",
+                                    null,
+                                    values,
+                                    SQLiteDatabase.CONFLICT_IGNORE,
+                                ) != -1L
+                            ) {
+                                phrasePosition++
+                            }
+                        }
+                        is UserDataTransfer.PhraseRow.Note -> {
+                            val currentCategory = category ?: throw IOException("note has no category")
+                            val currentPhrase = phrase ?: throw IOException("note has no phrase")
+                            val values = ContentValues().apply { put("note", row.note) }
+                            database.update(
+                                "stage_phrases",
+                                values,
+                                "category=? AND text=? AND note=''",
+                                arrayOf(currentCategory, currentPhrase),
+                            )
+                        }
+                    }
+                }
+                if (scalarLong("SELECT COUNT(*) FROM stage_phrase_categories") == 0L) {
+                    throw IOException("phrase transfer contains no categories")
+                }
+                canonicalizeStagedPhraseCategories()
+                stage?.invoke(UserDataTransferStage.AFTER_VALIDATION)
+                if (merge) mergeStagedPhrases() else replaceFromStagedPhrases()
+                database.execSQL("DROP TABLE stage_phrases")
+                database.execSQL("DROP TABLE stage_phrase_categories")
+                stage?.invoke(UserDataTransferStage.BEFORE_DATABASE_COMMIT)
+                imported = true
+            }
+            try {
+                stage?.invoke(UserDataTransferStage.AFTER_DATABASE_COMMIT)
+                checkpointLastGood()
+            } catch (failure: Exception) {
+                rollbackCommittedTransfer(rollback, failure)
+                throw failure
+            }
+            imported
+        } finally {
+            rollback.delete()
+        }
+    }
+
+    @Synchronized
     fun phraseCategoryCount(): Long = scalarLong("SELECT COUNT(*) FROM phrase_categories")
 
     @Synchronized
@@ -1171,7 +1441,7 @@ internal class UserDataDatabase private constructor(
         val temporary = File(destination.parentFile, destination.name + ".tmp")
         try {
             copyFile(databaseFile, temporary)
-            val validationFailure = restoreSourceValidationFailure(temporary)
+            val validationFailure = restoreSourceValidationFailure(temporary, false)
             if (validationFailure != null) {
                 throw IOException("exported database validation failed: $validationFailure")
             }
@@ -1182,7 +1452,11 @@ internal class UserDataDatabase private constructor(
     }
 
     @Synchronized
-    fun restoreFrom(source: File, merge: Boolean) = synchronized(checkpointLock) {
+    fun restoreFrom(
+        source: File,
+        merge: Boolean,
+        stage: ((UserDataRestoreStage) -> Unit)? = null,
+    ) = synchronized(checkpointLock) {
         if (!validateRestoreSource(source)) throw IOException("restore database validation failed")
         val rollback = File(source.parentFile, "$DATABASE_NAME.before-restore")
         try {
@@ -1194,12 +1468,14 @@ internal class UserDataDatabase private constructor(
                         if (!integrityOk() || !foreignKeysOk()) {
                             throw IOException("restored database verification failed")
                         }
+                        stage?.invoke(UserDataRestoreStage.BEFORE_DATABASE_COMMIT)
                     }
                 }
             } catch (restoreFailure: Exception) {
                 runCatching { restoreRollbackSnapshot(rollback) }.onFailure(restoreFailure::addSuppressed)
                 throw restoreFailure
             }
+            stage?.invoke(UserDataRestoreStage.AFTER_DATABASE_COMMIT)
             try {
                 checkpointLastGood()
             } catch (checkpointFailure: Exception) {
@@ -1214,6 +1490,7 @@ internal class UserDataDatabase private constructor(
                 lastFailure = "restore committed without a new last-good snapshot: " +
                     checkpointFailure.javaClass.simpleName + ": " + checkpointFailure.message.orEmpty()
             }
+            stage?.invoke(UserDataRestoreStage.AFTER_CHECKPOINT)
         } finally {
             rollback.delete()
         }
@@ -1255,6 +1532,13 @@ internal class UserDataDatabase private constructor(
                 if (!integrityOk() || !foreignKeysOk()) throw IOException("restore rollback verification failed")
             }
         }
+    }
+
+    private fun rollbackCommittedTransfer(rollback: File, failure: Exception) {
+        val rolledBack = runCatching { restoreRollbackSnapshot(rollback) }
+            .onFailure(failure::addSuppressed)
+            .isSuccess
+        if (rolledBack) runCatching { checkpointLastGood() }.onFailure(failure::addSuppressed)
     }
 
     private fun mergeRestoreSource() {
@@ -1332,7 +1616,8 @@ internal class UserDataDatabase private constructor(
                 }
             }
         }
-        val nextPhrase = HashMap<String, Long>()
+        var currentCategory: String? = null
+        var nextPhrasePosition = 0L
         database.rawQuery(
             "SELECT category,text,note FROM restore_source.phrases ORDER BY category,position,text",
             null,
@@ -1345,8 +1630,9 @@ internal class UserDataDatabase private constructor(
                     "UPDATE phrases SET note=? WHERE category=? AND text=? AND note='' AND ?!=''",
                     arrayOf(note, category, text, note),
                 )
-                val position = nextPhrase.getOrPut(category) {
-                    database.rawQuery(
+                if (category != currentCategory) {
+                    currentCategory = category
+                    nextPhrasePosition = database.rawQuery(
                         "SELECT COALESCE(MAX(position), -1) + 1 FROM phrases WHERE category=?",
                         arrayOf(category),
                     ).use { positionCursor ->
@@ -1358,22 +1644,131 @@ internal class UserDataDatabase private constructor(
                     put("category", category)
                     put("text", text)
                     put("note", note)
-                    put("position", position)
+                    put("position", nextPhrasePosition)
                 }
                 if (database.insertWithOnConflict("phrases", null, values, SQLiteDatabase.CONFLICT_IGNORE) != -1L) {
-                    nextPhrase[category] = position + 1
+                    nextPhrasePosition++
+                }
+            }
+        }
+    }
+
+    private fun canonicalizeStagedPhraseCategories() {
+        val hasDefault = database.rawQuery(
+            "SELECT 1 FROM stage_phrase_categories WHERE name=? LIMIT 1",
+            arrayOf(ClipboardStore.DEFAULT_CATEGORY_ID),
+        ).use { it.moveToFirst() }
+        if (hasDefault) return
+        val hasLegacyDefault = database.rawQuery(
+            "SELECT 1 FROM stage_phrase_categories WHERE name=? LIMIT 1",
+            arrayOf(LEGACY_DEFAULT_PHRASE_CATEGORY),
+        ).use { it.moveToFirst() }
+        if (!hasLegacyDefault) return
+        database.execSQL(
+            "UPDATE stage_phrases SET category=? WHERE category=?",
+            arrayOf(ClipboardStore.DEFAULT_CATEGORY_ID, LEGACY_DEFAULT_PHRASE_CATEGORY),
+        )
+        database.execSQL(
+            "UPDATE stage_phrase_categories SET name=? WHERE name=?",
+            arrayOf(ClipboardStore.DEFAULT_CATEGORY_ID, LEGACY_DEFAULT_PHRASE_CATEGORY),
+        )
+    }
+
+    private fun replaceFromStagedPhrases() {
+        val hasDefault = database.rawQuery(
+            "SELECT 1 FROM stage_phrase_categories WHERE name=? LIMIT 1",
+            arrayOf(ClipboardStore.DEFAULT_CATEGORY_ID),
+        ).use { it.moveToFirst() }
+        if (!hasDefault) {
+            database.execSQL(
+                "CREATE TEMP TABLE stage_phrase_categories_next (name TEXT PRIMARY KEY, " +
+                    "position INTEGER NOT NULL UNIQUE CHECK(position >= 0))",
+            )
+            database.execSQL(
+                "INSERT INTO stage_phrase_categories_next (name,position) VALUES (?,0)",
+                arrayOf(ClipboardStore.DEFAULT_CATEGORY_ID),
+            )
+            database.execSQL(
+                "INSERT INTO stage_phrase_categories_next (name,position) " +
+                    "SELECT name,position+1 FROM stage_phrase_categories",
+            )
+            database.execSQL("DROP TABLE stage_phrase_categories")
+            database.execSQL("ALTER TABLE stage_phrase_categories_next RENAME TO stage_phrase_categories")
+        }
+        database.delete("phrases", null, null)
+        database.delete("phrase_categories", null, null)
+        database.execSQL(
+            "INSERT INTO phrase_categories (name,position) " +
+                "SELECT name,position FROM stage_phrase_categories",
+        )
+        database.execSQL(
+            "INSERT INTO phrases (category,text,note,position) " +
+                "SELECT category,text,note,position FROM stage_phrases",
+        )
+    }
+
+    private fun mergeStagedPhrases() {
+        var nextCategory = scalarLong("SELECT COALESCE(MAX(position),-1)+1 FROM phrase_categories")
+        database.rawQuery("SELECT name FROM stage_phrase_categories ORDER BY position,name", null).use { cursor ->
+            while (cursor.moveToNext()) {
+                val values = ContentValues().apply {
+                    put("name", cursor.getString(0))
+                    put("position", nextCategory)
+                }
+                if (database.insertWithOnConflict(
+                        "phrase_categories",
+                        null,
+                        values,
+                        SQLiteDatabase.CONFLICT_IGNORE,
+                    ) != -1L
+                ) {
+                    nextCategory++
+                }
+            }
+        }
+        var currentCategory: String? = null
+        var nextPhrasePosition = 0L
+        database.rawQuery(
+            "SELECT category,text,note FROM stage_phrases ORDER BY category,position,text",
+            null,
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                val category = cursor.getString(0)
+                val text = cursor.getString(1)
+                val note = cursor.getString(2)
+                database.execSQL(
+                    "UPDATE phrases SET note=? WHERE category=? AND text=? AND note='' AND ?!=''",
+                    arrayOf(note, category, text, note),
+                )
+                if (category != currentCategory) {
+                    currentCategory = category
+                    nextPhrasePosition = database.rawQuery(
+                        "SELECT COALESCE(MAX(position),-1)+1 FROM phrases WHERE category=?",
+                        arrayOf(category),
+                    ).use { positionCursor -> positionCursor.moveToFirst(); positionCursor.getLong(0) }
+                }
+                val values = ContentValues().apply {
+                    put("category", category)
+                    put("text", text)
+                    put("note", note)
+                    put("position", nextPhrasePosition)
+                }
+                if (database.insertWithOnConflict("phrases", null, values, SQLiteDatabase.CONFLICT_IGNORE) != -1L) {
+                    nextPhrasePosition++
                 }
             }
         }
     }
 
     private fun mergeCustomItems() {
-        val nextPosition = HashMap<String, Long>()
+        var currentKind: String? = null
+        var nextPosition = 0L
         database.rawQuery("SELECT kind,value FROM restore_source.custom_items ORDER BY kind,position,value", null).use { cursor ->
             while (cursor.moveToNext()) {
                 val kind = cursor.getString(0)
-                val position = nextPosition.getOrPut(kind) {
-                    database.rawQuery(
+                if (kind != currentKind) {
+                    currentKind = kind
+                    nextPosition = database.rawQuery(
                         "SELECT COALESCE(MAX(position), -1) + 1 FROM custom_items WHERE kind=?",
                         arrayOf(kind),
                     ).use { positionCursor ->
@@ -1384,25 +1779,27 @@ internal class UserDataDatabase private constructor(
                 val values = ContentValues().apply {
                     put("kind", kind)
                     put("value", cursor.getString(1))
-                    put("position", position)
+                    put("position", nextPosition)
                 }
                 if (database.insertWithOnConflict("custom_items", null, values, SQLiteDatabase.CONFLICT_IGNORE) != -1L) {
-                    nextPosition[kind] = position + 1
+                    nextPosition++
                 }
             }
         }
     }
 
     private fun mergeRecentItems() {
-        val nextRecency = HashMap<String, Long>()
+        var currentKind: String? = null
+        var nextRecency = 0L
         database.rawQuery(
             "SELECT kind,identity,value,origin FROM restore_source.recent_items ORDER BY kind,recency DESC,identity",
             null,
         ).use { cursor ->
             while (cursor.moveToNext()) {
                 val kind = cursor.getString(0)
-                val recency = nextRecency.getOrPut(kind) {
-                    database.rawQuery(
+                if (kind != currentKind) {
+                    currentKind = kind
+                    nextRecency = database.rawQuery(
                         "SELECT COALESCE(MIN(recency), 0) - 1 FROM recent_items WHERE kind=?",
                         arrayOf(kind),
                     ).use { recencyCursor ->
@@ -1415,24 +1812,34 @@ internal class UserDataDatabase private constructor(
                     put("identity", cursor.getString(1))
                     put("value", cursor.getString(2))
                     if (cursor.isNull(3)) putNull("origin") else put("origin", cursor.getString(3))
-                    put("recency", recency)
+                    put("recency", nextRecency)
                 }
                 if (database.insertWithOnConflict("recent_items", null, values, SQLiteDatabase.CONFLICT_IGNORE) != -1L) {
-                    nextRecency[kind] = recency - 1
+                    nextRecency--
                 }
             }
         }
     }
 
     private fun mergeSettings() {
+        database.execSQL("DROP TABLE IF EXISTS temp.restore_missing_settings")
         database.execSQL(
-            "INSERT OR REPLACE INTO user_settings (key,type,integer_value,text_value) " +
-                "SELECT key,type,integer_value,text_value FROM restore_source.user_settings",
+            "CREATE TEMP TABLE restore_missing_settings AS " +
+                "SELECT source.key FROM restore_source.user_settings source " +
+                "WHERE NOT EXISTS(SELECT 1 FROM user_settings local WHERE local.key=source.key)",
+        )
+        database.execSQL(
+            "INSERT INTO user_settings (key,type,integer_value,text_value) " +
+                "SELECT source.key,source.type,source.integer_value,source.text_value " +
+                "FROM restore_source.user_settings source JOIN restore_missing_settings missing " +
+                "ON missing.key=source.key",
         )
         database.execSQL(
             "INSERT INTO user_setting_set_values (setting_key,value) " +
-                "SELECT setting_key,value FROM restore_source.user_setting_set_values",
+                "SELECT source.setting_key,source.value FROM restore_source.user_setting_set_values source " +
+                "JOIN restore_missing_settings missing ON missing.key=source.setting_key",
         )
+        database.execSQL("DROP TABLE restore_missing_settings")
     }
 
     private fun readSettingInTransaction(key: String): StoredSettingValue? = database.rawQuery(
@@ -1551,6 +1958,49 @@ internal class UserDataDatabase private constructor(
             }
             database.insertOrThrow("user_bigrams", null, values)
         }
+    }
+
+    private fun replaceFromStagedUserDictionary() {
+        database.delete("user_bigrams", null, null)
+        database.delete("user_readings", null, null)
+        database.delete("user_words", null, null)
+        database.execSQL(
+            "INSERT INTO user_words (word,count,last_used) " +
+                "SELECT word,count,last_used FROM stage_user_words",
+        )
+        database.execSQL(
+            "INSERT INTO user_readings (reading,word) SELECT reading,word FROM stage_user_readings",
+        )
+        database.execSQL(
+            "INSERT INTO user_bigrams (prev_word,word,count) " +
+                "SELECT prev_word,word,count FROM stage_user_bigrams",
+        )
+    }
+
+    private fun mergeStagedUserDictionary() {
+        database.execSQL(
+            "UPDATE user_words SET count=MIN($MAX_COUNT, count+(SELECT count FROM stage_user_words source " +
+                "WHERE source.word=user_words.word)), last_used=MAX(last_used,(SELECT last_used FROM " +
+                "stage_user_words source WHERE source.word=user_words.word)) WHERE EXISTS(" +
+                "SELECT 1 FROM stage_user_words source WHERE source.word=user_words.word)",
+        )
+        database.execSQL(
+            "INSERT OR IGNORE INTO user_words (word,count,last_used) " +
+                "SELECT word,count,last_used FROM stage_user_words",
+        )
+        database.execSQL(
+            "INSERT OR IGNORE INTO user_readings (reading,word) SELECT reading,word FROM stage_user_readings",
+        )
+        database.execSQL(
+            "UPDATE user_bigrams SET count=MIN($MAX_COUNT, count+(SELECT count FROM stage_user_bigrams source " +
+                "WHERE source.prev_word=user_bigrams.prev_word AND source.word=user_bigrams.word)) " +
+                "WHERE EXISTS(SELECT 1 FROM stage_user_bigrams source WHERE " +
+                "source.prev_word=user_bigrams.prev_word AND source.word=user_bigrams.word)",
+        )
+        database.execSQL(
+            "INSERT OR IGNORE INTO user_bigrams (prev_word,word,count) " +
+                "SELECT prev_word,word,count FROM stage_user_bigrams",
+        )
     }
 
     private fun insertLearning(snapshot: UserLearningSnapshot) {
@@ -1904,11 +2354,13 @@ internal class UserDataDatabase private constructor(
         private const val CUSTOM_MIGRATION_PREFIX = "beta29_custom_migration_"
         private const val RECENT_MIGRATION_PREFIX = "beta29_recent_migration_"
         private const val DATA_VERSION_KEY = "data_version"
+        private const val LEGACY_DEFAULT_PHRASE_CATEGORY = "默认"
         internal const val SETTINGS_MIGRATION_KEY = "beta29_settings_migration"
         internal const val SETTINGS_MIGRATION_SOURCE_COUNT_KEY = "beta29_settings_source_count"
         internal const val SETTINGS_MIGRATION_SOURCE_DIGEST_KEY = "beta29_settings_source_digest"
         internal const val SETTINGS_MIGRATION_RECORD_COUNT_KEY = "beta29_settings_record_count"
         internal const val SETTINGS_CHECKPOINT_PENDING_KEY = "settings_checkpoint_pending"
+        private const val LEGACY_SCHEMA_VERSION = 3
         private const val SCHEMA_VERSION = 4
         private const val MAX_COUNT = 1_000_000_000
         internal const val MAX_RUNTIME_PAGE_SIZE = 256
@@ -1950,6 +2402,9 @@ internal class UserDataDatabase private constructor(
             "user_settings" to "key,type,integer_value,text_value",
             "user_setting_set_values" to "setting_key,value",
         )
+        private val LEGACY_EXPECTED_TABLES = RESTORE_TABLES.keys
+            .filterNotTo(LinkedHashSet()) { it == "user_settings" || it == "user_setting_set_values" }
+            .plus(setOf("metadata", "android_metadata"))
         private val EXPECTED_TABLES = RESTORE_TABLES.keys + setOf("metadata", "android_metadata")
 
         fun open(root: File): UserDataDatabase {
@@ -2000,9 +2455,12 @@ internal class UserDataDatabase private constructor(
             "${file.length()}:${sha256(file)}"
         }
 
-        fun validateRestoreSource(file: File): Boolean = restoreSourceValidationFailure(file) == null
+        fun validateRestoreSource(file: File): Boolean = restoreSourceValidationFailure(file, false) == null
 
-        private fun restoreSourceValidationFailure(file: File): String? {
+        internal fun validateRestoreSourceForUpgrade(file: File): Boolean =
+            restoreSourceValidationFailure(file, true) == null
+
+        private fun restoreSourceValidationFailure(file: File, allowLegacy: Boolean): String? {
             if (!file.isFile || file.length() == 0L) return "database file is absent or empty"
             return try {
                 SQLiteDatabase.openDatabase(file.absolutePath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
@@ -2022,8 +2480,12 @@ internal class UserDataDatabase private constructor(
                         cursor.moveToFirst()
                     }
                     when {
-                        version != SCHEMA_VERSION -> "schema version $version is unsupported"
-                        tables != EXPECTED_TABLES -> "table set $tables does not match $EXPECTED_TABLES"
+                        version == SCHEMA_VERSION && tables != EXPECTED_TABLES ->
+                            "table set $tables does not match $EXPECTED_TABLES"
+                        version == LEGACY_SCHEMA_VERSION && allowLegacy && tables != LEGACY_EXPECTED_TABLES ->
+                            "legacy table set $tables does not match $LEGACY_EXPECTED_TABLES"
+                        version != SCHEMA_VERSION && !(allowLegacy && version == LEGACY_SCHEMA_VERSION) ->
+                            "schema version $version is unsupported"
                         !integrity -> "integrity check failed"
                         foreignKeyViolation -> "foreign key check failed"
                         else -> null

@@ -322,23 +322,15 @@ class UserModel internal constructor(
     fun save(file: File) {
         val tmp = File(file.absoluteFile.parentFile, file.name + ".tmp")
         try {
-            tmp.bufferedWriter().use { w ->
-                w.write("$HEADER\n")
-                val stored = database?.readUserData()
-                if (stored == null) {
+            val backing = database
+            if (backing != null) {
+                tmp.outputStream().use(backing::writeUserDictionary)
+            } else {
+                tmp.bufferedWriter().use { w ->
+                    w.write("$HEADER\n")
                     for ((word, c) in count) w.write("W\t$word\t$c\t${lastUsed[word] ?: 0}\n")
                     for ((prev, m) in bigram) for ((word, c) in m) w.write("B\t$prev\t$word\t$c\n")
                     for ((reading, ws) in readings) for (word in ws) w.write("R\t$reading\t$word\n")
-                } else {
-                    for ((word, state) in stored.words) {
-                        w.write("W\t$word\t${state.count}\t${state.lastUsed}\n")
-                    }
-                    for ((prev, words) in stored.bigrams) {
-                        for ((word, value) in words) w.write("B\t$prev\t$word\t$value\n")
-                    }
-                    for ((reading, words) in stored.readings) {
-                        for (word in words) w.write("R\t$reading\t$word\n")
-                    }
                 }
             }
             try {
@@ -361,18 +353,28 @@ class UserModel internal constructor(
 
     @Synchronized
     fun reload(file: File) {
+        database?.let { backing ->
+            file.inputStream().use { backing.importUserDictionary(it, merge = false) }
+            clearRuntimeState()
+            version++
+            return
+        }
         val parsed = parse(file)
-        database?.replaceUserData(parsed.toStored())
         clearRuntimeState()
-        if (database == null) applyParsed(parsed)
+        applyParsed(parsed)
         version++
     }
 
     @Synchronized
     fun load(file: File) {
+        database?.let { backing ->
+            file.inputStream().use { backing.importUserDictionary(it, merge = false) }
+            clearRuntimeState()
+            version++
+            return
+        }
         val parsed = parse(file)
-        database?.replaceUserData(parsed.toStored())
-        if (database == null) applyParsed(parsed) else clearRuntimeState()
+        applyParsed(parsed)
         version++
     }
 
@@ -390,10 +392,21 @@ class UserModel internal constructor(
 
     @Synchronized
     fun importFrom(file: File, now: Long): Boolean {
+        database?.let { backing ->
+            return try {
+                file.inputStream().use { backing.importUserDictionary(it, merge = true) }
+                clearRuntimeState()
+                version++
+                lastFailure = null
+                true
+            } catch (failure: Exception) {
+                lastFailure = failure.javaClass.simpleName + ": " + failure.message.orEmpty()
+                false
+            }
+        }
         val parsed = parse(file)
         if (parsed.count.isEmpty() && parsed.readings.isEmpty()) return false
         val before = storageSnapshot()
-        if (database != null) applyStored(before)
         for ((word, c) in parsed.count) {
             count[word] = saturatingAdd(count[word] ?: 0, c)
             lastUsed[word] = maxOf(lastUsed[word] ?: 0, parsed.lastUsed[word] ?: now)
@@ -409,7 +422,6 @@ class UserModel internal constructor(
             return false
         }
         dirty = database == null
-        if (database != null) clearRuntimeState()
         version++
         return true
     }

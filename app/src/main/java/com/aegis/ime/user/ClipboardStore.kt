@@ -646,30 +646,6 @@ class ClipboardStore private constructor(
         }
         return sb.toString()
     }
-
-
-    fun exportPhrasesText(): String = serializePhrases()
-
-    fun importPhrasesText(text: String, merge: Boolean): Boolean {
-        val parsed = canonicalCategories(parseCategories(text.lineSequence().toList()))
-        if (parsed.isEmpty()) return false
-        if (merge) {
-            val normalized = canonicalCategories(phraseCats)
-            phraseCats.clear()
-            phraseCats.addAll(normalized)
-            for (pc in parsed) {
-                val c = find(pc.name) ?: Category(pc.name).also { phraseCats.add(it) }
-                for (p in pc.phrases) mergePhraseInto(c, p)
-            }
-        } else {
-            phraseCats.clear()
-            phraseCats.addAll(parsed)
-            if (phraseCats.none { it.name == DEFAULT_CATEGORY_ID }) phraseCats.add(0, Category(DEFAULT_CATEGORY_ID))
-        }
-        savePhrasesOrThrow()
-        return true
-    }
-
     private fun encode(s: String) = s.replace("\\", "\\\\").replace("\n", "\\n").replace("\r", "\\r")
     private fun decode(line: String): String? {
         if (line.isEmpty()) return null
