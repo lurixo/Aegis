@@ -122,10 +122,10 @@ class UserLearningTest {
     }
 
     @Test
-    fun formedCapEvictsWeakestEntry() {
+    fun formedEntriesAreNotDiscardedAtTheOldCap() {
         val first = String(Character.toChars(0x4E00)) + String(Character.toChars(0x5E00))
         var last = ""
-        for (i in 0..UserLearning.FORMED_CAP) {
+        for (i in 0..500) {
             val a = String(Character.toChars(0x4E00 + i))
             val b = String(Character.toChars(0x5E00 + i))
             last = a + b
@@ -133,14 +133,14 @@ class UserLearningTest {
             now += 60_000L
         }
         val kept = store.formedWordsFor("mama")
-        assertEquals(UserLearning.FORMED_CAP, kept.size)
-        assertFalse("oldest formed word is evicted at cap", first in kept)
+        assertEquals(501, kept.size)
+        assertTrue("oldest formed word remains available", first in kept)
         assertTrue("newest formed word is kept", last in kept)
     }
 
     @Test
     fun pendingFloodStillAllowsFreshPromotion() {
-        for (i in 0 until UserLearning.PENDING_CAP) {
+        for (i in 0 until 2_100) {
             val a = String(Character.toChars(0x4E00 + i))
             val b = String(Character.toChars(0x7000 + i))
             typeRun(store, a to "ma", b to "ma")
@@ -161,16 +161,17 @@ class UserLearningTest {
     }
 
     @Test
-    fun collocationPerPrevCapPrefersEstablishedOverNew() {
-        val successors = (0 until UserLearning.FOLLOW_PER_PREV).map { String(Character.toChars(0x4E8C + it)) }
+    fun collocationsAreNotDiscardedAtTheOldPerPreviousWordCap() {
+        val successors = (0 until 8).map { String(Character.toChars(0x4E8C + it)) }
         repeat(2) { for (s in successors) store.observeCommit("你好", s, "", now) }
         store.observeCommit("你好", "新", "", now)
-        assertFalse("fresh pair cannot evict active pairs", store.follows("你好").any { it.first == "新" })
-        assertEquals(UserLearning.FOLLOW_PER_PREV, store.follows("你好").size)
+        assertTrue(store.follows("你好").any { it.first == "新" })
+        assertEquals(9, store.follows("你好").size)
         now += 30 * day
-        store.observeCommit("你好", "新", "", now)
-        assertTrue("stale pair is replaced", store.follows("你好").any { it.first == "新" })
-        assertEquals(UserLearning.FOLLOW_PER_PREV, store.follows("你好").size)
+        store.observeCommit("你好", "又", "", now)
+        assertTrue(store.follows("你好").any { it.first == "又" })
+        assertTrue(successors.all { expected -> store.follows("你好").any { it.first == expected } })
+        assertEquals(9, store.follows("你好").size)
     }
 
     @Test
@@ -187,15 +188,15 @@ class UserLearningTest {
     }
 
     @Test
-    fun collocationPreviousWordIsCappedAtFourHanCharacters() {
+    fun collocationAcceptsLongPreviousWords() {
         store.observeCommit("甲乙丙丁", "允许", "", now)
-        store.observeCommit("甲乙丙丁戊", "拒绝", "", now)
+        store.observeCommit("甲乙丙丁戊己庚辛", "继续", "", now)
         assertEquals(listOf("允许"), store.follows("甲乙丙丁").map { it.first })
-        assertTrue(store.follows("甲乙丙丁戊").isEmpty())
+        assertEquals(listOf("继续"), store.follows("甲乙丙丁戊己庚辛").map { it.first })
     }
 
     @Test
-    fun corruptStoreFilesLoadEmpty() {
+    fun corruptStoreFilesPreserveTheLastValidStateAndReportFailure() {
         val variants = listOf(
             "garbage\n",
             "aegis-userlearn 1\nX\ta\tb\tc\td\n",
@@ -210,8 +211,10 @@ class UserLearningTest {
             val f = tempFile("userlearn-bad")
             f.writeText(content)
             val l = UserLearning { now }
+            repeat(3) { typeRun(l, "李" to "li", "雷" to "lei") }
             l.load(f)
-            assertTrue("corrupt content must load empty: $content", l.isEmpty())
+            assertEquals(listOf("李雷"), l.formedWordsFor("lilei"))
+            assertTrue("corrupt content must be reported: $content", l.lastFailure != null)
             repeat(3) { typeRun(l, "张" to "zhang", "伟" to "wei") }
             assertEquals(listOf("张伟"), l.formedWordsFor("zhangwei"))
             val out = tempFile("userlearn-out")

@@ -22,7 +22,11 @@ import java.nio.file.StandardCopyOption
 import kotlin.math.exp
 import kotlin.math.ln
 
-class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
+class UserModel internal constructor(
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val database: UserDataDatabase? = null,
+) {
+    constructor(clock: () -> Long = System::currentTimeMillis) : this(clock, null)
     private val count = HashMap<String, Int>()
     private val lastUsed = HashMap<String, Long>()
     private val bigram = HashMap<String, HashMap<String, Int>>()
@@ -36,23 +40,34 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
     var version: Long = 0L
         private set
 
+    @Volatile
+    var lastFailure: String? = null
+        private set
+
+    init {
+        database?.readUserData()?.let(::applyStored)
+    }
+
     @Synchronized
-    fun record(prevWord: String?, word: String, now: Long) {
-        if (!isValidWord(word)) return
+    fun record(prevWord: String?, word: String, now: Long): Boolean {
+        if (!isValidWord(word)) return false
+        if (!persist { database?.recordWord(word, null, prevWord?.takeIf(::isValidWord), now, true) }) return false
         count[word] = saturatingAdd(count[word] ?: 0, 1)
         lastUsed[word] = now.coerceAtLeast(0L)
         if (!prevWord.isNullOrEmpty() && isValidWord(prevWord)) {
             val m = bigram.getOrPut(prevWord) { HashMap() }
             m[word] = saturatingAdd(m[word] ?: 0, 1)
         }
-        dirty = true
+        dirty = database == null
         version++
+        return true
     }
 
     @Synchronized
-    fun recordWord(reading: String, word: String, now: Long, incrementCount: Boolean) {
+    fun recordWord(reading: String, word: String, now: Long, incrementCount: Boolean): Boolean {
         val r = sanitizeReading(reading)
-        if (!isValidWord(word) || r.isEmpty() || r.length > MAX_READING_LENGTH) return
+        if (!isValidWord(word) || r.isEmpty()) return false
+        if (!persist { database?.recordWord(word, r, null, now, incrementCount) }) return false
         readings.getOrPut(r) { LinkedHashSet() }.add(word)
         if (incrementCount) {
             count[word] = saturatingAdd(count[word] ?: 0, 1)
@@ -60,27 +75,32 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
             count[word] = 1
         }
         lastUsed[word] = now.coerceAtLeast(0L)
-        dirty = true
+        dirty = database == null
         version++
+        return true
     }
 
     @Synchronized
-    fun addManualWord(reading: String, word: String, now: Long) {
+    fun addManualWord(reading: String, word: String, now: Long): Boolean {
         val w = word.trim()
-        if (!isValidWord(w)) return
+        if (!isValidWord(w)) return false
         val r = sanitizeReading(reading)
-        if (r.isNotEmpty() && r.length <= MAX_READING_LENGTH) readings.getOrPut(r) { LinkedHashSet() }.add(w)
+        if (!persist { database?.recordWord(w, r.ifEmpty { null }, null, now, true) }) return false
+        if (r.isNotEmpty()) readings.getOrPut(r) { LinkedHashSet() }.add(w)
         count[w] = saturatingAdd(count[w] ?: 0, 1)
         lastUsed[w] = now.coerceAtLeast(0L)
-        dirty = true
+        dirty = database == null
         version++
+        return true
     }
 
     @Synchronized
-    fun removeWord(reading: String, word: String) {
+    fun removeWord(reading: String, word: String): Boolean {
         val r = sanitizeReading(reading)
-        val set = readings[r] ?: return
-        if (!set.remove(word)) return
+        val set = readings[r] ?: return false
+        if (word !in set) return false
+        if (!persist { database?.removeReading(r, word) }) return false
+        set.remove(word)
         if (set.isEmpty()) readings.remove(r)
         if (readings.values.none { word in it }) {
             count.remove(word)
@@ -88,13 +108,16 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
             bigram.remove(word)
             for (m in bigram.values) m.remove(word)
         }
-        dirty = true
+        dirty = database == null
         version++
+        return true
     }
 
     @Synchronized
-    fun removeWord(word: String) {
-        if (word.isEmpty()) return
+    fun removeWord(word: String): Boolean {
+        if (word.isEmpty()) return false
+        if (word !in count && readings.values.none { word in it }) return false
+        if (!persist { database?.removeWord(word) }) return false
         var changed = false
         if (count.remove(word) != null) changed = true
         if (lastUsed.remove(word) != null) changed = true
@@ -103,7 +126,8 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         for (r in emptyReadings) readings.remove(r)
         if (bigram.remove(word) != null) changed = true
         for (m in bigram.values) if (m.remove(word) != null) changed = true
-        if (changed) { dirty = true; version++ }
+        if (changed) { dirty = database == null; version++ }
+        return changed
     }
 
     data class Entry(val reading: String, val word: String, val count: Int)
@@ -157,15 +181,12 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
     fun save(file: File) {
         val tmp = File(file.absoluteFile.parentFile, file.name + ".tmp")
         try {
-            val rows = count.size + bigram.values.sumOf { it.size } + readings.values.sumOf { it.size }
-            require(rows <= MAX_ENTRIES) { "userdb has too many entries" }
             tmp.bufferedWriter().use { w ->
                 w.write("$HEADER\n")
                 for ((word, c) in count) w.write("W\t$word\t$c\t${lastUsed[word] ?: 0}\n")
                 for ((prev, m) in bigram) for ((word, c) in m) w.write("B\t$prev\t$word\t$c\n")
                 for ((reading, ws) in readings) for (word in ws) w.write("R\t$reading\t$word\n")
             }
-            require(tmp.length() <= MAX_FILE_BYTES) { "userdb exceeds size limit" }
             try {
                 Files.move(
                     tmp.toPath(),
@@ -181,11 +202,13 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
             throw e
         }
         dirty = false
+        database?.checkpointLastGood()
     }
 
     @Synchronized
     fun reload(file: File) {
         val parsed = parse(file)
+        database?.replaceUserData(parsed.toStored())
         count.clear()
         lastUsed.clear()
         bigram.clear()
@@ -196,7 +219,9 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
 
     @Synchronized
     fun load(file: File) {
-        applyParsed(parse(file))
+        val parsed = parse(file)
+        database?.replaceUserData(parsed.toStored())
+        applyParsed(parsed)
         version++
     }
 
@@ -216,6 +241,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
     fun importFrom(file: File, now: Long): Boolean {
         val parsed = parse(file)
         if (parsed.count.isEmpty() && parsed.readings.isEmpty()) return false
+        val before = storageSnapshot()
         for ((word, c) in parsed.count) {
             count[word] = saturatingAdd(count[word] ?: 0, c)
             lastUsed[word] = maxOf(lastUsed[word] ?: 0, parsed.lastUsed[word] ?: now)
@@ -225,10 +251,38 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
             for ((word, c) in m) dst[word] = saturatingAdd(dst[word] ?: 0, c)
         }
         for ((reading, ws) in parsed.readings) readings.getOrPut(reading) { LinkedHashSet() }.addAll(ws)
-        dirty = true
+        if (!persist { database?.replaceUserData(storageSnapshot()) }) {
+            applyStored(before)
+            return false
+        }
+        dirty = database == null
         version++
         return true
     }
+
+    @Synchronized
+    internal fun storageSnapshot(): UserDataSnapshot = UserDataSnapshot(
+        words = count.mapValues { (word, value) -> StoredWord(value, lastUsed[word] ?: 0L) },
+        bigrams = bigram.mapValues { (_, words) -> LinkedHashMap(words) },
+        readings = readings.mapValues { (_, words) -> LinkedHashSet(words) },
+    )
+
+    @Synchronized
+    internal fun replaceFromStorage(snapshot: UserDataSnapshot) {
+        database?.replaceUserData(snapshot)
+        applyStored(snapshot)
+        dirty = false
+        version++
+    }
+
+    @Synchronized
+    internal fun reloadFromStorage() {
+        database?.readUserData()?.let(::applyStored)
+        version++
+    }
+
+    internal val isDatabaseBacked: Boolean
+        get() = database != null
 
     private data class Parsed(
         val count: HashMap<String, Int> = HashMap(),
@@ -238,12 +292,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
     )
 
     companion object {
-        internal const val MAX_FILE_BYTES = 4L * 1024L * 1024L
         private const val HEADER = "aegis-userdb 1"
-        private const val MAX_ENTRIES = 250_000
-        private const val MAX_LINE_LENGTH = 4_096
-        private const val MAX_WORD_LENGTH = 256
-        private const val MAX_READING_LENGTH = 256
         private const val MAX_COUNT = 1_000_000_000
         private const val BOOST_WEIGHT = 3.5
         private const val RECENCY_WEIGHT = 2.0
@@ -252,15 +301,11 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
 
         private fun parse(file: File): Parsed {
             if (!file.exists() || file.length() == 0L) return Parsed()
-            require(file.length() <= MAX_FILE_BYTES) { "userdb size is invalid" }
             val parsed = Parsed()
             file.bufferedReader().use { reader ->
                 require(reader.readLine() == HEADER) { "unsupported userdb header" }
-                var entries = 0
                 while (true) {
                     val line = reader.readLine() ?: break
-                    require(line.length <= MAX_LINE_LENGTH) { "userdb line is too long" }
-                    require(++entries <= MAX_ENTRIES) { "userdb has too many entries" }
                     val p = line.split('\t')
                     when (p.firstOrNull()) {
                         "W" -> {
@@ -284,7 +329,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
                         }
                         "R" -> {
                             require(
-                                p.size == 3 && p[1].isNotEmpty() && p[1].length <= MAX_READING_LENGTH &&
+                                p.size == 3 && p[1].isNotEmpty() &&
                                     p[1] == sanitizeReading(p[1]) && isValidWord(p[2]),
                             ) { "invalid userdb reading row" }
                             require(parsed.readings.getOrPut(p[1]) { LinkedHashSet() }.add(p[2])) {
@@ -312,7 +357,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
             minOf(MAX_COUNT.toLong(), left.toLong() + right.toLong()).toInt()
 
         private fun isValidWord(word: String): Boolean =
-            word.isNotEmpty() && word.length <= MAX_WORD_LENGTH && isStorableWord(word)
+            word.isNotEmpty() && isStorableWord(word)
 
         private fun isStorableWord(word: String): Boolean =
             word.none { it == '\t' || it == '\n' || it == '\r' }
@@ -321,6 +366,38 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
             val sb = StringBuilder(reading.length)
             for (ch in reading.lowercase()) if (ch in 'a'..'z') sb.append(ch)
             return sb.toString()
+        }
+    }
+
+    private fun Parsed.toStored(): UserDataSnapshot = UserDataSnapshot(
+        words = count.mapValues { (word, value) -> StoredWord(value, lastUsed[word] ?: 0L) },
+        bigrams = bigram.mapValues { (_, words) -> LinkedHashMap(words) },
+        readings = readings.mapValues { (_, words) -> LinkedHashSet(words) },
+    )
+
+    private fun applyStored(snapshot: UserDataSnapshot) {
+        count.clear()
+        lastUsed.clear()
+        bigram.clear()
+        readings.clear()
+        for ((word, state) in snapshot.words) {
+            count[word] = state.count
+            lastUsed[word] = state.lastUsed
+        }
+        for ((previous, words) in snapshot.bigrams) bigram[previous] = HashMap(words)
+        for ((reading, words) in snapshot.readings) readings[reading] = LinkedHashSet(words)
+        dirty = false
+    }
+
+    private inline fun persist(block: () -> Unit): Boolean {
+        if (database == null) return true
+        return try {
+            block()
+            lastFailure = null
+            true
+        } catch (e: Exception) {
+            lastFailure = e.javaClass.simpleName + ": " + e.message.orEmpty()
+            false
         }
     }
 }

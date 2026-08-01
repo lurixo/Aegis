@@ -21,8 +21,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import java.io.File
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class UserDictEditDispatchTest {
 
     @get:Rule
@@ -62,7 +67,7 @@ class UserDictEditDispatchTest {
         val imp = tmp.newFile("import.txt").apply { writeText("aegis-userdb 1\nR\tci\t词\n") }
         assertTrue(UserDictEdit.applyImport(db, imp, merge = true, now = 2L))
         assertEquals(listOf(UserModel.Entry("live", "活词", 9)), UserDictEdit.list(db))
-        UserDictEdit.flushBeforeExport()
+        UserDictEdit.flushBeforeExport(db)
 
         assertEquals(
             listOf("add:ci:词", "remove:ci:词", "import:merge=true", "entries", "flush"),
@@ -85,6 +90,6 @@ class UserDictEditDispatchTest {
         assertTrue(UserDictEdit.remove(db, "nihao", "你好"))
         assertTrue(UserDictEdit.list(db).none { it.reading == "nihao" })
 
-        UserDictEdit.flushBeforeExport()
+        UserDictEdit.flushBeforeExport(db)
     }
 }

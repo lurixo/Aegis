@@ -18,24 +18,25 @@ package com.aegis.ime.user
 import java.io.File
 import java.io.IOException
 
-class LiveUserDictHost(
+class LiveUserDictHost internal constructor(
     private val model: UserModel,
     private val userDb: File,
     private val userLearning: UserLearning? = null,
     private val userLearnFile: File? = null,
+    private val database: UserDataDatabase? = null,
     private val onSaved: (mtime: Long) -> Unit = {},
 ) : UserDictHot.Host {
 
     override fun addWord(reading: String, word: String, now: Long): Boolean {
         if (word.isBlank()) return false
-        model.addManualWord(reading, word, now)
+        if (!model.addManualWord(reading, word, now)) return false
         save()
         return true
     }
 
     override fun removeWord(reading: String, word: String): Boolean {
         if (word.isBlank()) return false
-        model.removeWord(reading, word)
+        if (!model.removeWord(reading, word)) return false
         userLearning?.removeWord(word)
         save()
         return true
@@ -63,6 +64,11 @@ class LiveUserDictHost(
     override fun entries(): List<UserModel.Entry> = model.userWordEntries()
 
     override fun flush() {
+        if (database != null) {
+            database.checkpointLastGood()
+            onSaved(File(userDb.absoluteFile.parentFile, UserDataDatabase.DATABASE_NAME).lastModified())
+            return
+        }
         if (!model.dirty && userLearning?.dirty != true) return
         if (model.dirty) model.save(userDb)
         if (userLearning?.dirty == true) {
@@ -72,6 +78,11 @@ class LiveUserDictHost(
     }
 
     private fun save() {
+        if (database != null) {
+            database.checkpointLastGood()
+            onSaved(File(userDb.absoluteFile.parentFile, UserDataDatabase.DATABASE_NAME).lastModified())
+            return
+        }
         model.save(userDb)
         if (userLearning?.dirty == true) {
             userLearnFile?.let { userLearning.save(it) }

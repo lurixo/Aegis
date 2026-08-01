@@ -188,7 +188,7 @@ internal fun UserDictPage(onBack: () -> Unit) {
                             )
                             Button(
                                 onClick = {
-                                    UserDictEdit.flushBeforeExport()
+                                    UserDictEdit.flushBeforeExport(userDb)
                                     exportLauncher.launch("aegis-userdb.txt")
                                 },
                                 modifier = Modifier.fillMaxWidth(),

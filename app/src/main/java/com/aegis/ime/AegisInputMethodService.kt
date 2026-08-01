@@ -58,6 +58,9 @@ import com.aegis.ime.user.CustomSymbolStore
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.LiveUserDictHost
 import com.aegis.ime.user.SymbolUsageStore
+import com.aegis.ime.user.UserDataDatabase
+import com.aegis.ime.user.UserDataMigration
+import com.aegis.ime.user.UserDataRecoveryKind
 import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
@@ -77,12 +80,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         logError = { Log.e("Aegis", "decode failed", it) },
     )
     @Volatile private var panelTextSnapshot: String? = null
-    private val userModel = UserModel()
-    private val userLearning = UserLearning()
     private val userDbFile by lazy { File(filesDir, "userdb.txt") }
     private val userLearnFile by lazy { File(filesDir, "userlearn.txt") }
-    @Volatile private var userDbMtime = 0L
-    @Volatile private var userLearnMtime = 0L
+    private val userDatabaseDelegate = lazy { openUserDataDatabase() }
+    private val userDatabase by userDatabaseDelegate
+    private val userModel by lazy { UserModel(database = userDatabase) }
+    private val userLearning by lazy { UserLearning(database = userDatabase) }
 
     private var inputView: InputView? = null
 
@@ -165,7 +168,6 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var frameworkWillFinishInput = false
     private var panelInputTitle = ""
     private var lastCopy: String? = null
-    @Volatile private var userDbLoaded = false
     @Volatile private var engineSig = ""
     @Volatile private var engineReloading = false
     private var imePalette = ImePalette.STATIC_LIGHT
@@ -241,10 +243,15 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     )
 
     private val liveUserDictHost by lazy {
-        LiveUserDictHost(userModel, userDbFile, userLearning, userLearnFile) {
-            userDbMtime = it
-            userLearnMtime = userLearnFile.lastModified()
+        LiveUserDictHost(userModel, userDbFile, userLearning, userLearnFile, database = userDatabase)
+    }
+
+    private fun openUserDataDatabase(): UserDataDatabase {
+        val database = UserDataMigration.open(filesDir)
+        if (database.recoveryReport.kind != UserDataRecoveryKind.EXISTING) {
+            Log.w("Aegis", "user data recovery: ${database.recoveryReport.detail}")
         }
+        return database
     }
 
     override fun onCreate() {
@@ -260,8 +267,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 runCatching { symbolUsageStore.load() }
                 runCatching { emojiUsageStore.load() }
                 runCatching {
-                    userLearning.load(userLearnFile)
-                    userLearnMtime = userLearnFile.lastModified()
+                    userModel.reloadFromStorage()
+                    userLearning.reloadFromStorage()
                 }
                 LiveUserData.restoreInProgress = false
             }
@@ -283,10 +290,6 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.setCustomOperators(customOperatorStore.list())
         Thread {
             runCatching { com.aegis.ime.engine.InputAssociations.lookup("nihao") }
-            runCatching { userModel.load(userDbFile); userDbMtime = userDbFile.lastModified() }
-            userLearning.load(userLearnFile)
-            userLearnMtime = userLearnFile.lastModified()
-            userDbLoaded = true
             UserDictHot.host = liveUserDictHost
             val engine = buildEngine()
             Handler(Looper.getMainLooper()).post {
@@ -380,13 +383,6 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.setLearningBlocked(
             info != null && com.aegis.ime.user.ClipboardPolicy.blocksLearning(info.inputType, info.imeOptions),
         )
-        if (userDbLoaded && !userModel.dirty && userDbFile.lastModified() > userDbMtime) {
-            runCatching { userModel.reload(userDbFile); userDbMtime = userDbFile.lastModified() }
-        }
-        if (userDbLoaded && !userLearning.dirty && userLearnFile.lastModified() > userLearnMtime) {
-            userLearning.load(userLearnFile)
-            userLearnMtime = userLearnFile.lastModified()
-        }
         maybeReloadEngine()
     }
 
@@ -405,14 +401,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         inputSessionActive = false
         resetControllerOnNextInputView = false
         secureField = false
-        if (userModel.dirty) runCatching {
-            userModel.save(userDbFile)
-            userDbMtime = userDbFile.lastModified()
-        }
-        if (userLearning.dirty) runCatching {
-            userLearning.save(userLearnFile)
-            userLearnMtime = userLearnFile.lastModified()
-        }
+        if (userDatabaseDelegate.isInitialized()) runCatching { userDatabase.checkpointLastGood() }
     }
 
     private fun downloadedOverride(name: String): File? =
@@ -1142,6 +1131,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (UserDictHot.host === liveUserDictHost) UserDictHot.host = null
         LiveUserData.unregisterClipboardPersistenceHooks(clipboardPendingWriteFlush)
         LiveUserData.onRestored = null
+        if (userDatabaseDelegate.isInitialized()) {
+            runCatching { userDatabase.checkpointLastGood() }
+            runCatching { userDatabase.close() }
+        }
         runCatching {
             getSharedPreferences("aegis", MODE_PRIVATE)
                 .unregisterOnSharedPreferenceChangeListener(settingsHotApply)

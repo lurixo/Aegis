@@ -17,11 +17,14 @@ package com.aegis.ime.user
 
 import java.io.File
 import java.io.InputStream
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 object UserDictImport {
 
     fun apply(importFile: File, userDb: File, merge: Boolean, now: Long): Boolean {
-        if (!importFile.isFile || importFile.length() !in 1..UserModel.MAX_FILE_BYTES) return false
+        if (!importFile.isFile || importFile.length() <= 0L) return false
         return runCatching {
             if (merge) {
                 val target = UserModel().apply { if (userDb.exists()) load(userDb) }
@@ -38,22 +41,33 @@ object UserDictImport {
     }
 
     fun stage(input: InputStream, file: File): Boolean {
-        file.delete()
+        val staged = File(file.parentFile, file.name + ".tmp")
+        staged.delete()
         return runCatching {
             var total = 0L
             val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-            file.outputStream().use { output ->
+            staged.outputStream().use { output ->
                 while (true) {
                     val read = input.read(buffer)
                     if (read < 0) break
                     total += read
-                    if (total > UserModel.MAX_FILE_BYTES) throw IllegalArgumentException("userdb exceeds size limit")
                     output.write(buffer, 0, read)
                 }
             }
+            if (total <= 0L) return@runCatching false
+            try {
+                Files.move(
+                    staged.toPath(),
+                    file.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            } catch (_: AtomicMoveNotSupportedException) {
+                Files.move(staged.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            }
             total > 0L
         }.getOrElse {
-            file.delete()
+            staged.delete()
             false
         }
     }

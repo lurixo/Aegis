@@ -23,7 +23,11 @@ import java.nio.file.StandardCopyOption
 import kotlin.math.exp
 import kotlin.math.ln
 
-class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
+class UserLearning internal constructor(
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val database: UserDataDatabase? = null,
+) {
+    constructor(clock: () -> Long = System::currentTimeMillis) : this(clock, null)
 
     private class Usage(var count: Double, var lastSeen: Long)
 
@@ -47,8 +51,17 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
     var version: Long = 0L
         private set
 
+    @Volatile
+    var lastFailure: String? = null
+        private set
+
+    init {
+        database?.readLearning()?.let(::applyStored)
+    }
+
     @Synchronized
     fun observeCommit(prevWord: String?, word: String, reading: String, now: Long) {
+        val before = if (database == null) null else storageSnapshot()
         val t = now.coerceAtLeast(0L)
         var changed = false
         if (prevWord == null) {
@@ -63,16 +76,15 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
             if (closeChain(t)) changed = true
         }
         if (changed) {
-            dirty = true
-            version++
+            finishMutation(before)
         }
     }
 
     @Synchronized
     fun observeBreak() {
+        val before = if (database == null) null else storageSnapshot()
         if (closeChain(clock())) {
-            dirty = true
-            version++
+            finishMutation(before)
         }
     }
 
@@ -151,7 +163,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
         var best = 0.0
         var start = prevContext.length
         var chars = 0
-        while (start > 0 && chars < WINDOW_MAX) {
+        while (start > 0) {
             val cp = prevContext.codePointBefore(start)
             if (!Character.isIdeographic(cp)) break
             start -= Character.charCount(cp)
@@ -166,6 +178,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
     @Synchronized
     fun removeWord(word: String) {
         if (word.isEmpty()) return
+        val before = if (database == null) null else storageSnapshot()
         var changed = false
         formedByWord.remove(word)?.let {
             formedPairs -= it.size
@@ -187,8 +200,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
             }
         }
         if (changed) {
-            dirty = true
-            version++
+            finishMutation(before)
         }
     }
 
@@ -213,7 +225,6 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
                     for ((word, u) in m) w.write("C\t$prev\t$word\t${u.count}\t${u.lastSeen}\n")
                 }
             }
-            require(tmp.length() <= MAX_FILE_BYTES) { "userlearn exceeds size limit" }
             try {
                 Files.move(
                     tmp.toPath(),
@@ -229,15 +240,18 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
             throw e
         }
         dirty = false
+        database?.checkpointLastGood()
     }
 
     @Synchronized
     fun load(file: File) {
         val parsed = try {
             parse(file)
-        } catch (_: Exception) {
-            Parsed()
+        } catch (e: Exception) {
+            lastFailure = e.javaClass.simpleName + ": " + e.message.orEmpty()
+            return
         }
+        database?.replaceLearning(parsed.toStored())
         formedByWord.clear()
         pendingCounts.clear()
         followsByPrev.clear()
@@ -250,12 +264,12 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
         pendingCounts.putAll(parsed.pending)
         followsByPrev.putAll(parsed.follows)
         dirty = false
+        lastFailure = null
         version++
     }
 
     private fun extendChain(ch: String, reading: String, now: Long): Boolean {
         chainRun.addLast(ch to reading)
-        if (chainRun.size > WINDOW_MAX) chainRun.removeFirst()
         chainPos++
         var changed = false
         val n = chainRun.size
@@ -279,16 +293,12 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
             val key = pendingKey(joined, word)
             val u = pendingCounts[key]
             if (u == null) {
-                if (pendingCounts.size >= PENDING_CAP) evictWeakestPending(now)
                 pendingCounts[key] = Usage(1.0, now)
             } else {
                 touch(u, now, PENDING_HALF_LIFE_MILLIS)
                 if (u.count >= PROMOTE_AT) ripe.add(Window(chainPos - len, chainPos, chars, readings))
             }
             changed = true
-        }
-        if (ripe.size + coveredRanges.size >= RIPE_CAP) {
-            if (closeChain(now)) changed = true
         }
         return changed
     }
@@ -342,7 +352,6 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
             touch(existing, now, FORMED_HALF_LIFE_MILLIS)
             return
         }
-        if (formedPairs >= FORMED_CAP) evictWeakestFormed(now)
         formedByWord.getOrPut(word) { HashMap() }[reading] = Usage(seed, now)
         formedPairs++
     }
@@ -351,7 +360,6 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
         if (!isCollocatable(prev) || !isCollocatable(word)) return false
         val m = followsByPrev[prev]
         if (m == null) {
-            if (followsByPrev.size >= FOLLOW_PREV_CAP) evictStalestPrev()
             followsByPrev[prev] = hashMapOf(word to Usage(1.0, now))
             return true
         }
@@ -360,68 +368,8 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
             touch(u, now, FOLLOW_HALF_LIFE_MILLIS)
             return true
         }
-        if (m.size >= FOLLOW_PER_PREV) {
-            var worstWord: String? = null
-            var worst = Double.MAX_VALUE
-            for ((cw, cu) in m) {
-                val eff = decayed(cu.count, cu.lastSeen, now, FOLLOW_HALF_LIFE_MILLIS)
-                if (eff < worst) {
-                    worst = eff
-                    worstWord = cw
-                }
-            }
-            if (worst >= FOLLOW_EVICT_FLOOR) return false
-            m.remove(worstWord)
-        }
         m[word] = Usage(1.0, now)
         return true
-    }
-
-    private fun evictWeakestFormed(now: Long) {
-        var worstWord: String? = null
-        var worstReading: String? = null
-        var worst = Double.MAX_VALUE
-        for ((word, m) in formedByWord) {
-            for ((reading, u) in m) {
-                val eff = decayed(u.count, u.lastSeen, now, FORMED_HALF_LIFE_MILLIS)
-                if (eff < worst) {
-                    worst = eff
-                    worstWord = word
-                    worstReading = reading
-                }
-            }
-        }
-        val word = worstWord ?: return
-        val m = formedByWord[word] ?: return
-        if (m.remove(worstReading) != null) formedPairs--
-        if (m.isEmpty()) formedByWord.remove(word)
-    }
-
-    private fun evictWeakestPending(now: Long) {
-        var worstKey: String? = null
-        var worst = Double.MAX_VALUE
-        for ((key, u) in pendingCounts) {
-            val eff = decayed(u.count, u.lastSeen, now, PENDING_HALF_LIFE_MILLIS)
-            if (eff < worst) {
-                worst = eff
-                worstKey = key
-            }
-        }
-        worstKey?.let { pendingCounts.remove(it) }
-    }
-
-    private fun evictStalestPrev() {
-        var worstPrev: String? = null
-        var worstSeen = Long.MAX_VALUE
-        for ((prev, m) in followsByPrev) {
-            var latest = 0L
-            for (u in m.values) if (u.lastSeen > latest) latest = u.lastSeen
-            if (latest < worstSeen) {
-                worstSeen = latest
-                worstPrev = prev
-            }
-        }
-        worstPrev?.let { followsByPrev.remove(it) }
     }
 
     private fun sweep(now: Long): Boolean {
@@ -471,25 +419,14 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
     )
 
     internal companion object {
-        internal const val WINDOW_MAX = 4
         internal const val PROMOTE_AT = 2.5
-        internal const val FORMED_CAP = 500
-        internal const val PENDING_CAP = 2000
-        internal const val FOLLOW_PREV_CAP = 1500
-        internal const val FOLLOW_PER_PREV = 8
         internal const val PENDING_HALF_LIFE_MILLIS = 14L * 24L * 60L * 60L * 1000L
         internal const val FORMED_HALF_LIFE_MILLIS = 30L * 24L * 60L * 60L * 1000L
         internal const val FOLLOW_HALF_LIFE_MILLIS = 14L * 24L * 60L * 60L * 1000L
-        internal const val MAX_FILE_BYTES = 2L * 1024L * 1024L
         private const val HEADER = "aegis-userlearn 1"
-        private const val MAX_LINE_LENGTH = 4_096
-        private const val MAX_COLLOC_LEN = 4
-        private const val MAX_FORMED_READING = 24
         private const val MAX_COUNT = 1.0e12
-        private const val RIPE_CAP = 64
         private const val MIN_ACTIVE = 0.25
         private const val PRUNE_FLOOR = 0.0625
-        private const val FOLLOW_EVICT_FLOOR = 1.0
         private const val FOLLOW_WEIGHT = 2.5
         private const val BOOST_WEIGHT = 3.5
         private const val RECENCY_WEIGHT = 2.0
@@ -524,13 +461,13 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
             word.isNotEmpty() && word.codePointCount(0, word.length) == 1 && allHan(word)
 
         private fun isFormableWord(word: String): Boolean =
-            allHan(word) && word.codePointCount(0, word.length) in 2..WINDOW_MAX
+            allHan(word) && word.codePointCount(0, word.length) >= 2
 
         private fun isCollocatable(word: String): Boolean =
-            allHan(word) && word.codePointCount(0, word.length) in 1..MAX_COLLOC_LEN
+            allHan(word)
 
         private fun isFormedReading(reading: String): Boolean =
-            reading.length in 2..MAX_FORMED_READING && reading.all { it in 'a'..'z' }
+            reading.length >= 2 && reading.all { it in 'a'..'z' }
 
         private fun sanitizeReading(reading: String): String {
             val sb = StringBuilder(reading.length)
@@ -540,15 +477,11 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
 
         private fun parse(file: File): Parsed {
             if (!file.exists() || file.length() == 0L) return Parsed()
-            require(file.length() <= MAX_FILE_BYTES) { "userlearn size is invalid" }
             val parsed = Parsed()
-            var formedRows = 0
-            var pendingRows = 0
             file.bufferedReader().use { reader ->
                 require(reader.readLine() == HEADER) { "unsupported userlearn header" }
                 while (true) {
                     val line = reader.readLine() ?: break
-                    require(line.length <= MAX_LINE_LENGTH) { "userlearn line is too long" }
                     val p = line.split('\t')
                     require(p.size == 5) { "invalid userlearn row" }
                     val count = p[3].toDoubleOrNull()
@@ -560,13 +493,11 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
                     when (p[0]) {
                         "F" -> {
                             require(isFormedReading(p[1]) && isFormableWord(p[2])) { "invalid userlearn formed row" }
-                            require(++formedRows <= FORMED_CAP) { "userlearn has too many formed rows" }
                             val m = parsed.formed.getOrPut(p[2]) { HashMap() }
                             require(m.put(p[1], Usage(count, seen)) == null) { "duplicate userlearn formed row" }
                         }
                         "P" -> {
                             require(isFormedReading(p[1]) && isFormableWord(p[2])) { "invalid userlearn pending row" }
-                            require(++pendingRows <= PENDING_CAP) { "userlearn has too many pending rows" }
                             require(parsed.pending.put(pendingKey(p[1], p[2]), Usage(count, seen)) == null) {
                                 "duplicate userlearn pending row"
                             }
@@ -574,8 +505,6 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
                         "C" -> {
                             require(isCollocatable(p[1]) && isCollocatable(p[2])) { "invalid userlearn follow row" }
                             val m = parsed.follows.getOrPut(p[1]) { HashMap() }
-                            require(parsed.follows.size <= FOLLOW_PREV_CAP) { "userlearn has too many follow keys" }
-                            require(m.size < FOLLOW_PER_PREV) { "userlearn has too many follow rows" }
                             require(m.put(p[2], Usage(count, seen)) == null) { "duplicate userlearn follow row" }
                         }
                         else -> throw IllegalArgumentException("invalid userlearn row")
@@ -585,4 +514,78 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
             return parsed
         }
     }
+
+    @Synchronized
+    internal fun storageSnapshot(): UserLearningSnapshot = UserLearningSnapshot(
+        formed = formedByWord.mapValues { (_, readings) ->
+            readings.mapValues { (_, value) -> StoredUsage(value.count, value.lastSeen) }
+        },
+        pending = pendingCounts.map { (key, value) ->
+            val split = key.indexOf('\t')
+            (key.substring(0, split) to key.substring(split + 1)) to StoredUsage(value.count, value.lastSeen)
+        }.toMap(LinkedHashMap()),
+        follows = followsByPrev.mapValues { (_, words) ->
+            words.mapValues { (_, value) -> StoredUsage(value.count, value.lastSeen) }
+        },
+    )
+
+    private fun Parsed.toStored(): UserLearningSnapshot = UserLearningSnapshot(
+        formed = formed.mapValues { (_, readings) ->
+            readings.mapValues { (_, value) -> StoredUsage(value.count, value.lastSeen) }
+        },
+        pending = pending.map { (key, value) ->
+            val split = key.indexOf('\t')
+            (key.substring(0, split) to key.substring(split + 1)) to StoredUsage(value.count, value.lastSeen)
+        }.toMap(LinkedHashMap()),
+        follows = follows.mapValues { (_, words) ->
+            words.mapValues { (_, value) -> StoredUsage(value.count, value.lastSeen) }
+        },
+    )
+
+    private fun applyStored(snapshot: UserLearningSnapshot) {
+        formedByWord.clear()
+        pendingCounts.clear()
+        followsByPrev.clear()
+        chainRun.clear()
+        ripe.clear()
+        coveredRanges.clear()
+        chainPos = 0L
+        for ((word, readings) in snapshot.formed) {
+            formedByWord[word] = HashMap(readings.mapValues { (_, value) -> Usage(value.count, value.lastSeen) })
+        }
+        formedPairs = formedByWord.values.sumOf { it.size }
+        for ((key, value) in snapshot.pending) {
+            pendingCounts[pendingKey(key.first, key.second)] = Usage(value.count, value.lastSeen)
+        }
+        for ((previous, words) in snapshot.follows) {
+            followsByPrev[previous] = HashMap(words.mapValues { (_, value) -> Usage(value.count, value.lastSeen) })
+        }
+        dirty = false
+    }
+
+    private fun finishMutation(before: UserLearningSnapshot?) {
+        if (database == null) {
+            dirty = true
+            version++
+            return
+        }
+        try {
+            database.replaceLearning(storageSnapshot())
+            lastFailure = null
+            dirty = false
+            version++
+        } catch (e: Exception) {
+            before?.let(::applyStored)
+            lastFailure = e.javaClass.simpleName + ": " + e.message.orEmpty()
+        }
+    }
+
+    @Synchronized
+    internal fun reloadFromStorage() {
+        database?.readLearning()?.let(::applyStored)
+        version++
+    }
+
+    internal val isDatabaseBacked: Boolean
+        get() = database != null
 }

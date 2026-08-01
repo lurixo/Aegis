@@ -19,16 +19,25 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import java.io.File
 import java.nio.file.Files
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class UserDictEditTest {
 
+    private fun userDb(prefix: String): File =
+        File(Files.createTempDirectory(prefix).toFile().also { it.deleteOnExit() }, "userdb.txt")
+
     @Test fun add_persists_and_isReadableByTheModel() {
-        val db = File.createTempFile("userdb-edit", ".txt").also { it.deleteOnExit() }
+        val db = userDb("userdb-edit")
         assertTrue(UserDictEdit.add(db, "测试", "ceshi", 1))
         assertTrue(UserDictEdit.add(db, "北京", "beijing", 2))
 
+        UserDictEdit.flushBeforeExport(db)
         val m = UserModel().apply { load(db) }
         assertEquals(listOf("测试"), m.readingSnapshot()["ceshi"])
         assertEquals(listOf("北京"), m.readingSnapshot()["beijing"])
@@ -38,11 +47,12 @@ class UserDictEditTest {
     }
 
     @Test fun remove_dropsFromRecallAndBoost() {
-        val db = File.createTempFile("userdb-edit2", ".txt").also { it.deleteOnExit() }
+        val db = userDb("userdb-edit2")
         UserDictEdit.add(db, "测试", "ceshi", 1)
         UserDictEdit.add(db, "北京", "beijing", 2)
 
         assertTrue(UserDictEdit.remove(db, "ceshi", "测试"))
+        UserDictEdit.flushBeforeExport(db)
         val m = UserModel().apply { load(db) }
         assertEquals("removed word gone", null, m.readingSnapshot()["ceshi"])
         assertEquals("removed word not boosted", 0.0, m.wordBoost("测试"), 0.0)
@@ -51,10 +61,11 @@ class UserDictEditTest {
     }
 
     @Test fun remove_isReadingScoped_keepsOtherReadingsOfTheSameWord() {
-        val db = File.createTempFile("userdb-edit5", ".txt").also { it.deleteOnExit() }
+        val db = userDb("userdb-edit5")
         UserDictEdit.add(db, "长", "chang", 1)
         UserDictEdit.add(db, "长", "zhang", 2)
         assertTrue(UserDictEdit.remove(db, "chang", "长"))
+        UserDictEdit.flushBeforeExport(db)
         val m = UserModel().apply { load(db) }
         assertEquals("only the chang reading dropped", null, m.readingSnapshot()["chang"])
         assertEquals("the zhang reading of the same word survives", listOf("长"), m.readingSnapshot()["zhang"])
@@ -77,25 +88,28 @@ class UserDictEditTest {
         }
 
         assertTrue(UserDictEdit.remove(db, "nihao", "你好"))
-        val reloaded = UserLearning { 1_000L }.apply { load(userLearn) }
-        assertTrue(reloaded.formedWordsFor("nihao").isEmpty())
-        assertTrue(reloaded.follows("前").isEmpty())
+        UserDataMigration.open(dir).use { database ->
+            val reloaded = UserLearning({ 1_000L }, database)
+            assertTrue(reloaded.formedWordsFor("nihao").isEmpty())
+            assertTrue(reloaded.follows("前").isEmpty())
+        }
     }
 
     @Test fun add_isConsistentWithImportedEntries() {
-        val db = File.createTempFile("userdb-edit3", ".txt").also { it.deleteOnExit() }
+        val db = userDb("userdb-edit3")
         UserDictEdit.add(db, "测试", "ceshi", 1)
         val incoming = File.createTempFile("incoming", ".txt").also { it.deleteOnExit() }
         UserModel().apply { recordWord("beijing", "北京", 1, incrementCount = true) }.save(incoming)
 
-        assertTrue(UserDictImport.apply(incoming, db, merge = true, now = 2))
+        assertTrue(UserDictEdit.applyImport(db, incoming, merge = true, now = 2))
+        UserDictEdit.flushBeforeExport(db)
         val m = UserModel().apply { load(db) }
         assertEquals(listOf("测试"), m.readingSnapshot()["ceshi"])
         assertEquals(listOf("北京"), m.readingSnapshot()["beijing"])
     }
 
     @Test fun blankWord_isRejected() {
-        val db = File.createTempFile("userdb-edit4", ".txt").also { it.deleteOnExit() }
+        val db = userDb("userdb-edit4")
         assertFalse(UserDictEdit.add(db, "   ", "ceshi", 1))
     }
 }

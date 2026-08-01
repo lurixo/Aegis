@@ -19,39 +19,71 @@ import java.io.File
 
 object UserDictEdit {
 
+    private fun rootOf(userDb: File): File = requireNotNull(userDb.absoluteFile.parentFile)
+
     fun add(userDb: File, word: String, reading: String, now: Long): Boolean {
         if (word.isBlank()) return false
         UserDictHot.host?.let { return it.addWord(reading, word, now) }
-        val m = UserModel().apply { if (userDb.exists()) load(userDb) }
-        m.addManualWord(reading, word, now)
-        m.save(userDb)
-        return true
+        return runCatching {
+            UserDataMigration.open(rootOf(userDb)).use { database ->
+                val model = UserModel(database = database)
+                model.addManualWord(reading, word, now).also { if (it) database.checkpointLastGood() }
+            }
+        }.getOrDefault(false)
     }
 
     fun remove(userDb: File, reading: String, word: String): Boolean {
         if (word.isBlank()) return false
         UserDictHot.host?.let { return it.removeWord(reading, word) }
-        val m = UserModel().apply { if (userDb.exists()) load(userDb) }
-        m.removeWord(reading, word)
-        m.save(userDb)
-        val userLearn = File(userDb.absoluteFile.parentFile, "userlearn.txt")
-        val learning = UserLearning().apply { if (userLearn.exists()) load(userLearn) }
-        learning.removeWord(word)
-        if (learning.dirty) learning.save(userLearn)
-        return true
+        return runCatching {
+            UserDataMigration.open(rootOf(userDb)).use { database ->
+                val model = UserModel(database = database)
+                if (!model.removeWord(reading, word)) return@use false
+                UserLearning(database = database).removeWord(word)
+                database.checkpointLastGood()
+                true
+            }
+        }.getOrDefault(false)
     }
 
     fun applyImport(userDb: File, importFile: File, merge: Boolean, now: Long): Boolean {
         UserDictHot.host?.let { return it.importUserDict(importFile, merge, now) }
-        return UserDictImport.apply(importFile, userDb, merge, now)
+        if (!importFile.isFile || importFile.length() <= 0L) return false
+        return runCatching {
+            val incoming = UserModel().apply { load(importFile) }
+            if (incoming.isEmpty()) return@runCatching false
+            UserDataMigration.open(rootOf(userDb)).use { database ->
+                val model = UserModel(database = database)
+                val applied = if (merge) model.importFrom(importFile, now)
+                else {
+                    model.replaceFromStorage(incoming.storageSnapshot())
+                    true
+                }
+                if (applied) database.checkpointLastGood()
+                applied
+            }
+        }.getOrDefault(false)
     }
 
-    fun flushBeforeExport() {
-        UserDictHot.host?.flush()
+    fun flushBeforeExport(userDb: File? = null) {
+        UserDictHot.host?.let {
+            it.flush()
+            return
+        }
+        if (userDb == null) return
+        runCatching {
+            UserDataMigration.open(rootOf(userDb)).use { database ->
+                UserModel(database = database).save(userDb)
+            }
+        }
     }
 
     fun list(userDb: File): List<UserModel.Entry> {
         UserDictHot.host?.let { return it.entries() }
-        return UserModel().apply { if (userDb.exists()) load(userDb) }.userWordEntries()
+        return runCatching {
+            UserDataMigration.open(rootOf(userDb)).use { database ->
+                UserModel(database = database).userWordEntries()
+            }
+        }.getOrDefault(emptyList())
     }
 }
