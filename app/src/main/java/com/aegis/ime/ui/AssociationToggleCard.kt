@@ -15,7 +15,6 @@
 
 package com.aegis.ime.ui
 
-import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -35,8 +34,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.core.content.edit
 import com.aegis.ime.R
+import com.aegis.ime.user.userSettings
 
 internal const val PREF_ASSOCIATIONS_ON = "pref_associations_on"
 
@@ -45,7 +44,7 @@ internal const val ASSOCIATIONS_DEFAULT_ON = false
 @Composable
 internal fun AssociationToggleCard() {
     val context = LocalContext.current
-    val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
+    val prefs = remember(context) { userSettings(context) }
     var on by remember { mutableStateOf(prefs.getBoolean(PREF_ASSOCIATIONS_ON, ASSOCIATIONS_DEFAULT_ON)) }
 
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -67,8 +66,7 @@ internal fun AssociationToggleCard() {
             Switch(
                 checked = on,
                 onCheckedChange = {
-                    on = it
-                    prefs.edit { putBoolean(PREF_ASSOCIATIONS_ON, it) }
+                    if (persistUserSetting(context, prefs) { putBoolean(PREF_ASSOCIATIONS_ON, it) }) on = it
                 },
             )
         }

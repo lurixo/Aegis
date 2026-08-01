@@ -64,6 +64,8 @@ import com.aegis.ime.user.UserDataRecoveryKind
 import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
+import com.aegis.ime.user.UserSettingsPreferences
+import com.aegis.ime.user.userSettings
 import java.io.File
 
 class AegisInputMethodService : InputMethodService(), ImeHost {
@@ -82,6 +84,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     @Volatile private var panelTextSnapshot: String? = null
     private val userDbFile by lazy { File(filesDir, "userdb.txt") }
     private val userLearnFile by lazy { File(filesDir, "userlearn.txt") }
+    private val legacyPreferences by lazy { getSharedPreferences("aegis", MODE_PRIVATE) }
+    private val settingsPreferences by lazy { userSettings(this) }
     private val userDatabaseDelegate = lazy { openUserDataDatabase() }
     private val userDatabase by userDatabaseDelegate
     private val userModel by lazy { UserModel(database = userDatabase) }
@@ -98,11 +102,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var layoutPanelView: LayoutPanelView? = null
     private var customSymbolView: CustomSymbolPanel? = null
     private val customSymbolStore by lazy {
-        CustomSymbolStore(getSharedPreferences("aegis", MODE_PRIVATE), "custom_symbols", userDatabase)
+        CustomSymbolStore(legacyPreferences, "custom_symbols", userDatabase)
     }
     private var customOperatorView: CustomSymbolPanel? = null
     private val customOperatorStore by lazy {
-        CustomSymbolStore(getSharedPreferences("aegis", MODE_PRIVATE), "custom_operators", userDatabase)
+        CustomSymbolStore(legacyPreferences, "custom_operators", userDatabase)
     }
     private val zhSymbolPalette: List<String> by lazy {
         SymbolCatalog.categories.first { it.id == "zh" }.symbols.filter { it !in Layouts.nineFixedPunctuation }
@@ -253,7 +257,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun openUserDataDatabase(): UserDataDatabase {
-        val database = UserDataMigration.open(filesDir, getSharedPreferences("aegis", MODE_PRIVATE))
+        val database = UserDataMigration.open(filesDir, legacyPreferences)
         if (database.recoveryReport.kind != UserDataRecoveryKind.EXISTING) {
             Log.w("Aegis", "user data recovery: ${database.recoveryReport.detail}")
         }
@@ -264,8 +268,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         super.onCreate()
         runCatching { clipboardManager.addPrimaryClipChangedListener(clipChangedListener) }
         runCatching {
-            getSharedPreferences("aegis", MODE_PRIVATE)
-                .registerOnSharedPreferenceChangeListener(settingsHotApply)
+            settingsPreferences.registerOnSharedPreferenceChangeListener(settingsHotApply)
+            legacyPreferences.registerOnSharedPreferenceChangeListener(settingsHotApply)
         }
         LiveUserData.onRestored = {
             mainHandler.post {
@@ -276,6 +280,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                     userModel.reloadFromStorage()
                     userLearning.reloadFromStorage()
                 }
+                runCatching { UserSettingsPreferences.notifyRestored(filesDir) }
                 LiveUserData.restoreInProgress = false
             }
         }
@@ -322,7 +327,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun currentFuzzyRules(): Set<String> =
-        SettingsHotApply.fuzzyRules(getSharedPreferences("aegis", MODE_PRIVATE))
+        SettingsHotApply.fuzzyRules(settingsPreferences)
 
     private fun maybeReloadEngine() {
         if (engineSig.isEmpty() || engineReloading) return
@@ -479,7 +484,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.attachView(view)
         imePalette = computePalette()
         view.applyPalette(imePalette)
-        val fbPrefs = getSharedPreferences("aegis", MODE_PRIVATE)
+        val fbPrefs = settingsPreferences
         view.setKeyHaptics(SettingsHotApply.keyHaptics(fbPrefs))
         view.setKeyPreviewNine(SettingsHotApply.keyPreviewNine(fbPrefs))
         view.setKeyPreviewAlpha(SettingsHotApply.keyPreviewAlpha(fbPrefs))
@@ -585,7 +590,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             secureField = viewSecure
             resetControllerOnNextInputView = true
         }
-        val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
+        val prefs = settingsPreferences
         controller.setCnDefaultLayout(SettingsHotApply.cnLayout(prefs))
         controller.setDefaultLang(SettingsHotApply.defaultLang(prefs))
         controller.setAssociationsEnabled(SettingsHotApply.associationsOn(prefs))
@@ -1088,9 +1093,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (inputView?.isPanelShowing(cv) == true) cv.refresh()
     }
 
-    private fun historyEnabled() = getSharedPreferences("aegis", MODE_PRIVATE).getBoolean("clip_history", true)
-    private fun setHistoryEnabled(on: Boolean) =
-        getSharedPreferences("aegis", MODE_PRIVATE).edit().putBoolean("clip_history", on).apply()
+    private fun historyEnabled() = settingsPreferences.getBoolean("clip_history", false)
+    private fun setHistoryEnabled(on: Boolean): Boolean =
+        settingsPreferences.edit().putBoolean("clip_history", on).commit()
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
@@ -1147,8 +1152,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             runCatching { userDatabase.close() }
         }
         runCatching {
-            getSharedPreferences("aegis", MODE_PRIVATE)
-                .unregisterOnSharedPreferenceChangeListener(settingsHotApply)
+            settingsPreferences.unregisterOnSharedPreferenceChangeListener(settingsHotApply)
+            legacyPreferences.unregisterOnSharedPreferenceChangeListener(settingsHotApply)
         }
         super.onDestroy()
     }

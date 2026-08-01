@@ -25,6 +25,7 @@
     <string name="settings_group_about_title">About &amp; enable</string>
     <string name="settings_group_about_desc">App release, enable Aegis, try typing</string>
     <string name="settings_back">Back</string>
+    <string name="settings_save_failed">Could not save this setting</string>
 
     <string name="download_button">Download</string>
     <string name="check_model_update_button">Check model updates</string>

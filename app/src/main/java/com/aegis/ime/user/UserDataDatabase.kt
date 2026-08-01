@@ -58,6 +58,15 @@ internal data class ClipboardDataSnapshot(
 
 internal data class StoredRecentItem(val value: String, val origin: String?)
 
+internal sealed class StoredSettingValue {
+    data class Bool(val value: Boolean) : StoredSettingValue()
+    data class Integer(val value: Int) : StoredSettingValue()
+    data class LongValue(val value: Long) : StoredSettingValue()
+    data class FloatValue(val value: Float) : StoredSettingValue()
+    data class StringValue(val value: String) : StoredSettingValue()
+    data class StringSetValue(val value: Set<String>) : StoredSettingValue()
+}
+
 internal enum class UserDataRecoveryKind {
     EXISTING,
     LAST_GOOD,
@@ -116,6 +125,102 @@ internal class UserDataDatabase private constructor(
             }
             database.insertWithOnConflict("metadata", null, values, SQLiteDatabase.CONFLICT_REPLACE)
         }
+    }
+
+    @Synchronized
+    fun settingCount(): Long = scalarLong("SELECT COUNT(*) FROM user_settings")
+
+    @Synchronized
+    fun readSetting(key: String): StoredSettingValue? = readSettingInTransaction(key)
+
+    @Synchronized
+    fun readSettings(): Map<String, StoredSettingValue> {
+        val out = LinkedHashMap<String, StoredSettingValue>()
+        database.rawQuery("SELECT key FROM user_settings ORDER BY key", null).use { cursor ->
+            while (cursor.moveToNext()) {
+                val key = cursor.getString(0)
+                out[key] = checkNotNull(readSettingInTransaction(key))
+            }
+        }
+        return out
+    }
+
+    @Synchronized
+    fun updateSettings(
+        values: Map<String, StoredSettingValue>,
+        removals: Set<String> = emptySet(),
+        clear: Boolean = false,
+    ) {
+        transaction {
+            if (clear) database.delete("user_settings", null, null)
+            for (key in removals) database.delete("user_settings", "key=?", arrayOf(key))
+            for ((key, value) in values) writeSettingInTransaction(key, value)
+            for ((key, value) in values) {
+                if (readSettingInTransaction(key) != value) throw IOException("setting verification failed: $key")
+            }
+            putMetadataInTransaction(SETTINGS_CHECKPOINT_PENDING_KEY, "1")
+        }
+    }
+
+    @Synchronized
+    fun markSettingsCheckpointed() {
+        putMetadata(SETTINGS_CHECKPOINT_PENDING_KEY, "0")
+    }
+
+    @Synchronized
+    fun replaceSettings(values: Map<String, StoredSettingValue>) {
+        updateSettings(values, clear = true)
+    }
+
+    @Synchronized
+    fun migrateLegacySettings(
+        values: Map<String, StoredSettingValue>,
+        sourceCount: Int,
+        sourceDigest: String,
+        stage: ((SettingsMigrationStage) -> Unit)? = null,
+    ): Boolean {
+        if (metadata(SETTINGS_MIGRATION_KEY) != null) {
+            val missingDefaults = UserSettingsSchema.defaults.filterKeys { readSetting(it) == null }
+            if (missingDefaults.isNotEmpty()) {
+                updateSettings(missingDefaults)
+                checkpointLastGood()
+                markSettingsCheckpointed()
+            } else if (metadata(SETTINGS_CHECKPOINT_PENDING_KEY) == "1") {
+                checkpointLastGood()
+                markSettingsCheckpointed()
+            }
+            stage?.invoke(SettingsMigrationStage.AFTER_DATABASE_COMMIT)
+            return false
+        }
+        var migrated = false
+        transaction {
+            if (metadataInTransaction(SETTINGS_MIGRATION_KEY) != null) return@transaction
+            if (scalarLong("SELECT COUNT(*) FROM user_settings") != 0L) {
+                throw IOException("unmarked settings table is not empty")
+            }
+            for ((key, value) in values) writeSettingInTransaction(key, value)
+            if (scalarLong("SELECT COUNT(*) FROM user_settings") != values.size.toLong()) {
+                throw IOException("settings migration record count mismatch")
+            }
+            for ((key, value) in values) {
+                if (readSettingInTransaction(key) != value) {
+                    throw IOException("settings migration readback failed: $key")
+                }
+            }
+            putMetadataInTransaction(SETTINGS_MIGRATION_SOURCE_COUNT_KEY, sourceCount.toString())
+            putMetadataInTransaction(SETTINGS_MIGRATION_SOURCE_DIGEST_KEY, sourceDigest)
+            putMetadataInTransaction(SETTINGS_MIGRATION_RECORD_COUNT_KEY, values.size.toString())
+            putMetadataInTransaction(SETTINGS_CHECKPOINT_PENDING_KEY, "1")
+            putMetadataInTransaction(SETTINGS_MIGRATION_KEY, "complete")
+            stage?.invoke(SettingsMigrationStage.BEFORE_DATABASE_COMMIT)
+            migrated = true
+        }
+        if (migrated) {
+            checkpointLastGood()
+            markSettingsCheckpointed()
+        }
+        stage?.invoke(SettingsMigrationStage.AFTER_DATABASE_COMMIT)
+        return migrated
     }
 
     @Synchronized
@@ -393,6 +498,7 @@ internal class UserDataDatabase private constructor(
         recentItems: Map<String, List<Pair<String, StoredRecentItem>>>,
         identities: Map<String, String>,
     ) {
+        if (clipboard == null && customItems.isEmpty() && recentItems.isEmpty() && identities.isEmpty()) return
         var changed = false
         transaction {
             if (clipboard != null && metadataInTransaction(CLIPBOARD_MIGRATION_KEY) == null) {
@@ -433,6 +539,8 @@ internal class UserDataDatabase private constructor(
 
     @Synchronized
     fun migrateLegacy(userData: UserDataSnapshot?, learning: UserLearningSnapshot?, identities: Map<String, String>) {
+        if (metadata(MIGRATION_KEY) != null) return
+        var changed = false
         transaction {
             if (metadataInTransaction(MIGRATION_KEY) != null) return@transaction
             if (userData != null && scalarLong("SELECT COUNT(*) FROM user_words") == 0L) insertUserData(userData)
@@ -446,8 +554,9 @@ internal class UserDataDatabase private constructor(
             if (userData != null && readUserData() != userData) throw IOException("legacy user data verification failed")
             if (learning != null && readLearning() != learning) throw IOException("legacy learning verification failed")
             putMetadataInTransaction(MIGRATION_KEY, "complete")
+            changed = true
         }
-        checkpointLastGood()
+        if (changed) checkpointLastGood()
     }
 
     @Synchronized
@@ -608,6 +717,7 @@ internal class UserDataDatabase private constructor(
         mergePhraseCategories()
         mergeCustomItems()
         mergeRecentItems()
+        mergeSettings()
     }
 
     private fun mergeUsageTable(table: String, firstKey: String, secondKey: String) {
@@ -748,6 +858,92 @@ internal class UserDataDatabase private constructor(
                 if (database.insertWithOnConflict("recent_items", null, values, SQLiteDatabase.CONFLICT_IGNORE) != -1L) {
                     nextRecency[kind] = recency - 1
                 }
+            }
+        }
+    }
+
+    private fun mergeSettings() {
+        database.execSQL(
+            "INSERT OR REPLACE INTO user_settings (key,type,integer_value,text_value) " +
+                "SELECT key,type,integer_value,text_value FROM restore_source.user_settings",
+        )
+        database.execSQL(
+            "INSERT INTO user_setting_set_values (setting_key,value) " +
+                "SELECT setting_key,value FROM restore_source.user_setting_set_values",
+        )
+    }
+
+    private fun readSettingInTransaction(key: String): StoredSettingValue? = database.rawQuery(
+        "SELECT type,integer_value,text_value FROM user_settings WHERE key=?",
+        arrayOf(key),
+    ).use { cursor ->
+        if (!cursor.moveToFirst()) return@use null
+        when (cursor.getInt(0)) {
+            SETTING_BOOLEAN -> StoredSettingValue.Bool(cursor.getLong(1) != 0L)
+            SETTING_INT -> StoredSettingValue.Integer(cursor.getInt(1))
+            SETTING_LONG -> StoredSettingValue.LongValue(cursor.getLong(1))
+            SETTING_FLOAT -> StoredSettingValue.FloatValue(Float.fromBits(cursor.getInt(1)))
+            SETTING_STRING -> StoredSettingValue.StringValue(cursor.getString(2))
+            SETTING_STRING_SET -> {
+                val values = LinkedHashSet<String>()
+                database.rawQuery(
+                    "SELECT value FROM user_setting_set_values WHERE setting_key=? ORDER BY value",
+                    arrayOf(key),
+                ).use { valueCursor ->
+                    while (valueCursor.moveToNext()) values.add(valueCursor.getString(0))
+                }
+                StoredSettingValue.StringSetValue(values)
+            }
+            else -> throw IOException("unsupported setting type for $key")
+        }
+    }
+
+    private fun writeSettingInTransaction(key: String, value: StoredSettingValue) {
+        require(key.isNotEmpty())
+        val values = ContentValues().apply {
+            put("key", key)
+            when (value) {
+                is StoredSettingValue.Bool -> {
+                    put("type", SETTING_BOOLEAN)
+                    put("integer_value", if (value.value) 1L else 0L)
+                    putNull("text_value")
+                }
+                is StoredSettingValue.Integer -> {
+                    put("type", SETTING_INT)
+                    put("integer_value", value.value.toLong())
+                    putNull("text_value")
+                }
+                is StoredSettingValue.LongValue -> {
+                    put("type", SETTING_LONG)
+                    put("integer_value", value.value)
+                    putNull("text_value")
+                }
+                is StoredSettingValue.FloatValue -> {
+                    put("type", SETTING_FLOAT)
+                    put("integer_value", value.value.toRawBits().toLong())
+                    putNull("text_value")
+                }
+                is StoredSettingValue.StringValue -> {
+                    put("type", SETTING_STRING)
+                    putNull("integer_value")
+                    put("text_value", value.value)
+                }
+                is StoredSettingValue.StringSetValue -> {
+                    put("type", SETTING_STRING_SET)
+                    putNull("integer_value")
+                    putNull("text_value")
+                }
+            }
+        }
+        database.insertWithOnConflict("user_settings", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+        database.delete("user_setting_set_values", "setting_key=?", arrayOf(key))
+        if (value is StoredSettingValue.StringSetValue) {
+            for (item in value.value) {
+                val member = ContentValues().apply {
+                    put("setting_key", key)
+                    put("value", item)
+                }
+                database.insertOrThrow("user_setting_set_values", null, member)
             }
         }
     }
@@ -966,8 +1162,19 @@ internal class UserDataDatabase private constructor(
         private const val CLIPBOARD_MIGRATION_KEY = "beta29_clipboard_migration"
         private const val CUSTOM_MIGRATION_PREFIX = "beta29_custom_migration_"
         private const val RECENT_MIGRATION_PREFIX = "beta29_recent_migration_"
-        private const val SCHEMA_VERSION = 3
+        internal const val SETTINGS_MIGRATION_KEY = "beta29_settings_migration"
+        internal const val SETTINGS_MIGRATION_SOURCE_COUNT_KEY = "beta29_settings_source_count"
+        internal const val SETTINGS_MIGRATION_SOURCE_DIGEST_KEY = "beta29_settings_source_digest"
+        internal const val SETTINGS_MIGRATION_RECORD_COUNT_KEY = "beta29_settings_record_count"
+        internal const val SETTINGS_CHECKPOINT_PENDING_KEY = "settings_checkpoint_pending"
+        private const val SCHEMA_VERSION = 4
         private const val MAX_COUNT = 1_000_000_000
+        private const val SETTING_BOOLEAN = 1
+        private const val SETTING_INT = 2
+        private const val SETTING_LONG = 3
+        private const val SETTING_FLOAT = 4
+        private const val SETTING_STRING = 5
+        private const val SETTING_STRING_SET = 6
         private val checkpointLock = Any()
         private val DELETE_ORDER = listOf(
             "user_readings",
@@ -981,6 +1188,8 @@ internal class UserDataDatabase private constructor(
             "phrase_categories",
             "custom_items",
             "recent_items",
+            "user_setting_set_values",
+            "user_settings",
         )
         private val RESTORE_TABLES = linkedMapOf(
             "user_words" to "word,count,last_used",
@@ -994,6 +1203,8 @@ internal class UserDataDatabase private constructor(
             "phrases" to "category,text,note,position",
             "custom_items" to "kind,value,position",
             "recent_items" to "kind,identity,value,origin,recency",
+            "user_settings" to "key,type,integer_value,text_value",
+            "user_setting_set_values" to "setting_key,value",
         )
         private val EXPECTED_TABLES = RESTORE_TABLES.keys + setOf("metadata", "android_metadata")
 
@@ -1024,7 +1235,19 @@ internal class UserDataDatabase private constructor(
             }
             val db = SQLiteDatabase.openOrCreateDatabase(main, null)
             createSchema(db)
-            return UserDataDatabase(root, db, report)
+            return UserDataDatabase(root, db, report).also { opened ->
+                if (report.kind != UserDataRecoveryKind.EXISTING &&
+                    opened.metadata(SETTINGS_MIGRATION_KEY) != null
+                ) {
+                    opened.updateSettings(
+                        mapOf(UserSettingsSchema.CLIPBOARD_HISTORY to StoredSettingValue.Bool(false)),
+                    )
+                    runCatching {
+                        opened.checkpointLastGood()
+                        opened.markSettingsCheckpointed()
+                    }
+                }
+            }
         }
 
         fun fileIdentity(file: File): String = if (!file.isFile) {
@@ -1088,6 +1311,8 @@ internal class UserDataDatabase private constructor(
             db.execSQL("CREATE INDEX IF NOT EXISTS custom_items_position ON custom_items(kind, position)")
             db.execSQL("CREATE TABLE IF NOT EXISTS recent_items (kind TEXT NOT NULL, identity TEXT NOT NULL, value TEXT NOT NULL, origin TEXT, recency INTEGER NOT NULL, PRIMARY KEY(kind, identity), UNIQUE(kind, recency))")
             db.execSQL("CREATE INDEX IF NOT EXISTS recent_items_recency ON recent_items(kind, recency DESC)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS user_settings (key TEXT PRIMARY KEY, type INTEGER NOT NULL CHECK(type BETWEEN 1 AND 6), integer_value INTEGER, text_value TEXT)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS user_setting_set_values (setting_key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(setting_key, value), FOREIGN KEY(setting_key) REFERENCES user_settings(key) ON DELETE CASCADE)")
             db.execSQL("PRAGMA user_version=$SCHEMA_VERSION")
         }
 

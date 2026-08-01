@@ -46,6 +46,7 @@ import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.ui.DictDownloadWork
 import com.aegis.ime.user.ClipboardStore
+import com.aegis.ime.user.userSettings
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotSame
@@ -797,7 +798,7 @@ class AegisInputMethodServiceLifecycleTest {
     }
 
     @Test fun window_hidden_restores_nine_twenty_six_and_english_base_keyboards() {
-        val prefs = RuntimeEnvironment.getApplication().getSharedPreferences("aegis", 0)
+        val prefs = userSettings(RuntimeEnvironment.getApplication())
         val hadLayout = prefs.contains("cn_layout")
         val previousLayout = prefs.getString("cn_layout", "nine")
         try {
@@ -832,7 +833,7 @@ class AegisInputMethodServiceLifecycleTest {
     }
 
     @Test fun a_new_app_session_starts_in_the_configured_default_language() {
-        val prefs = RuntimeEnvironment.getApplication().getSharedPreferences("aegis", 0)
+        val prefs = userSettings(RuntimeEnvironment.getApplication())
         val hadLang = prefs.contains("pref_default_lang")
         val previousLang = prefs.getString("pref_default_lang", "cn")
         try {

@@ -25,6 +25,7 @@
     <string name="settings_group_about_title">关于与启用</string>
     <string name="settings_group_about_desc">应用版本、启用 Aegis、试打字</string>
     <string name="settings_back">返回</string>
+    <string name="settings_save_failed">无法保存此设置</string>
 
     <string name="download_button">下载</string>
     <string name="check_model_update_button">检测模型更新</string>

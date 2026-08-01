@@ -15,7 +15,6 @@
 
 package com.aegis.ime.ui
 
-import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -36,9 +35,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.core.content.edit
 import com.aegis.ime.R
 import com.aegis.ime.layout.Lang
+import com.aegis.ime.user.userSettings
 
 internal const val PREF_DEFAULT_LANG = "pref_default_lang"
 internal const val DEFAULT_LANG_DEFAULT = "cn"
@@ -53,7 +52,7 @@ private val DEFAULT_LANG_CHOICES = listOf(
 @Composable
 internal fun DefaultLangCard() {
     val context = LocalContext.current
-    val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
+    val prefs = remember(context) { userSettings(context) }
     var choice by remember { mutableStateOf(prefs.getString(PREF_DEFAULT_LANG, DEFAULT_LANG_DEFAULT) ?: DEFAULT_LANG_DEFAULT) }
 
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -65,8 +64,7 @@ internal fun DefaultLangCard() {
             Text(stringResource(R.string.default_lang_description), style = MaterialTheme.typography.bodySmall)
             DEFAULT_LANG_CHOICES.forEach { (value, labelRes) ->
                 val select = {
-                    choice = value
-                    prefs.edit { putString(PREF_DEFAULT_LANG, value) }
+                    if (persistUserSetting(context, prefs) { putString(PREF_DEFAULT_LANG, value) }) choice = value
                 }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,

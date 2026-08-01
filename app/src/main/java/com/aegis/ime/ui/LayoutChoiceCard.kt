@@ -15,7 +15,6 @@
 
 package com.aegis.ime.ui
 
-import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -36,13 +35,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.core.content.edit
 import com.aegis.ime.R
+import com.aegis.ime.user.userSettings
 
 @Composable
 internal fun LayoutChoiceCard() {
     val context = LocalContext.current
-    val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
+    val prefs = remember(context) { userSettings(context) }
     var choice by remember { mutableStateOf(prefs.getString("cn_layout", "nine") ?: "nine") }
 
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -56,19 +55,16 @@ internal fun LayoutChoiceCard() {
                 "nine" to R.string.layout_nine,
                 "alpha" to R.string.layout_alpha,
             ).forEach { (value, labelRes) ->
+                val select = {
+                    if (persistUserSetting(context, prefs) { putString("cn_layout", value) }) choice = value
+                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().clickable {
-                        choice = value
-                        prefs.edit { putString("cn_layout", value) }
-                    },
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = select),
                 ) {
                     RadioButton(
                         selected = choice == value,
-                        onClick = {
-                            choice = value
-                            prefs.edit { putString("cn_layout", value) }
-                        },
+                        onClick = select,
                     )
                     Text(stringResource(labelRes), style = MaterialTheme.typography.bodyLarge)
                 }

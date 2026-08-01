@@ -26,9 +26,31 @@ import java.security.MessageDigest
 
 internal object UserDataMigration {
 
-    fun open(root: File, preferences: SharedPreferences? = null): UserDataDatabase {
+    fun open(
+        root: File,
+        preferences: SharedPreferences? = null,
+        settingsStage: ((SettingsMigrationStage) -> Unit)? = null,
+    ): UserDataDatabase {
         val database = UserDataDatabase.open(root)
         try {
+            val legacySettings = UserSettingsSchema.legacyValues(preferences)
+            val migratedSettings = LinkedHashMap(UserSettingsSchema.defaults).apply {
+                if (database.recoveryReport.kind != UserDataRecoveryKind.EXISTING &&
+                    UserSettingsSchema.CLIPBOARD_HISTORY !in legacySettings
+                ) {
+                    put(UserSettingsSchema.CLIPBOARD_HISTORY, StoredSettingValue.Bool(false))
+                }
+                putAll(legacySettings)
+            }
+            database.migrateLegacySettings(
+                migratedSettings,
+                legacySettings.size,
+                UserSettingsSchema.digest(legacySettings),
+                settingsStage,
+            )
+            settingsStage?.invoke(SettingsMigrationStage.BEFORE_LEGACY_CLEANUP)
+            val settingsCleanupComplete = cleanupLegacySettings(preferences)
+            if (settingsCleanupComplete) settingsStage?.invoke(SettingsMigrationStage.AFTER_LEGACY_CLEANUP)
             val userDb = File(root, "userdb.txt")
             val userLearn = File(root, "userlearn.txt")
             val identities = linkedMapOf(
@@ -97,13 +119,29 @@ internal object UserDataMigration {
                 migrateRecent(File(root, "emoji"), "emoji", collectionIdentities)?.let { recentItems["emoji"] = it }
             }
             database.migrateLegacyCollections(legacyClipboard, customItems, recentItems, collectionIdentities)
-            writeStatus(root, "complete", "beta.29 user data migration verified")
+            val status = if (settingsCleanupComplete) "complete" else "cleanup-pending"
+            val detail = if (settingsCleanupComplete) {
+                "beta.29 user data and settings migration verified"
+            } else {
+                "beta.29 user data migration verified; legacy settings cleanup pending"
+            }
+            writeStatus(root, status, detail)
             return database
         } catch (failure: Exception) {
             database.close()
             runCatching { writeStatus(root, "failed", failure.javaClass.simpleName + ": " + failure.message.orEmpty()) }
             throw failure
         }
+    }
+
+    private fun cleanupLegacySettings(preferences: SharedPreferences?): Boolean {
+        if (preferences == null) return true
+        val keys = preferences.all.keys.filterNotTo(LinkedHashSet()) { it in UserSettingsSchema.specialStorageKeys }
+        if (keys.isEmpty()) return true
+        val editor = preferences.edit()
+        for (key in keys) editor.remove(key)
+        if (!editor.commit()) return false
+        return preferences.all.keys.none { it !in UserSettingsSchema.specialStorageKeys }
     }
 
     private fun migrateRecent(

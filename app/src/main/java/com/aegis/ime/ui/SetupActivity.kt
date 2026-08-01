@@ -92,7 +92,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.core.content.edit
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
@@ -100,6 +99,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.aegis.ime.ime.Glyphs
 import com.aegis.ime.R
+import com.aegis.ime.user.userSettings
 import com.aegis.ime.ui.theme.SettingsMotion
 
 class SetupActivity : ComponentActivity() {
@@ -165,7 +165,7 @@ internal fun activityForGroup(route: String): Class<out ComponentActivity>? = wh
 @Composable
 internal fun SettingsHomePage(onOpenGroup: (String) -> Unit) {
     val context = LocalContext.current
-    val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
+    val prefs = remember(context) { userSettings(context) }
 
     var showDownloadHint by remember { mutableStateOf(!prefs.getBoolean("dl_hint_dismissed", false)) }
 
@@ -203,8 +203,9 @@ internal fun SettingsHomePage(onOpenGroup: (String) -> Unit) {
                     )
                     TextButton(
                         onClick = {
-                            showDownloadHint = false
-                            prefs.edit { putBoolean("dl_hint_dismissed", true) }
+                            if (persistUserSetting(context, prefs) { putBoolean("dl_hint_dismissed", true) }) {
+                                showDownloadHint = false
+                            }
                         },
                     ) { Text(stringResource(R.string.setup_first_run_ack)) }
                 }

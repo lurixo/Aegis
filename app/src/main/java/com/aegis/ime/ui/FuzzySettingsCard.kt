@@ -15,7 +15,6 @@
 
 package com.aegis.ime.ui
 
-import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -37,14 +36,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.core.content.edit
 import com.aegis.ime.R
 import com.aegis.ime.dict.Fuzzy
+import com.aegis.ime.user.userSettings
 
 @Composable
 internal fun FuzzySettingsCard() {
     val context = LocalContext.current
-    val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
+    val prefs = remember(context) { userSettings(context) }
 
     val labels = mapOf(
         "zh" to (R.string.fuzzy_rule_zh_title to R.string.fuzzy_rule_zh_desc),
@@ -83,8 +82,7 @@ internal fun FuzzySettingsCard() {
                 Switch(
                     checked = master,
                     onCheckedChange = {
-                        master = it
-                        prefs.edit { putBoolean("fuzzy", it) }
+                        if (persistUserSetting(context, prefs) { putBoolean("fuzzy", it) }) master = it
                     },
                 )
             }
@@ -105,8 +103,9 @@ internal fun FuzzySettingsCard() {
                         checked = ruleOn[rule.key] == true,
                         enabled = master,
                         onCheckedChange = {
-                            ruleOn[rule.key] = it
-                            prefs.edit { putBoolean(Fuzzy.prefKey(rule.key), it) }
+                            if (persistUserSetting(context, prefs) { putBoolean(Fuzzy.prefKey(rule.key), it) }) {
+                                ruleOn[rule.key] = it
+                            }
                         },
                     )
                 }

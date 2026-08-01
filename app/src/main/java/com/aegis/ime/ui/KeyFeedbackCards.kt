@@ -15,7 +15,6 @@
 
 package com.aegis.ime.ui
 
-import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -35,8 +34,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.core.content.edit
 import com.aegis.ime.R
+import com.aegis.ime.user.userSettings
 
 internal const val PREF_KEY_HAPTICS = "pref_key_haptics"
 internal const val KEY_HAPTICS_DEFAULT = false
@@ -49,7 +48,7 @@ internal const val KEY_PREVIEW_SUB_DEFAULT = true
 @Composable
 private fun FeedbackToggleCard(prefKey: String, default: Boolean, titleRes: Int, descRes: Int) {
     val context = LocalContext.current
-    val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
+    val prefs = remember(context) { userSettings(context) }
     var on by remember { mutableStateOf(prefs.getBoolean(prefKey, default)) }
 
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -68,8 +67,7 @@ private fun FeedbackToggleCard(prefKey: String, default: Boolean, titleRes: Int,
             Switch(
                 checked = on,
                 onCheckedChange = {
-                    on = it
-                    prefs.edit { putBoolean(prefKey, it) }
+                    if (persistUserSetting(context, prefs) { putBoolean(prefKey, it) }) on = it
                 },
             )
         }
@@ -83,7 +81,7 @@ internal fun KeyVibrationToggleCard() =
 @Composable
 internal fun KeyPreviewCard() {
     val context = LocalContext.current
-    val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
+    val prefs = remember(context) { userSettings(context) }
     var master by remember { mutableStateOf(prefs.getBoolean(PREF_KEY_PREVIEW_MASTER, KEY_PREVIEW_MASTER_DEFAULT)) }
     var nine by remember { mutableStateOf(prefs.getBoolean(PREF_KEY_PREVIEW_NINE, KEY_PREVIEW_SUB_DEFAULT)) }
     var alpha by remember { mutableStateOf(prefs.getBoolean(PREF_KEY_PREVIEW_ALPHA, KEY_PREVIEW_SUB_DEFAULT)) }
@@ -108,18 +106,15 @@ internal fun KeyPreviewCard() {
                 Switch(
                     checked = master,
                     onCheckedChange = {
-                        master = it
-                        prefs.edit { putBoolean(PREF_KEY_PREVIEW_MASTER, it) }
+                        if (persistUserSetting(context, prefs) { putBoolean(PREF_KEY_PREVIEW_MASTER, it) }) master = it
                     },
                 )
             }
             KeyPreviewSubRow(R.string.key_preview_nine_label, checked = nine, enabled = master) {
-                nine = it
-                prefs.edit { putBoolean(PREF_KEY_PREVIEW_NINE, it) }
+                if (persistUserSetting(context, prefs) { putBoolean(PREF_KEY_PREVIEW_NINE, it) }) nine = it
             }
             KeyPreviewSubRow(R.string.key_preview_alpha_label, checked = alpha, enabled = master) {
-                alpha = it
-                prefs.edit { putBoolean(PREF_KEY_PREVIEW_ALPHA, it) }
+                if (persistUserSetting(context, prefs) { putBoolean(PREF_KEY_PREVIEW_ALPHA, it) }) alpha = it
             }
         }
     }

@@ -89,7 +89,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     var onImportPhrasesWithMode: (Boolean) -> Unit = { onImportPhrases() }
     var onClearHistory: () -> Unit = {}
     var historyEnabledProvider: () -> Boolean = { true }
-    var onSetHistoryEnabled: (Boolean) -> Unit = {}
+    var onSetHistoryEnabled: (Boolean) -> Boolean = { false }
 
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
@@ -2163,7 +2163,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun showHistoryRecordingMenu() {
         val card = menuCard()
         val on = historyEnabledProvider()
-        card.addView(menuItem(if (on) context.getString(R.string.clip_history_recording_on) else context.getString(R.string.clip_history_recording_off)) { hideOverlay(); onSetHistoryEnabled(!on); refresh() })
+        card.addView(menuItem(if (on) context.getString(R.string.clip_history_recording_on) else context.getString(R.string.clip_history_recording_off)) {
+            hideOverlay()
+            if (onSetHistoryEnabled(!on)) refresh()
+        })
         showActionPopup(card)
     }
 

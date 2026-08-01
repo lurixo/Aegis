@@ -15,7 +15,6 @@
 
 package com.aegis.ime.ui
 
-import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -36,8 +35,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.core.content.edit
 import com.aegis.ime.R
+import com.aegis.ime.user.userSettings
 
 enum class LetterCase { AUTO, UPPER, LOWER }
 
@@ -59,7 +58,7 @@ private val LETTER_CASE_CHOICES = listOf(
 @Composable
 internal fun LetterCaseCard() {
     val context = LocalContext.current
-    val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
+    val prefs = remember(context) { userSettings(context) }
     var choice by remember { mutableStateOf(prefs.getString(PREF_LETTER_CASE, LETTER_CASE_DEFAULT) ?: LETTER_CASE_DEFAULT) }
 
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -71,8 +70,7 @@ internal fun LetterCaseCard() {
             Text(stringResource(R.string.letter_case_description), style = MaterialTheme.typography.bodySmall)
             LETTER_CASE_CHOICES.forEach { (value, labelRes) ->
                 val select = {
-                    choice = value
-                    prefs.edit { putString(PREF_LETTER_CASE, value) }
+                    if (persistUserSetting(context, prefs) { putString(PREF_LETTER_CASE, value) }) choice = value
                 }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
